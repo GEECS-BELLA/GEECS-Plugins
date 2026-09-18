@@ -4,6 +4,25 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.96.0] - 2026-09-18
+
+### Added
+
+- **`QS_CONNECT_TIMEOUT`** bounds the startup profile's one-shot telemetry
+  connect (`install_telemetry`), in seconds; default 20.0, the value that
+  was previously hard-coded. A site whose gateway answers slowly can raise
+  it; a hermetic caller sets it low.
+
+### Fixed
+
+- **Four startup-profile tests each stalled the full 20 s connect timeout.**
+  With no CA gateway on a CI runner, every telemetry object in the
+  namespace runs its connect out to the deadline before being dropped from
+  the baseline — ~80 s of the suite spent waiting for a baseline none of
+  those tests assert on. They now set `QS_CONNECT_TIMEOUT=0.1`: the connect
+  still happens, still fails, and is still logged, just promptly.
+  `tests/test_qserver_startup.py` drops from ~90 s to ~13 s.
+
 ## [0.95.0] - 2026-09-17
 
 ### Removed

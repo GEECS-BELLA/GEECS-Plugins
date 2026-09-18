@@ -1,11 +1,75 @@
 name: unit-tests
 
-on: [push, pull_request]
+# Selective on pull requests, exhaustive on master.
+#
+# A PR runs only the legs its diff can plausibly break (scripts/ci_select.py
+# derives that from the packages' own pyproject path dependencies). Every
+# push to master runs the whole matrix regardless, so a mis-selection
+# surfaces minutes after merge rather than never — that full run is what
+# makes narrowing the PR safe.
+#
+# `push` is restricted to master on purpose: with both triggers unfiltered,
+# every branch push produced two identical full runs (a `push` run and a
+# `pull_request` run at the same SHA), doubling the runner minutes for
+# nothing.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# A new push to the same branch makes the previous run's result irrelevant.
+# Superseded runs used to finish anyway, holding runners for ~10 minutes.
+concurrency:
+  group: unit-tests-${{ github.ref }}
+  # Never cancel a master run: that exhaustive run is the backstop the
+  # PR-side narrowing depends on, and two merges in quick succession would
+  # otherwise cancel the first one's full matrix.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
-  unit-tests:
+  select:
     runs-on: ubuntu-latest
+    outputs:
+      legs: ${{ steps.pick.outputs.legs }}
+      any: ${{ steps.pick.outputs.any }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # ci_select diffs against the merge base, which needs real history.
+          fetch-depth: 0
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Pick the test legs this change needs
+        id: pick
+        run: |
+          # checkout ran with fetch-depth: 0, so the base branch is already
+          # here; deliberately NOT re-fetching it shallow, which would
+          # truncate history and break merge-base. If the ref is somehow
+          # missing, fall back to the full matrix rather than guess.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            ./scripts/ci_select.py --all --github --explain
+          elif git rev-parse --verify -q "origin/${{ github.base_ref }}" >/dev/null; then
+            ./scripts/ci_select.py \
+              --base "origin/${{ github.base_ref }}" --github --explain
+          else
+            echo "::warning::origin/${{ github.base_ref }} not found — running every leg"
+            ./scripts/ci_select.py --all --github --explain
+          fi
+
+  test:
+    needs: select
+    if: needs.select.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      # One leg's failure must not cancel the others: a red matrix should
+      # report every broken package in one run, not just the first.
+      fail-fast: false
+      matrix:
+        leg: ${{ fromJSON(needs.select.outputs.legs) }}
+    name: ${{ matrix.leg }}
     steps:
       - uses: actions/checkout@v5
 
@@ -13,138 +77,163 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Resolve the leg's working directory
+        id: leg
+        run: |
+          case "${{ matrix.leg }}" in
+            root)
+              echo "dir=." >> "$GITHUB_OUTPUT"
+              echo "lock=poetry.lock" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "dir=${{ matrix.leg }}" >> "$GITHUB_OUTPUT"
+              echo "lock=${{ matrix.leg }}/poetry.lock" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      # The downloads only — NOT the virtualenvs, which is why the two
+      # subdirectories are named explicitly rather than caching
+      # ~/.cache/pypoetry wholesale. Poetry's default virtualenvs.path is
+      # {cache-dir}/virtualenvs, i.e. INSIDE that directory, so the broad
+      # path silently swallows the installed environment: the GeecsBluesky
+      # entry came out at 12.02 GB, over GitHub's entire 10 GB per-repo cap,
+      # which would have thrashed every other leg's cache out by LRU and
+      # made the whole mechanism unreliable.
+      #
+      # Caching the downloads is what actually removes the dominant cost:
+      # the `optimize` extra pulls xopt -> botorch -> torch, and on Linux
+      # torch drags the multi-GB nvidia CUDA wheels with it, re-fetched on
+      # every run. The restore-keys prefix means a lock change still reuses
+      # every wheel that did not change rather than starting from empty.
+      #
+      # GeecsBluesky is deliberately EXCLUDED. Its download set is 8.4 GB —
+      # torch on Linux drags the nvidia CUDA wheels with it, all dead weight
+      # on a CPU runner — which is 84% of the 10 GB cap on its own. Measured:
+      # with it cached, its entry evicted every other leg's, and the next run
+      # missed on all eleven (`Cache not found for input keys` in each). One
+      # leg that cannot fit must not cost the ten that do. The real fix is a
+      # CPU-only torch for CI, which needs a lock change and is its own PR.
+      - name: Cache Poetry downloads
+        if: matrix.leg != 'GeecsBluesky'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pypoetry/artifacts
+            ~/.cache/pypoetry/cache
+          key: poetry-${{ runner.os }}-py311-${{ matrix.leg }}-${{ hashFiles(steps.leg.outputs.lock) }}
+          restore-keys: |
+            poetry-${{ runner.os }}-py311-${{ matrix.leg }}-
+
       - name: Install Poetry
         run: pip install poetry
 
-      - name: Install root dependencies
-        run: poetry install --with dev
-
-      - name: Run root unit tests
-        # One pytest process per testpath: the subpackages' identically-named
-        # tests/ trees (tests.conftest) collide when collected in a single
-        # process under pytest >= 8, whose importlib import mode resolves
-        # real dotted module names first. Per-package runs are the normal
-        # mode everywhere else; this mirrors them.
+      # Extras per leg, with the reason each one is not optional. A missing
+      # extra does not fail loudly — it turns the tests behind an
+      # importorskip into silent skips, so a green check stops meaning
+      # anything (#737, #866). Keep in sync with scripts/check.sh.
+      - name: Install dependencies
+        working-directory: ${{ steps.leg.outputs.dir }}
         run: |
-          # Root tests/ is currently all integration-marked, so selecting
-          # nothing is legitimate there: tolerate pytest's no-tests-collected
-          # exit code (5) on that line only.
-          poetry run pytest tests -m "not integration and not gui" --tb=short -q || [ $? -eq 5 ]
-          poetry run pytest ImageAnalysis/tests -m "not integration and not gui" --tb=short -q
-          poetry run pytest ScanAnalysis/tests -m "not integration and not gui" --tb=short -q
-          poetry run pytest GEECS-Data-Utils/tests -m "not integration and not gui" --tb=short -q
-          poetry run pytest GEECS-Schemas/tests -m "not integration and not gui" --tb=short -q
+          case "${{ matrix.leg }}" in
+            GEECS-DataPortal)
+              # --extras analysis: the Images tab's processing-selector
+              # tests (TestProcessingSelector) importorskip image_analysis
+              # and would silently skip without it (the #737 CI-red lesson,
+              # 2026-09-01).
+              poetry install --with dev --extras analysis ;;
+            GeecsBluesky)
+              # --extras qserver: the queueserver manager-validation pin
+              # test (test_qserver_startup.py) importorskips
+              # bluesky_queueserver.
+              # --extras qs-client: tests/qs_client/test_queue_client.py
+              # importorskips bluesky_queueserver_api the same way.
+              # --extras ca: the mock-CA layer — every module behind
+              # importorskip("aioca"), i.e. the device, shot-control,
+              # session and plan tests — skipped wholesale without it, so a
+              # green check said nothing about that code (#866). aioca
+              # ships wheels (epicscorelibs bundles libca), no system EPICS
+              # needed.
+              # --extras tiled: the Tiled *client* only; the #829 regression
+              # pin in tests/test_strict_plans.py drives bluesky's
+              # RunNormalizer, which imports tiled, and a real pin must run,
+              # not skip.
+              # --extras optimize: exercise the native ask/tell plan and
+              # live measurement compiler with the real Xopt/GEST
+              # generators, not an import skip.
+              poetry install --with dev --extras qserver --extras qs-client \
+                --extras ca --extras tiled --extras optimize ;;
+            GEECS-MCP)
+              # analysis-run: the #686 execution-slice tests importorskip
+              # without it — install it so CI actually runs them.
+              poetry install --with dev -E analysis-run ;;
+            *)
+              poetry install --with dev ;;
+          esac
 
-      - name: Install GeecsWebTheme dependencies
-        working-directory: GeecsWebTheme
-        run: poetry install --with dev
-
-      # Guards the whole repo's web surfaces, not just this package: it walks
-      # the portal's and the editor's templates too, so a colour literal added
-      # anywhere fails here.
-      - name: Run GeecsWebTheme tests
-        working-directory: GeecsWebTheme
-        run: poetry run pytest tests --tb=short -q
-
-      - name: Install GeecsLogbook dependencies
-        working-directory: GeecsLogbook
-        run: poetry install --with dev
-
-      - name: Run GeecsLogbook tests
-        working-directory: GeecsLogbook
-        run: poetry run pytest tests --tb=short -q
-
-      - name: Install GeecsScanner dependencies
-        working-directory: GeecsScanner
-        run: poetry install --with dev
-
-      - name: Run GeecsScanner tests
-        working-directory: GeecsScanner
-        run: poetry run pytest tests --tb=short -q
-
-      - name: Install GEECS-DataPortal dependencies
-        working-directory: GEECS-DataPortal
-        # --extras analysis: the Images tab's processing-selector tests
-        # (TestProcessingSelector) importorskip image_analysis and would
-        # silently skip without it (the #737 CI-red lesson, 2026-09-01).
-        run: poetry install --with dev --extras analysis
-
-      - name: Run GEECS-DataPortal tests
-        working-directory: GEECS-DataPortal
-        run: poetry run pytest tests --tb=short -q
-
-      - name: Install GEECS-Core dependencies
-        working-directory: GEECS-Core
-        run: poetry install --with dev
-
-      - name: Run GEECS-Core tests
-        working-directory: GEECS-Core
-        run: poetry run pytest tests --tb=short -q
-
-      - name: Install GeecsCAGateway dependencies
-        working-directory: GeecsCAGateway
-        run: poetry install --with dev
-
-      - name: Run GeecsCAGateway tests
-        # This suite previously ran only locally via scripts/check.sh — the
-        # geecs-core extraction is the moment it (and the new GEECS-Core
-        # suite above) joined CI, keeping check.sh's runner table and this
-        # workflow in sync.
-        working-directory: GeecsCAGateway
-        run: poetry run pytest tests --tb=short -q
-
-      - name: Install GeecsBluesky dependencies
-        working-directory: GeecsBluesky
-        # --extras qserver: the queueserver manager-validation pin test
-        # (test_qserver_startup.py) importorskips bluesky_queueserver and
-        # would silently skip without it (review finding, 2026-08-21).
-        # --extras qs-client: tests/qs_client/test_queue_client.py
-        # importorskips bluesky_queueserver_api the same way.
-        # --extras ca: the mock-CA layer — every module behind
-        # importorskip("aioca"), i.e. the device, shot-control, session, and
-        # plan tests — skipped wholesale without it, so a green check said
-        # nothing about that code (#866). aioca ships wheels (epicscorelibs
-        # bundles libca), no system EPICS needed.
-        # --extras tiled: the Tiled *client* only (tiled[client]); the #829
-        # regression pin in tests/test_strict_plans.py drives bluesky's
-        # RunNormalizer, which imports tiled, and a real pin must run, not
-        # skip (the #866 lesson). Found by the first branch CI run with ca.
-        # --extras optimize: exercise the native ask/tell plan and live measurement
-        # compiler with the real Xopt/GEST generators, not an import skip.
-        run: poetry install --with dev --extras qserver --extras qs-client --extras ca --extras tiled --extras optimize
-
-      - name: Run GeecsBluesky pure unit tests
-        working-directory: GeecsBluesky
-        # The -m expression REPLACES pyproject's addopts marker filter, so
-        # `not hardware` must be spelled here: with the ca extra installed,
-        # importorskip("aioca") no longer keeps hardware-marked modules out.
-        # `shell: bash` runs with `-eo pipefail`, so the tee cannot mask
-        # pytest's exit code. -rs lists every skip with its reason; the grep
-        # turns an importorskip("aioca"/"p4p") skip — the extra missing or
-        # broken on the runner — into a failure instead of a silent skip.
-        # scripts/check.sh's GeecsBluesky runner mirrors this step.
+      - name: Run tests
+        working-directory: ${{ steps.leg.outputs.dir }}
+        # `shell: bash` runs with `-eo pipefail`, so a tee cannot mask
+        # pytest's exit code.
         shell: bash
         run: |
-          poetry run pytest tests -m "not integration and not fake_server and not hardware" --tb=short -q -rs | tee pytest-report.txt
-          if grep -E "could not import '(aioca|p4p)'" pytest-report.txt; then
-            echo "::error::GeecsBluesky's mock-CA tests skipped: the ca extra is missing or broken on the runner (#866)"
+          case "${{ matrix.leg }}" in
+            root)
+              # One pytest process per testpath: the subpackages'
+              # identically-named tests/ trees (tests.conftest) collide when
+              # collected in a single process under pytest >= 8, whose
+              # importlib import mode resolves real dotted module names
+              # first. Per-package runs are the normal mode everywhere else;
+              # this mirrors them.
+              #
+              # Root tests/ was historically all integration-marked, so
+              # selecting nothing stays legitimate there: tolerate pytest's
+              # no-tests-collected exit code (5) on that line only.
+              poetry run pytest tests -m "not integration and not gui" --tb=short -q || [ $? -eq 5 ]
+              poetry run pytest ImageAnalysis/tests -m "not integration and not gui" --tb=short -q
+              poetry run pytest ScanAnalysis/tests -m "not integration and not gui" --tb=short -q
+              poetry run pytest GEECS-Data-Utils/tests -m "not integration and not gui" --tb=short -q
+              poetry run pytest GEECS-Schemas/tests -m "not integration and not gui" --tb=short -q
+              ;;
+            GeecsBluesky)
+              # The -m expression REPLACES pyproject's addopts marker
+              # filter, so `not hardware` must be spelled here: with the ca
+              # extra installed, importorskip("aioca") no longer keeps
+              # hardware-marked modules out.
+              # -rs lists every skip with its reason; the grep turns an
+              # importorskip("aioca"/"p4p") skip — the extra missing or
+              # broken on the runner — into a failure instead of a silent
+              # skip. scripts/check.sh's GeecsBluesky runner mirrors this.
+              poetry run pytest tests \
+                -m "not integration and not fake_server and not hardware" \
+                --tb=short -q -rs | tee pytest-report.txt
+              if grep -E "could not import '(aioca|p4p)'" pytest-report.txt; then
+                echo "::error::GeecsBluesky's mock-CA tests skipped: the ca extra is missing or broken on the runner (#866)"
+                exit 1
+              fi
+              ;;
+            *)
+              poetry run pytest tests --tb=short -q
+              ;;
+          esac
+
+  # One stable check for the whole workflow. The matrix is dynamic, so its
+  # job names come and go with the diff — a required status check can only
+  # be set on something that always reports, and a skipped job never does.
+  # This gate always runs and fails if any leg did.
+  gate:
+    if: always()
+    needs: [select, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the matrix result
+        run: |
+          echo "select: ${{ needs.select.result }}"
+          echo "test:   ${{ needs.test.result }}"
+          if [ "${{ needs.select.result }}" != "success" ]; then
+            echo "::error::leg selection failed — no tests were chosen"
             exit 1
           fi
-
-      - name: Install GEECS-MCP dependencies
-        working-directory: GEECS-MCP
-        # analysis-run: the #686 execution-slice tests importorskip
-        # without it — install it so CI actually runs them.
-        run: poetry install --with dev -E analysis-run
-
-      - name: Run GEECS-MCP tests
-        working-directory: GEECS-MCP
-        run: poetry run pytest tests --tb=short -q
-
-      - name: Install GeecsPvaGateway dependencies
-        working-directory: GeecsPvaGateway
-        run: poetry install --with dev
-
-      - name: Run GeecsPvaGateway tests
-        working-directory: GeecsPvaGateway
-        run: poetry run pytest tests --tb=short -q
+          case "${{ needs.test.result }}" in
+            # 'skipped' is a pass: the diff selected no testable leg
+            # (a docs-only PR), which ci_select decided deliberately.
+            success|skipped) echo "unit tests OK" ;;
+            *) echo "::error::one or more test legs failed"; exit 1 ;;
+          esac
