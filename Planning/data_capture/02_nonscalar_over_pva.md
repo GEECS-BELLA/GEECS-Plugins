@@ -260,14 +260,35 @@ wiring change writes the names to the DB, and only the *next* start serves them
 (Sam) - so "DB row present, name absent from the push frame" is an expected
 intermediate state, not a fault.
 
-**The axis is uniform within a shot and moves between shots.** An earlier draft
-of this section said a non-uniform axis rides in column 0; that is wrong in a
-way worth correcting. The *physical* energy axis is non-linear, which is
-precisely why the device interpolates onto a **linear `dE` grid** - so what
-arrives is uniformly spaced, with a shot-dependent start, stop and length. The
-practical consequence is unchanged (no single axis can be shared across shots,
-so it must be stored per shot) and conservative rebinning is *easier* than it
-would be for a ragged grid.
+**The spacing is fixed; only the span moves (Sam, 2026-09-18).** An earlier
+draft of this section said a non-uniform axis rides in column 0. That is wrong:
+the *physical* energy axis is non-linear, and interpolating onto a linear grid
+is exactly what the device does about it. `dE` is a **configured constant**, so
+every shot's axis has the same spacing and a different extent - a shifted,
+differently-long window on the same ladder. The consequence for storage is
+unchanged (no single axis can be shared across shots, so it must be stored per
+shot), but the consequence for analysis is much better than the ragged case:
+**resampling between two shots is an area-weighted shift across at most two
+adjacent bins**, not a general resample.
+
+Two measurement notes, because both are easy to get wrong:
+
+- **Do not derive `dE` by differencing the axis.** The wire prints 7
+  significant figures, so at 122 MeV the axis resolves only to ~1e-4 and
+  successive differences measured 0.249980..0.250000 across one shot - a
+  formatting artifact, not real jitter. Take `dE` from the device's configured
+  value, or round. The jitter is four orders below `dE`, so it does not
+  perturb rebinning weights.
+- **The grids share spacing but not phase.** `start / dE` measured 206.23328,
+  not an integer, so shots at different fields are generally offset by a
+  fractional bin. Hence "area-weighted shift", not "index alignment".
+- Storing `float64` is about not *adding* error; the wire carries only 7
+  significant figures, so there is no extra precision to preserve.
+
+**Not yet measured:** the span actually moving. With a static simulated field,
+12 consecutive pushes gave one distinct payload (285 x 2 from 51.55832). Span
+variation rests on the magnet-off 1 x 2 case and the owner's description;
+confirm on a real current scan.
 
 **The wire shape - a fourth array format, and the best of them.** `testarray`
 (the same lineout under a test name) arrived as **189 rows x 2 columns of
