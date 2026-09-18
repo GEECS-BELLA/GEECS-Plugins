@@ -1,6 +1,15 @@
 name: pre-commit
 
-on: [push, pull_request]
+# Selective triggers for the same reason as unit-tests.yml: with both
+# events unfiltered, every branch push ran this twice at the same SHA.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: pre-commit-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   pre-commit:
@@ -13,6 +22,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+
+      - name: Cache pre-commit hook environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            pre-commit-${{ runner.os }}-
 
       - name: Install pre-commit
         # nbconvert provides the `jupyter nbconvert` the local

@@ -35,6 +35,14 @@ cd "$REPO_ROOT"
 # CI mapping (keep in sync with .github/workflows/unit-tests.yml):
 #   root env  — root tests/ + these packages, marker "not integration and not gui"
 #   own env   — these packages run their suite from inside the package dir
+#
+# Note the deliberate asymmetry with CI's own selection
+# (scripts/ci_select.py): this script runs the suites of the packages you
+# TOUCHED, while CI additionally runs everything that DEPENDS on them. That
+# is the right split — here you want the fastest signal on the code under
+# your hands; CI is the backstop that has to catch a foundational change
+# breaking a dependent. So a green check.sh is not a promise that CI is
+# green, and never was.
 ROOT_ENV_PKGS="ImageAnalysis ScanAnalysis GEECS-Data-Utils GEECS-Schemas"
 OWN_ENV_PKGS="GeecsBluesky GeecsCAGateway GeecsPvaGateway GEECS-Core GEECS-DataPortal GEECS-LogTriage GEECS-MCP GeecsLogbook GeecsScanner GeecsWebTheme"
 

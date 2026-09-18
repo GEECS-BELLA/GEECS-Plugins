@@ -43,6 +43,15 @@ loud here rather than have every submitted plan fail identically later.
 ``QS_DEVICE_NAMESPACE=off`` is the hermetic switch (tests, a box without DB
 or data-share reach): no namespace, no trigger profiles, no scan claim —
 the plans are registered but refuse to run.
+
+``QS_CONNECT_TIMEOUT`` bounds the one-shot telemetry connect
+(:func:`~geecs_bluesky.run_engine.install_telemetry`), in seconds; default
+20.0, the value that has always been hard-coded here.  It exists because
+that connect is paid in full whenever the gateway is unreachable — every
+member times out before being dropped from the baseline — which on a CI
+runner with no gateway at all meant four startup-profile tests each
+stalling the full 20 s for a result they never assert on.  A site whose
+gateway is slow to answer can raise it; a hermetic caller sets it low.
 """
 
 from __future__ import annotations
@@ -87,6 +96,25 @@ def _resolve_experiment() -> str:
         "or configure [Experiment] expt in "
         "~/.config/geecs_python_api/config.ini"
     )
+
+
+def _connect_timeout() -> float:
+    """Seconds to bound the telemetry connect; ``QS_CONNECT_TIMEOUT`` or 20.0.
+
+    An unparseable value is a configuration mistake, not a reason to stall
+    the worker for the default on every start, so it is reported and the
+    default used.
+    """
+    raw = os.environ.get("QS_CONNECT_TIMEOUT")
+    if not raw:
+        return 20.0
+    try:
+        return float(raw)
+    except ValueError:
+        logging.getLogger(__name__).warning(
+            "QS_CONNECT_TIMEOUT=%r is not a number — using the 20.0 s default", raw
+        )
+        return 20.0
 
 
 _experiment = _resolve_experiment()
@@ -177,6 +205,7 @@ RE = make_run_engine(
     claim=not _hermetic,
     path_provider=_path_provider,
     telemetry=_telemetry,
+    connect_timeout=_connect_timeout(),
 )
 
 # The plans the manager discovers (every generator function in this
