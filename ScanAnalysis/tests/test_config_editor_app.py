@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -195,3 +198,78 @@ class TestHostedRouter:
             "/configs/api/preview", json={"document": {"name": "x"}, "params": {}}
         )
         assert invalid.status_code == 422
+
+
+class TestSidebarCollapseState:
+    """The tree's collapse rules, run as the browser runs them.
+
+    The sidebar is page JavaScript, so these extract the real functions out
+    of ``editor.js`` and execute them under node — the technique
+    ``GeecsScanner/tests/test_page.py`` uses for the console's own logic.
+    """
+
+    @staticmethod
+    def _run(expression: str) -> object:
+        """Evaluate *expression* with the tree's state helpers in scope."""
+        from geecs_web_theme.testing import node_available
+
+        if not node_available():  # pragma: no cover - CI and dev machines have it
+            pytest.skip("node not available to run JavaScript")
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "scan_analysis/config_editor/static/editor.js"
+        ).read_text()
+        key = re.search(r'\n    const (OPEN_KEY = "[^"]+");', source)
+        assert key, "editor.js: no OPEN_KEY"
+        bodies = [f"var {key.group(1)};"]
+        for name in ("openState", "rememberOpen", "wantOpen"):
+            m = re.search(
+                rf"\n    function {name}\([^)]*\) \{{\n(.*?)\n    \}}\n", source, re.S
+            )
+            assert m, f"editor.js: no function {name}()"
+            args = re.search(rf"function {name}\(([^)]*)\)", source).group(1)
+            bodies.append(f"function {name}({args}) {{\n{m.group(1)}\n}}")
+        harness = (
+            "var __store = {};\n"
+            "var window = {localStorage: {\n"
+            "  getItem: function (k) { return k in __store ? __store[k] : null; },\n"
+            "  setItem: function (k, v) { __store[k] = v; },\n"
+            "}};\n"
+            + "\n".join(bodies)
+            + f"\nconsole.log(JSON.stringify({expression}));"
+        )
+        result = subprocess.run(
+            ["node", "-"], input=harness, text=True, capture_output=True, check=True
+        )
+        return json.loads(result.stdout)
+
+    def test_an_untouched_node_follows_the_open_document(self) -> None:
+        """Nothing said about it: the node holding what is on screen expands, the rest stay shut."""
+        assert self._run(
+            "[wantOpen({}, 'analyzer', true), wantOpen({}, 'group', false)]"
+        ) == [
+            True,
+            False,
+        ]
+
+    def test_closing_the_node_that_holds_the_document_sticks(self) -> None:
+        """The bug a set of open keys cannot express: Save re-renders, and the collapse must survive it."""
+        assert (
+            self._run(
+                "(rememberOpen('analyzer', false), wantOpen(openState(), 'analyzer', true))"
+            )
+            is False
+        )
+
+    def test_opening_a_node_outlives_the_render(self) -> None:
+        """An expansion the user asked for is remembered even when nothing on screen needs it."""
+        assert (
+            self._run(
+                "(rememberOpen('analyzer/HTU', true), wantOpen(openState(), 'analyzer/HTU', false))"
+            )
+            is True
+        )
+
+    def test_unreadable_storage_is_not_a_broken_sidebar(self) -> None:
+        """A private window, blocked site data, or a stale format: the tree opens fresh, never throws."""
+        assert self._run("openState()") == {}

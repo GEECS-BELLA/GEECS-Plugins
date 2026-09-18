@@ -276,11 +276,11 @@
    home for it — it never needs to reach another viewer or the server. */
 const KEY = "scanlog.expandAll";
 const btn = document.getElementById("toggle-all");
-/* Scans and entries alike. Collapse All means every collapsible thing on
-   the page, which is what it says — an entry that could not be folded
-   while the scan around it could was an accident of history, not a
-   decision. */
-const cards = () => [...document.querySelectorAll("details.scan, details.entry")];
+/* Scans, entries and a scan's device list alike. Collapse All means every
+   collapsible thing on the page, which is what it says — an entry that could
+   not be folded while the scan around it could was an accident of history,
+   not a decision. */
+const cards = () => [...document.querySelectorAll("details.scan, details.entry, details.devlist")];
 
 function applyAll(expand){
   cards().forEach(c => { c.open = expand; });

@@ -140,6 +140,7 @@
         </div>
       </header>
       <div class="body">
+        <div class="well" id="optimizer-availability" role="status" hidden></div>
         {# Everything above the rule is required by every scan type; everything
            below it is what the mode buttons swap. Same order every time, so the
            fields an operator always fills never move. #}
@@ -172,7 +173,7 @@
 
         <div class="group" id="scan-plan">
           <span class="eyebrow" id="plan-eyebrow">This plan</span>
-          <div class="well" id="optimizer-availability" role="status" hidden></div>
+          <span class="dim note" id="plan-empty">The mode buttons fill this half — a trajectory, an optimizer, or the count's own options. Everything above stays put.</span>
           <div class="group" id="optimizer-form" hidden>
             <div class="field"><label for="optimizer-config">optimizer config</label><select id="optimizer-config"><option value="">Choose an optimizer…</option></select></div>
             <div class="field"><label for="iterations">iterations</label><input id="iterations" type="number" min="1" step="1" value="10"><span class="err" id="err-iterations">At least one iteration.</span></div>

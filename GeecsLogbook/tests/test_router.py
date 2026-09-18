@@ -100,6 +100,14 @@ class TestDayPage:
         assert "<summary>12 saved</summary>" in html
         assert '<details class="devlist" open>' not in html
 
+    def test_collapse_all_reaches_the_device_list(self, client: TestClient) -> None:
+        """Collapse all says every collapsible thing on the page; a new one has to join the selector."""
+        html = client.get("/day/2026-09-11").text
+        selector = re.search(r'querySelectorAll\("([^"]*details[^"]*)"\)', html)
+        assert selector, "no cards() selector on the page"
+        for kind in ("details.scan", "details.entry", "details.devlist"):
+            assert kind in selector.group(1), kind
+
     def test_small_day_opens_expanded(self, client: TestClient) -> None:
         """Under the threshold every scan block starts open."""
         html = client.get("/day/2026-09-11").text

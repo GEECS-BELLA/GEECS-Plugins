@@ -219,7 +219,7 @@ def test_form_opens_on_what_every_scan_needs(client: TestClient) -> None:
     """
     html = client.get("/").text
     sub = html[html.index('id="submit"') : html.index('id="queue"')]
-    body = sub[sub.index('<div class="body">') :]
+    body = sub[sub.index('<div class="body">') : sub.index("<footer>")]
     invariants = body.index('id="scan-invariants"')
     assert invariants < body.index('id="scan-plan"')
     for plan_only in (
@@ -228,9 +228,8 @@ def test_form_opens_on_what_every_scan_needs(client: TestClient) -> None:
         'id="count-options"',
     ):
         assert invariants < body.index(plan_only), plan_only
-    # and nothing to fill sits above them — the preset picker's old home
-    head = body[:invariants]
-    assert "<select" not in head and "<input" not in head, head
+    # #896's other half: the optional picker is not in the body at all
+    assert 'id="preset"' not in body
     footer = sub[sub.index("<footer>") :]
     for piece in (
         '<select id="preset"',
@@ -589,3 +588,38 @@ def test_the_move_variable_picker_can_be_typed_into(client: TestClient) -> None:
     html = client.get("/").text
     assert '<input id="mv-var" list="mv-variables"' in html
     assert '<datalist id="mv-variables">' in html
+
+
+def _settable_match(typed: str) -> str | None:
+    """Resolve *typed* against a fixed settable list, through the page's own function."""
+    _need_node()
+    source = (_PKG / "static/scanner.js").read_text()
+    harness = (
+        "var S = {settables: [{name: 'U_S1H:Current'}, {name: 'U_Hexapod:ypos'}]};\n"
+        "function settableFor(name) {\n"
+        + _script_function(source, "settableFor")
+        + "\n}\nfunction settableMatch(text) {\n"
+        + _script_function(source, "settableMatch")
+        + "\n}\nvar m = settableMatch("
+        + json.dumps(typed)
+        + ");\nconsole.log(JSON.stringify(m ? m.name : null));"
+    )
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    return json.loads(result.stdout)
+
+
+def test_a_typed_variable_resolves_the_way_a_person_types_it() -> None:
+    """The picker is an input now: pasted whitespace and the wrong case still name the variable.
+
+    A <select> made those states unreachable; refusing them here would be a
+    regression dressed as validation. Only the canonical name is ever sent.
+    """
+    assert _settable_match("U_S1H:Current") == "U_S1H:Current"
+    assert (
+        _settable_match("  U_S1H:Current ") == "U_S1H:Current"
+    )  # pasted off a log line
+    assert _settable_match("u_s1h:current") == "U_S1H:Current"
+    assert _settable_match("U_S1H") is None  # a prefix is not a variable
+    assert _settable_match("   ") is None

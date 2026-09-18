@@ -371,19 +371,29 @@
     // state anything depends on: a private window or blocked storage just
     // means the tree forgets between visits.
     const OPEN_KEY = "ce-side-open";
-    function openSet() {
+    // Tri-state, deliberately: a key is open, closed, or unsaid.  A set of
+    // open keys cannot express "I closed this one", so the node holding the
+    // open document — which auto-expands — would spring back open on the next
+    // render, and Save renders.
+    function openState() {
       try {
         const raw = window.localStorage.getItem(OPEN_KEY);
-        const parsed = raw ? JSON.parse(raw) : [];
-        return new Set(Array.isArray(parsed) ? parsed : []);
-      } catch (e) { return new Set(); }
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+      } catch (e) { return {}; }
     }
     function rememberOpen(key, isOpen) {
       try {
-        const s = openSet();
-        if (isOpen) s.add(key); else s.delete(key);
-        window.localStorage.setItem(OPEN_KEY, JSON.stringify(Array.from(s)));
+        const state = openState();
+        state[key] = isOpen;
+        window.localStorage.setItem(OPEN_KEY, JSON.stringify(state));
       } catch (e) { /* the tree still works; it just forgets */ }
+    }
+    // What the user said, and only failing that, whether this node holds the
+    // document on screen.
+    function wantOpen(remembered, key, holds) {
+      const said = remembered[key];
+      return said === undefined ? holds : said;
     }
     // Only a click (or Enter/Space, which fires one) on the summary is the
     // user's own choice — an auto-expansion is never written back, or every
@@ -397,7 +407,7 @@
 
     function renderSide() {
       const L = state.listing; side.innerHTML = "";
-      const remembered = openSet();
+      const remembered = openState();
       // Everything is collapsed until asked for: the corpus is dozens of
       // documents over two kinds and several namespaces, and one flat
       // expanded list is what buries the New rows.  A node opens when the
@@ -406,7 +416,7 @@
         const byNs = {};
         for (const e of entries) (byNs[e.namespace] = byNs[e.namespace] || []).push(e);
         const holdsOpen = state.kind === kind;
-        const sec = el("details", { class: "ce-sec", open: remembered.has(kind) || holdsOpen });
+        const sec = el("details", { class: "ce-sec", open: wantOpen(remembered, kind, holdsOpen) });
         sec.append(el("summary", {}, el("span", { class: "ce-sec-t" }, title), el("span", { class: "ce-count" }, String(entries.length))));
         trackOpen(sec, kind);
         if (!readOnly) {
@@ -421,7 +431,7 @@
         for (const ns of Object.keys(byNs).sort()) {
           const key = `${kind}/${ns}`;
           const bad = byNs[ns].filter((e) => !e.valid).length;
-          const grp = el("details", { class: "ce-ns", open: remembered.has(key) || (holdsOpen && state.namespace === ns) });
+          const grp = el("details", { class: "ce-ns", open: wantOpen(remembered, key, holdsOpen && state.namespace === ns) });
           // a collapsed namespace must still admit it is hiding a broken file
           grp.append(el("summary", { class: bad ? "bad" : "", title: bad ? `${bad} file${bad === 1 ? "" : "s"} here do not validate` : "" },
             el("span", {}, ns),

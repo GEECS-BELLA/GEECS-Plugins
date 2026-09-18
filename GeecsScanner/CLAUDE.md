@@ -185,7 +185,7 @@ newer form state. Superseded fetches are aborted, disconnected requests cancel
 their child, and busy previews retry twice before showing a manual retry.
 Preview is optional: Start still runs normal preflight validation, and Save
 validates the nested Sweep schema without requiring numerical expansion.
-Capture controls remain shared outside the trajectory tabs; background is
+The controls every scan type needs (the **Every scan** block) remain shared outside the trajectory tabs; background is
 Count-only. A malformed preset clears the old trajectory, loads its own
 capture fields, and disables both Start and Save with an explanation. The
 points table is materialized only while its disclosure is open.

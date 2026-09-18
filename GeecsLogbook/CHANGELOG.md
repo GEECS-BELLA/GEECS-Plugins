@@ -12,7 +12,9 @@ project adheres to semantic versioning.
 - A scan's saved devices render as a full-width list of chips, folded behind a
   `<details>` with the count on its summary once there are more than three.
   Twenty devices joined into one string inside a 128 px grid cell made a tall
-  column of names broken mid-word; three or fewer still read inline.
+  column of names broken mid-word; three or fewer still read inline. `Expand
+  all` / `Collapse all` reach it, as they already claim to reach every
+  collapsible thing on the page.
 
 ## [0.11.0] - 2026-09-13
 

@@ -521,6 +521,7 @@
       : mode === "sweep" ? "Sweep · trajectory"
       : mode === "optimize" ? "Optimize · optimizer"
       : "This plan";
+    $("plan-empty").hidden = !!mode;   // at boot no mode is pressed: say so, don't show a bare rule
     if (!silent) recalc();
   }
   function setAcq(acq) {
@@ -814,8 +815,8 @@
   }
   function renderIdleGates() {
     var ok = idle(), why = idleTitle();
-    var mvName = $("mv-var").value;
-    var mvKnown = !!mvName && !!settableFor(mvName);
+    var mvName = $("mv-var").value.trim();
+    var mvKnown = !!settableMatch(mvName);
     $("btn-move").disabled = !ok || !mvKnown;
     $("btn-move").title = mvName && !mvKnown ? "no settable named " + mvName : why;
     var mvWord = ok ? "idle" : (why || "held");
@@ -845,6 +846,17 @@
   function settableFor(name) {
     return S.settables.filter(function (s) { return s.name === name; })[0] || null;
   }
+  // What the user typed, resolved to a settable. The picker is an input now,
+  // so the text can be pasted off a log line or typed in the wrong case; only
+  // the canonical name is ever sent.
+  function settableMatch(text) {
+    var name = (text || "").trim();
+    if (!name) return null;
+    var exact = settableFor(name);
+    if (exact) return exact;
+    var lower = name.toLowerCase();
+    return S.settables.filter(function (s) { return s.name.toLowerCase() === lower; })[0] || null;
+  }
   function renderMoveVars() {
     // A datalist, not a bare <select>: the experiment has hundreds of numeric
     // settables, and typing a fragment is the only sane way through them —
@@ -852,14 +864,14 @@
     // VALUE stays the canonical Device:Variable; the alias is the label.
     var list = $("mv-variables"); list.textContent = "";
     S.settables.forEach(function (s) {
-      var label = (s.alias ? s.alias + " · " : "") + (s.units ? "(" + s.units + ")" : "");
-      list.appendChild(option(s.name, label.trim()));
+      var parts = [s.alias, s.units ? "(" + s.units + ")" : ""].filter(Boolean);
+      list.appendChild(option(s.name, parts.join(" · ")));
     });
     var input = $("mv-var");
     input.disabled = !S.settables.length;
     input.placeholder = S.settables.length ? "Choose or type Device:Variable"
       : (S.settablesNote ? "settables unavailable" : "no numeric settables");
-    if (input.value && !settableFor(input.value)) input.value = "";
+    if (input.value && !settableMatch(input.value)) input.value = "";
     $("mv-hint").textContent = S.settablesNote || "";
     watchReadback(input.value);
     renderIdleGates();
@@ -905,7 +917,13 @@
     });
   }
   ["change", "input"].forEach(function (ev) {
-    $("mv-var").addEventListener(ev, function () { watchReadback(settableFor(this.value) ? this.value : ""); renderIdleGates(); });
+    $("mv-var").addEventListener(ev, function () {
+      var match = settableMatch(this.value);
+      // on commit, show the user the canonical name their text resolved to
+      if (match && ev === "change" && this.value !== match.name) this.value = match.name;
+      watchReadback(match ? match.name : "");
+      renderIdleGates();
+    });
   });
   $("btn-move").addEventListener("click", function () {
     var v = Number($("mv-val").value);
@@ -913,7 +931,9 @@
     setInvalid("mv-val", bad);
     if (bad) return;
     $("btn-move").disabled = true;
-    post("/api/move", { variable: $("mv-var").value, value: v, operator: operator() })
+    var picked = settableMatch($("mv-var").value);
+    if (!picked) return;
+    post("/api/move", { variable: picked.name, value: v, operator: operator() })
       .then(function (out) { $("mv-note").textContent = "Queued: " + out.summary + " (" + out.reference + ")"; refreshQueue(); })
       .catch(itemRefused).then(renderIdleGates);
   });
@@ -1086,6 +1106,8 @@
     renderDevicePicks();
   }
   $("devq").addEventListener("input", function () { renderDeviceList($("devq").value); });
+  // Opening the drawer starts a fresh selection: Esc and the scrim are a
+  // cancel, so picks that were never committed with Add do not come back.
   $("btn-add-device").addEventListener("click", function () { devPicked = {}; renderDeviceList($("devq").value); setTimeout(function () { $("devq").focus(); }, 50); });
   $("btn-pick-all").addEventListener("click", function () {
     devShown.forEach(function (d) { if (!d.have) devPicked[d.name] = true; });
