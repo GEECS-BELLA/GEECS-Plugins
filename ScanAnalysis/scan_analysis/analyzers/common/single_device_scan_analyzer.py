@@ -529,8 +529,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         """Join shots into the capture frame stack, if one exists.
 
         Mirrors :meth:`_map_files_by_acq_timestamp`'s canonical-millisecond
-        join: the stack stores Unix-epoch timestamps (its contract,
-        ``GeecsBluesky/geecs_bluesky/capture/FORMAT.md``), converted here to
+        join: the stack stores Unix-epoch timestamps (the read side and its
+        constants are ``geecs_data_utils.io.scan_stack``), converted here to
         the LabVIEW epoch of the auxiliary frame's ``acq_timestamp`` column.
         Each joined shot maps to a :class:`ShotRef` — a path into the stack
         carrying the frame index — which travels through the existing

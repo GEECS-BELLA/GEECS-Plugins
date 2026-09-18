@@ -539,8 +539,8 @@ class ScanRequest(VersionedSchemaModel):
         default_factory=CaptureSettings,
         description=(
             "How shots are taken and what gets recorded: shots per step, "
-            "acquisition discipline, save sets, telemetry and native-image "
-            "toggles, and the trigger profile. Omit for a one-shot strict "
+            "acquisition discipline, save sets, the telemetry toggle and "
+            "the trigger profile. Omit for a one-shot strict "
             "capture with no named save sets."
         ),
     )

@@ -138,9 +138,14 @@ class GeecsDbDeviceTypes:
 
     Wraps :meth:`GeecsDb.get_experiment_device_types` (one connection),
     cached on first use.  A DB failure degrades to an empty mapping with one
-    warning — consumers treating "unknown devicetype" as "not
-    capture-eligible" therefore fail open: native image saving is never
-    switched off because the DB blipped.
+    warning, and that degradation is **not** neutral: the one consumer is
+    :func:`~geecs_bluesky.namespace.looks_triggerable`, which falls back to
+    the trigger-variable name rule when it has no devicetype.  Both of its
+    devicetype lists then stop applying — a trigger *source* (DG645) can
+    register as an acquirer, and a frame consumer with no trigger variable
+    of its own (``magspecstitcher``, GEECS-Plugins#934) stops being
+    triggered, which switches its native saving off.  An empty map is a
+    degraded run to investigate, not a safe default.
 
     Parameters
     ----------
@@ -175,8 +180,10 @@ class GeecsDbDeviceTypes:
                 )
             except Exception:
                 logger.warning(
-                    "Could not read devicetypes for experiment %r; no device "
-                    "is capture-eligible this run (native saving unaffected)",
+                    "Could not read devicetypes for experiment %r; every "
+                    "device falls back to the trigger-variable name rule, "
+                    "which misclassifies trigger sources and frame consumers "
+                    "(#934) — treat this run as degraded",
                     self.experiment,
                     exc_info=True,
                 )

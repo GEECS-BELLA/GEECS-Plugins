@@ -23,9 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `capture`) and refuses a set one with a remedy naming #738;
     `schema_version` <= 3 normalizes to 4. The two removed fields now
     share one `_REMOVED_FIELDS` mapping instead of bespoke per-field code.
-  - `ExperimentDefaults`: removed outright. That model carries no lifting
-    validator and the corpus does not set the field, so a stray value
-    fails loudly as an unknown key — the base class's stated contract.
+  - `ExperimentDefaults`: field removed, and a before-validator **drops**
+    the key rather than refusing it. Refusing would not reach an operator:
+    both callers of `resolve_experiment_defaults` wrap it in
+    `except Exception` and fall back to no defaults at all
+    (`plans/registry.py`, `qs_client/submit_preflight.py`), so a stray
+    `native_image_save` would cost the experiment its default trigger
+    profile and refuse every scan that does not name one — blaming a file
+    whose `trigger_profile` line is fine, with the real cause one journal
+    warning. Ignoring an already-inert key is the smaller harm.
 
 ### Changed
 

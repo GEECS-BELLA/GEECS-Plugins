@@ -289,7 +289,7 @@ def stack_frame_index_map(
     the capture-diff audit's bulk reconciliation deliberately keeps its
     own equivalent map build for now): **keep-first on duplicate
     millisecond keys**
-    — the deterministic contract (the daemon dedupes identical timestamps
+    — the deterministic contract (the file plugin dedupes identical timestamps
     upstream; two consumers resolving duplicates differently would serve
     different frames for the same shot).
 

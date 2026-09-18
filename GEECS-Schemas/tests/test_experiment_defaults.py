@@ -88,3 +88,22 @@ class TestExperimentDefaults:
         assert "after any" in (closeout_field.description or "")
         # provenance requirement is stated for resolver implementers
         assert "provenance" in module_doc
+
+
+def test_removed_native_image_save_is_ignored_not_refused():
+    """A defaults file still carrying the v4-removed toggle keeps loading.
+
+    Both callers of ``resolve_experiment_defaults`` swallow exceptions into
+    "no defaults at all", so refusing here would cost the experiment its
+    default trigger profile over an already-inert key.
+    """
+    for value in (True, False):
+        defaults = ExperimentDefaults.model_validate(
+            {
+                "schema_version": 1,
+                "trigger_profile": "HTU-NoGas",
+                "native_image_save": value,
+            }
+        )
+        assert defaults.trigger_profile == "HTU-NoGas"
+        assert "native_image_save" not in defaults.model_dump(mode="json")

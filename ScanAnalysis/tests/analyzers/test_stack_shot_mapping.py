@@ -91,7 +91,7 @@ class TestStackJoin:
             assert ref.shot_index == shot - 1  # stack order matches here
 
     def test_extra_stack_frames_do_not_join(self, tmp_path):
-        # The daemon can capture pre-save-window frames the LV set lacks;
+        # The plugin can capture pre-save-window frames the LV set lacks;
         # rows only join frames whose timestamps the aux frame carries.
         ts = [3866137959.524, 3866137960.525]
         device_dir = tmp_path / DEVICE

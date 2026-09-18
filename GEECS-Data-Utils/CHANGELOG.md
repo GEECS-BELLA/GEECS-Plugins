@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.34.2] - 2026-09-17
+
+### Changed
+
+- Docs only: `scan_stack`'s keep-first dedupe contract credits the PVA
+  gateway file plugin's `duplicates_dropped` rather than the deleted
+  capture daemon. The data-flow map's "Stack format" link points readers
+  straight at this docstring, so it travels with that sweep.
+
 ## [0.34.1] - 2026-09-16
 
 ### Changed

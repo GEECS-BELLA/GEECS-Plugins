@@ -190,7 +190,7 @@ class TestShotDataCache:
         assert cache._entry_at_cap(key)
 
     def test_unfinalized_stack_is_never_cached(self, scan_folder):  # noqa: F811
-        # The stop doc lands BEFORE the daemon finalizes the stack (a
+        # The stop doc lands BEFORE the plugin finalizes the stack (a
         # seconds-wide race): an un-finalized file may miss tail frames,
         # so it must serve from disk per shot, never enter the cache.
         import h5py
