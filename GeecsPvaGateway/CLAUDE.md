@@ -139,7 +139,13 @@ tests/
   `DOUBLE` attributes, declared in `NDAttributesFile` so the stock data
   logic describes them as stream columns; their values come from the
   frame's own TCP push (the one subscription is widened by the list,
-  `_CameraWorker.subscription_variables`), `NaN` when absent. Never
+  `_CameraWorker.subscription_variables`), `NaN` when absent. Frames are
+  written **compressed by default** (`Compression` defaults to `zlib` →
+  shuffle + gzip level 1, built-in HDF5 filters, self-describing: no
+  reader learns anything), because no client ever puts that PV — the
+  stock `ADHDFDataLogic` does not; a client wanting raw frames puts
+  `None` before `Capture=1`, and only those two values are accepted.
+  Never
   creates a directory (`CreateDirectory` is ignored); never HDF5 SWMR
   across SMB (`SWMRMode` accepted and ignored; flush per frame, file
   locking off). Served only where `h5py` imports (`file_plugin.available`).

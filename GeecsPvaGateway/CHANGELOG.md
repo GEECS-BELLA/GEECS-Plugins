@@ -4,6 +4,27 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.11.0] - 2026-09-17
+
+### Changed
+
+- **Frame stacks are written compressed by default.** The file plugin's
+  `Compression` parameter now defaults to `zlib` (shuffle + gzip level 1 —
+  built-in HDF5 filters, self-describing, schema unchanged) instead of
+  areaDetector's `None`. Nothing ever put that PV: the stock
+  `ADHDFDataLogic` does not, so every deployed camera was writing raw
+  frames while the write path's `zlib` branch sat unused. Lossless, and
+  transparent to every reader (`geecs_data_utils.io.scan_stack`, h5py,
+  MATLAB, Tiled); one frame per chunk is unchanged, so per-shot random
+  access still costs one chunk (now plus its decompress). A client that
+  wants raw frames puts `Compression=None` before `Capture=1`, as before.
+  Reference numbers from the same filters on real Scan003 frames
+  (GeecsBluesky 0.65.0, the since-deleted central capture daemon):
+  2.04 MB compressed vs 7.92 MB raw vs ~2.5 MB for the equivalent
+  LabVIEW PNGs, at 3.9 ms/frame on 600x600 and ~25 ms/frame on
+  1025x1281. Existing stacks are unaffected; new scans pick this up as
+  boxes are upgraded.
+
 ## [0.10.2] - 2026-09-16
 
 ### Changed
