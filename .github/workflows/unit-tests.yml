@@ -103,7 +103,16 @@ jobs:
       # torch drags the multi-GB nvidia CUDA wheels with it, re-fetched on
       # every run. The restore-keys prefix means a lock change still reuses
       # every wheel that did not change rather than starting from empty.
+      #
+      # GeecsBluesky is deliberately EXCLUDED. Its download set is 8.4 GB —
+      # torch on Linux drags the nvidia CUDA wheels with it, all dead weight
+      # on a CPU runner — which is 84% of the 10 GB cap on its own. Measured:
+      # with it cached, its entry evicted every other leg's, and the next run
+      # missed on all eleven (`Cache not found for input keys` in each). One
+      # leg that cannot fit must not cost the ten that do. The real fix is a
+      # CPU-only torch for CI, which needs a lock change and is its own PR.
       - name: Cache Poetry downloads
+        if: matrix.leg != 'GeecsBluesky'
         uses: actions/cache@v4
         with:
           path: |
