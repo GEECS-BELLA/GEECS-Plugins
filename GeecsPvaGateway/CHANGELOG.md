@@ -23,10 +23,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   one whole ~11-frame 600x600 stack: 2.04 MB compressed vs 7.92 MB raw
   vs ~2.5 MB for the equivalent LabVIEW PNGs. Per-frame write cost was
   3.9 ms at 600x600 and ~25 ms at 1025x1281, and scales with frame
-  AREA, not linearly: an independent synthetic measurement (h5py 3.16,
-  gaussian + noise uint16) puts it at ~8 ms / ~31 ms / ~104 ms for
-  600x600 / 1025x1281 / 2048x2048, with a more conservative ~2.2x size
-  ratio on that less compressible content. The plugin's single writer
+  AREA -- so doubling each dimension quadruples it. An independent
+  synthetic measurement (h5py 3.16, gaussian + noise uint16) puts it at
+  ~8 ms / ~31 ms / ~104 ms for 600x600 / 1025x1281 / 2048x2048 -- a
+  near-constant ~24 ms per megapixel over that 12x span -- with a more
+  conservative ~2.2x size ratio on that less compressible content. The plugin's single writer
   thread carries command puts as well as frames, so on the largest
   served camera that cost is the thing to watch (`queue_drops`,
   `Capture=0` latency) — bounded above by roughly 10 Hz of NEW frames
