@@ -4,6 +4,16 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+
+## [0.12.0] - 2026-09-17
+
+### Changed
+
+- A scan's saved devices render as a full-width list of chips, folded behind a
+  `<details>` with the count on its summary once there are more than three.
+  Twenty devices joined into one string inside a 128 px grid cell made a tall
+  column of names broken mid-word; three or fewer still read inline.
+
 ## [0.11.0] - 2026-09-13
 
 ### Added

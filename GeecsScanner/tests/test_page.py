@@ -206,16 +206,31 @@ def test_move_panel_carries_the_kit_live_row(client: TestClient) -> None:
         assert span in html
 
 
-def test_form_starts_at_the_mode_segment(client: TestClient) -> None:
-    """#896: the preset picker is optional, so it lives in the footer beside Save as preset;
+def test_form_opens_on_what_every_scan_needs(client: TestClient) -> None:
+    """The body opens on the fields every scan type needs; the plan-specific editors follow.
 
-    the panel's body opens on its mode-specific controls, and the
-    provenance note stays in the same row as the picker.
+    #896 moved the optional preset picker out of the body and into the
+    footer, leaving the body opening on the mode-specific controls. The
+    operator sweep inverts the body itself: shots / trigger profile / shot
+    period / description and the device table sit above the rule, and
+    everything the mode buttons swap sits below it, so the fields an
+    operator always fills never move when the mode changes. The footer half
+    of #896 is unchanged and still pinned below.
     """
     html = client.get("/").text
     sub = html[html.index('id="submit"') : html.index('id="queue"')]
-    body = sub[sub.index('<div class="body">') : sub.index('id="optimizer-form"')]
-    assert "<select" not in body and "<input" not in body, body
+    body = sub[sub.index('<div class="body">') :]
+    invariants = body.index('id="scan-invariants"')
+    assert invariants < body.index('id="scan-plan"')
+    for plan_only in (
+        'id="optimizer-form"',
+        'id="sweep-composer"',
+        'id="count-options"',
+    ):
+        assert invariants < body.index(plan_only), plan_only
+    # and nothing to fill sits above them — the preset picker's old home
+    head = body[:invariants]
+    assert "<select" not in head and "<input" not in head, head
     footer = sub[sub.index("<footer>") :]
     for piece in (
         '<select id="preset"',
@@ -519,3 +534,58 @@ var composer={value(){return {trajectory:{kind:'axes',axes:[]}};}};
         ["node", "-"], input=harness, text=True, capture_output=True, check=True
     )
     assert json.loads(result.stdout)["background"] is (mode == "count")
+
+
+def _pick_devices(clicks: str) -> list[str]:
+    """Run the drawer's selection logic under node and return what is picked.
+
+    ``clicks`` is JavaScript calling ``pickDevice(name, index, shift)`` over a
+    fixed list where ``U_Taken`` is already in the device table.
+    """
+    _need_node()
+    source = (_PKG / "static/scanner.js").read_text()
+    harness = (
+        """
+var devShown = [
+  {name: 'UC_A', have: false}, {name: 'UC_B', have: false},
+  {name: 'U_Taken', have: true}, {name: 'UC_D', have: false},
+];
+var devPicked = {}, devAnchor = null;
+function renderDevicePicks() {}
+function pickDevice(name, index, range) {
+"""
+        + _script_function(source, "pickDevice")
+        + "\n}\n"
+        + clicks
+        + "\nconsole.log(JSON.stringify(Object.keys(devPicked).sort()));"
+    )
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    return json.loads(result.stdout)
+
+
+def test_a_device_click_toggles_rather_than_committing() -> None:
+    """Adding twenty devices is twenty clicks and one Add, not twenty trips to the drawer."""
+    assert _pick_devices("pickDevice('UC_A', 0, false);") == ["UC_A"]
+    assert _pick_devices(
+        "pickDevice('UC_A', 0, false); pickDevice('UC_B', 1, false);"
+    ) == ["UC_A", "UC_B"]
+    # clicking a picked row again lets it go
+    assert (
+        _pick_devices("pickDevice('UC_A', 0, false); pickDevice('UC_A', 0, false);")
+        == []
+    )
+
+
+def test_shift_click_takes_the_range_and_skips_what_is_already_added() -> None:
+    """A shift-click reaches from the last row clicked to this one; a device already in the table is not re-added."""
+    picked = _pick_devices("pickDevice('UC_A', 0, false); pickDevice('UC_D', 3, true);")
+    assert picked == ["UC_A", "UC_B", "UC_D"]  # U_Taken is in the table already
+
+
+def test_the_move_variable_picker_can_be_typed_into(client: TestClient) -> None:
+    """Hundreds of settables behind a bare <select> is unusable; the picker filters as you type."""
+    html = client.get("/").text
+    assert '<input id="mv-var" list="mv-variables"' in html
+    assert '<datalist id="mv-variables">' in html

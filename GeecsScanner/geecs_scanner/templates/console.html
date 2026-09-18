@@ -140,71 +140,81 @@
         </div>
       </header>
       <div class="body">
-        <div class="well" id="optimizer-availability" role="status" hidden></div>
-        <div class="group" id="optimizer-form" hidden>
-          <div class="field"><label for="optimizer-config">optimizer config</label><select id="optimizer-config"><option value="">Choose an optimizer…</option></select></div>
-          <div class="field"><label for="iterations">iterations</label><input id="iterations" type="number" min="1" step="1" value="10"><span class="err" id="err-iterations">At least one iteration.</span></div>
-          <div class="field"><span class="hint" id="optimizer-note">Choose a config to see its required devices.</span></div>
-        </div>
+        {# Everything above the rule is required by every scan type; everything
+           below it is what the mode buttons swap. Same order every time, so the
+           fields an operator always fills never move. #}
+        <div class="group" id="scan-invariants">
+          <span class="eyebrow">Every scan</span>
+          <div class="fields">
+            <div class="field"><label for="shots">shots per step</label><input id="shots" type="number" min="1" step="1" value="10"><span class="hint" id="shots-hint">shots_per_step</span><span class="err" id="err-shots">At least one shot.</span></div>
+            <div class="field"><label for="trig">trigger profile</label><select id="trig" title="shot_control_configurations/ · the worker learns new or edited profiles at its next environment open; a scan naming one before that is refused there"></select></div>
+            <div class="field"><label for="period">shot period</label><input id="period" type="number" min="0" step="any" placeholder="auto"><span class="hint">seconds</span></div>
+            <div class="field wide"><label for="desc">description</label><input id="desc" placeholder="what this scan is for"></div>
+          </div>
 
-        <div id="sweep-composer" hidden>
-          <datalist id="sweep-variables"></datalist>
-          <div class="row">
-            <div class="seg" role="group" aria-label="Trajectory type">
-              <button type="button" data-sweep-tab="axes" aria-pressed="true">Axis Sweeps</button>
-              <button type="button" data-sweep-tab="patterns" aria-pressed="false">Patterns</button>
-            </div>
-            <span class="spacer"></span>
-            <details class="disc"><summary>How trajectories work</summary><p>Moving together pairs corresponding positions and requires equal point counts. A grid visits every combination, with the first axis outermost. Relative axes use offsets from the starting readback and return there when the run completes or is aborted.</p></details>
-          </div>
-          <div class="sweep-layout" id="sweep-axis-editor">
-            <div class="group">
-              <span class="eyebrow">Sweep settings</span>
-              <label class="field"><span>Combine axes</span><select id="sweep-combine"><option value="zip">Together · correlated</option><option value="product">Grid · all combinations</option></select></label>
-              <label class="note"><input id="sweep-snake" type="checkbox" disabled> Snake inner axes</label>
-              <p class="dim note">Lists retain their order and repeated values. Log bounds are decade exponents.</p>
-            </div>
-            <div><div id="sweep-axes"></div><button id="sweep-add-axis" type="button" class="btn sm">+ Add axis</button></div>
-          </div>
-          <div class="sweep-layout" id="sweep-pattern-editor" hidden>
-            <div class="group">
-              <span class="eyebrow">Pattern</span>
-              <label class="field"><span>Trajectory</span><select id="sweep-pattern"><option value="spiral">Spiral</option><option value="spiral_square">Square spiral</option><option value="spiral_fermat">Fermat spiral</option><option value="x2x">X2X</option></select></label>
-              <p class="dim note">Bluesky computes the path. X2X uses two relative axes: Y travels half X's range.</p>
-            </div>
-            <div id="sweep-pattern-fields"></div>
-          </div>
           <div class="group">
-            <div class="row"><span class="eyebrow">Resolves</span><span id="sweep-message" role="status">Choose an axis to preview the trajectory.</span><button class="btn sm ghost" id="sweep-refresh" type="button">Refresh preview</button></div>
-            <p class="dim note" id="sweep-preview-note">Relative previews show offsets, not future absolute positions.</p>
-            <div class="sweep-plots" id="sweep-plots"></div>
-            <details class="disc"><summary>Points as a table</summary><div class="tscroll" id="sweep-table"></div></details>
-            <details class="disc"><summary>What gets submitted · Sweep payload</summary><pre class="well" id="sweep-payload"></pre></details>
+            <div class="row">
+              <span class="eyebrow" id="devices-eyebrow">devices</span>
+              <span class="spacer"></span>
+              <button class="btn sm ghost" type="button" data-drawer-open="drw-devices" id="btn-add-device">Add device…</button>
+            </div>
+            <div class="tscroll">
+              <table class="devtable">
+                <thead><tr><th>device</th><th>save images</th><th>essential</th><th></th></tr></thead>
+                <tbody id="devs"><tr><td class="dim" colspan="4">No devices — add one.</td></tr></tbody>
+              </table>
+            </div>
+            <span class="dim note">Not essential + no images is refused at expansion. A gated run needs at least one essential triggered device.</span>
           </div>
         </div>
-        <div class="group" id="count-options" hidden><label><input type="checkbox" id="background"> Background count</label><span class="dim note"> No variables move; recorded as no scan or background.</span></div>
 
-        <span class="eyebrow">Capture</span>
-        <div class="fields">
-          <div class="field"><label for="shots">shots per step</label><input id="shots" type="number" min="1" step="1" value="10"><span class="hint" id="shots-hint">shots_per_step</span><span class="err" id="err-shots">At least one shot.</span></div>
-          <div class="field"><label for="trig">trigger profile</label><select id="trig" title="shot_control_configurations/ · the worker learns new or edited profiles at its next environment open; a scan naming one before that is refused there"></select></div>
-          <div class="field"><label for="period">shot period</label><input id="period" type="number" min="0" step="any" placeholder="auto"><span class="hint">seconds</span></div>
-          <div class="field wide"><label for="desc">description</label><input id="desc" placeholder="what this scan is for"></div>
-        </div>
+        <div class="rule" role="separator"></div>
 
-        <div class="group">
-          <div class="row">
-            <span class="eyebrow" id="devices-eyebrow">devices</span>
-            <span class="spacer"></span>
-            <button class="btn sm ghost" type="button" data-drawer-open="drw-devices" id="btn-add-device">Add device…</button>
+        <div class="group" id="scan-plan">
+          <span class="eyebrow" id="plan-eyebrow">This plan</span>
+          <div class="well" id="optimizer-availability" role="status" hidden></div>
+          <div class="group" id="optimizer-form" hidden>
+            <div class="field"><label for="optimizer-config">optimizer config</label><select id="optimizer-config"><option value="">Choose an optimizer…</option></select></div>
+            <div class="field"><label for="iterations">iterations</label><input id="iterations" type="number" min="1" step="1" value="10"><span class="err" id="err-iterations">At least one iteration.</span></div>
+            <div class="field"><span class="hint" id="optimizer-note">Choose a config to see its required devices.</span></div>
           </div>
-          <div class="tscroll">
-            <table class="devtable">
-              <thead><tr><th>device</th><th>save images</th><th>essential</th><th></th></tr></thead>
-              <tbody id="devs"><tr><td class="dim" colspan="4">No devices — add one.</td></tr></tbody>
-            </table>
+
+          <div id="sweep-composer" hidden>
+            <datalist id="sweep-variables"></datalist>
+            <div class="row">
+              <div class="seg" role="group" aria-label="Trajectory type">
+                <button type="button" data-sweep-tab="axes" aria-pressed="true">Axis Sweeps</button>
+                <button type="button" data-sweep-tab="patterns" aria-pressed="false">Patterns</button>
+              </div>
+              <span class="spacer"></span>
+              <details class="disc"><summary>How trajectories work</summary><p>Moving together pairs corresponding positions and requires equal point counts. A grid visits every combination, with the first axis outermost. Relative axes use offsets from the starting readback and return there when the run completes or is aborted.</p></details>
+            </div>
+            <div class="sweep-layout" id="sweep-axis-editor">
+              <div class="group">
+                <span class="eyebrow">Sweep settings</span>
+                <label class="field"><span>Combine axes</span><select id="sweep-combine"><option value="zip">Together · correlated</option><option value="product">Grid · all combinations</option></select></label>
+                <label class="note"><input id="sweep-snake" type="checkbox" disabled> Snake inner axes</label>
+                <p class="dim note">Lists retain their order and repeated values. Log bounds are decade exponents.</p>
+              </div>
+              <div><div id="sweep-axes"></div><button id="sweep-add-axis" type="button" class="btn sm">+ Add axis</button></div>
+            </div>
+            <div class="sweep-layout" id="sweep-pattern-editor" hidden>
+              <div class="group">
+                <span class="eyebrow">Pattern</span>
+                <label class="field"><span>Trajectory</span><select id="sweep-pattern"><option value="spiral">Spiral</option><option value="spiral_square">Square spiral</option><option value="spiral_fermat">Fermat spiral</option><option value="x2x">X2X</option></select></label>
+                <p class="dim note">Bluesky computes the path. X2X uses two relative axes: Y travels half X's range.</p>
+              </div>
+              <div id="sweep-pattern-fields"></div>
+            </div>
+            <div class="group">
+              <div class="row"><span class="eyebrow">Resolves</span><span id="sweep-message" role="status">Choose an axis to preview the trajectory.</span><button class="btn sm ghost" id="sweep-refresh" type="button">Refresh preview</button></div>
+              <p class="dim note" id="sweep-preview-note">Relative previews show offsets, not future absolute positions.</p>
+              <div class="sweep-plots" id="sweep-plots"></div>
+              <details class="disc"><summary>Points as a table</summary><div class="tscroll" id="sweep-table"></div></details>
+              <details class="disc"><summary>What gets submitted · Sweep payload</summary><pre class="well" id="sweep-payload"></pre></details>
+            </div>
           </div>
-          <span class="dim note">Not essential + no images is refused at expansion. A gated run needs at least one essential triggered device.</span>
+          <div class="group" id="count-options" hidden><label><input type="checkbox" id="background"> Background count</label><span class="dim note"> No variables move; recorded as no scan or background.</span></div>
         </div>
       </div>
       <footer>
@@ -252,7 +262,7 @@
         <div class="body">
           <div class="live" id="mv-live" hidden><span class="k" id="mv-k">—</span><span class="v" id="mv-rb">—</span><span class="age" id="mv-age"></span></div>
           <div class="fields">
-            <div class="field"><label for="mv-var">variable</label><select id="mv-var"></select><span class="hint" id="mv-hint"></span></div>
+            <div class="field"><label for="mv-var">variable</label><input id="mv-var" list="mv-variables" placeholder="Choose or type Device:Variable" autocomplete="off"><datalist id="mv-variables"></datalist><span class="hint" id="mv-hint"></span></div>
             <div class="field"><label for="mv-val">set to</label><input id="mv-val" type="number" step="any" placeholder="value"><span class="err" id="err-mv-val">Enter a number.</span></div>
           </div>
           <div class="row">
@@ -334,6 +344,13 @@
   </header>
   <div class="body">
     <div class="field"><label for="devq">search</label><input id="devq" placeholder="UC_… or U_…" autocomplete="off"><span class="hint" id="devq-hint"></span></div>
+    <div class="row">
+      <button class="btn primary sm" type="button" id="btn-add-selected" disabled>Add</button>
+      <button class="btn sm ghost" type="button" id="btn-pick-all">Select all shown</button>
+      <button class="btn sm ghost" type="button" id="btn-pick-none" disabled>Clear</button>
+      <span class="spacer"></span>
+      <span class="dim note">click to select · shift-click for a range</span>
+    </div>
     <nav class="picklist" id="devlist" aria-label="Devices"></nav>
     <span class="dim note">A device the gateway does not serve does not appear. Added rows save images and are essential until you say otherwise.</span>
   </div>

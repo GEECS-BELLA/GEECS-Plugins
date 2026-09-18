@@ -515,6 +515,12 @@
     lockOptimizerDevices();
     if (!silent) S.formable = true;
     $("shots-hint").textContent = count ? "num — the shots of the count" : "shots_per_step";
+    // the lower half is named for what it holds, so "this changes with the mode"
+    // is legible without switching modes to find out
+    $("plan-eyebrow").textContent = count ? "Count · options"
+      : mode === "sweep" ? "Sweep · trajectory"
+      : mode === "optimize" ? "Optimize · optimizer"
+      : "This plan";
     if (!silent) recalc();
   }
   function setAcq(acq) {
@@ -808,7 +814,10 @@
   }
   function renderIdleGates() {
     var ok = idle(), why = idleTitle();
-    $("btn-move").disabled = !ok || !$("mv-var").value; $("btn-move").title = why;
+    var mvName = $("mv-var").value;
+    var mvKnown = !!mvName && !!settableFor(mvName);
+    $("btn-move").disabled = !ok || !mvKnown;
+    $("btn-move").title = mvName && !mvKnown ? "no settable named " + mvName : why;
     var mvWord = ok ? "idle" : (why || "held");
     setChip($("mv-chip"), ok ? K.ok : K.unknown, mvWord, why);
     $("act-arm").disabled = !ok || !S.actionName || !!(currentAction() && currentAction().problem);
@@ -837,15 +846,22 @@
     return S.settables.filter(function (s) { return s.name === name; })[0] || null;
   }
   function renderMoveVars() {
-    var sel = $("mv-var"); sel.textContent = "";
-    if (S.settables.length) sel.appendChild(option("", "— pick a variable —"));
+    // A datalist, not a bare <select>: the experiment has hundreds of numeric
+    // settables, and typing a fragment is the only sane way through them —
+    // the same affordance the sweep composer's axis field has.  The option
+    // VALUE stays the canonical Device:Variable; the alias is the label.
+    var list = $("mv-variables"); list.textContent = "";
     S.settables.forEach(function (s) {
-      var label = (s.alias ? s.alias + " · " : "") + s.name + (s.units ? " (" + s.units + ")" : "");
-      sel.appendChild(option(s.name, label, false, s.alias ? s.name : ""));
+      var label = (s.alias ? s.alias + " · " : "") + (s.units ? "(" + s.units + ")" : "");
+      list.appendChild(option(s.name, label.trim()));
     });
-    if (!S.settables.length) sel.appendChild(option("", S.settablesNote ? "settables unavailable" : "no numeric settables", true));
+    var input = $("mv-var");
+    input.disabled = !S.settables.length;
+    input.placeholder = S.settables.length ? "Choose or type Device:Variable"
+      : (S.settablesNote ? "settables unavailable" : "no numeric settables");
+    if (input.value && !settableFor(input.value)) input.value = "";
     $("mv-hint").textContent = S.settablesNote || "";
-    watchReadback(sel.value);
+    watchReadback(input.value);
     renderIdleGates();
   }
   function fmtVal(x) {
@@ -888,7 +904,9 @@
       $("mv-rb").textContent = "—"; $("mv-age").textContent = e.message; $("mv-live").setAttribute("data-age", "stale");
     });
   }
-  $("mv-var").addEventListener("change", function () { watchReadback(this.value); renderIdleGates(); });
+  ["change", "input"].forEach(function (ev) {
+    $("mv-var").addEventListener(ev, function () { watchReadback(settableFor(this.value) ? this.value : ""); renderIdleGates(); });
+  });
   $("btn-move").addEventListener("click", function () {
     var v = Number($("mv-val").value);
     var bad = $("mv-val").value === "" || !isFinite(v);
@@ -1011,6 +1029,35 @@
   /* ------------------------------------------------------------ drawers */
 
   /* ---- add device */
+  /* A trip to the drawer adds as many devices as you like: a click toggles a
+     row, shift-click takes the range, Add commits them all.  Selection is
+     kept by name, so narrowing the search and picking more does not lose
+     what is already ticked. */
+  var devPicked = {};        // name -> true, across re-renders and searches
+  var devShown = [];         // the names currently rendered, for shift-ranges
+  var devAnchor = null;      // the last row clicked, the other end of a range
+
+  function devPickedNames() { return Object.keys(devPicked); }
+  function renderDevicePicks() {
+    var n = devPickedNames().length;
+    $("btn-add-selected").disabled = !n;
+    $("btn-add-selected").textContent = n ? "Add " + n + " device" + (n === 1 ? "" : "s") : "Add";
+    $("btn-pick-none").disabled = !n;
+    Array.prototype.forEach.call($("devlist").children, function (b) {
+      b.setAttribute("aria-pressed", devPicked[b.dataset.device] ? "true" : "false");
+    });
+  }
+  function pickDevice(name, index, range) {
+    if (range && devAnchor !== null) {
+      var lo = Math.min(devAnchor, index), hi = Math.max(devAnchor, index);
+      // a range takes everything in it, skipping what is already in the table
+      for (var i = lo; i <= hi; i++) if (devShown[i] && !devShown[i].have) devPicked[devShown[i].name] = true;
+    } else {
+      if (devPicked[name]) delete devPicked[name]; else devPicked[name] = true;
+      devAnchor = index;
+    }
+    renderDevicePicks();
+  }
   function renderDeviceList(q) {
     var list = $("devlist"); list.textContent = "";
     var have = {};
@@ -1019,29 +1066,42 @@
     // The manager lists a device and its children (U_S1H, U_S1H.current …);
     // a preset names devices, so only the bare names are offered.
     var names = S.devices.filter(function (n) { return n.indexOf(".") === -1 && (!needle || n.toLowerCase().indexOf(needle) !== -1); });
-    names.slice(0, 60).forEach(function (n) {
+    devShown = []; devAnchor = null;
+    names.slice(0, 60).forEach(function (n, i) {
+      devShown.push({ name: n, have: !!have[n] });
       var b = document.createElement("button");
       b.type = "button";
+      b.dataset.device = n;
+      b.setAttribute("aria-pressed", devPicked[n] ? "true" : "false");
       var a = document.createElement("span"); a.textContent = n;
       var d = document.createElement("span"); d.className = "sub"; d.textContent = have[n] ? "in the table" : "";
       b.appendChild(a); b.appendChild(d);
       b.disabled = !!have[n];
-      b.addEventListener("click", function () { addDevice(n); });
+      b.addEventListener("click", function (ev) { pickDevice(n, i, ev.shiftKey); });
       list.appendChild(b);
     });
     $("devq-hint").textContent = S.devices.length
       ? names.length + " of " + S.devices.filter(function (n) { return n.indexOf(".") === -1; }).length + " devices" + (names.length > 60 ? " · type to narrow" : "")
       : "the manager's device list is empty or unreachable";
+    renderDevicePicks();
   }
   $("devq").addEventListener("input", function () { renderDeviceList($("devq").value); });
-  $("btn-add-device").addEventListener("click", function () { renderDeviceList($("devq").value); setTimeout(function () { $("devq").focus(); }, 50); });
-  function addDevice(name) {
+  $("btn-add-device").addEventListener("click", function () { devPicked = {}; renderDeviceList($("devq").value); setTimeout(function () { $("devq").focus(); }, 50); });
+  $("btn-pick-all").addEventListener("click", function () {
+    devShown.forEach(function (d) { if (!d.have) devPicked[d.name] = true; });
+    renderDevicePicks();
+  });
+  $("btn-pick-none").addEventListener("click", function () { devPicked = {}; devAnchor = null; renderDevicePicks(); });
+  $("btn-add-selected").addEventListener("click", function () { addDevices(devPickedNames()); });
+  function addDevices(names) {
+    if (!names.length) return;
     noDevicesNote();
     if (!$("devs").querySelector("tr[data-device]")) $("devs").textContent = "";
-    $("devs").appendChild(deviceRow(name, true, true));
+    names.forEach(function (name) { $("devs").appendChild(deviceRow(name, true, true)); });
     noDevicesNote();
     $("devices-eyebrow").textContent = "devices · " + (S.presetName ? "preset " + S.presetName + " + " : "") + "edited";
     recalc(); renderCalibration();
+    devPicked = {}; devAnchor = null;
     window.GeecsKit.drawer($("drw-devices")).close();
   }
 
