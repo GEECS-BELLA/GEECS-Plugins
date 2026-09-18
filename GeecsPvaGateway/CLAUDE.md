@@ -139,10 +139,25 @@ tests/
   `DOUBLE` attributes, declared in `NDAttributesFile` so the stock data
   logic describes them as stream columns; their values come from the
   frame's own TCP push (the one subscription is widened by the list,
-  `_CameraWorker.subscription_variables`), `NaN` when absent. Frames are
-  written **compressed by default** (`Compression` defaults to `zlib` →
-  shuffle + gzip level 1, built-in HDF5 filters, self-describing: no
-  reader learns anything), because no client ever puts that PV — the
+  `_CameraWorker.subscription_variables`), `NaN` when absent. Frames **and those attribute
+  datasets** are written **compressed by default** (`Compression`
+  defaults to `zlib` → shuffle + gzip level 1, built-in HDF5 filters,
+  self-describing: no reader learns anything) — one switch governs both.
+  For the attributes it is not a nicety: their chunk is
+  `ATTRIBUTE_CHUNK` (16384) f8 slots that a scan fills a few dozen of,
+  HDF5 commits the whole chunk on first write and rewrites every dirty
+  chunk on the per-frame flush, so uncompressed they cost ~1.7 MB of
+  SMB write traffic **per frame** to carry ~100 bytes of numbers.
+  The chunk shape stays 16384 either way: ophyd-async hard-codes
+  `chunk_shape=(16384,)` in the stream resource it hands Tiled
+  (`epics/adcore/_data_logic.py` — "NDAttributes appear to always be
+  configured with this chunk size"), so that is the chunking Tiled
+  registers; the file has to match the declaration, not the other way
+  round. Nothing *enforces* it — Tiled's consolidator validation is
+  opt-in via a `_validate` parameter ophyd-async does not set, and runs
+  `fix_errors=True` when it does run — so a mismatch corrupts the
+  registered layout silently rather than failing. Compression is on
+  because no client ever puts that PV — the
   stock `ADHDFDataLogic` does not; a client wanting raw frames puts
   `None` before `Capture=1`. Any of the eight areaDetector choices is
   *accepted* by the put; only those two survive the arm, and a third
