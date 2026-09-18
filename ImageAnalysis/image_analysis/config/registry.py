@@ -35,6 +35,7 @@ ANALYZER_CLASS_PATHS: dict[str, str] = {
     "haso": "image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor",
     "downramp_phase": "image_analysis.analyzers.downramp_phase_analyzer.DownrampPhaseAnalyzer",
     "hi_res_mag_cam": "image_analysis.analyzers.Undulator.hi_res_mag_cam_analyzer.HiResMagCamAnalyzer",
+    "bcave_magspec_cam1": "image_analysis.analyzers.Undulator.bcave_magspec_cam1_analyzer.BCaveMagSpecCam1Analyzer",
     "bcave_magspec_stitcher": "image_analysis.analyzers.Undulator.BCaveMagSpecStitcher.BCaveMagSpecStitcherAnalyzer",
     "bcave_mag_opt": "image_analysis.analyzers.Undulator.BCaveMagSpecStitcherOpt.BCaveMagOpt",
     "phase_downramp": "image_analysis.analyzers.density_from_phase_analysis.PhaseDownrampProcessor",

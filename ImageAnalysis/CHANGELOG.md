@@ -3,6 +3,23 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.0] - 2026-09-17
+
+### Added
+
+- `BCaveMagSpecCam1Analyzer` (`analyzers/Undulator/bcave_magspec_cam1_analyzer.py`,
+  kind `bcave_magspec_cam1`) — bow-tie emittance analysis for
+  `UC_BCaveMagSpecCam1`, a device acquired in five Undulator scanner presets
+  that until now had no analyzer. A `BeamAnalyzer` subclass that applies the
+  spec's `count_threshold` to the processed frame and fits it with the
+  existing `BowtieFitAlgorithm`, reporting the emittance proxy plus the
+  fitted waist, divergence, waist position and fit quality.
+
+  Deliberately a sibling of `HiResMagCamAnalyzer` rather than a second
+  config on that kind: the two cameras share the algorithm but not their
+  tuning, so keeping them separate means B-cave changes cannot regress
+  HiResMagCam. Nothing existing was modified.
+
 ## [2.3.0] - 2026-09-16
 
 ### Changed
