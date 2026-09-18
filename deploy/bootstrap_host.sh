@@ -8,7 +8,7 @@
 #   deploy/bootstrap_host.sh SITE_ENV [--ref REF] [--only svc,svc] [--dry-run] [--no-install]
 #
 #   --ref REF      git ref to check out in each clone (default: master)
-#   --only LIST    comma-separated subset of: gateway,portal,logbook,qserver,capture,mcp
+#   --only LIST    comma-separated subset of: gateway,portal,logbook,qserver,mcp,scanner
 #                  (re-stages only these: the staging dir's units are cleared first,
 #                  so the printed install line covers exactly this run)
 #   --no-install   clone/fetch only; skip poetry/pip installs
@@ -69,6 +69,19 @@ extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook
 # (re)start (#793) — enabled together, rendered from the same clone.
 units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; mcp) echo "geecs-mcp";; scanner) echo "geecs-scanner";; esac; }
 wanted()     { [ -z "$ONLY" ] || case ",$ONLY," in *",$1,"*) return 0;; *) return 1;; esac; }
+# An --only name that is not a service used to select nothing and exit 0 —
+# indistinguishable from success, so a stale runbook (or a retired role)
+# looked like it had run. Name it instead.
+if [ -n "$ONLY" ]; then
+    for requested in $(printf '%s' "$ONLY" | tr ',' ' '); do
+        case " $SERVICES " in
+            *" $requested "*) ;;
+            *) echo "bootstrap_host.sh: --only: unknown service '$requested'" >&2
+               echo "  known services: $SERVICES" >&2
+               exit 2 ;;
+        esac
+    done
+fi
 
 say "site '${GEECS_SITE:-?}' experiment '$GEECS_EXPERIMENT' — ref $REF — root $GEECS_CHECKOUT_ROOT"
 if [ "$(id -un)" != "$GEECS_SERVICE_USER" ]; then
