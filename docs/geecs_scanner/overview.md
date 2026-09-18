@@ -57,8 +57,9 @@ whether the worker's document stream is being heard.
   **Clear** empties what waits. The page refuses a second waiting item
   unless you say so.
 - **Devices · move** — every numeric settable variable of the experiment,
-  alias first, straight from the GEECS database. Pick one and the page
-  shows its live **readback** (the gateway's readback PV, never the
+  straight from the GEECS database, behind a type-ahead: type any fragment
+  of the device, the variable or its alias to narrow the list. Pick one and
+  the page shows its live **readback** (the gateway's readback PV, never the
   setpoint) with the reading's age; enter a value and **Move** queues a
   single move. Moves run only while the queue is idle — the panel's chip
   says `idle`, `a plan is running` or `items wait in the queue`.

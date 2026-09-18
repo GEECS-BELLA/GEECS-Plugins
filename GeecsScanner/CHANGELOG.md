@@ -4,6 +4,32 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+
+## [0.12.0] - 2026-09-17
+
+### Changed
+
+- The add-device drawer is a multi-select: a click toggles a row, shift-click
+  takes the range, `Select all shown` takes the filtered list, and `Add`
+  commits them in one go. Adding twenty devices was twenty trips through the
+  drawer, which closed after every single pick.
+- The move panel's variable picker is an `<input>` over a `<datalist>` rather
+  than a bare `<select>`, so hundreds of numeric settables can be reached by
+  typing a fragment — the affordance the sweep composer's axis field already
+  had. `Move` is gated on a name the experiment actually has, so a typed
+  fragment cannot be submitted; surrounding whitespace, the wrong case and the
+  DB's alias all still resolve (a name pasted off a log line works, and so
+  does the alias the operator says out loud, when it names exactly one
+  settable), and only the canonical `Device:Variable` is ever sent.
+- New scan opens on the fields every scan type needs — shots per step, trigger
+  profile, shot period, description and the device table — with the editors
+  the mode buttons swap below a rule, under an eyebrow that names the current
+  mode. The fields an operator always fills no longer move when the mode
+  changes. Before a mode is chosen that half says what it is for rather than
+  standing empty, and the optimizer-availability notice moved above the split
+  — it is about which modes exist, not about the chosen plan. This reverses
+  the body ordering half of #896; the preset picker stays in the footer.
+
 ## [0.11.1] - 2026-09-16
 
 ### Changed

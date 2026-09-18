@@ -3,6 +3,23 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+
+## [1.24.0] - 2026-09-17
+
+### Changed
+
+- Config editor: the sidebar is a collapsible tree — kind, then namespace,
+  then document — closed until asked for, remembering what was opened *and
+  what was closed* (per browser) and expanding whatever holds the open
+  document when the user has said nothing about it. A namespace that hides a
+  file which does not validate says so on its summary.
+- Config editor: the two `new` rows are labelled `new diagnostic` and
+  `new group` and sit at the top of their section, and the form's title bar
+  carries the document kind. An unlabelled `new` at the end of a 50-item list
+  is how a diagnostic gets created as a group by mistake — reported from the
+  floor, where the group form's `ref` field was read as a missing analyzer
+  `kind` dropdown.
+
 ## [1.23.1] - 2026-09-16
 
 ### Changed

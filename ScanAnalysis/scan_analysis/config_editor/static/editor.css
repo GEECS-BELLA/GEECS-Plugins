@@ -6,7 +6,19 @@
 .ce > * { min-height: 0; overflow: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; }
 .ce-side { padding: 0.5rem; font-size: 13px; }
 .ce-side h4 { margin: 0.4rem 0 0.2rem; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
-.ce-side .ns { color: var(--muted); font-size: 11px; margin-top: 0.4rem; }
+/* the tree: kind > namespace > document, collapsed until asked for */
+.ce-side details > summary { display: flex; align-items: center; gap: 0.3rem; cursor: pointer; padding: 0.15rem 0.3rem; border-radius: 3px; list-style: none; }
+.ce-side details > summary::-webkit-details-marker { display: none; }
+.ce-side details > summary::before { content: "\25b8"; color: var(--muted); font-size: 10px; width: 0.6rem; flex: none; transition: transform 0.12s; }
+.ce-side details[open] > summary::before { transform: rotate(90deg); }
+.ce-side details > summary:hover { background: var(--surface-2); }
+.ce-side .ce-sec { margin-top: 0.4rem; }
+.ce-side .ce-sec > summary .ce-sec-t { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.ce-side .ce-count { margin-left: auto; color: var(--muted); font-size: 11px; }
+.ce-side .ce-ns { margin-left: 0.3rem; }
+.ce-side .ce-ns > summary { color: var(--muted); font-size: 11px; }
+.ce-side .ce-ns > summary.bad { color: var(--crit); }
+.ce-side .ce-ns > a { margin-left: 0.9rem; }
 .ce-side a { display: block; padding: 0.1rem 0.4rem; border-radius: 3px; color: var(--ink); text-decoration: none; }
 .ce-side a:hover { background: var(--surface-2); }
 .ce-side a.sel { background: var(--surface-2); color: var(--accent); }
@@ -14,7 +26,8 @@
 .ce-side .pending { color: var(--warn); font-size: 11px; margin-top: 0.6rem; }
 .ce-main { padding: 0.6rem 0.8rem; }
 .ce-bar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
-.ce-bar .title { font-weight: 600; margin-right: auto; }
+.ce-bar .title { font-weight: 600; margin-right: auto; display: flex; align-items: baseline; gap: 0.4rem; }
+.ce-bar .ce-kind { font-weight: 400; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); border: 1px solid var(--rule); border-radius: 3px; padding: 0 0.3rem; }
 .ce-bar .dirty { color: var(--warn); font-size: 12px; }
 .ce button { background: var(--surface-2); color: var(--ink); border: 1px solid var(--rule); border-radius: 3px; padding: 0.2rem 0.6rem; cursor: pointer; font: inherit; font-size: 12px; }
 .ce button:hover { border-color: var(--accent); }
@@ -53,5 +66,7 @@
 .ce-preview.stale img { opacity: 0.45; }
 .ce-preview.stale .msg { color: var(--warn); }
 .ce-empty { color: var(--muted); padding: 1rem; }
-.ce-new { display: flex; gap: 0.3rem; align-items: center; margin-top: 0.4rem; flex-wrap: wrap; }
-.ce-new input { width: 8rem; }
+.ce-new { display: flex; gap: 0.3rem; align-items: center; margin: 0.3rem 0 0.4rem 0.9rem; flex-wrap: wrap; }
+/* the sidebar is 15rem: let the two inputs share one line rather than stack */
+.ce-new input { width: auto; flex: 1 1 5rem; min-width: 0; }
+.ce-new button { flex: 0 0 auto; }
