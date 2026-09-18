@@ -19,11 +19,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   access still costs one chunk (now plus its decompress). A client that
   wants raw frames puts `Compression=None` before `Capture=1`, as before.
   Reference numbers from the same filters on real Scan003 frames
-  (GeecsBluesky 0.65.0, the since-deleted central capture daemon):
-  2.04 MB compressed vs 7.92 MB raw vs ~2.5 MB for the equivalent
-  LabVIEW PNGs, at 3.9 ms/frame on 600x600 and ~25 ms/frame on
-  1025x1281. Existing stacks are unaffected; new scans pick this up as
-  boxes are upgraded.
+  (GeecsBluesky 0.65.0, the since-deleted central capture daemon), for
+  one whole ~11-frame 600x600 stack: 2.04 MB compressed vs 7.92 MB raw
+  vs ~2.5 MB for the equivalent LabVIEW PNGs. Per-frame write cost was
+  3.9 ms at 600x600 and ~25 ms at 1025x1281, and scales with frame
+  AREA, not linearly: an independent synthetic measurement (h5py 3.16,
+  gaussian + noise uint16) puts it at ~8 ms / ~31 ms / ~104 ms for
+  600x600 / 1025x1281 / 2048x2048, with a more conservative ~2.2x size
+  ratio on that less compressible content. The plugin's single writer
+  thread carries command puts as well as frames, so on the largest
+  served camera that cost is the thing to watch (`queue_drops`,
+  `Capture=0` latency) — bounded above by roughly 10 Hz of NEW frames
+  at 4 Mpx, and plausibly offset in production by ~2x fewer bytes over
+  SMB. Existing stacks are unaffected; new scans pick this up as boxes
+  are upgraded.
 
 ## [0.10.2] - 2026-09-16
 
