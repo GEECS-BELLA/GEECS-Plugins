@@ -8,9 +8,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Docs only: `data_format="device_hdf5"` is credited to the PVA gateway's
-  file plugin rather than the deleted capture daemon. The stack-mapping
-  test's docstring also pointed at `GeecsBluesky/geecs_bluesky/capture/
-  FORMAT.md`, deleted with the daemon — it now names the read side
+  file plugin rather than the deleted capture daemon. Two docstrings also
+  pointed at `GeecsBluesky/geecs_bluesky/capture/FORMAT.md`, deleted with
+  the daemon — `_map_shots_from_stack` in
+  `analyzers/common/single_device_scan_analyzer.py` and the stack-mapping
+  test's module docstring. Both now name the read side
   (`geecs_data_utils.io.scan_stack`).
 
 ## [1.24.0] - 2026-09-17

@@ -31,7 +31,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `native_image_save` would cost the experiment its default trigger
     profile and refuse every scan that does not name one — blaming a file
     whose `trigger_profile` line is fine, with the real cause one journal
-    warning. Ignoring an already-inert key is the smaller harm.
+    warning. The decisive point: dropping reproduces today's runtime
+    behaviour exactly (the field has parsed into something nothing reads
+    since #806), whereas refusing would be a new failure mode invented by
+    a cleanup PR. A cleanup must not be able to break a scan.
+  - **Why the two verdicts differ**, so nobody "unifies" them the wrong
+    way later: each matches where its document is validated. Nothing in
+    the monorepo validates `ScanRequest` — it is a published JSON
+    artifact whose consumers are external clients, and they see the
+    `ValidationError` directly, so refusing teaches them something.
+    `ExperimentDefaults` is validated in exactly one place
+    (`config_resolver.resolve_experiment_defaults`), behind two callers
+    that swallow every exception, so refusing teaches nobody and costs
+    the trigger profile.
 
 ### Changed
 
