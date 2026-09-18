@@ -113,13 +113,16 @@ class BCaveMagSpecCam1Analyzer(BeamAnalyzer):
 
         # Add bowtie fit results to scalars. Unlike HiResMagCam, the fitted
         # parameters are reported too: they are the physical quantities the
-        # emittance proxy is derived from.
+        # emittance proxy is derived from. bowtie_x0/bowtie_y0 are the waist
+        # location in pixels of the *processed* image, so any ROI crop in the
+        # camera config is already applied.
         bowtie_scalars = {
             "emittance_proxy": bowtie_result.score,
             "total_counts": np.sum(final_image),
             "bowtie_w0": bowtie_result.w0,
             "bowtie_theta": bowtie_result.theta,
             "bowtie_x0": bowtie_result.x0,
+            "bowtie_y0": bowtie_result.y0,
             "bowtie_r_squared": bowtie_result.r_squared,
         }
 
@@ -139,6 +142,7 @@ class BCaveMagSpecCam1Analyzer(BeamAnalyzer):
                 "horizontal_projection": initial_result.processed_image.sum(axis=0),
                 "vertical_projection": initial_result.processed_image.sum(axis=1),
                 "bowtie_weights": np.array(bowtie_result.weights),
+                "bowtie_centers": np.array(bowtie_result.centers),
             }
 
         return result

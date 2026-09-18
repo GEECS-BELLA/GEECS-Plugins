@@ -17,8 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   HiResMagCam. Two deliberate differences from the HiResMagCam spec: the
   noise-floor threshold is a field (`count_threshold`) instead of a
   hardcoded 10 counts, and the fitted bow-tie parameters (`bowtie_w0`,
-  `bowtie_theta`, `bowtie_x0`, `bowtie_r_squared`) are declared as emitted
-  scalars alongside the emittance proxy.
+  `bowtie_theta`, `bowtie_x0`, `bowtie_y0`, `bowtie_r_squared`) are
+  declared as emitted scalars alongside the emittance proxy.
+
+  `bowtie_y0` is the vertical position of the beam at the waist column —
+  where the beam is imaged into the spectrometer. The value is a row index
+  of the *processed* frame, so any ROI crop in the camera config is already
+  applied to it.
 
 ## [0.29.1] - 2026-09-16
 

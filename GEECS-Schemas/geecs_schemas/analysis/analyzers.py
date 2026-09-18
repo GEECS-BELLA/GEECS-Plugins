@@ -486,6 +486,7 @@ class BCaveMagSpecCam1Spec(AnalyzerSpecBase):
             "bowtie_w0",
             "bowtie_theta",
             "bowtie_x0",
+            "bowtie_y0",
             "bowtie_r_squared",
         }
 

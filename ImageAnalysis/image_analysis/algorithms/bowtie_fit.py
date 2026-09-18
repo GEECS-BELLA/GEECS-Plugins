@@ -33,6 +33,12 @@ class BowtieFitResult:
         Angular divergence in ``pixels^-1`` (magnitude only in final result).
     x0 : float
         Horizontal location (column index) of the beam waist.
+    y0 : float
+        Vertical location (row index) of the beam at the waist column ``x0``,
+        interpolated from `centers`; NaN when the fit failed or ``x0`` falls
+        outside the span of columns that entered the fit. This is a row index
+        in the image handed to `evaluate`, so any ROI crop or transform the
+        caller applied beforehand is already baked into it.
     r_squared : float
         Coefficient of determination for the fit; ``-inf`` if undefined.
     param_errors : Tuple[float, float, float]
@@ -41,16 +47,21 @@ class BowtieFitResult:
         Column-wise vertical size estimates used in the fit (NaN where invalid).
     weights : numpy.ndarray
         Column-wise total intensities used as weights.
+    centers : numpy.ndarray
+        Column-wise intensity-weighted vertical centers (NaN where invalid) —
+        the beam's vertical track across the image, from which `y0` is read.
     """
 
     score: float
     w0: float
     theta: float
     x0: float
+    y0: float
     r_squared: float
     param_errors: Tuple[float, float, float]
     sizes: np.array
     weights: np.array
+    centers: np.array
 
 
 class BowtieFitAlgorithm:
@@ -91,10 +102,18 @@ class BowtieFitAlgorithm:
         self.n_beam_size_clearance = n_beam_size_clearance
         self.min_total_counts = min_total_counts
         self.beam_size_func = beam_size_func
-        self._last_profile: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None
+        self._last_profile: Optional[
+            Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+        ] = None
 
-    def get_last_profile(self) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """Return the last (sizes, weights, valid_mask) extracted by `evaluate()`, or None if unavailable."""
+    def get_last_profile(
+        self,
+    ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+        """Return the last ``(sizes, weights, valid_mask, centers)`` extracted by `evaluate()`, or None.
+
+        ``centers`` was appended to the tuple when `BowtieFitResult.y0` was
+        added; positional access to the first three entries is unchanged.
+        """
         return self._last_profile
 
     @staticmethod
@@ -138,8 +157,8 @@ class BowtieFitAlgorithm:
     def extract_profile(
         self,
         image: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Compute column-wise sizes and weights, with validity checks.
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Compute column-wise sizes, weights and centers, with validity checks.
 
         Parameters
         ----------
@@ -155,6 +174,10 @@ class BowtieFitAlgorithm:
         valid_mask : numpy.ndarray of bool, shape (W,)
             Mask of columns that (a) met count threshold and (b) had spread fully within the image
             by ``n_beam_size_clearance``; further cleaned to be monotonic away from the weighted center.
+        centers : numpy.ndarray, shape (W,)
+            Intensity-weighted vertical center per column; NaN where invalid or
+            below `min_total_counts`. Already computed for the clearance check
+            — returned so callers can locate the beam vertically, not only size it.
 
         Notes
         -----
@@ -163,7 +186,7 @@ class BowtieFitAlgorithm:
         """
         h, w = image.shape
         y = np.arange(h)
-        sizes, weights, valid_mask = [], [], []
+        sizes, weights, valid_mask, centers = [], [], [], []
 
         beam_size_func = self.beam_size_func or self._default_beam_size_func(y)
 
@@ -174,9 +197,11 @@ class BowtieFitAlgorithm:
 
             if total < self.min_total_counts:
                 sizes.append(np.nan)
+                centers.append(np.nan)
                 valid_mask.append(False)
                 continue
 
+            y_center = np.nan
             try:
                 spread = beam_size_func(col)
                 y_center = np.average(y, weights=col)
@@ -187,16 +212,57 @@ class BowtieFitAlgorithm:
                 is_valid = (ymin >= 0) and (ymax < h) and np.isfinite(spread)
             except Exception:
                 spread = np.nan
+                y_center = np.nan
                 is_valid = False
 
             sizes.append(spread)
+            centers.append(y_center)
             valid_mask.append(is_valid)
 
         sizes = np.array(sizes)
         weights = np.array(weights)
+        centers = np.array(centers, dtype=float)
         valid_mask = self.enforce_monotonic_validity(np.array(valid_mask), weights)
 
-        return sizes, weights, valid_mask
+        return sizes, weights, valid_mask, centers
+
+    @staticmethod
+    def center_at(x0: float, centers: np.ndarray, valid_mask: np.ndarray) -> float:
+        """Interpolate the vertical beam center at the (fractional) waist column ``x0``.
+
+        The waist column the fit returns is a float, so the vertical position
+        there is read by linear interpolation of the per-column centers over
+        the columns that entered the fit.
+
+        Parameters
+        ----------
+        x0 : float
+            Waist column from the bow-tie fit.
+        centers : numpy.ndarray, shape (W,)
+            Per-column vertical centers, NaN where the column was not measured.
+        valid_mask : numpy.ndarray of bool, shape (W,)
+            Columns that entered the fit.
+
+        Returns
+        -------
+        float
+            Row index of the beam at ``x0``, or NaN if ``x0`` is not finite or
+            falls outside the span of valid columns. Deliberately does not
+            extrapolate: outside that span the centroid track is unmeasured,
+            and a projected value would look like a measurement.
+        """
+        if not np.isfinite(x0):
+            return float("nan")
+
+        usable = np.asarray(valid_mask, dtype=bool) & np.isfinite(centers)
+        if not usable.any():
+            return float("nan")
+
+        x_known = np.flatnonzero(usable).astype(float)
+        if x0 < x_known[0] or x0 > x_known[-1]:
+            return float("nan")
+
+        return float(np.interp(x0, x_known, np.asarray(centers)[usable]))
 
     def evaluate(self, image: np.ndarray) -> BowtieFitResult:
         """Extract sizes and fit the divergence model, returning fit parameters and diagnostics.
@@ -220,8 +286,8 @@ class BowtieFitAlgorithm:
         - A guard rejects fits if there is insufficient weight within ±10 px of the waist (``x0``).
         """
         preprocessed = image
-        sizes, weights, valid_mask = self.extract_profile(preprocessed)
-        self._last_profile = (sizes, weights, valid_mask)
+        sizes, weights, valid_mask, centers = self.extract_profile(preprocessed)
+        self._last_profile = (sizes, weights, valid_mask, centers)
 
         x_vals = np.arange(image.shape[1])
         x_fit = x_vals[valid_mask & (weights > 0)]
@@ -234,10 +300,12 @@ class BowtieFitAlgorithm:
                 w0=np.nan,
                 theta=np.nan,
                 x0=np.nan,
+                y0=np.nan,
                 r_squared=-np.inf,
                 param_errors=(np.nan, np.nan, np.nan),
                 sizes=sizes,
                 weights=weights,
+                centers=centers,
             )
         try:
             weights_fit_safe = np.clip(weights_fit, 1e-6, None)
@@ -282,10 +350,12 @@ class BowtieFitAlgorithm:
                         w0=1e6,
                         theta=1e6,
                         x0=1e6,
+                        y0=np.nan,
                         r_squared=-np.inf,
                         param_errors=(np.nan,) * 3,
                         sizes=sizes,
                         weights=weights,
+                        centers=centers,
                     )
 
             return BowtieFitResult(
@@ -293,10 +363,12 @@ class BowtieFitAlgorithm:
                 w0=w0,
                 theta=abs(theta),
                 x0=x0,
+                y0=self.center_at(x0, centers, valid_mask),
                 r_squared=r_squared,
                 param_errors=perr,
                 sizes=sizes,
                 weights=weights,
+                centers=centers,
             )
 
         except Exception as e:
@@ -306,10 +378,12 @@ class BowtieFitAlgorithm:
                 w0=np.nan,
                 theta=np.nan,
                 x0=np.nan,
+                y0=np.nan,
                 r_squared=-np.inf,
                 param_errors=(np.nan, np.nan, np.nan),
                 sizes=sizes,
                 weights=weights,
+                centers=centers,
             )
 
     @staticmethod

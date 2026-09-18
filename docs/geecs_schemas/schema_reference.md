@@ -1281,4 +1281,3 @@ One file uploaded with an entry — a pasted screenshot, a PDF.
 | `content_type` | `str` | yes | — | Media type, e.g. image/png. |
 | `size_bytes` | `int` | yes | — | Stored size in bytes. |
 | `uploaded_at` | `datetime` | yes | — | When the file was stored. |
-
