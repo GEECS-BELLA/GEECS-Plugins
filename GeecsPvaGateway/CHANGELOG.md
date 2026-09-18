@@ -25,6 +25,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   frame compression it does not depend on image content. Gated behind the
   same `Compression=zlib` as the frames: a client putting `None` gets raw
   frames and raw attributes, one switch for both.
+- **The larger effect is write traffic, not storage.** HDF5 rewrites every
+  dirty chunk in full on each per-frame `flush()`, so the padding was
+  being pushed over SMB on *every shot*, not stored once per scan.
+  Measured by counting real write bytes through an h5py file object (13
+  attributes, `chunks=(16384,)`): **1,708,401 → 16,113 bytes written per
+  frame**, a ~106x reduction — 13 x 131072 = 1,703,936, i.e. all thirteen
+  full chunks, every shot. The trade is CPU on the single writer thread,
+  linear in attribute count (~0.1 -> ~0.4 ms per attribute per frame; at
+  13 attributes ~1.5 -> ~5.8 ms). At GEECS shot rates the I/O removed
+  repays that comfortably, but it is the number a future reader would
+  want when attribute counts grow.
 
 ## [0.11.1] - 2026-09-17
 

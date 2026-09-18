@@ -302,7 +302,10 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
         assert stamps.chunks == (16384,)
         assert stamps.compression == "gzip"
         assert stamps.compression_opts == 1
-        assert stamps.id.get_storage_size() < 16384 * 8
+        assert stamps.shuffle is True
+        # Bounded BELOW too: an unwritten dataset reports 0, which would
+        # satisfy a one-sided check for the wrong reason.
+        assert 0 < stamps.id.get_storage_size() < 16384 * 8
         stamps = f[f"{ATTRIBUTES_GROUP}/uc_testcam-hdf-image-frame_acq_timestamp"][:]
         assert stamps[1] == pytest.approx(t + 1.0, abs=0.002)
         assert "acq_timestamp" not in f[ATTRIBUTES_GROUP]
