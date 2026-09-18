@@ -595,7 +595,11 @@ def _settable_match(typed: str) -> str | None:
     _need_node()
     source = (_PKG / "static/scanner.js").read_text()
     harness = (
-        "var S = {settables: [{name: 'U_S1H:Current'}, {name: 'U_Hexapod:ypos'}]};\n"
+        "var S = {settables: ["
+        "{name: 'U_S1H:Current', alias: 'Jet X'},"
+        "{name: 'U_Hexapod:ypos'},"
+        "{name: 'U_EMQ:Ch1', alias: 'shared'},"
+        "{name: 'U_EMQ:Ch2', alias: 'shared'}]};\n"
         "function settableFor(name) {\n"
         + _script_function(source, "settableFor")
         + "\n}\nfunction settableMatch(text) {\n"
@@ -623,3 +627,14 @@ def test_a_typed_variable_resolves_the_way_a_person_types_it() -> None:
     assert _settable_match("u_s1h:current") == "U_S1H:Current"
     assert _settable_match("U_S1H") is None  # a prefix is not a variable
     assert _settable_match("   ") is None
+
+
+def test_the_alias_resolves_when_it_names_one_variable() -> None:
+    """The alias is what the labels show and what operators say, so typing it has to work.
+
+    An alias the DB has put on two variables names neither — the console
+    refuses rather than guessing which magnet was meant.
+    """
+    assert _settable_match("Jet X") == "U_S1H:Current"
+    assert _settable_match("jet x") == "U_S1H:Current"
+    assert _settable_match("shared") is None

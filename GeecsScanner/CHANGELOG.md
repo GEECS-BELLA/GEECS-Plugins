@@ -17,9 +17,10 @@ project adheres to semantic versioning.
   than a bare `<select>`, so hundreds of numeric settables can be reached by
   typing a fragment — the affordance the sweep composer's axis field already
   had. `Move` is gated on a name the experiment actually has, so a typed
-  fragment cannot be submitted; surrounding whitespace and the wrong case
-  still resolve (a name pasted off a log line works), and only the canonical
-  `Device:Variable` is ever sent.
+  fragment cannot be submitted; surrounding whitespace, the wrong case and the
+  DB's alias all still resolve (a name pasted off a log line works, and so
+  does the alias the operator says out loud, when it names exactly one
+  settable), and only the canonical `Device:Variable` is ever sent.
 - New scan opens on the fields every scan type needs — shots per step, trigger
   profile, shot period, description and the device table — with the editors
   the mode buttons swap below a rule, under an eyebrow that names the current

@@ -209,8 +209,11 @@ class TestSidebarCollapseState:
     """
 
     @staticmethod
-    def _run(expression: str) -> object:
-        """Evaluate *expression* with the tree's state helpers in scope."""
+    def _run(expression: str, stored: str | None = None) -> object:
+        """Evaluate *expression* with the tree's state helpers in scope.
+
+        *stored* seeds what ``localStorage`` already holds for the sidebar.
+        """
         from geecs_web_theme.testing import node_available
 
         if not node_available():  # pragma: no cover - CI and dev machines have it
@@ -219,9 +222,9 @@ class TestSidebarCollapseState:
             Path(__file__).resolve().parents[1]
             / "scan_analysis/config_editor/static/editor.js"
         ).read_text()
-        key = re.search(r'\n    const (OPEN_KEY = "[^"]+");', source)
+        key = re.search(r'\n    const OPEN_KEY = "([^"]+)";', source)
         assert key, "editor.js: no OPEN_KEY"
-        bodies = [f"var {key.group(1)};"]
+        bodies = [f'var OPEN_KEY = "{key.group(1)}";']
         for name in ("openState", "rememberOpen", "wantOpen"):
             m = re.search(
                 rf"\n    function {name}\([^)]*\) \{{\n(.*?)\n    \}}\n", source, re.S
@@ -230,7 +233,9 @@ class TestSidebarCollapseState:
             args = re.search(rf"function {name}\(([^)]*)\)", source).group(1)
             bodies.append(f"function {name}({args}) {{\n{m.group(1)}\n}}")
         harness = (
-            "var __store = {};\n"
+            "var __store = "
+            + json.dumps({} if stored is None else {key.group(1): stored})
+            + ";\n"
             "var window = {localStorage: {\n"
             "  getItem: function (k) { return k in __store ? __store[k] : null; },\n"
             "  setItem: function (k, v) { __store[k] = v; },\n"
@@ -271,5 +276,18 @@ class TestSidebarCollapseState:
         )
 
     def test_unreadable_storage_is_not_a_broken_sidebar(self) -> None:
-        """A private window, blocked site data, or a stale format: the tree opens fresh, never throws."""
+        """A private window, blocked site data, or a stale format: the tree opens fresh, never throws.
+
+        Each case reaches a different branch — empty storage, the JSON that
+        does not parse, and the array the previous format wrote, which has to
+        be discarded rather than indexed into.
+        """
         assert self._run("openState()") == {}
+        assert self._run("openState()", stored="not json at all") == {}
+        assert self._run("openState()", stored='["analyzer", "group/HTU"]') == {}
+        assert self._run("openState()", stored="null") == {}
+        # and the stale array does not survive the next write
+        assert self._run(
+            "(rememberOpen('group', true), openState())",
+            stored='["analyzer", "group/HTU"]',
+        ) == {"group": True}

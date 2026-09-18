@@ -855,7 +855,13 @@
     var exact = settableFor(name);
     if (exact) return exact;
     var lower = name.toLowerCase();
-    return S.settables.filter(function (s) { return s.name.toLowerCase() === lower; })[0] || null;
+    var byName = S.settables.filter(function (s) { return s.name.toLowerCase() === lower; })[0];
+    if (byName) return byName;
+    // The alias is what the labels show and what operators say out loud, so it
+    // has to resolve too — but only when it names exactly one settable; an
+    // alias the DB has put on two variables names neither.
+    var byAlias = S.settables.filter(function (s) { return (s.alias || "").toLowerCase() === lower; });
+    return byAlias.length === 1 ? byAlias[0] : null;
   }
   function renderMoveVars() {
     // A datalist, not a bare <select>: the experiment has hundreds of numeric
@@ -871,9 +877,10 @@
     input.disabled = !S.settables.length;
     input.placeholder = S.settables.length ? "Choose or type Device:Variable"
       : (S.settablesNote ? "settables unavailable" : "no numeric settables");
-    if (input.value && !settableMatch(input.value)) input.value = "";
+    var resolved = settableMatch(input.value);
+    if (input.value && !resolved) input.value = "";
     $("mv-hint").textContent = S.settablesNote || "";
-    watchReadback(input.value);
+    watchReadback(resolved ? resolved.name : "");
     renderIdleGates();
   }
   function fmtVal(x) {
@@ -932,7 +939,7 @@
     if (bad) return;
     $("btn-move").disabled = true;
     var picked = settableMatch($("mv-var").value);
-    if (!picked) return;
+    if (!picked) { renderIdleGates(); return; }
     post("/api/move", { variable: picked.name, value: v, operator: operator() })
       .then(function (out) { $("mv-note").textContent = "Queued: " + out.summary + " (" + out.reference + ")"; refreshQueue(); })
       .catch(itemRefused).then(renderIdleGates);
