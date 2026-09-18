@@ -56,7 +56,7 @@ Two lines decide what gets any of it:
 | MagSpecStitcher | 1 | `Image` (+ `interpSpec`/`interpDiv` as native TSV files, no DB variable) | — | **not** a fleet box (192.168.7.203) |
 | FROG | 1 | `SpatialImage`, `frogTrace`, `retrieved FrogTrace`, `retrievedFrogTrace` | 6 (`spectrum x/y`, `temporal …`) | **not** a fleet box (192.168.6.73) |
 | PicoscopeV2 | 2 | — | `ScopeTraces`, `wfm`, `wfm info` (**dead names**); the real ones — `scopeTrace.Channel0…3`, `scopeTraceGUI.Channel0…3` — are typed **`string`**, so no type-driven walk sees them (§3.1) | **not** a fleet box (192.168.7.168) |
-| HamamatsuSpectrometerDAQ | 1 | — | `counts`, `wavelength`, `wavelengtharray`, `AllAcqCounts` | **not** a fleet box (192.168.8.218) |
+| HamamatsuSpectrometerDAQ | 1 | — | `counts`, `wavelength`, `wavelengtharray`, `AllAcqCounts` | **OUT OF SCOPE** (Sam, 2026-09-17): no `acq_timestamp` implemented, so it is not truly triggerable yet |
 | DaqPad_NI6009 | 4 | — | `AI_array.Channel 0…31` | **not** fleet boxes (4 hosts) |
 | HexapodPI | 1 | — | `xyzuvw`, `xyzuvw_tolerances` | not a fleet box (192.168.8.198) |
 
@@ -155,7 +155,7 @@ metadata required.
 - **A — IMAQ binary image**: Point Grey, MagSpecCamera (both variables),
   ThorlabsWFS (both), MagSpecStitcher, FROG `frogTrace`. **Zero gateway code**;
   served wherever an instance runs on the device's host.
-- **B1 — ASCII CSV array**: Hamamatsu `counts`/`wavelength`/`wavelengtharray`.
+- **B1 — ASCII CSV array**: Hamamatsu `counts`/`wavelength`/`wavelengtharray` (the format still matters; the device itself is out of scope — no `acq_timestamp`).
   A one-line decoder. **Ships remotely.**
 - **B2 — LabVIEW flattened waveform** (§3.2): PicoscopeV2, DaqPad_NI6009. A
   ~15-line decoder. **Ships remotely.**
@@ -327,6 +327,25 @@ moved. Three notes, settled with Sam 2026-09-17:
 Unchecked: how the **waterfall** plot handles variable-shape lineouts (the
 guard above covers only the averaged line) - look before building.
 
+### 4.5b The FROG's variables need naming before PR 2 can declare them
+
+Open, and a domain question rather than a code one. The **asset registry** says
+the FROG writes two PNG streams, event fields `Spatial` and `Temporal`
+(`geecs_bluesky/assets/registry.py:361-368`). The **DB** lists four image
+variables: `SpatialImage`, `frogTrace`, `retrieved FrogTrace`,
+`retrievedFrogTrace`. Only **`frogTrace`** is ever pushed — the other three
+were empty on every probe — and it decodes to a 576x768 uint8 frame.
+
+So the mapping between the registry's two names and the DB's four is
+unresolved. Sam's read (2026-09-17): the FROG "should be resolving to the
+temporal image, or maybe that just is the frogTrace image". Deciding which DB
+variable is the `Temporal` asset, and whether `SpatialImage` is ever produced,
+is a **prerequisite for the PR 2 declaration**: the declaration names
+variables, so a wrong name arms a plugin on something that never pushes —
+exactly the failure the change exists to prevent. The two `retrieved*`
+spellings also look like one variable entered twice; worth curating while the
+answer is fresh.
+
 ### 4.6 Three things this plan does not yet answer
 
 1. **Live display of a 2-column array.** An `NTNDArray` of `(2048, 2)` will
@@ -362,24 +381,27 @@ can be accepted on an ordinary scan day.
 | 4 | Record side for arrays: data keys, descriptor shape, Tiled, `scan_stack` for `(N, M, 2)` | ~150–250 LOC across data-utils / ImageAnalysis / ScanAnalysis | worker restart | 1–2 |
 | 5 | Analysis: conservative rebinning, un-skip the averaged figure (§4.4b) | ~100 LOC + tests, `ScanAnalysis` | none | 1 |
 
-**≈ 6–9 build sessions, one lab afternoon of Windows bootstrapping, and two or
-three short restart windows.**
+**≈ 6–9 build sessions, and two or three short restart windows.** The
+bootstrapping is the schedule risk, not the work: **the Windows boxes are
+physically remote** (Sam, 2026-09-17 — "their hardware is far away, we'll just
+have to deal with that"). `bootstrap.ps1` needs an interactive session, so
+PR 1's real cost is access, not effort. The question that sets it: does RDP to
+these boxes give a session that satisfies that requirement, or does someone
+have to stand in front of each one? Answering that before scheduling PR 1 is
+worth more than any estimate here.
 
-**The deployment fork in PR 3.** The Picoscope (.7.168) and Hamamatsu (.8.218)
-boxes run no gateway today, and both formats **ship to remote subscribers**.
-So either bootstrap two more Windows boxes, or stand up **one central instance**
-for the trace devices — a new systemd unit on the services box, `site.env` and
-`render_units.sh` entries, and a contract-page update. The distributed design
-exists because images are bandwidth-heavy; a 6 KB waveform and a 36 KB
-spectrum at 1 Hz are not. The central instance is less total work and fewer
-Windows boxes to maintain, at the cost of breaking the "one instance per
-camera server" story. **Owner's call.**
+**The deployment fork in PR 3, now much smaller.** With the Hamamatsu out of
+scope, the Picoscope box (.7.168) is the *only* trace host — one box, not two.
+Its payloads ship to remote subscribers, so a central instance for trace
+devices stays possible (a systemd unit on the services box, `site.env` and
+`render_units.sh` entries, a contract-page update), but against a single box
+it is no longer obviously cheaper than one more `bootstrap.ps1`. Revisit only
+if a second trace host appears.
 
 **Sequencing, given free lab days.** PRs 1 and 2 are independent of the
 LabVIEW work and unlock data that is *already streaming* — do them first. PR 3
-can be built and accepted against the Picoscope and Hamamatsu, which are live
-and unambiguous today; the magspec lineouts then need only DB rows plus one
-decode branch. PRs 4 and 5 follow the lineouts landing. **Nothing waits on the
+can be built and accepted against the **Picoscope**, live and unambiguous
+today; the magspec lineouts then need only DB rows plus one decode branch. PRs 4 and 5 follow the lineouts landing. **Nothing waits on the
 LabVIEW side to start.**
 
 **The one real risk** is PR 2: it changes behaviour for every plugin-backed
@@ -432,7 +454,7 @@ Standing rule from `variable_types.py`: fix the DB, not the rule.
 | P1 | Tier 2: bootstrap the four missing boxes (FROG first — it also proves remote-shipping images) | ~1 short session per box |
 | P2 | Tier 5: the DB typing fix (+ the Q2 retype-vs-allowlist call), then re-probe the picoscope through the *DB-derived* roster | one session, no code |
 | P3 | Tier 3: the capture-stream declaration + FROG/MagSpec/WFS second streams; decide #756 for the stitcher | 1–2 build sessions |
-| P4 | Tier 4: arrays end to end — Hamamatsu (B1) and the ICT (B2) as the two acceptance devices | 2 build sessions + 1 read-side |
+| P4 | Tier 4: arrays end to end — **the ICT (B2) is the acceptance device** (the Hamamatsu is out of scope) | 2 build sessions + 1 read-side |
 | P5 | Tier 1 + P1–P4 parity evidence per device family (`geecs-pva-gateway diff`) | passive, rides on scan days |
 
 **Approved by Sam 2026-09-17:** the Tier-3 capture-stream declaration (P3)
@@ -489,6 +511,6 @@ return the most.
 - A central PVA instance for families B1/B2: tempting, since they ship
   remotely and would need no per-box bootstrap, but it reintroduces the
   concentrator the distributed design exists to avoid. Decide it when a B
-  device sits on a box nobody wants to bootstrap — the Hamamatsu and the
-  DaqPads are exactly that case, so this question will come up in P4.
+  device sits on a box nobody wants to bootstrap. With the Hamamatsu and the
+  DaqPads both out of scope, that case no longer exists today.
 - HASO / `.himg`: no such device is enabled.
