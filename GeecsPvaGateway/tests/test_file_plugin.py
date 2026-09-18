@@ -292,6 +292,17 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
         assert frames.compression_opts == 1
         assert frames.shuffle is True
         np.testing.assert_array_equal(frames[1], IMG + 1)
+        # The per-frame attributes carry the same filters. Their chunk is
+        # 16384 f8 slots that a scan fills a few dozen of, and HDF5 commits
+        # the whole chunk on first write -- uncompressed, each costs 128 KiB
+        # to hold a few hundred bytes, which on a short scan outweighs the
+        # frames. The chunk SHAPE is unchanged: ophyd-async declares
+        # chunk_shape=(16384,) to Tiled and the file must still match it.
+        stamps = f[f"{ATTRIBUTES_GROUP}/uc_testcam-hdf-image-frame_acq_timestamp"]
+        assert stamps.chunks == (16384,)
+        assert stamps.compression == "gzip"
+        assert stamps.compression_opts == 1
+        assert stamps.id.get_storage_size() < 16384 * 8
         stamps = f[f"{ATTRIBUTES_GROUP}/uc_testcam-hdf-image-frame_acq_timestamp"][:]
         assert stamps[1] == pytest.approx(t + 1.0, abs=0.002)
         assert "acq_timestamp" not in f[ATTRIBUTES_GROUP]
@@ -383,6 +394,9 @@ async def test_session_semantics_over_raw_pva(tmp_path):
             frames = f[FRAMES_DATASET]
             assert frames.shape == (3, *IMG.shape)
             assert frames.compression is None  # the "None" put above
+            # One switch, both datasets: raw frames means raw attributes.
+            attrs = f[f"{ATTRIBUTES_GROUP}/uc_testcam-hdf-image-frame_acq_timestamp"]
+            assert attrs.compression is None
             np.testing.assert_array_equal(frames[2], IMG + 4)
             assert f.attrs["rewound"] == 1
             assert f.attrs["stale_skipped"] == 2

@@ -820,12 +820,20 @@ class HdfFilePlugin:
             **filters,
         )
         for name in self.attributes:
+            # Same filters as the frames: an attribute chunk is 16384 f8 slots
+            # (128 KiB) that a normal scan fills a few dozen of, and HDF5
+            # commits the whole chunk on the first write.  Uncompressed, the
+            # 13 attributes of a 10-shot scan cost 1.7 MB to store 1 KB of
+            # numbers -- more than the frames.  Deflating the fill costs
+            # nothing and leaves ATTRIBUTE_CHUNK alone, so the file still
+            # matches the chunk_shape ophyd-async declares to Tiled.
             h5.create_dataset(
                 f"{ATTRIBUTES_GROUP}/{name}",
                 shape=(0,),
                 maxshape=(None,),
                 chunks=(ATTRIBUTE_CHUNK,),
                 dtype="f8",
+                **filters,
             )
         session.file = h5
         session.shape = frame.shape

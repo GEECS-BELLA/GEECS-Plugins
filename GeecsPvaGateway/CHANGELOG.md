@@ -4,6 +4,28 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.11.2] - 2026-09-18
+
+### Fixed
+
+- **The per-frame attribute datasets are compressed too** — the same
+  `filters` the frames already used, applied to the `NDAttributes` loop it
+  was never passed to. An attribute chunk is `ATTRIBUTE_CHUNK` (16384) f8
+  slots = 128 KiB, and HDF5 commits the whole chunk on the first write, so
+  each attribute cost 128 KiB no matter how many shots were in the scan.
+  Measured on Scan001 of 26_0918 (`UC_Amp2_IR_input`, 10 shots, 13
+  attributes): **1,703,936 bytes of storage for 1,040 bytes of numbers**,
+  more than the 1,303,005 bytes the frames took. Deflating the untouched
+  fill takes that to ~9,200 bytes (185x) and the file from 3.03 MB to
+  ~1.31 MB — under the 1.66 MB the equivalent LabVIEW PNGs occupy, which
+  it had been losing to purely on this padding.
+  `ATTRIBUTE_CHUNK` is deliberately unchanged: ophyd-async declares
+  `chunk_shape=(16384,)` in the stream resource it hands Tiled, and the
+  file must keep matching it. The saving is pure fill, so unlike the
+  frame compression it does not depend on image content. Gated behind the
+  same `Compression=zlib` as the frames: a client putting `None` gets raw
+  frames and raw attributes, one switch for both.
+
 ## [0.11.1] - 2026-09-17
 
 ### Changed
