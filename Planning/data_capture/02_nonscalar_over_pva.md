@@ -327,24 +327,31 @@ moved. Three notes, settled with Sam 2026-09-17:
 Unchecked: how the **waterfall** plot handles variable-shape lineouts (the
 guard above covers only the averaged line) - look before building.
 
-### 4.5b The FROG's variables need naming before PR 2 can declare them
+### 4.5b The FROG: `frogTrace` is the one stream (settled 2026-09-17, Sam)
 
-Open, and a domain question rather than a code one. The **asset registry** says
-the FROG writes two PNG streams, event fields `Spatial` and `Temporal`
-(`geecs_bluesky/assets/registry.py:361-368`). The **DB** lists four image
-variables: `SpatialImage`, `frogTrace`, `retrieved FrogTrace`,
-`retrievedFrogTrace`. Only **`frogTrace`** is ever pushed — the other three
-were empty on every probe — and it decodes to a 576x768 uint8 frame.
+**The device exposes one image at a time — spatial *or* temporal mode — and
+spatial mode is purely for alignment, not acquisition.** So `frogTrace`, the
+576x768 uint8 frame found streaming, *is* the temporal image, and it is the
+only FROG stream worth capturing. `SpatialImage` should never be declared.
 
-So the mapping between the registry's two names and the DB's four is
-unresolved. Sam's read (2026-09-17): the FROG "should be resolving to the
-temporal image, or maybe that just is the frogTrace image". Deciding which DB
-variable is the `Temporal` asset, and whether `SpatialImage` is ever produced,
-is a **prerequisite for the PR 2 declaration**: the declaration names
-variables, so a wrong name arms a plugin on something that never pushes —
-exactly the failure the change exists to prevent. The two `retrieved*`
-spellings also look like one variable entered twice; worth curating while the
-answer is fresh.
+Consequences:
+
+- **The PR 2 declaration for `FROG` is one name: `frogTrace`.** The positional
+  rule's failure here was purely alphabetical — `sorted()` puts `SpatialImage`
+  first — so the declaration needs no FROG-specific machinery, just the right
+  name.
+- **The declaration assumes acquisition mode.** In spatial (alignment) mode
+  `frogTrace` will not be produced, so a plugin armed on it would wait out
+  `ARM_TIMEOUT_S`. That is acceptable: alignment is not a scanning
+  configuration. Worth a line in the runbook rather than code.
+- **The asset registry over-declares.** It defines both a `Spatial` and a
+  `Temporal` PNG asset (`geecs_bluesky/assets/registry.py:361-368`), but the
+  device can only be in one mode, so on any real scan one of those two assets
+  points at files that do not exist. Not this arc's business, but it is
+  probably the reason `SpatialImage` was empty on every probe, and someone
+  should prune it when the FROG's native path is next touched.
+- The duplicate-looking `retrieved FrogTrace` / `retrievedFrogTrace` DB rows
+  are neither needed nor pushed; curate them out when convenient.
 
 ### 4.6 Three things this plan does not yet answer
 
