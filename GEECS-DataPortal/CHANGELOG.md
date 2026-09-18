@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.29.3] - 2026-09-17
+
+### Changed
+
+- Docs only: the Images tab's Tier A stack is credited to the PVA
+  gateway's file plugin rather than the deleted capture daemon
+  (`resources.py` module docstring), and the deployment section no longer
+  says the portal runs "next to the capture daemon".
+
 ## [0.29.2] - 2026-09-16
 
 ### Changed

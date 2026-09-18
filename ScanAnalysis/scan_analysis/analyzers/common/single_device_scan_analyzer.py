@@ -353,8 +353,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         logger.info(f"self.file_tail: {self.file_tail}")
 
         # Opt-in capture-stack strategy (data_format="device_hdf5"): map
-        # shots into the per-device HDF5 frame stack the capture daemon
-        # writes. Zero mappings (no stack, no timestamp column, no joins)
+        # shots into the per-device HDF5 frame stack the PVA gateway's
+        # file plugin writes. Zero mappings (no stack, no timestamp column, no joins)
         # fall back to the per-shot file strategies below — the old basis
         # keeps working unconditionally.
         # getattr: instances built without __init__ (the test harness's

@@ -1,8 +1,8 @@
 """Tests for the capture-stack mapping strategy in SingleDeviceScanAnalyzer.
 
 ``data_format="device_hdf5"`` opts a diagnostic into the per-device capture
-frame stack (``<device>/<device>.h5``, written by the capture daemon —
-contract in ``GeecsBluesky/geecs_bluesky/capture/FORMAT.md``). The join
+frame stack (``<device>/<device>.h5``, written by the PVA gateway's file
+plugin; read side in ``geecs_data_utils.io.scan_stack``). The join
 mirrors the acq_timestamp file join (canonical-millisecond keys), producing
 ``ShotRef`` values that travel the existing per-shot pipeline. Every failure
 shape (no stack, wrong schema, zero joins, unset flag) must fall back to the

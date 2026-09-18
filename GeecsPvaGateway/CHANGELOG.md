@@ -4,6 +4,13 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.11.1] - 2026-09-17
+
+### Changed
+
+- Docs only: the timestamp-ladder docstring in `server.py` credits the
+  file plugin's dedupe rather than the deleted capture daemon's.
+
 ## [0.11.0] - 2026-09-17
 
 ### Changed

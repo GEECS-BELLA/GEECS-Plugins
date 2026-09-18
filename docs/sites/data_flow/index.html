@@ -136,7 +136,7 @@ svg.has-sel .step:not(.on){opacity:.25}
 </header>
 
 <figure>
-<svg viewBox="0 0 1220 716" role="img" aria-label="Left to right: GEECS LabVIEW devices and cameras feed the CA and PVA gateways, which feed the Bluesky queueserver and capture daemon. Scan requests come from the web scanner; OSPREY reads and halts through GEECS-MCP but cannot submit. Results flow down into Tiled and the NAS scan folder, and are read back by the Data Portal, notebooks, ScanAnalysis and MCP.">
+<svg viewBox="0 0 1220 716" role="img" aria-label="Left to right: GEECS LabVIEW devices and cameras feed the CA and PVA gateways, which feed the Bluesky queueserver. The PVA gateway writes each camera's frames straight to the share as HDF5 stacks. Scan requests come from the web scanner; OSPREY reads and halts through GEECS-MCP but cannot submit. Results flow down into Tiled and the NAS scan folder, and are read back by the Data Portal, notebooks, ScanAnalysis and MCP.">
   <defs>
     <marker id="ah-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="m-teal"/></marker>
     <marker id="ah-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="m-amber"/></marker>
@@ -164,8 +164,6 @@ svg.has-sel .step:not(.on){opacity:.25}
   <text data-n="cameras pva-gateway" class="t-lbl l-teal" x="260" y="361" text-anchor="middle">IMAQ frames</text>
   <path class="e e-teal" d="M500,140 H580" data-n="ca-gateway queueserver" marker-end="url(#ah-teal)"/>
   <text data-n="ca-gateway queueserver" class="t-lbl l-teal" x="540" y="131" text-anchor="middle">readbacks</text>
-  <path class="e e-teal" d="M500,370 H580" data-n="pva-gateway capture" marker-end="url(#ah-teal)"/>
-  <text data-n="pva-gateway capture" class="t-lbl l-teal" x="540" y="361" text-anchor="middle">pvAccess</text>
   <path class="e e-teal" d="M395,190 V220" data-n="ca-gateway phoebus" marker-end="url(#ah-teal)"/>
   <text data-n="ca-gateway phoebus" class="t-lbl l-teal" x="403" y="209">PVs</text>
   <path class="e e-teal" d="M395,330 V286" data-n="pva-gateway phoebus" marker-end="url(#ah-teal)"/>
@@ -186,8 +184,8 @@ svg.has-sel .step:not(.on){opacity:.25}
   <text data-n="queueserver tiled" class="t-lbl l-violet" x="722" y="209">documents, every shot</text>
   <path class="e e-violet" d="M600,190 V308 H750 V470" data-n="queueserver nas" marker-end="url(#ah-violet)"/>
   <text data-n="queueserver nas" class="t-lbl l-violet" x="675" y="302" text-anchor="middle">claim ScanNNN · ScanInfo · s-file</text>
-  <path class="e e-violet" d="M655,410 V470" data-n="capture nas" marker-end="url(#ah-violet)"/>
-  <text data-n="capture nas" class="t-lbl l-violet" x="667" y="444">HDF5 image stacks</text>
+  <path class="e e-violet" d="M395,410 V470" data-n="pva-gateway nas" marker-end="url(#ah-violet)"/>
+  <text data-n="pva-gateway nas" class="t-lbl l-violet" x="407" y="444">HDF5 image stacks</text>
   <path class="e e-violet" d="M30,150 H14 V440 H130" data-n="devices nas"/>
   <path class="e e-violet" d="M130,410 V470" data-n="cameras nas" marker-end="url(#ah-violet)"/>
   <text data-n="cameras devices nas" class="t-lbl l-violet" x="142" y="444">native per-shot files</text>
@@ -251,7 +249,7 @@ svg.has-sel .step:not(.on){opacity:.25}
     <rect class="node" x="290" y="330" width="210" height="80" rx="6"/>
     <text class="t-title" x="304" y="352">PVA image gateways</text>
     <text class="t-sub" x="304" y="370">GeecsPvaGateway · one per camera server</text>
-    <text class="t-sub" x="304" y="386">NTNDArray images · pvAccess :5075</text>
+    <text class="t-sub" x="304" y="386">NTNDArray images · pvAccess :5075 · writes the HDF5 stacks</text>
     <circle class="st st-hardening" cx="490" cy="340" r="4"/>
   </g>
 
@@ -269,14 +267,6 @@ svg.has-sel .step:not(.on){opacity:.25}
     <text class="t-sub" x="634" y="260">per-shot scalars, run metadata</text>
     <text class="t-sub" x="634" y="275">HTTP :8000</text>
     <circle class="st st-hardening" cx="790" cy="230" r="4"/>
-  </g>
-
-  <g class="n" data-id="capture" tabindex="0" role="button" aria-label="Capture daemon: open details">
-    <rect class="node" x="580" y="330" width="150" height="80" rx="6"/>
-    <text class="t-title" x="594" y="352">Capture daemon</text>
-    <text class="t-sub" x="594" y="370">geecs-capture</text>
-    <text class="t-sub" x="594" y="386">grabs images during a scan</text>
-    <circle class="st st-developing" cx="720" cy="340" r="4"/>
   </g>
 
   <g class="n" data-id="scanner" tabindex="0" role="button" aria-label="GEECS Scanner: open details">
@@ -339,7 +329,7 @@ svg.has-sel .step:not(.on){opacity:.25}
   <g class="step" data-n="osprey mcp"><circle cx="1050" cy="308" r="8"/><text x="1050" y="311.5">1</text></g>
   <g class="step" data-n="queueserver ca-gateway"><circle cx="540" cy="170" r="8"/><text x="540" y="173.5">2</text></g>
   <g class="step" data-n="queueserver tiled"><circle cx="710" cy="205" r="8"/><text x="710" y="208.5">3</text></g>
-  <g class="step" data-n="capture nas"><circle cx="655" cy="440" r="8"/><text x="655" y="443.5">3</text></g>
+  <g class="step" data-n="pva-gateway nas"><circle cx="395" cy="440" r="8"/><text x="395" y="443.5">3</text></g>
   <g class="step" data-n="cameras devices nas"><circle cx="130" cy="440" r="8"/><text x="130" y="443.5">3</text></g>
   <g class="step" data-n="queueserver nas"><circle cx="600" cy="250" r="8"/><text x="600" y="253.5">4</text></g>
   <g class="step" data-n="tiled nas portal notebooks scan-analysis"><circle cx="880" cy="420" r="8"/><text x="880" y="423.5">5</text></g>
@@ -377,7 +367,7 @@ svg.has-sel .step:not(.on){opacity:.25}
   <circle class="st st-exploratory" cx="690" cy="700" r="4"/><text class="t-sub" x="698" y="704">exploratory</text>
   <text class="t-sub" x="900" y="704">Click any block for what it does, how it works, status and next steps.</text>
 </svg>
-<figcaption><span class="l-amber" style="color:var(--amber);font-weight:600">*</span> Cameras are the first non-scalar device type on the image path. The PVA gateway and capture daemon will expand to cover every GEECS device type that saves non-scalar data. One scan reads left to right: the request enters the queueserver, setpoints and readbacks cross the CA gateway, and everything the scan produces drops into Tiled and the NAS scan folder, where people and agents read it back. Two ways in, one engine, one folder layout. Status dots are the maintainer's read as of 2026-09-08; click a block for the detail behind it. Ports and hosts are the current interim deployment: the CA gateway, Tiled, the GEECS DB and all worker-side services share one central server until the dedicated services box arrives.</figcaption>
+<figcaption><span class="l-amber" style="color:var(--amber);font-weight:600">*</span> Cameras are the first non-scalar device type on the image path. The PVA gateway will expand to cover every GEECS device type that saves non-scalar data. One scan reads left to right: the request enters the queueserver, setpoints and readbacks cross the CA gateway, and everything the scan produces drops into Tiled and the NAS scan folder, where people and agents read it back. Two ways in, one engine, one folder layout. Status dots are the maintainer's read as of 2026-09-08; click a block for the detail behind it. Ports and hosts are the current interim deployment: the CA gateway, Tiled, the GEECS DB and all worker-side services share one central server until the dedicated services box arrives.</figcaption>
 </figure>
 
 <div class="grid">
@@ -386,7 +376,7 @@ svg.has-sel .step:not(.on){opacity:.25}
   <ol class="steps">
     <li><span class="n">1</span><span><b>A request enters the queue.</b> An operator submits from the scanner page — the only submitting surface. GEECS-MCP reads and halts the queue but has no submit verb, so an agent observes and can stop a run, never start one.</span></li>
     <li><span class="n">2</span><span><b>The engine drives hardware through PVs.</b> Setpoints are written to <code>:SP</code> PVs on the CA gateway, which relays them to the LabVIEW device over the GEECS wire protocol and mirrors the readbacks.</span></li>
-    <li><span class="n">3</span><span><b>Every shot lands in three places.</b> Readings become Bluesky documents in Tiled. The capture daemon pulls images from the PVA gateways into HDF5 stacks. LabVIEW devices keep saving their native per-shot files.</span></li>
+    <li><span class="n">3</span><span><b>Every shot lands in three places.</b> Readings become Bluesky documents in Tiled. Each PVA gateway writes its cameras' frames to the share as one HDF5 stack per camera per scan. LabVIEW devices keep saving their native per-shot files.</span></li>
     <li><span class="n">4</span><span><b>The engine owns the scan folder.</b> It alone claims <code>ScanNNN</code>, writes ScanInfo and exports the s-file. Analysis code only ever reads that folder.</span></li>
     <li><span class="n">5</span><span><b>People read it back.</b> Data Portal and notebooks share one catalog layer over Tiled and the share. MCP answers "what did scan 12 give" from the same place.</span></li>
     <li><span class="n">6</span><span><b>Analysis runs itself.</b> LiveWatch sees the new s-file, ScanAnalysis runs the configured analyzers, LogMaker posts the figures to the experiment Google Doc.</span></li>
@@ -413,10 +403,10 @@ svg.has-sel .step:not(.on){opacity:.25}
   <h2>What runs where today</h2>
   <p class="sub" style="margin:0 0 12px">A sketch. The <a href="../../platform/fleet_map/">Fleet Map</a> is the authoritative table of hosts, ports, health checks and runbooks, and the place drift is reconciled.</p>
   <div class="hosts">
-    <div class="host"><div class="h">Central lab server</div><div class="ip">192.168.6.14 · Ubuntu · systemd</div><p>CA gateway, Tiled, GEECS DB. Interim home of the worker-side services too: queueserver, capture daemon, GEECS-MCP HTTP, Data Portal.</p></div>
-    <div class="host"><div class="h">Camera servers</div><div class="ip">Windows · NSSM service</div><p>One PVA image gateway per host, beside the LabVIEW camera devices. Images never transit the central gateway.</p></div>
+    <div class="host"><div class="h">Central lab server</div><div class="ip">192.168.6.14 · Ubuntu · systemd</div><p>CA gateway, Tiled, GEECS DB. Interim home of the worker-side services too: queueserver, GEECS-MCP HTTP, Data Portal.</p></div>
+    <div class="host"><div class="h">Camera servers</div><div class="ip">Windows · NSSM service</div><p>One PVA image gateway per host, beside the LabVIEW camera devices. It serves the live frames and writes the scan's HDF5 stacks. Images never transit the central server.</p></div>
     <div class="host"><div class="h">Device hosts</div><div class="ip">Windows · LabVIEW</div><p>GEECS devices as always. Nothing installed for this stack; the gateway speaks their existing UDP/TCP protocol.</p></div>
-    <div class="host"><div class="h">Data share</div><div class="ip">NAS · SMB</div><p>The scan folder tree. Written by the engine, capture daemon and LabVIEW; read by everyone else.</p></div>
+    <div class="host"><div class="h">Data share</div><div class="ip">NAS · SMB</div><p>The scan folder tree. Written by the engine, the PVA gateways and LabVIEW; read by everyone else.</p></div>
     <div class="host"><div class="h">Operator machines</div><div class="ip">Windows / macOS / Linux</div><p>Phoebus, notebooks, a browser for the scanner, the portal and the logbook, OSPREY. All clients, nothing runs unattended here.</p></div>
   </div>
 </section>
@@ -485,9 +475,9 @@ const INFO = {
   "now": "Existing infrastructure. Of the 11 camera servers on the Undulator roster, 9 run a PVA gateway instance as of 2026-09-04.",
   "next": [
    "Deploy the PVA gateway on the remaining 2 roster hosts.",
-   "The asterisk: cameras are the first non-scalar device type on this path. The same gateway plus capture design is meant to expand to every GEECS device type that saves non-scalar data (traces, spectra, waveforms)."
+   "The asterisk: cameras are the first non-scalar device type on this path. The same serve-and-write gateway design is meant to expand to every GEECS device type that saves non-scalar data (traces, spectra, waveforms)."
   ],
-  "vision": "Images and other array data served at the edge, captured centrally and losslessly, with native LabVIEW file saving eventually switched off per device once the dual-write record proves clean.",
+  "vision": "Images and other array data served and written at the edge, losslessly, with native LabVIEW file saving eventually switched off per device once the dual-write record proves clean.",
   "meta": [
    "PVA gateway: [CLAUDE.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/CLAUDE.md)"
   ]
@@ -539,23 +529,27 @@ const INFO = {
   "name": "PVA image gateways",
   "role": "GeecsPvaGateway: camera images as pvAccess NTNDArray PVs, one instance per camera server.",
   "status": "hardening",
-  "does": "Serves each camera server's live frames as standard EPICS image PVs so Phoebus and the capture daemon can subscribe. Images never transit the central gateway.",
+  "does": "Serves each camera server's live frames as standard EPICS image PVs so Phoebus and any client can subscribe, and writes the scan's frames to the share as one HDF5 stack per camera. Images never transit the central server.",
   "how": [
    "The served set is scoped from the DB: enabled devices on this host with image-typed variables. No per-host config file.",
    "Subscriptions are gated per camera, so LabVIEW pays nothing for an unwatched device. Frames are latest-wins with decode off the event loop.",
+   "Beside that live stream sits an areaDetector-shaped file plugin with the opposite contract — lossless for the length of a capture session. The worker arms it through stock ophyd-async; frames are deduplicated on acquisition timestamp, stale ones dropped, and one `<device>.h5` per camera is written by a single writer thread into the engine-created folder. It never creates a directory.",
+   "A counter identity is stamped into each file at finalize, so completeness is auditable.",
    "Runs as an NSSM Windows service that pulls the shared Active Version clone on restart. Version, heartbeat and restart PVs make every instance probeable."
   ],
   "now": "Running on 9 of the 11 camera servers on the Undulator roster. The fleet-status tooling probes every instance through its version and heartbeat PVs (2026-09-05); deployed instances can trail the repo by a release, and the Fleet Map records what was observed.",
   "next": [
    "Deploy the 2 missing roster hosts.",
    "Harden the fleet pin: today it is the checked-out commit of one shared clone on the data share.",
-   "Losslessness under scan load is what the capture arc's later phases depend on."
+   "Extend the written stacks beyond cameras to every non-scalar device type.",
+   "Switch native PNG saving off per camera, gated on weeks of dual-write with zero mismatches. Losslessness under scan load is what that depends on."
   ],
   "vision": "Distributed by design because one central process relaying about 100 cameras is a bandwidth wall. End state: all non-scalar device data served at the edge this way.",
   "meta": [
    "[CHANGELOG](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/CHANGELOG.md)",
    "[Deployment](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/DEPLOYMENT.md)",
-   "[CLAUDE.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/CLAUDE.md)"
+   "[CLAUDE.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/CLAUDE.md)",
+   "[Stack format](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-Data-Utils/geecs_data_utils/io/scan_stack.py)"
   ]
  },
  "queueserver": {
@@ -566,14 +560,14 @@ const INFO = {
   "how": [
    "A bluesky-queueserver RE Manager whose profile serves one funnel plan, `geecs_scan_request_plan`. The scanner and MCP are peer clients of the same queue.",
    "Two acquisition modes: free-run time sync, where the first sync device paces and every other device fills its row with a derived shot id; and strict shot control (arm, confirm quiescent, fire, await all). Both emit the same versioned event schema.",
-   "Devices are ophyd-async objects over the CA gateway. Redis holds the queue; a doc-stream proxy on port 5568 republishes documents to the capture daemon and any panel."
+   "Devices are ophyd-async objects over the CA gateway. Redis holds the queue; a doc-stream proxy on port 5568 republishes documents to any panel."
   ],
   "now": "The DAQ since the legacy scanner was retired on 2026-08-20. Runs as `geecs-qserver` under systemd on the interim host with a readiness oneshot that asserts the plan list after every start.",
   "next": [
    "Named operator-shaped plans (noscan, 1D, optimize) as schemas that UIs can render, all still executing the one shared prologue.",
    "Requested rep-rate throttling: strict shots slower than the external rate, free-run every-Nth subsampling.",
    "Not yet exercised live: hard pause, pause during optimize mode, a live failed-move policy trigger.",
-   "Move with the capture daemon to the dedicated services box."
+   "Move to the dedicated services box."
   ],
   "vision": "One engine for everything that acquires: operator scans, agent scans and optimization loops, with `shot_id` the universal join key so later event-builder or flyer designs are a mechanical migration.",
   "meta": [
@@ -603,30 +597,6 @@ const INFO = {
   "meta": [
    "[Tiled setup](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/TILED_SETUP.md)",
    "[ScanCatalog](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-Data-Utils/geecs_data_utils/tiled_catalog.py)"
-  ]
- },
- "capture": {
-  "name": "Capture daemon",
-  "role": "geecs-capture: central, lossless image capture from the PVA gateways.",
-  "status": "developing",
-  "does": "Turns live camera PVs into one HDF5 frame stack per camera per scan, so image saving no longer has to happen inside LabVIEW.",
-  "how": [
-   "Listens to the engine's document stream. When a start document names capture devices it opens PVA subscriptions on those cameras.",
-   "Frames are deduplicated on acquisition timestamp, pre-scan and stale frames dropped, and one `<device>.h5` per camera is written by a single writer thread into the engine-created folder. It never creates a scan folder.",
-   "A counter identity is stamped into each file at finalize, so completeness is auditable. A heartbeat file lets the engine refuse toggle-off scans while the daemon is down."
-  ],
-  "now": "Ships inside GeecsBluesky and runs under systemd beside the worker. Phases 0 to 3 of the capture arc are built, including the per-device native-save toggle (2026-08-27). Cameras run dual-write today.",
-  "next": [
-   "Phase 4: the read side for frame stacks in analysis and the portal.",
-   "Phase 5: capture inside the strict shot-control contract.",
-   "Phase 6: switch native PNG saving off per camera, gated on weeks of dual-write with zero mismatches.",
-   "Extend beyond cameras to every non-scalar device type."
-  ],
-  "vision": "Central lossless capture replaces LabVIEW per-shot file saving device by device, with a self-describing container that a future Zarr writer could swap in behind the same interface.",
-  "meta": [
-   "[Stack format](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-Data-Utils/geecs_data_utils/io/scan_stack.py)",
-   "[Deployment](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/capture/deploy/DEPLOYMENT.md)",
-   "[File plugin](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/CLAUDE.md)"
   ]
  },
  "scanner": {
@@ -710,7 +680,7 @@ const INFO = {
   ],
   "now": "Robust and unchanged from the legacy scanner, which is why every existing analysis notebook still works.",
   "next": [
-   "Watch the file-count pathology on the NAS as per-shot files accumulate; one HDF5 per device per scan is the answer the capture arc is building.",
+   "Watch the file-count pathology on the NAS as per-shot files accumulate; one HDF5 per device per scan is the answer the file plugin is building toward.",
    "Longer term the archive interface becomes Tiled, with the share as the store behind it."
   ],
   "vision": "Fewer, larger, self-describing files per scan, still in the same tree, still readable by anything that reads the tree today.",
