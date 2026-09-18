@@ -175,6 +175,52 @@ def test_docs_only_change_selects_nothing() -> None:
     assert legs == set()
 
 
+# --- paths that look ignorable but are pinned by root tests/ -----------------
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        # tests/test_render_units_sh.py, tests/test_bootstrap_host_sh.py
+        "deploy/render_units.sh",
+        "deploy/bootstrap_host.sh",
+        "deploy/site.env.example",
+        # tests/test_skill_frontmatter.py
+        ".claude/skills/land/SKILL.md",
+        # GEECS-Schemas' published contract artifacts. test_schema_export.py
+        # says a docs reorg dropping one must fail CI, not green-skip (#730).
+        "docs/geecs_schemas/scan_request.schema.json",
+        "docs/geecs_schemas/schema_reference.md",
+    ],
+)
+def test_root_tested_paths_select_the_root_leg(path: str) -> None:
+    """These live outside any package but root tests/ validates them.
+
+    Each would otherwise be swallowed by the docs/.claude/deploy ignore
+    rules, silently skipping the test written to make it loud.
+    """
+    graph = ci_select.discover_graph()
+    legs, _ = ci_select.classify([path], graph)
+
+    assert ci_select.ROOT_LEG in legs, (
+        f"{path} is pinned by root tests/ but was not selected"
+    )
+
+
+def test_package_unit_file_selects_both_its_package_and_root() -> None:
+    """A systemd unit is validated by a ROOT test, not its package's suite.
+
+    tests/test_render_units_sh.py walks the per-package unit templates, so
+    editing one to reintroduce a hard-coded lab path must run the root leg
+    as well as the package's own.
+    """
+    graph = ci_select.discover_graph()
+    legs, _ = ci_select.classify(["GeecsScanner/deploy/geecs-scanner.service"], graph)
+
+    assert ci_select.ROOT_LEG in legs
+    assert "GeecsScanner" in legs
+
+
 def test_template_edit_runs_the_theme_guard() -> None:
     """GeecsWebTheme's tests walk other packages' templates.
 
@@ -190,14 +236,41 @@ def test_template_edit_runs_the_theme_guard() -> None:
     assert "GEECS-DataPortal" in legs
 
 
-def test_theme_guarded_globs_point_at_real_directories() -> None:
-    """The guarded template paths still exist.
+def test_every_guarded_surface_selects_the_theme_leg() -> None:
+    """Every surface the theme guard walks must select the theme leg.
 
-    A moved template directory would silently stop selecting the theme
-    leg, so the literal prefixes are pinned to the tree.
+    Read from GeecsWebTheme's own ``_SURFACES`` list, so the two cannot
+    drift. This is the test that bites: an earlier draft matched a
+    hand-written list of guarded directories and missed all three
+    GeecsScanner surfaces, which would have let a literal colour land
+    there with the guard never running.
+
+    Parsed rather than imported: the root env has no GeecsWebTheme.
     """
-    for prefix in ci_select.THEME_GUARDED_GLOBS:
-        assert (REPO_ROOT / prefix).is_dir(), f"{prefix} no longer exists"
+    import ast
+
+    guard = REPO_ROOT / "GeecsWebTheme" / "tests" / "test_no_literal_colours.py"
+    tree = ast.parse(guard.read_text(encoding="utf-8"))
+    surfaces: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(
+            getattr(t, "id", None) == "_SURFACES" for t in node.targets
+        ):
+            surfaces = [
+                n.value
+                for n in ast.walk(node.value)
+                if isinstance(n, ast.Constant) and isinstance(n.value, str)
+            ]
+    assert surfaces, "could not parse _SURFACES out of the theme guard"
+
+    graph = ci_select.discover_graph()
+    for surface in surfaces:
+        if surface.startswith("GeecsWebTheme/"):
+            continue  # its own package already selects the leg
+        legs, _ = ci_select.classify([surface], graph)
+        assert "GeecsWebTheme" in legs, (
+            f"{surface} is walked by the theme guard but does not select the theme leg"
+        )
 
 
 def test_root_tests_select_the_root_leg() -> None:
@@ -206,6 +279,37 @@ def test_root_tests_select_the_root_leg() -> None:
     legs, _ = ci_select.classify(["tests/test_ci_select.py"], graph)
 
     assert legs == {ci_select.ROOT_LEG}
+
+
+def test_the_diff_disables_rename_detection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``git diff`` must run with ``--no-renames``.
+
+    With rename detection on (git's default), ``--name-only`` prints only a
+    rename's DESTINATION. A module moved from GeecsBluesky to GeecsScanner
+    would then select only GeecsScanner's leg, and GeecsBluesky's tests —
+    which may import what just left — would not run. Verified against real
+    git: `git mv PkgA/mod.py PkgB/mod.py` lists only `PkgB/mod.py` without
+    the flag, both paths with it.
+    """
+    calls: list[list[str]] = []
+
+    class _Result:
+        stdout = ""
+
+    def _fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return _Result()
+
+    monkeypatch.setattr(ci_select.subprocess, "run", _fake_run)
+    ci_select.changed_files("origin/master", None)
+
+    diff_calls = [c for c in calls if "diff" in c]
+    assert diff_calls, "no git diff was issued"
+    for cmd in diff_calls:
+        assert "--no-renames" in cmd, (
+            "git diff must use --no-renames, or a cross-package move selects "
+            "only the destination package's leg"
+        )
 
 
 def test_all_legs_are_unique_and_ordered() -> None:

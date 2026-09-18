@@ -122,14 +122,19 @@ else
     MB="$(git merge-base HEAD "$BASE")"
     while IFS= read -r -d '' f; do
         CHANGED+=("$f")
-    done < <(git diff --name-only -z "$MB")
+    # --no-renames: with rename detection on, --name-only prints only a
+    # rename's destination, so a cross-package move would never test the
+    # source package. Same reason as scripts/ci_select.py's diff.
+    done < <(git diff --name-only --no-renames -z "$MB")
     for f in ${CHANGED[@]+"${CHANGED[@]}"}; do
         # Any web surface the theme guard walks runs the guard too, even
         # when changed-mode would otherwise pick only its own package.
+        # Matched by EXTENSION, not by a list of directories: the directory
+        # list here and in ci_select.py had already drifted past all three
+        # GeecsScanner surfaces the guard walks. The theme suite is seconds,
+        # so over-selecting on any web asset beats a list that rots.
         case "$f" in
-            GEECS-DataPortal/geecs_portal/templates/*.html|\
-            GeecsLogbook/geecs_logbook/static/*.css|GeecsLogbook/geecs_logbook/templates/*.html|\
-            ScanAnalysis/scan_analysis/config_editor/static/*.css|ScanAnalysis/scan_analysis/config_editor/templates/*.html)
+            *.html|*.css|*.js)
                 [ -d GeecsWebTheme ] && add_unit GeecsWebTheme ;;
         esac
         top="${f%%/*}"

@@ -86,24 +86,47 @@ NO_SUITE_PKGS = frozenset({"LogMaker4GoogleDocs"})
 INFRA_PREFIXES = (".github/", "scripts/")
 INFRA_FILES = frozenset({"pyproject.toml", "poetry.lock", ".pre-commit-config.yaml"})
 
+# Paths that belong to no package but that the ROOT tests/ suite validates.
+# These are checked BEFORE the ignore list, because most of them would
+# otherwise be swallowed by it — and each one has a test written precisely
+# so that breaking it fails CI rather than green-skipping.
+ROOT_TESTED_PREFIXES = (
+    "deploy/",  # tests/test_render_units_sh.py, tests/test_bootstrap_host_sh.py
+    ".claude/skills/",  # tests/test_skill_frontmatter.py
+    # GEECS-Schemas' published contract artifacts. test_schema_export.py says
+    # in as many words that a docs reorg dropping one "must fail CI, not
+    # silently green-skip (#730 review)" — so this carve-out out of docs/ is
+    # load-bearing, not tidiness.
+    "docs/geecs_schemas/",
+)
+
+# A per-package systemd unit lives under its package, so it selects that
+# package's leg — but the template-validity check for it lives in ROOT
+# tests/ (tests/test_render_units_sh.py), which that leg does not run.
+ROOT_TESTED_SUFFIXES = (".service",)
+
+# Any web asset, in any package, runs the theme guard — see
+# THEME_GUARDED_SUFFIXES below.
+
 # Documentation, planning and agent context: no suite can observe these.
-IGNORED_PREFIXES = ("docs/", "Planning/", ".claude/", "extras/", "deploy/")
+IGNORED_PREFIXES = ("docs/", "Planning/", ".claude/", "extras/")
 IGNORED_SUFFIXES = (".md",)
 IGNORED_FILES = frozenset({".gitignore", "LICENSE", "AGENTS.md", "mkdocs.yml"})
 
 # Undeclared coupling the pyproject graph cannot express: GeecsWebTheme's
 # tests walk the OTHER packages' templates and stylesheets to enforce the
-# no-literal-colour and .kit-scoping rules, so a template edited anywhere
-# must run the theme leg. This is a reverse edge (theme depends on nobody),
-# which is exactly why it has to be spelled out. Mirrors the same rule in
-# scripts/check.sh.
-THEME_GUARDED_GLOBS = (
-    "GEECS-DataPortal/geecs_portal/templates/",
-    "GeecsLogbook/geecs_logbook/static/",
-    "GeecsLogbook/geecs_logbook/templates/",
-    "ScanAnalysis/scan_analysis/config_editor/static/",
-    "ScanAnalysis/scan_analysis/config_editor/templates/",
-)
+# no-literal-colour and .kit-scoping rules, so a web asset edited anywhere
+# must run the theme leg. This is a reverse edge — the theme depends on
+# nobody, so the dependents walk can never reach it.
+#
+# Matched by EXTENSION rather than by a list of guarded directories. An
+# earlier draft listed the directories and immediately drifted: it missed
+# all three GeecsScanner surfaces, which would have let a literal colour
+# land there unchecked. The theme leg costs ~19 s, so over-selecting on any
+# web asset anywhere is far cheaper than maintaining a list that silently
+# rots. test_every_guarded_surface_selects_the_theme_leg pins the result
+# against the guard's own surface list.
+THEME_GUARDED_SUFFIXES = (".html", ".css", ".js")
 
 
 def discover_graph() -> dict[str, set[str]]:
@@ -191,16 +214,26 @@ def classify(
             reasons.append(f"{path}: CI infrastructure — every leg")
             return set(all_legs()), reasons
 
+        # Before the ignore list: these paths look ignorable but are pinned
+        # by root tests/.
+        if path.startswith(ROOT_TESTED_PREFIXES) or path.endswith(ROOT_TESTED_SUFFIXES):
+            legs.add(ROOT_LEG)
+            reasons.append(f"{path}: validated by root tests/ — root leg")
+            # A per-package unit file also belongs to its package; fall
+            # through so the package leg is picked up too.
+            if not path.endswith(ROOT_TESTED_SUFFIXES):
+                continue
+
+        if path.endswith(THEME_GUARDED_SUFFIXES):
+            legs.add("GeecsWebTheme")
+            reasons.append(f"{path}: web asset — theme guard leg")
+
         if (
             path in IGNORED_FILES
             or path.startswith(IGNORED_PREFIXES)
             or path.endswith(IGNORED_SUFFIXES)
         ):
             continue
-
-        if path.startswith(THEME_GUARDED_GLOBS):
-            legs.add("GeecsWebTheme")
-            reasons.append(f"{path}: template/stylesheet — theme guard leg")
 
         top = path.split("/", 1)[0]
 
@@ -240,8 +273,13 @@ def changed_files(base: str | None, files: str | None) -> list[str]:
         text=True,
         check=True,
     ).stdout.strip()
+    # --no-renames is load-bearing. With rename detection on (the default
+    # since git 2.9) `--name-only` prints ONLY a rename's destination, so
+    # moving a module from one package to another would select the
+    # destination package's leg and never the source's — the source
+    # package's tests, which may import what just left, would not run.
     diff = subprocess.run(
-        ["git", "diff", "--name-only", merge_base],
+        ["git", "diff", "--name-only", "--no-renames", merge_base],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

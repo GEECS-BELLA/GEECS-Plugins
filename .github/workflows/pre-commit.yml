@@ -9,7 +9,10 @@ on:
 
 concurrency:
   group: pre-commit-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a master run: that exhaustive run is the backstop the
+  # PR-side narrowing depends on, and two merges in quick succession would
+  # otherwise cancel the first one's full matrix.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
   pre-commit:

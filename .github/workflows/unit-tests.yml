@@ -21,7 +21,10 @@ on:
 # Superseded runs used to finish anyway, holding runners for ~10 minutes.
 concurrency:
   group: unit-tests-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a master run: that exhaustive run is the backstop the
+  # PR-side narrowing depends on, and two merges in quick succession would
+  # otherwise cancel the first one's full matrix.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
   select:
@@ -86,18 +89,26 @@ jobs:
               echo "lock=${{ matrix.leg }}/poetry.lock" >> "$GITHUB_OUTPUT" ;;
           esac
 
-      # Poetry's wheel/artifact cache, not the virtualenvs: the venvs total
-      # ~4.9 GB against GitHub's 10 GB per-repo cache cap, and evicting each
-      # other would make the cache useless. Caching downloads instead keeps
-      # each entry small while removing what actually dominated the install
-      # — GeecsBluesky's `optimize` extra pulls xopt → botorch → torch, a
-      # 365 MB download that was re-fetched on every run.
-      # The restore-keys prefix means a lock change still reuses every wheel
-      # that did not change, rather than starting from empty.
+      # The downloads only — NOT the virtualenvs, which is why the two
+      # subdirectories are named explicitly rather than caching
+      # ~/.cache/pypoetry wholesale. Poetry's default virtualenvs.path is
+      # {cache-dir}/virtualenvs, i.e. INSIDE that directory, so the broad
+      # path silently swallows the installed environment: the GeecsBluesky
+      # entry came out at 12.02 GB, over GitHub's entire 10 GB per-repo cap,
+      # which would have thrashed every other leg's cache out by LRU and
+      # made the whole mechanism unreliable.
+      #
+      # Caching the downloads is what actually removes the dominant cost:
+      # the `optimize` extra pulls xopt -> botorch -> torch, and on Linux
+      # torch drags the multi-GB nvidia CUDA wheels with it, re-fetched on
+      # every run. The restore-keys prefix means a lock change still reuses
+      # every wheel that did not change rather than starting from empty.
       - name: Cache Poetry downloads
         uses: actions/cache@v4
         with:
-          path: ~/.cache/pypoetry
+          path: |
+            ~/.cache/pypoetry/artifacts
+            ~/.cache/pypoetry/cache
           key: poetry-${{ runner.os }}-py311-${{ matrix.leg }}-${{ hashFiles(steps.leg.outputs.lock) }}
           restore-keys: |
             poetry-${{ runner.os }}-py311-${{ matrix.leg }}-
