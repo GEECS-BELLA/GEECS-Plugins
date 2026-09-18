@@ -42,12 +42,18 @@ jobs:
       - name: Pick the test legs this change needs
         id: pick
         run: |
+          # checkout ran with fetch-depth: 0, so the base branch is already
+          # here; deliberately NOT re-fetching it shallow, which would
+          # truncate history and break merge-base. If the ref is somehow
+          # missing, fall back to the full matrix rather than guess.
           if [ "${{ github.event_name }}" = "push" ]; then
             ./scripts/ci_select.py --all --github --explain
-          else
-            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          elif git rev-parse --verify -q "origin/${{ github.base_ref }}" >/dev/null; then
             ./scripts/ci_select.py \
               --base "origin/${{ github.base_ref }}" --github --explain
+          else
+            echo "::warning::origin/${{ github.base_ref }} not found — running every leg"
+            ./scripts/ci_select.py --all --github --explain
           fi
 
   test:
@@ -72,8 +78,12 @@ jobs:
         id: leg
         run: |
           case "${{ matrix.leg }}" in
-            root) echo "dir=." >> "$GITHUB_OUTPUT" ;;
-            *)    echo "dir=${{ matrix.leg }}" >> "$GITHUB_OUTPUT" ;;
+            root)
+              echo "dir=." >> "$GITHUB_OUTPUT"
+              echo "lock=poetry.lock" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "dir=${{ matrix.leg }}" >> "$GITHUB_OUTPUT"
+              echo "lock=${{ matrix.leg }}/poetry.lock" >> "$GITHUB_OUTPUT" ;;
           esac
 
       # Poetry's wheel/artifact cache, not the virtualenvs: the venvs total
@@ -88,7 +98,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pypoetry
-          key: poetry-${{ runner.os }}-py311-${{ matrix.leg }}-${{ hashFiles(format('{0}/poetry.lock', steps.leg.outputs.dir)) }}
+          key: poetry-${{ runner.os }}-py311-${{ matrix.leg }}-${{ hashFiles(steps.leg.outputs.lock) }}
           restore-keys: |
             poetry-${{ runner.os }}-py311-${{ matrix.leg }}-
 
