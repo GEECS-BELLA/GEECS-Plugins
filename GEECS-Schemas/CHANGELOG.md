@@ -5,6 +5,54 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] - 2026-09-17
+
+### Removed
+
+- **`native_image_save` — ScanRequest format v4 and ExperimentDefaults.**
+  The toggle existed to skip a camera's LabVIEW per-shot files *because
+  the central PVA capture daemon was capturing them losslessly instead*;
+  #806 deleted that daemon along with the engine preflight and per-camera
+  resolution behind the field, leaving a knob nothing read. Nothing in the
+  monorepo or the HTU configs corpus sets it. PNG retirement (#738) owns
+  the replacement, whose preflight asks the distributed file plugin a
+  different question ("armed on every camera in the save set?"), so the
+  old shape was not reusable.
+  - `ScanRequest`: removed following the v3 `trigger_variant` precedent —
+    the before-validator drops an unset value (flat v1 or inside
+    `capture`) and refuses a set one with a remedy naming #738;
+    `schema_version` <= 3 normalizes to 4. The two removed fields now
+    share one `_REMOVED_FIELDS` mapping instead of bespoke per-field code.
+  - `ExperimentDefaults`: field removed, and a before-validator **drops**
+    the key rather than refusing it. Refusing would not reach an operator:
+    both callers of `resolve_experiment_defaults` wrap it in
+    `except Exception` and fall back to no defaults at all
+    (`plans/registry.py`, `qs_client/submit_preflight.py`), so a stray
+    `native_image_save` would cost the experiment its default trigger
+    profile and refuse every scan that does not name one — blaming a file
+    whose `trigger_profile` line is fine, with the real cause one journal
+    warning. The decisive point: dropping reproduces today's runtime
+    behaviour exactly (the field has parsed into something nothing reads
+    since #806), whereas refusing would be a new failure mode invented by
+    a cleanup PR. A cleanup must not be able to break a scan.
+  - **Why the two verdicts differ**, so nobody "unifies" them the wrong
+    way later: each matches where its document is validated. Nothing in
+    the monorepo validates `ScanRequest` — it is a published JSON
+    artifact whose consumers are external clients, and they see the
+    `ValidationError` directly, so refusing teaches them something.
+    `ExperimentDefaults` is validated in exactly one place
+    (`config_resolver.resolve_experiment_defaults`), behind two callers
+    that swallow every exception, so refusing teaches nobody and costs
+    the trigger profile.
+
+### Changed
+
+- `AnalysisDiagnostic.data_format`: `'device_hdf5'` now credits the PVA
+  gateway's file plugin for the per-device frame stack instead of the
+  deleted capture daemon. Description only; the value is unchanged and
+  still live.
+- Regenerated the published JSON schemas and the Markdown reference.
+
 ## [0.29.1] - 2026-09-16
 
 ### Changed

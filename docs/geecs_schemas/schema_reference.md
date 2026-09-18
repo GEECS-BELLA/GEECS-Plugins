@@ -158,10 +158,10 @@ One complete scan, ready to submit: what to do, what to save, how to trigger.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `schema_version` | `int` | no | 3 | Format version of this config file. Leave at 3 — tools update this automatically when the file format changes. |
+| `schema_version` | `int` | no | 4 | Format version of this config file. Leave at 4 — tools update this automatically when the file format changes. |
 | `mode` | `ScanRequestMode` | yes | — | What kind of scan: 'step' sweeps one or more axes, 'noscan' collects shots without moving anything. |
 | `axes` | `list[ScanAxis]` | no | empty | For step scans: what to sweep. One entry is a simple 1-D scan; several entries form a grid visiting every combination, with the first axis as the outermost (slowest) loop and the last as the innermost (fastest). Leave empty for noscan. |
-| `capture` | `CaptureSettings` | no | CaptureSettings(shots_per_step=1, acquisition=<AcquisitionMode.STRICT: 'strict'>, save_sets=[], background_telemetry=None, native_image_save=None, trigger_profile=None) | How shots are taken and what gets recorded: shots per step, acquisition discipline, save sets, telemetry and native-image toggles, and the trigger profile. Omit for a one-shot strict capture with no named save sets. |
+| `capture` | `CaptureSettings` | no | CaptureSettings(shots_per_step=1, acquisition=<AcquisitionMode.STRICT: 'strict'>, save_sets=[], background_telemetry=None, trigger_profile=None) | How shots are taken and what gets recorded: shots per step, acquisition discipline, save sets, the telemetry toggle and the trigger profile. Omit for a one-shot strict capture with no named save sets. |
 | `actions` | `ActionBindings` | no | ActionBindings(setup=[], per_step=[], closeout=[]) | Named action plans to run before the scan (setup), between steps (per_step), and after it (closeout). |
 | `description` | `str` | no | '' | Free-text note about this scan; it ends up in the scan's metadata and the experiment log. |
 | `background` | `bool` | no | False | Mark this scan's data as background/calibration shots so analysis can find them later. |
@@ -169,7 +169,7 @@ One complete scan, ready to submit: what to do, what to save, how to trigger.
 Example:
 
 ```yaml
-schema_version: 3
+schema_version: 4
 mode: step
 axes:
   - variable: jet_z
@@ -229,7 +229,6 @@ How shots are taken and what gets recorded — the capture concern.
 | `acquisition` | `AcquisitionMode` | no | 'strict' | 'strict' fires shot by shot and guarantees every device is in every row; 'free_run' lets the trigger run at the machine rate and matches devices up by timestamp. |
 | `save_sets` | `list[str]` | no | empty | Names of the save sets — reusable named device groups — recorded for this scan; devices are unioned across them. Each names the devices that get guarantees (completeness, dialogs, images, rituals). A bare string is accepted and stored as a one-element list. Empty means no required devices beyond scan bookkeeping. |
 | `background_telemetry` | `bool (optional)` | no | None | Also log every other live experiment device as best-effort snapshot columns — the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') — read from the gateway's always-on monitor cache: read-only and never waited on, so it cannot slow or stall the scan; dead devices are dropped with a log line, never a dialog or abort. Leave unset to inherit the experiment default; set true/false to override for this scan. |
-| `native_image_save` | `bool (optional)` | no | None | Whether capture-eligible cameras (Point Grey — the devicetypes the central PVA capture daemon owns) write their native per-shot image files during this scan. When false, those cameras' images are recorded only by the capture daemon's per-device frame stack (one HDF5 per camera per scan); all other devices — proprietary formats like the HASO, scope traces — keep their native save regardless. Leave unset to inherit the experiment default; set true/false to override for this scan (e.g. force native files back on for one scan while the capture path is being validated). Two engine behaviors to expect when false: the scan is REFUSED before a scan number is claimed if the capture daemon looks absent or is not monitoring every capture camera (fail-closed — start the daemon or drop the override), and the request is silently inert when no capture-eligible cameras resolve (DB unreachable, or none in the save set) — native saving then proceeds unchanged, with a warning in the scan log. |
 | `trigger_profile` | `str (optional)` | no | None | Name of the trigger profile that drives the shot trigger. Unset means the scan does not manage the trigger. |
 
 ### ActionBindings
@@ -472,7 +471,6 @@ Per-experiment fallbacks applied where a scan request is silent.
 | `actions` | `DefaultActions` | no | DefaultActions(setup=[], closeout=[]) | Action plans every scan runs by default — setup plans run first (before the scan's own), closeout plans run last (after the scan's own). |
 | `apply_db_scan_defaults` | `bool` | no | True | RESERVED AND NOT CURRENTLY HONORED. The DB set-side scan start/end writes (MySQL table expt_device_variable: rows with set='yes', writing their startvalue/endvalue) are disabled in this version — triggering is set up via the trigger profile / shot controller and camera saving via the scanner's own save-windowing, so the database's boundary writes are not applied regardless of this flag. Kept for a possible future re-enable. Note this is the set-side only: the get-side 'db_scalars' (standard telemetry) and 'background_telemetry' are honored as normal. |
 | `background_telemetry` | `bool` | no | True | Log every live experiment device that is not in a scan's save set as best-effort snapshot columns — the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') — read from the gateway's always-on monitor cache. Safe by construction: read-only and never waited on, so it cannot slow or stall a scan — a dead device is just dropped with a log line. On by default so no data is silently lost; individual scans can override with their own 'background_telemetry' setting. |
-| `native_image_save` | `bool` | no | True | Whether capture-eligible cameras (Point Grey — the devicetypes the central PVA capture daemon owns) write their native per-shot image files. On by default: flipping this off is the PNG-deprecation step, taken only after accumulated dual-write evidence that the capture daemon's per-device frame stacks are lossless for this experiment. Devices with proprietary formats (HASO, scope traces) keep their native save regardless of this flag. Individual scans can override with their own 'native_image_save' setting. |
 | `description` | `str` | no | '' | Optional note about what these defaults are for. |
 
 Example:
@@ -1091,7 +1089,7 @@ How the analyzer runs over a scan: order, granularity, what is saved, where file
 | `gdoc_slot` | `int (optional)` | no | None | Which cell (0-3) of the scan-log entry's 2x2 figure table gets this analyzer's summary; unset uploads figures as links instead. |
 | `device` | `str (optional)` | no | None | Data subfolder under the scan when it differs from the diagnostic name (stitched or post-processed outputs in a sibling folder). |
 | `file_tail` | `str (optional)` | no | None | Filename suffix that identifies this device's files ('.png', '.tdms', '_postprocessed.tsv'); unset uses the analyzer's default. |
-| `data_format` | `'per_shot_files' \| 'device_hdf5' (optional)` | no | None | 'device_hdf5' reads the capture daemon's per-device frame stack (falls back to per-shot files when absent). Only for analyzers that do not derive output names from the shot file path. |
+| `data_format` | `'per_shot_files' \| 'device_hdf5' (optional)` | no | None | 'device_hdf5' reads the per-device frame stack the PVA gateway's file plugin writes (falls back to per-shot files when absent). Only for analyzers that do not derive output names from the shot file path. |
 | `renderer` | `RendererOptions` | no | RendererOptions(colormap_mode=None, cmap=None, vmin=None, vmax=None, duration=None, dpi=None, xlabel=None, ylabel=None, colorbar_label=None, mode=None, waterfall_sort_key=None, waterfall_sort_sigma=None, waterfall_sort_bounds=None, waterfall_even_y_spacing=None, figsize=None, figsize_inches=None) | Summary-figure cosmetics; unset fields keep the renderer defaults. |
 | `background_source` | `BackgroundSource (optional)` | no | None | A scan-dependent background (another scan, this scan's own shots, or an autodetected averaged file). Fixed files go on image.background. |
 

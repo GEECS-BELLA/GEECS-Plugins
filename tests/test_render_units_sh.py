@@ -32,7 +32,6 @@ TEMPLATES = [
     REPO_ROOT / "GeecsLogbook/deploy/geecs-logbook.service",
     REPO_ROOT / "GeecsBluesky/qserver/deploy/geecs-qserver.service",
     REPO_ROOT / "GeecsBluesky/qserver/deploy/geecs-qserver-ready.service",
-    REPO_ROOT / "GeecsBluesky/capture/deploy/geecs-capture.service",
     REPO_ROOT / "GEECS-MCP/deploy/geecs-mcp.service",
     REPO_ROOT / "GeecsScanner/deploy/geecs-scanner.service",
 ]

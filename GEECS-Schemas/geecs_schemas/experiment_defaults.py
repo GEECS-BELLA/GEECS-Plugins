@@ -47,7 +47,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 
@@ -86,6 +86,38 @@ class ExperimentDefaults(VersionedSchemaModel):
     scan names none, and default plans bracket the scan's own — defaults
     run first on setup and last on closeout.
     """
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_removed_fields(cls, data: object) -> object:
+        """Ignore ``native_image_save``, removed with the capture daemon.
+
+        The toggle was inert from the moment #806 deleted the daemon that
+        implemented it, so a file still carrying it means no more than a
+        file omitting it.  Dropping rather than refusing is deliberate:
+        both callers of ``resolve_experiment_defaults`` wrap it in
+        ``except Exception`` and fall back to *no defaults at all*
+        (``plans/registry.py``, ``qs_client/submit_preflight.py``), so a
+        raise here would not reach the operator — it would surface one
+        journal warning and then refuse every scan that does not name a
+        trigger profile, blaming a defaults file whose ``trigger_profile``
+        line is perfectly good.  Silently ignoring an already-inert key
+        beats breaking the trigger profile beside it.  PNG retirement
+        (#738) owns the replacement control.
+
+        Parameters
+        ----------
+        data : object
+            The raw document, or whatever pydantic was handed.
+
+        Returns
+        -------
+        object
+            The document without the removed key.
+        """
+        if not isinstance(data, dict) or "native_image_save" not in data:
+            return data
+        return {k: v for k, v in data.items() if k != "native_image_save"}
 
     trigger_profile: Optional[str] = Field(
         None,
@@ -129,20 +161,6 @@ class ExperimentDefaults(VersionedSchemaModel):
             "device is just dropped with a log line. On by default so no "
             "data is silently lost; individual scans can override with "
             "their own 'background_telemetry' setting."
-        ),
-    )
-    native_image_save: bool = Field(
-        True,
-        description=(
-            "Whether capture-eligible cameras (Point Grey — the devicetypes "
-            "the central PVA capture daemon owns) write their native "
-            "per-shot image files. On by default: flipping this off is the "
-            "PNG-deprecation step, taken only after accumulated dual-write "
-            "evidence that the capture daemon's per-device frame stacks are "
-            "lossless for this experiment. Devices with proprietary formats "
-            "(HASO, scope traces) keep their native save regardless of this "
-            "flag. Individual scans can override with their own "
-            "'native_image_save' setting."
         ),
     )
     description: str = Field(

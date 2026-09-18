@@ -73,7 +73,7 @@ def _frame_timestamp(update: dict) -> float:
     a LabVIEW value in ``(0, offset]`` — a device counting from boot, or a
     zeroed channel — must fall through to receive time, never become a
     negative Unix timestamp (which would poison downstream consumers that
-    key frames on the PVA timestamp, e.g. the capture daemon's dedupe and
+    key frames on the PVA timestamp, e.g. the file plugin's dedupe and
     the analysis-side ``acq_timestamp`` join).
     """
     for var in _TIMESTAMP_VARS:

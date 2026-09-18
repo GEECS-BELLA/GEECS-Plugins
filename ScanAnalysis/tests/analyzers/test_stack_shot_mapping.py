@@ -1,8 +1,8 @@
 """Tests for the capture-stack mapping strategy in SingleDeviceScanAnalyzer.
 
 ``data_format="device_hdf5"`` opts a diagnostic into the per-device capture
-frame stack (``<device>/<device>.h5``, written by the capture daemon —
-contract in ``GeecsBluesky/geecs_bluesky/capture/FORMAT.md``). The join
+frame stack (``<device>/<device>.h5``, written by the PVA gateway's file
+plugin; read side in ``geecs_data_utils.io.scan_stack``). The join
 mirrors the acq_timestamp file join (canonical-millisecond keys), producing
 ``ShotRef`` values that travel the existing per-shot pipeline. Every failure
 shape (no stack, wrong schema, zero joins, unset flag) must fall back to the
@@ -91,7 +91,7 @@ class TestStackJoin:
             assert ref.shot_index == shot - 1  # stack order matches here
 
     def test_extra_stack_frames_do_not_join(self, tmp_path):
-        # The daemon can capture pre-save-window frames the LV set lacks;
+        # The plugin can capture pre-save-window frames the LV set lacks;
         # rows only join frames whose timestamps the aux frame carries.
         ts = [3866137959.524, 3866137960.525]
         device_dir = tmp_path / DEVICE

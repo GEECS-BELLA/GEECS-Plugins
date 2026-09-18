@@ -4,6 +4,25 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.95.0] - 2026-09-17
+
+### Removed
+
+- **The capture daemon's deploy assets and probes** (`capture/deploy/`,
+  `capture/probes/`). #806 deleted the daemon's code and left its systemd
+  unit template, runbook and two bring-up probes behind; the host has run
+  the unit `disabled`/`inactive` since 2026-09-13. The distributed file
+  plugin in GeecsPvaGateway writes the frame stacks now. Docstring in
+  `tests/test_assets.py` corrected to say the daemon is gone rather than
+  that it still reads the asset registry.
+  **Operator step:** removing the template does not remove an already
+  installed unit, and `scripts/fleet_status.sh` discovers by
+  `list-units --all "geecs-*"`, so a host that ever enabled it keeps
+  emitting a row until someone runs
+  `sudo systemctl disable --now geecs-capture`,
+  `sudo rm /etc/systemd/system/geecs-capture.service`,
+  `sudo systemctl daemon-reload`.
+
 ## [0.94.2] - 2026-09-17
 
 ### Fixed

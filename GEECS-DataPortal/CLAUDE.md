@@ -375,7 +375,7 @@ list — a new tab should be exactly these steps:
 
 ## Deployment
 
-Runs on the queueserver worker host next to the capture daemon (default
+Runs on the queueserver worker host (default
 port **8200**; Tiled is :8000, GEECS-MCP :8100).  The systemd unit is
 `deploy/geecs-data-portal.service`; the runbook is `DEPLOYMENT.md`; the
 fleet map (`docs/platform/fleet_map.md`) carries the service row and

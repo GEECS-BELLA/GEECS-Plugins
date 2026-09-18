@@ -186,3 +186,40 @@ def test_qserver_bootstrap_installs_optimizer():
         check=True,
     )
     assert set(result.stdout.split()) >= {"ca", "tiled", "qserver", "optimize"}
+
+
+def test_unknown_only_service_is_refused_not_silently_skipped(
+    tmp_path: Path,
+) -> None:
+    """A retired or misspelled ``--only`` name must fail, not select nothing.
+
+    ``capture`` was a real role until the daemon was retired. Selecting it
+    used to match no service and exit 0, so an operator following a stale
+    runbook saw a clean run that had done nothing for the role they asked
+    for.
+    """
+    r = _run(tmp_path, REDIS_ENABLED, "--only", "capture")
+    assert r.returncode == 2
+    assert "unknown service 'capture'" in r.stderr
+    assert "known services:" in r.stderr
+
+
+def test_usage_only_list_matches_the_service_table(tmp_path: Path) -> None:
+    """The ``--only`` help text is the service list, not a prose copy of it.
+
+    The two drifted when the capture role was retired: the header kept
+    advertising it and had never listed ``scanner``. Every name the usage
+    line offers must be one the script will accept.
+    """
+    text = BOOTSTRAP.read_text()
+    services = next(
+        line.split("=", 1)[1].strip().strip('"').split()
+        for line in text.splitlines()
+        if line.startswith("SERVICES=")
+    )
+    advertised = next(
+        line.split("subset of:", 1)[1].strip().split(",")
+        for line in text.splitlines()
+        if "--only LIST" in line
+    )
+    assert advertised == services

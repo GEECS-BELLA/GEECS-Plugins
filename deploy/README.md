@@ -26,5 +26,5 @@ The unit templates themselves stay with their services
 (`GeecsCAGateway/deploy/`, `GEECS-DataPortal/deploy/`,
 `GeecsLogbook/deploy/`, `GeecsBluesky/qserver/deploy/` — two units, the manager and the
 `geecs-qserver-ready` readiness oneshot, rendered and enabled together —
-`GeecsBluesky/capture/deploy/`, `GEECS-MCP/deploy/`); this directory only
+`GEECS-MCP/deploy/`, `GeecsScanner/deploy/`); this directory only
 knows their list.

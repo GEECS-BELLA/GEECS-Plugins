@@ -88,4 +88,3 @@ def test_redis_sorts_after_the_services_that_depend_on_it() -> None:
     """
     order = fleet_table.ROLE_ORDER
     assert order.index("Redis") > order.index("Queueserver RE Manager")
-    assert order.index("Redis") > order.index("Capture daemon")

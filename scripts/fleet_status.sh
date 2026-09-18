@@ -336,7 +336,7 @@ role_for_unit() { case "$1" in
     geecs-ca-gateway*) echo "CA gateway";; tiled*) echo "Tiled";; geecs-data-portal*) echo "Data Portal";;
     geecs-logbook*) echo "Logbook";;
     geecs-mcp*) echo "GEECS-MCP";; geecs-scanner*) echo "GEECS Scanner";; geecs-qserver-ready*) echo "Queueserver readiness";;
-    geecs-qserver*) echo "Queueserver RE Manager";; geecs-capture*) echo "Capture daemon";;
+    geecs-qserver*) echo "Queueserver RE Manager";;
     *) echo "$1";; esac; }
 FLEET_PORTS="5064 8000 8200 8400 8100 8300 60615 5568"
 SEEN=" "
