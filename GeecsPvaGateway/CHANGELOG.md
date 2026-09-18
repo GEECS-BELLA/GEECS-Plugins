@@ -33,7 +33,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   frame**, a ~106x reduction — 13 x 131072 = 1,703,936, i.e. all thirteen
   full chunks, every shot. The trade is CPU on the single writer thread,
   linear in attribute count (~0.1 -> ~0.4 ms per attribute per frame; at
-  13 attributes ~1.5 -> ~5.8 ms). At GEECS shot rates the I/O removed
+  13 attributes ~1.5 -> ~5.8 ms, measured on a dev machine, not on a
+  Windows camera server). At GEECS shot rates the I/O removed
   repays that comfortably, but it is the number a future reader would
   want when attribute counts grow.
 
