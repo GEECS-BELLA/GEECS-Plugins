@@ -4,6 +4,37 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.11.0] - 2026-09-17
+
+### Changed
+
+- **Frame stacks are written compressed by default.** The file plugin's
+  `Compression` parameter now defaults to `zlib` (shuffle + gzip level 1 —
+  built-in HDF5 filters, self-describing, schema unchanged) instead of
+  areaDetector's `None`. Nothing ever put that PV: the stock
+  `ADHDFDataLogic` does not, so every deployed camera was writing raw
+  frames while the write path's `zlib` branch sat unused. Lossless, and
+  transparent to every reader (`geecs_data_utils.io.scan_stack`, h5py,
+  MATLAB, Tiled); one frame per chunk is unchanged, so per-shot random
+  access still costs one chunk (now plus its decompress). A client that
+  wants raw frames puts `Compression=None` before `Capture=1`, as before.
+  Reference numbers from the same filters on real Scan003 frames
+  (GeecsBluesky 0.65.0, the since-deleted central capture daemon), for
+  one whole ~11-frame 600x600 stack: 2.04 MB compressed vs 7.92 MB raw
+  vs ~2.5 MB for the equivalent LabVIEW PNGs. Per-frame write cost was
+  3.9 ms at 600x600 and ~25 ms at 1025x1281, and scales with frame
+  AREA -- so doubling each dimension quadruples it. An independent
+  synthetic measurement (h5py 3.16, gaussian + noise uint16) puts it at
+  ~8 ms / ~31 ms / ~104 ms for 600x600 / 1025x1281 / 2048x2048 -- a
+  near-constant ~24 ms per megapixel over that 12x span -- with a more
+  conservative ~2.2x size ratio on that less compressible content. The plugin's single writer
+  thread carries command puts as well as frames, so on the largest
+  served camera that cost is the thing to watch (`queue_drops`,
+  `Capture=0` latency) — bounded above by roughly 10 Hz of NEW frames
+  at 4 Mpx, and plausibly offset in production by ~2x fewer bytes over
+  SMB. Existing stacks are unaffected; new scans pick this up as boxes
+  are upgraded.
+
 ## [0.10.2] - 2026-09-16
 
 ### Changed

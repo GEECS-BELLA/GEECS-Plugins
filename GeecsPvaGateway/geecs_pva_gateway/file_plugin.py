@@ -279,7 +279,11 @@ PV_TABLE: tuple[_Param, ...] = (
     _Param("CreateDirectory", "i", 0),
     # NDFileHDF5IO
     _Param("PositionMode", "?", False, rbv=True),
-    _Param("Compression", "enum", "None", rbv=True, choices=COMPRESSIONS),
+    # areaDetector's own plugin defaults to "None"; ours defaults to "zlib"
+    # because no client sets this PV (the stock ADHDFDataLogic never puts it)
+    # and uncompressed stacks are the larger file for no benefit. A client
+    # that wants raw frames puts "None" before Capture=1, as before.
+    _Param("Compression", "enum", "zlib", rbv=True, choices=COMPRESSIONS),
     _Param("NumExtraDims", "i", 0, rbv=True),
     _Param("SWMRMode", "?", False, rbv=True),
     _Param("FlushNow", "?", False),

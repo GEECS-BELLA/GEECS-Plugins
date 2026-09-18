@@ -285,6 +285,12 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
         frames = f[FRAMES_DATASET]
         assert frames.shape == (2, *IMG.shape)
         assert frames.chunks == (1, *IMG.shape)
+        # The stock data logic never puts Compression, so this is the default
+        # every deployed camera writes with: built-in filters only, and the
+        # equality below is the losslessness they promise.
+        assert frames.compression == "gzip"
+        assert frames.compression_opts == 1
+        assert frames.shuffle is True
         np.testing.assert_array_equal(frames[1], IMG + 1)
         stamps = f[f"{ATTRIBUTES_GROUP}/uc_testcam-hdf-image-frame_acq_timestamp"][:]
         assert stamps[1] == pytest.approx(t + 1.0, abs=0.002)
@@ -340,6 +346,9 @@ async def test_session_semantics_over_raw_pva(tmp_path):
         run_dir.mkdir(parents=True)
         await put("FilePath", str(run_dir) + os.sep)
         assert bool(await get("FilePathExists_RBV")) is True
+        # The escape hatch from the compressed default: a client that wants
+        # raw frames puts "None" before arming (validated at Capture=1).
+        await put("Compression", "None")
         cam.push(IMG, time.time() - 5.0)
         await put("Capture", True)
         assert bool(await get("Capture_RBV")) is True
@@ -373,6 +382,7 @@ async def test_session_semantics_over_raw_pva(tmp_path):
         with h5py.File(run_dir / "UC_TestCam.h5", "r") as f:
             frames = f[FRAMES_DATASET]
             assert frames.shape == (3, *IMG.shape)
+            assert frames.compression is None  # the "None" put above
             np.testing.assert_array_equal(frames[2], IMG + 4)
             assert f.attrs["rewound"] == 1
             assert f.attrs["stale_skipped"] == 2
