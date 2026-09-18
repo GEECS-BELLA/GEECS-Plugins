@@ -4,6 +4,34 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.97.0] - 2026-09-18
+
+### Changed
+
+- **torch resolves from PyTorch's CPU index on Linux.** It arrives
+  transitively (`xopt` -> `botorch` -> `torch`), and PyPI's default Linux
+  wheel is the CUDA build: fifteen `nvidia-*` packages plus `triton`, none
+  of which is ever loaded without an NVIDIA GPU. Neither a CI runner nor
+  the worker has one. Measured: this package's CI download set was 8.4 GB
+  with the CUDA build, against GitHub's 10 GB cache cap — big enough that
+  caching it evicted every other package's cache.
+
+  Split by platform, because the +cpu index publishes Linux wheels as
+  `X.Y.Z+cpu` but macOS wheels as plain `X.Y.Z`, and a lock entry holds one
+  version: a single source locked `2.10.0+cpu` and broke macOS outright
+  (`poetry install --extras optimize` exits 1). macOS torch on PyPI is
+  CPU-only already, so only Linux is redirected.
+
+  The optimize tests are unchanged and unchanged in result — they exercise
+  ask/tell and the measurement compiler, not GPU maths (32 passed). CI
+  asserts no `nvidia-*` or `triton` package is installed, so the pin cannot
+  regress silently on a future relock.
+
+  **If a GPU box ever runs the optimizer**, drop the `source` key on the
+  Linux arm in `pyproject.toml` and relock; nothing else changes.
+
+- torch moves 2.10.0 -> 2.14.0 as a consequence of the relock.
+
 ## [0.96.0] - 2026-09-18
 
 ### Added
