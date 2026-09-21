@@ -16,15 +16,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`resolve_native_image_save`), so an edit to `experiment_defaults.yaml`
   reaches the next scan without reopening the environment; an unreadable
   defaults file fails open to the dual-write with one journal warning.
-  `native_image_save_wrapper` sets the switch on the run's plugin-backed
-  cameras before staging and restores it in a `finalize_wrapper` — the
-  namespace's long-lived detectors carry their construction default
-  (dual-write) into the next run. It reaches **plugin-backed cameras
+  `native_image_save_wrapper` sets the switch on the run's strict
+  plugin-backed cameras before staging and restores the construction
+  default (dual-write) in a `finalize_wrapper` — success, abort or stop;
+  `RE.halt()` skips finalizers by bluesky contract, and the next scan verb
+  sets the switch for itself anyway. It reaches **plugin-backed cameras
   only**: a device saving through LabVIEW without a file plugin (a camera
   on a box not yet rolled, a proprietary-format DAQ) has no other record
   and is never touched, whatever the switch says — the journal names both
-  groups per run. The start document carries `native_image_save`
-  (EVENT_SCHEMA.md).
+  groups per run. A `.scalars` view, a non-essential stream and a gated
+  batch write no native files either way and are not touched or named.
+  The start document carries `native_image_save` as the run's **switch**,
+  not a record of what was written (EVENT_SCHEMA.md: the
+  `-nonscalar_save_path` column is that record).
 - `LvNativeFileDataLogic.enabled` / `GeecsDetector.native_image_save`: off
   keeps the controls owned — a stale `save=on` is still cleared at `stage`
   (the 26_0828 lesson) — but `prepare` never switches saving on, creates no
@@ -41,8 +45,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   runs. The dual-write diff (`geecs-pva-gateway diff`) reports a switch-off
   scan as `capture_only`.
 - **Operator step:** the new plan argument changes the bound plans'
-  signatures — reopen the worker environment (or reload the allowed lists)
-  after deploying, or the manager refuses the kwarg.
+  signatures — `systemctl restart geecs-qserver` after deploying (the
+  environment reopen regenerates the plan list; `permissions reload lists`
+  alone would reload the pre-deploy signatures), or the manager refuses
+  the kwarg.
 
 ## [0.96.0] - 2026-09-18
 

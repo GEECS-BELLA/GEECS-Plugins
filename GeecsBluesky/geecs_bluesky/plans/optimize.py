@@ -503,9 +503,7 @@ def optimize_plan(
                 non_essential_wrapper(run, non_essential),
                 [*detectors, *movables.values()],
             )
-            staged = native_image_save_wrapper(
-                staged, [*detectors, *non_essential], native_files
-            )
+            staged = native_image_save_wrapper(staged, detectors, native_files)
             yield from name_failed_status(run_bracket(staged, sc, TriggerState.ARMED))
 
         # Subscribe outside open_run to see the claim preprocessor's augmented start document.

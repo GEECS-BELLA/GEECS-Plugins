@@ -36,7 +36,11 @@ single-shot is not the 1 Hz mode, phase 2's gated batch is.
 2. **Devices own their per-run state** through the standard lifecycle
    (`stage → prepare → trigger/kickoff → unstage`).  Nothing outside a
    device configures it for a run — no preamble writes `save` or
-   `localsavingpath`.
+   `localsavingpath`.  The one named carve-out is a **run-level switch the
+   device exposes as a property** (`GeecsDetector.native_image_save`,
+   #738): the plan flips it before `stage` and restores it after, and the
+   device's own lifecycle still does every PV write.  A precedent for a
+   flag the lifecycle honours, never for a write from outside it.
 
 Twelve of #809's twenty-one review findings had those two causes.
 
@@ -467,7 +471,9 @@ the RunEngine loop threads a test leaves behind (#812).
 
 - Re-derive the scan from a request worker-side (a second description).
 - Configure a device for a run from outside its lifecycle (a leak: #809's
-  saving-mode / save-path / asset-definition P1).
+  saving-mode / save-path / asset-definition P1).  The run-level
+  `native_image_save` property is the named exception (rule 2): a flag the
+  lifecycle honours, not a PV write.
 - Read quiescence in a scan step — it costs the longest device timeout;
   it belongs in the once-run calibration or a preflight.
 - Treat monitor silence as liveness — a device's timeout event carries an

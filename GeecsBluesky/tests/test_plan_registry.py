@@ -298,7 +298,7 @@ def test_native_image_save_off_reaches_plugin_cameras_only_and_restores(
 
 
 def test_native_image_save_default_comes_from_the_experiment_defaults_per_run(
-    RE, box, profiles, tmp_path
+    RE, box, profiles, tmp_path, caplog
 ):
     """Unset on the item → ExperimentDefaults.native_image_save, read at every run."""
     (tmp_path / "Scan001").mkdir()
@@ -314,10 +314,15 @@ def test_native_image_save_default_comes_from_the_experiment_defaults_per_run(
     RE(count([plugin], 1))
     assert col.docs["start"][-1]["native_image_save"] is True
     assert "uc_plugin-nonscalar_save_path" in col.primary_events()[-1]["data"]
-    # The item's own value beats the default.
+    # The item's own value beats the default — recorded as the run's switch
+    # even when nothing here can be switched (a view leaves the owner's
+    # data logics unprepared), and the journal then names no camera.
     defaults.value = True
-    RE(count([plugin.scalars], 1, native_image_save=False))
+    with caplog.at_level(logging.INFO, logger="geecs_bluesky.plans.registry"):
+        RE(count([plugin.scalars], 1, native_image_save=False))
     assert col.docs["start"][-1]["native_image_save"] is False
+    assert "native saving off" not in caplog.text
+    assert plugin.native_image_save  # never touched
 
 
 def test_native_image_save_default_is_on_when_the_defaults_cannot_be_read(caplog):

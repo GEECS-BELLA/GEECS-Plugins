@@ -189,7 +189,7 @@ def resolve_native_image_save(requested: bool | None, resolver: Any | None) -> b
     reopening its environment.  Fail-open to *on*: a resolver that cannot
     read the defaults (no configs root, bad YAML, an older resolver without
     the method) keeps the dual-write — the state every scan had before the
-    switch existed — and says so once in the journal.
+    switch existed — and says so in the journal, once per run.
     """
     if requested is not None:
         return bool(requested)
@@ -207,42 +207,51 @@ def resolve_native_image_save(requested: bool | None, resolver: Any | None) -> b
     return bool(getattr(defaults, "native_image_save", True))
 
 
-def native_image_save_wrapper(plan: Any, devices: Sequence[Any], enabled: bool) -> Any:
-    """Set the plugin-backed cameras' LabVIEW saving for this run; restore after.
+def native_image_save_wrapper(
+    plan: Any, detectors: Sequence[Any], enabled: bool
+) -> Any:
+    """Set the strict plugin-backed cameras' LabVIEW saving for this run; restore after.
 
-    The run-level switch of PNG retirement (#738).  It reaches the cameras
-    whose frames the file plugin captures (``plugin_backed``) and nothing
-    else: a device without a plugin — a LabVIEW-native camera, a
-    proprietary-format DAQ — has no other record, so its native saving is
-    never touched, whatever *enabled* says.  A ``.scalars`` view counts as
-    its owner (the owner's data logics are what a prepare consults).  The
-    previous values are restored in a ``finalize_wrapper``, success or not,
-    so the namespace's long-lived detectors carry their construction
-    default into the next run.
+    The run-level switch of PNG retirement (#738).  It reaches the run's
+    **strict full detectors** that are plugin-backed and nothing else:
+
+    - a device without a file plugin — a LabVIEW-native camera, a
+      proprietary-format DAQ — has no other record, so its native saving
+      is never touched, whatever *enabled* says;
+    - a ``.scalars`` view is skipped: the view leaves its owner's data
+      logics unprepared (``GeecsDetectorScalars``), so the owner writes
+      nothing either way;
+    - a fly prepare (a gated batch, a non-essential stream) leaves the
+      native logic out of the context, so the bound plan applies this
+      wrapper to strict runs only and never passes ``non_essential``.
+
+    Restored to the construction default — on, the dual-write — by a
+    ``finalize_wrapper``, success, abort or stop alike.  ``RE.halt()``
+    skips finalizers by bluesky contract and leaves the switch where the
+    run put it; every scan verb sets it for itself, so a halt costs
+    nothing but the next run's journal line.
 
     Parameters
     ----------
     plan :
         The bound plan (staging inside it).
-    devices :
-        The run's detectors and non-essential devices.
+    detectors :
+        The run's strict detectors (views and non-essential devices are
+        ignored).
     enabled :
         ``False`` = the plugin's stack is those cameras' only record this run.
     """
     cameras: list[GeecsDetector] = []
     kept: list[GeecsDetector] = []
     seen: set[int] = set()
-    for d in devices:
-        owner = getattr(d, "_owner", d)
-        if id(owner) in seen or not isinstance(owner, GeecsDetector):
-            continue
-        seen.add(id(owner))
-        if not owner.native_save:
-            continue
-        if owner.plugin_backed:
-            cameras.append(owner)
+    for d in detectors:
+        if id(d) in seen or not isinstance(d, GeecsDetector) or not d.native_save:
+            continue  # a view, a scalar-only device, a motor
+        seen.add(id(d))
+        if d.plugin_backed:
+            cameras.append(d)
         else:
-            kept.append(owner)
+            kept.append(d)
     kept_names = ", ".join(c._geecs_device_name for c in kept)
     if not cameras:
         if not enabled and kept:
@@ -252,7 +261,6 @@ def native_image_save_wrapper(plan: Any, devices: Sequence[Any], enabled: bool) 
                 kept_names,
             )
         return (yield from plan)
-    previous = [(cam, cam.native_image_save) for cam in cameras]
     for cam in cameras:
         cam.native_image_save = enabled
     logger.info(
@@ -263,8 +271,8 @@ def native_image_save_wrapper(plan: Any, devices: Sequence[Any], enabled: bool) 
     )
 
     def restore():
-        for cam, was in previous:
-            cam.native_image_save = was
+        for cam in cameras:
+            cam.native_image_save = True  # the construction default
         yield from bps.null()
 
     return (yield from bpp.finalize_wrapper(plan, restore()))
@@ -392,9 +400,10 @@ def strict_plan(
         else:
             kwargs[hook] = geecs_per_shot(shot_control, shot_period=shot_period)
         inner = non_essential_wrapper(stock(*args, md=md, **kwargs), non_essential)
-        inner = native_image_save_wrapper(
-            inner, [*detectors, *non_essential], native_files
-        )
+        if acquisition == "strict":
+            # A gated batch is a fly prepare: the native logic is left out
+            # of the context, so there is nothing to switch (nor to log).
+            inner = native_image_save_wrapper(inner, detectors, native_files)
         opening = TriggerState.OFF if acquisition == "gated" else TriggerState.ARMED
         # Before the first move, before the claim (#852).
         yield from liveness_gate(shot_control, [*detectors, *non_essential])
