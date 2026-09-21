@@ -22,7 +22,7 @@ merge; anything worth keeping moves into the package `CLAUDE.md`s first
 
 **Build in this order. The first two need no lab access at all.**
 
-1. **PR 2 — the capture-stream declaration: BUILT, in review as #945**
+1. **PR 2 — the capture-stream declaration: MERGED into this branch as #945 (2026-09-21, Codex-approved); hardware verification OWED (the PR body's section) and gates the master merge, not PR 3**
    (branch `feat/capture-stream-declaration`; GEECS-Core 0.9.0
    `geecs_core.db.device_streams` + GeecsBluesky 0.97.0
    `namespace.capture_streams`; the `exclude` polarity was dropped from it
