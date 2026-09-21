@@ -605,7 +605,8 @@
     var doc = S.presetDoc || {}, previous = doc.plan || {}, name = S.mode;
     var kwargs = previous.name === name ? Object.assign({}, previous.kwargs || {}) : {};
     // The visible selectors own these values. Older presets may put them in
-    // kwargs, which expand_preset otherwise gives precedence over the field.
+    // kwargs: expand_preset gives a trigger_profile copy precedence over the
+    // field and refuses a native_image_save copy outright, so both are dropped.
     delete kwargs.trigger_profile;
     delete kwargs.native_image_save;
     var nativeSave = $("native-save").value;

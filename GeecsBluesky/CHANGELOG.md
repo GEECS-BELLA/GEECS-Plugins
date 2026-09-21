@@ -11,7 +11,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`native_image_save` — the run-level switch for LabVIEW's per-shot files
   on plugin-backed cameras (PNG retirement, #738).** The scan verbs and
   `optimize` take `native_image_save: bool | None`; the preset expander
-  passes `Preset.native_image_save` through when set. Unset, the worker
+  passes `Preset.native_image_save` through when set and refuses a copy in
+  `plan.kwargs` (the preset field is the one source of truth). Unset, the worker
   reads `ExperimentDefaults.native_image_save` **at every run**
   (`resolve_native_image_save`), so an edit to `experiment_defaults.yaml`
   reaches the next scan without reopening the environment; an unreadable

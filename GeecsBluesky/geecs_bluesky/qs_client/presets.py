@@ -21,8 +21,10 @@ submission is a translation of names, nothing more:
 - ``trigger_profile`` and ``background`` ride as the bound plan's keyword
   argument and the run metadata; so does ``native_image_save`` — only
   when the preset sets it, since unset means the experiment default the
-  worker reads at every scan (PNG retirement, #738); the preset name and
-  the submission record ride in ``md["geecs"]`` as provenance.
+  worker reads at every scan (PNG retirement, #738), and a copy of it in
+  ``plan.kwargs`` is refused (the preset field is the one source of
+  truth); the preset name and the submission record ride in
+  ``md["geecs"]`` as provenance.
 
 The manager resolves the names against the worker namespace at submission
 but does **not** refuse an unknown one (bluesky-queueserver 0.0.25 passes
@@ -270,8 +272,17 @@ def expand_preset(
         kwargs["non_essential"] = non_essential
     if preset.trigger_profile is not None:
         kwargs.setdefault("trigger_profile", preset.trigger_profile)
+    # The preset field is the one source of truth for the LabVIEW-files
+    # switch: a copy in plan.kwargs would silently win a setdefault (Codex
+    # review of #944), so it is refused rather than merged.
+    if "native_image_save" in kwargs:
+        raise GeecsConfigurationError(
+            f"preset {preset.name!r}: native_image_save is a preset field, not a "
+            "plan keyword — set it at the top level of the preset (the scanner's "
+            "'LabVIEW files' control) and drop it from plan.kwargs"
+        )
     if preset.native_image_save is not None:
-        kwargs.setdefault("native_image_save", preset.native_image_save)
+        kwargs["native_image_save"] = preset.native_image_save
     run_md: dict[str, Any] = dict(kwargs.pop("md", None) or {})
     run_md.update(md or {})
     run_md.setdefault("description", preset.description)
