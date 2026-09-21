@@ -24,7 +24,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   so every Point Grey (declared `image`, the same answer) and every
   undeclared camera type behaves exactly as before.  The optimizer's live
   frame source reads the device's first declared stream through the same
-  rule.
+  rule (pinned: a FROG-typed diagnostic subscribes to `:frogtrace`).
+- `GeecsDbDeviceTypes`' degraded path (an empty devicetype map after a DB
+  failure) now names its second consequence in the docstring and the
+  WARNING: beside the #934 misclassification, every plugin-backed camera
+  falls back to the one-image guess — the FROG arms on `SpatialImage` and
+  times out, a MagSpec camera drops `ImageInterp`.
 
 ## [0.96.0] - 2026-09-18
 

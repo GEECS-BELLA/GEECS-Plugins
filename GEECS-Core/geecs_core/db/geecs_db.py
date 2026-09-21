@@ -595,6 +595,35 @@ class GeecsDb:
         return {name: (dtype or "").strip() for name, dtype in rows}
 
     @classmethod
+    def get_devicetype_variables(cls, devicetype: str) -> list[dict]:
+        """Return one devicetype's ``devicetype_variable`` rows — type level, no instance merge.
+
+        ``[{"name", "variabletype", "choices"}, ...]`` sorted by name, with
+        ``choices`` the ``choice`` table's text (a bare type descriptor such
+        as ``image`` or an option list).  Unlike :meth:`get_device_variables`
+        nothing is merged from a device's own ``variable`` rows, so this is
+        the shape a per-devicetype rule is checked against —
+        ``scripts/record_devicetype_variables.py`` records it as the offline
+        fixture for ``geecs_core.db.device_streams``.
+
+        Parameters
+        ----------
+        devicetype:
+            The DB ``devicetype`` name (e.g. ``"Point Grey Camera"``).
+        """
+        rows = _query(
+            "SELECT dv.name, dv.variabletype, c.choices "
+            "FROM devicetype_variable dv "
+            "LEFT JOIN choice c ON c.id = dv.choice_id "
+            "WHERE dv.devicetype = %s ORDER BY dv.name",
+            (devicetype,),
+        )
+        return [
+            {"name": name, "variabletype": vartype, "choices": choices}
+            for name, vartype, choices in rows
+        ]
+
+    @classmethod
     def get_experiment_device_variables(
         cls, experiment: str, *, enabled_only: bool = True
     ) -> dict[str, list[dict]]:

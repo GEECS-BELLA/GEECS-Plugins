@@ -22,7 +22,13 @@ merge; anything worth keeping moves into the package `CLAUDE.md`s first
 
 **Build in this order. The first two need no lab access at all.**
 
-1. **PR 2 — the capture-stream declaration** (§4.3b, §4.3). Replace
+1. **PR 2 — the capture-stream declaration: BUILT, in review as #945**
+   (branch `feat/capture-stream-declaration`; GEECS-Core 0.9.0
+   `geecs_core.db.device_streams` + GeecsBluesky 0.97.0
+   `namespace.capture_streams`; the `exclude` polarity was dropped from it
+   after review and lands with PR 3 beside its gateway consumer; the
+   Picoscope gate + padding ceiling also wait for PR 3). Original brief
+   text follows. Replace
    `primary_image_variable`'s positional guess (`GeecsBluesky/geecs_bluesky/
    namespace.py:137`) with the per-devicetype table of §4.3b. Accept against
    `UC_BCaveMagSpecCam1`, which streams `ImageInterp` today and never captures

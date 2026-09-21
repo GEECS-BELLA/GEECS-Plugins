@@ -179,6 +179,26 @@ def test_get_experiment_devices_batches_endpoints(monkeypatch) -> None:
     assert "enabled" not in queries[0][0]
 
 
+def test_get_devicetype_variables_is_type_level_only(monkeypatch) -> None:
+    """The fixture recorder's query: devicetype_variable joined to choice, no instance merge."""
+    queries: list = []
+    _patch_rows(
+        monkeypatch,
+        [("frogTrace", None, "image"), ("Trigger", "choice", "on,off")],
+        queries,
+    )
+
+    rows = GeecsDb.get_devicetype_variables("FROG")
+    assert rows == [
+        {"name": "frogTrace", "variabletype": None, "choices": "image"},
+        {"name": "Trigger", "variabletype": "choice", "choices": "on,off"},
+    ]
+    assert len(queries) == 1
+    query, params = queries[0]
+    assert params == ("FROG",)
+    assert "devicetype_variable" in query and "variable v" not in query
+
+
 def test_get_experiment_device_types_batches_types(monkeypatch) -> None:
     """One query returns every device's devicetype; enabled filter in SQL."""
     queries: list = []

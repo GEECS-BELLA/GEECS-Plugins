@@ -59,6 +59,11 @@ geecs_core/
    carries CA alarm *evaluation* logic whose only consumer is the CA gateway —
    it rides here because `AlarmLimits` is `GeecsDb.get_ca_alarm_limits`'s
    return type and splitting the model from its own methods would be worse.
+   A second, admitted on the `scalar_policy` precedent: `db/device_streams.py`
+   (which non-scalar variables a devicetype captures) is read by the worker
+   today and by the PVA gateway once it serves arrays — two consumers that
+   may not import each other; the CA gateway serves scalars only and never
+   reads it.
 
 Two supporting conventions:
 

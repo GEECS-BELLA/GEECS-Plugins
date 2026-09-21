@@ -1,4 +1,4 @@
-"""device_streams — the per-devicetype capture/exclude declaration, pinned against recorded DB rows."""
+"""device_streams — the per-devicetype capture declaration, pinned against recorded DB rows."""
 
 from __future__ import annotations
 
@@ -13,14 +13,13 @@ from geecs_core.db.device_streams import (
     DEVICE_TYPE_STREAMS,
     DeviceTypeStreams,
     capture_variables,
-    excluded_variables,
     streams_for,
 )
 from geecs_core.db.variable_types import SKIP_VARTYPES, effective_vartype
 
-#: ``devicetype_variable`` rows per devicetype, recorded from the GEECS DB —
-#: NOT derived from the table under test, so a name the table gets wrong
-#: is a name the fixture does not have.
+#: ``devicetype_variable`` rows per devicetype, recorded from the GEECS DB by
+#: ``scripts/record_devicetype_variables.py`` — NOT derived from the table
+#: under test, so a name the table gets wrong is a name the fixture lacks.
 FIXTURE: dict[str, list[dict]] = json.loads(
     (Path(__file__).parent / "fixtures" / "devicetype_variables.json").read_text()
 )["devicetypes"]
@@ -39,12 +38,8 @@ def test_every_declared_name_is_a_db_variable_of_that_devicetype(
     assert entry is not None
     with caplog.at_level(logging.WARNING, logger="geecs_core.db.device_streams"):
         captured = capture_variables(devicetype, FIXTURE[devicetype])
-        excluded = excluded_variables(devicetype, FIXTURE[devicetype])
     assert captured is not None and len(captured) == len(entry.capture)
-    assert len(excluded) == len(entry.exclude)
     assert not caplog.records, [r.getMessage() for r in caplog.records]
-    # A capture stream and an exclusion are disjoint claims about one variable.
-    assert not {n.lower() for n in captured} & {n.lower() for n in excluded}
 
 
 @pytest.mark.parametrize("devicetype", sorted(FIXTURE))
@@ -53,7 +48,7 @@ def test_declared_names_are_non_scalar_variables(devicetype: str) -> None:
     by_name = {str(r["name"]).lower(): r for r in FIXTURE[devicetype]}
     entry = streams_for(devicetype)
     assert entry is not None
-    for name in (*entry.capture, *entry.exclude):
+    for name in entry.capture:
         row = by_name[name.lower()]
         assert (
             effective_vartype(row["variabletype"], row["choices"]) in SKIP_VARTYPES
@@ -68,9 +63,24 @@ def test_point_grey_declaration_equals_the_historic_one_image_default() -> None:
 
 
 def test_the_frog_captures_its_trace_and_nothing_alphabetical() -> None:
-    rows = FIXTURE["FROG"]
-    assert capture_variables("FROG", rows) == ["frogTrace"]
-    assert "SpatialImage" in excluded_variables("FROG", rows)
+    assert capture_variables("FROG", FIXTURE["FROG"]) == ["frogTrace"]
+
+
+def test_capture_order_is_the_declared_order_not_the_db_order() -> None:
+    """The first declared stream is the primary one (the ``hdf`` child, the bare stream key)."""
+    rows = FIXTURE["MagSpecCamera"]
+    assert capture_variables("MagSpecCamera", rows) == [
+        "Image",
+        "ImageInterp",
+        "interpSpec",
+        "interpDiv",
+    ]
+    assert capture_variables("MagSpecCamera", list(reversed(rows))) == [
+        "Image",
+        "ImageInterp",
+        "interpSpec",
+        "interpDiv",
+    ]
 
 
 def test_a_misspelled_declaration_is_dropped_with_a_warning(
@@ -90,9 +100,8 @@ def test_a_misspelled_declaration_is_dropped_with_a_warning(
 
 
 def test_resolution_is_case_insensitive_and_returns_the_db_spelling() -> None:
-    rows = [{"name": "IMAGE"}, {"name": "Bakground Image"}]
-    assert capture_variables("Point Grey Camera", rows) == ["IMAGE"]
-    assert excluded_variables("Point Grey Camera", rows) == ["Bakground Image"]
+    assert capture_variables("Point Grey Camera", [{"name": "IMAGE"}]) == ["IMAGE"]
+    assert capture_variables("frog", [{"name": "FROGTRACE"}]) == ["FROGTRACE"]
 
 
 def test_devicetype_lookup_normalises_case_and_whitespace() -> None:
@@ -105,5 +114,4 @@ def test_an_undeclared_devicetype_yields_none_not_empty() -> None:
     rows = [{"name": "Image"}, {"name": "SpotfieldImage"}]
     assert streams_for("ThorlabsWFS") is None
     assert capture_variables("ThorlabsWFS", rows) is None
-    assert excluded_variables("ThorlabsWFS", rows) == []
     assert capture_variables("PicoscopeV2", FIXTURE["PicoscopeV2"]) == []

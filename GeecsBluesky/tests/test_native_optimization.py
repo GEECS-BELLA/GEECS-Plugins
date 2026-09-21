@@ -221,16 +221,26 @@ def test_camera_measurement_refire_and_preclaim_connection(
     namespace = SimpleNamespace(
         resolve=lambda name: camera if name == "Camera" else ns.resolve(name),
         experiment="Test",
+        # A FROG-typed camera: the live frame source must follow the
+        # devicetype's declared stream (frogTrace), not the one-image guess
+        # (SpatialImage, alphabetically first, never pushed).
         roster=SimpleNamespace(
-            variables={"Camera": [row("image", choices="image")]}, types={}
+            variables={
+                "Camera": [
+                    row("SpatialImage", choices="image"),
+                    row("frogTrace", choices="image"),
+                ]
+            },
+            types={"Camera": "FROG"},
         ),
     )
     opened = []
     closed = []
+    sources = []
 
     class FakeFrameSource:
         def __init__(self, *args, **kwargs):
-            pass
+            sources.append(args[0])
 
         def open(self):
             opened.append(True)
@@ -272,6 +282,7 @@ def test_camera_measurement_refire_and_preclaim_connection(
         assert [e["n_valid_shots:cam"] for e in events] == [2, 2]
         assert all(np.isfinite(e["output:cam~2Eimage_total"]) for e in events)
     assert opened == closed == [True]
+    assert sources == ["test:camera:frogtrace"]
 
 
 @pytest.mark.parametrize(
