@@ -213,6 +213,72 @@ Two real gaps, both in `geecs_bluesky/namespace.py`:
    be plugin-backed once its box serves PVA. Verified live against the DB.
    Nothing about the stitcher is gated on #756 any more.
 
+### 4.3b The declaration: one table, two polarities
+
+Three per-devicetype facts have accumulated in this brief — which variables to
+capture, which to never touch, and how far to pad — and they want one home
+rather than three. Sam, 2026-09-20: "an exclusion list is always going to be
+helpful, as there's always some edge case to handle on the device side."
+
+**The polarity is decided by cost asymmetry, not by taste.**
+
+- **Serving over PVA is cheap and gated.** A variable nobody subscribes to
+  costs nothing: no TCP subscription, no flatten in LabVIEW, no decode. So
+  serving stays **DB-driven with an exclusion list** — everything
+  `effective_vartype` calls non-scalar, minus named exceptions. The DB remains
+  the source of truth (the package's founding doctrine: "the GEECS DB is the
+  source of truth — there is no per-host config file"), new variables appear
+  without a code change, and only quirks need naming.
+- **Capturing to the record is expensive and can break a scan.** A wrong name
+  arms a plugin on a variable that never pushes, costing `ARM_TIMEOUT_S` on
+  every prepare (the FROG bug); a right-but-unwanted name costs real bytes
+  (`SpotfieldImage` is ~3 MB/shot). So capture is an **explicit allowlist**:
+  nothing is captured unless declared.
+
+One table, keyed by devicetype, with a permissive default:
+
+```python
+@dataclass(frozen=True)
+class DeviceTypeStreams:
+    exclude: frozenset[str] = frozenset()   # never served, never captured
+    capture: tuple[str, ...] = ()           # the capture allowlist (empty = none)
+    array_ceiling: int = 2048               # padding rows for array variables
+```
+
+Its home is `geecs_core.db.variable_types` or a sibling: both gateways and the
+worker's namespace need it, and neither may import the other. Matching is
+**case-insensitive** — the DB spells the same variable differently across
+tables, and the device itself looks names up case-insensitively (both
+established live).
+
+**The entries this brief has already earned:**
+
+| devicetype | exclude | capture | ceiling |
+|---|---|---|---|
+| `Point Grey Camera` | `bakground image`, `processed image` | `image` | — |
+| `MagSpecCamera` | `EnergyAxis`, `AngleAxis` (each pushes one number) | `Image`, `ImageInterp`, `interpSpec`, `interpDiv` | 2048 |
+| `MagSpecStitcher` | `interpDiv` (malformed on this devicetype, §4.4c) | `Image`, `interpSpec` | 16384 |
+| `FROG` | `SpatialImage`, `retrieved FrogTrace`, `retrievedFrogTrace` | `frogTrace` | — |
+| `ThorlabsWFS` | — | `Image`, `SpotfieldImage` | — |
+| `PicoscopeV2` | `ScopeTraces`, `wfm`, `wfm info` (dead names) | `scopeTrace.Channel0..3` | (per channel) |
+
+**Two mechanics that keep a list like this honest**, because silent allow/deny
+lists rot:
+
+1. **Validate both lists against the DB at startup and warn loudly.** A typo'd
+   *exclusion* silently does nothing — the variable keeps being served and
+   nobody notices. A typo'd *capture* name arms a plugin on something that does
+   not exist. Both are invisible without a check, so the roster build should
+   log any named variable it cannot find for that devicetype.
+2. **Log an exclusion when it fires.** A variable that is quietly absent from
+   the served set is a mystery to whoever next asks "why is this PV missing?";
+   one INFO line at startup answers it.
+
+A parity test pins both: every name in the table must match a real DB variable
+for that devicetype (against recorded fixtures, not a live DB), and the test
+must be shown to fail when a name is misspelled — a list whose test passes with
+a typo in it is not tested.
+
 ### 4.4 Tier 4 — arrays in the gateway (families B1 + B2), small and bounded
 
 - `geecs_core.db.variable_types`: an `array_variables(rows)` twin of
