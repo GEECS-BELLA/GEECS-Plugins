@@ -64,6 +64,7 @@ from typing import Any
 from bluesky.protocols import Movable, Readable
 from ophyd_async.core import Device, PathProvider
 
+from geecs_core.db.device_streams import capture_variables
 from geecs_core.db.scalar_policy import GeecsDbScalarPolicy
 from geecs_core.db.variable_types import (
     VARTYPE_TO_DTYPE,
@@ -135,15 +136,17 @@ PRIMARY_IMAGE_VARIABLE = "image"
 
 
 def primary_image_variable(rows: Sequence[Mapping[str, Any]]) -> list[str]:
-    """The one image variable the file plugin captures for a camera.
+    """The one-image guess for a devicetype that declares no capture streams.
 
     A camera's DB rows can list several image-typed variables
     (``UC_Amp4_IR_input``: ``image``, ``bakground image``, ``processed
     image``, found live 2026-09-11), but only the primary one is pushed on
     every acquisition — the others exist when an operation produces them,
     so a plugin armed on one waits forever.  ``image`` when the DB lists
-    it, else the first image variable; a second capture stream is a
-    deliberate later choice, not a default.
+    it, else the first image variable.  This is the *default* behind
+    :func:`capture_streams`; a devicetype whose pushed variable is not
+    ``image`` (the FROG's ``frogTrace``), or which pushes more than one,
+    declares them in :mod:`geecs_core.db.device_streams` instead.
     """
     names = image_variables(rows)
     if not names:
@@ -152,6 +155,35 @@ def primary_image_variable(rows: Sequence[Mapping[str, Any]]) -> list[str]:
         if name.lower() == PRIMARY_IMAGE_VARIABLE:
             return [name]
     return names[:1]
+
+
+def capture_streams(
+    rows: Sequence[Mapping[str, Any]], devicetype: str = ""
+) -> list[str]:
+    """The variables the file plugin captures for one device, in capture order.
+
+    The devicetype's declared capture streams
+    (:func:`geecs_core.db.device_streams.capture_variables`), restricted to
+    what the gateway serves today — image-typed variables.  A declared
+    array stream (a magspec lineout, typed ``1darray``) is logged and
+    skipped until the gateway serves arrays; the declaration then needs no
+    change.  A devicetype that declares nothing keeps
+    :func:`primary_image_variable`'s guess, so every camera type nobody has
+    looked at behaves exactly as before.
+    """
+    declared = capture_variables(devicetype, rows)
+    if declared is None:
+        return primary_image_variable(rows)
+    served = {name.lower() for name in image_variables(rows)}
+    waiting = [name for name in declared if name.lower() not in served]
+    if waiting:
+        logger.info(
+            "%s: declared capture stream(s) %s are not image variables; not "
+            "captured until the gateway serves arrays",
+            devicetype,
+            waiting,
+        )
+    return [name for name in declared if name.lower() in served]
 
 
 # --------------------------------------------------------------------- rules
@@ -558,12 +590,13 @@ class GeecsNamespace:
         datatypes = {n: py for n, (_, py) in typed.items()}
         dev: Any
         if triggered:
-            # Plugin-backed iff the DB lists an image variable and the
-            # device's camera server serves the file plugin (#806).  The
-            # LabVIEW-native path stays on beside it — PNG dual-write until
-            # PNG retirement (#738), the parity evidence of the rollout.
+            # Plugin-backed iff the devicetype's capture streams include a
+            # served (image) variable and the device's camera server serves
+            # the file plugin (#806).  The LabVIEW-native path stays on
+            # beside it — PNG dual-write until PNG retirement (#738), the
+            # parity evidence of the rollout.
             plugin_vars = (
-                primary_image_variable(rows)
+                capture_streams(rows, devicetype)
                 if self._path_provider is not None
                 and roster.endpoints.get(device) in self._file_plugin_hosts
                 else []

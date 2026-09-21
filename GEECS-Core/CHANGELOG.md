@@ -4,6 +4,30 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.9.0] - 2026-09-21
+
+### Added
+
+- **`geecs_core.db.device_streams`** — the per-devicetype declaration of
+  which non-scalar variables are capture streams (`capture`, an allowlist in
+  capture order) and which are never served or captured (`exclude`),
+  matched against a device's DB rows case-insensitively and returning the
+  rows' spelling; a declared name the DB does not list is dropped with a
+  WARNING.  Entries for `Point Grey Camera` (`image`), `MagSpecCamera`
+  (`Image`, `ImageInterp`, `interpSpec`, `interpDiv`; `EnergyAxis` /
+  `AngleAxis` excluded — each pushes one number), `MagSpecStitcher`
+  (`Image`, `interpSpec`; its `interpDiv` arrives malformed), `FROG`
+  (`frogTrace` only — the device never pushes `SpatialImage` or the
+  retrieved traces) and `PicoscopeV2` (captures nothing yet; dead names and
+  the `scopeTraceGUI.*` twins excluded).  A devicetype with no entry
+  returns `None` so each consumer keeps its historical default.  Pinned by
+  `tests/test_device_streams.py` against recorded `devicetype_variable`
+  rows (`tests/fixtures/devicetype_variables.json`): every declared name
+  must be a real non-scalar variable of its devicetype, and a table entry
+  without a recorded fixture fails.  The worker's namespace consumes
+  `capture` (GeecsBluesky 0.97.0); the PVA gateway adopts `exclude` and the
+  array streams with array support.
+
 ## [0.8.3] - 2026-09-16
 
 ### Changed

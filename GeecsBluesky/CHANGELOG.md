@@ -4,6 +4,28 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.97.0] - 2026-09-21
+
+### Changed
+
+- **Which variables a plugin-backed device captures is declared per
+  devicetype**, not guessed: `namespace.capture_streams` reads
+  `geecs_core.db.device_streams.capture_variables` (GEECS-Core 0.9.0) and
+  arms one file plugin per declared stream the gateway serves today
+  (image-typed variables), in declared order — so the FROG's detector now
+  captures `frogTrace`, the one variable it pushes, where
+  `primary_image_variable` picked `SpatialImage` (never pushed: every
+  `prepare` waited out the arm timeout), and a MagSpec camera captures
+  `Image` **and** `ImageInterp` (`hdf` + `hdf_imageinterp`, stream keys
+  `<name>` and `<name>-imageinterp`).  A declared `1darray` stream (the
+  magspec lineouts) is logged at INFO and waits for array support in the
+  gateway — the declaration then needs no change.  A devicetype with no
+  declaration keeps `primary_image_variable`'s one-image guess unchanged,
+  so every Point Grey (declared `image`, the same answer) and every
+  undeclared camera type behaves exactly as before.  The optimizer's live
+  frame source reads the device's first declared stream through the same
+  rule.
+
 ## [0.96.0] - 2026-09-18
 
 ### Added

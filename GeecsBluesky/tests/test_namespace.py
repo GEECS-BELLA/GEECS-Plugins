@@ -8,6 +8,8 @@ DB-derived types, protocol-name collisions, the triggerable shortcut.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 pytest.importorskip(
@@ -23,9 +25,11 @@ from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.namespace import (
     DeviceRoster,
     GeecsNamespace,
+    capture_streams,
     identifier_name,
     looks_triggerable,
     motor_targets,
+    primary_image_variable,
     python_type,
 )
 
@@ -394,8 +398,9 @@ def test_camera_on_a_plugin_host_is_plugin_backed() -> None:
     cam = ns.devices["UC_TestCam"]
     assert cam.plugin_backed
     assert cam.hdf.capture.source == "pva://testexp:uc_testcam:image:hdf1:Capture_RBV"
-    # Only the primary image variable is captured: the DB's other image
-    # variables are pushed only when an operation produces them.
+    # A Point Grey declares one capture stream, ``image`` (the historic
+    # default): its other image variables are pushed only when an
+    # operation produces them, so their plugins would never arm.
     assert not hasattr(cam, "hdf_bakground_image") and len(cam._hdf_ios) == 1
     # The plugin's IO is never a telemetry object (only the detector's scalars are).
     assert cam.hdf not in ns.telemetry()
@@ -432,6 +437,115 @@ def test_file_plugin_hosts_default_reads_the_config(monkeypatch) -> None:
         _roster_on("192.168.6.100"), path_provider=GeecsScanPathProvider()
     )
     assert ns.devices["UC_TestCam"].plugin_backed
+
+
+# ----------------------------------------- capture-stream declaration
+def _stream_roster(device: str, devicetype: str, rows, host: str) -> DeviceRoster:
+    return DeviceRoster(
+        experiment="TestExp",
+        variables={device: rows},
+        types={device: devicetype},
+        subscribed={device: ["MeanCounts"]},
+        endpoints={device: host},
+    )
+
+
+def _plugin_namespace(roster: DeviceRoster, host: str) -> GeecsNamespace:
+    from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
+
+    return GeecsNamespace(
+        roster, path_provider=GeecsScanPathProvider(), file_plugin_hosts={host}
+    )
+
+
+def test_the_frog_captures_the_declared_trace_not_the_alphabetical_first() -> None:
+    """The FROG pushes only frogTrace; the one-image guess picked SpatialImage (never pushed)."""
+    rows = [
+        row("MeanCounts"),
+        row("EnableTrigger", settable=True, choices="on,off"),
+        row("SpatialImage", choices="image"),
+        row("frogTrace", choices="image"),
+        row("retrieved FrogTrace", choices="image"),
+        row("retrievedFrogTrace", choices="image"),
+    ]
+    ns = _plugin_namespace(
+        _stream_roster("U_FROG", "FROG", rows, "192.168.6.73"), "192.168.6.73"
+    )
+    frog = ns.devices["U_FROG"]
+    assert frog.plugin_backed and len(frog._hdf_ios) == 1
+    assert frog.hdf.capture.source == "pva://testexp:u_frog:frogtrace:hdf1:Capture_RBV"
+    # And the guess it replaces really did pick the wrong one.
+    assert primary_image_variable(rows) == ["SpatialImage"]
+
+
+def test_a_magspec_camera_captures_both_images_and_logs_the_waiting_arrays(
+    caplog,
+) -> None:
+    """Two declared image streams → two plugins; the declared 1darray lineouts wait for array support."""
+    rows = [
+        row("MeanCounts"),
+        row("Trigger", settable=True, choices="on,off"),
+        row("Image", choices="image"),
+        row("ImageInterp", choices="image"),
+        row("EnergyAxis", choices="1darray"),
+        row("interpSpec", choices="1darray"),
+        row("interpDiv", choices="1darray"),
+    ]
+    with caplog.at_level(logging.INFO, logger="geecs_bluesky.namespace"):
+        ns = _plugin_namespace(
+            _stream_roster("UC_MagSpecCam", "MagSpecCamera", rows, "192.168.8.201"),
+            "192.168.8.201",
+        )
+    cam = ns.devices["UC_MagSpecCam"]
+    assert len(cam._hdf_ios) == 2
+    assert (
+        cam.hdf.capture.source == "pva://testexp:uc_magspeccam:image:hdf1:Capture_RBV"
+    )
+    assert (
+        cam.hdf_imageinterp.capture.source
+        == "pva://testexp:uc_magspeccam:imageinterp:hdf1:Capture_RBV"
+    )
+    assert not hasattr(cam, "hdf_interpspec") and not hasattr(cam, "hdf_energyaxis")
+    waiting = [
+        r.getMessage() for r in caplog.records if "not captured until" in r.getMessage()
+    ]
+    assert (
+        len(waiting) == 1 and "interpSpec" in waiting[0] and "interpDiv" in waiting[0]
+    )
+
+
+def test_an_undeclared_devicetype_keeps_the_one_image_guess() -> None:
+    """A camera type nobody has declared behaves exactly as before: image, else the first."""
+    rows = [
+        row("MeanCounts"),
+        row("Trigger", settable=True, choices="on,off"),
+        row("SpotfieldImage", choices="image"),
+        row("Image", choices="image"),
+    ]
+    ns = _plugin_namespace(
+        _stream_roster("U_WFS", "ThorlabsWFS", rows, "192.168.8.208"), "192.168.8.208"
+    )
+    wfs = ns.devices["U_WFS"]
+    assert len(wfs._hdf_ios) == 1
+    assert wfs.hdf.capture.source == "pva://testexp:u_wfs:image:hdf1:Capture_RBV"
+    assert (
+        capture_streams(rows, "ThorlabsWFS")
+        == primary_image_variable(rows)
+        == ["Image"]
+    )
+
+
+def test_a_devicetype_declaring_no_capture_gets_no_plugin() -> None:
+    """[] from the declaration is a decision, not an absence: nothing is armed."""
+    rows = [
+        row("MeanCounts"),
+        row("EnableTrigger", settable=True, choices="on,off"),
+        row("scopeTrace.Channel0", choices="1darray"),
+    ]
+    ns = _plugin_namespace(
+        _stream_roster("U_ICT", "PicoscopeV2", rows, "192.168.7.168"), "192.168.7.168"
+    )
+    assert not ns.devices["U_ICT"].plugin_backed
 
 
 # ------------------------------------------------- measured drain offsets

@@ -603,9 +603,10 @@ class GeecsDetector(StandardDetector):
         (#806): each becomes a :class:`GeecsHdfIO` child (``hdf``, then
         ``hdf_<variable>``) driven by the stock ``ADHDFDataLogic``; the
         first writes the ``<name>`` stream key, the others
-        ``<name>-<variable>``.  The namespace passes the camera's primary
-        image variable only (a secondary one is pushed only when an
-        operation produces it, so its plugin would never arm).  With a *path_provider* as well the
+        ``<name>-<variable>``.  The namespace passes the devicetype's
+        declared capture streams (``geecs_core.db.device_streams``; default
+        the one primary image variable — a variable the device pushes only
+        when an operation produces it would never arm).  With a *path_provider* as well the
         camera also writes its native files (dual-write, until PNG
         retirement #738); without one a stale ``save=on`` is still cleared.
     shot_timeout :

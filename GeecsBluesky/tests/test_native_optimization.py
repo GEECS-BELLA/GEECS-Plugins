@@ -221,7 +221,9 @@ def test_camera_measurement_refire_and_preclaim_connection(
     namespace = SimpleNamespace(
         resolve=lambda name: camera if name == "Camera" else ns.resolve(name),
         experiment="Test",
-        roster=SimpleNamespace(variables={"Camera": [row("image", choices="image")]}),
+        roster=SimpleNamespace(
+            variables={"Camera": [row("image", choices="image")]}, types={}
+        ),
     )
     opened = []
     closed = []
