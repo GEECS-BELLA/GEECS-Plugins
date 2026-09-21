@@ -312,7 +312,9 @@ small `dE` makes the axis arbitrarily long. Three regimes: constant (~99% of
 the time); +-1 point of drift mid-scan as the field wanders (rare, but real);
 and a deliberate **current scan**, where it changes a lot *within one run*.
 
-**The decision: pad in the gateway to a fixed ceiling of 2048 rows, NaN fill.**
+**The decision: pad in the gateway to a PER-DEVICETYPE ceiling, NaN fill** -
+2048 rows for `MagSpecCamera`, **16384 for `MagSpecStitcher`** (revised
+2026-09-20; §4.4c has why one global ceiling is wrong and what padding costs).
 Upstream of both consumers, so the PV shape is constant (what Phoebus and the
 Bluesky descriptor both want) and the writer needs no change. `float64`, not
 `float32`: the wire carries 7 significant figures, which `float32` only just
@@ -339,7 +341,7 @@ session's frozen shape. Three guards, each explicit:
    NaN / skip rather than divide by zero. Counting non-NaN rows distinguishes
    "one valid row plus padding" from a real spectrum.
 
-**2048 is a policy ceiling, not a physical one** (an earlier draft of this
+**The ceiling is policy, not physics** (an earlier draft of this
 section claimed the chip width bounded it - wrong, the interp grid is
 decoupled from pixel count). Therefore: **a frame longer than the ceiling is
 dropped, counted and named in `WriteStatus`/`WriteMessage`** - the existing
@@ -475,6 +477,61 @@ LabVIEW side to start.**
 camera, all 40 Point Greys included. Default to today's single-variable
 behaviour when a devicetype declares nothing, so the change is strictly
 additive, and give it a full adversarial review rather than a quick merge.
+
+### 4.4c The stitcher: a per-devicetype ceiling, and what padding costs
+
+Probed live 2026-09-20 on `U_BCaveMagSpec` (192.168.7.203), once the device was
+launched from the right place. Before that its large payloads were empty to a
+remote subscriber while its scalars came through - the same signature Point
+Grey images give, and **not** distinguishable from local-only shipping without
+a host-local subscriber. Worth remembering as a diagnosis: "names echo, big
+payloads empty, scalars fine" has at least three causes (local-only shipping,
+a device with nothing to compute, and a device launched from the wrong place).
+
+**`interpSpec` on the stitcher is 8218 x 2** - 51.558 to 2106.047 MeV, strictly
+increasing, `dE` = 0.25 (the 0.25002..0.2505 spread is the 7-significant-figure
+printing artifact, larger in absolute terms because the values reach 2106). It
+spans three cameras, hence four times the camera's ~285 rows.
+
+**So a single global ceiling is wrong.** A camera at ~285 rows and the stitcher
+at ~8218 are legitimately two orders apart: 2048 would drop every stitcher
+frame, 16384 would waste 30x on a camera. The ceiling belongs beside the array
+eligibility as a **per-devicetype value** with a generous default.
+
+**`interpDiv` is dropped for `MagSpecStitcher` (Sam, 2026-09-20).** On this
+devicetype it arrives malformed: 8218 rows to match `interpSpec`, but only the
+first 190 carry an axis (-23.5 to -14.25 in 0.0492 steps - neither the camera's
+range nor its 0.25 spacing), then it jumps to 0 and stays there for the
+remaining 8028 rows, giving 8028 non-increasing steps. The camera's `interpDiv`
+is a clean 189 x 2 over -23.5..+23.5, so the stitcher's is the odd one out.
+Consequence for the decoder regardless of this device: **validate that column 0
+is strictly increasing** rather than trusting it, because an axis like that
+would silently corrupt any rebinning.
+
+**What the padding costs, measured** (the live 8218 x 2 frame padded to
+16384 x 2 float64, 100 shots, `shuffle` + `gzip-1`, one frame per chunk):
+
+| case | KB/shot |
+|---|---|
+| empty values (no beam, as probed) | **3.0** |
+| realistic peak, ~1000 bins of signal | **68.4** |
+| full-band noise (worst case) | 81.8 |
+| raw, uncompressed | 256.0 |
+| *one Point Grey frame, for scale* | *703.1* |
+
+A real spectrum costs **under 10% of one camera frame**, and the stitcher's own
+three input cameras write ~675 KB/shot between them - its spectrum is about a
+tenth of its inputs. A 200-shot scan lands near 14 MB. **Therefore: do not
+optimize the emptiness.** Sparse bins, or `(start, dE, n)` plus values, would
+save at most half of 68 KB while adding a second format, an inference step and
+a failure mode.
+
+**If it ever does need shrinking, the lever is counterintuitive:** the entropy
+is in the *axis* column, not the values. The captured frame compressed to
+17.3 KB/shot; the same frame with an exact reconstructed ramp to 3.0. The
+difference is column 0's printing jitter. So the optimization would be dropping
+the axis column in favour of `(start, dE, n)` - which is also exact where the
+printed axis is not. Not now.
 
 ### 4.5 Tier 5 — the DB naming/typing fix
 
