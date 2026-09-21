@@ -420,9 +420,15 @@ and Tiled reads it with its stock adapter.  The rule is the namespace's:
 DB image variable + endpoint in `config.ini [pva] file_plugin_addr_list`
 (absent = no host; never the PVA fleet's `addr_list`).  A plugin-backed camera keeps writing its native
 PNGs beside the stack (dual-write, the rollout's parity evidence) until
-PNG retirement (#738); elsewhere per-shot data stays on the
+PNG retirement (#738) — **per run**, the bound plans' `native_image_save`
+argument (the preset's field; unset = `ExperimentDefaults.native_image_save`,
+read at every run) switches that dual-write off for the plugin-backed
+cameras and nothing else (`native_image_save_wrapper` in the registry
+flips `LvNativeFileDataLogic.enabled` for the run and restores it; the
+controls stay owned, so a stale `save=on` is still cleared at stage);
+elsewhere per-shot data stays on the
 LabVIEW-native file path (`LvNativeFileDataLogic`, named with the stamp)
-— the non-image proprietary devices keep it for good.  Live frames are the
+— the non-image proprietary devices keep it for good, whatever the switch says.  Live frames are the
 NTNDArray PVs.  A missed shot keeps its row (scalars, the missing
 device's columns `NaN`, no frames) and the plan takes one more shot,
 rewinding every plugin to its last referenced frame first

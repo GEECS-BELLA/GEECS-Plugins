@@ -5,6 +5,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.13.0] - 2026-09-20
+
+### Added
+
+- **LabVIEW files** — a three-state select among the fields every scan
+  needs (`experiment default` / `on · PNGs beside the stack` / `off ·
+  plugin stacks only`), round-tripped as the preset's `native_image_save`
+  (PNG retirement, GEECS-Plugins#738). The visible control owns the value:
+  a copy an older preset carries in `plan.kwargs` is dropped on save, as
+  the trigger profile's is. The queue summary says `no LabVIEW files` when
+  an item switches them off; unset stays silent, since only the worker
+  knows the experiment default.
+
 ## [0.12.0] - 2026-09-17
 
 ### Changed

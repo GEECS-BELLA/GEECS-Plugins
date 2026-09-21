@@ -21,6 +21,10 @@ device — an essential device is waited on every shot, a non-essential
 one streams its frames for the run and never holds a shot — and the
 acquisition mode as a plan keyword (``acquisition: gated`` in
 ``plan.kwargs``, beside ``shots_per_step``), not a preset field.
+``native_image_save`` (0.31.0) is the run-level switch for LabVIEW's
+per-shot files: one value per scan, reaching only the cameras whose
+frames the PVA gateway's file plugin captures (GEECS-Plugins#738); unset
+defers to the experiment default, which the worker reads at every scan.
 
 Device references
 -----------------
@@ -148,6 +152,19 @@ class Preset(VersionedSchemaModel):
         description=(
             "Flag this scan as a background measurement (metadata only: "
             "ScanMode 'background' in ScanInfo, 'background' in the run)."
+        ),
+    )
+    native_image_save: Optional[bool] = Field(
+        None,
+        description=(
+            "Whether cameras whose frames the PVA gateway's file plugin "
+            "captures also write their LabVIEW per-shot files (PNGs) this "
+            "scan. Leave unset for the experiment default "
+            "(experiment_defaults.yaml). Off keeps the plugin's HDF5 stack "
+            "as those cameras' only record. A device without a file plugin "
+            "(no PVA stream, a proprietary format) always writes its native "
+            "files whatever this says, and a scalars-only entry (save_images "
+            "off) is unaffected."
         ),
     )
     devices: list[PresetDevice] = Field(

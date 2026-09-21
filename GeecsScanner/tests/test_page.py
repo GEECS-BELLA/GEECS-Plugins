@@ -455,6 +455,77 @@ console.log(JSON.stringify({loaded, saved, cleared: $("trig").value}));
     assert kwargs["sweep"]["trajectory"]["axes"][0] == axis
 
 
+def test_native_save_control_sits_with_what_every_scan_needs(
+    client: TestClient,
+) -> None:
+    """#738: the LabVIEW-files switch is a run-level field above the rule, three states."""
+    html = client.get("/").text
+    sub = html[html.index('id="submit"') : html.index('id="queue"')]
+    body = sub[sub.index('<div class="body">') : sub.index("<footer>")]
+    control = body.index('<select id="native-save"')
+    assert body.index('id="scan-invariants"') < control < body.index('id="scan-plan"')
+    for option in (
+        '<option value="">experiment default</option>',
+        '<option value="true">',
+        '<option value="false">',
+    ):
+        assert option in body, option
+
+
+def test_native_save_control_round_trips_the_run_level_switch():
+    """The visible control owns the preset field; a kwargs copy is dropped (#738)."""
+    _need_node()
+    source = (_PKG / "static/scanner.js").read_text()
+    functions = "\n".join(
+        "function "
+        + name
+        + "("
+        + args
+        + ") {\n"
+        + _script_function(source, name)
+        + "\n}"
+        for name, args in [
+            ("fillFormFromPreset", "doc"),
+            ("buildPreset", ""),
+            ("formShape", "plan"),
+        ]
+    )
+    harness = (
+        r"""
+var els = {};
+function $(id) { return els[id] || (els[id] = {value: "", appendChild() {}}); }
+var S = {}, composer = {load(v) {this.v = v;}, value() {return this.v;}, reset() {}};
+function setMode(mode) {S.mode = mode;}
+function setAcq(acq) {S.acq = acq;}
+function setSelect(id, value) {$(id).value = value;}
+function noDevicesNote() {} function recalc() {} function renderCalibration() {}
+function tableDevices() {return [];}
+"""
+        + functions
+        + r"""
+S.presetDoc = {native_image_save: false, devices: [], plan: {name: "count", args: [], kwargs: {num: 3, native_image_save: true}}};
+fillFormFromPreset(S.presetDoc);
+var loaded = $("native-save").value;
+var off = buildPreset();
+$("native-save").value = "";
+var unset = buildPreset();
+$("native-save").value = "true";
+var on = buildPreset();
+fillFormFromPreset({devices: [], plan: {name: "count", args: [], kwargs: {num: 3}}});
+console.log(JSON.stringify({loaded, off: off.native_image_save, unset: unset.native_image_save,
+  on: on.native_image_save, kwargs: off.plan.kwargs, cleared: $("native-save").value}));
+"""
+    )
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    state = json.loads(result.stdout)
+    assert state["loaded"] == "false"
+    assert state["off"] is False and state["unset"] is None and state["on"] is True
+    assert "native_image_save" not in state["kwargs"]
+    assert state["cleared"] == ""
+
+
 def test_malformed_preset_replaces_capture_fields_but_cannot_start_or_save():
     from .test_composer import run_js
 

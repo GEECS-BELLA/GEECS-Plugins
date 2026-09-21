@@ -102,6 +102,14 @@ def test_expand_builds_the_stock_plan_item() -> None:
     }
 
 
+def test_native_image_save_rides_as_the_plans_keyword_only_when_set() -> None:
+    """Unset defers to the experiment default the worker reads per run (#738)."""
+    assert "native_image_save" not in expand_preset(_preset()).kwargs
+    item = expand_preset(_preset(native_image_save=False))
+    assert item.kwargs["native_image_save"] is False
+    assert "native_image_save" not in item.kwargs["md"]  # a plan argument, not md
+
+
 def test_count_preset_and_pair_spelled_variables() -> None:
     preset = _preset(
         trigger_profile=None,

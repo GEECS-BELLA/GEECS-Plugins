@@ -406,13 +406,14 @@ class TestV1Migration:
     def test_set_native_image_save_is_refused_with_the_remedy(self):
         # Set either way — the value that used to mean "skip the PNGs" and
         # the one that meant "keep them" — is refused, not silently ignored:
-        # nothing implements the toggle since the daemon went (#806).
+        # the switch was rebuilt on the preset (0.31.0), and a ScanRequest
+        # is not what the scanner submits, so the remedy points there.
         for document in (
             {"mode": "noscan", "native_image_save": False},
             {"mode": "noscan", "native_image_save": True},
             {"mode": "noscan", "capture": {"native_image_save": False}},
         ):
-            with pytest.raises(ValidationError, match="#738"):
+            with pytest.raises(ValidationError, match="Preset.native_image_save"):
                 ScanRequest.model_validate(document)
 
     def test_flat_trigger_variant_beside_capture_gets_the_variant_verdict(self):

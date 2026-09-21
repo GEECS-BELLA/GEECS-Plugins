@@ -28,6 +28,19 @@ def test_scan_triplet_with_trailing_num() -> None:
     )
 
 
+def test_native_image_save_off_is_said_and_unset_is_silent() -> None:
+    """#738: the run-level switch shows only when the item turns the PNGs off."""
+    off = summarize_item(
+        _item("count", [["UC_A"]], num=3, acquisition="strict", native_image_save=False)
+    )
+    assert off.native_image_save is False
+    assert off.text == "count · 3 shots · strict · no LabVIEW files"
+    unset = summarize_item(_item("count", [["UC_A"]], num=3, acquisition="strict"))
+    assert unset.native_image_save is None and "LabVIEW" not in unset.text
+    on = summarize_item(_item("count", [["UC_A"]], num=3, native_image_save=True))
+    assert on.native_image_save is True and "LabVIEW" not in on.text
+
+
 def test_grid_scan_multiplies_steps() -> None:
     s = summarize_item(
         _item(

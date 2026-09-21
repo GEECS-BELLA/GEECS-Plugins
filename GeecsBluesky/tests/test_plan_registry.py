@@ -33,7 +33,13 @@ from geecs_bluesky.plans.registry import (  # noqa: E402
     strict_plan,
 )
 from tests.ca_mock_helpers import DocCollector, connect_mock, follow_setpoint  # noqa: E402
-from tests.test_strict_plans import WRITES, FakeBox, _RefusedPut, _camera  # noqa: E402
+from tests.test_strict_plans import (  # noqa: E402
+    WRITES,
+    FakeBox,
+    _RefusedPut,
+    _camera,
+    _plugin_camera,
+)
 
 
 class Magnet(Device):
@@ -96,13 +102,20 @@ def test_bound_plans_keep_the_stock_signature_minus_the_hook(profiles) -> None:
         assert params["trigger_profile"].kind is inspect.Parameter.KEYWORD_ONLY
         assert ("shots_per_step" in params) == (name != "count")
         assert "trigger_profile" in plan.__doc__
-        # phase 2: the acquisition mode, the non-essential list, the throttle
-        for extra in ("acquisition", "non_essential", "shot_period"):
+        # phase 2: the acquisition mode, the non-essential list, the throttle;
+        # #738: the LabVIEW-files switch
+        for extra in (
+            "acquisition",
+            "non_essential",
+            "shot_period",
+            "native_image_save",
+        ):
             assert params[extra].kind is inspect.Parameter.KEYWORD_ONLY
             assert extra in plan.__doc__
         assert params["acquisition"].default == "strict"
         assert params["non_essential"].default is None
         assert params["shot_period"].default is None
+        assert params["native_image_save"].default is None
 
 
 def test_strict_plan_refuses_a_plan_without_the_hook(profiles) -> None:
@@ -232,6 +245,99 @@ def test_bound_count_is_one_bin_and_scalars_view_saves_nothing(
     assert not (folder / "UC_Cam").exists()
     assert col.docs["start"][0]["shots_per_step"] == 1
     assert col.docs["start"][0]["detectors"] == ["uc_cam-scalars"]
+
+
+class _Defaults:
+    """A resolver whose experiment defaults carry one native_image_save value."""
+
+    def __init__(self, native_image_save: bool) -> None:
+        self.value = native_image_save
+
+    def resolve_experiment_defaults(self):
+        from geecs_schemas import ExperimentDefaults
+
+        return ExperimentDefaults(native_image_save=self.value)
+
+
+def _dual_write_camera(RE, box, name, tmp_path):
+    """A plugin-backed camera that also saves natively (today's dual-write)."""
+    from ophyd_async.core import StaticFilenameProvider, StaticPathProvider
+
+    native = StaticPathProvider(
+        StaticFilenameProvider("frame"), tmp_path / "Scan001" / name
+    )
+    cam, _ = _plugin_camera(RE, box, name, tmp_path, path_provider=native)
+    return cam
+
+
+def test_native_image_save_off_reaches_plugin_cameras_only_and_restores(
+    RE, box, profiles, tmp_path
+):
+    """#738: the switch skips the plugin-backed camera's PNGs, leaves the native-only one, restores."""
+    (tmp_path / "Scan001").mkdir()
+    plugin = _dual_write_camera(RE, box, "UC_Plugin", tmp_path)
+    native = _camera(RE, box, "UC_Native", tmp_path=tmp_path)
+    assert plugin.native_image_save and native.native_image_save
+    col = DocCollector()
+    RE.subscribe(col)
+    count = bind_plans(profiles)["count"]
+    RE(count([plugin, native], 2, native_image_save=False))
+    start = col.docs["start"][0]
+    assert start["native_image_save"] is False
+    data = col.primary_events()[0]["data"]
+    assert "uc_native-nonscalar_save_path" in data  # no plugin: its only record
+    assert "uc_plugin-nonscalar_save_path" not in data  # the stack is the record
+    assert (tmp_path / "Scan001" / "UC_Native").is_dir()
+    assert not (tmp_path / "Scan001" / "UC_Plugin").exists()
+    assert plugin.native_image_save and native.native_image_save  # restored
+    # Unset: the construction default (dual-write) is back for the next run.
+    RE(count([plugin], 1))
+    assert col.docs["start"][-1]["native_image_save"] is True
+    assert "uc_plugin-nonscalar_save_path" in col.primary_events()[-1]["data"]
+    assert (tmp_path / "Scan001" / "UC_Plugin").is_dir()
+
+
+def test_native_image_save_default_comes_from_the_experiment_defaults_per_run(
+    RE, box, profiles, tmp_path
+):
+    """Unset on the item → ExperimentDefaults.native_image_save, read at every run."""
+    (tmp_path / "Scan001").mkdir()
+    plugin = _dual_write_camera(RE, box, "UC_Plugin", tmp_path)
+    col = DocCollector()
+    RE.subscribe(col)
+    defaults = _Defaults(False)
+    count = bind_plans(profiles, resolver=defaults)["count"]
+    RE(count([plugin], 1))
+    assert col.docs["start"][-1]["native_image_save"] is False
+    assert "uc_plugin-nonscalar_save_path" not in col.primary_events()[-1]["data"]
+    defaults.value = True  # the file was edited: no rebind, no reopen
+    RE(count([plugin], 1))
+    assert col.docs["start"][-1]["native_image_save"] is True
+    assert "uc_plugin-nonscalar_save_path" in col.primary_events()[-1]["data"]
+    # The item's own value beats the default.
+    defaults.value = True
+    RE(count([plugin.scalars], 1, native_image_save=False))
+    assert col.docs["start"][-1]["native_image_save"] is False
+
+
+def test_native_image_save_default_is_on_when_the_defaults_cannot_be_read(caplog):
+    """Fail-open to the dual-write: a resolver that cannot read defaults keeps PNGs on."""
+    from geecs_bluesky.plans.registry import resolve_native_image_save
+
+    class Broken:
+        def resolve_experiment_defaults(self):
+            raise OSError("configs root unreadable")
+
+    class Absent:
+        def resolve_experiment_defaults(self):
+            return None
+
+    assert resolve_native_image_save(None, None) is True
+    assert resolve_native_image_save(None, Absent()) is True
+    assert resolve_native_image_save(False, Broken()) is False
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.plans.registry"):
+        assert resolve_native_image_save(None, Broken()) is True
+    assert "native saving stays on" in caplog.text
 
 
 def test_scalars_view_of_a_scalar_only_device_reads_the_device(RE, box, profiles):
@@ -532,6 +638,7 @@ def test_optimize_signature_and_classification(profiles):
         "trigger_profile",
         "shot_period",
         "non_essential",
+        "native_image_save",
         "md",
     ]
     assert parameters["optimizer_config"].kind is inspect.Parameter.KEYWORD_ONLY

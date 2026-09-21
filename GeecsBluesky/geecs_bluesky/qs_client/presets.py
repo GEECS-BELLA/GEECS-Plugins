@@ -19,8 +19,10 @@ submission is a translation of names, nothing more:
   ``Device:Variable`` pair or a scan-variable catalog name — becomes the
   namespace's Movable child, ``U_S1H.current``;
 - ``trigger_profile`` and ``background`` ride as the bound plan's keyword
-  argument and the run metadata; the preset name and the submission
-  record ride in ``md["geecs"]`` as provenance.
+  argument and the run metadata; so does ``native_image_save`` — only
+  when the preset sets it, since unset means the experiment default the
+  worker reads at every scan (PNG retirement, #738); the preset name and
+  the submission record ride in ``md["geecs"]`` as provenance.
 
 The manager resolves the names against the worker namespace at submission
 but does **not** refuse an unknown one (bluesky-queueserver 0.0.25 passes
@@ -268,6 +270,8 @@ def expand_preset(
         kwargs["non_essential"] = non_essential
     if preset.trigger_profile is not None:
         kwargs.setdefault("trigger_profile", preset.trigger_profile)
+    if preset.native_image_save is not None:
+        kwargs.setdefault("native_image_save", preset.native_image_save)
     run_md: dict[str, Any] = dict(kwargs.pop("md", None) or {})
     run_md.update(md or {})
     run_md.setdefault("description", preset.description)

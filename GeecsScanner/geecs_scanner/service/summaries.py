@@ -52,6 +52,9 @@ class ItemSummary:
     planned_shots: Optional[int] = None
     acquisition: Optional[str] = None
     trigger_profile: Optional[str] = None
+    #: The run-level LabVIEW-files switch as the item carries it (``None`` =
+    #: the experiment default, which only the worker knows).
+    native_image_save: Optional[bool] = None
     preset: Optional[str] = None
     description: str = ""
     background: bool = False
@@ -110,6 +113,11 @@ def summarize_item(item: dict) -> ItemSummary:
         text=name,
         acquisition=kwargs.get("acquisition"),
         trigger_profile=kwargs.get("trigger_profile"),
+        native_image_save=(
+            None
+            if kwargs.get("native_image_save") is None
+            else bool(kwargs.get("native_image_save"))
+        ),
         preset=geecs.get("preset"),
         description=str(md.get("description") or "").strip(),
         background=bool(md.get("background")),
@@ -195,6 +203,8 @@ def summarize_item(item: dict) -> ItemSummary:
         summary.text = " · ".join(parts)
     if summary.acquisition and name not in ("mv", "run_action"):
         summary.text += f" · {summary.acquisition}"
+    if summary.native_image_save is False and name not in ("mv", "run_action"):
+        summary.text += " · no LabVIEW files"
     if summary.background:
         summary.text = "background · " + summary.text
     if summary.description:
