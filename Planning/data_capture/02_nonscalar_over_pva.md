@@ -44,9 +44,12 @@ merge; anything worth keeping moves into the package `CLAUDE.md`s first
    session *is* a console session (preferred path, everything from the
    share), and elevated ssh — a key in
    `C:\ProgramData\ssh\administrators_authorized_keys` — also works and
-   carried the nine-box roll of 2026-09-11. Sam is issuing such a key
-   (2026-09-20); probes run from `geecs-gw`, since what the Windows boxes
-   themselves carry is unknown. So PR 1 is scheduling, not a blocker.
+   carried the nine-box roll of 2026-09-11. Probed 2026-09-20: sshd answers
+   on all three boxes, but neither this Mac's key nor `geecs-gw`'s is in
+   `administrators_authorized_keys` yet (publickey denied for `loasis@`), so
+   the key install is the one step before PR 1 can run. Probes run from
+   `geecs-gw`, since what the Windows boxes themselves carry is unknown. So
+   PR 1 is scheduling, not a blocker.
 4. **PR 4 — the record side** for `(N, M, 2)` arrays; **PR 5 — conservative
    rebinning** in ScanAnalysis (§4.4b's "owed downstream").
 
@@ -836,10 +839,9 @@ return the most.
   already writes per frame as HDF5 attributes — no companion PV, no second
   format. Raw counts are not kept; the wire's `gain` is exact, so nothing is
   lost that the device itself had.
-- **Q6 (proposed, not yet ruled).** Serve `scopeTrace.Channel<N>` only and
-  exclude `scopeTraceGUI.*`: byte-identical today, and a decimated twin is a
-  display convenience, not a measurement. Listed as an exclusion in §4.3b;
-  flip it if someone wants the GUI trace as a PV.
+- **Q6 (closed 2026-09-20, Sam).** Serve `scopeTrace.Channel<N>` only;
+  `scopeTraceGUI.*` is the trace downsampled for rendering in client GUIs —
+  "not worth it for this". Listed as an exclusion in §4.3b.
 
 ## 7. Not in scope
 
