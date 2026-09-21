@@ -3,6 +3,27 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.0] - 2026-09-21
+
+### Added
+
+- **`geecs_data_utils.io.arrays`** — decoders for the three array payload
+  shapes GEECS devices push over TCP beside the IMAQ image:
+  `decode_nested_pairs` (`[[x,y], ...]`, the MagSpec `interpSpec` /
+  `interpDiv` lineouts → `(n, 2)` float64, a single row being a valid
+  value), `decode_csv_values` (CRLF-terminated CSV, the Hamamatsu counts
+  and the MagSpec axes → `(n,)`), `decode_labview_waveform` (the LabVIEW
+  flattened waveform of the Picoscope / DaqPad: six-field header, uint32
+  BE count, int16 BE samples → **volts**, with `x0`, `dx`, `samples`,
+  `offset`, `gain`, `name` returned as attributes), and
+  `decode_array_payload`, which picks one by sniffing the payload — never
+  by devicetype.  Every decoder raises `ValueError` on a payload it cannot
+  account for byte by byte (a ragged row, a leftover byte, a header count
+  that disagrees with the binary count).  Pinned on payloads captured live
+  2026-09-21 (`tests/data/wire/`: a 285-row spectrum, a 189-row divergence
+  lineout, both axes, a 3000-sample scope trace) — the wire-format side of
+  the non-scalar-over-PVA arc.
+
 ## [0.34.2] - 2026-09-17
 
 ### Changed

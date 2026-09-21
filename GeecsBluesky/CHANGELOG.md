@@ -4,6 +4,25 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.98.0] - 2026-09-21
+
+### Changed
+
+- **Declared `1darray` capture streams are captured** once the gateway
+  serves them (GeecsPvaGateway 0.12.0): `namespace.capture_streams` now
+  restricts the declaration to the device's image variables **plus** its
+  served array variables (`geecs_core.db.device_streams.
+  served_array_variables`, GEECS-Core 0.10.0), so a MagSpec camera arms
+  four plugins — `Image`, `ImageInterp`, `interpSpec`, `interpDiv` — each
+  in its own folder (`<device>/`, `<device>-ImageInterp/`,
+  `<device>-interpSpec/`, `<device>-interpDiv/`), the last two as
+  `(N, 2048, 2)` float64 stacks (axis in column 0, NaN-padded).  A
+  declared name that is neither an image nor a served array is a
+  declaration error: WARNING and skipped, never an arm on a PV that does
+  not exist (the earlier "waiting for array support" INFO is gone with the
+  wait).  No detector or read-side change: the stock data logic already
+  describes 1-D and float stacks.
+
 ## [0.97.0] - 2026-09-21
 
 ### Changed

@@ -42,7 +42,24 @@ merge; anything worth keeping moves into the package `CLAUDE.md`s first
    declares nothing** — this touches all 40 plugin-backed Point Greys, so it
    must be strictly additive, and it is the one change in the arc that wants a
    full adversarial review.
-2. **PR 3 — array support in the gateway** (§4.4, §4.4b, §4.4c). Eligibility
+2. **PR 3 — array support: IN BUILD on `feat/array-streams` (2026-09-21),
+   split in two.** 3a (this PR): the three decoders in GEECS-Data-Utils
+   (`io/arrays.py`, pinned on payloads captured live — see
+   `GEECS-Data-Utils/tests/data/wire/`), `array_variables` + the `exclude`
+   list + `array_ceiling` in GEECS-Core's declaration, the gateway serving
+   arrays (`DeviceSpec`, `streams.py`, 1-D/float in the file plugin, an
+   empty instance idles instead of exiting), and the worker capturing the
+   MagSpec lineouts (four plugins, four folders). **3b (next): the Picoscope
+   capture gate** — arm `scopeTrace.Channel<N>` iff `Enable.Ch<X>` reads
+   `on` — needs a worker-side per-instance read of a scalar the CA gateway
+   does not serve today (`Enable.Ch*` is not `get='yes'`), so it comes with
+   its own DB curation. Two facts learned while capturing fixtures: the
+   MagSpec `EnergyAxis`/`AngleAxis` now push the **full axis** as CRLF CSV
+   (285 / 189 values, not the single number of the 09-16 probe — the 09-18
+   rewiring), so their exclusion is "redundant with the lineout's column
+   0", not "pushes one number"; and the Picoscope pushes **empty** traces
+   unless a trigger is present (internal trigger on → 6092 B every push).
+   Original brief text follows. Eligibility
    twin of `image_variables()`, the decoders of §4.4 dispatched by **payload
    sniffing** (not by devicetype), per-devicetype padding ceilings, 1-D and
    float in the file plugin. Accept against the same camera's `interpSpec` /

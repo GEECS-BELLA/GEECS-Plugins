@@ -39,6 +39,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from geecs_core.db.device_streams import served_array_variables
+
 from geecs_pva_gateway.config import image_variables, instance_pv_prefix
 
 logger = logging.getLogger(__name__)
@@ -69,10 +71,12 @@ def _ip_key(host: str) -> tuple:
 def camera_endpoints(
     experiment: str, *, enabled_only: bool = True
 ) -> dict[str, list[str]]:
-    """Return ``{endpoint_ip: [camera device, ...]}`` for *experiment* from the DB.
+    """Return ``{endpoint_ip: [stream device, ...]}`` for *experiment* from the DB.
 
-    Two batched queries; a device counts as a camera when it exposes at
-    least one image-typed variable.
+    Three batched queries; a device counts when it exposes at least one
+    stream variable — image-typed, or ``1darray``-typed and not excluded by
+    its devicetype (the gateway's own served-set rule, ``config.py``) — so a
+    host serving only arrays (a scope server) is on the roster too.
     """
     from geecs_core.db.geecs_db import GeecsDb
 
@@ -80,9 +84,11 @@ def camera_endpoints(
     var_map = GeecsDb.get_experiment_device_variables(
         experiment, enabled_only=enabled_only
     )
+    types = GeecsDb.get_experiment_device_types(experiment, enabled_only=enabled_only)
     by_ip: dict[str, list[str]] = {}
     for device, (ip, _port) in endpoints.items():
-        if image_variables(var_map.get(device, [])):
+        rows = var_map.get(device, [])
+        if image_variables(rows) or served_array_variables(types.get(device, ""), rows):
             by_ip.setdefault(ip, []).append(device)
     return {
         ip: sorted(devs)

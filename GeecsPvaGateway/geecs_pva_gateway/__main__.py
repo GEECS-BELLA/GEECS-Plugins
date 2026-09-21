@@ -68,13 +68,16 @@ def main(argv: list[str] | None = None) -> int:
     config = PvaGatewayConfig.from_geecs_experiment(
         args.experiment, host=args.host, devices=devices
     )
-    if not config.cameras:
-        print(
-            "no cameras to serve (host scope matched no enabled devices with "
-            "image variables)",
-            file=sys.stderr,
+    if not config.devices:
+        # Not an error: the instance serves its identity PVs (version,
+        # heartbeat, restart) so the fleet screen sees it, and picks up the
+        # host's devices on the next restart (the roster is read at start).
+        # Exiting here made a freshly bootstrapped array-only host crash-loop
+        # under NSSM until array support landed.
+        logging.getLogger(__name__).warning(
+            "no devices to serve on this host (no enabled device with image or "
+            "served array variables); serving the instance PVs only"
         )
-        return 1
 
     # The supervisors' endpoint re-resolve (#854): a watched device that stays
     # unreachable is re-asked of the DB at the backoff ceiling.  GeecsDb is

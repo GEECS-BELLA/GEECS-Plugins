@@ -1,7 +1,8 @@
 # GeecsPvaGateway — Developer Context for Claude
 
 The **PVA peer of GeecsCAGateway**: a pvAccess server exposing GEECS camera
-images as NTNDArray PVs. Same access-layer doctrine as the CA gateway (DB is
+images — and, since 0.12.0, the devices' array variables (lineouts, scope
+traces) — as NTNDArray PVs. Same access-layer doctrine as the CA gateway (DB is
 the source of truth, `pv_naming` is the one naming policy, GEECS wire protocol
 via the gateway's transport), but deployed **distributed** — one instance per
 Windows camera server, serving only that host's cameras — because a central
@@ -27,8 +28,17 @@ instance-PV semantics — as a contract.
 geecs_pva_gateway/
   __main__.py   # geecs-pva-gateway --experiment NAME [--host IP] [--devices A,B] [--list]
                 #   + `geecs-pva-gateway fleet` (read-only fleet probe, fleet.py)
-  config.py     # CameraSpec / PvaGatewayConfig; DB-scoped served set
-                #   (enabled devices on this host's IP with image-typed vars)
+  config.py     # DeviceSpec / PvaGatewayConfig; DB-scoped served set
+                #   (enabled devices on this host's IP with a stream variable:
+                #   image-typed, or 1darray-typed and not excluded by
+                #   geecs_core.db.device_streams — exclusions + padding
+                #   ceilings are GEECS-Core's per-devicetype declaration)
+  streams.py    # per-variable decode + shape: IMAQ for an image; the three
+                #   array wire shapes (geecs_data_utils.io.arrays, sniffed)
+                #   → float64 in physical units, NaN-padded along axis 0 to
+                #   the devicetype ceiling (longer = ArrayTooLongError,
+                #   dropped + counted, never truncated); a waveform's
+                #   x0/dx/samples ride as NTNDArray attributes
   fleet.py      # fleet roster: camera servers from the DB per experiment,
                 #   each marked deployed by config.ini [pva] addr_list
                 #   (absent = not deployed: no instance, not an outage);
@@ -40,7 +50,7 @@ geecs_pva_gateway/
                 #   latest-wins posting (the last decoded frame is kept for
                 #   the plugin's arm, #894), version/heartbeat/restart
                 #   instance PVs (restart -> exit 86)
-  file_plugin.py # HdfFilePlugin (#806): one per image variable, the
+  file_plugin.py # HdfFilePlugin (#806): one per stream variable, the
                 #   areaDetector NDFileHDF5 PV set (+ Rewind, WriteStatus,
                 #   WriteMessage) over a single writer thread; lossless
                 #   intake before the latest-wins slot; NDFileHDF5 layout
@@ -82,8 +92,9 @@ tests/
 
 ## Architecture (one asyncio loop)
 
-- **Per-camera worker, per-variable subscriptions**: the worker owns the
-  device's image `SharedPV`s; each image variable gets its own
+- **Per-device worker, per-variable subscriptions**: the worker owns the
+  device's stream `SharedPV`s (images and arrays alike; an array PV is a
+  1-D or `(n, 2)` float64 NTNDArray); each stream variable gets its own
   `GeecsTcpSubscriber` (loopback in production), **gated per variable** — p4p
   `onFirstConnect`/`onLastDisconnect` refcount client channels; zero clients
   on a variable ⇒ no subscription, no flatten/send in LabVIEW, no decode
@@ -176,17 +187,24 @@ tests/
 - **Naming**: only via `geecs_core.pv_naming`. No local copies.
 - **Transport**: only `geecs_core.transport`. Never GEECS-PythonAPI
   (deprecated, slated for deletion).
-- **Images stay off the CA gateway; scalars stay off this one.** This package
-  serves image-typed variables only (the file plugin's control PVs are
-  areaDetector's, per image variable — not GEECS scalars). If PVA scalars ever happen, that is a
-  deliberate design step (per-device-class PVA adoption, DESIGN.md), not a
-  drive-by addition here.
-- **Text variables**: image variables must always be subscribed as
-  `text_variables` — numeric coercion destroys binary payloads.
+- **Non-scalars stay off the CA gateway; scalars stay off this one.** This
+  package serves image-typed and `1darray`-typed variables only (the file
+  plugin's control PVs are areaDetector's, per stream variable — not GEECS
+  scalars). If PVA scalars ever happen, that is a deliberate design step
+  (per-device-class PVA adoption, DESIGN.md), not a drive-by addition here.
+- **Which arrays are served is the DB minus GEECS-Core's exclusions**
+  (`geecs_core.db.device_streams`): never a per-host list, never an image.
+  A devicetype's array shape policy (the padding ceiling) lives there too.
+  An instance whose host has no stream device idles on its identity PVs
+  rather than exiting.
+- **Text variables**: image and array variables must always be subscribed
+  as `text_variables` — numeric coercion destroys binary payloads (and would
+  turn a CSV lineout into its first number).
 - The wire format is binary-hostile in known ways — decode quirks live in
-  `geecs_data_utils.io.images` (name-repeat vs tail-anchored wrappers), and
+  `geecs_data_utils.io.images` (name-repeat vs tail-anchored wrappers) and
+  `geecs_data_utils.io.arrays` (the three array shapes, byte-exact), and
   the latin-1 byte↔str convention comes from the gateway transport (0.16.1).
-  Do not re-derive either here.
+  Do not re-derive any of them here.
 - Repo-wide conventions apply (root `CLAUDE.md`): Pydantic v2, NumPy
   docstrings, `poetry version` + `CHANGELOG.md` on every code-changing PR.
 

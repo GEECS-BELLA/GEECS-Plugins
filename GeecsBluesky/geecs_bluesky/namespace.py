@@ -64,7 +64,7 @@ from typing import Any
 from bluesky.protocols import Movable, Readable
 from ophyd_async.core import Device, PathProvider
 
-from geecs_core.db.device_streams import capture_variables
+from geecs_core.db.device_streams import capture_variables, served_array_variables
 from geecs_core.db.scalar_policy import GeecsDbScalarPolicy
 from geecs_core.db.variable_types import (
     VARTYPE_TO_DTYPE,
@@ -164,10 +164,12 @@ def capture_streams(
 
     The devicetype's declared capture streams
     (:func:`geecs_core.db.device_streams.capture_variables`), restricted to
-    what the gateway serves today — image-typed variables.  A declared
-    array stream (a magspec lineout, typed ``1darray``) is logged and
-    skipped until the gateway serves arrays; the declaration then needs no
-    change.  A devicetype that declares nothing keeps
+    what the gateway serves: the device's image-typed variables and its
+    served ``1darray`` variables (typed minus the devicetype's exclusions,
+    :func:`geecs_core.db.device_streams.served_array_variables`).  A
+    declared name that is neither is logged and skipped — a declaration
+    error to fix in the table, never an arm on a PV that does not exist.
+    A devicetype that declares nothing keeps
     :func:`primary_image_variable`'s guess, so every camera type nobody has
     looked at behaves exactly as before.
     """
@@ -175,13 +177,14 @@ def capture_streams(
     if declared is None:
         return primary_image_variable(rows)
     served = {name.lower() for name in image_variables(rows)}
-    waiting = [name for name in declared if name.lower() not in served]
-    if waiting:
-        logger.info(
-            "%s: declared capture stream(s) %s are not image variables; not "
-            "captured until the gateway serves arrays",
+    served |= {name.lower() for name in served_array_variables(devicetype, rows)}
+    unserved = [name for name in declared if name.lower() not in served]
+    if unserved:
+        logger.warning(
+            "%s: declared capture stream(s) %s are neither image variables nor "
+            "served array variables; not captured (fix the declaration)",
             devicetype,
-            waiting,
+            unserved,
         )
     return [name for name in declared if name.lower() in served]
 

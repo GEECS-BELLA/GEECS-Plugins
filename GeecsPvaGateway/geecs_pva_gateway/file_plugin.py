@@ -77,6 +77,7 @@ from geecs_core.pv_naming import (
     normalize_component,
 )
 from geecs_data_utils.io import decode_imaq_image_string
+from geecs_pva_gateway.streams import ArrayTooLongError
 from geecs_data_utils.io.scan_stack import ATTRIBUTES_GROUP, FRAMES_DATASET
 
 from geecs_pva_gateway import __version__
@@ -110,7 +111,7 @@ PLUGIN_SUFFIX = HDF_PLUGIN_SUFFIX
 #: ``<device>-hdf-<variable>-<suffix>`` (:func:`attribute_names`, every
 #: part through ``normalize_component``, the worker's ophyd-name rule):
 #: the two frame stamps (:data:`ATTRIBUTE_SUFFIXES`) and then one per
-#: subscribed scalar of the device (``CameraSpec.scalar_variables``, the
+#: subscribed scalar of the device (``DeviceSpec.scalar_variables``, the
 #: DB ``get='yes'`` list — the same columns a strict row carries for that
 #: device, so a gated row is the same row).
 #: The stock ``ADHDFDataLogic`` turns attribute names into stream data
@@ -393,24 +394,32 @@ class _PutHandler:
 
 
 class HdfFilePlugin:
-    """One image variable's file writer and its areaDetector-shaped PVs.
+    """One stream variable's file writer and its areaDetector-shaped PVs.
 
     Parameters
     ----------
     device, variable, experiment :
-        The camera and the image variable this plugin writes.
+        The device and the stream variable (an image or an array) this
+        plugin writes.
     retain, release :
         The worker's per-variable subscription refcount (thread-safe): the
         plugin holds the GEECS subscription for the length of a session.
     scalar_variables :
         The device's subscribed scalars, written per frame as ``DOUBLE``
-        attributes after the two stamps (``CameraSpec.scalar_variables``).
+        attributes after the two stamps (``DeviceSpec.scalar_variables``).
     last_frame :
         Returns the last frame the gateway decoded for this variable (its
         latest-wins slot), or ``None`` when it has never decoded one.
         ``Capture=1`` takes the stream geometry from it and completes at
         once (#894); without it, or when it returns ``None``, the arm waits
         for the first push.  Called on the writer thread.
+    decoder :
+        Pushed value → array, the worker's per-variable rule
+        (``_DeviceWorker.decode``: IMAQ for an image, the array wire shapes
+        padded to the devicetype ceiling for an array).  Default: the IMAQ
+        image decoder.  Raises on a payload it cannot account for; an
+        :class:`~geecs_pva_gateway.streams.ArrayTooLongError` is counted as
+        a shape error (the frame is dropped, never truncated).
     """
 
     def __init__(
@@ -423,6 +432,7 @@ class HdfFilePlugin:
         release: Callable[[str], None],
         scalar_variables: Sequence[str] = (),
         last_frame: Callable[[], np.ndarray | None] | None = None,
+        decoder: Callable[[str], np.ndarray] | None = None,
     ) -> None:
         self.device = device
         self.variable = variable
@@ -430,6 +440,7 @@ class HdfFilePlugin:
         self.prefix = hdf_plugin_prefix(experiment, device, variable)
         self.scalar_variables = tuple(scalar_variables)
         self._last_frame: Callable[[], np.ndarray | None] = last_frame or (lambda: None)
+        self._decoder: Callable[[str], np.ndarray] = decoder or decode_imaq_image_string
         self.attributes = attribute_names(device, variable, self.scalar_variables)
         if len(set(self.attributes)) != len(self.attributes):
             # Two scalars normalizing to one name would write one dataset
@@ -678,7 +689,7 @@ class HdfFilePlugin:
                 return
             if item[0] == "frame":
                 try:
-                    frame = decode_imaq_image_string(item[1])
+                    frame = self._decoder(item[1])
                 except Exception as exc:  # noqa: BLE001 - reported, keep arming
                     logger.warning("%s: arming frame undecodable: %s", self.device, exc)
                     continue
@@ -721,7 +732,14 @@ class HdfFilePlugin:
         logger.info("%s %s: capturing → %s", self.device, self.variable, directory)
 
     def _post_geometry(self, frame: np.ndarray) -> None:
-        height, width = frame.shape[:2]
+        # A 1-D array is ``ArraySizeX = n``, ``ArraySizeY = 0``: the stock
+        # ophyd-async data logic drops zero dimensions, so the stream is
+        # described ``(n,)`` and the stack is ``(N, n)`` — a legal
+        # areaDetector array, no read-side change.
+        if frame.ndim == 1:
+            height, width = 0, frame.shape[0]
+        else:
+            height, width = frame.shape[:2]
         for suffix, value in (
             ("ArraySizeX_RBV", width),
             ("ArraySizeY_RBV", height),
@@ -760,14 +778,20 @@ class HdfFilePlugin:
             counters.callbacks_disabled += 1
             return
         try:
-            frame = decode_imaq_image_string(blob)
+            frame = self._decoder(blob)
+        except ArrayTooLongError as exc:
+            counters.shape_errors += 1  # over the devicetype ceiling: dropped, named
+            self._error(str(exc))
+            return
         except Exception as exc:  # noqa: BLE001 - counted, never fatal
             counters.decode_errors += 1
             self._error(f"undecodable frame ({len(blob)} bytes): {exc}")
             return
-        if frame.ndim != 2:
+        if frame.ndim not in (1, 2):
             counters.shape_errors += 1
-            self._error(f"frame of shape {frame.shape}: only 2-D (Mono) frames")
+            self._error(
+                f"frame of shape {frame.shape}: only 1-D arrays or 2-D (Mono) frames"
+            )
             return
         if session.file is None:
             try:

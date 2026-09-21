@@ -4,6 +4,29 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.10.0] - 2026-09-21
+
+### Added
+
+- **`variable_types.array_variables(rows)`** — the `1darray` twin of
+  `image_variables`, shared by the PVA gateway (which now serves them) and
+  the worker (which may capture them).
+- **`device_streams`: the serving-side declaration.** `DeviceTypeStreams`
+  gains `exclude` — `1darray` variables the gateway never serves because
+  the device never publishes them (the FROG's six spectra; the Picoscope's
+  dead `ScopeTraces`/`wfm`/`wfm info`), they are a GUI-downsampled twin
+  (`scopeTraceGUI.*`), they arrive malformed (the stitcher's `interpDiv`),
+  they repeat a captured stream's own axis (the MagSpec `EnergyAxis` /
+  `AngleAxis`) or are out of scope (the Point Grey lineouts) — **array
+  variables only, never an image PV** — and `array_ceiling`, the row count
+  the gateway pads a variable-length array to (2048 for `MagSpecCamera`,
+  16384 for `MagSpecStitcher`; `None` = native length).  New rules
+  `excluded_variables`, `served_array_variables` (typed minus excluded,
+  the one served-set rule both gateway and worker read) and
+  `array_ceiling`.  The parity test pins every exclusion against the
+  recorded rows and requires it to be `1darray`-typed; a misspelled
+  exclusion warns instead of silently serving.
+
 ## [0.9.0] - 2026-09-21
 
 ### Added

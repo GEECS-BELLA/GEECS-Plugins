@@ -24,3 +24,6 @@
 *.dll   binary
 *.exe   binary
 *.pyc   binary
+
+# Wire payload fixtures are byte-exact captures: no line-ending conversion.
+GEECS-Data-Utils/tests/data/wire/* -text

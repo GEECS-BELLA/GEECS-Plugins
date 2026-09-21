@@ -6,7 +6,8 @@ post-run analysis tools, and Bluesky external-asset handlers, none of which
 should depend on the higher-level ``image_analysis`` package just to load a
 file from disk. It also provides :func:`decode_imaq_image_string`, which decodes
 an in-memory NI IMAQ "Flatten Image to String" payload received live over the
-device TCP stream (not a file).
+device TCP stream (not a file), and — in :mod:`geecs_data_utils.io.arrays` — the
+decoders for the three array payload shapes devices push the same way.
 """
 
 from geecs_data_utils.io.array1d import (
@@ -14,6 +15,13 @@ from geecs_data_utils.io.array1d import (
     Data1DResult,
     Data1DType,
     read_1d_data,
+)
+from geecs_data_utils.io.arrays import (
+    DecodedArray,
+    decode_array_payload,
+    decode_csv_values,
+    decode_labview_waveform,
+    decode_nested_pairs,
 )
 from geecs_data_utils.io.images import (
     average_frames,
@@ -39,10 +47,15 @@ __all__ = [
     "Data1DConfig",
     "Data1DResult",
     "Data1DType",
+    "DecodedArray",
     "LABVIEW_EPOCH_OFFSET",
     "ShotRef",
     "average_frames",
+    "decode_array_payload",
+    "decode_csv_values",
     "decode_imaq_image_string",
+    "decode_labview_waveform",
+    "decode_nested_pairs",
     "find_stack_file",
     "is_stack_file",
     "load_image_from_h5",

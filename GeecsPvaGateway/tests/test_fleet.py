@@ -42,6 +42,9 @@ def fake_db(monkeypatch):
         "get_experiment_device_variables",
         classmethod(lambda cls, e, **kw: VAR_MAP),
     )
+    monkeypatch.setattr(
+        GeecsDb, "get_experiment_device_types", classmethod(lambda cls, e, **kw: {})
+    )
 
 
 def _config(tmp_path: Path, body: str) -> Path:

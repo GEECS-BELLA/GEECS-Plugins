@@ -5,15 +5,21 @@ from __future__ import annotations
 import asyncio
 
 from geecs_pva_gateway import __main__ as cli
-from geecs_pva_gateway.config import CameraSpec, PvaGatewayConfig
+from geecs_pva_gateway.config import DeviceSpec, PvaGatewayConfig
 from geecs_pva_gateway.server import RESTART_EXIT_CODE, GeecsPvaGateway
 
 
 def _fake_config(experiment: str) -> PvaGatewayConfig:
     return PvaGatewayConfig(
         experiment=experiment,
-        cameras=[
-            CameraSpec(device="UC_Cam", host="127.0.0.1", port=1, experiment=experiment)
+        devices=[
+            DeviceSpec(
+                device="UC_Cam",
+                host="127.0.0.1",
+                port=1,
+                experiment=experiment,
+                image_variables=["image"],
+            )
         ],
     )
 
