@@ -14,3 +14,8 @@ also `-text` in `.gitattributes`). They pin `geecs_data_utils.io.arrays`:
 | `magspec_EnergyAxis.bin` | MagSpecCamera `EnergyAxis` (285 values) | CSV, CRLF-terminated |
 | `magspec_AngleAxis.bin` | MagSpecCamera `AngleAxis` (189 values) | CSV, CRLF-terminated |
 | `picoscope_scopeTrace_Channel0.bin` | PicoscopeV2 `scopeTrace.Channel0` (3000 samples, internal trigger, no beam) | LabVIEW flattened waveform |
+
+Observed, not stored: with **no trigger present** the Picoscope pushes an
+**empty string** for every trace variable (probed 2026-09-21, 8 pushes, all
+length 0) — the gateway drops an empty value before decoding, so an idle scope
+is silent, not noisy. There is no 0-sample waveform record on the wire.

@@ -49,7 +49,7 @@ USER_CONFIG_PATH = Path("~/.config/geecs_python_api/config.ini")
 
 
 class FleetHost(BaseModel):
-    """One camera server as the roster sees it."""
+    """One stream host (a camera or scope server) as the roster sees it."""
 
     ip: str
     devices: list[str] = Field(default_factory=list)
@@ -133,12 +133,12 @@ def fleet_roster(
     config_path: Path | None = None,
     enabled_only: bool = True,
 ) -> list[FleetHost]:
-    """The experiment's camera servers, each marked deployed or not.
+    """The experiment's stream hosts, each marked deployed or not.
 
-    Roster hosts come from the DB (:func:`camera_endpoints`); ``deployed``
+    Roster hosts come from the DB (:func:`stream_endpoints`); ``deployed``
     is membership in ``[pva] addr_list`` (all deployed when the key is
     absent). A listed address with no stream devices in the DB is kept as a
-    deployed host with an empty camera list — a stale entry worth seeing —
+    deployed host with an empty device list — a stale entry worth seeing —
     and logged as a warning.
     """
     by_ip = stream_endpoints(experiment, enabled_only=enabled_only)
@@ -150,7 +150,7 @@ def fleet_roster(
     ]
     for ip in sorted(deployed - set(by_ip), key=_ip_key):
         logger.warning(
-            "[pva] addr_list names %s but the DB has no enabled camera on it", ip
+            "[pva] addr_list names %s but the DB has no enabled stream device on it", ip
         )
         hosts.append(FleetHost(ip=ip, devices=[], deployed=True))
     return sorted(hosts, key=lambda h: _ip_key(h.ip))

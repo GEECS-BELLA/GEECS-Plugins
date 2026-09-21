@@ -85,6 +85,29 @@ def fake_db(monkeypatch):
     )
 
 
+def test_identity_host_is_the_served_endpoint_not_the_route_probe(fake_db, monkeypatch):
+    """A dual-NIC box: the roster is scoped by every local address, but the
+    identity PVs must carry the DB endpoint the fleet's addr_list names, not
+    whichever interface the route probe answers from (review of #946)."""
+    from geecs_pva_gateway import config as config_module
+
+    monkeypatch.setattr(
+        config_module,
+        "local_ip_addresses",
+        lambda probe_target=None: {"192.168.6.100", "192.168.7.5"},
+    )
+    monkeypatch.setattr(config_module, "detect_local_ip", lambda target: "192.168.7.5")
+    cfg = PvaGatewayConfig.from_geecs_experiment("Undulator")
+    assert [c.device for c in cfg.devices] == ["UC_CamA", "UC_CamB"]
+    assert cfg.host == "192.168.6.100"  # the served endpoint wins over the probe
+    # Nothing served on this host: the probe address is all there is.
+    monkeypatch.setattr(
+        config_module, "local_ip_addresses", lambda probe_target=None: {"192.168.7.5"}
+    )
+    idle = PvaGatewayConfig.from_geecs_experiment("Undulator")
+    assert idle.devices == [] and idle.host == "192.168.7.5"
+
+
 def test_host_scoping_selects_image_devices_only(fake_db, caplog):
     """Host filter keeps that host's cameras; non-cameras drop out."""
     cfg = PvaGatewayConfig.from_geecs_experiment("Undulator", host="192.168.6.100")

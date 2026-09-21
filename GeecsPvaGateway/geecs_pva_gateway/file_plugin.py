@@ -1,4 +1,4 @@
-"""The areaDetector-shaped HDF5 file plugin: one per served image variable.
+"""The areaDetector-shaped HDF5 file plugin: one per served stream variable (image or array).
 
 The second consumer of the frame the gateway already receives: it branches off the
 push callback **before** the latest-wins slot, so intake is lossless within
@@ -101,7 +101,7 @@ def available() -> bool:
     return True
 
 
-#: PV suffix under the image variable's PV name (the areaDetector ``HDF1:``),
+#: PV suffix under the stream variable's PV name (the areaDetector ``HDF1:``),
 #: owned by the naming contract so the worker's ``GeecsHdfIO`` cannot drift.
 PLUGIN_SUFFIX = HDF_PLUGIN_SUFFIX
 #: The dataset paths (``FRAMES_DATASET``, ``ATTRIBUTES_GROUP``) are the read
@@ -131,14 +131,14 @@ _ATTRIBUTE_DESCRIPTIONS = {
 
 
 def attribute_prefix(device: str, variable: str) -> str:
-    """``<device>-hdf-<variable>``: the attribute-name prefix of one image variable."""
+    """``<device>-hdf-<variable>``: the attribute-name prefix of one stream variable."""
     return f"{normalize_component(device)}-hdf-{normalize_component(variable)}"
 
 
 def attribute_names(
     device: str, variable: str, scalars: Sequence[str] = ()
 ) -> tuple[str, ...]:
-    """The attribute dataset (and stream data key) names for one image variable.
+    """The attribute dataset (and stream data key) names for one stream variable.
 
     The two frame stamps first, then one per scalar in *scalars* (the
     device's subscribed scalar variables, in their DB order).

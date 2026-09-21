@@ -35,7 +35,7 @@ once:
   everyone.
 - **Fan-out economics.** GEECS TCP push is per-connection — N direct
   subscribers make LabVIEW flatten and send every frame N times. The gateway
-  subscribes once per image variable and PVA fans out to any number of
+  subscribes once per stream variable and PVA fans out to any number of
   clients. Subscriptions are **gated**: a camera nobody is watching costs the
   device *nothing at all*.
 - **The ecosystem is free.** Phoebus renders these PVs with a stock widget;
@@ -100,7 +100,7 @@ is generated per experiment from the DB roster
 (`GeecsPvaGateway/deploy/gen_fleet_status.py --experiment X` →
 `fleet_status_<x>.bob`; HTU's `fleet_status_undulator.bob` is committed).
 
-Each image variable also has a **subscription-state PV** (GeecsPvaGateway
+Each stream variable — image or array — also has a **subscription-state PV** (GeecsPvaGateway
 0.10.0):
 
 ```

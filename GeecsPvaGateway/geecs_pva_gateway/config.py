@@ -113,7 +113,8 @@ class PvaGatewayConfig(BaseModel):
     #: (``version`` / ``heartbeat`` / ``restart``) are named after, so the
     #: fleet probe and the Phoebus screen (which ask by ``[pva] addr_list``
     #: IP) find the instance even while it has no device to serve.  The
-    #: ``--host`` argument, else the lab-facing local address.
+    #: ``--host`` argument, else the DB endpoint of the served devices, else
+    #: (nothing served yet) the lab-facing local address.
     host: str | None = None
     devices: list[DeviceSpec] = Field(default_factory=list)
 
@@ -159,13 +160,13 @@ class PvaGatewayConfig(BaseModel):
         ).subscribed_by_device()
         if host:
             hosts = {host}
-            served_host: str | None = host
+            probe_host: str | None = None
         else:
             # Probe toward any device endpoint so the lab-facing interface's
             # address is included even when hostname lookup misses it.
             any_ip = next(iter(endpoints.values()), ("", 0))[0]
             hosts = local_ip_addresses(probe_target=any_ip or None)
-            served_host = detect_local_ip(any_ip) or None if any_ip else None
+            probe_host = (detect_local_ip(any_ip) or None) if any_ip else None
 
         served: list[DeviceSpec] = []
         for device, (ip, port) in sorted(endpoints.items()):
@@ -204,4 +205,9 @@ class PvaGatewayConfig(BaseModel):
                     name,
                     sorted(hosts),
                 )
+        # The identity host: ``--host``, else the endpoint the DB gives this
+        # host's served devices (the address the fleet's ``[pva] addr_list``
+        # names — a dual-NIC box may route the probe out another interface),
+        # else the probe (an idle host with nothing served yet).
+        served_host = host or (served[0].host if served else probe_host)
         return cls(experiment=experiment, host=served_host, devices=served)
