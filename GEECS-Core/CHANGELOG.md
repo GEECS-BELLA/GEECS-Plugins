@@ -4,6 +4,42 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.9.0] - 2026-09-21
+
+### Added
+
+- **`geecs_core.db.device_streams`** — the per-devicetype declaration of
+  which non-scalar variables are capture streams: `capture`, an allowlist
+  in capture order (the first is the device's primary stream), matched
+  against a device's DB rows case-insensitively and returning the rows'
+  spelling; a declared name the DB does not list is dropped with a
+  WARNING.  Entries: `Point Grey Camera` (`image`), `MagSpecCamera`
+  (`Image`, `ImageInterp`, `interpSpec`, `interpDiv`), `MagSpecStitcher`
+  (`Image`, `interpSpec` — its `interpDiv` arrives malformed), `FROG`
+  (`frogTrace` only — the device never pushes `SpatialImage` or the
+  retrieved traces), `PicoscopeV2` (nothing yet; its channels are armed per
+  instance once arrays are capturable).  A devicetype with no entry returns
+  `None` so each consumer keeps its historical default.  Pinned by
+  `tests/test_device_streams.py` against recorded `devicetype_variable`
+  rows (`tests/fixtures/devicetype_variables.json`): every declared name
+  must be a real non-scalar variable of its devicetype, and a table entry
+  without a recorded fixture fails.  The worker's namespace consumes it
+  (GeecsBluesky 0.97.0); the PVA gateway follows with array support, which
+  is also where the serving-side exclusion list lands, beside its consumer.
+- **`GeecsDb.get_devicetype_variables(devicetype)`** — one devicetype's
+  `devicetype_variable` rows (name, variabletype, choice text), type level
+  only, no instance merge — and **`scripts/record_devicetype_variables.py`**,
+  which writes them into the fixture above, so adding a table entry is one
+  documented command.
+- **`variable_types.rows_by_lower(rows)`** — the one case-insensitive index
+  over a device's rows (lower-cased name → the first row spelling it), now
+  shared by `scalar_attribute_variables` and the capture declaration.
+
+### Changed
+
+- `scalar_attribute_variables` builds its name index through
+  `rows_by_lower` — same answers, one implementation.
+
 ## [0.8.3] - 2026-09-16
 
 ### Changed

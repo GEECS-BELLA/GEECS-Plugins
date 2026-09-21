@@ -21,9 +21,11 @@ geecs_core/
   db/               # layer 2 — the experiment MySQL database (GeecsDb,
                     #   blocking, lazy mysql-connector) + alarms.py (the
                     #   pydantic model for the ca_alarm_limits table) +
-                    #   the two DB rules every consumer shares:
-                    #   variable_types (a variable's effective type) and
+                    #   the three DB rules every consumer shares:
+                    #   variable_types (a variable's effective type),
                     #   scalar_policy (a device's subscribed get='yes' list)
+                    #   and device_streams (which non-scalar variables a
+                    #   devicetype captures / never serves)
   client/           # layer 3 — the entry-level synchronous GeecsDevice
                     #   over layers 1+2, and the one place a background
                     #   event loop bridges sync callers to the async
@@ -57,6 +59,11 @@ geecs_core/
    carries CA alarm *evaluation* logic whose only consumer is the CA gateway —
    it rides here because `AlarmLimits` is `GeecsDb.get_ca_alarm_limits`'s
    return type and splitting the model from its own methods would be worse.
+   A second, admitted on the `scalar_policy` precedent: `db/device_streams.py`
+   (which non-scalar variables a devicetype captures) is read by the worker
+   today and by the PVA gateway once it serves arrays — two consumers that
+   may not import each other; the CA gateway serves scalars only and never
+   reads it.
 
 Two supporting conventions:
 

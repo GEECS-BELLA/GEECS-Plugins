@@ -167,7 +167,7 @@ def compile_measurements(
     """Resolve signals, diagnostics, output references and imports before a run opens."""
     from image_analysis.config import load_diagnostic
     from image_analysis.ephemeral import EPHEMERAL_DENYLIST
-    from geecs_bluesky.namespace import primary_image_variable
+    from geecs_bluesky.namespace import capture_streams
 
     measurements = []
     sources = {}
@@ -204,7 +204,10 @@ def compile_measurements(
                 if not keys:
                     raise ValueError(f"{name}: diagnostic declares no scalar outputs")
                 detector = namespace.resolve(diag.name)
-                images = primary_image_variable(namespace.roster.variables[diag.name])
+                images = capture_streams(
+                    namespace.roster.variables[diag.name],
+                    namespace.roster.types.get(diag.name, ""),
+                )
                 if not images:
                     raise ValueError(
                         f"{diag.name}: no image variable in the device roster"

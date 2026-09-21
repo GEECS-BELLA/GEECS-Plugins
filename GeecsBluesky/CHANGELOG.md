@@ -4,6 +4,43 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.97.0] - 2026-09-21
+
+### Changed
+
+- **Which variables a plugin-backed device captures is declared per
+  devicetype**, not guessed: `namespace.capture_streams` reads
+  `geecs_core.db.device_streams.capture_variables` (GEECS-Core 0.9.0) and
+  arms one file plugin per declared stream the gateway serves today
+  (image-typed variables), in declared order — so the FROG's detector now
+  captures `frogTrace`, the one variable it pushes, where
+  `primary_image_variable` picked `SpatialImage` (never pushed: every
+  `prepare` waited out the arm timeout), and a MagSpec camera captures
+  `Image` **and** `ImageInterp` (`hdf` + `hdf_imageinterp`, stream keys
+  `<name>` and `<name>-imageinterp`).  A declared `1darray` stream (the
+  magspec lineouts) is logged at INFO and waits for array support in the
+  gateway — the declaration then needs no change.  A devicetype with no
+  declaration keeps `primary_image_variable`'s one-image guess unchanged,
+  so every Point Grey (declared `image`, the same answer) and every
+  undeclared camera type behaves exactly as before.  The optimizer's live
+  frame source reads the device's first declared stream through the same
+  rule (pinned: a FROG-typed diagnostic subscribes to `:frogtrace`).
+- **One folder per capture stream** (`devices/hdf_plugin.PluginPathProvider`
+  gains `variable=`): the primary stream keeps `<device>/<device>.h5`; a
+  second stream of the same device writes
+  `<device>-<variable>/<device>-<variable>.h5` — the sibling-folder layout
+  the LabVIEW-native files use for a device's second output, which
+  `geecs_data_utils.io.scan_stack.find_stack_file` already resolves.  Found
+  in review (#945): both plugins of a device were handed the same path, and
+  each gateway writer opens its file `"w"`, so the second to arm truncated
+  the first.  Pinned by a two-stream prepare/resource test (distinct
+  `FilePath`/`FileName`, distinct stream-resource URIs).
+- `GeecsDbDeviceTypes`' degraded path (an empty devicetype map after a DB
+  failure) now names its second consequence in the docstring and the
+  WARNING: beside the #934 misclassification, every plugin-backed camera
+  falls back to the one-image guess — the FROG arms on `SpatialImage` and
+  times out, a MagSpec camera drops `ImageInterp`.
+
 ## [0.96.0] - 2026-09-18
 
 ### Added

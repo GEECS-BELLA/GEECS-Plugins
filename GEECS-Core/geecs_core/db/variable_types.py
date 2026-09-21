@@ -28,7 +28,7 @@ from __future__ import annotations
 
 
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Literal
 
 LABVIEW_EPOCH_OFFSET = 2_082_844_800
@@ -115,6 +115,25 @@ def image_variables(rows) -> list[str]:
     )
 
 
+def rows_by_lower(
+    rows: Sequence[Mapping[str, object]],
+) -> dict[str, Mapping[str, object]]:
+    """Lower-cased variable name → the first metadata row that spells it.
+
+    The one case-insensitive index over a device's rows.  The GEECS DB spells
+    the same variable differently across tables and the device looks names
+    up case-insensitively, so every rule that matches declared or subscribed
+    names against rows — :func:`scalar_attribute_variables` here, the capture
+    declaration in :mod:`geecs_core.db.device_streams` — goes through this
+    and answers with the row's spelling, rather than each growing its own
+    index.
+    """
+    out: dict[str, Mapping[str, object]] = {}
+    for row in rows:
+        out.setdefault(str(row["name"]).lower(), row)
+    return out
+
+
 #: The timestamp ladder the gateways subscribe for every device beside its
 #: variables — ``acq_timestamp`` preferred, ``systimestamp`` fallback (the CA
 #: gateway's PV_CONTRACT ladder; the PVA gateway's frame stamp).  One
@@ -158,21 +177,16 @@ def scalar_attribute_variables(
     gateway builds its roster from it and the worker (phase 2c's s-file
     writer) recovers the row's columns through it.
     """
-    by_lower: dict[str, tuple[str, str]] = {}
-    for row in rows:
-        name = str(row["name"])
-        by_lower.setdefault(
-            name.lower(),
-            (name, effective_vartype(row.get("variabletype"), row.get("choices"))),
-        )
+    by_lower = rows_by_lower(rows)
     ladder = {v.lower() for v in TIMESTAMP_LADDER}
     out: list[str] = []
     seen: set[str] = set()
     for subscribed_name in subscribed:
-        found = by_lower.get(subscribed_name.lower())
-        if found is None or subscribed_name.lower() in ladder:
+        row = by_lower.get(subscribed_name.lower())
+        if row is None or subscribed_name.lower() in ladder:
             continue
-        name, vartype = found
+        name = str(row["name"])
+        vartype = effective_vartype(row.get("variabletype"), row.get("choices"))
         if vartype not in SCALAR_ATTRIBUTE_VARTYPES:
             continue
         key = normalize(name) if normalize is not None else name

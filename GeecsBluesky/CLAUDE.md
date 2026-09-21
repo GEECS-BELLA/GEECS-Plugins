@@ -417,8 +417,24 @@ gateway (circular).
 stack per scan through the **stock** `ADHDFDataLogic` over
 `devices/hdf_plugin.GeecsHdfIO`; the run's stream documents reference it
 and Tiled reads it with its stock adapter.  The rule is the namespace's:
-DB image variable + endpoint in `config.ini [pva] file_plugin_addr_list`
-(absent = no host; never the PVA fleet's `addr_list`).  A plugin-backed camera keeps writing its native
+a served capture stream + endpoint in `config.ini [pva] file_plugin_addr_list`
+(absent = no host; never the PVA fleet's `addr_list`).  **Which** variables
+a device captures is declared per devicetype in
+`geecs_core.db.device_streams` (an allowlist, in capture order: the FROG's
+`frogTrace`, a MagSpec camera's `Image` + `ImageInterp`, …) and read by
+`namespace.capture_streams`, restricted to what the gateway serves today
+(image-typed variables; declared `1darray` streams wait for array
+support).  A devicetype with no declaration keeps the one-image guess
+(`primary_image_variable`: `image`, else the first image variable) — never
+guess a second stream, declare it, and never declare a variable the device
+does not push on every shot (the FROG's `SpatialImage` cost an arm timeout
+per `prepare`).  **One folder per stream**: the primary stream writes
+`<device>/<device>.h5`, a second stream of the same device writes the
+sibling `<device>-<variable>/<device>-<variable>.h5` (stream key
+`<name>-<variable>`), the layout the LabVIEW-native files use for a
+device's second output, so `scan_stack.find_stack_file` resolves both;
+two plugins on one path would truncate each other's file
+(`devices/hdf_plugin.PluginPathProvider`).  A plugin-backed camera keeps writing its native
 PNGs beside the stack (dual-write, the rollout's parity evidence) until
 PNG retirement (#738); elsewhere per-shot data stays on the
 LabVIEW-native file path (`LvNativeFileDataLogic`, named with the stamp)
