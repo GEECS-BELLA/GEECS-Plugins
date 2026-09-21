@@ -37,19 +37,41 @@ merge; anything worth keeping moves into the package `CLAUDE.md`s first
    `interpDiv`. The flattened-waveform decoder can be unit-tested against
    captured Picoscope bytes without a bootstrapped host, since that device
    ships to remote subscribers.
-3. **PR 1 — bootstrap three hosts**: .6.73 (FROG), .7.168 (Picoscope), .7.203
-   (stitcher). No code; `deploy/bootstrap.ps1` needs a session with share
-   credentials or elevation, and the boxes are physically remote. **The
-   session question is answered** by `GeecsPvaGateway/DEPLOYMENT.md`: an RDP
-   session *is* a console session (preferred path, everything from the
-   share), and elevated ssh — a key in
-   `C:\ProgramData\ssh\administrators_authorized_keys` — also works and
-   carried the nine-box roll of 2026-09-11. Probed 2026-09-20: sshd answers
-   on all three boxes, but neither this Mac's key nor `geecs-gw`'s is in
-   `administrators_authorized_keys` yet (publickey denied for `loasis@`), so
-   the key install is the one step before PR 1 can run. Probes run from
-   `geecs-gw`, since what the Windows boxes themselves carry is unknown. So
-   PR 1 is scheduling, not a blocker.
+3. **PR 1 — bootstrap three hosts: DONE 2026-09-20** (.6.73 FROG, .7.168
+   Picoscope, .7.203 stitcher), all at GeecsPvaGateway **0.11.2**, NSSM
+   auto-start. Over elevated ssh on the DEPLOYMENT.md ssh path (the fleet's
+   domain-qualified login, key in `administrators_authorized_keys`, sshd
+   started per box by the owner): `-Source` = a shallow GitHub clone in the
+   login's profile (master @ 4285b265), `-ConfigSource` = the box's **own**
+   GEECS `Configurations.INI` (what its LabVIEW already uses), `-SourceShare`
+   = the share UNC by IP, read at runtime by LocalSystem. The owner started
+   the services (the permission classifier blocks `nssm start/stop` from a
+   session — service actions are the owner's).
+   - **FROG and stitcher: LIVE** — `:version` = 0.11.2, heartbeats ticking,
+     `u_frog_grenouille:frogtrace`/`spatialimage` and `u_bcavemagspec:image`
+     `:connected` = Idle (gated, nobody subscribed). Fleet screen regenerated
+     (14 camera servers in the DB, 11 deployed).
+   - **Picoscope: crash-loops, by design, until PR 3.** Today's gateway
+     serves image variables only; on a host with none it logs "no cameras to
+     serve" and exits, NSSM relaunches every ~12 s, and each cycle reinstalls
+     from the share and reconnects to the DB. **Owed: stop it and set the
+     service to demand-start until PR 3 lands** (owner's action); PR 3 should
+     also make a no-content instance idle on its identity PVs rather than
+     exit, since the array census will keep producing such hosts.
+   - **Worker config:** `[pva] file_plugin_addr_list` on the worker host
+     gained `192.168.7.203` (a dated `.bak` beside it); `geecs-qserver`
+     restart owed. **`192.168.6.73` is deliberately NOT added until PR 2** —
+     with it present the worker plugin-backs the FROG on `SpatialImage` and
+     every prepare that includes the FROG times out (§4.5b). `192.168.7.168`
+     waits for PR 3.
+   - Gotchas learned: bootstrap's remote stdout stops after its first lines
+     once the Python/pip installers spawn (ssh with or without a tty) while
+     the run completes — verify by state (`--version`, `sc query`, root
+     listing), never by output; `.7.203` cannot reach nssm.cc, so pre-place
+     `nssm.exe` in the root (the script skips the download when it exists);
+     key auth mints no share credentials even elevated, so the share is
+     unreadable from the session — the local INI and a GitHub clone are the
+     ssh-path inputs.
 4. **PR 4 — the record side** for `(N, M, 2)` arrays; **PR 5 — conservative
    rebinning** in ScanAnalysis (§4.4b's "owed downstream").
 

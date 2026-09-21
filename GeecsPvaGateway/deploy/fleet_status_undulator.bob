@@ -11,7 +11,7 @@
 <display version="2.0.0">
   <name>PVA Gateway Fleet</name>
   <width>640</width>
-  <height>445</height>
+  <height>535</height>
   <widget type="label" version="2.0.0">
     <name>title</name>
     <text>GeecsPvaGateway fleet — Undulator</text>
@@ -20,7 +20,7 @@
   </widget>
   <widget type="label" version="2.0.0">
     <name>subtitle</name>
-    <text>11 camera servers in the DB, 9 deployed (config.ini [pva] addr_list)</text>
+    <text>14 camera servers in the DB, 11 deployed (config.ini [pva] addr_list)</text>
     <x>10</x><y>40</y><width>600</width><height>20</height>
   </widget>
   <widget type="label" version="2.0.0">
@@ -62,11 +62,30 @@
     <tooltip>U_FROG_Grenouille</tooltip>
   </widget>
 
-  <widget type="label" version="2.0.0">
-    <name>not_deployed_192_168_6_73</name>
-    <text>not deployed</text>
-    <x>170</x><y>125</y><width>350</width><height>20</height>
-    <tooltip>No gateway instance installed on this host (absent from config.ini [pva] addr_list). Cameras: U_FROG_Grenouille</tooltip>
+  <widget type="textupdate" version="2.0.0">
+    <name>version_192_168_6_73</name>
+    <pv_name>pva://undulator:pvagateway:192_168_6_73:version</pv_name>
+    <x>170</x><y>125</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>heartbeat_192_168_6_73</name>
+    <pv_name>pva://undulator:pvagateway:192_168_6_73:heartbeat</pv_name>
+    <x>330</x><y>125</y><width>100</width><height>20</height>
+  </widget>
+  <widget type="action_button" version="3.0.0">
+    <name>restart_192_168_6_73</name>
+    <actions>
+      <action type="write_pv">
+        <pv_name>pva://undulator:pvagateway:192_168_6_73:restart</pv_name>
+        <value>1</value>
+        <description>Restart</description>
+      </action>
+    </actions>
+    <text>restart</text>
+    <x>440</x><y>125</y><width>80</width><height>20</height>
+    <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
+    <confirm_dialog>true</confirm_dialog>
+    <confirm_message>Restart the PVA gateway on 192.168.6.73?</confirm_message>
   </widget>
 
   <!-- row: 192.168.6.80 (3 cameras) -->
@@ -103,12 +122,12 @@
     <confirm_message>Restart the PVA gateway on 192.168.6.80?</confirm_message>
   </widget>
 
-  <!-- row: 192.168.6.100 (11 cameras) -->
+  <!-- row: 192.168.6.100 (12 cameras) -->
   <widget type="label" version="2.0.0">
     <name>host_192_168_6_100</name>
     <text>192.168.6.100</text>
     <x>10</x><y>185</y><width>150</width><height>20</height>
-    <tooltip>UC_Amp2Depletion_South, UC_Amp2_IR_input, UC_Amp3_IR_input, UC_Amp4Depletion_South, UC_Amp4_IR_input, UC_Amp4_IR_output, UC_ExpanderIn1, UC_ExpanderIn1_Pulsed, UC_GaiaMode, UC_Stretcher, UC_TubeIn</tooltip>
+    <tooltip>UC_Amp2Depletion_South, UC_Amp2_IR_input, UC_Amp3Depletion_South, UC_Amp3_IR_input, UC_Amp4Depletion_South, UC_Amp4_IR_input, UC_Amp4_IR_output, UC_ExpanderIn1, UC_ExpanderIn1_Pulsed, UC_GaiaMode, UC_Stretcher, UC_TubeIn</tooltip>
   </widget>
 
   <widget type="textupdate" version="2.0.0">
@@ -239,12 +258,12 @@
     <confirm_message>Restart the PVA gateway on 192.168.7.163?</confirm_message>
   </widget>
 
-  <!-- row: 192.168.7.164 (2 cameras) -->
+  <!-- row: 192.168.7.164 (1 cameras) -->
   <widget type="label" version="2.0.0">
     <name>host_192_168_7_164</name>
     <text>192.168.7.164</text>
     <x>10</x><y>305</y><width>150</width><height>20</height>
-    <tooltip>UC_UndulatorImagingSpec, UC_UndulatorRad2</tooltip>
+    <tooltip>UC_UndulatorRad2</tooltip>
   </widget>
 
   <widget type="textupdate" version="2.0.0">
@@ -273,23 +292,57 @@
     <confirm_message>Restart the PVA gateway on 192.168.7.164?</confirm_message>
   </widget>
 
+  <!-- row: 192.168.7.203 (1 cameras) -->
+  <widget type="label" version="2.0.0">
+    <name>host_192_168_7_203</name>
+    <text>192.168.7.203</text>
+    <x>10</x><y>335</y><width>150</width><height>20</height>
+    <tooltip>U_BCaveMagSpec</tooltip>
+  </widget>
+
+  <widget type="textupdate" version="2.0.0">
+    <name>version_192_168_7_203</name>
+    <pv_name>pva://undulator:pvagateway:192_168_7_203:version</pv_name>
+    <x>170</x><y>335</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>heartbeat_192_168_7_203</name>
+    <pv_name>pva://undulator:pvagateway:192_168_7_203:heartbeat</pv_name>
+    <x>330</x><y>335</y><width>100</width><height>20</height>
+  </widget>
+  <widget type="action_button" version="3.0.0">
+    <name>restart_192_168_7_203</name>
+    <actions>
+      <action type="write_pv">
+        <pv_name>pva://undulator:pvagateway:192_168_7_203:restart</pv_name>
+        <value>1</value>
+        <description>Restart</description>
+      </action>
+    </actions>
+    <text>restart</text>
+    <x>440</x><y>335</y><width>80</width><height>20</height>
+    <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
+    <confirm_dialog>true</confirm_dialog>
+    <confirm_message>Restart the PVA gateway on 192.168.7.203?</confirm_message>
+  </widget>
+
   <!-- row: 192.168.8.197 (4 cameras) -->
   <widget type="label" version="2.0.0">
     <name>host_192_168_8_197</name>
     <text>192.168.8.197</text>
-    <x>10</x><y>335</y><width>150</width><height>20</height>
+    <x>10</x><y>365</y><width>150</width><height>20</height>
     <tooltip>UC_ChicaneSlit, UC_ModeImager, UC_TC_Output, UC_TopView</tooltip>
   </widget>
 
   <widget type="textupdate" version="2.0.0">
     <name>version_192_168_8_197</name>
     <pv_name>pva://undulator:pvagateway:192_168_8_197:version</pv_name>
-    <x>170</x><y>335</y><width>150</width><height>20</height>
+    <x>170</x><y>365</y><width>150</width><height>20</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>heartbeat_192_168_8_197</name>
     <pv_name>pva://undulator:pvagateway:192_168_8_197:heartbeat</pv_name>
-    <x>330</x><y>335</y><width>100</width><height>20</height>
+    <x>330</x><y>365</y><width>100</width><height>20</height>
   </widget>
   <widget type="action_button" version="3.0.0">
     <name>restart_192_168_8_197</name>
@@ -301,7 +354,7 @@
       </action>
     </actions>
     <text>restart</text>
-    <x>440</x><y>335</y><width>80</width><height>20</height>
+    <x>440</x><y>365</y><width>80</width><height>20</height>
     <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
     <confirm_dialog>true</confirm_dialog>
     <confirm_message>Restart the PVA gateway on 192.168.8.197?</confirm_message>
@@ -311,19 +364,19 @@
   <widget type="label" version="2.0.0">
     <name>host_192_168_8_199</name>
     <text>192.168.8.199</text>
-    <x>10</x><y>365</y><width>150</width><height>20</height>
+    <x>10</x><y>395</y><width>150</width><height>20</height>
     <tooltip>UC_FinalSteeringLeak, UC_GhostFocus, UC_GhostUpstream, UC_OAPin1, UC_OAPin2, UC_TargetIn, U_GhostWFS</tooltip>
   </widget>
 
   <widget type="textupdate" version="2.0.0">
     <name>version_192_168_8_199</name>
     <pv_name>pva://undulator:pvagateway:192_168_8_199:version</pv_name>
-    <x>170</x><y>365</y><width>150</width><height>20</height>
+    <x>170</x><y>395</y><width>150</width><height>20</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>heartbeat_192_168_8_199</name>
     <pv_name>pva://undulator:pvagateway:192_168_8_199:heartbeat</pv_name>
-    <x>330</x><y>365</y><width>100</width><height>20</height>
+    <x>330</x><y>395</y><width>100</width><height>20</height>
   </widget>
   <widget type="action_button" version="3.0.0">
     <name>restart_192_168_8_199</name>
@@ -335,29 +388,29 @@
       </action>
     </actions>
     <text>restart</text>
-    <x>440</x><y>365</y><width>80</width><height>20</height>
+    <x>440</x><y>395</y><width>80</width><height>20</height>
     <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
     <confirm_dialog>true</confirm_dialog>
     <confirm_message>Restart the PVA gateway on 192.168.8.199?</confirm_message>
   </widget>
 
-  <!-- row: 192.168.8.201 (5 cameras) -->
+  <!-- row: 192.168.8.201 (6 cameras) -->
   <widget type="label" version="2.0.0">
     <name>host_192_168_8_201</name>
     <text>192.168.8.201</text>
-    <x>10</x><y>395</y><width>150</width><height>20</height>
-    <tooltip>UC_BCaveMagSpecCam1, UC_BCaveMagSpecCam2, UC_BCaveMagSpecCam3, UC_DiagnosticsPhosphor, UC_Phosphor1</tooltip>
+    <x>10</x><y>425</y><width>150</width><height>20</height>
+    <tooltip>UC_BCaveMagSpecCam1, UC_BCaveMagSpecCam2, UC_BCaveMagSpecCam3, UC_DiagnosticsPhosphor, UC_HiResMagCam, UC_Phosphor1</tooltip>
   </widget>
 
   <widget type="textupdate" version="2.0.0">
     <name>version_192_168_8_201</name>
     <pv_name>pva://undulator:pvagateway:192_168_8_201:version</pv_name>
-    <x>170</x><y>395</y><width>150</width><height>20</height>
+    <x>170</x><y>425</y><width>150</width><height>20</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>heartbeat_192_168_8_201</name>
     <pv_name>pva://undulator:pvagateway:192_168_8_201:heartbeat</pv_name>
-    <x>330</x><y>395</y><width>100</width><height>20</height>
+    <x>330</x><y>425</y><width>100</width><height>20</height>
   </widget>
   <widget type="action_button" version="3.0.0">
     <name>restart_192_168_8_201</name>
@@ -369,9 +422,39 @@
       </action>
     </actions>
     <text>restart</text>
-    <x>440</x><y>395</y><width>80</width><height>20</height>
+    <x>440</x><y>425</y><width>80</width><height>20</height>
     <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
     <confirm_dialog>true</confirm_dialog>
     <confirm_message>Restart the PVA gateway on 192.168.8.201?</confirm_message>
+  </widget>
+
+  <!-- row: 192.168.8.207 (1 cameras) -->
+  <widget type="label" version="2.0.0">
+    <name>host_192_168_8_207</name>
+    <text>192.168.8.207</text>
+    <x>10</x><y>455</y><width>150</width><height>20</height>
+    <tooltip>U_HasoLift</tooltip>
+  </widget>
+
+  <widget type="label" version="2.0.0">
+    <name>not_deployed_192_168_8_207</name>
+    <text>not deployed</text>
+    <x>170</x><y>455</y><width>350</width><height>20</height>
+    <tooltip>No gateway instance installed on this host (absent from config.ini [pva] addr_list). Cameras: U_HasoLift</tooltip>
+  </widget>
+
+  <!-- row: 192.168.8.208 (1 cameras) -->
+  <widget type="label" version="2.0.0">
+    <name>host_192_168_8_208</name>
+    <text>192.168.8.208</text>
+    <x>10</x><y>485</y><width>150</width><height>20</height>
+    <tooltip>U_GhostLowPowerWFS</tooltip>
+  </widget>
+
+  <widget type="label" version="2.0.0">
+    <name>not_deployed_192_168_8_208</name>
+    <text>not deployed</text>
+    <x>170</x><y>485</y><width>350</width><height>20</height>
+    <tooltip>No gateway instance installed on this host (absent from config.ini [pva] addr_list). Cameras: U_GhostLowPowerWFS</tooltip>
   </widget>
 </display>
