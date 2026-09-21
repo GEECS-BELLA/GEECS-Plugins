@@ -13,9 +13,17 @@ Three small things, everything else is stock ophyd-async:
   builds — then returns the **two paths** of one folder: the Windows path
   the plugin's ``FilePath`` receives (translated for the service that runs
   it, ``data_paths.plugin_save_path``) and the worker's ``file://`` URI the
-  stream resource carries for Tiled.  The filename is the GEECS device name,
-  so the stock template ``%s%s.h5`` yields ``<device>/<device>.h5`` — the
-  file the read side (``geecs_data_utils.io.scan_stack``) looks for.
+  stream resource carries for Tiled.  The filename is the folder's name, so
+  the stock template ``%s%s.h5`` yields ``<device>/<device>.h5`` for a
+  device's primary stream — the file the read side
+  (``geecs_data_utils.io.scan_stack``) looks for — and a **second capture
+  stream of the same device gets its own sibling folder**,
+  ``<device>-<variable>/<device>-<variable>.h5``: the layout the
+  LabVIEW-native files already use for a device's second output
+  (``-interpSpec``, ``-Temporal``), so ``find_stack_file`` resolves it
+  unchanged.  Two plugins of one device must never share a file: each
+  gateway writer opens its path with ``h5py.File(..., "w")``, so a shared
+  path is truncated by whichever arms second (found in review of #945).
 - :func:`file_plugin_hosts` — which camera servers serve the plugin
   (``config.ini [pva] file_plugin_addr_list``; **absent means none**, so a
   worker whose config carries only the PVA fleet's ``addr_list`` touches no
@@ -51,14 +59,20 @@ class GeecsHdfIO(NDFileHDF5IO):
 
 
 class PluginPathProvider(PathProvider):
-    """``ScanNNN/<GEECS device>/`` as the plugin and Tiled each see it.
+    """``ScanNNN/<stem>/`` as the plugin and Tiled each see it, one stream per stem.
 
     Parameters
     ----------
     shared :
-        The worker's run-scoped provider (called with the GEECS device name).
+        The worker's run-scoped provider (called with the stem, the way it
+        is called with a GEECS device name).
     device :
-        The GEECS device name: the directory and the file stem.
+        The GEECS device name.
+    variable :
+        ``None`` for the device's primary stream — the stem is the device
+        name, ``<device>/<device>.h5`` — else the GEECS variable of a
+        secondary stream, which lives in the sibling folder
+        ``<device>-<variable>/`` (see the module docstring).
     plugin_path :
         Worker path → the path the plugin's host can write (the UNC root of
         the data share); defaults to the ``config.ini`` mapping.
@@ -69,11 +83,17 @@ class PluginPathProvider(PathProvider):
         shared: PathProvider,
         device: str,
         *,
+        variable: str | None = None,
         plugin_path: Callable[[str], str] = plugin_save_path,
     ) -> None:
         self._shared = shared
-        self._device = device
+        self._stem = device if variable is None else f"{device}-{variable}"
         self._plugin_path = plugin_path
+
+    @property
+    def stem(self) -> str:
+        """The folder name and file stem this provider hands out (``<device>`` or ``<device>-<variable>``)."""
+        return self._stem
 
     def __call__(self, datakey_name: str | None = None) -> PathInfo:
         """The device directory this run: Windows path for ``FilePath``, URI for Tiled.
@@ -87,7 +107,7 @@ class PluginPathProvider(PathProvider):
         used to create it as a side effect of the dual-write, is not part
         of the context (found on hardware, 2b acceptance A1, 2026-09-12).
         """
-        local = self._shared(self._device)
+        local = self._shared(self._stem)
         local_dir = Path(local.directory_path)
         if not local_dir.parent.is_dir():
             raise FileNotFoundError(
@@ -97,7 +117,7 @@ class PluginPathProvider(PathProvider):
         local_dir.mkdir(exist_ok=True)
         return PathInfo(
             directory_path=PureWindowsPath(self._plugin_path(str(local_dir))),
-            filename=self._device,
+            filename=self._stem,
             directory_uri=generate_directory_uri(local_dir),
         )
 

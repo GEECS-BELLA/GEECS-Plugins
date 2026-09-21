@@ -55,6 +55,17 @@ def test_declared_names_are_non_scalar_variables(devicetype: str) -> None:
         ), name
 
 
+@pytest.mark.parametrize("devicetype", sorted(FIXTURE))
+def test_declared_names_are_safe_folder_name_components(devicetype: str) -> None:
+    """A secondary stream's folder is ``<device>-<variable>`` on a Windows share:
+    no path separators or reserved characters, no edge whitespace."""
+    entry = streams_for(devicetype)
+    assert entry is not None
+    for name in entry.capture:
+        assert name == name.strip() and name
+        assert not set(name) & set('<>:"/\\|?*'), name
+
+
 def test_point_grey_declaration_equals_the_historic_one_image_default() -> None:
     """Strictly additive for the 40 Point Greys: the table names exactly the ``image`` variable."""
     assert capture_variables("Point Grey Camera", FIXTURE["Point Grey Camera"]) == [

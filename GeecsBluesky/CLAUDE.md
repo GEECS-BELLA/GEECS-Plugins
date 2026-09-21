@@ -428,7 +428,13 @@ support).  A devicetype with no declaration keeps the one-image guess
 (`primary_image_variable`: `image`, else the first image variable) — never
 guess a second stream, declare it, and never declare a variable the device
 does not push on every shot (the FROG's `SpatialImage` cost an arm timeout
-per `prepare`).  A plugin-backed camera keeps writing its native
+per `prepare`).  **One folder per stream**: the primary stream writes
+`<device>/<device>.h5`, a second stream of the same device writes the
+sibling `<device>-<variable>/<device>-<variable>.h5` (stream key
+`<name>-<variable>`), the layout the LabVIEW-native files use for a
+device's second output, so `scan_stack.find_stack_file` resolves both;
+two plugins on one path would truncate each other's file
+(`devices/hdf_plugin.PluginPathProvider`).  A plugin-backed camera keeps writing its native
 PNGs beside the stack (dual-write, the rollout's parity evidence) until
 PNG retirement (#738); elsewhere per-shot data stays on the
 LabVIEW-native file path (`LvNativeFileDataLogic`, named with the stamp)

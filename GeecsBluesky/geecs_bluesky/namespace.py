@@ -609,9 +609,19 @@ class GeecsNamespace:
                 datatypes=datatypes,
                 path_provider=self._path_provider if native_save else None,
                 native_save=native_save,
+                # One folder per stream: the primary keeps ``<device>/``,
+                # a second stream gets ``<device>-<variable>/`` (two plugins
+                # on one path would truncate each other's file).
                 hdf_plugins=[
-                    (var, PluginPathProvider(self._path_provider, device))
-                    for var in plugin_vars
+                    (
+                        var,
+                        PluginPathProvider(
+                            self._path_provider,
+                            device,
+                            variable=None if index == 0 else var,
+                        ),
+                    )
+                    for index, var in enumerate(plugin_vars)
                 ],
                 drain_offset=self._drain_offsets.get(ophyd_name, 0.0),
             )

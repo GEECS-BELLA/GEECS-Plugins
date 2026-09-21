@@ -27,8 +27,14 @@ merge; anything worth keeping moves into the package `CLAUDE.md`s first
    `geecs_core.db.device_streams` + GeecsBluesky 0.97.0
    `namespace.capture_streams`; the `exclude` polarity was dropped from it
    after review and lands with PR 3 beside its gateway consumer; the
-   Picoscope gate + padding ceiling also wait for PR 3). Original brief
-   text follows. Replace
+   Picoscope gate + padding ceiling also wait for PR 3). **Layout ruling
+   from the review:** a device's second capture stream writes its own
+   sibling folder `<device>-<variable>/<device>-<variable>.h5` (the
+   LabVIEW-native `-interpSpec`/`-Temporal` shape; the read side resolves
+   it unchanged) — two plugins on one path truncated each other's file.
+   PR 3's array streams inherit this: `interpSpec` lands in
+   `<device>-interpSpec/`, beside the native TSV folder of the same name.
+   Original brief text follows. Replace
    `primary_image_variable`'s positional guess (`GeecsBluesky/geecs_bluesky/
    namespace.py:137`) with the per-devicetype table of §4.3b. Accept against
    `UC_BCaveMagSpecCam1`, which streams `ImageInterp` today and never captures

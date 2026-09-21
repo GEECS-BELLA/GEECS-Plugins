@@ -25,6 +25,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   undeclared camera type behaves exactly as before.  The optimizer's live
   frame source reads the device's first declared stream through the same
   rule (pinned: a FROG-typed diagnostic subscribes to `:frogtrace`).
+- **One folder per capture stream** (`devices/hdf_plugin.PluginPathProvider`
+  gains `variable=`): the primary stream keeps `<device>/<device>.h5`; a
+  second stream of the same device writes
+  `<device>-<variable>/<device>-<variable>.h5` — the sibling-folder layout
+  the LabVIEW-native files use for a device's second output, which
+  `geecs_data_utils.io.scan_stack.find_stack_file` already resolves.  Found
+  in review (#945): both plugins of a device were handed the same path, and
+  each gateway writer opens its file `"w"`, so the second to arm truncated
+  the first.  Pinned by a two-stream prepare/resource test (distinct
+  `FilePath`/`FileName`, distinct stream-resource URIs).
 - `GeecsDbDeviceTypes`' degraded path (an empty devicetype map after a DB
   failure) now names its second consequence in the docstring and the
   WARNING: beside the #934 misclassification, every plugin-backed camera

@@ -506,6 +506,17 @@ def test_a_magspec_camera_captures_both_images_and_logs_the_waiting_arrays(
         == "pva://testexp:uc_magspeccam:imageinterp:hdf1:Capture_RBV"
     )
     assert not hasattr(cam, "hdf_interpspec") and not hasattr(cam, "hdf_energyaxis")
+    # Each stream writes its own folder: the primary the device's, the second
+    # its ``<device>-<variable>`` sibling (two plugins on one path truncate
+    # each other's file — review of #945).
+    from ophyd_async.epics.adcore import ADHDFDataLogic
+
+    stems = [
+        logic.path_provider.stem
+        for logic in cam._data_logics
+        if isinstance(logic, ADHDFDataLogic)
+    ]
+    assert stems == ["UC_MagSpecCam", "UC_MagSpecCam-ImageInterp"]
     waiting = [
         r.getMessage() for r in caplog.records if "not captured until" in r.getMessage()
     ]
