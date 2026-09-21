@@ -17,6 +17,7 @@ def test_minimal_preset_is_a_device_group():
     assert preset.devices[0].save_images is True
     assert preset.devices[0].essential is True  # phase 2: waited on every shot
     assert preset.trigger_profile is None and preset.background is False
+    assert preset.native_image_save is None  # unset: the experiment default
 
 
 def test_full_preset_round_trips():
@@ -26,6 +27,7 @@ def test_full_preset_round_trips():
         "description": "emq1 sweep",
         "trigger_profile": "HTU-Normal",
         "background": False,
+        "native_image_save": False,
         "devices": [
             {"device": "UC_ALineEBeam3", "save_images": True, "essential": True},
             {"device": "U_BCaveICT", "save_images": False, "essential": True},
@@ -45,6 +47,18 @@ def test_full_preset_round_trips():
     )
     assert preset.model_dump(mode="json") == document
     assert [d.essential for d in preset.devices] == [True, True, False]
+
+
+def test_native_image_save_is_one_value_per_scan():
+    """The run-level switch (GEECS-Plugins#738): unset, on, or off — never per device."""
+    for value in (None, True, False):
+        preset = Preset.model_validate(
+            {"name": "p", "native_image_save": value, "devices": [{"device": "C"}]}
+        )
+        assert preset.native_image_save is value
+        assert preset.model_dump(mode="json")["native_image_save"] is value
+    with pytest.raises(ValidationError):
+        PresetDevice.model_validate({"device": "C", "native_image_save": False})
 
 
 def test_duplicate_devices_are_refused():

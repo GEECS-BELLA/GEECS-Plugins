@@ -5,6 +5,30 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] - 2026-09-20
+
+### Added
+
+- **`native_image_save`, rebuilt where the scanner submits (PNG retirement,
+  GEECS-Plugins#738).** `Preset.native_image_save: bool | None` is the
+  run-level switch for LabVIEW's per-shot files (PNGs): one value per
+  scan, reaching only the cameras whose frames the PVA gateway's file
+  plugin captures — a device without a plugin (no PVA stream, a
+  proprietary format) always keeps its native files, and a scalars-only
+  entry is unaffected. Unset defers to
+  `ExperimentDefaults.native_image_save: bool = True`, which the worker
+  reads at every scan. The 0.30.0 removal took the field off `ScanRequest`
+  and `ExperimentDefaults` because nothing read it; this is the reader's
+  contract, on the document that is actually submitted. The
+  `ExperimentDefaults` drop-validator of 0.30.0 is gone with it — a defaults
+  file saying `native_image_save: false` now means it.
+
+### Changed
+
+- `ScanRequest` still refuses a set `native_image_save` (format v4): the
+  remedy now points at `Preset.native_image_save`, since a `ScanRequest` is
+  not the submission shape.
+
 ## [0.30.0] - 2026-09-17
 
 ### Removed

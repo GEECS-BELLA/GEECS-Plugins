@@ -102,6 +102,25 @@ def test_expand_builds_the_stock_plan_item() -> None:
     }
 
 
+def test_native_image_save_rides_as_the_plans_keyword_only_when_set() -> None:
+    """Unset defers to the experiment default the worker reads per run (#738)."""
+    assert "native_image_save" not in expand_preset(_preset()).kwargs
+    item = expand_preset(_preset(native_image_save=False))
+    assert item.kwargs["native_image_save"] is False
+    assert "native_image_save" not in item.kwargs["md"]  # a plan argument, not md
+
+
+def test_native_image_save_in_plan_kwargs_is_refused_not_merged() -> None:
+    """The preset field is the one source of truth: a kwargs copy cannot win (Codex, #944)."""
+    call = sweep_call()
+    call["kwargs"]["native_image_save"] = True
+    for top_level in (False, None):
+        with pytest.raises(
+            GeecsConfigurationError, match="preset field, not a plan keyword"
+        ):
+            expand_preset(_preset(native_image_save=top_level, plan=call))
+
+
 def test_count_preset_and_pair_spelled_variables() -> None:
     preset = _preset(
         trigger_profile=None,

@@ -90,20 +90,21 @@ class TestExperimentDefaults:
         assert "provenance" in module_doc
 
 
-def test_removed_native_image_save_is_ignored_not_refused():
-    """A defaults file still carrying the v4-removed toggle keeps loading.
+def test_native_image_save_defaults_on_and_is_read():
+    """The experiment-wide fallback for the preset's run-level switch (GEECS-Plugins#738).
 
-    Both callers of ``resolve_experiment_defaults`` swallow exceptions into
-    "no defaults at all", so refusing here would cost the experiment its
-    default trigger profile over an already-inert key.
+    On by default (the dual-write stays the rollout's parity evidence);
+    ``false`` is read, not dropped — the 0.30.0 drop-validator went with
+    the rebuild, so a defaults file saying ``false`` means it.
     """
-    for value in (True, False):
-        defaults = ExperimentDefaults.model_validate(
-            {
-                "schema_version": 1,
-                "trigger_profile": "HTU-NoGas",
-                "native_image_save": value,
-            }
-        )
-        assert defaults.trigger_profile == "HTU-NoGas"
-        assert "native_image_save" not in defaults.model_dump(mode="json")
+    assert make_defaults().native_image_save is True
+    defaults = ExperimentDefaults.model_validate(
+        {
+            "schema_version": 1,
+            "trigger_profile": "HTU-NoGas",
+            "native_image_save": False,
+        }
+    )
+    assert defaults.trigger_profile == "HTU-NoGas"
+    assert defaults.native_image_save is False
+    assert defaults.model_dump(mode="json")["native_image_save"] is False

@@ -68,7 +68,11 @@ Schema v4 (drop the native-image-save toggle):
   a different question ("armed on every camera in the save set?"), so
   nothing here was reusable.  The same before-validator drops an unset
   ``native_image_save`` and refuses a set one with the remedy;
-  ``schema_version`` ≤ 3 is normalized to 4.
+  ``schema_version`` ≤ 3 is normalized to 4.  The switch was rebuilt on
+  :class:`~geecs_schemas.preset.Preset` in 0.31.0 (``native_image_save``,
+  with ``ExperimentDefaults.native_image_save`` as the fallback) — the
+  preset is what the scanner submits; this model is not, so it keeps the
+  refusal and the remedy points there.
 """
 
 from __future__ import annotations
@@ -459,11 +463,12 @@ _TRIGGER_VARIANT_REMEDY = (
 )
 _NATIVE_IMAGE_SAVE_REMEDY = (
     "'native_image_save' was removed in ScanRequest format v4: the central "
-    "capture daemon it switched off native saving for was deleted (#806), "
-    "and nothing has read the field since. Native per-shot saving is "
-    "currently decided per device by the GEECS DB (the 'save' and "
-    "'localsavingpath' variables); a scan-time toggle returns with PNG "
-    "retirement (#738)."
+    "capture daemon it switched off native saving for was deleted (#806). "
+    "The switch lives on the preset now — Preset.native_image_save, with "
+    "ExperimentDefaults.native_image_save as the fallback (GEECS-Schemas "
+    "0.31.0, PNG retirement #738) — and reaches the cameras the PVA "
+    "gateway's file plugin captures; a ScanRequest is not the submission "
+    "shape."
 )
 #: Removed fields: dropped when unset, refused when set (no overlay exists).
 #: Each maps to the remedy a set value is refused with.

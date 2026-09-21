@@ -452,6 +452,8 @@
     $("period").value = kw.shot_period != null ? kw.shot_period : "";
     var trigger = Object.prototype.hasOwnProperty.call(kw, "trigger_profile") ? kw.trigger_profile : doc.trigger_profile;
     setSelect("trig", trigger || ""); $("desc").value = doc.description || "";
+    // The run-level LabVIEW-files switch (#738): unset = the experiment default.
+    $("native-save").value = doc.native_image_save === true ? "true" : doc.native_image_save === false ? "false" : "";
     var body = $("devs"); body.textContent = "";
     (doc.devices || []).forEach(function (d) { body.appendChild(deviceRow(d.device, d.save_images !== false, d.essential !== false)); });
     noDevicesNote();
@@ -602,9 +604,12 @@
   function buildPreset() {
     var doc = S.presetDoc || {}, previous = doc.plan || {}, name = S.mode;
     var kwargs = previous.name === name ? Object.assign({}, previous.kwargs || {}) : {};
-    // The visible selector owns this value. Older presets may put it in
-    // kwargs, which expand_preset otherwise gives precedence over the field.
+    // The visible selectors own these values. Older presets may put them in
+    // kwargs: expand_preset gives a trigger_profile copy precedence over the
+    // field and refuses a native_image_save copy outright, so both are dropped.
     delete kwargs.trigger_profile;
+    delete kwargs.native_image_save;
+    var nativeSave = $("native-save").value;
     var shots = Number($("shots").value);
     if (name === "optimize") {
       kwargs.optimizer_config = $("optimizer-config").value; kwargs.max_iterations = Number($("iterations").value); kwargs.shots_per_step = shots;
@@ -616,6 +621,7 @@
     if (S.acq === "strict" && $("period").value !== "") kwargs.shot_period = Number($("period").value);
     else delete kwargs.shot_period;
     return {name: S.presetName || "adhoc", description: $("desc").value.trim(), trigger_profile: $("trig").value || null,
+      native_image_save: nativeSave === "" ? null : nativeSave === "true",
       background: name === "count" && $("background").checked,
       devices: tableDevices(), plan: {name: name, args: [], kwargs: kwargs}};
   }

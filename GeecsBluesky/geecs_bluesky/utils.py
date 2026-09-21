@@ -71,6 +71,7 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "mark_abandoned",
         "missed_shot",
         "name",
+        "native_image_save",
         "parent",
         "plugin_backed",
         "prepare",

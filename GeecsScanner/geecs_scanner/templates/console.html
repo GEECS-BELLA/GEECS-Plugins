@@ -149,6 +149,7 @@
           <div class="fields">
             <div class="field"><label for="shots">shots per step</label><input id="shots" type="number" min="1" step="1" value="10"><span class="hint" id="shots-hint">shots_per_step</span><span class="err" id="err-shots">At least one shot.</span></div>
             <div class="field"><label for="trig">trigger profile</label><select id="trig" title="shot_control_configurations/ · the worker learns new or edited profiles at its next environment open; a scan naming one before that is refused there"></select></div>
+            <div class="field"><label for="native-save">LabVIEW files</label><select id="native-save" title="Whether cameras on a file-plugin host also write their LabVIEW per-shot files (PNGs) beside the plugin's HDF5 stack. Experiment default = experiment_defaults.yaml, read by the worker at every scan. Cameras without a file plugin always write their native files."><option value="">experiment default</option><option value="true">on · PNGs beside the stack</option><option value="false">off · plugin stacks only</option></select></div>
             <div class="field"><label for="period">shot period</label><input id="period" type="number" min="0" step="any" placeholder="auto"><span class="hint">seconds</span></div>
             <div class="field wide"><label for="desc">description</label><input id="desc" placeholder="what this scan is for"></div>
           </div>
