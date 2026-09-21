@@ -1,11 +1,57 @@
 # Every non-scalar device type over PVA — rollout brief
 
-*Drafted 2026-09-16 from a code audit plus live DB and wire probes against the
-reference deployment (HTU / `Undulator`, no beam). Status: scoping document —
-nothing here is built. The optimization arc spawned this and deliberately
-excluded it: serving every non-scalar device type over PVA is a gateway + DB
-job of its own, and the magspec-spectrum optimizer was dropped from that arc
-because of it.*
+*Drafted 2026-09-16, decisions closed 2026-09-20, from a code audit plus live
+DB and wire probes against the reference deployment (HTU / `Undulator`, no
+beam). The optimization arc spawned this and deliberately excluded it: serving
+every non-scalar device type over PVA is a gateway + DB job of its own, and the
+magspec-spectrum optimizer was dropped from that arc because of it.*
+
+---
+
+## START HERE — status and the next step
+
+**Nothing is built. Every design question is closed.** Scope is four
+devicetypes: `PicoscopeV2`, `FROG`, `MagSpecCamera`, `MagSpecStitcher` (§4.5c).
+One DB change is already applied live (§4.5, the PicoscopeV2 retype).
+
+**Build in this order. The first two need no lab access at all.**
+
+1. **PR 2 — the capture-stream declaration** (§4.3b, §4.3). Replace
+   `primary_image_variable`'s positional guess (`GeecsBluesky/geecs_bluesky/
+   namespace.py:137`) with the per-devicetype table of §4.3b. Accept against
+   `UC_BCaveMagSpecCam1`, which streams `ImageInterp` today and never captures
+   it. **Default to today's single-variable behaviour when a devicetype
+   declares nothing** — this touches all 40 plugin-backed Point Greys, so it
+   must be strictly additive, and it is the one change in the arc that wants a
+   full adversarial review.
+2. **PR 3 — array support in the gateway** (§4.4, §4.4b, §4.4c). Eligibility
+   twin of `image_variables()`, the decoders of §4.4 dispatched by **payload
+   sniffing** (not by devicetype), per-devicetype padding ceilings, 1-D and
+   float in the file plugin. Accept against the same camera's `interpSpec` /
+   `interpDiv`. The flattened-waveform decoder can be unit-tested against
+   captured Picoscope bytes without a bootstrapped host, since that device
+   ships to remote subscribers.
+3. **PR 1 — bootstrap three hosts**: .6.73 (FROG), .7.168 (Picoscope), .7.203
+   (stitcher). No code; `deploy/bootstrap.ps1` needs an interactive session per
+   box and the boxes are physically remote, so this is access-bound. Whether
+   RDP satisfies that requirement is unanswered and sets the schedule.
+4. **PR 4 — the record side** for `(N, M, 2)` arrays; **PR 5 — conservative
+   rebinning** in ScanAnalysis (§4.4b's "owed downstream").
+
+**The two traps this brief exists to prevent.** The FROG resolves to
+`SpatialImage`, which never pushes, so a plugin armed on it times out every
+prepare (§4.5b). And a decoder that trusts column 0 will silently corrupt a
+rebin, because the stitcher's `interpDiv` arrives non-monotonic (§4.4c).
+
+**Probing the wire** (how every fact below was established): subscribe with
+`geecs_core.transport.tcp_subscriber.GeecsTcpSubscriber`, request names
+explicitly, pass them in `text_variables` so binary survives, and spy on the
+module-level `_parse_subscription` to see the raw frame. The frame carries
+**only the names you ask for**; a name the device knows is echoed (empty if it
+has no value) and one it does not know is omitted — so subscribe-and-check-echo
+is a name-existence test. Matching is case-insensitive on the device side.
+
+---
 
 **The headline.** "90% of the work is already done" is right, and the missing
 10% is smaller than the brief's first draft assumed. Every non-Point-Grey
