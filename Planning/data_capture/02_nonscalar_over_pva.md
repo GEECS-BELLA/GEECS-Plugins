@@ -481,6 +481,45 @@ Consequences:
 - The duplicate-looking `retrieved FrogTrace` / `retrievedFrogTrace` DB rows
   are neither needed nor pushed; curate them out when convenient.
 
+### 4.5c Scope narrowed to four devicetypes (Sam, 2026-09-20)
+
+**In scope: `PicoscopeV2`, `FROG`, `MagSpecCamera`, `MagSpecStitcher`.**
+Everything else in the census waits: `ThorlabsWFS` (both instances),
+`UC_Stretcher_MI` (a stray Point Grey on an un-bootstrapped host),
+`DaqPad_NI6009`, `HamamatsuSpectrometerDAQ`, `HexapodPI`.
+
+| devicetype | host | bootstrap? | needs PR 2 (declaration) | needs PR 3 (arrays) |
+|---|---|---|---|---|
+| `MagSpecCamera` x3 | .8.201 | **no — already a fleet box** | `ImageInterp` (streams today, never captured) | `interpSpec`, `interpDiv` |
+| `FROG` x1 | .6.73 | yes | `frogTrace` (and exclude the empty `SpatialImage`) | — |
+| `MagSpecStitcher` x1 | .7.203 | yes | `Image` | `interpSpec` (`interpDiv` excluded, §4.4c) |
+| `PicoscopeV2` x2 | .7.168 | yes | — | `scopeTrace.Channel0..3` |
+
+**Three hosts to bootstrap**, not five: .6.73, .7.168, .7.203.
+
+**This reorders the build, and improves it.** The earlier plan put PR 1 first
+because it was the cheapest value. Under this scope, **PR 2 and PR 3 can both
+be built *and accepted* with no deployment at all**, because `MagSpecCamera` is
+the one in-scope devicetype already on a bootstrapped host and it exercises
+almost everything: an image that is captured today, a second image that streams
+but is not, and two array variables in the nested-bracket format. So:
+
+1. **PR 2 against `UC_BCaveMagSpecCam1`** — capture `ImageInterp` beside
+   `Image`. No box access needed.
+2. **PR 3 against the same camera** — `interpSpec`/`interpDiv` end to end.
+3. **PR 1: bootstrap the three hosts**, which is then pure rollout of proven
+   code rather than a prerequisite.
+
+The one format `MagSpecCamera` cannot exercise is the **flattened waveform**
+(Picoscope). It does not need a bootstrapped host to be *verified*, though:
+the Picoscope ships to remote subscribers, so its decoder can be unit-tested
+against captured real bytes and checked live over a remote subscription. Only
+serving it as a PV needs .7.168.
+
+**Dropped with the WFS: the 3 MB/shot volume concern of §4.6.2.** No in-scope
+stream is large — the magspec images are ~225 KB and the arrays are tens of KB.
+It returns with `ThorlabsWFS`.
+
 ### 4.6 Three things this plan does not yet answer
 
 1. **Live display of a 2-column array.** An `NTNDArray` of `(2048, 2)` will
