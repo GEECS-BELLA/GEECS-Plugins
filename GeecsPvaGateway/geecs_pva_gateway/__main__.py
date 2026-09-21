@@ -30,7 +30,10 @@ def main(argv: list[str] | None = None) -> int:
 
         return diff_main(args_in[1:])
     parser = argparse.ArgumentParser(
-        description="Serve this host's GEECS camera images as NTNDArray PVs.",
+        description=(
+            "Serve this host's GEECS device streams — camera images and 1darray "
+            "variables — as NTNDArray PVs."
+        ),
         epilog=(
             "`geecs-pva-gateway fleet --experiment NAME` probes the deployed fleet "
             "(read-only); `geecs-pva-gateway diff <scan folder>` compares a scan's "
@@ -46,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--devices",
         default=None,
-        help="comma-separated device subset (default: all scoped cameras)",
+        help="comma-separated device subset (default: every scoped device)",
     )
     parser.add_argument(
         "--list",

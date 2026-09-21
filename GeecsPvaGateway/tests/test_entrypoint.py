@@ -32,6 +32,28 @@ def _patch_config(monkeypatch) -> None:
     )
 
 
+def test_main_idles_with_no_devices_instead_of_exiting(monkeypatch, caplog, capsys):
+    """A host with nothing to serve keeps the instance PVs up (exit 0, a WARNING),
+    so the fleet screen sees it and :restart can pick up a newly enabled device."""
+    import logging
+
+    monkeypatch.setattr(
+        PvaGatewayConfig,
+        "from_geecs_experiment",
+        classmethod(
+            lambda cls, experiment, **kw: PvaGatewayConfig(
+                experiment=experiment, host="192.168.7.168"
+            )
+        ),
+    )
+    with caplog.at_level(logging.WARNING):
+        assert cli.main(["--experiment", "testexp", "--list"]) == 0
+    assert capsys.readouterr().out == ""  # nothing served, nothing listed
+    assert any(
+        "serving the instance PVs only" in r.getMessage() for r in caplog.records
+    )
+
+
 def test_main_returns_restart_exit_code(monkeypatch):
     """A restart-requested run exits with the code NSSM restarts on."""
     _patch_config(monkeypatch)

@@ -27,8 +27,9 @@ shapes, each established byte-exact on the reference deployment (2026-09):
 payload**, never by devicetype: a leading ``[[`` is pairs, a six-field
 header ending in ``|`` is a waveform, anything else numeric is CSV.  Every
 decoder raises :class:`ValueError` on a payload it cannot account for byte
-by byte (a ragged row, a leftover byte, a count that disagrees with the
-header) — a truncated or misread array must never come back looking valid.
+by byte (a ragged row, a stray bracket, a leftover byte, a count that
+disagrees with the header, an empty record) — a truncated, empty or misread
+array must never come back looking valid.
 """
 
 from __future__ import annotations
@@ -45,6 +46,10 @@ from geecs_data_utils.io.images import _flatten_string_to_bytes
 ArrayKind = Literal["pairs", "csv", "waveform"]
 
 _PAIR = re.compile(r"\[([^\[\]]*)\]")
+#: The whole pairs payload: ``[`` rows ``]`` with rows ``[..]`` separated by
+#: commas — nothing else between, before or after (a stray bracket or a
+#: missing comma is a malformed payload, not a shorter one).
+_PAIRS_PAYLOAD = re.compile(r"^\[\s*\[[^\[\]]*\](?:\s*,\s*\[[^\[\]]*\])*\s*\]$")
 #: Five numeric fields, a name, then the ``|`` that ends the waveform header.
 _WAVEFORM_HEADER = re.compile(
     rb"^([^,|]+),([^,|]+),([^,|]+),([^,|]+),([^,|]+),([^|]*)\|"
@@ -79,11 +84,9 @@ def _text(blob: Union[str, bytes]) -> str:
 def decode_nested_pairs(blob: Union[str, bytes]) -> np.ndarray:
     """Decode ``[[x,y], [x,y], ...]`` to an ``(n, 2)`` ``float64`` array, ``n >= 1``."""
     text = _text(blob).strip()
-    if not (text.startswith("[[") and text.endswith("]]")):
-        raise ValueError("nested pairs: payload is not [[...], ...]")
+    if not _PAIRS_PAYLOAD.match(text):
+        raise ValueError("nested pairs: payload is not [[x,y], [x,y], ...]")
     rows = _PAIR.findall(text[1:-1])
-    if not rows:
-        raise ValueError("nested pairs: no rows")
     try:
         values = np.array(
             [[float(v) for v in row.split(",")] for row in rows], dtype=np.float64
@@ -131,6 +134,10 @@ def decode_labview_waveform(blob: Union[str, bytes]) -> DecodedArray:
     if len(body) < 4:
         raise ValueError("waveform: no sample count after the header")
     (count,) = struct.unpack(">I", body[:4])
+    if count == 0:
+        raise ValueError(
+            "waveform: empty record (0 samples) — no value, not a short one"
+        )
     if count != samples:
         raise ValueError(
             f"waveform: header says {samples} samples, count field {count}"

@@ -88,6 +88,7 @@ def fake_db(monkeypatch):
 def test_host_scoping_selects_image_devices_only(fake_db, caplog):
     """Host filter keeps that host's cameras; non-cameras drop out."""
     cfg = PvaGatewayConfig.from_geecs_experiment("Undulator", host="192.168.6.100")
+    assert cfg.host == "192.168.6.100"  # the identity PVs' host, devices or not
     assert [c.device for c in cfg.devices] == ["UC_CamA", "UC_CamB"]
     by_dev = {c.device: c for c in cfg.devices}
     assert by_dev["UC_CamA"].image_variables == ["image", "processed image"]

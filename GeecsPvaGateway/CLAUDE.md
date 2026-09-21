@@ -116,14 +116,15 @@ tests/
   (#854).
 - **Frame path**: push frame → timestamp ladder (`acq_timestamp` →
   `systimestamp`, LabVIEW→Unix, else receive time) → **latest-wins slot** per
-  variable → decode (`decode_imaq_image_string`) in the default executor, off
+  variable → decode (`streams.py`: IMAQ for an image, the array wire shapes
+  padded to the devicetype ceiling for an array) in the default executor, off
   the event loop → `pv.post(image, timestamp=...)`. A stalled consumer drops
   stale frames; nothing ever backlogs. Completeness lives in the GEECS file
   path, not this stream.
 - **File plugin** (`file_plugin.py`, #806): a second consumer of
   the push frame with the *opposite* delivery contract — lossless within
   a capture session — branching off in `_on_frame` **before** the
-  latest-wins slot. Per image variable: the `NDFileHDF5IO` PV set under
+  latest-wins slot. Per stream variable (image or array): the `NDFileHDF5IO` PV set under
   `<image PV>:hdf1:` (prefix minted by `geecs_core.pv_naming.hdf_plugin_prefix`),
   one writer thread owning all session state and the file handle (puts
   and frames only enqueue). `Capture=1` zeroes the session readbacks
@@ -142,7 +143,7 @@ tests/
   arrivals); `NumCaptured_RBV` posts after each frame is on disk;
   `Capture=0` stamps the reconciliation counters and closes. Beside the
   two frame stamps the plugin writes the device's **subscribed scalars**
-  per frame (`CameraSpec.scalar_variables`, from
+  per frame (`DeviceSpec.scalar_variables`, from
   `geecs_core.db.scalar_policy.GeecsDbScalarPolicy` filtered by
   `geecs_core.db.variable_types.scalar_attribute_variables` — the same
   rule the worker builds a device's row from; numeric types only, the
@@ -150,7 +151,7 @@ tests/
   `DOUBLE` attributes, declared in `NDAttributesFile` so the stock data
   logic describes them as stream columns; their values come from the
   frame's own TCP push (the one subscription is widened by the list,
-  `_CameraWorker.subscription_variables`), `NaN` when absent. Frames **and those attribute
+  `_DeviceWorker.subscription_variables`), `NaN` when absent. Frames **and those attribute
   datasets** are written **compressed by default** (`Compression`
   defaults to `zlib` → shuffle + gzip level 1, built-in HDF5 filters,
   self-describing: no reader learns anything) — one switch governs both.

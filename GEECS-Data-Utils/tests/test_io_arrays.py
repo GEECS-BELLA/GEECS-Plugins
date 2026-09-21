@@ -45,7 +45,21 @@ def test_a_single_row_is_a_valid_value_not_an_error() -> None:
 
 @pytest.mark.parametrize(
     "bad",
-    ["[[1,2],[3]]", "[[1,2,3]]", "[]", "[[a,b]]", "1,2,3", "[[1,2]", ""],
+    [
+        "[[1,2],[3]]",
+        "[[1,2,3]]",
+        "[]",
+        "[[a,b]]",
+        "1,2,3",
+        "[[1,2]",
+        "",
+        # Grammar violations a bracket search would have let through (review of #946).
+        "[[1,2]],[[3,4]]",
+        "[[1,2] [3,4]]",
+        "[[1,2],,[3,4]]",
+        "[[1,2],[3,4]]]",
+        "[[[1,2]]]",
+    ],
 )
 def test_malformed_pairs_raise(bad: str) -> None:
     with pytest.raises(ValueError):
@@ -108,6 +122,15 @@ def test_waveform_scaling_and_the_str_transport_form() -> None:
 def test_waveform_two_samples_is_not_truncation() -> None:
     """The DaqPad publishes n=2 by configuration; a short record is a record."""
     assert decode_labview_waveform(_waveform([7, 8])).values.shape == (2,)
+
+
+def test_an_empty_waveform_record_is_rejected_not_posted() -> None:
+    """0 samples is the one shape that looks valid and carries nothing: a (0,) frame
+    would be posted, held as the arm frame, and fail the stack's chunking."""
+    with pytest.raises(ValueError, match="empty record"):
+        decode_labview_waveform(_waveform([]))
+    with pytest.raises(ValueError):
+        decode_array_payload(_waveform([]))
 
 
 def test_waveform_refuses_a_payload_it_cannot_account_for() -> None:

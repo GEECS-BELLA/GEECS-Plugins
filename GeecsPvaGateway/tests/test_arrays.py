@@ -192,6 +192,28 @@ def test_device_spec_stream_variables_are_images_then_arrays() -> None:
     assert spec.is_array("interpSpec") and not spec.is_array("Image")
 
 
+def test_an_idle_instance_is_named_after_its_served_host_not_the_machine() -> None:
+    """No device to serve: the identity PVs still carry the addr_list IP the fleet
+    probe asks for (review of #946), never socket.gethostname()."""
+    idle = GeecsPvaGateway(PvaGatewayConfig(experiment="e", host="192.168.7.168"))
+    assert idle._instance_host() == "192.168.7.168"
+    assert idle.pv_names == []
+    # A config without a recorded host keeps the historic fallback order.
+    spec = DeviceSpec(
+        device="D",
+        host="192.168.8.201",
+        port=1,
+        experiment="e",
+        image_variables=["image"],
+    )
+    assert (
+        GeecsPvaGateway(
+            PvaGatewayConfig(experiment="e", devices=[spec])
+        )._instance_host()
+        == "192.168.8.201"
+    )
+
+
 # -------------------------------------------------------- end to end: PV
 @pytest.mark.timeout(30)
 async def test_pairs_are_posted_padded_to_the_ceiling_and_a_single_row_is_fine():

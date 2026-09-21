@@ -508,7 +508,17 @@ class GeecsPvaGateway:
         ]
 
     def _instance_host(self) -> str:
-        """Identity for the instance PVs: the served host (else this machine's name)."""
+        """Identity for the instance PVs: the served host's address.
+
+        The config's ``host`` (the ``--host`` argument, else the lab-facing
+        local address the roster was scoped to) so an instance with no
+        device to serve is still ``{exp}:pvagateway:<ip>:*`` — the name the
+        fleet probe and the Phoebus screen ask for, and the ``:restart``
+        that picks up a newly enabled device.  Falls back to the first
+        device's endpoint, then to the machine name (tests without either).
+        """
+        if self._config.host:
+            return self._config.host
         if self._config.devices:
             return self._config.devices[0].host
         return socket.gethostname()

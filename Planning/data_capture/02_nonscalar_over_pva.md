@@ -101,7 +101,15 @@ merge; anything worth keeping moves into the package `CLAUDE.md`s first
      key auth mints no share credentials even elevated, so the share is
      unreadable from the session — the local INI and a GitHub clone are the
      ssh-path inputs.
-4. **PR 4 — the record side** for `(N, M, 2)` arrays; **PR 5 — conservative
+4. **PR 4 — the record side** for `(N, M, 2)` arrays — now with two owed
+   items from the #946 review: the **portal's Images tab** classifies any
+   folder holding a stack as an image stack, so a `(2048, 2)` lineout stack
+   renders as a two-pixel-wide strip and a 1-D stack would not render (it
+   needs a line renderer keyed on the stack's rank); and **3b's file-side
+   waveform axis** — the plugin's decoder seam returns values only, so a
+   captured scope stack would carry no `x0`/`dx` until they are written as
+   per-frame `NDAttributes` (decide the representation with the gate).
+   **PR 5 — conservative
    rebinning** in ScanAnalysis (§4.4b's "owed downstream").
 
 **The two traps this brief exists to prevent.** The FROG resolves to

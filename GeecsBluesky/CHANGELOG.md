@@ -20,8 +20,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   declared name that is neither an image nor a served array is a
   declaration error: WARNING and skipped, never an arm on a PV that does
   not exist (the earlier "waiting for array support" INFO is gone with the
-  wait).  No detector or read-side change: the stock data logic already
-  describes 1-D and float stacks.
+  wait).  No detector change, and the read library resolves the new folders
+  as it does any device folder; the **portal's Images tab** renders a
+  `(2048, 2)` lineout stack as a two-pixel-wide image until the arc's
+  record-side PR gives it a line renderer (a 1-D stack would not render
+  there at all) — the arc's read-side debt, recorded in the brief.
 
 ## [0.97.0] - 2026-09-21
 

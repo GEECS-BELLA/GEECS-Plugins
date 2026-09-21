@@ -1,6 +1,6 @@
 # GeecsPvaGateway
 
-Distributed pvAccess gateway serving GEECS camera images as NTNDArray PVs —
+Distributed pvAccess gateway serving GEECS camera images — and, since 0.12.0, the devices' `1darray` variables (lineouts, scope traces) — as NTNDArray PVs —
 the PVA peer of GeecsCAGateway. One instance runs on each Windows camera
 server and serves that host's cameras; the central CA gateway never touches a
 pixel (see `GeecsCAGateway/DESIGN.md`, "images stay off CA").
@@ -15,17 +15,18 @@ geecs-pva-gateway --experiment Undulator --list   # show what would be served
 ```
 
 - Served set is **DB-scoped**: enabled devices whose GEECS endpoint IP is this
-  machine and that expose image-typed variables. No per-host config file.
+  machine and that expose a stream variable: image-typed, or `1darray`-typed
+  and not excluded by `geecs_core.db.device_streams`. No per-host config file.
 - PV names follow the shared contract (`geecs_core.pv_naming`):
   `undulator:uc_amp2_ir_input:image`.
-- Subscriptions are **gated per variable**: each image variable's GEECS TCP
+- Subscriptions are **gated per variable**: each stream variable's GEECS TCP
   subscription starts with its first PVA client and stops with its last —
   unwatched variables (and whole unwatched cameras) cost the LabVIEW device
   nothing.
 - Frames are **latest-wins**: a slow consumer drops stale frames, never
   backlogs. The archival record is the **file plugin's** (below) or the
   GEECS native file path, not this stream.
-- Each image variable also gets an **areaDetector-shaped HDF5 file plugin**
+- Each stream variable also gets an **areaDetector-shaped HDF5 file plugin**
   (`undulator:uc_amp2_ir_input:image:hdf1:` + the `NDFileHDF5` PV names):
   a lossless second consumer of the same frame that writes one
   `<device>.h5` stack per scan into the run folder, driven by the worker's
