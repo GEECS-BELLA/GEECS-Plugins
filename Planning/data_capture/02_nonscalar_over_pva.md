@@ -14,6 +14,12 @@ magspec-spectrum optimizer was dropped from that arc because of it.*
 devicetypes: `PicoscopeV2`, `FROG`, `MagSpecCamera`, `MagSpecStitcher` (§4.5c).
 One DB change is already applied live (§4.5, the PicoscopeV2 retype).
 
+**How it lands (Sam, 2026-09-20).** The whole arc accumulates on
+`feature/nonscalar-pva` — each PR below targets that branch — and the branch
+merges into `master` once. This brief rides along and is deleted at that
+merge; anything worth keeping moves into the package `CLAUDE.md`s first
+(`CONTRIBUTING.md` "Planning/ is development scratch").
+
 **Build in this order. The first two need no lab access at all.**
 
 1. **PR 2 — the capture-stream declaration** (§4.3b, §4.3). Replace
@@ -32,9 +38,15 @@ One DB change is already applied live (§4.5, the PicoscopeV2 retype).
    captured Picoscope bytes without a bootstrapped host, since that device
    ships to remote subscribers.
 3. **PR 1 — bootstrap three hosts**: .6.73 (FROG), .7.168 (Picoscope), .7.203
-   (stitcher). No code; `deploy/bootstrap.ps1` needs an interactive session per
-   box and the boxes are physically remote, so this is access-bound. Whether
-   RDP satisfies that requirement is unanswered and sets the schedule.
+   (stitcher). No code; `deploy/bootstrap.ps1` needs a session with share
+   credentials or elevation, and the boxes are physically remote. **The
+   session question is answered** by `GeecsPvaGateway/DEPLOYMENT.md`: an RDP
+   session *is* a console session (preferred path, everything from the
+   share), and elevated ssh — a key in
+   `C:\ProgramData\ssh\administrators_authorized_keys` — also works and
+   carried the nine-box roll of 2026-09-11. Sam is issuing such a key
+   (2026-09-20); probes run from `geecs-gw`, since what the Windows boxes
+   themselves carry is unknown. So PR 1 is scheduling, not a blocker.
 4. **PR 4 — the record side** for `(N, M, 2)` arrays; **PR 5 — conservative
    rebinning** in ScanAnalysis (§4.4b's "owed downstream").
 
@@ -305,8 +317,30 @@ established live).
 | `MagSpecCamera` | `EnergyAxis`, `AngleAxis` (each pushes one number) | `Image`, `ImageInterp`, `interpSpec`, `interpDiv` | 2048 |
 | `MagSpecStitcher` | `interpDiv` (malformed on this devicetype, §4.4c) | `Image`, `interpSpec` | 16384 |
 | `FROG` | `SpatialImage`, `retrieved FrogTrace`, `retrievedFrogTrace` | `frogTrace` | — |
-| `ThorlabsWFS` | — | `Image`, `SpotfieldImage` | — |
-| `PicoscopeV2` | `ScopeTraces`, `wfm`, `wfm info` (dead names) | `scopeTrace.Channel0..3` | (per channel) |
+| `PicoscopeV2` | `ScopeTraces`, `wfm`, `wfm info` (dead names); `scopeTraceGUI.Channel0..3` (a byte-identical twin, §6 Q6) | `scopeTrace.Channel<N>` **gated by `Enable.Ch<A+N>` = `on`** (below) | (per channel) |
+| ~~`ThorlabsWFS`~~ | *deferred (Sam, 2026-09-20) — out of the four-devicetype scope; `SpotfieldImage` is the 3 MB/shot stream of §4.6* | | |
+
+**A third column of the declaration: a per-instance gate (Sam, 2026-09-20).**
+The Picoscope's capture set is not a devicetype fact. Some units have two
+physical channels and some four, and a four-channel unit may have two wired,
+so "which channels" is decided per device instance by its `Enable.ChA..ChD`
+variables (`on,off` choices in the DB, live in the CVT). Probed 2026-09-20 on
+`U_BCaveICT` (a remote subscriber, 8 s): `Enable.ChA` = `Enable.ChB` = `on`,
+`Enable.ChC` = `Enable.ChD` = **empty**; `scopeTrace.Channel0/1` fresh 6092 B
+every push, `scopeTrace.Channel2/3` **empty every push**. So the rule is
+exact on the one live device: **arm `scopeTrace.Channel<N>` iff
+`Enable.Ch<letter N>` reads `on`**; `off` *and* empty both mean "do not arm"
+(empty is what a channel the hardware lacks reports). `U_UndulatorExitICT`
+was not running during the probe (connection refused on 64797) — re-check it.
+
+Mechanically this is small: the declaration gains
+`gate: Mapping[str, str]` (capture variable → the variable that enables it),
+the worker reads the gate values at `prepare()` from the same subscription
+that already carries the device's scalars, and `describe()` declares only the
+armed streams. The set is fixed for the run (Bluesky's descriptor rule,
+§4.4b); a channel toggled mid-scan is a new run. The gateway side needs
+nothing — a disabled channel is an empty push, which the array eligibility
+already tolerates, and nobody subscribes to it.
 
 **Two mechanics that keep a list like this honest**, because silent allow/deny
 lists rot:
@@ -362,7 +396,9 @@ and probing it live. This is the concrete design for `interpSpec` / `interpDiv`
 `geecs_bluesky/assets/registry.py`).
 
 **Confirmed on the real variables (2026-09-18).** `interpDiv` and `interpSpec`
-are live on `UC_BCaveMagSpecCam1` in this exact format. `interpDiv`: **189 x 2**,
+are live on `UC_BCaveMagSpecCam1` in this exact format (and **all three
+MagSpecCameras are wired** — Sam, 2026-09-20 — so the devicetype-level
+capture entry arms nothing that never pushes). `interpDiv`: **189 x 2**,
 column 0 the angle axis -23.5..+23.5 at a uniform 0.25 step, fixed by camera
 geometry. `interpSpec`: **1 x 2** with the magnet off, **285 x 2** with a
 simulated field (energy axis 51.56..122.56 MeV at a 0.25 MeV step) - span/`dE`,
@@ -774,8 +810,13 @@ return the most.
   actually acquiring? The decode is sound — (576, 768) uint8 — but every pixel
   was 0 or 1 during the probe (no laser in it). Re-check live before calling
   the FROG rollout accepted.
-- **Q4 (answered 2026-09-17, Sam).** `interpSpec` / `interpDiv` are **TSV
-  files and stay file-only for now — exposing them needs LabVIEW-side work.**
+- **Q4 (SUPERSEDED by §4.4b, 2026-09-18).** The LabVIEW-side work happened:
+  `interpSpec` / `interpDiv` are now CVT variables with `1darray` DB rows,
+  live on all three cameras and on the stitcher (§4.4c). The paragraph below
+  is the pre-wiring state, kept because it records *why* the names had to be
+  added and what the native-file path still writes. Original text: `interpSpec`
+  / `interpDiv` were **TSV files, file-only — exposing them needed
+  LabVIEW-side work.**
   Verified: they have **zero** rows in `devicetype_variable` *and* in
   `variable` (the only "interp" DB row anywhere is `ImageInterp`, dtv 4623),
   so there is nothing to subscribe to — the save path writes them and the
@@ -787,12 +828,18 @@ return the most.
   row typed `1darray`, and then nothing else — they would land in family B
   and ride the Tier-4 decoders. Until then `LvNativeFileDataLogic` keeps
   writing them, which is the intended steady state for non-image devices.
-- **Q5.** For B2 waveforms: post scaled volts (losing the raw counts) or raw
-  counts plus scaling attributes? And where do `xIncrement`/`relativeInitialX`
-  live — NTNDArray attributes, companion PVs, or HDF5 dataset attributes? This
-  decides what an analyzer needs to reconstruct a time axis.
-- **Q6.** `scopeTrace` vs `scopeTraceGUI`: identical today (the GUI decimation
-  is a no-op at the current settings). Serve only the full one, or both?
+- **Q5 (closed 2026-09-20, Sam).** Post **physical units** — volts on the
+  value axis, with the time axis as seconds — "the less users have to do to
+  get the data the better". So the gateway applies `offset`/`gain` before
+  posting, and `xIncrement` / `relativeInitialX` (and `actualSamples`, the
+  pre-padding length) ride as **NTNDArray attributes**, which the file plugin
+  already writes per frame as HDF5 attributes — no companion PV, no second
+  format. Raw counts are not kept; the wire's `gain` is exact, so nothing is
+  lost that the device itself had.
+- **Q6 (proposed, not yet ruled).** Serve `scopeTrace.Channel<N>` only and
+  exclude `scopeTraceGUI.*`: byte-identical today, and a decimated twin is a
+  display convenience, not a measurement. Listed as an exclusion in §4.3b;
+  flip it if someone wants the GUI trace as a PV.
 
 ## 7. Not in scope
 
