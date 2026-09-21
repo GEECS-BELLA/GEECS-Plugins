@@ -512,7 +512,7 @@ can be accepted on an ordinary scan day.
 |---|---|---|---|---|
 | 1 | Bootstrap 4 boxes (FROG, stitcher, low-power WFS, `UC_Stretcher_MI`) | ~0 (a regenerated `.bob` + the config lists) | `bootstrap.ps1` in a **console session per box** (session 0 cannot see mapped drives; NSSM owns lifecycle), `[pva] addr_list` (+ `file_plugin_addr_list` for capture), worker restart | one lab afternoon |
 | 2 | Capture-stream declaration (replaces `primary_image_variable`) | ~100–200 LOC + tests, `GeecsBluesky` | worker restart | 1–2 |
-| 3 | Array support: `array_variables()`, three decoders, padding + ceiling + counters, 1-D and float in the plugin | ~300–400 LOC + tests, `GeecsPvaGateway` + a small `GEECS-Core` patch | fleet restart; **plus a fork** — see below | 1–2 |
+| 3 | Array support: `array_variables()`, three decoders, padding + ceiling + counters, 1-D and float in the plugin | ~300–400 LOC + tests, `GeecsPvaGateway` + a small `GEECS-Core` patch | fleet restart + bootstrap the device's own host | 1–2 |
 | 4 | Record side for arrays: data keys, descriptor shape, Tiled, `scan_stack` for `(N, M, 2)` | ~150–250 LOC across data-utils / ImageAnalysis / ScanAnalysis | worker restart | 1–2 |
 | 5 | Analysis: conservative rebinning, un-skip the averaged figure (§4.4b) | ~100 LOC + tests, `ScanAnalysis` | none | 1 |
 
@@ -525,13 +525,31 @@ these boxes give a session that satisfies that requirement, or does someone
 have to stand in front of each one? Answering that before scheduling PR 1 is
 worth more than any estimate here.
 
-**The deployment fork in PR 3, now much smaller.** With the Hamamatsu out of
-scope, the Picoscope box (.7.168) is the *only* trace host — one box, not two.
-Its payloads ship to remote subscribers, so a central instance for trace
-devices stays possible (a systemd unit on the services box, `site.env` and
-`render_units.sh` entries, a contract-page update), but against a single box
-it is no longer obviously cheaper than one more `bootstrap.ps1`. Revisit only
-if a second trace host appears.
+**The deployment question in PR 3 is CLOSED: bootstrap the device's own host**
+(Sam, 2026-09-20). Trace payloads do ship to remote subscribers, so a central
+instance on the services box was possible, and at today's sizes it looked
+cheaper. It is the wrong shape anyway:
+
+- **The "traces are small" premise does not scale.** A 5 GHz scope with a 1 ms
+  window is 5e6 samples/channel, ~10 MB at 16-bit, ~40 MB/shot across four
+  channels — **50x a Point Grey frame**, and at 1 Hz that approaches the data
+  share's whole ~40 MB/s path cap. Today's 6 KB Picoscope record is not the
+  device class to design for. The same bandwidth argument that put images at
+  the edge arrives for traces, just later.
+- **One topology, not two.** Every instance serves its own host's devices;
+  the fleet roster, the generated Phoebus screen, `[pva] addr_list` and
+  `/fleet-status` keep one shape. A central exception would need its own role
+  in all four.
+- The cost is per-box access, which is real (the boxes are physically remote)
+  but is a scheduling problem, not an architectural one.
+
+**Consequence for the scale caveat:** at fast-scope sizes the padding policy of
+§4.4b/§4.4c should be revisited — padding a 1e6-sample record to a generous
+power of two would waste tens of MB per shot, so such a devicetype's ceiling
+should track its *configured record length* rather than a round number. The
+per-devicetype ceiling already accommodates that; only the "pad generously and
+let compression absorb it" reasoning is scale-limited, and it holds comfortably
+through the MB range this arc actually covers.
 
 **Sequencing, given free lab days.** PRs 1 and 2 are independent of the
 LabVIEW work and unlock data that is *already streaming* — do them first. PR 3
