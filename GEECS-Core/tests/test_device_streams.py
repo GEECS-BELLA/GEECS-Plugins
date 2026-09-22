@@ -13,6 +13,7 @@ from geecs_core.db.device_streams import (
     DEVICE_TYPE_STREAMS,
     DeviceTypeStreams,
     array_ceiling,
+    capture_gates,
     capture_variables,
     excluded_variables,
     served_array_variables,
@@ -79,6 +80,46 @@ def test_declared_names_are_safe_folder_name_components(devicetype: str) -> None
     for name in entry.capture:
         assert name == name.strip() and name
         assert not set(name) & set('<>:"/\\|?*'), name
+
+
+@pytest.mark.parametrize("devicetype", sorted(FIXTURE))
+def test_gates_name_on_off_variables_of_captured_streams(devicetype: str) -> None:
+    """A gate is an on/off choice variable of the device, and gates only a declared capture."""
+    by_name = {str(r["name"]).lower(): r for r in FIXTURE[devicetype]}
+    entry = streams_for(devicetype)
+    assert entry is not None
+    for captured, gate in entry.gate.items():
+        assert captured in entry.capture, captured
+        row = by_name[gate.lower()]
+        assert effective_vartype(row["variabletype"], row["choices"]) == "choice", gate
+        assert "on" in str(row["choices"]).lower().split(","), gate
+
+
+def test_the_picoscope_gates_each_channel_on_its_enable() -> None:
+    gates = capture_gates("PicoscopeV2", FIXTURE["PicoscopeV2"])
+    assert gates == {
+        "scopeTrace.Channel0": "Enable.ChA",
+        "scopeTrace.Channel1": "Enable.ChB",
+        "scopeTrace.Channel2": "Enable.ChC",
+        "scopeTrace.Channel3": "Enable.ChD",
+    }
+    assert capture_variables("PicoscopeV2", FIXTURE["PicoscopeV2"]) == list(gates)
+    assert capture_gates("MagSpecCamera", FIXTURE["MagSpecCamera"]) == {}  # no gates
+    assert capture_gates("ThorlabsWFS", []) == {}  # no entry
+
+
+def test_a_gate_the_db_does_not_list_drops_the_pair_with_a_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    rows = [
+        {"name": "scopeTrace.Channel0"},
+        {"name": "Enable.ChA"},
+        {"name": "scopeTrace.Channel1"},
+    ]
+    with caplog.at_level(logging.WARNING, logger="geecs_core.db.device_streams"):
+        gates = capture_gates("PicoscopeV2", rows)
+    assert gates == {"scopeTrace.Channel0": "Enable.ChA"}
+    assert any("Enable.ChB" in r.getMessage() for r in caplog.records)
 
 
 def test_served_arrays_are_the_typed_arrays_minus_the_exclusions() -> None:
@@ -179,9 +220,9 @@ def test_devicetype_lookup_normalises_case_and_whitespace() -> None:
 
 
 def test_an_undeclared_devicetype_yields_none_not_empty() -> None:
-    """None = "apply your default"; [] = "declared: capture nothing" (the Picoscope, for now)."""
+    """None = "apply your default" — distinct from a declared empty capture."""
     rows = [{"name": "Image"}, {"name": "SpotfieldImage"}]
     assert streams_for("ThorlabsWFS") is None
     assert capture_variables("ThorlabsWFS", rows) is None
     assert excluded_variables("ThorlabsWFS", rows) == []
-    assert capture_variables("PicoscopeV2", FIXTURE["PicoscopeV2"]) == []
+    assert capture_variables("HexapodPI", [{"name": "xyzuvw"}]) is None

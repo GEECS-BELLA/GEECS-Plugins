@@ -351,6 +351,96 @@ def test_two_capture_streams_write_two_files(RE: RunEngine, tmp_path: Path) -> N
     _run(RE, lambda: cam.unstage())
 
 
+def _gated_scope(RE: RunEngine, tmp_path: Path) -> GeecsDetector:
+    """A two-channel scope: each trace plugin gated on its Enable.Ch<X> readback."""
+    shared = GeecsScanPathProvider()
+    (tmp_path / "Scan001").mkdir()
+    shared.point_at(tmp_path / "Scan001")
+    plugin_path = lambda local: local.replace(str(tmp_path), r"\\nas\hdna2\data")  # noqa: E731
+    ict = GeecsDetector(
+        "U_ICT",
+        ["Enable.ChA", "Enable.ChB", "MeanCounts"],
+        experiment="TestExp",
+        name="u_ict",
+        datatypes={"Enable.ChA": str, "Enable.ChB": str},
+        hdf_plugins=[
+            (
+                "scopeTrace.Channel0",
+                PluginPathProvider(shared, "U_ICT", plugin_path=plugin_path),
+            ),
+            (
+                "scopeTrace.Channel1",
+                PluginPathProvider(
+                    shared,
+                    "U_ICT",
+                    variable="scopeTrace.Channel1",
+                    plugin_path=plugin_path,
+                ),
+            ),
+        ],
+        plugin_gates={
+            "scopeTrace.Channel0": "Enable.ChA",
+            "scopeTrace.Channel1": "Enable.ChB",
+        },
+    )
+    connect_mock(RE, ict)
+    set_mock_value(ict.acq_timestamp, 1000.0)
+    for io in (ict.hdf, ict.hdf_scopetrace_channel1):
+        set_mock_value(io.file_path_exists, True)
+        set_mock_value(io.data_type, "Float64")
+        set_mock_value(io.color_mode, "Mono")
+        set_mock_value(io.array_size_x, 3000)
+        set_mock_value(io.array_size_y, 0)
+    return ict
+
+
+def test_a_gated_plugin_is_armed_only_while_its_enable_reads_on(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """Channel A on, B off → one plugin prepared, one data key; flipping B on and
+    preparing again arms both (the stale context is not reused)."""
+    ict = _gated_scope(RE, tmp_path)
+    set_mock_value(ict.enable_cha, "on")
+    set_mock_value(ict.enable_chb, "off")
+    _run(RE, lambda: ict.stage())
+    _run(RE, lambda: ict.prepare(STRICT_TRIGGER_INFO))
+    assert _run(RE, lambda: ict.hdf.capture.get_value()) is True
+    assert _run(RE, lambda: ict.hdf_scopetrace_channel1.capture.get_value()) is False
+    described = _run(RE, lambda: ict.describe())
+    assert "u_ict" in described and described["u_ict"]["shape"] == [1, 3000]
+    assert "u_ict-scopetrace_channel1" not in described
+
+    set_mock_value(ict.enable_chb, "on")
+    _run(RE, lambda: ict.prepare(STRICT_TRIGGER_INFO))
+    assert _run(RE, lambda: ict.hdf_scopetrace_channel1.capture.get_value()) is True
+    described = _run(RE, lambda: ict.describe())
+    assert "u_ict-scopetrace_channel1" in described
+
+    # Off again: the second plugin drops out of the next run.
+    set_mock_value(ict.enable_chb, "off")
+    _run(RE, lambda: ict.prepare(STRICT_TRIGGER_INFO))
+    assert "u_ict-scopetrace_channel1" not in _run(RE, lambda: ict.describe())
+    _run(RE, lambda: ict.unstage())
+
+
+def test_a_gate_that_is_not_a_scalar_child_is_refused_at_build(tmp_path: Path) -> None:
+    """The namespace only passes gates it can read; the detector refuses any other."""
+    with pytest.raises(ValueError, match="gate variable"):
+        GeecsDetector(
+            "U_ICT",
+            ["MeanCounts"],
+            experiment="TestExp",
+            name="u_ict",
+            hdf_plugins=[
+                (
+                    "scopeTrace.Channel0",
+                    StaticPathProvider(StaticFilenameProvider("U_ICT"), tmp_path),
+                )
+            ],
+            plugin_gates={"scopeTrace.Channel0": "Enable.ChA"},
+        )
+
+
 def test_plugin_path_provider_hands_out_both_paths(tmp_path: Path) -> None:
     """Windows path for the plugin's FilePath, the worker's file URI for Tiled.
 

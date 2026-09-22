@@ -598,6 +598,15 @@ class GeecsDetector(StandardDetector):
         not wanted this run, so a stale ``save=on`` is still cleared at
         ``stage`` (see :class:`LvNativeFileDataLogic`).  Without either the
         detector records scalars only.
+    plugin_gates :
+        Capture variable → the device's on/off variable (one of
+        *variables*, so it is a scalar child of this detector) that says
+        whether this instance pushes the stream — the Picoscope's
+        ``Enable.Ch<X>`` per ``scopeTrace.Channel<N>``.  Read at every
+        prepare: a plugin whose gate does not read ``on`` takes no part in
+        that run (no arm, no data key), so a two-wired four-channel scope
+        never times out arming on a channel that pushes nothing.  A
+        capture variable not named here is armed unconditionally.
     hdf_plugins :
         ``(image variable, path provider)`` per file plugin to capture
         (#806): each becomes a :class:`GeecsHdfIO` child (``hdf``, then
@@ -638,6 +647,7 @@ class GeecsDetector(StandardDetector):
         hdf_plugins: Sequence[tuple[str, PathProvider]] = (),
         shot_timeout: float = DEFAULT_SHOT_TIMEOUT,
         drain_offset: float = 0.0,
+        plugin_gates: Mapping[str, str] | None = None,
     ) -> None:
         self._geecs_device_name = device
         per_variable = {k.lower(): v for k, v in (datatypes or {}).items()}
@@ -686,29 +696,42 @@ class GeecsDetector(StandardDetector):
                 )
             )
         self._hdf_ios: list[GeecsHdfIO] = []
+        #: Gated plugin logics with the gate signal read at each prepare
+        #: (a list: the stock logic is an unhashable dataclass, compared by id).
+        self._plugin_gates: list[tuple[ADHDFDataLogic, str, SignalR]] = []
+        self._armed_gates: frozenset[str] | None = None
+        gates = {k.lower(): v for k, v in (plugin_gates or {}).items()}
         for index, (variable, provider) in enumerate(hdf_plugins):
             io = GeecsHdfIO(
                 f"pva://{hdf_plugin_prefix(experiment or '', device, variable)}"
             )
             setattr(self, "hdf" if index == 0 else f"hdf_{safe_name(variable)}", io)
             self._hdf_ios.append(io)
-            logics.append(
-                ADHDFDataLogic(
-                    array_description=NDArrayDescription(
-                        shape_signals=[
-                            io.array_size_z,
-                            io.array_size_y,
-                            io.array_size_x,
-                        ],
-                        data_type_signal=io.data_type,
-                        color_mode_signal=io.color_mode,
-                    ),
-                    path_provider=provider,
-                    driver=io,
-                    writer=io,
-                    datakey_suffix="" if index == 0 else f"-{safe_name(variable)}",
-                )
+            logic = ADHDFDataLogic(
+                array_description=NDArrayDescription(
+                    shape_signals=[
+                        io.array_size_z,
+                        io.array_size_y,
+                        io.array_size_x,
+                    ],
+                    data_type_signal=io.data_type,
+                    color_mode_signal=io.color_mode,
+                ),
+                path_provider=provider,
+                driver=io,
+                writer=io,
+                datakey_suffix="" if index == 0 else f"-{safe_name(variable)}",
             )
+            logics.append(logic)
+            gate = gates.get(variable.lower())
+            if gate is not None:
+                signal = getattr(self, safe_name(gate), None)
+                if not isinstance(signal, SignalR):
+                    raise ValueError(
+                        f"{device}: gate variable {gate!r} for {variable!r} is not one "
+                        "of the detector's scalar variables"
+                    )
+                self._plugin_gates.append((logic, variable, signal))
         self.add_detector_logics(*logics)
         # The scalars-only view (``X.scalars`` in a plan's detector list).
         self.scalars = GeecsDetectorScalars(self)
@@ -816,17 +839,45 @@ class GeecsDetector(StandardDetector):
             and self._is_fly_prepare(self._prepare_ctx.trigger_info) != fly
         ):
             self._prepare_ctx = None
-        if not fly:
-            await super()._update_prepare_context(trigger_info)
-            return
+        # The per-instance gates (a scope's Enable.Ch<X>): a gated plugin
+        # whose gate does not read "on" takes no part in this prepare.  A
+        # change in the armed set invalidates a context the stock code
+        # would otherwise reuse (it keys reuse on collections_per_event).
+        closed = await self._closed_gates()
+        armed = frozenset(
+            variable
+            for logic, variable, _ in self._plugin_gates
+            if id(logic) not in closed
+        )
+        if self._armed_gates is not None and armed != self._armed_gates:
+            self._prepare_ctx = None
+        self._armed_gates = armed
         saved = self._data_logics
         self._data_logics = tuple(
-            dl for dl in saved if _data_logic_supported(dl.prepare_unbounded)
+            dl
+            for dl in saved
+            if id(dl) not in closed
+            and (not fly or _data_logic_supported(dl.prepare_unbounded))
         )
         try:
             await super()._update_prepare_context(trigger_info)
         finally:
             self._data_logics = saved
+
+    async def _closed_gates(self) -> set[int]:
+        """``id()`` of each gated plugin logic whose gate does not read ``on`` right now."""
+        closed: set[int] = set()
+        for logic, variable, signal in self._plugin_gates:
+            value = await signal.get_value()
+            if str(value).strip().lower() != "on":
+                logger.info(
+                    "%s: %s not captured this run (gate reads %r, not 'on')",
+                    self._geecs_device_name,
+                    variable,
+                    value,
+                )
+                closed.add(id(logic))
+        return closed
 
     @AsyncStatus.wrap
     async def prepare(self, value: TriggerInfo) -> None:

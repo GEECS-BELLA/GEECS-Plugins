@@ -4,6 +4,22 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.13.0] - 2026-09-21
+
+### Added
+
+- **A captured array stack carries its payload's axis.** The file plugin
+  of an array variable declares three more per-frame attributes after the
+  scalars — `wave_x0`, `wave_dx` (seconds) and `wave_samples` — and writes
+  them from the decoded payload's attributes (a LabVIEW waveform's
+  `relativeInitialX` / `xIncrement` / `actualSamples`; `NaN` for the
+  pairs and CSV shapes, which carry no axis), so a scope trace on disk is
+  never an axis-less array.  The root attribute `waveform_attributes`
+  names them, beside `scalar_attributes`, which stays scalars only.  The
+  plugin's `decoder` seam now returns `(array, attributes)`, the whole of
+  the worker's per-variable decode, and takes `is_array=`.  Read back like
+  any other attribute (`geecs_data_utils.io.scan_stack.read_stack_attributes`).
+
 ## [0.12.0] - 2026-09-21
 
 ### Added

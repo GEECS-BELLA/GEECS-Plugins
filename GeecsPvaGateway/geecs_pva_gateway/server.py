@@ -202,7 +202,8 @@ class _DeviceWorker:
                     release=self.release,
                     scalar_variables=spec.scalar_variables,
                     last_frame=lambda v=var: self._last_frame.get(v),
-                    decoder=lambda blob, v=var: self.decode(v, blob)[0],
+                    decoder=lambda blob, v=var: self.decode(v, blob),
+                    is_array=spec.is_array(var),
                 )
                 for var in spec.stream_variables
             }

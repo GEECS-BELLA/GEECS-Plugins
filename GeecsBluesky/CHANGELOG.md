@@ -4,6 +4,26 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.99.0] - 2026-09-21
+
+### Added
+
+- **Per-instance capture gates** (`GeecsDetector(plugin_gates=)`,
+  GEECS-Core 0.11.0's `capture_gates`): a file plugin whose gate variable —
+  one of the detector's own scalar readbacks, the Picoscope's
+  `Enable.Ch<X>` for `scopeTrace.Channel<N>` — does not read `on` at
+  `prepare` takes no part in that run: not armed, no data key.  A change in
+  the armed set invalidates the stock prepare context, so a channel
+  enabled between runs is captured on the next.  The namespace passes a
+  gate only when the gate variable is one of the device's readable columns
+  (DB `get='yes'`, so the CA gateway serves it); a gated stream whose gate
+  it cannot read is **not captured**, with a WARNING naming the flag to
+  set — never an arm on a channel that may push nothing.  The Picoscope
+  is the first gated devicetype; its channels land in
+  `<device>/`, `<device>-scopeTrace.Channel1/`, … as `(N, samples)`
+  float64 stacks in volts with the time axis as per-frame attributes
+  (GeecsPvaGateway 0.13.0).
+
 ## [0.98.0] - 2026-09-21
 
 ### Changed

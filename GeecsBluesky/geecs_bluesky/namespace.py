@@ -64,7 +64,11 @@ from typing import Any
 from bluesky.protocols import Movable, Readable
 from ophyd_async.core import Device, PathProvider
 
-from geecs_core.db.device_streams import capture_variables, served_array_variables
+from geecs_core.db.device_streams import (
+    capture_gates,
+    capture_variables,
+    served_array_variables,
+)
 from geecs_core.db.scalar_policy import GeecsDbScalarPolicy
 from geecs_core.db.variable_types import (
     VARTYPE_TO_DTYPE,
@@ -604,6 +608,30 @@ class GeecsNamespace:
                 and roster.endpoints.get(device) in self._file_plugin_hosts
                 else []
             )
+            # A gated stream (a scope channel) is captured only while the
+            # instance's enable reads on; the gate must be one of this
+            # device's readable columns (DB get='yes'), else the stream is
+            # not armed at all — never an arm on a channel that may push
+            # nothing.
+            gates = capture_gates(devicetype, rows) if plugin_vars else {}
+            readable_lower = {v.lower() for v in readables}
+            plugin_gates: dict[str, str] = {}
+            for var in list(plugin_vars):
+                gate = gates.get(var)
+                if gate is None:
+                    continue
+                if gate.lower() not in readable_lower:
+                    logger.warning(
+                        "%s: %s is gated by %r, which is not subscribed (DB get='yes') "
+                        "so this worker cannot read it — not captured. Subscribe the "
+                        "gate variable (and restart the CA gateway) to capture the channel.",
+                        device,
+                        var,
+                        gate,
+                    )
+                    plugin_vars.remove(var)
+                    continue
+                plugin_gates[var] = gate
             dev = GeecsDetector(
                 device,
                 readables,
@@ -627,6 +655,7 @@ class GeecsNamespace:
                     for index, var in enumerate(plugin_vars)
                 ],
                 drain_offset=self._drain_offsets.get(ophyd_name, 0.0),
+                plugin_gates=plugin_gates,
             )
         else:
             dev = CaSnapshotReadable(
