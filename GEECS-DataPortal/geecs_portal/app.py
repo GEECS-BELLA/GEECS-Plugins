@@ -1860,14 +1860,7 @@ def create_app(
             raise HTTPException(
                 status_code=404, detail="device missed this shot (no timestamp)"
             )
-        resolved = resources.load_shot_trace(
-            folder,
-            device,
-            shot,
-            acq_timestamp=acq,
-            # _image_folder just listed the folder — never rescan it.
-            devices=resources.image_devices(folder),
-        )
+        resolved = resources.load_shot_trace(folder, device, shot, acq_timestamp=acq)
         if resolved.result is None:
             raise HTTPException(
                 status_code=404, detail=resolved.reason or resolved.kind

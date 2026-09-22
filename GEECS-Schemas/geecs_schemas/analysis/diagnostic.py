@@ -196,7 +196,8 @@ class AnalysisDiagnostic(VersionedSchemaModel):
         handed to a file reader, or a per-shot path handed to the stack
         reader, fails once per shot and yields an empty analysis rather
         than an error anyone sees.  So the pairing is checked here, where
-        both sections are in hand.
+        both sections are in hand — together with the one analyzer that
+        cannot read a stack at all whatever the pair says.
         """
         from geecs_schemas.analysis.processing_1d import (
             Data1DType,
@@ -212,6 +213,18 @@ class AnalysisDiagnostic(VersionedSchemaModel):
                 "scan.data_format: device_hdf5 — this document has "
                 f"data_type {self.image.data_loading.data_type.value!r} with "
                 f"data_format {self.scan.data_format!r}, which reads nothing"
+            )
+        if stack_format and self.analyzer.kind == "line_stitcher":
+            # scan.data_format's own rule ("only for analyzers that do not
+            # derive output names from the shot file path") names this
+            # analyzer exactly: the stitcher finds its sibling devices by
+            # rewriting the master's per-shot path and writes its output
+            # beside it, and a stack frame has no such path.
+            raise ValueError(
+                "analyzer kind 'line_stitcher' cannot read the per-device "
+                "capture stack: it finds its sibling traces by rewriting the "
+                "master device's per-shot file path, and writes its output "
+                "beside that file — a stack frame has neither"
             )
         background = self.image.background
         if (

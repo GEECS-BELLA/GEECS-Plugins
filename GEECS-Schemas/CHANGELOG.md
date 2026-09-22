@@ -29,7 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an empty analysis rather than an error anyone sees. It also refuses
   `background.method: from_file` together with `pva_stack`: a stack holds
   every shot, so reading one needs a frame index and `background.file_path`
-  has nowhere to put one.
+  has nowhere to put one. And it refuses `line_stitcher` with
+  `device_hdf5` outright: `scan.data_format`'s own rule is "only for
+  analyzers that do not derive output names from the shot file path", and
+  the stitcher finds its sibling traces by rewriting the master's per-shot
+  path and writes its output beside that file — a stack frame has neither.
 
 ## [0.30.0] - 2026-09-17
 

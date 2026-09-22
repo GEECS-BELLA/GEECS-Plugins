@@ -37,6 +37,8 @@ geecs_data_utils/
                                #   subscribed scalars as <device>-hdf-<variable>-
                                #   <scalar> since GeecsPvaGateway 0.9, read by
                                #   read_stack_attributes / parse_attribute_name;
+                               #   frame_index_for_acq_timestamp joins a
+                               #   shot to a frame WITHOUT reading it;
                                #   written by GeecsPvaGateway's file plugin,
                                #   #806/#829)
                                #   incl. ShotRef — a Path carrying a

@@ -18,7 +18,9 @@ This module is the read side of that contract, deliberately small:
   :func:`stack_scalar_variables` — every per-frame attribute (the stamps
   and, since GeecsPvaGateway 0.9, the device's subscribed numeric
   scalars), keyed by dataset name, and the raw names behind them.
-- :func:`read_shot` — one frame by index (a single chunk read).
+- :func:`read_shot` — one frame by index (a single chunk read), and
+  :func:`frame_index_for_acq_timestamp` for a caller that wants to
+  address a frame (by :class:`ShotRef`) rather than receive it.
 - :func:`stack_content_kind` — whether the frames are pixels or an
   x-vs-y array (the gateway serves both through one file plugin), which
   is what a renderer and the 1-D reader dispatch on.

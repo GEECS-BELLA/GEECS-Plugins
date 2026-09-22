@@ -1252,7 +1252,14 @@ function loadTrace() {
   // the window itself is resized.  Every other draw on this page is
   // gated the same way.
   if (!document.getElementById("shottrace") || S.tab !== "images") return;
-  if (TRACE_DRAWN) return;   // one fetch per page: the shot form navigates
+  if (TRACE_DRAWN) {
+    // Re-entry: re-lay the cached figure out (the pane may have been
+    // hidden when the theme last changed) but never refetch — the shot
+    // form navigates, so one fetch per page load is right. Plot and Grid
+    // get this redraw for free from setTab; the trace must ask.
+    if (LAST_TRACE) drawTrace(LAST_TRACE);
+    return;
+  }
   TRACE_DRAWN = true;
   api("trace", { device: SEL_DEVICE, shot: SHOT })
     .then(drawTrace)
@@ -1264,7 +1271,12 @@ function loadTrace() {
     });
 }
 
-window.addEventListener("geecs:theme", () => { if (LAST_TRACE) drawTrace(LAST_TRACE); });
+// Gated on the visible tab like its sibling below: with loadTrace no
+// longer drawing at boot, this is the only other way into a hidden pane,
+// and TRACE_DRAWN would make a mis-sized layout stick for the page's life.
+window.addEventListener("geecs:theme", () => {
+  if (LAST_TRACE && S.tab === "images") drawTrace(LAST_TRACE);
+});
 
 function imgFailed(img) {
   // A 4xx from the image endpoints carries an honest `detail` the

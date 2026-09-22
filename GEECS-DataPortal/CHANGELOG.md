@@ -27,12 +27,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     reader that trims the gateway's padding
     (`Data1DType.PVA_STACK`, GEECS-Data-Utils 0.36.0) — the portal never
     sees a pad ceiling or a `wave_dx`.
-  - The trace is drawn only while the Images pane is visible, and re-themed
-    without wiping a live graph's DOM: Plotly sizes a figure against its
-    container and the vendored build carries no `ResizeObserver`, so a
-    figure drawn into a `display:none` pane stays zero-sized (a shared link
-    whose tab is `plot` opens exactly that way). Pinned by node tests over
-    the template's own source.
+  - The trace is drawn only while the Images pane is visible — by the boot
+    path and by the theme handler alike — and re-themed without wiping a
+    live graph's DOM. Plotly sizes a figure against its container and the
+    vendored build carries no `ResizeObserver`, so a figure laid out into a
+    `display:none` pane stays zero-sized (a shared link whose tab is `plot`
+    opens exactly that way, and re-theming from another tab is the same
+    door). Returning to the tab redraws the cached figure — never refetches
+    — so a palette change made elsewhere still lands. Pinned by node tests
+    over the template's own source.
   - A trace device's tab has no per-bin view, no ephemeral image diagnostic
     and no image cosmetics: those are pixel controls, and averaging traces
     across shots is the consumer's job because each shot carries its own

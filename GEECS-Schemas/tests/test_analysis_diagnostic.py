@@ -176,6 +176,32 @@ class TestV2Shape:
         )
         assert diag.scan.data_format == "device_hdf5"
 
+    def test_the_stitcher_cannot_read_a_capture_stack(self):
+        """scan.data_format's own rule names this analyzer: it derives paths from the shot file.
+
+        The stitcher finds its sibling traces by rewriting the master
+        device's per-shot path and writes its output beside that file. A
+        stack frame has neither, so the pair must not validate even
+        though `line_stitcher` is a line analyzer and the two source
+        switches agree.
+        """
+        with pytest.raises(ValidationError, match="cannot read the per-device"):
+            AnalysisDiagnostic.model_validate(
+                {
+                    "name": "x",
+                    "analyzer": {
+                        "kind": "line_stitcher",
+                        "output_label": "stitched",
+                        "sibling_devices": ["B"],
+                    },
+                    "image": {
+                        "type": "line",
+                        "data_loading": {"data_type": "pva_stack"},
+                    },
+                    "scan": {"device": "A", "data_format": "device_hdf5"},
+                }
+            )
+
     def test_a_from_file_background_cannot_read_a_stack(self):
         """background.file_path is a plain path — there is nowhere to put a frame index."""
         with pytest.raises(ValidationError, match="cannot read a pva_stack"):

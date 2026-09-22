@@ -227,15 +227,51 @@ def test_a_trace_is_drawn_only_while_its_pane_is_visible(tmp_path):
  S.tab = "images";
  loadTrace(); await new Promise(setImmediate);
  assert.equal(fetches, 1); assert.equal(drawn, 1);
- // Re-entering the tab must not refetch: the shot form navigates.
+ // Re-entering the tab redraws the cached figure (it may have been
+ // hidden when the theme last changed) but never refetches: the shot
+ // form navigates, so one fetch per page load is right.
  loadTrace(); await new Promise(setImmediate);
  assert.equal(fetches, 1, "one fetch per page load");
+ assert.equal(drawn, 2, "re-entry redraws from the cache");
  // A theme change redraws the last figure and must leave the live
  // graph's own DOM alone (react updates an SVG that must still be
  // in the document).
  listeners["geecs:theme"]();
- assert.equal(drawn, 2); assert.equal(fetches, 1);
+ assert.equal(drawn, 3); assert.equal(fetches, 1);
  assert.equal(liveHost.innerHTML, "live", "a live graph must not be wiped");
+})();
+"""
+        ),
+    )
+
+
+def test_a_theme_change_on_another_tab_does_not_strand_the_trace(tmp_path):
+    """The theme handler is the other door into a hidden pane, and the guard shuts it.
+
+    Re-theming while the Images pane is hidden must not lay the figure
+    out (same zero-size container as drawing at boot), and returning to
+    the tab must re-draw it in the new palette — ``TRACE_DRAWN`` stops
+    the refetch, so without a redraw on re-entry the trace would keep
+    the old colours for the life of the page.
+    """
+    run_js(
+        tmp_path,
+        _trace_script(
+            r"""
+(async()=>{
+ elements.set("shottrace", liveHost);
+ S.tab = "images";
+ loadTrace(); await new Promise(setImmediate);
+ assert.equal(drawn, 1); assert.equal(fetches, 1);
+ // Away from the Images tab: the pane is display:none.
+ S.tab = "plot";
+ listeners["geecs:theme"]();
+ assert.equal(drawn, 1, "a hidden pane must not be re-laid-out");
+ // Back: the figure must be redrawn (new palette) but never refetched.
+ S.tab = "images";
+ loadTrace(); await new Promise(setImmediate);
+ assert.equal(drawn, 2, "re-entry must redraw the cached figure");
+ assert.equal(fetches, 1, "re-entry must not refetch");
 })();
 """
         ),
