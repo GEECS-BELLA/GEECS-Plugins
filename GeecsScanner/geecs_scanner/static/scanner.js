@@ -450,7 +450,9 @@
     } else composer.reset();
     $("shots").value = shape === "count" ? (kw.num || 1) : (kw.shots_per_step || 1);
     $("period").value = kw.shot_period != null ? kw.shot_period : "";
-    var trigger = Object.prototype.hasOwnProperty.call(kw, "trigger_profile") ? kw.trigger_profile : doc.trigger_profile;
+    // The preset field alone: a kwargs copy is not a value (expand_preset
+    // refuses it), so it is neither shown here nor kept on save.
+    var trigger = doc.trigger_profile;
     setSelect("trig", trigger || ""); $("desc").value = doc.description || "";
     // The run-level LabVIEW-files switch (#738): unset = the experiment default.
     $("native-save").value = doc.native_image_save === true ? "true" : doc.native_image_save === false ? "false" : "";
@@ -605,8 +607,7 @@
     var doc = S.presetDoc || {}, previous = doc.plan || {}, name = S.mode;
     var kwargs = previous.name === name ? Object.assign({}, previous.kwargs || {}) : {};
     // The visible selectors own these values. Older presets may put them in
-    // kwargs: expand_preset gives a trigger_profile copy precedence over the
-    // field and refuses a native_image_save copy outright, so both are dropped.
+    // kwargs; expand_preset refuses a copy of either, so both are dropped.
     delete kwargs.trigger_profile;
     delete kwargs.native_image_save;
     var nativeSave = $("native-save").value;

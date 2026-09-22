@@ -5,6 +5,18 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.1] - 2026-09-21
+
+### Changed
+
+- `PlanCall` docstring: the run-level fields `trigger_profile` and
+  `native_image_save` are preset fields, never `plan.kwargs` — the client
+  refuses a copy there (GeecsBluesky 0.97.1). The old sentence said a
+  `trigger_profile` kwarg was "normally the preset's own field", which
+  described the `setdefault` precedence that no longer exists. Docstring
+  only; the rendered reference shows a model's first paragraph and is
+  unchanged.
+
 ## [0.31.0] - 2026-09-20
 
 ### Added

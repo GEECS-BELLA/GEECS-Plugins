@@ -4,6 +4,20 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.97.1] - 2026-09-21
+
+### Changed
+
+- **A `trigger_profile` copy in a preset's `plan.kwargs` is refused**, as a
+  `native_image_save` copy has been since 0.97.0: `expand_preset` used
+  `setdefault`, so a kwargs copy silently overrode the top-level
+  `Preset.trigger_profile` (the Codex review of #944 flagged the shape for
+  the switch; the profile had the same one). The two run-level fields are
+  now `RUN_LEVEL_FIELDS`, handled by one rule: set at the preset's top
+  level, assigned into the plan keyword when set, refused in kwargs. No
+  preset in the configs corpus (86 scanned) carried a copy; the scanner
+  already drops both on save.
+
 ## [0.97.0] - 2026-09-20
 
 ### Added

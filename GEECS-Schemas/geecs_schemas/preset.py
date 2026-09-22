@@ -94,8 +94,10 @@ class PlanCall(SchemaModel):
     client builds it from ``devices``.  ``args`` and ``kwargs`` are the
     rest of the stock signature — ``scan``'s ``[motor, start, stop, num]``,
     ``count``'s ``{num: 100}`` — plus the GEECS keyword arguments the
-    worker adds to every scan verb: ``shots_per_step`` (rows per position)
-    and ``trigger_profile`` (normally the preset's own field).
+    worker adds to every scan verb: ``shots_per_step`` (rows per position),
+    ``acquisition``, ``shot_period``.  The run-level fields
+    ``trigger_profile`` and ``native_image_save`` are preset fields, never
+    kwargs: the client refuses a copy here.
     """
 
     name: str = Field(

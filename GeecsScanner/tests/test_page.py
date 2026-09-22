@@ -395,7 +395,8 @@ console.log(JSON.stringify({before, after: $("optimization-targets").children.ma
         {"kind": "range", "axis": "A", "start": 2, "stop": 5, "num": 1},
     ],
 )
-def test_preset_trigger_control_overrides_hidden_kwarg_and_keeps_other_options(axis):
+def test_preset_trigger_control_loads_the_field_and_drops_the_kwargs_copy(axis):
+    """The visible control shows the preset field; a kwargs copy is never shown and never saved (#947)."""
     _need_node()
     source = (_PKG / "static/scanner.js").read_text()
     functions = "\n".join(
@@ -433,7 +434,7 @@ fillFormFromPreset(S.presetDoc);
 var loaded = $("trig").value;
 $("trig").value = "edited";
 var saved = buildPreset();
-S.presetDoc.plan.kwargs.trigger_profile = null;
+S.presetDoc.trigger_profile = null;  // the FIELD cleared; the kwargs copy still says "effective"
 fillFormFromPreset(S.presetDoc);
 console.log(JSON.stringify({loaded, saved, cleared: $("trig").value}));
 """
@@ -446,7 +447,7 @@ console.log(JSON.stringify({loaded, saved, cleared: $("trig").value}));
         check=True,
     )
     state = json.loads(result.stdout)
-    assert state["loaded"] == "effective"
+    assert state["loaded"] == "top-level"  # the field, not the kwargs copy
     assert state["saved"]["trigger_profile"] == "edited"
     assert state["cleared"] == ""
     kwargs = state["saved"]["plan"]["kwargs"]
