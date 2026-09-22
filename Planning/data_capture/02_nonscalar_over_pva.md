@@ -42,8 +42,9 @@ merge; anything worth keeping moves into the package `CLAUDE.md`s first
    declares nothing** — this touches all 40 plugin-backed Point Greys, so it
    must be strictly additive, and it is the one change in the arc that wants a
    full adversarial review.
-2. **PR 3 — array support: IN BUILD on `feat/array-streams` (2026-09-21),
-   split in two.** 3a (this PR): the three decoders in GEECS-Data-Utils
+2. **PR 3 — array support, split in two. 3a MERGED into this branch as #946
+   (2026-09-21; two review rounds, CI green); hardware verification OWED
+   (its PR body). 3b IN BUILD on `feat/picoscope-gate`.** 3a: the three decoders in GEECS-Data-Utils
    (`io/arrays.py`, pinned on payloads captured live — see
    `GEECS-Data-Utils/tests/data/wire/`), `array_variables` + the `exclude`
    list + `array_ceiling` in GEECS-Core's declaration, the gateway serving
