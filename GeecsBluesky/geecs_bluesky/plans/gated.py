@@ -114,10 +114,15 @@ DRAIN_MARGIN_S = 0.25
 def shot_clock(devices: Sequence[Any]) -> tuple[Any, str]:
     """The shot clock of a gated step: an essential triggered device's stamp signal.
 
-    The first plugin-backed camera, else the first triggered device without
-    one (a scalar device with a stamp, or a camera's ``.scalars`` view) —
-    the recommended default; a step with several candidates uses the first
-    in the plan's detector order.
+    The first camera **with a file plugin**, else the first triggered device
+    without one (a scalar device with a stamp, or a camera's ``.scalars``
+    view) — the recommended default; a step with several candidates uses the
+    first in the plan's detector order.  The static plugin fact
+    (``has_file_plugin``), not the per-session ``plugin_backed``: this is
+    asked at bind time (unstaged) and again at step time (staged), and the
+    start document's ``shot_clock`` must name the clock the batch ticks on —
+    a gated scope whose every channel read off is still a triggered device
+    whose stamp advances per shot.
 
     Returns
     -------
@@ -129,11 +134,11 @@ def shot_clock(devices: Sequence[Any]) -> tuple[Any, str]:
     GeecsConfigurationError
         No triggered device in the step — nothing counts shots.
     """
-    plugin = [d for d in devices if isinstance(d, GeecsDetector) and d.plugin_backed]
+    plugin = [d for d in devices if isinstance(d, GeecsDetector) and d.has_file_plugin]
     others = [
         d
         for d in devices
-        if (isinstance(d, GeecsDetector) and not d.plugin_backed)
+        if (isinstance(d, GeecsDetector) and not d.has_file_plugin)
         or (isinstance(d, ScalarsView) and isinstance(d._owner, GeecsDetector))
     ]
     for candidate in [*plugin, *others]:

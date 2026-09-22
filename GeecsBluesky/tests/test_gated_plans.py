@@ -825,6 +825,24 @@ def test_a_native_saving_scope_with_every_channel_off_is_an_essential_member(
     assert ict.plugin_backed  # unstaged again: the listing sees its plugins
 
 
+def test_the_shot_clock_choice_does_not_move_when_a_scope_latches_off(
+    RE: RunEngine, box: GatedBox, tmp_path: Path
+) -> None:
+    """shot_clock is asked at bind time (unstaged) and at step time (staged); with an
+    all-off scope listed first, both must name the same device or the start
+    document's clock is not the one the batch ticked on (fresh verifier, #948)."""
+    from geecs_bluesky.plans.gated import shot_clock
+
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+    ict = _all_off_scope(RE, tmp_path, native_save=False)
+    before = shot_clock([ict, a])
+    assert before[1] == "U_ICT" and before[0] is ict.acq_timestamp
+    asyncio.run_coroutine_threadsafe(ict.stage(), RE.loop).result(5)
+    assert not ict.plugin_backed and ict.has_file_plugin
+    assert shot_clock([ict, a]) == before  # the latch does not move the clock
+    asyncio.run_coroutine_threadsafe(ict.unstage(), RE.loop).result(5)
+
+
 def test_non_essential_wrapper_without_flyers_is_the_plan(
     RE: RunEngine, box: GatedBox, profiles: TriggerProfiles
 ) -> None:
