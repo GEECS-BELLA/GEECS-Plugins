@@ -10,7 +10,8 @@ magspec-spectrum optimizer was dropped from that arc because of it.*
 
 ## START HERE — status and the next step
 
-**Nothing is built. Every design question is closed.** Scope is four
+**PRs 1–3b are merged into this branch; PR 4 is the last code PR, PR 5 is
+dropped (2026-09-22). Every design question is closed.** Scope is four
 devicetypes: `PicoscopeV2`, `FROG`, `MagSpecCamera`, `MagSpecStitcher` (§4.5c).
 One DB change is already applied live (§4.5, the PicoscopeV2 retype).
 
@@ -124,16 +125,33 @@ merge; anything worth keeping moves into the package `CLAUDE.md`s first
      key auth mints no share credentials even elevated, so the share is
      unreadable from the session — the local INI and a GitHub clone are the
      ssh-path inputs.
-4. **PR 4 — the record side** for `(N, M, 2)` arrays — now with two owed
-   items from the #946 review: the **portal's Images tab** classifies any
-   folder holding a stack as an image stack, so a `(2048, 2)` lineout stack
-   renders as a two-pixel-wide strip and a 1-D stack would not render (it
-   needs a line renderer keyed on the stack's rank); and **3b's file-side
-   waveform axis** — the plugin's decoder seam returns values only, so a
-   captured scope stack would carry no `x0`/`dx` until they are written as
-   per-frame `NDAttributes` (decide the representation with the gate).
-   **PR 5 — conservative
-   rebinning** in ScanAnalysis (§4.4b's "owed downstream").
+4. **PR 4 — the record side, the arc's LAST code PR** (a fresh session;
+   scope settled 2026-09-22). Two concerns, one PR, per-concern commits:
+   (a) the **portal's Images tab** classifies any folder holding a stack as
+   an image stack, so a `(2048, 2)` lineout stack renders as a
+   two-pixel-wide strip and a 1-D stack would not render — it needs a line
+   renderer keyed on the stack's RANK (the #946 review's waived item);
+   (b) the **reader side** of the new stacks — data-utils `scan_stack` and
+   the ImageAnalysis 1-D loading path — for `(N, M, 2)` lineouts and
+   `(N, n)` waveforms, exposing the per-frame `wave_x0`/`wave_dx`/
+   `wave_samples` attributes 3b writes, and the rule that a reader hands a
+   consumer the lineout at its TRUE length: the gateway pads every frame
+   to the ceiling, a padded frame set is same-shape, so the 1-D scan
+   analyzer's variable-shape guard (§4.4b) would pass and average column 1
+   index-wise across shifted axes — a plausible averaged spectrum that is
+   wrong. Tiled needs nothing (the stock HDF5 adapter serves the stacks).
+   Then: hardware verification of PRs 2/3a/3b (each PR body), the master
+   merge (one PR; constituents reviewed, so no re-review), delete this
+   brief (keepers → the package `CLAUDE.md`s) and `geecs_bluesky/assets/`.
+   **PR 5 DROPPED (Sam, 2026-09-22).** The stream carries each shot's axis
+   and charge, so a consumer that averages across shots owns the
+   resampling; §4.4b stays as the record of how to do it right. **Units
+   ride in the analyzer config for now**; when they move, their home is
+   the DB `units` column (the value column; the CA gateway already serves
+   it as EGU on every scalar) plus an axis-units field on the declaration
+   — never a header in the LabVIEW payload, a wire-format change every
+   legacy file reader would have to learn for a fact that never changes
+   between shots.
 
 **The two traps this brief exists to prevent.** The FROG resolves to
 `SpatialImage`, which never pushes, so a plugin armed on it times out every
