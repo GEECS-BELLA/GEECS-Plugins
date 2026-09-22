@@ -1,4 +1,4 @@
-"""Resource viewer: (scan folder, device, shot) → a browser-displayable image.
+"""Resource viewer: (scan folder, device, shot) → a browser-displayable shot.
 
 The portal's join over the two image stores: a device's shot is served
 from the PVA gateway file plugin's HDF5 frame
@@ -7,6 +7,13 @@ from its native per-shot file (Tier B, the GEECS filename convention via
 `ScanPaths.build_asset_path` — never re-derived here), while
 vendor-SDK-only formats (Tier C, e.g. HASO ``.himg``) are reported as a
 path instead of rendered.
+
+Not every stack is pixels.  Since GeecsPvaGateway 0.13 the same file
+plugin also captures a device's ARRAY variables — scope traces and
+spectra — and those are x-vs-y data:
+:func:`stack_content` names which a device's stack holds and
+:func:`load_shot_trace` reads one shot of an array stack, so a caller
+never renders a ``(2048, 2)`` lineout as a two-pixel-wide image.
 
 Strictly read-only: resolution + reads only; nothing on the scans path
 is ever created (repo scan-folder invariant).  Every lookup validates
@@ -25,10 +32,18 @@ from typing import NamedTuple, Optional
 import numpy as np
 
 from geecs_data_utils.io.images import DISPLAYABLE_IMAGE_EXTS
+from geecs_data_utils.io.array1d import (
+    Data1DConfig,
+    Data1DResult,
+    Data1DType,
+    read_1d_data,
+)
 from geecs_data_utils.io.scan_stack import (
+    ShotRef,
     find_stack_file,
     read_shot,
     read_shot_for_acq_timestamp,
+    stack_content_kind,
 )
 from geecs_data_utils.native_files import (
     filename_timestamp_regex,
@@ -448,6 +463,120 @@ def load_shot_image(
         reason=resolved.reason,
         cacheable=resolved.cacheable,
     )
+
+
+@dataclass(frozen=True)
+class ShotTrace:
+    """One resolved shot of an ARRAY stack — x-vs-y, or a refusal.
+
+    The :class:`ShotImage` of the trace path.  ``result`` carries the
+    values the way every other 1D consumer in the repo receives them
+    (:class:`~geecs_data_utils.io.array1d.Data1DResult`: an Nx2 array
+    plus whatever the file could say about its axes), already trimmed to
+    the trace's true length.
+    """
+
+    kind: str  # "stack" | "missing"
+    result: Optional[Data1DResult] = None
+    #: ``"lineout"`` or ``"waveform"`` — see ``stack_content_kind``.
+    content: str = ""
+    path: Optional[Path] = None
+    reason: str = ""
+
+
+#: The one reader config the portal uses for capture stacks: the stack
+#: itself says whether a frame is a lineout or a waveform, and the axis
+#: columns are the reader's defaults.
+_TRACE_CONFIG = Data1DConfig(data_type=Data1DType.PVA_STACK)
+
+
+def stack_content(probe: "DeviceKind") -> str:
+    """What a probed device's shots hold: ``"image"``, ``"lineout"`` or ``"waveform"``.
+
+    Takes the :func:`device_kind` probe the caller already has, so the
+    gallery costs one directory scan as before.  Anything that is not a
+    readable array stack reads as ``"image"`` — the answer that keeps a
+    caller on the path it has always taken, so a damaged or unfamiliar
+    stack degrades to the existing rendering rather than to nothing.
+    """
+    if probe.kind != "stack" or probe.path is None:
+        return "image"
+    try:
+        return stack_content_kind(probe.path)
+    except (KeyError, OSError, TypeError, ValueError) as exc:
+        logger.warning("cannot classify stack %s: %s", probe.path, exc)
+        return "image"
+
+
+def load_shot_trace(
+    scan_folder: Path,
+    device: str,
+    shot: int,
+    acq_timestamp: Optional[float] = None,
+    devices: Optional[list[str]] = None,
+) -> ShotTrace:
+    """Resolve one device shot of an ARRAY capture stack as x-vs-y.
+
+    The trace twin of :func:`load_shot_array`, and deliberately thinner:
+    array stacks are small, so there is no frame cache and no native-file
+    tier — a device whose shots are traces has no per-shot file fallback.
+
+    The shot→frame join is the same one the image path uses
+    (:func:`~geecs_data_utils.io.scan_stack.read_shot_for_acq_timestamp`,
+    the canonical-millisecond join), never a second copy of that
+    arithmetic; without a timestamp it falls back to ``shot - 1`` exactly
+    as the image path does.
+
+    Parameters
+    ----------
+    scan_folder : Path
+        The run's existing ``scans/ScanNNN`` folder.
+    device : str
+        Device subfolder name; validated against the folder listing.
+    shot : int
+        1-based shot number.
+    acq_timestamp : float, optional
+        The event row's device ``acq_timestamp`` (LabVIEW-epoch double).
+    devices : list of str, optional
+        An already-computed :func:`image_devices` listing.
+
+    Returns
+    -------
+    ShotTrace
+        The trimmed trace, or the refusal and its reason.
+    """
+    probe = device_kind(scan_folder, device, devices=devices)
+    content = stack_content(probe)
+    if content == "image":
+        return ShotTrace(
+            kind="missing",
+            path=probe.path,
+            reason=probe.reason or "device has no array capture stack",
+        )
+    if shot < 1:
+        return ShotTrace(kind="missing", path=probe.path, reason="bad shot")
+    stack = probe.path
+    try:
+        if acq_timestamp is not None:
+            joined = read_shot_for_acq_timestamp(stack, acq_timestamp)
+            if joined is None:
+                return ShotTrace(
+                    kind="missing",
+                    path=stack,
+                    content=content,
+                    reason="no stack frame for this shot",
+                )
+            index = joined[0]
+        else:
+            index = shot - 1
+        result = read_1d_data(ShotRef(stack, index), _TRACE_CONFIG)
+    # Same enumeration the image path degrades on: a malformed stack must
+    # 404, never 500.
+    except (IndexError, KeyError, OSError, TypeError, ValueError) as exc:
+        return ShotTrace(
+            kind="missing", path=stack, content=content, reason=f"stack: {exc}"
+        )
+    return ShotTrace(kind="stack", result=result, content=content, path=stack)
 
 
 class DeviceKind(NamedTuple):

@@ -602,6 +602,62 @@ def shots_figure(
     return fig
 
 
+def trace_figure(
+    x: Sequence,
+    y: Sequence,
+    *,
+    name: str = "",
+    x_title: str = "",
+    y_title: str = "",
+    palette: Palette = NOTEBOOK_PALETTE,
+) -> go.Figure:
+    """One shot of a captured trace — a line, not an image.
+
+    The Images tab serves a camera shot as a rendered PNG because a
+    2048² frame as JSON is absurd; a scope trace is a few thousand
+    numbers and wants the hover readout, so it goes to the page as a
+    figure like every other plot here.
+
+    Parameters
+    ----------
+    x, y : Sequence
+        The trace, already at its true length (the reader trims the
+        gateway's padding — never plot a padded frame).
+    name : str
+        The trace's legend/hover name, typically ``device — variable``.
+    x_title, y_title : str
+        Axis titles; empty for an axis whose quantity the stack does not
+        name (a spectrum's energy axis is device-specific — its units
+        ride in the analyzer config, not in the capture).
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+        Exactly what the Images tab renders for an array device.
+    """
+    fig = _bare_figure()
+    fig.add_scatter(
+        x=list(x),
+        y=list(y),
+        mode="lines",
+        name=name,
+        line={"color": trace_color(None, 0, palette), "width": 1.5},
+    )
+    layout = base_layout(palette)
+    layout["xaxis"]["title"] = {"text": x_title}
+    # One trace needs no legend; the device and variable are in the title.
+    layout["showlegend"] = False
+    layout["yaxis"] = {
+        "gridcolor": palette.grid_soft,
+        "zerolinecolor": palette.grid,
+        "automargin": True,
+        "title": {"text": y_title},
+        **_ticks(palette),
+    }
+    fig.update_layout(layout)
+    return fig
+
+
 def binned_figure(
     bins: Sequence,
     series: Mapping[str, Mapping[str, Sequence]],

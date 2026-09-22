@@ -25,6 +25,37 @@ def _tree_snapshot(root):
     return sorted(str(p) for p in root.rglob("*"))
 
 
+def _write_array_stack(path, *, device, variable, frames, axis):
+    """An ARRAY capture stack, as GeecsPvaGateway's file plugin writes one.
+
+    Same layout as a camera stack (that is the point — one plugin), with
+    the per-frame ``wave_*`` attributes that declare the frames are an
+    array variable's and carry a waveform's axis.
+    """
+    import h5py
+
+    from geecs_data_utils.io.scan_stack import (
+        ATTRIBUTES_GROUP,
+        FRAMES_DATASET,
+        LABVIEW_EPOCH_OFFSET,
+    )
+
+    frames = np.asarray(frames, dtype=float)
+    prefix = f"{ATTRIBUTES_GROUP}/{device}-hdf-{variable}"
+    labview = _LV + np.array([0.5, 1.0, 2.0, 3.0])[: len(frames)]
+    with h5py.File(path, "w") as handle:
+        handle.attrs["finalized"] = True
+        handle.create_dataset(FRAMES_DATASET, data=frames)
+        handle.create_dataset(
+            f"{prefix}-frame_acq_timestamp", data=labview - LABVIEW_EPOCH_OFFSET
+        )
+        for key, values in zip(
+            ("wave_x0", "wave_dx", "wave_samples"), zip(*axis), strict=True
+        ):
+            handle.create_dataset(f"{prefix}-{key}", data=np.asarray(values, float))
+    return path
+
+
 @pytest.fixture()
 def scan_folder(tmp_path):
     """A Scan002 folder: native cam, stack cam, vendor device, machinery."""
@@ -61,6 +92,38 @@ def scan_folder(tmp_path):
         # Stack stores UNIX epoch (its contract); event rows are LabVIEW.
         labview = np.array([_LV + 0.5, _LV + 1.0, _LV + 2.0, _LV + 3.0])
         handle.create_dataset(TIMESTAMPS_DATASET, data=labview - LABVIEW_EPOCH_OFFSET)
+
+    # Two ARRAY capture stacks — same file plugin, same layout, but the
+    # frames are x-vs-y rather than pixels (GeecsPvaGateway 0.13).
+    scope_stack = folder / "U_ICT"
+    scope_stack.mkdir()
+    _write_array_stack(
+        scope_stack / "U_ICT.h5",
+        device="u_ict",
+        variable="scopetrace_channel0",
+        # Four samples per shot, four shots — the same leading pre-scan
+        # extra the camera stack carries, so the join is exercised alike.
+        frames=np.array([[float(i), 1.0, 2.0, 1.0] for i in range(4)]),
+        axis=[(-1e-9, 2.5e-9, 4.0)] * 4,
+    )
+
+    spectrum = folder / "U_MagSpec"
+    spectrum.mkdir()
+    # Padded to a ceiling of 5 rows; shot 2 (frame index 1) is 3 rows long
+    # and every other frame is 2, so a reader that keeps the padding
+    # yields one shape for all four and one that trims does not.
+    lineout = np.full((4, 5, 2), np.nan)
+    for index in range(4):
+        rows = 3 if index == 1 else 2
+        lineout[index, :rows, 0] = np.arange(rows, dtype=float) * 10.0
+        lineout[index, :rows, 1] = float(index) + np.arange(rows, dtype=float)
+    _write_array_stack(
+        spectrum / "U_MagSpec.h5",
+        device="u_magspec",
+        variable="interpspec",
+        frames=lineout,
+        axis=[(np.nan, np.nan, np.nan)] * 4,
+    )
 
     vendor = folder / "U_HasoWFS"
     vendor.mkdir()
@@ -108,6 +171,8 @@ class TestResourcesLayer:
             "UC_TestCam",
             "U_HasoLift",
             "U_HasoWFS",
+            "U_ICT",
+            "U_MagSpec",
             "U_Scope",
             "cam",
         ]
@@ -305,6 +370,113 @@ class TestGalleryRoutes:
         )
         assert _tree_snapshot(root) == before
 
+
+class TestArrayStacks:
+    """A device whose shots are traces, not pixels.
+
+    The gateway serves images and arrays through one file plugin, so the
+    portal must decide per device which it has — and a lineout drawn as
+    pixels is a two-pixel-wide strip, not a refusal, which is why the
+    classification is pinned rather than left to the renderer to notice.
+    """
+
+    def test_a_device_s_stack_says_whether_its_shots_are_pixels(self, scan_folder):
+        kinds = {
+            device: resources.stack_content(resources.device_kind(scan_folder, device))
+            for device in ("UC_StackCam", "U_ICT", "U_MagSpec", "UC_TestCam")
+        }
+        assert kinds == {
+            "UC_StackCam": "image",
+            "U_ICT": "waveform",
+            "U_MagSpec": "lineout",
+            # No stack at all: a per-shot-file device stays on the path
+            # it has always taken.
+            "UC_TestCam": "image",
+        }
+
+    def test_an_unreadable_stack_degrades_to_the_image_path(self, scan_folder):
+        """A damaged stack must fall back to today's rendering, not to nothing."""
+        (scan_folder / "U_ICT" / "U_ICT.h5").write_bytes(b"not hdf5")
+        probe = resources.device_kind(scan_folder, "U_ICT")
+        assert resources.stack_content(probe) == "image"
+
+    def test_a_waveform_shot_reads_as_volts_against_a_time_axis(self, scan_folder):
+        """Ordinal fallback: shot 2 is frame index 1, pinned by the identity marker."""
+        trace = resources.load_shot_trace(scan_folder, "U_ICT", 2)
+        assert (trace.kind, trace.content) == ("stack", "waveform")
+        np.testing.assert_allclose(
+            trace.result.data[:, 0], [-1e-9, 1.5e-9, 4e-9, 6.5e-9], rtol=0, atol=1e-21
+        )
+        np.testing.assert_array_equal(trace.result.data[:, 1], [1.0, 1.0, 2.0, 1.0])
+        assert trace.result.x_units == "s"
+
+    def test_the_timestamp_join_is_the_image_path_s_join(self, scan_folder):
+        """Frame 2 by its stamp, not by its ordinal — the leading extra must not shift it."""
+        trace = resources.load_shot_trace(
+            scan_folder, "U_ICT", 1, acq_timestamp=_LV + 2.0
+        )
+        assert trace.result.data[0, 1] == 2.0  # the identity marker of frame index 2
+
+    def test_a_shot_the_device_missed_is_refused(self, scan_folder):
+        trace = resources.load_shot_trace(
+            scan_folder, "U_ICT", 1, acq_timestamp=_LV + 9.0
+        )
+        assert trace.kind == "missing" and "no stack frame" in trace.reason
+
+    def test_a_lineout_reaches_the_portal_at_its_true_length(self, scan_folder):
+        """The padding must not survive the read — it is what makes shots look alike."""
+        lengths = {
+            shot: resources.load_shot_trace(
+                scan_folder, "U_MagSpec", shot
+            ).result.data.shape[0]
+            for shot in (1, 2, 3)
+        }
+        assert lengths == {1: 2, 2: 3, 3: 2}
+
+    def test_an_image_device_has_no_trace(self, scan_folder):
+        trace = resources.load_shot_trace(scan_folder, "UC_StackCam", 1)
+        assert trace.kind == "missing" and trace.result is None
+
+    def test_the_trace_endpoint_serves_a_figure_and_stays_read_only(self, scan_folder):
+        client = _gallery_client(scan_folder)
+        root = scan_folder.parent.parent
+        before = _tree_snapshot(root)
+        payload = client.get(
+            "/api/run/uid-002/trace", params={"device": "U_ICT", "shot": 1}
+        ).json()
+        assert payload["content"] == "waveform"
+        assert payload["points"] == 4
+        trace = payload["figure"]["data"][0]
+        assert trace["mode"] == "lines"
+        # Served through the theme-sentinel path like every other figure,
+        # so a trace is themed by the same one walk.
+        assert trace["line"]["color"] == "$tok:--trace-1"
+        assert payload["figure"]["layout"]["xaxis"]["title"]["text"] == "Time (s)"
+        assert _tree_snapshot(root) == before
+
+    def test_the_trace_endpoint_404s_like_the_image_endpoint(self, scan_folder):
+        client = _gallery_client(scan_folder)
+        for params in (
+            {"device": "nope", "shot": 1},
+            {"device": "UC_StackCam", "shot": 1},  # pixels, not a trace
+            {"device": "U_ICT", "shot": 99},  # beyond the recorded events
+        ):
+            assert (
+                client.get("/api/run/uid-002/trace", params=params).status_code == 404
+            )
+
+    def test_the_images_tab_draws_a_line_for_a_trace_device(self, scan_folder):
+        client = _gallery_client(scan_folder)
+        page = client.get("/run/uid-002", params={"device": "U_ICT", "tab": "images"})
+        assert 'id="shottrace"' in page.text
+        assert 'id="shotimg"' not in page.text
+        assert "const IS_TRACE = true" in page.text
+        camera = client.get(
+            "/run/uid-002", params={"device": "UC_StackCam", "tab": "images"}
+        )
+        assert 'id="shotimg"' in camera.text and 'id="shottrace"' not in camera.text
+        assert "const IS_TRACE = false" in camera.text
+
     def test_unresolvable_folder_hides_gallery(self, monkeypatch):
         from geecs_data_utils import scan_paths as scan_paths_mod
 
@@ -330,6 +502,8 @@ class TestGalleryRoutes:
             "UC_TestCam",
             "U_HasoLift",
             "U_HasoWFS",
+            "U_ICT",
+            "U_MagSpec",
             "U_Scope",
             "cam",
         ]

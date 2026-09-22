@@ -298,11 +298,19 @@
       <p class="mono">{{ kind_path }}</p>
       {% else %}
       <div class="plotbar">
+        {% if is_trace %}
+        {# A trace device has no per-bin view, no ephemeral image
+           diagnostic and no image cosmetics: averaging traces across
+           shots is the consumer's job (each shot carries its own axis),
+           and the rest are pixel controls. #}
+        <span class="dim" title="this device captures {{ content_kind }}s, not images">{{ content_kind }} — one shot at a time</span>
+        {% else %}
         <span class="seg">
           <button id="seg-img-shot" onclick="setView('shot')">per-shot</button>
           <button id="seg-img-bin" onclick="setView('bin')">per-bin avg</button>
         </span>
         <span class="gear" title="bin settings" onclick="openBinset()">⚙</span>
+        {% endif %}
         {% if processing_options %}
         <label class="dim" style="font-size:12px;" title="run an ImageAnalysis diagnostic ephemerally on the served pixels (write-free); per-bin view processes each shot, then averages">processing
           <select id="procsel" onchange="setProcessing(this.value)"
@@ -319,7 +327,9 @@
             {% endfor %}
           </select></label>
         {% endif %}
+        {% if not is_trace %}
         <span class="right"><a href="#" onclick="openImgDisplay();return false;">display…</a></span>
+        {% endif %}
       </div>
       <div id="imgshot">
       <form class="nav" method="get" action="{{ root }}/run/{{ uid }}">
@@ -339,7 +349,11 @@
         {% if total_shots %}<span class="dim mono">of ~{{ total_shots }}</span>{% endif %}
         <span class="dim mono">{{ kind }}</span>
       </form>
+      {% if is_trace %}
+      <div class="plot" id="shottrace"></div>
+      {% else %}
       <img class="plot" id="shotimg" onerror="imgFailed(this)" src="{{ root }}/run/{{ uid }}/image.png?device={{ sel_device | urlencode }}&amp;shot={{ shot }}&amp;day={{ day | urlencode }}{% if processing %}&amp;processing={{ processing | urlencode }}{% endif %}{% if display %}&amp;display={{ display | urlencode }}{% endif %}" alt="{{ sel_device }} shot {{ shot }}">
+      {% endif %}
       </div>
       <div id="imggrid" class="bingrid" hidden></div>
       {% endif %}
@@ -540,6 +554,9 @@
 "use strict";
 const UID = {{ uid | tojson }};
 const ROOT = {{ root | tojson }};  // proxy mount prefix ("" at root)
+// This device's shots are x-vs-y (a scope trace or a spectrum), not
+// pixels — the Images tab draws a line and has no per-bin view.
+const IS_TRACE = {{ is_trace | tojson }};
 const DAY = {{ day | tojson }};
 const SEL_DEVICE = {{ sel_device | tojson }};
 const VERSION = {{ portal_version | tojson }};
@@ -1200,6 +1217,45 @@ function clearImgError(img) {
   if (note && note.classList.contains("imgerr")) note.remove();
 }
 
+// ---------------- the shot trace (array devices) ----------------
+// A camera shot is a rendered PNG; a scope trace or a spectrum is a few
+// thousand numbers, so it comes down as a server-authored figure (the
+// same figures.py + theme-sentinel path as every other plot here) and
+// is drawn as a line.  Rank decides which: an (n, 2) lineout rendered
+// as pixels would be a two-pixel-wide strip.
+let LAST_TRACE = null;
+
+function drawTrace(data) {
+  LAST_TRACE = data;
+  const host = document.getElementById("shottrace");
+  if (!host) return;
+  const fig = resolveThemeTokens(JSON.parse(JSON.stringify(data.figure)));
+  host.innerHTML = "";
+  Plotly.react(host, fig.data, fig.layout, PLOT_CONFIG);
+}
+
+function loadTrace() {
+  const host = document.getElementById("shottrace");
+  if (!host) return;
+  const q = new URLSearchParams({
+    device: {{ sel_device | tojson }},
+    shot: {{ shot | tojson }},
+    day: {{ day | tojson }},
+  });
+  fetch(`${ROOT}/api/run/${UID}/trace?${q.toString()}`)
+    .then(r => r.json().then(body => {
+      if (!r.ok) throw new Error(body.detail || "trace failed to load");
+      return body;
+    }))
+    .then(drawTrace)
+    .catch(err => {
+      if (typeof Plotly !== "undefined") Plotly.purge(host);
+      host.innerHTML = `<div class="plotmsg">⚠ ${esc(err.message)}</div>`;
+    });
+}
+
+window.addEventListener("geecs:theme", () => { if (LAST_TRACE) drawTrace(LAST_TRACE); });
+
 function imgFailed(img) {
   // A 4xx from the image endpoints carries an honest `detail` the
   // <img> tag can only show as a broken icon — fetch and surface it.
@@ -1228,7 +1284,11 @@ function imgFailed(img) {
 function refreshImages() {
   const shotBox = document.getElementById("imgshot");
   const grid = document.getElementById("imggrid");
-  const binned = S.view === "bin";
+  // The per-shot ⇄ binned state is shared with the Plot tab, but a
+  // trace device has no binned view to show: averaging traces across
+  // shots is the consumer's job, since each shot carries its own axis.
+  // The Plot tab stays binned; this tab shows the one thing it can.
+  const binned = S.view === "bin" && !IS_TRACE;
   document.getElementById("grid-image-selection").innerHTML = S.imagebin && binned
     ? `Grid selection: bin ${esc(S.imagebin)} <button class="act" onclick="S.imagebin='';writeState();refreshImages()">show all bins</button>` : "";
   if (!shotBox || !SEL_DEVICE) return;  // no device / vendor / unrenderable
@@ -1684,5 +1744,6 @@ renderChips();
 updatePassCount();
 setTab(S.tab);
 setView(S.view);
+loadTrace();   // no-op unless this device's shots are traces
 </script>
 {% endblock %}

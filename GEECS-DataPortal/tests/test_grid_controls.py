@@ -37,6 +37,8 @@ const ResizeObserver = class {observe(){}};
 const Option = class {};
 let BOOTED=true, writes=0, requests=0, IMG_KEY=null;
 const ROOT='',UID='uid-002',DAY='',VERSION='test',SEL_DEVICE='cam';
+// A camera device: its shots are pixels, so the per-bin view applies.
+const IS_TRACE=false;
 const esc=String,escAttr=String,flashNote=()=>{},closeModals=()=>{},refresh=()=>{};
 const writeState=()=>{writes++;};
 const setPassCount=()=>{};

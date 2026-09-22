@@ -1710,8 +1710,13 @@ def create_app(
             # Reuse the listing just computed — no second directory scan.
             probe = resources.device_kind(folder, sel_device, devices=devices)
             kind, kind_path = probe.kind, probe.path
+            # Pixels or x-vs-y: the stack says which, and the gallery
+            # renders a line for the array kinds (an (n, 2) lineout
+            # drawn as pixels is a two-pixel-wide strip).
+            content_kind = resources.stack_content(probe)
         else:
             kind, kind_path = "", None
+            content_kind = "image"
         n_rows = None if detail.data is None else len(detail.data)
         shot = max(1, min(shot, n_rows) if n_rows else shot)
         analysis_enabled = _analysis_enabled_for(folder)
@@ -1805,11 +1810,17 @@ def create_app(
                 "sel_device": sel_device,
                 "kind": kind,
                 "kind_path": str(kind_path) if kind_path else "",
+                "content_kind": content_kind,
+                "is_trace": content_kind != "image",
                 "shot": shot,
                 "has_next_shot": n_rows is None or shot < n_rows,
                 "total_shots": detail.summary.shots,
                 "processing": processing,
-                "processing_options": _processing_names() if sel_device else [],
+                "processing_options": (
+                    _processing_names()
+                    if sel_device and content_kind == "image"
+                    else []
+                ),
                 "display": display,
                 "portal_version": _portal_version(),
                 # The rail's chips and the display popup must stay in
@@ -1820,6 +1831,60 @@ def create_app(
                 "qs": lambda **kw: _sticky_query(state, **kw),
             },
         )
+
+    @app.get("/api/run/{uid}/trace")
+    def api_run_trace(
+        uid: str,
+        device: str,
+        shot: int = 1,
+        day: str = "",
+    ) -> dict:
+        """One shot of an ARRAY capture stack as a server-authored figure.
+
+        The line twin of ``/run/{uid}/image.png``.  A camera shot is
+        served as a rendered PNG because a 2048² frame as JSON is
+        absurd; a scope trace is a few thousand numbers and wants the
+        hover readout, so it travels as figure JSON like every other
+        plot here.  Same refusals as the image endpoint: a shot beyond
+        the recorded events, and a device that missed the shot, both
+        404 rather than serving a neighbour's trace.
+        """
+        detail = _load_run(uid)
+        folder, _ = _image_folder(detail, day, device)
+        if detail.data is not None and shot > len(detail.data):
+            raise HTTPException(
+                status_code=404, detail="shot beyond the run's recorded events"
+            )
+        acq, column_present = _acq_timestamp(detail, device, shot)
+        if column_present and acq is None:
+            raise HTTPException(
+                status_code=404, detail="device missed this shot (no timestamp)"
+            )
+        resolved = resources.load_shot_trace(folder, device, shot, acq_timestamp=acq)
+        if resolved.result is None:
+            raise HTTPException(
+                status_code=404, detail=resolved.reason or resolved.kind
+            )
+        trace = resolved.result
+        x_title = trace.x_label or ""
+        if x_title and trace.x_units:
+            x_title = f"{x_title} ({trace.x_units})"
+        figure = figures.trace_figure(
+            trace.data[:, 0],
+            trace.data[:, 1],
+            name=device,
+            x_title=x_title,
+            # The stack names the VARIABLE it captured but not its units
+            # (those ride in the analyzer config), so the axis is titled
+            # with the quantity and claims no unit it was not told.
+            y_title=trace.y_label or "",
+            palette=figures.THEMED_PALETTE,
+        )
+        return {
+            "figure": figures.page_figure(figure),
+            "content": resolved.content,
+            "points": int(trace.data.shape[0]),
+        }
 
     @app.get("/run/{uid}/image.png")
     def run_image(

@@ -308,3 +308,34 @@ class TestPalettes:
         fig = figures.shots_figure({"a": [1, 2, 3]}, ["a"])
         found = self._colours(fig)
         assert found and not any(c.startswith("$tok:") for c in found), found
+
+
+class TestTraceFigure:
+    """One shot of a captured trace — the Images tab's line renderer."""
+
+    def test_it_is_a_line_with_titled_axes_and_no_legend(self) -> None:
+        from geecs_portal import figures
+
+        fig = figures.trace_figure(
+            [0.0, 1e-9, 2e-9],
+            [0.1, 0.4, 0.2],
+            name="U_ICT",
+            x_title="Time (s)",
+            y_title="scopetrace_channel0",
+        )
+        payload = fig.to_plotly_json()
+        (trace,) = payload["data"]
+        assert trace["mode"] == "lines" and trace["name"] == "U_ICT"
+        layout = payload["layout"]
+        assert layout["xaxis"]["title"]["text"] == "Time (s)"
+        assert layout["yaxis"]["title"]["text"] == "scopetrace_channel0"
+        # One trace names itself in the hover; a legend would be furniture.
+        assert layout["showlegend"] is False
+
+    def test_an_unnamed_axis_claims_nothing(self) -> None:
+        """A spectrum's axis is device-specific — its units ride in the analyzer config."""
+        from geecs_portal import figures
+
+        layout = figures.trace_figure([0, 1], [1, 2]).to_plotly_json()["layout"]
+        assert layout["xaxis"]["title"]["text"] == ""
+        assert layout["yaxis"]["title"]["text"] == ""

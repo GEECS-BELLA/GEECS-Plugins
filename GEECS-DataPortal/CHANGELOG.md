@@ -3,6 +3,36 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.0] - 2026-09-21
+
+### Added
+
+- **The Images tab draws a line for a device whose shots are traces.** The
+  PVA gateway's file plugin now captures array variables — scope traces and
+  spectra — through the same stack layout as a camera, and the tab
+  classified any folder holding a stack as an image stack: a `(2048, 2)`
+  lineout rendered as a two-pixel-wide strip and a 1-D waveform would not
+  render at all. `resources.stack_content` asks the stack which it is (the
+  plugin declares it — rank alone cannot tell `(N, H, W)` pixels from
+  `(N, n, 2)` rows) and the tab serves a line instead.
+  - `GET /api/run/{uid}/trace` — one shot as a server-authored figure
+    (`figures.trace_figure`, the same figures.py + theme-sentinel path as
+    every other plot here), with the image endpoint's refusals: a shot
+    beyond the recorded events and a device that missed the shot both 404.
+    A camera shot stays a rendered PNG — a 2048² frame as JSON is absurd —
+    while a few thousand trace samples travel as a figure and keep their
+    hover readout.
+  - `resources.load_shot_trace` reads it, through the same
+    canonical-millisecond shot→frame join the image path uses and the
+    reader that trims the gateway's padding
+    (`Data1DType.PVA_STACK`, GEECS-Data-Utils 0.36.0) — the portal never
+    sees a pad ceiling or a `wave_dx`.
+  - A trace device's tab has no per-bin view, no ephemeral image diagnostic
+    and no image cosmetics: those are pixel controls, and averaging traces
+    across shots is the consumer's job because each shot carries its own
+    axis. The shared per-shot/binned state is untouched — the Plot tab
+    stays binned.
+
 ## [0.29.3] - 2026-09-17
 
 ### Changed
