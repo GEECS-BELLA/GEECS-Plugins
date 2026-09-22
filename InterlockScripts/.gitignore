@@ -1,0 +1,12 @@
+# Virtual environments
+.venv/
+venv/
+.env/
+.env*/
+
+# Secrets
+.env
+
+# Build artifacts
+__pycache__/
+*.pyc

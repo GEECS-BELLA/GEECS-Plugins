@@ -1,7 +1,8 @@
 exclude: |
   (?x)^(
     extras/|
-    .*/third_party_sdks/
+    .*/third_party_sdks/|
+    InterlockScripts/archive/
   )
 
 repos:

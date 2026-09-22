@@ -1,0 +1,84 @@
+{
+  "format": "geecs-interlock",
+  "version": 1,
+  "experiment": "BELLA",
+  "host": "${SERVER_IP}",
+  "port": "${SERVER_PORT}",
+  "devices": [
+    {
+      "alias": "tapePointing",
+      "name": "CAM-PL1-TapeDrivePointing",
+      "variables": [
+        "MaxCounts",
+        "MeanCounts",
+        "MeanCountsRaw",
+        "acq_timestamp",
+        "Target.X",
+        "Target.Y",
+        "centroidx",
+        "centroidy",
+        "exposure",
+        "gain"
+      ]
+    },
+    {
+      "alias": "AegaeonCam",
+      "name": "CAM-2BL-Aegeaon",
+      "variables": [
+        "MaxCounts",
+        "MeanCounts",
+        "MeanValue",
+        "MeanCountsRaw",
+        "acq_timestamp",
+        "Target.X",
+        "Target.Y",
+        "centroidx",
+        "centroidy",
+        "exposure",
+        "gain"
+      ]
+    }
+  ],
+  "monitors": [
+    {
+      "name": "Camera Multi Check",
+      "interval": 0.1,
+      "safe_release_checks": 3,
+      "condition": {
+        "type": "multi",
+        "conditions": [
+          {
+            "type": "threshold",
+            "device": "tapePointing",
+            "variable": "MeanCounts",
+            "operator": "<",
+            "threshold": 4
+          },
+          {
+            "type": "threshold",
+            "device": "AegaeonCam",
+            "variable": "MeanCounts",
+            "operator": ">",
+            "threshold": 5
+          },
+          {
+            "type": "configuration_change",
+            "device": "tapePointing",
+            "variables": [
+              "exposure",
+              "gain"
+            ]
+          },
+          {
+            "type": "configuration_change",
+            "device": "AegaeonCam",
+            "variables": [
+              "exposure",
+              "gain"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

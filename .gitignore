@@ -100,3 +100,6 @@ GEECS-Data-Utils/scripts/release_mac.sh
 GEECS-Data-Utils/dist/
 docs/image_analysis/examples/frog.dat
 docs/scan_analysis/examples/frog.dat
+
+# Interlock dev worktree (see InterlockScripts/WORKFLOW.md)
+/_dev-interlocks/

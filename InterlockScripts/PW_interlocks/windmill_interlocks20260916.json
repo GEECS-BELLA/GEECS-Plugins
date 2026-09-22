@@ -1,0 +1,130 @@
+{
+  "format": "geecs-interlock",
+  "version": 1,
+  "experiment": "Bella",
+  "host": "${SERVER_IP}",
+  "port": "${SERVER_PORT}",
+  "devices": [
+    {
+      "alias": "tapePointing",
+      "name": "CAM-PL1-TapeDrivePointing",
+      "variables": [
+        "MaxCounts",
+        "MeanCounts",
+        "MeanCountsRaw",
+        "acq_timestamp",
+        "Target.X",
+        "Target.Y",
+        "centroidx",
+        "centroidy",
+        "exposure",
+        "gain"
+      ]
+    },
+    {
+      "alias": "AegaeonCam",
+      "name": "CAM-2BL-Aegeaon",
+      "variables": [
+        "MaxCounts",
+        "MeanCounts",
+        "MeanValue",
+        "MeanCountsRaw",
+        "acq_timestamp",
+        "Target.X",
+        "Target.Y",
+        "centroidx",
+        "centroidy",
+        "exposure",
+        "gain"
+      ]
+    },
+    {
+      "alias": "tapecentroidx",
+      "name": "CAM-PL1-TapeDrivePointing",
+      "variables": [
+        "MaxCounts",
+        "MeanCounts",
+        "MeanCountsRaw",
+        "acq_timestamp",
+        "Target.X",
+        "Target.Y",
+        "centroidx",
+        "centroidy",
+        "exposure",
+        "gain"
+      ]
+    },
+    {
+      "alias": "tapecentroidy",
+      "name": "CAM-PL1-TapeDrivePointing",
+      "variables": [
+        "MaxCounts",
+        "MeanCounts",
+        "MeanCountsRaw",
+        "acq_timestamp",
+        "Target.X",
+        "Target.Y",
+        "centroidx",
+        "centroidy",
+        "exposure",
+        "gain"
+      ]
+    },
+    {
+      "alias": "tapecentroidxx",
+      "name": "CAM-PL1-TapeDrivePointing",
+      "variables": [
+        "MaxCounts",
+        "MeanCounts",
+        "MeanCountsRaw",
+        "acq_timestamp",
+        "Target.X",
+        "Target.Y",
+        "centroidx",
+        "centroidy",
+        "exposure",
+        "gain"
+      ]
+    }
+  ],
+  "monitors": [
+    {
+      "name": "Combined interlock",
+      "interval": 0.1,
+      "safe_release_checks": 3,
+      "condition": {
+        "type": "multi",
+        "conditions": [
+          {
+            "type": "threshold",
+            "device": "tapePointing",
+            "variable": "MeanCounts",
+            "operator": "<",
+            "threshold": 5.0
+          },
+          {
+            "type": "threshold",
+            "device": "AegaeonCam",
+            "variable": "MeanCounts",
+            "operator": ">",
+            "threshold": 5.0
+          },
+          {
+            "type": "alignment",
+            "device": "tapecentroidy",
+            "value_variable": "centroidy",
+            "target_variable": "Target.Y",
+            "tolerance": 10.0
+          },
+          {
+            "type": "alignment",
+            "device": "tapecentroidxx",
+            "value_variable": "centroidx",
+            "target_variable": "Target.X",
+            "tolerance": 10.0
+          }
+        ]
+      }
+    }
+  ]
+}
