@@ -17,6 +17,8 @@ from geecs_data_utils.io.array1d import (
     read_1d_data,
 )
 from geecs_data_utils.io.arrays import (
+    WAVEFORM_ATTRIBUTE_KEYS,
+    WAVEFORM_AXIS_KEYS,
     DecodedArray,
     decode_array_payload,
     decode_csv_values,
@@ -49,6 +51,8 @@ __all__ = [
     "Data1DType",
     "DecodedArray",
     "LABVIEW_EPOCH_OFFSET",
+    "WAVEFORM_ATTRIBUTE_KEYS",
+    "WAVEFORM_AXIS_KEYS",
     "ShotRef",
     "average_frames",
     "decode_array_payload",

@@ -602,11 +602,15 @@ class GeecsDetector(StandardDetector):
         Capture variable → the device's on/off variable (one of
         *variables*, so it is a scalar child of this detector) that says
         whether this instance pushes the stream — the Picoscope's
-        ``Enable.Ch<X>`` per ``scopeTrace.Channel<N>``.  Read at every
-        prepare: a plugin whose gate does not read ``on`` takes no part in
-        that run (no arm, no data key), so a two-wired four-channel scope
-        never times out arming on a channel that pushes nothing.  A
-        capture variable not named here is armed unconditionally.
+        ``Enable.Ch<X>`` per ``scopeTrace.Channel<N>``.  Read **once per
+        stage** (the run's descriptor is emitted once, and the stock
+        detector re-runs the prepare context on every trigger, so the gate
+        must not move inside a run): a plugin whose gate does not read
+        ``on`` at ``stage`` takes no part in that run (no arm, no data
+        key), so a two-wired four-channel scope never times out arming on
+        a channel that pushes nothing; a channel enabled between runs is
+        captured on the next.  A capture variable not named here is armed
+        unconditionally.
     hdf_plugins :
         ``(image variable, path provider)`` per file plugin to capture
         (#806): each becomes a :class:`GeecsHdfIO` child (``hdf``, then
@@ -699,7 +703,9 @@ class GeecsDetector(StandardDetector):
         #: Gated plugin logics with the gate signal read at each prepare
         #: (a list: the stock logic is an unhashable dataclass, compared by id).
         self._plugin_gates: list[tuple[ADHDFDataLogic, str, SignalR]] = []
-        self._armed_gates: frozenset[str] | None = None
+        #: ``id()`` of the gated logics closed for this stage session
+        #: (latched by :meth:`stage`; ``None`` = not staged, read on demand).
+        self._closed_gate_logics: set[int] | None = None
         gates = {k.lower(): v for k, v in (plugin_gates or {}).items()}
         for index, (variable, provider) in enumerate(hdf_plugins):
             io = GeecsHdfIO(
@@ -802,6 +808,9 @@ class GeecsDetector(StandardDetector):
         await asyncio.gather(
             *(sig.stage() for sig in (*self._scalars, self.acq_timestamp))
         )
+        # The per-instance gates, read once for the session (a cache hit:
+        # the gate signals are among the scalars just staged).
+        self._closed_gate_logics = await self._closed_gates()
         await super().stage()
 
     @AsyncStatus.wrap
@@ -809,6 +818,7 @@ class GeecsDetector(StandardDetector):
         """Unstage the detector (saving off), then release the signal caches."""
         self.count_zeroed = False
         await super().unstage()
+        self._closed_gate_logics = None
         await asyncio.gather(
             *(sig.unstage() for sig in (*self._scalars, self.acq_timestamp))
         )
@@ -840,18 +850,14 @@ class GeecsDetector(StandardDetector):
         ):
             self._prepare_ctx = None
         # The per-instance gates (a scope's Enable.Ch<X>): a gated plugin
-        # whose gate does not read "on" takes no part in this prepare.  A
-        # change in the armed set invalidates a context the stock code
-        # would otherwise reuse (it keys reuse on collections_per_event).
-        closed = await self._closed_gates()
-        armed = frozenset(
-            variable
-            for logic, variable, _ in self._plugin_gates
-            if id(logic) not in closed
-        )
-        if self._armed_gates is not None and armed != self._armed_gates:
-            self._prepare_ctx = None
-        self._armed_gates = armed
+        # closed at stage takes no part in this session's prepares.  The set
+        # is the one latched by stage() — this method also runs on every
+        # trigger (the stock detector re-checks its context per shot), and a
+        # gate moving inside a run must not change the armed set under an
+        # already-emitted descriptor.
+        if self._closed_gate_logics is None:  # prepared without stage (tests)
+            self._closed_gate_logics = await self._closed_gates()
+        closed = self._closed_gate_logics
         saved = self._data_logics
         self._data_logics = tuple(
             dl
@@ -865,7 +871,11 @@ class GeecsDetector(StandardDetector):
             self._data_logics = saved
 
     async def _closed_gates(self) -> set[int]:
-        """``id()`` of each gated plugin logic whose gate does not read ``on`` right now."""
+        """``id()`` of each gated plugin logic whose gate does not read ``on`` right now.
+
+        Called once per stage session (one INFO line per closed channel per
+        session, not per shot).
+        """
         closed: set[int] = set()
         for logic, variable, signal in self._plugin_gates:
             value = await signal.get_value()

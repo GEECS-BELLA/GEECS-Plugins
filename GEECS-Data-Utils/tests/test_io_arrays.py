@@ -9,6 +9,8 @@ import numpy as np
 import pytest
 
 from geecs_data_utils.io import (
+    WAVEFORM_ATTRIBUTE_KEYS,
+    WAVEFORM_AXIS_KEYS,
     decode_array_payload,
     decode_csv_values,
     decode_labview_waveform,
@@ -95,6 +97,8 @@ def test_picoscope_trace_decodes_to_volts_with_its_axis() -> None:
     assert wf.attributes["dx"] == pytest.approx(4e-9)
     assert wf.attributes["x0"] == 0.0
     assert wf.attributes["name"] == "Channel0"
+    assert tuple(wf.attributes) == WAVEFORM_ATTRIBUTE_KEYS
+    assert WAVEFORM_AXIS_KEYS == WAVEFORM_ATTRIBUTE_KEYS[:3]
     # A 100 mV range with no beam: every sample well inside the range.
     assert np.all(np.abs(wf.values) < 0.1)
     assert wf.values.std() > 0  # real samples, not a flat line

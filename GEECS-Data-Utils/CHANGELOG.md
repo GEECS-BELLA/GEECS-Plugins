@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.1] - 2026-09-21
+
+### Added
+
+- `io.arrays.WAVEFORM_AXIS_KEYS` / `WAVEFORM_ATTRIBUTE_KEYS` — the keys a
+  decoded waveform's attributes carry, spelled once so the PVA gateway's
+  per-frame `wave_*` attribute names derive from them instead of re-spelling
+  the decoder's literals (review of #948).
+
 ## [0.35.0] - 2026-09-21
 
 ### Added

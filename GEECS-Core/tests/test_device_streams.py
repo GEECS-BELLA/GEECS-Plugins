@@ -115,11 +115,17 @@ def test_a_gate_the_db_does_not_list_drops_the_pair_with_a_warning(
         {"name": "scopeTrace.Channel0"},
         {"name": "Enable.ChA"},
         {"name": "scopeTrace.Channel1"},
+        {"name": "Enable.ChC"},
     ]
     with caplog.at_level(logging.WARNING, logger="geecs_core.db.device_streams"):
         gates = capture_gates("PicoscopeV2", rows)
     assert gates == {"scopeTrace.Channel0": "Enable.ChA"}
-    assert any("Enable.ChB" in r.getMessage() for r in caplog.records)
+    messages = [r.getMessage() for r in caplog.records]
+    # Channel1's gate (ChB) is unknown: one gate warning.  Channel2/3 are
+    # themselves unknown: that is the capture list's warning, not a second
+    # one here — the gate side is not even looked up.
+    assert len(messages) == 1 and "Enable.ChB" in messages[0]
+    assert not any("scopeTrace.Channel2" in m or "Enable.ChC" in m for m in messages)
 
 
 def test_served_arrays_are_the_typed_arrays_minus_the_exclusions() -> None:

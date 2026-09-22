@@ -274,11 +274,15 @@ def capture_gates(
     entry = streams_for(devicetype)
     if entry is None or not entry.gate:
         return {}
+    by_lower = rows_by_lower(rows)
     out: dict[str, str] = {}
     for captured, gate in entry.gate.items():
-        resolved = _resolve([captured, gate], rows, devicetype=devicetype, which="gate")
-        if len(resolved) == 2:
-            out[resolved[0]] = resolved[1]
+        row = by_lower.get(captured.lower())
+        if row is None:
+            continue  # the capture list's own resolution already warned about it
+        resolved = _resolve([gate], rows, devicetype=devicetype, which="gate")
+        if resolved:
+            out[str(row["name"])] = resolved[0]
     return out
 
 

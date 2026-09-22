@@ -620,6 +620,20 @@ class GeecsNamespace:
                 gate = gates.get(var)
                 if gate is None:
                     continue
+                if gate.lower() in settable_names:
+                    # Bound as a Movable child, not a scalar column: the
+                    # detector's gate read is a read-only subscribed signal.
+                    logger.warning(
+                        "%s: %s is gated by %r, which the DB marks settable "
+                        "(set='yes') so it is bound as a scan-settable child, not a "
+                        "read-only column — not captured. Capture gating needs the "
+                        "gate subscribed read-only (get='yes', set='no').",
+                        device,
+                        var,
+                        gate,
+                    )
+                    plugin_vars.remove(var)
+                    continue
                 if gate.lower() not in readable_lower:
                     logger.warning(
                         "%s: %s is gated by %r, which is not subscribed (DB get='yes') "

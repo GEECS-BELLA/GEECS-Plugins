@@ -45,6 +45,17 @@ from geecs_data_utils.io.images import _flatten_string_to_bytes
 
 ArrayKind = Literal["pairs", "csv", "waveform"]
 
+#: The keys a waveform's :attr:`DecodedArray.attributes` carries — the axis
+#: (``x0``, ``dx`` in seconds, ``samples``) and the raw scaling — spelled
+#: here once for every consumer that stores or displays them.
+WAVEFORM_AXIS_KEYS: tuple[str, ...] = ("x0", "dx", "samples")
+WAVEFORM_ATTRIBUTE_KEYS: tuple[str, ...] = (
+    *WAVEFORM_AXIS_KEYS,
+    "offset",
+    "gain",
+    "name",
+)
+
 _PAIR = re.compile(r"\[([^\[\]]*)\]")
 #: The whole pairs payload: ``[`` rows ``]`` with rows ``[..]`` separated by
 #: commas — nothing else between, before or after (a stray bracket or a
@@ -151,14 +162,13 @@ def decode_labview_waveform(blob: Union[str, bytes]) -> DecodedArray:
     return DecodedArray(
         values=offset + gain * raw,
         kind="waveform",
-        attributes={
-            "x0": x0,
-            "dx": dx,
-            "samples": count,
-            "offset": offset,
-            "gain": gain,
-            "name": name,
-        },
+        attributes=dict(
+            zip(
+                WAVEFORM_ATTRIBUTE_KEYS,
+                (x0, dx, count, offset, gain, name),
+                strict=True,
+            )
+        ),
     )
 
 

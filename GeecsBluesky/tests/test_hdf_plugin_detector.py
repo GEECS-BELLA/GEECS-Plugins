@@ -397,8 +397,10 @@ def _gated_scope(RE: RunEngine, tmp_path: Path) -> GeecsDetector:
 def test_a_gated_plugin_is_armed_only_while_its_enable_reads_on(
     RE: RunEngine, tmp_path: Path
 ) -> None:
-    """Channel A on, B off → one plugin prepared, one data key; flipping B on and
-    preparing again arms both (the stale context is not reused)."""
+    """Channel A on, B off at stage → one plugin prepared, one data key.  A gate
+    flipped *inside* the session changes nothing (the run's descriptor is
+    already out, and the stock detector re-runs the prepare context on every
+    trigger — review of #948); re-staging picks the new state up."""
     ict = _gated_scope(RE, tmp_path)
     set_mock_value(ict.enable_cha, "on")
     set_mock_value(ict.enable_chb, "off")
@@ -410,14 +412,27 @@ def test_a_gated_plugin_is_armed_only_while_its_enable_reads_on(
     assert "u_ict" in described and described["u_ict"]["shape"] == [1, 3000]
     assert "u_ict-scopetrace_channel1" not in described
 
+    # Mid-session flip: the armed set is latched, and the stock code keeps
+    # reusing the same data providers (a rebuild would re-reference frame 0
+    # under a second stream_resource — the #948 review's abort).
+    providers_before = list(ict._prepare_ctx.streamable_data_providers)
     set_mock_value(ict.enable_chb, "on")
+    _run(RE, lambda: ict.prepare(STRICT_TRIGGER_INFO))  # what every trigger does too
+    assert list(ict._prepare_ctx.streamable_data_providers) == providers_before
+    assert _run(RE, lambda: ict.hdf_scopetrace_channel1.capture.get_value()) is False
+    assert "u_ict-scopetrace_channel1" not in _run(RE, lambda: ict.describe())
+    _run(RE, lambda: ict.unstage())
+
+    # The next session sees B on: both armed, both described.
+    _run(RE, lambda: ict.stage())
     _run(RE, lambda: ict.prepare(STRICT_TRIGGER_INFO))
     assert _run(RE, lambda: ict.hdf_scopetrace_channel1.capture.get_value()) is True
-    described = _run(RE, lambda: ict.describe())
-    assert "u_ict-scopetrace_channel1" in described
+    assert "u_ict-scopetrace_channel1" in _run(RE, lambda: ict.describe())
+    _run(RE, lambda: ict.unstage())
 
-    # Off again: the second plugin drops out of the next run.
+    # Off again at the following stage: the second plugin drops out.
     set_mock_value(ict.enable_chb, "off")
+    _run(RE, lambda: ict.stage())
     _run(RE, lambda: ict.prepare(STRICT_TRIGGER_INFO))
     assert "u_ict-scopetrace_channel1" not in _run(RE, lambda: ict.describe())
     _run(RE, lambda: ict.unstage())

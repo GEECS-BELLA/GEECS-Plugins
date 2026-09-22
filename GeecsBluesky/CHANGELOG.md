@@ -12,9 +12,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   GEECS-Core 0.11.0's `capture_gates`): a file plugin whose gate variable —
   one of the detector's own scalar readbacks, the Picoscope's
   `Enable.Ch<X>` for `scopeTrace.Channel<N>` — does not read `on` at
-  `prepare` takes no part in that run: not armed, no data key.  A change in
-  the armed set invalidates the stock prepare context, so a channel
-  enabled between runs is captured on the next.  The namespace passes a
+  **`stage`** takes no part in that session: not armed, no data key.  The
+  gates are latched once per stage, never re-read per prepare or trigger
+  (the stock detector re-runs its prepare context on every trigger, and
+  the run's descriptor is emitted once — a gate moving inside a run must
+  not move the armed set; review of #948), so a channel enabled between
+  runs is captured on the next.  The namespace passes a
   gate only when the gate variable is one of the device's readable columns
   (DB `get='yes'`, so the CA gateway serves it); a gated stream whose gate
   it cannot read is **not captured**, with a WARNING naming the flag to
