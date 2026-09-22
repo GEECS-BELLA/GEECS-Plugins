@@ -102,6 +102,41 @@ def test_expand_builds_the_stock_plan_item() -> None:
     }
 
 
+def test_native_image_save_rides_as_the_plans_keyword_only_when_set() -> None:
+    """Unset defers to the experiment default the worker reads per run (#738)."""
+    assert "native_image_save" not in expand_preset(_preset()).kwargs
+    item = expand_preset(_preset(native_image_save=False))
+    assert item.kwargs["native_image_save"] is False
+    assert "native_image_save" not in item.kwargs["md"]  # a plan argument, not md
+
+
+@pytest.mark.parametrize(
+    ("field", "copy", "top_levels"),
+    [
+        ("native_image_save", True, (False, None)),
+        ("trigger_profile", "HTU-Other", ("HTU-Normal", None)),
+    ],
+)
+def test_run_level_field_in_plan_kwargs_is_refused_not_merged(
+    field, copy, top_levels
+) -> None:
+    """The preset field is the one source of truth: a kwargs copy cannot win (Codex, #944).
+
+    Both run-level fields: the switch, and the trigger profile whose
+    ``setdefault`` used to let a kwargs copy override the field.
+    """
+    from geecs_bluesky.qs_client.presets import RUN_LEVEL_FIELDS
+
+    assert field in RUN_LEVEL_FIELDS
+    call = sweep_call()
+    call["kwargs"][field] = copy
+    for top_level in top_levels:
+        with pytest.raises(
+            GeecsConfigurationError, match="preset field, not a plan keyword"
+        ):
+            expand_preset(_preset(**{field: top_level}, plan=call))
+
+
 def test_count_preset_and_pair_spelled_variables() -> None:
     preset = _preset(
         trigger_profile=None,

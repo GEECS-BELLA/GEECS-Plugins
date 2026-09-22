@@ -442,6 +442,14 @@ class LvNativeFileDataLogic(DetectorDataLogic):
     ``save=on`` left by a crash would otherwise write today's shots into
     yesterday's folder (found live 26_0828) — so ``stage`` always clears it.
 
+    ``enabled`` is the run-level switch behind the bound plans'
+    ``native_image_save`` argument (PNG retirement, #738): ``False`` keeps
+    the controls owned — ``stop`` still clears a stale ``save=on`` at
+    ``stage`` — but ``prepare_single`` never switches saving on and adds no
+    column, exactly as with no path provider.  The plans set it per run on
+    the cameras the file plugin covers and restore it after
+    (:func:`~geecs_bluesky.plans.registry.native_image_save_wrapper`).
+
     The device directory is created with ``mkdir(exist_ok=True)`` **inside an
     existing scan folder** only — the scan folder itself is claimed by the
     scanner (root ``CLAUDE.md``, "Analysis code is a consumer of scan
@@ -484,15 +492,22 @@ class LvNativeFileDataLogic(DetectorDataLogic):
         self._directory_name = directory_name
         self._device_path = device_path
         self.directory: Path | None = None
+        #: The run-level switch; ``False`` = the controls stay owned, saving stays off.
+        self.enabled: bool = True
+
+    @property
+    def wanted(self) -> bool:
+        """Whether a prepare would switch saving on: a path provider, and ``enabled``."""
+        return self._path_provider is not None and self.enabled
 
     async def prepare_single(self, datakey_name: str) -> ReadableDataProvider:
         """Point the device at this run's directory and switch saving on.
 
-        Without a path provider the device records scalars only: saving
-        stays off (``stop`` already cleared a stale flag at ``stage``) and no
-        column is produced.
+        Without a path provider — or with ``enabled`` off — the device
+        records scalars only: saving stays off (``stop`` already cleared a
+        stale flag at ``stage``) and no column is produced.
         """
-        if self._path_provider is None:
+        if not self.wanted:
             return _NoProvider()
         info = self._path_provider(self._directory_name)
         directory = Path(info.directory_path)
@@ -686,19 +701,19 @@ class GeecsDetector(StandardDetector):
             self._scalars_logic,
         ]
         self.native_save = bool(native_save or path_provider is not None)
+        self._native_logic: LvNativeFileDataLogic | None = None
         if self.native_save:
             path_pv = ca_pv(experiment, device, "localsavingpath")
             save_pv = ca_pv(experiment, device, "save")
             self.localsavingpath = epics_signal_rw(str, path_pv, setpoint_pv(path_pv))
             self.save = epics_signal_rw(str, save_pv, setpoint_pv(save_pv))
-            logics.append(
-                LvNativeFileDataLogic(
-                    self.localsavingpath,
-                    self.save,
-                    path_provider,
-                    directory_name=device,
-                )
+            self._native_logic = LvNativeFileDataLogic(
+                self.localsavingpath,
+                self.save,
+                path_provider,
+                directory_name=device,
             )
+            logics.append(self._native_logic)
         self._hdf_ios: list[GeecsHdfIO] = []
         #: Gated plugin logics with the gate signal read at each prepare
         #: (a list: the stock logic is an unhashable dataclass, compared by id).
@@ -787,6 +802,32 @@ class GeecsDetector(StandardDetector):
         return any(
             id(logic) not in closed for logic, _, _ in self._plugin_gates
         ) or len(self._plugin_gates) < len(self._hdf_ios)
+
+    @property
+    def native_image_save(self) -> bool:
+        """Whether a strict prepare switches LabVIEW's per-shot saving on.
+
+        ``False`` for a scalars-only device, for a camera whose frames are
+        not wanted (``native_save`` without a path provider) and for one
+        the run switched off — the bound plans' ``native_image_save``
+        argument, applied to plugin-backed cameras only
+        (:func:`~geecs_bluesky.plans.registry.native_image_save_wrapper`,
+        PNG retirement #738).  Setting it flips the data logic's switch and
+        nothing else: the controls stay owned, so a stale ``save=on`` is
+        still cleared at ``stage``.  A device without the controls refuses
+        the set — there is nothing to switch.
+        """
+        logic = self._native_logic
+        return logic is not None and logic.wanted
+
+    @native_image_save.setter
+    def native_image_save(self, on: bool) -> None:
+        if self._native_logic is None:
+            raise GeecsConfigurationError(
+                f"{self._geecs_device_name} has no LabVIEW saving controls (no "
+                "save / localsavingpath in the DB): native_image_save cannot be set"
+            )
+        self._native_logic.enabled = bool(on)
 
     @property
     def missed_shot(self) -> bool:

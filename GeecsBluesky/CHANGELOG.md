@@ -4,6 +4,8 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+> **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
+
 ## [0.99.0] - 2026-09-21
 
 ### Added
@@ -61,6 +63,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   record-side PR gives it a line renderer (a 1-D stack would not render
   there at all) — the arc's read-side debt, recorded in the brief.
 
+## [0.97.1] - 2026-09-21
+
+### Changed
+
+- **A `trigger_profile` copy in a preset's `plan.kwargs` is refused**, as a
+  `native_image_save` copy has been since 0.97.0: `expand_preset` used
+  `setdefault`, so a kwargs copy silently overrode the top-level
+  `Preset.trigger_profile` (the Codex review of #944 flagged the shape for
+  the switch; the profile had the same one). The two run-level fields are
+  now `RUN_LEVEL_FIELDS`, handled by one rule: set at the preset's top
+  level, assigned into the plan keyword when set, refused in kwargs. No
+  preset in the configs corpus (86 scanned) carried a copy; the scanner
+  already drops both on save.
+
 ## [0.97.0] - 2026-09-21
 
 ### Changed
@@ -97,6 +113,52 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   WARNING: beside the #934 misclassification, every plugin-backed camera
   falls back to the one-image guess — the FROG arms on `SpatialImage` and
   times out, a MagSpec camera drops `ImageInterp`.
+## [0.97.0] - 2026-09-20
+
+### Added
+
+- **`native_image_save` — the run-level switch for LabVIEW's per-shot files
+  on plugin-backed cameras (PNG retirement, #738).** The scan verbs and
+  `optimize` take `native_image_save: bool | None`; the preset expander
+  passes `Preset.native_image_save` through when set and refuses a copy in
+  `plan.kwargs` (the preset field is the one source of truth). Unset, the worker
+  reads `ExperimentDefaults.native_image_save` **at every run**
+  (`resolve_native_image_save`), so an edit to `experiment_defaults.yaml`
+  reaches the next scan without reopening the environment; an unreadable
+  defaults file fails open to the dual-write with one journal warning.
+  `native_image_save_wrapper` sets the switch on the run's strict
+  plugin-backed cameras before staging and restores the construction
+  default (dual-write) in a `finalize_wrapper` — success, abort or stop;
+  `RE.halt()` skips finalizers by bluesky contract, and the next scan verb
+  sets the switch for itself anyway. It reaches **plugin-backed cameras
+  only**: a device saving through LabVIEW without a file plugin (a camera
+  on a box not yet rolled, a proprietary-format DAQ) has no other record
+  and is never touched, whatever the switch says — the journal names both
+  groups per run. A `.scalars` view, a non-essential stream and a gated
+  batch write no native files either way and are not touched or named.
+  The start document carries `native_image_save` as the run's **switch**,
+  not a record of what was written (EVENT_SCHEMA.md: the
+  `-nonscalar_save_path` column is that record).
+- `LvNativeFileDataLogic.enabled` / `GeecsDetector.native_image_save`: off
+  keeps the controls owned — a stale `save=on` is still cleared at `stage`
+  (the 26_0828 lesson) — but `prepare` never switches saving on, creates no
+  device directory and adds no `-nonscalar_save_path` column, exactly as
+  a camera without a path provider. A device without the controls refuses
+  the set. `native_image_save` joins `RESERVED_DEVICE_ATTRIBUTES` (a DB
+  variable of that name would bind as `native_image_save_`, the
+  `settable_attribute` rule).
+
+### Notes
+
+- Gated runs were already PNG-free for plugin-backed cameras (the fly
+  prepare leaves the native logic out); the switch matters for strict
+  runs. The dual-write diff (`geecs-pva-gateway diff`) reports a switch-off
+  scan as `capture_only`.
+- **Operator step:** the new plan argument changes the bound plans'
+  signatures — `systemctl restart geecs-qserver` after deploying (the
+  environment reopen regenerates the plan list; `permissions reload lists`
+  alone would reload the pre-deploy signatures), or the manager refuses
+  the kwarg.
 
 ## [0.96.0] - 2026-09-18
 

@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.32.0] - 2026-09-21
 
-> Versions 0.31.0 and 0.31.1 are deliberately skipped on this branch: they
-> were published on `master` by other changes, and reusing a number for
-> different content would leave duplicates to reconcile at the arc merge.
+> 0.31.0 and 0.31.1 were published on `master` while this arc was in
+> flight, so the arc skipped both rather than reuse a number for different
+> content. This merge brings them in below; nothing is missing.
 
 ### Added
 
@@ -37,7 +37,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This covers the authored document only; the matching RUNTIME case (a
   valid config whose stack is absent at analysis time) is refused in
   ScanAnalysis 1.25.0, where the per-shot fallback lives.
+## [0.31.1] - 2026-09-21
 
+### Changed
+
+- `PlanCall` docstring: the run-level fields `trigger_profile` and
+  `native_image_save` are preset fields, never `plan.kwargs` — the client
+  refuses a copy there (GeecsBluesky 0.97.1). The old sentence said a
+  `trigger_profile` kwarg was "normally the preset's own field", which
+  described the `setdefault` precedence that no longer exists. Docstring
+  only; the rendered reference shows a model's first paragraph and is
+  unchanged.
+
+## [0.31.0] - 2026-09-20
+
+### Added
+
+- **`native_image_save`, rebuilt where the scanner submits (PNG retirement,
+  GEECS-Plugins#738).** `Preset.native_image_save: bool | None` is the
+  run-level switch for LabVIEW's per-shot files (PNGs): one value per
+  scan, reaching only the cameras whose frames the PVA gateway's file
+  plugin captures — a device without a plugin (no PVA stream, a
+  proprietary format) always keeps its native files, and a scalars-only
+  entry is unaffected. Unset defers to
+  `ExperimentDefaults.native_image_save: bool = True`, which the worker
+  reads at every scan. The 0.30.0 removal took the field off `ScanRequest`
+  and `ExperimentDefaults` because nothing read it; this is the reader's
+  contract, on the document that is actually submitted. The
+  `ExperimentDefaults` drop-validator of 0.30.0 is gone with it — a defaults
+  file saying `native_image_save: false` now means it.
+
+### Changed
+
+- `ScanRequest` still refuses a set `native_image_save` (format v4): the
+  remedy now points at `Preset.native_image_save`, since a `ScanRequest` is
+  not the submission shape.
 ## [0.30.0] - 2026-09-17
 
 ### Removed

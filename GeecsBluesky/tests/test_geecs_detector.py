@@ -238,6 +238,46 @@ def test_failed_status_carries_the_geecs_error(RE: RunEngine) -> None:
     assert isinstance(info.value.__cause__, GeecsTriggerTimeoutError)
 
 
+def test_native_image_save_off_keeps_the_controls_and_writes_nothing(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """The run-level switch (#738): off → stale flag still cleared, saving never on, no dir, no column."""
+    (tmp_path / "Scan001").mkdir()
+    cam = _camera(RE, tmp_path)
+    assert cam.native_image_save  # the construction default: dual-write
+    set_mock_value(cam.save, "on")  # left on by a crashed run
+    cam.native_image_save = False
+    assert not cam.native_image_save
+    _run(RE, lambda: cam.stage())
+    assert _run(RE, lambda: cam.save.get_value()) == "off"  # still owned, still cleared
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert _run(RE, lambda: cam.save.get_value()) == "off"
+    assert not (tmp_path / "Scan001" / "UC_TestCam").exists()
+    assert "uc_testcam-nonscalar_save_path" not in _run(RE, lambda: cam.describe())
+    _run(RE, lambda: cam.unstage())
+    # Switched back on, the next run dual-writes again.
+    cam.native_image_save = True
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert _run(RE, lambda: cam.save.get_value()) == "on"
+    assert (tmp_path / "Scan001" / "UC_TestCam").is_dir()
+    _run(RE, lambda: cam.unstage())
+
+
+def test_native_image_save_needs_the_controls() -> None:
+    """No save / localsavingpath → nothing to switch: reads False, refuses a set."""
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    scalar_only = GeecsDetector("UC_Other", ["MeanCounts"], name="uc_other")
+    assert not scalar_only.native_image_save
+    with pytest.raises(GeecsConfigurationError, match="no LabVIEW saving controls"):
+        scalar_only.native_image_save = False
+    unwanted = GeecsDetector("UC_Cam", ["MeanCounts"], name="uc_cam", native_save=True)
+    assert not unwanted.native_image_save  # controls, but no path provider
+    unwanted.native_image_save = True  # accepted: still nothing to switch on
+    assert not unwanted.native_image_save
+
+
 def test_native_save_without_a_path_clears_a_stale_flag_and_adds_no_column(
     RE: RunEngine,
 ) -> None:
