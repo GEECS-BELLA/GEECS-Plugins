@@ -434,7 +434,7 @@ fillFormFromPreset(S.presetDoc);
 var loaded = $("trig").value;
 $("trig").value = "edited";
 var saved = buildPreset();
-S.presetDoc.plan.kwargs.trigger_profile = null;
+S.presetDoc.trigger_profile = null;  // the FIELD cleared; the kwargs copy still says "effective"
 fillFormFromPreset(S.presetDoc);
 console.log(JSON.stringify({loaded, saved, cleared: $("trig").value}));
 """
