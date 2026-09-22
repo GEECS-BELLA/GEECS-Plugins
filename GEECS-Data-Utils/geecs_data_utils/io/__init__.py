@@ -38,11 +38,13 @@ from geecs_data_utils.io.scan_stack import (
     LABVIEW_EPOCH_OFFSET,
     ShotRef,
     find_stack_file,
+    frame_index_for_acq_timestamp,
     is_stack_file,
     read_shot,
     parse_attribute_name,
     read_stack_attributes,
     read_stack_timestamps,
+    stack_content_kind,
     stack_scalar_variables,
 )
 
@@ -63,6 +65,7 @@ __all__ = [
     "decode_labview_waveform",
     "decode_nested_pairs",
     "find_stack_file",
+    "frame_index_for_acq_timestamp",
     "is_stack_file",
     "load_image_from_h5",
     "read_1d_data",
@@ -72,6 +75,7 @@ __all__ = [
     "parse_attribute_name",
     "read_stack_attributes",
     "read_stack_timestamps",
+    "stack_content_kind",
     "stack_scalar_variables",
     "read_tsv_file",
 ]

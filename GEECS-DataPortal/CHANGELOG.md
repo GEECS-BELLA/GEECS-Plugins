@@ -3,6 +3,55 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.0] - 2026-09-21
+
+### Added
+
+- **The Images tab draws a line for a device whose shots are traces.** The
+  PVA gateway's file plugin now captures array variables — scope traces and
+  spectra — through the same stack layout as a camera, and the tab
+  classified any folder holding a stack as an image stack: a `(2048, 2)`
+  lineout rendered as a two-pixel-wide strip and a 1-D waveform would not
+  render at all. `resources.stack_content` asks the stack which it is (the
+  plugin declares it — rank alone cannot tell `(N, H, W)` pixels from
+  `(N, n, 2)` rows) and the tab serves a line instead.
+  - `GET /api/run/{uid}/trace` — one shot as a server-authored figure
+    (`figures.trace_figure`, the same figures.py + theme-sentinel path as
+    every other plot here), with the image endpoint's refusals: a shot
+    beyond the recorded events and a device that missed the shot both 404.
+    A camera shot stays a rendered PNG — a 2048² frame as JSON is absurd —
+    while a few thousand trace samples travel as a figure and keep their
+    hover readout.
+  - `resources.load_shot_trace` reads it, through the same
+    canonical-millisecond shot→frame join the image path uses and the
+    reader that trims the gateway's padding
+    (`Data1DType.PVA_STACK`, GEECS-Data-Utils 0.36.0) — the portal never
+    sees a pad ceiling or a `wave_dx`.
+  - The trace is drawn only while the Images pane is visible — by the boot
+    path and by the theme handler alike — and re-themed without wiping a
+    live graph's DOM. Plotly sizes a figure against its container and the
+    vendored build carries no `ResizeObserver`, so a figure laid out into a
+    `display:none` pane stays zero-sized (a shared link whose tab is `plot`
+    opens exactly that way, and re-theming from another tab is the same
+    door). Returning to the tab redraws the cached figure — never refetches
+    — so a palette change made elsewhere still lands. Pinned by node tests
+    over the template's own source.
+  - A non-finite sample becomes a gap in the line rather than a 500.
+    `page_figure` — the one gate every served figure passes through — now
+    maps a non-finite float to `null`. Only an **all**-NaN lineout row is
+    padding, so a row whose value column alone is NaN reaches the figure
+    intact, and `json.dumps` emits invalid JSON for it (Starlette's
+    `JSONResponse` refuses it outright).
+  - The send-to-logbook caption names the trace. `plotCaption` fell
+    through to `S.y` / `S.x` — the Plot tab's scalar state — for any host
+    it did not recognise, so a trace posted into the logbook carried an
+    unrelated caption.
+  - A trace device's tab has no per-bin view, no ephemeral image diagnostic
+    and no image cosmetics: those are pixel controls, and averaging traces
+    across shots is the consumer's job because each shot carries its own
+    axis. The shared per-shot/binned state is untouched — the Plot tab
+    stays binned.
+
 ## [0.29.3] - 2026-09-17
 
 ### Changed

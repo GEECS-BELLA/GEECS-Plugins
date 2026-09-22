@@ -3,6 +3,14 @@
 This module provides a unified interface for reading 1D data (x vs y) from different
 file formats, similar to how `read_imaq_image` handles 2D image data. The data type
 is specified via a configuration dataclass rather than relying solely on file extensions.
+
+One of those formats is not a per-shot file: ``pva_stack`` reads one shot
+out of the PVA gateway's per-device capture stack
+(:mod:`geecs_data_utils.io.scan_stack`), so a Bluesky scan's scope traces
+and spectra reach the same 1-D analyzers that read a native scope file —
+the path handed in is a
+:class:`~geecs_data_utils.io.scan_stack.ShotRef` and nothing above this
+module changes.
 """
 
 from __future__ import annotations
@@ -16,6 +24,8 @@ from typing import Optional, Union
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
 
+from geecs_data_utils.io.arrays import WAVEFORM_ATTRIBUTE_SUFFIXES
+
 
 class Data1DType(str, Enum):
     """Supported 1D file formats."""
@@ -25,6 +35,7 @@ class Data1DType(str, Enum):
     CSV = "csv"
     TSV = "tsv"
     NPY = "npy"
+    PVA_STACK = "pva_stack"
 
 
 class Data1DConfig(BaseModel):
@@ -114,7 +125,9 @@ def read_1d_data(file_path: Union[Path, str], config: Data1DConfig) -> Data1DRes
     Parameters
     ----------
     file_path : Union[Path, str]
-        Path to the data file
+        Path to the data file — for ``pva_stack``, a
+        :class:`~geecs_data_utils.io.scan_stack.ShotRef` naming the stack
+        and the frame inside it.
     config : Data1DConfig
         Configuration specifying how to parse the file
 
@@ -136,7 +149,9 @@ def read_1d_data(file_path: Union[Path, str], config: Data1DConfig) -> Data1DRes
         If required dependencies for the data type are not installed
 
     """
-    file_path = Path(file_path)
+    # Never re-wrap: a ShotRef IS a Path, and Path(ref) would drop the
+    # frame index the pva_stack reader travels on.
+    file_path = file_path if isinstance(file_path, Path) else Path(file_path)
 
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
@@ -152,6 +167,8 @@ def read_1d_data(file_path: Union[Path, str], config: Data1DConfig) -> Data1DRes
         data, metadata, auxiliary_column_data = _read_tsv(file_path, config)
     elif config.data_type == Data1DType.NPY:
         data, metadata, auxiliary_column_data = _read_npy(file_path, config)
+    elif config.data_type == Data1DType.PVA_STACK:
+        data, metadata, auxiliary_column_data = _read_pva_stack(file_path, config)
     else:
         raise ValueError(f"Unsupported data type: {config.data_type}")
 
@@ -491,6 +508,147 @@ def _read_npy(
     metadata = {"x_units": None, "y_units": None, "x_label": None, "y_label": None}
 
     return result_data, metadata, auxiliary_column_data
+
+
+def _trim_padding(frame: np.ndarray, source: str) -> np.ndarray:
+    """*frame* with the gateway's trailing NaN pad rows removed.
+
+    The gateway pads every array frame to its devicetype's ceiling with
+    NaN rows so one run has one shape
+    (``geecs_pva_gateway.streams.pad_rows``).  Handing a consumer the
+    padded frame is worse than useless: a padded set is same-shape, so a
+    shape guard that would otherwise refuse to average traces of
+    different lengths passes, and column 1 is averaged index-wise across
+    axes that do not line up — a plausible spectrum that is wrong.
+
+    Raises
+    ------
+    ValueError
+        The frame is entirely padding, or a pad row sits between real
+        ones (a frame written wrong — never silently shortened).
+    """
+    rows = frame.reshape(len(frame), -1)
+    real = ~np.all(np.isnan(rows), axis=1)
+    kept = int(np.count_nonzero(real))
+    if kept == 0:
+        raise ValueError(f"{source}: frame is entirely padding (no values)")
+    if not real[:kept].all():
+        raise ValueError(
+            f"{source}: padding between values ({kept} of {len(frame)} rows "
+            "are values, but they are not the leading ones)"
+        )
+    return frame[:kept]
+
+
+def _read_pva_stack(
+    file_path: Path, config: Data1DConfig
+) -> tuple[np.ndarray, dict, dict[str, np.ndarray]]:
+    """Read one shot of a PVA capture stack as x-vs-y, at its true length.
+
+    *file_path* must be a
+    :class:`~geecs_data_utils.io.scan_stack.ShotRef` — the stack holds
+    every shot of the scan, so the frame index travels with the path.
+
+    Two stack shapes, one result.  A **lineout** stack (``(n, 2)`` frames:
+    the MagSpec spectra) carries its own axis in column 0.  A
+    **waveform** stack (``(n,)`` frames: the scope traces) carries values
+    only, and its axis is rebuilt from the per-frame ``wave_x0`` /
+    ``wave_dx`` the gateway writes beside it — uniformly sampled, so two
+    numbers describe it and storing a time per sample would store
+    ``x0 + i * dx`` over and over.  A waveform stack without a finite
+    ``wave_dx`` (an array shape that declared no axis) falls back to the
+    sample index, unlabelled rather than wrong.
+    """
+    _raise_if_auxiliary_columns_requested(config, "pva_stack")
+    from geecs_data_utils.io.scan_stack import (
+        ATTRIBUTES_GROUP,
+        FRAMES_DATASET,
+        open_stack,
+        parse_attribute_name,
+        stack_content_kind,
+    )
+
+    shot_index = getattr(file_path, "shot_index", None)
+    if shot_index is None:
+        raise ValueError(
+            "pva_stack: a stack holds every shot of the scan, so the frame "
+            "index must travel with the path — pass a ShotRef "
+            "(geecs_data_utils.io.scan_stack.ShotRef), not a plain Path"
+        )
+
+    with open_stack(file_path) as f:
+        kind = stack_content_kind(f)
+        if kind == "image":
+            raise ValueError(
+                f"{file_path}: an image stack is pixels, not x-vs-y data; "
+                "read it with read_shot / read_imaq_image"
+            )
+        frames = f[FRAMES_DATASET]
+        if not 0 <= shot_index < frames.shape[0]:
+            raise IndexError(
+                f"shot_index {shot_index} outside stack of {frames.shape[0]} "
+                f"frames: {file_path}"
+            )
+        frame = np.asarray(frames[shot_index], dtype=np.float64)
+        group = f[ATTRIBUTES_GROUP]
+        axis: dict[str, float] = {}
+        variable: Optional[str] = None
+        for key in group:
+            parsed = parse_attribute_name(key)
+            if parsed is None or parsed[2] not in WAVEFORM_ATTRIBUTE_SUFFIXES:
+                continue
+            variable = parsed[1]
+            axis[parsed[2]] = float(group[key][shot_index])
+
+    metadata = {
+        "x_units": None,
+        "y_units": None,
+        "x_label": None,
+        "y_label": variable,
+    }
+
+    if kind == "lineout":
+        # No declared row count for a lineout (wave_samples is the
+        # waveform's), so its true length is where the pad begins.
+        frame = _trim_padding(frame, str(file_path))
+        columns = frame.shape[1]
+        if max(config.x_column, config.y_column) >= columns:
+            raise ValueError(
+                f"lineout frame has {columns} columns, but columns "
+                f"{config.x_column} / {config.y_column} were requested"
+            )
+        data = np.column_stack([frame[:, config.x_column], frame[:, config.y_column]])
+        return data, metadata, {}
+
+    # A waveform DECLARES its record length, so the declaration is the
+    # rule and sniffing the pad is only the fallback: a record length
+    # inferred from where the NaNs start is a guess where an exact number
+    # is on file.
+    samples = axis.get("wave_samples", float("nan"))
+    if np.isfinite(samples):
+        if not 1 <= samples <= len(frame):
+            raise ValueError(
+                f"{file_path}: wave_samples says {samples:g} but the frame "
+                f"holds {len(frame)} values"
+            )
+        frame = frame[: int(samples)]
+        if np.isnan(frame).any():
+            raise ValueError(
+                f"{file_path}: the {int(samples)}-sample record wave_samples "
+                "declares contains padding — the frame and its axis disagree"
+            )
+    else:
+        frame = _trim_padding(frame, str(file_path))
+    x0, dx = axis.get("wave_x0", float("nan")), axis.get("wave_dx", float("nan"))
+    if np.isfinite(x0) and np.isfinite(dx):
+        x_data = x0 + dx * np.arange(len(frame), dtype=np.float64)
+        # Seconds is the wire format's own definition of relativeInitialX /
+        # xIncrement, not a per-experiment fact — every other unit on this
+        # path rides in the analyzer config.
+        metadata["x_units"], metadata["x_label"] = "s", "Time"
+    else:
+        x_data = np.arange(len(frame), dtype=np.float64)
+    return np.column_stack([x_data, frame]), metadata, {}
 
 
 def _raise_if_auxiliary_columns_requested(config: Data1DConfig, data_type: str) -> None:

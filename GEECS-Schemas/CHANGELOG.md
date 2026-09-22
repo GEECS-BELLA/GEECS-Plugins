@@ -5,6 +5,39 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0] - 2026-09-21
+
+> Versions 0.31.0 and 0.31.1 are deliberately skipped on this branch: they
+> were published on `master` by other changes, and reusing a number for
+> different content would leave duplicates to reconcile at the arc merge.
+
+### Added
+
+- `Data1DType.pva_stack` — a 1D diagnostic can name the per-device capture
+  stack a Bluesky scan writes as its source, so scope traces and spectra
+  captured over PVA reach the same 1D analyzers a native scope file does.
+  The reader takes each trace's axis from the stack (column 0 for a
+  spectrum, the per-frame `wave_x0`/`wave_dx` for a waveform) and hands the
+  consumer the trace at its true length, never the padded one
+  (`geecs_data_utils.io.array1d`, GEECS-Data-Utils 0.36.0).
+- `AnalysisDiagnostic` refuses a **line** diagnostic whose two source
+  switches disagree. A camera diagnostic needs one (`scan.data_format`,
+  because the loader recognises a capture-stack `ShotRef` on sight); a line
+  diagnostic dispatches on `image.data_loading.data_type` as well, and
+  either switch alone reads nothing — a stack handed to a file reader, or a
+  per-shot path handed to the stack reader, fails once per shot and yields
+  an empty analysis rather than an error anyone sees. It also refuses
+  `background.method: from_file` together with `pva_stack`: a stack holds
+  every shot, so reading one needs a frame index and `background.file_path`
+  has nowhere to put one. And it refuses `line_stitcher` with
+  `device_hdf5` outright: `scan.data_format`'s own rule is "only for
+  analyzers that do not derive output names from the shot file path", and
+  the stitcher finds its sibling traces by rewriting the master's per-shot
+  path and writes its output beside that file — a stack frame has neither.
+  This covers the authored document only; the matching RUNTIME case (a
+  valid config whose stack is absent at analysis time) is refused in
+  ScanAnalysis 1.25.0, where the per-shot fallback lives.
+
 ## [0.30.0] - 2026-09-17
 
 ### Removed

@@ -538,7 +538,7 @@
       "properties": {
         "data_type": {
           "$ref": "#/$defs/Data1DType",
-          "description": "File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, 'csv' / 'tsv' for delimited text, 'npy' for a saved array."
+          "description": "File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, 'csv' / 'tsv' for delimited text, 'npy' for a saved array, 'pva_stack' for one shot of the per-device capture stack a Bluesky scan writes (traces and spectra alike; the reader takes its axis from the stack and hands back the trace at its true length, never the padded one)."
         },
         "trace_index": {
           "default": 0,
@@ -610,7 +610,8 @@
         "tdms_scope",
         "csv",
         "tsv",
-        "npy"
+        "npy",
+        "pva_stack"
       ],
       "title": "Data1DType",
       "type": "string"
@@ -2167,7 +2168,7 @@
             }
           ],
           "default": null,
-          "description": "'device_hdf5' reads the per-device frame stack the PVA gateway's file plugin writes (falls back to per-shot files when absent). Only for analyzers that do not derive output names from the shot file path.",
+          "description": "'device_hdf5' reads the per-device frame stack the PVA gateway's file plugin writes. A camera analyzer falls back to per-shot files when no stack can be mapped; a 1D analyzer loading 'pva_stack' does NOT \u2014 that loader cannot read a per-shot path, so the scan records no_data instead. Only for analyzers that do not derive output names from the shot file path.",
           "title": "Data Format"
         },
         "renderer": {

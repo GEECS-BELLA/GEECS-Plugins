@@ -1019,7 +1019,7 @@ How to read one trace file into an x-vs-y array.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `data_type` | `Data1DType` | yes | — | File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, 'csv' / 'tsv' for delimited text, 'npy' for a saved array. |
+| `data_type` | `Data1DType` | yes | — | File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, 'csv' / 'tsv' for delimited text, 'npy' for a saved array, 'pva_stack' for one shot of the per-device capture stack a Bluesky scan writes (traces and spectra alike; the reader takes its axis from the stack and hands back the trace at its true length, never the padded one). |
 | `trace_index` | `int` | no | 0 | Which trace / channel holds the y values (scope formats). |
 | `x_trace_index` | `int (optional)` | no | None | Which trace holds the x values; unset derives x from the waveform properties (scope formats). |
 | `delimiter` | `str (optional)` | no | None | Column delimiter for csv/tsv; unset uses the format's default. |
@@ -1089,7 +1089,7 @@ How the analyzer runs over a scan: order, granularity, what is saved, where file
 | `gdoc_slot` | `int (optional)` | no | None | Which cell (0-3) of the scan-log entry's 2x2 figure table gets this analyzer's summary; unset uploads figures as links instead. |
 | `device` | `str (optional)` | no | None | Data subfolder under the scan when it differs from the diagnostic name (stitched or post-processed outputs in a sibling folder). |
 | `file_tail` | `str (optional)` | no | None | Filename suffix that identifies this device's files ('.png', '.tdms', '_postprocessed.tsv'); unset uses the analyzer's default. |
-| `data_format` | `'per_shot_files' \| 'device_hdf5' (optional)` | no | None | 'device_hdf5' reads the per-device frame stack the PVA gateway's file plugin writes (falls back to per-shot files when absent). Only for analyzers that do not derive output names from the shot file path. |
+| `data_format` | `'per_shot_files' \| 'device_hdf5' (optional)` | no | None | 'device_hdf5' reads the per-device frame stack the PVA gateway's file plugin writes. A camera analyzer falls back to per-shot files when no stack can be mapped; a 1D analyzer loading 'pva_stack' does NOT — that loader cannot read a per-shot path, so the scan records no_data instead. Only for analyzers that do not derive output names from the shot file path. |
 | `renderer` | `RendererOptions` | no | RendererOptions(colormap_mode=None, cmap=None, vmin=None, vmax=None, duration=None, dpi=None, xlabel=None, ylabel=None, colorbar_label=None, mode=None, waterfall_sort_key=None, waterfall_sort_sigma=None, waterfall_sort_bounds=None, waterfall_even_y_spacing=None, figsize=None, figsize_inches=None) | Summary-figure cosmetics; unset fields keep the renderer defaults. |
 | `background_source` | `BackgroundSource (optional)` | no | None | A scan-dependent background (another scan, this scan's own shots, or an autodetected averaged file). Fixed files go on image.background. |
 
