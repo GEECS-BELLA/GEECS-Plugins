@@ -712,10 +712,9 @@ def _all_off_scope(
     """
     ict = GeecsDetector(
         "U_ICT",
-        ["Enable.ChA", "Enable.ChB"],
+        ["MeanCounts"],
         experiment="TestExp",
         name="u_ict",
-        datatypes={"Enable.ChA": str, "Enable.ChB": str},
         native_save=native_save,
         hdf_plugins=[],
     )

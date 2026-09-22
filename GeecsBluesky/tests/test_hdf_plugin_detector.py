@@ -359,10 +359,9 @@ def _gated_scope(RE: RunEngine, tmp_path: Path) -> GeecsDetector:
     plugin_path = lambda local: local.replace(str(tmp_path), r"\\nas\hdna2\data")  # noqa: E731
     ict = GeecsDetector(
         "U_ICT",
-        ["Enable.ChA", "Enable.ChB", "MeanCounts"],
+        ["MeanCounts"],
         experiment="TestExp",
         name="u_ict",
-        datatypes={"Enable.ChA": str, "Enable.ChB": str},
         hdf_plugins=[
             (
                 "scopeTrace.Channel0",
@@ -404,10 +403,9 @@ def test_a_detector_built_without_plugins_is_not_plugin_backed(
     """
     ict = GeecsDetector(
         "U_ICT",
-        ["Enable.ChA", "Enable.ChB", "MeanCounts"],
+        ["MeanCounts"],
         experiment="TestExp",
         name="u_ict",
-        datatypes={"Enable.ChA": str, "Enable.ChB": str},
         hdf_plugins=[],
     )
     connect_mock(RE, ict)

@@ -207,6 +207,7 @@ def compile_measurements(
                 images = capture_streams(
                     namespace.roster.variables[diag.name],
                     namespace.roster.types.get(diag.name, ""),
+                    diag.name,
                 )
                 if not images:
                     raise ValueError(

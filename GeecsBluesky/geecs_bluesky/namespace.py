@@ -162,17 +162,29 @@ def primary_image_variable(rows: Sequence[Mapping[str, Any]]) -> list[str]:
 
 
 def capture_streams(
-    rows: Sequence[Mapping[str, Any]], devicetype: str = ""
+    rows: Sequence[Mapping[str, Any]], devicetype: str = "", device: str = ""
 ) -> list[str]:
     """The variables the file plugin captures for one device, in capture order.
 
     The devicetype's declared capture streams
-    (:func:`geecs_core.db.device_streams.capture_variables`), restricted to
-    what the gateway serves: the device's image-typed variables and its
-    served ``1darray`` variables (typed minus the devicetype's exclusions,
-    :func:`geecs_core.db.device_streams.served_array_variables`).  A
-    declared name that is neither is logged and skipped — a declaration
-    error to fix in the table, never an arm on a PV that does not exist.
+    (:func:`geecs_core.db.device_streams.capture_variables`), restricted
+    twice:
+
+    - to what the gateway **serves** — the device's image-typed variables
+      and its served ``1darray`` variables (typed minus the devicetype's
+      exclusions, :func:`~geecs_core.db.device_streams.served_array_variables`).
+      A declared name that is neither is logged and skipped: a declaration
+      error to fix in the table, never an arm on a PV that does not exist.
+    - to what **this instance** has enabled — a gated stream (a scope
+      channel) whose gate variable is not configured ``on``
+      (:func:`~geecs_core.db.device_streams.gated_off_variables`) is not
+      captured, so a four-channel scope with two wired arms two plugins
+      instead of timing out on the other two.
+
+    Both are the same kind of restriction, so they belong in the one answer
+    to "what does this device capture"; no caller should have to subtract a
+    second list afterwards.  *device* only names the instance in the logs.
+
     A devicetype that declares nothing keeps
     :func:`primary_image_variable`'s guess, so every camera type nobody has
     looked at behaves exactly as before.
@@ -182,15 +194,25 @@ def capture_streams(
         return primary_image_variable(rows)
     served = {name.lower() for name in image_variables(rows)}
     served |= {name.lower() for name in served_array_variables(devicetype, rows)}
+    named = device or devicetype
     unserved = [name for name in declared if name.lower() not in served]
     if unserved:
         logger.warning(
             "%s: declared capture stream(s) %s are neither image variables nor "
             "served array variables; not captured (fix the declaration)",
-            devicetype,
+            named,
             unserved,
         )
-    return [name for name in declared if name.lower() in served]
+    captured = [name for name in declared if name.lower() in served]
+    off = gated_off_variables(devicetype, rows)
+    if off:
+        disabled = [name for name in captured if name in off]
+        if disabled:
+            logger.info(
+                "%s: not capturing %s — disabled in the DB", named, ", ".join(disabled)
+            )
+        captured = [name for name in captured if name not in off]
+    return captured
 
 
 # --------------------------------------------------------------------- rules
@@ -603,28 +625,11 @@ class GeecsNamespace:
             # beside it — PNG dual-write until PNG retirement (#738), the
             # parity evidence of the rollout.
             plugin_vars = (
-                capture_streams(rows, devicetype)
+                capture_streams(rows, devicetype, device)
                 if self._path_provider is not None
                 and roster.endpoints.get(device) in self._file_plugin_hosts
                 else []
             )
-            # A gated stream (a scope channel) is captured only when the
-            # DB says that channel is wired: the gate variable's configured
-            # value, resolved instance-over-devicetype like every other row.
-            # Read here, once, when the namespace is built — the enables are
-            # never set live, so there is nothing to re-read per run, and a
-            # readback would be worse than useless (an enable the device does
-            # not push leaves its PV at the initial enum value, which reads
-            # "on" for every channel whether or not anything is wired).
-            if plugin_vars:
-                off = gated_off_variables(devicetype, rows)
-                if off:
-                    logger.info(
-                        "%s: not capturing %s — disabled in the DB",
-                        device,
-                        ", ".join(sorted(off)),
-                    )
-                plugin_vars = [v for v in plugin_vars if v not in off]
             dev = GeecsDetector(
                 device,
                 readables,
