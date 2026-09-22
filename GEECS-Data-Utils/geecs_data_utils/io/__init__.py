@@ -43,6 +43,7 @@ from geecs_data_utils.io.scan_stack import (
     parse_attribute_name,
     read_stack_attributes,
     read_stack_timestamps,
+    stack_content_kind,
     stack_scalar_variables,
 )
 
@@ -72,6 +73,7 @@ __all__ = [
     "parse_attribute_name",
     "read_stack_attributes",
     "read_stack_timestamps",
+    "stack_content_kind",
     "stack_scalar_variables",
     "read_tsv_file",
 ]

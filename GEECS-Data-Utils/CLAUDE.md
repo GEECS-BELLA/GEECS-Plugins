@@ -40,7 +40,11 @@ geecs_data_utils/
                                #   written by GeecsPvaGateway's file plugin,
                                #   #806/#829)
                                #   incl. ShotRef — a Path carrying a
-                               #   frame index for per-shot pipelines
+                               #   frame index for per-shot pipelines,
+                               #   and stack_content_kind: image /
+                               #   lineout / waveform, from the plugin's
+                               #   own wave_* declaration plus the frame
+                               #   rank (see "Three kinds of stack")
   plotting_utils.py            # Simple matplotlib helpers for binned data
   scans_database/
     database.py                # ScanDatabase: filter + load Parquet dataset
@@ -359,6 +363,36 @@ Data Utils has no intra-repo dependencies. `io.scan_stack.LABVIEW_EPOCH_OFFSET`
 is a file-format constant, deliberately independent of Core's wire-format
 constant. GeecsBluesky (which already depends on both) pins their equality;
 sharing this integer does not justify an access-library dependency here.
+
+## Three kinds of stack (0.36.0)
+
+Since GeecsPvaGateway 0.13 the file plugin writes array variables as well
+as images, so a scan folder holds three kinds of stack through one layout:
+
+| content | frames | the axis lives in |
+|---|---|---|
+| image | `(N, H, W)` | pixel indices |
+| lineout (MagSpec spectra) | `(N, n, 2)` | column 0 of the data |
+| waveform (scope traces) | `(N, n)` | the per-frame `wave_x0` / `wave_dx` |
+
+`scan_stack.stack_content_kind` tells them apart, and it does **not** guess
+from the rank — `(N, H, W)` pixels and `(N, n, 2)` rows are both rank 3.
+The plugin declares it: it writes the `wave_*` attributes for an array
+variable and never for an image one. Read an array stack's shot with
+`read_1d_data(ShotRef(stack, index), Data1DConfig(data_type="pva_stack"))`,
+which returns the same `Data1DResult` a native scope file does — so a 1D
+analyzer reads a Bluesky scan without learning a new concept.
+
+**Never hand a consumer a padded frame.** The gateway pads to the
+devicetype's ceiling with NaN so a run has one shape; that makes two shots
+of different true lengths *same-shaped*, which silently defeats the
+shape guard a per-shot averager relies on (`average_data` in ScanAnalysis'
+`single_device_scan_analyzer`) and averages column 1 index-wise over axes
+that do not line up. The reader trims to the true length — a waveform's
+declared `wave_samples` first, the pad boundary only as fallback — and
+refuses a frame whose padding and declaration disagree. New readers of
+these stacks go through `read_1d_data`; do not add a second un-padding
+rule anywhere else.
 
 ## HDF5 over SMB — the reader's half of the contract
 
