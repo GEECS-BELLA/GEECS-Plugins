@@ -23,8 +23,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   declaring and kicking off a flyer with nothing to stream (which bluesky
   refuses at `declare_stream`, and the stock kickoff refuses too — an abort
   of a run whose other devices were fine, Codex review of #948); a direct
-  fly prepare on it is refused with the channels named.  The namespace
-  passes a
+  fly prepare on it is refused with the channels named.  The static fact —
+  "has any plugin at all" — is `has_file_plugin`, which the gated plan's
+  native-saving refusal and the namespace's listing now ask, so a
+  native-saving scope with every channel off is a scalar member of the
+  run, not refused mid-run as "without a file plugin" (fresh verifier,
+  round 3).  The namespace passes a
   gate only when the gate variable is one of the device's readable columns
   (DB `get='yes'`, so the CA gateway serves it); a gated stream whose gate
   it cannot read is **not captured**, with a WARNING naming the flag to

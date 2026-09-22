@@ -437,7 +437,7 @@ class GeecsNamespace:
         saving = sorted(
             d._geecs_device_name
             for d in detectors
-            if d.native_save and not d.plugin_backed
+            if d.native_save and not d.has_file_plugin
         )
         logger.info(
             "device namespace: %d device(s) registered for %s (%d detectors, "

@@ -758,6 +758,16 @@ class GeecsDetector(StandardDetector):
         return self._acquire.last_acq_timestamp
 
     @property
+    def has_file_plugin(self) -> bool:
+        """Whether the device has any file plugin at all — the static fact.
+
+        The question "can this device ever count or stream frames" (the
+        gated plan's native-saving refusal, the namespace's listing); for
+        "does it stream *this session*" see :attr:`plugin_backed`.
+        """
+        return bool(self._hdf_ios)
+
+    @property
     def plugin_backed(self) -> bool:
         """Whether this device streams frames through the gateway's file plugin **this session**.
 

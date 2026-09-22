@@ -161,10 +161,13 @@ def refuse_native_essentials(devices: Sequence[Any]) -> None:
     GeecsConfigurationError
         Naming the cameras.
     """
+    # "Has no plugin at all", not "streams nothing this session": a gated
+    # scope whose every channel read off keeps its plugins and is a scalar
+    # member of the run, not a native-only device to refuse.
     native = [
         d
         for d in devices
-        if isinstance(d, GeecsDetector) and d.native_save and not d.plugin_backed
+        if isinstance(d, GeecsDetector) and d.native_save and not d.has_file_plugin
     ]
     if native:
         names = ", ".join(d._geecs_device_name for d in native)
