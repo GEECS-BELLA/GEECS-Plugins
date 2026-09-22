@@ -292,3 +292,40 @@ def test_a_camera_device_never_calls_the_trace_endpoint(tmp_path):
 """
         ),
     )
+
+
+def test_the_logbook_caption_names_the_trace_not_the_plot_tab(tmp_path):
+    """A trace sent to the logbook must say what it shows.
+
+    `plotCaption` falls through to `S.y` / `S.x` — the PLOT tab's scalar
+    state — for any host it does not recognise, so the trace host would
+    post a real figure under an unrelated caption (or bare "plot") into a
+    durable record.
+    """
+    page = (TEMPLATES / "run.html").read_text()
+    caption = page[
+        page.index("function plotCaption(gd)") : page.index(
+            "function openSendToLogbook"
+        )
+    ]
+    body = (
+        r"""
+const assert = require('node:assert/strict');
+const S = {y: ["signal_x"], x: "Bin #", view: "shot"};
+const GRID_DATA = null;
+const prettyName = String;
+const SEL_DEVICE = "U_BCaveICT", SHOT = 7;
+const LAST_TRACE = {figure: {layout: {yaxis: {title: {text: "scopetrace_channel0"}}}}};
+"""
+        + caption
+        + r"""
+const trace = plotCaption({id: "shottrace"});
+assert.ok(trace.includes("U_BCaveICT"), trace);
+assert.ok(trace.includes("scopetrace_channel0"), trace);
+assert.ok(trace.includes("7"), trace);
+assert.ok(!trace.includes("signal_x"), "the Plot tab's scalars must not leak in: " + trace);
+// The Plot tab's own caption is untouched.
+assert.equal(plotCaption({id: "plotdiv"}), "signal_x vs Bin #");
+"""
+    )
+    run_js(tmp_path, body)

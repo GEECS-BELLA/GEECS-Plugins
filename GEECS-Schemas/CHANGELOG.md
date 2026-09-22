@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   analyzers that do not derive output names from the shot file path", and
   the stitcher finds its sibling traces by rewriting the master's per-shot
   path and writes its output beside that file — a stack frame has neither.
+  This covers the authored document only; the matching RUNTIME case (a
+  valid config whose stack is absent at analysis time) is refused in
+  ScanAnalysis 1.25.0, where the per-shot fallback lives.
 
 ## [0.30.0] - 2026-09-17
 

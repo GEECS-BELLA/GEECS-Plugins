@@ -647,6 +647,13 @@ function plotCaption(gd) {
     const statistic = gd.id === "grid-center" ? cfg.average : GRID_DATA.error_label;
     return `${prettyName(cfg.value)} · ${statistic} vs ${prettyName(cfg.x)} / ${prettyName(cfg.y)} · visit ${cfg.visit}`;
   }
+  if (gd && gd.id === "shottrace") {
+    // S.y / S.x are the PLOT tab's scalar state and say nothing about a
+    // captured trace — the logbook entry must name what it shows.
+    const variable = (((LAST_TRACE || {}).figure || {}).layout || {})
+      .yaxis?.title?.text;
+    return `${SEL_DEVICE}${variable ? " · " + variable : ""} · shot ${SHOT}`;
+  }
   const ys = S.y.map(prettyName).join(", ");
   if (!ys) return "plot";
   const x = prettyName(S.x || DEFAULT_X || "shot");

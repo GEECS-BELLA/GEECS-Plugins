@@ -120,11 +120,23 @@ def page_figure(fig: go.Figure) -> dict:
     the legend alike, so no per-property list here or in the template can
     fall out of step. The browser resolves the sentinels against the live
     theme tokens before ``Plotly.react``.
+
+    The same walk makes the figure JSON-safe: a non-finite float becomes
+    ``None`` (a gap in the line, which is what a missing sample is).
+    ``json.dumps`` emits invalid JSON for NaN and Starlette's
+    ``JSONResponse`` refuses it outright, so an unfinished value reaching
+    here would 500 the endpoint rather than draw. Series that arrive via
+    :func:`geecs_portal.analysis.jsonable_values` are already clean; this
+    is the gate for the ones built straight from an array — a lineout row
+    keeps its place when only ONE of its two columns is NaN, so partial
+    gaps are normal input here, not corruption.
     """
 
     def walk(value: Any) -> Any:
         if isinstance(value, str):
             return SENTINELS.get(value, value)
+        if isinstance(value, float) and not math.isfinite(value):
+            return None
         if isinstance(value, list):
             return [walk(v) for v in value]
         if isinstance(value, dict):

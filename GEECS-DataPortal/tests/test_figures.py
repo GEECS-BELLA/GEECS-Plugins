@@ -339,3 +339,42 @@ class TestTraceFigure:
         layout = figures.trace_figure([0, 1], [1, 2]).to_plotly_json()["layout"]
         assert layout["xaxis"]["title"]["text"] == ""
         assert layout["yaxis"]["title"]["text"] == ""
+
+
+class TestFigureJsonSafety:
+    """A served figure must survive JSONResponse, whatever the data holds."""
+
+    def test_a_non_finite_sample_becomes_a_gap(self) -> None:
+        """NaN is a missing sample, and a missing sample is a gap in the line.
+
+        A lineout row keeps its place when only ONE of its two columns is
+        NaN — only an all-NaN row is padding — so partial gaps are normal
+        input, and `json.dumps` emits invalid JSON for them.
+        """
+        import math
+
+        from geecs_portal import figures
+
+        page = figures.page_figure(
+            figures.trace_figure(
+                [1.0, 2.0, 3.0],
+                [4.0, math.nan, math.inf],
+                palette=figures.THEMED_PALETTE,
+            )
+        )
+        assert page["data"][0]["y"] == [4.0, None, None]
+
+    def test_a_figure_with_gaps_serializes(self) -> None:
+        """The actual failure mode: Starlette refuses NaN with allow_nan=False."""
+        import math
+
+        from starlette.responses import JSONResponse
+
+        from geecs_portal import figures
+
+        page = figures.page_figure(
+            figures.trace_figure(
+                [1.0, 2.0], [3.0, math.nan], palette=figures.THEMED_PALETTE
+            )
+        )
+        JSONResponse(page)  # raises ValueError if a non-finite float survives

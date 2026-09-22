@@ -6,7 +6,9 @@ plugin; read side in ``geecs_data_utils.io.scan_stack``). The join
 mirrors the acq_timestamp file join (canonical-millisecond keys), producing
 ``ShotRef`` values that travel the existing per-shot pipeline. Every failure
 shape (no stack, wrong schema, zero joins, unset flag) must fall back to the
-per-shot-file strategies so the old basis keeps working unconditionally.
+per-shot-file strategies so the old basis keeps working unconditionally —
+EXCEPT for an analyzer that can only read a stack, for which the fallback is
+not a recovery (see ``TestStackOnlyLoader``).
 """
 
 from __future__ import annotations
@@ -178,3 +180,78 @@ class TestStackJoin:
         sa = _make_analyzer(device_dir, aux)
         sa._build_data_file_map()
         assert set(sa._data_file_map) == {1}
+
+
+class TestStackOnlyLoader:
+    """A 1D analyzer configured `data_type: pva_stack` must not fall back.
+
+    Its loader takes a ShotRef and refuses a plain per-shot path by
+    construction, so the fallback cannot produce data — it produces one
+    caught-and-logged exception per shot and an empty analysis. The
+    document-level check in `AnalysisDiagnostic` catches the authoring
+    mistake; this catches the RUNTIME case, where the config is right and
+    the stack is simply absent, unreadable, or joins nothing.
+    """
+
+    @staticmethod
+    def _stack_only(sa):
+        """Give the cheap instance a pva_stack-configured 1D analyzer."""
+        from types import SimpleNamespace
+
+        sa.image_analyzer = SimpleNamespace(
+            line_config=SimpleNamespace(
+                data_loading=SimpleNamespace(data_type="pva_stack")
+            )
+        )
+        return sa
+
+    def test_a_missing_stack_maps_nothing_rather_than_per_shot_files(self, tmp_path):
+        ts = [3866137959.524]
+        device_dir = tmp_path / DEVICE
+        device_dir.mkdir(parents=True)
+        # A per-shot file IS present — the fallback would happily map it,
+        # and the loader would then refuse it once per shot.
+        trace = device_dir / f"{DEVICE}_3866137959.524.png"
+        trace.write_bytes(b"")
+
+        sa = self._stack_only(_make_analyzer(device_dir, _aux(ts)))
+        sa._build_data_file_map()
+
+        assert sa._data_file_map == {}
+
+    def test_a_stack_that_joins_nothing_maps_nothing(self, tmp_path):
+        ts = [3866137959.524]
+        device_dir = tmp_path / DEVICE
+        _write_stack(device_dir, [3866000000.0])  # no shot matches
+        trace = device_dir / f"{DEVICE}_3866137959.524.png"
+        trace.write_bytes(b"")
+
+        sa = self._stack_only(_make_analyzer(device_dir, _aux(ts)))
+        sa._build_data_file_map()
+
+        assert sa._data_file_map == {}
+
+    def test_a_joinable_stack_still_maps_shot_refs(self, tmp_path):
+        """The refusal must not cost the normal path anything."""
+        ts = [3866137959.524]
+        device_dir = tmp_path / DEVICE
+        path = _write_stack(device_dir, ts)
+
+        sa = self._stack_only(_make_analyzer(device_dir, _aux(ts)))
+        sa._build_data_file_map()
+
+        assert sa._data_file_map == {1: ShotRef(path, 0)}
+        assert sa._data_file_map[1].shot_index == 0
+
+    def test_a_camera_analyzer_still_falls_back(self, tmp_path):
+        """Only a stack-ONLY loader refuses; a camera analyzer resolves either."""
+        ts = [3866137959.524]
+        device_dir = tmp_path / DEVICE
+        device_dir.mkdir(parents=True)
+        png = device_dir / f"{DEVICE}_3866137959.524.png"
+        png.write_bytes(b"")
+
+        sa = _make_analyzer(device_dir, _aux(ts))  # no image_analyzer at all
+        sa._build_data_file_map()
+
+        assert sa._data_file_map == {1: png}

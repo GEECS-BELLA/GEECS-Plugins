@@ -454,6 +454,32 @@ class TestArrayStacks:
         assert payload["figure"]["layout"]["xaxis"]["title"]["text"] == "Time (s)"
         assert _tree_snapshot(root) == before
 
+    def test_a_lineout_with_a_gap_does_not_500_the_route(self, scan_folder):
+        """Only an ALL-NaN row is padding, so a half-NaN row reaches the figure.
+
+        `json.dumps` emits invalid JSON for NaN and Starlette refuses it,
+        so this is the difference between a gap in the line and a 500.
+        """
+        frames = np.full((4, 5, 2), np.nan)
+        for shot in range(4):
+            frames[shot, :3, 0] = [10.0, 20.0, 30.0]
+            frames[shot, :3, 1] = [1.0, np.nan, 3.0]  # the device missed one point
+        _write_array_stack(
+            scan_folder / "U_MagSpec" / "U_MagSpec.h5",
+            device="u_magspec",
+            variable="interpspec",
+            frames=frames,
+            axis=[(np.nan, np.nan, np.nan)] * 4,
+        )
+        client = _gallery_client(scan_folder)
+
+        response = client.get(
+            "/api/run/uid-002/trace", params={"device": "U_MagSpec", "shot": 1}
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["figure"]["data"][0]["y"] == [1.0, None, 3.0]
+
     def test_the_trace_endpoint_404s_like_the_image_endpoint(self, scan_folder):
         client = _gallery_client(scan_folder)
         for params in (

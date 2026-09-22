@@ -36,6 +36,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     door). Returning to the tab redraws the cached figure — never refetches
     — so a palette change made elsewhere still lands. Pinned by node tests
     over the template's own source.
+  - A non-finite sample becomes a gap in the line rather than a 500.
+    `page_figure` — the one gate every served figure passes through — now
+    maps a non-finite float to `null`. Only an **all**-NaN lineout row is
+    padding, so a row whose value column alone is NaN reaches the figure
+    intact, and `json.dumps` emits invalid JSON for it (Starlette's
+    `JSONResponse` refuses it outright).
+  - The send-to-logbook caption names the trace. `plotCaption` fell
+    through to `S.y` / `S.x` — the Plot tab's scalar state — for any host
+    it did not recognise, so a trace posted into the logbook carried an
+    unrelated caption.
   - A trace device's tab has no per-bin view, no ephemeral image diagnostic
     and no image cosmetics: those are pixel controls, and averaging traces
     across shots is the consumer's job because each shot carries its own
