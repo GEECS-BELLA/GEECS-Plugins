@@ -15,6 +15,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `load_background_from_file` documents the one format it cannot take:
+  `pva_stack` needs a frame index and `LineBackgroundConfig.file_path` is a
+  plain path, so the pairing is refused when the document loads
+  (GEECS-Schemas 0.32.0). The docstring previously implied it worked.
 - `Standard1DAnalyzer.analyze_image_file` no longer re-wraps its path into a
   plain `Path` before stashing it as `auxiliary_data["file_path"]`, which
   dropped a `ShotRef`'s frame index — a downstream re-read would have

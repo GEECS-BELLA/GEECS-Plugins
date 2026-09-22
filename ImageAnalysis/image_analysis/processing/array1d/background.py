@@ -136,10 +136,15 @@ def load_background_from_file(
     """Load background data from a file using the shared 1D loader.
 
     Delegates to :func:`image_analysis.data_1d_utils.read_1d_data`, so any
-    format the line analyzer can read (npy, csv, tsv, tek_scope_hdf5,
-    tdms_scope) is also a valid background file — and ``pva_stack`` too,
-    when the path given is a ``ShotRef`` naming one shot of a capture
-    stack.
+    format the line analyzer can read from a FILE (npy, csv, tsv,
+    tek_scope_hdf5, tdms_scope) is also a valid background file.
+
+    ``pva_stack`` is the exception and is refused: a capture stack holds
+    every shot of a scan, so reading one needs a frame index, and
+    ``LineBackgroundConfig.file_path`` is a plain path with nowhere to
+    put one.  ``AnalysisDiagnostic`` rejects that pairing when the
+    document loads, so this is the backstop, not the message an operator
+    should ever see.
 
     Parameters
     ----------

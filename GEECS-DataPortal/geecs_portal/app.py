@@ -1838,7 +1838,7 @@ def create_app(
         device: str,
         shot: int = 1,
         day: str = "",
-    ) -> dict:
+    ) -> JSONResponse:
         """One shot of an ARRAY capture stack as a server-authored figure.
 
         The line twin of ``/run/{uid}/image.png``.  A camera shot is
@@ -1860,7 +1860,14 @@ def create_app(
             raise HTTPException(
                 status_code=404, detail="device missed this shot (no timestamp)"
             )
-        resolved = resources.load_shot_trace(folder, device, shot, acq_timestamp=acq)
+        resolved = resources.load_shot_trace(
+            folder,
+            device,
+            shot,
+            acq_timestamp=acq,
+            # _image_folder just listed the folder — never rescan it.
+            devices=resources.image_devices(folder),
+        )
         if resolved.result is None:
             raise HTTPException(
                 status_code=404, detail=resolved.reason or resolved.kind
@@ -1880,11 +1887,17 @@ def create_app(
             y_title=trace.y_label or "",
             palette=figures.THEMED_PALETTE,
         )
-        return {
-            "figure": figures.page_figure(figure),
-            "content": resolved.content,
-            "points": int(trace.data.shape[0]),
-        }
+        # A running scan's stack grows, so a trace is as mutable as the
+        # union frame — the same no-cache headers every other /api
+        # response here carries.
+        return JSONResponse(
+            {
+                "figure": figures.page_figure(figure),
+                "content": resolved.content,
+                "points": int(trace.data.shape[0]),
+            },
+            headers=_UNION_HEADERS,
+        )
 
     @app.get("/run/{uid}/image.png")
     def run_image(

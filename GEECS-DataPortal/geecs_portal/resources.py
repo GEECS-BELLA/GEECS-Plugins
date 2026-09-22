@@ -41,6 +41,7 @@ from geecs_data_utils.io.array1d import (
 from geecs_data_utils.io.scan_stack import (
     ShotRef,
     find_stack_file,
+    frame_index_for_acq_timestamp,
     read_shot,
     read_shot_for_acq_timestamp,
     stack_content_kind,
@@ -521,11 +522,13 @@ def load_shot_trace(
     array stacks are small, so there is no frame cache and no native-file
     tier — a device whose shots are traces has no per-shot file fallback.
 
-    The shot→frame join is the same one the image path uses
-    (:func:`~geecs_data_utils.io.scan_stack.read_shot_for_acq_timestamp`,
-    the canonical-millisecond join), never a second copy of that
-    arithmetic; without a timestamp it falls back to ``shot - 1`` exactly
-    as the image path does.
+    The shot→frame join is the same one the image path uses — its
+    index-only form
+    (:func:`~geecs_data_utils.io.scan_stack.frame_index_for_acq_timestamp`,
+    the same ``_joined_index`` arithmetic, never a second copy), because
+    the reader addresses the frame by ``ShotRef`` and reading it here
+    would read it twice.  Without a timestamp it falls back to
+    ``shot - 1`` exactly as the image path does.
 
     Parameters
     ----------
@@ -558,15 +561,14 @@ def load_shot_trace(
     stack = probe.path
     try:
         if acq_timestamp is not None:
-            joined = read_shot_for_acq_timestamp(stack, acq_timestamp)
-            if joined is None:
+            index = frame_index_for_acq_timestamp(stack, acq_timestamp)
+            if index is None:
                 return ShotTrace(
                     kind="missing",
                     path=stack,
                     content=content,
                     reason="no stack frame for this shot",
                 )
-            index = joined[0]
         else:
             index = shot - 1
         result = read_1d_data(ShotRef(stack, index), _TRACE_CONFIG)

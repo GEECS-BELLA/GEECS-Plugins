@@ -120,6 +120,92 @@ class TestV2Shape:
                 }
             )
 
+    # ---- where a LINE diagnostic reads its traces from ----
+    #
+    # A camera diagnostic needs one switch (the loader recognises a
+    # ShotRef on sight); a line diagnostic needs two that AGREE, because
+    # its loader dispatches on the configured data_type. Either one alone
+    # fails once per shot and yields an empty analysis — no error anyone
+    # sees — so the document must refuse to load.
+
+    def test_a_stack_source_needs_the_stack_data_format(self):
+        with pytest.raises(ValidationError, match="which reads nothing"):
+            AnalysisDiagnostic.model_validate(
+                {
+                    "name": "x",
+                    "analyzer": {"kind": "line"},
+                    "image": {
+                        "type": "line",
+                        "data_loading": {"data_type": "pva_stack"},
+                    },
+                    # no scan.data_format: per-shot files
+                }
+            )
+
+    def test_the_stack_data_format_needs_a_stack_source(self):
+        with pytest.raises(ValidationError, match="which reads nothing"):
+            AnalysisDiagnostic.model_validate(
+                {
+                    "name": "x",
+                    "analyzer": {"kind": "line"},
+                    "image": {"type": "line", "data_loading": {"data_type": "tsv"}},
+                    "scan": {"data_format": "device_hdf5"},
+                }
+            )
+
+    def test_the_agreeing_pair_loads(self):
+        diag = AnalysisDiagnostic.model_validate(
+            {
+                "name": "x",
+                "analyzer": {"kind": "line"},
+                "image": {"type": "line", "data_loading": {"data_type": "pva_stack"}},
+                "scan": {"data_format": "device_hdf5"},
+            }
+        )
+        assert diag.scan.data_format == "device_hdf5"
+
+    def test_a_camera_diagnostic_needs_no_second_switch(self):
+        """The one-switch camera path must stay one switch."""
+        diag = AnalysisDiagnostic.model_validate(
+            {
+                "name": "x",
+                "analyzer": {"kind": "beam"},
+                "image": {"type": "camera"},
+                "scan": {"data_format": "device_hdf5"},
+            }
+        )
+        assert diag.scan.data_format == "device_hdf5"
+
+    def test_a_from_file_background_cannot_read_a_stack(self):
+        """background.file_path is a plain path — there is nowhere to put a frame index."""
+        with pytest.raises(ValidationError, match="cannot read a pva_stack"):
+            AnalysisDiagnostic.model_validate(
+                {
+                    "name": "x",
+                    "analyzer": {"kind": "line"},
+                    "image": {
+                        "type": "line",
+                        "data_loading": {"data_type": "pva_stack"},
+                        "background": {"method": "from_file", "file_path": "/bg.tsv"},
+                    },
+                    "scan": {"data_format": "device_hdf5"},
+                }
+            )
+
+    def test_a_from_file_background_is_fine_for_a_per_shot_line(self):
+        diag = AnalysisDiagnostic.model_validate(
+            {
+                "name": "x",
+                "analyzer": {"kind": "line"},
+                "image": {
+                    "type": "line",
+                    "data_loading": {"data_type": "tsv"},
+                    "background": {"method": "from_file", "file_path": "/bg.tsv"},
+                },
+            }
+        )
+        assert diag.image.background.method.value == "from_file"
+
     def test_renderer_as_kwargs_passes_only_set_options(self):
         opts = RendererOptions(cmap="RdBu_r", colormap_mode="diverging")
         assert opts.as_kwargs() == {"cmap": "RdBu_r", "colormap_mode": "diverging"}

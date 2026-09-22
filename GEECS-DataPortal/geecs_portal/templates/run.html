@@ -1139,6 +1139,7 @@ function setTab(tab) {
   if (tab === "plot") refresh();
   if (tab === "grid") refreshGrid();
   refreshImages();
+  loadTrace();   // no-op unless this device's shots are traces
   if (tab === "analysis") refreshAnalysis(true);
 }
 
@@ -1223,34 +1224,43 @@ function clearImgError(img) {
 // same figures.py + theme-sentinel path as every other plot here) and
 // is drawn as a line.  Rank decides which: an (n, 2) lineout rendered
 // as pixels would be a two-pixel-wide strip.
-let LAST_TRACE = null;
+let LAST_TRACE = null, TRACE_DRAWN = false;
+
+function traceHost() {
+  // Same rule as plotHost(): Plotly.react does not clear foreign
+  // children, so drop a message div before handing the host over — but
+  // NEVER wipe a live graph's own DOM, which would leave react updating
+  // an SVG that is no longer in the document (the theme-change path
+  // redraws into a host that already holds a plot).
+  const div = document.getElementById("shottrace");
+  if (div && div.querySelector(".plotmsg")) div.innerHTML = "";
+  return div;
+}
 
 function drawTrace(data) {
   LAST_TRACE = data;
-  const host = document.getElementById("shottrace");
+  const host = traceHost();
   if (!host) return;
   const fig = resolveThemeTokens(JSON.parse(JSON.stringify(data.figure)));
-  host.innerHTML = "";
   Plotly.react(host, fig.data, fig.layout, PLOT_CONFIG);
 }
 
 function loadTrace() {
-  const host = document.getElementById("shottrace");
-  if (!host) return;
-  const q = new URLSearchParams({
-    device: {{ sel_device | tojson }},
-    shot: {{ shot | tojson }},
-    day: {{ day | tojson }},
-  });
-  fetch(`${ROOT}/api/run/${UID}/trace?${q.toString()}`)
-    .then(r => r.json().then(body => {
-      if (!r.ok) throw new Error(body.detail || "trace failed to load");
-      return body;
-    }))
+  // Drawn only while the pane is visible: Plotly lays a figure out
+  // against its container, and the bundled build has no ResizeObserver,
+  // so a figure drawn into a display:none pane stays zero-sized until
+  // the window itself is resized.  Every other draw on this page is
+  // gated the same way.
+  if (!document.getElementById("shottrace") || S.tab !== "images") return;
+  if (TRACE_DRAWN) return;   // one fetch per page: the shot form navigates
+  TRACE_DRAWN = true;
+  api("trace", { device: SEL_DEVICE, shot: SHOT })
     .then(drawTrace)
     .catch(err => {
+      const host = document.getElementById("shottrace");
       if (typeof Plotly !== "undefined") Plotly.purge(host);
       host.innerHTML = `<div class="plotmsg">⚠ ${esc(err.message)}</div>`;
+      TRACE_DRAWN = false;   // a failed load may be retried on re-entry
     });
 }
 
@@ -1744,6 +1754,5 @@ renderChips();
 updatePassCount();
 setTab(S.tab);
 setView(S.view);
-loadTrace();   // no-op unless this device's shots are traces
 </script>
 {% endblock %}

@@ -169,3 +169,90 @@ def test_grid_number_inputs_call_the_validator(field):
         f"{field} coerces its own value instead of letting the validator "
         f"reject empty and out-of-range input, got: {handler}"
     )
+
+
+#: The trace view needs far less than HARNESS (and must not inherit its
+#: grid-shaped `api`), so it carries its own stubs: a DOM, the page's
+#: `S`, and counters for what `loadTrace` did.
+TRACE_HARNESS = r"""
+const assert = require('node:assert/strict');
+const S = {tab:'plot'};
+const elements = new Map();
+const document = {getElementById(id) {return elements.get(id);}};
+const esc = String;
+let fetches = 0, drawn = 0, cleared = 0;
+const Plotly = {react(){drawn++;}, purge(){}};
+const PLOT_CONFIG = {};
+const resolveThemeTokens = v => v;
+const api = async (path, params) => {
+  assert.equal(path, "trace");
+  fetches++;
+  return {figure:{data:[],layout:{}}, params};
+};
+const listeners = {};
+const window = {addEventListener(name, fn){listeners[name] = fn;}};
+const SEL_DEVICE = "U_ICT", SHOT = 3;
+// A live graph: no .plotmsg child, so traceHost must NOT wipe it.
+const liveHost = {innerHTML:"live", querySelector(){return null;}};
+"""
+
+
+def _trace_script(body):
+    """The template's trace block plus *body*, over TRACE_HARNESS."""
+    page = (TEMPLATES / "run.html").read_text()
+    block = page[
+        page.index("// ---------------- the shot trace") : page.index(
+            "function imgFailed(img)"
+        )
+    ]
+    return TRACE_HARNESS + block + body
+
+
+def test_a_trace_is_drawn_only_while_its_pane_is_visible(tmp_path):
+    """``loadTrace`` must not lay a figure out into a hidden pane.
+
+    Plotly sizes a figure against its container and the vendored build
+    carries no ResizeObserver, so a trace drawn while ``pane-images`` is
+    ``display:none`` stays zero-sized until the window is resized. A
+    shared link whose tab is ``plot`` opens exactly that way.
+    """
+    run_js(
+        tmp_path,
+        _trace_script(
+            r"""
+(async()=>{
+ elements.set("shottrace", liveHost);
+ loadTrace(); await new Promise(setImmediate);
+ assert.equal(fetches, 0, "a hidden pane must not be drawn into");
+ S.tab = "images";
+ loadTrace(); await new Promise(setImmediate);
+ assert.equal(fetches, 1); assert.equal(drawn, 1);
+ // Re-entering the tab must not refetch: the shot form navigates.
+ loadTrace(); await new Promise(setImmediate);
+ assert.equal(fetches, 1, "one fetch per page load");
+ // A theme change redraws the last figure and must leave the live
+ // graph's own DOM alone (react updates an SVG that must still be
+ // in the document).
+ listeners["geecs:theme"]();
+ assert.equal(drawn, 2); assert.equal(fetches, 1);
+ assert.equal(liveHost.innerHTML, "live", "a live graph must not be wiped");
+})();
+"""
+        ),
+    )
+
+
+def test_a_camera_device_never_calls_the_trace_endpoint(tmp_path):
+    """No ``#shottrace`` host (an image device) means no trace fetch at all."""
+    run_js(
+        tmp_path,
+        _trace_script(
+            r"""
+(async()=>{
+ S.tab = "images";   // the template rendered an <img>, so no host exists
+ loadTrace(); await new Promise(setImmediate);
+ assert.equal(fetches, 0);
+})();
+"""
+        ),
+    )

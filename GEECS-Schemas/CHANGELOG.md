@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.32.0] - 2026-09-21
 
-> Version 0.31.0 is deliberately skipped on this branch: it was published on
-> `master` by a different change, and reusing the number for other content
-> would leave two 0.31.0s to reconcile at the arc merge.
+> Versions 0.31.0 and 0.31.1 are deliberately skipped on this branch: they
+> were published on `master` by other changes, and reusing a number for
+> different content would leave duplicates to reconcile at the arc merge.
 
 ### Added
 
@@ -20,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   spectrum, the per-frame `wave_x0`/`wave_dx` for a waveform) and hands the
   consumer the trace at its true length, never the padded one
   (`geecs_data_utils.io.array1d`, GEECS-Data-Utils 0.36.0).
+- `AnalysisDiagnostic` refuses a **line** diagnostic whose two source
+  switches disagree. A camera diagnostic needs one (`scan.data_format`,
+  because the loader recognises a capture-stack `ShotRef` on sight); a line
+  diagnostic dispatches on `image.data_loading.data_type` as well, and
+  either switch alone reads nothing — a stack handed to a file reader, or a
+  per-shot path handed to the stack reader, fails once per shot and yields
+  an empty analysis rather than an error anyone sees. It also refuses
+  `background.method: from_file` together with `pva_stack`: a stack holds
+  every shot, so reading one needs a frame index and `background.file_path`
+  has nowhere to put one.
 
 ## [0.30.0] - 2026-09-17
 

@@ -440,10 +440,38 @@ def read_shot_for_acq_timestamp(
         (the caller must refuse — never serve a neighbour).
     """
     with open_stack(path) as f:
-        stamps = np.asarray(f[_timestamps(f)][:], dtype=float)
-        if labview_epoch:
-            stamps = stamps + LABVIEW_EPOCH_OFFSET
-        index = frame_index_for_timestamp(stack_frame_index_map(stamps), acq_timestamp)
+        index = _joined_index(f, acq_timestamp, labview_epoch)
         if index is None:
             return None
         return index, np.asarray(f[FRAMES_DATASET][index])
+
+
+def _joined_index(
+    f: "h5py.File", acq_timestamp: float, labview_epoch: bool
+) -> "int | None":
+    """The join itself, against an open stack — ONE copy for both callers."""
+    stamps = np.asarray(f[_timestamps(f)][:], dtype=float)
+    if labview_epoch:
+        stamps = stamps + LABVIEW_EPOCH_OFFSET
+    return frame_index_for_timestamp(stack_frame_index_map(stamps), acq_timestamp)
+
+
+def frame_index_for_acq_timestamp(
+    path: Path, acq_timestamp: float, *, labview_epoch: bool = True
+) -> "int | None":
+    """:func:`read_shot_for_acq_timestamp` without reading the frame.
+
+    The same join (one open, the same arithmetic — both go through
+    ``_joined_index``), for a caller that wants to address the frame
+    rather than receive it: the array readers take a
+    :class:`ShotRef`, so handing them an index costs nothing while
+    reading the frame here would read it twice.
+
+    Returns
+    -------
+    int or None
+        The frame index, or ``None`` when the shot has no frame (the
+        caller must refuse — never serve a neighbour).
+    """
+    with open_stack(path) as f:
+        return _joined_index(f, acq_timestamp, labview_epoch)

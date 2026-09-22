@@ -19,6 +19,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   beside it (uniformly sampled — two numbers, not a stored time per sample).
   Seconds is the wire format's own definition of those two, so the reader
   labels the axis; every other unit rides in the analyzer config.
+- **`io.scan_stack.frame_index_for_acq_timestamp`** — the
+  canonical-millisecond shot→frame join without reading the frame, for a
+  caller that wants to address a frame rather than receive it (the array
+  readers take a `ShotRef`, so handing them an index costs nothing while
+  reading here would read it twice). Both forms share one `_joined_index`,
+  so the arithmetic has one home as before.
 - **`io.scan_stack.stack_content_kind`** — `"image"` / `"lineout"` /
   `"waveform"` for a stack, from the file plugin's own declaration (it writes
   the `wave_*` attributes for an array variable and never for an image one)

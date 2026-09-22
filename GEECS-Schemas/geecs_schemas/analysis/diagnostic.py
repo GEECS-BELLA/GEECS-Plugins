@@ -182,7 +182,49 @@ class AnalysisDiagnostic(VersionedSchemaModel):
                 raise ValueError(
                     f"scan.renderer fields {wrong} apply to camera diagnostics only"
                 )
+            self._check_line_source()
         return self
+
+    def _check_line_source(self) -> None:
+        """Where a LINE diagnostic reads its traces from must be said once, consistently.
+
+        A camera diagnostic needs one switch — ``scan.data_format`` —
+        because the loader recognises a capture-stack ``ShotRef`` on
+        sight.  A line diagnostic needs two that agree, because its
+        loader dispatches on the configured ``data_loading.data_type``
+        instead, and the two failure modes are both silent: a stack
+        handed to a file reader, or a per-shot path handed to the stack
+        reader, fails once per shot and yields an empty analysis rather
+        than an error anyone sees.  So the pairing is checked here, where
+        both sections are in hand.
+        """
+        from geecs_schemas.analysis.processing_1d import (
+            Data1DType,
+            LineBackgroundMethod,
+        )
+
+        stack_source = self.image.data_loading.data_type == Data1DType.PVA_STACK
+        stack_format = self.scan.data_format == "device_hdf5"
+        if stack_source != stack_format:
+            raise ValueError(
+                "a line diagnostic reading the per-device capture stack needs "
+                "BOTH image.data_loading.data_type: pva_stack and "
+                "scan.data_format: device_hdf5 — this document has "
+                f"data_type {self.image.data_loading.data_type.value!r} with "
+                f"data_format {self.scan.data_format!r}, which reads nothing"
+            )
+        background = self.image.background
+        if (
+            stack_source
+            and background is not None
+            and background.method == LineBackgroundMethod.FROM_FILE
+        ):
+            raise ValueError(
+                "background.method 'from_file' cannot read a pva_stack: a "
+                "capture stack holds every shot of a scan, so reading one "
+                "needs a frame index and background.file_path has nowhere to "
+                "put one. Use a per-shot background file, or 'constant'."
+            )
 
 
 __all__ = [
