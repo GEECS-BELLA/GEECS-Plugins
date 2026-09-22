@@ -5,6 +5,22 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0] - 2026-09-21
+
+> Version 0.31.0 is deliberately skipped on this branch: it was published on
+> `master` by a different change, and reusing the number for other content
+> would leave two 0.31.0s to reconcile at the arc merge.
+
+### Added
+
+- `Data1DType.pva_stack` — a 1D diagnostic can name the per-device capture
+  stack a Bluesky scan writes as its source, so scope traces and spectra
+  captured over PVA reach the same 1D analyzers a native scope file does.
+  The reader takes each trace's axis from the stack (column 0 for a
+  spectrum, the per-frame `wave_x0`/`wave_dx` for a waveform) and hands the
+  consumer the trace at its true length, never the padded one
+  (`geecs_data_utils.io.array1d`, GEECS-Data-Utils 0.36.0).
+
 ## [0.30.0] - 2026-09-17
 
 ### Removed

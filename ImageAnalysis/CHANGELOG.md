@@ -3,6 +3,23 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.0] - 2026-09-21
+
+### Added
+
+- The 1D analyzers read a Bluesky scan's captured traces: with
+  `data_loading.data_type: pva_stack` a `LineAnalyzer` / `Standard1DAnalyzer`
+  is handed a `ShotRef` into the device's capture stack instead of a
+  per-shot file, and nothing above `read_1d_data` changes
+  (GEECS-Schemas 0.32.0, GEECS-Data-Utils 0.36.0).
+
+### Fixed
+
+- `Standard1DAnalyzer.analyze_image_file` no longer re-wraps its path into a
+  plain `Path` before stashing it as `auxiliary_data["file_path"]`, which
+  dropped a `ShotRef`'s frame index — a downstream re-read would have
+  silently got frame 0 of the stack.
+
 ## [2.3.0] - 2026-09-16
 
 ### Changed

@@ -1019,7 +1019,7 @@ How to read one trace file into an x-vs-y array.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `data_type` | `Data1DType` | yes | — | File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, 'csv' / 'tsv' for delimited text, 'npy' for a saved array. |
+| `data_type` | `Data1DType` | yes | — | File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, 'csv' / 'tsv' for delimited text, 'npy' for a saved array, 'pva_stack' for one shot of the per-device capture stack a Bluesky scan writes (traces and spectra alike; the reader takes its axis from the stack and hands back the trace at its true length, never the padded one). |
 | `trace_index` | `int` | no | 0 | Which trace / channel holds the y values (scope formats). |
 | `x_trace_index` | `int (optional)` | no | None | Which trace holds the x values; unset derives x from the waveform properties (scope formats). |
 | `delimiter` | `str (optional)` | no | None | Column delimiter for csv/tsv; unset uses the format's default. |

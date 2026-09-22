@@ -137,7 +137,9 @@ def load_background_from_file(
 
     Delegates to :func:`image_analysis.data_1d_utils.read_1d_data`, so any
     format the line analyzer can read (npy, csv, tsv, tek_scope_hdf5,
-    tdms_scope) is also a valid background file.
+    tdms_scope) is also a valid background file — and ``pva_stack`` too,
+    when the path given is a ``ShotRef`` naming one shot of a capture
+    stack.
 
     Parameters
     ----------
