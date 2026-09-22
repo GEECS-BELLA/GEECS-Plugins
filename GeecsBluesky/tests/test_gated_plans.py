@@ -837,10 +837,14 @@ def test_the_shot_clock_choice_does_not_move_when_a_scope_latches_off(
     ict = _all_off_scope(RE, tmp_path, native_save=False)
     before = shot_clock([ict, a])
     assert before[1] == "U_ICT" and before[0] is ict.acq_timestamp
-    asyncio.run_coroutine_threadsafe(ict.stage(), RE.loop).result(5)
+
+    async def staged(on: bool) -> None:  # AsyncStatus needs the RE's running loop
+        await (ict.stage() if on else ict.unstage())
+
+    asyncio.run_coroutine_threadsafe(staged(True), RE.loop).result(5)
     assert not ict.plugin_backed and ict.has_file_plugin
     assert shot_clock([ict, a]) == before  # the latch does not move the clock
-    asyncio.run_coroutine_threadsafe(ict.unstage(), RE.loop).result(5)
+    asyncio.run_coroutine_threadsafe(staged(False), RE.loop).result(5)
 
 
 def test_non_essential_wrapper_without_flyers_is_the_plan(
