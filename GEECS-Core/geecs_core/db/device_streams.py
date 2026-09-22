@@ -267,9 +267,11 @@ def capture_gates(
 ) -> dict[str, str]:
     """``{capture variable: gate variable}`` for one device, both DB-spelled.
 
-    Only pairs whose two names the DB lists for the device; an unknown name on
-    either side is dropped with a WARNING (the same rule as every other
-    declared name).  Empty for a devicetype with no entry or no gates.
+    Only pairs whose two names the DB lists for the device.  An unknown
+    *gate* is dropped with a WARNING (the same rule as every other declared
+    name); an unknown *capture* name drops the pair silently here — its
+    warning is :func:`capture_variables`'s, so it is raised once.  Empty for
+    a devicetype with no entry or no gates.
     """
     entry = streams_for(devicetype)
     if entry is None or not entry.gate:

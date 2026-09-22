@@ -404,7 +404,19 @@ def test_a_gated_plugin_is_armed_only_while_its_enable_reads_on(
     ict = _gated_scope(RE, tmp_path)
     set_mock_value(ict.enable_cha, "on")
     set_mock_value(ict.enable_chb, "off")
+    # The gates are read exactly once per session — at stage — never by the
+    # prepare that every trigger repeats (the stock reuse path would hide a
+    # per-prepare re-read behind the same providers, so count the reads).
+    gate_reads: list[int] = []
+    read_gates = ict._closed_gates
+
+    async def counting_read() -> set[int]:
+        gate_reads.append(1)
+        return await read_gates()
+
+    ict._closed_gates = counting_read  # type: ignore[method-assign]
     _run(RE, lambda: ict.stage())
+    assert gate_reads == [1]
     _run(RE, lambda: ict.prepare(STRICT_TRIGGER_INFO))
     assert _run(RE, lambda: ict.hdf.capture.get_value()) is True
     assert _run(RE, lambda: ict.hdf_scopetrace_channel1.capture.get_value()) is False
@@ -418,6 +430,7 @@ def test_a_gated_plugin_is_armed_only_while_its_enable_reads_on(
     providers_before = list(ict._prepare_ctx.streamable_data_providers)
     set_mock_value(ict.enable_chb, "on")
     _run(RE, lambda: ict.prepare(STRICT_TRIGGER_INFO))  # what every trigger does too
+    assert gate_reads == [1]  # no re-read inside the session
     assert list(ict._prepare_ctx.streamable_data_providers) == providers_before
     assert _run(RE, lambda: ict.hdf_scopetrace_channel1.capture.get_value()) is False
     assert "u_ict-scopetrace_channel1" not in _run(RE, lambda: ict.describe())
@@ -425,6 +438,7 @@ def test_a_gated_plugin_is_armed_only_while_its_enable_reads_on(
 
     # The next session sees B on: both armed, both described.
     _run(RE, lambda: ict.stage())
+    assert gate_reads == [1, 1]  # one read per stage
     _run(RE, lambda: ict.prepare(STRICT_TRIGGER_INFO))
     assert _run(RE, lambda: ict.hdf_scopetrace_channel1.capture.get_value()) is True
     assert "u_ict-scopetrace_channel1" in _run(RE, lambda: ict.describe())
