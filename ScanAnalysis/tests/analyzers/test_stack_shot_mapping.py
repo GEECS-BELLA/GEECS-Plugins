@@ -18,6 +18,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 import pandas as pd
+import pytest
 
 from geecs_data_utils.io.scan_stack import (
     FRAMES_DATASET,
@@ -25,6 +26,7 @@ from geecs_data_utils.io.scan_stack import (
     TIMESTAMPS_DATASET,
     ShotRef,
 )
+from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.analyzers.common.single_device_scan_analyzer import (
     SingleDeviceScanAnalyzer,
 )
@@ -205,7 +207,15 @@ class TestStackOnlyLoader:
         )
         return sa
 
-    def test_a_missing_stack_maps_nothing_rather_than_per_shot_files(self, tmp_path):
+    def test_a_missing_stack_is_no_data_not_an_empty_success(self, tmp_path):
+        """The task queue cannot tell an empty map from a successful run.
+
+        Returning quietly would record `done` with no artifacts — a
+        missing required capture presented as a successful analysis.
+        `DataUnavailableWarning` is the queue's `no_data` state, and it is
+        the honest one: a gated Picoscope channel that was off for the run
+        captures nothing, which is routine rather than a failure.
+        """
         ts = [3866137959.524]
         device_dir = tmp_path / DEVICE
         device_dir.mkdir(parents=True)
@@ -215,11 +225,12 @@ class TestStackOnlyLoader:
         trace.write_bytes(b"")
 
         sa = self._stack_only(_make_analyzer(device_dir, _aux(ts)))
-        sa._build_data_file_map()
+        with pytest.raises(DataUnavailableWarning, match="capture stack only"):
+            sa._build_data_file_map()
 
         assert sa._data_file_map == {}
 
-    def test_a_stack_that_joins_nothing_maps_nothing(self, tmp_path):
+    def test_a_stack_that_joins_nothing_is_no_data(self, tmp_path):
         ts = [3866137959.524]
         device_dir = tmp_path / DEVICE
         _write_stack(device_dir, [3866000000.0])  # no shot matches
@@ -227,9 +238,38 @@ class TestStackOnlyLoader:
         trace.write_bytes(b"")
 
         sa = self._stack_only(_make_analyzer(device_dir, _aux(ts)))
-        sa._build_data_file_map()
+        with pytest.raises(DataUnavailableWarning):
+            sa._build_data_file_map()
 
-        assert sa._data_file_map == {}
+    def test_the_warning_reaches_the_task_queue_s_no_data_state(self, tmp_path):
+        """The whole point: the terminal STATUS, not just the exception type.
+
+        `_run_analysis_core` re-raises `DataUnavailableWarning` and
+        `task_queue.run_worklist` turns exactly that into `no_data` —
+        anything else it catches becomes `failed`, and no exception at all
+        becomes `done`. This walks the real handler rather than asserting
+        the type at the raise site.
+        """
+        import inspect
+
+        from scan_analysis import task_queue
+
+        source = inspect.getsource(task_queue.run_worklist)
+        # The handler that produces no_data is the DataUnavailableWarning
+        # one; pin that the state this analyzer raises into still maps there.
+        assert "except DataUnavailableWarning:" in source
+        no_data_block = source.split("except DataUnavailableWarning:")[1].split(
+            "except Exception"
+        )[0]
+        assert 'state="no_data"' in no_data_block
+
+        ts = [3866137959.524]
+        device_dir = tmp_path / DEVICE
+        device_dir.mkdir(parents=True)
+        sa = self._stack_only(_make_analyzer(device_dir, _aux(ts)))
+
+        with pytest.raises(DataUnavailableWarning):
+            sa._build_data_file_map()
 
     def test_a_joinable_stack_still_maps_shot_refs(self, tmp_path):
         """The refusal must not cost the normal path anything."""

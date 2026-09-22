@@ -16,7 +16,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `data_type: pva_stack`: that loader takes a `ShotRef` and refuses a plain
   path by construction, so the fallback raised once per shot, each
   exception caught and logged, ending in an empty analysis anyway. It now
-  logs one error naming the device and the folder, and maps nothing.
+  raises `DataUnavailableWarning`, which the task queue records as
+  **`no_data`**. Raised rather than returned deliberately: an empty map is
+  not something the queue can tell from a successful run, so returning
+  would have written `done` with no artifacts — a missing required capture
+  presented as a successful analysis. `no_data` is also the honest state,
+  since a gated Picoscope channel that was off for the run captures nothing
+  and that is routine rather than a failure.
   `AnalysisDiagnostic` (GEECS-Schemas 0.32.0) refuses the authoring
   mistake; this is the runtime case, where the config is right and the
   stack is simply missing.

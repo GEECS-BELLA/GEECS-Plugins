@@ -370,15 +370,22 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 # loader takes a ShotRef and refuses a plain per-shot path
                 # by construction, so falling back would raise once per
                 # shot — each caught and logged — and end in an empty
-                # analysis anyway. One loud line beats N buried ones.
-                logger.error(
-                    "%s reads the capture stack only (data_type='pva_stack') "
-                    "and no stack could be mapped in %s — not falling back to "
-                    "per-shot files. Analysis of this device is skipped.",
-                    self.device_name,
-                    self.path_dict["data"],
+                # analysis anyway.
+                #
+                # Raised, not returned: an empty map is not an outcome the
+                # task queue can tell from a successful run, so returning
+                # would record `done` with no artifacts — the "plausible
+                # but wrong" shape this whole path exists to avoid. The
+                # warning carries it to `no_data` instead, which is the
+                # honest state: a gated Picoscope channel that was off for
+                # the run captures nothing, and that is routine rather
+                # than a failure.
+                raise DataUnavailableWarning(
+                    f"'{self.device_name}' reads the capture stack only "
+                    "(data_type='pva_stack') and no stack could be mapped in "
+                    f"{self.path_dict['data']} — not falling back to per-shot "
+                    "files, which that loader cannot read."
                 )
-                return
 
         ts_column = self._acq_timestamp_column()
         if ts_column is not None:
