@@ -44,7 +44,10 @@ merge; anything worth keeping moves into the package `CLAUDE.md`s first
    full adversarial review.
 2. **PR 3 — array support, split in two. 3a MERGED into this branch as #946
    (2026-09-21; two review rounds, CI green); hardware verification OWED
-   (its PR body). 3b BUILT on `feat/picoscope-gate` (2026-09-21): the
+   (its PR body). 3b MERGED into this branch as #948 (2026-09-22; three review
+   rounds — a fresh reviewer twice, then Codex — every fix confirmed by the
+   same reviewer, CI green); hardware verification OWED (its PR body,
+   including the all-channels-off clock check). It carries the
    declaration's `gate` column (PicoscopeV2 `scopeTrace.Channel<N>` ⇐
    `Enable.Ch<X>`), `GeecsDetector(plugin_gates=)` reading the gate **once
    per stage** (a channel not `on` at stage takes no part in that run; the
