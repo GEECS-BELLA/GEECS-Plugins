@@ -89,3 +89,37 @@ The protocol quirks (exe-reply correlation, the `nval,`/`nvar` frame anchors,
 documented on the transport modules themselves and pinned by this package's
 tests; the operational history behind them lives in
 `GeecsCAGateway/CLAUDE.md` ("Wire-protocol quirks that bit us").
+
+## What the DB's columns actually mean
+
+Three tables describe a variable, and their columns are easy to confuse —
+this section exists because a reading of them cost a day (2026-09-22).
+
+**`devicetype_variable` / `variable` — `set` is "user settable".** It says
+whether the variable can be changed **live during operations**. Some settings
+are configured once and never set live — a communications route, a channel
+enable on a scope — and those are not user settable. It is not a scan
+concept, and it has nothing to do with whether anything can *read* the
+variable. `variable` is the per-instance override and replaces its
+devicetype row **wholesale** (`_merge_variable_rows`).
+
+**`devicetype_variable` / `variable` — `defaultvalue` is the configured
+value.** For a variable that is not set live, this *is* the device's state:
+`PicoscopeV2`'s `Enable.Ch<X>` is which channels are wired, which is why the
+capture gate reads it (`db/device_streams.py`). Resolve it the same way as
+everything else: instance row if present, else the devicetype default.
+
+**`expt_device_variable` — only `get` matters.** It says the experiment
+subscribes this variable, which is what makes the CA gateway serve a PV for
+it. Its `set`, `startvalue` and `endvalue` describe scan-boundary writes that
+**Master Control** performs; nothing in the Bluesky path reads them, and they
+should not be taken as a statement about the variable. A row whose `set` is
+`no` carries no live meaning in its value columns at all.
+
+**Do not infer device state from a served PV that the device never pushes.**
+A subscribed variable the device does not include in its push frame leaves
+its PV at the initial value — for an enum, index 0, which is whatever the
+first choice happens to be. On `Enable.Ch<X>` (choices `on,off`) that reads
+`on` for every channel, wired or not. The DB row is the honest source for a
+configuration fact; a readback is the honest source only for something the
+device actually publishes.

@@ -298,6 +298,11 @@ def test_get_device_variables_type_only_inherits_type_defaults(monkeypatch) -> N
         "tolerance": 0.05,
         "description": "",
         "alias": "",
+        # These callers' SELECTs are the short form (no defaultvalue column),
+        # which the length guard reads as "" — only get_device_variables
+        # carries the configured value, and that is where the capture gate
+        # reads it (geecs_core.db.device_streams).
+        "defaultvalue": "",
     }
     assert sorted(result[0]) == sorted(result[1]) == sorted(result[2])
     assert result[1]["choices"] == "on,off"
@@ -467,6 +472,11 @@ def test_get_experiment_device_variables_batches_metadata(monkeypatch) -> None:
         "tolerance": 0.05,
         "description": "",
         "alias": "",
+        # These callers' SELECTs are the short form (no defaultvalue column),
+        # which the length guard reads as "" — only get_device_variables
+        # carries the configured value, and that is where the capture gate
+        # reads it (geecs_core.db.device_streams).
+        "defaultvalue": "",
     }
     assert result["U_A"][1]["choices"] == "on,off"
     assert result["U_B"][0]["settable"] is False

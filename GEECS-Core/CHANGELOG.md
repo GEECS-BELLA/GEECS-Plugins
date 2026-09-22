@@ -8,17 +8,34 @@ All notable changes to `geecs-core` are documented here, following
 
 ### Added
 
-- **`device_streams`: the per-instance capture gate.** `DeviceTypeStreams`
-  gains `gate` — capture variable → the device's on/off variable that says
-  whether *this instance* pushes it — and `capture_gates(devicetype, rows)`
-  resolves the pairs to DB spellings (an unknown gate drops the pair with a
-  WARNING; an unknown capture name drops it silently, since
-  `capture_variables` already warned about it).  `PicoscopeV2` now declares its four channels
-  (`scopeTrace.Channel0..3`), each gated by `Enable.ChA..D`: a two-channel
-  unit, or a four-channel one with two wired, pushes nothing on the
-  others, so the worker arms a channel's plugin only while its enable
-  reads `on`.  The parity test requires every gate to be an on/off choice
-  variable of the devicetype and to gate a declared capture.
+- **`device_streams`: the per-instance capture gate, read from the DB.**
+  `DeviceTypeStreams` gains `gate` — capture variable → the device's on/off
+  variable that says whether *this instance* pushes it — with
+  `capture_gates(devicetype, rows)` resolving the pairs to DB spellings and
+  `gated_off_variables(devicetype, rows)` reading the values: a capture
+  variable is armed only when its gate variable's configured value
+  (`defaultvalue`, instance row over devicetype default) reads `on`.
+  `PicoscopeV2` declares its four channels (`scopeTrace.Channel0..3`), each
+  gated by `Enable.ChA..D`, so a two-channel unit — or a four-channel one
+  with two wired — arms only what is wired and never times out on a channel
+  that pushes nothing.  An unset or blank gate reads **off**: the unknown
+  case fails safe, since arming a dead channel costs a prepare timeout per
+  shot.  The parity test requires every gate to be an on/off choice variable
+  of the devicetype and to gate a declared capture.
+
+  The DB is the source of truth here rather than a readback, and
+  deliberately so: these enables are never set live, so the configured value
+  *is* the channel's state — and measured against the wire it is the more
+  accurate of the two. An enable the device does not push leaves its served
+  PV sitting at the initial enum value, which reads `on` for every channel
+  whether or not anything is wired (observed live on both ICTs, 2026-09-22).
+  Changing which channels are captured means editing the DB row; the worker
+  picks it up when its namespace is built.
+
+- **`geecs_db.get_device_variables` carries `defaultvalue`** through the
+  inheritance merge — the column the gate above reads. Other callers of the
+  metadata shape are unaffected: their SELECTs are shorter and the field
+  reads `""`.
 
 ## [0.10.0] - 2026-09-21
 

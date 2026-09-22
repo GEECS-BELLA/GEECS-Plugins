@@ -378,10 +378,6 @@ def _gated_scope(RE: RunEngine, tmp_path: Path) -> GeecsDetector:
                 ),
             ),
         ],
-        plugin_gates={
-            "scopeTrace.Channel0": "Enable.ChA",
-            "scopeTrace.Channel1": "Enable.ChB",
-        },
     )
     connect_mock(RE, ict)
     set_mock_value(ict.acq_timestamp, 1000.0)
@@ -394,128 +390,37 @@ def _gated_scope(RE: RunEngine, tmp_path: Path) -> GeecsDetector:
     return ict
 
 
-def test_a_gated_plugin_is_armed_only_while_its_enable_reads_on(
+def test_a_detector_built_without_plugins_is_not_plugin_backed(
     RE: RunEngine, tmp_path: Path
 ) -> None:
-    """Channel A on, B off at stage → one plugin prepared, one data key.  A gate
-    flipped *inside* the session changes nothing (the run's descriptor is
-    already out, and the stock detector re-runs the prepare context on every
-    trigger — review of #948); re-staging picks the new state up."""
-    ict = _gated_scope(RE, tmp_path)
-    set_mock_value(ict.enable_cha, "on")
-    set_mock_value(ict.enable_chb, "off")
-    # The gates are read exactly once per session — at stage — never by the
-    # prepare that every trigger repeats (the stock reuse path would hide a
-    # per-prepare re-read behind the same providers, so count the reads).
-    gate_reads: list[int] = []
-    read_gates = ict._closed_gates
+    """The detector's whole share of gating, since the gate moved to the DB.
 
-    async def counting_read() -> set[int]:
-        gate_reads.append(1)
-        return await read_gates()
-
-    ict._closed_gates = counting_read  # type: ignore[method-assign]
-    _run(RE, lambda: ict.stage())
-    assert gate_reads == [1]
-    _run(RE, lambda: ict.prepare(STRICT_TRIGGER_INFO))
-    assert _run(RE, lambda: ict.hdf.capture.get_value()) is True
-    assert _run(RE, lambda: ict.hdf_scopetrace_channel1.capture.get_value()) is False
-    described = _run(RE, lambda: ict.describe())
-    assert "u_ict" in described and described["u_ict"]["shape"] == [1, 3000]
-    assert "u_ict-scopetrace_channel1" not in described
-
-    # Mid-session flip: the armed set is latched, and the stock code keeps
-    # reusing the same data providers (a rebuild would re-reference frame 0
-    # under a second stream_resource — the #948 review's abort).
-    providers_before = list(ict._prepare_ctx.streamable_data_providers)
-    set_mock_value(ict.enable_chb, "on")
-    _run(RE, lambda: ict.prepare(STRICT_TRIGGER_INFO))  # what every trigger does too
-    assert gate_reads == [1]  # no re-read inside the session
-    assert list(ict._prepare_ctx.streamable_data_providers) == providers_before
-    assert _run(RE, lambda: ict.hdf_scopetrace_channel1.capture.get_value()) is False
-    assert "u_ict-scopetrace_channel1" not in _run(RE, lambda: ict.describe())
-    _run(RE, lambda: ict.unstage())
-
-    # The next session sees B on: both armed, both described.
-    _run(RE, lambda: ict.stage())
-    assert gate_reads == [1, 1]  # one read per stage
-    _run(RE, lambda: ict.prepare(STRICT_TRIGGER_INFO))
-    assert _run(RE, lambda: ict.hdf_scopetrace_channel1.capture.get_value()) is True
-    assert "u_ict-scopetrace_channel1" in _run(RE, lambda: ict.describe())
-    _run(RE, lambda: ict.unstage())
-
-    # Off again at the following stage: the second plugin drops out.
-    set_mock_value(ict.enable_chb, "off")
-    _run(RE, lambda: ict.stage())
-    _run(RE, lambda: ict.prepare(STRICT_TRIGGER_INFO))
-    assert "u_ict-scopetrace_channel1" not in _run(RE, lambda: ict.describe())
-    _run(RE, lambda: ict.unstage())
-
-
-def test_a_scope_with_every_channel_off_is_not_plugin_backed_this_session(
-    RE: RunEngine, tmp_path: Path
-) -> None:
-    """Both enables off at stage → the device is not plugin-backed for that run, so
-    the gated plan takes its scalars through the sampler instead of declaring and
-    kicking off a flyer with nothing to stream — which bluesky refuses at
-    declare_stream (Codex review of #948).  A direct fly prepare is refused with
-    the reason.  Before stage, and once a channel is on, it is plugin-backed."""
-    import bluesky.plan_stubs as bps
-    import bluesky.preprocessors as bpp
-
+    A scope whose channels are all disabled is built with no file plugins at
+    all — the namespace filters them out before construction — so it is a
+    scalar-only device here, indistinguishable from a camera that never had
+    a plugin. Which channels those are is decided in
+    ``geecs_core.db.device_streams`` and applied in ``GeecsNamespace``; this
+    layer only has to agree that no plugins means not plugin-backed.
+    """
+    ict = GeecsDetector(
+        "U_ICT",
+        ["Enable.ChA", "Enable.ChB", "MeanCounts"],
+        experiment="TestExp",
+        name="u_ict",
+        datatypes={"Enable.ChA": str, "Enable.ChB": str},
+        hdf_plugins=[],
+    )
+    connect_mock(RE, ict)
+    assert ict._hdf_ios == []
+    assert not ict.plugin_backed
+    # ... and a batch on it is refused before anything moves.
     from geecs_bluesky.devices.detector import gated_trigger_info
     from geecs_bluesky.exceptions import GeecsConfigurationError
 
-    ict = _gated_scope(RE, tmp_path)
-    set_mock_value(ict.enable_cha, "off")
-    set_mock_value(ict.enable_chb, "off")
-    assert ict.plugin_backed  # unstaged: the namespace's listing counts every plugin
     _run(RE, lambda: ict.stage())
-    assert not ict.plugin_backed
-    with pytest.raises(GeecsConfigurationError, match="read off at stage"):
+    with pytest.raises(GeecsConfigurationError, match="no file plugin"):
         _run(RE, lambda: ict.prepare(gated_trigger_info(2)))
     _run(RE, lambda: ict.unstage())
-    assert ict.plugin_backed  # the latch is cleared with the session
-
-    # The gated plan's shape, through the RunEngine: classify after stage.
-    streamed: list[str] = []
-
-    @bpp.run_decorator()
-    def gated_step():
-        yield from bps.stage(ict, wait=True)
-        plugin = [d for d in [ict] if d.plugin_backed]
-        streamed.append(",".join(d.name for d in plugin))
-        if plugin:
-            yield from bps.prepare(ict, gated_trigger_info(1), wait=True)
-            yield from bps.declare_stream(ict, name="primary", collect=True)
-        yield from bps.unstage(ict, wait=True)
-
-    docs: list[str] = []
-    RE(gated_step(), lambda name, doc: docs.append(name))
-    assert streamed == [""] and docs[-1] == "stop"
-
-    set_mock_value(ict.enable_cha, "on")
-    docs.clear()
-    RE(gated_step(), lambda name, doc: docs.append(name))
-    assert streamed == ["", "u_ict"] and "descriptor" in docs
-
-
-def test_a_gate_that_is_not_a_scalar_child_is_refused_at_build(tmp_path: Path) -> None:
-    """The namespace only passes gates it can read; the detector refuses any other."""
-    with pytest.raises(ValueError, match="gate variable"):
-        GeecsDetector(
-            "U_ICT",
-            ["MeanCounts"],
-            experiment="TestExp",
-            name="u_ict",
-            hdf_plugins=[
-                (
-                    "scopeTrace.Channel0",
-                    StaticPathProvider(StaticFilenameProvider("U_ICT"), tmp_path),
-                )
-            ],
-            plugin_gates={"scopeTrace.Channel0": "Enable.ChA"},
-        )
 
 
 def test_plugin_path_provider_hands_out_both_paths(tmp_path: Path) -> None:

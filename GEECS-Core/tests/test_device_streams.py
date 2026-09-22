@@ -14,6 +14,7 @@ from geecs_core.db.device_streams import (
     DeviceTypeStreams,
     array_ceiling,
     capture_gates,
+    gated_off_variables,
     capture_variables,
     excluded_variables,
     served_array_variables,
@@ -232,3 +233,62 @@ def test_an_undeclared_devicetype_yields_none_not_empty() -> None:
     assert capture_variables("ThorlabsWFS", rows) is None
     assert excluded_variables("ThorlabsWFS", rows) == []
     assert capture_variables("HexapodPI", [{"name": "xyzuvw"}]) is None
+
+
+# ---------------------------------------------------------------------------
+# The gate's VALUE — which channels this instance actually captures
+# ---------------------------------------------------------------------------
+#
+# The gate is read from the DB, not from a readback: these enables are never
+# set live, so the configured value IS the channel's state. Measured against
+# the wire it is also the more accurate of the two — an enable the device
+# never pushes leaves its served PV at the initial enum value, which reads
+# "on" for every channel whether or not anything is wired.
+
+
+def _picoscope_rows(**enables: str) -> list[dict]:
+    """PicoscopeV2 rows with the given Enable.Ch<X> configured values."""
+    rows = [dict(r) for r in FIXTURE["PicoscopeV2"]]
+    for row in rows:
+        name = str(row["name"])
+        if name.startswith("Enable.Ch"):
+            row["defaultvalue"] = enables.get(name[-1], "off")
+    return rows
+
+
+def test_only_the_channels_the_db_says_are_wired_are_captured() -> None:
+    """The live shape: a four-channel scope with two wired."""
+    off = gated_off_variables("PicoscopeV2", _picoscope_rows(A="on", B="on"))
+    assert off == frozenset({"scopeTrace.Channel2", "scopeTrace.Channel3"})
+
+
+def test_every_channel_on_captures_everything() -> None:
+    rows = _picoscope_rows(A="on", B="on", C="on", D="on")
+    assert gated_off_variables("PicoscopeV2", rows) == frozenset()
+
+
+def test_every_channel_off_captures_nothing() -> None:
+    off = gated_off_variables("PicoscopeV2", _picoscope_rows())
+    assert off == frozenset(f"scopeTrace.Channel{i}" for i in range(4))
+
+
+def test_an_unset_gate_reads_off_not_on() -> None:
+    """The unknown case fails safe: arming a dead channel costs a timeout per shot."""
+    rows = [dict(r) for r in FIXTURE["PicoscopeV2"]]
+    for row in rows:  # no defaultvalue at all, as an unpopulated row reads
+        if str(row["name"]).startswith("Enable.Ch"):
+            row.pop("defaultvalue", None)
+    assert len(gated_off_variables("PicoscopeV2", rows)) == 4
+
+
+def test_the_gate_value_is_read_case_and_space_insensitively() -> None:
+    rows = _picoscope_rows(A=" On ", B="ON", C="on")
+    assert gated_off_variables("PicoscopeV2", rows) == frozenset(
+        {"scopeTrace.Channel3"}
+    )
+
+
+def test_an_ungated_devicetype_gates_nothing() -> None:
+    """A MagSpec lineout is armed unconditionally — no gate, nothing to withhold."""
+    assert gated_off_variables("MagSpecCamera", FIXTURE["MagSpecCamera"]) == frozenset()
+    assert gated_off_variables("ThorlabsWFS", []) == frozenset()

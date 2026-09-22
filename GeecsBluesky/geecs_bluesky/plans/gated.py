@@ -117,12 +117,11 @@ def shot_clock(devices: Sequence[Any]) -> tuple[Any, str]:
     The first camera **with a file plugin**, else the first triggered device
     without one (a scalar device with a stamp, or a camera's ``.scalars``
     view) — the recommended default; a step with several candidates uses the
-    first in the plan's detector order.  The static plugin fact
-    (``has_file_plugin``), not the per-session ``plugin_backed``: this is
-    asked at bind time (unstaged) and again at step time (staged), and the
-    start document's ``shot_clock`` must name the clock the batch ticks on —
-    a gated scope whose every channel read off is still a triggered device
-    whose stamp advances per shot.
+    first in the plan's detector order.  ``plugin_backed`` is a static fact
+    since gating moved to the DB, so this answers the same at bind time and
+    at step time by construction; a scope with every channel disabled has no
+    plugin and is ranked with the plain triggered devices, its stamp still
+    advancing per shot.
 
     Returns
     -------
@@ -134,11 +133,11 @@ def shot_clock(devices: Sequence[Any]) -> tuple[Any, str]:
     GeecsConfigurationError
         No triggered device in the step — nothing counts shots.
     """
-    plugin = [d for d in devices if isinstance(d, GeecsDetector) and d.has_file_plugin]
+    plugin = [d for d in devices if isinstance(d, GeecsDetector) and d.plugin_backed]
     others = [
         d
         for d in devices
-        if (isinstance(d, GeecsDetector) and not d.has_file_plugin)
+        if (isinstance(d, GeecsDetector) and not d.plugin_backed)
         or (isinstance(d, ScalarsView) and isinstance(d._owner, GeecsDetector))
     ]
     for candidate in [*plugin, *others]:
@@ -166,21 +165,24 @@ def refuse_native_essentials(devices: Sequence[Any]) -> None:
     GeecsConfigurationError
         Naming the cameras.
     """
-    # "Has no plugin at all", not "streams nothing this session": a gated
-    # scope whose every channel read off keeps its plugins and is a scalar
-    # member of the run, not a native-only device to refuse.
+    # A device with no file plugin: it has none at all, or — for a gated
+    # devicetype — every one of its capture channels is disabled in the DB,
+    # which leaves it with none.  Both are refused here and the message says
+    # so, because a gated batch counts frames the plugin writes.
     native = [
         d
         for d in devices
-        if isinstance(d, GeecsDetector) and d.native_save and not d.has_file_plugin
+        if isinstance(d, GeecsDetector) and d.native_save and not d.plugin_backed
     ]
     if native:
         names = ", ".join(d._geecs_device_name for d in native)
         raise GeecsConfigurationError(
             f"gated acquisition: native-saving device(s) without a file plugin: "
             f"{names} — a gated batch counts frames the plugin writes; a "
-            "device saving through LabVIEW cannot. Use acquisition='strict' "
-            "or record its scalars only (save_images: false)."
+            "device saving through LabVIEW cannot. A gated devicetype (a "
+            "scope) also lands here when every one of its capture channels "
+            "is disabled in the DB. Use acquisition='strict', enable a "
+            "channel, or record its scalars only (save_images: false)."
         )
 
 

@@ -65,7 +65,7 @@ from bluesky.protocols import Movable, Readable
 from ophyd_async.core import Device, PathProvider
 
 from geecs_core.db.device_streams import (
-    capture_gates,
+    gated_off_variables,
     capture_variables,
     served_array_variables,
 )
@@ -437,7 +437,7 @@ class GeecsNamespace:
         saving = sorted(
             d._geecs_device_name
             for d in detectors
-            if d.native_save and not d.has_file_plugin
+            if d.native_save and not d.plugin_backed
         )
         logger.info(
             "device namespace: %d device(s) registered for %s (%d detectors, "
@@ -608,44 +608,23 @@ class GeecsNamespace:
                 and roster.endpoints.get(device) in self._file_plugin_hosts
                 else []
             )
-            # A gated stream (a scope channel) is captured only while the
-            # instance's enable reads on; the gate must be one of this
-            # device's readable columns (DB get='yes'), else the stream is
-            # not armed at all — never an arm on a channel that may push
-            # nothing.
-            gates = capture_gates(devicetype, rows) if plugin_vars else {}
-            readable_lower = {v.lower() for v in readables}
-            plugin_gates: dict[str, str] = {}
-            for var in list(plugin_vars):
-                gate = gates.get(var)
-                if gate is None:
-                    continue
-                if gate.lower() in settable_names:
-                    # Bound as a Movable child, not a scalar column: the
-                    # detector's gate read is a read-only subscribed signal.
-                    logger.warning(
-                        "%s: %s is gated by %r, which the DB marks settable "
-                        "(set='yes') so it is bound as a scan-settable child, not a "
-                        "read-only column — not captured. Capture gating needs the "
-                        "gate subscribed read-only (get='yes', set='no').",
+            # A gated stream (a scope channel) is captured only when the
+            # DB says that channel is wired: the gate variable's configured
+            # value, resolved instance-over-devicetype like every other row.
+            # Read here, once, when the namespace is built — the enables are
+            # never set live, so there is nothing to re-read per run, and a
+            # readback would be worse than useless (an enable the device does
+            # not push leaves its PV at the initial enum value, which reads
+            # "on" for every channel whether or not anything is wired).
+            if plugin_vars:
+                off = gated_off_variables(devicetype, rows)
+                if off:
+                    logger.info(
+                        "%s: not capturing %s — disabled in the DB",
                         device,
-                        var,
-                        gate,
+                        ", ".join(sorted(off)),
                     )
-                    plugin_vars.remove(var)
-                    continue
-                if gate.lower() not in readable_lower:
-                    logger.warning(
-                        "%s: %s is gated by %r, which is not subscribed (DB get='yes') "
-                        "so this worker cannot read it — not captured. Subscribe the "
-                        "gate variable (and restart the CA gateway) to capture the channel.",
-                        device,
-                        var,
-                        gate,
-                    )
-                    plugin_vars.remove(var)
-                    continue
-                plugin_gates[var] = gate
+                plugin_vars = [v for v in plugin_vars if v not in off]
             dev = GeecsDetector(
                 device,
                 readables,
@@ -669,7 +648,6 @@ class GeecsNamespace:
                     for index, var in enumerate(plugin_vars)
                 ],
                 drain_offset=self._drain_offsets.get(ophyd_name, 0.0),
-                plugin_gates=plugin_gates,
             )
         else:
             dev = CaSnapshotReadable(

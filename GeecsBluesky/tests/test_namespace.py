@@ -34,7 +34,15 @@ from geecs_bluesky.namespace import (
 )
 
 
-def row(name, *, settable=False, variabletype=None, choices="numeric", tolerance=None):
+def row(
+    name,
+    *,
+    settable=False,
+    variabletype=None,
+    choices="numeric",
+    tolerance=None,
+    defaultvalue="",
+):
     return {
         "name": name,
         "settable": settable,
@@ -44,6 +52,9 @@ def row(name, *, settable=False, variabletype=None, choices="numeric", tolerance
         "units": "",
         "min": None,
         "max": None,
+        # The configured value; for a gate variable this is what decides
+        # whether its capture stream is armed (geecs_core.db.device_streams).
+        "defaultvalue": defaultvalue,
     }
 
 
@@ -572,19 +583,22 @@ def test_an_undeclared_devicetype_keeps_the_one_image_guess() -> None:
     )
 
 
-def test_a_scope_channel_is_captured_only_with_a_readable_gate(caplog) -> None:
-    """Channels whose Enable.Ch<X> is subscribed get a gated plugin; a channel
-    whose gate the worker cannot read is not armed, loudly — never an arm on
-    a channel that may push nothing."""
+def test_only_the_channels_the_db_says_are_wired_get_a_plugin(caplog) -> None:
+    """A four-channel scope with two wired arms two plugins, not four.
+
+    The gate is the DB's configured value for ``Enable.Ch<X>``, read when the
+    namespace is built. Arming a channel that pushes nothing costs a prepare
+    timeout on every shot, which is the whole point of gating.
+    """
     from geecs_bluesky.devices.detector import GeecsDetector
 
     rows = [
         row("MeanCounts"),
         row("EnableTrigger", settable=True, choices="on,off"),
-        row("Enable.ChA", variabletype="choice", choices="on,off"),
-        row("Enable.ChB", variabletype="choice", choices="on,off"),
-        row("Enable.ChC", variabletype="choice", choices="on,off"),
-        row("Enable.ChD", variabletype="choice", choices="on,off"),
+        row("Enable.ChA", variabletype="choice", choices="on,off", defaultvalue="on"),
+        row("Enable.ChB", variabletype="choice", choices="on,off", defaultvalue="on"),
+        row("Enable.ChC", variabletype="choice", choices="on,off", defaultvalue="off"),
+        row("Enable.ChD", variabletype="choice", choices="on,off", defaultvalue="off"),
         *(row(f"scopeTrace.Channel{i}", choices="1darray") for i in range(4)),
         *(row(f"scopeTraceGUI.Channel{i}", choices="1darray") for i in range(4)),
     ]
@@ -592,11 +606,11 @@ def test_a_scope_channel_is_captured_only_with_a_readable_gate(caplog) -> None:
         experiment="TestExp",
         variables={"U_ICT": rows},
         types={"U_ICT": "PicoscopeV2"},
-        # Only A and B are subscribed (DB get='yes'): C and D are unreadable gates.
-        subscribed={"U_ICT": ["MeanCounts", "Enable.ChA", "Enable.ChB"]},
+        # The enables need no subscription: nothing reads them over CA.
+        subscribed={"U_ICT": ["MeanCounts"]},
         endpoints={"U_ICT": "192.168.7.168"},
     )
-    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.namespace"):
+    with caplog.at_level(logging.INFO, logger="geecs_bluesky.namespace"):
         ns = _plugin_namespace(roster, "192.168.7.168")
     ict = ns.devices["U_ICT"]
     assert isinstance(ict, GeecsDetector) and len(ict._hdf_ios) == 2
@@ -605,51 +619,65 @@ def test_a_scope_channel_is_captured_only_with_a_readable_gate(caplog) -> None:
         ":scopetrace_channel1:hdf1:Capture_RBV"
     )
     assert not hasattr(ict, "hdf_scopetrace_channel2")
-    gated = {variable for _, variable, _ in ict._plugin_gates}
-    assert gated == {"scopeTrace.Channel0", "scopeTrace.Channel1"}
-    warned = [
-        r.getMessage() for r in caplog.records if "not subscribed" in r.getMessage()
-    ]
-    assert len(warned) == 2
-    assert any("scopeTrace.Channel2" in m and "Enable.ChC" in m for m in warned)
-    assert any("scopeTrace.Channel3" in m and "Enable.ChD" in m for m in warned)
+    assert not hasattr(ict, "hdf_scopetrace_channel3")
+    said = [r.getMessage() for r in caplog.records if "not capturing" in r.getMessage()]
+    assert len(said) == 1
+    assert "scopeTrace.Channel2" in said[0] and "scopeTrace.Channel3" in said[0]
 
 
-def test_a_settable_gate_is_refused_with_the_right_diagnosis(caplog) -> None:
-    """A gate the DB also marks settable is bound as a Movable child, not a read-only
-    column; the remedy named is set='no', not 'subscribe it' (review of #948)."""
+def test_a_scope_with_every_channel_off_gets_no_plugin_at_all(caplog) -> None:
+    """It is then exactly a scalar-only device — the gated plan refuses it by name."""
     from geecs_bluesky.devices.detector import GeecsDetector
 
     rows = [
         row("MeanCounts"),
         row("EnableTrigger", settable=True, choices="on,off"),
-        row("Enable.ChA", settable=True, variabletype="choice", choices="on,off"),
-        row("Enable.ChB", variabletype="choice", choices="on,off"),
-        row("scopeTrace.Channel0", choices="1darray"),
-        row("scopeTrace.Channel1", choices="1darray"),
+        *(
+            row(
+                f"Enable.Ch{c}",
+                variabletype="choice",
+                choices="on,off",
+                defaultvalue="off",
+            )
+            for c in "ABCD"
+        ),
+        *(row(f"scopeTrace.Channel{i}", choices="1darray") for i in range(4)),
     ]
     roster = DeviceRoster(
         experiment="TestExp",
         variables={"U_ICT": rows},
         types={"U_ICT": "PicoscopeV2"},
-        subscribed={"U_ICT": ["MeanCounts", "Enable.ChA", "Enable.ChB"]},
+        subscribed={"U_ICT": ["MeanCounts"]},
         endpoints={"U_ICT": "192.168.7.168"},
     )
-    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.namespace"):
-        ns = _plugin_namespace(roster, "192.168.7.168")
+    ns = _plugin_namespace(roster, "192.168.7.168")
     ict = ns.devices["U_ICT"]
-    assert isinstance(ict, GeecsDetector) and len(ict._hdf_ios) == 1
-    assert ict.hdf.capture.source.endswith(":scopetrace_channel1:hdf1:Capture_RBV")
-    settable_warnings = [
-        r.getMessage() for r in caplog.records if "settable" in r.getMessage()
+    assert isinstance(ict, GeecsDetector)
+    assert ict._hdf_ios == [] and not ict.plugin_backed
+
+
+def test_an_unset_gate_value_arms_nothing() -> None:
+    """The unknown case fails safe, at the namespace too — not just in the resolver."""
+    from geecs_bluesky.devices.detector import GeecsDetector
+
+    rows = [
+        row("MeanCounts"),
+        row("EnableTrigger", settable=True, choices="on,off"),
+        *(
+            row(f"Enable.Ch{c}", variabletype="choice", choices="on,off")
+            for c in "ABCD"
+        ),
+        *(row(f"scopeTrace.Channel{i}", choices="1darray") for i in range(4)),
     ]
-    assert len(settable_warnings) == 1
-    assert "scopeTrace.Channel0" in settable_warnings[0]
-    assert "set='no'" in settable_warnings[0]
-    assert not [r for r in caplog.records if "not subscribed" in r.getMessage()]
-
-
-# ------------------------------------------------- measured drain offsets
+    roster = DeviceRoster(
+        experiment="TestExp",
+        variables={"U_ICT": rows},
+        types={"U_ICT": "PicoscopeV2"},
+        subscribed={"U_ICT": ["MeanCounts"]},
+        endpoints={"U_ICT": "192.168.7.168"},
+    )
+    ict = _plugin_namespace(roster, "192.168.7.168").devices["U_ICT"]
+    assert isinstance(ict, GeecsDetector) and ict._hdf_ios == []
 
 
 def _offset(device) -> float:

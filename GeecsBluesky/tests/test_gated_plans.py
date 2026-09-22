@@ -676,89 +676,40 @@ def test_non_essential_with_a_gated_run(
     }
 
 
-def test_non_essential_scope_with_every_channel_off_sits_the_run_out(
-    RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path, caplog
+def test_a_non_essential_scope_with_no_streams_sits_the_run_out(
+    RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path
 ) -> None:
-    """A non-essential scope whose gates all read off at stage is not prepared,
-    declared or kicked off: the count succeeds, no ``u_ict_stream`` is declared,
-    one WARNING names it (Codex review of #948 — the stock path aborted the run
-    at kickoff, "not streamable")."""
-    import logging
+    """A non-essential scope with every channel disabled is not declared or kicked off.
 
-    from geecs_bluesky.devices.hdf_plugin import PluginPathProvider
-    from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
-
+    Non-essential means "record it if you can" — so unlike the essential
+    case above this must not refuse; the count succeeds and no
+    ``u_ict`` stream appears. (The stock path aborted the run at kickoff
+    with "not streamable", Codex review of #948.)
+    """
     a = _camera(RE, box, "UC_A")
-    shared = GeecsScanPathProvider()
-    (tmp_path / "Scan001").mkdir()
-    shared.point_at(tmp_path / "Scan001")
-    plugin_path = lambda local: local.replace(str(tmp_path), r"\\nas\hdna2\data")  # noqa: E731
-    ict = GeecsDetector(
-        "U_ICT",
-        ["Enable.ChA", "Enable.ChB"],
-        experiment="TestExp",
-        name="u_ict",
-        datatypes={"Enable.ChA": str, "Enable.ChB": str},
-        hdf_plugins=[
-            (
-                "scopeTrace.Channel0",
-                PluginPathProvider(shared, "U_ICT", plugin_path=plugin_path),
-            ),
-            (
-                "scopeTrace.Channel1",
-                PluginPathProvider(
-                    shared,
-                    "U_ICT",
-                    variable="scopeTrace.Channel1",
-                    plugin_path=plugin_path,
-                ),
-            ),
-        ],
-        plugin_gates={
-            "scopeTrace.Channel0": "Enable.ChA",
-            "scopeTrace.Channel1": "Enable.ChB",
-        },
-    )
-    connect_mock(RE, ict)
-    set_mock_value(ict.acq_timestamp, 1000.0)
-    set_mock_value(ict.enable_cha, "off")
-    set_mock_value(ict.enable_chb, "off")
-    for io in (ict.hdf, ict.hdf_scopetrace_channel1):
-        set_mock_value(io.file_path_exists, True)
-        set_mock_value(io.data_type, "Float64")
-        set_mock_value(io.color_mode, "Mono")
-        set_mock_value(io.array_size_x, 3000)
-        set_mock_value(io.array_size_y, 0)
+    ict = _all_off_scope(RE, tmp_path, native_save=False)
+    assert not ict.plugin_backed
     col = DocCollector()
     RE.subscribe(col)
-    caplog.set_level(logging.WARNING, logger="geecs_bluesky.plans.gated")
     count = bind_plans(profiles)["count"]
-    RE(count([a], 2, non_essential=[ict]))
+    RE(count([a], 2, acquisition="gated", non_essential=[ict]))
     assert col.docs["stop"][-1]["exit_status"] == "success"
-    assert not any(d["name"] == "u_ict_stream" for d in col.docs["descriptor"])
-    captured = asyncio.run_coroutine_threadsafe(ict.hdf.capture.get_value(), RE.loop)
-    assert captured.result(5) is False
-    warned = [
-        r.getMessage()
-        for r in caplog.records
-        if "no capture stream armed" in r.getMessage()
-    ]
-    assert warned == [
-        "non-essential u_ict: no capture stream armed (every gated channel read off at stage) — not streamed this run"
-    ]
+    assert not any(
+        d["name"] != "shots" and any(k.startswith("u_ict") for k in d["data_keys"])
+        for d in col.docs["descriptor"]
+    )
 
 
 def _all_off_scope(
     RE: RunEngine, tmp_path: Path, *, native_save: bool
 ) -> GeecsDetector:
-    """A two-channel scope with both enables off (gates latched at stage)."""
-    from geecs_bluesky.devices.hdf_plugin import PluginPathProvider
-    from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
+    """A scope with every channel disabled.
 
-    shared = GeecsScanPathProvider()
-    (tmp_path / "Scan001").mkdir(exist_ok=True)
-    shared.point_at(tmp_path / "Scan001")
-    plugin_path = lambda local: local.replace(str(tmp_path), r"\\nas\hdna2\data")  # noqa: E731
+    Since gating moved to the DB (``geecs_core.db.device_streams``), the
+    namespace filters the disabled channels out before construction — so an
+    all-off scope reaches the plan layer with **no** file plugins, exactly
+    like a camera that never had one. There is nothing left to latch.
+    """
     ict = GeecsDetector(
         "U_ICT",
         ["Enable.ChA", "Enable.ChB"],
@@ -766,85 +717,33 @@ def _all_off_scope(
         name="u_ict",
         datatypes={"Enable.ChA": str, "Enable.ChB": str},
         native_save=native_save,
-        hdf_plugins=[
-            (
-                "scopeTrace.Channel0",
-                PluginPathProvider(shared, "U_ICT", plugin_path=plugin_path),
-            ),
-            (
-                "scopeTrace.Channel1",
-                PluginPathProvider(
-                    shared,
-                    "U_ICT",
-                    variable="scopeTrace.Channel1",
-                    plugin_path=plugin_path,
-                ),
-            ),
-        ],
-        plugin_gates={
-            "scopeTrace.Channel0": "Enable.ChA",
-            "scopeTrace.Channel1": "Enable.ChB",
-        },
+        hdf_plugins=[],
     )
     connect_mock(RE, ict)
     set_mock_value(ict.acq_timestamp, 1000.0)
-    set_mock_value(ict.enable_cha, "off")
-    set_mock_value(ict.enable_chb, "off")
-    for io in (ict.hdf, ict.hdf_scopetrace_channel1):
-        set_mock_value(io.file_path_exists, True)
-        set_mock_value(io.data_type, "Float64")
-        set_mock_value(io.color_mode, "Mono")
-        set_mock_value(io.array_size_x, 3000)
-        set_mock_value(io.array_size_y, 0)
     return ict
 
 
-def test_a_native_saving_scope_with_every_channel_off_is_an_essential_member(
+def test_a_native_saving_scope_with_every_channel_off_is_refused_by_name(
     RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path
 ) -> None:
-    """The native-saving refusal asks "has no plugin at all", not "streams nothing this
-    session": a scope with Save/LocalSavingPath settable and both channels off is a
-    scalar member of the gated run, not a native-only device refused mid-run with
-    "without a file plugin" (fresh verifier on #948, round 3)."""
+    """Every channel disabled leaves no plugin, so a gated batch cannot count it.
+
+    The refusal is deliberate (owner's call): a scope with nothing enabled
+    has nothing to record, and a gated run that silently carried it would
+    hide a config mistake. What matters is that the message names the real
+    cause — "every capture channel disabled" — and not just "no file
+    plugin", which is what an operator would otherwise have to guess at.
+    """
     a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
     ict = _all_off_scope(RE, tmp_path, native_save=True)
-    assert ict.native_save and ict.has_file_plugin
-    col = DocCollector()
-    RE.subscribe(col)
+    assert ict.native_save and not ict.plugin_backed
     count = bind_plans(profiles)["count"]
-    RE(count([a, ict], 2, acquisition="gated"))
-    assert col.docs["stop"][-1]["exit_status"] == "success"
-    shots = [d for d in col.docs["descriptor"] if d["name"] == "shots"]
-    assert shots and "u_ict-acq_timestamp" in shots[0]["data_keys"]
-    assert not any(
-        k.startswith("u_ict") and "stream" in d["name"]
-        for d in col.docs["descriptor"]
-        for k in d["data_keys"]
-        if d["name"] != "shots"
-    )
-    assert ict.plugin_backed  # unstaged again: the listing sees its plugins
-
-
-def test_the_shot_clock_choice_does_not_move_when_a_scope_latches_off(
-    RE: RunEngine, box: GatedBox, tmp_path: Path
-) -> None:
-    """shot_clock is asked at bind time (unstaged) and at step time (staged); with an
-    all-off scope listed first, both must name the same device or the start
-    document's clock is not the one the batch ticked on (fresh verifier, #948)."""
-    from geecs_bluesky.plans.gated import shot_clock
-
-    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
-    ict = _all_off_scope(RE, tmp_path, native_save=False)
-    before = shot_clock([ict, a])
-    assert before[1] == "U_ICT" and before[0] is ict.acq_timestamp
-
-    async def staged(on: bool) -> None:  # AsyncStatus needs the RE's running loop
-        await (ict.stage() if on else ict.unstage())
-
-    asyncio.run_coroutine_threadsafe(staged(True), RE.loop).result(5)
-    assert not ict.plugin_backed and ict.has_file_plugin
-    assert shot_clock([ict, a]) == before  # the latch does not move the clock
-    asyncio.run_coroutine_threadsafe(staged(False), RE.loop).result(5)
+    with pytest.raises(GeecsConfigurationError) as excinfo:
+        RE(count([a, ict], 2, acquisition="gated"))
+    message = str(excinfo.value)
+    assert "U_ICT" in message
+    assert "disabled" in message and "channels" in message
 
 
 def test_non_essential_wrapper_without_flyers_is_the_plan(

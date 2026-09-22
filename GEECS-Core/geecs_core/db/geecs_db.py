@@ -190,6 +190,15 @@ def _variable_row_to_meta(row: tuple) -> dict:
         "tolerance": _num(row[7]),
         "description": (row[8] or "").strip() if len(row) > 8 else "",
         "alias": (row[9] or "").strip() if len(row) > 9 else "",
+        # The configured value of a variable that is not set live — for a
+        # PicoscopeV2 `Enable.Ch<X>` this is which channels are wired, and
+        # it is what the capture gate reads (geecs_core.db.device_streams).
+        # Length-guarded: the other SELECTs feeding this helper are shorter.
+        "defaultvalue": (
+            (str(row[10]).strip() if row[10] is not None else "")
+            if len(row) > 10
+            else ""
+        ),
     }
 
 
@@ -512,7 +521,8 @@ class GeecsDb:
         with _cursor() as cur:
             cur.execute(
                 "SELECT dtv.id, dtv.name, dtv.units, dtv.min, dtv.max, dtv.`set`, "
-                "dtv.variabletype, c.choices, dtv.tolerance, NULL, dtv.alias "
+                "dtv.variabletype, c.choices, dtv.tolerance, NULL, dtv.alias, "
+                "dtv.defaultvalue "
                 "FROM devicetype_variable dtv "
                 "JOIN device d ON d.devicetype = dtv.devicetype "
                 "LEFT JOIN choice c ON c.id = dtv.choice_id "
@@ -523,7 +533,7 @@ class GeecsDb:
             cur.execute(
                 "SELECT v.devicetype_variable_id, v.name, v.units, v.min, v.max, "
                 "v.`set`, v.variabletype, c.choices, v.tolerance, v.description, "
-                "v.alias "
+                "v.alias, v.defaultvalue "
                 "FROM variable v "
                 "LEFT JOIN choice c ON c.id = v.choice_id "
                 "WHERE v.device = %s ORDER BY v.name",

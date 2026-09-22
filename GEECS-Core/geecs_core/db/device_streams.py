@@ -99,14 +99,22 @@ class DeviceTypeStreams:
     gate :
         Capture variable → the device's on/off variable that says whether
         *this instance* pushes it (the Picoscope's ``Enable.Ch<X>`` per
-        channel).  The worker reads the gate **once per stage** — never per
-        prepare or per shot: the run's descriptor is emitted once, so the
-        armed set cannot move inside a run — and arms the plugin for that
-        session only when it reads ``on``; a capture variable with no gate is
-        armed unconditionally.  The gate variable must be subscribed
-        read-only (``get='yes'``, ``set='no'``) so the CA gateway serves it
-        as a scalar readback — the worker refuses to arm a gated stream whose
-        gate it cannot read.
+        channel).  The gate is read from the **DB**, not from the device: the
+        gate variable's configured value (``defaultvalue``, resolved instance
+        row over devicetype default by the usual wholesale inheritance) says
+        which channels are wired, and a capture variable is armed only when
+        that value reads ``on``.  A capture variable with no gate is armed
+        unconditionally.
+
+        The DB is the source of truth here on purpose.  These enables are not
+        set live (GEECS never writes them during operations), so the
+        configured value *is* the channel's state, and reading it from a row
+        the worker already fetches is both simpler and — measured against the
+        live wire — more accurate than a readback: an enable that the device
+        never pushes leaves a served PV sitting at its initial enum value,
+        which reads ``on`` for every channel whether or not anything is wired.
+        Changing which channels are captured therefore means editing the DB
+        row, and the worker picks it up when its namespace is built.
     """
 
     capture: tuple[str, ...] = ()
@@ -265,6 +273,13 @@ def served_array_variables(
     return [name for name in array_variables(rows) if name.lower() not in excluded]
 
 
+#: What a gate variable's configured value must read for its capture stream
+#: to be armed.  Anything else — ``off``, blank, a value the DB never set —
+#: means not captured: the fail-safe direction, since arming a channel that
+#: pushes nothing costs a prepare timeout on every shot.
+GATE_ON = "on"
+
+
 def capture_gates(
     devicetype: str, rows: Sequence[Mapping[str, object]]
 ) -> dict[str, str]:
@@ -275,6 +290,8 @@ def capture_gates(
     name); an unknown *capture* name drops the pair silently here — its
     warning is :func:`capture_variables`'s, so it is raised once.  Empty for
     a devicetype with no entry or no gates.
+
+    The pairing only; :func:`gated_off_variables` reads the values.
     """
     entry = streams_for(devicetype)
     if entry is None or not entry.gate:
@@ -289,6 +306,36 @@ def capture_gates(
         if resolved:
             out[str(row["name"])] = resolved[0]
     return out
+
+
+def gated_off_variables(
+    devicetype: str, rows: Sequence[Mapping[str, object]]
+) -> frozenset[str]:
+    """Declared capture variables this instance does NOT capture, DB-spelled.
+
+    A gated capture variable is armed only when its gate variable's
+    configured value reads ``on`` (:data:`GATE_ON`); this returns the ones
+    that do not, so the caller can drop them from the capture set.  The value
+    comes from the merged metadata row the caller already holds
+    (``defaultvalue``, instance row over devicetype default) — see
+    :class:`DeviceTypeStreams`'s ``gate`` for why the DB and not a readback.
+
+    An ungated capture variable is never in the result: it is armed
+    unconditionally.  A gate whose row carries no value counts as **off** —
+    arming a channel that pushes nothing costs a prepare timeout per shot,
+    so the unknown case fails safe.
+    """
+    gates = capture_gates(devicetype, rows)
+    if not gates:
+        return frozenset()
+    by_lower = rows_by_lower(rows)
+    off: set[str] = set()
+    for captured, gate in gates.items():
+        row = by_lower.get(gate.lower())
+        value = "" if row is None else str(row.get("defaultvalue") or "")
+        if value.strip().lower() != GATE_ON:
+            off.add(captured)
+    return frozenset(off)
 
 
 def array_ceiling(devicetype: str) -> int | None:

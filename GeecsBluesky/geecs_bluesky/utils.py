@@ -63,7 +63,6 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "discard_uncollected",
         "events_to_kickoff",
         "get_index",
-        "has_file_plugin",
         "get_trigger_deadtime",
         "hints",
         "kickoff",

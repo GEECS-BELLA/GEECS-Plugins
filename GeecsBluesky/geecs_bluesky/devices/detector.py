@@ -613,19 +613,6 @@ class GeecsDetector(StandardDetector):
         not wanted this run, so a stale ``save=on`` is still cleared at
         ``stage`` (see :class:`LvNativeFileDataLogic`).  Without either the
         detector records scalars only.
-    plugin_gates :
-        Capture variable → the device's on/off variable (one of
-        *variables*, so it is a scalar child of this detector) that says
-        whether this instance pushes the stream — the Picoscope's
-        ``Enable.Ch<X>`` per ``scopeTrace.Channel<N>``.  Read **once per
-        stage** (the run's descriptor is emitted once, and the stock
-        detector re-runs the prepare context on every trigger, so the gate
-        must not move inside a run): a plugin whose gate does not read
-        ``on`` at ``stage`` takes no part in that run (no arm, no data
-        key), so a two-wired four-channel scope never times out arming on
-        a channel that pushes nothing; a channel enabled between runs is
-        captured on the next.  A capture variable not named here is armed
-        unconditionally.
     hdf_plugins :
         ``(image variable, path provider)`` per file plugin to capture
         (#806): each becomes a :class:`GeecsHdfIO` child (``hdf``, then
@@ -666,7 +653,6 @@ class GeecsDetector(StandardDetector):
         hdf_plugins: Sequence[tuple[str, PathProvider]] = (),
         shot_timeout: float = DEFAULT_SHOT_TIMEOUT,
         drain_offset: float = 0.0,
-        plugin_gates: Mapping[str, str] | None = None,
     ) -> None:
         self._geecs_device_name = device
         per_variable = {k.lower(): v for k, v in (datatypes or {}).items()}
@@ -715,13 +701,6 @@ class GeecsDetector(StandardDetector):
             )
             logics.append(self._native_logic)
         self._hdf_ios: list[GeecsHdfIO] = []
-        #: Gated plugin logics with the gate signal read at each prepare
-        #: (a list: the stock logic is an unhashable dataclass, compared by id).
-        self._plugin_gates: list[tuple[ADHDFDataLogic, str, SignalR]] = []
-        #: ``id()`` of the gated logics closed for this stage session
-        #: (latched by :meth:`stage`; ``None`` = not staged, read on demand).
-        self._closed_gate_logics: set[int] | None = None
-        gates = {k.lower(): v for k, v in (plugin_gates or {}).items()}
         for index, (variable, provider) in enumerate(hdf_plugins):
             io = GeecsHdfIO(
                 f"pva://{hdf_plugin_prefix(experiment or '', device, variable)}"
@@ -744,15 +723,6 @@ class GeecsDetector(StandardDetector):
                 datakey_suffix="" if index == 0 else f"-{safe_name(variable)}",
             )
             logics.append(logic)
-            gate = gates.get(variable.lower())
-            if gate is not None:
-                signal = getattr(self, safe_name(gate), None)
-                if not isinstance(signal, SignalR):
-                    raise ValueError(
-                        f"{device}: gate variable {gate!r} for {variable!r} is not one "
-                        "of the detector's scalar variables"
-                    )
-                self._plugin_gates.append((logic, variable, signal))
         self.add_detector_logics(*logics)
         # The scalars-only view (``X.scalars`` in a plan's detector list).
         self.scalars = GeecsDetectorScalars(self)
@@ -773,35 +743,17 @@ class GeecsDetector(StandardDetector):
         return self._acquire.last_acq_timestamp
 
     @property
-    def has_file_plugin(self) -> bool:
-        """Whether the device has any file plugin at all — the static fact.
+    def plugin_backed(self) -> bool:
+        """Whether this device streams frames through the gateway's file plugin.
 
-        The question "can this device ever count or stream frames" (the
-        gated plan's native-saving refusal, the namespace's listing); for
-        "does it stream *this session*" see :attr:`plugin_backed`.
+        A static fact, decided when the namespace built this detector: the
+        devicetype declares capture streams, the device's camera server
+        serves the file plugin, and — for a gated devicetype — the DB says
+        the channel is wired (``geecs_core.db.device_streams``).  A scope
+        with every channel disabled therefore arrives here with **no**
+        plugins and is not plugin-backed, exactly as a camera without one.
         """
         return bool(self._hdf_ios)
-
-    @property
-    def plugin_backed(self) -> bool:
-        """Whether this device streams frames through the gateway's file plugin **this session**.
-
-        ``False`` without a plugin.  With gated plugins it follows the
-        latch: once staged, a device whose every gated channel read ``off``
-        is not plugin-backed for that run — the gated plan then treats it as
-        a scalar member (its rows come from the sampler) instead of a flyer
-        it would have to declare and kick off with nothing to stream, which
-        bluesky refuses.  Before stage (the namespace's listing, a plan's
-        bind-time checks) every plugin counts.
-        """
-        if not self._hdf_ios:
-            return False
-        closed = self._closed_gate_logics
-        if closed is None:
-            return True
-        return any(
-            id(logic) not in closed for logic, _, _ in self._plugin_gates
-        ) or len(self._plugin_gates) < len(self._hdf_ios)
 
     @property
     def native_image_save(self) -> bool:
@@ -875,9 +827,6 @@ class GeecsDetector(StandardDetector):
         await asyncio.gather(
             *(sig.stage() for sig in (*self._scalars, self.acq_timestamp))
         )
-        # The per-instance gates, read once for the session (a cache hit:
-        # the gate signals are among the scalars just staged).
-        self._closed_gate_logics = await self._closed_gates()
         await super().stage()
 
     @AsyncStatus.wrap
@@ -885,7 +834,6 @@ class GeecsDetector(StandardDetector):
         """Unstage the detector (saving off), then release the signal caches."""
         self.count_zeroed = False
         await super().unstage()
-        self._closed_gate_logics = None
         await asyncio.gather(
             *(sig.unstage() for sig in (*self._scalars, self.acq_timestamp))
         )
@@ -916,45 +864,14 @@ class GeecsDetector(StandardDetector):
             and self._is_fly_prepare(self._prepare_ctx.trigger_info) != fly
         ):
             self._prepare_ctx = None
-        # The per-instance gates (a scope's Enable.Ch<X>): a gated plugin
-        # closed at stage takes no part in this session's prepares.  The set
-        # is the one latched by stage() — this method also runs on every
-        # trigger (the stock detector re-checks its context per shot), and a
-        # gate moving inside a run must not change the armed set under an
-        # already-emitted descriptor.
-        if self._closed_gate_logics is None:  # prepared without stage (tests)
-            self._closed_gate_logics = await self._closed_gates()
-        closed = self._closed_gate_logics
         saved = self._data_logics
         self._data_logics = tuple(
-            dl
-            for dl in saved
-            if id(dl) not in closed
-            and (not fly or _data_logic_supported(dl.prepare_unbounded))
+            dl for dl in saved if not fly or _data_logic_supported(dl.prepare_unbounded)
         )
         try:
             await super()._update_prepare_context(trigger_info)
         finally:
             self._data_logics = saved
-
-    async def _closed_gates(self) -> set[int]:
-        """``id()`` of each gated plugin logic whose gate does not read ``on`` right now.
-
-        Called once per stage session (one INFO line per closed channel per
-        session, not per shot).
-        """
-        closed: set[int] = set()
-        for logic, variable, signal in self._plugin_gates:
-            value = await signal.get_value()
-            if str(value).strip().lower() != "on":
-                logger.info(
-                    "%s: %s not captured this run (gate reads %r, not 'on')",
-                    self._geecs_device_name,
-                    variable,
-                    value,
-                )
-                closed.add(id(logic))
-        return closed
 
     @AsyncStatus.wrap
     async def prepare(self, value: TriggerInfo) -> None:
@@ -974,13 +891,6 @@ class GeecsDetector(StandardDetector):
                 "batch or stream frames (a LabVIEW-native camera in a gated run "
                 "or a non-essential list) — use acquisition='strict', or list "
                 "its scalars only"
-            )
-        if self._is_fly_prepare(value) and not self.plugin_backed:
-            closed = [variable for _, variable, _ in self._plugin_gates]
-            raise GeecsConfigurationError(
-                f"{self._geecs_device_name}: every gated capture stream "
-                f"({', '.join(closed)}) read off at stage — nothing to stream this "
-                "run; enable a channel and stage again, or list its scalars only"
             )
         try:
             await super().prepare(value)
