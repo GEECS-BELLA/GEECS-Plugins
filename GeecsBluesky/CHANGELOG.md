@@ -17,7 +17,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (the stock detector re-runs its prepare context on every trigger, and
   the run's descriptor is emitted once — a gate moving inside a run must
   not move the armed set; review of #948), so a channel enabled between
-  runs is captured on the next.  The namespace passes a
+  runs is captured on the next.  `plugin_backed` follows the latch: a
+  staged scope whose every channel read off is **not plugin-backed for that
+  run**, so the gated plan takes its scalars through the sampler instead of
+  declaring and kicking off a flyer with nothing to stream (which bluesky
+  refuses at `declare_stream`, and the stock kickoff refuses too — an abort
+  of a run whose other devices were fine, Codex review of #948); a direct
+  fly prepare on it is refused with the channels named.  The namespace
+  passes a
   gate only when the gate variable is one of the device's readable columns
   (DB `get='yes'`, so the CA gateway serves it); a gated stream whose gate
   it cannot read is **not captured**, with a WARNING naming the flag to

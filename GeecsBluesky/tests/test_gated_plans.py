@@ -676,6 +676,78 @@ def test_non_essential_with_a_gated_run(
     }
 
 
+def test_non_essential_scope_with_every_channel_off_sits_the_run_out(
+    RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path, caplog
+) -> None:
+    """A non-essential scope whose gates all read off at stage is not prepared,
+    declared or kicked off: the count succeeds, no ``u_ict_stream`` is declared,
+    one WARNING names it (Codex review of #948 — the stock path aborted the run
+    at kickoff, "not streamable")."""
+    import logging
+
+    from geecs_bluesky.devices.hdf_plugin import PluginPathProvider
+    from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
+
+    a = _camera(RE, box, "UC_A")
+    shared = GeecsScanPathProvider()
+    (tmp_path / "Scan001").mkdir()
+    shared.point_at(tmp_path / "Scan001")
+    plugin_path = lambda local: local.replace(str(tmp_path), r"\\nas\hdna2\data")  # noqa: E731
+    ict = GeecsDetector(
+        "U_ICT",
+        ["Enable.ChA", "Enable.ChB"],
+        experiment="TestExp",
+        name="u_ict",
+        datatypes={"Enable.ChA": str, "Enable.ChB": str},
+        hdf_plugins=[
+            (
+                "scopeTrace.Channel0",
+                PluginPathProvider(shared, "U_ICT", plugin_path=plugin_path),
+            ),
+            (
+                "scopeTrace.Channel1",
+                PluginPathProvider(
+                    shared,
+                    "U_ICT",
+                    variable="scopeTrace.Channel1",
+                    plugin_path=plugin_path,
+                ),
+            ),
+        ],
+        plugin_gates={
+            "scopeTrace.Channel0": "Enable.ChA",
+            "scopeTrace.Channel1": "Enable.ChB",
+        },
+    )
+    connect_mock(RE, ict)
+    set_mock_value(ict.acq_timestamp, 1000.0)
+    set_mock_value(ict.enable_cha, "off")
+    set_mock_value(ict.enable_chb, "off")
+    for io in (ict.hdf, ict.hdf_scopetrace_channel1):
+        set_mock_value(io.file_path_exists, True)
+        set_mock_value(io.data_type, "Float64")
+        set_mock_value(io.color_mode, "Mono")
+        set_mock_value(io.array_size_x, 3000)
+        set_mock_value(io.array_size_y, 0)
+    col = DocCollector()
+    RE.subscribe(col)
+    caplog.set_level(logging.WARNING, logger="geecs_bluesky.plans.gated")
+    count = bind_plans(profiles)["count"]
+    RE(count([a], 2, non_essential=[ict]))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert not any(d["name"] == "u_ict_stream" for d in col.docs["descriptor"])
+    captured = asyncio.run_coroutine_threadsafe(ict.hdf.capture.get_value(), RE.loop)
+    assert captured.result(5) is False
+    warned = [
+        r.getMessage()
+        for r in caplog.records
+        if "no capture stream armed" in r.getMessage()
+    ]
+    assert warned == [
+        "non-essential u_ict: no capture stream armed (every gated channel read off at stage) — not streamed this run"
+    ]
+
+
 def test_non_essential_wrapper_without_flyers_is_the_plan(
     RE: RunEngine, box: GatedBox, profiles: TriggerProfiles
 ) -> None:

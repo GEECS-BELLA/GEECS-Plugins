@@ -99,11 +99,14 @@ class DeviceTypeStreams:
     gate :
         Capture variable → the device's on/off variable that says whether
         *this instance* pushes it (the Picoscope's ``Enable.Ch<X>`` per
-        channel).  The worker reads the gate on every prepare and arms the
-        plugin only when it reads ``on``; a capture variable with no gate is
+        channel).  The worker reads the gate **once per stage** — never per
+        prepare or per shot: the run's descriptor is emitted once, so the
+        armed set cannot move inside a run — and arms the plugin for that
+        session only when it reads ``on``; a capture variable with no gate is
         armed unconditionally.  The gate variable must be subscribed
-        (``get='yes'``) so the CA gateway serves it — the worker refuses to
-        arm a gated stream whose gate it cannot read.
+        read-only (``get='yes'``, ``set='no'``) so the CA gateway serves it
+        as a scalar readback — the worker refuses to arm a gated stream whose
+        gate it cannot read.
     """
 
     capture: tuple[str, ...] = ()

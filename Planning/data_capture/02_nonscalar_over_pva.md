@@ -46,8 +46,10 @@ merge; anything worth keeping moves into the package `CLAUDE.md`s first
    (2026-09-21; two review rounds, CI green); hardware verification OWED
    (its PR body). 3b BUILT on `feat/picoscope-gate` (2026-09-21): the
    declaration's `gate` column (PicoscopeV2 `scopeTrace.Channel<N>` ⇐
-   `Enable.Ch<X>`), `GeecsDetector(plugin_gates=)` reading the gate at
-   every prepare (a channel not `on` takes no part in the run), the
+   `Enable.Ch<X>`), `GeecsDetector(plugin_gates=)` reading the gate **once
+   per stage** (a channel not `on` at stage takes no part in that run; the
+   per-prepare version aborted a run whose enable moved mid-run — #948
+   review), the
    namespace passing only gates it can read (DB `get='yes'`) and refusing
    the rest loudly, and the gateway writing a waveform's `x0`/`dx`/`samples`
    into the stack as per-frame attributes. **Deploy needs one DB step first

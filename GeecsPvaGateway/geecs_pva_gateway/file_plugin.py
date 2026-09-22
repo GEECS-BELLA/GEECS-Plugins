@@ -76,7 +76,11 @@ from geecs_core.pv_naming import (
     hdf_plugin_prefix,
     normalize_component,
 )
-from geecs_data_utils.io import WAVEFORM_AXIS_KEYS, decode_imaq_image_string
+from geecs_data_utils.io import (
+    WAVEFORM_ATTRIBUTE_SUFFIXES,
+    WAVEFORM_AXIS_KEYS,
+    decode_imaq_image_string,
+)
 from geecs_pva_gateway.streams import ArrayTooLongError
 from geecs_data_utils.io.scan_stack import ATTRIBUTES_GROUP, FRAMES_DATASET
 
@@ -130,7 +134,6 @@ ATTRIBUTE_SUFFIXES = ("frame_acq_timestamp", "frame_recv_timestamp")
 #: is never an axis-less array (``NaN`` for the array shapes that carry
 #: no axis — the pairs and CSV lineouts).  Read back like any other
 #: attribute (``geecs_data_utils.io.scan_stack.read_stack_attributes``).
-WAVEFORM_ATTRIBUTE_SUFFIXES = tuple(f"wave_{key}" for key in WAVEFORM_AXIS_KEYS)
 _WAVEFORM_ATTRIBUTE_KEYS = dict(
     zip(WAVEFORM_ATTRIBUTE_SUFFIXES, WAVEFORM_AXIS_KEYS, strict=True)
 )

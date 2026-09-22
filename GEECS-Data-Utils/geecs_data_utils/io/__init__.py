@@ -18,6 +18,7 @@ from geecs_data_utils.io.array1d import (
 )
 from geecs_data_utils.io.arrays import (
     WAVEFORM_ATTRIBUTE_KEYS,
+    WAVEFORM_ATTRIBUTE_SUFFIXES,
     WAVEFORM_AXIS_KEYS,
     DecodedArray,
     decode_array_payload,
@@ -52,6 +53,7 @@ __all__ = [
     "DecodedArray",
     "LABVIEW_EPOCH_OFFSET",
     "WAVEFORM_ATTRIBUTE_KEYS",
+    "WAVEFORM_ATTRIBUTE_SUFFIXES",
     "WAVEFORM_AXIS_KEYS",
     "ShotRef",
     "average_frames",

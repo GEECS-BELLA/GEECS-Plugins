@@ -452,6 +452,54 @@ def test_a_gated_plugin_is_armed_only_while_its_enable_reads_on(
     _run(RE, lambda: ict.unstage())
 
 
+def test_a_scope_with_every_channel_off_is_not_plugin_backed_this_session(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """Both enables off at stage → the device is not plugin-backed for that run, so
+    the gated plan takes its scalars through the sampler instead of declaring and
+    kicking off a flyer with nothing to stream — which bluesky refuses at
+    declare_stream (Codex review of #948).  A direct fly prepare is refused with
+    the reason.  Before stage, and once a channel is on, it is plugin-backed."""
+    import bluesky.plan_stubs as bps
+    import bluesky.preprocessors as bpp
+
+    from geecs_bluesky.devices.detector import gated_trigger_info
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    ict = _gated_scope(RE, tmp_path)
+    set_mock_value(ict.enable_cha, "off")
+    set_mock_value(ict.enable_chb, "off")
+    assert ict.plugin_backed  # unstaged: the namespace's listing counts every plugin
+    _run(RE, lambda: ict.stage())
+    assert not ict.plugin_backed
+    with pytest.raises(GeecsConfigurationError, match="read off at stage"):
+        _run(RE, lambda: ict.prepare(gated_trigger_info(2)))
+    _run(RE, lambda: ict.unstage())
+    assert ict.plugin_backed  # the latch is cleared with the session
+
+    # The gated plan's shape, through the RunEngine: classify after stage.
+    streamed: list[str] = []
+
+    @bpp.run_decorator()
+    def gated_step():
+        yield from bps.stage(ict, wait=True)
+        plugin = [d for d in [ict] if d.plugin_backed]
+        streamed.append(",".join(d.name for d in plugin))
+        if plugin:
+            yield from bps.prepare(ict, gated_trigger_info(1), wait=True)
+            yield from bps.declare_stream(ict, name="primary", collect=True)
+        yield from bps.unstage(ict, wait=True)
+
+    docs: list[str] = []
+    RE(gated_step(), lambda name, doc: docs.append(name))
+    assert streamed == [""] and docs[-1] == "stop"
+
+    set_mock_value(ict.enable_cha, "on")
+    docs.clear()
+    RE(gated_step(), lambda name, doc: docs.append(name))
+    assert streamed == ["", "u_ict"] and "descriptor" in docs
+
+
 def test_a_gate_that_is_not_a_scalar_child_is_refused_at_build(tmp_path: Path) -> None:
     """The namespace only passes gates it can read; the detector refuses any other."""
     with pytest.raises(ValueError, match="gate variable"):

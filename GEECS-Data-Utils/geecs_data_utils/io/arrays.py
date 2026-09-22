@@ -55,6 +55,13 @@ WAVEFORM_ATTRIBUTE_KEYS: tuple[str, ...] = (
     "gain",
     "name",
 )
+#: The per-frame attribute *suffixes* a stack of an array variable carries
+#: the axis under (``<device>-hdf-<variable>-wave_dx`` …), written by the PVA
+#: gateway's file plugin and skipped by the shot join: axis metadata, never
+#: an s-file scalar column.
+WAVEFORM_ATTRIBUTE_SUFFIXES: tuple[str, ...] = tuple(
+    f"wave_{key}" for key in WAVEFORM_AXIS_KEYS
+)
 
 _PAIR = re.compile(r"\[([^\[\]]*)\]")
 #: The whole pairs payload: ``[`` rows ``]`` with rows ``[..]`` separated by

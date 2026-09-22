@@ -759,8 +759,24 @@ class GeecsDetector(StandardDetector):
 
     @property
     def plugin_backed(self) -> bool:
-        """Whether the camera's frames are written by the gateway's file plugin."""
-        return bool(self._hdf_ios)
+        """Whether this device streams frames through the gateway's file plugin **this session**.
+
+        ``False`` without a plugin.  With gated plugins it follows the
+        latch: once staged, a device whose every gated channel read ``off``
+        is not plugin-backed for that run — the gated plan then treats it as
+        a scalar member (its rows come from the sampler) instead of a flyer
+        it would have to declare and kick off with nothing to stream, which
+        bluesky refuses.  Before stage (the namespace's listing, a plan's
+        bind-time checks) every plugin counts.
+        """
+        if not self._hdf_ios:
+            return False
+        closed = self._closed_gate_logics
+        if closed is None:
+            return True
+        return any(
+            id(logic) not in closed for logic, _, _ in self._plugin_gates
+        ) or len(self._plugin_gates) < len(self._hdf_ios)
 
     @property
     def missed_shot(self) -> bool:
@@ -907,6 +923,13 @@ class GeecsDetector(StandardDetector):
                 "batch or stream frames (a LabVIEW-native camera in a gated run "
                 "or a non-essential list) — use acquisition='strict', or list "
                 "its scalars only"
+            )
+        if self._is_fly_prepare(value) and not self.plugin_backed:
+            closed = [variable for _, variable, _ in self._plugin_gates]
+            raise GeecsConfigurationError(
+                f"{self._geecs_device_name}: every gated capture stream "
+                f"({', '.join(closed)}) read off at stage — nothing to stream this "
+                "run; enable a channel and stage again, or list its scalars only"
             )
         try:
             await super().prepare(value)
