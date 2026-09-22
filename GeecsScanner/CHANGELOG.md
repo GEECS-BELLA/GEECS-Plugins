@@ -5,6 +5,21 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.13.1] - 2026-09-21
+
+### Changed
+
+- `poetry.lock` relocked: the path dependencies' pinned versions had fallen
+  behind their packages (geecs-bluesky 0.94.0 → 0.97.1, geecs-schemas
+  0.29.0 → 0.31.0, geecs-core 0.8.2 → 0.8.3, geecs-data-utils 0.33.0 →
+  0.34.2). Editable installs imported the checkout's code regardless, so
+  nothing ran wrong, but `importlib.metadata` reported the stale numbers in
+  a freshly installed environment — a false "old version" readout during
+  the #944 deploy. Lock only; no dependency upgraded.
+- The save-path comment in `scanner.js` says what the expander now does
+  with a kwargs copy of a run-level field (refuses either), not the old
+  precedence rule.
+
 ## [0.13.0] - 2026-09-20
 
 ### Added
