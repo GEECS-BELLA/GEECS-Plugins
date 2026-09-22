@@ -35,7 +35,7 @@ once:
   everyone.
 - **Fan-out economics.** GEECS TCP push is per-connection — N direct
   subscribers make LabVIEW flatten and send every frame N times. The gateway
-  subscribes once per image variable and PVA fans out to any number of
+  subscribes once per stream variable and PVA fans out to any number of
   clients. Subscriptions are **gated**: a camera nobody is watching costs the
   device *nothing at all*.
 - **The ecosystem is free.** Phoebus renders these PVs with a stock widget;
@@ -56,6 +56,36 @@ A camera device typically serves several image-typed variables
 (`image`, `processed_image`, …); each is its own PV, gated independently —
 watching `image` costs nothing for `processed_image`.
 
+### Array variables (GeecsPvaGateway 0.12.0)
+
+A device's `1darray`-typed variables — a MagSpec camera's `interpSpec` /
+`interpDiv` lineouts, a Picoscope's `scopeTrace.Channel0` — are served the
+same way, as NTNDArray PVs, minus the per-devicetype exclusions declared in
+`geecs_core.db.device_streams` (names the device never publishes, GUI
+twins, an axis that only repeats a lineout's column 0). The variable
+component of the PV name is normalized like any other: lower-cased, with
+runs of punctuation or whitespace collapsed to one underscore, so
+
+```
+undulator:uc_bcavemagspeccam1:interpspec          (from interpSpec)
+undulator:u_bcaveict:scopetrace_channel0          (from scopeTrace.Channel0)
+```
+
+What you read:
+
+- **A lineout** is `(rows, 2)` `float64` — column 0 the axis (energy in MeV,
+  angle in mrad), column 1 the value — **padded with NaN to a fixed row
+  count per devicetype** (2048 on a MagSpec camera, 16384 on the stitcher)
+  because the real row count moves with the magnet current; count the
+  non-NaN rows to find the live length. A single real row (the magnet-off
+  default) is an ordinary frame.
+- **A scope trace** is `(samples,)` `float64` in **volts**, at the device's
+  configured record length; its time axis rides in the NTNDArray
+  `attribute` list — `x0` and `dx` in seconds, `samples`, and the raw
+  `offset` / `gain` / channel `name` — so `t = x0 + i * dx`.
+- Phoebus's image widget shows a `(rows, 2)` lineout as a two-pixel-wide
+  strip; use an XY plot on the two columns, or a 1-D plot for a trace.
+
 Each gateway instance also serves three **instance PVs** for fleet health:
 
 ```
@@ -70,7 +100,7 @@ is generated per experiment from the DB roster
 (`GeecsPvaGateway/deploy/gen_fleet_status.py --experiment X` →
 `fleet_status_<x>.bob`; HTU's `fleet_status_undulator.bob` is committed).
 
-Each image variable also has a **subscription-state PV** (GeecsPvaGateway
+Each stream variable — image or array — also has a **subscription-state PV** (GeecsPvaGateway
 0.10.0):
 
 ```

@@ -2,6 +2,7 @@ exclude: |
   (?x)^(
     extras/|
     .*/third_party_sdks/|
+    .*/tests/data/wire/|
     .*/image_analysis/algorithms/(grenouille|qwlsi)\.py$
   )
 

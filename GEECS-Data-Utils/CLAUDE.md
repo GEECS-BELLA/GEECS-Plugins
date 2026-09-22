@@ -22,7 +22,12 @@ geecs_data_utils/
   config_roots.py              # Singleton instances for image/scan analysis config dirs
   utils.py                     # month_to_int, SysPath, ConfigurationError
   io/                          # generic path->ndarray readers (images, 1D,
-                               #   IMAQ decode) + scan_stack.py: reader for
+                               #   IMAQ decode) + arrays.py: the three array
+                               #   wire shapes devices push over TCP (nested
+                               #   [x,y] pairs, CSV, LabVIEW flattened
+                               #   waveform → volts), sniffed by payload;
+                               #   pinned on tests/data/wire/ captures
+                               #   + scan_stack.py: reader for
                                #   per-device image stacks in the areaDetector
                                #   NDFileHDF5 layout (/entry/data/data +
                                #   /entry/instrument/NDAttributes/<device>-hdf-

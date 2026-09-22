@@ -2,49 +2,66 @@
 
 The GEECS DB types a variable (``image``, ``1darray``) but says nothing about
 whether the device actually *pushes* it per shot, or whether anyone wants it
-recorded.  Capturing a variable to the scan record is expensive and can
-break a scan: a file plugin armed on a variable the device never pushes
-waits out its arm timeout on every prepare, and a right-but-unwanted stream
-costs real bytes per shot.  So capture is an explicit **allowlist**: a
-devicetype's ``capture`` tuple, in capture order (the first is the device's
-primary stream).  A devicetype with no entry here declares nothing, and the
-consumer keeps its historical default (the worker: the one ``image``
-variable, else the first image variable).
+recorded.  Two declarations per devicetype answer that, with opposite
+polarities because their costs are opposite:
 
-Serving over PVA is the opposite case — cheap and gated, a PV nobody
-subscribes to costs the device nothing — so it stays DB-driven.  The
-exclusion list that will trim it (names a device never publishes, a
-downsampled twin, an axis variable that pushes one number) arrives with the
-gateway's array support, beside its consumer, not here ahead of it.
+- **Capturing** a variable to the scan record is expensive and can break a
+  scan: a file plugin armed on a variable the device never pushes waits out
+  its arm timeout on every prepare, and a right-but-unwanted stream costs
+  real bytes per shot.  So capture is an explicit **allowlist** — the
+  ``capture`` tuple, in capture order (the first is the device's primary
+  stream).  A devicetype with no entry here declares nothing, and the
+  consumer keeps its historical default (the worker: the one ``image``
+  variable, else the first image variable).
+- **Serving** a variable over PVA is cheap and gated — a PV nobody subscribes
+  to costs the device nothing — so serving stays DB-driven and only the
+  **exclusions** are named: ``1darray``-typed variables the gateway must not
+  serve because the device never publishes them (the FROG's spectra, the
+  Picoscope's dead ``ScopeTraces``/``wfm`` rows), because they are a
+  downsampled twin for GUIs (``scopeTraceGUI.*``), because they arrive
+  malformed (the stitcher's ``interpDiv``, an axis that stops increasing
+  after 190 of 8218 rows), or because they repeat a captured stream's own
+  axis (the MagSpec ``EnergyAxis``/``AngleAxis`` are ``interpSpec``/
+  ``interpDiv`` column 0).  **Exclusions name array variables only** —
+  no image PV is ever removed here; a Point Grey's ``processed image``
+  stays served, gated, for whoever watches it.
+
+A third, numeric fact rides with them: ``array_ceiling``, the row count the
+gateway pads a variable-length array to (NaN fill) so the PV shape, the
+Bluesky descriptor and the HDF5 stack stay constant across shots — the
+MagSpec lineouts' length is the energy span over a fixed ``dE`` and moves
+with the magnet current (a camera at ~285 rows, the stitcher at ~8218; the
+1 x 2 magnet-off default is an ordinary frame).  Longer than the ceiling is
+dropped and counted, never truncated.  ``None`` means "serve at native
+length" (a scope trace's length is its configured record).
 
 Every name is matched against the device's DB rows **case-insensitively** —
 the GEECS DB spells one variable differently across tables, and the device
 itself looks names up case-insensitively — and the **DB row's spelling** is
 what comes back.  A declared name with no row for that devicetype is a typo
-or a DB change; it is dropped with a WARNING rather than armed, and the
+or a DB change; it is dropped with a WARNING rather than acted on, and the
 parity test in ``tests/test_device_streams.py`` pins every entry against
 recorded DB rows so a misspelling fails offline, before it reaches a scan.
 
 The entries record what was established live on the reference deployment
-(2026-09-16..20): the FROG pushes only ``frogTrace`` (its ``SpatialImage``
-is an alignment view and the retrieved traces stay empty, so arming on any
-of them times out); the MagSpec cameras push ``Image`` and ``ImageInterp``
-plus the two lineouts; the stitcher pushes ``Image`` and ``interpSpec``
-(its ``interpDiv`` arrives malformed — an axis that stops increasing after
-190 of 8218 rows — and is left out on purpose).  The Picoscope's capture
-set is per *instance* (only the channels its ``Enable.Ch<X>`` reads ``on``
-push anything) and arrives with array support — hence its empty
-``capture``, which is a decision ("nothing yet"), not an absence.
+(2026-09-16..21): the FROG pushes only ``frogTrace`` (its ``SpatialImage``
+is an alignment view and the retrieved traces and spectra stay empty); the
+MagSpec cameras push ``Image`` and ``ImageInterp`` plus the two lineouts
+and their two axes; the stitcher pushes ``Image``, ``interpSpec`` and a
+malformed ``interpDiv``; the Picoscope pushes ``scopeTrace.Channel<N>`` for
+each enabled channel (and the GUI twins), its capture set being per
+*instance* (``Enable.Ch<X>``) — hence its empty ``capture`` for now, a
+decision ("nothing yet"), not an absence.
 
-Two neighbours to know about.  The worker (which arms the plugins) reads
-this today and the PVA gateway (which serves the PVs) follows with array
-support; neither may import the other, which is the ``scalar_policy``
-precedent for a DB-derived rule living in GEECS-Core (the CA gateway serves
-scalars only and never reads it).  And ``geecs_bluesky.assets.registry``
-carries a per-devicetype table that looks like this one and is not: it
-describes the files LabVIEW writes natively (a spatial *and* a temporal
-FROG image, the stitcher's ``interpDiv`` TSV), not what the device pushes,
-and it retires with PNG retirement (#738).  Extend this table, not that one.
+Two neighbours to know about.  The worker (which arms the plugins) and the
+PVA gateway (which serves the PVs) both read this; neither may import the
+other, which is the ``scalar_policy`` precedent for a DB-derived rule living
+in GEECS-Core (the CA gateway serves scalars only and never reads it).  And
+``geecs_bluesky.assets.registry`` carries a per-devicetype table that looks
+like this one and is not: it describes the files LabVIEW writes natively (a
+spatial *and* a temporal FROG image, the stitcher's ``interpDiv`` TSV), not
+what the device pushes, and it retires with PNG retirement (#738).  Extend
+this table, not that one.
 
 Adding an entry: record the devicetype's rows first —
 ``poetry run python scripts/record_devicetype_variables.py "<devicetype>"``
@@ -55,17 +72,17 @@ table entry with no recorded fixture behind it.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
-from geecs_core.db.variable_types import rows_by_lower
+from geecs_core.db.variable_types import array_variables, rows_by_lower
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class DeviceTypeStreams:
-    """One devicetype's capture declaration.
+    """One devicetype's stream declaration.
 
     Attributes
     ----------
@@ -73,9 +90,17 @@ class DeviceTypeStreams:
         The variables the file plugin records per shot, in capture order;
         the first is the device's primary stream.  Empty means "nothing is
         captured" — distinct from a devicetype with no entry at all.
+    exclude :
+        ``1darray``-typed variables the PVA gateway never serves (and so
+        nobody captures).  Never an image variable.
+    array_ceiling :
+        Rows the gateway pads this devicetype's variable-length arrays to
+        (NaN fill; longer is dropped and counted).  ``None`` = native length.
     """
 
     capture: tuple[str, ...] = ()
+    exclude: frozenset[str] = frozenset()
+    array_ceiling: int | None = None
 
 
 def _key(devicetype: str) -> str:
@@ -86,21 +111,83 @@ def _key(devicetype: str) -> str:
 #: normalizes the lookup).  Every entry has recorded rows in
 #: ``tests/fixtures/devicetype_variables.json`` (see the module docstring).
 DEVICE_TYPE_STREAMS: Mapping[str, DeviceTypeStreams] = {
-    "point grey camera": DeviceTypeStreams(capture=("image",)),
-    "magspeccamera": DeviceTypeStreams(
-        capture=("Image", "ImageInterp", "interpSpec", "interpDiv")
+    "point grey camera": DeviceTypeStreams(
+        capture=("image",),
+        # Empty on the wire on every camera probed; out of scope (Sam, 2026-09-16).
+        exclude=frozenset({"HorizontalLineout", "VerticalLineout", "lineouts"}),
     ),
-    "magspecstitcher": DeviceTypeStreams(capture=("Image", "interpSpec")),
-    "frog": DeviceTypeStreams(capture=("frogTrace",)),
-    # Nothing yet: its channels are armed per instance (``Enable.Ch<X>``)
-    # once arrays are capturable.
-    "picoscopev2": DeviceTypeStreams(capture=()),
+    "magspeccamera": DeviceTypeStreams(
+        capture=("Image", "ImageInterp", "interpSpec", "interpDiv"),
+        exclude=frozenset({"EnergyAxis", "AngleAxis"}),  # = the lineouts' column 0
+        array_ceiling=2048,
+    ),
+    "magspecstitcher": DeviceTypeStreams(
+        capture=("Image", "interpSpec"),
+        exclude=frozenset({"interpDiv"}),  # malformed on this devicetype
+        array_ceiling=16384,
+    ),
+    "frog": DeviceTypeStreams(
+        capture=("frogTrace",),
+        # The six spectra never carry a value on the wire.
+        exclude=frozenset(
+            {
+                "spectrum x",
+                "spectrum y",
+                "spectrum phase y",
+                "temporal x",
+                "temporal intensity y",
+                "temporal phase y",
+            }
+        ),
+    ),
+    # Captures nothing yet: its channels are armed per instance
+    # (``Enable.Ch<X>``) in a later change.  Served at the configured record
+    # length (no ceiling).
+    "picoscopev2": DeviceTypeStreams(
+        capture=(),
+        exclude=frozenset(
+            {
+                "ScopeTraces",
+                "wfm",
+                "wfm info",
+                "scopeTraceGUI.Channel0",
+                "scopeTraceGUI.Channel1",
+                "scopeTraceGUI.Channel2",
+                "scopeTraceGUI.Channel3",
+            }
+        ),
+    ),
 }
 
 
 def streams_for(devicetype: str) -> DeviceTypeStreams | None:
     """The declaration for *devicetype* (matched case- and whitespace-insensitively), or ``None``."""
     return DEVICE_TYPE_STREAMS.get(_key(devicetype))
+
+
+def _resolve(
+    names: Iterable[str],
+    rows: Sequence[Mapping[str, object]],
+    *,
+    devicetype: str,
+    which: str,
+) -> list[str]:
+    """Declared *names* → the DB rows' spellings, dropping (and warning on) unknown ones."""
+    by_lower = rows_by_lower(rows)
+    out: list[str] = []
+    for declared in names:
+        row = by_lower.get(declared.lower())
+        if row is None:
+            logger.warning(
+                "device streams: devicetype %r declares %s variable %r, which the "
+                "DB does not list for it (a typo, or the DB changed) — ignored",
+                devicetype,
+                which,
+                declared,
+            )
+            continue
+        out.append(str(row["name"]))
+    return out
 
 
 def capture_variables(
@@ -125,18 +212,36 @@ def capture_variables(
     entry = streams_for(devicetype)
     if entry is None:
         return None
-    by_lower = rows_by_lower(rows)
-    out: list[str] = []
-    for declared in entry.capture:
-        row = by_lower.get(declared.lower())
-        if row is None:
-            logger.warning(
-                "device streams: devicetype %r declares capture variable %r, "
-                "which the DB does not list for it (a typo, or the DB changed) "
-                "— ignored",
-                devicetype,
-                declared,
-            )
-            continue
-        out.append(str(row["name"]))
-    return out
+    return _resolve(entry.capture, rows, devicetype=devicetype, which="capture")
+
+
+def excluded_variables(
+    devicetype: str, rows: Sequence[Mapping[str, object]]
+) -> list[str]:
+    """The declared exclusions of one device present in *rows*, sorted, DB-spelled.
+
+    Empty for a devicetype with no entry.
+    """
+    entry = streams_for(devicetype)
+    if entry is None:
+        return []
+    return _resolve(sorted(entry.exclude), rows, devicetype=devicetype, which="exclude")
+
+
+def served_array_variables(
+    devicetype: str, rows: Sequence[Mapping[str, object]]
+) -> list[str]:
+    """The ``1darray`` variables the PVA gateway serves for one device: typed minus excluded.
+
+    The array counterpart of :func:`geecs_core.db.variable_types.image_variables`
+    for the served set, shared by the gateway (its roster) and the worker
+    (which may only capture what is served).  Sorted, DB-spelled.
+    """
+    excluded = {name.lower() for name in excluded_variables(devicetype, rows)}
+    return [name for name in array_variables(rows) if name.lower() not in excluded]
+
+
+def array_ceiling(devicetype: str) -> int | None:
+    """The padding ceiling declared for *devicetype*'s arrays, or ``None`` (native length)."""
+    entry = streams_for(devicetype)
+    return None if entry is None else entry.array_ceiling

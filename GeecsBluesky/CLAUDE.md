@@ -422,9 +422,14 @@ a served capture stream + endpoint in `config.ini [pva] file_plugin_addr_list`
 a device captures is declared per devicetype in
 `geecs_core.db.device_streams` (an allowlist, in capture order: the FROG's
 `frogTrace`, a MagSpec camera's `Image` + `ImageInterp`, …) and read by
-`namespace.capture_streams`, restricted to what the gateway serves today
-(image-typed variables; declared `1darray` streams wait for array
-support).  A devicetype with no declaration keeps the one-image guess
+`namespace.capture_streams`, restricted to what the gateway serves: the
+device's image variables and its served `1darray` variables
+(`served_array_variables`, typed minus the devicetype's exclusions); a
+declared name that is neither is a declaration error (WARNING, skipped).
+A MagSpec camera therefore arms four plugins; its lineouts land as
+`(N, 2048, 2)` float64 stacks, axis in column 0, NaN-padded by the gateway
+to the devicetype ceiling so the descriptor shape holds across a current
+scan.  A devicetype with no declaration keeps the one-image guess
 (`primary_image_variable`: `image`, else the first image variable) — never
 guess a second stream, declare it, and never declare a variable the device
 does not push on every shot (the FROG's `SpatialImage` cost an arm timeout

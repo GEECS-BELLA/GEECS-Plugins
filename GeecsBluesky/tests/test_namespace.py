@@ -478,26 +478,26 @@ def test_the_frog_captures_the_declared_trace_not_the_alphabetical_first() -> No
     assert primary_image_variable(rows) == ["SpatialImage"]
 
 
-def test_a_magspec_camera_captures_both_images_and_logs_the_waiting_arrays(
-    caplog,
-) -> None:
-    """Two declared image streams → two plugins; the declared 1darray lineouts wait for array support."""
+def test_a_magspec_camera_captures_its_four_declared_streams(caplog) -> None:
+    """Two image streams and two served 1darray lineouts → four plugins, four folders;
+    the excluded axes (EnergyAxis) get no plugin even if declared elsewhere."""
     rows = [
         row("MeanCounts"),
         row("Trigger", settable=True, choices="on,off"),
         row("Image", choices="image"),
         row("ImageInterp", choices="image"),
         row("EnergyAxis", choices="1darray"),
+        row("AngleAxis", choices="1darray"),
         row("interpSpec", choices="1darray"),
         row("interpDiv", choices="1darray"),
     ]
-    with caplog.at_level(logging.INFO, logger="geecs_bluesky.namespace"):
+    with caplog.at_level(logging.WARNING):
         ns = _plugin_namespace(
             _stream_roster("UC_MagSpecCam", "MagSpecCamera", rows, "192.168.8.201"),
             "192.168.8.201",
         )
     cam = ns.devices["UC_MagSpecCam"]
-    assert len(cam._hdf_ios) == 2
+    assert len(cam._hdf_ios) == 4
     assert (
         cam.hdf.capture.source == "pva://testexp:uc_magspeccam:image:hdf1:Capture_RBV"
     )
@@ -505,10 +505,13 @@ def test_a_magspec_camera_captures_both_images_and_logs_the_waiting_arrays(
         cam.hdf_imageinterp.capture.source
         == "pva://testexp:uc_magspeccam:imageinterp:hdf1:Capture_RBV"
     )
-    assert not hasattr(cam, "hdf_interpspec") and not hasattr(cam, "hdf_energyaxis")
-    # Each stream writes its own folder: the primary the device's, the second
-    # its ``<device>-<variable>`` sibling (two plugins on one path truncate
-    # each other's file — review of #945).
+    assert cam.hdf_interpspec.capture.source.endswith(":interpspec:hdf1:Capture_RBV")
+    assert cam.hdf_interpdiv.capture.source.endswith(":interpdiv:hdf1:Capture_RBV")
+    assert not hasattr(cam, "hdf_energyaxis") and not hasattr(cam, "hdf_angleaxis")
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    # Each stream writes its own folder: the primary the device's, the others
+    # their ``<device>-<variable>`` siblings (two plugins on one path
+    # truncate each other's file — review of #945).
     from ophyd_async.epics.adcore import ADHDFDataLogic
 
     stems = [
@@ -516,13 +519,36 @@ def test_a_magspec_camera_captures_both_images_and_logs_the_waiting_arrays(
         for logic in cam._data_logics
         if isinstance(logic, ADHDFDataLogic)
     ]
-    assert stems == ["UC_MagSpecCam", "UC_MagSpecCam-ImageInterp"]
-    waiting = [
-        r.getMessage() for r in caplog.records if "not captured until" in r.getMessage()
+    assert stems == [
+        "UC_MagSpecCam",
+        "UC_MagSpecCam-ImageInterp",
+        "UC_MagSpecCam-interpSpec",
+        "UC_MagSpecCam-interpDiv",
     ]
-    assert (
-        len(waiting) == 1 and "interpSpec" in waiting[0] and "interpDiv" in waiting[0]
-    )
+
+
+def test_a_declared_stream_the_gateway_does_not_serve_is_a_loud_no_op(caplog) -> None:
+    """A declared name typed neither image nor 1darray is a declaration error: warn, skip."""
+    rows = [
+        row("MeanCounts"),
+        row("Trigger", settable=True, choices="on,off"),
+        row("Image", choices="image"),
+        row("ImageInterp", choices="image"),
+        row(
+            "interpSpec", variabletype="string", choices="string"
+        ),  # mistyped in the DB
+    ]
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.namespace"):
+        ns = _plugin_namespace(
+            _stream_roster("UC_MagSpecCam", "MagSpecCamera", rows, "192.168.8.201"),
+            "192.168.8.201",
+        )
+    cam = ns.devices["UC_MagSpecCam"]
+    assert len(cam._hdf_ios) == 2 and not hasattr(cam, "hdf_interpspec")
+    unserved = [
+        r.getMessage() for r in caplog.records if "not captured" in r.getMessage()
+    ]
+    assert len(unserved) == 1 and "interpSpec" in unserved[0]
 
 
 def test_an_undeclared_devicetype_keeps_the_one_image_guess() -> None:

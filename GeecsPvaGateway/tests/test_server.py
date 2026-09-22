@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 from p4p.client.thread import Context
 
-from geecs_pva_gateway.config import CameraSpec, PvaGatewayConfig
+from geecs_pva_gateway.config import DeviceSpec, PvaGatewayConfig
 from geecs_pva_gateway.server import GeecsPvaGateway, __version__
 
 pytestmark = pytest.mark.fake_server
@@ -109,14 +109,14 @@ class FakeCamera:
 
 
 async def _start_gateway(cam: FakeCamera) -> tuple[GeecsPvaGateway, asyncio.Task]:
-    spec = CameraSpec(
+    spec = DeviceSpec(
         device=DEVICE.decode(),
         host="127.0.0.1",
         port=cam.port,
         experiment="testexp",
         image_variables=["image"],
     )
-    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", cameras=[spec]))
+    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", devices=[spec]))
     task = asyncio.create_task(gateway.run(isolate=True))
     for _ in range(100):  # wait for the server to come up
         await asyncio.sleep(0.05)
@@ -251,7 +251,7 @@ async def test_unreachable_device_is_re_resolved_at_the_backoff_ceiling(monkeypa
         resolved.append(device)
         return ("127.0.0.1", cam.port)
 
-    spec = CameraSpec(
+    spec = DeviceSpec(
         device=DEVICE.decode(),
         host="127.0.0.1",
         port=dead_port,
@@ -259,7 +259,7 @@ async def test_unreachable_device_is_re_resolved_at_the_backoff_ceiling(monkeypa
         image_variables=["image"],
     )
     gateway = GeecsPvaGateway(
-        PvaGatewayConfig(experiment="testexp", cameras=[spec]),
+        PvaGatewayConfig(experiment="testexp", devices=[spec]),
         endpoint_resolver=resolver,
     )
     task = asyncio.create_task(gateway.run(isolate=True))
@@ -301,14 +301,14 @@ async def test_unreachable_device_is_re_resolved_at_the_backoff_ceiling(monkeypa
 async def test_cross_camera_pv_name_collision_raises():
     """Two cameras normalizing to one PV name refuse to start, loudly."""
     specs = [
-        CameraSpec(
+        DeviceSpec(
             device="UC_Cam-A",
             host="127.0.0.1",
             port=1,
             experiment="testexp",
             image_variables=["image"],
         ),
-        CameraSpec(
+        DeviceSpec(
             device="UC_Cam_A",
             host="127.0.0.1",
             port=2,
@@ -316,7 +316,7 @@ async def test_cross_camera_pv_name_collision_raises():
             image_variables=["image"],
         ),
     ]
-    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", cameras=specs))
+    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", devices=specs))
     with pytest.raises(ValueError, match="collision"):
         await gateway.run(isolate=True)
 
@@ -328,14 +328,14 @@ async def test_within_camera_pv_name_collision_raises():
     These collapse in a per-camera dict before a cross-worker guard sees
     them, so the guard must inspect per-variable entries.
     """
-    spec = CameraSpec(
+    spec = DeviceSpec(
         device="UC_Cam",
         host="127.0.0.1",
         port=1,
         experiment="testexp",
         image_variables=["processed image", "processed_image"],
     )
-    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", cameras=[spec]))
+    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", devices=[spec]))
     with pytest.raises(ValueError, match="collision"):
         await gateway.run(isolate=True)
 
@@ -345,14 +345,14 @@ async def test_gating_is_per_variable():
     """Watching one variable subscribes only that variable's connection."""
     cam = FakeCamera()
     await cam.start()
-    spec = CameraSpec(
+    spec = DeviceSpec(
         device=DEVICE.decode(),
         host="127.0.0.1",
         port=cam.port,
         experiment="testexp",
         image_variables=["bakground image", "image"],
     )
-    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", cameras=[spec]))
+    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", devices=[spec]))
     task = asyncio.create_task(gateway.run(isolate=True))
     for _ in range(100):
         await asyncio.sleep(0.05)
@@ -437,18 +437,19 @@ def test_subscription_carries_the_scalars_only_with_a_plugin(monkeypatch) -> Non
     """One TCP subscription: frame + stamps, plus the subscribed scalars when the
     file plugin serves the variable — never without it."""
     from geecs_pva_gateway import file_plugin
-    from geecs_pva_gateway.server import _CameraWorker
+    from geecs_pva_gateway.server import _DeviceWorker
 
-    spec = CameraSpec(
+    spec = DeviceSpec(
         device="UC_TestCam",
         host="127.0.0.1",
         port=1,
         experiment="testexp",
+        image_variables=["image"],
         scalar_variables=["MaxCounts", "acq_timestamp", "exposure"],
     )
     loop = asyncio.new_event_loop()
     try:
-        worker = _CameraWorker(spec, loop)
+        worker = _DeviceWorker(spec, loop)
         try:
             assert worker.plugins  # h5py is installed here
             assert worker.subscription_variables("image") == [
@@ -467,7 +468,7 @@ def test_subscription_carries_the_scalars_only_with_a_plugin(monkeypatch) -> Non
             for plugin in worker.plugins.values():
                 plugin.stop()
         monkeypatch.setattr(file_plugin, "available", lambda: False)
-        bare = _CameraWorker(spec, loop)
+        bare = _DeviceWorker(spec, loop)
         assert bare.subscription_variables("image") == [
             "image",
             "acq_timestamp",

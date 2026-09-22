@@ -1,9 +1,12 @@
-"""DB-driven configuration: which cameras this host serves, and their PV names.
+"""DB-driven configuration: which devices this host serves, and their PV names.
 
 The served set is self-scoping: enumerate the experiment's enabled devices and
 keep those whose GEECS endpoint IP belongs to this machine and that expose at
-least one image-typed variable. The GEECS DB is the source of truth — there is
-no per-host config file.
+least one **stream** variable — an image-typed one, or a ``1darray``-typed one
+the devicetype does not exclude (:func:`geecs_core.db.device_streams.
+served_array_variables`).  The GEECS DB is the source of truth — there is no
+per-host config file; the per-devicetype exclusions and padding ceilings are
+the one curated overlay, and they live in GEECS-Core beside the type rule.
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ import socket
 
 from pydantic import BaseModel, Field
 
+from geecs_core.db.device_streams import array_ceiling, served_array_variables
 from geecs_core.db.scalar_policy import GeecsDbScalarPolicy
 from geecs_core.db.variable_types import (  # noqa: F401 - image_variables re-exported
     image_variables,
@@ -50,22 +54,44 @@ def instance_pv_prefix(experiment: str, host: str) -> str:
     return pv_name(experiment, "pvagateway", normalize_component(host))
 
 
-class CameraSpec(BaseModel):
-    """One GEECS camera device: endpoint, image variables, PV names."""
+class DeviceSpec(BaseModel):
+    """One served GEECS device: endpoint, its stream variables, PV names.
+
+    A stream variable is served as one ``NTNDArray`` PV with one file plugin:
+    an ``image_variables`` entry decodes as an IMAQ image, an
+    ``array_variables`` entry as one of the three array wire shapes
+    (:mod:`geecs_pva_gateway.streams`), padded to ``array_ceiling`` rows
+    when the devicetype declares one.
+    """
 
     device: str
     host: str
     port: int
     experiment: str
-    image_variables: list[str] = Field(default_factory=lambda: ["image"])
+    devicetype: str = ""
+    image_variables: list[str] = Field(default_factory=list)
+    #: The ``1darray`` variables the devicetype does not exclude
+    #: (:func:`geecs_core.db.device_streams.served_array_variables`).
+    array_variables: list[str] = Field(default_factory=list)
+    #: Rows the arrays are padded to (NaN) — ``None`` = native length.
+    array_ceiling: int | None = None
     #: The subscribed numeric scalars the file plugin writes beside every
     #: frame (:func:`geecs_core.db.variable_types.scalar_attribute_variables`,
-    #: the one home for the rule); they join the image variable's one TCP
+    #: the one home for the rule); they join the stream variable's one TCP
     #: subscription.  Empty = frames and stamps only.
     scalar_variables: list[str] = Field(default_factory=list)
 
+    @property
+    def stream_variables(self) -> list[str]:
+        """Every served variable of the device, images first."""
+        return [*self.image_variables, *self.array_variables]
+
+    def is_array(self, variable: str) -> bool:
+        """Whether *variable* is served as an array (else as an image)."""
+        return variable in self.array_variables
+
     def pv_name_for(self, variable: str) -> str:
-        """Full PV name for one image variable, minted by the shared contract."""
+        """Full PV name for one stream variable, minted by the shared contract."""
         return pv_name(self.experiment, self.device, variable)
 
     def connected_pv_for(self, variable: str) -> str:
@@ -80,10 +106,17 @@ class CameraSpec(BaseModel):
 
 
 class PvaGatewayConfig(BaseModel):
-    """The set of cameras one gateway instance serves."""
+    """The set of devices one gateway instance serves, and the host it serves them from."""
 
     experiment: str
-    cameras: list[CameraSpec] = Field(default_factory=list)
+    #: The served host's address — what the instance's identity PVs
+    #: (``version`` / ``heartbeat`` / ``restart``) are named after, so the
+    #: fleet probe and the Phoebus screen (which ask by ``[pva] addr_list``
+    #: IP) find the instance even while it has no device to serve.  The
+    #: ``--host`` argument, else the DB endpoint of the served devices, else
+    #: (nothing served yet) the lab-facing local address.
+    host: str | None = None
+    devices: list[DeviceSpec] = Field(default_factory=list)
 
     @classmethod
     def from_geecs_experiment(
@@ -115,6 +148,10 @@ class PvaGatewayConfig(BaseModel):
         var_map = GeecsDb.get_experiment_device_variables(
             experiment, enabled_only=enabled_only
         )
+        # The per-devicetype exclusions and ceilings key on the devicetype.
+        types = GeecsDb.get_experiment_device_types(
+            experiment, enabled_only=enabled_only
+        )
         # The per-frame scalar attributes: the same rule the worker builds a
         # device's row from, from its one home.  Degrades to empty with a
         # warning on a DB blip (the roster queries above already succeeded).
@@ -123,28 +160,36 @@ class PvaGatewayConfig(BaseModel):
         ).subscribed_by_device()
         if host:
             hosts = {host}
+            probe_host: str | None = None
         else:
             # Probe toward any device endpoint so the lab-facing interface's
             # address is included even when hostname lookup misses it.
             any_ip = next(iter(endpoints.values()), ("", 0))[0]
             hosts = local_ip_addresses(probe_target=any_ip or None)
+            probe_host = (detect_local_ip(any_ip) or None) if any_ip else None
 
-        cameras: list[CameraSpec] = []
+        served: list[DeviceSpec] = []
         for device, (ip, port) in sorted(endpoints.items()):
             if ip not in hosts:
                 continue
             if devices is not None and device not in devices:
                 continue
-            image_vars = image_variables(var_map.get(device, []))
-            if not image_vars:
-                continue  # not a camera (e.g. a timing box on the same host)
-            cameras.append(
-                CameraSpec(
+            rows = var_map.get(device, [])
+            devicetype = types.get(device, "")
+            image_vars = image_variables(rows)
+            array_vars = served_array_variables(devicetype, rows)
+            if not image_vars and not array_vars:
+                continue  # no stream variable (e.g. a timing box on the same host)
+            served.append(
+                DeviceSpec(
                     device=device,
                     host=ip,
                     port=port,
                     experiment=experiment,
+                    devicetype=devicetype,
                     image_variables=image_vars,
+                    array_variables=array_vars,
+                    array_ceiling=array_ceiling(devicetype),
                     scalar_variables=scalar_attribute_variables(
                         var_map.get(device, []),
                         subscribed.get(device, []),
@@ -153,11 +198,16 @@ class PvaGatewayConfig(BaseModel):
                 )
             )
         if devices:
-            for name in set(devices) - {c.device for c in cameras}:
+            for name in set(devices) - {c.device for c in served}:
                 logger.warning(
                     "requested device %s not served: not on host(s) %s, not "
-                    "enabled, or has no image variables",
+                    "enabled, or has no stream (image / served array) variables",
                     name,
                     sorted(hosts),
                 )
-        return cls(experiment=experiment, cameras=cameras)
+        # The identity host: ``--host``, else the endpoint the DB gives this
+        # host's served devices (the address the fleet's ``[pva] addr_list``
+        # names — a dual-NIC box may route the probe out another interface),
+        # else the probe (an idle host with nothing served yet).
+        served_host = host or (served[0].host if served else probe_host)
+        return cls(experiment=experiment, host=served_host, devices=served)

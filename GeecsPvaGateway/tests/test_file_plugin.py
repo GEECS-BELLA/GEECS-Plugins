@@ -23,7 +23,7 @@ import pytest
 from p4p.client.thread import Context
 
 from geecs_pva_gateway import file_plugin
-from geecs_pva_gateway.config import CameraSpec, PvaGatewayConfig
+from geecs_pva_gateway.config import DeviceSpec, PvaGatewayConfig
 from geecs_pva_gateway.file_plugin import (
     ATTRIBUTES_GROUP,
     FRAMES_DATASET,
@@ -122,7 +122,7 @@ class StampedCamera:
 async def _start_gateway(
     cam: StampedCamera, scalar_variables: tuple[str, ...] = ()
 ) -> tuple[GeecsPvaGateway, asyncio.Task]:
-    spec = CameraSpec(
+    spec = DeviceSpec(
         device=DEVICE.decode(),
         host="127.0.0.1",
         port=cam.port,
@@ -130,7 +130,7 @@ async def _start_gateway(
         image_variables=["image"],
         scalar_variables=list(scalar_variables),
     )
-    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", cameras=[spec]))
+    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", devices=[spec]))
     task = asyncio.create_task(gateway.run(isolate=True))
     for _ in range(100):
         await asyncio.sleep(0.05)
@@ -570,12 +570,16 @@ async def test_never_seen_variable_waits_for_the_first_push(tmp_path):
 def test_no_plugin_without_h5py(monkeypatch):
     """A box not re-bootstrapped serves no plugin PVs at all."""
     monkeypatch.setattr(file_plugin, "available", lambda: False)
-    spec = CameraSpec(
-        device="UC_TestCam", host="127.0.0.1", port=1, experiment="testexp"
+    spec = DeviceSpec(
+        device="UC_TestCam",
+        host="127.0.0.1",
+        port=1,
+        experiment="testexp",
+        image_variables=["image"],
     )
-    from geecs_pva_gateway.server import _CameraWorker
+    from geecs_pva_gateway.server import _DeviceWorker
 
-    worker = _CameraWorker(spec, asyncio.new_event_loop())
+    worker = _DeviceWorker(spec, asyncio.new_event_loop())
     assert worker.plugins == {}
     assert [name for name, _, _ in worker.provider_entries()] == [
         "testexp:uc_testcam:image",

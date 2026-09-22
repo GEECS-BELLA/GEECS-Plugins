@@ -195,7 +195,7 @@ sub.close()
 The first update is the cached value — the `(1, 1)` startup placeholder, or
 the last frame from a previous watch; the first *fresh* frame lands one
 gating round-trip later (subscribe + next device push, ~1–2 s at 1 Hz) —
-that is the unwatched-variables-are-free trade (gating is per image
+that is the unwatched-variables-are-free trade (gating is per stream
 variable; an unwatched camera holds zero connections). A bare `get` returns
 the cached value immediately and never waits for the round-trip — hold a
 monitor instead, as above.
@@ -263,13 +263,13 @@ to the `[pva] addr_list` hosts — no broadcast needed over a VPN) and prints
 one line per roster host: `[ OK ]` with version and heartbeat, `[DOWN]`
 with the error, `[ -- ] not deployed` for DB hosts absent from `addr_list`,
 and a `[WARN]` when versions are mixed (a rollout is incomplete). The last
-line is a tab-separated `role=PVA image gateways` record — the contract
+line is a tab-separated `role=PVA image gateways` record (the role name predates array serving and is kept: `scripts/fleet_status.sh` keys on it) — the contract
 `scripts/fleet_status.sh` consumes for its table. Exit 0 when any host
 answered.
 
 ## The file plugin (#806)
 
-Every served image variable also gets the areaDetector `NDFileHDF5` PV set
+Every served stream variable — an image, or since 0.12.0 a `1darray` lineout / trace — also gets the areaDetector `NDFileHDF5` PV set
 under `<image PV>:hdf1:` (e.g. `undulator:uc_amp2_ir_input:image:hdf1:Capture`),
 plus `Rewind`, `WriteStatus`, `WriteMessage`. The worker drives it with the
 stock ophyd-async `ADHDFDataLogic`; nothing is configured on the box. Two
@@ -305,7 +305,7 @@ Parity against the native PNGs, per scan, while dual-write lasts:
 | `{exp}:pvagateway:{host}:version` | Installed package version (fleet skew check) |
 | `{exp}:pvagateway:{host}:heartbeat` | Counter, +1 per 5 s (liveness) |
 | `{exp}:pvagateway:{host}:restart` | Write 1 → clean exit 86 → NSSM relaunch |
-| `{exp}:{device}:{variable}:connected` | Per image variable (0.10.0, #854): this gateway's GEECS subscription state — `Idle` (gated off: nobody watching, nothing known), `Disconnected` (a watcher holds it and the device is unreachable; MAJOR alarm) or `Connected`. To get the verdict for an idle camera, hold a monitor on its image PV for one gating round-trip (~1–2 s) and read this |
+| `{exp}:{device}:{variable}:connected` | Per stream variable, image or array (0.10.0, #854): this gateway's GEECS subscription state — `Idle` (gated off: nobody watching, nothing known), `Disconnected` (a watcher holds it and the device is unreachable; MAJOR alarm) or `Connected`. To get the verdict for an idle camera, hold a monitor on its image PV for one gating round-trip (~1–2 s) and read this |
 
 A camera app started **after** its gateway (the boot-order gap, #854)
 reads `Disconnected` while watched, and since 0.10.0 a device that came

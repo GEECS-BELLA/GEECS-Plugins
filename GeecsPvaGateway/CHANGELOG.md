@@ -4,6 +4,43 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.12.0] - 2026-09-21
+
+### Added
+
+- **Array variables are served** beside images: a device's `1darray`
+  variables the devicetype does not exclude
+  (`geecs_core.db.device_streams.served_array_variables`) each get an
+  `NTNDArray` PV, a `:connected` state and a file plugin, exactly like an
+  image variable.  New module `streams.py`: images decode as IMAQ; arrays
+  decode with `geecs_data_utils.io.decode_array_payload` (the payload says
+  which of the three wire shapes it is) to `float64` in physical units and
+  are **padded along axis 0 to the devicetype's ceiling with NaN** when one
+  is declared, so a MagSpec lineout whose row count moves with the magnet
+  current keeps one PV shape, one descriptor and one stack shape per run;
+  longer than the ceiling is dropped and counted as a shape error, never
+  truncated.  A waveform's axis parameters (`x0`, `dx`, `samples`,
+  `offset`, `gain`, `name`) ride as `NTNDArray` attributes.
+- **The file plugin writes 1-D and float stacks**: a 1-D array posts
+  `ArraySizeX = n`, `ArraySizeY = 0` (the stock ophyd-async data logic
+  drops zero dimensions, so the stream is described `(n,)` and the stack is
+  `(N, n)`), `Float64` is already in the areaDetector type table, and the
+  plugin takes its decoder from the worker (`decoder=`) so both see one
+  array per push.
+- **An instance with nothing to serve idles on its identity PVs** instead
+  of exiting: the fleet screen sees it, and it picks up the host's devices
+  on the next restart.  A freshly bootstrapped array-only host (the
+  Picoscope server) crash-looped under NSSM until this.
+
+### Changed
+
+- **`CameraSpec` → `DeviceSpec`, `PvaGatewayConfig.cameras` → `.devices`**:
+  the served unit is a device with stream variables (`image_variables` +
+  `array_variables`, `stream_variables` for both; `devicetype`,
+  `array_ceiling`), not a camera.  `image_variables` no longer defaults to
+  `["image"]`.  The roster build reads the experiment's devicetypes (one
+  more batched query) for the exclusions and ceilings.
+
 ## [0.11.2] - 2026-09-18
 
 ### Fixed

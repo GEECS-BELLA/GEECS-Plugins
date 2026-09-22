@@ -115,6 +115,22 @@ def image_variables(rows) -> list[str]:
     )
 
 
+def array_variables(rows) -> list[str]:
+    """Names of the ``1darray``-typed variables among one device's DB metadata rows.
+
+    The array twin of :func:`image_variables`, shared by the PVA gateway (which
+    serves them as 1-D or ``(n, 2)`` NTNDArrays) and the worker's namespace
+    (which may capture them): ``effective_vartype(...) == "1darray"``, sorted.
+    Which of them a devicetype actually pushes — and which are excluded from
+    serving — is :mod:`geecs_core.db.device_streams`' business, not this rule's.
+    """
+    return sorted(
+        str(row["name"])
+        for row in rows
+        if effective_vartype(row.get("variabletype"), row.get("choices")) == "1darray"
+    )
+
+
 def rows_by_lower(
     rows: Sequence[Mapping[str, object]],
 ) -> dict[str, Mapping[str, object]]:
