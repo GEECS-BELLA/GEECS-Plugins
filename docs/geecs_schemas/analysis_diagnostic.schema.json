@@ -538,7 +538,7 @@
       "properties": {
         "data_type": {
           "$ref": "#/$defs/Data1DType",
-          "description": "File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, 'csv' / 'tsv' for delimited text, 'npy' for a saved array."
+          "description": "File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, 'csv' / 'tsv' for delimited text, 'npy' for a saved array, 'pva_stack' for one shot of the per-device capture stack a Bluesky scan writes (traces and spectra alike; the reader takes its axis from the stack and hands back the trace at its true length, never the padded one)."
         },
         "trace_index": {
           "default": 0,
@@ -610,7 +610,8 @@
         "tdms_scope",
         "csv",
         "tsv",
-        "npy"
+        "npy",
+        "pva_stack"
       ],
       "title": "Data1DType",
       "type": "string"
