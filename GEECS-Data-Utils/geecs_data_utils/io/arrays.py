@@ -45,6 +45,24 @@ from geecs_data_utils.io.images import _flatten_string_to_bytes
 
 ArrayKind = Literal["pairs", "csv", "waveform"]
 
+#: The keys a waveform's :attr:`DecodedArray.attributes` carries — the axis
+#: (``x0``, ``dx`` in seconds, ``samples``) and the raw scaling — spelled
+#: here once for every consumer that stores or displays them.
+WAVEFORM_AXIS_KEYS: tuple[str, ...] = ("x0", "dx", "samples")
+WAVEFORM_ATTRIBUTE_KEYS: tuple[str, ...] = (
+    *WAVEFORM_AXIS_KEYS,
+    "offset",
+    "gain",
+    "name",
+)
+#: The per-frame attribute *suffixes* a stack of an array variable carries
+#: the axis under (``<device>-hdf-<variable>-wave_dx`` …), written by the PVA
+#: gateway's file plugin and skipped by the shot join: axis metadata, never
+#: an s-file scalar column.
+WAVEFORM_ATTRIBUTE_SUFFIXES: tuple[str, ...] = tuple(
+    f"wave_{key}" for key in WAVEFORM_AXIS_KEYS
+)
+
 _PAIR = re.compile(r"\[([^\[\]]*)\]")
 #: The whole pairs payload: ``[`` rows ``]`` with rows ``[..]`` separated by
 #: commas — nothing else between, before or after (a stray bracket or a
@@ -151,14 +169,13 @@ def decode_labview_waveform(blob: Union[str, bytes]) -> DecodedArray:
     return DecodedArray(
         values=offset + gain * raw,
         kind="waveform",
-        attributes={
-            "x0": x0,
-            "dx": dx,
-            "samples": count,
-            "offset": offset,
-            "gain": gain,
-            "name": name,
-        },
+        attributes=dict(
+            zip(
+                WAVEFORM_ATTRIBUTE_KEYS,
+                (x0, dx, count, offset, gain, name),
+                strict=True,
+            )
+        ),
     )
 
 

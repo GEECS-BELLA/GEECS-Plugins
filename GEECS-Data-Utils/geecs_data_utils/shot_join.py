@@ -382,6 +382,9 @@ def frame_columns_from_attributes(
     suffix becomes ``<device>-<suffix>``, which is how that subscribed
     scalar is spelled in a strict row; a suffix no header names (the
     plugin's ``frame_recv_timestamp``) is simply never emitted downstream.
+    An array stack's axis metadata (``io.arrays.WAVEFORM_ATTRIBUTE_SUFFIXES``:
+    ``wave_x0`` / ``wave_dx`` / ``wave_samples``) is not a scalar column at
+    all and is left out here, so no consumer diagnoses it as a missing one.
 
     A column that is not the stamps' own length is dropped with a warning
     rather than padded: an attribute dataset shorter than the frames is a
@@ -410,6 +413,7 @@ def frame_columns_from_attributes(
     FrameColumns or None
         ``None`` when no attribute carries a frame stamp (nothing to join on).
     """
+    from geecs_data_utils.io.arrays import WAVEFORM_ATTRIBUTE_SUFFIXES
     from geecs_data_utils.io.scan_stack import parse_attribute_name
 
     manifest = dict(variables or {})
@@ -420,6 +424,8 @@ def frame_columns_from_attributes(
         parsed = parse_attribute_name(name)
         device = parsed[0] if parsed else object_name
         suffix = parsed[2] if parsed else name
+        if suffix in WAVEFORM_ATTRIBUTE_SUFFIXES:
+            continue  # a waveform's axis rides in the stack, never in a row
         try:
             array = np.asarray(values, dtype=float)
         except (TypeError, ValueError):

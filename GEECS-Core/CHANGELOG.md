@@ -4,6 +4,22 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.11.0] - 2026-09-21
+
+### Added
+
+- **`device_streams`: the per-instance capture gate.** `DeviceTypeStreams`
+  gains `gate` — capture variable → the device's on/off variable that says
+  whether *this instance* pushes it — and `capture_gates(devicetype, rows)`
+  resolves the pairs to DB spellings (an unknown gate drops the pair with a
+  WARNING; an unknown capture name drops it silently, since
+  `capture_variables` already warned about it).  `PicoscopeV2` now declares its four channels
+  (`scopeTrace.Channel0..3`), each gated by `Enable.ChA..D`: a two-channel
+  unit, or a four-channel one with two wired, pushes nothing on the
+  others, so the worker arms a channel's plugin only while its enable
+  reads `on`.  The parity test requires every gate to be an on/off choice
+  variable of the devicetype and to gate a declared capture.
+
 ## [0.10.0] - 2026-09-21
 
 ### Added

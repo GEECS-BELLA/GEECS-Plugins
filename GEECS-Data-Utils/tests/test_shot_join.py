@@ -330,3 +330,29 @@ def test_truncated_keeps_only_the_referenced_frames() -> None:
     assert len(source.truncated(5)) == 5
     assert len(source.truncated(9)) == 5
     assert len(source.truncated(-1)) == 5
+
+
+def test_waveform_axis_attributes_are_not_scalar_columns() -> None:
+    """A scope stack's wave_* attributes are axis metadata: never joined, so never
+    diagnosed as a scalar column left out of the s-file (review of GEECS-Plugins#948)."""
+    from geecs_data_utils.io import WAVEFORM_ATTRIBUTE_SUFFIXES
+
+    assert WAVEFORM_ATTRIBUTE_SUFFIXES == ("wave_x0", "wave_dx", "wave_samples")
+    columns = frame_columns_from_attributes(
+        "u_ict",
+        {
+            "u_ict-hdf-scopetrace_channel0-frame_acq_timestamp": np.array([1.0]),
+            "u_ict-hdf-scopetrace_channel0-frame_recv_timestamp": np.array([1.1]),
+            "u_ict-hdf-scopetrace_channel0-wave_x0": np.array([0.0]),
+            "u_ict-hdf-scopetrace_channel0-wave_dx": np.array([4e-9]),
+            "u_ict-hdf-scopetrace_channel0-wave_samples": np.array([3000.0]),
+            "u_ict-hdf-scopetrace_channel0-maxv": np.array([0.05]),
+        },
+        labview_epoch_offset=LABVIEW_EPOCH_OFFSET,
+    )
+    assert columns is not None
+    assert set(columns.columns) == {
+        "u_ict-acq_timestamp",
+        "u_ict-frame_recv_timestamp",
+        "u_ict-maxv",
+    }

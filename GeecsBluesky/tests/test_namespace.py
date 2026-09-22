@@ -572,17 +572,81 @@ def test_an_undeclared_devicetype_keeps_the_one_image_guess() -> None:
     )
 
 
-def test_a_devicetype_declaring_no_capture_gets_no_plugin() -> None:
-    """[] from the declaration is a decision, not an absence: nothing is armed."""
+def test_a_scope_channel_is_captured_only_with_a_readable_gate(caplog) -> None:
+    """Channels whose Enable.Ch<X> is subscribed get a gated plugin; a channel
+    whose gate the worker cannot read is not armed, loudly — never an arm on
+    a channel that may push nothing."""
+    from geecs_bluesky.devices.detector import GeecsDetector
+
     rows = [
         row("MeanCounts"),
         row("EnableTrigger", settable=True, choices="on,off"),
-        row("scopeTrace.Channel0", choices="1darray"),
+        row("Enable.ChA", variabletype="choice", choices="on,off"),
+        row("Enable.ChB", variabletype="choice", choices="on,off"),
+        row("Enable.ChC", variabletype="choice", choices="on,off"),
+        row("Enable.ChD", variabletype="choice", choices="on,off"),
+        *(row(f"scopeTrace.Channel{i}", choices="1darray") for i in range(4)),
+        *(row(f"scopeTraceGUI.Channel{i}", choices="1darray") for i in range(4)),
     ]
-    ns = _plugin_namespace(
-        _stream_roster("U_ICT", "PicoscopeV2", rows, "192.168.7.168"), "192.168.7.168"
+    roster = DeviceRoster(
+        experiment="TestExp",
+        variables={"U_ICT": rows},
+        types={"U_ICT": "PicoscopeV2"},
+        # Only A and B are subscribed (DB get='yes'): C and D are unreadable gates.
+        subscribed={"U_ICT": ["MeanCounts", "Enable.ChA", "Enable.ChB"]},
+        endpoints={"U_ICT": "192.168.7.168"},
     )
-    assert not ns.devices["U_ICT"].plugin_backed
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.namespace"):
+        ns = _plugin_namespace(roster, "192.168.7.168")
+    ict = ns.devices["U_ICT"]
+    assert isinstance(ict, GeecsDetector) and len(ict._hdf_ios) == 2
+    assert ict.hdf.capture.source.endswith(":scopetrace_channel0:hdf1:Capture_RBV")
+    assert ict.hdf_scopetrace_channel1.capture.source.endswith(
+        ":scopetrace_channel1:hdf1:Capture_RBV"
+    )
+    assert not hasattr(ict, "hdf_scopetrace_channel2")
+    gated = {variable for _, variable, _ in ict._plugin_gates}
+    assert gated == {"scopeTrace.Channel0", "scopeTrace.Channel1"}
+    warned = [
+        r.getMessage() for r in caplog.records if "not subscribed" in r.getMessage()
+    ]
+    assert len(warned) == 2
+    assert any("scopeTrace.Channel2" in m and "Enable.ChC" in m for m in warned)
+    assert any("scopeTrace.Channel3" in m and "Enable.ChD" in m for m in warned)
+
+
+def test_a_settable_gate_is_refused_with_the_right_diagnosis(caplog) -> None:
+    """A gate the DB also marks settable is bound as a Movable child, not a read-only
+    column; the remedy named is set='no', not 'subscribe it' (review of #948)."""
+    from geecs_bluesky.devices.detector import GeecsDetector
+
+    rows = [
+        row("MeanCounts"),
+        row("EnableTrigger", settable=True, choices="on,off"),
+        row("Enable.ChA", settable=True, variabletype="choice", choices="on,off"),
+        row("Enable.ChB", variabletype="choice", choices="on,off"),
+        row("scopeTrace.Channel0", choices="1darray"),
+        row("scopeTrace.Channel1", choices="1darray"),
+    ]
+    roster = DeviceRoster(
+        experiment="TestExp",
+        variables={"U_ICT": rows},
+        types={"U_ICT": "PicoscopeV2"},
+        subscribed={"U_ICT": ["MeanCounts", "Enable.ChA", "Enable.ChB"]},
+        endpoints={"U_ICT": "192.168.7.168"},
+    )
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.namespace"):
+        ns = _plugin_namespace(roster, "192.168.7.168")
+    ict = ns.devices["U_ICT"]
+    assert isinstance(ict, GeecsDetector) and len(ict._hdf_ios) == 1
+    assert ict.hdf.capture.source.endswith(":scopetrace_channel1:hdf1:Capture_RBV")
+    settable_warnings = [
+        r.getMessage() for r in caplog.records if "settable" in r.getMessage()
+    ]
+    assert len(settable_warnings) == 1
+    assert "scopeTrace.Channel0" in settable_warnings[0]
+    assert "set='no'" in settable_warnings[0]
+    assert not [r for r in caplog.records if "not subscribed" in r.getMessage()]
 
 
 # ------------------------------------------------- measured drain offsets

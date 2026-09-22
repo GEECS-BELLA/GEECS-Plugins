@@ -3,6 +3,23 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.1] - 2026-09-21
+
+### Added
+
+- `io.arrays.WAVEFORM_AXIS_KEYS` / `WAVEFORM_ATTRIBUTE_KEYS` /
+  `WAVEFORM_ATTRIBUTE_SUFFIXES` — the keys a decoded waveform's attributes
+  carry and the per-frame attribute suffixes a stack stores them under,
+  spelled once so the PVA gateway's `wave_*` datasets and the shot join
+  agree (review of #948).
+
+### Fixed
+
+- **`shot_join.frame_columns_from_attributes` leaves a stack's waveform axis
+  out** (`wave_x0` / `wave_dx` / `wave_samples`): axis metadata is not a
+  scalar column, so the s-file exporter no longer warns that three scalar
+  columns were left out of every scope run.
+
 ## [0.35.0] - 2026-09-21
 
 ### Added

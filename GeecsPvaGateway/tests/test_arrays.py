@@ -179,6 +179,30 @@ def test_pad_rows_fills_with_nan_and_refuses_to_truncate() -> None:
         pad_rows(np.zeros((5, 2)), 4)
 
 
+def test_array_plugins_declare_the_waveform_axis_after_the_scalars() -> None:
+    names = file_plugin.attribute_names(
+        "U_ICT", "scopeTrace.Channel0", ["MaxV"], is_array=True
+    )
+    assert names == (
+        "u_ict-hdf-scopetrace_channel0-frame_acq_timestamp",
+        "u_ict-hdf-scopetrace_channel0-frame_recv_timestamp",
+        "u_ict-hdf-scopetrace_channel0-maxv",
+        "u_ict-hdf-scopetrace_channel0-wave_x0",
+        "u_ict-hdf-scopetrace_channel0-wave_dx",
+        "u_ict-hdf-scopetrace_channel0-wave_samples",
+    )
+    # An image plugin's names are unchanged.
+    assert file_plugin.attribute_names("UC_Cam", "image", ["MaxV"]) == (
+        "uc_cam-hdf-image-frame_acq_timestamp",
+        "uc_cam-hdf-image-frame_recv_timestamp",
+        "uc_cam-hdf-image-maxv",
+    )
+    assert "wave_dx" in file_plugin.attributes_xml(
+        "U_ICT", "scopeTrace.Channel0", is_array=True
+    )
+    assert "wave_dx" not in file_plugin.attributes_xml("UC_Cam", "image")
+
+
 def test_device_spec_stream_variables_are_images_then_arrays() -> None:
     spec = DeviceSpec(
         device="D",
@@ -348,6 +372,62 @@ async def test_the_plugin_writes_a_1d_float_stack_and_drops_over_ceiling_frames(
             np.testing.assert_array_equal(frames[2], [4.0, 5.0, 6.0, 7.0])
             assert f.attrs["shape_errors"] == 1
             assert f.attrs["frames_written"] == 3
+            # An array stack always carries the axis attributes; a CSV
+            # lineout has no axis, so they read NaN.
+            dx = f[f"{file_plugin.ATTRIBUTES_GROUP}/u_spec-hdf-interpspec-wave_dx"][:]
+            assert dx.shape == (3,) and np.isnan(dx).all()
+    finally:
+        ctx.close()
+        await _shutdown(task)
+        await dev.stop()
+
+
+@pytest.mark.timeout(30)
+async def test_a_waveform_stack_carries_its_time_axis_as_attributes(tmp_path):
+    """A captured scope trace is never an axis-less array: x0, dx and the record
+    length ride as per-frame attributes beside the stamps (review of #946)."""
+    dev = ArrayDevice("scopeTrace.Channel0")
+    await dev.start()
+    gateway, task = await _start_gateway(dev, "scopeTrace.Channel0", ceiling=None)
+    plugin = gateway._workers[0].plugins["scopeTrace.Channel0"]
+    prefix = "testexp:u_spec:scopetrace_channel0" + file_plugin.PLUGIN_SUFFIX
+    ctx = Context("pva", conf=gateway.conf(), useenv=False)
+    loop = asyncio.get_running_loop()
+
+    async def put(suffix: str, value) -> None:
+        await loop.run_in_executor(None, lambda: ctx.put(prefix + suffix, value))
+
+    try:
+        run_dir = tmp_path / "Scan004" / "U_Spec"
+        run_dir.mkdir(parents=True)
+        await put("FilePath", str(run_dir) + os.sep)
+        await put("FileName", "U_Spec")
+        dev.push(_waveform([0, 1, 2], dx=4e-9), time.time() - 5.0)
+        await put("Capture", True)
+        t = time.time()
+        dev.push(_waveform([0, 1000, -1000], dx=4e-9), t)
+        dev.push(_waveform([5, 6, 7], dx=8e-9), t + 1)
+        await _wait_until(lambda: plugin.value("NumCaptured_RBV") == 2)
+        await put("Capture", False)
+        await asyncio.wait_for(dev.disconnected.wait(), 10)
+        with h5py.File(run_dir / "U_Spec.h5", "r") as f:
+            group = f[file_plugin.ATTRIBUTES_GROUP]
+            dx = group["u_spec-hdf-scopetrace_channel0-wave_dx"][:]
+            np.testing.assert_allclose(dx, [4e-9, 8e-9])
+            assert group["u_spec-hdf-scopetrace_channel0-wave_x0"][:].tolist() == [
+                0.0,
+                0.0,
+            ]
+            assert group["u_spec-hdf-scopetrace_channel0-wave_samples"][:].tolist() == [
+                3.0,
+                3.0,
+            ]
+            assert list(f.attrs["waveform_attributes"]) == [
+                "u_spec-hdf-scopetrace_channel0-wave_x0",
+                "u_spec-hdf-scopetrace_channel0-wave_dx",
+                "u_spec-hdf-scopetrace_channel0-wave_samples",
+            ]
+            assert list(f.attrs["scalar_attributes"]) == []  # the axis is not a scalar
     finally:
         ctx.close()
         await _shutdown(task)

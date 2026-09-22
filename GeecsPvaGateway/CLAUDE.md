@@ -38,7 +38,9 @@ geecs_pva_gateway/
                 #   → float64 in physical units, NaN-padded along axis 0 to
                 #   the devicetype ceiling (longer = ArrayTooLongError,
                 #   dropped + counted, never truncated); a waveform's
-                #   x0/dx/samples ride as NTNDArray attributes
+                #   x0/dx/samples ride as NTNDArray attributes and, on an
+                #   array variable's stack, as per-frame attributes
+                #   (wave_x0 / wave_dx / wave_samples, NaN for non-waveforms)
   fleet.py      # fleet roster: camera servers from the DB per experiment,
                 #   each marked deployed by config.ini [pva] addr_list
                 #   (absent = not deployed: no instance, not an outage);

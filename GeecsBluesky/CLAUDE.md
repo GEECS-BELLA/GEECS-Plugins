@@ -439,7 +439,17 @@ sibling `<device>-<variable>/<device>-<variable>.h5` (stream key
 `<name>-<variable>`), the layout the LabVIEW-native files use for a
 device's second output, so `scan_stack.find_stack_file` resolves both;
 two plugins on one path would truncate each other's file
-(`devices/hdf_plugin.PluginPathProvider`).  A plugin-backed camera keeps writing its native
+(`devices/hdf_plugin.PluginPathProvider`).  A **gated** stream (the
+declaration's `gate`: a scope channel gated by its `Enable.Ch<X>`) is armed
+only while the gate — one of the detector's own scalar readbacks, so DB
+`get='yes'`, `set='no'` — reads `on` at `stage` (latched for the session:
+the stock detector re-runs its prepare context per trigger, and the run's
+descriptor is emitted once; `plugin_backed` follows the latch, so a scope
+with every channel off is a scalar member of that run, not a flyer with
+nothing to stream, and a fly prepare on it is refused with the channels
+named); an unreadable gate means the stream
+is not captured, with a WARNING, never an arm on a channel that pushes
+nothing.  A plugin-backed camera keeps writing its native
 PNGs beside the stack (dual-write, the rollout's parity evidence) until
 PNG retirement (#738); elsewhere per-shot data stays on the
 LabVIEW-native file path (`LvNativeFileDataLogic`, named with the stamp)

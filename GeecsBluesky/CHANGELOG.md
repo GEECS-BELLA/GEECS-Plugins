@@ -4,6 +4,41 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.99.0] - 2026-09-21
+
+### Added
+
+- **Per-instance capture gates** (`GeecsDetector(plugin_gates=)`,
+  GEECS-Core 0.11.0's `capture_gates`): a file plugin whose gate variable —
+  one of the detector's own scalar readbacks, the Picoscope's
+  `Enable.Ch<X>` for `scopeTrace.Channel<N>` — does not read `on` at
+  **`stage`** takes no part in that session: not armed, no data key.  The
+  gates are latched once per stage, never re-read per prepare or trigger
+  (the stock detector re-runs its prepare context on every trigger, and
+  the run's descriptor is emitted once — a gate moving inside a run must
+  not move the armed set; review of #948), so a channel enabled between
+  runs is captured on the next.  `plugin_backed` follows the latch: a
+  staged scope whose every channel read off is **not plugin-backed for that
+  run**, so the gated plan takes its scalars through the sampler instead of
+  declaring and kicking off a flyer with nothing to stream (which bluesky
+  refuses at `declare_stream`, and the stock kickoff refuses too — an abort
+  of a run whose other devices were fine, Codex review of #948); a direct
+  fly prepare on it is refused with the channels named.  The static fact —
+  "has any plugin at all" — is `has_file_plugin`, which the gated plan's
+  native-saving refusal and the namespace's listing now ask, so a
+  native-saving scope with every channel off is a scalar member of the
+  run, not refused mid-run as "without a file plugin"; `shot_clock` orders
+  by it too, so the clock chosen at bind time and at step time is the same
+  device (fresh verifier, round 3).  The namespace passes a
+  gate only when the gate variable is one of the device's readable columns
+  (DB `get='yes'`, so the CA gateway serves it); a gated stream whose gate
+  it cannot read is **not captured**, with a WARNING naming the flag to
+  set — never an arm on a channel that may push nothing.  The Picoscope
+  is the first gated devicetype; its channels land in
+  `<device>/`, `<device>-scopeTrace.Channel1/`, … as `(N, samples)`
+  float64 stacks in volts with the time axis as per-frame attributes
+  (GeecsPvaGateway 0.13.0).
+
 ## [0.98.0] - 2026-09-21
 
 ### Changed

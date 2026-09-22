@@ -50,8 +50,8 @@ MagSpec cameras push ``Image`` and ``ImageInterp`` plus the two lineouts
 and their two axes; the stitcher pushes ``Image``, ``interpSpec`` and a
 malformed ``interpDiv``; the Picoscope pushes ``scopeTrace.Channel<N>`` for
 each enabled channel (and the GUI twins), its capture set being per
-*instance* (``Enable.Ch<X>``) — hence its empty ``capture`` for now, a
-decision ("nothing yet"), not an absence.
+*instance* — hence the ``gate`` column: the worker arms a channel's plugin
+only when that instance's ``Enable.Ch<X>`` reads ``on``.
 
 Two neighbours to know about.  The worker (which arms the plugins) and the
 PVA gateway (which serves the PVs) both read this; neither may import the
@@ -73,7 +73,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from geecs_core.db.variable_types import array_variables, rows_by_lower
 
@@ -96,11 +96,23 @@ class DeviceTypeStreams:
     array_ceiling :
         Rows the gateway pads this devicetype's variable-length arrays to
         (NaN fill; longer is dropped and counted).  ``None`` = native length.
+    gate :
+        Capture variable → the device's on/off variable that says whether
+        *this instance* pushes it (the Picoscope's ``Enable.Ch<X>`` per
+        channel).  The worker reads the gate **once per stage** — never per
+        prepare or per shot: the run's descriptor is emitted once, so the
+        armed set cannot move inside a run — and arms the plugin for that
+        session only when it reads ``on``; a capture variable with no gate is
+        armed unconditionally.  The gate variable must be subscribed
+        read-only (``get='yes'``, ``set='no'``) so the CA gateway serves it
+        as a scalar readback — the worker refuses to arm a gated stream whose
+        gate it cannot read.
     """
 
     capture: tuple[str, ...] = ()
     exclude: frozenset[str] = frozenset()
     array_ceiling: int | None = None
+    gate: Mapping[str, str] = field(default_factory=dict)
 
 
 def _key(devicetype: str) -> str:
@@ -140,11 +152,23 @@ DEVICE_TYPE_STREAMS: Mapping[str, DeviceTypeStreams] = {
             }
         ),
     ),
-    # Captures nothing yet: its channels are armed per instance
-    # (``Enable.Ch<X>``) in a later change.  Served at the configured record
-    # length (no ceiling).
+    # Four channels, each armed per instance when its ``Enable.Ch<X>`` reads
+    # ``on`` (a two-channel unit, or a four-channel one with two wired,
+    # pushes nothing on the others — probed live 2026-09-20: A/B on, C/D
+    # empty).  Served at the configured record length (no ceiling).
     "picoscopev2": DeviceTypeStreams(
-        capture=(),
+        capture=(
+            "scopeTrace.Channel0",
+            "scopeTrace.Channel1",
+            "scopeTrace.Channel2",
+            "scopeTrace.Channel3",
+        ),
+        gate={
+            "scopeTrace.Channel0": "Enable.ChA",
+            "scopeTrace.Channel1": "Enable.ChB",
+            "scopeTrace.Channel2": "Enable.ChC",
+            "scopeTrace.Channel3": "Enable.ChD",
+        },
         exclude=frozenset(
             {
                 "ScopeTraces",
@@ -239,6 +263,32 @@ def served_array_variables(
     """
     excluded = {name.lower() for name in excluded_variables(devicetype, rows)}
     return [name for name in array_variables(rows) if name.lower() not in excluded]
+
+
+def capture_gates(
+    devicetype: str, rows: Sequence[Mapping[str, object]]
+) -> dict[str, str]:
+    """``{capture variable: gate variable}`` for one device, both DB-spelled.
+
+    Only pairs whose two names the DB lists for the device.  An unknown
+    *gate* is dropped with a WARNING (the same rule as every other declared
+    name); an unknown *capture* name drops the pair silently here — its
+    warning is :func:`capture_variables`'s, so it is raised once.  Empty for
+    a devicetype with no entry or no gates.
+    """
+    entry = streams_for(devicetype)
+    if entry is None or not entry.gate:
+        return {}
+    by_lower = rows_by_lower(rows)
+    out: dict[str, str] = {}
+    for captured, gate in entry.gate.items():
+        row = by_lower.get(captured.lower())
+        if row is None:
+            continue  # the capture list's own resolution already warned about it
+        resolved = _resolve([gate], rows, devicetype=devicetype, which="gate")
+        if resolved:
+            out[str(row["name"])] = resolved[0]
+    return out
 
 
 def array_ceiling(devicetype: str) -> int | None:

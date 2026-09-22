@@ -44,7 +44,26 @@ merge; anything worth keeping moves into the package `CLAUDE.md`s first
    full adversarial review.
 2. **PR 3 — array support, split in two. 3a MERGED into this branch as #946
    (2026-09-21; two review rounds, CI green); hardware verification OWED
-   (its PR body). 3b IN BUILD on `feat/picoscope-gate`.** 3a: the three decoders in GEECS-Data-Utils
+   (its PR body). 3b BUILT on `feat/picoscope-gate` (2026-09-21): the
+   declaration's `gate` column (PicoscopeV2 `scopeTrace.Channel<N>` ⇐
+   `Enable.Ch<X>`), `GeecsDetector(plugin_gates=)` reading the gate **once
+   per stage** (a channel not `on` at stage takes no part in that run; the
+   per-prepare version aborted a run whose enable moved mid-run — #948
+   review), the
+   namespace passing only gates it can read (DB `get='yes'`) and refusing
+   the rest loudly, and the gateway writing a waveform's `x0`/`dx`/`samples`
+   into the stack as per-frame attributes. **Deploy needs one DB step first
+   (owner): subscribe the enables so the CA gateway serves them —**
+   ``INSERT INTO expt_device_variable (expt_device_id, variablename, `get`, `set`)
+   VALUES ('973','Enable.ChA','yes','no'), ('973','Enable.ChB','yes','no'),
+   ('973','Enable.ChC','yes','no'), ('973','Enable.ChD','yes','no'),
+   ('970','Enable.ChA','yes','no'), ('970','Enable.ChB','yes','no'),
+   ('970','Enable.ChC','yes','no'), ('970','Enable.ChD','yes','no');``
+   (973 = `U_BCaveICT`, 970 = `U_UndulatorExitICT`; no rows exist for them
+   today) — then restart the CA gateway (roster is startup-only), add
+   `192.168.7.168` to the worker's `[pva] file_plugin_addr_list`, restart
+   the worker. Until the flags are set the worker logs one WARNING per
+   channel and captures nothing from the scopes, by design.** 3a: the three decoders in GEECS-Data-Utils
    (`io/arrays.py`, pinned on payloads captured live — see
    `GEECS-Data-Utils/tests/data/wire/`), `array_variables` + the `exclude`
    list + `array_ceiling` in GEECS-Core's declaration, the gateway serving
