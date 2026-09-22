@@ -450,7 +450,9 @@
     } else composer.reset();
     $("shots").value = shape === "count" ? (kw.num || 1) : (kw.shots_per_step || 1);
     $("period").value = kw.shot_period != null ? kw.shot_period : "";
-    var trigger = Object.prototype.hasOwnProperty.call(kw, "trigger_profile") ? kw.trigger_profile : doc.trigger_profile;
+    // The preset field alone: a kwargs copy is not a value (expand_preset
+    // refuses it), so it is neither shown here nor kept on save.
+    var trigger = doc.trigger_profile;
     setSelect("trig", trigger || ""); $("desc").value = doc.description || "";
     // The run-level LabVIEW-files switch (#738): unset = the experiment default.
     $("native-save").value = doc.native_image_save === true ? "true" : doc.native_image_save === false ? "false" : "";

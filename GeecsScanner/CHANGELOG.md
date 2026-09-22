@@ -16,9 +16,12 @@ project adheres to semantic versioning.
   nothing ran wrong, but `importlib.metadata` reported the stale numbers in
   a freshly installed environment — a false "old version" readout during
   the #944 deploy. Lock only; no dependency upgraded.
-- The save-path comment in `scanner.js` says what the expander now does
-  with a kwargs copy of a run-level field (refuses either), not the old
-  precedence rule.
+- Loading a preset shows the top-level `trigger_profile`, never a copy in
+  `plan.kwargs`: the form used to display the kwargs copy as the effective
+  value, which was `setdefault`'s precedence in the expander — gone since
+  GeecsBluesky 0.97.1, where such a copy is refused. The two run-level
+  fields now load by the same rule (`native_image_save` already did), and
+  the save-path comment says what the expander does with a copy.
 
 ## [0.13.0] - 2026-09-20
 
