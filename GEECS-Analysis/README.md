@@ -62,3 +62,31 @@ axes therefore retain signed widths. Diagonal beam statistics and optional
 slopes stay in local index space. Scientific changes belong in a separately
 validated change. Measurement runs own their scratch arrays and never mutate
 caller input, including when legacy RMS clips negative values internally.
+
+## Existing v2 documents
+
+```python
+from geecs_analysis.compat.v2 import compile_v2, analyze_v2
+
+compiled = compile_v2(document)  # already-validated AnalysisDiagnostic
+result = analyze_v2(raw_array, compiled)  # HxW camera or Nx2 trace
+```
+
+Compilation is numpy-free and reads no files. It snapshots supported settings;
+subsequent editor mutations do not change a compiled run. Unsupported active
+features raise `UnsupportedRecipe`; this module does not invoke a fallback.
+Readers remain separate and supply native-dtype arrays so legacy trace scaling
+precision is preserved. Trace processing is currently restricted to float64,
+with float32/float64 storage rounding before measurement. Preprocessing-only
+`trace` recipes with active ROI stay unsupported: legacy may return an empty
+array, which Frame intentionally cannot represent. Existing consumer
+routes have not switched yet.
+
+The v2 boundary explicitly preserves old camera ROI fallback/origin semantics
+and the old float64 line result's clipped negative values, without mutating
+inputs. Direct `Analysis` recipes retain the new coordinate-preserving,
+immutable-frame semantics. No schema file is rewritten.
+
+The migration harness accepts `capture --backend core` (legacy is the default)
+and compares these outputs against existing snapshots with exact equality.
+Readers and input fingerprints are identical for both backend paths.

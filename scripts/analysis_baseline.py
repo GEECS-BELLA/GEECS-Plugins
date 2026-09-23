@@ -53,11 +53,19 @@ class Snapshot:
     results: tuple[Result, ...]
 
 
-def capture(config: Path, inputs: Sequence[Path], mode: str = "per_shot") -> Snapshot:
-    """Run the legacy beam/line backend without passing input paths to analysis."""
+def capture(
+    config: Path,
+    inputs: Sequence[Path],
+    mode: str = "per_shot",
+    *,
+    backend: str = "legacy",
+) -> Snapshot:
+    """Run either beam/line backend without passing input paths to analysis."""
     from image_analysis.config import create_image_analyzer, load_diagnostic
     from image_analysis.ephemeral import run_document_ephemeral
 
+    if backend not in {"legacy", "core"}:
+        raise ValueError(f"Unknown analysis backend: {backend}")
     if not inputs:
         raise ValueError("At least one input is required")
     diagnostic = load_diagnostic(config)
@@ -75,6 +83,13 @@ def capture(config: Path, inputs: Sequence[Path], mode: str = "per_shot") -> Sna
         raise ValueError(f"Unknown analysis mode: {mode}")
     if mode == "per_bin" and diagnostic.analyzer.kind != "beam":
         raise ValueError("per_bin currently models camera-frame optimization only")
+    compiled = None
+    if backend == "core":
+        from geecs_analysis.compat.v2 import compile_v2
+
+        compiled = compile_v2(diagnostic)
+    # Keep the SAME reader for both backends: this harness isolates analysis
+    # migration from the separate source/reader migration.
     loader = create_image_analyzer(diagnostic)
     frames = []
     identities = []
@@ -89,15 +104,29 @@ def capture(config: Path, inputs: Sequence[Path], mode: str = "per_shot") -> Sna
         identities.append(f"{path.name}:{after}")
     if mode == "per_bin":
         frames = [np.mean(np.stack(frames), axis=0)]
-    results = run_document_ephemeral(diagnostic, frames)
+    if backend == "core":
+        from geecs_analysis.compat.v2 import analyze_v2
+
+        measured = [analyze_v2(frame, compiled) for frame in frames]
+        results = tuple(
+            Result(
+                result.frame.as_trace()
+                if result.frame.data.ndim == 1
+                else result.frame.data,
+                dict(result.scalars),
+            )
+            for result in measured
+        )
+    else:
+        results = tuple(
+            Result(np.array(result.get_primary_data(), copy=True), dict(result.scalars))
+            for result in run_document_ephemeral(diagnostic, frames)
+        )
     return Snapshot(
         recipe=diagnostic.model_dump_json(),
         inputs=tuple(identities),
         mode=mode,
-        results=tuple(
-            Result(np.array(result.get_primary_data(), copy=True), dict(result.scalars))
-            for result in results
-        ),
+        results=results,
     )
 
 
@@ -224,7 +253,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Capture a reference or compare a candidate, returning nonzero on differences."""
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    record = commands.add_parser("capture", help="capture legacy beam/line outputs")
+    record = commands.add_parser(
+        "capture", help="capture beam/line outputs from either backend"
+    )
+    record.add_argument("--backend", choices=("legacy", "core"), default="legacy")
     record.add_argument("--config", type=Path, required=True)
     record.add_argument("--output", type=Path, required=True)
     record.add_argument("--mode", choices=("per_shot", "per_bin"), default="per_shot")
@@ -236,7 +268,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     diff.add_argument("--atol", type=float, default=0)
     args = parser.parse_args(argv)
     if args.command == "capture":
-        snapshot = capture(args.config, args.inputs, args.mode)
+        snapshot = capture(args.config, args.inputs, args.mode, backend=args.backend)
         save(snapshot, args.output)
         print(f"Captured {len(snapshot.results)} results to {args.output}")
         return 0
