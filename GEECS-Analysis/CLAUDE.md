@@ -103,6 +103,13 @@ boundary. Deep-copy kwargs before passing to matplotlib; normalization objects
 can be mutated by rendering. Preserve geometry rather than accepting arbitrary
 extent overrides. New overlay families must carry data, never render callbacks.
 
+`render.image_grid` draws image measurements with per-panel coordinates and a
+single palette/colorbar. It accepts titles and a positive column count. Palette
+keys in imshow/pcolormesh apply to both artist types; conflicting keys fail.
+Missing limits autoscale over finite samples across all panels, and degenerate
+limits expand before per-panel copies so colorbar mutation cannot desynchronize
+them. Signal units must agree. The caller still owns aggregation and saving.
+
 ## Mask and interpolation conventions
 
 `circular_mask` defaults to local sample indices, with center in numpy `(y, x)`

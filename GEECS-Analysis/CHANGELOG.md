@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.11.0] - 2026-09-23
+
+### Added
+
+- Object-API image grids with independent panel coordinates, typed overlays,
+  explicit titles and one shared color scale/colorbar. Global finite-data
+  autoscaling owns mutable normalizers; mixed uniform/nonuniform panels use
+  the same palette. Invalid layouts and conflicting/reversed limits raise
+  RenderError without file writes or pyplot state.
+
 ## [0.10.0] - 2026-09-23
 
 ### Added
