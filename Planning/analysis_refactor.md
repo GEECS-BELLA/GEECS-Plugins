@@ -198,6 +198,16 @@ rotation, cropped local centers, repeated steps and nonfinite classification.
 These broaden recipe coverage; they do not replace per-diagnostic physics or
 scan-output acceptance. Flips and distortion correction remain unported.
 
+The streaming v2 unit runner separates source loading from compiled evaluation
+and yields explicit outcomes for per-shot or average-before-analysis groups.
+Native dtype and full bin membership are retained; raw buffers are bounded to
+one group and source failures are recorded separately from contributors. The
+declared member order replaces the old loader's nondeterministic completion
+order. On the first three canonical beam and MagSpec inputs, both modes match
+every processed array and 93 finite scalars exactly; three undefined MagSpec
+shot scalars remain flagged separately. Hosts still need to supply grouping,
+readers and sinks before this changes explicit scan execution.
+
 Still required for the first milestone: source
 and scan-runner adoption, compatible saved products, portal native trace input,
 archived scan/day output comparisons, operator figure review and live optimizer

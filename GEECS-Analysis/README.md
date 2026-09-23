@@ -177,3 +177,22 @@ interpolation, `prefilter=False`, and zero fill by default. Shape, axis grid,
 units and shot identity stay fixed. Angles refer to sample-index space, even
 on nonuniform axes; this is not a rotation of world-coordinate axes. Crops and
 duplicated transforms retain their configured order at the v2 boundary.
+
+## Streaming execution units
+
+`compat.v2_run.run_units` evaluates explicit `ShotGroup`s through a
+caller-supplied `load(shot_number)` function. A host owns scan discovery,
+grouping, readers and output sinks. Per-shot groups have one member;
+`average_before_analysis=True` loads a bin's native arrays and computes its
+raw mean before scaling or processing. This preserves the distinction between
+averaging inputs and averaging nonlinear results, including trace precision.
+
+The iterator yields a `UnitResult` for every group, with a Measurement or an
+explicit error, successful member numbers and individual load failures.
+Original group membership is retained separately: legacy per-bin scalar
+propagation includes all bin rows even if some inputs failed. Sources may reuse
+read buffers; the runner snapshots each loaded array and releases raw inputs
+before yielding. Required frame bindings and shot identities are validated
+before reading. Member order controls the reduction, making it reproducible;
+the old concurrent loader's completion order was nondeterministic. No file or
+scan route is switched by this execution primitive alone.
