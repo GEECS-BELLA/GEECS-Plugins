@@ -968,3 +968,81 @@ def test_unhonoured_kind_motor_targets_are_warned_about(caplog) -> None:
 def test_catalog_kind_setpoint_never_downgrades_a_db_motor() -> None:
     ns = GeecsNamespace(_magnet_roster(), file_plugin_hosts=None, motor_targets=set())
     assert isinstance(ns.variable("U_S1H", "Current"), CaMotor)
+
+
+def test_primary_stream_reserves_the_device_folder_for_an_image() -> None:
+    """The bare ``<device>/`` folder belongs to an image stream.
+
+    A device whose image is not captured keeps its first lineout in
+    ``<device>-<variable>/`` (the stitcher); a device with no image variable
+    at all keeps its first trace in ``<device>/`` (a scope, unchanged).
+    """
+    from geecs_bluesky.namespace import primary_stream
+
+    stitcher = [row("image", choices="image"), row("interpSpec", choices="1darray")]
+    camera = [row("Image", choices="image"), row("interpSpec", choices="1darray")]
+    scope = [row("scopeTrace.Channel0", choices="1darray")]
+    assert primary_stream([], stitcher) is None
+    assert primary_stream(["interpSpec"], stitcher) is None
+    assert primary_stream(["Image", "interpSpec"], camera) == "Image"
+    assert primary_stream(["scopeTrace.Channel0"], scope) == "scopeTrace.Channel0"
+
+
+def test_a_stitcher_captures_its_lineout_alone_into_the_suffixed_folder() -> None:
+    """``MagSpecStitcher`` declares ``interpSpec`` only: its ``Image`` is
+    empty on the wire (probed 2026-09-23), so no plugin is armed on it — and
+    the one stack lands in ``<device>-interpSpec/``, where the stitcher
+    analyzers read it, never in the bare device folder."""
+    from ophyd_async.epics.adcore import ADHDFDataLogic
+
+    rows = [
+        row("ChargeAbove1GeV"),
+        row("Save", settable=True, choices="on,off"),
+        row("image", choices="image"),
+        row("interpSpec", choices="1darray"),
+        row("interpDiv", choices="1darray"),
+    ]
+    ns = _plugin_namespace(
+        _stream_roster("U_Stitch", "MagSpecStitcher", rows, "192.168.7.99"),
+        "192.168.7.99",
+    )
+    dev = ns.devices["U_Stitch"]
+    assert len(dev._hdf_ios) == 1
+    assert dev.hdf.capture.source.endswith(":interpspec:hdf1:Capture_RBV")
+    assert not hasattr(dev, "hdf_image") and not hasattr(dev, "hdf_interpdiv")
+    stems = [
+        logic.path_provider.stem
+        for logic in dev._data_logics
+        if isinstance(logic, ADHDFDataLogic)
+    ]
+    assert stems == ["U_Stitch-interpSpec"]
+
+
+def test_a_scope_still_keeps_its_first_trace_in_the_device_folder() -> None:
+    """A device with no image variable keeps the layout the readers know:
+    the first wired trace in ``<device>/``, the next in ``<device>-<variable>/``."""
+    from ophyd_async.epics.adcore import ADHDFDataLogic
+
+    rows = [
+        row("MeanCounts"),
+        row("EnableTrigger", settable=True, choices="on,off"),
+        row("Enable.ChA", variabletype="choice", choices="on,off", defaultvalue="on"),
+        row("Enable.ChB", variabletype="choice", choices="on,off", defaultvalue="on"),
+        row("Enable.ChC", variabletype="choice", choices="on,off", defaultvalue="off"),
+        row("Enable.ChD", variabletype="choice", choices="on,off", defaultvalue="off"),
+        *(row(f"scopeTrace.Channel{i}", choices="1darray") for i in range(4)),
+    ]
+    roster = DeviceRoster(
+        experiment="TestExp",
+        variables={"U_ICT": rows},
+        types={"U_ICT": "PicoscopeV2"},
+        subscribed={"U_ICT": ["MeanCounts"]},
+        endpoints={"U_ICT": "192.168.7.168"},
+    )
+    ict = _plugin_namespace(roster, "192.168.7.168").devices["U_ICT"]
+    stems = [
+        logic.path_provider.stem
+        for logic in ict._data_logics
+        if isinstance(logic, ADHDFDataLogic)
+    ]
+    assert stems == ["U_ICT", "U_ICT-scopeTrace.Channel1"]
