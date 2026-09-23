@@ -114,37 +114,42 @@ def test_overrides_reach_the_document_and_a_dirty_output_is_refused(tmp_path):
         )
 
 
-def test_compare_reports_every_kind_of_difference():
-    frame = pd.DataFrame({"Shotnumber": [1, 2], "x": [1.0, 2.0]})
-    legacy = {
-        "a.h5": ("h5", "image", np.ones((2, 2)), np.dtype("float64")),
-        "b.h5": ("h5", "image", np.ones((2, 2)), np.dtype("float64")),
-        "Device_average_processed.h5": (
-            "h5",
-            "image",
-            np.ones((2, 2)),
-            np.dtype("float64"),
-        ),
-        "s7.txt": ("table", frame),
-        "only_legacy.png": ("bytes", 10),
-    }
-    core = {
-        "a.h5": ("h5", "image", np.ones((2, 2)), np.dtype("float64")),
-        "b.h5": ("h5", "image", np.ones((2, 2)) + 1e-9, np.dtype("float64")),
-        "Device_average_processed.h5": (
-            "h5",
-            "image",
-            np.ones((2, 2)) * (1 + 1e-16),
-            np.dtype("float64"),
-        ),
-        "s7.txt": ("table", frame.assign(x=[1.0, 3.0])),
-        "only_core.png": ("bytes", 10),
-    }
-    problems = harness.compare(legacy, core, average_ulps=4)
-    assert [
-        p.split(":")[0].split(" ")[-1] for p in problems if p.startswith("only")
-    ] == ["only_legacy.png", "only_core.png"]
-    assert any(p.startswith("b.h5: arrays differ") for p in problems)
-    assert not any(p.startswith("Device_average_processed.h5") for p in problems)
-    assert any(p.startswith("s7.txt:") for p in problems)
-    assert harness.compare(legacy, legacy, average_ulps=4) == []
+def test_scan_background_recipes_are_refused_before_any_copy(tmp_path):
+    scan, diagnostic = _archive(tmp_path / "share")
+    diagnostic.write_text(
+        diagnostic.read_text().replace(
+            "scan:\n", "scan:\n  background_source:\n    scan_number: 6\n"
+        )
+    )
+    output = tmp_path / "compare"
+    with pytest.raises(SystemExit, match="background_source"):
+        harness.main(
+            [
+                "--diagnostic",
+                str(diagnostic),
+                "--scan",
+                str(scan),
+                "--output",
+                str(output),
+            ]
+        )
+    assert not output.exists()
+
+
+def test_the_scan_paths_patch_is_restored_after_a_failed_run(tmp_path):
+    import scan_analysis.base as scan_base
+    from geecs_data_utils import ScanPaths
+    from image_analysis.config import load_diagnostic
+    from scan_analysis.base import DataUnavailableWarning
+
+    scan, diagnostic = _archive(tmp_path / "share")
+    document = load_diagnostic(diagnostic)
+    private = tmp_path / "private"
+    harness._copy_scan(scan, "Camera", private)
+    copied = next(private.rglob("Scan007"))
+    for file in (copied / "Camera").iterdir():
+        file.unlink()
+    original = scan_base.ScanPaths
+    with pytest.raises(DataUnavailableWarning):
+        harness._run("core", document, private, scan)
+    assert scan_base.ScanPaths is original is ScanPaths

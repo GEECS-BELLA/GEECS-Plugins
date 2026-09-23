@@ -11,10 +11,14 @@ Nothing is written next to the real scan. The scan's ScanInfo ini, the
 diagnostic's device folder and the s-file are copied into two private trees in
 the GEECS layout, ``<output>/legacy`` and ``<output>/core``; the legacy wrapper
 route runs in one and the core route in the other. Their ``analysis/ScanNNN``
-trees are then compared: file lists, HDF5 dataset names/dtypes/payloads, the
-s-file and sidecar tables, PNG presence. Comparison is exact except for noscan
-average arrays, where the legacy wrapper sums shots in directory-listing order;
-``--average-ulps`` bounds that difference (default 4 ulps of the stored dtype).
+trees are then compared by ``scan_analysis.route_compare``, the same rules the
+in-suite differential test uses: file lists, HDF5 dataset names/dtypes/payloads,
+the s-file and sidecar tables, PNG presence. Comparison is exact except for
+noscan average arrays, where the legacy wrapper sums shots in directory-listing
+order; ``--average-ulps`` bounds that difference (default 4 ulps of the stored
+dtype). Recipes with ``scan.background_source`` are refused before anything is
+copied: the legacy wrapper would resolve the reference scan through the real
+share and cache a background beside it, and the core does not run them.
 """
 
 from __future__ import annotations
@@ -31,10 +35,6 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 from functools import partial
 from pathlib import Path
 from typing import Sequence
-
-import h5py
-import numpy as np
-import pandas as pd
 
 
 def _copy_scan(scan: Path, device: str, base: Path) -> Path:
@@ -82,72 +82,19 @@ def _run(route: str, document, base: Path, scan: Path) -> tuple[list[str], float
     from geecs_data_utils import ScanPaths
     from scan_analysis.config import create_scan_analyzer
 
-    original = scan_base.ScanPaths
-    scan_base.ScanPaths = partial(ScanPaths, base_directory=base)
+    # Construction never resolves paths; only run_analysis does, so the
+    # ScanPaths patch wraps exactly that call and is restored on every exit.
     analyzer = create_scan_analyzer(document, route=route)
     tag = ScanPaths(folder=scan).get_tag()
+    original = scan_base.ScanPaths
     started = time.perf_counter()
+    scan_base.ScanPaths = partial(ScanPaths, base_directory=base)
     try:
         display = analyzer.run_analysis(tag) or []
     finally:
-        analyzer.cleanup()
         scan_base.ScanPaths = original
+        analyzer.cleanup()
     return [str(p) for p in display], time.perf_counter() - started
-
-
-def _snapshot(base: Path) -> dict:
-    analysis = next(base.rglob("analysis"))
-    files = {}
-    for path in sorted(analysis.rglob("*")):
-        if not path.is_file():
-            continue
-        name = path.relative_to(analysis).as_posix()
-        if path.suffix == ".h5":
-            with h5py.File(path) as handle:
-                (key,) = list(handle)
-                files[name] = ("h5", key, handle[key][:], handle[key].dtype)
-        elif path.suffix == ".txt":
-            files[name] = ("table", pd.read_csv(path, sep="\t"))
-        else:
-            files[name] = ("bytes", path.stat().st_size)
-    return files
-
-
-def compare(legacy: dict, core: dict, *, average_ulps: int) -> list[str]:
-    """Return one line per difference; empty means the trees match."""
-    problems = []
-    only_legacy = sorted(set(legacy) - set(core))
-    only_core = sorted(set(core) - set(legacy))
-    for name in only_legacy:
-        problems.append(f"only legacy wrote {name}")
-    for name in only_core:
-        problems.append(f"only core wrote {name}")
-    for name in sorted(set(legacy) & set(core)):
-        expected, actual = legacy[name], core[name]
-        if expected[0] != actual[0]:
-            problems.append(f"{name}: kind {expected[0]} vs {actual[0]}")
-        elif expected[0] == "h5":
-            _, key, data, dtype = expected
-            _, key2, data2, dtype2 = actual
-            if (key, dtype, data.shape) != (key2, dtype2, data2.shape):
-                problems.append(
-                    f"{name}: {key}/{dtype}/{data.shape} vs {key2}/{dtype2}/{data2.shape}"
-                )
-                continue
-            if "_average_processed" in name:
-                tolerance = average_ulps * np.finfo(dtype).eps
-                ok = np.allclose(data, data2, rtol=tolerance, atol=0, equal_nan=True)
-            else:
-                ok = np.array_equal(data, data2, equal_nan=True)
-            if not ok:
-                diff = np.nanmax(np.abs(data.astype(float) - data2.astype(float)))
-                problems.append(f"{name}: arrays differ (max |Δ| = {diff:.3g})")
-        elif expected[0] == "table":
-            try:
-                pd.testing.assert_frame_equal(expected[1], actual[1], check_exact=True)
-            except AssertionError as exc:
-                problems.append(f"{name}: {str(exc).splitlines()[0]}")
-    return problems
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -177,8 +124,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.output.exists() and any(args.output.iterdir()):
         raise SystemExit(f"--output must be empty: {args.output}")
     from image_analysis.config import load_diagnostic
+    from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
 
     document = _apply_overrides(load_diagnostic(args.diagnostic), args.set)
+    if document.scan.background_source is not None:
+        # The legacy wrapper resolves the reference scan through the real
+        # share (its own ScanPaths, outside the private tree) and caches a
+        # background there, and the core cannot run the recipe at all.
+        raise SystemExit(
+            "recipes with scan.background_source are refused: they would write "
+            "next to the archived scan and the core does not run them"
+        )
     device = document.scan.device or document.name
     scan = args.scan.resolve()
     results = {}
@@ -186,11 +142,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         base = args.output / route
         _copy_scan(scan, device, base)
         display, seconds = _run(route, document, base, scan)
-        results[route] = (_snapshot(base), display, seconds)
+        results[route] = (
+            snapshot_analysis_tree(next(base.rglob("analysis"))),
+            display,
+            seconds,
+        )
         print(
             f"{route:7s} {seconds:7.1f} s  {len(results[route][0])} files  display: {[Path(p).name for p in display]}"
         )
-    problems = compare(
+    problems = compare_snapshots(
         results["legacy"][0], results["core"][0], average_ulps=args.average_ulps
     )
     legacy_display = [

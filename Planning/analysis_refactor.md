@@ -231,7 +231,10 @@ the legacy wrapper sums shots in directory-listing order).
 
 `scripts/analysis_scan_compare.py` runs that comparison on a real scan from
 private copies of its inputs (`--set scan.data_format=per_shot_files` for the
-beam recipe, whose canonical input is PNG).
+beam recipe, whose canonical input is PNG); recipes with scan-context
+backgrounds are refused because the legacy wrapper would write beside the
+archived reference scan. Both use `scan_analysis.route_compare`, the one
+definition of equal outputs.
 
 Still required for the first milestone: that comparison on the archived
 canonical beam and MagSpec scans (owed: the share was unmounted when the

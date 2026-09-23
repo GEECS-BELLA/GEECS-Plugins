@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.34.0] - 2026-09-23
+
+### Added
+
+- `route_compare`: the one definition of equal route outputs (decoded HDF5
+  payloads and scalar tables exact, noscan averages within a few ulps, other
+  files by presence), shared by the in-suite differential test and
+  `scripts/analysis_scan_compare.py`.
+
 ## [1.33.0] - 2026-09-23
 
 ### Changed
