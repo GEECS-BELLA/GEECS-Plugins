@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.29.0] - 2026-09-23
+
+### Added
+
+- Write-free scan execution through the new core: snapshot a v2 recipe, native
+  source, scalar-row grouping and output naming; stream per-shot or raw-bin-mean
+  results; project scalar records onto the legacy full-bin membership. Preserve
+  bare core measurements and expose input/analysis failures separately. Duplicate
+  or invalid shot numbers and fractional bin ids fail instead of being coerced.
+  Product sinks and the factory route change remain separate work.
+
 ## [1.28.0] - 2026-09-23
 
 ### Added

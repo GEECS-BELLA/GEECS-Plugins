@@ -10,6 +10,7 @@ scan_analysis/
   base.py                          # ScanAnalyzer abstract base class
   core_inputs.py                   # v2 core compilation + loaded file-background bindings
   core_source.py                   # completed-scan native/stack input mapping and reads
+  core_scan.py                     # write-free scan preparation, grouping and execution
   task_queue.py                    # Task claiming, heartbeat, YAML status system
   config/
     diagnostic_factory.py          # create_scan_analyzer(AnalysisDiagnostic)
@@ -43,6 +44,15 @@ Camera stack preference may fall back to native files; stack-only traces cannot.
 The source never creates folders or writes files. Hosts must wait for scan
 completion before discovering HDF5 stacks over SMB. Reader metadata is not
 returned by this raw-array adapter; v2 recipes supply configured labels/units.
+
+`core_scan.prepare_scan` snapshots config, rows, source, recipe and scalar naming
+for one explicit run. `PreparedScan.run()` streams core `UnitResult` outcomes;
+`scalar_records()` projects bare scalars to `{output_name}_{key}{metric_suffix}`
+without mutating the result or caller's rows. Per-bin updates include all bin
+members even when some inputs fail. Groups follow scalar-row order; empty bins
+are omitted and missing bin values form no group. Duplicate/nonpositive shot
+numbers and fractional bin ids are explicit preparation errors. No sinks or
+legacy factory route change are included in this adapter.
 
 Scan analysis is driven by YAML config files stored in the
 **GEECS-Plugins-configs** repository (not this repo). The documents are
