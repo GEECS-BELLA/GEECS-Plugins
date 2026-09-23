@@ -110,9 +110,11 @@ layout; delete-when-executed is the whole discipline):
   `GeecsBluesky/CLAUDE.md`, and what the DB's `set` / `defaultvalue` /
   `get` columns actually mean is `GEECS-Core/DESIGN.md`. The owner ruled
   the one remaining candidate — the MagSpec resampling note — not worth
-  keeping, since analysis handles it (2026-09-22)
-  regrowing. CHANGELOG citations were left dangling on purpose: like the
-  dead branch names, they are historical record, not instruction.
+  keeping, since analysis handles it (2026-09-22). The folder keeps its
+  `README.md` so the convention survives the emptying — git does not track
+  empty directories, so pruning everything would take the discipline with
+  it. CHANGELOG citations were left dangling on purpose: like the dead
+  branch names, they are historical record, not instruction.
 
 ## Every PR that changes a package
 
