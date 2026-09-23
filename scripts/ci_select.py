@@ -58,7 +58,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # named "root" (which also runs the repo-level tests/ directory). Keep in
 # sync with scripts/check.sh's ROOT_ENV_PKGS.
 ROOT_ENV_PKGS = frozenset(
-    {"ImageAnalysis", "ScanAnalysis", "GEECS-Data-Utils", "GEECS-Schemas"}
+    {
+        "GEECS-Analysis",
+        "ImageAnalysis",
+        "ScanAnalysis",
+        "GEECS-Data-Utils",
+        "GEECS-Schemas",
+    }
 )
 ROOT_LEG = "root"
 

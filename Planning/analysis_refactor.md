@@ -163,7 +163,7 @@ future backend, waterfall renderer or optimizer integration.
 | Side effects | decided | Measures return derived products in memory; whether they are written is the runner's decision. Deletes the `file_path` gate and `EPHEMERAL_DENYLIST`, which the optimizer still has to check today. |
 | Optimizer adoption | decided | Direct `geecs_analysis` integration is required, including necessary loader/schema/dependency and evaluator changes. Preserve existing optimization semantics; validate supported live-source capabilities before enabling additional input kinds. |
 | BCave legacy camera stitcher | decided | Retire `bcave_magspec_stitcher`; retain the separate line stitcher, BCave optimization measure and spectrum-waterfall path unless separately retired. |
-| Image analysis stays data-agnostic | decided | Steps and measures see Frames only. A scan-N background or a calibration file is resolved by data-utils before execution. A test asserts no `pathlib` / `geecs_data_utils` import below the sinks. |
+| Image analysis stays data-agnostic | decided | Steps and measures see Frames only. A scan-N background or a calibration file is resolved by data-utils before execution. A test forbids filesystem/reader imports below the sinks; `geecs_data_utils.frames` is the allowed shared value model. |
 | The resolver is GEECS-Data-Utils | decided | Shot→file resolution, `ShotSource`, `Frame`, background-from-scan live in data-utils, additively. The analysis package has no file reading. |
 | Data-utils read-side convergence | tentative | Data-utils already grew `shot_join` (pure nearest-with-window join), `scan_grid` and shared shot-identity resolution since 09-09. ScanAnalysis's three-strategy file ladder converges on those rather than being relocated verbatim. `ScanLayout` / `ScanScalars` beside `ScanPaths` / `ScanData`; facade until the last caller moves. Not on the critical path. |
 | Threads, not processes | tentative | Default thread pool; `ProcessPoolExecutor` opt-in per recipe. The portal and the worker both forbid fork. |
@@ -307,7 +307,7 @@ too. Composition is a fold.
 | `background_constant` | 1, 2 | `level` |
 | `background_frame` | 1, 2 | `source` (file, or `from_scan` + `method`, resolved by data-utils before execution), `extra` |
 | `roi` | 1, 2 | one `[lo, hi]` per axis, `units: index \| axis` |
-| `clip_below` / `clip_above` | 1, 2 | `level` |
+| `clip_below` / `clip_above` / `zero_below` | 1, 2 | `level` |
 | `median` / `gaussian` | 1, 2 | `kernel` / `sigma` |
 | `interpolate` | 1 | `n`, optional `[lo, hi]` |
 | `crosshairs` | 2 | list of `{center, size, thickness, angle}` |

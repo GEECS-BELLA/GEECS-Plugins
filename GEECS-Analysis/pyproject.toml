@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "geecs-analysis"
+version = "0.1.0"
+description = "Pure frame processing and unified GEECS analysis"
+authors = ["Sam Barber <sbarber@lbl.gov>"]
+readme = "README.md"
+license = "BSD-3-Clause"
+packages = [{ include = "geecs_analysis" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+numpy = ">=2.0,<3.0"
+scipy = "^1.15"
+pydantic = "^2.0"
+geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true }
+
+[build-system]
+requires = ["poetry-core>=1.8"]
+build-backend = "poetry.core.masonry.api"

@@ -43,7 +43,7 @@ cd "$REPO_ROOT"
 # your hands; CI is the backstop that has to catch a foundational change
 # breaking a dependent. So a green check.sh is not a promise that CI is
 # green, and never was.
-ROOT_ENV_PKGS="ImageAnalysis ScanAnalysis GEECS-Data-Utils GEECS-Schemas"
+ROOT_ENV_PKGS="GEECS-Analysis ImageAnalysis ScanAnalysis GEECS-Data-Utils GEECS-Schemas"
 OWN_ENV_PKGS="GeecsBluesky GeecsCAGateway GeecsPvaGateway GEECS-Core GEECS-DataPortal GEECS-LogTriage GEECS-MCP GeecsLogbook GeecsScanner GeecsWebTheme"
 
 MODE="changed"      # changed | all | lint
@@ -268,7 +268,7 @@ run_suite() {
             # Root tests/ is mostly integration-marked; tolerate pytest's
             # no-tests-collected exit code (5), same as CI.
             poetry run pytest tests -m "not integration and not gui" --tb=short -q || [ $? -eq 5 ] ;;
-        ImageAnalysis|ScanAnalysis|GEECS-Data-Utils|GEECS-Schemas)
+        GEECS-Analysis|ImageAnalysis|ScanAnalysis|GEECS-Data-Utils|GEECS-Schemas)
             poetry run pytest "$1/tests" -m "not integration and not gui" --tb=short -q ;;
         GeecsBluesky)
             (cd GeecsBluesky && run_bluesky_suite) ;;
