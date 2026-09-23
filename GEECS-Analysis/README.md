@@ -61,8 +61,7 @@ backgrounds must match shape, coordinates and signal/axis units. Explicit
 `alignment: samples` supports legacy backgrounds without coordinate metadata,
 while still requiring identical shapes. Neither mode broadcasts or resamples.
 Subtraction preserves negative samples, axes and shot identity; after a crop,
-the caller must supply a background matching that cropped frame. File-backed
-v2 backgrounds still require a source adapter before they can compile.
+the caller must supply a background matching that cropped frame.
 
 ## Measurements
 
@@ -108,6 +107,22 @@ with float32/float64 storage rounding before measurement. Preprocessing-only
 array, which Frame intentionally cannot represent. Identity camera transforms
 are accepted; active geometric transforms remain unsupported. The optimizer
 compiles supported camera recipes once before acquisition.
+
+Source hosts can opt into camera file backgrounds with
+`compile_v2(document, allow_file_backgrounds=True)`. The resulting
+`file_backgrounds` tuple declares immutable binding names, path strings and
+fallback levels; compilation itself never loads them. `analyze_v2` accepts the
+same `inputs` mapping as pure analysis and refuses missing bindings. Default
+compilation still rejects file-dependent recipes, including in the live
+optimizer. Scan-context background aggregation remains unsupported.
+
+`scan_analysis.core_inputs.prepare_v2` is the source adapter used by the portal.
+It loads each background once through data-utils, preserves load-failure
+constant fallback and additional-offset order, and returns a compiled recipe
+plus bound Frames. A successfully loaded shape mismatch remains an error.
+An explicit device `data_dir` resolves `{scan_dir}` for scan callers; previews
+leave it literal, preserving their previous fallback behavior. No files are
+written and the supplied document is unchanged.
 
 The v2 boundary explicitly preserves old camera ROI fallback/origin semantics
 and the old float64 line result's clipped negative values, without mutating

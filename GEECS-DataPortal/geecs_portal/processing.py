@@ -15,8 +15,9 @@ from geecs_data_utils.analysis_configs import discover_diagnostics, read_diagnos
 from geecs_data_utils.frames import Frame
 from geecs_schemas.analysis import AnalysisDiagnostic
 from pydantic import ValidationError
+from scan_analysis.core_inputs import prepare_v2
 
-from geecs_analysis.compat.v2 import UnsupportedRecipe, analyze_v2, compile_v2
+from geecs_analysis.compat.v2 import UnsupportedRecipe, analyze_v2
 from geecs_analysis.measurement import Measurement
 from geecs_analysis.render import RenderError, single
 from geecs_analysis.render.specs import FigureSpec
@@ -47,7 +48,7 @@ def process_images(
     """Process each member independently; None preserves the non-image refusal."""
     document = load_diagnostic(name, config_dir=config_dir)
     try:
-        recipe = compile_v2(document)
+        prepared = prepare_v2(document)
     except UnsupportedRecipe:
         from image_analysis.ephemeral import run_document_ephemeral
 
@@ -55,7 +56,9 @@ def process_images(
             getattr(result, "processed_image", None)
             for result in run_document_ephemeral(document, arrays)
         ]
-    results = [analyze_v2(array, recipe) for array in arrays]
+    results = [
+        analyze_v2(array, prepared.recipe, inputs=prepared.inputs) for array in arrays
+    ]
     return [r.frame.data if r.frame.data.ndim == 2 else None for r in results]
 
 
@@ -100,7 +103,7 @@ def render_document_ephemeral(
 ) -> list[Figure]:
     """Draw the supplied (possibly unsaved) document without filesystem writes."""
     try:
-        recipe = compile_v2(document)
+        prepared = prepare_v2(document)
     except UnsupportedRecipe:
         from image_analysis import ephemeral
 
@@ -112,7 +115,7 @@ def render_document_ephemeral(
             raise RenderError(str(exc)) from exc
     figures = []
     for array in arrays:
-        result = analyze_v2(array, recipe)
+        result = analyze_v2(array, prepared.recipe, inputs=prepared.inputs)
         figures.append(
             single(
                 result,

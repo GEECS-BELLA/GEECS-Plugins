@@ -8,6 +8,7 @@ image/1D analyzers. Automatic watching and Google Docs uploads are retired.
 ```
 scan_analysis/
   base.py                          # ScanAnalyzer abstract base class
+  core_inputs.py                   # v2 core compilation + loaded file-background bindings
   task_queue.py                    # Task claiming, heartbeat, YAML status system
   config/
     diagnostic_factory.py          # create_scan_analyzer(AnalysisDiagnostic)
@@ -22,6 +23,15 @@ scan_analysis/
 ```
 
 ## Config System (YAML → Pydantic → Factory → Instances)
+
+`core_inputs.prepare_v2` prepares supported v2 recipes for the new numerical
+core. It is shared with portal processing/unsaved previews and imports no legacy
+analyzers. Compile capabilities before any reads, then load backgrounds once via
+data-utils and bind immutable Frames. Failed file loads retain the v2 constant
+fallback; loaded shape errors propagate. `data_dir` means the device directory
+when resolving `{scan_dir}`. Context-free previews leave that placeholder
+literal. This adapter never writes, mutates the caller's config, or resolves
+scan-background directives. Explicit scan execution still uses the old factory.
 
 Scan analysis is driven by YAML config files stored in the
 **GEECS-Plugins-configs** repository (not this repo). The documents are

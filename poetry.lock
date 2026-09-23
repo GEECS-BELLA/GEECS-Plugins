@@ -1042,7 +1042,7 @@ files = [
 
 [[package]]
 name = "geecs-analysis"
-version = "0.5.0"
+version = "0.7.0"
 description = "Pure frame processing and unified GEECS analysis"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -4943,7 +4943,7 @@ files = [
 
 [[package]]
 name = "scananalysis"
-version = "1.26.1"
+version = "1.27.0"
 description = "Modules for performing analyses routines on full scans"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -4953,6 +4953,7 @@ develop = true
 
 [package.dependencies]
 fastapi = {version = ">=0.110", optional = true}
+geecs-analysis = {path = "../GEECS-Analysis", develop = true}
 geecs_data_utils = {path = "../GEECS-Data-Utils", develop = true}
 geecs-schemas = {path = "../GEECS-Schemas", develop = true}
 geecs-web-theme = {path = "../GeecsWebTheme", develop = true, optional = true}

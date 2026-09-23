@@ -477,3 +477,9 @@ editor still uses ScanAnalysis ConfigStore; explicit scan runs still use its
 factory. Bin images process each shot before averaging and omit shot overlays.
 The image preview source ladder is unchanged; trace rendering accepts already
 loaded Nx2 data but does not add native trace discovery to the editor yet.
+
+Camera file backgrounds use `scan_analysis.core_inputs.prepare_v2`, shared with
+future scan execution: one load per prepared run, legacy constant fallback on
+read failure, hard errors for loaded geometry mismatches. Unsaved previews use
+their supplied document without saving it. No device-directory context is
+invented for previews, so `{scan_dir}` remains literal there as before.

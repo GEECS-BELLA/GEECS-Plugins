@@ -72,6 +72,12 @@ I/O or numerical imports. `analyze_v2` takes loaded native-dtype arrays;
 retaining native trace precision until axis scaling is deliberate. Active
 unsupported operations raise UnsupportedRecipe before processing. Callers
 choose whether to retain their old route; no hidden fallback lives here.
+`allow_file_backgrounds=True` declares camera file requests without reading
+them; only a source host that can bind those requests should opt in. Default
+compilation still refuses them, including for the live optimizer. The source
+adapter in `scan_analysis.core_inputs` loads via data-utils and applies the v2
+constant fallback on reader/conversion failure. `analyze_v2(inputs=...)` never
+loads a file or chooses fallback. Scan-background directives remain unported.
 The compiler's supported subset is documented in its docstring and pinned by
 differential tests. Never silently skip an active unported operation.
 Explicit identity transforms compile to no steps; any active geometric operation

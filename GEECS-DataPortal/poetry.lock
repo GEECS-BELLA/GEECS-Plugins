@@ -795,7 +795,7 @@ tqdm = ["tqdm"]
 
 [[package]]
 name = "geecs-analysis"
-version = "0.5.0"
+version = "0.7.0"
 description = "Pure frame processing and unified GEECS analysis"
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -3271,7 +3271,7 @@ files = [
 
 [[package]]
 name = "scananalysis"
-version = "1.26.1"
+version = "1.27.0"
 description = "Modules for performing analyses routines on full scans"
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -3281,6 +3281,7 @@ files = []
 develop = true
 
 [package.dependencies]
+geecs-analysis = {path = "../GEECS-Analysis", develop = true}
 geecs_data_utils = {path = "../GEECS-Data-Utils", develop = true}
 geecs-schemas = {path = "../GEECS-Schemas", develop = true}
 h5py = "^3.8.0"
