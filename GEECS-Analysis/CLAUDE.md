@@ -11,6 +11,11 @@ still uses ScanAnalysis until its runner/sinks and acceptance tests land.
 
 - Steps are pure `Frame -> Frame`; Frame/Axis/ShotMeta live in
   `geecs_data_utils.frames`. Axes follow numpy order: `(y, x)` or `(x,)`.
+  Input-bound steps additionally receive one already-loaded immutable Frame.
+  Declare the spec's binding-key field with `@step(input_field=...)`; execution
+  preflights and snapshots required inputs before processing. Never read paths
+  from inside a step. Backgrounds default to exact coordinates/units; explicit
+  sample alignment supports metadata-free legacy backgrounds, with equal shapes.
 - No readers, paths, config lookup, filesystem I/O or pyplot in steps, measures,
   algorithms or ephemeral execution. Data-utils resolves input and dependencies;
   explicit sinks will own output writes. Analysis never creates scan folders.

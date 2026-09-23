@@ -2,6 +2,7 @@
 
 from . import (
     background_constant,
+    background_frame,
     circular_mask,
     clip_above,
     clip_below,
@@ -14,6 +15,7 @@ from . import (
 
 __all__ = [
     "background_constant",
+    "background_frame",
     "circular_mask",
     "clip_above",
     "clip_below",

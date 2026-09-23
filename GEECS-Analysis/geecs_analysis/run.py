@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Mapping
 
 from geecs_analysis.pipeline import apply_pipeline
 from geecs_analysis.registry import measure_definition
@@ -13,11 +13,15 @@ if TYPE_CHECKING:
     from geecs_analysis.measurement import Measurement
 
 
-def analyze(frame: Frame, recipe: Analysis) -> Measurement:
+def analyze(
+    frame: Frame, recipe: Analysis, *, inputs: Mapping[str, Frame] | None = None
+) -> Measurement:
     """Process and measure one frame without scan state, file access or rendering."""
     definition = measure_definition(recipe.measure)
     if frame.data.ndim not in definition.ndim:
         raise ValueError(
             f"{recipe.measure.kind} does not support {frame.data.ndim}D frames"
         )
-    return definition.function(apply_pipeline(frame, recipe), recipe.measure)
+    return definition.function(
+        apply_pipeline(frame, recipe, inputs=inputs), recipe.measure
+    )

@@ -38,24 +38,32 @@ class StepDefinition:
     """A spec paired with its numerical function and supported dimensions."""
 
     spec: type[StepSpec]
-    function: Callable[[Frame, StepSpec], Frame]
+    # Ordinary steps take (frame, spec); input-bound steps additionally take
+    # one already-loaded Frame. The declaration below selects that signature.
+    function: Callable[..., Frame]
     ndim: frozenset[int]
+    input_field: str | None = None
 
 
 _STEPS: dict[type[StepSpec], StepDefinition] = {}
 
 
 def step(
-    spec: type[SpecT], *, ndim: set[int]
-) -> Callable[[Callable[[Frame, SpecT], Frame]], Callable[[Frame, SpecT], Frame]]:
+    spec: type[SpecT], *, ndim: set[int], input_field: str | None = None
+) -> Callable[[Callable[..., Frame]], Callable[..., Frame]]:
     """Register a builtin spec/function pair before the schema union is built."""
     if not ndim or not ndim <= {1, 2}:
         raise ValueError("Step dimensions must be a nonempty subset of {1, 2}")
+    if input_field is not None and (
+        input_field not in spec.model_fields
+        or spec.model_fields[input_field].annotation is not str
+    ):
+        raise ValueError("An input field must name a string field on the step spec")
 
-    def register(function: Callable[[Frame, SpecT], Frame]):
+    def register(function: Callable[..., Frame]):
         if spec in _STEPS:
             raise ValueError(f"Step spec already registered: {spec.__name__}")
-        _STEPS[spec] = StepDefinition(spec, function, frozenset(ndim))
+        _STEPS[spec] = StepDefinition(spec, function, frozenset(ndim), input_field)
         return function
 
     return register
