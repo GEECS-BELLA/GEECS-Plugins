@@ -33,3 +33,27 @@ Pure invariants plus numerical comparisons with the legacy functions protect
 this layer. Test schema imports in a fresh interpreter to detect eager imports.
 Archived data acceptance is a separate integration gate, not simulated by unit
 fixtures. Run `scripts/check.sh --all` before a PR, as required by root policy.
+
+## Measurement compatibility
+
+`run.analyze` processes a Frame and returns a Measurement; no file/scan state.
+`specs.Analysis` adds a measure to Pipeline. `emitted_scalars()` is numpy-free
+and must match the actual result keys and the existing optimizer contract.
+
+The algorithms are intentionally ported with their numerical conventions:
+line moments are calculated in index space, coordinates are interpolated at the
+centroid, widths use local dx (even its sign on descending axes), and integrated
+intensity is the sample sum after the RMS helper clips negatives. This refactor
+must not silently redefine these quantities. Beam diagonal metrics and slopes
+stay in local sample-index coordinates, as before.
+
+LineBasicStats owns scratch because its RMS helper mutates samples. Measures
+never mutate the processed Frame; the old float64 LineAnalyzer result could
+alias that scratch, while its float32 result did not. The v2 adapter must
+explicitly handle any output-array compatibility needed by float64 recipes;
+this core preserves the input Frame and scalar math. Do not silently use a
+mutable Frame to reproduce the old accidental aliasing.
+
+Nonfinite scalars remain visible with notes. Never replace them with zero or
+use matching NaNs as evidence of scientific parity. Overlays have stable ids;
+centroid markers are omitted when their coordinates are nonfinite.

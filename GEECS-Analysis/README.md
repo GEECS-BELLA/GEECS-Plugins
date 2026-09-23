@@ -37,3 +37,28 @@ legacy image threshold does). There is no general invalid-data cleanup.
 Reading inputs and resolving backgrounds belong to data-utils. These processing
 steps neither read nor write files and have no scan, GUI, or device dependencies.
 See [the migration plan](../Planning/analysis_refactor.md) for the next layers.
+
+## Measurements
+
+```python
+from geecs_analysis.specs import Analysis
+from geecs_analysis.run import analyze
+
+recipe = Analysis(steps=pipeline.steps, measure={"kind": "beam"})
+result = analyze(Frame.from_array(image), recipe)
+# result.scalars: 18 bare beam keys; result.frame: processed frame
+# result.overlays: projection_x, projection_y, com (when finite)
+# result.notes: explicit names of any nonfinite scalars
+```
+
+`line` emits six trace statistics; `none` keeps only the processed frame.
+`recipe.measure.emitted_scalars()` discovers keys without numerical imports.
+Beam `enabled_stats` and `compute_slopes` preserve the v2 selection contract.
+
+Algorithms retain legacy conventions for this migration: line intensity is a
+sample sum (not quadrature); centroid and widths are computed in index space
+then converted to axis units using interpolation and local spacing. Descending
+axes therefore retain signed widths. Diagonal beam statistics and optional
+slopes stay in local index space. Scientific changes belong in a separately
+validated change. Measurement runs own their scratch arrays and never mutate
+caller input, including when legacy RMS clips negative values internally.
