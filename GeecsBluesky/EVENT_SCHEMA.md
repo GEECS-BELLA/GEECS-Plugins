@@ -80,7 +80,7 @@ trigger state (`shot_control-state`) when it is read.
 |---|---|
 | `<det>-<variable>` | The detector's DB-subscribed scalars, one column each (`safe_name`-mangled: `uc_amp4_ir_input-meancounts`) |
 | `<det>-acq_timestamp` | The shot stamp: the join key for that detector's files and for cross-device alignment after the drain offset |
-| `<det>` | A plugin-backed camera's frames (#806): an external `STREAM:` key — the row's frame is the stream datum's index into `ScanNNN/<device>/<device>.h5` (`/entry/data/data`); `<det>-<variable>` for a second image variable. Absent from a partial row (see below) |
+| `<det>` | A plugin-backed camera's frames (#806): an external `STREAM:` key — the row's frame is the stream datum's index into `ScanNNN/<device>/<device>.h5` (`/entry/data/data`); `<det>-<variable>` for every stream that lives in `ScanNNN/<device>-<variable>/` (a second image variable, a lineout; the key always names the folder). A devicetype whose declaration leaves `<device>/` to its native files (`first_owns_device_folder=False`, the MagSpec stitcher) has no bare `<det>` key at all. Absent from a partial row (see below) |
 | `<det>-nonscalar_save_path` | The directory the detector's native files landed in this run — present only when the detector saved natively (`geecs_data_utils.tiled_schema.COMPANION_SUFFIXES` names the suffix) |
 | `<device>-<variable>` | A scalar-only device's subscribed readbacks (`CaSnapshotReadable`) |
 | `<device>-<settable>-position` / `-readback` | A settable child's readback when the DB subscribes it (`CaMotor` / `CaSettable`), and the scan motor's column |

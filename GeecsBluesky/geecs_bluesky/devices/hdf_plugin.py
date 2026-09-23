@@ -69,10 +69,11 @@ class PluginPathProvider(PathProvider):
     device :
         The GEECS device name.
     variable :
-        ``None`` for the device's primary stream — the stem is the device
-        name, ``<device>/<device>.h5`` — else the GEECS variable of a
-        secondary stream, which lives in the sibling folder
-        ``<device>-<variable>/`` (see the module docstring).
+        ``None`` for the stream that owns the device folder — the stem is
+        the device name, ``<device>/<device>.h5`` — else the GEECS variable
+        of a stream that lives in the sibling folder ``<device>-<variable>/``
+        (see the module docstring; which stream, if any, owns ``<device>/``
+        is the devicetype declaration's ``first_owns_device_folder``).
     plugin_path :
         Worker path → the path the plugin's host can write (the UNC root of
         the data share); defaults to the ``config.ini`` mapping.
@@ -87,8 +88,14 @@ class PluginPathProvider(PathProvider):
         plugin_path: Callable[[str], str] = plugin_save_path,
     ) -> None:
         self._shared = shared
+        self._variable = variable
         self._stem = device if variable is None else f"{device}-{variable}"
         self._plugin_path = plugin_path
+
+    @property
+    def variable(self) -> str | None:
+        """The stream's GEECS variable, or ``None`` when it writes ``<device>/``."""
+        return self._variable
 
     @property
     def stem(self) -> str:

@@ -24,7 +24,7 @@ from geecs_schemas.restricted_expr import compile_expression
 from geecs_schemas.scan_variables import split_device_variable
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_core.pv_naming import pv_name
-from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET
+from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET, image_variables
 
 from .live_frames import FrameSource, LiveFrameSource
 
@@ -204,14 +204,21 @@ def compile_measurements(
                 if not keys:
                     raise ValueError(f"{name}: diagnostic declares no scalar outputs")
                 detector = namespace.resolve(diag.name)
-                images = capture_streams(
-                    namespace.roster.variables[diag.name],
-                    namespace.roster.types.get(diag.name, ""),
-                    diag.name,
-                )
+                rows = namespace.roster.variables[diag.name]
+                # The captured streams that are images: a device that
+                # captures a lineout first (the MagSpec stitcher) has no
+                # frame to analyse here.
+                image_names = {name.lower() for name in image_variables(rows)}
+                images = [
+                    var
+                    for var in capture_streams(
+                        rows, namespace.roster.types.get(diag.name, ""), diag.name
+                    )
+                    if var.lower() in image_names
+                ]
                 if not images:
                     raise ValueError(
-                        f"{diag.name}: no image variable in the device roster"
+                        f"{diag.name}: no captured image variable in the device roster"
                     )
                 diagnostic_devices[spec.diagnostic] = diag.name
                 if diag.name not in sources:

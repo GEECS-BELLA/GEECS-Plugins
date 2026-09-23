@@ -617,8 +617,9 @@ class GeecsDetector(StandardDetector):
         ``(image variable, path provider)`` per file plugin to capture
         (#806): each becomes a :class:`GeecsHdfIO` child (``hdf``, then
         ``hdf_<variable>``) driven by the stock ``ADHDFDataLogic``; the
-        first writes the ``<name>`` stream key, the others
-        ``<name>-<variable>``.  The namespace passes the devicetype's
+        stream whose provider owns ``<device>/`` (``variable is None``)
+        writes the ``<name>`` stream key, every other ``<name>-<variable>``
+        — the key always names the folder.  The namespace passes the devicetype's
         declared capture streams (``geecs_core.db.device_streams``; default
         the one primary image variable — a variable the device pushes only
         when an operation produces it would never arm).  With a *path_provider* as well the
@@ -720,7 +721,12 @@ class GeecsDetector(StandardDetector):
                 path_provider=provider,
                 driver=io,
                 writer=io,
-                datakey_suffix="" if index == 0 else f"-{safe_name(variable)}",
+                datakey_suffix=(
+                    ""
+                    if getattr(provider, "variable", None if index == 0 else variable)
+                    is None
+                    else f"-{safe_name(variable)}"
+                ),
             )
             logics.append(logic)
         self.add_detector_logics(*logics)

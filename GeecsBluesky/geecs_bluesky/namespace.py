@@ -65,6 +65,7 @@ from bluesky.protocols import Movable, Readable
 from ophyd_async.core import Device, PathProvider
 
 from geecs_core.db.device_streams import (
+    first_owns_device_folder,
     gated_off_variables,
     capture_variables,
     served_array_variables,
@@ -218,28 +219,24 @@ def capture_streams(
 # --------------------------------------------------------------------- rules
 
 
-def primary_stream(
-    plugin_vars: Sequence[str], rows: Sequence[Mapping[str, Any]]
-) -> str | None:
-    """The capture stream that keeps the bare ``<device>/`` folder, or ``None``.
+def primary_stream(plugin_vars: Sequence[str], devicetype: str) -> str | None:
+    """The capture stream that writes the bare ``<device>/`` folder, or ``None``.
 
-    The device folder is the image's home — LabVIEW's native layout puts
-    the frames there and every lineout in ``<device>-<variable>/`` — so the
-    first captured stream takes it only when it is an image variable, or
-    when the device has no image variable at all (a scope: its first trace
-    has kept the folder since the non-scalar arc and the readers know it).
-    A device whose image is *not* captured keeps its lineouts in the
-    suffixed folders its analyzers read: the MagSpec stitcher captures
-    ``interpSpec`` alone (its ``Image`` is empty on the wire) and that stack
-    stays in ``<device>-interpSpec/``, never in ``<device>/``.
+    The devicetype's declaration decides
+    (:func:`geecs_core.db.device_streams.first_owns_device_folder`): the
+    first captured stream — a camera's image, a scope's first trace, the
+    FROG's trace — keeps ``<device>/`` and the ``<name>`` stream key, unless
+    the declaration turns that off, in which case every stream writes its
+    own ``<device>-<variable>/`` and ``<device>/`` is left to the device's
+    native files.  The MagSpec stitcher is that case: it captures
+    ``interpSpec`` alone (its ``Image`` is empty on the wire) and the stack
+    stays in ``<device>-interpSpec/``, where its analyzers read it.  A
+    declared fact, not a live-DB one, so a row nobody maintains cannot
+    move a device's data (review of #987).
     """
-    if not plugin_vars:
+    if not plugin_vars or not first_owns_device_folder(devicetype):
         return None
-    images = {name.lower() for name in image_variables(rows)}
-    first = plugin_vars[0]
-    if not images or first.lower() in images:
-        return first
-    return None
+    return plugin_vars[0]
 
 
 def looks_triggerable(rows: Sequence[Mapping[str, Any]], devicetype: str = "") -> bool:
@@ -656,7 +653,7 @@ class GeecsNamespace:
                 and roster.endpoints.get(device) in self._file_plugin_hosts
                 else []
             )
-            primary = primary_stream(plugin_vars, rows)
+            primary = primary_stream(plugin_vars, devicetype)
             dev = GeecsDetector(
                 device,
                 readables,

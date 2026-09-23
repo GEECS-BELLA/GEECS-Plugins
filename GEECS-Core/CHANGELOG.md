@@ -15,6 +15,12 @@ All notable changes to `geecs-core` are documented here, following
   prepare and failed the run (`no frame from U_BCaveMagSpec Image within
   8 s`, 26_0923 Scans 007–009). The three cameras' stacks carry what the
   stitch is made of; the module docstring's live record is corrected.
+- `db.device_streams`: `DeviceTypeStreams.first_owns_device_folder` (default
+  `True`, the historical layout) says whether the first capture stream writes
+  the bare `<device>/` folder; `False` for the stitcher, whose `interpSpec`
+  stack stays in `<device>-interpSpec/` where its analyzers read it. A
+  declared fact beside the capture list, pinned by the parity test, so the
+  layout never hinges on a live DB row (review of #987).
 
 ## [0.11.1] - 2026-09-22
 

@@ -10,14 +10,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Namespace: the bare `<device>/` folder is reserved for an image stream
-  (`primary_stream()`). A device whose image is not captured keeps its
-  first lineout in `<device>-<variable>/`, where its analyzers read it —
-  with `MagSpecStitcher` capturing `interpSpec` alone (GEECS-Core 0.11.2)
-  that stack stays in `U_BCaveMagSpec-interpSpec/`, not `U_BCaveMagSpec/`.
-  A device with no image variable at all (a scope) keeps its first trace
-  in `<device>/` exactly as before. Hot fix deployed to the worker from this
+- Namespace: which capture stream writes the bare `<device>/` folder is the
+  devicetype declaration's `first_owns_device_folder` (`primary_stream()`),
+  not a guess from the DB rows. With `MagSpecStitcher` capturing `interpSpec`
+  alone (GEECS-Core 0.11.2) that stack stays in `U_BCaveMagSpec-interpSpec/`,
+  not `U_BCaveMagSpec/`; every other devicetype keeps its first stream in
+  `<device>/` exactly as before. Hot fix deployed to the worker from this
   branch on 2026-09-23 so the maintainer could take data.
+- Detector: a stream's data key follows its folder — `<name>` for the
+  stream that owns `<device>/`, `<name>-<variable>` for one in
+  `<device>-<variable>/` — instead of "the first plugin is bare"
+  (`PluginPathProvider.variable`; `EVENT_SCHEMA.md` states the rule).
+  Unchanged for every existing layout.
+- Optimization: `compile_measurements` subscribes a camera-kind diagnostic to
+  the device's first captured *image* stream, not its first stream (a
+  lineout-first device is refused with a clear message).
 
 ## [0.100.0] - 2026-09-22
 

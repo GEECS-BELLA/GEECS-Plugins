@@ -35,6 +35,17 @@ with the magnet current (a camera at ~285 rows, the stitcher at ~8218; the
 dropped and counted, never truncated.  ``None`` means "serve at native
 length" (a scope trace's length is its configured record).
 
+A fourth fact is the on-disk layout: ``first_owns_device_folder`` says
+whether the first captured stream writes the bare ``<device>/`` folder
+(the historical layout — a camera's image, a scope's first trace, the
+FROG's trace — with every other stream in ``<device>-<variable>/``) or
+whether every captured stream takes its own ``<device>-<variable>/`` and
+``<device>/`` is left to what the device saves natively.  The stitcher is
+the one ``False``: it captures ``interpSpec`` alone and that stack must
+stay in ``<device>-interpSpec/``, where its analyzers read it.  Declared
+here, beside the capture list, so the parity test pins the layout against
+recorded rows rather than live DB state (review of the fix that set it).
+
 Every name is matched against the device's DB rows **case-insensitively** —
 the GEECS DB spells one variable differently across tables, and the device
 itself looks names up case-insensitively — and the **DB row's spelling** is
@@ -48,8 +59,8 @@ The entries record what was established live on the reference deployment
 is an alignment view and the retrieved traces and spectra stay empty); the
 MagSpec cameras push ``Image`` and ``ImageInterp`` plus the two lineouts
 and their two axes; the stitcher pushes ``interpSpec``, a malformed
-``interpDiv`` and an EMPTY ``Image`` (never captured); the Picoscope pushes ``scopeTrace.Channel<N>`` for
-each enabled channel (and the GUI twins), its capture set being per
+``interpDiv`` and an EMPTY ``Image`` (never captured); the Picoscope
+pushes ``scopeTrace.Channel<N>`` for each enabled channel (and the GUI twins), its capture set being per
 *instance* — hence the ``gate`` column: the worker arms a channel's plugin
 only when that instance's ``Enable.Ch<X>`` reads ``on``.
 
@@ -88,8 +99,19 @@ class DeviceTypeStreams:
     ----------
     capture :
         The variables the file plugin records per shot, in capture order;
-        the first is the device's primary stream.  Empty means "nothing is
-        captured" — distinct from a devicetype with no entry at all.
+        the first writes the bare ``<device>/`` folder and the ``<name>``
+        stream key unless ``first_owns_device_folder`` is off.  Empty means
+        "nothing is captured" — distinct from a devicetype with no entry at
+        all.
+    first_owns_device_folder :
+        ``True`` (the default, the historical layout): the first capture
+        stream writes ``<device>/<device>.h5`` and every other stream
+        ``<device>-<variable>/<device>-<variable>.h5``.  ``False``: every
+        captured stream writes its own ``<device>-<variable>/`` and the
+        stream key ``<name>-<variable>``; ``<device>/`` is left to the
+        device's native files.  The MagSpec stitcher: its captured
+        ``interpSpec`` stays in ``<device>-interpSpec/`` where
+        ``BcaveMagSpecStitcherSpec*.yaml`` read it.
     exclude :
         ``1darray``-typed variables the PVA gateway never serves (and so
         nobody captures).  Never an image variable.
@@ -121,6 +143,7 @@ class DeviceTypeStreams:
     exclude: frozenset[str] = frozenset()
     array_ceiling: int | None = None
     gate: Mapping[str, str] = field(default_factory=dict)
+    first_owns_device_folder: bool = True
 
 
 def _key(devicetype: str) -> str:
@@ -149,6 +172,9 @@ DEVICE_TYPE_STREAMS: Mapping[str, DeviceTypeStreams] = {
         capture=("interpSpec",),
         exclude=frozenset({"interpDiv"}),  # malformed on this devicetype
         array_ceiling=16384,
+        # The lineout keeps ``<device>-interpSpec/``; ``<device>/`` is the
+        # stitched image's native home (LabVIEW's PNGs, when saving is on).
+        first_owns_device_folder=False,
     ),
     "frog": DeviceTypeStreams(
         capture=("frogTrace",),
@@ -359,3 +385,12 @@ def array_ceiling(devicetype: str) -> int | None:
     """The padding ceiling declared for *devicetype*'s arrays, or ``None`` (native length)."""
     entry = streams_for(devicetype)
     return None if entry is None else entry.array_ceiling
+
+
+def first_owns_device_folder(devicetype: str) -> bool:
+    """Whether *devicetype*'s first capture stream writes the bare ``<device>/`` folder.
+
+    ``True`` for a devicetype with no declaration (the historical layout).
+    """
+    entry = streams_for(devicetype)
+    return True if entry is None else entry.first_owns_device_folder

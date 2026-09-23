@@ -17,6 +17,7 @@ from geecs_core.db.device_streams import (
     gated_off_variables,
     capture_variables,
     excluded_variables,
+    first_owns_device_folder,
     served_array_variables,
     streams_for,
 )
@@ -153,6 +154,19 @@ def test_an_undeclared_devicetype_serves_every_typed_array() -> None:
     ]
     assert served_array_variables("HamamatsuSpectrometerDAQ", rows) == ["counts"]
     assert array_variables(rows) == ["counts"]
+
+
+def test_only_the_stitcher_leaves_the_device_folder_to_its_native_files() -> None:
+    """The stitcher's captured lineout keeps ``<device>-interpSpec/``; every other
+    declared devicetype, and every undeclared one, keeps the first stream in ``<device>/``."""
+    assert first_owns_device_folder("MagSpecStitcher") is False
+    assert capture_variables("MagSpecStitcher", FIXTURE["MagSpecStitcher"]) == [
+        "interpSpec"
+    ]
+    for devicetype in DEVICE_TYPE_STREAMS:
+        if devicetype != "magspecstitcher":
+            assert first_owns_device_folder(devicetype) is True, devicetype
+    assert first_owns_device_folder("NoSuchDeviceType") is True
 
 
 def test_array_ceilings_are_per_devicetype() -> None:

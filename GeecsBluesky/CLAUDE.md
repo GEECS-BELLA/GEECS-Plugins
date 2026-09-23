@@ -436,13 +436,17 @@ scan.  A devicetype with no declaration keeps the one-image guess
 (`primary_image_variable`: `image`, else the first image variable) — never
 guess a second stream, declare it, and never declare a variable the device
 does not push on every shot (the FROG's `SpatialImage` cost an arm timeout
-per `prepare`).  **One folder per stream**: the primary stream writes
-`<device>/<device>.h5`, a second stream of the same device writes the
-sibling `<device>-<variable>/<device>-<variable>.h5` (stream key
-`<name>-<variable>`), the layout the LabVIEW-native files use for a
-device's second output, so `scan_stack.find_stack_file` resolves both;
-two plugins on one path would truncate each other's file
-(`devices/hdf_plugin.PluginPathProvider`).  A **gated** stream (the
+per `prepare`).  **One folder per stream**: the first captured stream
+writes `<device>/<device>.h5` (stream key `<name>`), every other stream of
+the same device writes the sibling `<device>-<variable>/<device>-<variable>.h5`
+(stream key `<name>-<variable>`), the layout the LabVIEW-native files use
+for a device's second output, so `scan_stack.find_stack_file` resolves
+both; two plugins on one path would truncate each other's file
+(`devices/hdf_plugin.PluginPathProvider`).  Which stream owns `<device>/`
+is the declaration's `first_owns_device_folder` — off for the MagSpec
+stitcher, whose captured `interpSpec` must stay in `<device>-interpSpec/`
+where its analyzers read it while `<device>/` remains the stitched image's
+native home (`namespace.primary_stream`).  A **gated** stream (the
 declaration's `gate`: a scope channel gated by its `Enable.Ch<X>`) is armed
 only when the **DB** says that channel is wired — the gate variable's
 configured value (`defaultvalue`, instance row over devicetype default),

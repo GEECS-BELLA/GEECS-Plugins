@@ -970,35 +970,38 @@ def test_catalog_kind_setpoint_never_downgrades_a_db_motor() -> None:
     assert isinstance(ns.variable("U_S1H", "Current"), CaMotor)
 
 
-def test_primary_stream_reserves_the_device_folder_for_an_image() -> None:
-    """The bare ``<device>/`` folder belongs to an image stream.
-
-    A device whose image is not captured keeps its first lineout in
-    ``<device>-<variable>/`` (the stitcher); a device with no image variable
-    at all keeps its first trace in ``<device>/`` (a scope, unchanged).
-    """
+def test_primary_stream_follows_the_declaration_not_the_db() -> None:
+    """Which stream owns ``<device>/`` is the devicetype declaration's
+    ``first_owns_device_folder``: off for the stitcher, on for a camera, a
+    scope and any devicetype nobody declared.  No DB row is consulted, so a
+    row nobody maintains cannot move a device's data (review of #987)."""
     from geecs_bluesky.namespace import primary_stream
 
-    stitcher = [row("image", choices="image"), row("interpSpec", choices="1darray")]
-    camera = [row("Image", choices="image"), row("interpSpec", choices="1darray")]
-    scope = [row("scopeTrace.Channel0", choices="1darray")]
-    assert primary_stream([], stitcher) is None
-    assert primary_stream(["interpSpec"], stitcher) is None
-    assert primary_stream(["Image", "interpSpec"], camera) == "Image"
-    assert primary_stream(["scopeTrace.Channel0"], scope) == "scopeTrace.Channel0"
+    assert primary_stream([], "MagSpecStitcher") is None
+    assert primary_stream(["interpSpec"], "MagSpecStitcher") is None
+    assert primary_stream(["Image", "interpSpec"], "MagSpecCamera") == "Image"
+    assert (
+        primary_stream(["scopeTrace.Channel0"], "PicoscopeV2") == "scopeTrace.Channel0"
+    )
+    assert primary_stream(["image"], "Point Grey Camera") == "image"
+    assert primary_stream(["image"], "SomeUndeclaredCamera") == "image"
 
 
-def test_a_stitcher_captures_its_lineout_alone_into_the_suffixed_folder() -> None:
+@pytest.mark.parametrize("with_image_row", [True, False])
+def test_a_stitcher_captures_its_lineout_alone_into_the_suffixed_folder(
+    with_image_row: bool,
+) -> None:
     """``MagSpecStitcher`` declares ``interpSpec`` only: its ``Image`` is
     empty on the wire (probed 2026-09-23), so no plugin is armed on it — and
     the one stack lands in ``<device>-interpSpec/``, where the stitcher
-    analyzers read it, never in the bare device folder."""
+    analyzers read it, never in the bare device folder; its stream key names
+    that folder too.  With or without the dead ``image`` row in the DB."""
     from ophyd_async.epics.adcore import ADHDFDataLogic
 
     rows = [
         row("ChargeAbove1GeV"),
         row("Save", settable=True, choices="on,off"),
-        row("image", choices="image"),
+        *([row("image", choices="image")] if with_image_row else []),
         row("interpSpec", choices="1darray"),
         row("interpDiv", choices="1darray"),
     ]
@@ -1010,12 +1013,9 @@ def test_a_stitcher_captures_its_lineout_alone_into_the_suffixed_folder() -> Non
     assert len(dev._hdf_ios) == 1
     assert dev.hdf.capture.source.endswith(":interpspec:hdf1:Capture_RBV")
     assert not hasattr(dev, "hdf_image") and not hasattr(dev, "hdf_interpdiv")
-    stems = [
-        logic.path_provider.stem
-        for logic in dev._data_logics
-        if isinstance(logic, ADHDFDataLogic)
-    ]
-    assert stems == ["U_Stitch-interpSpec"]
+    logics = [x for x in dev._data_logics if isinstance(x, ADHDFDataLogic)]
+    assert [x.path_provider.stem for x in logics] == ["U_Stitch-interpSpec"]
+    assert [x.datakey_suffix for x in logics] == ["-interpspec"]
 
 
 def test_a_scope_still_keeps_its_first_trace_in_the_device_folder() -> None:
@@ -1040,9 +1040,9 @@ def test_a_scope_still_keeps_its_first_trace_in_the_device_folder() -> None:
         endpoints={"U_ICT": "192.168.7.168"},
     )
     ict = _plugin_namespace(roster, "192.168.7.168").devices["U_ICT"]
-    stems = [
-        logic.path_provider.stem
-        for logic in ict._data_logics
-        if isinstance(logic, ADHDFDataLogic)
+    logics = [x for x in ict._data_logics if isinstance(x, ADHDFDataLogic)]
+    assert [x.path_provider.stem for x in logics] == [
+        "U_ICT",
+        "U_ICT-scopeTrace.Channel1",
     ]
-    assert stems == ["U_ICT", "U_ICT-scopeTrace.Channel1"]
+    assert [x.datakey_suffix for x in logics] == ["", "-scopetrace_channel1"]
