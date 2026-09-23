@@ -4,6 +4,12 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [1.26.1] - 2026-09-23
+
+### Changed
+
+- Delegate input mapping to data-utils; retain the stack-only `no_data` queue outcome and existing shot/filename behavior.
+
 ## [1.26.0] - 2026-09-23
 
 ### Removed

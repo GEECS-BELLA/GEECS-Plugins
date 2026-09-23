@@ -16,6 +16,7 @@ geecs_data_utils/
                                #   analysis_status/*.yaml (ScanAnalysis task_queue's
                                #   TaskStatus.to_dict() shape; contract pinned in
                                #   ScanAnalysis's suite, #682)
+  shot_files.py                # completed-scan shot rows → native Path / stack ShotRef
   type_defs.py                 # ScanTag, ScanMode, ScanConfig, ECSDump Pydantic models
   geecs_paths_config.py        # GeecsPathsConfig: base path + experiment resolution
   config_base.py               # ConfigDirManager: generic config directory management
@@ -462,3 +463,15 @@ are never reconciled. Results include geometry, sample counts and member shots.
 `tiled_schema.shot_axis_for_frame` is the shared shot-identity resolver used by
 Grid and re-exported by the portal figures module for Plot/Images and notebooks.
 It preserves the union frame's suffixed s-file fallback after name collisions.
+
+### Completed-scan input references
+
+`shot_files.map_shot_files(directory, rows, device=..., file_tail=...)` owns
+the mapping formerly inside SingleDeviceScanAnalyzer. It reads directories,
+stats native files and reads stack timestamps, never frame arrays or outputs.
+Only use HDF5 discovery after the scan closes. A partial timestamp join never
+falls back to shot-number filenames; only a zero join can. Native direct
+stat probes bypass stale SMB listings. `prefer_stack=True` tries capture
+frames first, while `stacks_only=True` refuses native fallback with
+`StackMappingUnavailable`. The ScanAnalysis adapter translates that into its
+`DataUnavailableWarning`; queue/status policy remains outside data-utils.

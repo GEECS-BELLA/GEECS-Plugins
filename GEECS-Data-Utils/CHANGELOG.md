@@ -3,6 +3,12 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.40.0] - 2026-09-23
+
+### Changed
+
+- Move completed-scan shot-to-native-file and capture-stack mapping into `shot_files.map_shot_files`, preserving timestamp joins, legacy fallback and direct stat probes without analysis dependencies or writes.
+
 ## [0.39.0] - 2026-09-23
 
 ### Removed

@@ -1,4 +1,4 @@
-"""Tests for the acq_timestamp file-mapping strategy in SingleDeviceScanAnalyzer.
+"""Tests for the acq_timestamp file-mapping strategy in the shared shot-file resolver.
 
 Bluesky-produced scans save native files named by the device's own
 ``acq_timestamp`` rather than MC-convention shot numbers; the analyzer joins
@@ -21,22 +21,22 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from scan_analysis.analyzers.common.single_device_scan_analyzer import (
-    SingleDeviceScanAnalyzer,
-)
+from geecs_data_utils.shot_files import _ShotFileMapper
 
 DEVICE = "UC_Amp2_IR_input"
 
 
-def _make_analyzer(tmp_path: Path, aux: pd.DataFrame, file_tail: str = ".png"):
-    """Cheap instance: _build_data_file_map only touches these attributes."""
-    sa = SingleDeviceScanAnalyzer.__new__(SingleDeviceScanAnalyzer)
-    sa.device_name = DEVICE
-    sa.file_tail = file_tail
-    sa.path_dict = {"data": tmp_path}
-    sa.auxiliary_data = aux
-    sa._data_file_map = {}
-    return sa
+def _make_mapper(tmp_path: Path, aux: pd.DataFrame, file_tail: str = ".png"):
+    """Build one mapping pass without any analysis dependency."""
+    return _ShotFileMapper(
+        directory=tmp_path,
+        rows=aux,
+        device=DEVICE,
+        file_tail=file_tail,
+        prefer_stack=False,
+        stacks_only=False,
+        file_device=None,
+    )
 
 
 def _touch(tmp_path: Path, name: str) -> Path:
@@ -56,9 +56,9 @@ class TestTimestampJoin:
                 f"{DEVICE}:acq_timestamp": [3866137959.524, 3866137960.525],
             }
         )
-        sa = _make_analyzer(tmp_path, aux)
+        sa = _make_mapper(tmp_path, aux)
         sa._build_data_file_map()
-        assert sa._data_file_map == {1: f1, 2: f2}
+        assert sa.paths == {1: f1, 2: f2}
 
     @pytest.mark.parametrize(
         "column",
@@ -71,9 +71,9 @@ class TestTimestampJoin:
     def test_recognises_all_column_spellings(self, tmp_path, column):
         f1 = _touch(tmp_path, f"{DEVICE}_3866137959.524.png")
         aux = pd.DataFrame({"Shotnumber": [1], "Bin #": [1], column: [3866137959.524]})
-        sa = _make_analyzer(tmp_path, aux)
+        sa = _make_mapper(tmp_path, aux)
         sa._build_data_file_map()
-        assert sa._data_file_map == {1: f1}
+        assert sa.paths == {1: f1}
 
     def test_float_repr_of_row_value_still_joins(self, tmp_path):
         # The row carries the raw double; the filename is its %.3f rendering.
@@ -85,9 +85,9 @@ class TestTimestampJoin:
                 f"{DEVICE}:acq_timestamp": [3866137959.5239997],
             }
         )
-        sa = _make_analyzer(tmp_path, aux)
+        sa = _make_mapper(tmp_path, aux)
         sa._build_data_file_map()
-        assert sa._data_file_map == {1: f1}
+        assert sa.paths == {1: f1}
 
     def test_invalid_rows_get_no_file(self, tmp_path):
         # An invalid row's timestamp points at a different physical shot's
@@ -101,9 +101,9 @@ class TestTimestampJoin:
                 f"{DEVICE}:valid": [False],
             }
         )
-        sa = _make_analyzer(tmp_path, aux)
+        sa = _make_mapper(tmp_path, aux)
         sa._build_data_file_map()
-        assert sa._data_file_map == {}
+        assert sa.paths == {}
 
     def test_other_devices_columns_are_ignored(self, tmp_path):
         # Per-device join: another device's timestamp column must not be used.
@@ -115,11 +115,11 @@ class TestTimestampJoin:
                 "U_BCaveICT:acq_timestamp": [3866137959.612],
             }
         )
-        sa = _make_analyzer(tmp_path, aux)
+        sa = _make_mapper(tmp_path, aux)
         # No column for THIS device → falls back to legacy mapping → no match
         # for timestamp-named files.
         sa._build_data_file_map()
-        assert sa._data_file_map == {}
+        assert sa.paths == {}
 
     def test_nonpositive_timestamp_skipped(self, tmp_path):
         _touch(tmp_path, f"{DEVICE}_3866137959.524.png")
@@ -130,18 +130,18 @@ class TestTimestampJoin:
                 f"{DEVICE}:acq_timestamp": [0.0],  # never-acquired placeholder
             }
         )
-        sa = _make_analyzer(tmp_path, aux)
+        sa = _make_mapper(tmp_path, aux)
         sa._build_data_file_map()
-        assert sa._data_file_map == {}
+        assert sa.paths == {}
 
 
 class TestLegacyFallback:
     def test_mc_filenames_still_map_by_shot_number(self, tmp_path):
         f5 = _touch(tmp_path, f"Scan012_{DEVICE}_005.png")
         aux = pd.DataFrame({"Shotnumber": [5], "Bin #": [1]})
-        sa = _make_analyzer(tmp_path, aux)
+        sa = _make_mapper(tmp_path, aux)
         sa._build_data_file_map()
-        assert sa._data_file_map == {5: f5}
+        assert sa.paths == {5: f5}
 
     def test_timestamp_column_wins_when_present(self, tmp_path):
         # Frame has the device timestamp column → timestamp strategy is used
@@ -155,9 +155,9 @@ class TestLegacyFallback:
                 f"{DEVICE}:acq_timestamp": [3866137959.524],
             }
         )
-        sa = _make_analyzer(tmp_path, aux)
+        sa = _make_mapper(tmp_path, aux)
         sa._build_data_file_map()
-        assert sa._data_file_map == {1: f_ts}
+        assert sa.paths == {1: f_ts}
 
 
 class TestLegacyScanWithTimestampColumn:
@@ -189,16 +189,16 @@ class TestLegacyScanWithTimestampColumn:
         files = {
             s: _touch(tmp_path, f"Scan012_{DEVICE}_{s:03d}.png") for s in (1, 2, 3)
         }
-        sa = _make_analyzer(tmp_path, self._legacy_aux(3))
+        sa = _make_mapper(tmp_path, self._legacy_aux(3))
         sa._build_data_file_map()
-        assert sa._data_file_map == files
+        assert sa.paths == files
 
     def test_fallback_is_logged_at_info(self, tmp_path, caplog):
         _touch(tmp_path, f"Scan012_{DEVICE}_001.png")
-        sa = _make_analyzer(tmp_path, self._legacy_aux(1))
+        sa = _make_mapper(tmp_path, self._legacy_aux(1))
         with caplog.at_level(
             logging.INFO,
-            logger="scan_analysis.analyzers.common.single_device_scan_analyzer",
+            logger="geecs_data_utils.shot_files",
         ):
             sa._build_data_file_map()
         assert any("falling back" in rec.getMessage() for rec in caplog.records)
@@ -218,9 +218,9 @@ class TestLegacyScanWithTimestampColumn:
                 f"{DEVICE}:valid": [True, False],
             }
         )
-        sa = _make_analyzer(tmp_path, aux)
+        sa = _make_mapper(tmp_path, aux)
         sa._build_data_file_map()
-        assert sa._data_file_map == {1: f_ts}
+        assert sa.paths == {1: f_ts}
 
     def test_bluesky_scan_with_sfile_column_spelling_uses_timestamp_join(
         self, tmp_path
@@ -238,9 +238,9 @@ class TestLegacyScanWithTimestampColumn:
                 f"{DEVICE} acq_timestamp": [3866137959.524, 3866137960.525],
             }
         )
-        sa = _make_analyzer(tmp_path, aux)
+        sa = _make_mapper(tmp_path, aux)
         sa._build_data_file_map()
-        assert sa._data_file_map == {1: f1, 2: f2}
+        assert sa.paths == {1: f1, 2: f2}
 
 
 class TestLegacyProbeSkip:
@@ -275,11 +275,11 @@ class TestLegacyProbeSkip:
                 f"{DEVICE} acq_timestamp": [3866137959.524, 3866137960.525],
             }
         )
-        sa = _make_analyzer(tmp_path, aux)
+        sa = _make_mapper(tmp_path, aux)
         calls = self._spy_probe(sa)
         sa._build_data_file_map()
         assert calls == []
-        assert sa._data_file_map == {1: f1, 2: f2}
+        assert sa.paths == {1: f1, 2: f2}
 
     def test_timestamp_named_directory_still_probes(self, tmp_path):
         _touch(tmp_path, f"{DEVICE}_3866137959.524.png")
@@ -290,11 +290,11 @@ class TestLegacyProbeSkip:
                 f"{DEVICE} acq_timestamp": [3866137959.524],
             }
         )
-        sa = _make_analyzer(tmp_path, aux)
+        sa = _make_mapper(tmp_path, aux)
         calls = self._spy_probe(sa)
         sa._build_data_file_map()
         assert calls, "expected stat probes for a timestamp-named directory"
-        assert len(sa._data_file_map) == 1
+        assert len(sa.paths) == 1
 
     def test_empty_directory_still_probes(self, tmp_path):
         # Stale-listing safety: an empty listing may hide freshly written
@@ -306,7 +306,7 @@ class TestLegacyProbeSkip:
                 f"{DEVICE} acq_timestamp": [3866137959.524],
             }
         )
-        sa = _make_analyzer(tmp_path, aux)
+        sa = _make_mapper(tmp_path, aux)
         calls = self._spy_probe(sa)
         sa._build_data_file_map()
         assert calls, "expected stat probes for an empty listing"
@@ -321,8 +321,8 @@ class TestLegacyProbeSkip:
                 f"{DEVICE} acq_timestamp": [3866137959.524, 3866137960.525],
             }
         )
-        sa = _make_analyzer(tmp_path, aux)
+        sa = _make_mapper(tmp_path, aux)
         calls = self._spy_probe(sa)
         sa._build_data_file_map()
         assert calls, "expected stat probes for a mixed directory"
-        assert sa._data_file_map[2] == f2
+        assert sa.paths[2] == f2
