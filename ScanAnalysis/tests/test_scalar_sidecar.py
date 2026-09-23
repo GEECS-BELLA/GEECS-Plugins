@@ -67,3 +67,27 @@ class TestScalarSidecar:
         sidecar_path = analyzer.write_scalar_sidecar(updates)
 
         assert sidecar_path == analyzer.scan_path / "Scan004_UC_Test_left.txt"
+
+    def test_sfile_merge_refreshes_legacy_analyzer_without_losing_columns(
+        self, tmp_path
+    ):
+        analyzer = _StubAnalyzer(device_name="Camera")
+        analyzer.auxiliary_file_path = tmp_path / "s1.txt"
+        original = pd.DataFrame({"Shotnumber": [1, 2], "motor": [10, 20]})
+        original.to_csv(analyzer.auxiliary_file_path, sep="\t", index=False)
+        analyzer.auxiliary_data = original
+        analyzer.append_to_sfile(pd.DataFrame({"shotnumber": [2], "beam": [4.0]}))
+        saved = pd.read_csv(analyzer.auxiliary_file_path, sep="\t")
+        pd.testing.assert_frame_equal(analyzer.auxiliary_data, saved)
+        assert saved.loc[1, "motor"] == 20
+        assert saved.loc[1, "beam"] == 4
+
+    def test_first_key_spelling_survives_canonical_duplicate(self, tmp_path):
+        analyzer = _StubAnalyzer(device_name="Camera")
+        analyzer.scan_directory = tmp_path / "scans" / "Scan001"
+        analyzer.scan_path = tmp_path / "analysis" / "Scan001"
+        path = analyzer.write_scalar_sidecar(
+            pd.DataFrame({"shotnumber": [2], "Shotnumber": [99], "beam": [4]})
+        )
+        saved = pd.read_csv(path, sep="\t")
+        assert saved["Shotnumber"].tolist() == [2]

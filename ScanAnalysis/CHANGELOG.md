@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.29.1] - 2026-09-23
+
+### Changed
+
+- Delegate scalar normalization, s-file lock/merge and sidecar serialization to
+  data-utils so retained analyzers and the new runner share persistence behavior.
+  Keep destination naming, output-directory creation and in-memory refresh here.
+
 ## [1.29.0] - 2026-09-23
 
 ### Added

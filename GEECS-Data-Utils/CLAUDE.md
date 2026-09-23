@@ -17,6 +17,7 @@ geecs_data_utils/
                                #   TaskStatus.to_dict() shape; contract pinned in
                                #   ScanAnalysis's suite, #682)
   shot_files.py                # completed-scan shot rows → native Path / stack ShotRef
+  scalar_files.py              # shared s-file lock/merge and generated-scalar writes
   type_defs.py                 # ScanTag, ScanMode, ScanConfig, ECSDump Pydantic models
   geecs_paths_config.py        # GeecsPathsConfig: base path + experiment resolution
   config_base.py               # ConfigDirManager: generic config directory management
@@ -140,6 +141,19 @@ Also provides optional paths for config repos and FROG DLL.
 ```
 
 `ScanPaths` validates this convention and raises if the path doesn't conform.
+
+## Scalar output files
+
+`scalar_files` owns generated-scalar normalization and persistence shared by
+legacy and replacement analysis runners. `merge_sfile` holds the existing
+`.txt.lock` exclusive sidecar across read/merge/write, preserves unrelated
+columns/cells, and refreshes the caller through its returned DataFrame. Missing
+update values retain existing s-file cells (`combine_first` compatibility);
+`write_scalar_sidecar` writes the generated values themselves, including NaNs.
+Both keep the last duplicate shot update and sort by shot identity. Neither
+creates parent directories; destination naming and directory policy belong to
+the source host. Case-insensitive key normalization keeps the first matching
+column, including when other case variants or duplicate labels coexist.
 
 ## Binning System
 

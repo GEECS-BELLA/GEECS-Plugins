@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.41.0] - 2026-09-23
+
+### Added
+
+- Shared scalar table normalization, locked s-file merging and generated sidecar
+  writing, extracted from ScanAnalysis. Preserve last-update deduplication,
+  unrelated cells and column order; missing s-file updates keep existing values,
+  while sidecars retain generated NaNs. Never create parent directories.
+- Normalize colliding case variants of Shotnumber without accidentally deleting
+  the selected key; duplicate labels consistently keep the first key column.
+
 ## [0.40.0] - 2026-09-23
 
 ### Changed
