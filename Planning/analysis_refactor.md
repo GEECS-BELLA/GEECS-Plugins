@@ -9,7 +9,8 @@ field-by-field census of the 61-file analysis-config corpus; discussed over
 2026-09-06..08; refreshed 2026-09-18 against master (native-Bluesky rebuild,
 console deletion, capture-daemon retirement, logbook). Scope amended
 2026-09-22: retire LiveWatch and Google Docs uploads; preserve the DataPortal
-config editor. Status: **direction settled, no code written.** Owner: Sam.
+config editor. Status: **baseline harness in progress; replacement core not
+yet implemented.** Owner: Sam.
 
 ---
 
@@ -118,8 +119,30 @@ reader override is needed for scan-level baseline runs. Its configured device
 also ends in `_Input`, whereas the archived folder ends in `_input`; preserve
 the archived identity explicitly rather than relying on case-insensitive
 filesystem behavior. This establishes availability, not numerical parity or
-successful execution. The integration worktree still needs its own
-Python 3.11 Poetry environment before baseline tests can run.
+successful execution.
+
+The first implementation slice, `scripts/analysis_baseline.py`, captures
+processed arrays and named scalars through the existing write-free analysis
+API, then compares backend-independent NPZ archives. Archives record the
+resolved recipe and ordered input hashes, load without pickle, and cannot
+overwrite a reference or be written inside raw scan folders. Exact comparison
+is the default; tolerances must be explicit. This slice deliberately excludes
+scan discovery, binning, figures and s-file writes. Recipes with external
+processing dependencies are refused until those dependencies are fingerprinted.
+
+Baseline execution on the canonical scans (first three shots each): beam
+produces 18 scalars per shot and 599×599 processed arrays; repeated per-shot
+and averaged-frame runs match exactly. MagSpec produces six scalars and
+2000×2 arrays. Its second shot is zero throughout the processed ROI, and the
+current stack emits NaN centroid/RMS/FWHM. The comparator flags these instead
+of silently treating matching NaNs as scientific parity; preserve this case
+for an explicit invalid-measurement policy in the new core. No source scan
+files or configs were modified by these captures.
+
+The worktree's Python 3.11 Poetry environment is now installed. The existing
+beam/line, ephemeral-document and renderer-name baseline selection passed
+46 tests. These results establish a starting reference, not acceptance of the
+future backend, waterfall renderer or optimizer integration.
 
 ## Decisions
 
