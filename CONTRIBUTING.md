@@ -98,7 +98,7 @@ layout; delete-when-executed is the whole discipline):
   two genuinely open items to issues #929 and #930 — and ~140 `Planning/`
   provenance citations were stripped out of docstrings rather than
   repointed, which is what the docstring rule above now forbids
-- **2026-09-23**, post-non-scalar-over-PVA — the last `Planning/` file
+- **2026-09-22**, post-non-scalar-over-PVA — the last `Planning/` file
   deleted (`data_capture/02_nonscalar_over_pva.md`, written after the
   2026-09-16 prune and finished by #950). `Planning/` is now its `README.md`
   alone. Every durable rule it carried was already where it is enforced
@@ -110,7 +110,7 @@ layout; delete-when-executed is the whole discipline):
   `GeecsBluesky/CLAUDE.md`, and what the DB's `set` / `defaultvalue` /
   `get` columns actually mean is `GEECS-Core/DESIGN.md`. The owner ruled
   the one remaining candidate — the MagSpec resampling note — not worth
-  keeping, since analysis handles it (2026-09-23)
+  keeping, since analysis handles it (2026-09-22)
   regrowing. CHANGELOG citations were left dangling on purpose: like the
   dead branch names, they are historical record, not instruction.
 
