@@ -4,6 +4,18 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.11.1] - 2026-09-22
+
+### Changed
+
+- `db.device_streams`: the module docstring's "two neighbours" note no longer
+  contrasts this table with `geecs_bluesky.assets.registry`, which is deleted
+  (GeecsBluesky 0.100.0). The distinction it drew is still worth stating, so
+  it now makes it without the dead reference: what a device writes natively is
+  named by `geecs_data_utils.native_files` and read from disk, never declared
+  here; this table answers only what a devicetype pushes and whether to
+  capture it.
+
 ## [0.11.0] - 2026-09-21
 
 ### Added

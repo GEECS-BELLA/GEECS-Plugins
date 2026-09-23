@@ -3,6 +3,21 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.1] - 2026-09-22
+
+### Changed
+
+- `native_files`: the module docstring's consumer list — which asks to be kept
+  current — is current again. It named `geecs_bluesky.assets.registry` as the
+  *producer* side and `geecs_bluesky.optimization.session_bridge` as a
+  *waiter*; the first is deleted (GeecsBluesky 0.100.0) and the second has not
+  existed for some time. Nothing builds these names in Python at all: the
+  GEECS device server does, and the worker only hands it a directory. The list
+  now says so and adds the consumer it was missing, `geecs_pva_gateway.diff`,
+  which matches native PNGs to stack frames by millisecond key.
+- `io` and `io.images` docstrings no longer cite the deleted Bluesky
+  external-asset handlers as callers.
+
 ## [0.36.0] - 2026-09-21
 
 ### Added

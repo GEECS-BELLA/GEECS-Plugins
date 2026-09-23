@@ -70,7 +70,7 @@ facts, both found by failure on the first run (Scan007 of 26_0911):
 
    then `sudo systemctl restart tiled`.  The check: a plugin-written run's
    array (`run[<device>]` through the same client pattern as
-   `tiled_readback.py`) reads back identical to `h5py` on the file.
+   `tiled_catalog.py`) reads back identical to `h5py` on the file.
 
 The Tiled server is pip-installed and unit-less as far as `deploy/` is
 concerned (no rendered unit, no `site.env` key), so these two settings
@@ -99,8 +99,7 @@ sudo systemctl start tiled
 Post-upgrade verification from any client: `/api/v1/` reports the new
 `library_version`; existing runs read back through
 `geecs_data_utils.tiled_catalog.read_primary_scalars(run["primary"])` —
-the pattern `tiled_catalog.py` / `tiled_export.py` / `tiled_readback.py`
-use: the composite node's `internal` table via `.base`, **never**
+the pattern `tiled_catalog.py` / `tiled_export.py` use: the composite node's `internal` table via `.base`, **never**
 `run["primary"].read()`, which downloads every camera stack and per-frame
 attribute array and outer-joins their dimensions (a two-camera plugin run
 took the worker host down, #834).  Ad-hoc `run["primary"]["data"]` does
@@ -164,13 +163,18 @@ api_key = <stable key>
   Possible future work, not scheduled, not a gate.  The data-pipeline
   end state remains the open strategic question: does `ScanAnalysis`
   grow a Tiled reader, or keep reading exported s-files long-term?
-- **No server-side adapters for custom GEECS asset specs** — Tiled/
-  databroker readers for them were never written, so external assets
-  (per-shot image files etc.) are fillable only client-side from the
-  datum-id metadata, not served filled by Tiled itself.  Related undecided
-  question: whether Bluesky native-save runs need a finalization/mover step
-  for legacy filename compatibility, or whether direct native filenames are
-  the canonical Bluesky path.
+- **Natively saved per-shot files are not served by Tiled** — only the
+  file plugin's HDF5 stacks are (above: the stock adapter, no custom
+  adapter anywhere).  A device without a plugin writes its own per-shot
+  files, and the run's events record the save directory and the device's
+  `acq_timestamp`, not an external data source; readers join rows to files
+  on disk by stamp (`geecs_data_utils.native_files`).  Serving those over
+  HTTP would need the *worker* to emit stream resources for them plus a
+  mimetype-matched adapter here — demand-driven work nobody has asked for,
+  and moot for the vendor-only formats (HASO `.himg`) that have no Python
+  reader at all.  Related undecided question: whether Bluesky native-save
+  runs need a finalization/mover step for legacy filename compatibility,
+  or whether direct native filenames are the canonical Bluesky path.
 - **Tiled not yet read by ScanAnalysis** — post-scan analysis continues to
   use the file-based path (bridged by the s-file export); `ScanAnalysis`
   itself does not read Tiled.

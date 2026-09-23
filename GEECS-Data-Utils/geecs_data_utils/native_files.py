@@ -19,19 +19,23 @@ like ``.png``, but compound tails are legal and must round-trip untouched).
 This module is the single source of truth for that contract.  Its consumers
 (keep this list current):
 
-- ``geecs_bluesky.assets.registry`` — the *producer* side: builds the paths
-  devices are told to save to, and the expected paths external-asset
-  documents point at.
+No caller *decides* a filename: the GEECS device server does, and the worker
+only hands it a directory (``GeecsBluesky``'s ``LvNativeFileDataLogic``).  The
+builders below exist to reconstruct a name already on disk — to probe for it,
+or to match it — so every consumer is a reader joining rows to files:
+
 - ``scan_analysis.analyzers.common.single_device_scan_analyzer`` — the
   *reader* side: joins s-file rows to natively saved files through the
   device's per-shot ``acq_timestamp`` column.
-- ``geecs_bluesky.optimization.session_bridge`` — the *waiter* side: blocks
-  an optimization iteration until the bin's expected native files are
-  visible on the data server.
 - ``geecs_portal.resources`` (GEECS-DataPortal) — the *viewer* side: exact
   stat-probes for one shot's file from the event row's ``acq_timestamp``
   (candidate keys), regex listing only for the no-metadata ordinal
   fallback.
+- ``geecs_pva_gateway.diff`` (GeecsPvaGateway) — the *parity* side: matches
+  a scan's native PNGs against the file plugin's HDF5 stack frames by
+  millisecond key, the dual-write evidence behind PNG retirement (#738).
+- ``geecs_data_utils.io.scan_stack`` — the same key, in this package, to
+  find a stack frame by a row's stamp.
 
 Millisecond canonicalization
 ----------------------------

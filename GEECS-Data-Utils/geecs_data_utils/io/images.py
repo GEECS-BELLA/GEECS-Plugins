@@ -2,7 +2,7 @@
 
 Most functions here map a file path to a NumPy array and contain no analysis
 logic; higher-level packages (ImageAnalysis, ScanAnalysis, Bluesky
-external-asset handlers) wrap them. Two exceptions operate on in-memory
+the portal's shot viewer) wrap them. Two exceptions operate on in-memory
 data: :func:`decode_imaq_image_string` decodes an NI IMAQ "Flatten Image to
 String" payload (as received live over the device TCP stream), and
 :func:`average_frames` is the shared frame-stack averager every "mean of N
