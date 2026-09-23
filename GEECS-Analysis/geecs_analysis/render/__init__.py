@@ -201,3 +201,131 @@ def waterfall(
     style = style or FigureSpec()
     style = style.model_copy(update={"imshow": {"aspect": "auto", **style.imshow}})
     return single(Measurement({}, frame), style)
+
+
+def image_grid(
+    results: Sequence[Measurement],
+    *,
+    titles: Sequence[str] | None = None,
+    columns: int | None = None,
+    style: FigureSpec | None = None,
+) -> Figure:
+    """Draw image measurements with one shared color scale and colorbar.
+
+    Each panel retains its own coordinate axes and typed overlays. A palette
+    supplied in imshow or pcolormesh applies to both artist types; conflicting
+    palettes are refused so the shared colorbar remains truthful. Missing
+    limits autoscale across all finite image samples, never just the first
+    panel. No averaging, resampling, pyplot state or file writes occur here.
+    """
+    import math
+    import numpy as np
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    if not results or any(r.frame.data.ndim != 2 for r in results):
+        raise RenderError("Image grid requires nonempty 2D measurements")
+    if titles is not None and len(titles) != len(results):
+        raise RenderError("Image grid requires one title per panel")
+    if columns is not None and (type(columns) is not int or columns < 1):
+        raise RenderError("Image grid columns must be a positive integer")
+    if len({r.frame.unit for r in results}) != 1:
+        raise RenderError("A shared image scale requires matching signal units")
+    style = style or FigureSpec()
+    try:
+        palette = {}
+        for key in ("cmap", "norm", "vmin", "vmax"):
+            if (
+                key in style.imshow
+                and key in style.pcolormesh
+                and style.imshow[key] != style.pcolormesh[key]
+            ):
+                raise RenderError(f"Conflicting grid palette option: {key}")
+            if key in style.imshow or key in style.pcolormesh:
+                palette[key] = deepcopy(
+                    style.imshow[key] if key in style.imshow else style.pcolormesh[key]
+                )
+        from matplotlib.cm import ScalarMappable
+
+        requested_norm = palette.get("norm")
+        if (
+            requested_norm is not None
+            and not isinstance(requested_norm, str)
+            and any(palette.get(key) is not None for key in ("vmin", "vmax"))
+        ):
+            raise RenderError("Set limits on the Normalize object instead of vmin/vmax")
+        norm = ScalarMappable(norm=requested_norm).norm
+        for key in ("vmin", "vmax"):
+            if palette.get(key) is not None:
+                setattr(norm, key, palette[key])
+        # Logarithmic/custom normalizers need the samples in their valid domain,
+        # not just the numerical extrema (which may include a zero background).
+        samples = np.concatenate(
+            [r.frame.data[np.isfinite(r.frame.data)] for r in results]
+        )
+        norm.autoscale_None(samples if samples.size else np.array([0.0, 1.0]))
+        del samples
+        # A colorbar expands degenerate limits in place. Set them consistently
+        # before draw_frame makes independent copies for each panel.
+        from matplotlib.transforms import nonsingular
+
+        if norm.vmin > norm.vmax:
+            raise RenderError("Grid color minimum exceeds maximum")
+        if norm.vmin == norm.vmax:
+            norm.vmin, norm.vmax = nonsingular(norm.vmin, norm.vmax, expander=0.1)
+        palette = {
+            "norm": norm,
+            **({"cmap": palette["cmap"]} if "cmap" in palette else {}),
+        }
+        panel_style = style.model_copy(
+            update={
+                "imshow": {
+                    **{
+                        k: v
+                        for k, v in style.imshow.items()
+                        if k not in ("norm", "vmin", "vmax", "cmap")
+                    },
+                    **palette,
+                },
+                "pcolormesh": {
+                    **{
+                        k: v
+                        for k, v in style.pcolormesh.items()
+                        if k not in ("norm", "vmin", "vmax", "cmap")
+                    },
+                    **palette,
+                },
+                "colorbar": {"show": False},
+            }
+        )
+        columns = min(columns or math.ceil(math.sqrt(len(results))), len(results))
+        rows = math.ceil(len(results) / columns)
+        fig = Figure(
+            **{
+                "figsize": (columns * 4.0, rows * 3.5),
+                "dpi": 110,
+                "constrained_layout": True,
+                **deepcopy(style.fig),
+            }
+        )
+        axes = fig.subplots(rows, columns, squeeze=False).ravel()
+        artists = []
+        for index, (ax, result) in enumerate(zip(axes, results)):
+            draw_frame(ax, result.frame, panel_style)
+            ax.set_autoscale_on(False)
+            draw_overlays(ax, result, panel_style)
+            ax.set(**deepcopy(style.axes))
+            if titles is not None:
+                ax.set_title(titles[index])
+            artists.append(ax.images[0] if ax.images else ax.collections[0])
+        for ax in axes[len(results) :]:
+            ax.set_visible(False)
+        colorbar = deepcopy(style.colorbar)
+        if colorbar.pop("show", True):
+            fig.colorbar(artists[0], ax=list(axes[: len(results)]), **colorbar)
+        FigureCanvasAgg(fig).draw()
+        return fig
+    except RenderError:
+        raise
+    except Exception as exc:
+        raise RenderError(f"{type(exc).__name__}: {exc}") from exc
