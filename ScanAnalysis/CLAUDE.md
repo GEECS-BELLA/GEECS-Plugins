@@ -12,6 +12,7 @@ scan_analysis/
   core_source.py                   # completed-scan native/stack input mapping and reads
   core_scan.py                     # write-free scan preparation, grouping and execution
   core_products.py                 # write-free average/bin and summary product planning
+  core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN
   task_queue.py                    # Task claiming, heartbeat, YAML status system
   config/
     diagnostic_factory.py          # create_scan_analyzer(AnalysisDiagnostic)
@@ -64,6 +65,17 @@ Scan positions average all scalar rows in each bin, including missing inputs.
 Line sort requests bypass scanned-bin rendering; finite/bounds/sigma filtering
 changes waterfall rows only, not the all-unit average. Omitted products carry
 notes; the sink owns logging and file naming.
+
+`core_sink.save_products` is the only core-route writer of scan products. It
+resolves the sibling `analysis/ScanNNN/<output_name>/Array{1,2}DScanAnalyzer/`
+directory from an existing raw scan folder, refuses path components and
+symlinks that escape it, and never creates `scans/ScanNNN/`. File names keep
+the legacy shapes (`{device}_{id}_processed.h5`, `_processed_visual.png`,
+`_averaged_image_grid.png`, `_summary_waterfall.png`) so `parse_output_filename`
+and MCP's display-file contract are unchanged. HDF5 retains the legacy dataset
+name, storage dtype and gzip level. `scan.save: false` writes nothing. A
+rendering failure omits only its figure and is returned as a note; data and
+write errors propagate. Scalar persistence is independent of this sink.
 
 Scan analysis is driven by YAML config files stored in the
 **GEECS-Plugins-configs** repository (not this repo). The documents are

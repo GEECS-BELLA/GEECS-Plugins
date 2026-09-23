@@ -110,6 +110,14 @@ Missing limits autoscale over finite samples across all panels, and degenerate
 limits expand before per-panel copies so colorbar mutation cannot desynchronize
 them. Signal units must agree. The caller still owns aggregation and saving.
 
+`compat.v2_render` translates v2 `RendererOptions` into `FigureSpec` calls for
+single, grid and waterfall products. The waterfall deliberately keeps legacy
+geometry (index-wise stack on the first trace's x grid, midpoint cell edges,
+`waterfall_sort_key` implying even row spacing unless overridden) rather than
+weakening the general renderer's same-grid rule. Palette rules mirror the old
+`_get_colormap_params_1d` and are pinned by a differential test that imports
+ScanAnalysis as an oracle; production code must not.
+
 ## Mask and interpolation conventions
 
 `circular_mask` defaults to local sample indices, with center in numpy `(y, x)`
