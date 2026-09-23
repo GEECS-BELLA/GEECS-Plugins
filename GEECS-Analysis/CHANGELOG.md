@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.10.0] - 2026-09-23
+
+### Added
+
+- Pure post-analysis v2 result averages for noscan and bin summaries. Preserve
+  ordinary-mean versus nanmean behavior, stored trace dtype and coordinate
+  averaging, scalar-key policy and projection means without re-running measures.
+  Empty/mixed-shape inputs skip the average; aggregates shed per-shot identity.
+
 ## [0.9.0] - 2026-09-23
 
 ### Added
