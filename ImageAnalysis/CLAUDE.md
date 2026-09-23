@@ -26,7 +26,7 @@ image_analysis/
                                    #          load_diagnostic, list_diagnostics,
                                    #          create_image_analyzer, analyzer_class
                                    #          (the MODELS come from geecs_schemas.analysis)
-    loader.py                      # YAML → typed model loaders
+    loader.py                      # Typed loaders over geecs_data_utils.analysis_configs
     factory.py                     # create_image_analyzer(AnalysisDiagnostic)
     registry.py                    # analyzer kind → implementing class
   processing/

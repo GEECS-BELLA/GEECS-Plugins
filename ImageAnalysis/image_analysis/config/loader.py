@@ -27,10 +27,14 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-import yaml
 from geecs_schemas.analysis import AnalysisDiagnostic, CameraConfig, Line1DConfig
 from pydantic import ValidationError
 
+from geecs_data_utils.analysis_configs import (
+    discover_diagnostics,
+    read_diagnostic,
+    read_yaml_mapping,
+)
 from geecs_data_utils.config_roots import scan_analysis_config
 
 logger = logging.getLogger(__name__)
@@ -85,12 +89,6 @@ def find_config_file(
     )
 
 
-def _read_yaml(path: Path) -> Dict[str, Any]:
-    with open(path, "r") as f:
-        data = yaml.safe_load(f)
-    return {} if data is None else data
-
-
 def _load_image_section(
     config_source: Union[str, Path, Dict[str, Any]],
     *,
@@ -110,7 +108,7 @@ def _load_image_section(
         )
         if not path.exists():
             raise FileNotFoundError(f"Configuration file not found: {path}")
-        data = _read_yaml(path)
+        data = read_yaml_mapping(path)
         source = str(path)
         logger.info("Loaded %s configuration from %s", label, path)
 
@@ -211,24 +209,15 @@ def load_diagnostic(
     ValueError
         On invalid YAML or validation errors, or when no root is available.
     """
-    if isinstance(name_or_path, Path):
-        diag_path = name_or_path
-        if not diag_path.exists():
-            raise FileNotFoundError(f"Diagnostic config not found: {diag_path}")
-    else:
-        base_dir = _resolve_default_config_dir(config_dir)
-        index = _discover_analyzers(base_dir)
-        if name_or_path not in index:
-            raise KeyError(
-                f"Diagnostic '{name_or_path}' not found under "
-                f"{base_dir / 'analyzers'}. Known diagnostics: "
-                f"{sorted(set(index))}"
-            )
-        diag_path = index[name_or_path]
-
-    data = _read_yaml(diag_path)
-    if overrides:
-        data = _deep_merge(data, overrides)
+    diag_path, data = read_diagnostic(
+        name_or_path,
+        config_dir=(
+            None
+            if isinstance(name_or_path, Path)
+            else _resolve_default_config_dir(config_dir)
+        ),
+        overrides=overrides,
+    )
 
     try:
         diagnostic = AnalysisDiagnostic.model_validate(data)
@@ -245,21 +234,7 @@ def list_diagnostics(*, config_dir: Optional[Path] = None) -> List[str]:
     :func:`load_diagnostic`, which may still raise on a malformed file.
     """
     base_dir = _resolve_default_config_dir(config_dir)
-    return sorted(_discover_analyzers(base_dir))
-
-
-def _deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
-    """Return ``base`` with ``overlay`` merged in: nested dicts key-by-key, else replaced.
-
-    Always a new dict; neither input is mutated.
-    """
-    out: Dict[str, Any] = dict(base)
-    for key, value in overlay.items():
-        if key in out and isinstance(out[key], dict) and isinstance(value, dict):
-            out[key] = _deep_merge(out[key], value)
-        else:
-            out[key] = value
-    return out
+    return sorted(discover_diagnostics(base_dir))
 
 
 def _resolve_default_config_dir(config_dir: Optional[Path]) -> Path:
@@ -281,25 +256,3 @@ def _resolve_default_config_dir(config_dir: Optional[Path]) -> Path:
             "ScanPaths.paths_config.scan_analysis_configs_path is unset."
         )
     return Path(root)
-
-
-def _discover_analyzers(base_dir: Path) -> Dict[str, Path]:
-    """Map diagnostic stem → YAML path under ``<base_dir>/analyzers``; stems must be unique."""
-    analyzers_dir = base_dir / "analyzers"
-    if not analyzers_dir.is_dir():
-        raise FileNotFoundError(
-            f"Analyzer directory not found: {analyzers_dir}. "
-            f"Expected the unified-configs layout under {base_dir}."
-        )
-    index: Dict[str, Path] = {}
-    for path in sorted(
-        list(analyzers_dir.rglob("*.yaml")) + list(analyzers_dir.rglob("*.yml"))
-    ):
-        if path.stem in index:
-            raise ValueError(
-                f"Duplicate diagnostic ID '{path.stem}' at {path} and "
-                f"{index[path.stem]}. Diagnostic file stems must be unique "
-                f"across the entire 'analyzers/' tree."
-            )
-        index[path.stem] = path
-    return index

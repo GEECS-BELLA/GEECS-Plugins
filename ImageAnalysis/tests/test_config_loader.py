@@ -15,7 +15,6 @@ import pytest
 import yaml
 
 from image_analysis.config.loader import (
-    _deep_merge,
     load_camera_config,
     load_diagnostic,
     load_line_config,
@@ -112,50 +111,6 @@ class TestImageSectionLoaders:
         path.write_text(yaml.safe_dump({"bit_depth": 12, "name": "UC_Flat"}))
         with pytest.raises(ValueError, match="Invalid camera configuration"):
             load_camera_config(path)
-
-
-class TestDeepMerge:
-    """Recursive dict merge: nested mappings merge key-by-key, scalars replace."""
-
-    def test_disjoint_keys_union(self):
-        assert _deep_merge({"a": 1}, {"b": 2}) == {"a": 1, "b": 2}
-
-    def test_overlay_scalar_replaces_base_scalar(self):
-        assert _deep_merge({"a": 1}, {"a": 2}) == {"a": 2}
-
-    def test_nested_dicts_merge_key_by_key(self):
-        base = {"scan": {"mode": "per_shot", "priority": 100}}
-        overlay = {"scan": {"mode": "per_bin"}}
-        assert _deep_merge(base, overlay) == {
-            "scan": {"mode": "per_bin", "priority": 100}
-        }
-
-    def test_three_level_nesting(self):
-        base = {"image": {"background": {"method": "constant", "value": 0.0}}}
-        overlay = {"image": {"background": {"value": 12.5}}}
-        assert _deep_merge(base, overlay) == {
-            "image": {"background": {"method": "constant", "value": 12.5}}
-        }
-
-    def test_lists_replace_wholesale(self):
-        assert _deep_merge({"steps": [1, 2, 3]}, {"steps": [9]}) == {"steps": [9]}
-
-    def test_none_replaces_base(self):
-        assert _deep_merge({"a": 1}, {"a": None}) == {"a": None}
-
-    def test_returns_new_dict_does_not_mutate_inputs(self):
-        base = {"scan": {"mode": "per_shot"}}
-        overlay = {"scan": {"mode": "per_bin"}}
-        _deep_merge(base, overlay)
-        assert base == {"scan": {"mode": "per_shot"}}
-        assert overlay == {"scan": {"mode": "per_bin"}}
-
-    def test_overlay_can_introduce_new_nested_key(self):
-        base = {"scan": {"mode": "per_shot"}}
-        overlay = {"scan": {"gdoc_slot": 2}}
-        assert _deep_merge(base, overlay) == {
-            "scan": {"mode": "per_shot", "gdoc_slot": 2}
-        }
 
 
 class TestLoadDiagnosticOverrides:

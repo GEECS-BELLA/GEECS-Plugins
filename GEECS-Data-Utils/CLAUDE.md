@@ -223,6 +223,14 @@ ScanDatabaseBuilder.stream_to_parquet(
 
 ## Config Directory Management
 
+`analysis_configs` owns read-only discovery of unique diagnostic stems under
+`analyzers/`, YAML mapping reads, and recursive overrides. `read_diagnostic`
+requires an explicit config root for stems (or accepts an explicit `Path`) and
+returns the source path and a fresh raw document. It neither validates analysis
+schemas nor imports numerical analyzers; consumers own typed validation and
+default-root selection. No folders are created. ImageAnalysis's typed loader
+delegates here; other consumers should share this boundary.
+
 `ConfigDirManager` (config_base.py) manages a directory that can hold multiple
 YAML config files. ImageAnalysis and ScanAnalysis now resolve through the
 unified Scan/ImageAnalysis config tree.
