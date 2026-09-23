@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.28.0] - 2026-09-23
+
+### Added
+
+- Read-only completed-scan input adapter for the new core runner. Snapshot native
+  reader settings and shot references, retain capture-stack frame indices and
+  native array precision, and keep diagnostic timestamp identity separate from
+  device-folder overrides. Existing scan execution still uses the legacy factory.
+
 
 ## [1.27.1] - 2026-09-23
 

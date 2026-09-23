@@ -9,6 +9,7 @@ image/1D analyzers. Automatic watching and Google Docs uploads are retired.
 scan_analysis/
   base.py                          # ScanAnalyzer abstract base class
   core_inputs.py                   # v2 core compilation + loaded file-background bindings
+  core_source.py                   # completed-scan native/stack input mapping and reads
   task_queue.py                    # Task claiming, heartbeat, YAML status system
   config/
     diagnostic_factory.py          # create_scan_analyzer(AnalysisDiagnostic)
@@ -32,6 +33,16 @@ fallback; loaded shape errors propagate. `data_dir` means the device directory
 when resolving `{scan_dir}`. Context-free previews leave that placeholder
 literal. This adapter never writes, mutates the caller's config, or resolves
 scan-background directives. Explicit scan execution still uses the old factory.
+
+`core_source.prepare_source` maps a completed scan's scalar rows to native
+files or capture-stack frames through data-utils. The returned `V2ShotSource`
+snapshots references and reader settings, retains `ShotRef` indices, and loads
+native arrays without dtype conversion or caching. Diagnostic identity selects
+timestamp columns; `scan.device` selects the folder/native filename stem.
+Camera stack preference may fall back to native files; stack-only traces cannot.
+The source never creates folders or writes files. Hosts must wait for scan
+completion before discovering HDF5 stacks over SMB. Reader metadata is not
+returned by this raw-array adapter; v2 recipes supply configured labels/units.
 
 Scan analysis is driven by YAML config files stored in the
 **GEECS-Plugins-configs** repository (not this repo). The documents are
