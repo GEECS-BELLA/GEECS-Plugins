@@ -11,6 +11,7 @@ for.  Frames, stamps and rows are asserted from the documents.
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 import time
 from pathlib import Path
@@ -674,6 +675,85 @@ def test_non_essential_with_a_gated_run(
         "shots",
         "uc_b_stream",
     }
+
+
+def test_a_non_essential_scope_with_no_streams_sits_the_run_out(
+    RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path, caplog
+) -> None:
+    """A non-essential scope with every channel disabled is not declared or kicked off.
+
+    Non-essential means "record it if you can" — so unlike the essential
+    case above this must not refuse; the count succeeds and no
+    ``u_ict`` stream appears. (The stock path aborted the run at kickoff
+    with "not streamable", Codex review of #948.)
+    """
+    a = _camera(RE, box, "UC_A")
+    ict = _all_off_scope(RE, tmp_path, native_save=False)
+    assert not ict.plugin_backed
+    col = DocCollector()
+    RE.subscribe(col)
+    count = bind_plans(profiles)["count"]
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.plans.gated"):
+        RE(count([a], 2, acquisition="gated", non_essential=[ict]))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    # The skip is loud, and says which of the two causes it is — the
+    # operator cannot tell "no plugin" from "every channel disabled".
+    said = [
+        r.getMessage()
+        for r in caplog.records
+        if "not streamed this run" in r.getMessage()
+    ]
+    assert len(said) == 1 and "u_ict" in said[0]  # the ophyd name
+    assert "no file plugin" in said[0] and "disabled in the DB" in said[0]
+    assert not any(
+        d["name"] != "shots" and any(k.startswith("u_ict") for k in d["data_keys"])
+        for d in col.docs["descriptor"]
+    )
+
+
+def _all_off_scope(
+    RE: RunEngine, tmp_path: Path, *, native_save: bool
+) -> GeecsDetector:
+    """A scope with every channel disabled.
+
+    Since gating moved to the DB (``geecs_core.db.device_streams``), the
+    namespace filters the disabled channels out before construction — so an
+    all-off scope reaches the plan layer with **no** file plugins, exactly
+    like a camera that never had one. There is nothing left to latch.
+    """
+    ict = GeecsDetector(
+        "U_ICT",
+        ["MeanCounts"],
+        experiment="TestExp",
+        name="u_ict",
+        native_save=native_save,
+        hdf_plugins=[],
+    )
+    connect_mock(RE, ict)
+    set_mock_value(ict.acq_timestamp, 1000.0)
+    return ict
+
+
+def test_a_native_saving_scope_with_every_channel_off_is_refused_by_name(
+    RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path
+) -> None:
+    """Every channel disabled leaves no plugin, so a gated batch cannot count it.
+
+    The refusal is deliberate (owner's call): a scope with nothing enabled
+    has nothing to record, and a gated run that silently carried it would
+    hide a config mistake. What matters is that the message names the real
+    cause — "every capture channel disabled" — and not just "no file
+    plugin", which is what an operator would otherwise have to guess at.
+    """
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+    ict = _all_off_scope(RE, tmp_path, native_save=True)
+    assert ict.native_save and not ict.plugin_backed
+    count = bind_plans(profiles)["count"]
+    with pytest.raises(GeecsConfigurationError) as excinfo:
+        RE(count([a, ict], 2, acquisition="gated"))
+    message = str(excinfo.value)
+    assert "U_ICT" in message
+    assert "disabled" in message and "channels" in message
 
 
 def test_non_essential_wrapper_without_flyers_is_the_plan(

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-scanner"
-version = "0.11.1"
+version = "0.13.1"
 description = "The web scanner console: submit, watch and stop GEECS scans from a browser — a FastAPI service over the queueserver client"
 authors = ["GEECS-BELLA"]
 readme = "README.md"

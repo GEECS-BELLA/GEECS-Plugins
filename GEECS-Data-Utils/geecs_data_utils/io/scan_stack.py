@@ -18,7 +18,12 @@ This module is the read side of that contract, deliberately small:
   :func:`stack_scalar_variables` — every per-frame attribute (the stamps
   and, since GeecsPvaGateway 0.9, the device's subscribed numeric
   scalars), keyed by dataset name, and the raw names behind them.
-- :func:`read_shot` — one frame by index (a single chunk read).
+- :func:`read_shot` — one frame by index (a single chunk read), and
+  :func:`frame_index_for_acq_timestamp` for a caller that wants to
+  address a frame (by :class:`ShotRef`) rather than receive it.
+- :func:`stack_content_kind` — whether the frames are pixels or an
+  x-vs-y array (the gateway serves both through one file plugin), which
+  is what a renderer and the 1-D reader dispatch on.
 - :class:`ShotRef` — a :class:`pathlib.Path` subclass carrying a frame
   index, so per-shot analysis pipelines can pass "this shot inside that
   stack" anywhere a per-shot file path travels today (including through
@@ -33,10 +38,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Mapping, TypeVar
+from typing import Literal, Mapping, TypeVar
 
 import h5py
 import numpy as np
+
+from geecs_data_utils.io.arrays import WAVEFORM_ATTRIBUTE_SUFFIXES
 
 # LabVIEW timestamps count from 1904-01-01; Unix from 1970-01-01. The stack
 # stores Unix seconds (the PVA timestamp); GEECS s-files and native filenames
@@ -49,7 +56,9 @@ logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
 
-#: The frame stack, ``(N, H, W)`` — areaDetector's NDFileHDF5 dataset path.
+#: The frame stack — areaDetector's NDFileHDF5 dataset path.  ``(N, H, W)``
+#: for a camera; since GeecsPvaGateway 0.13 also ``(N, n)`` for a stack of
+#: waveforms and ``(N, n, 2)`` for one of lineouts (:func:`stack_content_kind`).
 FRAMES_DATASET = "/entry/data/data"
 #: The per-frame attribute datasets' group (NDFileHDF5's ``NDAttributes``).
 ATTRIBUTES_GROUP = "/entry/instrument/NDAttributes"
@@ -279,6 +288,64 @@ def read_shot(ref: "ShotRef | Path", shot_index: int | None = None) -> np.ndarra
         return np.asarray(frames[shot_index])
 
 
+#: What one frame of a stack holds.  The gateway serves images and arrays
+#: through the same file plugin, so the stack layout alone does not say
+#: which — ``(N, H, W)`` pixels and ``(N, M, 2)`` lineout rows are both
+#: rank 3.  What does say is the plugin's own declaration: it writes the
+#: waveform axis attributes (:data:`~geecs_data_utils.io.arrays.WAVEFORM_ATTRIBUTE_SUFFIXES`)
+#: for an array variable and never for an image one.
+StackContent = Literal["image", "lineout", "waveform"]
+
+#: The attribute whose presence marks a stack as an array stack (any of the
+#: three would do; the plugin writes them together).
+_ARRAY_MARKER_SUFFIX = WAVEFORM_ATTRIBUTE_SUFFIXES[1]  # "wave_dx"
+
+
+def _content_kind(f: "h5py.File") -> StackContent:
+    """:func:`stack_content_kind` against an already-open stack."""
+    group = f.get(ATTRIBUTES_GROUP)
+    if group is None or not any(
+        key.endswith(f"-{_ARRAY_MARKER_SUFFIX}") for key in group
+    ):
+        return "image"
+    shape = f[FRAMES_DATASET].shape
+    if len(shape) == 2:
+        return "waveform"
+    if len(shape) == 3 and shape[2] == 2:
+        return "lineout"
+    raise ValueError(
+        f"{f.filename}: array stack of frame shape {shape[1:]} is neither a "
+        "waveform (n,) nor a lineout (n, 2)"
+    )
+
+
+def stack_content_kind(stack: "str | Path | h5py.File") -> StackContent:
+    """What one frame of *stack* (a path, or an already-open stack) holds.
+
+    ``"image"`` for a camera stack, ``"waveform"`` for a stack of 1-D
+    arrays (a scope trace: values only, its axis in the per-frame
+    ``wave_*`` attributes) and ``"lineout"`` for a stack of ``(n, 2)``
+    rows (a spectrum: its axis in column 0).
+
+    The distinction is the renderer's and the reader's: an image is
+    pixels, an array is x-vs-y, and a ``(2048, 2)`` lineout drawn as
+    pixels is a two-pixel-wide strip.  Use
+    :func:`~geecs_data_utils.io.array1d.read_1d_data` with
+    :attr:`~geecs_data_utils.io.array1d.Data1DType.PVA_STACK` to read one
+    shot of an array stack as x-vs-y.
+
+    Raises
+    ------
+    ValueError
+        The stack declares itself an array stack but its frames are
+        neither ``(n,)`` nor ``(n, 2)``.
+    """
+    if isinstance(stack, h5py.File):
+        return _content_kind(stack)
+    with open_stack(stack) as f:
+        return _content_kind(f)
+
+
 def stack_frame_index_map(
     stamps: np.ndarray,
 ) -> "dict[int, int]":
@@ -289,7 +356,7 @@ def stack_frame_index_map(
     the capture-diff audit's bulk reconciliation deliberately keeps its
     own equivalent map build for now): **keep-first on duplicate
     millisecond keys**
-    — the deterministic contract (the daemon dedupes identical timestamps
+    — the deterministic contract (the file plugin dedupes identical timestamps
     upstream; two consumers resolving duplicates differently would serve
     different frames for the same shot).
 
@@ -375,10 +442,38 @@ def read_shot_for_acq_timestamp(
         (the caller must refuse — never serve a neighbour).
     """
     with open_stack(path) as f:
-        stamps = np.asarray(f[_timestamps(f)][:], dtype=float)
-        if labview_epoch:
-            stamps = stamps + LABVIEW_EPOCH_OFFSET
-        index = frame_index_for_timestamp(stack_frame_index_map(stamps), acq_timestamp)
+        index = _joined_index(f, acq_timestamp, labview_epoch)
         if index is None:
             return None
         return index, np.asarray(f[FRAMES_DATASET][index])
+
+
+def _joined_index(
+    f: "h5py.File", acq_timestamp: float, labview_epoch: bool
+) -> "int | None":
+    """The join itself, against an open stack — ONE copy for both callers."""
+    stamps = np.asarray(f[_timestamps(f)][:], dtype=float)
+    if labview_epoch:
+        stamps = stamps + LABVIEW_EPOCH_OFFSET
+    return frame_index_for_timestamp(stack_frame_index_map(stamps), acq_timestamp)
+
+
+def frame_index_for_acq_timestamp(
+    path: Path, acq_timestamp: float, *, labview_epoch: bool = True
+) -> "int | None":
+    """:func:`read_shot_for_acq_timestamp` without reading the frame.
+
+    The same join (one open, the same arithmetic — both go through
+    ``_joined_index``), for a caller that wants to address the frame
+    rather than receive it: the array readers take a
+    :class:`ShotRef`, so handing them an index costs nothing while
+    reading the frame here would read it twice.
+
+    Returns
+    -------
+    int or None
+        The frame index, or ``None`` when the shot has no frame (the
+        caller must refuse — never serve a neighbour).
+    """
+    with open_stack(path) as f:
+        return _joined_index(f, acq_timestamp, labview_epoch)

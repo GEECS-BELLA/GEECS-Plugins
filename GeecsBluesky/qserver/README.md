@@ -190,6 +190,18 @@ panel queues `run_action` items over it.
   (GEECS-Plugins#853 is the plugin-side fix). The same symptom on a
   camera whose LabVIEW device was started *after* its gateway is the
   gateway's subscription gap (GEECS-Plugins#854).
+  **Any laser-off session, not only after a restart** (26_0921, #944's
+  verification): `<image>:connected` reads `Idle` and the image PV holds an
+  epoch-zero placeholder — the gateway subscribes only while a client
+  monitors, so a shot fired with nothing monitoring seeds nothing. Recipe,
+  all operator verbs: keep a monitor on the camera's image (the portal's
+  or scanner's live view, or a `p4p` monitor), then queue two `mv` items —
+  `U_DG645_ShotControl.trigger_source` → `Single shot`, then
+  `U_DG645_ShotControl.trigger_executesingleshot` → `on`. One frame reaches
+  the gateway and every later arm (strict or gated) is instant. The
+  scanner's move panel cannot do this (it takes numbers only); use
+  `qserver queue add plan` or `REManagerAPI.item_add(BPlan("mv", …))`.
+  Deliberately not engineered around: laser-off scanning is for testing.
 - **`qserver history get` shows a literal `'...'` entry** — the CLI
   truncates long histories for display; the newest items may not be
   shown. Read history through the API (`bluesky-queueserver-api`) for

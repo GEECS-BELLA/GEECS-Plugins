@@ -1,8 +1,8 @@
 """Tests for GeecsBluesky external asset registry and handlers.
 
 The registry + handlers side only: the device-side asset emitter went with
-the funnel (phase 1 of #807); the capture daemon's discovery still reads
-the registry, and both go with #806.
+the funnel (phase 1 of #807), and the capture daemon that also read the
+registry was deleted by #806.
 """
 
 from __future__ import annotations

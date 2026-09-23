@@ -17,9 +17,11 @@ from typing import Any
 
 import bluesky.plan_stubs as bps
 import bluesky.plans as bp
+import bluesky.preprocessors as bpp
 from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_bluesky.devices.ca.liveness import read_disconnected
+from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.shot_control import ShotControl
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsDeviceDownError
 from geecs_bluesky.plan_names import (
@@ -179,8 +181,108 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
         )
 
 
+def resolve_native_image_save(requested: bool | None, resolver: Any | None) -> bool:
+    """The run's LabVIEW-files switch: the request, else the experiment default, else on.
+
+    Read at every run, not at bind time, so an edit to
+    ``experiment_defaults.yaml`` reaches the next scan without the worker
+    reopening its environment.  Fail-open to *on*: a resolver that cannot
+    read the defaults (no configs root, bad YAML, an older resolver without
+    the method) keeps the dual-write — the state every scan had before the
+    switch existed — and says so in the journal, once per run.
+    """
+    if requested is not None:
+        return bool(requested)
+    if resolver is None:
+        return True
+    try:
+        defaults = resolver.resolve_experiment_defaults()
+    except Exception as exc:  # no configs root, unreadable defaults file
+        logger.warning(
+            "experiment defaults not read (%s: %s); native saving stays on",
+            type(exc).__name__,
+            exc,
+        )
+        return True
+    return bool(getattr(defaults, "native_image_save", True))
+
+
+def native_image_save_wrapper(
+    plan: Any, detectors: Sequence[Any], enabled: bool
+) -> Any:
+    """Set the strict plugin-backed cameras' LabVIEW saving for this run; restore after.
+
+    The run-level switch of PNG retirement (#738).  It reaches the run's
+    **strict full detectors** that are plugin-backed and nothing else:
+
+    - a device without a file plugin — a LabVIEW-native camera, a
+      proprietary-format DAQ — has no other record, so its native saving
+      is never touched, whatever *enabled* says;
+    - a ``.scalars`` view is skipped: the view leaves its owner's data
+      logics unprepared (``GeecsDetectorScalars``), so the owner writes
+      nothing either way;
+    - a fly prepare (a gated batch, a non-essential stream) leaves the
+      native logic out of the context, so the bound plan applies this
+      wrapper to strict runs only and never passes ``non_essential``.
+
+    Restored to the construction default — on, the dual-write — by a
+    ``finalize_wrapper``, success, abort or stop alike.  ``RE.halt()``
+    skips finalizers by bluesky contract and leaves the switch where the
+    run put it; every scan verb sets it for itself, so a halt costs
+    nothing but the next run's journal line.
+
+    Parameters
+    ----------
+    plan :
+        The bound plan (staging inside it).
+    detectors :
+        The run's strict detectors (views and non-essential devices are
+        ignored).
+    enabled :
+        ``False`` = the plugin's stack is those cameras' only record this run.
+    """
+    cameras: list[GeecsDetector] = []
+    kept: list[GeecsDetector] = []
+    seen: set[int] = set()
+    for d in detectors:
+        if id(d) in seen or not isinstance(d, GeecsDetector) or not d.native_save:
+            continue  # a view, a scalar-only device, a motor
+        seen.add(id(d))
+        if d.plugin_backed:
+            cameras.append(d)
+        else:
+            kept.append(d)
+    kept_names = ", ".join(c._geecs_device_name for c in kept)
+    if not cameras:
+        if not enabled and kept:
+            logger.info(
+                "native_image_save=False reaches no camera here: %s save through "
+                "LabVIEW only (no file plugin)",
+                kept_names,
+            )
+        return (yield from plan)
+    for cam in cameras:
+        cam.native_image_save = enabled
+    logger.info(
+        "native saving %s this run for %s%s",
+        "on" if enabled else "off (file-plugin stacks only)",
+        ", ".join(c._geecs_device_name for c in cameras),
+        f"; kept on, no file plugin: {kept_names}" if kept and not enabled else "",
+    )
+
+    def restore():
+        for cam in cameras:
+            cam.native_image_save = True  # the construction default
+        yield from bps.null()
+
+    return (yield from bpp.finalize_wrapper(plan, restore()))
+
+
 def strict_plan(
-    stock: Callable[..., Any], profiles: TriggerProfiles
+    stock: Callable[..., Any],
+    profiles: TriggerProfiles,
+    *,
+    resolver: Any | None = None,
 ) -> Callable[..., Any]:
     """Bind the strict hook into one stock plan; keep its name and signature.
 
@@ -190,6 +292,10 @@ def strict_plan(
         A ``bluesky.plans`` verb exposing ``per_step`` or ``per_shot``.
     profiles :
         The trigger profiles a ``trigger_profile`` argument resolves against.
+    resolver :
+        The configs-repo resolver whose ``resolve_experiment_defaults`` the
+        ``native_image_save`` default is read from at every run; ``None``
+        (or an unreadable file) leaves native saving on.
 
     Returns
     -------
@@ -209,6 +315,9 @@ def strict_plan(
         acquisition = str(kwargs.pop("acquisition", "strict") or "strict")
         non_essential = list(kwargs.pop("non_essential", None) or ())
         shot_period = kwargs.pop("shot_period", None)
+        native_files = resolve_native_image_save(
+            kwargs.pop("native_image_save", None), resolver
+        )
         if acquisition not in ACQUISITION_MODES:
             raise GeecsConfigurationError(
                 f"acquisition={acquisition!r} is not one of {ACQUISITION_MODES}"
@@ -249,6 +358,7 @@ def strict_plan(
         md["shots_per_step"] = shots_per_step
         md["acquisition"] = acquisition
         md["non_essential"] = [getattr(d, "name", str(d)) for d in non_essential]
+        md["native_image_save"] = native_files
         if shot_period is not None:
             md["shot_period"] = shot_period
         if acquisition == "gated":
@@ -290,6 +400,10 @@ def strict_plan(
         else:
             kwargs[hook] = geecs_per_shot(shot_control, shot_period=shot_period)
         inner = non_essential_wrapper(stock(*args, md=md, **kwargs), non_essential)
+        if acquisition == "strict":
+            # A gated batch is a fly prepare: the native logic is left out
+            # of the context, so there is nothing to switch (nor to log).
+            inner = native_image_save_wrapper(inner, detectors, native_files)
         opening = TriggerState.OFF if acquisition == "gated" else TriggerState.ARMED
         # Before the first move, before the claim (#852).
         yield from liveness_gate(shot_control, [*detectors, *non_essential])
@@ -340,6 +454,14 @@ def strict_plan(
             annotation=float | None,
         )
     )
+    parameters.append(
+        Parameter(
+            "native_image_save",
+            Parameter.KEYWORD_ONLY,
+            default=None,
+            annotation=bool | None,
+        )
+    )
     plan.__signature__ = signature.replace(parameters=parameters)  # type: ignore[attr-defined]
     plan.__name__ = plan.__qualname__ = stock.__name__
     plan.__doc__ = _geecs_doc(stock, hook)
@@ -383,6 +505,11 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
         "        Strict only: seconds between fires (a deliberate rep-rate\n"
         "        throttle); None fires as fast as the shot allows.  A gated\n"
         "        count refuses a nonzero delay for the same reason.\n"
+        "    native_image_save : bool, optional\n"
+        "        Whether the plugin-backed cameras also write their LabVIEW\n"
+        "        per-shot files (PNGs) beside the plugin's stack; the experiment\n"
+        "        default (experiment_defaults.yaml) when omitted.  A device\n"
+        "        without a file plugin always keeps its native files.\n"
     )
     return (
         f"GEECS {stock.__name__}: the stock plan with the trigger box driven "
@@ -420,7 +547,9 @@ def bind_plans(
         elif name == "sweep":
             from .sweep import sweep_plan
 
-            bound[name] = strict_plan(sweep_plan(settables), profiles)
+            bound[name] = strict_plan(
+                sweep_plan(settables), profiles, resolver=resolver
+            )
         elif name == "optimize":
             from .optimize import optimize_plan
 
@@ -433,7 +562,7 @@ def bind_plans(
             bound[name] = check_shot_sync_plan(profiles)
         else:
             assert name not in NON_SCAN_PLAN_NAMES
-            bound[name] = strict_plan(getattr(bp, name), profiles)
+            bound[name] = strict_plan(getattr(bp, name), profiles, resolver=resolver)
     return bound
 
 
@@ -442,5 +571,7 @@ __all__ = [
     "TriggerProfiles",
     "bind_plans",
     "liveness_gate",
+    "native_image_save_wrapper",
+    "resolve_native_image_save",
     "strict_plan",
 ]

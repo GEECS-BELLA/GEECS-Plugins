@@ -3,6 +3,58 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+
+## [1.25.0] - 2026-09-22
+
+### Fixed
+
+- **A stack-only 1D analyzer no longer falls back to per-shot files.**
+  `data_format: device_hdf5` falls back to the per-shot strategies whenever
+  the stack is absent, unreadable, has no timestamp column, or joins zero
+  shots — the right recovery for a camera analyzer, which resolves a
+  `ShotRef` or a file path alike. It cannot help a 1D analyzer configured
+  `data_type: pva_stack`: that loader takes a `ShotRef` and refuses a plain
+  path by construction, so the fallback raised once per shot, each
+  exception caught and logged, ending in an empty analysis anyway. It now
+  raises `DataUnavailableWarning`, which the task queue records as
+  **`no_data`**. Raised rather than returned deliberately: an empty map is
+  not something the queue can tell from a successful run, so returning
+  would have written `done` with no artifacts — a missing required capture
+  presented as a successful analysis. `no_data` is also the honest state,
+  since a gated Picoscope channel that was off for the run captures nothing
+  and that is routine rather than a failure.
+  `AnalysisDiagnostic` (GEECS-Schemas 0.32.0) refuses the authoring
+  mistake; this is the runtime case, where the config is right and the
+  stack is simply missing.
+
+## [1.24.1] - 2026-09-18
+
+### Changed
+
+- Docs only: `data_format="device_hdf5"` is credited to the PVA gateway's
+  file plugin rather than the deleted capture daemon. Two docstrings also
+  pointed at `GeecsBluesky/geecs_bluesky/capture/FORMAT.md`, deleted with
+  the daemon — `_map_shots_from_stack` in
+  `analyzers/common/single_device_scan_analyzer.py` and the stack-mapping
+  test's module docstring. Both now name the read side
+  (`geecs_data_utils.io.scan_stack`).
+
+## [1.24.0] - 2026-09-17
+
+### Changed
+
+- Config editor: the sidebar is a collapsible tree — kind, then namespace,
+  then document — closed until asked for, remembering what was opened *and
+  what was closed* (per browser) and expanding whatever holds the open
+  document when the user has said nothing about it. A namespace that hides a
+  file which does not validate says so on its summary.
+- Config editor: the two `new` rows are labelled `new diagnostic` and
+  `new group` and sit at the top of their section, and the form's title bar
+  carries the document kind. An unlabelled `new` at the end of a 50-item list
+  is how a diagnostic gets created as a group by mistake — reported from the
+  floor, where the group form's `ref` field was read as a missing analyzer
+  `kind` dropdown.
+
 ## [1.23.1] - 2026-09-16
 
 ### Changed

@@ -260,6 +260,167 @@ def test_prepare_failure_carries_the_plugins_reason(
     )
 
 
+def _two_stream_camera(RE: RunEngine, tmp_path: Path) -> GeecsDetector:
+    """A MagSpec-shaped camera: ``Image`` (primary) and ``ImageInterp`` (secondary)."""
+    shared = GeecsScanPathProvider()
+    (tmp_path / "Scan001").mkdir()
+    shared.point_at(tmp_path / "Scan001")
+    # The share as the plugin's host sees it: a UNC root (PathInfo requires
+    # an absolute Windows path), mapped from the worker's local tree.
+    plugin_path = lambda local: local.replace(str(tmp_path), r"\\nas\hdna2\data")  # noqa: E731
+    cam = GeecsDetector(
+        "UC_TestCam",
+        ["MeanCounts"],
+        experiment="TestExp",
+        name="uc_testcam",
+        hdf_plugins=[
+            (
+                "Image",
+                PluginPathProvider(shared, "UC_TestCam", plugin_path=plugin_path),
+            ),
+            (
+                "ImageInterp",
+                PluginPathProvider(
+                    shared,
+                    "UC_TestCam",
+                    variable="ImageInterp",
+                    plugin_path=plugin_path,
+                ),
+            ),
+        ],
+    )
+    connect_mock(RE, cam)
+    set_mock_value(cam.acq_timestamp, 1000.0)
+    for io, (y, x) in ((cam.hdf, (4, 6)), (cam.hdf_imageinterp, (189, 1))):
+        set_mock_value(io.file_path_exists, True)
+        set_mock_value(io.data_type, "UInt16")
+        set_mock_value(io.color_mode, "Mono")
+        set_mock_value(io.array_size_x, x)
+        set_mock_value(io.array_size_y, y)
+    return cam
+
+
+def test_two_capture_streams_write_two_files(RE: RunEngine, tmp_path: Path) -> None:
+    """Two plugins on one device never share a file (review of #945: a shared
+    path is opened ``"w"`` by both gateway writers, the second truncating the
+    first).  The primary keeps ``<device>/<device>.h5``; the secondary gets
+    ``<device>-<variable>/<device>-<variable>.h5``, the LabVIEW-native
+    sibling-folder layout, and each stream resource carries its own URI.
+    """
+    cam = _two_stream_camera(RE, tmp_path)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    primary_dir = _run(RE, lambda: cam.hdf.file_path.get_value())
+    secondary_dir = _run(RE, lambda: cam.hdf_imageinterp.file_path.get_value())
+    as_posix = lambda p: p.replace("\\", "/").rstrip("/")  # noqa: E731
+    assert as_posix(primary_dir).endswith("nas/hdna2/data/Scan001/UC_TestCam")
+    assert as_posix(secondary_dir).endswith(
+        "nas/hdna2/data/Scan001/UC_TestCam-ImageInterp"
+    )
+    assert _run(RE, lambda: cam.hdf.file_name.get_value()) == "UC_TestCam"
+    assert (
+        _run(RE, lambda: cam.hdf_imageinterp.file_name.get_value())
+        == "UC_TestCam-ImageInterp"
+    )
+    assert (tmp_path / "Scan001" / "UC_TestCam").is_dir()
+    assert (tmp_path / "Scan001" / "UC_TestCam-ImageInterp").is_dir()
+    described = _run(RE, lambda: cam.describe())
+    assert described["uc_testcam"]["shape"] == [1, 4, 6]
+    assert described["uc_testcam-imageinterp"]["shape"] == [1, 189, 1]
+
+    async def shot():
+        status = cam.trigger()
+        await asyncio.sleep(0.05)
+        set_mock_value(cam.hdf.num_captured, 1)
+        set_mock_value(cam.hdf_imageinterp.num_captured, 1)
+        await asyncio.sleep(0.05)
+        set_mock_value(cam.acq_timestamp, 1001.0)
+        await status
+        return [doc async for doc in cam.collect_asset_docs()]
+
+    docs = _run(RE, lambda: shot())
+    resources = {
+        doc["data_key"]: doc["uri"] for name, doc in docs if name == "stream_resource"
+    }
+    assert set(resources) == {"uc_testcam", "uc_testcam-imageinterp"}
+    assert resources["uc_testcam"].endswith("Scan001/UC_TestCam/UC_TestCam.h5")
+    assert resources["uc_testcam-imageinterp"].endswith(
+        "Scan001/UC_TestCam-ImageInterp/UC_TestCam-ImageInterp.h5"
+    )
+    assert len(set(resources.values())) == 2
+    _run(RE, lambda: cam.unstage())
+
+
+def _gated_scope(RE: RunEngine, tmp_path: Path) -> GeecsDetector:
+    """A two-channel scope: each trace plugin gated on its Enable.Ch<X> readback."""
+    shared = GeecsScanPathProvider()
+    (tmp_path / "Scan001").mkdir()
+    shared.point_at(tmp_path / "Scan001")
+    plugin_path = lambda local: local.replace(str(tmp_path), r"\\nas\hdna2\data")  # noqa: E731
+    ict = GeecsDetector(
+        "U_ICT",
+        ["MeanCounts"],
+        experiment="TestExp",
+        name="u_ict",
+        hdf_plugins=[
+            (
+                "scopeTrace.Channel0",
+                PluginPathProvider(shared, "U_ICT", plugin_path=plugin_path),
+            ),
+            (
+                "scopeTrace.Channel1",
+                PluginPathProvider(
+                    shared,
+                    "U_ICT",
+                    variable="scopeTrace.Channel1",
+                    plugin_path=plugin_path,
+                ),
+            ),
+        ],
+    )
+    connect_mock(RE, ict)
+    set_mock_value(ict.acq_timestamp, 1000.0)
+    for io in (ict.hdf, ict.hdf_scopetrace_channel1):
+        set_mock_value(io.file_path_exists, True)
+        set_mock_value(io.data_type, "Float64")
+        set_mock_value(io.color_mode, "Mono")
+        set_mock_value(io.array_size_x, 3000)
+        set_mock_value(io.array_size_y, 0)
+    return ict
+
+
+def test_a_detector_built_without_plugins_is_not_plugin_backed(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """The detector's whole share of gating, since the gate moved to the DB.
+
+    A scope whose channels are all disabled is built with no file plugins at
+    all — the namespace filters them out before construction — so it is a
+    scalar-only device here, indistinguishable from a camera that never had
+    a plugin. Which channels those are is decided in
+    ``geecs_core.db.device_streams`` and applied in ``GeecsNamespace``; this
+    layer only has to agree that no plugins means not plugin-backed.
+    """
+    ict = GeecsDetector(
+        "U_ICT",
+        ["MeanCounts"],
+        experiment="TestExp",
+        name="u_ict",
+        hdf_plugins=[],
+    )
+    connect_mock(RE, ict)
+    assert ict._hdf_ios == []
+    assert not ict.plugin_backed
+    # ... and a batch on it is refused before anything moves.
+    from geecs_bluesky.devices.detector import gated_trigger_info
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    _run(RE, lambda: ict.stage())
+    with pytest.raises(GeecsConfigurationError, match="no file plugin"):
+        _run(RE, lambda: ict.prepare(gated_trigger_info(2)))
+    _run(RE, lambda: ict.unstage())
+
+
 def test_plugin_path_provider_hands_out_both_paths(tmp_path: Path) -> None:
     """Windows path for the plugin's FilePath, the worker's file URI for Tiled.
 
@@ -286,6 +447,23 @@ def test_plugin_path_provider_hands_out_both_paths(tmp_path: Path) -> None:
     assert info.filename == "UC_TestCam"
     assert info.directory_uri.startswith("file://localhost/")
     assert info.directory_uri.endswith("/Scan007/UC_TestCam/")
+    assert provider.stem == "UC_TestCam"
+    # A secondary stream: its own sibling folder and stem, never the device's.
+    secondary = PluginPathProvider(
+        shared,
+        "UC_TestCam",
+        variable="ImageInterp",
+        plugin_path=lambda local: local.replace(str(tmp_path), r"\\nas\hdna2\data"),
+    )
+    assert secondary.stem == "UC_TestCam-ImageInterp"
+    info2 = secondary("uc_testcam-imageinterp")
+    assert (tmp_path / "Scan007" / "UC_TestCam-ImageInterp").is_dir()
+    assert (
+        str(info2.directory_path) == r"\\nas\hdna2\data\Scan007\UC_TestCam-ImageInterp"
+    )
+    assert info2.filename == "UC_TestCam-ImageInterp"
+    assert info2.directory_uri.endswith("/Scan007/UC_TestCam-ImageInterp/")
+    assert (info.directory_uri, info.filename) != (info2.directory_uri, info2.filename)
 
 
 def test_file_plugin_hosts_reads_the_config_keys(tmp_path: Path) -> None:

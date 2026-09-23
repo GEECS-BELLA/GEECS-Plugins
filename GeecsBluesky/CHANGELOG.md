@@ -4,6 +4,188 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+> **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
+
+## [0.99.0] - 2026-09-21
+
+### Added
+
+- **Per-instance capture gates, decided from the DB.** A gated devicetype's
+  capture stream is armed only when the DB says that channel is wired —
+  `GeecsNamespace` resolves it through `geecs_core.db.device_streams`'
+  `gated_off_variables` when it builds the detector, and simply leaves the
+  disabled channels' file plugins out.  The Picoscope is the first gated
+  devicetype: `scopeTrace.Channel<N>` is armed iff `Enable.Ch<X>` reads
+  `on`, so a four-channel scope with two wired arms two plugins and never
+  times out on a channel that pushes nothing.  Its channels land in
+  `<device>/`, `<device>-scopeTrace.Channel1/`, … as `(N, samples)` float64
+  stacks in volts with the time axis as per-frame attributes
+  (GeecsPvaGateway 0.13.0).
+
+  Because the armed set is fixed when the namespace is built, there is no
+  per-session state: a scope with every channel disabled arrives with **no**
+  file plugins, so `plugin_backed` is a static fact again and the separate
+  `has_file_plugin` introduced for the latched version is gone.  A gated
+  batch refuses such a scope by name, and the message says which cause it
+  is — no plugin at all, or every capture channel disabled.
+
+## [0.98.0] - 2026-09-21
+
+### Changed
+
+- **Declared `1darray` capture streams are captured** once the gateway
+  serves them (GeecsPvaGateway 0.12.0): `namespace.capture_streams` now
+  restricts the declaration to the device's image variables **plus** its
+  served array variables (`geecs_core.db.device_streams.
+  served_array_variables`, GEECS-Core 0.10.0), so a MagSpec camera arms
+  four plugins — `Image`, `ImageInterp`, `interpSpec`, `interpDiv` — each
+  in its own folder (`<device>/`, `<device>-ImageInterp/`,
+  `<device>-interpSpec/`, `<device>-interpDiv/`), the last two as
+  `(N, 2048, 2)` float64 stacks (axis in column 0, NaN-padded).  A
+  declared name that is neither an image nor a served array is a
+  declaration error: WARNING and skipped, never an arm on a PV that does
+  not exist (the earlier "waiting for array support" INFO is gone with the
+  wait).  No detector change, and the read library resolves the new folders
+  as it does any device folder; the **portal's Images tab** renders a
+  `(2048, 2)` lineout stack as a two-pixel-wide image until the arc's
+  record-side PR gives it a line renderer (a 1-D stack would not render
+  there at all) — the arc's read-side debt, recorded in the brief.
+
+## [0.97.1] - 2026-09-21
+
+### Changed
+
+- **A `trigger_profile` copy in a preset's `plan.kwargs` is refused**, as a
+  `native_image_save` copy has been since 0.97.0: `expand_preset` used
+  `setdefault`, so a kwargs copy silently overrode the top-level
+  `Preset.trigger_profile` (the Codex review of #944 flagged the shape for
+  the switch; the profile had the same one). The two run-level fields are
+  now `RUN_LEVEL_FIELDS`, handled by one rule: set at the preset's top
+  level, assigned into the plan keyword when set, refused in kwargs. No
+  preset in the configs corpus (86 scanned) carried a copy; the scanner
+  already drops both on save.
+
+## [0.97.0] - 2026-09-21
+
+### Changed
+
+- **Which variables a plugin-backed device captures is declared per
+  devicetype**, not guessed: `namespace.capture_streams` reads
+  `geecs_core.db.device_streams.capture_variables` (GEECS-Core 0.9.0) and
+  arms one file plugin per declared stream the gateway serves today
+  (image-typed variables), in declared order — so the FROG's detector now
+  captures `frogTrace`, the one variable it pushes, where
+  `primary_image_variable` picked `SpatialImage` (never pushed: every
+  `prepare` waited out the arm timeout), and a MagSpec camera captures
+  `Image` **and** `ImageInterp` (`hdf` + `hdf_imageinterp`, stream keys
+  `<name>` and `<name>-imageinterp`).  A declared `1darray` stream (the
+  magspec lineouts) is logged at INFO and waits for array support in the
+  gateway — the declaration then needs no change.  A devicetype with no
+  declaration keeps `primary_image_variable`'s one-image guess unchanged,
+  so every Point Grey (declared `image`, the same answer) and every
+  undeclared camera type behaves exactly as before.  The optimizer's live
+  frame source reads the device's first declared stream through the same
+  rule (pinned: a FROG-typed diagnostic subscribes to `:frogtrace`).
+- **One folder per capture stream** (`devices/hdf_plugin.PluginPathProvider`
+  gains `variable=`): the primary stream keeps `<device>/<device>.h5`; a
+  second stream of the same device writes
+  `<device>-<variable>/<device>-<variable>.h5` — the sibling-folder layout
+  the LabVIEW-native files use for a device's second output, which
+  `geecs_data_utils.io.scan_stack.find_stack_file` already resolves.  Found
+  in review (#945): both plugins of a device were handed the same path, and
+  each gateway writer opens its file `"w"`, so the second to arm truncated
+  the first.  Pinned by a two-stream prepare/resource test (distinct
+  `FilePath`/`FileName`, distinct stream-resource URIs).
+- `GeecsDbDeviceTypes`' degraded path (an empty devicetype map after a DB
+  failure) now names its second consequence in the docstring and the
+  WARNING: beside the #934 misclassification, every plugin-backed camera
+  falls back to the one-image guess — the FROG arms on `SpatialImage` and
+  times out, a MagSpec camera drops `ImageInterp`.
+## [0.97.0] - 2026-09-20
+
+### Added
+
+- **`native_image_save` — the run-level switch for LabVIEW's per-shot files
+  on plugin-backed cameras (PNG retirement, #738).** The scan verbs and
+  `optimize` take `native_image_save: bool | None`; the preset expander
+  passes `Preset.native_image_save` through when set and refuses a copy in
+  `plan.kwargs` (the preset field is the one source of truth). Unset, the worker
+  reads `ExperimentDefaults.native_image_save` **at every run**
+  (`resolve_native_image_save`), so an edit to `experiment_defaults.yaml`
+  reaches the next scan without reopening the environment; an unreadable
+  defaults file fails open to the dual-write with one journal warning.
+  `native_image_save_wrapper` sets the switch on the run's strict
+  plugin-backed cameras before staging and restores the construction
+  default (dual-write) in a `finalize_wrapper` — success, abort or stop;
+  `RE.halt()` skips finalizers by bluesky contract, and the next scan verb
+  sets the switch for itself anyway. It reaches **plugin-backed cameras
+  only**: a device saving through LabVIEW without a file plugin (a camera
+  on a box not yet rolled, a proprietary-format DAQ) has no other record
+  and is never touched, whatever the switch says — the journal names both
+  groups per run. A `.scalars` view, a non-essential stream and a gated
+  batch write no native files either way and are not touched or named.
+  The start document carries `native_image_save` as the run's **switch**,
+  not a record of what was written (EVENT_SCHEMA.md: the
+  `-nonscalar_save_path` column is that record).
+- `LvNativeFileDataLogic.enabled` / `GeecsDetector.native_image_save`: off
+  keeps the controls owned — a stale `save=on` is still cleared at `stage`
+  (the 26_0828 lesson) — but `prepare` never switches saving on, creates no
+  device directory and adds no `-nonscalar_save_path` column, exactly as
+  a camera without a path provider. A device without the controls refuses
+  the set. `native_image_save` joins `RESERVED_DEVICE_ATTRIBUTES` (a DB
+  variable of that name would bind as `native_image_save_`, the
+  `settable_attribute` rule).
+
+### Notes
+
+- Gated runs were already PNG-free for plugin-backed cameras (the fly
+  prepare leaves the native logic out); the switch matters for strict
+  runs. The dual-write diff (`geecs-pva-gateway diff`) reports a switch-off
+  scan as `capture_only`.
+- **Operator step:** the new plan argument changes the bound plans'
+  signatures — `systemctl restart geecs-qserver` after deploying (the
+  environment reopen regenerates the plan list; `permissions reload lists`
+  alone would reload the pre-deploy signatures), or the manager refuses
+  the kwarg.
+
+## [0.96.0] - 2026-09-18
+
+### Added
+
+- **`QS_CONNECT_TIMEOUT`** bounds the startup profile's one-shot telemetry
+  connect (`install_telemetry`), in seconds; default 20.0, the value that
+  was previously hard-coded. A site whose gateway answers slowly can raise
+  it; a hermetic caller sets it low.
+
+### Fixed
+
+- **Four startup-profile tests each stalled the full 20 s connect timeout.**
+  With no CA gateway on a CI runner, every telemetry object in the
+  namespace runs its connect out to the deadline before being dropped from
+  the baseline — ~80 s of the suite spent waiting for a baseline none of
+  those tests assert on. They now set `QS_CONNECT_TIMEOUT=0.1`: the connect
+  still happens, still fails, and is still logged, just promptly.
+  `tests/test_qserver_startup.py` drops from ~90 s to ~13 s.
+
+## [0.95.0] - 2026-09-17
+
+### Removed
+
+- **The capture daemon's deploy assets and probes** (`capture/deploy/`,
+  `capture/probes/`). #806 deleted the daemon's code and left its systemd
+  unit template, runbook and two bring-up probes behind; the host has run
+  the unit `disabled`/`inactive` since 2026-09-13. The distributed file
+  plugin in GeecsPvaGateway writes the frame stacks now. Docstring in
+  `tests/test_assets.py` corrected to say the daemon is gone rather than
+  that it still reads the asset registry.
+  **Operator step:** removing the template does not remove an already
+  installed unit, and `scripts/fleet_status.sh` discovers by
+  `list-units --all "geecs-*"`, so a host that ever enabled it keeps
+  emitting a row until someone runs
+  `sudo systemctl disable --now geecs-capture`,
+  `sudo rm /etc/systemd/system/geecs-capture.service`,
+  `sudo systemctl daemon-reload`.
+
 ## [0.94.2] - 2026-09-17
 
 ### Fixed

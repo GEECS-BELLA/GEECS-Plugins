@@ -33,6 +33,19 @@
   <dd{% if value is none %} class="none"{% endif %}>{{ value if value is not none else '—' }}</dd></div>
 {%- endmacro %}
 
+{# The saved devices: a handful reads fine inline, twenty in a 128px grid cell
+   is a column of names broken mid-word. Full width, one chip per device, and
+   folded once there are more than a few — the count is on the summary, so a
+   folded list never hides silently. #}
+{% macro devices_fact(devices) %}
+{% if devices %}
+<div class="fact devices"><dt>Devices</dt>
+  <dd><details class="devlist"{% if devices | length <= 3 %} open{% endif %}><summary>{{ devices | length }} saved</summary>
+    <ul>{% for d in devices %}<li>{{ d }}</li>{% endfor %}</ul>
+  </details></dd></div>
+{% else %}{{ fact('Devices', none) }}{% endif %}
+{%- endmacro %}
+
 {% import "_entries.html" as shared %}
 
 {# Entries, then ONE way to add another: an affordance, and a composer
@@ -121,7 +134,7 @@
         {{ fact('Plan', s.plan) }}
         {{ fact('Mode', s.mode) }}
         {{ fact('Trigger profile', s.trigger_profile) }}
-        {{ fact('Devices', s.devices | join(', ') if s.devices else none) }}
+        {{ devices_fact(s.devices) }}
       </dl>
     </div>
     {{ entries_block('scan-%04d' % s.number, s.number, none, entries, writable) }}
@@ -263,11 +276,11 @@
    home for it — it never needs to reach another viewer or the server. */
 const KEY = "scanlog.expandAll";
 const btn = document.getElementById("toggle-all");
-/* Scans and entries alike. Collapse All means every collapsible thing on
-   the page, which is what it says — an entry that could not be folded
-   while the scan around it could was an accident of history, not a
-   decision. */
-const cards = () => [...document.querySelectorAll("details.scan, details.entry")];
+/* Scans, entries and a scan's device list alike. Collapse All means every
+   collapsible thing on the page, which is what it says — an entry that could
+   not be folded while the scan around it could was an accident of history,
+   not a decision. */
+const cards = () => [...document.querySelectorAll("details.scan, details.entry, details.devlist")];
 
 function applyAll(expand){
   cards().forEach(c => { c.open = expand; });

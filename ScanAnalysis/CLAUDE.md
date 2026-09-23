@@ -80,10 +80,18 @@ ScanRuntime                       # the scan: section
   device: Optional[str]           # Data-subfolder override (defaults to name)
   file_tail: Optional[str]        # Filename suffix matching this device's files
   data_format: Optional[...]      # "device_hdf5" opts in to the capture frame
-                                  #   stack (auto-fallback to per-shot files);
+                                  #   stack. A CAMERA analyzer auto-falls back
+                                  #   to per-shot files when no stack maps; a
+                                  #   1D analyzer loading "pva_stack" does NOT
+                                  #   (that loader takes a ShotRef and cannot
+                                  #   read a per-shot path) — it raises
+                                  #   DataUnavailableWarning, so the task
+                                  #   records no_data rather than done with no
+                                  #   artifacts;
                                   #   WARNING: only for analyzers that use base
                                   #   load_image and don't derive per-shot
-                                  #   output names from file_path
+                                  #   output names from file_path (line_stitcher
+                                  #   is refused outright by the schema)
   renderer: RendererOptions       # typed figure options; unset = renderer default
   background_source: Optional[BackgroundSource]
                                   # scan_number | from_current_scan | autodetect

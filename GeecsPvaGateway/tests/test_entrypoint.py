@@ -5,15 +5,21 @@ from __future__ import annotations
 import asyncio
 
 from geecs_pva_gateway import __main__ as cli
-from geecs_pva_gateway.config import CameraSpec, PvaGatewayConfig
+from geecs_pva_gateway.config import DeviceSpec, PvaGatewayConfig
 from geecs_pva_gateway.server import RESTART_EXIT_CODE, GeecsPvaGateway
 
 
 def _fake_config(experiment: str) -> PvaGatewayConfig:
     return PvaGatewayConfig(
         experiment=experiment,
-        cameras=[
-            CameraSpec(device="UC_Cam", host="127.0.0.1", port=1, experiment=experiment)
+        devices=[
+            DeviceSpec(
+                device="UC_Cam",
+                host="127.0.0.1",
+                port=1,
+                experiment=experiment,
+                image_variables=["image"],
+            )
         ],
     )
 
@@ -23,6 +29,28 @@ def _patch_config(monkeypatch) -> None:
         PvaGatewayConfig,
         "from_geecs_experiment",
         classmethod(lambda cls, experiment, **kw: _fake_config(experiment)),
+    )
+
+
+def test_main_idles_with_no_devices_instead_of_exiting(monkeypatch, caplog, capsys):
+    """A host with nothing to serve keeps the instance PVs up (exit 0, a WARNING),
+    so the fleet screen sees it and :restart can pick up a newly enabled device."""
+    import logging
+
+    monkeypatch.setattr(
+        PvaGatewayConfig,
+        "from_geecs_experiment",
+        classmethod(
+            lambda cls, experiment, **kw: PvaGatewayConfig(
+                experiment=experiment, host="192.168.7.168"
+            )
+        ),
+    )
+    with caplog.at_level(logging.WARNING):
+        assert cli.main(["--experiment", "testexp", "--list"]) == 0
+    assert capsys.readouterr().out == ""  # nothing served, nothing listed
+    assert any(
+        "serving the instance PVs only" in r.getMessage() for r in caplog.records
     )
 
 

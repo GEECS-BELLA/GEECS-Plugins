@@ -7,7 +7,7 @@ try:
 except PackageNotFoundError:  # running from a source tree without install
     __version__ = "0.0.0+source"
 
-from geecs_pva_gateway.config import CameraSpec, PvaGatewayConfig
+from geecs_pva_gateway.config import DeviceSpec, PvaGatewayConfig
 from geecs_pva_gateway.server import GeecsPvaGateway
 
-__all__ = ["CameraSpec", "GeecsPvaGateway", "PvaGatewayConfig", "__version__"]
+__all__ = ["DeviceSpec", "GeecsPvaGateway", "PvaGatewayConfig", "__version__"]

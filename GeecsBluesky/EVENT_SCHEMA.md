@@ -27,6 +27,7 @@ adds (phase 1 PR 2):
 | `geecs_scalar_headers` | `scalar_headers` preprocessor | Event key → legacy `Device Variable` header for every staged device (the s-file and the browser's display names) |
 | `shot_clock` / `shot_clock_column` | the bound plan (gated) | The device whose `acq_timestamp` is the shot id, and the row column carrying it — what the s-file's join keys on |
 | `trigger_profile` | the bound plan | The trigger profile that drove the shots |
+| `native_image_save` | the bound plan | The run's LabVIEW-files **switch** — the preset's value, else the experiment default (#738) — not a record of what was written. It reaches a plugin-backed camera only as a strict full detector (a `.scalars` view, a non-essential stream and a gated batch write no native files whatever it says; a camera without a file plugin always writes them). Whether a camera wrote is the presence of its `<det>-nonscalar_save_path` column |
 | `shots_per_step` | the bound plan | Rows per position (`1` for `count`, whose `num` is the shot count) |
 | `description`, `background` | the client (`md`) | The preset's description (ScanInfo's `ScanStartInfo`) and background flag |
 | `geecs` | the client (`md`) | Provenance only: `{preset, submission}` — never a worker instruction |

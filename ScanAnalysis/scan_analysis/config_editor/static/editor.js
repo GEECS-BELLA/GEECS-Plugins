@@ -367,26 +367,83 @@
       if (side) renderSide();
       return state.listing;
     }
+    // The sidebar's collapse state, per browser.  It is a convenience, not
+    // state anything depends on: a private window or blocked storage just
+    // means the tree forgets between visits.
+    const OPEN_KEY = "ce-side-open";
+    // Tri-state, deliberately: a key is open, closed, or unsaid.  A set of
+    // open keys cannot express "I closed this one", so the node holding the
+    // open document — which auto-expands — would spring back open on the next
+    // render, and Save renders.
+    function openState() {
+      try {
+        const raw = window.localStorage.getItem(OPEN_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+      } catch (e) { return {}; }
+    }
+    function rememberOpen(key, isOpen) {
+      try {
+        const state = openState();
+        state[key] = isOpen;
+        window.localStorage.setItem(OPEN_KEY, JSON.stringify(state));
+      } catch (e) { /* the tree still works; it just forgets */ }
+    }
+    // What the user said, and only failing that, whether this node holds the
+    // document on screen.
+    function wantOpen(remembered, key, holds) {
+      const said = remembered[key];
+      return said === undefined ? holds : said;
+    }
+    // Only a click (or Enter/Space, which fires one) on the summary is the
+    // user's own choice — an auto-expansion is never written back, or every
+    // document opened would leave its section permanently expanded.  The
+    // timeout reads the state the browser has just applied.
+    function trackOpen(details, key) {
+      details.querySelector("summary").addEventListener("click", () => {
+        setTimeout(() => rememberOpen(key, details.open), 0);
+      });
+    }
+
     function renderSide() {
       const L = state.listing; side.innerHTML = "";
-      const section = (title, kind, entries) => {
-        side.append(el("h4", {}, title));
+      const remembered = openState();
+      // Everything is collapsed until asked for: the corpus is dozens of
+      // documents over two kinds and several namespaces, and one flat
+      // expanded list is what buries the New rows.  A node opens when the
+      // user opened it before, or when it holds what is on screen now.
+      const section = (title, kind, entries, newLabel) => {
         const byNs = {};
         for (const e of entries) (byNs[e.namespace] = byNs[e.namespace] || []).push(e);
-        for (const ns of Object.keys(byNs).sort()) {
-          side.append(el("div", { class: "ns" }, ns));
-          for (const e of byNs[ns]) side.append(el("a", { href: "#", class: (state.kind === kind && state.id === e.id ? "sel" : "") + (e.valid ? "" : " bad"), title: e.error || (e.analyzer_kind ? `${e.analyzer_kind} / ${e.device}` : ""), onclick: (ev) => { ev.preventDefault(); open(kind, e.id); } }, e.id));
-        }
+        const holdsOpen = state.kind === kind;
+        const sec = el("details", { class: "ce-sec", open: wantOpen(remembered, kind, holdsOpen) });
+        sec.append(el("summary", {}, el("span", { class: "ce-sec-t" }, title), el("span", { class: "ce-count" }, String(entries.length))));
+        trackOpen(sec, kind);
         if (!readOnly) {
+          // Named, and first in the body: an unlabelled "new" at the end of a
+          // long list is how a diagnostic gets created as a group by mistake.
           const ns = el("input", { placeholder: "namespace", list: `ce-ns-${kind}` });
           const dl = el("datalist", { id: `ce-ns-${kind}` });
           for (const name of L.namespaces[kind]) dl.append(el("option", { value: name }));
           const id = el("input", { placeholder: "new id" });
-          side.append(el("div", { class: "ce-new" }, ns, dl, id, el("button", { type: "button", onclick: () => { if (ns.value && id.value) create(kind, ns.value.trim(), id.value.trim()); } }, "new")));
+          sec.append(el("div", { class: "ce-new" }, ns, dl, id, el("button", { type: "button", onclick: () => { if (ns.value && id.value) create(kind, ns.value.trim(), id.value.trim()); } }, newLabel)));
         }
+        for (const ns of Object.keys(byNs).sort()) {
+          const key = `${kind}/${ns}`;
+          const bad = byNs[ns].filter((e) => !e.valid).length;
+          const grp = el("details", { class: "ce-ns", open: wantOpen(remembered, key, holdsOpen && state.namespace === ns) });
+          // a collapsed namespace must still admit it is hiding a broken file
+          grp.append(el("summary", { class: bad ? "bad" : "", title: bad ? `${bad} file${bad === 1 ? "" : "s"} here do not validate` : "" },
+            el("span", {}, ns),
+            el("span", { class: "ce-count" }, bad ? `${byNs[ns].length} · ${bad} bad` : String(byNs[ns].length))));
+          trackOpen(grp, key);
+          for (const e of byNs[ns]) grp.append(el("a", { href: "#", class: (state.kind === kind && state.id === e.id ? "sel" : "") + (e.valid ? "" : " bad"), title: e.error || (e.analyzer_kind ? `${e.analyzer_kind} / ${e.device}` : ""), onclick: (ev) => { ev.preventDefault(); open(kind, e.id); } }, e.id));
+          sec.append(grp);
+        }
+        side.append(sec);
       };
-      section("analyzers", "analyzer", L.analyzers);
-      section("groups", "group", L.groups);
+      section("diagnostics", "analyzer", L.analyzers, "new diagnostic");
+      section("groups", "group", L.groups, "new group");
       if (L.pending && L.pending.length) side.append(el("div", { class: "pending" }, `${L.pending.length} uncommitted change${L.pending.length === 1 ? "" : "s"} in the configs checkout`));
     }
 
@@ -420,7 +477,11 @@
     async function buildForm(kind, document, errors) {
       const schema = await schemaFor(kind);
       main.innerHTML = "";
-      const title = el("span", { class: "title" }, `${state.namespace}/${state.id}`);
+      // The kind, always: a new document is not in the listing yet, so the
+      // sidebar highlight cannot say whether this is a diagnostic or a group.
+      const title = el("span", { class: "title" },
+        el("span", { class: "ce-kind" }, kind === "analyzer" ? "diagnostic" : "group"),
+        `${state.namespace}/${state.id}`);
       const dirty = el("span", { class: "dirty" });
       const bar = el("div", { class: "ce-bar" }, title, dirty);
       if (!readOnly) {

@@ -375,7 +375,7 @@ list — a new tab should be exactly these steps:
 
 ## Deployment
 
-Runs on the queueserver worker host next to the capture daemon (default
+Runs on the queueserver worker host (default
 port **8200**; Tiled is :8000, GEECS-MCP :8100).  The systemd unit is
 `deploy/geecs-data-portal.service`; the runbook is `DEPLOYMENT.md`; the
 fleet map (`docs/platform/fleet_map.md`) carries the service row and
@@ -407,6 +407,38 @@ eager-thumbnail a scan from native files.  Device names are validated
 against the scan folder's actual subfolders (path-traversal guard), and
 every lookup — hit or miss — must leave the tree untouched (pinned in
 `tests/test_resources.py`).
+
+### Not every stack is pixels (0.30.0)
+
+The same file plugin captures a device's **array** variables — scope
+traces and spectra — so a scan folder holds three kinds of stack through
+one layout. `resources.stack_content(probe)` names which a device has,
+from the stack's own declaration (`stack_content_kind` in
+`geecs_data_utils.io.scan_stack`: the plugin writes `wave_*` attributes
+for an array variable and never for an image one, and **rank alone
+cannot tell `(N, H, W)` pixels from `(N, n, 2)` rows**). Anything not a
+readable array stack reads as `"image"`, so a damaged or unfamiliar
+stack degrades to the path the portal has always taken.
+
+For an array device the tab serves a **figure, not a PNG**:
+`load_shot_trace` → `ShotTrace` → `figures.trace_figure` →
+`/api/run/{uid}/trace`. The two transports differ on purpose — a 2048²
+frame as JSON is absurd, a few thousand trace samples want the hover
+readout — and the split is keyed on the stack, never guessed in the
+template. Everything else is shared: the same shot→frame join, the same
+404s, the same theme-sentinel walk.
+
+Two rules for anyone extending this:
+
+- **The portal never un-pads and never rebuilds an axis.** The gateway
+  pads to the devicetype ceiling and stores a waveform's axis as
+  `wave_x0`/`wave_dx`; `read_1d_data` owns both facts and hands back the
+  trace at its true length. A second copy of that arithmetic here is how
+  the two drift.
+- **Per-bin averaging is not offered for traces.** Each shot carries its
+  own axis, so averaging across shots is the consumer's job (the arc's
+  ruling: resampling belongs to whoever averages). The per-shot/binned
+  state stays shared with the Plot tab; only this tab's view is pinned.
 
 ## Grid tab (0.29.0)
 

@@ -94,6 +94,20 @@ class ExperimentDefaults(VersionedSchemaModel):
             "one. Leave unset if scans must always choose explicitly."
         ),
     )
+    native_image_save: bool = Field(
+        True,
+        description=(
+            "Whether cameras whose frames the PVA gateway's file plugin "
+            "captures also write their LabVIEW per-shot files (PNGs) when a "
+            "scan does not say (the preset's 'native_image_save' unset). On "
+            "by default: the dual-write is the rollout's parity evidence "
+            "until PNG retirement (GEECS-Plugins#738). Set false to run the "
+            "experiment on the plugin's HDF5 stacks alone; a device without "
+            "a file plugin always keeps its native files. The worker reads "
+            "this at every scan, so an edit takes effect at the next scan "
+            "without reopening its environment."
+        ),
+    )
     actions: DefaultActions = Field(
         default_factory=DefaultActions,
         description=(
@@ -129,20 +143,6 @@ class ExperimentDefaults(VersionedSchemaModel):
             "device is just dropped with a log line. On by default so no "
             "data is silently lost; individual scans can override with "
             "their own 'background_telemetry' setting."
-        ),
-    )
-    native_image_save: bool = Field(
-        True,
-        description=(
-            "Whether capture-eligible cameras (Point Grey — the devicetypes "
-            "the central PVA capture daemon owns) write their native "
-            "per-shot image files. On by default: flipping this off is the "
-            "PNG-deprecation step, taken only after accumulated dual-write "
-            "evidence that the capture daemon's per-device frame stacks are "
-            "lossless for this experiment. Devices with proprietary formats "
-            "(HASO, scope traces) keep their native save regardless of this "
-            "flag. Individual scans can override with their own "
-            "'native_image_save' setting."
         ),
     )
     description: str = Field(

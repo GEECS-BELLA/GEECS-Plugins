@@ -206,16 +206,30 @@ def test_move_panel_carries_the_kit_live_row(client: TestClient) -> None:
         assert span in html
 
 
-def test_form_starts_at_the_mode_segment(client: TestClient) -> None:
-    """#896: the preset picker is optional, so it lives in the footer beside Save as preset;
+def test_form_opens_on_what_every_scan_needs(client: TestClient) -> None:
+    """The body opens on the fields every scan type needs; the plan-specific editors follow.
 
-    the panel's body opens on its mode-specific controls, and the
-    provenance note stays in the same row as the picker.
+    #896 moved the optional preset picker out of the body and into the
+    footer, leaving the body opening on the mode-specific controls. The
+    operator sweep inverts the body itself: shots / trigger profile / shot
+    period / description and the device table sit above the rule, and
+    everything the mode buttons swap sits below it, so the fields an
+    operator always fills never move when the mode changes. The footer half
+    of #896 is unchanged and still pinned below.
     """
     html = client.get("/").text
     sub = html[html.index('id="submit"') : html.index('id="queue"')]
-    body = sub[sub.index('<div class="body">') : sub.index('id="optimizer-form"')]
-    assert "<select" not in body and "<input" not in body, body
+    body = sub[sub.index('<div class="body">') : sub.index("<footer>")]
+    invariants = body.index('id="scan-invariants"')
+    assert invariants < body.index('id="scan-plan"')
+    for plan_only in (
+        'id="optimizer-form"',
+        'id="sweep-composer"',
+        'id="count-options"',
+    ):
+        assert invariants < body.index(plan_only), plan_only
+    # #896's other half: the optional picker is not in the body at all
+    assert 'id="preset"' not in body
     footer = sub[sub.index("<footer>") :]
     for piece in (
         '<select id="preset"',
@@ -381,7 +395,8 @@ console.log(JSON.stringify({before, after: $("optimization-targets").children.ma
         {"kind": "range", "axis": "A", "start": 2, "stop": 5, "num": 1},
     ],
 )
-def test_preset_trigger_control_overrides_hidden_kwarg_and_keeps_other_options(axis):
+def test_preset_trigger_control_loads_the_field_and_drops_the_kwargs_copy(axis):
+    """The visible control shows the preset field; a kwargs copy is never shown and never saved (#947)."""
     _need_node()
     source = (_PKG / "static/scanner.js").read_text()
     functions = "\n".join(
@@ -419,7 +434,7 @@ fillFormFromPreset(S.presetDoc);
 var loaded = $("trig").value;
 $("trig").value = "edited";
 var saved = buildPreset();
-S.presetDoc.plan.kwargs.trigger_profile = null;
+S.presetDoc.trigger_profile = null;  // the FIELD cleared; the kwargs copy still says "effective"
 fillFormFromPreset(S.presetDoc);
 console.log(JSON.stringify({loaded, saved, cleared: $("trig").value}));
 """
@@ -432,13 +447,84 @@ console.log(JSON.stringify({loaded, saved, cleared: $("trig").value}));
         check=True,
     )
     state = json.loads(result.stdout)
-    assert state["loaded"] == "effective"
+    assert state["loaded"] == "top-level"  # the field, not the kwargs copy
     assert state["saved"]["trigger_profile"] == "edited"
     assert state["cleared"] == ""
     kwargs = state["saved"]["plan"]["kwargs"]
     assert "trigger_profile" not in kwargs
     assert kwargs["custom_option"] == 42
     assert kwargs["sweep"]["trajectory"]["axes"][0] == axis
+
+
+def test_native_save_control_sits_with_what_every_scan_needs(
+    client: TestClient,
+) -> None:
+    """#738: the LabVIEW-files switch is a run-level field above the rule, three states."""
+    html = client.get("/").text
+    sub = html[html.index('id="submit"') : html.index('id="queue"')]
+    body = sub[sub.index('<div class="body">') : sub.index("<footer>")]
+    control = body.index('<select id="native-save"')
+    assert body.index('id="scan-invariants"') < control < body.index('id="scan-plan"')
+    for option in (
+        '<option value="">experiment default</option>',
+        '<option value="true">',
+        '<option value="false">',
+    ):
+        assert option in body, option
+
+
+def test_native_save_control_round_trips_the_run_level_switch():
+    """The visible control owns the preset field; a kwargs copy is dropped (#738)."""
+    _need_node()
+    source = (_PKG / "static/scanner.js").read_text()
+    functions = "\n".join(
+        "function "
+        + name
+        + "("
+        + args
+        + ") {\n"
+        + _script_function(source, name)
+        + "\n}"
+        for name, args in [
+            ("fillFormFromPreset", "doc"),
+            ("buildPreset", ""),
+            ("formShape", "plan"),
+        ]
+    )
+    harness = (
+        r"""
+var els = {};
+function $(id) { return els[id] || (els[id] = {value: "", appendChild() {}}); }
+var S = {}, composer = {load(v) {this.v = v;}, value() {return this.v;}, reset() {}};
+function setMode(mode) {S.mode = mode;}
+function setAcq(acq) {S.acq = acq;}
+function setSelect(id, value) {$(id).value = value;}
+function noDevicesNote() {} function recalc() {} function renderCalibration() {}
+function tableDevices() {return [];}
+"""
+        + functions
+        + r"""
+S.presetDoc = {native_image_save: false, devices: [], plan: {name: "count", args: [], kwargs: {num: 3, native_image_save: true}}};
+fillFormFromPreset(S.presetDoc);
+var loaded = $("native-save").value;
+var off = buildPreset();
+$("native-save").value = "";
+var unset = buildPreset();
+$("native-save").value = "true";
+var on = buildPreset();
+fillFormFromPreset({devices: [], plan: {name: "count", args: [], kwargs: {num: 3}}});
+console.log(JSON.stringify({loaded, off: off.native_image_save, unset: unset.native_image_save,
+  on: on.native_image_save, kwargs: off.plan.kwargs, cleared: $("native-save").value}));
+"""
+    )
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    state = json.loads(result.stdout)
+    assert state["loaded"] == "false"
+    assert state["off"] is False and state["unset"] is None and state["on"] is True
+    assert "native_image_save" not in state["kwargs"]
+    assert state["cleared"] == ""
 
 
 def test_malformed_preset_replaces_capture_fields_but_cannot_start_or_save():
@@ -519,3 +605,108 @@ var composer={value(){return {trajectory:{kind:'axes',axes:[]}};}};
         ["node", "-"], input=harness, text=True, capture_output=True, check=True
     )
     assert json.loads(result.stdout)["background"] is (mode == "count")
+
+
+def _pick_devices(clicks: str) -> list[str]:
+    """Run the drawer's selection logic under node and return what is picked.
+
+    ``clicks`` is JavaScript calling ``pickDevice(name, index, shift)`` over a
+    fixed list where ``U_Taken`` is already in the device table.
+    """
+    _need_node()
+    source = (_PKG / "static/scanner.js").read_text()
+    harness = (
+        """
+var devShown = [
+  {name: 'UC_A', have: false}, {name: 'UC_B', have: false},
+  {name: 'U_Taken', have: true}, {name: 'UC_D', have: false},
+];
+var devPicked = {}, devAnchor = null;
+function renderDevicePicks() {}
+function pickDevice(name, index, range) {
+"""
+        + _script_function(source, "pickDevice")
+        + "\n}\n"
+        + clicks
+        + "\nconsole.log(JSON.stringify(Object.keys(devPicked).sort()));"
+    )
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    return json.loads(result.stdout)
+
+
+def test_a_device_click_toggles_rather_than_committing() -> None:
+    """Adding twenty devices is twenty clicks and one Add, not twenty trips to the drawer."""
+    assert _pick_devices("pickDevice('UC_A', 0, false);") == ["UC_A"]
+    assert _pick_devices(
+        "pickDevice('UC_A', 0, false); pickDevice('UC_B', 1, false);"
+    ) == ["UC_A", "UC_B"]
+    # clicking a picked row again lets it go
+    assert (
+        _pick_devices("pickDevice('UC_A', 0, false); pickDevice('UC_A', 0, false);")
+        == []
+    )
+
+
+def test_shift_click_takes_the_range_and_skips_what_is_already_added() -> None:
+    """A shift-click reaches from the last row clicked to this one; a device already in the table is not re-added."""
+    picked = _pick_devices("pickDevice('UC_A', 0, false); pickDevice('UC_D', 3, true);")
+    assert picked == ["UC_A", "UC_B", "UC_D"]  # U_Taken is in the table already
+
+
+def test_the_move_variable_picker_can_be_typed_into(client: TestClient) -> None:
+    """Hundreds of settables behind a bare <select> is unusable; the picker filters as you type."""
+    html = client.get("/").text
+    assert '<input id="mv-var" list="mv-variables"' in html
+    assert '<datalist id="mv-variables">' in html
+
+
+def _settable_match(typed: str) -> str | None:
+    """Resolve *typed* against a fixed settable list, through the page's own function."""
+    _need_node()
+    source = (_PKG / "static/scanner.js").read_text()
+    harness = (
+        "var S = {settables: ["
+        "{name: 'U_S1H:Current', alias: 'Jet X'},"
+        "{name: 'U_Hexapod:ypos'},"
+        "{name: 'U_EMQ:Ch1', alias: 'shared'},"
+        "{name: 'U_EMQ:Ch2', alias: 'shared'}]};\n"
+        "function settableFor(name) {\n"
+        + _script_function(source, "settableFor")
+        + "\n}\nfunction settableMatch(text) {\n"
+        + _script_function(source, "settableMatch")
+        + "\n}\nvar m = settableMatch("
+        + json.dumps(typed)
+        + ");\nconsole.log(JSON.stringify(m ? m.name : null));"
+    )
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    return json.loads(result.stdout)
+
+
+def test_a_typed_variable_resolves_the_way_a_person_types_it() -> None:
+    """The picker is an input now: pasted whitespace and the wrong case still name the variable.
+
+    A <select> made those states unreachable; refusing them here would be a
+    regression dressed as validation. Only the canonical name is ever sent.
+    """
+    assert _settable_match("U_S1H:Current") == "U_S1H:Current"
+    assert (
+        _settable_match("  U_S1H:Current ") == "U_S1H:Current"
+    )  # pasted off a log line
+    assert _settable_match("u_s1h:current") == "U_S1H:Current"
+    assert _settable_match("U_S1H") is None  # a prefix is not a variable
+    assert _settable_match("   ") is None
+
+
+def test_the_alias_resolves_when_it_names_one_variable() -> None:
+    """The alias is what the labels show and what operators say, so typing it has to work.
+
+    An alias the DB has put on two variables names neither — the console
+    refuses rather than guessing which magnet was meant.
+    """
+    assert _settable_match("Jet X") == "U_S1H:Current"
+    assert _settable_match("jet x") == "U_S1H:Current"
+    assert _settable_match("shared") is None

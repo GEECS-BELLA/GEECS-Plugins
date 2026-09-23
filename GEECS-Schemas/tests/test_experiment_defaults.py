@@ -88,3 +88,23 @@ class TestExperimentDefaults:
         assert "after any" in (closeout_field.description or "")
         # provenance requirement is stated for resolver implementers
         assert "provenance" in module_doc
+
+
+def test_native_image_save_defaults_on_and_is_read():
+    """The experiment-wide fallback for the preset's run-level switch (GEECS-Plugins#738).
+
+    On by default (the dual-write stays the rollout's parity evidence);
+    ``false`` is read, not dropped — the 0.30.0 drop-validator went with
+    the rebuild, so a defaults file saying ``false`` means it.
+    """
+    assert make_defaults().native_image_save is True
+    defaults = ExperimentDefaults.model_validate(
+        {
+            "schema_version": 1,
+            "trigger_profile": "HTU-NoGas",
+            "native_image_save": False,
+        }
+    )
+    assert defaults.trigger_profile == "HTU-NoGas"
+    assert defaults.native_image_save is False
+    assert defaults.model_dump(mode="json")["native_image_save"] is False

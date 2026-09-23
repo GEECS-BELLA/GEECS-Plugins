@@ -35,6 +35,14 @@ cd "$REPO_ROOT"
 # CI mapping (keep in sync with .github/workflows/unit-tests.yml):
 #   root env  — root tests/ + these packages, marker "not integration and not gui"
 #   own env   — these packages run their suite from inside the package dir
+#
+# Note the deliberate asymmetry with CI's own selection
+# (scripts/ci_select.py): this script runs the suites of the packages you
+# TOUCHED, while CI additionally runs everything that DEPENDS on them. That
+# is the right split — here you want the fastest signal on the code under
+# your hands; CI is the backstop that has to catch a foundational change
+# breaking a dependent. So a green check.sh is not a promise that CI is
+# green, and never was.
 ROOT_ENV_PKGS="ImageAnalysis ScanAnalysis GEECS-Data-Utils GEECS-Schemas"
 OWN_ENV_PKGS="GeecsBluesky GeecsCAGateway GeecsPvaGateway GEECS-Core GEECS-DataPortal GEECS-LogTriage GEECS-MCP GeecsLogbook GeecsScanner GeecsWebTheme"
 
@@ -114,14 +122,19 @@ else
     MB="$(git merge-base HEAD "$BASE")"
     while IFS= read -r -d '' f; do
         CHANGED+=("$f")
-    done < <(git diff --name-only -z "$MB")
+    # --no-renames: with rename detection on, --name-only prints only a
+    # rename's destination, so a cross-package move would never test the
+    # source package. Same reason as scripts/ci_select.py's diff.
+    done < <(git diff --name-only --no-renames -z "$MB")
     for f in ${CHANGED[@]+"${CHANGED[@]}"}; do
         # Any web surface the theme guard walks runs the guard too, even
         # when changed-mode would otherwise pick only its own package.
+        # Matched by EXTENSION, not by a list of directories: the directory
+        # list here and in ci_select.py had already drifted past all three
+        # GeecsScanner surfaces the guard walks. The theme suite is seconds,
+        # so over-selecting on any web asset beats a list that rots.
         case "$f" in
-            GEECS-DataPortal/geecs_portal/templates/*.html|\
-            GeecsLogbook/geecs_logbook/static/*.css|GeecsLogbook/geecs_logbook/templates/*.html|\
-            ScanAnalysis/scan_analysis/config_editor/static/*.css|ScanAnalysis/scan_analysis/config_editor/templates/*.html)
+            *.html|*.css|*.js)
                 [ -d GeecsWebTheme ] && add_unit GeecsWebTheme ;;
         esac
         top="${f%%/*}"

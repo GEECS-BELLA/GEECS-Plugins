@@ -51,6 +51,11 @@
 .kit .steps li.prob{color:var(--warn)}
 .kit .rail h4 a{color:inherit}
 
+/* New scan: the fields every scan type needs, then a hairline, then the part
+   the mode buttons swap. A rule, not a box — the kit spends border+fill+radius
+   on .panel alone, and a second frame inside one competes with it. */
+.kit #submit .rule{height:var(--bw);background:var(--rule-soft);margin:2px 0}
+
 /* Scanner-specific inline trajectory editor and read-only plot layout. */
 .kit .sweep-layout { display:grid; grid-template-columns:11rem minmax(0,1fr); gap:calc(var(--gap) * 1.5); align-items:start; }
 .kit .sweep-axis { margin-bottom:var(--gap); }

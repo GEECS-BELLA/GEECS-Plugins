@@ -137,6 +137,7 @@ def optimize_plan(
         trigger_profile: str | None = None,
         shot_period: float | None = None,
         non_essential=None,
+        native_image_save: bool | None = None,
         md=None,
     ):
         """Optimize a configured objective through strict acquisition.
@@ -157,10 +158,18 @@ def optimize_plan(
             Minimum time between strict fires, seconds.
         non_essential : list, optional
             Extra cameras streamed independently of the objective.
+        native_image_save : bool, optional
+            Whether the plugin-backed cameras also write their LabVIEW
+            per-shot files; the experiment default when omitted.  The
+            objective reads live PVA frames, never those files.
         md : dict, optional
             Additional run metadata.
         """
-        from .registry import liveness_gate
+        from .registry import (
+            liveness_gate,
+            native_image_save_wrapper,
+            resolve_native_image_save,
+        )
         from geecs_bluesky.optimization.driver import XoptDriver
         from geecs_bluesky.optimization.measurements import compile_measurements
 
@@ -254,6 +263,7 @@ def optimize_plan(
         except Exception as exc:
             raise GeecsConfigurationError(f"optimizer generator: {exc}") from exc
         sc = profiles.resolve(trigger_profile)
+        native_files = resolve_native_image_save(native_image_save, resolver)
         metadata = dict(md or {})
         metadata.update(
             plan_name="optimize",
@@ -264,6 +274,7 @@ def optimize_plan(
             trigger_profile=trigger_profile or profiles.default,
             non_essential=[d.name for d in non_essential],
             shot_period=shot_period,
+            native_image_save=native_files,
         )
         metadata["geecs"] = {
             **metadata.get("geecs", {}),
@@ -492,6 +503,7 @@ def optimize_plan(
                 non_essential_wrapper(run, non_essential),
                 [*detectors, *movables.values()],
             )
+            staged = native_image_save_wrapper(staged, detectors, native_files)
             yield from name_failed_status(run_bracket(staged, sc, TriggerState.ARMED))
 
         # Subscribe outside open_run to see the claim preprocessor's augmented start document.

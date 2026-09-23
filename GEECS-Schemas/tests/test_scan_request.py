@@ -302,7 +302,7 @@ class TestV1Migration:
 
     def test_lifted_document_normalizes_schema_version(self):
         request = make_step_request(schema_version=1)
-        assert request.schema_version == 3
+        assert request.schema_version == 4
 
     def test_quoted_v1_schema_version_also_normalizes(self):
         # A quoted "1" (string-typed YAML/JSON) coerces to int at field
@@ -310,31 +310,31 @@ class TestV1Migration:
         request = ScanRequest.model_validate(
             {"mode": "noscan", "schema_version": "1", "shots_per_step": 2}
         )
-        assert request.schema_version == 3
+        assert request.schema_version == 4
 
     def test_sparse_v1_document_normalizes_schema_version(self):
         # A declared version <= 1 is normalized even with NO flat fields to
         # lift — otherwise a sparse v1 preset would round-trip a v2-shaped
         # dump stamped schema_version: 1.
         request = ScanRequest.model_validate({"mode": "noscan", "schema_version": 1})
-        assert request.schema_version == 3
-        assert request.model_dump(mode="json")["schema_version"] == 3
+        assert request.schema_version == 4
+        assert request.model_dump(mode="json")["schema_version"] == 4
 
     def test_future_schema_version_is_never_clobbered_down(self):
         # The submission-drop path must not stamp a future document back to
-        # 3 — a v4 stamp survives this validator.
+        # 4 — a v5 stamp survives this validator.
         request = ScanRequest.model_validate(
             {
-                "schema_version": 4,
+                "schema_version": 5,
                 "mode": "noscan",
                 "capture": {"shots_per_step": 4},
                 "submission": {"client": "x", "preflight": []},
             }
         )
-        assert request.schema_version == 4
+        assert request.schema_version == 5
         assert "submission" not in request.model_dump(mode="json")
 
-    def test_v2_document_lifts_to_v3(self):
+    def test_v2_document_lifts_to_the_current_version(self):
         v2 = {
             "schema_version": 2,
             "mode": "noscan",
@@ -342,18 +342,28 @@ class TestV1Migration:
         }
         request = ScanRequest.model_validate(v2)
         assert request.capture.shots_per_step == 7
-        assert request.schema_version == 3
+        assert request.schema_version == 4
         again = ScanRequest.model_validate(request.model_dump(mode="json"))
         assert again == request
 
-    def test_v3_document_round_trips_untouched(self):
+    def test_v3_document_normalizes_to_v4(self):
         v3 = {
             "schema_version": 3,
             "mode": "noscan",
             "capture": {"shots_per_step": 7, "save_sets": ["diag"]},
         }
         request = ScanRequest.model_validate(v3)
-        assert request.model_dump(mode="json")["schema_version"] == 3
+        assert request.model_dump(mode="json")["schema_version"] == 4
+        assert ScanRequest.model_validate(request.model_dump(mode="json")) == request
+
+    def test_v4_document_round_trips_untouched(self):
+        v4 = {
+            "schema_version": 4,
+            "mode": "noscan",
+            "capture": {"shots_per_step": 7, "save_sets": ["diag"]},
+        }
+        request = ScanRequest.model_validate(v4)
+        assert request.model_dump(mode="json")["schema_version"] == 4
         assert ScanRequest.model_validate(request.model_dump(mode="json")) == request
 
     def test_unset_trigger_variant_is_dropped_flat_and_nested(self):
@@ -370,9 +380,41 @@ class TestV1Migration:
             }
         )
         for request in (flat, nested):
-            assert request.schema_version == 3
+            assert request.schema_version == 4
             assert "trigger_variant" not in request.model_dump(mode="json")["capture"]
         assert nested.capture.shots_per_step == 2
+
+    def test_unset_native_image_save_is_dropped_flat_and_nested(self):
+        # The v4 removal, both positions: a v1 preset carries it flat, a v2+
+        # document inside `capture`. Unset is dropped, never refused.
+        flat = ScanRequest.model_validate(
+            {"schema_version": 1, "mode": "noscan", "native_image_save": None}
+        )
+        nested = ScanRequest.model_validate(
+            {
+                "schema_version": 3,
+                "mode": "noscan",
+                "capture": {"shots_per_step": 2, "native_image_save": None},
+            }
+        )
+        for request in (flat, nested):
+            assert request.schema_version == 4
+            dumped = request.model_dump(mode="json")["capture"]
+            assert "native_image_save" not in dumped
+        assert nested.capture.shots_per_step == 2
+
+    def test_set_native_image_save_is_refused_with_the_remedy(self):
+        # Set either way — the value that used to mean "skip the PNGs" and
+        # the one that meant "keep them" — is refused, not silently ignored:
+        # the switch was rebuilt on the preset (0.31.0), and a ScanRequest
+        # is not what the scanner submits, so the remedy points there.
+        for document in (
+            {"mode": "noscan", "native_image_save": False},
+            {"mode": "noscan", "native_image_save": True},
+            {"mode": "noscan", "capture": {"native_image_save": False}},
+        ):
+            with pytest.raises(ValidationError, match="Preset.native_image_save"):
+                ScanRequest.model_validate(document)
 
     def test_flat_trigger_variant_beside_capture_gets_the_variant_verdict(self):
         # Only the removed field is flat: it is judged on its own terms —
@@ -429,7 +471,7 @@ class TestV1Migration:
             submission={"client": "geecs-console 0.21.0", "preflight": []}
         )
         assert "submission" not in request.model_dump(mode="json")
-        assert request.schema_version == 3
+        assert request.schema_version == 4
 
 
 def test_legacy_null_optimization_is_dropped_on_step_round_trip():

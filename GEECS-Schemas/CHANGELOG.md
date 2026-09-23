@@ -5,6 +5,121 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0] - 2026-09-21
+
+> 0.31.0 and 0.31.1 were published on `master` while this arc was in
+> flight, so the arc skipped both rather than reuse a number for different
+> content. This merge brings them in below; nothing is missing.
+
+### Added
+
+- `Data1DType.pva_stack` — a 1D diagnostic can name the per-device capture
+  stack a Bluesky scan writes as its source, so scope traces and spectra
+  captured over PVA reach the same 1D analyzers a native scope file does.
+  The reader takes each trace's axis from the stack (column 0 for a
+  spectrum, the per-frame `wave_x0`/`wave_dx` for a waveform) and hands the
+  consumer the trace at its true length, never the padded one
+  (`geecs_data_utils.io.array1d`, GEECS-Data-Utils 0.36.0).
+- `AnalysisDiagnostic` refuses a **line** diagnostic whose two source
+  switches disagree. A camera diagnostic needs one (`scan.data_format`,
+  because the loader recognises a capture-stack `ShotRef` on sight); a line
+  diagnostic dispatches on `image.data_loading.data_type` as well, and
+  either switch alone reads nothing — a stack handed to a file reader, or a
+  per-shot path handed to the stack reader, fails once per shot and yields
+  an empty analysis rather than an error anyone sees. It also refuses
+  `background.method: from_file` together with `pva_stack`: a stack holds
+  every shot, so reading one needs a frame index and `background.file_path`
+  has nowhere to put one. And it refuses `line_stitcher` with
+  `device_hdf5` outright: `scan.data_format`'s own rule is "only for
+  analyzers that do not derive output names from the shot file path", and
+  the stitcher finds its sibling traces by rewriting the master's per-shot
+  path and writes its output beside that file — a stack frame has neither.
+  This covers the authored document only; the matching RUNTIME case (a
+  valid config whose stack is absent at analysis time) is refused in
+  ScanAnalysis 1.25.0, where the per-shot fallback lives.
+## [0.31.1] - 2026-09-21
+
+### Changed
+
+- `PlanCall` docstring: the run-level fields `trigger_profile` and
+  `native_image_save` are preset fields, never `plan.kwargs` — the client
+  refuses a copy there (GeecsBluesky 0.97.1). The old sentence said a
+  `trigger_profile` kwarg was "normally the preset's own field", which
+  described the `setdefault` precedence that no longer exists. Docstring
+  only; the rendered reference shows a model's first paragraph and is
+  unchanged.
+
+## [0.31.0] - 2026-09-20
+
+### Added
+
+- **`native_image_save`, rebuilt where the scanner submits (PNG retirement,
+  GEECS-Plugins#738).** `Preset.native_image_save: bool | None` is the
+  run-level switch for LabVIEW's per-shot files (PNGs): one value per
+  scan, reaching only the cameras whose frames the PVA gateway's file
+  plugin captures — a device without a plugin (no PVA stream, a
+  proprietary format) always keeps its native files, and a scalars-only
+  entry is unaffected. Unset defers to
+  `ExperimentDefaults.native_image_save: bool = True`, which the worker
+  reads at every scan. The 0.30.0 removal took the field off `ScanRequest`
+  and `ExperimentDefaults` because nothing read it; this is the reader's
+  contract, on the document that is actually submitted. The
+  `ExperimentDefaults` drop-validator of 0.30.0 is gone with it — a defaults
+  file saying `native_image_save: false` now means it.
+
+### Changed
+
+- `ScanRequest` still refuses a set `native_image_save` (format v4): the
+  remedy now points at `Preset.native_image_save`, since a `ScanRequest` is
+  not the submission shape.
+## [0.30.0] - 2026-09-17
+
+### Removed
+
+- **`native_image_save` — ScanRequest format v4 and ExperimentDefaults.**
+  The toggle existed to skip a camera's LabVIEW per-shot files *because
+  the central PVA capture daemon was capturing them losslessly instead*;
+  #806 deleted that daemon along with the engine preflight and per-camera
+  resolution behind the field, leaving a knob nothing read. Nothing in the
+  monorepo or the HTU configs corpus sets it. PNG retirement (#738) owns
+  the replacement, whose preflight asks the distributed file plugin a
+  different question ("armed on every camera in the save set?"), so the
+  old shape was not reusable.
+  - `ScanRequest`: removed following the v3 `trigger_variant` precedent —
+    the before-validator drops an unset value (flat v1 or inside
+    `capture`) and refuses a set one with a remedy naming #738;
+    `schema_version` <= 3 normalizes to 4. The two removed fields now
+    share one `_REMOVED_FIELDS` mapping instead of bespoke per-field code.
+  - `ExperimentDefaults`: field removed, and a before-validator **drops**
+    the key rather than refusing it. Refusing would not reach an operator:
+    both callers of `resolve_experiment_defaults` wrap it in
+    `except Exception` and fall back to no defaults at all
+    (`plans/registry.py`, `qs_client/submit_preflight.py`), so a stray
+    `native_image_save` would cost the experiment its default trigger
+    profile and refuse every scan that does not name one — blaming a file
+    whose `trigger_profile` line is fine, with the real cause one journal
+    warning. The decisive point: dropping reproduces today's runtime
+    behaviour exactly (the field has parsed into something nothing reads
+    since #806), whereas refusing would be a new failure mode invented by
+    a cleanup PR. A cleanup must not be able to break a scan.
+  - **Why the two verdicts differ**, so nobody "unifies" them the wrong
+    way later: each matches where its document is validated. Nothing in
+    the monorepo validates `ScanRequest` — it is a published JSON
+    artifact whose consumers are external clients, and they see the
+    `ValidationError` directly, so refusing teaches them something.
+    `ExperimentDefaults` is validated in exactly one place
+    (`config_resolver.resolve_experiment_defaults`), behind two callers
+    that swallow every exception, so refusing teaches nobody and costs
+    the trigger profile.
+
+### Changed
+
+- `AnalysisDiagnostic.data_format`: `'device_hdf5'` now credits the PVA
+  gateway's file plugin for the per-device frame stack instead of the
+  deleted capture daemon. Description only; the value is unchanged and
+  still live.
+- Regenerated the published JSON schemas and the Markdown reference.
+
 ## [0.29.1] - 2026-09-16
 
 ### Changed

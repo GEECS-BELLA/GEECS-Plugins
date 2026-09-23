@@ -159,9 +159,12 @@ class ScanRuntime(SchemaModel):
     data_format: Optional[Literal["per_shot_files", "device_hdf5"]] = Field(
         None,
         description=(
-            "'device_hdf5' reads the capture daemon's per-device frame stack "
-            "(falls back to per-shot files when absent). Only for analyzers "
-            "that do not derive output names from the shot file path."
+            "'device_hdf5' reads the per-device frame stack the PVA gateway's "
+            "file plugin writes. A camera analyzer falls back to per-shot "
+            "files when no stack can be mapped; a 1D analyzer loading "
+            "'pva_stack' does NOT — that loader cannot read a per-shot path, "
+            "so the scan records no_data instead. Only for analyzers that do "
+            "not derive output names from the shot file path."
         ),
     )
     renderer: RendererOptions = Field(

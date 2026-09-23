@@ -45,6 +45,7 @@ class Data1DType(str, Enum):
     CSV = "csv"
     TSV = "tsv"
     NPY = "npy"
+    PVA_STACK = "pva_stack"
 
 
 class Data1DLoading(SchemaModel):
@@ -60,7 +61,11 @@ class Data1DLoading(SchemaModel):
         ...,
         description=(
             "File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, "
-            "'csv' / 'tsv' for delimited text, 'npy' for a saved array."
+            "'csv' / 'tsv' for delimited text, 'npy' for a saved array, "
+            "'pva_stack' for one shot of the per-device capture stack a "
+            "Bluesky scan writes (traces and spectra alike; the reader takes "
+            "its axis from the stack and hands back the trace at its true "
+            "length, never the padded one)."
         ),
     )
     trace_index: int = Field(

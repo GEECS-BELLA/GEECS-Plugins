@@ -1,6 +1,7 @@
-"""The PVA gateway: GEECS camera frames in, NTNDArray PVs out.
+"""The PVA gateway: GEECS camera frames and device arrays in, NTNDArray PVs out.
 
-One process serves every camera in its config. Gating is per image variable: a
+One process serves every device in its config — each stream variable (an
+image, or a ``1darray`` lineout / trace) as one PV. Gating is per variable: a
 variable's GEECS TCP subscription starts with its first PVA client and stops
 with its last, so an unwatched variable costs the LabVIEW device nothing —
 each watched variable holds its own subscription connection. Decode runs off
@@ -30,10 +31,10 @@ from geecs_pva_gateway.config import instance_pv_prefix
 from geecs_core.db.variable_types import TIMESTAMP_LADDER
 from geecs_core.pv_naming import CONNECTED_SUFFIX
 from geecs_core.transport.tcp_subscriber import GeecsTcpSubscriber
-from geecs_data_utils.io import decode_imaq_image_string
+from geecs_pva_gateway.streams import decode_array, decode_image
 
 from geecs_pva_gateway import __version__, file_plugin
-from geecs_pva_gateway.config import CameraSpec, PvaGatewayConfig
+from geecs_pva_gateway.config import DeviceSpec, PvaGatewayConfig
 from geecs_pva_gateway.file_plugin import HdfFilePlugin
 
 logger = logging.getLogger(__name__)
@@ -73,7 +74,7 @@ def _frame_timestamp(update: dict) -> float:
     a LabVIEW value in ``(0, offset]`` — a device counting from boot, or a
     zeroed channel — must fall through to receive time, never become a
     negative Unix timestamp (which would poison downstream consumers that
-    key frames on the PVA timestamp, e.g. the capture daemon's dedupe and
+    key frames on the PVA timestamp, e.g. the file plugin's dedupe and
     the analysis-side ``acq_timestamp`` join).
     """
     for var in _TIMESTAMP_VARS:
@@ -106,7 +107,7 @@ def _connected_value(nt: NTEnum, state: str):
 class _Gate:
     """p4p handler that refcounts one variable's client connections."""
 
-    def __init__(self, worker: "_CameraWorker", var: str) -> None:
+    def __init__(self, worker: "_DeviceWorker", var: str) -> None:
         self._worker = worker
         self._var = var
 
@@ -129,13 +130,17 @@ class _RestartHandler:
         self._on_restart()
 
 
-class _CameraWorker:
-    """One camera device: per-variable PVs, gated + supervised subscriptions.
+class _DeviceWorker:
+    """One served device: per-stream-variable PVs, gated + supervised subscriptions.
+
+    A stream variable is an image (decoded as IMAQ) or an array (one of the
+    three array wire shapes, padded to the devicetype's ceiling) —
+    :mod:`geecs_pva_gateway.streams`; everything below the decode is shared.
 
     Parameters
     ----------
     spec :
-        The camera and its endpoint from the DB.
+        The device, its stream variables and its endpoint from the DB.
     loop :
         The gateway's event loop.
     endpoint_resolver :
@@ -150,7 +155,7 @@ class _CameraWorker:
 
     def __init__(
         self,
-        spec: CameraSpec,
+        spec: DeviceSpec,
         loop: asyncio.AbstractEventLoop,
         endpoint_resolver: Callable[[str], tuple[str, int]] | None = None,
     ) -> None:
@@ -164,22 +169,27 @@ class _CameraWorker:
             var: SharedPV(
                 handler=_Gate(self, var),
                 nt=NTNDArray(),
-                initial=np.zeros((1, 1), dtype=np.uint16),
+                # An array PV starts as one NaN-free float; an image as one pixel.
+                initial=(
+                    np.zeros((1,), dtype=np.float64)
+                    if spec.is_array(var)
+                    else np.zeros((1, 1), dtype=np.uint16)
+                ),
             )
-            for var in spec.image_variables
+            for var in spec.stream_variables
         }
         self._connected_nt: dict[str, NTEnum] = {
-            var: NTEnum() for var in spec.image_variables
+            var: NTEnum() for var in spec.stream_variables
         }
         self._connected: dict[str, SharedPV] = {
             var: SharedPV(nt=nt, initial=_connected_value(nt, CONNECTED_IDLE))
             for var, nt in self._connected_nt.items()
         }
         self._connected_state: dict[str, str] = dict.fromkeys(
-            spec.image_variables, CONNECTED_IDLE
+            spec.stream_variables, CONNECTED_IDLE
         )
-        self._clients: dict[str, int] = dict.fromkeys(spec.image_variables, 0)
-        # The file plugin (#806): one per image variable, a second consumer
+        self._clients: dict[str, int] = dict.fromkeys(spec.stream_variables, 0)
+        # The file plugin (#806): one per stream variable, a second consumer
         # of the push frame that holds the subscription like a client does.
         # Served only where its writer library is installed (file_plugin.available).
         self._plugins: dict[str, HdfFilePlugin] = (
@@ -192,8 +202,10 @@ class _CameraWorker:
                     release=self.release,
                     scalar_variables=spec.scalar_variables,
                     last_frame=lambda v=var: self._last_frame.get(v),
+                    decoder=lambda blob, v=var: self.decode(v, blob),
+                    is_array=spec.is_array(var),
                 )
-                for var in spec.image_variables
+                for var in spec.stream_variables
             }
             if file_plugin.available()
             else {}
@@ -228,8 +240,21 @@ class _CameraWorker:
 
     @property
     def plugins(self) -> dict[str, HdfFilePlugin]:
-        """The file plugins by image variable (empty where h5py is not installed)."""
+        """The file plugins by stream variable (empty where h5py is not installed)."""
         return self._plugins
+
+    def decode(self, var: str, blob: str) -> tuple[np.ndarray, dict]:
+        """One pushed value of *var* → ``(array, NTNDArray attributes)``.
+
+        Images decode as IMAQ; arrays as their wire shape, padded to the
+        devicetype's ceiling (:mod:`geecs_pva_gateway.streams`).  Raises on a
+        payload it cannot account for — the caller counts, never guesses.
+        Thread-agnostic: the publisher runs it off-loop, the plugin on its
+        writer thread.
+        """
+        if self._spec.is_array(var):
+            return decode_array(blob, self._spec.array_ceiling)
+        return decode_image(blob)
 
     async def stop(self) -> None:
         """Cancel all supervisors (gateway shutdown)."""
@@ -429,11 +454,14 @@ class _CameraWorker:
             while (item := self._latest.pop(var, None)) is not None:
                 blob, ts = item
                 try:
-                    image = await self._loop.run_in_executor(
-                        None, decode_imaq_image_string, blob
+                    image, attrib = await self._loop.run_in_executor(
+                        None, self.decode, var, blob
                     )
                     self._last_frame[var] = image
-                    self._pvs[var].post(image, timestamp=ts)
+                    if attrib:
+                        self._pvs[var].post(image, timestamp=ts, attrib=attrib)
+                    else:
+                        self._pvs[var].post(image, timestamp=ts)
                 except Exception:
                     logger.warning(
                         "decode/post failed for %s %s (%d bytes)",
@@ -447,7 +475,7 @@ class _CameraWorker:
 
 
 class GeecsPvaGateway:
-    """Serve a :class:`PvaGatewayConfig`'s cameras as NTNDArray PVs."""
+    """Serve a :class:`PvaGatewayConfig`'s devices' stream variables as NTNDArray PVs."""
 
     def __init__(
         self,
@@ -457,7 +485,7 @@ class GeecsPvaGateway:
     ) -> None:
         self._config = config
         self._endpoint_resolver = endpoint_resolver
-        self._workers: list[_CameraWorker] = []
+        self._workers: list[_DeviceWorker] = []
         self._server: Server | None = None
         self._restart_event: asyncio.Event | None = None
 
@@ -476,22 +504,32 @@ class GeecsPvaGateway:
         """Every image PV name this config serves (no server needed)."""
         return [
             spec.pv_name_for(var)
-            for spec in self._config.cameras
-            for var in spec.image_variables
+            for spec in self._config.devices
+            for var in spec.stream_variables
         ]
 
     def _instance_host(self) -> str:
-        """Identity for the instance PVs: the served host (else this machine's name)."""
-        if self._config.cameras:
-            return self._config.cameras[0].host
+        """Identity for the instance PVs: the served host's address.
+
+        The config's ``host`` (the ``--host`` argument, else the lab-facing
+        local address the roster was scoped to) so an instance with no
+        device to serve is still ``{exp}:pvagateway:<ip>:*`` — the name the
+        fleet probe and the Phoebus screen ask for, and the ``:restart``
+        that picks up a newly enabled device.  Falls back to the first
+        device's endpoint, then to the machine name (tests without either).
+        """
+        if self._config.host:
+            return self._config.host
+        if self._config.devices:
+            return self._config.devices[0].host
         return socket.gethostname()
 
     async def run(self, *, isolate: bool = False) -> None:
         """Serve until cancelled. ``isolate`` sandboxes ports for tests."""
         loop = asyncio.get_running_loop()
         self._workers = [
-            _CameraWorker(spec, loop, self._endpoint_resolver)
-            for spec in self._config.cameras
+            _DeviceWorker(spec, loop, self._endpoint_resolver)
+            for spec in self._config.devices
         ]
 
         # PV naming is lossy (normalization), so guard against two variables

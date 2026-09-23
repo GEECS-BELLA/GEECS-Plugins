@@ -30,7 +30,10 @@ def main(argv: list[str] | None = None) -> int:
 
         return diff_main(args_in[1:])
     parser = argparse.ArgumentParser(
-        description="Serve this host's GEECS camera images as NTNDArray PVs.",
+        description=(
+            "Serve this host's GEECS device streams — camera images and 1darray "
+            "variables — as NTNDArray PVs."
+        ),
         epilog=(
             "`geecs-pva-gateway fleet --experiment NAME` probes the deployed fleet "
             "(read-only); `geecs-pva-gateway diff <scan folder>` compares a scan's "
@@ -46,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--devices",
         default=None,
-        help="comma-separated device subset (default: all scoped cameras)",
+        help="comma-separated device subset (default: every scoped device)",
     )
     parser.add_argument(
         "--list",
@@ -68,13 +71,16 @@ def main(argv: list[str] | None = None) -> int:
     config = PvaGatewayConfig.from_geecs_experiment(
         args.experiment, host=args.host, devices=devices
     )
-    if not config.cameras:
-        print(
-            "no cameras to serve (host scope matched no enabled devices with "
-            "image variables)",
-            file=sys.stderr,
+    if not config.devices:
+        # Not an error: the instance serves its identity PVs (version,
+        # heartbeat, restart) so the fleet screen sees it, and picks up the
+        # host's devices on the next restart (the roster is read at start).
+        # Exiting here made a freshly bootstrapped array-only host crash-loop
+        # under NSSM until array support landed.
+        logging.getLogger(__name__).warning(
+            "no devices to serve on this host (no enabled device with image or "
+            "served array variables); serving the instance PVs only"
         )
-        return 1
 
     # The supervisors' endpoint re-resolve (#854): a watched device that stays
     # unreachable is re-asked of the DB at the backoff ceiling.  GeecsDb is

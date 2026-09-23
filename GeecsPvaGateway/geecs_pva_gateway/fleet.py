@@ -16,7 +16,7 @@ Two facts, one home each — nothing hand-curated in code:
   client puts in ``EPICS_PVA_ADDR_LIST`` (DEPLOYMENT.md "Client access"),
   mirroring ``[epics] ca_addr_list``. Only the fleet tooling reads the key
   (``geecs-pva-gateway fleet`` searches exactly those hosts). A roster host
-  absent from it is **not deployed**: the box hosts cameras only nominally
+  absent from it is **not deployed**: the box hosts stream devices only nominally
   and no instance was ever installed there — a failed probe is not an
   outage. When the key is absent every roster host counts as deployed (the
   pre-``[pva]`` behaviour).
@@ -39,6 +39,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from geecs_core.db.device_streams import served_array_variables
+
 from geecs_pva_gateway.config import image_variables, instance_pv_prefix
 
 logger = logging.getLogger(__name__)
@@ -47,10 +49,10 @@ USER_CONFIG_PATH = Path("~/.config/geecs_python_api/config.ini")
 
 
 class FleetHost(BaseModel):
-    """One camera server as the roster sees it."""
+    """One stream host (a camera or scope server) as the roster sees it."""
 
     ip: str
-    cameras: list[str] = Field(default_factory=list)
+    devices: list[str] = Field(default_factory=list)
     deployed: bool = True
 
     def instance_pv(self, experiment: str, name: str) -> str:
@@ -66,13 +68,15 @@ def _ip_key(host: str) -> tuple:
     return (1, (host,))
 
 
-def camera_endpoints(
+def stream_endpoints(
     experiment: str, *, enabled_only: bool = True
 ) -> dict[str, list[str]]:
-    """Return ``{endpoint_ip: [camera device, ...]}`` for *experiment* from the DB.
+    """Return ``{endpoint_ip: [stream device, ...]}`` for *experiment* from the DB.
 
-    Two batched queries; a device counts as a camera when it exposes at
-    least one image-typed variable.
+    Three batched queries; a device counts when it exposes at least one
+    stream variable — image-typed, or ``1darray``-typed and not excluded by
+    its devicetype (the gateway's own served-set rule, ``config.py``) — so a
+    host serving only arrays (a scope server) is on the roster too.
     """
     from geecs_core.db.geecs_db import GeecsDb
 
@@ -80,9 +84,11 @@ def camera_endpoints(
     var_map = GeecsDb.get_experiment_device_variables(
         experiment, enabled_only=enabled_only
     )
+    types = GeecsDb.get_experiment_device_types(experiment, enabled_only=enabled_only)
     by_ip: dict[str, list[str]] = {}
     for device, (ip, _port) in endpoints.items():
-        if image_variables(var_map.get(device, [])):
+        rows = var_map.get(device, [])
+        if image_variables(rows) or served_array_variables(types.get(device, ""), rows):
             by_ip.setdefault(ip, []).append(device)
     return {
         ip: sorted(devs)
@@ -127,26 +133,26 @@ def fleet_roster(
     config_path: Path | None = None,
     enabled_only: bool = True,
 ) -> list[FleetHost]:
-    """The experiment's camera servers, each marked deployed or not.
+    """The experiment's stream hosts, each marked deployed or not.
 
-    Roster hosts come from the DB (:func:`camera_endpoints`); ``deployed``
+    Roster hosts come from the DB (:func:`stream_endpoints`); ``deployed``
     is membership in ``[pva] addr_list`` (all deployed when the key is
-    absent). A listed address with no cameras in the DB is kept as a
-    deployed host with an empty camera list — a stale entry worth seeing —
+    absent). A listed address with no stream devices in the DB is kept as a
+    deployed host with an empty device list — a stale entry worth seeing —
     and logged as a warning.
     """
-    by_ip = camera_endpoints(experiment, enabled_only=enabled_only)
+    by_ip = stream_endpoints(experiment, enabled_only=enabled_only)
     listed = deployed_addr_list(config_path)
     deployed = set(by_ip) if listed is None else set(listed)
     hosts = [
-        FleetHost(ip=ip, cameras=cams, deployed=ip in deployed)
+        FleetHost(ip=ip, devices=cams, deployed=ip in deployed)
         for ip, cams in by_ip.items()
     ]
     for ip in sorted(deployed - set(by_ip), key=_ip_key):
         logger.warning(
-            "[pva] addr_list names %s but the DB has no enabled camera on it", ip
+            "[pva] addr_list names %s but the DB has no enabled stream device on it", ip
         )
-        hosts.append(FleetHost(ip=ip, cameras=[], deployed=True))
+        hosts.append(FleetHost(ip=ip, devices=[], deployed=True))
     return sorted(hosts, key=lambda h: _ip_key(h.ip))
 
 
@@ -194,20 +200,20 @@ class FleetProbe(BaseModel):
         """Human lines in the fleet_status.sh style (``[ OK ]``/``[DOWN]``/``[ -- ]``/``[WARN]``)."""
         out = []
         for p in self.probes:
-            n = len(p.host.cameras)
+            n = len(p.host.devices)
             if p.up:
                 out.append(
                     f"  [ OK ] PVA gateway  {p.host.ip:<15}  geecs-pva-gateway {p.version}"
-                    f"  heartbeat={p.heartbeat}  {n} cameras"
+                    f"  heartbeat={p.heartbeat}  {n} stream devices"
                 )
             else:
                 out.append(
-                    f"  [DOWN] PVA gateway  {p.host.ip:<15}  ({p.error}; {n} cameras)"
+                    f"  [DOWN] PVA gateway  {p.host.ip:<15}  ({p.error}; {n} stream devices)"
                 )
         for h in self.not_deployed:
             out.append(
-                f"  [ -- ] PVA gateway  {h.ip:<15}  not deployed ({len(h.cameras)} cameras in the DB: "
-                f"{', '.join(h.cameras)}) — add to config.ini [pva] addr_list once installed"
+                f"  [ -- ] PVA gateway  {h.ip:<15}  not deployed ({len(h.devices)} stream devices in the DB: "
+                f"{', '.join(h.devices)}) — add to config.ini [pva] addr_list once installed"
             )
         if len(self.versions) > 1:
             out.append(

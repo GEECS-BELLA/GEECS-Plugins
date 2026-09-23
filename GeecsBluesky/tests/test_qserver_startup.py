@@ -53,6 +53,13 @@ def _no_tiled_subscription(monkeypatch: pytest.MonkeyPatch) -> None:
     # The DB-backed device namespace is exercised by its own test below;
     # every other in-process run skips it (no GEECS DB here).
     monkeypatch.setenv("QS_DEVICE_NAMESPACE", "off")
+    # There is no CA gateway here, so every telemetry object in the
+    # namespace runs out its connect timeout before being dropped from the
+    # baseline. At the 20 s default that was ~80 s of the suite — four
+    # tests each waiting the full timeout for a baseline none of them
+    # assert on. The connect still happens (and still fails, and is still
+    # logged); it just fails promptly.
+    monkeypatch.setenv("QS_CONNECT_TIMEOUT", "0.1")
 
 
 def test_startup_profile_defines_re_and_plans_headless(tmp_path: Path) -> None:

@@ -64,6 +64,11 @@ from typing import Any
 from bluesky.protocols import Movable, Readable
 from ophyd_async.core import Device, PathProvider
 
+from geecs_core.db.device_streams import (
+    gated_off_variables,
+    capture_variables,
+    served_array_variables,
+)
 from geecs_core.db.scalar_policy import GeecsDbScalarPolicy
 from geecs_core.db.variable_types import (
     VARTYPE_TO_DTYPE,
@@ -135,15 +140,17 @@ PRIMARY_IMAGE_VARIABLE = "image"
 
 
 def primary_image_variable(rows: Sequence[Mapping[str, Any]]) -> list[str]:
-    """The one image variable the file plugin captures for a camera.
+    """The one-image guess for a devicetype that declares no capture streams.
 
     A camera's DB rows can list several image-typed variables
     (``UC_Amp4_IR_input``: ``image``, ``bakground image``, ``processed
     image``, found live 2026-09-11), but only the primary one is pushed on
     every acquisition — the others exist when an operation produces them,
     so a plugin armed on one waits forever.  ``image`` when the DB lists
-    it, else the first image variable; a second capture stream is a
-    deliberate later choice, not a default.
+    it, else the first image variable.  This is the *default* behind
+    :func:`capture_streams`; a devicetype whose pushed variable is not
+    ``image`` (the FROG's ``frogTrace``), or which pushes more than one,
+    declares them in :mod:`geecs_core.db.device_streams` instead.
     """
     names = image_variables(rows)
     if not names:
@@ -152,6 +159,60 @@ def primary_image_variable(rows: Sequence[Mapping[str, Any]]) -> list[str]:
         if name.lower() == PRIMARY_IMAGE_VARIABLE:
             return [name]
     return names[:1]
+
+
+def capture_streams(
+    rows: Sequence[Mapping[str, Any]], devicetype: str = "", device: str = ""
+) -> list[str]:
+    """The variables the file plugin captures for one device, in capture order.
+
+    The devicetype's declared capture streams
+    (:func:`geecs_core.db.device_streams.capture_variables`), restricted
+    twice:
+
+    - to what the gateway **serves** — the device's image-typed variables
+      and its served ``1darray`` variables (typed minus the devicetype's
+      exclusions, :func:`~geecs_core.db.device_streams.served_array_variables`).
+      A declared name that is neither is logged and skipped: a declaration
+      error to fix in the table, never an arm on a PV that does not exist.
+    - to what **this instance** has enabled — a gated stream (a scope
+      channel) whose gate variable is not configured ``on``
+      (:func:`~geecs_core.db.device_streams.gated_off_variables`) is not
+      captured, so a four-channel scope with two wired arms two plugins
+      instead of timing out on the other two.
+
+    Both are the same kind of restriction, so they belong in the one answer
+    to "what does this device capture"; no caller should have to subtract a
+    second list afterwards.  *device* only names the instance in the logs.
+
+    A devicetype that declares nothing keeps
+    :func:`primary_image_variable`'s guess, so every camera type nobody has
+    looked at behaves exactly as before.
+    """
+    declared = capture_variables(devicetype, rows)
+    if declared is None:
+        return primary_image_variable(rows)
+    served = {name.lower() for name in image_variables(rows)}
+    served |= {name.lower() for name in served_array_variables(devicetype, rows)}
+    named = device or devicetype
+    unserved = [name for name in declared if name.lower() not in served]
+    if unserved:
+        logger.warning(
+            "%s: declared capture stream(s) %s are neither image variables nor "
+            "served array variables; not captured (fix the declaration)",
+            named,
+            unserved,
+        )
+    captured = [name for name in declared if name.lower() in served]
+    off = gated_off_variables(devicetype, rows)
+    if off:
+        disabled = [name for name in captured if name in off]
+        if disabled:
+            logger.info(
+                "%s: not capturing %s — disabled in the DB", named, ", ".join(disabled)
+            )
+        captured = [name for name in captured if name not in off]
+    return captured
 
 
 # --------------------------------------------------------------------- rules
@@ -558,12 +619,13 @@ class GeecsNamespace:
         datatypes = {n: py for n, (_, py) in typed.items()}
         dev: Any
         if triggered:
-            # Plugin-backed iff the DB lists an image variable and the
-            # device's camera server serves the file plugin (#806).  The
-            # LabVIEW-native path stays on beside it — PNG dual-write until
-            # PNG retirement (#738), the parity evidence of the rollout.
+            # Plugin-backed iff the devicetype's capture streams include a
+            # served (image) variable and the device's camera server serves
+            # the file plugin (#806).  The LabVIEW-native path stays on
+            # beside it — PNG dual-write until PNG retirement (#738), the
+            # parity evidence of the rollout.
             plugin_vars = (
-                primary_image_variable(rows)
+                capture_streams(rows, devicetype, device)
                 if self._path_provider is not None
                 and roster.endpoints.get(device) in self._file_plugin_hosts
                 else []
@@ -576,9 +638,19 @@ class GeecsNamespace:
                 datatypes=datatypes,
                 path_provider=self._path_provider if native_save else None,
                 native_save=native_save,
+                # One folder per stream: the primary keeps ``<device>/``,
+                # a second stream gets ``<device>-<variable>/`` (two plugins
+                # on one path would truncate each other's file).
                 hdf_plugins=[
-                    (var, PluginPathProvider(self._path_provider, device))
-                    for var in plugin_vars
+                    (
+                        var,
+                        PluginPathProvider(
+                            self._path_provider,
+                            device,
+                            variable=None if index == 0 else var,
+                        ),
+                    )
+                    for index, var in enumerate(plugin_vars)
                 ],
                 drain_offset=self._drain_offsets.get(ophyd_name, 0.0),
             )

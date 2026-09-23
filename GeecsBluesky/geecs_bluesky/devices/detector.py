@@ -442,6 +442,14 @@ class LvNativeFileDataLogic(DetectorDataLogic):
     ``save=on`` left by a crash would otherwise write today's shots into
     yesterday's folder (found live 26_0828) — so ``stage`` always clears it.
 
+    ``enabled`` is the run-level switch behind the bound plans'
+    ``native_image_save`` argument (PNG retirement, #738): ``False`` keeps
+    the controls owned — ``stop`` still clears a stale ``save=on`` at
+    ``stage`` — but ``prepare_single`` never switches saving on and adds no
+    column, exactly as with no path provider.  The plans set it per run on
+    the cameras the file plugin covers and restore it after
+    (:func:`~geecs_bluesky.plans.registry.native_image_save_wrapper`).
+
     The device directory is created with ``mkdir(exist_ok=True)`` **inside an
     existing scan folder** only — the scan folder itself is claimed by the
     scanner (root ``CLAUDE.md``, "Analysis code is a consumer of scan
@@ -484,15 +492,22 @@ class LvNativeFileDataLogic(DetectorDataLogic):
         self._directory_name = directory_name
         self._device_path = device_path
         self.directory: Path | None = None
+        #: The run-level switch; ``False`` = the controls stay owned, saving stays off.
+        self.enabled: bool = True
+
+    @property
+    def wanted(self) -> bool:
+        """Whether a prepare would switch saving on: a path provider, and ``enabled``."""
+        return self._path_provider is not None and self.enabled
 
     async def prepare_single(self, datakey_name: str) -> ReadableDataProvider:
         """Point the device at this run's directory and switch saving on.
 
-        Without a path provider the device records scalars only: saving
-        stays off (``stop`` already cleared a stale flag at ``stage``) and no
-        column is produced.
+        Without a path provider — or with ``enabled`` off — the device
+        records scalars only: saving stays off (``stop`` already cleared a
+        stale flag at ``stage``) and no column is produced.
         """
-        if self._path_provider is None:
+        if not self.wanted:
             return _NoProvider()
         info = self._path_provider(self._directory_name)
         directory = Path(info.directory_path)
@@ -603,9 +618,10 @@ class GeecsDetector(StandardDetector):
         (#806): each becomes a :class:`GeecsHdfIO` child (``hdf``, then
         ``hdf_<variable>``) driven by the stock ``ADHDFDataLogic``; the
         first writes the ``<name>`` stream key, the others
-        ``<name>-<variable>``.  The namespace passes the camera's primary
-        image variable only (a secondary one is pushed only when an
-        operation produces it, so its plugin would never arm).  With a *path_provider* as well the
+        ``<name>-<variable>``.  The namespace passes the devicetype's
+        declared capture streams (``geecs_core.db.device_streams``; default
+        the one primary image variable — a variable the device pushes only
+        when an operation produces it would never arm).  With a *path_provider* as well the
         camera also writes its native files (dual-write, until PNG
         retirement #738); without one a stale ``save=on`` is still cleared.
     shot_timeout :
@@ -671,19 +687,19 @@ class GeecsDetector(StandardDetector):
             self._scalars_logic,
         ]
         self.native_save = bool(native_save or path_provider is not None)
+        self._native_logic: LvNativeFileDataLogic | None = None
         if self.native_save:
             path_pv = ca_pv(experiment, device, "localsavingpath")
             save_pv = ca_pv(experiment, device, "save")
             self.localsavingpath = epics_signal_rw(str, path_pv, setpoint_pv(path_pv))
             self.save = epics_signal_rw(str, save_pv, setpoint_pv(save_pv))
-            logics.append(
-                LvNativeFileDataLogic(
-                    self.localsavingpath,
-                    self.save,
-                    path_provider,
-                    directory_name=device,
-                )
+            self._native_logic = LvNativeFileDataLogic(
+                self.localsavingpath,
+                self.save,
+                path_provider,
+                directory_name=device,
             )
+            logics.append(self._native_logic)
         self._hdf_ios: list[GeecsHdfIO] = []
         for index, (variable, provider) in enumerate(hdf_plugins):
             io = GeecsHdfIO(
@@ -691,23 +707,22 @@ class GeecsDetector(StandardDetector):
             )
             setattr(self, "hdf" if index == 0 else f"hdf_{safe_name(variable)}", io)
             self._hdf_ios.append(io)
-            logics.append(
-                ADHDFDataLogic(
-                    array_description=NDArrayDescription(
-                        shape_signals=[
-                            io.array_size_z,
-                            io.array_size_y,
-                            io.array_size_x,
-                        ],
-                        data_type_signal=io.data_type,
-                        color_mode_signal=io.color_mode,
-                    ),
-                    path_provider=provider,
-                    driver=io,
-                    writer=io,
-                    datakey_suffix="" if index == 0 else f"-{safe_name(variable)}",
-                )
+            logic = ADHDFDataLogic(
+                array_description=NDArrayDescription(
+                    shape_signals=[
+                        io.array_size_z,
+                        io.array_size_y,
+                        io.array_size_x,
+                    ],
+                    data_type_signal=io.data_type,
+                    color_mode_signal=io.color_mode,
+                ),
+                path_provider=provider,
+                driver=io,
+                writer=io,
+                datakey_suffix="" if index == 0 else f"-{safe_name(variable)}",
             )
+            logics.append(logic)
         self.add_detector_logics(*logics)
         # The scalars-only view (``X.scalars`` in a plan's detector list).
         self.scalars = GeecsDetectorScalars(self)
@@ -729,8 +744,42 @@ class GeecsDetector(StandardDetector):
 
     @property
     def plugin_backed(self) -> bool:
-        """Whether the camera's frames are written by the gateway's file plugin."""
+        """Whether this device streams frames through the gateway's file plugin.
+
+        A static fact, decided when the namespace built this detector: the
+        devicetype declares capture streams, the device's camera server
+        serves the file plugin, and — for a gated devicetype — the DB says
+        the channel is wired (``geecs_core.db.device_streams``).  A scope
+        with every channel disabled therefore arrives here with **no**
+        plugins and is not plugin-backed, exactly as a camera without one.
+        """
         return bool(self._hdf_ios)
+
+    @property
+    def native_image_save(self) -> bool:
+        """Whether a strict prepare switches LabVIEW's per-shot saving on.
+
+        ``False`` for a scalars-only device, for a camera whose frames are
+        not wanted (``native_save`` without a path provider) and for one
+        the run switched off — the bound plans' ``native_image_save``
+        argument, applied to plugin-backed cameras only
+        (:func:`~geecs_bluesky.plans.registry.native_image_save_wrapper`,
+        PNG retirement #738).  Setting it flips the data logic's switch and
+        nothing else: the controls stay owned, so a stale ``save=on`` is
+        still cleared at ``stage``.  A device without the controls refuses
+        the set — there is nothing to switch.
+        """
+        logic = self._native_logic
+        return logic is not None and logic.wanted
+
+    @native_image_save.setter
+    def native_image_save(self, on: bool) -> None:
+        if self._native_logic is None:
+            raise GeecsConfigurationError(
+                f"{self._geecs_device_name} has no LabVIEW saving controls (no "
+                "save / localsavingpath in the DB): native_image_save cannot be set"
+            )
+        self._native_logic.enabled = bool(on)
 
     @property
     def missed_shot(self) -> bool:
@@ -815,12 +864,9 @@ class GeecsDetector(StandardDetector):
             and self._is_fly_prepare(self._prepare_ctx.trigger_info) != fly
         ):
             self._prepare_ctx = None
-        if not fly:
-            await super()._update_prepare_context(trigger_info)
-            return
         saved = self._data_logics
         self._data_logics = tuple(
-            dl for dl in saved if _data_logic_supported(dl.prepare_unbounded)
+            dl for dl in saved if not fly or _data_logic_supported(dl.prepare_unbounded)
         )
         try:
             await super()._update_prepare_context(trigger_info)

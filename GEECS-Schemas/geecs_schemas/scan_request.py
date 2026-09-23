@@ -55,6 +55,24 @@ Schema v3 (drop the trigger variant):
   ``trigger_variant`` (flat v1 or inside ``capture``) and refuses a set
   one with the remedy (name the condition's own profile); ``schema_version``
   ≤ 2 is normalized to 3.
+
+Schema v4 (drop the native-image-save toggle):
+
+- ``native_image_save`` left :class:`CaptureSettings`.  It existed to say
+  "these cameras' frames are captured losslessly elsewhere, so skip their
+  LabVIEW per-shot files", and the elsewhere was the central PVA capture
+  daemon, deleted with #806.  Its implementation — the engine's
+  fail-closed preflight and the per-camera resolution behind it — went
+  with the daemon, leaving a field nothing read.  PNG retirement (#738)
+  owns the replacement, whose preflight asks the distributed file plugin
+  a different question ("armed on every camera in the save set?"), so
+  nothing here was reusable.  The same before-validator drops an unset
+  ``native_image_save`` and refuses a set one with the remedy;
+  ``schema_version`` ≤ 3 is normalized to 4.  The switch was rebuilt on
+  :class:`~geecs_schemas.preset.Preset` in 0.31.0 (``native_image_save``,
+  with ``ExperimentDefaults.native_image_save`` as the fallback) — the
+  preset is what the scanner submits; this model is not, so it keeps the
+  refusal and the remedy points there.
 """
 
 from __future__ import annotations
@@ -259,11 +277,11 @@ class CaptureSettings(SchemaModel):
 
     Every scan, whatever its mode, captures data the same way: a number of
     shots per step, an acquisition discipline, the save sets naming the
-    recorded devices, the telemetry and native-image-save toggles, and the
-    trigger profile driving the shot trigger.  This model groups those
-    six settings; conceptually they are three sub-groups — shot control
+    recorded devices, the telemetry toggle, and the trigger profile
+    driving the shot trigger.  This model groups those
+    five settings; conceptually they are three sub-groups — shot control
     (``shots_per_step`` + ``acquisition``), data logging (``save_sets`` +
-    ``background_telemetry`` + ``native_image_save``), and the trigger
+    ``background_telemetry``), and the trigger
     profile — kept one level flat here on purpose.
 
     Every field has a usable default, so an omitted ``capture`` block is a
@@ -308,28 +326,6 @@ class CaptureSettings(SchemaModel):
             "scan; dead devices are dropped with a log line, never a dialog "
             "or abort. Leave unset to inherit the experiment default; set "
             "true/false to override for this scan."
-        ),
-    )
-    native_image_save: Optional[bool] = Field(
-        None,
-        description=(
-            "Whether capture-eligible cameras (Point Grey — the devicetypes "
-            "the central PVA capture daemon owns) write their native per-shot "
-            "image files during this scan. When false, those cameras' images "
-            "are recorded only by the capture daemon's per-device frame "
-            "stack (one HDF5 per camera per scan); all other devices — "
-            "proprietary formats like the HASO, scope traces — keep their "
-            "native save regardless. Leave unset to inherit the experiment "
-            "default; set true/false to override for this scan (e.g. force "
-            "native files back on for one scan while the capture path is "
-            "being validated). Two engine behaviors to expect when false: "
-            "the scan is REFUSED before a scan number is claimed if the "
-            "capture daemon looks absent or is not monitoring every "
-            "capture camera (fail-closed — start the daemon or drop the "
-            "override), and the request is silently inert when no "
-            "capture-eligible cameras resolve (DB unreachable, or none in "
-            "the save set) — native saving then proceeds unchanged, with a "
-            "warning in the scan log."
         ),
     )
     trigger_profile: Optional[str] = Field(
@@ -458,16 +454,28 @@ _V1_CAPTURE_FIELDS = (
     "acquisition",
     "save_sets",
     "background_telemetry",
-    "native_image_save",
     "trigger_profile",
 )
-#: Removed in v3: dropped when unset, refused when set (no overlay exists).
-_REMOVED_TRIGGER_VARIANT = "trigger_variant"
 _TRIGGER_VARIANT_REMEDY = (
     "'trigger_variant' was removed in ScanRequest format v3 (profile "
     "variants never existed in practice): save the operating condition as "
     "its own trigger profile and name it in 'trigger_profile'."
 )
+_NATIVE_IMAGE_SAVE_REMEDY = (
+    "'native_image_save' was removed in ScanRequest format v4: the central "
+    "capture daemon it switched off native saving for was deleted (#806). "
+    "The switch lives on the preset now — Preset.native_image_save, with "
+    "ExperimentDefaults.native_image_save as the fallback (GEECS-Schemas "
+    "0.31.0, PNG retirement #738) — and reaches the cameras the PVA "
+    "gateway's file plugin captures; a ScanRequest is not the submission "
+    "shape."
+)
+#: Removed fields: dropped when unset, refused when set (no overlay exists).
+#: Each maps to the remedy a set value is refused with.
+_REMOVED_FIELDS: dict[str, str] = {
+    "trigger_variant": _TRIGGER_VARIANT_REMEDY,
+    "native_image_save": _NATIVE_IMAGE_SAVE_REMEDY,
+}
 
 
 class ScanRequest(VersionedSchemaModel):
@@ -502,18 +510,18 @@ class ScanRequest(VersionedSchemaModel):
     anticipated extension point.
 
     Format v2 moved the capture-concern fields into ``capture`` and dropped
-    ``submission``; format v3 dropped ``trigger_variant`` (see the module
-    docstring).  One before-validator lifts every older layout — the flat
-    v1 fields into ``capture``, a v1 ``submission`` key and an unset
-    ``trigger_variant`` dropped — so older documents keep validating; a
-    declared ``schema_version`` ≤ 2 is normalized to 3 (even on a sparse
-    document with nothing to lift).
+    ``submission``; format v3 dropped ``trigger_variant`` and format v4
+    ``native_image_save`` (see the module docstring).  One before-validator
+    lifts every older layout — the flat v1 fields into ``capture``, a v1
+    ``submission`` key and an unset removed field dropped — so older
+    documents keep validating; a declared ``schema_version`` ≤ 3 is
+    normalized to 4 (even on a sparse document with nothing to lift).
     """
 
     schema_version: int = Field(
-        3,
+        4,
         description=(
-            "Format version of this config file. Leave at 3 — tools update "
+            "Format version of this config file. Leave at 4 — tools update "
             "this automatically when the file format changes."
         ),
     )
@@ -536,8 +544,8 @@ class ScanRequest(VersionedSchemaModel):
         default_factory=CaptureSettings,
         description=(
             "How shots are taken and what gets recorded: shots per step, "
-            "acquisition discipline, save sets, telemetry and native-image "
-            "toggles, and the trigger profile. Omit for a one-shot strict "
+            "acquisition discipline, save sets, the telemetry toggle and "
+            "the trigger profile. Omit for a one-shot strict "
             "capture with no named save sets."
         ),
     )
@@ -571,11 +579,12 @@ class ScanRequest(VersionedSchemaModel):
         Applied mechanically at validation: the v1 capture fields found at
         the top level move into ``capture``, a v1 ``submission`` record is
         dropped (it left the request document — the engine's run metadata
-        carries submission provenance independently), an unset
-        ``trigger_variant`` (flat, or inside ``capture``) is dropped and a
-        set one refused (v3), and a declared ``schema_version`` ≤ 2 is
-        normalized to 3 (a version ≥ 3 is never overwritten — a future v4
-        document must keep its stamp through this validator).  Saved
+        carries submission provenance independently), an unset removed
+        field (``trigger_variant`` v3, ``native_image_save`` v4 — flat, or
+        inside ``capture``) is dropped and a set one refused with its
+        remedy, and a declared ``schema_version`` ≤ 3 is normalized to 4
+        (a version ≥ 4 is never overwritten — a future v5 document must
+        keep its stamp through this validator).  Saved
         presets, archived run-metadata documents, and stale clients
         therefore keep validating forever.  Mixing the flat fields with an
         explicit ``capture`` block is ambiguous and rejected.
@@ -594,7 +603,8 @@ class ScanRequest(VersionedSchemaModel):
         ------
         ValueError
             If flat v1 capture fields and a ``capture`` block are both
-            present, or if ``trigger_variant`` is set.
+            present, or if a removed field (``trigger_variant``,
+            ``native_image_save``) is set.
         """
         if not isinstance(data, dict):
             return data
@@ -606,31 +616,35 @@ class ScanRequest(VersionedSchemaModel):
         if "optimization" in data:
             data = {key: value for key, value in data.items() if key != "optimization"}
         flat = [key for key in _V1_CAPTURE_FIELDS if key in data]
-        stale_version = stale_schema_version(data, 3)
+        stale_version = stale_schema_version(data, 4)
         capture = data.get("capture")
-        variant_in_capture = isinstance(capture, dict) and (
-            _REMOVED_TRIGGER_VARIANT in capture
+        removed_flat = [key for key in _REMOVED_FIELDS if key in data]
+        removed_in_capture = (
+            [key for key in _REMOVED_FIELDS if key in capture]
+            if isinstance(capture, dict)
+            else []
         )
-        variant_flat = _REMOVED_TRIGGER_VARIANT in data
         if (
             not flat
             and "submission" not in data
             and not stale_version
-            and not variant_flat
-            and not variant_in_capture
+            and not removed_flat
+            and not removed_in_capture
         ):
             return data
         lifted = dict(data)
         lifted.pop("submission", None)
-        # The removed field first, on its own terms: an unset one is dropped
-        # wherever it sits; a set one gets the v3 remedy — before the
-        # flat-vs-capture check, which is about the six live fields.
-        if variant_flat and lifted.pop(_REMOVED_TRIGGER_VARIANT) is not None:
-            raise ValueError(_TRIGGER_VARIANT_REMEDY)
-        if variant_in_capture:
+        # The removed fields first, on their own terms: an unset one is
+        # dropped wherever it sits; a set one gets its remedy — before the
+        # flat-vs-capture check, which is about the five live fields.
+        for key in removed_flat:
+            if lifted.pop(key) is not None:
+                raise ValueError(_REMOVED_FIELDS[key])
+        if removed_in_capture:
             lifted["capture"] = dict(capture)
-            if lifted["capture"].pop(_REMOVED_TRIGGER_VARIANT) is not None:
-                raise ValueError(_TRIGGER_VARIANT_REMEDY)
+            for key in removed_in_capture:
+                if lifted["capture"].pop(key) is not None:
+                    raise ValueError(_REMOVED_FIELDS[key])
         if flat and "capture" in data:
             raise ValueError(
                 f"Give capture settings either flat (v1: {flat}) or inside "
@@ -639,7 +653,7 @@ class ScanRequest(VersionedSchemaModel):
         if flat:
             lifted["capture"] = {key: lifted.pop(key) for key in flat}
         if stale_version:
-            lifted["schema_version"] = 3
+            lifted["schema_version"] = 4
         return lifted
 
     @model_validator(mode="after")

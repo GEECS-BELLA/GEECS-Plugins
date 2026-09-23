@@ -114,10 +114,14 @@ DRAIN_MARGIN_S = 0.25
 def shot_clock(devices: Sequence[Any]) -> tuple[Any, str]:
     """The shot clock of a gated step: an essential triggered device's stamp signal.
 
-    The first plugin-backed camera, else the first triggered device without
-    one (a scalar device with a stamp, or a camera's ``.scalars`` view) —
-    the recommended default; a step with several candidates uses the first
-    in the plan's detector order.
+    The first camera **with a file plugin**, else the first triggered device
+    without one (a scalar device with a stamp, or a camera's ``.scalars``
+    view) — the recommended default; a step with several candidates uses the
+    first in the plan's detector order.  ``plugin_backed`` is a static fact
+    since gating moved to the DB, so this answers the same at bind time and
+    at step time by construction; a scope with every channel disabled has no
+    plugin and is ranked with the plain triggered devices, its stamp still
+    advancing per shot.
 
     Returns
     -------
@@ -161,6 +165,10 @@ def refuse_native_essentials(devices: Sequence[Any]) -> None:
     GeecsConfigurationError
         Naming the cameras.
     """
+    # A device with no file plugin: it has none at all, or — for a gated
+    # devicetype — every one of its capture channels is disabled in the DB,
+    # which leaves it with none.  Both are refused here and the message says
+    # so, because a gated batch counts frames the plugin writes.
     native = [
         d
         for d in devices
@@ -171,8 +179,10 @@ def refuse_native_essentials(devices: Sequence[Any]) -> None:
         raise GeecsConfigurationError(
             f"gated acquisition: native-saving device(s) without a file plugin: "
             f"{names} — a gated batch counts frames the plugin writes; a "
-            "device saving through LabVIEW cannot. Use acquisition='strict' "
-            "or record its scalars only (save_images: false)."
+            "device saving through LabVIEW cannot. A gated devicetype (a "
+            "scope) also lands here when every one of its capture channels "
+            "is disabled in the DB. Use acquisition='strict', enable a "
+            "channel, or record its scalars only (save_images: false)."
         )
 
 
@@ -417,17 +427,26 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
     flyers :
         The non-essential detectors (plugin-backed: a device without a
         streamable provider fails ``kickoff`` loudly, "not streamable").
+        A flyer that is **not plugin-backed** — no file plugin at all, or a
+        gated devicetype whose every capture channel is disabled in the DB,
+        which leaves it with none — is not prepared, declared or kicked off
+        this run (bluesky refuses a flyer with nothing to stream at
+        ``declare_stream``); it is named in a WARNING and still unstaged
+        with the rest.
     """
     flyers = list(flyers)
     if not flyers:
         return (yield from plan)
+    active: list[Any] = list(flyers)  # narrowed after stage, before the run opens
 
     def stream_name(flyer: Any) -> str:
         return f"{flyer.name}_stream"
 
     def after_open():
+        if not active:
+            return
         group = short_uid("non-essential-prepare")
-        for flyer in flyers:
+        for flyer in active:
             yield from bps.prepare(
                 flyer, UNBOUNDED_TRIGGER_INFO, group=group, wait=False
             )
@@ -436,7 +455,7 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
         # the arm (GEECS-Plugins#853): zero it inside the fresh session and
         # prepare again, or the kickoff baselines above what the run will
         # write and the close's count wait never returns (2b A4).
-        zero = [f for f in flyers if hasattr(f, "zero_count")]
+        zero = [f for f in active if hasattr(f, "zero_count")]
         if zero:
             yield from bps.wait_for([f.zero_count for f in zero])
             group = short_uid("non-essential-prepare-zeroed")
@@ -445,15 +464,15 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
                     flyer, UNBOUNDED_TRIGGER_INFO, group=group, wait=False
                 )
             yield from bps.wait(group=group)
-        for flyer in flyers:
+        for flyer in active:
             yield from bps.declare_stream(flyer, name=stream_name(flyer), collect=True)
-        yield from bps.kickoff_all(*flyers, wait=True)
+        yield from bps.kickoff_all(*active, wait=True)
 
     def before_close():
         # Nothing waits on a non-essential device — a plugin whose gateway
         # went away mid-run must not fail the run at its close: each flyer's
         # complete + collect is its own contingency, logged and skipped.
-        for flyer in flyers:
+        for flyer in active:
             # complete and collect are SEPARATE contingencies: a complete
             # that fails (a stalled or dead plugin) must not cost the
             # datums for the frames it did write.
@@ -516,6 +535,18 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
 
     def staged():
         yield from bps.stage_all(*flyers)
+        # A non-essential device with nothing to stream sits the run out —
+        # loudly, but without failing it. Either it has no file plugin at
+        # all, or it is a gated devicetype whose every capture channel is
+        # disabled in the DB, which leaves it with none.
+        skipped = [f for f in flyers if not getattr(f, "plugin_backed", True)]
+        for flyer in skipped:
+            logger.warning(
+                "non-essential %s: no capture stream to arm (no file plugin, or "
+                "every gated channel disabled in the DB) — not streamed this run",
+                flyer.name,
+            )
+        active[:] = [f for f in flyers if f not in skipped]
         return (yield from inner)
 
     return (yield from finalize_wrapper(staged(), unstage_all_tolerant()))

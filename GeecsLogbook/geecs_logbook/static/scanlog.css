@@ -60,6 +60,15 @@ svg{display:block;max-width:100%}
 .fact dd{margin:0;font-family:var(--ff-mono);font-size:13px;font-weight:500;font-variant-numeric:tabular-nums;word-break:break-word}
 .fact dd .u{font-size:11px;color:var(--muted);font-weight:400;margin-left:1px}
 .fact dd.none{color:var(--muted);font-weight:400}
+/* Devices: its own row, not a 128px column of hyphenated device names. */
+.fact.devices{grid-column:1/-1}
+.devlist>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+.devlist>summary::-webkit-details-marker{display:none}
+.devlist>summary::before{content:"\25B8";font-size:10px;color:var(--muted)}
+.devlist[open]>summary::before{content:"\25BE"}
+.devlist>summary:hover{color:var(--accent)}
+.devlist ul{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:4px 6px}
+.devlist li{font-size:12px;font-weight:400;background:var(--surface);border:1px solid var(--rule-soft);border-radius:3px;padding:1px 6px;word-break:normal;overflow-wrap:anywhere}
 .figs{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;padding:14px 16px;border-bottom:1px solid var(--rule-soft)}
 .fig{border:1px solid var(--rule);border-radius:4px;overflow:hidden;background:var(--surface)}
 .fig figcaption{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 9px;border-top:1px solid var(--rule-soft);font-family:var(--ff-mono);font-size:10.5px;color:var(--muted)}

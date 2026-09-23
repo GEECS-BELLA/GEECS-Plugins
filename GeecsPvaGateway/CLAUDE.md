@@ -1,7 +1,8 @@
 # GeecsPvaGateway — Developer Context for Claude
 
 The **PVA peer of GeecsCAGateway**: a pvAccess server exposing GEECS camera
-images as NTNDArray PVs. Same access-layer doctrine as the CA gateway (DB is
+images — and, since 0.12.0, the devices' array variables (lineouts, scope
+traces) — as NTNDArray PVs. Same access-layer doctrine as the CA gateway (DB is
 the source of truth, `pv_naming` is the one naming policy, GEECS wire protocol
 via the gateway's transport), but deployed **distributed** — one instance per
 Windows camera server, serving only that host's cameras — because a central
@@ -27,8 +28,19 @@ instance-PV semantics — as a contract.
 geecs_pva_gateway/
   __main__.py   # geecs-pva-gateway --experiment NAME [--host IP] [--devices A,B] [--list]
                 #   + `geecs-pva-gateway fleet` (read-only fleet probe, fleet.py)
-  config.py     # CameraSpec / PvaGatewayConfig; DB-scoped served set
-                #   (enabled devices on this host's IP with image-typed vars)
+  config.py     # DeviceSpec / PvaGatewayConfig; DB-scoped served set
+                #   (enabled devices on this host's IP with a stream variable:
+                #   image-typed, or 1darray-typed and not excluded by
+                #   geecs_core.db.device_streams — exclusions + padding
+                #   ceilings are GEECS-Core's per-devicetype declaration)
+  streams.py    # per-variable decode + shape: IMAQ for an image; the three
+                #   array wire shapes (geecs_data_utils.io.arrays, sniffed)
+                #   → float64 in physical units, NaN-padded along axis 0 to
+                #   the devicetype ceiling (longer = ArrayTooLongError,
+                #   dropped + counted, never truncated); a waveform's
+                #   x0/dx/samples ride as NTNDArray attributes and, on an
+                #   array variable's stack, as per-frame attributes
+                #   (wave_x0 / wave_dx / wave_samples, NaN for non-waveforms)
   fleet.py      # fleet roster: camera servers from the DB per experiment,
                 #   each marked deployed by config.ini [pva] addr_list
                 #   (absent = not deployed: no instance, not an outage);
@@ -40,7 +52,7 @@ geecs_pva_gateway/
                 #   latest-wins posting (the last decoded frame is kept for
                 #   the plugin's arm, #894), version/heartbeat/restart
                 #   instance PVs (restart -> exit 86)
-  file_plugin.py # HdfFilePlugin (#806): one per image variable, the
+  file_plugin.py # HdfFilePlugin (#806): one per stream variable, the
                 #   areaDetector NDFileHDF5 PV set (+ Rewind, WriteStatus,
                 #   WriteMessage) over a single writer thread; lossless
                 #   intake before the latest-wins slot; NDFileHDF5 layout
@@ -82,8 +94,9 @@ tests/
 
 ## Architecture (one asyncio loop)
 
-- **Per-camera worker, per-variable subscriptions**: the worker owns the
-  device's image `SharedPV`s; each image variable gets its own
+- **Per-device worker, per-variable subscriptions**: the worker owns the
+  device's stream `SharedPV`s (images and arrays alike; an array PV is a
+  1-D or `(n, 2)` float64 NTNDArray); each stream variable gets its own
   `GeecsTcpSubscriber` (loopback in production), **gated per variable** — p4p
   `onFirstConnect`/`onLastDisconnect` refcount client channels; zero clients
   on a variable ⇒ no subscription, no flatten/send in LabVIEW, no decode
@@ -105,14 +118,15 @@ tests/
   (#854).
 - **Frame path**: push frame → timestamp ladder (`acq_timestamp` →
   `systimestamp`, LabVIEW→Unix, else receive time) → **latest-wins slot** per
-  variable → decode (`decode_imaq_image_string`) in the default executor, off
+  variable → decode (`streams.py`: IMAQ for an image, the array wire shapes
+  padded to the devicetype ceiling for an array) in the default executor, off
   the event loop → `pv.post(image, timestamp=...)`. A stalled consumer drops
   stale frames; nothing ever backlogs. Completeness lives in the GEECS file
   path, not this stream.
 - **File plugin** (`file_plugin.py`, #806): a second consumer of
   the push frame with the *opposite* delivery contract — lossless within
   a capture session — branching off in `_on_frame` **before** the
-  latest-wins slot. Per image variable: the `NDFileHDF5IO` PV set under
+  latest-wins slot. Per stream variable (image or array): the `NDFileHDF5IO` PV set under
   `<image PV>:hdf1:` (prefix minted by `geecs_core.pv_naming.hdf_plugin_prefix`),
   one writer thread owning all session state and the file handle (puts
   and frames only enqueue). `Capture=1` zeroes the session readbacks
@@ -131,7 +145,7 @@ tests/
   arrivals); `NumCaptured_RBV` posts after each frame is on disk;
   `Capture=0` stamps the reconciliation counters and closes. Beside the
   two frame stamps the plugin writes the device's **subscribed scalars**
-  per frame (`CameraSpec.scalar_variables`, from
+  per frame (`DeviceSpec.scalar_variables`, from
   `geecs_core.db.scalar_policy.GeecsDbScalarPolicy` filtered by
   `geecs_core.db.variable_types.scalar_attribute_variables` — the same
   rule the worker builds a device's row from; numeric types only, the
@@ -139,7 +153,30 @@ tests/
   `DOUBLE` attributes, declared in `NDAttributesFile` so the stock data
   logic describes them as stream columns; their values come from the
   frame's own TCP push (the one subscription is widened by the list,
-  `_CameraWorker.subscription_variables`), `NaN` when absent. Never
+  `_DeviceWorker.subscription_variables`), `NaN` when absent. Frames **and those attribute
+  datasets** are written **compressed by default** (`Compression`
+  defaults to `zlib` → shuffle + gzip level 1, built-in HDF5 filters,
+  self-describing: no reader learns anything) — one switch governs both.
+  For the attributes it is not a nicety: their chunk is
+  `ATTRIBUTE_CHUNK` (16384) f8 slots that a scan fills a few dozen of,
+  HDF5 commits the whole chunk on first write and rewrites every dirty
+  chunk on the per-frame flush, so uncompressed they cost ~1.7 MB of
+  SMB write traffic **per frame** to carry ~100 bytes of numbers.
+  The chunk shape stays 16384 either way: ophyd-async hard-codes
+  `chunk_shape=(16384,)` in the stream resource it hands Tiled
+  (`epics/adcore/_data_logic.py` — "NDAttributes appear to always be
+  configured with this chunk size"), so that is the chunking Tiled
+  registers; the file has to match the declaration, not the other way
+  round. Nothing *enforces* it — Tiled's consolidator validation is
+  opt-in via a `_validate` parameter ophyd-async does not set, and runs
+  `fix_errors=True` when it does run — so a mismatch corrupts the
+  registered layout silently rather than failing. Compression is on
+  because no client ever puts that PV — the
+  stock `ADHDFDataLogic` does not; a client wanting raw frames puts
+  `None` before `Capture=1`. Any of the eight areaDetector choices is
+  *accepted* by the put; only those two survive the arm, and a third
+  fails `Capture=1` with `WriteStatus=Write Error`.
+  Never
   creates a directory (`CreateDirectory` is ignored); never HDF5 SWMR
   across SMB (`SWMRMode` accepted and ignored; flush per frame, file
   locking off). Served only where `h5py` imports (`file_plugin.available`).
@@ -153,17 +190,24 @@ tests/
 - **Naming**: only via `geecs_core.pv_naming`. No local copies.
 - **Transport**: only `geecs_core.transport`. Never GEECS-PythonAPI
   (deprecated, slated for deletion).
-- **Images stay off the CA gateway; scalars stay off this one.** This package
-  serves image-typed variables only (the file plugin's control PVs are
-  areaDetector's, per image variable — not GEECS scalars). If PVA scalars ever happen, that is a
-  deliberate design step (per-device-class PVA adoption, DESIGN.md), not a
-  drive-by addition here.
-- **Text variables**: image variables must always be subscribed as
-  `text_variables` — numeric coercion destroys binary payloads.
+- **Non-scalars stay off the CA gateway; scalars stay off this one.** This
+  package serves image-typed and `1darray`-typed variables only (the file
+  plugin's control PVs are areaDetector's, per stream variable — not GEECS
+  scalars). If PVA scalars ever happen, that is a deliberate design step
+  (per-device-class PVA adoption, DESIGN.md), not a drive-by addition here.
+- **Which arrays are served is the DB minus GEECS-Core's exclusions**
+  (`geecs_core.db.device_streams`): never a per-host list, never an image.
+  A devicetype's array shape policy (the padding ceiling) lives there too.
+  An instance whose host has no stream device idles on its identity PVs
+  rather than exiting.
+- **Text variables**: image and array variables must always be subscribed
+  as `text_variables` — numeric coercion destroys binary payloads (and would
+  turn a CSV lineout into its first number).
 - The wire format is binary-hostile in known ways — decode quirks live in
-  `geecs_data_utils.io.images` (name-repeat vs tail-anchored wrappers), and
+  `geecs_data_utils.io.images` (name-repeat vs tail-anchored wrappers) and
+  `geecs_data_utils.io.arrays` (the three array shapes, byte-exact), and
   the latin-1 byte↔str convention comes from the gateway transport (0.16.1).
-  Do not re-derive either here.
+  Do not re-derive any of them here.
 - Repo-wide conventions apply (root `CLAUDE.md`): Pydantic v2, NumPy
   docstrings, `poetry version` + `CHANGELOG.md` on every code-changing PR.
 

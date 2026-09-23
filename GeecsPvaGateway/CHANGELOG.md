@@ -4,6 +4,131 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.13.0] - 2026-09-21
+
+### Added
+
+- **A captured array stack carries its payload's axis.** The file plugin
+  of an array variable declares three more per-frame attributes after the
+  scalars — `wave_x0`, `wave_dx` (seconds) and `wave_samples` — and writes
+  them from the decoded payload's attributes (a LabVIEW waveform's
+  `relativeInitialX` / `xIncrement` / `actualSamples`; `NaN` for the
+  pairs and CSV shapes, which carry no axis), so a scope trace on disk is
+  never an axis-less array.  The root attribute `waveform_attributes`
+  names them, beside `scalar_attributes`, which stays scalars only.  The
+  plugin's `decoder` seam now returns `(array, attributes)`, the whole of
+  the worker's per-variable decode, and takes `is_array=`.  Read back like
+  any other attribute (`geecs_data_utils.io.scan_stack.read_stack_attributes`).
+
+## [0.12.0] - 2026-09-21
+
+### Added
+
+- **Array variables are served** beside images: a device's `1darray`
+  variables the devicetype does not exclude
+  (`geecs_core.db.device_streams.served_array_variables`) each get an
+  `NTNDArray` PV, a `:connected` state and a file plugin, exactly like an
+  image variable.  New module `streams.py`: images decode as IMAQ; arrays
+  decode with `geecs_data_utils.io.decode_array_payload` (the payload says
+  which of the three wire shapes it is) to `float64` in physical units and
+  are **padded along axis 0 to the devicetype's ceiling with NaN** when one
+  is declared, so a MagSpec lineout whose row count moves with the magnet
+  current keeps one PV shape, one descriptor and one stack shape per run;
+  longer than the ceiling is dropped and counted as a shape error, never
+  truncated.  A waveform's axis parameters (`x0`, `dx`, `samples`,
+  `offset`, `gain`, `name`) ride as `NTNDArray` attributes.
+- **The file plugin writes 1-D and float stacks**: a 1-D array posts
+  `ArraySizeX = n`, `ArraySizeY = 0` (the stock ophyd-async data logic
+  drops zero dimensions, so the stream is described `(n,)` and the stack is
+  `(N, n)`), `Float64` is already in the areaDetector type table, and the
+  plugin takes its decoder from the worker (`decoder=`) so both see one
+  array per push.
+- **An instance with nothing to serve idles on its identity PVs** instead
+  of exiting: the fleet screen sees it, and it picks up the host's devices
+  on the next restart.  A freshly bootstrapped array-only host (the
+  Picoscope server) crash-looped under NSSM until this.
+
+### Changed
+
+- **`CameraSpec` → `DeviceSpec`, `PvaGatewayConfig.cameras` → `.devices`**:
+  the served unit is a device with stream variables (`image_variables` +
+  `array_variables`, `stream_variables` for both; `devicetype`,
+  `array_ceiling`), not a camera.  `image_variables` no longer defaults to
+  `["image"]`.  The roster build reads the experiment's devicetypes (one
+  more batched query) for the exclusions and ceilings.
+
+## [0.11.2] - 2026-09-18
+
+### Fixed
+
+- **The per-frame attribute datasets are compressed too** — the same
+  `filters` the frames already used, applied to the `NDAttributes` loop it
+  was never passed to. An attribute chunk is `ATTRIBUTE_CHUNK` (16384) f8
+  slots = 128 KiB, and HDF5 commits the whole chunk on the first write, so
+  each attribute cost 128 KiB no matter how many shots were in the scan.
+  Measured on Scan001 of 26_0918 (`UC_Amp2_IR_input`, 10 shots, 13
+  attributes): **1,703,936 bytes of storage for 1,040 bytes of numbers**,
+  more than the 1,303,005 bytes the frames took. Deflating the untouched
+  fill takes that to ~9,200 bytes (185x) and the file from 3.03 MB to
+  ~1.31 MB — under the 1.66 MB the equivalent LabVIEW PNGs occupy, which
+  it had been losing to purely on this padding.
+  `ATTRIBUTE_CHUNK` is deliberately unchanged: ophyd-async declares
+  `chunk_shape=(16384,)` in the stream resource it hands Tiled, and the
+  file must keep matching it. The saving is pure fill, so unlike the
+  frame compression it does not depend on image content. Gated behind the
+  same `Compression=zlib` as the frames: a client putting `None` gets raw
+  frames and raw attributes, one switch for both.
+- **The larger effect is write traffic, not storage.** HDF5 rewrites every
+  dirty chunk in full on each per-frame `flush()`, so the padding was
+  being pushed over SMB on *every shot*, not stored once per scan.
+  Measured by counting real write bytes through an h5py file object (13
+  attributes, `chunks=(16384,)`): **1,708,401 → 16,113 bytes written per
+  frame**, a ~106x reduction — 13 x 131072 = 1,703,936, i.e. all thirteen
+  full chunks, every shot. The trade is CPU on the single writer thread,
+  linear in attribute count (~0.1 -> ~0.4 ms per attribute per frame; at
+  13 attributes ~1.5 -> ~5.8 ms, measured on a dev machine, not on a
+  Windows camera server). At GEECS shot rates the I/O removed
+  repays that comfortably, but it is the number a future reader would
+  want when attribute counts grow.
+
+## [0.11.1] - 2026-09-17
+
+### Changed
+
+- Docs only: the timestamp-ladder docstring in `server.py` credits the
+  file plugin's dedupe rather than the deleted capture daemon's.
+
+## [0.11.0] - 2026-09-17
+
+### Changed
+
+- **Frame stacks are written compressed by default.** The file plugin's
+  `Compression` parameter now defaults to `zlib` (shuffle + gzip level 1 —
+  built-in HDF5 filters, self-describing, schema unchanged) instead of
+  areaDetector's `None`. Nothing ever put that PV: the stock
+  `ADHDFDataLogic` does not, so every deployed camera was writing raw
+  frames while the write path's `zlib` branch sat unused. Lossless, and
+  transparent to every reader (`geecs_data_utils.io.scan_stack`, h5py,
+  MATLAB, Tiled); one frame per chunk is unchanged, so per-shot random
+  access still costs one chunk (now plus its decompress). A client that
+  wants raw frames puts `Compression=None` before `Capture=1`, as before.
+  Reference numbers from the same filters on real Scan003 frames
+  (GeecsBluesky 0.65.0, the since-deleted central capture daemon), for
+  one whole ~11-frame 600x600 stack: 2.04 MB compressed vs 7.92 MB raw
+  vs ~2.5 MB for the equivalent LabVIEW PNGs. Per-frame write cost was
+  3.9 ms at 600x600 and ~25 ms at 1025x1281, and scales with frame
+  AREA -- so doubling each dimension quadruples it. An independent
+  synthetic measurement (h5py 3.16, gaussian + noise uint16) puts it at
+  ~8 ms / ~31 ms / ~104 ms for 600x600 / 1025x1281 / 2048x2048 -- a
+  near-constant ~24 ms per megapixel over that 12x span -- with a more
+  conservative ~2.2x size ratio on that less compressible content. The plugin's single writer
+  thread carries command puts as well as frames, so on the largest
+  served camera that cost is the thing to watch (`queue_drops`,
+  `Capture=0` latency) — bounded above by roughly 10 Hz of NEW frames
+  at 4 Mpx, and plausibly offset in production by ~2x fewer bytes over
+  SMB. Existing stacks are unaffected; new scans pick this up as boxes
+  are upgraded.
+
 ## [0.10.2] - 2026-09-16
 
 ### Changed

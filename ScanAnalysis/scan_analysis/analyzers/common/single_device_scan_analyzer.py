@@ -353,20 +353,39 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         logger.info(f"self.file_tail: {self.file_tail}")
 
         # Opt-in capture-stack strategy (data_format="device_hdf5"): map
-        # shots into the per-device HDF5 frame stack the capture daemon
-        # writes. Zero mappings (no stack, no timestamp column, no joins)
+        # shots into the per-device HDF5 frame stack the PVA gateway's
+        # file plugin writes. Zero mappings (no stack, no timestamp column, no joins)
         # fall back to the per-shot file strategies below — the old basis
         # keeps working unconditionally.
         # getattr: instances built without __init__ (the test harness's
         # cheap-instance pattern, notebook shims) default to per-shot files.
-        if (
-            getattr(self, "data_format", None) == "device_hdf5"
-            and self._map_shots_from_stack()
-        ):
-            expected_shots = set(self.auxiliary_data["Shotnumber"].values)
-            for m in sorted(expected_shots - set(self._data_file_map.keys())):
-                logger.warning(f"No stack frame found for shot {m}")
-            return
+        if getattr(self, "data_format", None) == "device_hdf5":
+            if self._map_shots_from_stack():
+                expected_shots = set(self.auxiliary_data["Shotnumber"].values)
+                for m in sorted(expected_shots - set(self._data_file_map.keys())):
+                    logger.warning(f"No stack frame found for shot {m}")
+                return
+            if self._reads_stacks_only():
+                # The fallback below cannot help this analyzer: its 1D
+                # loader takes a ShotRef and refuses a plain per-shot path
+                # by construction, so falling back would raise once per
+                # shot — each caught and logged — and end in an empty
+                # analysis anyway.
+                #
+                # Raised, not returned: an empty map is not an outcome the
+                # task queue can tell from a successful run, so returning
+                # would record `done` with no artifacts — the "plausible
+                # but wrong" shape this whole path exists to avoid. The
+                # warning carries it to `no_data` instead, which is the
+                # honest state: a gated Picoscope channel that was off for
+                # the run captures nothing, and that is routine rather
+                # than a failure.
+                raise DataUnavailableWarning(
+                    f"'{self.device_name}' reads the capture stack only "
+                    "(data_type='pva_stack') and no stack could be mapped in "
+                    f"{self.path_dict['data']} — not falling back to per-shot "
+                    "files, which that loader cannot read."
+                )
 
         ts_column = self._acq_timestamp_column()
         if ts_column is not None:
@@ -525,12 +544,29 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 self._data_file_map[shot_num] = file
                 logger.info(f"Mapped file for shot {shot_num}: {file}")
 
+    def _reads_stacks_only(self) -> bool:
+        """Whether this device's analyzer can read ONLY a capture stack.
+
+        True for a 1D analyzer configured ``data_type: pva_stack``, whose
+        loader takes a :class:`ShotRef` and refuses a plain per-shot path
+        — for it the per-shot fallback is not a recovery, just a slower
+        way to produce nothing.  Camera analyzers resolve a ``ShotRef``
+        or a file path alike, so they always fall back.
+
+        Read through ``getattr`` throughout: analyzers built by the test
+        harness's cheap-instance pattern carry no ``line_config``.
+        """
+        analyzer = getattr(self, "image_analyzer", None)
+        loading = getattr(getattr(analyzer, "line_config", None), "data_loading", None)
+        data_type = getattr(loading, "data_type", None)
+        return getattr(data_type, "value", data_type) == "pva_stack"
+
     def _map_shots_from_stack(self) -> bool:
         """Join shots into the capture frame stack, if one exists.
 
         Mirrors :meth:`_map_files_by_acq_timestamp`'s canonical-millisecond
-        join: the stack stores Unix-epoch timestamps (its contract,
-        ``GeecsBluesky/geecs_bluesky/capture/FORMAT.md``), converted here to
+        join: the stack stores Unix-epoch timestamps (the read side and its
+        constants are ``geecs_data_utils.io.scan_stack``), converted here to
         the LabVIEW epoch of the auxiliary frame's ``acq_timestamp`` column.
         Each joined shot maps to a :class:`ShotRef` — a path into the stack
         carrying the frame index — which travels through the existing

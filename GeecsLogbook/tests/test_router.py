@@ -73,6 +73,41 @@ class TestDayPage:
         assert res.status_code == 200
         assert "--accent" in res.text
 
+    def test_devices_are_a_list_not_a_run_of_text(self, client: TestClient) -> None:
+        """Each saved device is its own item, so a long list cannot wrap mid-name."""
+        html = client.get("/day/2026-09-11").text
+        assert "<li>UC_Amp4_IR_input</li>" in html
+        assert "UC_Amp4_IR_input," not in html  # the old comma-joined run
+
+    def test_a_short_device_list_stays_open(self, client: TestClient) -> None:
+        """One or two devices read fine inline; folding them would cost a click for nothing."""
+        html = client.get("/day/2026-09-11").text
+        assert '<details class="devlist" open>' in html
+
+    def test_a_long_device_list_is_folded(self, make_run) -> None:
+        """Past a few devices the list folds, and says how many it is holding."""
+        base = make_run(1)
+        folder = (
+            base / "Undulator" / "Y2026" / "09-Sep" / "26_0911" / "scans" / "Scan001"
+        )
+        for i in range(12):
+            (folder / f"UC_BCaveMagSpecCam{i}").mkdir()
+        html = (
+            TestClient(create_app("Undulator", base_directory=base))
+            .get("/day/2026-09-11")
+            .text
+        )
+        assert "<summary>12 saved</summary>" in html
+        assert '<details class="devlist" open>' not in html
+
+    def test_collapse_all_reaches_the_device_list(self, client: TestClient) -> None:
+        """Collapse all says every collapsible thing on the page; a new one has to join the selector."""
+        html = client.get("/day/2026-09-11").text
+        selector = re.search(r'querySelectorAll\("([^"]*details[^"]*)"\)', html)
+        assert selector, "no cards() selector on the page"
+        for kind in ("details.scan", "details.entry", "details.devlist"):
+            assert kind in selector.group(1), kind
+
     def test_small_day_opens_expanded(self, client: TestClient) -> None:
         """Under the threshold every scan block starts open."""
         html = client.get("/day/2026-09-11").text

@@ -4,6 +4,63 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+
+## [0.13.1] - 2026-09-21
+
+### Changed
+
+- `poetry.lock` relocked: the path dependencies' pinned versions had fallen
+  behind their packages (geecs-bluesky 0.94.0 → 0.97.1, geecs-schemas
+  0.29.0 → 0.31.0, geecs-core 0.8.2 → 0.8.3, geecs-data-utils 0.33.0 →
+  0.34.2). Editable installs imported the checkout's code regardless, so
+  nothing ran wrong, but `importlib.metadata` reported the stale numbers in
+  a freshly installed environment — a false "old version" readout during
+  the #944 deploy. Lock only; no dependency upgraded.
+- Loading a preset shows the top-level `trigger_profile`, never a copy in
+  `plan.kwargs`: the form used to display the kwargs copy as the effective
+  value, which was `setdefault`'s precedence in the expander — gone since
+  GeecsBluesky 0.97.1, where such a copy is refused. The two run-level
+  fields now load by the same rule (`native_image_save` already did), and
+  the save-path comment says what the expander does with a copy.
+
+## [0.13.0] - 2026-09-20
+
+### Added
+
+- **LabVIEW files** — a three-state select among the fields every scan
+  needs (`experiment default` / `on · PNGs beside the stack` / `off ·
+  plugin stacks only`), round-tripped as the preset's `native_image_save`
+  (PNG retirement, GEECS-Plugins#738). The visible control owns the value:
+  a copy an older preset carries in `plan.kwargs` is dropped on save, as
+  the trigger profile's is. The queue summary says `no LabVIEW files` when
+  an item switches them off; unset stays silent, since only the worker
+  knows the experiment default.
+
+## [0.12.0] - 2026-09-17
+
+### Changed
+
+- The add-device drawer is a multi-select: a click toggles a row, shift-click
+  takes the range, `Select all shown` takes the filtered list, and `Add`
+  commits them in one go. Adding twenty devices was twenty trips through the
+  drawer, which closed after every single pick.
+- The move panel's variable picker is an `<input>` over a `<datalist>` rather
+  than a bare `<select>`, so hundreds of numeric settables can be reached by
+  typing a fragment — the affordance the sweep composer's axis field already
+  had. `Move` is gated on a name the experiment actually has, so a typed
+  fragment cannot be submitted; surrounding whitespace, the wrong case and the
+  DB's alias all still resolve (a name pasted off a log line works, and so
+  does the alias the operator says out loud, when it names exactly one
+  settable), and only the canonical `Device:Variable` is ever sent.
+- New scan opens on the fields every scan type needs — shots per step, trigger
+  profile, shot period, description and the device table — with the editors
+  the mode buttons swap below a rule, under an eyebrow that names the current
+  mode. The fields an operator always fills no longer move when the mode
+  changes. Before a mode is chosen that half says what it is for rather than
+  standing empty, and the optimizer-availability notice moved above the split
+  — it is about which modes exist, not about the chosen plan. This reverses
+  the body ordering half of #896; the preset picker stays in the footer.
+
 ## [0.11.1] - 2026-09-16
 
 ### Changed

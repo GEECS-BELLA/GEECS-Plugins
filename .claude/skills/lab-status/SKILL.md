@@ -77,4 +77,5 @@ which runs this probe first as its gate.
 - `1129: Host '…' is blocked because of many connection errors` (console DB chip DOWN, GeecsDb errors) → the host block, not a network fault; something bare-probed the DB port from the VPN pool — the fleet-map admonition has the remedy.
 - Tiled `Connection refused` → service down on the box (network itself may be fine — check MySQL probe to distinguish).
 - `GeecsTriggerTimeoutError: no shot within N s` mid-scan → hardware state (laser/DG645), not code; do not retry unattended.
+- `<cam>-hdf-capture didn't match True in 10.0s … no frame from <cam> image within 8 s` at the **first prepare**, laser off → the PVA gateway holds no frame to arm on (`<image>:connected` reads `Idle`); not a code fault and not fixed by retrying — seed one frame per the recipe in `GeecsBluesky/qserver/README.md` § Troubleshooting (a monitor on the image + one single shot as two `mv` items), then rerun. Gated fails the same way.
 - aioca connect timeout on one specific PV → that PV may not exist (ghost DB row, wrong name) — run the gateway DB audit (`geecs-ca-gateway-audit`), not this skill.

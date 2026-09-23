@@ -308,3 +308,73 @@ class TestPalettes:
         fig = figures.shots_figure({"a": [1, 2, 3]}, ["a"])
         found = self._colours(fig)
         assert found and not any(c.startswith("$tok:") for c in found), found
+
+
+class TestTraceFigure:
+    """One shot of a captured trace — the Images tab's line renderer."""
+
+    def test_it_is_a_line_with_titled_axes_and_no_legend(self) -> None:
+        from geecs_portal import figures
+
+        fig = figures.trace_figure(
+            [0.0, 1e-9, 2e-9],
+            [0.1, 0.4, 0.2],
+            name="U_ICT",
+            x_title="Time (s)",
+            y_title="scopetrace_channel0",
+        )
+        payload = fig.to_plotly_json()
+        (trace,) = payload["data"]
+        assert trace["mode"] == "lines" and trace["name"] == "U_ICT"
+        layout = payload["layout"]
+        assert layout["xaxis"]["title"]["text"] == "Time (s)"
+        assert layout["yaxis"]["title"]["text"] == "scopetrace_channel0"
+        # One trace names itself in the hover; a legend would be furniture.
+        assert layout["showlegend"] is False
+
+    def test_an_unnamed_axis_claims_nothing(self) -> None:
+        """A spectrum's axis is device-specific — its units ride in the analyzer config."""
+        from geecs_portal import figures
+
+        layout = figures.trace_figure([0, 1], [1, 2]).to_plotly_json()["layout"]
+        assert layout["xaxis"]["title"]["text"] == ""
+        assert layout["yaxis"]["title"]["text"] == ""
+
+
+class TestFigureJsonSafety:
+    """A served figure must survive JSONResponse, whatever the data holds."""
+
+    def test_a_non_finite_sample_becomes_a_gap(self) -> None:
+        """NaN is a missing sample, and a missing sample is a gap in the line.
+
+        A lineout row keeps its place when only ONE of its two columns is
+        NaN — only an all-NaN row is padding — so partial gaps are normal
+        input, and `json.dumps` emits invalid JSON for them.
+        """
+        import math
+
+        from geecs_portal import figures
+
+        page = figures.page_figure(
+            figures.trace_figure(
+                [1.0, 2.0, 3.0],
+                [4.0, math.nan, math.inf],
+                palette=figures.THEMED_PALETTE,
+            )
+        )
+        assert page["data"][0]["y"] == [4.0, None, None]
+
+    def test_a_figure_with_gaps_serializes(self) -> None:
+        """The actual failure mode: Starlette refuses NaN with allow_nan=False."""
+        import math
+
+        from starlette.responses import JSONResponse
+
+        from geecs_portal import figures
+
+        page = figures.page_figure(
+            figures.trace_figure(
+                [1.0, 2.0], [3.0, math.nan], palette=figures.THEMED_PALETTE
+            )
+        )
+        JSONResponse(page)  # raises ValueError if a non-finite float survives
