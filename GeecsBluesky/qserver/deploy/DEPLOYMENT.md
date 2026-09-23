@@ -19,7 +19,7 @@ to reach:
 - the GEECS MySQL database,
 - the Tiled server when Tiled publishing is enabled,
 - the mounted GEECS data share used for scan-folder claim, ScanInfo writes,
-  native assets, and legacy s-file export.
+  native per-shot saves, and legacy s-file export.
 
 Install Python 3.11, Poetry, Redis, and a checkout of this repository:
 

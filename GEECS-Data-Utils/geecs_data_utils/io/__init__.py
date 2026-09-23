@@ -2,7 +2,7 @@
 
 This subpackage owns generic ``path -> numpy.ndarray`` file readers that are not
 tied to any analysis logic. They provide a shared foundation for ImageAnalysis,
-post-run analysis tools, and Bluesky external-asset handlers, none of which
+post-run analysis tools and the web surfaces, none of which
 should depend on the higher-level ``image_analysis`` package just to load a
 file from disk. It also provides :func:`decode_imaq_image_string`, which decodes
 an in-memory NI IMAQ "Flatten Image to String" payload received live over the

@@ -109,34 +109,6 @@ def device_server_save_path(save_path: str) -> str:
     return _translate_to(read_device_server_data_base_path(), save_path, "the device")
 
 
-def asset_resource_root_paths() -> tuple[str | None, str | None]:
-    """Return ``(canonical_root, local_root)`` for external asset docs."""
-    canonical_root = read_device_server_data_base_path()
-    if not canonical_root:
-        return None, None
-
-    local_root = read_local_data_base_path()
-    if local_root:
-        return canonical_root, local_root
-
-    try:
-        from geecs_data_utils import ScanPaths
-    except Exception:
-        logger.warning(
-            "Could not import geecs_data_utils; using scan-folder asset roots"
-        )
-        return None, None
-
-    paths_config = getattr(ScanPaths, "paths_config", None)
-    base_path = getattr(paths_config, "base_path", None)
-    if base_path is None:
-        logger.warning(
-            "ScanPaths.paths_config is not loaded; using scan-folder asset roots"
-        )
-        return None, None
-    return canonical_root, str(base_path)
-
-
 def read_plugin_data_base_path() -> str | None:
     """The data root as the camera servers' **file plugin** sees it.
 

@@ -6,7 +6,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
-## [0.99.1] - 2026-09-23
+## [0.100.0] - 2026-09-22
+
+### Removed
+
+- **`geecs_bluesky.assets` — the PNG-era external-asset machinery.** The
+  package described the files LabVIEW saves natively (per-devicetype specs,
+  path builders, `GeecsCameraImageHandler` / `GeecsTextArrayHandler`) and
+  synthesized `geecs://` Resource/Datum documents on the client so an
+  `event_model.Filler` could load them. The worker half of that design was
+  never built: **nothing in this package emits a Resource or Datum document**,
+  so the only documents the handlers ever filled were the ones the package
+  fabricated for itself. It had no importer outside its own tests.
+
+  What actually carries a natively saved file needs none of it: the device
+  server names the file, `GeecsDetector`'s `LvNativeFileDataLogic` records the
+  save directory as a per-event reading, and readers join rows to files by
+  stamp through `geecs_data_utils.native_files` (ScanAnalysis, the Data
+  Portal's shot viewer, the PVA gateway's dual-write `diff`). Formats with no
+  Python reader at all (HASO `.himg`) were never in the registry.
+
+  Deleted with it: `tests/test_assets.py`,
+  `tests/test_asset_device_types.py`, `tests/test_tiled_asset_readback.py`,
+  and the `notebooks/` directory, whose two notebooks demonstrated the
+  fill path and were its only other callers.
+
+- **`tiled_integration.prepare_descriptor_for_tiled`**, and the
+  `patches={"descriptor": ...}` argument that wired it into `TiledWriter`.
+  It rewrote data keys whose `source` began `geecs://` so Tiled would not
+  register them as external data sources. The deleted package was the only
+  producer of such a source — worker code emits `soft://` and `plan:` sources
+  and otherwise inherits the signal backend's — so the patch was a no-op on
+  every run. `subscribe_tiled` now constructs the stock `TiledWriter`.
+
+- **`data_paths.asset_resource_root_paths`** — computed the canonical/local
+  root pair for the external-asset documents. No caller, no test.
+
+### Changed
+
+- `CLAUDE.md` and `TILED_SETUP.md` no longer describe the removed package.
+  The Tiled document's "no server-side adapters" limitation was stale in a
+  way that mattered: the file plugin's HDF5 stacks **are** served, by Tiled's
+  stock adapter, verified on hardware 2026-09-11. It now says what is and is
+  not served, and what serving native per-shot files would actually require.
+
+## [0.99.1] - 2026-09-22
 
 ### Fixed
 
