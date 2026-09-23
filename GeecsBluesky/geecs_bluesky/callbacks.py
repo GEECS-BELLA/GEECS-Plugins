@@ -56,6 +56,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from geecs_data_utils.shot_join import SHOTS_STREAM
+from geecs_data_utils.tiled_schema import device_acq_timestamp_column
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import numpy as np
@@ -800,10 +801,17 @@ class StackCheckCallback(_StreamCallback):
         gated = str(start.get("acquisition") or "") == "gated"
         for stack in run.stacks.values():
             stream_rows = run.rows_by_seq(stack.stream)
-            column = f"{stack.data_key}-acq_timestamp"
+            # One device acquires once, so a second capture stream's frames
+            # are stamped by the DEVICE's acq_timestamp — there is no
+            # `<device>-<variable>-acq_timestamp` column and never was.
+            # The shared resolver strips the stream suffix (schema rule, one
+            # home); building the name here reported every second stream as
+            # "0 rows own a frame" against a column that cannot exist.
+            sample = next(iter(stream_rows.values()), {}) if stream_rows else {}
+            column = device_acq_timestamp_column(list(sample), stack.data_key)
             expected: list[float] | None = None
             shots: _ShotStamps | None = None
-            if stream_rows:
+            if stream_rows and column:
                 seqs = sorted({n for r in stack.seq_nums for n in r})
                 expected = [
                     float(stream_rows[n][column])

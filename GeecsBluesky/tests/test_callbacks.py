@@ -403,6 +403,87 @@ def test_stack_check_passes_when_frames_are_the_referenced_rows(tmp_path, caplog
     assert "INFO stack check: uc_cam: 2 frame(s)" in log
 
 
+def test_stack_check_resolves_a_second_streams_rows_by_the_device_column(
+    tmp_path, caplog
+):
+    """A device's SECOND capture stream has no stamp column of its own.
+
+    One device acquires once, so it publishes one ``acq_timestamp``; each
+    capture stream still writes its own sibling folder and carries its own
+    data key. Building the column from the data key looked for
+    ``u_bcaveict-scopetrace_channel1-acq_timestamp``, which cannot exist,
+    so every second stream was reported as "N frame(s) … but 0 row(s) own
+    a frame" while its data was perfect (live: 26_0922 Scan005, ten frames
+    per channel with identical stamps).
+    """
+    import logging as _logging
+
+    import h5py
+    import numpy as np
+
+    from geecs_bluesky.callbacks import StackCheckCallback
+    from geecs_data_utils.io.scan_stack import (
+        FRAMES_DATASET,
+        LABVIEW_EPOCH_OFFSET,
+        TIMESTAMPS_DATASET,
+    )
+
+    stamps = [100.0, 101.0]
+    scan_dir = tmp_path / "Scan009"
+    device_dir = scan_dir / "U_BCaveICT-scopeTrace.Channel1"
+    device_dir.mkdir(parents=True)
+    path = device_dir / "U_BCaveICT-scopeTrace.Channel1.h5"
+    with h5py.File(path, "w", libver="latest") as f:
+        f.create_dataset(FRAMES_DATASET, data=np.zeros((len(stamps), 4)))
+        f.create_dataset(TIMESTAMPS_DATASET, data=np.array(stamps))
+        f.attrs["finalized"] = True
+
+    cb = StackCheckCallback(finalize_timeout=1.0)
+    caplog.set_level(_logging.INFO, logger="geecs_bluesky.callbacks")
+    cb("start", {"uid": "run1", "scan_number": 9, "scan_folder": str(scan_dir)})
+    cb("descriptor", {"uid": "d1", "run_start": "run1", "name": "primary"})
+    cb(
+        "stream_resource",
+        {
+            "uid": "sr1",
+            "run_start": "run1",
+            "data_key": "u_bcaveict-scopetrace_channel1",
+            "mimetype": "application/x-hdf5",
+            "uri": path.as_uri().replace("file:///", "file://localhost/"),
+            "parameters": {"dataset": FRAMES_DATASET, "chunk_shape": (1, 4)},
+        },
+    )
+    for index, (seq, stamp) in enumerate(enumerate(stamps, start=1)):
+        # the row carries the DEVICE's column, the only one that exists
+        cb(
+            "event",
+            {
+                "descriptor": "d1",
+                "seq_num": seq,
+                "data": {"u_bcaveict-acq_timestamp": stamp + LABVIEW_EPOCH_OFFSET},
+            },
+        )
+        cb(
+            "stream_datum",
+            {
+                "stream_resource": "sr1",
+                "indices": {"start": index, "stop": index + 1},
+                "seq_nums": {"start": seq, "stop": seq + 1},
+            },
+        )
+    cb("stop", {"run_start": "run1", "exit_status": "success"})
+    cb.join(5.0)
+
+    said = [
+        r.getMessage()
+        for r in caplog.records
+        if "scopetrace_channel1" in r.getMessage()
+    ]
+    assert said, "the second stream was not checked at all"
+    assert "match the rows' stamps" in said[0], said
+    assert "0 row(s) own a frame" not in said[0], said
+
+
 def test_stack_check_flags_count_and_stamp_mismatches(tmp_path, caplog):
     count, _ = _feed_stack_run(
         tmp_path, [100.0, 101.0, 102.0], [(100.0, True), (102.0, True)], caplog

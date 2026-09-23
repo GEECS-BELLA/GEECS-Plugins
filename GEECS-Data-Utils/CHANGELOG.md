@@ -3,6 +3,26 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.1] - 2026-09-23
+
+### Fixed
+
+- **`tiled_schema.device_acq_timestamp_column` resolves a capture stream to
+  its device's column.** One device acquires once, so it publishes one
+  `acq_timestamp` — but each of its capture streams writes its own sibling
+  folder and carries its own data key
+  (`U_BCaveICT-scopeTrace.Channel1`). Asking for that stream's stamp column
+  exactly found nothing, because no such column exists or ever did. The
+  exact match is still tried first; only then are trailing `-<segment>`
+  parts dropped and retried.
+
+  Exact-first is what keeps it safe: a device whose *name* contains hyphens
+  (`pulsewire-ESP302-sensor`) matches whole on the first pass, and no device
+  name is a hyphen-prefix of another (checked against all 113 enabled
+  devices on the reference deployment), so a stripped stem cannot resolve to
+  a different device. A real per-stream column, where one exists, still
+  wins.
+
 ## [0.36.0] - 2026-09-21
 
 ### Added

@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.99.1] - 2026-09-23
+
+### Fixed
+
+- **The stack check no longer reports a device's second capture stream as
+  unattributed.** `StackCheckCallback` built the stamp column by
+  concatenation (`f"{data_key}-acq_timestamp"`), so for a second stream it
+  looked for `u_bcaveict-scopetrace_channel1-acq_timestamp` — a column that
+  cannot exist — and reported "N frame(s) … but 0 row(s) own a frame" while
+  the data was perfect. Found on hardware: 26_0922 Scan005 wrote ten frames
+  per Picoscope channel with identical stamps, and the first channel passed
+  only because its data key happens to equal the device name.
+
+  It now asks `tiled_schema.device_acq_timestamp_column` (GEECS-Data-Utils
+  0.36.1) — the one home of that rule. The concatenation was a private copy
+  of schema knowledge, which is how it drifted.
+
 ## [0.99.0] - 2026-09-21
 
 ### Added
