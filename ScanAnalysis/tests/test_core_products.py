@@ -206,8 +206,11 @@ def test_duplicate_unit_keys_are_not_silently_overwritten():
 
 @pytest.mark.parametrize("averaged", [False, True])
 def test_scanned_products_match_legacy_bin_adapter(averaged):
+    from image_analysis.config import create_image_analyzer
     from image_analysis.types import ImageAnalyzerResult
-    from scan_analysis.config import create_scan_analyzer
+    from scan_analysis.analyzers.common.array2D_scan_analysis import (
+        Array2DScanAnalyzer,
+    )
 
     doc = AnalysisDiagnostic.model_validate(
         {
@@ -218,7 +221,11 @@ def test_scanned_products_match_legacy_bin_adapter(averaged):
         }
     )
     outcomes = [outcome(n, n * 3) for n in ((3, 1, 2) if averaged else (5, 1, 3))]
-    old = create_scan_analyzer(doc)
+    old = Array2DScanAnalyzer(
+        device_name="Device",
+        image_analyzer=create_image_analyzer(doc),
+        analysis_mode=doc.scan.mode,
+    )
     old.auxiliary_data = rows()
     old.noscan = False
     old.scan_parameter = "motor"

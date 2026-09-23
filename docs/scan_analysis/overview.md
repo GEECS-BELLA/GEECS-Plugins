@@ -76,10 +76,13 @@ analyzers:
 ```
 
 `load_analysis_group` loads a group by path-key (`"HTU/baseline"`), resolves
-each ref to its diagnostic config, instantiates the right `ImageAnalyzer`,
-wraps it in the appropriate `ScanAnalyzer` (`Array2DScanAnalyzer` for
-camera configs, `Array1DScanAnalyzer` for line configs), and dispatches
-them per-scan according to their priorities.
+each ref to its diagnostic config, builds a `ScanAnalyzer` for each, and
+dispatches them per-scan according to their priorities. A recipe the
+`geecs_analysis` core can run (beam, line, standard and trace kinds with
+ported processing steps and no scan-context background) becomes a
+`CoreScanAnalyzer`; anything else instantiates the right `ImageAnalyzer`
+and wraps it in the legacy `Array2DScanAnalyzer` (camera configs) or
+`Array1DScanAnalyzer` (line configs). Both routes write the same files.
 
 Authoring these YAMLs by hand is fine;
 the **[config editor](../tutorials/analysis.md)** is the friendlier path.
@@ -122,8 +125,9 @@ scan_analysis/
 The Python group workflow: read a group YAML →
 `load_analysis_group` → resolves refs →
 `create_scan_analyzer(r.diagnostic, id=r.id, priority=r.priority)` builds
-each → `Array2DScanAnalyzer` (or 1D) wraps the underlying `ImageAnalyzer`
-→ `run_analysis(scan_tag)` does the work.
+each → a `CoreScanAnalyzer` on the analysis core, or `Array2DScanAnalyzer`
+(or 1D) wrapping the underlying `ImageAnalyzer` for recipes the core does
+not run yet → `run_analysis(scan_tag)` does the work.
 
 ---
 

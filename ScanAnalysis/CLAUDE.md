@@ -88,8 +88,10 @@ write failure never loses them, and the waterfall sort column resolves against
 the refreshed rows as the legacy wrapper did. Summary figures are labelled
 with the cleaned ScanInfo parameter, not the s-file column. `core_supports`
 is the routing predicate: compile only, no reads; scan-context backgrounds and
-unported kinds or steps stay on the legacy wrappers. The factory does not
-select this route yet. `tests/test_core_analyzer.py` runs both routes on
+unported kinds or steps stay on the legacy wrappers. `create_scan_analyzer`
+selects this route for every recipe `core_supports` accepts unless the caller
+passes `use_injected_data=True`; the legacy wrappers stay until the observation
+period ends. `tests/test_core_analyzer.py` runs both routes on
 synthetic beam, line, standard and trace scans and compares file lists, HDF5
 payloads, s-file columns, sidecars and the display-file list exactly, except
 noscan averages, where the legacy wrapper sums shots in directory-listing order
@@ -127,6 +129,21 @@ analyzers = [
 for a in analyzers:
     a.run_analysis(scan_tag)
 ```
+
+`create_scan_analyzer` has two routes behind one contract: a recipe that
+`core_supports` accepts becomes a `CoreScanAnalyzer` on `geecs_analysis`;
+anything else (unported kinds or steps, scan-context backgrounds, or
+`use_injected_data=True`) gets the legacy `Array1DScanAnalyzer` /
+`Array2DScanAnalyzer` wrapper around an ImageAnalysis analyzer. `route="legacy"`
+forces the wrapper for a supported recipe (the observation-period escape hatch
+and the comparison harness's oracle); `route="core"` forces the core and raises
+`UnsupportedRecipe` when it cannot run the recipe. Legacy runtime attributes
+assigned after construction (`background_source`, `flag_save_data`, `file_tail`)
+are inert on a `CoreScanAnalyzer`: its behaviour comes from its own copy of the
+document, so override the document, or ask for `route="legacy"`. Tests that pin
+the wrappers' kwargs mapping use `route="legacy"`; the auto-routing tests force
+the wrapper with a schema-valid feature the core refuses (a flip, or a
+preprocessing-only trace ROI).
 
 `discover_analyzers` delegates to `geecs_data_utils.analysis_configs`; group
 lookup remains here because group aliases have different rules.
@@ -273,6 +290,7 @@ reference example. The former `analyzer_config_models.py` +
 
 ```
 ScanAnalyzer  (base.py)
+  ├── CoreScanAnalyzer  (core_analyzer.py) — the geecs_analysis route
   ├── SingleDeviceScanAnalyzer  (single_device_scan_analyzer.py)
   │     ├── Array2DScanAnalyzer  (array2D_scan_analysis.py)
   │     │     └── HIMGWithAveraging  (Undulator/HIMG_with_average_saving.py)

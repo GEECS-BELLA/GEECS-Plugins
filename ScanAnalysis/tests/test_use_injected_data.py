@@ -76,7 +76,7 @@ class TestUseInjectedDataThroughDiagnosticFactory:
     def test_default_disk_backed_through_2d(self, fake_camera_diagnostic):
         from scan_analysis.config import create_scan_analyzer
 
-        sa = create_scan_analyzer(fake_camera_diagnostic)
+        sa = create_scan_analyzer(fake_camera_diagnostic, route="legacy")
         assert sa.use_injected_data is False
         assert sa.use_colon_scan_param is False
 

@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.32.2] - 2026-09-23
+
+### Changed
+
+- The real-factory test follows ScanAnalysis 1.33.0: a supported beam recipe
+  from the configs tree now builds a `CoreScanAnalyzer`, and the `scan.device`
+  override is read from its document. No runtime change.
+
 ## [0.32.1] - 2026-09-23
 
 ### Changed

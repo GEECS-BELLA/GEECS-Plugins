@@ -217,10 +217,21 @@ execution, preserving full-bin scalar propagation and bare core measurements.
 It snapshots grouping and names before execution; output sinks and the factory
 route remain to be connected.
 
-Still required for the first milestone: source
-and scan-runner adoption, compatible saved products, portal native trace input,
-archived scan/day output comparisons, operator figure review and live optimizer
-acceptance. Core support alone is not scan-route adoption.
+### Scan route adoption (2026-09-23)
+
+Products (#979), the sink with legacy names (#980), the `CoreScanAnalyzer`
+adapter behind the unchanged `ScanAnalyzer` contract (#981) and the factory
+route flip are on the integration branch. Every beam/line/standard/trace recipe
+the core compiles now runs on `geecs_analysis` for the portal's Analysis tab,
+MCP and the queue; scan-context backgrounds (the four HTT MagCam recipes),
+unported kinds and steps keep the legacy wrappers. A differential test runs
+both routes on synthetic scans and compares file lists, HDF5 payloads, s-file
+columns, sidecars and display files exactly (noscan averages within a few ulps:
+the legacy wrapper sums shots in directory-listing order).
+
+Still required for the first milestone: the same comparison on the archived
+canonical beam and MagSpec scans, portal native trace input, operator figure
+review and live optimizer acceptance.
 
 ## Decisions
 
