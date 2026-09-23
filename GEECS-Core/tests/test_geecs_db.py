@@ -501,10 +501,11 @@ def test_get_experiment_device_variables_batches_metadata(monkeypatch) -> None:
         "tolerance": 0.05,
         "description": "",
         "alias": "",
-        # These callers' SELECTs are the short form (no defaultvalue column),
-        # which the length guard reads as "" — only get_device_variables
-        # carries the configured value, and that is where the capture gate
-        # reads it (geecs_core.db.device_streams).
+        # BOTH getters carry the configured value — the capture gate reads
+        # it (geecs_core.db.device_streams), and the worker's roster comes
+        # from THIS batch call. Believing only get_device_variables carried
+        # it is what silently disabled every gated channel in production
+        # (review of #950).
         "defaultvalue": "0",
     }
     assert result["U_A"][1]["choices"] == "on,off"

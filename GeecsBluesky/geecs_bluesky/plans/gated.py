@@ -427,11 +427,12 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
     flyers :
         The non-essential detectors (plugin-backed: a device without a
         streamable provider fails ``kickoff`` loudly, "not streamable").
-        A flyer that is **not plugin-backed once staged** — a scope whose
-        every gated channel read off at stage — is not prepared, declared
-        or kicked off this run (bluesky refuses a flyer with nothing to
-        stream at ``declare_stream``); it is named in a WARNING and still
-        unstaged with the rest.
+        A flyer that is **not plugin-backed** — no file plugin at all, or a
+        gated devicetype whose every capture channel is disabled in the DB,
+        which leaves it with none — is not prepared, declared or kicked off
+        this run (bluesky refuses a flyer with nothing to stream at
+        ``declare_stream``); it is named in a WARNING and still unstaged
+        with the rest.
     """
     flyers = list(flyers)
     if not flyers:
