@@ -1,10 +1,9 @@
-r"""Local ↔ device-server data path mapping and asset roots.
+r"""Local ↔ device-server data path mapping.
 
 GEECS device servers see the shared data root at a Windows path (typically
 ``Z:\data``); the machine running scans sees it at a local mount.  These
 helpers translate scanner-owned save paths into the form devices need for
-``localsavingpath``, and resolve the canonical/local roots used by external
-asset Resource documents.  Config comes from
+``localsavingpath`` and for a file plugin's ``FilePath``.  Config comes from
 ``~/.config/geecs_python_api/config.ini`` ``[Paths]``.
 """
 
@@ -50,11 +49,6 @@ def _read_paths_entry(key: str) -> str | None:
 def read_device_server_data_base_path() -> str | None:
     """Read the data base path visible from GEECS device-server hosts."""
     return _read_paths_entry("geecs_device_server_data_base_path")
-
-
-def read_local_data_base_path() -> str | None:
-    """Read the scanner-local path for the shared GEECS data root."""
-    return _read_paths_entry("GEECS_DATA_LOCAL_BASE_PATH")
 
 
 def translate_save_path_for_device_server(

@@ -506,7 +506,7 @@ the RunEngine loop threads a test leaves behind (#812).
 
 - Re-derive the scan from a request worker-side (a second description).
 - Configure a device for a run from outside its lifecycle (a leak: #809's
-  saving-mode / save-path / asset-definition P1).  The run-level
+  saving-mode / save-path P1).  The run-level
   `native_image_save` property is the named exception (rule 2): a flag the
   lifecycle honours, not a PV write.
 - Read quiescence in a scan step — it costs the longest device timeout;

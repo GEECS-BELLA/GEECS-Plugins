@@ -19,10 +19,10 @@ like ``.png``, but compound tails are legal and must round-trip untouched).
 This module is the single source of truth for that contract.  Its consumers
 (keep this list current):
 
-Nothing *builds* these names: the GEECS device server does, and the worker
-only hands it a directory (``GeecsBluesky``'s ``LvNativeFileDataLogic``).
-Every consumer here is therefore a reader joining rows to files already on
-disk:
+No caller *decides* a filename: the GEECS device server does, and the worker
+only hands it a directory (``GeecsBluesky``'s ``LvNativeFileDataLogic``).  The
+builders below exist to reconstruct a name already on disk — to probe for it,
+or to match it — so every consumer is a reader joining rows to files:
 
 - ``scan_analysis.analyzers.common.single_device_scan_analyzer`` — the
   *reader* side: joins s-file rows to natively saved files through the

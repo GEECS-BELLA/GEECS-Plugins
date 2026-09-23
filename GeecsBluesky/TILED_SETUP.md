@@ -70,7 +70,7 @@ facts, both found by failure on the first run (Scan007 of 26_0911):
 
    then `sudo systemctl restart tiled`.  The check: a plugin-written run's
    array (`run[<device>]` through the same client pattern as
-   `tiled_readback.py`) reads back identical to `h5py` on the file.
+   `tiled_catalog.py`) reads back identical to `h5py` on the file.
 
 The Tiled server is pip-installed and unit-less as far as `deploy/` is
 concerned (no rendered unit, no `site.env` key), so these two settings
@@ -99,8 +99,7 @@ sudo systemctl start tiled
 Post-upgrade verification from any client: `/api/v1/` reports the new
 `library_version`; existing runs read back through
 `geecs_data_utils.tiled_catalog.read_primary_scalars(run["primary"])` —
-the pattern `tiled_catalog.py` / `tiled_export.py` / `tiled_readback.py`
-use: the composite node's `internal` table via `.base`, **never**
+the pattern `tiled_catalog.py` / `tiled_export.py` use: the composite node's `internal` table via `.base`, **never**
 `run["primary"].read()`, which downloads every camera stack and per-frame
 attribute array and outer-joins their dimensions (a two-camera plugin run
 took the worker host down, #834).  Ad-hoc `run["primary"]["data"]` does

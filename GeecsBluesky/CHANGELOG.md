@@ -15,9 +15,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   path builders, `GeecsCameraImageHandler` / `GeecsTextArrayHandler`) and
   synthesized `geecs://` Resource/Datum documents on the client so an
   `event_model.Filler` could load them. The worker half of that design was
-  never built: **nothing in this package emits a Resource or Datum document**,
-  so the only documents the handlers ever filled were the ones the package
-  fabricated for itself. It had no importer outside its own tests.
+  never built: **nothing in this package emits the legacy `Resource` /
+  `Datum` pair those handlers fill**, so the only such documents in existence
+  were the ones the package fabricated for itself. (The file plugin's stacks
+  travel as `StreamResource` / `StreamDatum` — a different pair, read by
+  Tiled's stock HDF5 adapter, and untouched here.) It had no importer outside
+  its own tests.
 
   What actually carries a natively saved file needs none of it: the device
   server names the file, `GeecsDetector`'s `LvNativeFileDataLogic` records the
@@ -40,7 +43,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   every run. `subscribe_tiled` now constructs the stock `TiledWriter`.
 
 - **`data_paths.asset_resource_root_paths`** — computed the canonical/local
-  root pair for the external-asset documents. No caller, no test.
+  root pair for the external-asset documents. No caller, no test. With it goes
+  `read_local_data_base_path`, its only reason to exist: a second reader of a
+  `[Paths]` key `geecs_data_utils` already owns, left with no caller once the
+  function above was gone. The live translation path takes that root from
+  `ScanPaths.paths_config.base_path` instead.
 
 ### Changed
 
