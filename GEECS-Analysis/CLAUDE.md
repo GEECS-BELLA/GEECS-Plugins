@@ -73,3 +73,17 @@ use the configured origin once even when ROI is inactive/repeated. Legacy
 float64 line result values reflect RMS negative clipping; float32 results do
 not. Preserve these values at the v2 boundary with private copies. Do not
 propagate these quirks into pure steps or general Frame semantics.
+
+## Rendering
+
+`render.single` / `render.waterfall` return matplotlib Figure objects; no
+pyplot and no file writes. Sources/runners own grouping, interpolation and
+averaging. Waterfall requires matching trace grids and units; positions are
+explicit coordinates, not inferred indices. Uniform images use imshow,
+nonuniform rectilinear images use pcolormesh with midpoint cell edges;
+nonmonotonic/duplicate image axes are refused. Both retain original samples.
+`render.specs.FigureSpec` remains numpy-free. Matplotlib kwargs are intentionally
+open-ended and validated by preview rendering, with RenderError at the layout
+boundary. Deep-copy kwargs before passing to matplotlib; normalization objects
+can be mutated by rendering. Preserve geometry rather than accepting arbitrary
+extent overrides. New overlay families must carry data, never render callbacks.

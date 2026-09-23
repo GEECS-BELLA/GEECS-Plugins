@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0] - 2026-09-23
+
+### Added
+- Matplotlib object-API single-frame and same-grid waterfall rendering without
+  pyplot or output writes, with calibrated coordinates and stable overlay ids.
+- Numpy-free FigureSpec with grouped matplotlib kwargs and typed preview errors.
+- Nonuniform image grids render with pcolormesh; ambiguous/nonmonotonic grids
+  and mismatched waterfall coordinates are explicitly rejected.
+
 ## [0.3.0] - 2026-09-23
 
 ### Added
