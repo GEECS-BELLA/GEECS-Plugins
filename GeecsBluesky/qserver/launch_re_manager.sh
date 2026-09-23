@@ -78,7 +78,7 @@ fi
 # sys.exit(1) unconditionally, so every clean `systemctl stop` logged
 # status=1/FAILURE. The launcher stays as the parent to tell a stop from a
 # crash: exit 1 AFTER a SIGTERM is the manager's normal shutdown and becomes
-# 0; every other status passes through, so a startup failure (which
+# 0 (as does dying of that SIGTERM, below); every other status passes through, so a startup failure (which
 # start_manager also reports as 1) still reads as a failure to
 # Restart=on-failure. A blanket SuccessExitStatus=1 in the unit would hide it.
 #
@@ -98,7 +98,11 @@ start-re-manager \
     --user-group-permissions "${PERMISSIONS_FILE}" \
     --keep-re \
     --zmq-publish-console ON || status=$?
-if (( received_term )) && (( status == 1 )); then
+# 143 = the manager died OF the SIGTERM (128+15): a stop that landed before
+# start_manager installed its handler, during the imports. Under exec that
+# was a signal death, which systemd counts as a clean stop; bash reports it
+# as 143, so it is mapped too.
+if (( received_term )) && (( status == 1 || status == 143 )); then
     status=0
 fi
 exit "${status}"

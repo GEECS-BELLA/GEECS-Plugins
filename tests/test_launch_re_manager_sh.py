@@ -40,12 +40,15 @@ LAUNCHER = (
 # The stub manager. STUB_MODE picks its behaviour:
 #   term:  run until SIGTERM, then "clean up" and exit 1 (upstream's AtTerm)
 #   term3: run until SIGTERM, then exit 3 (a stop that went wrong)
+#   early: no handler yet, so SIGTERM kills it (a stop during the imports,
+#          before start_manager installs AtTerm)
 #   crash: exit 1 at once (a startup failure: start_manager returns 1)
 STUB = """#!/usr/bin/env bash
 case "$STUB_MODE" in
     term)  trap 'sleep 0.2; exit 1' TERM ;;
     term3) trap 'exit 3' TERM ;;
     crash) exit 1 ;;
+    early) trap - TERM ;;
 esac
 : > "$STUB_READY"
 while :; do sleep 0.05; done
@@ -119,6 +122,12 @@ def test_other_status_after_stop_passes_through(tmp_path, redis_port):
     """Only 1 is upstream's normal-stop status; anything else stays visible."""
     proc, ready = _launch(tmp_path, "term3")
     assert _stop_like_systemd(proc, ready) == 3
+
+
+def test_stop_before_the_handler_is_installed_exits_zero(tmp_path, redis_port):
+    """Killed by the stop itself (143) is a clean stop, as it was under exec."""
+    proc, ready = _launch(tmp_path, "early")
+    assert _stop_like_systemd(proc, ready) == 0
 
 
 def test_startup_failure_still_fails(tmp_path, redis_port):

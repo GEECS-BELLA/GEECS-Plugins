@@ -15,7 +15,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   its own clean shutdown, and `launch_re_manager.sh` `exec`'d the manager,
   so every `systemctl stop`/`restart` left `status=1/FAILURE` in the
   journal. The launcher now keeps the manager as its foreground child and
-  maps exit 1 to 0 **only** when it received a SIGTERM; any other status
+  maps exit 1 to 0 **only** when it received a SIGTERM (and 143, the
+  manager dying of that SIGTERM before its handler is installed, which
+  systemd counted as clean under `exec`); any other status
   passes through, so a startup failure (also exit 1) still reaches
   `Restart=on-failure`. `geecs-qserver.service` states
   `KillMode=control-group` (the default) because the launcher relies on
