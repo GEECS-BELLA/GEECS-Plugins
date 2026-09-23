@@ -90,3 +90,34 @@ immutable-frame semantics. No schema file is rewritten.
 The migration harness accepts `capture --backend core` (legacy is the default)
 and compares these outputs against existing snapshots with exact equality.
 Readers and input fingerprints are identical for both backend paths.
+
+## Figures
+
+```python
+from geecs_analysis.render import single, waterfall
+from geecs_analysis.render.specs import FigureSpec
+
+figure = single(result, FigureSpec(
+    imshow={"cmap": "plasma"},
+    colorbar={"label": "counts"},
+    overlays={"com": {"marker": "+", "color": "cyan"}},
+))
+# The caller owns figure display/export; rendering never saves files.
+```
+
+FigureSpec groups matplotlib kwargs under `fig`, `axes`, `imshow`,
+`pcolormesh`, `plot`, `colorbar` and per-id `overlays`. Preview rendering
+validates these arguments and wraps drawing failures in RenderError.
+Use overlay `hidden: true` to omit it, or projection `scale` for its fraction
+of the displayed image. `colorbar.show: false` omits the colorbar.
+
+Images retain calibrated sample-center geometry. Uniform axes use `imshow`;
+nonuniform axes use midpoint cell edges and `pcolormesh`, with the respective
+keyword group (set common palette/limits in both groups if either is possible).
+Axes must be strictly monotonic; traces may retain arbitrary sample order.
+The image extent is derived from coordinates and cannot be overridden.
+
+`waterfall(frames, positions, style)` stacks already-grouped 1D frames at
+explicit shot/bin coordinates. All traces must share the exact x grid and
+units. It never silently resamples, bins or averages. Both layouts use fresh
+matplotlib Figure objects and are suitable for the portal's worker threads.
