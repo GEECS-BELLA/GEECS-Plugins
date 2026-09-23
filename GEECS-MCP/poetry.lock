@@ -1613,6 +1613,29 @@ test-full = ["adlfs", "aiohttp (!=4.0.0a0,!=4.0.0a1)", "backports-zstd ; python_
 tqdm = ["tqdm"]
 
 [[package]]
+name = "geecs-analysis"
+version = "0.7.0"
+description = "Pure frame processing and unified GEECS analysis"
+optional = true
+python-versions = ">=3.11,<3.12"
+groups = ["main"]
+markers = "extra == \"analysis-run\""
+files = []
+develop = true
+
+[package.dependencies]
+geecs-data-utils = {path = "../GEECS-Data-Utils", develop = true}
+geecs-schemas = {path = "../GEECS-Schemas", develop = true}
+matplotlib = "^3.10"
+numpy = ">=2.0,<3.0"
+pydantic = "^2.0"
+scipy = "^1.15"
+
+[package.source]
+type = "directory"
+url = "../GEECS-Analysis"
+
+[[package]]
 name = "geecs-bluesky"
 version = "0.101.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
@@ -5437,7 +5460,7 @@ files = [
 
 [[package]]
 name = "scananalysis"
-version = "1.26.1"
+version = "1.27.0"
 description = "Modules for performing analyses routines on full scans"
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -5447,6 +5470,7 @@ files = []
 develop = true
 
 [package.dependencies]
+geecs-analysis = {path = "../GEECS-Analysis", develop = true}
 geecs_data_utils = {path = "../GEECS-Data-Utils", develop = true}
 geecs-schemas = {path = "../GEECS-Schemas", develop = true}
 h5py = "^3.8.0"

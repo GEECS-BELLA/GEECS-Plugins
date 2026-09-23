@@ -210,7 +210,7 @@ GeecsLogbook         →  GEECS-Data-Utils (ScanPaths only — it reads scan
                         a peer VIEW LAYER of GEECS-DataPortal. Never
                         imports the portal, ScanAnalysis, or anything
                         Bluesky
-ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, GEECS-Schemas,
+ScanAnalysis         →  GEECS-Data-Utils, GEECS-Analysis, ImageAnalysis, GEECS-Schemas,
                         (+ fastapi/jinja2 via the
                         `editor` extra — scan_analysis.config_editor,
                         the web config editor router the portal mounts

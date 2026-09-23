@@ -4,6 +4,16 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [1.27.0] - 2026-09-23
+
+### Added
+
+- Shared preparation of v2 core recipes with file backgrounds loaded through
+  data-utils. Preserve constant fallback, duplicate steps, additional offsets
+  and device-directory placeholders without config mutation or file writes.
+  Preparation loads each background once per run; successful loads with bad
+  geometry remain errors. Scan-context aggregation stays on the legacy route.
+
 ## [1.26.1] - 2026-09-23
 
 ### Changed

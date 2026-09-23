@@ -169,6 +169,31 @@ config reads during evaluation. Active optimizer beam recipes fit this subset
 (including explicitly disabled transforms). Live optimization acceptance remains
 owed; portal routing, scan runners/sinks and retirement are still outstanding.
 
+### Consumer and input progress (2026-09-23)
+
+Portal processing and unsaved previews use the core for supported recipes;
+ConfigStore/editor and explicit scan execution remain intact. LiveWatch and
+Google Docs analysis integration are retired (#966). Circular masks and trace
+interpolation (#967), shared shot-file mapping (#968), and the approved BCave
+camera retirement (#969) are merged. The distinct `line` spectrum recipe and
+waterfall path remain supported. Pure loaded-frame bindings follow in #970.
+
+File-background source preparation preserves legacy constant fallback, offset
+order and device-directory placeholder semantics without mutating configs or
+writing files. The updated corpus check validates all 50 documents and compiles
+30 of 37 beam/line recipes with this opt-in; the seven remaining VISA recipes
+also need crosshair masking, and three need image rotation. A per-step census
+found these behind the initial background refusal. The two newly compiled
+recipes match all pixels and 36 finite scalars
+on one canonical archived beam image using fallback backgrounds. This tests
+recipe behavior, not acquisition-specific physics or actual saved dark files.
+Synthetic saved-background tests separately cover successful loads and failures.
+
+Still required for the first milestone: those remaining pipeline steps, source
+and scan-runner adoption, compatible saved products, portal native trace input,
+archived scan/day output comparisons, operator figure review and live optimizer
+acceptance. Core support alone is not scan-route adoption.
+
 ## Decisions
 
 | Topic | Status | Where we landed |

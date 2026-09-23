@@ -157,3 +157,67 @@ def test_trace_preview_retains_physical_axis_and_never_mutates_input():
     )
     assert "MeV" in figure.axes[0].get_xlabel()
     np.testing.assert_array_equal(data, before)
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_file_background_processing_and_unsaved_preview_use_core(
+    recipe_tree, monkeypatch, available
+):
+    root, path, document = recipe_tree
+    background_path = root / "dark.npy"
+    if available:
+        np.save(background_path, np.full((20, 20), 7))
+    document["image"]["pipeline"] = ["background", "roi"]
+    document["image"]["background"] = {
+        "method": "from_file",
+        "file_path": str(background_path),
+        "constant_level": 11,
+        "additional_constant": 2,
+    }
+    path.write_text(yaml.safe_dump(document))
+    before = path.read_bytes()
+    imported = builtins.__import__
+
+    def without_legacy(name, *args, **kwargs):
+        if name.startswith("image_analysis"):
+            raise AssertionError("file background imported legacy analysis")
+        return imported(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_legacy)
+    data = np.arange(400, dtype=np.uint16).reshape(20, 20)
+    expected = data[3:17, 2:15].astype(float) - (9 if available else 13)
+    arrays = processing.process_images("beam", [data, data], config_dir=root)
+    for array in arrays:
+        np.testing.assert_array_equal(array, expected)
+    document["image"]["background"]["additional_constant"] = 4
+    (figure,) = processing.render_document_ephemeral(
+        AnalysisDiagnostic.model_validate(document), [data]
+    )
+    np.testing.assert_array_equal(figure.axes[0].images[0].get_array(), expected - 2)
+    assert path.read_bytes() == before
+
+
+def test_file_background_geometry_error_does_not_retry_legacy(recipe_tree, monkeypatch):
+    from image_analysis import ephemeral
+
+    root, path, document = recipe_tree
+    background_path = root / "wrong-shape.npy"
+    np.save(background_path, np.ones((1, 1)))
+    document["image"]["background"] = {
+        "method": "from_file",
+        "file_path": str(background_path),
+        "constant_level": 11,
+    }
+    path.write_text(yaml.safe_dump(document))
+
+    def forbid_retry(*args, **kwargs):
+        raise AssertionError("unexpected legacy retry")
+
+    monkeypatch.setattr(ephemeral, "run_document_ephemeral", forbid_retry)
+    monkeypatch.setattr(ephemeral, "render_document_ephemeral", forbid_retry)
+    with pytest.raises(ValueError, match="shape"):
+        processing.process_images("beam", [np.ones((20, 20))], config_dir=root)
+    with pytest.raises(ValueError, match="shape"):
+        processing.render_document_ephemeral(
+            AnalysisDiagnostic.model_validate(document), [np.ones((20, 20))]
+        )

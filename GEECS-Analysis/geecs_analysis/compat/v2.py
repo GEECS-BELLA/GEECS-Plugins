@@ -9,7 +9,7 @@ and the legacy beam ROI-origin convention (even for inactive/repeated ROIs).
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Mapping
 
 from geecs_schemas.analysis import AnalysisDiagnostic
 from geecs_schemas.analysis.processing_1d import Line1DConfig
@@ -18,9 +18,11 @@ from geecs_schemas.analysis.processing_2d import CameraConfig
 from geecs_analysis.measures.beam import BeamSpec
 from geecs_analysis.measures.line import LineSpec
 from geecs_analysis.measures.none import NoneSpec
-from geecs_analysis.registry import StepSpec, definition, measure_definition
+from geecs_analysis.pipeline import apply_step, bind_inputs
+from geecs_analysis.registry import StepSpec, measure_definition
 from geecs_analysis.specs import Analysis
 from geecs_analysis.steps.background_constant import BackgroundConstantSpec
+from geecs_analysis.steps.background_frame import BackgroundFrameSpec
 from geecs_analysis.steps.circular_mask import CircularMaskSpec
 from geecs_analysis.steps.clip_above import ClipAboveSpec
 from geecs_analysis.steps.clip_below import ClipBelowSpec
@@ -32,12 +34,21 @@ from geecs_analysis.steps.zero_below import ZeroBelowSpec
 
 if TYPE_CHECKING:
     import numpy as np
-    from geecs_data_utils.frames import ShotMeta
+    from geecs_data_utils.frames import Frame, ShotMeta
     from geecs_analysis.measurement import Measurement
 
 
 class UnsupportedRecipe(ValueError):
     """The v2 recipe needs a capability not yet ported to the new core."""
+
+
+@dataclass(frozen=True)
+class FileBackground:
+    """A source-layer request; the core never opens or resolves this path."""
+
+    key: str
+    path: str
+    fallback_level: float
 
 
 @dataclass(frozen=True)
@@ -56,9 +67,12 @@ class V2Recipe:
     y_unit: str = ""
     label: str = ""
     camera_origin: tuple[int, int] = (0, 0)
+    file_backgrounds: tuple[FileBackground, ...] = ()
 
 
-def compile_v2(document: AnalysisDiagnostic) -> V2Recipe:
+def compile_v2(
+    document: AnalysisDiagnostic, *, allow_file_backgrounds: bool = False
+) -> V2Recipe:
     """Translate supported beam/line/standard/trace recipes, without file access.
 
     Currently covers constant backgrounds, ROI, circular masks, trace interpolation,
@@ -68,6 +82,8 @@ def compile_v2(document: AnalysisDiagnostic) -> V2Recipe:
     storage float32/float64. Other active features are refused before execution.
     Preprocessing-only trace ROIs remain unported because empty legacy outputs
     cannot be represented by Frame. Inactive sections are ignored as before.
+    File backgrounds require explicit source-layer opt-in; the compiled recipe
+    then declares requests and expects loaded Frame inputs at execution time.
     """
     kind = document.analyzer.kind
     if kind not in {"beam", "line", "standard", "trace"}:
@@ -95,7 +111,9 @@ def compile_v2(document: AnalysisDiagnostic) -> V2Recipe:
         if section is None:
             continue
         steps.extend(
-            _camera_steps(name.value, config)
+            _camera_steps(
+                name.value, config, allow_file_backgrounds=allow_file_backgrounds
+            )
             if isinstance(config, CameraConfig)
             else _line_steps(name.value, config)
         )
@@ -119,7 +137,17 @@ def compile_v2(document: AnalysisDiagnostic) -> V2Recipe:
         origin = (
             (config.roi.y_min, config.roi.x_min) if config.roi is not None else (0, 0)
         )
-        return V2Recipe(**common, camera_origin=origin)
+        requests = ()
+        if any(isinstance(spec, BackgroundFrameSpec) for spec in steps):
+            background = config.background
+            requests = (
+                FileBackground(
+                    key="camera_background",
+                    path=str(background.file_path),
+                    fallback_level=background.constant_level,
+                ),
+            )
+        return V2Recipe(**common, camera_origin=origin, file_backgrounds=requests)
     if config.processing_dtype != "float64" or config.storage_dtype not in {
         "float32",
         "float64",
@@ -138,7 +166,9 @@ def compile_v2(document: AnalysisDiagnostic) -> V2Recipe:
     )
 
 
-def _camera_steps(name: str, config: CameraConfig) -> list[StepSpec]:
+def _camera_steps(
+    name: str, config: CameraConfig, *, allow_file_backgrounds: bool
+) -> list[StepSpec]:
     section = getattr(config, name)
     if name == "transforms" and (
         section.rotation_angle == 0
@@ -148,9 +178,15 @@ def _camera_steps(name: str, config: CameraConfig) -> list[StepSpec]:
     ):
         return []
     if name == "background":
-        if section.method not in {None, "constant"}:
+        if section.method not in {None, "constant"} and not (
+            section.method == "from_file" and allow_file_backgrounds
+        ):
             raise UnsupportedRecipe(f"Camera background not ported: {section.method}")
         steps = []
+        if section.method == "from_file":
+            steps.append(
+                BackgroundFrameSpec(source="camera_background", alignment="samples")
+            )
         if section.method == "constant" and section.constant_level > 0:
             steps.append(BackgroundConstantSpec(level=section.constant_level))
         if section.additional_constant != 0:
@@ -228,7 +264,11 @@ def _line_steps(name: str, config: Line1DConfig) -> list[StepSpec]:
 
 
 def analyze_v2(
-    data: np.ndarray, recipe: V2Recipe, *, shot: ShotMeta | None = None
+    data: np.ndarray,
+    recipe: V2Recipe,
+    *,
+    shot: ShotMeta | None = None,
+    inputs: Mapping[str, Frame] | None = None,
 ) -> Measurement:
     """Run already-loaded raw samples with legacy scaling/rounding conventions.
 
@@ -239,6 +279,7 @@ def analyze_v2(
     import numpy as np
     from geecs_data_utils.frames import Axis, Frame
 
+    bound = bind_inputs(recipe.analysis.steps, inputs)
     if recipe.input_kind == "camera":
         if data.ndim != 2:
             raise ValueError("Camera input must be HxW")
@@ -265,7 +306,7 @@ def analyze_v2(
                 for (lo, hi), size in zip(spec.bounds, frame.data.shape, strict=True)
             ):
                 continue
-        frame = definition(spec).function(frame, spec)
+        frame = apply_step(frame, spec, inputs=bound)
     if recipe.input_kind == "line":
         # Legacy rounds coordinates AND samples before calculating statistics.
         stored = frame.as_trace().astype(recipe.storage_dtype)

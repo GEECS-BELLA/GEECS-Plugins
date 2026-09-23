@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.32.0] - 2026-09-23
+
+### Changed
+
+- Camera file-background processing and unsaved previews now use the new core
+  through shared source preparation, preserving load-failure fallback and
+  explicit geometry errors. Backgrounds are snapshotted once per request.
+
 ## [0.31.0] - 2026-09-23
 
 ### Changed

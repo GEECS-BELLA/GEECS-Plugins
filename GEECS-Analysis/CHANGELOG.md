@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0] - 2026-09-23
+
+### Added
+
+- Explicit source-host opt-in for v2 camera file-background requests and loaded
+  frame bindings during v2 execution. Default compilation still rejects these
+  recipes before live acquisition; no readers or fallback are added to the core.
+
 ## [0.6.0] - 2026-09-23
 
 ### Added
