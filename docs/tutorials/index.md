@@ -21,8 +21,8 @@ first — toolchain, config file, and a smoke test.
     ---
 
     Build a per-camera analyzer config in the web config editor, add it to a
-    group, run that group on a real scan via LiveWatch. Lands summary
-    figures and (optionally) e-log uploads.
+    group, and run analysis on a completed scan from the data portal.
+    Inspect the saved scalars and summary figures.
 
     [:octicons-arrow-right-24: Analysis tutorial](analysis.md)
 

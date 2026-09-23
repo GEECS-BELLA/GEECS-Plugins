@@ -91,7 +91,7 @@ class LoadedAnalysisGroup(BaseModel):
     description : str, optional
         Free-text description from the group config.
     upload_to_scanlog : bool
-        Whether the runner should upload outputs to the scan log.
+        Retired upload flag; retained for config compatibility and ignored.
     analyzers : list of ResolvedDiagnosticConfig
         Diagnostics referenced by the group, in execution order. Sorted
         by effective priority ascending. Entries whose group reference

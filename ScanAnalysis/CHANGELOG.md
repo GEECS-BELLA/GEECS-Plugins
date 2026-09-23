@@ -4,6 +4,12 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [1.26.0] - 2026-09-23
+
+### Removed
+
+- LiveWatchGUI, LiveTaskRunner and Google Docs upload execution, including Qt, watchdog and LogMaker dependencies. Explicit queue/status APIs, groups, ConfigStore and the portal editor remain; retired upload fields are hidden without discarding existing values.
+
 ## [1.25.1] - 2026-09-23
 
 ### Changed

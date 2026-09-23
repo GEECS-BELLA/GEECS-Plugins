@@ -291,3 +291,47 @@ class TestSidebarCollapseState:
             "(rememberOpen('group', true), openState())",
             stored='["analyzer", "group/HTU"]',
         ) == {"group": True}
+
+
+@pytest.mark.parametrize("kind, value", [("analyzer", 2), ("group", False)])
+def test_retired_upload_fields_are_hidden_and_preserved(kind, value):
+    """Run the actual object form: no upload control, no loss on save."""
+    from geecs_web_theme.testing import node_available
+
+    if not node_available():
+        pytest.skip("node not available to run JavaScript")
+    schema = ConfigStore.schema(kind)
+    if kind == "analyzer":
+        schema = schema["$defs"]["ScanRuntime"]
+        key = "gdoc_slot"
+    else:
+        key = "upload_to_scanlog"
+    field = schema["properties"][key]
+    assert field["deprecated"] is True
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "scan_analysis/config_editor/static/editor.js"
+    ).read_text()
+    start = source.index("    object(n, value, path, optional, opts) {")
+    end = source.index("    renderOptionalSection(", start)
+    method = source[start:end]
+    harness = (
+        """
+const el = () => ({append() {}});
+const form = {
+  schema: {
+    unwrapOptional: n => ({inner: n}),
+    kindOf: () => 'number',
+  },
+  render() { throw Error('Retired field was rendered'); },
+"""
+        + method
+        + "};\n"
+    )
+    harness += "const schema = " + json.dumps({"properties": {key: field}}) + ";\n"
+    harness += "const doc = " + json.dumps({key: value}) + ";\n"
+    harness += "console.log(JSON.stringify([form.object(schema, doc, [], false).get(), form.object(schema, {}, [], false).get()]));"
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    assert json.loads(result.stdout) == [{key: value}, {}]

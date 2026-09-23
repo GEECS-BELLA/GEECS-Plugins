@@ -236,6 +236,11 @@
       const skip = (opts && opts.skip) || new Set();
       for (const [key, sub] of Object.entries(props)) {
         if (skip.has(key)) continue;
+        // Retired config fields remain round-trippable without offering controls.
+        if (sub.deprecated) {
+          children.push([key, { get: () => value == null ? undefined : value[key] }]);
+          continue;
+        }
         const r = this.render(sub, value && value[key] !== undefined ? value[key] : undefined, path.concat(key));
         if (r.node) body.append(r.node);
         children.push([key, r]);

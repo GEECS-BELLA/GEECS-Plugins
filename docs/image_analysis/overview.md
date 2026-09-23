@@ -4,7 +4,7 @@ The Image Analysis package provides per-shot processing and analysis for
 camera images and 1D signal traces. A diagnostic is described entirely by a
 typed YAML config — what to subtract, where to crop, what to threshold, what
 analyzer to run — and the same config drives both interactive notebook use
-and the automated `LiveWatch` runner that processes scans as they complete.
+and explicit scan runs in the data portal.
 
 The framework is generic enough to wrap any 2D array (standard camera
 frames, HASO wavefront-sensor `.himg` files, …) and any 1D signal (ICT
@@ -12,7 +12,7 @@ traces, scope captures, FROG spectra).
 
 The fastest way to see it in action is the
 [Analysis tutorial](../tutorials/analysis.md), which walks the canonical
-config editor → group → LiveWatch loop end to end.
+config editor → preview → explicit run loop end to end.
 
 ---
 
@@ -166,7 +166,7 @@ metadata.
 ## See also
 
 - The [Analysis tutorial](../tutorials/analysis.md) — how the config editor
-  edits these configs and LiveWatch dispatches them at scan time.
+  edits these configs and the data portal runs them on request.
 - [Scan Analysis overview](../scan_analysis/overview.md) — how a
   diagnostic config is wrapped into a per-scan workflow (binning,
   summary figures, s-file appending).

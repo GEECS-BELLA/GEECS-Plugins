@@ -43,7 +43,6 @@ from geecs_data_utils.config_roots import (
     image_analysis_config,
     scan_analysis_config,
 )
-from geecs_data_utils.doc_id_lookup import DocIDLookup, EXPERIMENT_FILE_IDS
 from geecs_data_utils.scan_log_loader import (
     LogEntry,
     Severity,
@@ -96,8 +95,6 @@ __all__ = [
     "ConfigDirManager",
     "image_analysis_config",
     "scan_analysis_config",
-    "DocIDLookup",
-    "EXPERIMENT_FILE_IDS",
     # scan log loader
     "LogEntry",
     "Severity",

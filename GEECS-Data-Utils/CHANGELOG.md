@@ -3,6 +3,12 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.39.0] - 2026-09-23
+
+### Removed
+
+- The LiveWatch-only Google Doc ID lookup helper and its package exports.
+
 ## [0.38.0] - 2026-09-23
 
 ### Added

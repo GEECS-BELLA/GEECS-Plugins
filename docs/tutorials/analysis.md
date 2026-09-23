@@ -1,239 +1,89 @@
-# Tutorial — Configure & Run Live Analysis
+# Configure and run analysis
 
-This tutorial walks the full GEECS-Plugins analysis loop end to end, using
-only the GUIs. By the end you'll have:
+Use the data portal to edit a diagnostic, preview it on a recorded shot,
+and explicitly run it on a completed scan. This workflow needs the portal's
+`analysis` extra, a configured analysis-configs repository, and readable scan
+data. The operator's scan must already exist; analysis never creates it.
 
-1. Tuned a per-camera analyzer config in the **web config editor**, watching
-   the result on a real shot
-2. Added it to a group config that LiveWatch can dispatch
-3. Run that group against a real scan with **LiveWatch**
+## 1. Open a recorded scan
 
-It's the canonical workflow most users adopt for live shift analysis. No
-Python required.
+Open the data portal, select a day and scan, and inspect a camera image.
+The portal resolves the data share and configs from the site's configuration.
+See [Getting started](getting_started.md) for the path settings.
 
-## Before you start
+Select the processing diagnostic for that camera. Use **edit configs** to
+open the editor with that scan's current shot as its preview input.
 
-You should already have:
+## 2. Edit and preview a diagnostic
 
-- **`~/.config/geecs_python_api/config.ini`** set up. Copy from a working
-  teammate if needed — the full key-by-key reference (and how to create it
-  from scratch) is in [Getting started](getting_started.md).
-  Minimal contents look like:
+Diagnostic YAML documents live under `scan_analysis_configs/analyzers/` in
+the configs repository. Each document specifies:
 
-    ```ini
-    [Paths]
-    geecs_data = Z:\path\to\experiment\user data
-    scan_analysis_configs_path = Z:\path\to\GEECS-Plugins-Configs\scan_analysis_configs
-    image_analysis_configs_path = Z:\path\to\GEECS-Plugins-Configs\image_analysis_configs
+- `name`: the device/channel used to locate input data.
+- `analyzer`: the analysis kind and its parameters, such as `beam` or `line`.
+- `image`: camera or line processing, including ROI, background, and filters.
+- `scan`: execution mode, output saving, and renderer options.
 
-    [Experiment]
-    expt = Undulator
-    rep_rate_hz = 1
-    ```
+Edit the fields, then use **preview** to inspect the **unsaved** document on
+the selected shot. Preview does not write scan outputs or save the config.
+The editor reports validation errors before saving. Save when the preview
+and parameters are correct. A stale-file conflict means someone else changed
+the config; reload and reconcile the changes before trying again.
 
-    LiveWatch resolves data paths from this file: `geecs_data` is the
-    experiment data root it walks looking for new scan folders, and
-    `scan_analysis_configs_path` is what its **Analyzer Group** dropdown
-    discovers groups from.
+Supported beam/line previews and image processing use `geecs-analysis`.
+Recipes not yet ported use the existing ImageAnalysis implementation.
+Vendor analyzers still require their corresponding host libraries.
 
-- A **scan_analysis_configs/** directory checked out and writable. This
-  usually lives in the sister `GEECS-Plugins-Configs` repo alongside this
-  one.
-- At least one **completed scan folder** under the data root for whatever
-  date you want LiveWatch to process. If you don't have one handy, use a
-  previous day's folder — LiveWatch can back-date freely.
+## 3. Run analysis explicitly
 
-If those three are in place, you're ready.
+Return to the scan's **Analysis** tab, select the diagnostic, and run it.
+The run uses the saved configuration. Inspect the returned status and saved
+figures, then compare the derived scalar columns with the expected result.
 
-## 1. Author the analyzer config
+`scan.mode: per_shot` analyzes each shot before aggregating results.
+`scan.mode: per_bin` averages raw frames within each bin before analysis.
+These modes can give different answers for nonlinear measurements; choose
+the mode that matches the diagnostic's intended measurement.
 
-The config editor is part of the data portal (the scan browser on the worker
-host, port 8200). Open a recent scan of the camera you want to tune, switch
-to its **Analysis** tab and click **edit** next to the diagnostic. The editor
-opens in a drawer over the scan page, with a **preview** of that diagnostic
-rendered on the drawer's device and shot.
+Saved outputs live in the day's `analysis/ScanNNN/` tree. Derived scalars
+are added to the analysis s-file. `output_name` controls the output prefix;
+`metric_suffix` affects scalar keys only. Raw acquisitions remain inputs.
 
-There is also a full-page form — the portal's **edit configs** link — for
-working through several diagnostics without a scan open. (On a laptop with
-a clone of the configs repo, edit the YAML in your editor and commit; there
-is no standalone editor process.)
+## Groups and Python runs
 
-Either way the form is generated from the diagnostic schema, so every field
-carries its description. The key sections of a diagnostic:
-
-- **`name`**, `output_name`, `description` — which device folder is analyzed
-  and what the outputs are called.
-- **`analyzer`** — `kind` picks the analyzer (`beam`, `standard`, `magspec`,
-  …) and the form swaps in that kind's parameters. There are no class paths
-  and no free-form `kwargs`: every parameter is typed.
-- **`image`** — the per-shot processing. `type: camera` is the 2D pipeline,
-  `type: line` the 1D one. Each step (ROI, background, thresholding, …) is a
-  section you tick on, **and** an entry in the ordered `pipeline` list — a
-  step runs only if it is listed there.
-- **`scan`** — how ScanAnalysis invokes it: priority, mode (`per_shot` vs
-  `per_bin`), the Google Doc slot, renderer cosmetics.
-
-Edit any field. The validator runs as you type; the YAML pane on the right
-shows exactly what will be written, and the **preview** button (or **auto**)
-re-renders the current shot through the unsaved document — dial an ROI in
-here, not by saving and re-running.
-
-A representative camera-analyzer YAML looks like:
+Groups remain useful for explicit Python and MCP runs. A group document
+under `scan_analysis_configs/groups/` names diagnostics by filename stem:
 
 ```yaml
-schema_version: 2
-name: UC_TopView
-analyzer:
-  kind: beam
-image:
-  type: camera
-  bit_depth: 16
-  roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
-  background: {method: constant, constant_level: 5.0}
-  thresholding: {method: constant, value: 0.0, mode: to_zero}
-  pipeline: [background, roi, thresholding]
-scan:
-  priority: 50
-  mode: per_shot
-```
-
-**Save** writes the file into the configs tree on the share (the portal's
-`--processing-configs` root) in canonical form. It is a normal uncommitted
-change in that checkout — commit it when you are happy with it. The
-Analysis tab picks the new configuration up immediately.
-
-## 2. Add the analyzer to a group
-
-Groups are the unit LiveWatch dispatches. A group is a named list of
-analyzer refs, each optionally overridden per-group.
-
-In the standalone editor page, pick a group under `groups/` (e.g.
-`HTU/baseline.yaml`). The group form shows:
-
-- **`name`** and **`description`** — the group's human-readable identity.
-- **`upload_to_scanlog`** — when ticked, each member's display files go to
-  the Google Doc e-log on completion.
-- **`analyzers`** — the roster. Each entry is a diagnostic id (with
-  type-ahead over every analyzer in the tree) and an optional per-group
-  `priority` override; unknown ids are flagged before you can save.
-
-Save the group when you're done.
-
-A representative group YAML reads:
-
-```yaml
-name: HTU_baseline
-description: standard HTU shift analysis
-upload_to_scanlog: true
+name: example_baseline
 analyzers:
-  - Amp4Input
-  - Amp4Output
-  - UC_TopView
-  - {ref: GaiaMode, priority: 5}     # explicitly bumped vs the bare entry below
+  - camera_beam
+  - {ref: spectrum_line, priority: 5}
+  - {ref: spare_camera, enabled: false}
 ```
 
-The bare-string form `UC_TopView` and the dict form `{ref: Foo, priority: N}`
-both work; the editor preserves whichever you used.
+Given your existing `scan_tag` and configs root, load and run the group:
 
-## 3. Run the group with LiveWatch
+```python
+from scan_analysis.config import load_analysis_group, create_scan_analyzer
 
-Launch LiveWatch:
-
-```bash
-poetry run python ScanAnalysis/LiveWatchGUI/main.py
+# scan_tag identifies an existing scan; config_dir is the configs root.
+group = load_analysis_group("example_baseline", config_dir=config_dir)
+for resolved in group.analyzers:
+    analyzer = create_scan_analyzer(
+        resolved.diagnostic, id=resolved.id, priority=resolved.priority
+    )
+    display_files = analyzer.run_analysis(scan_tag)
 ```
 
-The main window fills in defaults from your `config.ini`:
+Use the actual group filename stem in place of `example_baseline`.
+The [Scan Analysis overview](../scan_analysis/overview.md) explains the
+factory, queue, output contract, and custom analyzers.
 
-![LiveWatch with HTU/baseline selected as the analyzer group, the scan
-config dir auto-detected, and today's date](
-assets/livewatch_02_group_selected.png)
+## Retired features
 
-Field-by-field for our purpose:
-
-1. **Experiment (for Google Docs)** — leave at `Undulator` (or whichever
-   experiment matches the group you're about to run; `(none)` to disable
-   e-log upload entirely).
-2. **Namespace** — `(all)` shows every group; pick a namespace to filter.
-3. **Analyzer Group** — pick the group you just edited (e.g.
-   `HTU/baseline`). The dropdown auto-populates from
-   `scan_analysis_configs/groups/`.
-4. **Date** — defaults to today. Back-date if you want to reprocess a
-   previous day.
-5. **Start Scan #** — `0` for "every scan from the start of the day,"
-   otherwise the first scan number to consider.
-6. **Enable GDoc Upload** — only when you actually want results in the
-   e-log.
-
-### Sanity-check with a dry run
-
-Before letting it loose on real data, tick **Dry Run** in the Runtime
-Options box and click **▶ Start**. The runner walks the day's scans and
-reports what it *would* dispatch for each, without running anything. The
-log panel shows you exactly which analyzers got matched to which scans.
-
-Look at the output. If a scan that should be processed is being skipped,
-the log tells you why (already completed, marked failed, no matching
-device, etc.). When the dry run is clean, untick **Dry Run** and Start
-again — this time for real.
-
-### Watching it work
-
-While the runner is alive, the status pip flips to `Running` (green) and
-the log panel streams the runner's logs:
-
-- Discovery: which scans match the date / start-number filter.
-- Dispatch: which analyzers from the group are being kicked off for each
-  scan.
-- Completion: each analyzer's exit state and the display files it
-  produced.
-
-For per-task detail, click **Status…** to open the per-scan, per-analyzer
-grid. Failures show their traceback inline.
-
-When everything's been processed, the runner idles, watching for new
-scans. Stop it with **⏹ Stop** (replaces Start while running).
-
-## 4. Where the output lives
-
-LiveWatch writes results into a sibling `analysis/` tree next to
-`scans/`:
-
-```
-{geecs_data}/{experiment}/Y{YYYY}/{MM-Month}/{YY_MMDD}/
-├── scans/
-│   ├── Scan001/
-│   ├── Scan002/
-│   └── …
-└── analysis/
-    ├── Scan001/
-    │   ├── UC_TopView/
-    │   │   ├── summary_figure.png
-    │   │   └── …
-    │   └── …
-    └── …
-```
-
-Inside each `analysis/ScanNNN/<analyzer>/` you'll find the analyzer's
-display files (typically PNGs), any derived scalars, and a status YAML the
-task queue uses to track completion. If GDoc upload was enabled, the same
-display files will appear in the experiment's Google Doc.
-
-## What to do next
-
-You now have the full loop. The places to go from here:
-
-- **Author a new analyzer from scratch.** In the drawer, **duplicate as**
-  copies the open diagnostic under a new id for the previewed device; the
-  standalone page's **new** starts from the schema defaults.
-- **Build a custom group.** Same flow as Step 2, from **new** on the
-  standalone page.
-- **Inspect the underlying API.** Everything the editor and LiveWatch
-  do is also available headlessly via Python — see
-  [Image Analysis overview](../image_analysis/overview.md) for the
-  per-image API and
-  [Scan Analysis overview](../scan_analysis/overview.md) for the
-  `LiveTaskRunner` that LiveWatch wraps.
-- **Diagnose a recurring failure.** The `/triage` skill parses scan logs
-  into a markdown summary that classifies errors by source — see
-  [Skills](../skills/overview.md).
+LiveWatch and Google Docs uploads are removed. Existing `scan.gdoc_slot`
+and group `upload_to_scanlog` fields validate but have no effect; the
+editor hides them while preserving existing values. The queue/status files
+remain for explicit MCP runs. Automatic post-scan analysis will need a
+separate service design and is not part of this workflow.

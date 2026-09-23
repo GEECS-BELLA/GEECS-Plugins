@@ -135,11 +135,11 @@ class ScanRuntime(SchemaModel):
     )
     gdoc_slot: Optional[int] = Field(
         None,
+        json_schema_extra={"deprecated": True},
         ge=0,
         le=3,
         description=(
-            "Which cell (0-3) of the scan-log entry's 2x2 figure table gets "
-            "this analyzer's summary; unset uploads figures as links instead."
+            "Retired Google Docs table slot; accepted for existing configs and ignored."
         ),
     )
     device: Optional[str] = Field(

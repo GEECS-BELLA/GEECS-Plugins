@@ -1,31 +1,25 @@
 [tool.poetry]
 name = "scananalysis"
-version = "1.25.1"
+version = "1.26.0"
 description = "Modules for performing analyses routines on full scans"
 authors = ["Christopher Doss <CEDoss@lbl.gov>", "Sam Barber <sbarber@lbl.gov"]
 readme = "README.md"
 packages = [
-    { include = "scan_analysis" },
-    { include = "LiveWatchGUI" }
+    { include = "scan_analysis" }
 ]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
-PyQt5 = {version = "^5.15.9", markers = "sys_platform == 'win32'" }
-pyqt5-tools = {version = "^5.15.9.3.3", markers = "sys_platform == 'win32'" }
 ImageAnalysis = { path = "../ImageAnalysis", develop = true }
 # the config documents (AnalysisDiagnostic / AnalysisGroup / ScanRuntime) —
 # pydantic-only, shared with ImageAnalysis, the portal and MCP
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
-LogMaker4GoogleDocs = {path = "../LogMaker4GoogleDocs", develop = true}
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
 
 pyyaml = "^6.0.2"
 matplotlib = "^3.9.2"
 pandas = "^2.2.3"
 h5py = "^3.8.0"
-watchdog = "^6.0.0"
-requests = "^2.28.0"
 
 # the web config editor (scan_analysis.config_editor) — optional: a router
 # the data portal mounts at /configs (its one host since the standalone

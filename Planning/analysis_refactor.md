@@ -589,3 +589,14 @@ wholesale while it still owns the queue, group loader or editor.
   SDK, the DLL and a day of data.
 - **The differential harness is the hard part, not the rewrite.** Spend A1's
   first hours on the fixture scan and the comparison before porting a step.
+
+### R0 implementation — 2026-09-23
+
+LiveWatchGUI, LiveTaskRunner, upload hooks and notebooks, the Qt screenshot
+generator, and the LiveWatch-only DocIDLookup helper are removed. ScanAnalysis
+no longer depends on LogMaker, Qt or watchdog. ConfigStore/editor, unsaved
+portal previews, group loading, task claims/status files and explicit MCP
+runs remain. Legacy v2 upload fields are accepted inertly and hidden in the
+editor without losing authored values. The standalone LogMaker package is
+retained; only its analysis integration is retired. Automatic post-scan
+execution remains a future service-design decision.

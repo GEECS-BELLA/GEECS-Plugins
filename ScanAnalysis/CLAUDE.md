@@ -1,16 +1,14 @@
 # ScanAnalysis — Developer Context for Claude
 
-Post-scan analysis framework. Watches for new scans, runs configurable chains of
-image/1D analyzers, and optionally uploads summary figures to Google Docs.
+Post-scan analysis framework. Explicit portal and Python runs execute configurable
+image/1D analyzers. Automatic watching and Google Docs uploads are retired.
 
 ## Package Layout
 
 ```
 scan_analysis/
   base.py                          # ScanAnalyzer abstract base class
-  live_task_runner.py              # LiveTaskRunner: watches for s-files → drives queue
   task_queue.py                    # Task claiming, heartbeat, YAML status system
-  gdoc_upload.py                   # GDoc upload integration (optional logmaker dep)
   config/
     diagnostic_factory.py          # create_scan_analyzer(AnalysisDiagnostic)
     analysis_group_loader.py       # discover_analyzers/groups + load_analysis_group,
@@ -33,7 +31,7 @@ ScanAnalysis 1.19.0): one `AnalysisDiagnostic` YAML per diagnostic under
 with its typed parameters), `image:` (the camera / line processing
 section, consumed by ImageAnalysis) and `scan:` (the typed `ScanRuntime`
 section, consumed here); diagnostics are assembled into `AnalysisGroup`
-files under `groups/<namespace>/<group>.yaml`, which `LiveWatch` and the
+files under `groups/<namespace>/<group>.yaml`, which explicit runners and the
 task queue consume directly. The corpus is v2 only (regenerated once for
 GEECS-Schemas 0.19.0; a pre-v2 file is refused at load; there is no
 converter). Scatter analyzers sit outside the YAML config
@@ -79,7 +77,7 @@ ScanRuntime                       # the scan: section
   priority: int                   # Lower = runs first (100 default)
   mode: Literal["per_shot", "per_bin"]  # default per_shot
   save: bool                      # Write per-shot/bin outputs to the analysis tree
-  gdoc_slot: Optional[int]        # 0-3 → table cell; None → hyperlink upload
+  gdoc_slot: Optional[int]        # Retired, accepted but ignored
   device: Optional[str]           # Data-subfolder override (defaults to name)
   file_tail: Optional[str]        # Filename suffix matching this device's files
   data_format: Optional[...]      # "device_hdf5" opts in to the capture frame
@@ -213,7 +211,7 @@ ScanAnalyzer  (base.py)
 ### `ScanAnalyzer.run_analysis(scan_tag) -> Optional[list[Path | str]]`
 
 The main entry point. Returns a list of **display files** (paths to summary
-figures) that the task queue stores and optionally uploads to GDocs, or
+figures) that the task queue records, or
 `None` when there was nothing to analyze.
 
 ### `SingleDeviceScanAnalyzer`
@@ -269,7 +267,9 @@ shared instance state across tasks is undefined under parallelism.
 
 ## Task Queue System (`task_queue.py`)
 
-Enables multiple `LiveTaskRunner` processes to divide work without conflicts.
+Retained for explicit MCP runs and status compatibility. Atomic claims prevent
+concurrent runners from owning the same task; this is not a new automatic
+post-scan service. That service remains a separate design decision.
 
 ### How It Works
 
@@ -328,51 +328,18 @@ pairing. (The wrappers' own `parts[-2].isdigit()` bin-key parsing in
 `array2D_scan_analysis.py` / `array1d_scan_analysis.py` predates this
 helper and is a known follow-up.)
 
-## Live Watching (`live_task_runner.py`)
+## Retired watching and uploads
 
-`LiveTaskRunner` watches a data directory for new s-files (scan summary files),
-enqueues analysis tasks, and drives `run_worklist()`.
-
-```python
-runner = LiveTaskRunner(
-    analyzer_group="baseline",          # group name under groups/<namespace>/
-    date_tag=ScanTag(year=..., experiment="Undulator", ...),
-    config_dir=None,                    # None → uses paths_config default
-    document_id=None,                   # None → reads from INI (live mode);
-                                        # explicit string → historical doc (backtest)
-)
-runner.start()
-```
-
-Multiple `LiveTaskRunner` instances can run concurrently — the heartbeat
-staleness system handles contention.
-
-## GDoc Upload (`gdoc_upload.py`)
-
-Called by `run_worklist()` after an analyzer completes, if `gdoc_slot is not None`.
-
-```python
-upload_summary_to_gdoc(
-    scan_tag,               # ScanTag; carries scan number + experiment
-    display_files,          # List of paths; uploads display_files[-1]
-    gdoc_slot,              # 0=row0/col0, 1=row0/col1, 2=row1/col0, 3=row1/col1
-    document_id=None,       # None → reads from experiment INI
-)
-```
-
-- **Per-day folder:** If `ImageParentFolderID` is set in the experiment INI,
-  images land in a date-named subfolder under it (persistent). Otherwise falls
-  back to `_FALLBACK_IMAGE_FOLDER` (may be purged).
-- **logmaker optional:** If `logmaker_4_googledocs` is not installed, calls are
-  silently skipped.
+LiveWatchGUI, LiveTaskRunner and Google Docs uploads were removed in 1.26.0.
+The config editor, ConfigStore, group loader and explicit task queue remain.
+Existing `gdoc_slot` and `upload_to_scanlog` fields validate but have no effect;
+the editor hides these deprecated fields and preserves authored values.
+ScanAnalysis has no LogMaker, watchdog or Qt dependency.
 
 ## Key Design Decisions
 
 - **`priority`** — Lower number runs first. Default 100; use low numbers
   for fast diagnostics.
-- **`gdoc_slot`** — Set 0-3 to insert into a 2×2 table cell. Omit (None) to
-  upload display files as hyperlinks instead, when the runner has gdoc
-  upload enabled.
 - **`enabled: false`** on a group ref — Disable an analyzer without
   removing it from the group config.
 - **`analyzer.kind`** — Picks the analyzer and types its parameters; the
@@ -396,7 +363,7 @@ In practice:
   analysis code.
 - `task_queue.init_status_for_scan` and `task_queue.update_status` verify
   `scan_folder.is_dir()` and bail with an `ERROR` log if it's missing — they
-  do **not** auto-create. LiveWatch keeps running other work; if the scan
+  do **not** auto-create. The queue keeps running other work; if the scan
   folder later reappears, discovery can pick it up on a later processing pass
   or after relaunch.
 - `analysis_status/` is the only directory ever auto-created by this package,

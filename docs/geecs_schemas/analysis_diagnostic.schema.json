@@ -2125,7 +2125,8 @@
             }
           ],
           "default": null,
-          "description": "Which cell (0-3) of the scan-log entry's 2x2 figure table gets this analyzer's summary; unset uploads figures as links instead.",
+          "deprecated": true,
+          "description": "Retired Google Docs table slot; accepted for existing configs and ignored.",
           "title": "Gdoc Slot"
         },
         "device": {

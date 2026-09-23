@@ -69,7 +69,8 @@
     },
     "upload_to_scanlog": {
       "default": true,
-      "description": "Upload the group's summary figures to the experiment scan log.",
+      "deprecated": true,
+      "description": "Retired upload option; accepted for existing configs and ignored.",
       "title": "Upload To Scanlog",
       "type": "boolean"
     },
