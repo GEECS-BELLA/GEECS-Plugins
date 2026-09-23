@@ -236,10 +236,39 @@ backgrounds are refused because the legacy wrapper would write beside the
 archived reference scan. Both use `scan_analysis.route_compare`, the one
 definition of equal outputs.
 
-Still required for the first milestone: that comparison on the archived
-canonical beam and MagSpec scans (owed: the share was unmounted when the
-harness landed), portal native trace input, operator figure review and live
-optimizer acceptance.
+### Archived-scan comparison (2026-09-23)
+
+The harness ran on the two canonical scans from the mounted share, on the
+integration branch at the #983 merge (4f95ba02), with `MPLBACKEND=Agg`:
+
+| Scan | Recipe | Shots | Files per route | legacy / core | Result |
+|---|---|---|---|---|---|
+| Undulator 25_0220 Scan014 | `HTU/Amp4Input.yaml`, `--set scan.data_format=per_shot_files` | 218 | 4: s-file, sidecar, average HDF5, average figure | 5.8 s / 4.7 s | MATCH |
+| Undulator 25_1118 Scan002 | `HTU/BcaveMagSpecStitcherSpec.yaml` | 101 | 5: the same plus the waterfall | 1.2 s / 1.3 s | MATCH |
+
+MATCH means `route_compare` found no difference in the file lists, the
+average HDF5 payloads (599×599 float64; 2000×2 float32), the s-file columns
+(18 beam scalars over 218 rows; 6 line scalars over 101 rows), the sidecars
+or the display-file names. The comparison bites: adding 1e-3 to one element
+of the core's average HDF5, or one character to one s-file row, each produced
+a `DIFF` line against the legacy tree. The 25 beamless MagSpec shots log
+non-finite scalars on both routes, and both routes log the legacy
+`append_to_sfile` "columns already exist" notice (parity; cleanup later).
+
+Figure content is outside the harness (two renderers). Side-by-side
+inspection of the four display files: identical images, traces, waterfall
+rows and colour scales; only the labels differ. Legacy: `X Pixels`/`Y Pixels`
+with an unlabeled colourbar; `X`/`Y` on the average trace; the TSV column
+headers on the waterfall (`Momentum_GeV/c (MeV)`, `ChargeDen_pC/GeV`). Core:
+`x (px)`/`y (px)` with an `Intensity` colourbar; `x (MeV)` on the trace and
+the waterfall, with the recipe's `label` (`Charge density vs Energy`) as the
+trace's y label and the waterfall's colourbar label; the beam figure is drawn
+squarer (616×617 vs 586×475 px). Whether the core's labels stand is the
+operator figure review; nothing in the data differs.
+
+Still required for the first milestone: portal native trace input, operator
+figure review and live optimizer acceptance, then the full-matrix CI run and
+the promotion PR.
 
 ## Decisions
 
