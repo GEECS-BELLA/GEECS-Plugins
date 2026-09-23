@@ -137,3 +137,12 @@ outcomes, and raw buffers are released before yielding. Load in declared order
 for reproducible sums; sources can reuse buffers, so snapshot each returned
 array. This runner does not replace scan grouping, scalar/output sinks or the
 factory by itself. Pure analyze/analyze_v2 remain loaded-input-only APIs.
+
+`compat.v2_average.average_results` owns the post-analysis summary conventions:
+noscan uses ordinary means and omits shot overlays; bin summaries use nanmean
+and average projections. Never re-analyze the averaged processed frame to
+produce mean scalars. Trace samples AND coordinates reduce at the recipe's
+storage dtype, preserving float32 accumulation and the legacy index-wise axis
+average. This is deliberately a v2 boundary, not a general alignment/resampling
+operation. Mismatched shapes skip the averaged figure; unit/rank and camera-axis
+mismatches raise. Aggregate frames have no individual shot identity.
