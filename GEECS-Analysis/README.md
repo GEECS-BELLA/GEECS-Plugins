@@ -2,8 +2,9 @@
 
 The new analysis core under development on the analysis integration branch.
 This first slice provides pure, ordered processing for coordinate-aware 1D
-traces and 2D images. GeecsBluesky's optimizer uses this core directly;
-portal and scan consumers still use ImageAnalysis/ScanAnalysis.
+traces and 2D images. GeecsBluesky's optimizer uses this core directly. The portal
+uses it for supported processing/preview recipes, retaining legacy fallback for
+unported recipes. Explicit scan execution still uses ScanAnalysis.
 
 ```python
 from geecs_analysis.specs import Pipeline

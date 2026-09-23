@@ -176,11 +176,10 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         seam + the shared browser helpers; the scan
                         browser of the suite — never imports the scanner
                         or tiled directly)
-                        (+ ImageAnalysis + ScanAnalysis, optional via the
-                        `analysis` extra — the Images tab's
-                        ephemeral-processing selector over
-                        image_analysis.ephemeral's write-free seam, and
-                        the Analysis tab's direct ScanAnalyzer runs)
+                        (+ GEECS-Analysis + ImageAnalysis + ScanAnalysis, optional via
+                        the `analysis` extra — core processing/preview for supported
+                        v2 recipes with legacy ephemeral fallback, and the
+                        Analysis tab's direct ScanAnalyzer runs)
                         GeecsWebTheme (the shared palette; the portal
                         mounts it at /theme for itself and the config
                         editor inside this app). Never imports GeecsLogbook

@@ -1042,7 +1042,7 @@ files = [
 
 [[package]]
 name = "geecs-analysis"
-version = "0.4.1"
+version = "0.4.2"
 description = "Pure frame processing and unified GEECS analysis"
 optional = false
 python-versions = ">=3.11,<3.12"

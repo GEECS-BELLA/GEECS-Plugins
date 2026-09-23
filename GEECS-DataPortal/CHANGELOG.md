@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.31.0] - 2026-09-23
+
+### Changed
+
+- Supported v2 recipes in the Images processing selector and unsaved config
+  editor preview now use geecs-analysis directly, including object-API figures
+  and coordinate-aware beam overlays. Unported recipes retain the legacy
+  write-free backend; execution errors never trigger a silent fallback.
+- Preserve process-each-shot-before-averaging for bin images, display windows,
+  preview renderer options, error responses and config-editor saves. Explicit
+  scan execution remains on the existing factory pending runner migration.
+
 ## [0.30.0] - 2026-09-21
 
 ### Added
