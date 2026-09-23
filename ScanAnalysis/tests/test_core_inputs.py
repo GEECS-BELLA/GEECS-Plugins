@@ -117,7 +117,7 @@ def test_loaded_shape_mismatch_raises_without_constant_fallback(tmp_path, caplog
 def test_compile_refusal_happens_before_reading_any_file(monkeypatch):
     data = document("unused.npy").model_dump(mode="json")
     data["image"]["pipeline"].append("transforms")
-    data["image"]["transforms"] = {"rotation_angle": 45}
+    data["image"]["transforms"] = {"flip_horizontal": True}
     doc = AnalysisDiagnostic.model_validate(data)
 
     def forbid_read(*args):

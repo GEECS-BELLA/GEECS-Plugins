@@ -189,7 +189,16 @@ on one canonical archived beam image using fallback backgrounds. This tests
 recipe behavior, not acquisition-specific physics or actual saved dark files.
 Synthetic saved-background tests separately cover successful loads and failures.
 
-Still required for the first milestone: those remaining pipeline steps, source
+The following camera-geometry slice ports crosshair rasterization and fixed-
+canvas rotation without changing their algorithms. All 37 beam/line recipes
+now compile with file-background opt-in. All nine background-dependent recipes
+match every processed pixel and 162 finite scalars on the same archived image
+using fallback backgrounds. Differential synthetic tests cover masks at edges,
+rotation, cropped local centers, repeated steps and nonfinite classification.
+These broaden recipe coverage; they do not replace per-diagnostic physics or
+scan-output acceptance. Flips and distortion correction remain unported.
+
+Still required for the first milestone: source
 and scan-runner adoption, compatible saved products, portal native trace input,
 archived scan/day output comparisons, operator figure review and live optimizer
 acceptance. Core support alone is not scan-route adoption.

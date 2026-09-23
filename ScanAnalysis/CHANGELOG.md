@@ -4,6 +4,13 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [1.27.1] - 2026-09-23
+
+### Changed
+
+- Source preflight tests now use an unported flip to pin capability refusal,
+  since image rotation is supported by the shared core.
+
 ## [1.27.0] - 2026-09-23
 
 ### Added

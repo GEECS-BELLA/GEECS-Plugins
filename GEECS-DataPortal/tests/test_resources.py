@@ -1253,7 +1253,7 @@ def legacy_recipe(configs_tree):
     path = configs_tree / "analyzers" / "HTU" / "UC_Crop.yaml"
     document = yaml.safe_load(path.read_text())
     document["image"]["pipeline"].append("transforms")
-    document["image"]["transforms"] = {"rotation_angle": 45}
+    document["image"]["transforms"] = {"flip_horizontal": True}
     path.write_text(yaml.safe_dump(document))
 
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.0] - 2026-09-23
+
+### Added
+
+- Pure crosshair masking and fixed-canvas image rotation with legacy rasterization,
+  interpolation and operation order. The v2 adapter supports camera fiducials
+  and rotation; flips and distortion correction remain explicitly unported.
+- Lazy OpenCV use for rotated masks, matching the existing analyzer algorithm.
+
 ## [0.7.0] - 2026-09-23
 
 ### Added

@@ -124,6 +124,7 @@ def test_schema_round_trip_retains_duplicate_steps():
         "background_constant",
         "background_frame",
         "circular_mask",
+        "crosshair_mask",
         "interpolate",
         "clip_below",
         "clip_above",
@@ -131,6 +132,7 @@ def test_schema_round_trip_retains_duplicate_steps():
         "median",
         "gaussian",
         "roi",
+        "rotate",
     }
     with pytest.raises(ValidationError):
         pipeline.steps[0].kernel = 7
@@ -141,7 +143,7 @@ def test_schema_import_is_numerical_and_io_dependency_free():
 import sys
 from geecs_analysis.specs import Pipeline
 Pipeline.model_json_schema()
-for name in ("numpy", "scipy", "matplotlib", "geecs_data_utils", "image_analysis"):
+for name in ("numpy", "scipy", "cv2", "matplotlib", "geecs_data_utils", "image_analysis"):
     assert name not in sys.modules, name
 """
     subprocess.run([sys.executable, "-c", code], check=True)

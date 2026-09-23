@@ -184,7 +184,6 @@ def test_none_sections_and_disabled_line_steps_do_not_run():
 @pytest.mark.parametrize(
     "kind,image",
     [
-        ("beam", {"pipeline": ["transforms"], "transforms": {"rotation_angle": 45}}),
         ("beam", {"pipeline": ["transforms"], "transforms": {"flip_horizontal": True}}),
         ("beam", {"pipeline": ["transforms"], "transforms": {"flip_vertical": True}}),
         (
@@ -340,4 +339,42 @@ def test_interpolation_matches_legacy_samples_and_measures(
             pipeline=["interpolation"],
         ),
         data,
+    )
+
+
+@pytest.mark.parametrize("angle", [0, -3.5, 2.5, -8])
+@pytest.mark.parametrize(
+    "pipeline",
+    [
+        ["crosshair_masking", "roi", "transforms"],
+        ["roi", "crosshair_masking", "transforms", "crosshair_masking", "transforms"],
+    ],
+)
+def test_camera_crosshairs_and_rotation_match_legacy_composition(angle, pipeline):
+    compare(
+        document(
+            pipeline=pipeline,
+            crosshair_masking={
+                "crosshairs": [
+                    {
+                        "center": [7, 5],
+                        "width": 9,
+                        "height": 7,
+                        "thickness": 3,
+                        "angle": angle,
+                    },
+                    {
+                        "center": [9, 8],
+                        "width": 7,
+                        "height": 11,
+                        "thickness": 4,
+                        "angle": angle,
+                    },
+                ],
+                "mask_value": 2,
+            },
+            roi={"x_min": 2, "x_max": 18, "y_min": 3, "y_max": 17},
+            transforms={"rotation_angle": angle},
+        ),
+        np.random.default_rng(19).integers(100, 200, (21, 23), dtype=np.uint16),
     )
