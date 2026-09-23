@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0] - 2026-09-23
+
+### Added
+
+- Pure circular masking and uniform trace interpolation, with preserved axes,
+  units and provenance. The v2 adapter preserves local mask centers, operation
+  order, zero padding and trace storage precision for existing beam/line recipes.
+
 ## [0.4.2] - 2026-09-23
 
 ### Changed

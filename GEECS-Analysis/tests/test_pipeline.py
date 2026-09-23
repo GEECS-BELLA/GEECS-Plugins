@@ -122,6 +122,8 @@ def test_schema_round_trip_retains_duplicate_steps():
     ]["mapping"]
     assert set(mapping) == {
         "background_constant",
+        "circular_mask",
+        "interpolate",
         "clip_below",
         "clip_above",
         "zero_below",

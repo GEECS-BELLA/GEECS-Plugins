@@ -91,3 +91,15 @@ open-ended and validated by preview rendering, with RenderError at the layout
 boundary. Deep-copy kwargs before passing to matplotlib; normalization objects
 can be mutated by rendering. Preserve geometry rather than accepting arbitrary
 extent overrides. New overlay families must carry data, never render callbacks.
+
+## Mask and interpolation conventions
+
+`circular_mask` defaults to local sample indices, with center in numpy `(y, x)`
+order. `units="axis"` uses the existing Frame coordinates. The v2 adapter
+reverses the legacy `(x, y)` center once and deliberately keeps index units,
+including after a crop. Masking retains axes and provenance.
+
+`interpolate` replaces the trace axis with a uniform grid and uses the legacy
+`numpy.interp` convention with zero padding. It does not sort, deduplicate or
+reverse source coordinates; do not silently change old numerical behavior
+while migrating. Axis units/labels and signal units/provenance survive.

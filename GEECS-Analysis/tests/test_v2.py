@@ -291,3 +291,53 @@ def test_trace_roi_empty_result_stays_on_legacy_route():
     assert legacy.line_data.shape == (0, 2)
     with pytest.raises(UnsupportedRecipe, match="empty result"):
         compile_v2(doc)
+
+
+@pytest.mark.parametrize("mask_outside", [True, False])
+@pytest.mark.parametrize(
+    "pipeline",
+    [
+        ["roi", "circular_mask"],
+        ["circular_mask", "roi"],
+        ["circular_mask", "roi", "circular_mask"],
+    ],
+)
+def test_circular_mask_keeps_legacy_local_center(mask_outside, pipeline):
+    data = np.random.default_rng(7).uniform(1, 100, (41, 51))
+    compare(
+        document(
+            pipeline=pipeline,
+            roi={"x_min": 3, "x_max": 44, "y_min": 2, "y_max": 36},
+            circular_mask={
+                "center": [21, 17],
+                "radius": 12,
+                "mask_outside": mask_outside,
+                "mask_value": 0.5,
+            },
+        ),
+        data,
+    )
+
+
+@pytest.mark.parametrize("kind", ["line", "trace"])
+@pytest.mark.parametrize("storage_dtype", ["float32", "float64"])
+@pytest.mark.parametrize("axis_order", ["ascending", "descending", "duplicate"])
+def test_interpolation_matches_legacy_samples_and_measures(
+    kind, storage_dtype, axis_order
+):
+    x = np.array([1, 2, 3.5, 5, 8, 9], dtype=np.float32)
+    if axis_order == "descending":
+        x = x[::-1]
+    elif axis_order == "duplicate":
+        x[2] = x[1]
+    data = np.column_stack([x, [1, 2, 9, 6, 2, 1]]).astype(np.float32)
+    compare(
+        document(
+            kind,
+            storage_dtype=storage_dtype,
+            x_scale_factor=2.5,
+            interpolation={"num_points": 71, "x_min": 0, "x_max": 30},
+            pipeline=["interpolation"],
+        ),
+        data,
+    )
