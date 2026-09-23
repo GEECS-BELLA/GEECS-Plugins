@@ -36,7 +36,17 @@ set -euo pipefail
 # which silently re-staged nothing when invoked from a subdirectory.
 # Consequence: any pathspec args you pass through to `git commit` are
 # interpreted relative to the repo root, not your shell's cwd.
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+#
+# The root is the checkout your shell is IN (git's answer), not the one the
+# script file lives in: invoked by a relative path from a worktree
+# (`../../../scripts/commit.sh` from `.claude/worktrees/<name>/`), the
+# script's own location is the main checkout, and deriving the root from
+# `$0` inspected the main checkout's index and reported "nothing staged"
+# while the worktree's change sat staged (#932).
+if ! REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+    echo "commit.sh: not inside a git checkout — run it from the checkout you are committing to." >&2
+    exit 1
+fi
 cd "$REPO_ROOT"
 
 # The files staged for this commit, recorded NUL-delimited in a temp file
