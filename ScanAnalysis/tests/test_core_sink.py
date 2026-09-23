@@ -94,6 +94,49 @@ def test_summary_filename_and_display_contract(tmp_path, line):
     assert not saved.notes
 
 
+def test_grid_carries_the_scan_parameter_label(tmp_path, monkeypatch):
+    from scan_analysis import core_sink
+
+    scan = tmp_path / "scans" / "Scan001"
+    scan.mkdir(parents=True)
+    seen = {}
+    real = core_sink.image_grid_v2
+
+    def recording(*args, **kwargs):
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(core_sink, "image_grid_v2", recording)
+    doc = document()
+    panels = tuple(Product(i, product().measurement, float(i)) for i in [1, 2, 3])
+    plan = ProductPlan(
+        summary=panels, summary_kind="image_grid", position_label="motor"
+    )
+    save_products(plan, compile_v2(doc), doc, scan)
+    assert seen["label"] == "motor"
+
+
+def test_bin_products_round_trip_through_the_filename_parser(tmp_path):
+    scan = tmp_path / "scans" / "Scan001"
+    scan.mkdir(parents=True)
+    doc = document()
+    saved = save_products(
+        ProductPlan(singles=(product(identifier=3),)), compile_v2(doc), doc, scan
+    )
+    assert [parse_output_filename(p.name) for p in saved.files] == [("bin", 3)] * 2
+
+
+def test_empty_output_name_falls_back_to_the_device_directory(tmp_path):
+    scan = tmp_path / "scans" / "Scan001"
+    scan.mkdir(parents=True)
+    doc = document(output_name="")
+    saved = save_products(ProductPlan(singles=(product(),)), compile_v2(doc), doc, scan)
+    assert (
+        saved.files[0].parent
+        == tmp_path / "analysis" / "Scan001" / "Device" / "Array2DScanAnalyzer"
+    )
+
+
 def test_save_disabled_and_empty_plan_do_not_touch_missing_scan(tmp_path):
     doc = document(scan={"save": False})
     plan = ProductPlan(singles=(product(),))

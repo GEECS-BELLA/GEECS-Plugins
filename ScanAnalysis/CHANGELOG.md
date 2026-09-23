@@ -11,7 +11,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the sibling analysis tree with the legacy directory and filename shapes, so
   `parse_output_filename` and MCP display files are unchanged. Refuse escaping
   path components and symlinks before creating output directories; never touch
-  the raw scan folder. Rendering failures omit only their figure and are
+  the raw scan folder. An empty ``output_name`` falls back to the device
+  directory as before. Rendering failures omit only their figure and are
   reported as notes; disabled saves write nothing.
 
 ## [1.30.0] - 2026-09-23

@@ -14,13 +14,8 @@ from geecs_schemas.analysis import AnalysisDiagnostic
 from scan_analysis.core_products import ProductPlan
 
 
-def _component(value: str, label: str, *, allow_empty: bool = False) -> str:
-    if (
-        (not value and not allow_empty)
-        or value in {".", ".."}
-        or "/" in value
-        or "\\" in value
-    ):
+def _component(value: str, label: str) -> str:
+    if not value or value in {".", ".."} or "/" in value or "\\" in value:
         raise ValueError(f"{label} must be a single path component")
     return value
 
@@ -67,7 +62,8 @@ def save_products(
     if not document.scan.save or not (plan.singles or plan.summary):
         return SavedProducts((), (), plan.notes)
     device = _component(document.name, "Diagnostic name")
-    output = _component(document.effective_output_name, "Output name", allow_empty=True)
+    # An empty output_name falls back to the device, as the legacy wrapper did.
+    output = _component(document.effective_output_name or document.name, "Output name")
     line = recipe.input_kind == "line"
     root = analysis_directory(scan_folder)
     target = root / output / ("Array1DScanAnalyzer" if line else "Array2DScanAnalyzer")
@@ -117,7 +113,9 @@ def save_products(
             fig = (
                 waterfall_v2(measurements, positions, plan.position_label, options)
                 if line
-                else image_grid_v2(measurements, positions, options)
+                else image_grid_v2(
+                    measurements, positions, options, label=plan.position_label
+                )
             )
         except RenderError as exc:
             notes.append(f"Skipped {suffix}: {exc}")

@@ -74,8 +74,14 @@ def image_grid_v2(
     results: Sequence[Measurement],
     positions: Sequence[float | None],
     options: RendererOptions,
+    *,
+    label: str = "",
 ) -> Figure:
-    """Draw v2 bin images with one palette computed across all panels."""
+    """Draw v2 bin images with one palette computed across all panels.
+
+    ``label`` names the scanned parameter above the grid, as the legacy
+    renderer's ``Scan parameter: …`` suptitle did; empty draws no title.
+    """
     import math
     import numpy as np
 
@@ -87,7 +93,7 @@ def image_grid_v2(
     palette = _palette(
         np.concatenate([r.frame.data.ravel() for r in results]), options, line=False
     )
-    return image_grid(
+    fig = image_grid(
         results,
         titles=[
             f"{p:.2f}" if p is not None else str(i + 1) for i, p in enumerate(positions)
@@ -103,6 +109,9 @@ def image_grid_v2(
             },
         ),
     )
+    if label:
+        fig.suptitle(f"Scan parameter: {label}", fontsize=12)
+    return fig
 
 
 def _legacy_edges(values: np.ndarray) -> np.ndarray:

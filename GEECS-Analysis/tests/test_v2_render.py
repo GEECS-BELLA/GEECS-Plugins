@@ -108,13 +108,15 @@ def test_grid_palette_is_shared_and_labels_are_honored():
         figsize=(2, 2),
     )
     original = options.model_dump()
-    fig = image_grid_v2(results, [0, 1], options)
+    fig = image_grid_v2(results, [0, 1], options, label="motor")
+    assert fig._suptitle.get_text() == "Scan parameter: motor"
     assert [ax.images[0].get_clim() for ax in fig.axes[:2]] == [(-10, 10)] * 2
     assert [ax.get_title() for ax in fig.axes[:2]] == ["0.00", "1.00"]
     assert fig.axes[0].get_xlabel() == "horizontal"
     assert fig.axes[-1].get_ylabel() == "Signal"
     assert options.model_dump() == original
     fig.clear()
+    assert image_grid_v2(results, [0, 1], options)._suptitle is None
 
 
 def test_single_line_retains_coordinates_samples_and_title():
