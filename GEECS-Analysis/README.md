@@ -36,6 +36,13 @@ Frames may contain NaN/Inf samples; each numerical operation retains its
 NumPy/SciPy semantics (for example, `zero_below` maps NaN to zero, as the
 legacy image threshold does). There is no general invalid-data cleanup.
 
+`circular_mask` uses a `(y, x)` center and local sample indices by default;
+`units: axis` uses physical coordinates. It preserves the image axes.
+`interpolate` resamples a trace onto `count` uniformly spaced coordinates,
+with optional `lower`/`upper` bounds and zero padding outside the input range.
+It preserves the legacy `numpy.interp` ordering semantics: samples are not
+sorted or reversed automatically. Both steps preserve units and shot identity.
+
 Reading inputs and resolving backgrounds belong to data-utils. These processing
 steps neither read nor write files and have no scan, GUI, or device dependencies.
 See [the migration plan](../Planning/analysis_refactor.md) for the next layers.

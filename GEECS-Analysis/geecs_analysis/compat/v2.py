@@ -21,9 +21,11 @@ from geecs_analysis.measures.none import NoneSpec
 from geecs_analysis.registry import StepSpec, definition, measure_definition
 from geecs_analysis.specs import Analysis
 from geecs_analysis.steps.background_constant import BackgroundConstantSpec
+from geecs_analysis.steps.circular_mask import CircularMaskSpec
 from geecs_analysis.steps.clip_above import ClipAboveSpec
 from geecs_analysis.steps.clip_below import ClipBelowSpec
 from geecs_analysis.steps.gaussian import GaussianSpec
+from geecs_analysis.steps.interpolate import InterpolateSpec
 from geecs_analysis.steps.median import MedianSpec
 from geecs_analysis.steps.roi import RoiSpec
 from geecs_analysis.steps.zero_below import ZeroBelowSpec
@@ -59,7 +61,8 @@ class V2Recipe:
 def compile_v2(document: AnalysisDiagnostic) -> V2Recipe:
     """Translate supported beam/line/standard/trace recipes, without file access.
 
-    Currently covers constant backgrounds, ROI, Gaussian/median filtering,
+    Currently covers constant backgrounds, ROI, circular masks, trace interpolation,
+    Gaussian/median filtering,
     identity transforms, absolute trace clipping and non-inverted constant image thresholds
     (to_zero/truncate/truncate_inv). Trace processing must be float64 and
     storage float32/float64. Other active features are refused before execution.
@@ -159,6 +162,15 @@ def _camera_steps(name: str, config: CameraConfig) -> list[StepSpec]:
                 bounds=((section.y_min, section.y_max), (section.x_min, section.x_max))
             )
         ]
+    if name == "circular_mask":
+        return [
+            CircularMaskSpec(
+                center=(section.center[1], section.center[0]),
+                radius=section.radius,
+                mask_outside=section.mask_outside,
+                value=section.mask_value,
+            )
+        ]
     if name == "filtering":
         steps = []
         if section.gaussian_sigma is not None:
@@ -191,6 +203,12 @@ def _line_steps(name: str, config: Line1DConfig) -> list[StepSpec]:
             return [BackgroundConstantSpec(level=section.constant_level)]
     elif name == "roi":
         return [RoiSpec(bounds=((section.x_min, section.x_max),), units="axis")]
+    elif name == "interpolation":
+        return [
+            InterpolateSpec(
+                count=section.num_points, lower=section.x_min, upper=section.x_max
+            )
+        ]
     elif name == "filtering":
         if section.method == "none":
             return []
