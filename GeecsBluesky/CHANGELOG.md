@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.100.1] - 2026-09-23
+
+### Fixed
+
+- Namespace: the bare `<device>/` folder is reserved for an image stream
+  (`primary_stream()`). A device whose image is not captured keeps its
+  first lineout in `<device>-<variable>/`, where its analyzers read it —
+  with `MagSpecStitcher` capturing `interpSpec` alone (GEECS-Core 0.11.2)
+  that stack stays in `U_BCaveMagSpec-interpSpec/`, not `U_BCaveMagSpec/`.
+  A device with no image variable at all (a scope) keeps its first trace
+  in `<device>/` exactly as before. Hot fix deployed to the worker from this
+  branch on 2026-09-23 so the maintainer could take data.
+
 ## [0.100.0] - 2026-09-22
 
 ### Removed

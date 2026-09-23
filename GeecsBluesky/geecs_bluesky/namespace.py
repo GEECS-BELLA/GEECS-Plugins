@@ -216,6 +216,32 @@ def capture_streams(
 
 
 # --------------------------------------------------------------------- rules
+
+
+def primary_stream(
+    plugin_vars: Sequence[str], rows: Sequence[Mapping[str, Any]]
+) -> str | None:
+    """The capture stream that keeps the bare ``<device>/`` folder, or ``None``.
+
+    The device folder is the image's home — LabVIEW's native layout puts
+    the frames there and every lineout in ``<device>-<variable>/`` — so the
+    first captured stream takes it only when it is an image variable, or
+    when the device has no image variable at all (a scope: its first trace
+    has kept the folder since the non-scalar arc and the readers know it).
+    A device whose image is *not* captured keeps its lineouts in the
+    suffixed folders its analyzers read: the MagSpec stitcher captures
+    ``interpSpec`` alone (its ``Image`` is empty on the wire) and that stack
+    stays in ``<device>-interpSpec/``, never in ``<device>/``.
+    """
+    if not plugin_vars:
+        return None
+    images = {name.lower() for name in image_variables(rows)}
+    first = plugin_vars[0]
+    if not images or first.lower() in images:
+        return first
+    return None
+
+
 def looks_triggerable(rows: Sequence[Mapping[str, Any]], devicetype: str = "") -> bool:
     """Whether a device acquires per shot (so it gets a Bluesky ``trigger()``).
 
@@ -630,6 +656,7 @@ class GeecsNamespace:
                 and roster.endpoints.get(device) in self._file_plugin_hosts
                 else []
             )
+            primary = primary_stream(plugin_vars, rows)
             dev = GeecsDetector(
                 device,
                 readables,
@@ -639,18 +666,18 @@ class GeecsNamespace:
                 path_provider=self._path_provider if native_save else None,
                 native_save=native_save,
                 # One folder per stream: the primary keeps ``<device>/``,
-                # a second stream gets ``<device>-<variable>/`` (two plugins
-                # on one path would truncate each other's file).
+                # every other stream gets ``<device>-<variable>/`` (two
+                # plugins on one path would truncate each other's file).
                 hdf_plugins=[
                     (
                         var,
                         PluginPathProvider(
                             self._path_provider,
                             device,
-                            variable=None if index == 0 else var,
+                            variable=None if var == primary else var,
                         ),
                     )
-                    for index, var in enumerate(plugin_vars)
+                    for var in plugin_vars
                 ],
                 drain_offset=self._drain_offsets.get(ophyd_name, 0.0),
             )

@@ -4,6 +4,18 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.11.2] - 2026-09-23
+
+### Changed
+
+- `db.device_streams`: `MagSpecStitcher` captures `interpSpec` only. Its
+  `Image` arrives EMPTY over the GEECS TCP stream (0 bytes per shot, probed
+  live 2026-09-23 with a direct subscription while `interpSpec` carried
+  22 kB), so the file plugin armed on it waited out its arm timeout at every
+  prepare and failed the run (`no frame from U_BCaveMagSpec Image within
+  8 s`, 26_0923 Scans 007–009). The three cameras' stacks carry what the
+  stitch is made of; the module docstring's live record is corrected.
+
 ## [0.11.1] - 2026-09-22
 
 ### Changed

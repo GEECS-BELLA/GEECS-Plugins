@@ -47,8 +47,8 @@ The entries record what was established live on the reference deployment
 (2026-09-16..21): the FROG pushes only ``frogTrace`` (its ``SpatialImage``
 is an alignment view and the retrieved traces and spectra stay empty); the
 MagSpec cameras push ``Image`` and ``ImageInterp`` plus the two lineouts
-and their two axes; the stitcher pushes ``Image``, ``interpSpec`` and a
-malformed ``interpDiv``; the Picoscope pushes ``scopeTrace.Channel<N>`` for
+and their two axes; the stitcher pushes ``interpSpec``, a malformed
+``interpDiv`` and an EMPTY ``Image`` (never captured); the Picoscope pushes ``scopeTrace.Channel<N>`` for
 each enabled channel (and the GUI twins), its capture set being per
 *instance* — hence the ``gate`` column: the worker arms a channel's plugin
 only when that instance's ``Enable.Ch<X>`` reads ``on``.
@@ -141,8 +141,12 @@ DEVICE_TYPE_STREAMS: Mapping[str, DeviceTypeStreams] = {
         exclude=frozenset({"EnergyAxis", "AngleAxis"}),  # = the lineouts' column 0
         array_ceiling=2048,
     ),
+    # ``Image`` is NOT captured: on the wire the stitcher pushes it empty
+    # under its DB spelling (0 bytes per shot, probed 2026-09-23), so a file
+    # plugin armed on it waits out its arm timeout on every prepare and fails
+    # the run.  The three cameras' stacks carry what it is stitched from.
     "magspecstitcher": DeviceTypeStreams(
-        capture=("Image", "interpSpec"),
+        capture=("interpSpec",),
         exclude=frozenset({"interpDiv"}),  # malformed on this devicetype
         array_ceiling=16384,
     ),
