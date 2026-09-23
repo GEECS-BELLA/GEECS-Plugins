@@ -80,7 +80,7 @@ class TestEmbeddedImageSection:
     """Camera/line analyzers consume the image: section; HASO refuses one."""
 
     def test_camera_alias_produces_validated_camera_config(self):
-        analyzer = create_scan_analyzer(_diag(alias="beam", legacy=True))
+        analyzer = create_scan_analyzer(_diag(alias="beam"), route="legacy")
         # BeamAnalyzer stores its CameraConfig on self.camera_config
         assert isinstance(analyzer.image_analyzer.camera_config, CameraConfig)
         assert analyzer.image_analyzer.camera_config.bit_depth == 16
@@ -97,9 +97,8 @@ class TestEmbeddedImageSection:
                 "description": "test",
                 "data_loading": {"data_type": "csv"},
             },
-            legacy=True,
         )
-        analyzer = create_scan_analyzer(diag)
+        analyzer = create_scan_analyzer(diag, route="legacy")
         assert isinstance(analyzer.image_analyzer.line_config, Line1DConfig)
         assert analyzer.image_analyzer.output_name == "UC_Test"
 
@@ -179,9 +178,9 @@ class TestScanWrapperSelection:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(params=[False, True], ids=["core", "legacy"])
+@pytest.fixture(params=["core", "legacy"])
 def legacy(request):
-    """Run a contract test on both factory routes."""
+    """Run a contract test on both factory routes (the ``route`` argument)."""
     return request.param
 
 
@@ -189,13 +188,11 @@ class TestScanRuntimeAttachment:
     """id/priority kwargs override defaults on both routes; wrapper kwargs map."""
 
     def test_id_defaults_to_name(self, legacy):
-        analyzer = create_scan_analyzer(_diag(name="UC_Foo", legacy=legacy))
+        analyzer = create_scan_analyzer(_diag(name="UC_Foo"), route=legacy)
         assert analyzer.id == "UC_Foo"
 
     def test_id_kwarg_overrides_name(self, legacy):
-        analyzer = create_scan_analyzer(
-            _diag(name="UC_Foo", legacy=legacy), id="MyDiag"
-        )
+        analyzer = create_scan_analyzer(_diag(name="UC_Foo"), id="MyDiag", route=legacy)
         assert analyzer.id == "MyDiag"
 
     def test_id_defaults_to_loaded_diagnostic_source_id(self, tmp_path):
@@ -222,12 +219,12 @@ class TestScanRuntimeAttachment:
         assert analyzer.device_name == "CAM-TEA-MagSpecA-interpSpec"
 
     def test_priority_defaults_to_scan_priority(self, legacy):
-        analyzer = create_scan_analyzer(_diag(scan={"priority": 7}, legacy=legacy))
+        analyzer = create_scan_analyzer(_diag(scan={"priority": 7}), route=legacy)
         assert analyzer.priority == 7
 
     def test_priority_kwarg_overrides_scan_priority(self, legacy):
         analyzer = create_scan_analyzer(
-            _diag(scan={"priority": 7}, legacy=legacy), priority=99
+            _diag(scan={"priority": 7}), priority=99, route=legacy
         )
         assert analyzer.priority == 99
 
@@ -240,8 +237,8 @@ class TestScanRuntimeAttachment:
         assert not hasattr(analyzer, "gdoc_slot")
 
     def test_save_maps_to_flag_save_images_for_array2d(self):
-        on = create_scan_analyzer(_diag(scan={"save": True}, legacy=True))
-        off = create_scan_analyzer(_diag(scan={"save": False}, legacy=True))
+        on = create_scan_analyzer(_diag(scan={"save": True}), route="legacy")
+        off = create_scan_analyzer(_diag(scan={"save": False}), route="legacy")
         assert on.flag_save_data is True  # base attr is flag_save_data
         assert off.flag_save_data is False
 
@@ -252,20 +249,18 @@ class TestScanRuntimeAttachment:
             "data_loading": {"data_type": "csv"},
         }
         on = create_scan_analyzer(
-            _diag(
-                alias="standard_1d", image=line_image, scan={"save": True}, legacy=True
-            )
+            _diag(alias="standard_1d", image=line_image, scan={"save": True}),
+            route="legacy",
         )
         off = create_scan_analyzer(
-            _diag(
-                alias="standard_1d", image=line_image, scan={"save": False}, legacy=True
-            )
+            _diag(alias="standard_1d", image=line_image, scan={"save": False}),
+            route="legacy",
         )
         assert on.flag_save_data is True
         assert off.flag_save_data is False
 
     def test_analysis_mode_passed_through(self):
-        analyzer = create_scan_analyzer(_diag(scan={"mode": "per_bin"}, legacy=True))
+        analyzer = create_scan_analyzer(_diag(scan={"mode": "per_bin"}), route="legacy")
         assert analyzer.analysis_mode == "per_bin"
 
     def test_device_override_routes_to_data_device_name(self):
@@ -278,20 +273,22 @@ class TestScanRuntimeAttachment:
         own folder.
         """
         analyzer = create_scan_analyzer(
-            _diag(name="UC_Logical", scan={"device": "UC_DataFolder"}, legacy=True)
+            _diag(name="UC_Logical", scan={"device": "UC_DataFolder"}), route="legacy"
         )
         assert analyzer.device_name == "UC_Logical"
         assert analyzer.data_device_name == "UC_DataFolder"
 
     def test_no_device_override_uses_top_level_name(self):
-        analyzer = create_scan_analyzer(_diag(name="UC_Same", legacy=True))
+        analyzer = create_scan_analyzer(_diag(name="UC_Same"), route="legacy")
         assert analyzer.device_name == "UC_Same"
         # ``data_device_name`` defaults to ``device_name`` inside the
         # wrapper; the constructor coerces ``None`` → ``device_name``.
         assert analyzer.data_device_name == "UC_Same"
 
     def test_file_tail_passed_through_when_set(self):
-        analyzer = create_scan_analyzer(_diag(scan={"file_tail": ".himg"}, legacy=True))
+        analyzer = create_scan_analyzer(
+            _diag(scan={"file_tail": ".himg"}), route="legacy"
+        )
         assert analyzer.file_tail == ".himg"
 
 
@@ -299,10 +296,8 @@ class TestBackgroundSourceAttachment:
     """The scan.background_source directive is attached to the wrapper."""
 
     def test_default_is_none(self):
-        # Read the way the legacy runtime reads it; the core route has no
-        # such attribute because the core refuses scan-context backgrounds.
-        analyzer = create_scan_analyzer(_diag())
-        assert getattr(analyzer, "background_source", None) is None
+        analyzer = create_scan_analyzer(_diag(), route="legacy")
+        assert analyzer.background_source is None
 
     def test_scan_number_directive_attached(self):
         analyzer = create_scan_analyzer(

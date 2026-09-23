@@ -137,9 +137,13 @@ anything else (unported kinds or steps, scan-context backgrounds, or
 `Array2DScanAnalyzer` wrapper around an ImageAnalysis analyzer. `route="legacy"`
 forces the wrapper for a supported recipe (the observation-period escape hatch
 and the comparison harness's oracle); `route="core"` forces the core and raises
-`UnsupportedRecipe` when it cannot run the recipe. Tests that pin the wrappers'
-kwargs mapping force the legacy route with a schema-valid feature the core
-refuses (a flip, or a preprocessing-only trace ROI).
+`UnsupportedRecipe` when it cannot run the recipe. Legacy runtime attributes
+assigned after construction (`background_source`, `flag_save_data`, `file_tail`)
+are inert on a `CoreScanAnalyzer`: its behaviour comes from its own copy of the
+document, so override the document, or ask for `route="legacy"`. Tests that pin
+the wrappers' kwargs mapping use `route="legacy"`; the auto-routing tests force
+the wrapper with a schema-valid feature the core refuses (a flip, or a
+preprocessing-only trace ROI).
 
 `discover_analyzers` delegates to `geecs_data_utils.analysis_configs`; group
 lookup remains here because group aliases have different rules.

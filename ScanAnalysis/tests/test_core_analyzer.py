@@ -13,6 +13,9 @@ from geecs_data_utils import ScanPaths, ScanTag
 from geecs_schemas.analysis import AnalysisDiagnostic
 
 import scan_analysis.base as base
+from scan_analysis.analyzers.common.single_device_scan_analyzer import (
+    SingleDeviceScanAnalyzer,
+)
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.config import create_scan_analyzer
 from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
@@ -106,7 +109,11 @@ def run(
     )
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=base_dir))
     if route == "legacy":
-        analyzer = create_scan_analyzer(doc, id="Diag", priority=1)
+        # The oracle is the legacy wrapper, forced explicitly: without
+        # route="legacy" the factory would hand back the core for every
+        # supported recipe and this comparison would test core against core.
+        analyzer = create_scan_analyzer(doc, id="Diag", priority=1, route="legacy")
+        assert isinstance(analyzer, SingleDeviceScanAnalyzer)
     else:
         analyzer = CoreScanAnalyzer(doc, id="Diag", priority=1)
     raw_before = sorted(p.relative_to(scan) for p in scan.rglob("*"))
@@ -241,10 +248,11 @@ def test_missing_sfile_returns_none(tmp_path, monkeypatch, route):
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=base_dir))
     doc = document()
     analyzer = (
-        create_scan_analyzer(doc, id="Diag", priority=1)
+        create_scan_analyzer(doc, id="Diag", priority=1, route="legacy")
         if route == "legacy"
         else CoreScanAnalyzer(doc, id="Diag", priority=1)
     )
+    assert isinstance(analyzer, SingleDeviceScanAnalyzer) is (route == "legacy")
     assert analyzer.run_analysis(TAG) is None
     assert not list((tmp_path / route).rglob("*.h5"))
 
