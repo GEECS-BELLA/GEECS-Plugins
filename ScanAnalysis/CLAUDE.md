@@ -351,6 +351,14 @@ reader: a new `to_dict()` key fails there until `STATUS_FIELDS` /
 `AnalysisStatus` in GEECS-Data-Utils learn it — extend both in the same
 PR as the writer change.
 
+## Scalar persistence
+
+Scalar persistence in `base.py` delegates to `geecs_data_utils.scalar_files`:
+one lock/merge implementation coordinates legacy and new runners. ScanAnalysis
+still owns sidecar destination names, sibling analysis-directory creation and
+refreshing `auxiliary_data`. Preserve the difference between s-file merging
+(missing updates retain old cells) and sidecars (generated NaNs remain NaN).
+
 ## Renderer output names are a consumed contract
 
 `RenderContext.get_filename` (`analyzers/renderers/config.py`) and the
