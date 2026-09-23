@@ -16,7 +16,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   with the document's `data_loading`. Auxiliary columns reach the legacy
   fallback renderer (`processing.render_document_ephemeral` grew
   `auxiliary_data`); the core route reads the primary trace alone, as its
-  scan run does.
+  scan run does. The shot's own event row feeds the mapper, so a row the run
+  skips (`<device>-valid` false) is refused, not previewed.
 
 ## [0.32.2] - 2026-09-23
 

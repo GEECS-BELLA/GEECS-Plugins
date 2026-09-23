@@ -2132,13 +2132,18 @@ def create_app(
         acq, column_present = _acq_timestamp(detail, diag.name, shot)
         if column_present and acq is None:
             raise LookupError("device missed this shot (no timestamp)")
-        row: dict = {"Shotnumber": [shot]}
-        if acq is not None:
-            row[f"{diag.name} acq_timestamp"] = [acq]
+        # The shot's own event row: the mapper finds the device's
+        # acq_timestamp AND valid companions in it by normalized name, so a
+        # row the run would skip (valid False) is skipped here too.
+        if detail.data is not None:
+            rows = detail.data.iloc[[shot - 1]].copy()
+        else:
+            rows = pd.DataFrame(index=[0])
+        rows["Shotnumber"] = shot
         picked = diag.model_copy(
             update={"scan": diag.scan.model_copy(update={"device": device})}
         )
-        source = prepare_source(picked, folder, pd.DataFrame(row))
+        source = prepare_source(picked, folder, rows)
         reference = source.references.get(shot)
         if reference is None:
             raise LookupError(f"no {device} file for shot {shot}")

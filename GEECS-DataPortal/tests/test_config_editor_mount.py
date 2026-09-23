@@ -331,3 +331,36 @@ class TestLinePreview:
         assert r.status_code == 404, r.text
         assert "no scope file for shot 2" in r.text
         assert seen == []
+
+    def test_a_shot_the_run_marks_invalid_is_not_previewed(
+        self, scan_folder, configs_tree, seen
+    ):
+        """valid=False means the frame belongs to another shot: the run skips it."""
+        pytest.importorskip("h5py")
+        from test_app import _LV
+        from test_resources import _write_array_stack
+
+        (scan_folder / "scope").mkdir()
+        _write_array_stack(
+            scan_folder / "scope" / "scope.h5",
+            device="scope",
+            variable="trace",
+            frames=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+            axis=[(0.0, 1.0, 3), (0.0, 1.0, 3)],
+        )
+        catalog = FakeCatalog()
+        detail = _detail(2)
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        detail.data["U_Scope-acq_timestamp"] = [_LV + 0.5, _LV + 1.0, _LV + 2.0]
+        detail.data["U_Scope-valid"] = [True, False, True]
+        catalog.details["uid-002"] = detail
+        client = TestClient(
+            create_app(catalog, processing_config_dir=configs_tree, config_editor=True)
+        )
+        doc = dict(_LINE_DOC)
+        doc["image"] = {"type": "line", "data_loading": {"data_type": "pva_stack"}}
+        doc["scan"] = {"device": "scope", "data_format": "device_hdf5"}
+        assert self._post(client, doc, shot=1).status_code == 200
+        r = self._post(client, doc, shot=2)
+        assert r.status_code == 404, r.text
+        assert len(seen) == 1
