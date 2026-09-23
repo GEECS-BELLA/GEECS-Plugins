@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.37.0] - 2026-09-23
+
+### Added
+
+- `frames.Frame`, `Axis` and `ShotMeta`: shared in-memory 1D/2D samples with
+  owned read-only arrays, coordinate-preserving crops and Nx2 trace adapters.
+  Existing analysis routes are unchanged.
+
 ## [0.36.1] - 2026-09-22
 
 ### Changed

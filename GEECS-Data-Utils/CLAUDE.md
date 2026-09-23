@@ -58,6 +58,18 @@ geecs_data_utils/
 
 ## Core Abstractions
 
+### Coordinate-aware samples (`frames`)
+
+`Frame`, `Axis` and `ShotMeta` in `geecs_data_utils.frames` are the in-memory
+sample vocabulary for the new analysis core. They do no I/O. A trace is 1D
+with one coordinate axis; an image is 2D with axes in numpy `(y, x)` order.
+Construction copies data to read-only float64 arrays so reuse of a live
+source buffer cannot change in-flight analysis. Coordinate vectors are finite,
+owned and read-only; invalid signal values remain visible to measures.
+`crop` slices coordinates and data together, preserving calibrated/global
+positions. `from_trace` / `as_trace` adapt the existing Nx2 reader convention
+without resampling. No current consumer is switched by introducing these types.
+
 ### `ScanTag`
 
 Pydantic model identifying a scan. Immutable and hashable.
