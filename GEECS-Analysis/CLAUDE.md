@@ -2,9 +2,10 @@
 
 The replacement analysis core, developed on `codex/analysis-refactor`.
 Read `../Planning/analysis_refactor.md` for scope, acceptance gates and migration.
-The optimizer now uses this core directly for supported v2 camera recipes.
-Portal and scan routes still use ImageAnalysis/ScanAnalysis until their adapters
-and differential acceptance tests land. Do not switch consumers prematurely.
+The optimizer uses this core directly for supported v2 camera recipes. Portal
+image processing and unsaved-document rendering use it for supported recipes,
+with compilation-time fallback for unported recipes. Explicit scan execution
+still uses ScanAnalysis until its runner/sinks and acceptance tests land.
 
 ## Boundaries
 

@@ -612,7 +612,7 @@ def create_app(
         }
 
     def _ephemeral_module():
-        """``image_analysis.ephemeral``, or the feature's 404 ladder.
+        """The portal's backend router, or the feature's 404 ladder.
 
         The one place the "configured? installed?" preamble lives for
         the processing selector and the rendered view alike.
@@ -624,11 +624,9 @@ def create_app(
                 "(start it with --processing-configs)",
             )
         try:
-            # import_module (not ``from image_analysis import ephemeral``):
-            # the package attribute survives an uninstalled/blocked
-            # submodule, the sys.modules lookup does not — the
-            # missing-extra test blocks the submodule.
-            ephemeral = importlib.import_module("image_analysis.ephemeral")
+            # Check the optional runtime even when the router is cached.
+            importlib.import_module("geecs_analysis.compat.v2")
+            ephemeral = importlib.import_module("geecs_portal.processing")
         except ImportError as exc:
             raise HTTPException(
                 status_code=404,
@@ -640,11 +638,9 @@ def create_app(
     def _render_processing_figure(array, processing: str, render: dict) -> bytes:
         """The rendered view of ONE shot: the analyzer draws its own result.
 
-        Same seam family as ``_apply_processing`` (write-free, denylist,
-        one analyzer per call) — ``render_diagnostic_ephemeral`` hands
-        the analyzer's ``render_image`` an object-API axes, so overlays
-        (projections, markers, calibrated axes) come through without
-        any pyplot state on a request thread. Same status ladder as the
+        Same write-free router as ``_apply_processing``: supported recipes
+        use core measurements and object-API figures; unported recipes keep
+        the legacy ephemeral renderer. Same status ladder as the
         pixel path: unknown diagnostic 404, denylisted / invalid config
         400, analyzer failure 400, and "ran but cannot be drawn"
         (``RenderError``) 404 — the pixel path's "render failed" /
@@ -1109,8 +1105,10 @@ def create_app(
         if processing_config_dir is None:
             return []
         try:
-            from image_analysis.config import list_diagnostics, load_diagnostic
-        except ImportError:
+            processing_api = _ephemeral_module()
+            list_diagnostics = processing_api.list_diagnostics
+            load_diagnostic = processing_api.load_diagnostic
+        except HTTPException:
             return []
         # Fingerprint BEFORE listing: a YAML landing between the two
         # scans then costs one harmless revalidation, instead of a
@@ -1391,15 +1389,14 @@ def create_app(
     def _apply_processing(arrays: list, processing: str) -> list:
         """Ephemeral-process *arrays* → the analyzers' processed images.
 
-        One :func:`image_analysis.ephemeral.run_diagnostic_ephemeral`
-        call (one analyzer instantiation for the whole batch); the
-        write-free contract lives in that seam. Refusals map onto the
+        One compiled recipe for the batch, or the retained legacy ephemeral
+        route for an unsupported recipe. Refusals map onto the
         endpoint ladder: unknown diagnostic → 404, denylisted/miswired
         → 400, analyzer failure → 400 honestly — never a 500.
         """
         ephemeral = _ephemeral_module()
         try:
-            results = ephemeral.run_diagnostic_ephemeral(
+            processed = ephemeral.process_images(
                 processing, arrays, config_dir=processing_config_dir
             )
         except (KeyError, FileNotFoundError) as exc:
@@ -1412,9 +1409,6 @@ def create_app(
             raise HTTPException(
                 status_code=400, detail=f"processing failed: {exc}"
             ) from exc
-        # getattr: a legacy analyzer returning a dict (BCaveMagSpecStitcher)
-        # must be a refusal here, not an AttributeError → 500.
-        processed = [getattr(result, "processed_image", None) for result in results]
         if any(image is None for image in processed):
             raise HTTPException(
                 status_code=404,

@@ -180,7 +180,7 @@ class TestPreview:
         """Not the Images tab's gray: the analyzer's default unless scan.renderer says."""
         np = pytest.importorskip("numpy")
         pytest.importorskip("PIL")
-        import image_analysis.ephemeral as ephemeral
+        import geecs_portal.processing as ephemeral
         from matplotlib.figure import Figure
         from PIL import Image
 

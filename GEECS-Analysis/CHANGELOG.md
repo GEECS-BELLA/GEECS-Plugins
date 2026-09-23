@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.2] - 2026-09-23
+
+### Changed
+- Document portal processing/preview adoption and the remaining scan-runner
+  migration boundary. No core runtime change.
+
 ## [0.4.1] - 2026-09-23
 
 ### Fixed

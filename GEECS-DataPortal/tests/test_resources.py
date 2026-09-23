@@ -930,7 +930,7 @@ class TestProcessingSelector:
         (they passed in #737's extra-less CI — the guard must not
         retire that real coverage).
         """
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("geecs_analysis")
 
     @pytest.fixture()
     def configs_tree(self, tmp_path):
@@ -1140,10 +1140,8 @@ class TestProcessingSelector:
     ):
         import sys
 
-        # A None entry makes `from image_analysis.X import …` raise
-        # ImportError — simulating the extra not being installed.
-        monkeypatch.setitem(sys.modules, "image_analysis.config", None)
-        monkeypatch.setitem(sys.modules, "image_analysis.ephemeral", None)
+        # Simulate the required analysis runtime missing, even with a cached router.
+        monkeypatch.setitem(sys.modules, "geecs_analysis.compat.v2", None)
         client = self._client(scan_folder, configs_tree)
         page = client.get("/run/uid-002", params={"device": "cam", "tab": "images"})
         assert page.status_code == 200
@@ -1247,6 +1245,18 @@ class TestImageDisplay:
         assert np.array(Image.open(io.BytesIO(response.content))).ndim == 3
 
 
+@pytest.fixture
+def legacy_recipe(configs_tree):
+    """Keep legacy-result refusal tests on an actually unported recipe."""
+    import yaml
+
+    path = configs_tree / "analyzers" / "HTU" / "UC_Crop.yaml"
+    document = yaml.safe_load(path.read_text())
+    document["image"]["pipeline"].append("transforms")
+    document["image"]["transforms"] = {"rotation_angle": 45}
+    path.write_text(yaml.safe_dump(document))
+
+
 class TestRenderedView:
     """``display.mode = "rendered"``: the analyzer's figure instead of the pixels."""
 
@@ -1331,7 +1341,7 @@ class TestRenderedView:
         assert degraded.status_code == 200
 
     def test_unrenderable_result_matches_the_pixel_paths_404(
-        self, scan_folder, configs_tree, analysis_extra, monkeypatch
+        self, scan_folder, configs_tree, analysis_extra, monkeypatch, legacy_recipe
     ):
         """A diagnostic that ran but cannot be drawn is a 404 in every view.
 
@@ -1381,7 +1391,7 @@ class TestRenderedView:
         assert binned.status_code == 404
 
     def test_legacy_dict_result_is_a_404_in_both_views(
-        self, scan_folder, configs_tree, analysis_extra, monkeypatch
+        self, scan_folder, configs_tree, analysis_extra, monkeypatch, legacy_recipe
     ):
         """BCaveMagSpecStitcher-style dict returns: refused, never a 500."""
         from image_analysis.analyzers.standard_analyzer import StandardAnalyzer

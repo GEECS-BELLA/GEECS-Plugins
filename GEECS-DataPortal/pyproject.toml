@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-data-portal"
-version = "0.30.0"
+version = "0.31.0"
 description = "Scan-browsing web service (read-only except explicit analysis runs): a zero-install browser view over the Tiled catalog and the GEECS data share"
 authors = ["GEECS-BELLA"]
 readme = "README.md"
@@ -22,14 +22,15 @@ plotly = "^7.0"
 # run time too.
 httpx = ">=0.27"
 imageanalysis = { path = "../ImageAnalysis", develop = true, optional = true }
+geecs-analysis = { path = "../GEECS-Analysis", develop = true, optional = true }
 scananalysis = { path = "../ScanAnalysis", develop = true, optional = true }
 
 [tool.poetry.extras]
-# The Images tab's ephemeral-processing selector (run_diagnostic_ephemeral)
+# The Images tab's core processing and legacy fallback
 # AND the Analysis tab's runs (ScanAnalysis executed directly);
 # without it the portal serves raw images, the selector stays
 # hidden and the run endpoints 404.
-analysis = ["imageanalysis", "scananalysis"]
+analysis = ["geecs-analysis", "imageanalysis", "scananalysis"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"
