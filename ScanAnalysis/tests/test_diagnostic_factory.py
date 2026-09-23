@@ -150,13 +150,13 @@ class TestScanRuntimeAttachment:
         analyzer = create_scan_analyzer(_diag(scan={"priority": 7}), priority=99)
         assert analyzer.priority == 99
 
-    def test_gdoc_slot_attached(self):
+    def test_retired_gdoc_slot_is_accepted_but_not_attached(self):
         analyzer = create_scan_analyzer(_diag(scan={"gdoc_slot": 2}))
-        assert analyzer.gdoc_slot == 2
+        assert not hasattr(analyzer, "gdoc_slot")
 
-    def test_gdoc_slot_default_is_none(self):
+    def test_no_upload_state_on_default_analyzer(self):
         analyzer = create_scan_analyzer(_diag())
-        assert analyzer.gdoc_slot is None
+        assert not hasattr(analyzer, "gdoc_slot")
 
     def test_save_maps_to_flag_save_images_for_array2d(self):
         on = create_scan_analyzer(_diag(scan={"save": True}))

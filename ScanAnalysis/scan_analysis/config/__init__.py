@@ -4,7 +4,7 @@ The documents — :class:`~geecs_schemas.analysis.AnalysisDiagnostic` (one
 YAML per diagnostic under ``scan_analysis_configs/analyzers/<namespace>/``,
 with its ``analyzer:``, ``image:`` and typed ``scan:`` sections) and
 :class:`~geecs_schemas.analysis.AnalysisGroup` (``groups/<namespace>/``,
-what LiveWatch and the task queue dispatch) — live in GEECS-Schemas; import
+what explicit analysis runs dispatch) — live in GEECS-Schemas; import
 them from ``geecs_schemas.analysis``.  This package owns what needs the
 analysis stack:
 

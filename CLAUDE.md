@@ -211,7 +211,7 @@ GeecsLogbook         →  GEECS-Data-Utils (ScanPaths only — it reads scan
                         imports the portal, ScanAnalysis, or anything
                         Bluesky
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, GEECS-Schemas,
-                        LogMaker4GoogleDocs (+ fastapi/jinja2 via the
+                        (+ fastapi/jinja2 via the
                         `editor` extra — scan_analysis.config_editor,
                         the web config editor router the portal mounts
                         at /configs, its one host;
@@ -256,8 +256,7 @@ both gateways and GeecsBluesky share lives in `geecs_core.db.variable_types`.
 `GEECS-Data-Utils` is the foundational layer — everything depends on it and it
 depends on nothing else in the repo. `GeecsScanner` sits at the top of the
 DAQ side. `ScanAnalysis` and `ImageAnalysis` are the most actively
-developed analysis packages. `LogMaker4GoogleDocs` is optional everywhere — missing it
-causes silent skips, not errors.
+developed analysis packages. `LogMaker4GoogleDocs` is a standalone legacy package; analysis no longer imports it.
 
 ## How Packages Are Used Together (Typical Analysis Flow)
 
@@ -271,8 +270,8 @@ causes silent skips, not errors.
    per-shot image files → `ImageAnalyzerResult`
 4. **ScanAnalysis** `Array2DScanAnalyzer` or `Array1DScanAnalyzer` wraps an
    `ImageAnalyzer`, aggregates per-shot results, renders summary plots
-5. **LogMaker4GoogleDocs** uploads summary figures to Google Drive and inserts
-   them into the experiment Google Doc (triggered by `gdoc_slot` config)
+5. The **Data Portal** displays saved results; analysis is explicitly requested
+   there. Automatic watching and Google Docs uploads are retired.
 
 ## GEECS Data Folder Convention
 
@@ -423,13 +422,8 @@ find by failure. The contract page is `docs/platform/site_profile.md`;
 The rule binds **new** units, scripts, and defaults, and the existing
 ones were cleaned up in 2026-09 (the PVA fleet roster comes from the DB
 with the deployed set in `config.ini [pva] addr_list`; timezone defaults
-are the host's zone; no default experiment in code). The literals
-deliberately left are the LiveWatch/LogMaker path's — `EXPERIMENT_FILE_IDS`
-in `geecs_data_utils.doc_id_lookup` (Google Doc index IDs) and the
-facility list in `ScanAnalysis/LiveWatchGUI/live_watch_window.py` that
-reads them (plus the timezone in `apps_script/Code.gs`, the Google-side
-log generator) — they move with the LogMaker refactor under "Known debt"
-below, not opportunistically.
+are the host's zone; no default experiment in code). The remaining legacy Google-side timezone in
+`apps_script/Code.gs` belongs to the standalone LogMaker package.
 
 ## Known debt we have deliberately deferred
 
@@ -450,13 +444,8 @@ revisit. Speculative cleanup is not.
   `GeecsLogbook/`, being built in phases; LogMaker stays in place and
   untouched until that arc can carry the Google Doc export, at which point
   it is deleted rather than tidied.
-  The per-experiment Google Doc index IDs (`EXPERIMENT_FILE_IDS` in
-  `geecs_data_utils.doc_id_lookup`, LiveWatch's facility dropdown) were
-  going to get their config home in the refactor that is no longer
-  happening. **They are now unowned**: whichever lands first — the
-  logbook's export phase or a LiveWatch change that needs them — gives them
-  one, in the configs repo's per-experiment tree or the share INI LogMaker
-  already reads. `ScanAnalysis` still hard-depends on LogMaker until then.
+  Analysis no longer depends on this package; LiveWatch and its Google Doc
+  lookup helpers have been retired.
 
 If you find yourself adding to this list, consider whether you're capturing
 real institutional knowledge or accumulating procrastination. Both are

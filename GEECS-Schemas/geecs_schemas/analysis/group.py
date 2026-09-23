@@ -1,6 +1,6 @@
 """The analysis group document: the list of diagnostics that run together after a scan.
 
-A group is what LiveWatch and the task queue schedule.  It names
+A group is what explicit analysis runs schedule.  It names
 diagnostics by their file stems; an entry may be disabled in place or
 given a group-specific priority.  Format version 1 — the pre-0.19.0 group
 YAML is identical apart from the ``schema_version`` stamp, which is added
@@ -51,7 +51,8 @@ class AnalysisGroup(VersionedSchemaModel):
     )
     upload_to_scanlog: bool = Field(
         True,
-        description="Upload the group's summary figures to the experiment scan log.",
+        description="Retired upload option; accepted for existing configs and ignored.",
+        json_schema_extra={"deprecated": True},
     )
     analyzers: List[AnalyzerRef] = Field(
         default_factory=list,

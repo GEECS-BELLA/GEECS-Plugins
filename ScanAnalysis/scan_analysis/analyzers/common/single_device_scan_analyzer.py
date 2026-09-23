@@ -884,7 +884,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         return result.processed_image is not None or result.line_data is not None
 
     def _log_result_warnings(self, unit_key, result: ImageAnalyzerResult) -> None:
-        """Log analyzer-supplied warnings in the parent LiveWatch process."""
+        """Log analyzer-supplied warnings in the parent analysis process."""
         metadata = result.metadata or {}
         warnings = metadata.get("warnings") or metadata.get("analysis_warnings")
         if not warnings:

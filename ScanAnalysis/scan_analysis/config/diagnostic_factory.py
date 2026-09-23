@@ -70,10 +70,8 @@ def create_scan_analyzer(
         per-group-overridden value when present.
     use_injected_data : bool, default=False
         When ``False`` (default), the wrapper analyzer loads its s-file
-        from disk after the scan completes — the canonical task-queue /
-        LiveWatch path. When ``True``, the caller (e.g. the optimizer's
-        ``MultiDeviceScanEvaluator``) is responsible for setting
-        ``analyzer.auxiliary_data`` from the in-memory DataLogger before
+        from disk after the scan completes. When ``True``, the caller is
+        responsible for setting ``analyzer.auxiliary_data`` before
         each ``run_analysis`` call. See
         :class:`scan_analysis.base.ScanAnalyzer` for the full contract.
 
@@ -81,7 +79,7 @@ def create_scan_analyzer(
     -------
     ScanAnalyzer
         Configured ``Array1DScanAnalyzer`` or ``Array2DScanAnalyzer``
-        with ``id`` / ``priority`` / ``gdoc_slot`` / ``background_source``
+        with ``id`` / ``priority`` / ``background_source``
         attached as instance attributes.
 
     Raises
@@ -189,7 +187,6 @@ def _wrap_in_scan_analyzer(
     # Task-queue / scan-log metadata attached as instance attributes.
     analyzer.id = analyzer_id
     analyzer.priority = priority
-    analyzer.gdoc_slot = scan_cfg.gdoc_slot
     # The directive is consumed at run time inside
     # SingleDeviceScanAnalyzer._resolve_background_paths. ``None`` is the
     # common case (no scan-context bg needed); the runtime check is

@@ -64,7 +64,7 @@ page links back to the docs root. `docs/sites/README.md` carries the
 rules and the page table; add a row when you add a page.
 
 If you find yourself wanting to document a workflow that spans two packages
-(say, "configure analysis in the config editor then run via LiveWatch"), it
+(say, "configure analysis in the config editor then run from the data portal"), it
 belongs under `tutorials/`, not under either constituent package.
 
 ## Building & previewing locally
@@ -86,37 +86,11 @@ Missing imports surface as `griffe:` or `mkdocstrings:` warnings.
 
 ## Screenshots — author them, don't placeholder them
 
-When documenting a PyQt5 GUI, **generate real screenshots** rather than
-shipping `![TODO: …]` placeholders. The technique is headless and
-reproducible:
-
-1. The script `scripts/generate_docs_screenshots.py` drives each app under
-   `QT_QPA_PLATFORM=offscreen`, walks it through representative states
-   (loading a sample config, toggling panels, picking a group), and
-   captures each state via `widget.grab().save(path, "PNG")`.
-2. Output PNGs live under `docs/<tab>/assets/` — e.g.
-   `docs/tutorials/assets/livewatch_02_group_selected.png`.
-3. Naming convention: `<app>_NN_<state>.png` so screenshots are
-   self-sorting and the state is greppable from the filename.
-4. Re-run the script whenever the GUIs change in a user-visible way:
-
-   ```bash
-   poetry run python scripts/generate_docs_screenshots.py
-   ```
-
-   It reads sample configs from the sister `GEECS-Plugins-Configs` repo
-   (expected at `../GEECS-Plugins-Configs/scan_analysis_configs/`); if
-   that path moves, edit the `SAMPLE_CONFIGS` constant.
-
-The screenshots **don't** match macOS/Windows native chrome — offscreen QPA
-renders a generic Qt look. That's a feature for documentation: consistent
-across platforms, free of distracting OS-specific elements.
-
-Extending the script for a new app: add a `shoot_<app>(app)` function that
-imports the window class, instantiates it, drives it through interesting
-states with `app.processEvents()` between steps, and calls `_save(w,
-"<app>_NN_<state>.png")`. The `_settle()` helper and `_save()` helper are
-already there.
+When documenting a web surface, capture real screenshots of representative
+states in the browser. Store PNGs under `docs/<tab>/assets/`, named
+`<app>_NN_<state>.png`, and regenerate them when the UI changes. Do not
+ship screenshot placeholders. The former LiveWatch screenshot generator
+was retired with that GUI.
 
 ## Conventions for new pages
 

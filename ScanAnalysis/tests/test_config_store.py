@@ -220,3 +220,25 @@ def test_schema_is_the_document_json_schema(tree):
 
 def test_pending_changes_is_none_outside_git(tree):
     assert ConfigStore(tree).pending_changes() in (None, [])
+
+
+@pytest.mark.parametrize(
+    "kind, document, expected",
+    [
+        ("analyzer", _doc(gdoc_slot=2), {"gdoc_slot": 2}),
+        (
+            "group",
+            {"name": "old", "upload_to_scanlog": False},
+            {"upload_to_scanlog": False},
+        ),
+    ],
+)
+def test_retired_upload_fields_round_trip(tmp_path, kind, document, expected):
+    """Saving old configs preserves authored legacy values without migration."""
+    (tmp_path / ("analyzers" if kind == "analyzer" else "groups")).mkdir()
+    store = ConfigStore(tmp_path)
+    store.save(kind, "example", "old", document, etag=None)
+    saved = store.read(kind, "old").document
+    payload = saved["scan"] if kind == "analyzer" else saved
+    for key, value in expected.items():
+        assert payload[key] == value

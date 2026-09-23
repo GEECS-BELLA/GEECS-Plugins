@@ -1088,7 +1088,7 @@ How the analyzer runs over a scan: order, granularity, what is saved, where file
 | `priority` | `int` | no | 100 | Run order within a group: lower runs first. 100 is the background default. |
 | `mode` | `'per_shot' \| 'per_bin'` | no | 'per_shot' | 'per_shot' analyzes every frame; 'per_bin' averages each bin's frames first and analyzes once per bin — for metrics that are not linear in the image. |
 | `save` | `bool` | no | True | Write per-shot / per-bin outputs (HDF5, PNG) into the analysis tree. S-file scalar columns are written regardless. |
-| `gdoc_slot` | `int (optional)` | no | None | Which cell (0-3) of the scan-log entry's 2x2 figure table gets this analyzer's summary; unset uploads figures as links instead. |
+| `gdoc_slot` | `int (optional)` | no | None | Retired Google Docs table slot; accepted for existing configs and ignored. |
 | `device` | `str (optional)` | no | None | Data subfolder under the scan when it differs from the diagnostic name (stitched or post-processed outputs in a sibling folder). |
 | `file_tail` | `str (optional)` | no | None | Filename suffix that identifies this device's files ('.png', '.tdms', '_postprocessed.tsv'); unset uses the analyzer's default. |
 | `data_format` | `'per_shot_files' \| 'device_hdf5' (optional)` | no | None | 'device_hdf5' reads the per-device frame stack the PVA gateway's file plugin writes. A camera analyzer falls back to per-shot files when no stack can be mapped; a 1D analyzer loading 'pva_stack' does NOT — that loader cannot read a per-shot path, so the scan records no_data instead. Only for analyzers that do not derive output names from the shot file path. |
@@ -1155,7 +1155,7 @@ A named set of diagnostics to run after each scan, in priority order.
 | `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
 | `name` | `str` | yes | — | Display name, conventionally <facility>_<purpose>. |
 | `description` | `str (optional)` | no | None | Free-text note about when this group is used. |
-| `upload_to_scanlog` | `bool` | no | True | Upload the group's summary figures to the experiment scan log. |
+| `upload_to_scanlog` | `bool` | no | True | Retired upload option; accepted for existing configs and ignored. |
 | `analyzers` | `list[AnalyzerRef]` | no | empty | The diagnostics to run; a bare ID means enabled with the diagnostic's own priority. |
 
 Example:

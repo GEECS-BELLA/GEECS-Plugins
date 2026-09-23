@@ -140,8 +140,7 @@ geecs_mcp/
                   #   surface backend-neutral, analysis_status/ = the
                   #   progress contract, so the Tiled stack can slot in
                   #   later.  Rides the optional analysis-run extra;
-                  #   gdoc upload hard-off (an outward publish needs its
-                  #   own gated verb)
+                  #   Google Docs uploads retired
     run_worker.py # the detached worker: one JSON argv payload ->
                   #   build_worklist + run_worklist for one scan; stdio
                   #   dropped — the status YAMLs are the observable

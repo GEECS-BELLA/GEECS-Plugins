@@ -5,7 +5,7 @@
 The GEECS Plugin Suite extends LBNL's
 [GEECS](https://bella.lbl.gov/) (Generalized Equipment and Experiment Control
 System) acquisition platform with Python-native tools for scanning, image
-analysis, scan post-processing, and automated e-log uploads. Each subdirectory
+analysis, scan post-processing, and result browsing. Each subdirectory
 is an independent Python package; together they cover the experimental data
 lifecycle from acquisition through analysis to delivery.
 
@@ -33,8 +33,8 @@ follow that split; the bottom row is for navigation and troubleshooting.
 
     ---
 
-    Process per-shot images, configure analysis pipelines, run automated
-    per-scan analysis via LiveWatch. Edit configs in the data portal's config editor; run
+    Process per-shot images, configure analysis pipelines, and run
+    per-scan analysis from the data portal. Edit configs in its config editor; run
     them headlessly or interactively via the Image/Scan Analysis APIs.
 
     [:octicons-arrow-right-24: Analysis tutorial](tutorials/analysis.md) ·
@@ -77,7 +77,6 @@ flowchart LR
     SA[Scan Analysis<br/>per-scan workflows]
     IA[Image Analysis<br/>per-image pipelines]
     DU[Data Utils<br/>paths + s-files]
-    GDoc[LogMaker<br/>e-log upload]
 
     Scanner --> Engine
     Engine -->|CA service| GW
@@ -85,7 +84,6 @@ flowchart LR
     Engine --> DU
     SA --> IA
     SA --> DU
-    SA -.->|optional| GDoc
     IA -.->|optional, via Array2DScanAnalyzer| SA
 ```
 
@@ -109,9 +107,7 @@ profile, FROG, magspec, HASO wavefront, and 1D traces.
 
 **[Scan Analysis](scan_analysis/overview.md)** — orchestrates analysis across
 a complete scan: shot binning, per-bin processing, summary figure rendering,
-s-file appending. Runs interactively or as a `LiveTaskRunner` that processes
-scans automatically as they complete. Optional integration with Google Doc
-e-logs via `LogMaker4GoogleDocs`.
+s-file appending. Runs explicitly through the data portal or Python.
 
 **[GEECS-Core](geecs_core/overview.md)** — the GEECS access library: device
 communication (UDP/TCP transport and the entry-level `GeecsDevice` client),
