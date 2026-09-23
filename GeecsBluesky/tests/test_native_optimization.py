@@ -212,11 +212,17 @@ def test_camera_measurement_refire_and_preclaim_connection(
         generator={"name": "random"},
         run={"max_iterations": 2, "shots_per_step": 2},
     )
+    from geecs_bluesky.config_resolver import ConfigsRepoResolver
+
+    monkeypatch.setattr(
+        ConfigsRepoResolver, "analysis_config_dir", property(lambda _: folder)
+    )
+    diagnostic_resolver = ConfigsRepoResolver("Test", folder)
     resolver = SimpleNamespace(
         resolve_optimizer_config=lambda name: cfg,
         scan_variable_catalog=lambda: SimpleNamespace(variables={}),
         optimizer_config_path=lambda name: folder / "test.yaml",
-        analysis_config_dir=folder,
+        resolve_diagnostic=diagnostic_resolver.resolve_diagnostic,
     )
     namespace = SimpleNamespace(
         resolve=lambda name: camera if name == "Camera" else ns.resolve(name),

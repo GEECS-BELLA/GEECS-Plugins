@@ -56,12 +56,15 @@ def test_graph_is_read_from_the_real_pyprojects() -> None:
 def test_optional_extra_dependencies_still_count() -> None:
     """An ``optional = true`` path dep widens CI like any other.
 
-    GeecsBluesky's ImageAnalysis edge is behind the ``optimize`` extra; a
+    GeecsBluesky's GEECS-Analysis edge is behind the ``optimize`` extra; a
     parser that skipped optional deps would under-select on an
-    ImageAnalysis change, which is exactly the silent failure this guards.
+    GEECS-Analysis change, which is exactly the silent failure this guards.
     """
     graph = ci_select.discover_graph()
-    assert "ImageAnalysis" in graph["GeecsBluesky"]
+    assert "GEECS-Analysis" in graph["GeecsBluesky"]
+    assert "ImageAnalysis" not in graph["GeecsBluesky"]
+    legs, _ = ci_select.classify(["GEECS-Analysis/geecs_analysis/run.py"], graph)
+    assert "GeecsBluesky" in legs
 
 
 # --- the narrowing direction: dependents must be pulled in -------------------

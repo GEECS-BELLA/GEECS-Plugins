@@ -166,7 +166,7 @@ GeecsPvaGateway      →  GEECS-Core (transport, DB, pv_naming, the DB
                         — the distributed PVA image server on the camera
                         servers
 GeecsBluesky         →  GEECS-Data-Utils, GEECS-Core, GEECS-Schemas
-                        (+ ImageAnalysis/xopt, optional via the
+                        (+ GEECS-Analysis/xopt, optional via the
                         `optimize` extra — the native ask/tell and live measurement
                         stack in geecs_bluesky.optimization;
                         + bluesky-queueserver-api, optional via the

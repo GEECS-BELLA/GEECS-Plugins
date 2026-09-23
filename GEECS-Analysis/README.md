@@ -2,7 +2,8 @@
 
 The new analysis core under development on the analysis integration branch.
 This first slice provides pure, ordered processing for coordinate-aware 1D
-traces and 2D images. Existing consumers still use ImageAnalysis/ScanAnalysis.
+traces and 2D images. GeecsBluesky's optimizer uses this core directly;
+portal and scan consumers still use ImageAnalysis/ScanAnalysis.
 
 ```python
 from geecs_analysis.specs import Pipeline
@@ -79,8 +80,9 @@ Readers remain separate and supply native-dtype arrays so legacy trace scaling
 precision is preserved. Trace processing is currently restricted to float64,
 with float32/float64 storage rounding before measurement. Preprocessing-only
 `trace` recipes with active ROI stay unsupported: legacy may return an empty
-array, which Frame intentionally cannot represent. Existing consumer
-routes have not switched yet.
+array, which Frame intentionally cannot represent. Identity camera transforms
+are accepted; active geometric transforms remain unsupported. The optimizer
+compiles supported camera recipes once before acquisition.
 
 The v2 boundary explicitly preserves old camera ROI fallback/origin semantics
 and the old float64 line result's clipped negative values, without mutating
