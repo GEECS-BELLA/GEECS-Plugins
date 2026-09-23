@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.0] - 2026-09-23
+
+### Added
+
+- `compat.v2_render`: v2 renderer-option translation for single, image-grid and
+  waterfall figures. Preserves the legacy colormap-mode/limit rules, the
+  index-wise waterfall stack on the first trace's x grid with midpoint cell
+  edges, sort-implied even spacing, real zero positions and configured labels;
+  the image grid carries the legacy ``Scan parameter:`` title. No pyplot state
+  and no file writes.
+
 ## [0.11.0] - 2026-09-23
 
 ### Added
