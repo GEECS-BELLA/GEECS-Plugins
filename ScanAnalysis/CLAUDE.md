@@ -14,6 +14,7 @@ scan_analysis/
   core_products.py                 # write-free average/bin and summary product planning
   core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN
   core_analyzer.py                 # CoreScanAnalyzer: the core route behind the ScanAnalyzer contract
+  route_compare.py                 # snapshot + compare two routes' analysis trees (one equality rule)
   task_queue.py                    # Task claiming, heartbeat, YAML status system
   config/
     diagnostic_factory.py          # create_scan_analyzer(AnalysisDiagnostic)
@@ -97,6 +98,16 @@ payloads, s-file columns, sidecars and the display-file list exactly, except
 noscan averages, where the legacy wrapper sums shots in directory-listing order
 and a few-ulp tolerance is explicit. Figure content is not compared: the two
 renderers differ by design, so titles and layout are the operator's review.
+`route_compare.snapshot_analysis_tree` / `compare_snapshots` are the one
+definition of "the same outputs"; the differential test and
+`scripts/analysis_scan_compare.py` both use them. The script runs the
+comparison on a real scan: it copies the scan's inputs into two private trees,
+runs `route="legacy"` in one and `route="core"` in the other, and diffs their
+analysis trees. It refuses recipes with `scan.background_source`: the legacy
+wrapper resolves the reference scan through its own `ScanPaths`, outside the
+private tree, and caches a background beside the archived scan; the core does
+not run those recipes anyway. For every other recipe nothing is written next to
+the archived scan.
 
 Scan analysis is driven by YAML config files stored in the
 **GEECS-Plugins-configs** repository (not this repo). The documents are

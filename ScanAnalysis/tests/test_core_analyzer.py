@@ -5,7 +5,6 @@ from __future__ import annotations
 from functools import partial
 from pathlib import Path
 
-import h5py
 import numpy as np
 import pandas as pd
 import pytest
@@ -19,6 +18,7 @@ from scan_analysis.analyzers.common.single_device_scan_analyzer import (
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.config import create_scan_analyzer
 from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
+from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
 
 TAG = ScanTag(year=2026, month=1, day=1, number=1, experiment="Test")
 PARAM_COLUMN = "U_Motor Position Alias:motor"
@@ -127,22 +127,8 @@ def run(
 
 
 def snapshot(scan: Path) -> dict:
-    """Every analysis output, with HDF5 payloads and scalar tables decoded."""
-    analysis = scan.parent.parent / "analysis"
-    files = {}
-    for path in sorted(analysis.rglob("*")):
-        if not path.is_file():
-            continue
-        name = path.relative_to(analysis).as_posix()
-        if path.suffix == ".h5":
-            with h5py.File(path) as handle:
-                (key,) = list(handle)
-                files[name] = (key, handle[key][:], handle[key].dtype)
-        elif path.suffix == ".txt":
-            files[name] = pd.read_csv(path, sep="\t")
-        else:
-            files[name] = path.read_bytes()[:8]
-    return files
+    """Every analysis output, decoded by the shared route-comparison rules."""
+    return snapshot_analysis_tree(scan.parent.parent / "analysis")
 
 
 def relative_display(scan: Path, display) -> list[str]:
@@ -185,26 +171,10 @@ def test_core_route_matches_legacy_outputs(
         # Figures name the scan by the cleaned ScanInfo string, as legacy did.
         assert plan.position_label == "U_Motor Position"
     assert any(name.endswith(".h5") for name in core)
-    for name, expected in legacy.items():
-        actual = core[name]
-        if isinstance(expected, tuple):
-            assert (actual[0], actual[2]) == (expected[0], expected[2]), name
-            if "_average_processed" in name:
-                # The legacy noscan average sums shots in directory-listing
-                # order (whatever the filesystem returns); the core sums in
-                # scalar-row order. Same per-shot inputs, same formula, so the
-                # results differ only by summation rounding: a few ulps of
-                # the stored dtype. Every other product is compared exactly.
-                tolerance = 4 * np.finfo(expected[2]).eps
-                np.testing.assert_allclose(
-                    actual[1], expected[1], rtol=tolerance, atol=0, err_msg=name
-                )
-            else:
-                np.testing.assert_array_equal(actual[1], expected[1], err_msg=name)
-        elif isinstance(expected, pd.DataFrame):
-            pd.testing.assert_frame_equal(actual, expected, check_exact=True, obj=name)
-        else:
-            assert actual == expected, name
+    # Exact everywhere except noscan averages: the legacy wrapper sums shots
+    # in directory-listing order, the core in scalar-row order, so those
+    # differ by summation rounding only (see compare_snapshots).
+    assert compare_snapshots(legacy, core, average_ulps=4) == []
     assert relative_display(core_scan, core_display) == relative_display(
         legacy_scan, legacy_display
     )
@@ -227,9 +197,8 @@ def test_scalars_persist_without_products_when_save_is_off(tmp_path, monkeypatch
     core_scan, core_display, _ = run(monkeypatch, tmp_path, "core", doc, noscan=False)
     legacy, core = snapshot(legacy_scan), snapshot(core_scan)
     assert sorted(core) == sorted(legacy) == ["Scan001/Scan001_Diag.txt", "s1.txt"]
-    for name in legacy:
-        pd.testing.assert_frame_equal(core[name], legacy[name], check_exact=True)
-    assert "Diag_x_CoM" in core["s1.txt"].columns
+    assert compare_snapshots(legacy, core) == []
+    assert "Diag_x_CoM" in core["s1.txt"][1].columns
     assert core_display == legacy_display == []
 
 
