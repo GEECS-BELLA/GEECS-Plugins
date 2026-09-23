@@ -152,7 +152,8 @@ GEECS-Data-Utils     →  (no intra-repo deps — foundational data layer)
 LogMaker4GoogleDocs  →  (no intra-repo deps — pure Google API wrapper)
 GEECS-Schemas        →  (no intra-repo deps — Pydantic/GEST config vocabulary)
 
-GEECS-Analysis       →  GEECS-Data-Utils (Frame/Axis, no input readers in the core)
+GEECS-Analysis       →  GEECS-Data-Utils (Frame/Axis, no input readers in the core),
+                        GEECS-Schemas (v2 compatibility adapter only)
 ImageAnalysis        →  GEECS-Data-Utils, GEECS-Schemas (the analysis-config
                         documents and processing models it consumes)
 GEECS-Core           →  (no intra-repo deps — the GEECS access library:

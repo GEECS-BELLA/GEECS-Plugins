@@ -243,3 +243,22 @@ def test_cli_comparison_exit_code(tmp_path, capsys):
     assert baseline.main(["compare", str(old), str(old)]) == 0
     assert baseline.main(["compare", str(old), str(new)]) == 1
     assert "workload inputs differs" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("kind", ["beam", "line"])
+def test_core_capture_compares_to_legacy_on_identical_raw_workloads(tmp_path, kind):
+    config, path = write_case(tmp_path, kind)
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    legacy = baseline.capture(config, [path])
+    core = baseline.capture(config, [path], backend="core")
+    assert baseline.compare(legacy, core) == []
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before
+    if kind == "beam":
+        legacy = baseline.capture(config, [path, path], "per_bin")
+        core = baseline.capture(config, [path, path], "per_bin", backend="core")
+        assert baseline.compare(legacy, core) == []
+
+
+def test_unknown_backend_cannot_accidentally_use_legacy(tmp_path):
+    with pytest.raises(ValueError, match="Unknown analysis backend"):
+        baseline.capture(tmp_path / "missing.yaml", [], backend="typo")

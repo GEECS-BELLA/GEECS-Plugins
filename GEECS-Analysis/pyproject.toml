@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-analysis"
-version = "0.2.0"
+version = "0.3.0"
 description = "Pure frame processing and unified GEECS analysis"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -12,6 +12,7 @@ python = ">=3.11,<3.12"
 numpy = ">=2.0,<3.0"
 scipy = "^1.15"
 pydantic = "^2.0"
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true }
 
 [build-system]

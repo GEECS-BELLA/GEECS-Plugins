@@ -144,6 +144,22 @@ beam/line, ephemeral-document and renderer-name baseline selection passed
 46 tests. These results establish a starting reference, not acceptance of the
 future backend, waterfall renderer or optimizer integration.
 
+### First core slices (2026-09-23)
+
+Baseline harness #955 and Frame #956 are merged to the integration branch;
+pure steps #957 and beam/line measures #958 follow. The v2 adapter now compares
+the first three canonical raw beam inputs against the saved baseline exactly
+(per shot and average-before-analysis). All three MagSpec processed arrays and
+all finite scalars match; the zero shot's three undefined metrics remain
+explicitly flagged. Inputs/configs are unchanged. This is numerical acceptance
+for these recipes only: waterfall figures, scan products, portal routes,
+optimizer integration and newer acquisition formats still need their gates.
+
+The compatibility adapter preserves legacy precision and output quirks without
+sharing mutable frames. General core pipelines use the new coordinate model.
+Unsupported active steps still take the old consumer route until ported; no
+production consumer has been switched by these foundational slices.
+
 ## Decisions
 
 | Topic | Status | Where we landed |

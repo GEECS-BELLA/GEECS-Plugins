@@ -57,3 +57,19 @@ mutable Frame to reproduce the old accidental aliasing.
 Nonfinite scalars remain visible with notes. Never replace them with zero or
 use matching NaNs as evidence of scientific parity. Overlays have stable ids;
 centroid markers are omitted when their coordinates are nonfinite.
+
+## v2 compatibility
+
+`compat.v2.compile_v2` compiles an already-validated schema document, without
+I/O or numerical imports. `analyze_v2` takes loaded native-dtype arrays;
+retaining native trace precision until axis scaling is deliberate. Active
+unsupported operations raise UnsupportedRecipe before processing. Callers
+choose whether to retain their old route; no hidden fallback lives here.
+The compiler's supported subset is documented in its docstring and pinned by
+differential tests. Never silently skip an active unported operation.
+
+Legacy camera ROI empty selections keep the full image, and beam coordinates
+use the configured origin once even when ROI is inactive/repeated. Legacy
+float64 line result values reflect RMS negative clipping; float32 results do
+not. Preserve these values at the v2 boundary with private copies. Do not
+propagate these quirks into pure steps or general Frame semantics.
