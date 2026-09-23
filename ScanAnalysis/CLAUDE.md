@@ -90,10 +90,11 @@ with the cleaned ScanInfo parameter, not the s-file column. `core_supports`
 is the routing predicate: compile only, no reads; scan-context backgrounds and
 unported kinds or steps stay on the legacy wrappers. The factory does not
 select this route yet. `tests/test_core_analyzer.py` runs both routes on
-synthetic beam and line scans and compares file lists, HDF5 payloads, s-file
-columns, sidecars and display files exactly, except noscan averages, where the
-legacy wrapper sums shots in directory-listing order and a few-ulp tolerance
-is explicit.
+synthetic beam, line, standard and trace scans and compares file lists, HDF5
+payloads, s-file columns, sidecars and the display-file list exactly, except
+noscan averages, where the legacy wrapper sums shots in directory-listing order
+and a few-ulp tolerance is explicit. Figure content is not compared: the two
+renderers differ by design, so titles and layout are the operator's review.
 
 Scan analysis is driven by YAML config files stored in the
 **GEECS-Plugins-configs** repository (not this repo). The documents are

@@ -24,7 +24,7 @@ SHOTS = 6
 
 
 def document(kind="beam", *, mode="per_shot", renderer=None, **scan):
-    line = kind == "line"
+    line = kind in {"line", "trace"}
     image = (
         {
             "type": "line",
@@ -50,7 +50,9 @@ def document(kind="beam", *, mode="per_shot", renderer=None, **scan):
     )
 
 
-def build_scan(base_dir: Path, *, line: bool, noscan: bool, device_files=True):
+def build_scan(
+    base_dir: Path, *, line: bool, noscan: bool, device_files=True, single_bin=False
+):
     """A completed scan in the GEECS layout, with its s-file and ScanInfo."""
     scan = ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir)
     device = scan / ("Spec" if line else "Camera")
@@ -77,7 +79,9 @@ def build_scan(base_dir: Path, *, line: bool, noscan: bool, device_files=True):
     rows = pd.DataFrame(
         {
             "Shotnumber": range(1, SHOTS + 1),
-            "Bin #": [1] * SHOTS if noscan else [1 + i // 2 for i in range(SHOTS)],
+            "Bin #": [1] * SHOTS
+            if noscan or single_bin
+            else [1 + i // 2 for i in range(SHOTS)],
             PARAM_COLUMN: [1.0 + i // 2 + 0.05 * (i % 2) for i in range(SHOTS)],
             SORT_COLUMN: [30.0, 10.0, 50.0, 20.0, 60.0, 40.0],
         }
@@ -88,10 +92,18 @@ def build_scan(base_dir: Path, *, line: bool, noscan: bool, device_files=True):
     return scan
 
 
-def run(monkeypatch, tmp_path, route, doc, *, noscan, device_files=True):
+def run(
+    monkeypatch, tmp_path, route, doc, *, noscan, device_files=True, single_bin=False
+):
     base_dir = tmp_path / route
-    line = doc.analyzer.kind == "line"
-    scan = build_scan(base_dir, line=line, noscan=noscan, device_files=device_files)
+    line = doc.analyzer.kind in {"line", "trace"}
+    scan = build_scan(
+        base_dir,
+        line=line,
+        noscan=noscan,
+        device_files=device_files,
+        single_bin=single_bin,
+    )
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=base_dir))
     if route == "legacy":
         analyzer = create_scan_analyzer(doc, id="Diag", priority=1)
@@ -136,6 +148,8 @@ CASES = [
     pytest.param("beam", "per_bin", False, None, id="beam-per_bin-scan"),
     pytest.param("beam", "per_shot", True, None, id="beam-noscan"),
     pytest.param("line", "per_shot", False, None, id="line-per_shot-scan"),
+    pytest.param("standard", "per_shot", False, None, id="standard-per_shot-scan"),
+    pytest.param("trace", "per_shot", False, None, id="trace-per_shot-scan"),
     pytest.param(
         "line",
         "per_shot",
@@ -188,6 +202,14 @@ def test_core_route_matches_legacy_outputs(
         legacy_scan, legacy_display
     )
     assert core_display
+
+
+def test_single_bin_scan_keeps_the_cleaned_parameter_label(tmp_path, monkeypatch):
+    _, _, plan = run(
+        monkeypatch, tmp_path, "core", document(), noscan=False, single_bin=True
+    )
+    assert [p.identifier for p in plan.singles] == [1] and not plan.summary
+    assert plan.position_label == "U_Motor Position"
 
 
 def test_scalars_persist_without_products_when_save_is_off(tmp_path, monkeypatch):
@@ -257,6 +279,24 @@ def test_sorted_waterfall_rows_follow_legacy_sigma_and_bounds_rules(
     assert plan.position_label == SORT_COLUMN
     assert [p.identifier for p in plan.singles] == ["average"]
     assert len(display) == 1 and display[0].endswith("Spec_summary_waterfall.png")
+
+
+@pytest.mark.parametrize("merge_refused", [False, True])
+def test_sorting_by_an_own_output_column_survives_a_refused_merge(
+    tmp_path, monkeypatch, merge_refused
+):
+    """Legacy wrote its scalars into the in-memory rows before rendering."""
+    if merge_refused:
+        monkeypatch.setattr(base, "merge_sfile", lambda *args, **kwargs: None)
+    doc = document("line", renderer={"waterfall_sort_key": "Diag_CoM", "dpi": 30})
+    scan, _, plan = run(monkeypatch, tmp_path, "core", doc, noscan=True)
+    assert plan.position_label == "Diag_CoM"
+    positions = [p.position for p in plan.summary]
+    assert len(positions) == SHOTS and positions == sorted(positions)
+    sidecar = scan.parent.parent / "analysis" / "Scan001" / "Scan001_Diag.txt"
+    assert "Diag_CoM" in pd.read_csv(sidecar, sep="\t").columns
+    sfile = pd.read_csv(scan.parent.parent / "analysis" / "s1.txt", sep="\t")
+    assert ("Diag_CoM" in sfile.columns) is not merge_refused
 
 
 def test_contract_attributes_and_cleanup():

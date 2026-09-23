@@ -103,9 +103,10 @@ class CoreScanAnalyzer(ScanAnalyzer):
             sort_bounds=renderer.get("waterfall_sort_bounds"),
             sort_sigma=renderer.get("waterfall_sort_sigma", 3.0),
         )
-        if plan.summary and not self.noscan and not sort_key:
+        if (plan.singles or plan.summary) and not self.noscan and not sort_key:
             # Figures name the scan by the cleaned ScanInfo string, not the
-            # s-file column, exactly as the legacy renderers did.
+            # s-file column, exactly as the legacy renderers did (bin singles
+            # included, so a one-bin scan is labelled the same way).
             plan = replace(plan, position_label=self.scan_parameter or "")
         self.last_plan = plan
         saved = save_products(plan, prepared.prepared.recipe, document, scan_folder)
@@ -137,6 +138,15 @@ class CoreScanAnalyzer(ScanAnalyzer):
             pending.extend(prepared.scalar_records(outcome))
         if pending:
             updates = pd.DataFrame(pending)
+            # The legacy wrapper wrote its scalars into the in-memory rows
+            # before persisting, so a waterfall sorted by one of this run's
+            # own columns resolves even when the s-file merge is refused.
+            rows = self.auxiliary_data
+            for record in pending:
+                mask = rows["Shotnumber"] == record["Shotnumber"]
+                for key, value in record.items():
+                    if key != "Shotnumber":
+                        rows.loc[mask, key] = value
             self.write_scalar_sidecar(updates)
             self.append_to_sfile(updates)
         return outcomes
