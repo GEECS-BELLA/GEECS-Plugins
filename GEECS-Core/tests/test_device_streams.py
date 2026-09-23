@@ -188,7 +188,8 @@ def test_the_frog_captures_its_trace_and_nothing_alphabetical() -> None:
 
 
 def test_capture_order_is_the_declared_order_not_the_db_order() -> None:
-    """The first declared stream is the primary one (the ``hdf`` child, the bare stream key)."""
+    """The first declared stream is the ``hdf`` child and, unless the declaration
+    turns ``first_owns_device_folder`` off, writes ``<device>/`` under the bare stream key."""
     rows = FIXTURE["MagSpecCamera"]
     expected = ["Image", "ImageInterp", "interpSpec", "interpDiv"]
     assert capture_variables("MagSpecCamera", rows) == expected

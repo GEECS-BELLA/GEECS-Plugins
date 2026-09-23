@@ -9,8 +9,9 @@ polarities because their costs are opposite:
   scan: a file plugin armed on a variable the device never pushes waits out
   its arm timeout on every prepare, and a right-but-unwanted stream costs
   real bytes per shot.  So capture is an explicit **allowlist** — the
-  ``capture`` tuple, in capture order (the first is the device's primary
-  stream).  A devicetype with no entry here declares nothing, and the
+  ``capture`` tuple, in capture order (the first writes ``<device>/``
+  unless ``first_owns_device_folder`` says otherwise).  A devicetype with
+  no entry here declares nothing, and the
   consumer keeps its historical default (the worker: the one ``image``
   variable, else the first image variable).
 - **Serving** a variable over PVA is cheap and gated — a PV nobody subscribes

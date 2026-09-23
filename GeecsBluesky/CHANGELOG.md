@@ -23,8 +23,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`PluginPathProvider.variable`; `EVENT_SCHEMA.md` states the rule).
   Unchanged for every existing layout.
 - Optimization: `compile_measurements` subscribes a camera-kind diagnostic to
-  the device's first captured *image* stream, not its first stream (a
-  lineout-first device is refused with a clear message).
+  the device's first captured *image* stream, not its first stream (a device
+  that captures no image at all is refused with a clear message).
 
 ## [0.100.0] - 2026-09-22
 

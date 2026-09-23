@@ -208,7 +208,7 @@ def compile_measurements(
                 # The captured streams that are images: a device that
                 # captures a lineout first (the MagSpec stitcher) has no
                 # frame to analyse here.
-                image_names = {name.lower() for name in image_variables(rows)}
+                image_names = {var.lower() for var in image_variables(rows)}
                 images = [
                     var
                     for var in capture_streams(

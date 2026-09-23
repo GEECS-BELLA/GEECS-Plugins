@@ -14,14 +14,17 @@ Three small things, everything else is stock ophyd-async:
   the plugin's ``FilePath`` receives (translated for the service that runs
   it, ``data_paths.plugin_save_path``) and the worker's ``file://`` URI the
   stream resource carries for Tiled.  The filename is the folder's name, so
-  the stock template ``%s%s.h5`` yields ``<device>/<device>.h5`` for a
-  device's primary stream — the file the read side
-  (``geecs_data_utils.io.scan_stack``) looks for — and a **second capture
-  stream of the same device gets its own sibling folder**,
+  the stock template ``%s%s.h5`` yields ``<device>/<device>.h5`` for the
+  stream that owns the device folder — the file the read side
+  (``geecs_data_utils.io.scan_stack``) looks for — and **every other
+  capture stream of the device gets its own sibling folder**,
   ``<device>-<variable>/<device>-<variable>.h5``: the layout the
   LabVIEW-native files already use for a device's second output
   (``-interpSpec``, ``-Temporal``), so ``find_stack_file`` resolves it
-  unchanged.  Two plugins of one device must never share a file: each
+  unchanged.  Which stream owns ``<device>/`` — the first captured one,
+  or none — is the devicetype declaration's ``first_owns_device_folder``
+  (``geecs_core.db.device_streams``): the MagSpec stitcher captures only
+  its lineout and keeps it in ``<device>-interpSpec/``.  Two plugins of one device must never share a file: each
   gateway writer opens its path with ``h5py.File(..., "w")``, so a shared
   path is truncated by whichever arms second (found in review of #945).
 - :func:`file_plugin_hosts` — which camera servers serve the plugin
