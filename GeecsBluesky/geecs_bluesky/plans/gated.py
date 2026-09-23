@@ -534,13 +534,15 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
 
     def staged():
         yield from bps.stage_all(*flyers)
-        # Staged: a gated device's channels are latched now.  One with
-        # nothing to stream sits the run out — loudly.
+        # A non-essential device with nothing to stream sits the run out —
+        # loudly, but without failing it. Either it has no file plugin at
+        # all, or it is a gated devicetype whose every capture channel is
+        # disabled in the DB, which leaves it with none.
         skipped = [f for f in flyers if not getattr(f, "plugin_backed", True)]
         for flyer in skipped:
             logger.warning(
-                "non-essential %s: no capture stream armed (every gated channel read "
-                "off at stage) — not streamed this run",
+                "non-essential %s: no capture stream to arm (no file plugin, or "
+                "every gated channel disabled in the DB) — not streamed this run",
                 flyer.name,
             )
         active[:] = [f for f in flyers if f not in skipped]

@@ -445,15 +445,19 @@ device's second output, so `scan_stack.find_stack_file` resolves both;
 two plugins on one path would truncate each other's file
 (`devices/hdf_plugin.PluginPathProvider`).  A **gated** stream (the
 declaration's `gate`: a scope channel gated by its `Enable.Ch<X>`) is armed
-only while the gate — one of the detector's own scalar readbacks, so DB
-`get='yes'`, `set='no'` — reads `on` at `stage` (latched for the session:
-the stock detector re-runs its prepare context per trigger, and the run's
-descriptor is emitted once; `plugin_backed` follows the latch, so a scope
-with every channel off is a scalar member of that run, not a flyer with
-nothing to stream, and a fly prepare on it is refused with the channels
-named); an unreadable gate means the stream
-is not captured, with a WARNING, never an arm on a channel that pushes
-nothing.  A plugin-backed camera keeps writing its native
+only when the **DB** says that channel is wired — the gate variable's
+configured value (`defaultvalue`, instance row over devicetype default),
+read by `capture_streams` when the namespace builds the detector, so the
+disabled channels simply have no plugin.  The DB and not a readback on
+purpose: these enables are never set live, so the configured value *is* the
+channel's state, and a PV for a variable the device does not push sits at
+its initial enum value — which on `on,off` reads `on` for every channel,
+wired or not (observed live, 2026-09-22).  `set` has no bearing on capture.
+Consequences worth knowing: `plugin_backed` is a **static** fact, a scope
+with every channel disabled has no file plugin at all and a gated batch
+refuses it by name, and changing which channels are captured means editing
+the DB row — the worker picks it up when its namespace is built, not
+per run.  A plugin-backed camera keeps writing its native
 PNGs beside the stack (dual-write, the rollout's parity evidence) until
 PNG retirement (#738) — **per run**, the bound plans' `native_image_save`
 argument (the preset's field; unset = `ExperimentDefaults.native_image_save`,

@@ -657,7 +657,8 @@ class GeecsDb:
         with _cursor() as cur:
             type_query = (
                 "SELECT d.name, dtv.id, dtv.name, dtv.units, dtv.min, dtv.max, "
-                "dtv.`set`, dtv.variabletype, c.choices, dtv.tolerance, NULL, dtv.alias "
+                "dtv.`set`, dtv.variabletype, c.choices, dtv.tolerance, NULL, "
+                "dtv.alias, dtv.defaultvalue "
                 "FROM (SELECT DISTINCT ed.device FROM expt_device ed "
                 "      WHERE ed.expt = %s{enabled}) sel "
                 "JOIN device d ON d.name = sel.device "
@@ -670,7 +671,7 @@ class GeecsDb:
             instance_query = (
                 "SELECT v.device, v.devicetype_variable_id, v.name, v.units, "
                 "v.min, v.max, v.`set`, v.variabletype, c.choices, v.tolerance, "
-                "v.description, v.alias "
+                "v.description, v.alias, v.defaultvalue "
                 "FROM (SELECT DISTINCT ed.device FROM expt_device ed "
                 "      WHERE ed.expt = %s{enabled}) sel "
                 "JOIN variable v ON v.device = sel.device "

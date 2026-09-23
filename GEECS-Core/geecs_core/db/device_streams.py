@@ -320,21 +320,34 @@ def gated_off_variables(
     (``defaultvalue``, instance row over devicetype default) — see
     :class:`DeviceTypeStreams`'s ``gate`` for why the DB and not a readback.
 
-    An ungated capture variable is never in the result: it is armed
-    unconditionally.  A gate whose row carries no value counts as **off** —
-    arming a channel that pushes nothing costs a prepare timeout per shot,
-    so the unknown case fails safe.
+    A capture variable the declaration does not gate is never in the result:
+    it is armed unconditionally.  Every *gated* one fails safe — a gate whose
+    row carries no value, and a gate the DB has no row for at all, both count
+    as **off**, because arming a channel that pushes nothing costs a prepare
+    timeout per shot.
     """
-    gates = capture_gates(devicetype, rows)
-    if not gates:
+    entry = streams_for(devicetype)
+    if entry is None or not entry.gate:
         return frozenset()
     by_lower = rows_by_lower(rows)
+    resolved = capture_gates(devicetype, rows)
     off: set[str] = set()
-    for captured, gate in gates.items():
-        row = by_lower.get(gate.lower())
-        value = "" if row is None else str(row.get("defaultvalue") or "")
+    for captured in entry.gate:
+        row = by_lower.get(captured.lower())
+        if row is None:
+            continue  # not a variable of this device at all; not captured anyway
+        name = str(row["name"])
+        gate = resolved.get(name)
+        if gate is None:
+            # The device has the capture variable but not its gate: the DB
+            # cannot say whether the channel is wired, so it is NOT captured.
+            # Resolving to "armed" here is the expensive direction — one
+            # prepare timeout per shot on a channel that may push nothing.
+            off.add(name)
+            continue
+        value = str((by_lower.get(gate.lower()) or {}).get("defaultvalue") or "")
         if value.strip().lower() != GATE_ON:
-            off.add(captured)
+            off.add(name)
     return frozenset(off)
 
 

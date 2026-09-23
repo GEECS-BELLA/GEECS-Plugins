@@ -11,6 +11,7 @@ for.  Frames, stamps and rows are asserted from the documents.
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 import time
 from pathlib import Path
@@ -677,7 +678,7 @@ def test_non_essential_with_a_gated_run(
 
 
 def test_a_non_essential_scope_with_no_streams_sits_the_run_out(
-    RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path
+    RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path, caplog
 ) -> None:
     """A non-essential scope with every channel disabled is not declared or kicked off.
 
@@ -692,8 +693,18 @@ def test_a_non_essential_scope_with_no_streams_sits_the_run_out(
     col = DocCollector()
     RE.subscribe(col)
     count = bind_plans(profiles)["count"]
-    RE(count([a], 2, acquisition="gated", non_essential=[ict]))
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.plans.gated"):
+        RE(count([a], 2, acquisition="gated", non_essential=[ict]))
     assert col.docs["stop"][-1]["exit_status"] == "success"
+    # The skip is loud, and says which of the two causes it is — the
+    # operator cannot tell "no plugin" from "every channel disabled".
+    said = [
+        r.getMessage()
+        for r in caplog.records
+        if "not streamed this run" in r.getMessage()
+    ]
+    assert len(said) == 1 and "u_ict" in said[0]  # the ophyd name
+    assert "no file plugin" in said[0] and "disabled in the DB" in said[0]
     assert not any(
         d["name"] != "shots" and any(k.startswith("u_ict") for k in d["data_keys"])
         for d in col.docs["descriptor"]

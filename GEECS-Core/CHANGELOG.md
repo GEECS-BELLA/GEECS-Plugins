@@ -18,9 +18,9 @@ All notable changes to `geecs-core` are documented here, following
   `PicoscopeV2` declares its four channels (`scopeTrace.Channel0..3`), each
   gated by `Enable.ChA..D`, so a two-channel unit — or a four-channel one
   with two wired — arms only what is wired and never times out on a channel
-  that pushes nothing.  An unset or blank gate reads **off**: the unknown
-  case fails safe, since arming a dead channel costs a prepare timeout per
-  shot.  The parity test requires every gate to be an on/off choice variable
+  that pushes nothing.  Every gated channel fails safe: a gate whose row
+  carries no value, **and** a gate the DB has no row for at all, both read
+  `off`, since arming a dead channel costs a prepare timeout per shot.  The parity test requires every gate to be an on/off choice variable
   of the devicetype and to gate a declared capture.
 
   The DB is the source of truth here rather than a readback, and

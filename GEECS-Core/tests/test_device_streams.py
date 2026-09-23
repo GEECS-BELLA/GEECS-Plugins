@@ -292,3 +292,21 @@ def test_an_ungated_devicetype_gates_nothing() -> None:
     """A MagSpec lineout is armed unconditionally — no gate, nothing to withhold."""
     assert gated_off_variables("MagSpecCamera", FIXTURE["MagSpecCamera"]) == frozenset()
     assert gated_off_variables("ThorlabsWFS", []) == frozenset()
+
+
+def test_a_gate_the_db_has_no_row_for_counts_as_off() -> None:
+    """The other half of the fail-safe claim, and the one that was open.
+
+    A device may list the capture variable but not its gate. The prose said
+    the unknown case fails safe; the code only covered a row that was
+    *present and blank*, and an entirely missing gate row was armed
+    unconditionally (review of #950).
+    """
+    rows = [
+        r
+        for r in _picoscope_rows(A="on", B="on")
+        if str(r["name"]) != "Enable.ChD"  # the gate row is simply absent
+    ]
+    off = gated_off_variables("PicoscopeV2", rows)
+    assert "scopeTrace.Channel3" in off
+    assert off == frozenset({"scopeTrace.Channel2", "scopeTrace.Channel3"})
