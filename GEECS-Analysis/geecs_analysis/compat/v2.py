@@ -26,10 +26,12 @@ from geecs_analysis.steps.background_frame import BackgroundFrameSpec
 from geecs_analysis.steps.circular_mask import CircularMaskSpec
 from geecs_analysis.steps.clip_above import ClipAboveSpec
 from geecs_analysis.steps.clip_below import ClipBelowSpec
+from geecs_analysis.steps.crosshair_mask import CrosshairMaskSpec
 from geecs_analysis.steps.gaussian import GaussianSpec
 from geecs_analysis.steps.interpolate import InterpolateSpec
 from geecs_analysis.steps.median import MedianSpec
 from geecs_analysis.steps.roi import RoiSpec
+from geecs_analysis.steps.rotate import RotateSpec
 from geecs_analysis.steps.zero_below import ZeroBelowSpec
 
 if TYPE_CHECKING:
@@ -75,9 +77,9 @@ def compile_v2(
 ) -> V2Recipe:
     """Translate supported beam/line/standard/trace recipes, without file access.
 
-    Currently covers constant backgrounds, ROI, circular masks, trace interpolation,
-    Gaussian/median filtering,
-    identity transforms, absolute trace clipping and non-inverted constant image thresholds
+    Currently covers constant backgrounds, ROI, circular/crosshair masks, trace
+    interpolation, Gaussian/median filtering, fixed-canvas rotation,
+    absolute trace clipping and non-inverted constant image thresholds
     (to_zero/truncate/truncate_inv). Trace processing must be float64 and
     storage float32/float64. Other active features are refused before execution.
     Preprocessing-only trace ROIs remain unported because empty legacy outputs
@@ -170,13 +172,32 @@ def _camera_steps(
     name: str, config: CameraConfig, *, allow_file_backgrounds: bool
 ) -> list[StepSpec]:
     section = getattr(config, name)
-    if name == "transforms" and (
-        section.rotation_angle == 0
-        and not section.flip_horizontal
-        and not section.flip_vertical
-        and not section.distortion_correction
-    ):
-        return []
+    if name == "transforms":
+        if (
+            section.flip_horizontal
+            or section.flip_vertical
+            or section.distortion_correction
+        ):
+            raise UnsupportedRecipe(
+                "Camera processing step not ported: transforms (flip/distortion)"
+            )
+        return (
+            [RotateSpec(angle=section.rotation_angle)]
+            if section.rotation_angle != 0
+            else []
+        )
+    if name == "crosshair_masking":
+        return [
+            CrosshairMaskSpec(
+                center=(cross.center[1], cross.center[0]),
+                width=cross.width,
+                height=cross.height,
+                thickness=cross.thickness,
+                angle=cross.angle,
+                value=section.mask_value,
+            )
+            for cross in section.crosshairs
+        ]
     if name == "background":
         if section.method not in {None, "constant"} and not (
             section.method == "from_file" and allow_file_backgrounds

@@ -1614,7 +1614,7 @@ tqdm = ["tqdm"]
 
 [[package]]
 name = "geecs-analysis"
-version = "0.7.0"
+version = "0.8.0"
 description = "Pure frame processing and unified GEECS analysis"
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -1628,6 +1628,7 @@ geecs-data-utils = {path = "../GEECS-Data-Utils", develop = true}
 geecs-schemas = {path = "../GEECS-Schemas", develop = true}
 matplotlib = "^3.10"
 numpy = ">=2.0,<3.0"
+opencv-python = "^4.9.0.80"
 pydantic = "^2.0"
 scipy = "^1.15"
 
@@ -1637,7 +1638,7 @@ url = "../GEECS-Analysis"
 
 [[package]]
 name = "geecs-bluesky"
-version = "0.101.0"
+version = "0.101.1"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -5460,7 +5461,7 @@ files = [
 
 [[package]]
 name = "scananalysis"
-version = "1.27.0"
+version = "1.27.1"
 description = "Modules for performing analyses routines on full scans"
 optional = true
 python-versions = ">=3.11,<3.12"

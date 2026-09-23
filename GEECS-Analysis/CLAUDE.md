@@ -80,8 +80,8 @@ constant fallback on reader/conversion failure. `analyze_v2(inputs=...)` never
 loads a file or chooses fallback. Scan-background directives remain unported.
 The compiler's supported subset is documented in its docstring and pinned by
 differential tests. Never silently skip an active unported operation.
-Explicit identity transforms compile to no steps; any active geometric operation
-still raises UnsupportedRecipe.
+Explicit identity transforms compile to no steps; fixed-canvas rotation is
+supported. Flips and distortion correction still raise UnsupportedRecipe.
 
 Legacy camera ROI empty selections keep the full image, and beam coordinates
 use the configured origin once even when ROI is inactive/repeated. Legacy
@@ -114,3 +114,14 @@ including after a crop. Masking retains axes and provenance.
 `numpy.interp` convention with zero padding. It does not sort, deduplicate or
 reverse source coordinates; do not silently change old numerical behavior
 while migrating. Axis units/labels and signal units/provenance survive.
+
+## Camera fiducials and rotation
+
+`crosshair_mask` uses local integer `(y, x)` sample centers. Preserve the old
+integer half-dimension bars, clipped-before-rotation geometry, OpenCV linear
+warp and strict >0.5 mask threshold. Multiplicative masking deliberately retains
+legacy nonfinite propagation. Numerical imports, including cv2, stay lazy.
+`rotate` moves samples on a fixed output grid: SciPy cubic interpolation with
+prefilter=False, reshape=False. It preserves axes, shape and metadata; its angle
+is in sample-index space, not a transformation of world coordinates. The v2
+adapter reverses crosshair centers once and retains every mask/rotation order.

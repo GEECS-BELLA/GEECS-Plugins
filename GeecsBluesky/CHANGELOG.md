@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.101.1] - 2026-09-23
+
+### Changed
+
+- Live-measurement preflight tests now use an unported flip to verify refusal
+  before frame-source creation; shared-core camera rotation is supported.
+
 ## [0.101.0] - 2026-09-23
 
 ### Changed

@@ -491,7 +491,7 @@ woff = ["brotli (>=1.0.1) ; platform_python_implementation == \"CPython\"", "bro
 
 [[package]]
 name = "geecs-analysis"
-version = "0.7.0"
+version = "0.8.0"
 description = "Pure frame processing and unified GEECS analysis"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -504,6 +504,7 @@ geecs-data-utils = {path = "../GEECS-Data-Utils", develop = true}
 geecs-schemas = {path = "../GEECS-Schemas", develop = true}
 matplotlib = "^3.10"
 numpy = ">=2.0,<3.0"
+opencv-python = "^4.9.0.80"
 pydantic = "^2.0"
 scipy = "^1.15"
 

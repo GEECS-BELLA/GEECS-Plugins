@@ -104,8 +104,8 @@ Readers remain separate and supply native-dtype arrays so legacy trace scaling
 precision is preserved. Trace processing is currently restricted to float64,
 with float32/float64 storage rounding before measurement. Preprocessing-only
 `trace` recipes with active ROI stay unsupported: legacy may return an empty
-array, which Frame intentionally cannot represent. Identity camera transforms
-are accepted; active geometric transforms remain unsupported. The optimizer
+array, which Frame intentionally cannot represent. Fixed-canvas image rotation is supported; camera flips and distortion
+correction remain unsupported. The optimizer
 compiles supported camera recipes once before acquisition.
 
 Source hosts can opt into camera file backgrounds with
@@ -163,3 +163,17 @@ The image extent is derived from coordinates and cannot be overridden.
 explicit shot/bin coordinates. All traces must share the exact x grid and
 units. It never silently resamples, bins or averages. Both layouts use fresh
 matplotlib Figure objects and are suitable for the portal's worker threads.
+
+## Camera fiducials and rotation
+
+`crosshair_mask` masks one cross at a local `(y, x)` sample center. Multiple
+crosses become ordered steps. Width, height and thickness retain the legacy
+integer half-dimension convention, including empty bars for thickness one.
+OpenCV rotates the clipped mask, then thresholds it at 0.5. Arithmetic retains
+legacy NaN/Inf propagation; masking is not an invalid-sample cleanup.
+
+`rotate` moves image samples on the existing fixed canvas using SciPy cubic
+interpolation, `prefilter=False`, and zero fill by default. Shape, axis grid,
+units and shot identity stay fixed. Angles refer to sample-index space, even
+on nonuniform axes; this is not a rotation of world-coordinate axes. Crops and
+duplicated transforms retain their configured order at the v2 boundary.

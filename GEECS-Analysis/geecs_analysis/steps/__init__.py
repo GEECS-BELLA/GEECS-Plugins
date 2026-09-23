@@ -6,10 +6,12 @@ from . import (
     circular_mask,
     clip_above,
     clip_below,
+    crosshair_mask,
     gaussian,
     interpolate,
     median,
     roi,
+    rotate,
     zero_below,
 )
 
@@ -19,9 +21,11 @@ __all__ = [
     "circular_mask",
     "clip_above",
     "clip_below",
+    "crosshair_mask",
     "gaussian",
     "interpolate",
     "median",
     "roi",
+    "rotate",
     "zero_below",
 ]

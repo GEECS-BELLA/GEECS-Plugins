@@ -75,7 +75,7 @@ def test_only_capability_refusal_selects_legacy(recipe_tree, monkeypatch):
 
     root, path, document = recipe_tree
     document["image"]["pipeline"].append("transforms")
-    document["image"]["transforms"] = {"rotation_angle": 45}
+    document["image"]["transforms"] = {"flip_horizontal": True}
     path.write_text(yaml.safe_dump(document))
     array = np.arange(400, dtype=float).reshape(20, 20)
     doc = AnalysisDiagnostic.model_validate(document)

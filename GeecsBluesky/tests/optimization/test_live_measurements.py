@@ -263,7 +263,7 @@ def test_unsupported_recipe_is_refused_before_frame_source_creation(diagnostic_s
             overrides={
                 "image": {
                     "pipeline": ["transforms"],
-                    "transforms": {"rotation_angle": 45},
+                    "transforms": {"flip_horizontal": True},
                 }
             }
         )
