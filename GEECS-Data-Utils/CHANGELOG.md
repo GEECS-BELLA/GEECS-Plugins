@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.38.0] - 2026-09-23
+
+### Added
+
+- Read-only diagnostic YAML discovery and loading in `analysis_configs`,
+  shared independently of numerical analyzers. Recursive overrides own their
+  nested values; schema validation remains with the consumer.
+
 ## [0.37.0] - 2026-09-23
 
 ### Added

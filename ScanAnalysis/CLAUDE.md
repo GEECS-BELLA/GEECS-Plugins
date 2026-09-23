@@ -57,6 +57,9 @@ for a in analyzers:
     a.run_analysis(scan_tag)
 ```
 
+`discover_analyzers` delegates to `geecs_data_utils.analysis_configs`; group
+lookup remains here because group aliases have different rules.
+
 `task_queue.load_analyzers_from_config(group_name, config_dir=...)` is a
 thin wrapper around the same two calls.
 

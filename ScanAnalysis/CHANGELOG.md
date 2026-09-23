@@ -4,6 +4,13 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [1.25.1] - 2026-09-23
+
+### Changed
+
+- Delegate diagnostic discovery to the shared Data Utils reader while retaining
+  the public `discover_analyzers` API and group-specific lookup behavior.
+
 ## [1.25.0] - 2026-09-22
 
 ### Fixed

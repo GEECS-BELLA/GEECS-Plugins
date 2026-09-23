@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.1] - 2026-09-23
+
+### Changed
+
+- Delegate diagnostic discovery and YAML loading to Data Utils so live
+  consumers can read the same recipes without importing ImageAnalysis.
+  Existing typed loaders and default config-root resolution are retained.
+
 ## [2.4.0] - 2026-09-21
 
 ### Added
