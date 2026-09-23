@@ -46,6 +46,17 @@ class V2ShotSource:
         return read_imaq_image(path)
 
 
+def source_directory(document: AnalysisDiagnostic, scan_folder: Path) -> Path:
+    """Validate a preexisting scan and resolve its single device subfolder."""
+    folder = Path(scan_folder)
+    if not folder.is_dir():
+        raise FileNotFoundError(f"Scan folder does not exist: {folder}")
+    file_device = document.scan.device or document.name
+    if file_device in {".", ".."} or "/" in file_device or "\\" in file_device:
+        raise ValueError("Input device must name one scan subfolder")
+    return folder / file_device
+
+
 def prepare_source(
     document: AnalysisDiagnostic, scan_folder: Path, rows: pd.DataFrame
 ) -> V2ShotSource:
@@ -60,13 +71,7 @@ def prepare_source(
     config = document.image
     if not isinstance(config, (CameraConfig, Line1DConfig)):
         raise ValueError("A camera or line input configuration is required")
-    folder = Path(scan_folder)
-    if not folder.is_dir():
-        raise FileNotFoundError(f"Scan folder does not exist: {folder}")
-    file_device = document.scan.device or document.name
-    if file_device in {".", ".."} or "/" in file_device or "\\" in file_device:
-        raise ValueError("Input device must name one scan subfolder")
-    device_dir = folder / file_device
+    device_dir = source_directory(document, scan_folder)
     loading_json = None
     stacks_only = False
     default_tail = ".png"
@@ -86,6 +91,6 @@ def prepare_source(
         else default_tail,
         prefer_stack=document.scan.data_format == "device_hdf5",
         stacks_only=stacks_only,
-        file_device=file_device,
+        file_device=device_dir.name,
     )
     return V2ShotSource(device_dir, references, loading_json)

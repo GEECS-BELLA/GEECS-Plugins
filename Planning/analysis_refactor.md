@@ -208,6 +208,15 @@ every processed array and 93 finite scalars exactly; three undefined MagSpec
 shot scalars remain flagged separately. Hosts still need to supply grouping,
 readers and sinks before this changes explicit scan execution.
 
+Completed-scan source preparation now retains native reader precision, stack
+frame indices and diagnostic identity separately from folder overrides. The
+archived beam and MagSpec source maps match all 218 and 101 references, and
+the first three loaded arrays/dtypes from each match the old wrapper exactly.
+Write-free scan orchestration connects those sources to per-shot and per-bin
+execution, preserving full-bin scalar propagation and bare core measurements.
+It snapshots grouping and names before execution; output sinks and the factory
+route remain to be connected.
+
 Still required for the first milestone: source
 and scan-runner adoption, compatible saved products, portal native trace input,
 archived scan/day output comparisons, operator figure review and live optimizer
