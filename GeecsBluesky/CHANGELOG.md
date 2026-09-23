@@ -6,6 +6,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.99.1] - 2026-09-23
+
+### Fixed
+
+- **The stack check no longer reports a device's second capture stream as
+  unattributed.** `StackCheckCallback` built the stamp column by
+  concatenation (`f"{data_key}-acq_timestamp"`), so for a second stream it
+  looked for `u_bcaveict-scopetrace_channel1-acq_timestamp` — a column that
+  cannot exist — and reported "N frame(s) … but 0 row(s) own a frame" while
+  the data was perfect. Found on hardware: 26_0922 Scan005 wrote ten frames
+  per Picoscope channel with identical stamps, and the first channel passed
+  only because its data key happens to equal the device name.
+
+  The owner now comes from the descriptor's `object_keys`: a device's
+  capture streams and its `acq_timestamp` are keys of the same object,
+  because both come out of one `describe()` (pinned on the device itself in
+  `tests/test_hdf_plugin_detector.py`). The column is that object's own
+  `<name>-acq_timestamp`, and only if the object really owns it. Nothing
+  parses the stream's name — stripping a `-<suffix>` would resolve a device
+  whose own name contains hyphens to a *different* device's stamps,
+  silently — and nothing searches the object's keys by suffix either: the
+  object also owns the plugin's per-frame
+  `<device>-hdf-<variable>-frame_acq_timestamp`, so a search would become
+  ambiguous the moment anyone re-spelled that underscore.
+
+- **A stack whose stamp column cannot be resolved says so.** Rows without a
+  resolvable `acq_timestamp` key previously fell through to the count-only
+  check, which reports OK when the counts match — a stack full of frames no
+  row owns would have passed quietly. It is now a warning naming the stack.
+
 ## [0.99.0] - 2026-09-21
 
 ### Added
