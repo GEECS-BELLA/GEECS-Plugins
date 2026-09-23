@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.33.0] - 2026-09-23
+
+### Changed
+
+- `create_scan_analyzer` routes every recipe the analysis core compiles
+  (beam, line, standard and trace kinds with ported steps and no scan-context
+  background) to `CoreScanAnalyzer`; other recipes, and `use_injected_data`,
+  keep the legacy `Array1DScanAnalyzer` / `Array2DScanAnalyzer` wrappers. The
+  task queue, the portal and MCP call the same contract on both routes. The
+  legacy wrappers stay in place for the production observation period, and
+  `route="legacy"` / `route="core"` force either implementation explicitly.
+
 ## [1.32.0] - 2026-09-23
 
 ### Added

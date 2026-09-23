@@ -654,10 +654,15 @@ class TestRealFactory:
         """The default factory = load_diagnostic + create_scan_analyzer."""
         pytest.importorskip("image_analysis")
         pytest.importorskip("scan_analysis")
+        from scan_analysis.core_analyzer import CoreScanAnalyzer
+
         analyzer = analysis_runs.scan_analysis_factory("UC_Crop", configs_tree)
         assert callable(analyzer.run_analysis) and callable(analyzer.cleanup)
         assert analyzer.id == "UC_Crop"
-        assert analyzer.data_device_name == "cam"
+        # A supported beam recipe takes the core route; the scan.device
+        # override travels in the analyzer's own copy of the document.
+        assert isinstance(analyzer, CoreScanAnalyzer)
+        assert analyzer.document.scan.device == "cam"
 
 
 class TestAnalysisTab:
