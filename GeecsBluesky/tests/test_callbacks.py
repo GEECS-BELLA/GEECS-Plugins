@@ -429,6 +429,10 @@ def test_stack_check_resolves_a_second_streams_rows_by_the_device_column(
     the device itself in ``test_hdf_plugin_detector``) — never from
     stripping a suffix off the name, which could resolve a device whose
     own name contains hyphens to a *different* device's stamps.
+
+    The run here also carries a decoy device with a stamp of its own,
+    5 s off and sorting first in the row: a resolution that took *a*
+    stamp column rather than *this object's* would reach it.
     """
     import logging as _logging
 
@@ -462,8 +466,9 @@ def test_stack_check_resolves_a_second_streams_rows_by_the_device_column(
             "run_start": "run1",
             "name": "primary",
             "object_keys": {
-                # a decoy whose name is a hyphen-prefix of the real device's:
-                # lexical stripping would reach its stamps, object_keys cannot
+                # a decoy device that also publishes a stamp: resolving
+                # "a stamp column in the run" rather than THIS object's
+                # reaches it (it sorts first in the row data below)
                 "u_bcave": ["u_bcave", "u_bcave-acq_timestamp"],
                 "u_bcaveict": [
                     "u_bcaveict",
@@ -519,6 +524,98 @@ def test_stack_check_resolves_a_second_streams_rows_by_the_device_column(
     assert said, "the second stream was not checked at all"
     assert "match the rows' stamps" in said[0], said
     assert "0 row(s) own a frame" not in said[0], said
+
+
+def test_stack_check_is_not_confused_by_the_plugins_own_frame_stamps(tmp_path, caplog):
+    """The device's own stamp key wins over the plugin's per-frame ones.
+
+    A plugin-backed camera's object owns more keys carrying
+    ``acq_timestamp`` than its own: the file plugin describes
+    ``<device>-hdf-<variable>-frame_acq_timestamp`` per frame. Today those
+    are spelled with an underscore before ``acq_timestamp``, so a
+    "the one key ending in ``-acq_timestamp``" rule happens to skip them —
+    and a single re-spelling would make every plugin-backed camera in every
+    strict run ambiguous, silently dropping it to the count-only check.
+    ``<object>-acq_timestamp`` is taken outright instead; this test spells
+    the frame keys with a hyphen to prove the fallback is never what
+    resolves them.
+    """
+    import logging as _logging
+
+    import h5py
+    import numpy as np
+
+    from geecs_bluesky.callbacks import StackCheckCallback
+    from geecs_data_utils.io.scan_stack import (
+        FRAMES_DATASET,
+        LABVIEW_EPOCH_OFFSET,
+        TIMESTAMPS_DATASET,
+    )
+
+    stamps = [100.0, 101.0]
+    scan_dir = tmp_path / "Scan011"
+    device_dir = scan_dir / "UC_Cam"
+    device_dir.mkdir(parents=True)
+    path = device_dir / "UC_Cam.h5"
+    with h5py.File(path, "w", libver="latest") as f:
+        f.create_dataset(FRAMES_DATASET, data=np.zeros((len(stamps), 2, 2)))
+        f.create_dataset(TIMESTAMPS_DATASET, data=np.array(stamps))
+        f.attrs["finalized"] = True
+
+    cb = StackCheckCallback(finalize_timeout=1.0)
+    caplog.set_level(_logging.INFO, logger="geecs_bluesky.callbacks")
+    cb("start", {"uid": "run1", "scan_number": 11, "scan_folder": str(scan_dir)})
+    cb(
+        "descriptor",
+        {
+            "uid": "d1",
+            "run_start": "run1",
+            "name": "primary",
+            "object_keys": {
+                "uc_cam": [
+                    "uc_cam",
+                    "uc_cam-acq_timestamp",
+                    "uc_cam-hdf-image-frame-acq_timestamp",
+                    "uc_cam-hdf-image-frame-recv_timestamp",
+                ]
+            },
+        },
+    )
+    cb(
+        "stream_resource",
+        {
+            "uid": "sr1",
+            "run_start": "run1",
+            "data_key": "uc_cam",
+            "mimetype": "application/x-hdf5",
+            "uri": path.as_uri().replace("file:///", "file://localhost/"),
+            "parameters": {"dataset": FRAMES_DATASET, "chunk_shape": (1, 2, 2)},
+        },
+    )
+    for index, (seq, stamp) in enumerate(enumerate(stamps, start=1)):
+        cb(
+            "event",
+            {
+                "descriptor": "d1",
+                "seq_num": seq,
+                "data": {"uc_cam-acq_timestamp": stamp + LABVIEW_EPOCH_OFFSET},
+            },
+        )
+        cb(
+            "stream_datum",
+            {
+                "stream_resource": "sr1",
+                "indices": {"start": index, "stop": index + 1},
+                "seq_nums": {"start": seq, "stop": seq + 1},
+            },
+        )
+    cb("stop", {"run_start": "run1", "exit_status": "success"})
+    cb.join(5.0)
+
+    said = [r.getMessage() for r in caplog.records if "uc_cam" in r.getMessage()]
+    assert said, "the stack was not checked at all"
+    assert "match the rows' stamps" in said[0], said
+    assert not any("no acq_timestamp column found" in m for m in said), said
 
 
 def test_stack_check_says_so_when_no_stamp_column_can_be_resolved(tmp_path, caplog):

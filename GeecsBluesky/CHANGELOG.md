@@ -22,9 +22,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   The owner now comes from the descriptor's `object_keys`: a device's
   capture streams and its `acq_timestamp` are keys of the same object,
   because both come out of one `describe()` (pinned on the device itself in
-  `tests/test_hdf_plugin_detector.py`). Nothing parses a name — stripping a
-  `-<suffix>` would resolve a device whose own name contains hyphens to a
-  *different* device's stamps, silently.
+  `tests/test_hdf_plugin_detector.py`). The column is that object's own
+  `<name>-acq_timestamp`, and only if the object really owns it. Nothing
+  parses the stream's name — stripping a `-<suffix>` would resolve a device
+  whose own name contains hyphens to a *different* device's stamps,
+  silently — and nothing searches the object's keys by suffix either: the
+  object also owns the plugin's per-frame
+  `<device>-hdf-<variable>-frame_acq_timestamp`, so a search would become
+  ambiguous the moment anyone re-spelled that underscore.
 
 - **A stack whose stamp column cannot be resolved says so.** Rows without a
   resolvable `acq_timestamp` key previously fell through to the count-only

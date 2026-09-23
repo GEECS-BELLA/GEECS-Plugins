@@ -829,17 +829,19 @@ class StackCheckCallback(_StreamCallback):
             # instead would be a guess, and a device whose NAME contains
             # hyphens could be resolved to a different device's stamps —
             # wrong data, silently (Codex review of #952).
+            # The key is the object's own `<name>-acq_timestamp` — ophyd-async
+            # names a child `<parent>-<attr>` — and it must belong to THIS
+            # object, not merely exist.  Searching the object's keys for one
+            # ending in `-acq_timestamp` would be looser for no gain: the
+            # object also owns the file plugin's per-frame
+            # `<device>-hdf-<variable>-frame_acq_timestamp`, which is spelled
+            # with an underscore today and would become ambiguous the moment
+            # anyone re-spelled it, silently dropping every plugin-backed
+            # camera to the count-only check.
             owner = owners.get(stack.data_key)
-            stamp_keys = (
-                [
-                    k
-                    for k, o in owners.items()
-                    if o == owner and k.endswith("-acq_timestamp")
-                ]
-                if owner
-                else []
-            )
-            column = stamp_keys[0] if len(stamp_keys) == 1 else None
+            column = f"{owner}-acq_timestamp" if owner else None
+            if column is not None and owners.get(column) != owner:
+                column = None  # the device published no stamp of its own
             expected: list[float] | None = None
             shots: _ShotStamps | None = None
             if stream_rows and column:
