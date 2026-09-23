@@ -3,6 +3,89 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.0] - 2026-09-21
+
+### Added
+
+- **`io.array1d` reads one shot of a capture stack as x-vs-y**
+  (`Data1DType.PVA_STACK`): a Bluesky scan's scope traces and spectra reach
+  the same 1D readers a native scope file does, so `read_1d_data` is the one
+  entry point either way. The path handed in is a `ShotRef` — a stack holds
+  every shot of the scan, so the frame index travels with the path (a plain
+  `Path` is refused rather than defaulting to frame 0). Two stack shapes,
+  one `Data1DResult`: a **lineout** `(n, 2)` frame carries its own axis in
+  column 0; a **waveform** `(n,)` frame carries values only and its axis is
+  rebuilt from the per-frame `wave_x0` / `wave_dx` the PVA gateway writes
+  beside it (uniformly sampled — two numbers, not a stored time per sample).
+  Seconds is the wire format's own definition of those two, so the reader
+  labels the axis; every other unit rides in the analyzer config.
+- **`io.scan_stack.frame_index_for_acq_timestamp`** — the
+  canonical-millisecond shot→frame join without reading the frame, for a
+  caller that wants to address a frame rather than receive it (the array
+  readers take a `ShotRef`, so handing them an index costs nothing while
+  reading here would read it twice). Both forms share one `_joined_index`,
+  so the arithmetic has one home as before.
+- **`io.scan_stack.stack_content_kind`** — `"image"` / `"lineout"` /
+  `"waveform"` for a stack, from the file plugin's own declaration (it writes
+  the `wave_*` attributes for an array variable and never for an image one)
+  plus the frame rank. Rank alone cannot tell `(N, H, W)` pixels from
+  `(N, n, 2)` rows. Renderers dispatch on this: a `(2048, 2)` lineout drawn
+  as pixels is a two-pixel-wide strip.
+
+### Fixed
+
+- **A padded frame never reaches a consumer padded.** The gateway pads every
+  array frame to its devicetype's ceiling with NaN so a run has one shape, so
+  two shots whose spectra are different lengths arrive same-shaped — and a
+  consumer that averages per-shot lineouts guards on shape (ScanAnalysis'
+  `average_data` returns `None` for inhomogeneous shapes). On padded frames
+  that guard passes and column 1 is averaged index-wise across axes that do
+  not line up: a plausible averaged spectrum that is wrong. Read at their true
+  lengths the shapes differ again and the guard bites. A waveform's length
+  comes from the `wave_samples` it declares (the pad is only the fallback);
+  padding between values, an all-padding frame, and a declared record that
+  covers padding are each refused rather than silently shortened.
+- `read_1d_data` no longer re-wraps its path argument, which turned a
+  `ShotRef` back into a plain `Path` and dropped the frame index.
+
+## [0.35.1] - 2026-09-21
+
+### Added
+
+- `io.arrays.WAVEFORM_AXIS_KEYS` / `WAVEFORM_ATTRIBUTE_KEYS` /
+  `WAVEFORM_ATTRIBUTE_SUFFIXES` — the keys a decoded waveform's attributes
+  carry and the per-frame attribute suffixes a stack stores them under,
+  spelled once so the PVA gateway's `wave_*` datasets and the shot join
+  agree (review of #948).
+
+### Fixed
+
+- **`shot_join.frame_columns_from_attributes` leaves a stack's waveform axis
+  out** (`wave_x0` / `wave_dx` / `wave_samples`): axis metadata is not a
+  scalar column, so the s-file exporter no longer warns that three scalar
+  columns were left out of every scope run.
+
+## [0.35.0] - 2026-09-21
+
+### Added
+
+- **`geecs_data_utils.io.arrays`** — decoders for the three array payload
+  shapes GEECS devices push over TCP beside the IMAQ image:
+  `decode_nested_pairs` (`[[x,y], ...]`, the MagSpec `interpSpec` /
+  `interpDiv` lineouts → `(n, 2)` float64, a single row being a valid
+  value), `decode_csv_values` (CRLF-terminated CSV, the Hamamatsu counts
+  and the MagSpec axes → `(n,)`), `decode_labview_waveform` (the LabVIEW
+  flattened waveform of the Picoscope / DaqPad: six-field header, uint32
+  BE count, int16 BE samples → **volts**, with `x0`, `dx`, `samples`,
+  `offset`, `gain`, `name` returned as attributes), and
+  `decode_array_payload`, which picks one by sniffing the payload — never
+  by devicetype.  Every decoder raises `ValueError` on a payload it cannot
+  account for byte by byte (a ragged row, a leftover byte, a header count
+  that disagrees with the binary count).  Pinned on payloads captured live
+  2026-09-21 (`tests/data/wire/`: a 285-row spectrum, a 189-row divergence
+  lineout, both axes, a 3000-sample scope trace) — the wire-format side of
+  the non-scalar-over-PVA arc.
+
 ## [0.34.2] - 2026-09-17
 
 ### Changed

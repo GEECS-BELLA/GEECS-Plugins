@@ -421,8 +421,43 @@ gateway (circular).
 stack per scan through the **stock** `ADHDFDataLogic` over
 `devices/hdf_plugin.GeecsHdfIO`; the run's stream documents reference it
 and Tiled reads it with its stock adapter.  The rule is the namespace's:
-DB image variable + endpoint in `config.ini [pva] file_plugin_addr_list`
-(absent = no host; never the PVA fleet's `addr_list`).  A plugin-backed camera keeps writing its native
+a served capture stream + endpoint in `config.ini [pva] file_plugin_addr_list`
+(absent = no host; never the PVA fleet's `addr_list`).  **Which** variables
+a device captures is declared per devicetype in
+`geecs_core.db.device_streams` (an allowlist, in capture order: the FROG's
+`frogTrace`, a MagSpec camera's `Image` + `ImageInterp`, …) and read by
+`namespace.capture_streams`, restricted to what the gateway serves: the
+device's image variables and its served `1darray` variables
+(`served_array_variables`, typed minus the devicetype's exclusions); a
+declared name that is neither is a declaration error (WARNING, skipped).
+A MagSpec camera therefore arms four plugins; its lineouts land as
+`(N, 2048, 2)` float64 stacks, axis in column 0, NaN-padded by the gateway
+to the devicetype ceiling so the descriptor shape holds across a current
+scan.  A devicetype with no declaration keeps the one-image guess
+(`primary_image_variable`: `image`, else the first image variable) — never
+guess a second stream, declare it, and never declare a variable the device
+does not push on every shot (the FROG's `SpatialImage` cost an arm timeout
+per `prepare`).  **One folder per stream**: the primary stream writes
+`<device>/<device>.h5`, a second stream of the same device writes the
+sibling `<device>-<variable>/<device>-<variable>.h5` (stream key
+`<name>-<variable>`), the layout the LabVIEW-native files use for a
+device's second output, so `scan_stack.find_stack_file` resolves both;
+two plugins on one path would truncate each other's file
+(`devices/hdf_plugin.PluginPathProvider`).  A **gated** stream (the
+declaration's `gate`: a scope channel gated by its `Enable.Ch<X>`) is armed
+only when the **DB** says that channel is wired — the gate variable's
+configured value (`defaultvalue`, instance row over devicetype default),
+read by `capture_streams` when the namespace builds the detector, so the
+disabled channels simply have no plugin.  The DB and not a readback on
+purpose: these enables are never set live, so the configured value *is* the
+channel's state, and a PV for a variable the device does not push sits at
+its initial enum value — which on `on,off` reads `on` for every channel,
+wired or not (observed live, 2026-09-22).  `set` has no bearing on capture.
+Consequences worth knowing: `plugin_backed` is a **static** fact, a scope
+with every channel disabled has no file plugin at all and a gated batch
+refuses it by name, and changing which channels are captured means editing
+the DB row — the worker picks it up when its namespace is built, not
+per run.  A plugin-backed camera keeps writing its native
 PNGs beside the stack (dual-write, the rollout's parity evidence) until
 PNG retirement (#738) — **per run**, the bound plans' `native_image_save`
 argument (the preset's field; unset = `ExperimentDefaults.native_image_save`,

@@ -179,6 +179,26 @@ def test_get_experiment_devices_batches_endpoints(monkeypatch) -> None:
     assert "enabled" not in queries[0][0]
 
 
+def test_get_devicetype_variables_is_type_level_only(monkeypatch) -> None:
+    """The fixture recorder's query: devicetype_variable joined to choice, no instance merge."""
+    queries: list = []
+    _patch_rows(
+        monkeypatch,
+        [("frogTrace", None, "image"), ("Trigger", "choice", "on,off")],
+        queries,
+    )
+
+    rows = GeecsDb.get_devicetype_variables("FROG")
+    assert rows == [
+        {"name": "frogTrace", "variabletype": None, "choices": "image"},
+        {"name": "Trigger", "variabletype": "choice", "choices": "on,off"},
+    ]
+    assert len(queries) == 1
+    query, params = queries[0]
+    assert params == ("FROG",)
+    assert "devicetype_variable" in query and "variable v" not in query
+
+
 def test_get_experiment_device_types_batches_types(monkeypatch) -> None:
     """One query returns every device's devicetype; enabled filter in SQL."""
     queries: list = []
@@ -278,6 +298,12 @@ def test_get_device_variables_type_only_inherits_type_defaults(monkeypatch) -> N
         "tolerance": 0.05,
         "description": "",
         "alias": "",
+        # BOTH getters carry the configured value. This is the call the
+        # worker's namespace builds its roster from, and the capture gate
+        # reads this field — a batch row without it silently disabled every
+        # gated channel in production while the per-device getter looked
+        # right (review of #950).
+        "defaultvalue": "",
     }
     assert sorted(result[0]) == sorted(result[1]) == sorted(result[2])
     assert result[1]["choices"] == "on,off"
@@ -421,10 +447,38 @@ def test_get_experiment_device_variables_batches_metadata(monkeypatch) -> None:
     queries: list = []
     type_rows = [
         # d.name, dtv.id, dtv.name, units, min, max, set, variabletype,
-        # choices, tol
-        ("U_A", 1, "Current", "A", "-5", "5", "yes", "numeric", None, "0.05"),
-        ("U_A", 2, "Enable", "", None, None, "yes", "choice", "on,off", None),
-        ("U_B", 3, "Voltage", "V", None, None, "no", None, None, None),
+        # choices, tol, description, alias, defaultvalue
+        (
+            "U_A",
+            1,
+            "Current",
+            "A",
+            "-5",
+            "5",
+            "yes",
+            "numeric",
+            None,
+            "0.05",
+            None,
+            "",
+            "0",
+        ),
+        (
+            "U_A",
+            2,
+            "Enable",
+            "",
+            None,
+            None,
+            "yes",
+            "choice",
+            "on,off",
+            None,
+            None,
+            "",
+            "on",
+        ),
+        ("U_B", 3, "Voltage", "V", None, None, "no", None, None, None, None, "", ""),
     ]
     _patch_query_sequence(monkeypatch, [type_rows, []], queries)
 
@@ -447,6 +501,12 @@ def test_get_experiment_device_variables_batches_metadata(monkeypatch) -> None:
         "tolerance": 0.05,
         "description": "",
         "alias": "",
+        # BOTH getters carry the configured value — the capture gate reads
+        # it (geecs_core.db.device_streams), and the worker's roster comes
+        # from THIS batch call. Believing only get_device_variables carried
+        # it is what silently disabled every gated channel in production
+        # (review of #950).
+        "defaultvalue": "0",
     }
     assert result["U_A"][1]["choices"] == "on,off"
     assert result["U_B"][0]["settable"] is False
@@ -680,3 +740,118 @@ def test_get_ca_alarm_limits_query_failure_is_warning(monkeypatch, caplog) -> No
 
     assert GeecsDb.get_ca_alarm_limits("Undulator") == {}
     assert "ca_alarm_limits lookup failed" in caplog.text
+
+
+def test_both_getters_carry_the_configured_value_the_capture_gate_reads(
+    monkeypatch,
+) -> None:
+    """The gate reads ``defaultvalue``; the roster comes from the BATCH getter.
+
+    Adding the column to ``get_device_variables`` alone left the batch call —
+    the one ``GeecsNamespace`` builds its roster from — yielding ``""`` for
+    every variable, which the gate reads as *off*: no Picoscope channel was
+    armed anywhere, and a native-saving scope then aborted every gated run.
+    The per-device getter looked correct throughout, which is exactly why
+    this asserts BOTH (review of #950).
+
+    Driven from row tuples in each getter's own SELECT shape, so a column
+    dropped from either query fails here rather than in production.
+    """
+    # devicetype rows: (id, name, units, min, max, set, vartype, choices,
+    # tol, description, alias, defaultvalue)
+    per_device_type = [
+        (
+            21,
+            "Enable.ChA",
+            "",
+            None,
+            None,
+            "no",
+            "choice",
+            "on,off",
+            None,
+            None,
+            "",
+            "on",
+        ),
+    ]
+    queries: list = []
+    _patch_query_sequence(monkeypatch, [per_device_type, []], queries)
+    per_device = GeecsDb.get_device_variables("U_ICT")
+    assert per_device[0]["defaultvalue"] == "on"
+    # The stub returns whatever rows we hand it, so the mapping above passes
+    # even with the column dropped from the SQL — which is exactly how the
+    # production bug hid. Assert the QUERY asks for it.
+    assert all("defaultvalue" in q for q, _ in queries), queries
+
+    # the batch shape prefixes the device name
+    batch_type = [
+        (
+            "U_ICT",
+            21,
+            "Enable.ChA",
+            "",
+            None,
+            None,
+            "no",
+            "choice",
+            "on,off",
+            None,
+            None,
+            "",
+            "on",
+        ),
+    ]
+    queries.clear()
+    _patch_query_sequence(monkeypatch, [batch_type, []], queries)
+    batch = GeecsDb.get_experiment_device_variables("Undulator")
+    assert batch["U_ICT"][0]["defaultvalue"] == "on"
+    assert all("defaultvalue" in q for q, _ in queries), queries
+
+
+def test_an_instance_row_overrides_the_configured_value_in_both_getters(
+    monkeypatch,
+) -> None:
+    """Wholesale inheritance applies to the gate's column like any other."""
+    type_rows = [
+        (
+            21,
+            "Enable.ChA",
+            "",
+            None,
+            None,
+            "no",
+            "choice",
+            "on,off",
+            None,
+            None,
+            "",
+            "off",
+        ),
+    ]
+    instance_rows = [
+        (
+            21,
+            "Enable.ChA",
+            "",
+            None,
+            None,
+            "no",
+            "choice",
+            "on,off",
+            None,
+            "",
+            "",
+            "on",
+        ),
+    ]
+    queries: list = []
+    _patch_query_sequence(monkeypatch, [type_rows, instance_rows], queries)
+    assert GeecsDb.get_device_variables("U_ICT")[0]["defaultvalue"] == "on"
+
+    batch_type = [("U_ICT", *type_rows[0])]
+    batch_instance = [("U_ICT", *instance_rows[0])]
+    queries.clear()
+    _patch_query_sequence(monkeypatch, [batch_type, batch_instance], queries)
+    rows = GeecsDb.get_experiment_device_variables("Undulator")["U_ICT"]
+    assert rows[0]["defaultvalue"] == "on"

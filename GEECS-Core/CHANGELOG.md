@@ -4,6 +4,98 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.11.0] - 2026-09-21
+
+### Added
+
+- **`device_streams`: the per-instance capture gate, read from the DB.**
+  `DeviceTypeStreams` gains `gate` — capture variable → the device's on/off
+  variable that says whether *this instance* pushes it — with
+  `capture_gates(devicetype, rows)` resolving the pairs to DB spellings and
+  `gated_off_variables(devicetype, rows)` reading the values: a capture
+  variable is armed only when its gate variable's configured value
+  (`defaultvalue`, instance row over devicetype default) reads `on`.
+  `PicoscopeV2` declares its four channels (`scopeTrace.Channel0..3`), each
+  gated by `Enable.ChA..D`, so a two-channel unit — or a four-channel one
+  with two wired — arms only what is wired and never times out on a channel
+  that pushes nothing.  Every gated channel fails safe: a gate whose row
+  carries no value, **and** a gate the DB has no row for at all, both read
+  `off`, since arming a dead channel costs a prepare timeout per shot.  The parity test requires every gate to be an on/off choice variable
+  of the devicetype and to gate a declared capture.
+
+  The DB is the source of truth here rather than a readback, and
+  deliberately so: these enables are never set live, so the configured value
+  *is* the channel's state — and measured against the wire it is the more
+  accurate of the two. An enable the device does not push leaves its served
+  PV sitting at the initial enum value, which reads `on` for every channel
+  whether or not anything is wired (observed live on both ICTs, 2026-09-22).
+  Changing which channels are captured means editing the DB row; the worker
+  picks it up when its namespace is built.
+
+- **`geecs_db.get_device_variables` carries `defaultvalue`** through the
+  inheritance merge — the column the gate above reads. Other callers of the
+  metadata shape are unaffected: their SELECTs are shorter and the field
+  reads `""`.
+
+## [0.10.0] - 2026-09-21
+
+### Added
+
+- **`variable_types.array_variables(rows)`** — the `1darray` twin of
+  `image_variables`, shared by the PVA gateway (which now serves them) and
+  the worker (which may capture them).
+- **`device_streams`: the serving-side declaration.** `DeviceTypeStreams`
+  gains `exclude` — `1darray` variables the gateway never serves because
+  the device never publishes them (the FROG's six spectra; the Picoscope's
+  dead `ScopeTraces`/`wfm`/`wfm info`), they are a GUI-downsampled twin
+  (`scopeTraceGUI.*`), they arrive malformed (the stitcher's `interpDiv`),
+  they repeat a captured stream's own axis (the MagSpec `EnergyAxis` /
+  `AngleAxis`) or are out of scope (the Point Grey lineouts) — **array
+  variables only, never an image PV** — and `array_ceiling`, the row count
+  the gateway pads a variable-length array to (2048 for `MagSpecCamera`,
+  16384 for `MagSpecStitcher`; `None` = native length).  New rules
+  `excluded_variables`, `served_array_variables` (typed minus excluded,
+  the one served-set rule both gateway and worker read) and
+  `array_ceiling`.  The parity test pins every exclusion against the
+  recorded rows and requires it to be `1darray`-typed; a misspelled
+  exclusion warns instead of silently serving.
+
+## [0.9.0] - 2026-09-21
+
+### Added
+
+- **`geecs_core.db.device_streams`** — the per-devicetype declaration of
+  which non-scalar variables are capture streams: `capture`, an allowlist
+  in capture order (the first is the device's primary stream), matched
+  against a device's DB rows case-insensitively and returning the rows'
+  spelling; a declared name the DB does not list is dropped with a
+  WARNING.  Entries: `Point Grey Camera` (`image`), `MagSpecCamera`
+  (`Image`, `ImageInterp`, `interpSpec`, `interpDiv`), `MagSpecStitcher`
+  (`Image`, `interpSpec` — its `interpDiv` arrives malformed), `FROG`
+  (`frogTrace` only — the device never pushes `SpatialImage` or the
+  retrieved traces), `PicoscopeV2` (nothing yet; its channels are armed per
+  instance once arrays are capturable).  A devicetype with no entry returns
+  `None` so each consumer keeps its historical default.  Pinned by
+  `tests/test_device_streams.py` against recorded `devicetype_variable`
+  rows (`tests/fixtures/devicetype_variables.json`): every declared name
+  must be a real non-scalar variable of its devicetype, and a table entry
+  without a recorded fixture fails.  The worker's namespace consumes it
+  (GeecsBluesky 0.97.0); the PVA gateway follows with array support, which
+  is also where the serving-side exclusion list lands, beside its consumer.
+- **`GeecsDb.get_devicetype_variables(devicetype)`** — one devicetype's
+  `devicetype_variable` rows (name, variabletype, choice text), type level
+  only, no instance merge — and **`scripts/record_devicetype_variables.py`**,
+  which writes them into the fixture above, so adding a table entry is one
+  documented command.
+- **`variable_types.rows_by_lower(rows)`** — the one case-insensitive index
+  over a device's rows (lower-cased name → the first row spelling it), now
+  shared by `scalar_attribute_variables` and the capture declaration.
+
+### Changed
+
+- `scalar_attribute_variables` builds its name index through
+  `rows_by_lower` — same answers, one implementation.
+
 ## [0.8.3] - 2026-09-16
 
 ### Changed

@@ -42,6 +42,9 @@ def fake_db(monkeypatch):
         "get_experiment_device_variables",
         classmethod(lambda cls, e, **kw: VAR_MAP),
     )
+    monkeypatch.setattr(
+        GeecsDb, "get_experiment_device_types", classmethod(lambda cls, e, **kw: {})
+    )
 
 
 def _config(tmp_path: Path, body: str) -> Path:
@@ -54,7 +57,7 @@ def test_roster_is_image_hosts_sorted_by_ip(fake_db, tmp_path):
     """Only endpoints with image devices; numeric IP order; cameras listed."""
     hosts = fleet_roster("Undulator", config_path=_config(tmp_path, ""))
     assert [h.ip for h in hosts] == ["192.168.6.66", "192.168.6.100", "192.168.7.161"]
-    assert hosts[1].cameras == ["UC_CamA", "UC_CamB"]  # the timing box is not a camera
+    assert hosts[1].devices == ["UC_CamA", "UC_CamB"]  # the timing box is not a camera
 
 
 def test_no_addr_list_means_all_deployed(fake_db, tmp_path):
@@ -77,7 +80,7 @@ def test_addr_list_marks_not_deployed_and_flags_stale(fake_db, tmp_path, caplog)
     by_ip = {h.ip: h for h in hosts}
     assert not by_ip["192.168.6.66"].deployed
     assert by_ip["192.168.6.100"].deployed and by_ip["192.168.7.161"].deployed
-    assert by_ip["192.168.9.9"].deployed and by_ip["192.168.9.9"].cameras == []
+    assert by_ip["192.168.9.9"].deployed and by_ip["192.168.9.9"].devices == []
     assert "192.168.9.9" in caplog.text
     assert [h.ip for h in hosts][-1] == "192.168.9.9"
 
@@ -143,7 +146,7 @@ def test_screen_rows_deployed_vs_not(fake_db, tmp_path):
     )
     assert gen.main(["--config", str(cfg), "--out-dir", str(tmp_path)]) == 0
     text = (tmp_path / "fleet_status_undulator.bob").read_text()
-    assert "3 camera servers in the DB, 2 deployed" in text
+    assert "3 stream hosts in the DB, 2 deployed" in text
     assert "pva://undulator:pvagateway:192_168_6_100:version" in text
     assert "<name>restart_192_168_6_100</name>" in text
     assert "<name>not_deployed_192_168_6_66</name>" in text
@@ -156,9 +159,9 @@ def test_screen_is_well_formed_xml_with_hostile_names(monkeypatch, tmp_path):
     """DB names with XML metacharacters and hostname entries still yield valid, unique widgets."""
     gen = _load_generator()
     hosts = [
-        FleetHost(ip="192.168.6.100", cameras=["UC_Cam&A", "UC_Cam<B>", "UC--Dash"]),
-        FleetHost(ip="camserver7", cameras=[], deployed=True),
-        FleetHost(ip="camserver8", cameras=[], deployed=True),
+        FleetHost(ip="192.168.6.100", devices=["UC_Cam&A", "UC_Cam<B>", "UC--Dash"]),
+        FleetHost(ip="camserver7", devices=[], deployed=True),
+        FleetHost(ip="camserver8", devices=[], deployed=True),
     ]
     text = gen.render("R&D", hosts)
     root = ET.fromstring(text)  # raises on any escaping or comment mistake
@@ -194,9 +197,9 @@ from geecs_pva_gateway.fleet import probe_fleet  # noqa: E402
 
 def _hosts():
     return [
-        FleetHost(ip="192.168.6.100", cameras=["UC_A", "UC_B"]),
-        FleetHost(ip="192.168.7.161", cameras=["UC_C"]),
-        FleetHost(ip="192.168.6.66", cameras=["UC_Lone"], deployed=False),
+        FleetHost(ip="192.168.6.100", devices=["UC_A", "UC_B"]),
+        FleetHost(ip="192.168.7.161", devices=["UC_C"]),
+        FleetHost(ip="192.168.6.66", devices=["UC_Lone"], deployed=False),
     ]
 
 

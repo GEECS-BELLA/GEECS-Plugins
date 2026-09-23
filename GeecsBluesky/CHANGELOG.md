@@ -4,6 +4,53 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+> **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
+
+## [0.99.0] - 2026-09-21
+
+### Added
+
+- **Per-instance capture gates, decided from the DB.** A gated devicetype's
+  capture stream is armed only when the DB says that channel is wired —
+  `GeecsNamespace` resolves it through `geecs_core.db.device_streams`'
+  `gated_off_variables` when it builds the detector, and simply leaves the
+  disabled channels' file plugins out.  The Picoscope is the first gated
+  devicetype: `scopeTrace.Channel<N>` is armed iff `Enable.Ch<X>` reads
+  `on`, so a four-channel scope with two wired arms two plugins and never
+  times out on a channel that pushes nothing.  Its channels land in
+  `<device>/`, `<device>-scopeTrace.Channel1/`, … as `(N, samples)` float64
+  stacks in volts with the time axis as per-frame attributes
+  (GeecsPvaGateway 0.13.0).
+
+  Because the armed set is fixed when the namespace is built, there is no
+  per-session state: a scope with every channel disabled arrives with **no**
+  file plugins, so `plugin_backed` is a static fact again and the separate
+  `has_file_plugin` introduced for the latched version is gone.  A gated
+  batch refuses such a scope by name, and the message says which cause it
+  is — no plugin at all, or every capture channel disabled.
+
+## [0.98.0] - 2026-09-21
+
+### Changed
+
+- **Declared `1darray` capture streams are captured** once the gateway
+  serves them (GeecsPvaGateway 0.12.0): `namespace.capture_streams` now
+  restricts the declaration to the device's image variables **plus** its
+  served array variables (`geecs_core.db.device_streams.
+  served_array_variables`, GEECS-Core 0.10.0), so a MagSpec camera arms
+  four plugins — `Image`, `ImageInterp`, `interpSpec`, `interpDiv` — each
+  in its own folder (`<device>/`, `<device>-ImageInterp/`,
+  `<device>-interpSpec/`, `<device>-interpDiv/`), the last two as
+  `(N, 2048, 2)` float64 stacks (axis in column 0, NaN-padded).  A
+  declared name that is neither an image nor a served array is a
+  declaration error: WARNING and skipped, never an arm on a PV that does
+  not exist (the earlier "waiting for array support" INFO is gone with the
+  wait).  No detector change, and the read library resolves the new folders
+  as it does any device folder; the **portal's Images tab** renders a
+  `(2048, 2)` lineout stack as a two-pixel-wide image until the arc's
+  record-side PR gives it a line renderer (a 1-D stack would not render
+  there at all) — the arc's read-side debt, recorded in the brief.
+
 ## [0.97.1] - 2026-09-21
 
 ### Changed
@@ -18,6 +65,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   preset in the configs corpus (86 scanned) carried a copy; the scanner
   already drops both on save.
 
+## [0.97.0] - 2026-09-21
+
+### Changed
+
+- **Which variables a plugin-backed device captures is declared per
+  devicetype**, not guessed: `namespace.capture_streams` reads
+  `geecs_core.db.device_streams.capture_variables` (GEECS-Core 0.9.0) and
+  arms one file plugin per declared stream the gateway serves today
+  (image-typed variables), in declared order — so the FROG's detector now
+  captures `frogTrace`, the one variable it pushes, where
+  `primary_image_variable` picked `SpatialImage` (never pushed: every
+  `prepare` waited out the arm timeout), and a MagSpec camera captures
+  `Image` **and** `ImageInterp` (`hdf` + `hdf_imageinterp`, stream keys
+  `<name>` and `<name>-imageinterp`).  A declared `1darray` stream (the
+  magspec lineouts) is logged at INFO and waits for array support in the
+  gateway — the declaration then needs no change.  A devicetype with no
+  declaration keeps `primary_image_variable`'s one-image guess unchanged,
+  so every Point Grey (declared `image`, the same answer) and every
+  undeclared camera type behaves exactly as before.  The optimizer's live
+  frame source reads the device's first declared stream through the same
+  rule (pinned: a FROG-typed diagnostic subscribes to `:frogtrace`).
+- **One folder per capture stream** (`devices/hdf_plugin.PluginPathProvider`
+  gains `variable=`): the primary stream keeps `<device>/<device>.h5`; a
+  second stream of the same device writes
+  `<device>-<variable>/<device>-<variable>.h5` — the sibling-folder layout
+  the LabVIEW-native files use for a device's second output, which
+  `geecs_data_utils.io.scan_stack.find_stack_file` already resolves.  Found
+  in review (#945): both plugins of a device were handed the same path, and
+  each gateway writer opens its file `"w"`, so the second to arm truncated
+  the first.  Pinned by a two-stream prepare/resource test (distinct
+  `FilePath`/`FileName`, distinct stream-resource URIs).
+- `GeecsDbDeviceTypes`' degraded path (an empty devicetype map after a DB
+  failure) now names its second consequence in the docstring and the
+  WARNING: beside the #934 misclassification, every plugin-backed camera
+  falls back to the one-image guess — the FROG arms on `SpatialImage` and
+  times out, a MagSpec camera drops `ImageInterp`.
 ## [0.97.0] - 2026-09-20
 
 ### Added

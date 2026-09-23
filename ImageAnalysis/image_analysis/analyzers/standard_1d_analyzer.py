@@ -129,7 +129,15 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
         aux = dict(auxiliary_data or {})
         if not isinstance(image_filepath, list):
-            aux.setdefault("file_path", Path(image_filepath))
+            # Never re-wrap a Path: a capture stack's ShotRef IS one, and
+            # Path(ref) would hand downstream code the stack with the
+            # frame index silently dropped.
+            aux.setdefault(
+                "file_path",
+                image_filepath
+                if isinstance(image_filepath, Path)
+                else Path(image_filepath),
+            )
 
         # Aux columns flow through the local call dict. The copy isolates
         # the analyzer from external mutation; downstream subclasses get

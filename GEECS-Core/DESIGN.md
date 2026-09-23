@@ -21,9 +21,11 @@ geecs_core/
   db/               # layer 2 — the experiment MySQL database (GeecsDb,
                     #   blocking, lazy mysql-connector) + alarms.py (the
                     #   pydantic model for the ca_alarm_limits table) +
-                    #   the two DB rules every consumer shares:
-                    #   variable_types (a variable's effective type) and
+                    #   the three DB rules every consumer shares:
+                    #   variable_types (a variable's effective type),
                     #   scalar_policy (a device's subscribed get='yes' list)
+                    #   and device_streams (which non-scalar variables a
+                    #   devicetype captures / never serves)
   client/           # layer 3 — the entry-level synchronous GeecsDevice
                     #   over layers 1+2, and the one place a background
                     #   event loop bridges sync callers to the async
@@ -57,6 +59,13 @@ geecs_core/
    carries CA alarm *evaluation* logic whose only consumer is the CA gateway —
    it rides here because `AlarmLimits` is `GeecsDb.get_ca_alarm_limits`'s
    return type and splitting the model from its own methods would be worse.
+   A second, admitted on the `scalar_policy` precedent: `db/device_streams.py`
+   (which non-scalar variables a devicetype captures, which arrays it never
+   serves, and the padding ceiling for its arrays) is read by the worker and
+   by the PVA gateway — two consumers that may not import each other; the
+   CA gateway serves scalars only and never reads it. The ceiling has one
+   consumer today (the gateway pads) and rides here anyway so the devicetype
+   has one table, not two; a per-instance or DB-driven ceiling would move it.
 
 Two supporting conventions:
 
@@ -80,3 +89,37 @@ The protocol quirks (exe-reply correlation, the `nval,`/`nvar` frame anchors,
 documented on the transport modules themselves and pinned by this package's
 tests; the operational history behind them lives in
 `GeecsCAGateway/CLAUDE.md` ("Wire-protocol quirks that bit us").
+
+## What the DB's columns actually mean
+
+Three tables describe a variable, and their columns are easy to confuse —
+this section exists because a reading of them cost a day (2026-09-22).
+
+**`devicetype_variable` / `variable` — `set` is "user settable".** It says
+whether the variable can be changed **live during operations**. Some settings
+are configured once and never set live — a communications route, a channel
+enable on a scope — and those are not user settable. It is not a scan
+concept, and it has nothing to do with whether anything can *read* the
+variable. `variable` is the per-instance override and replaces its
+devicetype row **wholesale** (`_merge_variable_rows`).
+
+**`devicetype_variable` / `variable` — `defaultvalue` is the configured
+value.** For a variable that is not set live, this *is* the device's state:
+`PicoscopeV2`'s `Enable.Ch<X>` is which channels are wired, which is why the
+capture gate reads it (`db/device_streams.py`). Resolve it the same way as
+everything else: instance row if present, else the devicetype default.
+
+**`expt_device_variable` — only `get` matters.** It says the experiment
+subscribes this variable, which is what makes the CA gateway serve a PV for
+it. Its `set`, `startvalue` and `endvalue` describe scan-boundary writes that
+**Master Control** performs; nothing in the Bluesky path reads them, and they
+should not be taken as a statement about the variable. A row whose `set` is
+`no` carries no live meaning in its value columns at all.
+
+**Do not infer device state from a served PV that the device never pushes.**
+A subscribed variable the device does not include in its push frame leaves
+its PV at the initial value — for an enum, index 0, which is whatever the
+first choice happens to be. On `Enable.Ch<X>` (choices `on,off`) that reads
+`on` for every channel, wired or not. The DB row is the honest source for a
+configuration fact; a readback is the honest source only for something the
+device actually publishes.

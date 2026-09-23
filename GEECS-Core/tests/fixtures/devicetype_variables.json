@@ -1,0 +1,1355 @@
+{
+ "_recorded": "devicetype_variable rows (name, variabletype, choice text) per devicetype, read from the GEECS DB by scripts/record_devicetype_variables.py, last 2026-09-21; the offline stand-in for tests/test_device_streams.py. Re-run that script when a devicetype's variables change or a table entry is added.",
+ "devicetypes": {
+  "Point Grey Camera": [
+   {
+    "name": "2ndmomW0x",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "2ndmomW0x45",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "2ndmomW0y",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "2ndmomW0y45",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "Analysis",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "AnalysisMedianRank",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "AnalysisROI",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "AnalysisROIBottom",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "AnalysisROILeft",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "AnalysisROIRight",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "AnalysisROITop",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "AnalysisThreshold",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "AnalysisThresholdHigh",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "AutoTrigger",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "AutoTriggerLevelMaxCounts",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "AutoTriggerLevelMeanCounts",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "BackgroundPath",
+    "variabletype": "string",
+    "choices": "path"
+   },
+   {
+    "name": "bakground image",
+    "variabletype": "choice",
+    "choices": "image"
+   },
+   {
+    "name": "BlackLevel",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "camsession",
+    "variabletype": null,
+    "choices": "string"
+   },
+   {
+    "name": "centroidx",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "centroidy",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "ClockSpeed",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "CompressionQuality",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Crosshair.Label1",
+    "variabletype": "string",
+    "choices": "string"
+   },
+   {
+    "name": "Crosshair.Label2",
+    "variabletype": "string",
+    "choices": "string"
+   },
+   {
+    "name": "DisplayPythonProcessedImage",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "exposure",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "FWHMx",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "FWHMy",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "gain",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "GEECSBuildsPath",
+    "variabletype": "string",
+    "choices": "path"
+   },
+   {
+    "name": "GEECSPluginsPath",
+    "variabletype": "string",
+    "choices": "path"
+   },
+   {
+    "name": "GUI8bit",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "GUIBinning",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "GUICompression",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "hardware_timestamp",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "HorizontalLineout",
+    "variabletype": null,
+    "choices": "1darray"
+   },
+   {
+    "name": "image",
+    "variabletype": null,
+    "choices": "image"
+   },
+   {
+    "name": "Lineout",
+    "variabletype": null,
+    "choices": "on,off"
+   },
+   {
+    "name": "lineouts",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "localsavingpath",
+    "variabletype": null,
+    "choices": "path"
+   },
+   {
+    "name": "Max2ndMomRadius",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "MaxCounts",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "MaxGUIPixel",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "maxshot#",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "MeanCounts",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "MeanCountsRaw",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "MisalignmentR",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "MisalignmentX",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "MisalignmentY",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "PerspectiveCorrectGUI",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "PerspectivePath",
+    "variabletype": "string",
+    "choices": "path"
+   },
+   {
+    "name": "processed image",
+    "variabletype": "choice",
+    "choices": "image"
+   },
+   {
+    "name": "ProcurementSerialNumber",
+    "variabletype": "string",
+    "choices": "string"
+   },
+   {
+    "name": "Python Result 1",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Result 10",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Result 11",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Result 12",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Result 13",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Result 14",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Result 15",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Result 2",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Result 3",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Result 4",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Result 5",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Result 6",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Result 7",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Result 8",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Result 9",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "PythonAnalysis",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "PythonFunctionName",
+    "variabletype": "string",
+    "choices": "string"
+   },
+   {
+    "name": "PythonLineout",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "PythonModuleName",
+    "variabletype": "string",
+    "choices": "string"
+   },
+   {
+    "name": "PythonVersion",
+    "variabletype": "string",
+    "choices": "string"
+   },
+   {
+    "name": "ROI.Height",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "ROI.OffsetX",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "ROI.OffsetY",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "ROI.Width",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "roistatus",
+    "variabletype": null,
+    "choices": "on,off"
+   },
+   {
+    "name": "save",
+    "variabletype": null,
+    "choices": "on,off"
+   },
+   {
+    "name": "SaveAsync",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "SaveType",
+    "variabletype": "choice",
+    "choices": "PNG,BMP,JPEG,TDMS,hdf5"
+   },
+   {
+    "name": "ScanStartDelay",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Simulation",
+    "variabletype": null,
+    "choices": "on,off"
+   },
+   {
+    "name": "SpatialCalibration",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "SpatialCalibrationY",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Target.X",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "Target.Y",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "Target2.X",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Target2.Y",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Target2Size.X",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Target2Size.Y",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "TargetBP.X",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "TargetBP.Y",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "TargetSize.X",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "TargetSize.Y",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "timeout",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "timestamp",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "trigger",
+    "variabletype": null,
+    "choices": "on,off"
+   },
+   {
+    "name": "triggerdelay",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "UDPtrigger",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "UseSoftwareTrigger",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "VerticalLineout",
+    "variabletype": null,
+    "choices": "1darray"
+   }
+  ],
+  "MagSpecCamera": [
+   {
+    "name": "Analysis",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "AngleAxis",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "AngleMax",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "AngleMin",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "CameraCalibrationPath",
+    "variabletype": "string",
+    "choices": "path"
+   },
+   {
+    "name": "CameraFlipped",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "CamSession",
+    "variabletype": "string",
+    "choices": "string"
+   },
+   {
+    "name": "Charge",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "ChargeMultiplier",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "ClockSpeed",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "DeltaAngle",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "DeltaE",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "EnergyAxis",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "EnergyMax",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "EnergyMin",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Exposure",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Gain",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "GUIBinning",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "hardware_timestamp",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Image",
+    "variabletype": "choice",
+    "choices": "image"
+   },
+   {
+    "name": "ImageInterp",
+    "variabletype": "choice",
+    "choices": "image"
+   },
+   {
+    "name": "InternalTimestamp",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "interpDiv",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "interpSpec",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "Lens",
+    "variabletype": "choice",
+    "choices": "FL1-f8x08,FL1-f8x06,FL1-f8,ch300-f50,FL2G-f8,FL3M14-f8,FL3M14-f8x08,FL3M14-f8x08(2x2),aca720-f8,aca1440-f8"
+   },
+   {
+    "name": "LimitE",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "LocalSavingPath",
+    "variabletype": "string",
+    "choices": "path"
+   },
+   {
+    "name": "MagspecIndex",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "MaxE",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "MaxGUIPixel",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "MaxPicoCoulomb",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "maxshot#",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "ROI.Height",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "ROI.OffsetX",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "ROI.OffsetY",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "ROI.Width",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "roistatus",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "Save",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "ScanStartDelay",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "ScreenForward",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "SimulateBfield",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "SimulatedBfield",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Simulation",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "SpatialCalibration",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "SpatialCalibrationY",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Target.X",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Target.Y",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "TargetSize.X",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "TargetSize.Y",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Timeout",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "timestamp",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "TrajectoryCalibrationPath",
+    "variabletype": "string",
+    "choices": "path"
+   },
+   {
+    "name": "Trigger",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "TriggerDelay",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   }
+  ],
+  "MagSpecStitcher": [
+   {
+    "name": "1stCam",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "ChargeAbove1GeV",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "ChargeAbove5GeV",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "ChargeAbove7GeV",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "ClearSubscriptions",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "DeltaAngle",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "DeltaE",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "hardware_timestamp",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Image",
+    "variabletype": "choice",
+    "choices": "image"
+   },
+   {
+    "name": "interpDiv",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "interpSpec",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "LocalSavingPath",
+    "variabletype": "string",
+    "choices": "path"
+   },
+   {
+    "name": "MinAngle",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "MinE",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "NumCams",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Save",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "ScanStartDelay",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "timestamp",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "UseTimestamp",
+    "variabletype": "choice",
+    "choices": "on,off"
+   }
+  ],
+  "FROG": [
+   {
+    "name": "analysis",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "blcomp",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "blcompenable",
+    "variabletype": null,
+    "choices": "on,off"
+   },
+   {
+    "name": "CameraID",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "CameraIDS",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "cameraselect",
+    "variabletype": null,
+    "choices": "temporal CAM,spatial CAM"
+   },
+   {
+    "name": "deltalamda",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "deltat",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "edgeenhance",
+    "variabletype": null,
+    "choices": "Disable,High,Low"
+   },
+   {
+    "name": "exposure",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "frogerrorfinal",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "frogTrace",
+    "variabletype": null,
+    "choices": "image"
+   },
+   {
+    "name": "gridsize",
+    "variabletype": null,
+    "choices": "64,128,256,512"
+   },
+   {
+    "name": "GUIBinning",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "lamda0",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "localsavingpath",
+    "variabletype": null,
+    "choices": "path"
+   },
+   {
+    "name": "MaxGUIPixel",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "maxshot#",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "minfrogerror",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "pxlcorrection",
+    "variabletype": null,
+    "choices": "on,off"
+   },
+   {
+    "name": "retrievaltime",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "retrieved FrogTrace",
+    "variabletype": "choice",
+    "choices": "image"
+   },
+   {
+    "name": "retrievedFrogTrace",
+    "variabletype": null,
+    "choices": "image"
+   },
+   {
+    "name": "save",
+    "variabletype": null,
+    "choices": "on,off"
+   },
+   {
+    "name": "ScanStartDelay",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "SpatialCamEnable",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "SpatialImage",
+    "variabletype": null,
+    "choices": "image"
+   },
+   {
+    "name": "spectralFWHM",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "spectrum phase y",
+    "variabletype": null,
+    "choices": "1darray"
+   },
+   {
+    "name": "spectrum x",
+    "variabletype": null,
+    "choices": "1darray"
+   },
+   {
+    "name": "spectrum y",
+    "variabletype": null,
+    "choices": "1darray"
+   },
+   {
+    "name": "temporal intensity y",
+    "variabletype": null,
+    "choices": "1darray"
+   },
+   {
+    "name": "temporal phase y",
+    "variabletype": null,
+    "choices": "1darray"
+   },
+   {
+    "name": "temporal x",
+    "variabletype": null,
+    "choices": "1darray"
+   },
+   {
+    "name": "temporalFWHM",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "timeout",
+    "variabletype": null,
+    "choices": "numeric"
+   },
+   {
+    "name": "timestamp",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "triggermode",
+    "variabletype": null,
+    "choices": "on,off"
+   },
+   {
+    "name": "uselastguess",
+    "variabletype": null,
+    "choices": "on,off"
+   }
+  ],
+  "PicoscopeV2": [
+   {
+    "name": "BitDepth",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Coupling.ChA",
+    "variabletype": "choice",
+    "choices": "AC,DC"
+   },
+   {
+    "name": "Coupling.ChB",
+    "variabletype": "choice",
+    "choices": "AC,DC"
+   },
+   {
+    "name": "Coupling.ChC",
+    "variabletype": "choice",
+    "choices": "AC,DC"
+   },
+   {
+    "name": "Coupling.ChD",
+    "variabletype": "choice",
+    "choices": "AC,DC"
+   },
+   {
+    "name": "Enable.ChA",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "Enable.ChB",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "Enable.ChC",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "Enable.ChD",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "EnableSerialNumber",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "EnableTrigger",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "GUInumPoints",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "hardware_timestamp",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "LocalSavingPath",
+    "variabletype": "string",
+    "choices": "path"
+   },
+   {
+    "name": "nSegments",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "PostTriggerSamples",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "PreTriggerSamples",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Results.ChA",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Results.ChB",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Results.ChC",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Python Results.ChD",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "PythonAnalysis",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "PythonFunctionName.ChA",
+    "variabletype": "string",
+    "choices": "string"
+   },
+   {
+    "name": "PythonFunctionName.ChB",
+    "variabletype": "string",
+    "choices": "string"
+   },
+   {
+    "name": "PythonFunctionName.ChC",
+    "variabletype": "string",
+    "choices": "string"
+   },
+   {
+    "name": "PythonFunctionName.ChD",
+    "variabletype": "string",
+    "choices": "string"
+   },
+   {
+    "name": "PythonModulePath",
+    "variabletype": "string",
+    "choices": "path"
+   },
+   {
+    "name": "PythonVersion",
+    "variabletype": "string",
+    "choices": "string"
+   },
+   {
+    "name": "Range.ChA",
+    "variabletype": "choice",
+    "choices": "10 mV,20 mV,50 mV,100 mV,200 mV,500 mV,1 V,2 V,5 V,10 V,20 V"
+   },
+   {
+    "name": "Range.ChB",
+    "variabletype": "choice",
+    "choices": "10 mV,20 mV,50 mV,100 mV,200 mV,500 mV,1 V,2 V,5 V,10 V,20 V"
+   },
+   {
+    "name": "Range.ChC",
+    "variabletype": "choice",
+    "choices": "10 mV,20 mV,50 mV,100 mV,200 mV,500 mV,1 V,2 V,5 V,10 V,20 V"
+   },
+   {
+    "name": "Range.ChD",
+    "variabletype": "choice",
+    "choices": "10 mV,20 mV,50 mV,100 mV,200 mV,500 mV,1 V,2 V,5 V,10 V,20 V"
+   },
+   {
+    "name": "Save",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "ScanStartDelay",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "scopeTrace.Channel0",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "scopeTrace.Channel1",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "scopeTrace.Channel2",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "scopeTrace.Channel3",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "scopeTraceGUI.Channel0",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "scopeTraceGUI.Channel1",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "scopeTraceGUI.Channel2",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "scopeTraceGUI.Channel3",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "ScopeTraces",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "SerialNumber",
+    "variabletype": "string",
+    "choices": "string"
+   },
+   {
+    "name": "Simulation",
+    "variabletype": "choice",
+    "choices": "on,off"
+   },
+   {
+    "name": "Timebase",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Timeout",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "timestamp",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "Trigger Source",
+    "variabletype": "choice",
+    "choices": "Channel 1,Channel 2,Channel 3,Channel 4,External,Power Line"
+   },
+   {
+    "name": "TriggerThreshold",
+    "variabletype": "numeric",
+    "choices": "numeric"
+   },
+   {
+    "name": "wfm",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   },
+   {
+    "name": "wfm info",
+    "variabletype": "1darray",
+    "choices": "1darray"
+   }
+  ]
+ }
+}

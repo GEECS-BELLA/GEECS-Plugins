@@ -4,6 +4,29 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [1.25.0] - 2026-09-22
+
+### Fixed
+
+- **A stack-only 1D analyzer no longer falls back to per-shot files.**
+  `data_format: device_hdf5` falls back to the per-shot strategies whenever
+  the stack is absent, unreadable, has no timestamp column, or joins zero
+  shots — the right recovery for a camera analyzer, which resolves a
+  `ShotRef` or a file path alike. It cannot help a 1D analyzer configured
+  `data_type: pva_stack`: that loader takes a `ShotRef` and refuses a plain
+  path by construction, so the fallback raised once per shot, each
+  exception caught and logged, ending in an empty analysis anyway. It now
+  raises `DataUnavailableWarning`, which the task queue records as
+  **`no_data`**. Raised rather than returned deliberately: an empty map is
+  not something the queue can tell from a successful run, so returning
+  would have written `done` with no artifacts — a missing required capture
+  presented as a successful analysis. `no_data` is also the honest state,
+  since a gated Picoscope channel that was off for the run captures nothing
+  and that is routine rather than a failure.
+  `AnalysisDiagnostic` (GEECS-Schemas 0.32.0) refuses the authoring
+  mistake; this is the runtime case, where the config is right and the
+  stack is simply missing.
+
 ## [1.24.1] - 2026-09-18
 
 ### Changed

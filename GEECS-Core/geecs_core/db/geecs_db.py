@@ -190,6 +190,15 @@ def _variable_row_to_meta(row: tuple) -> dict:
         "tolerance": _num(row[7]),
         "description": (row[8] or "").strip() if len(row) > 8 else "",
         "alias": (row[9] or "").strip() if len(row) > 9 else "",
+        # The configured value of a variable that is not set live — for a
+        # PicoscopeV2 `Enable.Ch<X>` this is which channels are wired, and
+        # it is what the capture gate reads (geecs_core.db.device_streams).
+        # Length-guarded: the other SELECTs feeding this helper are shorter.
+        "defaultvalue": (
+            (str(row[10]).strip() if row[10] is not None else "")
+            if len(row) > 10
+            else ""
+        ),
     }
 
 
@@ -512,7 +521,8 @@ class GeecsDb:
         with _cursor() as cur:
             cur.execute(
                 "SELECT dtv.id, dtv.name, dtv.units, dtv.min, dtv.max, dtv.`set`, "
-                "dtv.variabletype, c.choices, dtv.tolerance, NULL, dtv.alias "
+                "dtv.variabletype, c.choices, dtv.tolerance, NULL, dtv.alias, "
+                "dtv.defaultvalue "
                 "FROM devicetype_variable dtv "
                 "JOIN device d ON d.devicetype = dtv.devicetype "
                 "LEFT JOIN choice c ON c.id = dtv.choice_id "
@@ -523,7 +533,7 @@ class GeecsDb:
             cur.execute(
                 "SELECT v.devicetype_variable_id, v.name, v.units, v.min, v.max, "
                 "v.`set`, v.variabletype, c.choices, v.tolerance, v.description, "
-                "v.alias "
+                "v.alias, v.defaultvalue "
                 "FROM variable v "
                 "LEFT JOIN choice c ON c.id = v.choice_id "
                 "WHERE v.device = %s ORDER BY v.name",
@@ -595,6 +605,35 @@ class GeecsDb:
         return {name: (dtype or "").strip() for name, dtype in rows}
 
     @classmethod
+    def get_devicetype_variables(cls, devicetype: str) -> list[dict]:
+        """Return one devicetype's ``devicetype_variable`` rows — type level, no instance merge.
+
+        ``[{"name", "variabletype", "choices"}, ...]`` sorted by name, with
+        ``choices`` the ``choice`` table's text (a bare type descriptor such
+        as ``image`` or an option list).  Unlike :meth:`get_device_variables`
+        nothing is merged from a device's own ``variable`` rows, so this is
+        the shape a per-devicetype rule is checked against —
+        ``scripts/record_devicetype_variables.py`` records it as the offline
+        fixture for ``geecs_core.db.device_streams``.
+
+        Parameters
+        ----------
+        devicetype:
+            The DB ``devicetype`` name (e.g. ``"Point Grey Camera"``).
+        """
+        rows = _query(
+            "SELECT dv.name, dv.variabletype, c.choices "
+            "FROM devicetype_variable dv "
+            "LEFT JOIN choice c ON c.id = dv.choice_id "
+            "WHERE dv.devicetype = %s ORDER BY dv.name",
+            (devicetype,),
+        )
+        return [
+            {"name": name, "variabletype": vartype, "choices": choices}
+            for name, vartype, choices in rows
+        ]
+
+    @classmethod
     def get_experiment_device_variables(
         cls, experiment: str, *, enabled_only: bool = True
     ) -> dict[str, list[dict]]:
@@ -618,7 +657,8 @@ class GeecsDb:
         with _cursor() as cur:
             type_query = (
                 "SELECT d.name, dtv.id, dtv.name, dtv.units, dtv.min, dtv.max, "
-                "dtv.`set`, dtv.variabletype, c.choices, dtv.tolerance, NULL, dtv.alias "
+                "dtv.`set`, dtv.variabletype, c.choices, dtv.tolerance, NULL, "
+                "dtv.alias, dtv.defaultvalue "
                 "FROM (SELECT DISTINCT ed.device FROM expt_device ed "
                 "      WHERE ed.expt = %s{enabled}) sel "
                 "JOIN device d ON d.name = sel.device "
@@ -631,7 +671,7 @@ class GeecsDb:
             instance_query = (
                 "SELECT v.device, v.devicetype_variable_id, v.name, v.units, "
                 "v.min, v.max, v.`set`, v.variabletype, c.choices, v.tolerance, "
-                "v.description, v.alias "
+                "v.description, v.alias, v.defaultvalue "
                 "FROM (SELECT DISTINCT ed.device FROM expt_device ed "
                 "      WHERE ed.expt = %s{enabled}) sel "
                 "JOIN variable v ON v.device = sel.device "

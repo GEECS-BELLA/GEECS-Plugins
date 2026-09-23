@@ -1,4 +1,4 @@
-"""The areaDetector-shaped HDF5 file plugin: one per served image variable.
+"""The areaDetector-shaped HDF5 file plugin: one per served stream variable (image or array).
 
 The second consumer of the frame the gateway already receives: it branches off the
 push callback **before** the latest-wins slot, so intake is lossless within
@@ -76,7 +76,12 @@ from geecs_core.pv_naming import (
     hdf_plugin_prefix,
     normalize_component,
 )
-from geecs_data_utils.io import decode_imaq_image_string
+from geecs_data_utils.io import (
+    WAVEFORM_ATTRIBUTE_SUFFIXES,
+    WAVEFORM_AXIS_KEYS,
+    decode_imaq_image_string,
+)
+from geecs_pva_gateway.streams import ArrayTooLongError
 from geecs_data_utils.io.scan_stack import ATTRIBUTES_GROUP, FRAMES_DATASET
 
 from geecs_pva_gateway import __version__
@@ -100,7 +105,7 @@ def available() -> bool:
     return True
 
 
-#: PV suffix under the image variable's PV name (the areaDetector ``HDF1:``),
+#: PV suffix under the stream variable's PV name (the areaDetector ``HDF1:``),
 #: owned by the naming contract so the worker's ``GeecsHdfIO`` cannot drift.
 PLUGIN_SUFFIX = HDF_PLUGIN_SUFFIX
 #: The dataset paths (``FRAMES_DATASET``, ``ATTRIBUTES_GROUP``) are the read
@@ -110,7 +115,7 @@ PLUGIN_SUFFIX = HDF_PLUGIN_SUFFIX
 #: ``<device>-hdf-<variable>-<suffix>`` (:func:`attribute_names`, every
 #: part through ``normalize_component``, the worker's ophyd-name rule):
 #: the two frame stamps (:data:`ATTRIBUTE_SUFFIXES`) and then one per
-#: subscribed scalar of the device (``CameraSpec.scalar_variables``, the
+#: subscribed scalar of the device (``DeviceSpec.scalar_variables``, the
 #: DB ``get='yes'`` list — the same columns a strict row carries for that
 #: device, so a gated row is the same row).
 #: The stock ``ADHDFDataLogic`` turns attribute names into stream data
@@ -123,39 +128,65 @@ PLUGIN_SUFFIX = HDF_PLUGIN_SUFFIX
 #: ``<name>-hdf-image-maxcounts`` never spells the event column
 #: ``<name>-maxcounts``; the ``frame_`` suffixes never spell a variable.
 ATTRIBUTE_SUFFIXES = ("frame_acq_timestamp", "frame_recv_timestamp")
+#: An array variable's stack also carries what its payload said about
+#: itself: a waveform's time axis (``x0``, ``dx`` in seconds) and record
+#: length, written per frame after the scalars so a captured scope trace
+#: is never an axis-less array (``NaN`` for the array shapes that carry
+#: no axis — the pairs and CSV lineouts).  Read back like any other
+#: attribute (``geecs_data_utils.io.scan_stack.read_stack_attributes``).
+_WAVEFORM_ATTRIBUTE_KEYS = dict(
+    zip(WAVEFORM_ATTRIBUTE_SUFFIXES, WAVEFORM_AXIS_KEYS, strict=True)
+)
 _ATTRIBUTE_DESCRIPTIONS = {
     "frame_acq_timestamp": "GEECS acquisition stamp of the frame, Unix s (the shot join key)",
     "frame_recv_timestamp": "gateway receive time of the frame, Unix s (delivery diagnostics)",
+    "wave_x0": "waveform time of sample 0, s (relativeInitialX); NaN for a non-waveform array",
+    "wave_dx": "waveform sample spacing, s (xIncrement); NaN for a non-waveform array",
+    "wave_samples": "waveform record length as pushed (actualSamples); NaN for a non-waveform array",
 }
 
 
 def attribute_prefix(device: str, variable: str) -> str:
-    """``<device>-hdf-<variable>``: the attribute-name prefix of one image variable."""
+    """``<device>-hdf-<variable>``: the attribute-name prefix of one stream variable."""
     return f"{normalize_component(device)}-hdf-{normalize_component(variable)}"
 
 
 def attribute_names(
-    device: str, variable: str, scalars: Sequence[str] = ()
+    device: str,
+    variable: str,
+    scalars: Sequence[str] = (),
+    *,
+    is_array: bool = False,
 ) -> tuple[str, ...]:
-    """The attribute dataset (and stream data key) names for one image variable.
+    """The attribute dataset (and stream data key) names for one stream variable.
 
     The two frame stamps first, then one per scalar in *scalars* (the
-    device's subscribed scalar variables, in their DB order).
+    device's subscribed scalar variables, in their DB order), then — for an
+    array variable — the waveform axis (:data:`WAVEFORM_ATTRIBUTE_SUFFIXES`).
     """
     prefix = attribute_prefix(device, variable)
-    return tuple(
-        f"{prefix}-{suffix}"
-        for suffix in (*ATTRIBUTE_SUFFIXES, *(normalize_component(s) for s in scalars))
+    suffixes = (
+        *ATTRIBUTE_SUFFIXES,
+        *(normalize_component(s) for s in scalars),
+        *(WAVEFORM_ATTRIBUTE_SUFFIXES if is_array else ()),
     )
+    return tuple(f"{prefix}-{suffix}" for suffix in suffixes)
 
 
-def attributes_xml(device: str, variable: str, scalars: Sequence[str] = ()) -> str:
+def attributes_xml(
+    device: str, variable: str, scalars: Sequence[str] = (), *, is_array: bool = False
+) -> str:
     """The ``NDAttributesFile`` document declaring the plugin's attribute datasets."""
     descriptions = [
         *(_ATTRIBUTE_DESCRIPTIONS[suffix] for suffix in ATTRIBUTE_SUFFIXES),
         *(
             f"GEECS {device} {scalar} as pushed with the frame (NaN if absent)"
             for scalar in scalars
+        ),
+        *(
+            (_ATTRIBUTE_DESCRIPTIONS[suffix] for suffix in WAVEFORM_ATTRIBUTE_SUFFIXES)
+            if is_array
+            else ()
         ),
     ]
     return (
@@ -164,7 +195,9 @@ def attributes_xml(device: str, variable: str, scalars: Sequence[str] = ()) -> s
             f'<Attribute name="{name}" type="PARAM" source="{name}" '
             f'datatype="DOUBLE" description={quoteattr(description)}/>'
             for name, description in zip(
-                attribute_names(device, variable, scalars), descriptions, strict=True
+                attribute_names(device, variable, scalars, is_array=is_array),
+                descriptions,
+                strict=True,
             )
         )
         + "</Attributes>"
@@ -393,24 +426,36 @@ class _PutHandler:
 
 
 class HdfFilePlugin:
-    """One image variable's file writer and its areaDetector-shaped PVs.
+    """One stream variable's file writer and its areaDetector-shaped PVs.
 
     Parameters
     ----------
     device, variable, experiment :
-        The camera and the image variable this plugin writes.
+        The device and the stream variable (an image or an array) this
+        plugin writes.
     retain, release :
         The worker's per-variable subscription refcount (thread-safe): the
         plugin holds the GEECS subscription for the length of a session.
     scalar_variables :
         The device's subscribed scalars, written per frame as ``DOUBLE``
-        attributes after the two stamps (``CameraSpec.scalar_variables``).
+        attributes after the two stamps (``DeviceSpec.scalar_variables``).
     last_frame :
         Returns the last frame the gateway decoded for this variable (its
         latest-wins slot), or ``None`` when it has never decoded one.
         ``Capture=1`` takes the stream geometry from it and completes at
         once (#894); without it, or when it returns ``None``, the arm waits
         for the first push.  Called on the writer thread.
+    decoder :
+        Pushed value → ``(array, attributes)``, the worker's per-variable
+        rule (``_DeviceWorker.decode``: IMAQ for an image, the array wire
+        shapes padded to the devicetype ceiling for an array; the
+        attributes are a waveform's axis, empty otherwise).  Default: the
+        IMAQ image decoder.  Raises on a payload it cannot account for; an
+        :class:`~geecs_pva_gateway.streams.ArrayTooLongError` is counted as
+        a shape error (the frame is dropped, never truncated).
+    is_array :
+        Whether *variable* is an array stream: its stack then carries the
+        waveform axis attributes (:data:`WAVEFORM_ATTRIBUTE_SUFFIXES`).
     """
 
     def __init__(
@@ -423,14 +468,22 @@ class HdfFilePlugin:
         release: Callable[[str], None],
         scalar_variables: Sequence[str] = (),
         last_frame: Callable[[], np.ndarray | None] | None = None,
+        decoder: Callable[[str], tuple[np.ndarray, Mapping[str, object]]] | None = None,
+        is_array: bool = False,
     ) -> None:
         self.device = device
         self.variable = variable
         self.experiment = experiment
         self.prefix = hdf_plugin_prefix(experiment, device, variable)
         self.scalar_variables = tuple(scalar_variables)
+        self.is_array = is_array
         self._last_frame: Callable[[], np.ndarray | None] = last_frame or (lambda: None)
-        self.attributes = attribute_names(device, variable, self.scalar_variables)
+        self._decoder: Callable[[str], tuple[np.ndarray, Mapping[str, object]]] = (
+            decoder or (lambda blob: (decode_imaq_image_string(blob), {}))
+        )
+        self.attributes = attribute_names(
+            device, variable, self.scalar_variables, is_array=is_array
+        )
         if len(set(self.attributes)) != len(self.attributes):
             # Two scalars normalizing to one name would write one dataset
             # twice and describe one stream key twice — refuse at build.
@@ -449,7 +502,9 @@ class HdfFilePlugin:
             if param.suffix == "NDArrayPort":
                 initial = variable
             elif param.suffix == "NDAttributesFile":
-                initial = attributes_xml(device, variable, self.scalar_variables)
+                initial = attributes_xml(
+                    device, variable, self.scalar_variables, is_array=is_array
+                )
             self._params[param.suffix] = param
             self._values[param.suffix] = initial
             wrapped = _wrap(param.kind, initial, param.choices)
@@ -678,7 +733,7 @@ class HdfFilePlugin:
                 return
             if item[0] == "frame":
                 try:
-                    frame = decode_imaq_image_string(item[1])
+                    frame, _ = self._decoder(item[1])
                 except Exception as exc:  # noqa: BLE001 - reported, keep arming
                     logger.warning("%s: arming frame undecodable: %s", self.device, exc)
                     continue
@@ -721,7 +776,14 @@ class HdfFilePlugin:
         logger.info("%s %s: capturing → %s", self.device, self.variable, directory)
 
     def _post_geometry(self, frame: np.ndarray) -> None:
-        height, width = frame.shape[:2]
+        # A 1-D array is ``ArraySizeX = n``, ``ArraySizeY = 0``: the stock
+        # ophyd-async data logic drops zero dimensions, so the stream is
+        # described ``(n,)`` and the stack is ``(N, n)`` — a legal
+        # areaDetector array, no read-side change.
+        if frame.ndim == 1:
+            height, width = 0, frame.shape[0]
+        else:
+            height, width = frame.shape[:2]
         for suffix, value in (
             ("ArraySizeX_RBV", width),
             ("ArraySizeY_RBV", height),
@@ -760,14 +822,20 @@ class HdfFilePlugin:
             counters.callbacks_disabled += 1
             return
         try:
-            frame = decode_imaq_image_string(blob)
+            frame, payload_attributes = self._decoder(blob)
+        except ArrayTooLongError as exc:
+            counters.shape_errors += 1  # over the devicetype ceiling: dropped, named
+            self._error(str(exc))
+            return
         except Exception as exc:  # noqa: BLE001 - counted, never fatal
             counters.decode_errors += 1
             self._error(f"undecodable frame ({len(blob)} bytes): {exc}")
             return
-        if frame.ndim != 2:
+        if frame.ndim not in (1, 2):
             counters.shape_errors += 1
-            self._error(f"frame of shape {frame.shape}: only 2-D (Mono) frames")
+            self._error(
+                f"frame of shape {frame.shape}: only 1-D arrays or 2-D (Mono) frames"
+            )
             return
         if session.file is None:
             try:
@@ -782,7 +850,9 @@ class HdfFilePlugin:
             return
         session.seen.add(stamp)
         try:
-            self._append(session, frame, stamp, recv_time, scalars or {})
+            self._append(
+                session, frame, stamp, recv_time, scalars or {}, payload_attributes
+            )
         except Exception as exc:  # noqa: BLE001 - counted; the stack tail stays valid
             counters.append_failures += 1
             self._error(f"append failed: {exc}")
@@ -807,7 +877,16 @@ class HdfFilePlugin:
         # dataset order: normalization is one-way, and an offline reader
         # (no DB) needs the row's column names back.
         h5.attrs["scalar_variables"] = list(self.scalar_variables)
-        h5.attrs["scalar_attributes"] = list(self.attributes[len(ATTRIBUTE_SUFFIXES) :])
+        n_scalars = len(self.scalar_variables)
+        h5.attrs["scalar_attributes"] = list(
+            self.attributes[
+                len(ATTRIBUTE_SUFFIXES) : len(ATTRIBUTE_SUFFIXES) + n_scalars
+            ]
+        )
+        if self.is_array:
+            h5.attrs["waveform_attributes"] = list(
+                self.attributes[-len(WAVEFORM_ATTRIBUTE_SUFFIXES) :]
+            )
         filters: dict[str, Any] = {}
         if session.compression == "zlib":
             filters = {"compression": "gzip", "compression_opts": 1, "shuffle": True}
@@ -847,16 +926,26 @@ class HdfFilePlugin:
         stamp: float,
         recv: float,
         scalars: Mapping[str, object],
+        payload_attributes: Mapping[str, object] | None = None,
     ) -> None:
         n = session.count
         h5 = session.file
         frames = h5[FRAMES_DATASET]
         frames.resize(n + 1, axis=0)
         frames[n] = frame
+        axis = payload_attributes or {}
         values = (
             stamp,
             recv,
             *(scalar_value(scalars.get(var)) for var in self.scalar_variables),
+            *(
+                (
+                    scalar_value(axis.get(_WAVEFORM_ATTRIBUTE_KEYS[s]))
+                    for s in WAVEFORM_ATTRIBUTE_SUFFIXES
+                )
+                if self.is_array
+                else ()
+            ),
         )
         for name, value in zip(self.attributes, values, strict=True):
             ds = h5[f"{ATTRIBUTES_GROUP}/{name}"]
