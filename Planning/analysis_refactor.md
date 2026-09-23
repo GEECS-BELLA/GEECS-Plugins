@@ -7,26 +7,31 @@ anything still load-bearing moves to `GEECS-Analysis/CLAUDE.md` first.*
 Drafted 2026-09-06 from four parallel code audits of the #803 tree plus a
 field-by-field census of the 61-file analysis-config corpus; discussed over
 2026-09-06..08; refreshed 2026-09-18 against master (native-Bluesky rebuild,
-console deletion, capture-daemon retirement, logbook). Status: **direction
-settled, no code written.** Owner: Sam.
+console deletion, capture-daemon retirement, logbook). Scope amended
+2026-09-22: retire LiveWatch and Google Docs uploads; preserve the DataPortal
+config editor. Status: **direction settled, no code written.** Owner: Sam.
 
 ---
 
 ## Where we stand
 
-**Refactor the analysis core, not the orchestration.** ImageAnalysis and the
+**Replace the analysis core and retire the legacy watcher and uploads.** ImageAnalysis and the
 core of ScanAnalysis (`base.py`, `analyzers/common/`, `analyzers/renderers/`)
-are replaced by one new package. The task queue, `LiveTaskRunner`, the
-LiveWatch Qt GUI, gdoc upload, the group loader, `ConfigStore` and the web
-config editor stay as they are, bug fixes only.
+are replaced by one new package. Retire `LiveTaskRunner`, the LiveWatch Qt
+GUI and Google Docs uploads. Keep the task queue and status YAML contract
+used by MCP, the group loader, `ConfigStore` and the web config editor.
+The DataPortal mounts the editor at `/configs` and embeds its form in the
+Analysis tab's editor drawer, including previews of unsaved diagnostics.
 
-**In-repo, not a fork.** The new package lands as `GEECS-Analysis/`, on normal
-feature branches through the usual PR ritual. Every existing consumer
-(LiveWatch, the portal, MCP, the optimizer) reaches it through the interface
+**In-repo, on an integration branch.** The new package lands as
+`GEECS-Analysis/`, developed on `codex/analysis-refactor` through focused
+child branches and reviewed PRs targeting that integration branch. Every retained consumer
+(the portal, MCP, the optimizer) reaches it through the interface
 it already calls; the old cores are deleted when the last recipe's route
 flips.
 
-**Automatic analysis is deferred.** LiveWatch keeps doing that job. The data
+**Automatic analysis is deferred.** Retiring LiveWatch does not introduce a
+replacement watcher; explicit runs through the portal and MCP remain. The data
 *architecture* (folder layout, file formats, the s-file) is a separate
 conversation and is not touched here; how code finds and reads it is in scope.
 
@@ -34,13 +39,97 @@ conversation and is not touched here; how code finds and reads it is in scope.
 live optimization run, the Windows machine for the vendor SDKs), not calendar
 weeks.
 
+## Minimum success agreed 2026-09-22
+
+- **Operational endpoint: the DataPortal.** An operator can edit and preview
+  a diagnostic, run it on a scan, and inspect saved results. Automatic
+  post-scan triggering is deferred; a future service needs its own design.
+  Preserving the existing MCP queue/status contract during migration is
+  compatibility work, not a decision to reuse YAML status files for that
+  future service.
+- **2D: `BeamAnalyzer` (`beam`).** Preserve processing, scalar names and
+  values, overlays and scan outputs for representative beam diagnostics.
+- **1D: MagSpec spectra and waterfall plots.** The existing canonical test
+  uses `LineAnalyzer` (`line`) over `U_BCaveMagSpec-interpSpec`, wrapped by
+  `Array1DScanAnalyzer`; the wrapper produces the waterfall. This is distinct
+  from `MagSpecManualCalibAnalyzer` (`magspec`), which calibrates 2D camera
+  images. Cover per-shot and per-bin waterfall data, axes, ordering and output
+  names, not just successful per-shot line statistics. The local configs
+  checkout confirms `BcaveMagSpecStitcherSpec` uses `kind: line` and selects
+  `U_BCaveMagSpec-interpSpec` as its scan device.
+- **GeecsBluesky optimization adopts `geecs_analysis` in this effort.** Its
+  measurement evaluator currently calls
+  `image_analysis.ephemeral.run_document_ephemeral` on timestamp-matched live
+  frames. Update diagnostic loading, config validation, declared-output
+  discovery, frame/source adaptation, evaluation and package dependencies as
+  needed to use the new core directly. A compatibility adapter is an interim
+  route, not the optimizer's final integration. Preserve selected scalar names and
+  `{measurement}.{scalar}` outputs, per-shot versus average-before-analysis
+  semantics, reductions, minimum-valid-shot handling and the no-writes
+  contract. Replace the old denylist with explicit input/capability checks;
+  only enable new inputs when the live source supplies their axes, identity
+  and required context. The current live path accepts camera diagnostics only;
+  broader trace optimization is not implied by deleting that guard.
+- **Vendor-dependent diagnostics have separate validation gates.** FROG
+  retrieval requires the 32-bit Windows `frog.dll` execution path; HASO needs
+  its vendor SDK/runtime. Isolate these dependencies so core, portal and
+  optimizer tests run without them. Contract tests with doubles verify
+  integration only; scientific parity requires real data on a capable Windows
+  host. Neither blocks the beam/line milestone, and neither is retired merely
+  because local validation is unavailable.
+- **Retire `bcave_magspec_stitcher` (owner approved).** This is the legacy
+  camera analyzer, not `line_stitcher`, `bcave_mag_opt`, or the `line` recipe
+  that reads an already-stitched spectrum for waterfall plots.
+- **Additional analyzer families await owner selection.** Beam and line are
+  the minimum release gate, not permission to delete every other analyzer.
+  Keep unported routes until their required coverage or retirement is decided.
+
+### Existing reference data and gaps
+
+`tests/conftest.py` already names canonical Undulator scans:
+
+| Fixture | Scan | Existing coverage |
+|---|---|---|
+| `undulator_2d` | 2025-02-20, Scan014 | Beam image loading and finite scalars; 2D scan-analysis integration |
+| `undulator_magspec` | 2025-11-18, Scan002 | `LineAnalyzer` over text `interpSpec` data; scan execution and centroid scalar |
+| `undulator_ict` | 2025-11-13, Scan001 | TDMS trace loading and 1D scan analysis |
+| `undulator_bluesky_1d` | 2026-08-29, Scan001 | Bluesky-era scalar union-frame integration |
+
+These are references to data on the share, not bundled scan fixtures. Configs
+for the analysis integration tests also come from the separate configs repo;
+their correspondence to each fixture must be verified. Legacy-format data
+remains useful for numerical parity and reader compatibility. It does not
+alone establish parity for current acquisition formats.
+
+The repo also has synthetic beam/line accuracy tests, HDF5 `ShotRef` and stack
+join/loading tests (including 1D traces), and
+`GeecsBluesky/tests/optimization/test_live_measurements.py`, which exercises
+real beam analysis through the optimizer's evaluator. Build on these, then
+add the differential scalar/output checks and waterfall-content checks the
+current smoke tests do not provide. No new reference-data selection is needed
+from the owner unless these scans prove unavailable or unrepresentative.
+
+Initial access check after merging master through #952–#954: both canonical
+beam and MagSpec scan folders are reachable, with PNG and text inputs
+respectively. The separate configs checkout contains `Amp4Input.yaml` and
+`BcaveMagSpecStitcherSpec.yaml`. The current beam config requests
+`data_format: device_hdf5`, while its canonical input is PNG; a fixture-specific
+reader override is needed for scan-level baseline runs. Its configured device
+also ends in `_Input`, whereas the archived folder ends in `_input`; preserve
+the archived identity explicitly rather than relying on case-insensitive
+filesystem behavior. This establishes availability, not numerical parity or
+successful execution. The integration worktree still needs its own
+Python 3.11 Poetry environment before baseline tests can run.
+
 ## Decisions
 
 | Topic | Status | Where we landed |
 |---|---|---|
 | One package for image + scan analysis | decided | The split was organisational; the seam between them (`render_function` on the result, `output_name` threading, in-place mutation of the camera config for scan backgrounds, `getattr` attribute injection from the factory) is where the complexity lives. |
-| Hard fork vs in-repo | decided | In-repo, adopted per recipe behind the factory. The whole-repo fork was dropped: master does not stand still, and every consumer is in-repo. |
-| LiveWatch, task queue, status YAML, gdoc | decided | Kept, untouched, served through the adapter. Revisit with automatic analysis. (Reversed from the 09-06 draft, which dropped them.) |
+| Hard fork vs in-repo | decided | In-repo, developed on `codex/analysis-refactor`; focused PRs target that integration branch. Promote complete, validated milestones to master, not unfinished layers. Adopt per recipe behind the factory and merge master forward periodically. |
+| LiveWatch and Google Docs uploads | decided | Retire the Qt GUI, `LiveTaskRunner`, upload hooks and analysis-side LogMaker dependency. No replacement watcher or Google Docs export in this effort. |
+| Task queue, status YAML, group loader | decided | Keep for MCP's explicit analysis runs; decouple from upload code. Portal runs already call the analyzer directly without queue participation. |
+| ConfigStore and web config editor | decided | Keep: the DataPortal uses `/configs`, its Analysis-tab editor drawer and unsaved-document previews. Preserve these through the schema migration. |
 | Qt ConfigFileGUI | done in #803 | Deleted with the re-export shims, the model aliases and the v1 converter. The web editor is the one editor. |
 | Pipeline = ordered, repeatable list of typed steps | decided | No canonical order. Any order, duplicates allowed (two medians; a clip before and after a filter). Each step declares `ndim`; the loader validates the list. |
 | Steps: one file, spec + pure function; variants are separate steps | decided | No method enums with conditional fields: `background_constant`, `background_frame`, `clip_below`, `clip_above` instead of `method × value × mode × invert`. |
@@ -49,6 +138,8 @@ weeks.
 | Naming | decided | `id` (file stem; scalar prefix and output dir), `device` or `devices` (finds files), optional `scalar_suffix`. Replaces `output_name`, `metric_suffix`, `scan.device`, `output_label`. |
 | Per-bin mode | decided | Kept as `average_frames_first: true`; the optimizer's `frames: per_bin` is the same thing. Implemented once in `run`. |
 | Side effects | decided | Measures return derived products in memory; whether they are written is the runner's decision. Deletes the `file_path` gate and `EPHEMERAL_DENYLIST`, which the optimizer still has to check today. |
+| Optimizer adoption | decided | Direct `geecs_analysis` integration is required, including necessary loader/schema/dependency and evaluator changes. Preserve existing optimization semantics; validate supported live-source capabilities before enabling additional input kinds. |
+| BCave legacy camera stitcher | decided | Retire `bcave_magspec_stitcher`; retain the separate line stitcher, BCave optimization measure and spectrum-waterfall path unless separately retired. |
 | Image analysis stays data-agnostic | decided | Steps and measures see Frames only. A scan-N background or a calibration file is resolved by data-utils before execution. A test asserts no `pathlib` / `geecs_data_utils` import below the sinks. |
 | The resolver is GEECS-Data-Utils | decided | Shot→file resolution, `ShotSource`, `Frame`, background-from-scan live in data-utils, additively. The analysis package has no file reading. |
 | Data-utils read-side convergence | tentative | Data-utils already grew `shot_join` (pure nearest-with-window join), `scan_grid` and shared shot-identity resolution since 09-09. ScanAnalysis's three-strategy file ladder converges on those rather than being relocated verbatim. `ScanLayout` / `ScanScalars` beside `ScanPaths` / `ScanData`; facade until the last caller moves. Not on the critical path. |
@@ -56,7 +147,7 @@ weeks.
 | Own `Frame` vs xarray | tentative | Own dataclass first (~150 lines); `to_xarray()` bridge if it ever pays off. |
 | Where spec models live | tentative | `geecs_analysis.specs`, numpy-free, owns the unions; portal, MCP and the optimizer config import it for validation. Back into GEECS-Schemas only if a numpy-free consumer appears. |
 | Heavy analyzers as plugins | tentative | HASO (wavekit), FROG (32-bit DLL), MagSpec DNN in their own small packages, registered by entry point; specs in the core so every recipe validates everywhere. They are Windows-only; the services box is Linux. |
-| Zero-config analyzer kinds | open | BCave stitcher: drop (cannot run). `standard`: free (`measure: none`). `downramp_phase` / `phase_downramp`: work in progress, out of parity scope until one is chosen. `hi_res_mag_cam`: its optimizer config references a diagnostic that does not exist. `frog_spectral_phase`: cheap to port if GDD/TOD numbers are wanted. |
+| Zero-config analyzer kinds | open | `standard` (2D) and `trace` (1D): preprocessing only, both map to `measure: none`. `downramp_phase` / `phase_downramp`: work in progress, out of parity scope until one is chosen. `hi_res_mag_cam`: its optimizer config references a diagnostic that does not exist. `frog_spectral_phase`: cheap to port if GDD/TOD numbers are wanted. |
 | Pure-Python FROG (`grenouille.py`) as the Linux path | open | Dead today, but the only Linux-capable FROG retrieval in the repo. Physics judgement is Sam's. |
 | Automatic post-scan analysis, worker service, second machine | deferred | Decide with the non-scalar-over-PVA rollout and the new box. Compute is not the constraint (1–5 cores for 30 cameras at 1 Hz); network fan-out is, and each camera server's PVA gateway is the subscription point now that the central capture daemon is retired. |
 | Live scalars as PVs (#744) | deferred | The optimizer already consumes live PVA frames in memory; a central publisher node is the same core plus ~200 lines of p4p. Engine-side telemetry identity is the open question. |
@@ -122,7 +213,7 @@ mostly not analysis.
 
 | Client | Input | Call | Output | Constraints |
 |---|---|---|---|---|
-| Post-scan run (LiveWatch queue, portal Analysis tab, MCP `run_scan_analysis`) | `ScanTag` + a diagnostic id | run over every shot of one device | per-bin figures + one summary in `analysis/ScanNNN/<id>/`, s-file columns, display-file list | never create `scans/ScanNNN/`; parallel over shots; `no_data` vs `failed` |
+| Post-scan run (portal Analysis tab, MCP `run_scan_analysis`) | `ScanTag` + a diagnostic id | run over every shot of one device | per-bin figures + one summary in `analysis/ScanNNN/<id>/`, s-file columns, display-file list | never create `scans/ScanNNN/`; parallel over shots; `no_data` vs `failed` |
 | Optimizer (`geecs_bluesky.optimization.measurements`) | per bin: timestamp-matched `ndarray` frames from bounded PVA monitors + the event rows | one document over a list of frames, `frames: per_bin \| per_shot`, reduce, `min_shots` | `dict[str, float]` per bin, `{measurement}.{scalar}` keys | no writes, no fork, worker thread; camera-only; must not be on `EPHEMERAL_DENYLIST` |
 | Data portal | already-loaded frames (per shot or bin average); a validated document, possibly unsaved | processing selector and editor preview over the ephemeral seam; `run_analysis` for the Analysis tab | processed frame, scalars, overlays; object-API `Figure`; artefact list | guaranteed no I/O on the ephemeral path; thread-safe; Agg-safe; no pyplot state |
 
@@ -250,8 +341,8 @@ the editor's preview. Overlays are styled or hidden by the id the measure gave
 them. `draw_frame` + `draw_overlays` handle every measure in the corpus; the
 `@figure` hook covers bespoke panels (FROG's trace and phase). Layouts:
 `single`, `grid`, `waterfall`, `animation`, chosen by `frame.ndim`. Output
-filenames keep today's shapes so the portal's parser and LiveWatch's
-display-file list are untouched.
+filenames keep today's shapes so the portal's parser and MCP's
+display-file contract are untouched.
 
 ### 5. The document
 
@@ -268,13 +359,14 @@ steps:
   - {step: median, kernel: 3}
   - {step: clip_below, level: 20}    # repeats are fine
 measure: {kind: beam, compute_slopes: false}
-scan: {priority: 10, average_frames_first: false, save: true, gdoc_slot: 0}
+scan: {priority: 10, average_frames_first: false, save: true}
 figure: {imshow: {cmap: plasma}}
 ```
 
-Roughly 70–75 leaf fields cover the corpus, against ~181. `priority` and
-`gdoc_slot` stay because the queue reads them. During the transition the new
-package reads today's v2 files through an in-memory adapter; the corpus
+Roughly 70–75 leaf fields cover the corpus, against ~181. `priority` stays
+because the queue reads it; `gdoc_slot` is absent from v3. During the
+transition the new package reads today's v2 files through an in-memory
+adapter, accepting but discarding legacy upload settings; the corpus
 converts once, at the end.
 
 ### 6. Algorithms
@@ -292,19 +384,20 @@ converts once, at the end.
 | New preprocessing step | 8+ files across 3 packages | 1 file + 1 test |
 | New analyzer | 3 files + an `ax=`-honouring renderer + a denylist decision | 1 file + 1 test; optional `@figure` |
 | New summary figure | 6 source files across 2 packages + 2 test files | 1 layout function + its filename marker |
-| Analyzer in the optimizer | `run_document_ephemeral` + denylist check, camera-only | `run(recipe, ArraySource)`; the denylist and the camera-only restriction go |
+| Analyzer in the optimizer | `run_document_ephemeral` + denylist check, camera-only | `run(recipe, ArraySource)`; explicit source/recipe capability validation replaces legacy kind guards |
 | Analyzer in the portal | ephemeral module + denylist + signature sniffing | `run(recipe, ArraySource(frames))` + `draw` |
 
 ## Adoption without a flag day
 
-Everything that calls scan analysis today goes through
-`create_scan_analyzer(diag)` and then uses six things on what it gets back:
-attributes `id`, `priority`, `gdoc_slot`; `run_analysis(scan_tag) ->
+The retained scan-analysis clients go through `create_scan_analyzer(diag)`.
+The adapter preserves attributes `id`, `priority`; `run_analysis(scan_tag) ->
 list[Path] | None`, raising `DataUnavailableWarning` for no data; `cleanup()`.
+`gdoc_slot` is no longer part of the required runtime contract after the
+upload hooks are removed.
 An ~80-line adapter wraps `run_scan(recipe, scan_tag, sinks)` behind that
 contract. Inside the factory, a recipe is served by the new stack if its
-measure exists there, otherwise by the old wrapper. LiveWatch, the queue,
-gdoc, the portal's Analysis tab and the MCP worker flip per recipe without
+measure exists there, otherwise by the old wrapper. The queue,
+the portal's Analysis tab and the MCP worker flip per recipe without
 knowing. The ephemeral consumers (portal processing selector and editor
 preview, the optimizer's `run_document_ephemeral`) get the same routing inside
 `image_analysis.ephemeral` until they are pointed at `run(ArraySource)`
@@ -312,16 +405,20 @@ directly.
 
 | Consumer | Changes on day one | Changes eventually |
 |---|---|---|
-| LiveWatch, task queue, gdoc | none | none in this effort |
+| LiveWatch and Google Docs uploads | retire in a separate removal PR before core adoption | no replacement in this effort |
+| Task queue and status YAML | remove upload imports, options and hooks; preserve execution and status semantics | retained for MCP |
+| ConfigStore and web config editor | preserve the portal mount, drawer, saving and preview | support the new document schema before corpus conversion |
 | Portal | none | optional: `run(ArraySource)` + `draw` directly; delete its own file ladder once data-utils has `ShotSource` |
 | MCP | none | none in this effort |
-| Optimizer | none | `run(ArraySource)` in `evaluate_bin`; delete the denylist and camera-only checks |
+| Optimizer | preserve existing execution via interim routing | required direct `run(ArraySource)` integration: loading, validation, scalar discovery, frame adaptation, evaluator and dependencies; capability checks replace legacy guards |
 | Configs repo | none (v2 read through the adapter) | one-shot conversion to v3 when nothing reads v2 |
 
 Rules:
 
 1. **Switch and delete are never the same PR.** A route flips, runs a week in
-   production, then a deletion PR removes the old path.
+   production, then a deletion PR removes the old path. This applies to
+   replaced analysis routes; LiveWatch and uploads are intentionally retired
+   without a replacement and have their own removal PR.
 2. **Delete when the last consumer is gone, not when the replacement exists.**
    Checked with grep, not judgement.
 3. **No new features in a code path that has a replacement in production.**
@@ -333,27 +430,61 @@ The one real cost of keeping the queue: one task per recipe per scan, so two
 recipes on the same camera load every frame twice. Rare in the corpus; if it
 starts to matter, that is the fact that justifies replacing the queue.
 
+## Branch and release workflow
+
+`codex/analysis-refactor` is the integration branch for this effort. Focused
+child branches start from it and return through reviewed PRs; they do not
+target master while the first milestone is incomplete. Keep the integration
+branch alive and periodically merge master forward into it. Existing master
+behavior is unaffected until a milestone is ready for promotion.
+
+The first promotion PR delivers the complete beam/line milestone: core and
+comparison harness (A1), DataPortal scan execution, editing, previews and
+saved outputs (A2), and direct optimizer adoption (O1). LiveWatch/upload
+retirement (R0) is a separately reviewed piece of that integration. Required
+gates are reference-data comparisons, retained-consumer tests, operator review
+of representative beam and waterfall outputs, and a live optimization check.
+Unported diagnostics retain working routes. FROG/HASO validation must not hold
+the first promotion hostage; their migrations land as later complete pieces.
+
+The maintainer merges promotion PRs into master. Each constituent PR receives
+the repository's normal review and checks; the promotion records those reviews
+and the combined validation, following the bulk-integration review exception
+in `CONTRIBUTING.md`. Do not delete replaced analysis paths in that promotion:
+observe the new routes in production for a week, then remove obsolete paths
+in a follow-up PR. Intentional retirement of LiveWatch/uploads and the broken
+BCave camera stitcher does not require a replacement observation period.
+
 ## Roadmap
 
-A keystone is done when it is in production behind the factory, not when the
-code exists.
+A core-adoption keystone is done when it is in production behind the factory,
+not when the code exists. The retirement step is done when its entry points
+and dependencies are removed and retained consumers still pass their checks.
+Rows below are work packages on the integration branch; A1/A2/O1 are promoted
+together as the first complete milestone. Their original estimates are
+historical rough sizes. The current first-milestone budget is 7–12 focused
+agent-days, plus data/physics review, a live optimization check and the
+production observation period; re-estimate after the differential baseline.
 
 | # | Keystone | Unlocks | Can delete afterwards | Agent work | External gate |
 |---|---|---|---|---|---|
+| R0 | Retire LiveWatch GUI, `LiveTaskRunner` and Google Docs upload integration; remove launchers, upload hooks/options and the analysis-side LogMaker dependency; accept old v2 upload fields inertly until corpus conversion | explicit portal and MCP analysis without watcher/upload dependencies | watcher/upload-only tests, configuration and dependencies after checking all callers; retain queue, status readers, group loader and editor | size after caller audit | portal editor/preview and explicit-run smoke checks; MCP queue/status tests |
 | 0 | Dead-code chore: BCave stitcher, `grenouille`/`qwlsi` (unless promoted), HIMG, orphaned data files, `use_injected_data` | clarity; ~3k lines gone | itself | ½ day | none |
 | A1 | Core: `Frame` (in data-utils), 12 steps, `beam` + `line`, `Measurement`, `draw` + `single`, v2 adapter, differential harness | portal processing selector, editor preview and the optimizer on the new stack | nothing yet | 1–2 days | one archived scan as golden fixture; review of `Frame`, step names, overlay set |
-| A2 | `run_scan`, `grid`/`waterfall`/`animation`, analysis-tree + scalar + s-file sinks, the factory adapter and routing | LiveWatch, Analysis tab, MCP on the new stack for every `beam`/`line` recipe (37 of 50) | after a week: the 2D/1D wrappers' beam path is unreachable | 2 days | one archived day end-to-end; s-file columns byte-identical for beam recipes |
+| O1 | GeecsBluesky direct adoption: load/validate recipes, discover scalar outputs, adapt live frames and call `run(ArraySource)`; update dependencies and input capability checks | optimizer uses the new core directly; required for the beam/line milestone | old optimizer imports and ephemeral routing once no longer used there | size after integration audit | evaluator parity tests plus a live optimization run; preserve timing/shot association, reductions, minimum counts and no-writes behavior |
+| A2 | `run_scan`, `grid`/`waterfall`/`animation`, analysis-tree + scalar + s-file sinks, the factory adapter and routing | Analysis tab and MCP on the new stack for every `beam`/`line` recipe (37 of 50) | after a week: the 2D/1D wrappers' beam path is unreachable | 2 days | one archived day end-to-end; s-file columns byte-identical for beam recipes |
 | A3 | Long tail: `ict`, `magspec`, `frog_retrieval`, stitcher as a source, HASO as a source, `bcave_mag_opt`; plugins for the Windows-only ones | each recipe flips as it passes the harness | old ImageAnalysis and ScanAnalysis cores when the last route flips; **this file** | ½ day each | Windows machine, vendor SDK, real data per diagnostic; physics sign-off |
 | A4 | Data-utils read side, additive: `ScanLayout`, `ScanScalars`, `ShotSource` converging on `shot_join` / `scan_stack` | portal deletes its ladder; `ScanData` goes | `ScanPaths` facade after the last caller moves | 2 days | none; spread across small PRs |
 | A5 | Optional: corpus conversion to v3; delete the v2 adapter | one config vocabulary | v2 adapter | 1 day | none |
 
 ## Deferred, and the parking lot
 
-- **Automatic post-scan analysis and a worker service.** LiveWatch does this
-  today. The replacement is a small service subscribing to the engine's
-  run-stop documents, or Redis lists per capability with one worker per
-  machine (a Windows box runs a user-session worker, no admin needed). Decide
-  with the non-scalar-over-PVA rollout and the new box.
+- **Automatic post-scan analysis and a worker service.** LiveWatch is being
+  retired; automatic triggering is not an acceptance requirement of this
+  refactor. A future service could subscribe to the engine's run-stop
+  documents, or use Redis lists per capability with one worker per machine
+  (a Windows box runs a user-session worker, no admin needed). Decide
+  separately; explicit portal and MCP runs remain supported.
 - **Live scalars as PVs (#744).** The optimizer already measures live PVA
   frames in memory; a publisher node is the same core plus ~200 lines of p4p.
   Live scalars and post-scan figures are different products of the same
@@ -363,8 +494,11 @@ code exists.
 - **Client-side live analysis off PVA.** Fifty lines with the new core; right
   for ad-hoc viewing, wrong as a source of truth.
 - **Data-utils beyond the read side.** `scans_database`, `modeling/ml`,
-  `plotting_utils` out of the package; `doc_id_lookup` with the logbook's
-  export phase; the producer side collected into one named module.
+  `plotting_utils` out of the package; the producer side collected into one
+  named module. Audit `doc_id_lookup` and the standalone LogMaker package
+  during R0: remove anything used only by the retired integration, and record
+  any surviving external consumers before deleting shared code. The existing
+  GeecsLogbook service and the portal's send-to-logbook feature stay.
 - **Parking lot.** Load-once-measure-many for multiple recipes on one camera;
   a typed run manifest replacing the status YAML; a `TiledSource`; xarray.
 
@@ -376,7 +510,7 @@ scans, and scalars (exact for identical steps, tolerance-tagged where an
 implementation deliberately changes), figure filenames and s-file columns are
 compared. It runs continuously while both stacks are live.
 
-Kept green throughout, unchanged: the task-queue tests and the
+Kept green throughout: the task-queue execution tests and the
 `analysis_status` contract; `test_renderer_output_names`; the
 scan-folder-creation invariant tests; the ConfigStore and editor tests; the
 shot→file join tests, moved with their code; the processing tests, ported as
@@ -386,6 +520,13 @@ which becomes the measure-side scalar contract. New: step invariants, a
 nothing-is-written test for every measure kind including the plugins, the
 `ax=` contract test, and an import test that nothing below the sinks touches
 the filesystem.
+
+R0 also verifies that portal editor mounting, drawer saves and unsaved-document
+previews still work; portal and MCP explicit runs still produce artifacts;
+and retained execution paths no longer import LiveWatch or Google Docs upload
+code. Remove upload-only tests with the retired feature; preserve queue
+claims, heartbeat and status semantics. Do not delete the ScanAnalysis package
+wholesale while it still owns the queue, group loader or editor.
 
 ## Honest costs
 
