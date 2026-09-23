@@ -8,6 +8,7 @@ tooling. Each subdirectory is an independent Python package with its own
 
 | Package | Description |
 |---|---|
+| `GEECS-Analysis/` | Replacement pure analysis core under development: coordinate-aware steps and numpy-free specs; consumers migrate on the analysis integration branch |
 | `ScanAnalysis/` | Post-scan analysis framework: task queue, YAML config system, scan analyzers |
 | `ImageAnalysis/` | Per-image analysis: pipelines, offline analyzers, config models |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
@@ -151,6 +152,7 @@ GEECS-Data-Utils     →  (no intra-repo deps — foundational data layer)
 LogMaker4GoogleDocs  →  (no intra-repo deps — pure Google API wrapper)
 GEECS-Schemas        →  (no intra-repo deps — Pydantic/GEST config vocabulary)
 
+GEECS-Analysis       →  GEECS-Data-Utils (Frame/Axis, no input readers in the core)
 ImageAnalysis        →  GEECS-Data-Utils, GEECS-Schemas (the analysis-config
                         documents and processing models it consumes)
 GEECS-Core           →  (no intra-repo deps — the GEECS access library:
