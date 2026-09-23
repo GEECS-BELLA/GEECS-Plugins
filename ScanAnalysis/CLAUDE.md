@@ -13,6 +13,7 @@ scan_analysis/
   core_scan.py                     # write-free scan preparation, grouping and execution
   core_products.py                 # write-free average/bin and summary product planning
   core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN
+  core_analyzer.py                 # CoreScanAnalyzer: the core route behind the ScanAnalyzer contract
   task_queue.py                    # Task claiming, heartbeat, YAML status system
   config/
     diagnostic_factory.py          # create_scan_analyzer(AnalysisDiagnostic)
@@ -76,6 +77,23 @@ and MCP's display-file contract are unchanged. HDF5 retains the legacy dataset
 name, storage dtype and gzip level. `scan.save: false` writes nothing. A
 rendering failure omits only its figure and is returned as a note; data and
 write errors propagate. Scalar persistence is independent of this sink.
+
+`core_analyzer.CoreScanAnalyzer` is the core route behind the contract the task
+queue, the portal and MCP call. It inherits scan-tag handling, s-file reading
+and scalar persistence from `ScanAnalyzer` and runs `prepare_scan` → `run` →
+`scalar_records` → sidecar + s-file merge → `plan_products` → `save_products`.
+A missing or empty device folder, or stack-only input without a stack, raises
+`DataUnavailableWarning`. Scalars are persisted before products, so a product
+write failure never loses them, and the waterfall sort column resolves against
+the refreshed rows as the legacy wrapper did. Summary figures are labelled
+with the cleaned ScanInfo parameter, not the s-file column. `core_supports`
+is the routing predicate: compile only, no reads; scan-context backgrounds and
+unported kinds or steps stay on the legacy wrappers. The factory does not
+select this route yet. `tests/test_core_analyzer.py` runs both routes on
+synthetic beam and line scans and compares file lists, HDF5 payloads, s-file
+columns, sidecars and display files exactly, except noscan averages, where the
+legacy wrapper sums shots in directory-listing order and a few-ulp tolerance
+is explicit.
 
 Scan analysis is driven by YAML config files stored in the
 **GEECS-Plugins-configs** repository (not this repo). The documents are

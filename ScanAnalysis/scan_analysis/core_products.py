@@ -54,7 +54,9 @@ def plan_products(
     producing figures; scalar updates are independent and must not use this
     gate. Noscan averages all successful units without weighting, and line
     summaries show individual units ordered by key or an optional sort column.
-    A line sort request also bypasses scanned-bin rendering. Scanned summaries
+    A line sort request also bypasses scanned-bin rendering; ``sort_requested``
+    is ``bool(waterfall_sort_key)`` and ``sort_column`` its resolved s-file
+    column or ``None``, always passed together. Scanned summaries
     average per-shot results by bin, or reuse already-analyzed raw bin means;
     parameter positions use every scalar row in the bin, not only loaded shots.
     """
