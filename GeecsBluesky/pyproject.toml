@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.100.0"
+version = "0.101.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -19,9 +19,8 @@ bluesky = ">=1.12"
 # (write_scalar_files_from_tiled) live here; it also supplies pandas/nptdms
 # transitively, so they are not pinned separately above.
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
-# optimize-extra only (the evaluators' load_diagnostic); nothing in the core
-# engine imports ImageAnalysis, and no separate extra installs it alone.
-imageanalysis = { path = "../ImageAnalysis", develop = true, optional = true }
+# Numerical analysis is installed only on workers using the optimize extra.
+geecs-analysis = { path = "../GEECS-Analysis", develop = true, optional = true }
 
 # The GEECS access library: GeecsDb metadata, pv_naming, and the
 # wire-level exception tree. The CA gateway itself is consumed only as a
@@ -41,7 +40,7 @@ tiled = {version = ">=0.2", extras = ["client"], optional = true}
 # epicscorelibs, so no system EPICS base is required.
 aioca = { version = ">=1.7", optional = true }
 
-# Native optimization: live ImageAnalysis measurements and Xopt ask/tell.
+# Native optimization: live geecs-analysis measurements and Xopt ask/tell.
 # Heavy numerical dependencies install on the worker via the optimize extra.
 xopt = { version = "^3.1", optional = true }
 gest-api = { version = ">=0.1,<0.2", optional = true }
@@ -70,7 +69,7 @@ p4p = { version = ">=4.1", optional = true }
 [tool.poetry.extras]
 tiled = ["tiled"]
 ca = ["aioca", "p4p"]
-optimize = ["xopt", "gest-api", "imageanalysis"]
+optimize = ["xopt", "gest-api", "geecs-analysis"]
 qserver = ["bluesky-queueserver"]
 qs-client = ["bluesky-queueserver-api"]
 

@@ -2,7 +2,8 @@
 
 The replacement analysis core, developed on `codex/analysis-refactor`.
 Read `../Planning/analysis_refactor.md` for scope, acceptance gates and migration.
-Production consumers still use ImageAnalysis/ScanAnalysis until their adapters
+The optimizer now uses this core directly for supported v2 camera recipes.
+Portal and scan routes still use ImageAnalysis/ScanAnalysis until their adapters
 and differential acceptance tests land. Do not switch consumers prematurely.
 
 ## Boundaries
@@ -67,6 +68,8 @@ unsupported operations raise UnsupportedRecipe before processing. Callers
 choose whether to retain their old route; no hidden fallback lives here.
 The compiler's supported subset is documented in its docstring and pinned by
 differential tests. Never silently skip an active unported operation.
+Explicit identity transforms compile to no steps; any active geometric operation
+still raises UnsupportedRecipe.
 
 Legacy camera ROI empty selections keep the full image, and beam coordinates
 use the configured origin once even when ROI is inactive/repeated. Legacy

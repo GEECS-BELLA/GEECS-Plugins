@@ -95,6 +95,23 @@ def test_camera_threshold_variants(mode):
     )
 
 
+def test_identity_transforms_in_active_camera_pipeline():
+    compare(
+        document(
+            pipeline=["background", "transforms", "roi", "transforms"],
+            background={"method": "constant", "constant_level": 5},
+            roi={"x_min": 1, "x_max": 20, "y_min": 2, "y_max": 20},
+            transforms={
+                "rotation_angle": 0,
+                "flip_horizontal": False,
+                "flip_vertical": False,
+                "distortion_correction": False,
+            },
+        ),
+        np.random.default_rng(4).integers(0, 50, (23, 27), dtype=np.uint16),
+    )
+
+
 @pytest.mark.parametrize("bounds", [(1, 200, 1, 300), (50, 60, 70, 80)])
 def test_camera_roi_clamping_and_empty_fallback_keep_v2_origin(bounds):
     x0, x1, y0, y1 = bounds
@@ -168,6 +185,15 @@ def test_none_sections_and_disabled_line_steps_do_not_run():
     "kind,image",
     [
         ("beam", {"pipeline": ["transforms"], "transforms": {"rotation_angle": 45}}),
+        ("beam", {"pipeline": ["transforms"], "transforms": {"flip_horizontal": True}}),
+        ("beam", {"pipeline": ["transforms"], "transforms": {"flip_vertical": True}}),
+        (
+            "beam",
+            {
+                "pipeline": ["transforms"],
+                "transforms": {"distortion_correction": True, "distortion_coeffs": [1]},
+            },
+        ),
         (
             "beam",
             {

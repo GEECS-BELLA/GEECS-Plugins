@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.101.0] - 2026-09-23
+
+### Changed
+- Optimizer diagnostics compile once through `geecs-analysis`, then evaluate
+  timestamp-matched live frames without reloading documents or constructing
+  legacy analyzers. Scalar names, reductions, minimum valid-shot counts and
+  average-before-analysis for `per_bin` are preserved.
+- The `optimize` extra depends directly on `geecs-analysis` instead of
+  ImageAnalysis. Unsupported active recipes fail before acquisition; live
+  diagnostic inputs remain camera-only. Identity transform settings are accepted.
+- Diagnostic preflight and execution share the Data Utils YAML reader through
+  `ConfigsRepoResolver.resolve_diagnostic`; schema validation stays here.
+
 ## [0.100.0] - 2026-09-22
 
 ### Removed

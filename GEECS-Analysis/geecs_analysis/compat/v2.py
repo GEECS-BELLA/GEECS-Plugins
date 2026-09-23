@@ -60,7 +60,7 @@ def compile_v2(document: AnalysisDiagnostic) -> V2Recipe:
     """Translate supported beam/line/standard/trace recipes, without file access.
 
     Currently covers constant backgrounds, ROI, Gaussian/median filtering,
-    absolute trace clipping and non-inverted constant image thresholds
+    identity transforms, absolute trace clipping and non-inverted constant image thresholds
     (to_zero/truncate/truncate_inv). Trace processing must be float64 and
     storage float32/float64. Other active features are refused before execution.
     Preprocessing-only trace ROIs remain unported because empty legacy outputs
@@ -137,6 +137,13 @@ def compile_v2(document: AnalysisDiagnostic) -> V2Recipe:
 
 def _camera_steps(name: str, config: CameraConfig) -> list[StepSpec]:
     section = getattr(config, name)
+    if name == "transforms" and (
+        section.rotation_angle == 0
+        and not section.flip_horizontal
+        and not section.flip_vertical
+        and not section.distortion_correction
+    ):
+        return []
     if name == "background":
         if section.method not in {None, "constant"}:
             raise UnsupportedRecipe(f"Camera background not ported: {section.method}")

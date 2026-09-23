@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.1] - 2026-09-23
+
+### Fixed
+- Accept explicitly disabled identity transforms in v2 camera pipelines, as
+  used by live beam diagnostics. Active geometric transforms remain unsupported.
+
 ## [0.4.0] - 2026-09-23
 
 ### Added

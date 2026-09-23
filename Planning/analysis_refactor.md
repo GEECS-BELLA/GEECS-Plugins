@@ -9,8 +9,9 @@ field-by-field census of the 61-file analysis-config corpus; discussed over
 2026-09-06..08; refreshed 2026-09-18 against master (native-Bluesky rebuild,
 console deletion, capture-daemon retirement, logbook). Scope amended
 2026-09-22: retire LiveWatch and Google Docs uploads; preserve the DataPortal
-config editor. Status: **baseline harness in progress; replacement core not
-yet implemented.** Owner: Sam.
+config editor. Status: **baseline, frames, initial processing/measures, v2
+compatibility and rendering implemented; consumer migration in progress.**
+Owner: Sam.
 
 ---
 
@@ -157,8 +158,16 @@ optimizer integration and newer acquisition formats still need their gates.
 
 The compatibility adapter preserves legacy precision and output quirks without
 sharing mutable frames. General core pipelines use the new coordinate model.
-Unsupported active steps still take the old consumer route until ported; no
-production consumer has been switched by these foundational slices.
+Unsupported active steps still take the old portal/scan route until ported.
+
+Rendering #960 adds object-API single-frame and same-grid waterfall figures;
+the canonical beam/waterfall previews were inspected. Shared diagnostic reading
+#962 removes discovery copies from both legacy packages. Optimizer adoption is
+the first consumer migration: direct compiled v2 recipes, scalar discovery from
+the compiled measure, live timestamp metadata, preserved reductions and no
+config reads during evaluation. Active optimizer beam recipes fit this subset
+(including explicitly disabled transforms). Live optimization acceptance remains
+owed; portal routing, scan runners/sinks and retirement are still outstanding.
 
 ## Decisions
 
