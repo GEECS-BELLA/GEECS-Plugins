@@ -51,22 +51,6 @@ def tiled_server_reachable(
         return False
 
 
-def prepare_descriptor_for_tiled(doc: dict) -> dict:
-    """Store GEECS external asset datum IDs as internal Tiled metadata.
-
-    The RunEngine document stream still emits formal Resource/Datum docs for
-    GEECS native files.  The current lab Tiled server does not yet have readers
-    for those custom asset specs, so letting TiledWriter register them as
-    external data sources aborts the scan on ``stop``.  Until the server has
-    GEECS-aware adapters, Tiled stores the datum-id strings in its event table.
-    """
-    for data_key in doc.get("data_keys", {}).values():
-        if str(data_key.get("source", "")).startswith("geecs://"):
-            data_key.pop("external", None)
-            data_key["geecs_external_asset"] = True
-    return doc
-
-
 class SafeDocumentCallback:
     """Document callback wrapper that logs and disables itself on failure.
 
@@ -155,7 +139,7 @@ def subscribe_tiled(
     try:
         client = from_uri(tiled_uri, api_key=api_key)
         writer = SafeDocumentCallback(
-            TiledWriter(client, patches={"descriptor": prepare_descriptor_for_tiled}),
+            TiledWriter(client),
             label="TiledWriter",
         )
         token = run_engine.subscribe(writer)

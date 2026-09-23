@@ -75,12 +75,11 @@ geecs_bluesky/
   config_resolver.py        # ConfigsRepoResolver: presets, trigger profiles, catalogs, actions
   db_runtime.py             # the DB providers (served set, device types; the scalar
                             #   policy lives in geecs_core.db.scalar_policy)
-  tiled_integration.py      # subscribe_tiled (+ the geecs:// descriptor patch, goes with #806)
+  tiled_integration.py      # subscribe_tiled: the stock TiledWriter, reachability-gated
   data_paths.py, forward_expr.py, scanner_configs.py, epics_env.py, exceptions.py
   models/shot_control.py    # ShotControlWrites + QUIESCE_FROM (TriggerState names)
   devices/hdf_plugin.py     # the file plugin's worker side (#806): GeecsHdfIO (+Rewind),
                             #   PluginPathProvider (two paths per folder), file_plugin_hosts
-  assets/                   # the geecs:// PNG asset registry — goes with PNG retirement (#738)
   optimization/             # native Xopt ask/tell, live PVA frames, measurement compiler
 qserver/                    # the worker: launcher, startup profile, permissions, deploy/
 ```
@@ -471,9 +470,10 @@ LabVIEW-native file path (`LvNativeFileDataLogic`, named with the stamp)
 NTNDArray PVs.  A missed shot keeps its row (scalars, the missing
 device's columns `NaN`, no frames) and the plan takes one more shot,
 rewinding every plugin to its last referenced frame first
-(`GeecsDetector.discard_uncollected`).  `assets/` (the `geecs://` PNG
-asset docs) and the descriptor patch in `tiled_integration.py` go with
-PNG retirement (#738).
+(`GeecsDetector.discard_uncollected`).  Natively saved files are named by
+the device server and read from disk by their stamp
+(`geecs_data_utils.native_files`); this package emits no Resource/Datum
+documents for them, so nothing here describes their formats.
 
 ## Configuration
 
@@ -506,7 +506,7 @@ the RunEngine loop threads a test leaves behind (#812).
 
 - Re-derive the scan from a request worker-side (a second description).
 - Configure a device for a run from outside its lifecycle (a leak: #809's
-  saving-mode / save-path / asset-definition P1).  The run-level
+  saving-mode / save-path P1).  The run-level
   `native_image_save` property is the named exception (rule 2): a flag the
   lifecycle honours, not a PV write.
 - Read quiescence in a scan step — it costs the longest device timeout;

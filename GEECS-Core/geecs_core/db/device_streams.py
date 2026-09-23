@@ -57,11 +57,11 @@ Two neighbours to know about.  The worker (which arms the plugins) and the
 PVA gateway (which serves the PVs) both read this; neither may import the
 other, which is the ``scalar_policy`` precedent for a DB-derived rule living
 in GEECS-Core (the CA gateway serves scalars only and never reads it).  And
-``geecs_bluesky.assets.registry`` carries a per-devicetype table that looks
-like this one and is not: it describes the files LabVIEW writes natively (a
-spatial *and* a temporal FROG image, the stitcher's ``interpDiv`` TSV), not
-what the device pushes, and it retires with PNG retirement (#738).  Extend
-this table, not that one.
+what a device writes *natively* is a different question from what it pushes:
+the files LabVIEW saves itself are named by the contract in
+``geecs_data_utils.native_files`` and read from disk, never declared here.
+This table answers only "what does this devicetype push, and should we
+capture it".
 
 Adding an entry: record the devicetype's rows first —
 ``poetry run python scripts/record_devicetype_variables.py "<devicetype>"``
