@@ -9,12 +9,25 @@ from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     from geecs_data_utils.frames import Frame
+    from geecs_analysis.measurement import Measurement
 
 
-class StepSpec(BaseModel):
-    """Immutable processing parameters; typos and nonfinite values are errors."""
+class SpecModel(BaseModel):
+    """Immutable parameters; typos and nonfinite values are errors."""
 
     model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
+
+
+class StepSpec(SpecModel):
+    """Base of processing declarations."""
+
+
+class MeasureSpec(SpecModel):
+    """Base of measurement declarations with numpy-free scalar discovery."""
+
+    def emitted_scalars(self) -> frozenset[str]:
+        """Return every key this measure can emit for the configured options."""
+        raise NotImplementedError
 
 
 SpecT = TypeVar("SpecT", bound=StepSpec)
@@ -56,3 +69,44 @@ def definitions() -> tuple[StepDefinition, ...]:
 def definition(spec: StepSpec) -> StepDefinition:
     """Look up the function for a validated spec without string dispatch."""
     return _STEPS[type(spec)]
+
+
+@dataclass(frozen=True)
+class MeasureDefinition:
+    """A measurement spec, function and supported dimensions."""
+
+    spec: type[MeasureSpec]
+    function: Callable[[Frame, MeasureSpec], Measurement]
+    ndim: frozenset[int]
+
+
+_MEASURES: dict[type[MeasureSpec], MeasureDefinition] = {}
+MeasureT = TypeVar("MeasureT", bound=MeasureSpec)
+
+
+def measure(
+    spec: type[MeasureT], *, ndim: set[int]
+) -> Callable[
+    [Callable[[Frame, MeasureT], Measurement]], Callable[[Frame, MeasureT], Measurement]
+]:
+    """Register a builtin measure before constructing the spec union."""
+    if not ndim or not ndim <= {1, 2}:
+        raise ValueError("Measure dimensions must be a nonempty subset of {1, 2}")
+
+    def register(function: Callable[[Frame, MeasureT], Measurement]):
+        if spec in _MEASURES:
+            raise ValueError(f"Measure spec already registered: {spec.__name__}")
+        _MEASURES[spec] = MeasureDefinition(spec, function, frozenset(ndim))
+        return function
+
+    return register
+
+
+def measure_definitions() -> tuple[MeasureDefinition, ...]:
+    """Return the builtin measurement declarations in registration order."""
+    return tuple(_MEASURES.values())
+
+
+def measure_definition(spec: MeasureSpec) -> MeasureDefinition:
+    """Look up numerical execution for a validated measurement spec."""
+    return _MEASURES[type(spec)]
