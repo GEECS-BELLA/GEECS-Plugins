@@ -522,7 +522,7 @@ url = "../GEECS-Data-Utils"
 
 [[package]]
 name = "geecs-schemas"
-version = "0.32.1"
+version = "0.33.0"
 description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, action plans) plus legacy-YAML converters."
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -701,7 +701,7 @@ all = ["flake8 (>=7.1.1)", "mypy (>=1.11.2)", "pytest (>=8.3.2)", "ruff (>=0.6.2
 
 [[package]]
 name = "imageanalysis"
-version = "2.4.1"
+version = "2.5.0"
 description = "Central sub-repository for online and offline analysis of BELLA exeriments' images."
 optional = false
 python-versions = ">=3.11,<3.12"

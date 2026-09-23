@@ -5,6 +5,14 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.0] - 2026-09-23
+
+### Removed
+
+- Retired the legacy `bcave_magspec_stitcher` camera analyzer kind and its
+  schema/registry entry. The `line`, `line_stitcher` and `bcave_mag_opt`
+  analyzers remain, including MagSpec trace/waterfall workflows.
+
 ## [0.32.1] - 2026-09-23
 
 ### Changed

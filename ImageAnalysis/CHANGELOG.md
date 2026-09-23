@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.5.0] - 2026-09-23
+
+### Removed
+
+- Retired the legacy `bcave_magspec_stitcher` camera analyzer kind and its
+  schema/registry entry. The `line`, `line_stitcher` and `bcave_mag_opt`
+  analyzers remain, including MagSpec trace/waterfall workflows.
+
 ## [2.4.1] - 2026-09-23
 
 ### Changed

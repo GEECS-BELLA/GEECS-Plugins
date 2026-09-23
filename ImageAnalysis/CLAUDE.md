@@ -359,13 +359,7 @@ pinned by `tests/test_ephemeral.py` for `StandardAnalyzer`,
 (2D `@staticmethod`s taking `vmin`/`vmax`/`cmap`) and
 `Standard1DAnalyzer` (instance method taking plot kwargs). A renderer
 that ignored `ax` would return an empty seam figure AND leak a
-pyplot-registered figure per request on a server thread. Known
-exception: `Undulator/BCaveMagSpecStitcher.py` keeps a legacy
-`render_image(image, analysis_results_dict, …)` signature (and a
-legacy dict `analyze_image` return) — through the seam either shape
-ends as a `RenderError` (the dict reaches its renderer and fails
-there); it predates the `ImageAnalyzerResult` contract and is not a
-template. `render_frame_figure(image, …)` is the
+pyplot-registered figure per request on a server thread. `render_frame_figure(image, …)` is the
 base-renderer-only companion for images that are not one result (bin
 averages).
 
@@ -396,3 +390,12 @@ The write gate is structural, and it depends on two conventions that
 
 `list_diagnostics(config_dir=...)` (in `image_analysis.config`)
 enumerates the loadable diagnostic IDs for pickers over the same tree.
+
+## Retired BCave camera analyzer
+
+The legacy `bcave_magspec_stitcher` camera kind and
+`Undulator/BCaveMagSpecStitcher.py` are removed. They used a pre-
+ImageAnalyzerResult dict return and are not a supported migration target.
+The `line`, `line_stitcher` and `bcave_mag_opt` kinds remain, including the
+MagSpec interpSpec trace used for waterfall plots. Diagnostic filenames
+containing "Stitcher" do not imply the retired camera kind; inspect `analyzer.kind`.
