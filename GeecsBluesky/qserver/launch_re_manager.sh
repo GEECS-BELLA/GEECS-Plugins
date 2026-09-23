@@ -72,8 +72,33 @@ fi
 # must keep it — without this pairing, `queue start` silently bounces items
 # and only the manager log shows "Run Engine is not found in the RE Worker
 # environment" (empirical, issue #636).
-exec start-re-manager \
+#
+# Not exec'd (#804): bluesky-queueserver's SIGTERM handler (AtTerm in
+# manager/start_manager.py, 0.0.25) runs its cleanup and then calls
+# sys.exit(1) unconditionally, so every clean `systemctl stop` logged
+# status=1/FAILURE. The launcher stays as the parent to tell a stop from a
+# crash: exit 1 AFTER a SIGTERM is the manager's normal shutdown and becomes
+# 0; every other status passes through, so a startup failure (which
+# start_manager also reports as 1) still reads as a failure to
+# Restart=on-failure. A blanket SuccessExitStatus=1 in the unit would hide it.
+#
+# The manager runs in the FOREGROUND, on purpose: bash defers a trapped
+# signal until the foreground command exits, so the flag is set before the
+# status check below with no wait/re-wait race, and Ctrl-C in a terminal
+# still reaches the manager (a non-interactive `&` job starts with SIGINT
+# ignored). The trap records the signal and does not forward it — the unit's
+# KillMode=control-group already delivers SIGTERM to the manager, and a
+# second TERM would re-enter its cleanup handler.
+received_term=0
+trap 'received_term=1' TERM
+
+status=0
+start-re-manager \
     --startup-dir "${QS_STARTUP_DIR}" \
     --user-group-permissions "${PERMISSIONS_FILE}" \
     --keep-re \
-    --zmq-publish-console ON
+    --zmq-publish-console ON || status=$?
+if (( received_term )) && (( status == 1 )); then
+    status=0
+fi
+exit "${status}"
