@@ -24,7 +24,7 @@ only hands it a directory (``GeecsBluesky``'s ``LvNativeFileDataLogic``).  The
 builders below exist to reconstruct a name already on disk — to probe for it,
 or to match it — so every consumer is a reader joining rows to files:
 
-- ``scan_analysis.analyzers.common.single_device_scan_analyzer`` — the
+- ``geecs_data_utils.shot_files`` (used by ScanAnalysis) — the
   *reader* side: joins s-file rows to natively saved files through the
   device's per-shot ``acq_timestamp`` column.
 - ``geecs_portal.resources`` (GEECS-DataPortal) — the *viewer* side: exact

@@ -216,6 +216,10 @@ figures) that the task queue records, or
 
 ### `SingleDeviceScanAnalyzer`
 
+Input mapping delegates to `geecs_data_utils.shot_files.map_shot_files`.
+The adapter retains stack-only absence as `DataUnavailableWarning` so MCP
+records `no_data`; the shared data layer has no queue or analysis imports.
+
 - Holds an `ImageAnalyzer` instance
 - `_run_analysis_core()` → resolves the device data folder, then dispatches
   to one of two streaming pipelines based on `analysis_mode` (the

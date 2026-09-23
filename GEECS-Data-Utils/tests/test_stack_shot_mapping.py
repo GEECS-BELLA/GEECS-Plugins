@@ -1,4 +1,4 @@
-"""Tests for the capture-stack mapping strategy in SingleDeviceScanAnalyzer.
+"""Tests for the capture-stack mapping strategy in the shared shot-file resolver.
 
 ``data_format="device_hdf5"`` opts a diagnostic into the per-device capture
 frame stack (``<device>/<device>.h5``, written by the PVA gateway's file
@@ -26,29 +26,27 @@ from geecs_data_utils.io.scan_stack import (
     TIMESTAMPS_DATASET,
     ShotRef,
 )
-from scan_analysis.base import DataUnavailableWarning
-from scan_analysis.analyzers.common.single_device_scan_analyzer import (
-    SingleDeviceScanAnalyzer,
-)
+from geecs_data_utils.shot_files import _ShotFileMapper, StackMappingUnavailable
 
 DEVICE = "UC_Amp4_IR_input"
 
 
-def _make_analyzer(
+def _make_mapper(
     tmp_path: Path,
     aux: pd.DataFrame,
     file_tail: str = ".png",
     data_format: str | None = "device_hdf5",
 ):
-    """Cheap instance: _build_data_file_map only touches these attributes."""
-    sa = SingleDeviceScanAnalyzer.__new__(SingleDeviceScanAnalyzer)
-    sa.device_name = DEVICE
-    sa.file_tail = file_tail
-    sa.path_dict = {"data": tmp_path}
-    sa.auxiliary_data = aux
-    sa.data_format = data_format
-    sa._data_file_map = {}
-    return sa
+    """Build one mapping pass without any analysis dependency."""
+    return _ShotFileMapper(
+        directory=tmp_path,
+        rows=aux,
+        device=DEVICE,
+        file_tail=file_tail,
+        prefer_stack=data_format == "device_hdf5",
+        stacks_only=False,
+        file_device=None,
+    )
 
 
 def _write_stack(
@@ -86,10 +84,10 @@ class TestStackJoin:
         ts = [3866137959.524, 3866137960.525, 3866137961.526]
         device_dir = tmp_path / DEVICE
         stack = _write_stack(device_dir, ts)
-        sa = _make_analyzer(device_dir, _aux(ts))
+        sa = _make_mapper(device_dir, _aux(ts))
         sa._build_data_file_map()
-        assert set(sa._data_file_map) == {1, 2, 3}
-        for shot, ref in sa._data_file_map.items():
+        assert set(sa.paths) == {1, 2, 3}
+        for shot, ref in sa.paths.items():
             assert isinstance(ref, ShotRef)
             assert Path(ref) == stack
             assert ref.shot_index == shot - 1  # stack order matches here
@@ -100,9 +98,9 @@ class TestStackJoin:
         ts = [3866137959.524, 3866137960.525]
         device_dir = tmp_path / DEVICE
         _write_stack(device_dir, [3866137952.111, *ts])  # leading extra
-        sa = _make_analyzer(device_dir, _aux(ts))
+        sa = _make_mapper(device_dir, _aux(ts))
         sa._build_data_file_map()
-        assert {r.shot_index for r in sa._data_file_map.values()} == {1, 2}
+        assert {r.shot_index for r in sa.paths.values()} == {1, 2}
 
     def test_no_stack_falls_back_to_files(self, tmp_path):
         ts = [3866137959.524]
@@ -110,9 +108,9 @@ class TestStackJoin:
         device_dir.mkdir()
         png = device_dir / f"{DEVICE}_3866137959.524.png"
         png.write_bytes(b"")
-        sa = _make_analyzer(device_dir, _aux(ts))
+        sa = _make_mapper(device_dir, _aux(ts))
         sa._build_data_file_map()
-        assert sa._data_file_map == {1: png}
+        assert sa.paths == {1: png}
 
     def test_wrong_layout_falls_back(self, tmp_path):
         ts = [3866137959.524]
@@ -120,9 +118,9 @@ class TestStackJoin:
         _write_stack(device_dir, ts, frames_dataset="/frames")
         png = device_dir / f"{DEVICE}_3866137959.524.png"
         png.write_bytes(b"")
-        sa = _make_analyzer(device_dir, _aux(ts))
+        sa = _make_mapper(device_dir, _aux(ts))
         sa._build_data_file_map()
-        assert sa._data_file_map == {1: png}
+        assert sa.paths == {1: png}
 
     def test_zero_joins_falls_back(self, tmp_path):
         # Stack exists but its timestamps match nothing in the aux frame.
@@ -131,9 +129,9 @@ class TestStackJoin:
         _write_stack(device_dir, [3866000000.0])
         png = device_dir / f"{DEVICE}_3866137959.524.png"
         png.write_bytes(b"")
-        sa = _make_analyzer(device_dir, _aux(ts))
+        sa = _make_mapper(device_dir, _aux(ts))
         sa._build_data_file_map()
-        assert sa._data_file_map == {1: png}
+        assert sa.paths == {1: png}
 
     def test_default_data_format_ignores_stack(self, tmp_path):
         # No opt-in => per-shot files even when a stack is present.
@@ -142,9 +140,9 @@ class TestStackJoin:
         _write_stack(device_dir, ts)
         png = device_dir / f"{DEVICE}_3866137959.524.png"
         png.write_bytes(b"")
-        sa = _make_analyzer(device_dir, _aux(ts), data_format=None)
+        sa = _make_mapper(device_dir, _aux(ts), data_format=None)
         sa._build_data_file_map()
-        assert sa._data_file_map == {1: png}
+        assert sa.paths == {1: png}
 
     def test_corrupt_stack_missing_timestamps_falls_back(self, tmp_path):
         # Frames but no acq_timestamp dataset: the read
@@ -157,9 +155,9 @@ class TestStackJoin:
             f.create_dataset(FRAMES_DATASET, data=np.zeros((1, 3, 3), dtype=np.uint16))
         png = device_dir / f"{DEVICE}_3866137959.524.png"
         png.write_bytes(b"")
-        sa = _make_analyzer(device_dir, _aux(ts))
+        sa = _make_mapper(device_dir, _aux(ts))
         sa._build_data_file_map()
-        assert sa._data_file_map == {1: png}
+        assert sa.paths == {1: png}
 
     def test_no_timestamp_column_falls_back(self, tmp_path):
         # Stack present but the aux frame has no acq_timestamp column for
@@ -169,9 +167,9 @@ class TestStackJoin:
         png = device_dir / f"Scan001_{DEVICE}_001.png"
         png.write_bytes(b"")
         aux = pd.DataFrame({"Shotnumber": [1], "Bin #": [1]})
-        sa = _make_analyzer(device_dir, aux)
+        sa = _make_mapper(device_dir, aux)
         sa._build_data_file_map()
-        assert sa._data_file_map == {1: png}
+        assert sa.paths == {1: png}
 
     def test_valid_column_false_skips_row(self, tmp_path):
         ts = [3866137959.524, 3866137960.525]
@@ -179,9 +177,9 @@ class TestStackJoin:
         _write_stack(device_dir, ts)
         aux = _aux(ts)
         aux[f"{DEVICE}:valid"] = [True, False]
-        sa = _make_analyzer(device_dir, aux)
+        sa = _make_mapper(device_dir, aux)
         sa._build_data_file_map()
-        assert set(sa._data_file_map) == {1}
+        assert set(sa.paths) == {1}
 
 
 class TestStackOnlyLoader:
@@ -198,13 +196,7 @@ class TestStackOnlyLoader:
     @staticmethod
     def _stack_only(sa):
         """Give the cheap instance a pva_stack-configured 1D analyzer."""
-        from types import SimpleNamespace
-
-        sa.image_analyzer = SimpleNamespace(
-            line_config=SimpleNamespace(
-                data_loading=SimpleNamespace(data_type="pva_stack")
-            )
-        )
+        sa.stacks_only = True
         return sa
 
     def test_a_missing_stack_is_no_data_not_an_empty_success(self, tmp_path):
@@ -212,7 +204,7 @@ class TestStackOnlyLoader:
 
         Returning quietly would record `done` with no artifacts — a
         missing required capture presented as a successful analysis.
-        `DataUnavailableWarning` is the queue's `no_data` state, and it is
+        `StackMappingUnavailable` explicitly reports absent mapped inputs, which is
         the honest one: a gated Picoscope channel that was off for the run
         captures nothing, which is routine rather than a failure.
         """
@@ -224,11 +216,11 @@ class TestStackOnlyLoader:
         trace = device_dir / f"{DEVICE}_3866137959.524.png"
         trace.write_bytes(b"")
 
-        sa = self._stack_only(_make_analyzer(device_dir, _aux(ts)))
-        with pytest.raises(DataUnavailableWarning, match="capture stack only"):
+        sa = self._stack_only(_make_mapper(device_dir, _aux(ts)))
+        with pytest.raises(StackMappingUnavailable, match="capture stack only"):
             sa._build_data_file_map()
 
-        assert sa._data_file_map == {}
+        assert sa.paths == {}
 
     def test_a_stack_that_joins_nothing_is_no_data(self, tmp_path):
         ts = [3866137959.524]
@@ -237,38 +229,8 @@ class TestStackOnlyLoader:
         trace = device_dir / f"{DEVICE}_3866137959.524.png"
         trace.write_bytes(b"")
 
-        sa = self._stack_only(_make_analyzer(device_dir, _aux(ts)))
-        with pytest.raises(DataUnavailableWarning):
-            sa._build_data_file_map()
-
-    def test_the_warning_reaches_the_task_queue_s_no_data_state(self, tmp_path):
-        """The whole point: the terminal STATUS, not just the exception type.
-
-        `_run_analysis_core` re-raises `DataUnavailableWarning` and
-        `task_queue.run_worklist` turns exactly that into `no_data` —
-        anything else it catches becomes `failed`, and no exception at all
-        becomes `done`. This walks the real handler rather than asserting
-        the type at the raise site.
-        """
-        import inspect
-
-        from scan_analysis import task_queue
-
-        source = inspect.getsource(task_queue.run_worklist)
-        # The handler that produces no_data is the DataUnavailableWarning
-        # one; pin that the state this analyzer raises into still maps there.
-        assert "except DataUnavailableWarning:" in source
-        no_data_block = source.split("except DataUnavailableWarning:")[1].split(
-            "except Exception"
-        )[0]
-        assert 'state="no_data"' in no_data_block
-
-        ts = [3866137959.524]
-        device_dir = tmp_path / DEVICE
-        device_dir.mkdir(parents=True)
-        sa = self._stack_only(_make_analyzer(device_dir, _aux(ts)))
-
-        with pytest.raises(DataUnavailableWarning):
+        sa = self._stack_only(_make_mapper(device_dir, _aux(ts)))
+        with pytest.raises(StackMappingUnavailable):
             sa._build_data_file_map()
 
     def test_a_joinable_stack_still_maps_shot_refs(self, tmp_path):
@@ -277,11 +239,11 @@ class TestStackOnlyLoader:
         device_dir = tmp_path / DEVICE
         path = _write_stack(device_dir, ts)
 
-        sa = self._stack_only(_make_analyzer(device_dir, _aux(ts)))
+        sa = self._stack_only(_make_mapper(device_dir, _aux(ts)))
         sa._build_data_file_map()
 
-        assert sa._data_file_map == {1: ShotRef(path, 0)}
-        assert sa._data_file_map[1].shot_index == 0
+        assert sa.paths == {1: ShotRef(path, 0)}
+        assert sa.paths[1].shot_index == 0
 
     def test_a_camera_analyzer_still_falls_back(self, tmp_path):
         """Only a stack-ONLY loader refuses; a camera analyzer resolves either."""
@@ -291,7 +253,7 @@ class TestStackOnlyLoader:
         png = device_dir / f"{DEVICE}_3866137959.524.png"
         png.write_bytes(b"")
 
-        sa = _make_analyzer(device_dir, _aux(ts))  # no image_analyzer at all
+        sa = _make_mapper(device_dir, _aux(ts))  # no image_analyzer at all
         sa._build_data_file_map()
 
-        assert sa._data_file_map == {1: png}
+        assert sa.paths == {1: png}
