@@ -3,6 +3,22 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.32.0] - 2026-09-23
+
+### Added
+
+- `CoreScanAnalyzer`: explicit scan execution on the analysis core behind the
+  unchanged `ScanAnalyzer` contract (display files, `DataUnavailableWarning`,
+  sidecar + s-file scalars, `cleanup`), and `core_supports`, the compile-only
+  routing predicate. Not yet selected by the factory. A differential test runs
+  both routes on synthetic beam and line scans and compares products, scalar
+  files and display files.
+
+### Changed
+
+- ScanAnalysis tests default to the headless matplotlib backend; the legacy
+  wrappers render from worker threads, which the macOS backend aborts on.
+
 ## [1.31.0] - 2026-09-23
 
 ### Added
