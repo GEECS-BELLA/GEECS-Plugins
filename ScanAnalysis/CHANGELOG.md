@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.30.0] - 2026-09-23
+
+### Added
+
+- Write-free planning of average/bin products and waterfall/grid summaries from
+  core outcomes. Preserve full-row scan positions, already-analyzed raw bins,
+  unweighted noscan averages, shot ordering and sort-column/bounds/sigma filters.
+  Retain the legacy more-than-two-successful-units figure gate; scalar products
+  remain independent. Explicit notes report omitted summaries or averages.
+
 ## [1.29.1] - 2026-09-23
 
 ### Changed

@@ -11,6 +11,7 @@ scan_analysis/
   core_inputs.py                   # v2 core compilation + loaded file-background bindings
   core_source.py                   # completed-scan native/stack input mapping and reads
   core_scan.py                     # write-free scan preparation, grouping and execution
+  core_products.py                 # write-free average/bin and summary product planning
   task_queue.py                    # Task claiming, heartbeat, YAML status system
   config/
     diagnostic_factory.py          # create_scan_analyzer(AnalysisDiagnostic)
@@ -53,6 +54,16 @@ members even when some inputs fail. Groups follow scalar-row order; empty bins
 are omitted and missing bin values form no group. Duplicate/nonpositive shot
 numbers and fractional bin ids are explicit preparation errors. No sinks or
 legacy factory route change are included in this adapter.
+
+`core_products.plan_products` chooses saved average/bin measurements and ordered
+summary panels without rendering or writing. Preserve the old figure gate
+(more than two successful execution units), separately from scalar persistence.
+Noscan means are unweighted over successful units; scanned per-shot summaries
+use NaN-aware post-analysis bin averages, while raw-bin mode reuses its outcomes.
+Scan positions average all scalar rows in each bin, including missing inputs.
+Line sort requests bypass scanned-bin rendering; finite/bounds/sigma filtering
+changes waterfall rows only, not the all-unit average. Omitted products carry
+notes; the sink owns logging and file naming.
 
 Scan analysis is driven by YAML config files stored in the
 **GEECS-Plugins-configs** repository (not this repo). The documents are
