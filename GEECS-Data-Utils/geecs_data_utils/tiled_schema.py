@@ -173,30 +173,12 @@ def device_acq_timestamp_column(columns: Sequence[str], device: str) -> Optional
     ``ts_``-companion spellings never match (their prefixes carry extra
     tokens).
 
-    **A device's second capture stream falls back to the device's own
-    column.**  One device acquires once, so it publishes one
-    ``acq_timestamp`` — but each of its capture streams writes its own
-    sibling folder and carries its own data key
-    (``U_BCaveICT-scopeTrace.Channel1``, the ``<device>-<variable>``
-    shape of GeecsPvaGateway's path provider).  Asking for that stream's
-    stamp column exactly finds nothing, so after the exact match fails
-    the trailing ``-<segment>`` parts are dropped one at a time and retried:
-    the stream's frames are stamped by the device's acquisition, which is
-    the column that exists.
-
-    Exact-first is what keeps this safe.  A device whose *name* contains
-    hyphens (``pulsewire-ESP302-sensor``) matches whole on the first
-    pass and never reaches the fallback, and no device name is a
-    hyphen-prefix of another, so a stripped stem cannot resolve to a
-    different device.
-
     Parameters
     ----------
     columns : sequence of str
         All event-stream column names.
     device : str
-        Device name, on-disk device folder stem, or a capture stream's
-        data key.
+        Device name or on-disk device folder stem.
 
     Returns
     -------
@@ -204,21 +186,14 @@ def device_acq_timestamp_column(columns: Sequence[str], device: str) -> Optional
         The matching ``<dev>-acq_timestamp`` column name, or ``None``
         when the run has no timestamp column for this device.
     """
-    text = str(device)
-    candidates = [text]
-    parts = text.split("-")
-    candidates.extend("-".join(parts[:k]) for k in range(len(parts) - 1, 0, -1))
-    for candidate in candidates:
-        token = _normalize_token(candidate)
-        if not token:
+    token = _normalize_token(device)
+    for column in columns:
+        name = str(column)
+        if not name.endswith(_ACQ_TIMESTAMP_SUFFIX):
             continue
-        for column in columns:
-            name = str(column)
-            if not name.endswith(_ACQ_TIMESTAMP_SUFFIX):
-                continue
-            prefix = name[: -len(_ACQ_TIMESTAMP_SUFFIX)]
-            if _normalize_token(prefix) == token:
-                return name
+        prefix = name[: -len(_ACQ_TIMESTAMP_SUFFIX)]
+        if _normalize_token(prefix) == token:
+            return name
     return None
 
 

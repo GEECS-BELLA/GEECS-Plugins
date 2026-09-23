@@ -214,61 +214,6 @@ class TestDeviceAcqTimestampColumn:
 
         assert device_acq_timestamp_column(self.COLUMNS, "uc_other") is None
 
-    def test_a_second_capture_stream_falls_back_to_the_device_column(self):
-        """One device acquires once, so its second stream has no column of its own.
-
-        Taken from a live scan (26_0922 Scan005): the Picoscope wrote
-        ``U_BCaveICT/`` and ``U_BCaveICT-scopeTrace.Channel1/``, ten frames
-        each with identical stamps, while the run carried exactly one ICT
-        stamp column. Resolving the stream's key exactly found nothing, so
-        the stack check reported "10 frame(s) … but 0 row(s) own a frame"
-        against a column that cannot exist.
-        """
-        from geecs_data_utils.tiled_schema import device_acq_timestamp_column
-
-        columns = ["u_bcaveict-acq_timestamp", "u_bcaveict-python_results_cha"]
-        assert (
-            device_acq_timestamp_column(columns, "U_BCaveICT")
-            == "u_bcaveict-acq_timestamp"
-        )
-        assert (
-            device_acq_timestamp_column(columns, "U_BCaveICT-scopeTrace.Channel1")
-            == "u_bcaveict-acq_timestamp"
-        )
-        # the worker holds the data key, not the folder stem
-        assert (
-            device_acq_timestamp_column(columns, "u_bcaveict-scopetrace_channel1")
-            == "u_bcaveict-acq_timestamp"
-        )
-
-    def test_an_exact_per_stream_column_still_wins(self):
-        """The fallback must never override a real per-stream column."""
-        from geecs_data_utils.tiled_schema import device_acq_timestamp_column
-
-        columns = [
-            "u_bcavemagspec-acq_timestamp",
-            "u_bcavemagspec_interpspec-acq_timestamp",
-        ]
-        assert (
-            device_acq_timestamp_column(columns, "U_BCaveMagSpec-interpSpec")
-            == "u_bcavemagspec_interpspec-acq_timestamp"
-        )
-
-    def test_a_hyphenated_device_name_matches_whole(self):
-        """`pulsewire-ESP302-sensor` is a DEVICE, not a device plus a stream."""
-        from geecs_data_utils.tiled_schema import device_acq_timestamp_column
-
-        columns = [
-            "pulsewire_esp302_sensor-acq_timestamp",
-            "pulsewire_hexapod-acq_timestamp",
-        ]
-        assert (
-            device_acq_timestamp_column(columns, "pulsewire-ESP302-sensor")
-            == "pulsewire_esp302_sensor-acq_timestamp"
-        )
-        # and stripping never invents a match for a device that has none
-        assert device_acq_timestamp_column(columns, "pulsewire-Nope-sensor") is None
-
     def test_unknown_device_is_none(self):
         from geecs_data_utils.tiled_schema import device_acq_timestamp_column
 

@@ -19,9 +19,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   per Picoscope channel with identical stamps, and the first channel passed
   only because its data key happens to equal the device name.
 
-  It now asks `tiled_schema.device_acq_timestamp_column` (GEECS-Data-Utils
-  0.36.1) — the one home of that rule. The concatenation was a private copy
-  of schema knowledge, which is how it drifted.
+  The owner now comes from the descriptor's `object_keys`: a device's
+  capture streams and its `acq_timestamp` are keys of the same object,
+  because both come out of one `describe()` (pinned on the device itself in
+  `tests/test_hdf_plugin_detector.py`). Nothing parses a name — stripping a
+  `-<suffix>` would resolve a device whose own name contains hyphens to a
+  *different* device's stamps, silently.
+
+- **A stack whose stamp column cannot be resolved says so.** Rows without a
+  resolvable `acq_timestamp` key previously fell through to the count-only
+  check, which reports OK when the counts match — a stack full of frames no
+  row owns would have passed quietly. It is now a warning naming the stack.
 
 ## [0.99.0] - 2026-09-21
 

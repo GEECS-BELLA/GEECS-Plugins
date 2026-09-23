@@ -351,6 +351,30 @@ def test_two_capture_streams_write_two_files(RE: RunEngine, tmp_path: Path) -> N
     _run(RE, lambda: cam.unstage())
 
 
+def test_both_capture_streams_and_the_stamp_are_keys_of_one_object(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """The fact ``StackCheckCallback`` resolves a stack's stamp column from.
+
+    A device acquires once, so it publishes ONE ``acq_timestamp``; each of
+    its capture streams still carries its own data key.  Both are keys of
+    the same object, because both come out of the same ``describe()`` —
+    which is what the bundler writes into the descriptor's ``object_keys``.
+    The callback looks the owner up there rather than parsing a name; if
+    this ever stopped holding (a stream described by a child object, say),
+    a second stream would silently lose its stamp check.
+    """
+    cam = _two_stream_camera(RE, tmp_path)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    keys = set(_run(RE, lambda: cam.describe()))
+    assert {"uc_testcam", "uc_testcam-imageinterp"} <= keys
+    assert [k for k in keys if k.endswith("-acq_timestamp")] == [
+        "uc_testcam-acq_timestamp"
+    ]
+    _run(RE, lambda: cam.unstage())
+
+
 def _gated_scope(RE: RunEngine, tmp_path: Path) -> GeecsDetector:
     """A two-channel scope: each trace plugin gated on its Enable.Ch<X> readback."""
     shared = GeecsScanPathProvider()

@@ -56,7 +56,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from geecs_data_utils.shot_join import SHOTS_STREAM
-from geecs_data_utils.tiled_schema import device_acq_timestamp_column
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import numpy as np
@@ -257,6 +256,11 @@ class _StreamCallback(_RunCallback):
         self._runs: dict[str, _RunStreams] = {}
         self._streams: dict[str, tuple[str, str]] = {}  # descriptor → (run, stream)
         self._resources: dict[str, tuple[str, str]] = {}  # resource → (run, data key)
+        #: run → {data key: the descriptor object that owns it}.  A device's
+        #: capture streams and its ``acq_timestamp`` column are keys of the
+        #: SAME object, which is how a stream finds its stamp column without
+        #: anyone parsing a name (``object_keys``, event-model).
+        self._owners: dict[str, dict[str, str]] = {}
         self._threads: list[threading.Thread] = []
 
     def on_start(self, start: dict[str, Any]) -> None:
@@ -272,6 +276,7 @@ class _StreamCallback(_RunCallback):
             self._resources = {
                 k: v for k, v in self._resources.items() if v[0] != stale
             }
+            self._owners.pop(stale, None)
         self._runs[str(start["uid"])] = _RunStreams()
 
     def on_descriptor(self, doc: Document) -> None:
@@ -281,6 +286,10 @@ class _StreamCallback(_RunCallback):
         if run is None:
             return
         self._streams[str(doc["uid"])] = (run_uid, str(doc.get("name")))
+        owners = self._owners.setdefault(run_uid, {})
+        for obj, keys in (doc.get("object_keys") or {}).items():
+            for key in keys or ():
+                owners[str(key)] = str(obj)
         for name, config in (doc.get("configuration") or {}).items():
             value = (config.get("data") or {}).get(f"{name}-drain_offset")
             if value is not None:
@@ -346,7 +355,12 @@ class _StreamCallback(_RunCallback):
         run = self._runs.pop(run_uid, None) or _RunStreams()
         self._streams = {k: v for k, v in self._streams.items() if v[0] != run_uid}
         self._resources = {k: v for k, v in self._resources.items() if v[0] != run_uid}
-        self.on_streams(start, stop, run)
+        try:
+            self.on_streams(start, stop, run)
+        finally:
+            # After the subclass has read it: the owner map is what
+            # ``StackCheckCallback`` resolves each stack's stamp column with.
+            self._owners.pop(run_uid, None)
 
     def on_streams(
         self, start: dict[str, Any], stop: Document, run: _RunStreams
@@ -799,16 +813,33 @@ class StackCheckCallback(_StreamCallback):
     ) -> None:
         """Check every stack against its documents, off the RunEngine's thread."""
         gated = str(start.get("acquisition") or "") == "gated"
+        owners = self._owners.get(str(start.get("uid") or ""), {})
         for stack in run.stacks.values():
             stream_rows = run.rows_by_seq(stack.stream)
-            # One device acquires once, so a second capture stream's frames
-            # are stamped by the DEVICE's acq_timestamp — there is no
-            # `<device>-<variable>-acq_timestamp` column and never was.
-            # The shared resolver strips the stream suffix (schema rule, one
-            # home); building the name here reported every second stream as
-            # "0 rows own a frame" against a column that cannot exist.
-            sample = next(iter(stream_rows.values()), {}) if stream_rows else {}
-            column = device_acq_timestamp_column(list(sample), stack.data_key)
+            # One device acquires once, so a SECOND capture stream's frames
+            # are stamped by the device's own acq_timestamp — there is no
+            # `<device>-<variable>-acq_timestamp` column and never was, so
+            # building the name from the data key reported every second
+            # stream as "0 rows own a frame" against a column that cannot
+            # exist (hardware, 26_0922 Scan005).
+            #
+            # The owner comes from the descriptor's `object_keys`, never from
+            # parsing the name: a device's capture streams and its stamp
+            # column are keys of the SAME object.  Stripping a `-<suffix>`
+            # instead would be a guess, and a device whose NAME contains
+            # hyphens could be resolved to a different device's stamps —
+            # wrong data, silently (Codex review of #952).
+            owner = owners.get(stack.data_key)
+            stamp_keys = (
+                [
+                    k
+                    for k, o in owners.items()
+                    if o == owner and k.endswith("-acq_timestamp")
+                ]
+                if owner
+                else []
+            )
+            column = stamp_keys[0] if len(stamp_keys) == 1 else None
             expected: list[float] | None = None
             shots: _ShotStamps | None = None
             if stream_rows and column:
@@ -822,6 +853,17 @@ class StackCheckCallback(_StreamCallback):
                 # The gated batch's own stacks: the shots rows ARE the frames'
                 # rows, one per shot, so the stamps can be checked after all.
                 shots = _shot_stamps(start, run, stack.data_key)
+            elif stream_rows:
+                # Rows, but the descriptors named no single stamp column for
+                # this stack's device: say so rather than quietly dropping to
+                # the count-only check, which would pass a stack whose frames
+                # belong to nobody.
+                _stack_verdict(
+                    dict(start),
+                    f"{stack.data_key}: no acq_timestamp column found for its "
+                    f"device in the run's descriptors; frames checked by count only",
+                    warning=True,
+                )
             self.spawn(
                 f"stack-check[{stack.data_key}]",
                 self._check,

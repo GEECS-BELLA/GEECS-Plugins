@@ -348,7 +348,15 @@ def _feed_stack_run(
     cb = StackCheckCallback(finalize_timeout=1.0)
     caplog.set_level(logging.INFO, logger="geecs_bluesky.callbacks")
     cb("start", {"uid": "run1", "scan_number": 9, "scan_folder": str(scan_dir)})
-    cb("descriptor", {"uid": "d1", "run_start": "run1", "name": "primary"})
+    cb(
+        "descriptor",
+        {
+            "uid": "d1",
+            "run_start": "run1",
+            "name": "primary",
+            "object_keys": {"uc_cam": ["uc_cam", "uc_cam-acq_timestamp"]},
+        },
+    )
     cb(
         "stream_resource",
         {
@@ -415,6 +423,12 @@ def test_stack_check_resolves_a_second_streams_rows_by_the_device_column(
     so every second stream was reported as "N frame(s) … but 0 row(s) own
     a frame" while its data was perfect (live: 26_0922 Scan005, ten frames
     per channel with identical stamps).
+
+    The owner comes from the descriptor's ``object_keys`` — both the stack
+    key and the stamp column are keys of the one device object (pinned on
+    the device itself in ``test_hdf_plugin_detector``) — never from
+    stripping a suffix off the name, which could resolve a device whose
+    own name contains hyphens to a *different* device's stamps.
     """
     import logging as _logging
 
@@ -441,7 +455,24 @@ def test_stack_check_resolves_a_second_streams_rows_by_the_device_column(
     cb = StackCheckCallback(finalize_timeout=1.0)
     caplog.set_level(_logging.INFO, logger="geecs_bluesky.callbacks")
     cb("start", {"uid": "run1", "scan_number": 9, "scan_folder": str(scan_dir)})
-    cb("descriptor", {"uid": "d1", "run_start": "run1", "name": "primary"})
+    cb(
+        "descriptor",
+        {
+            "uid": "d1",
+            "run_start": "run1",
+            "name": "primary",
+            "object_keys": {
+                # a decoy whose name is a hyphen-prefix of the real device's:
+                # lexical stripping would reach its stamps, object_keys cannot
+                "u_bcave": ["u_bcave", "u_bcave-acq_timestamp"],
+                "u_bcaveict": [
+                    "u_bcaveict",
+                    "u_bcaveict-scopetrace_channel1",
+                    "u_bcaveict-acq_timestamp",
+                ],
+            },
+        },
+    )
     cb(
         "stream_resource",
         {
@@ -460,7 +491,13 @@ def test_stack_check_resolves_a_second_streams_rows_by_the_device_column(
             {
                 "descriptor": "d1",
                 "seq_num": seq,
-                "data": {"u_bcaveict-acq_timestamp": stamp + LABVIEW_EPOCH_OFFSET},
+                "data": {
+                    # the decoy comes FIRST and its stamps are wrong for this
+                    # stack by 5 s: taking "a stamp column in the row" rather
+                    # than "this object's" resolves to it and the check fails
+                    "u_bcave-acq_timestamp": stamp + LABVIEW_EPOCH_OFFSET + 5.0,
+                    "u_bcaveict-acq_timestamp": stamp + LABVIEW_EPOCH_OFFSET,
+                },
             },
         )
         cb(
@@ -482,6 +519,72 @@ def test_stack_check_resolves_a_second_streams_rows_by_the_device_column(
     assert said, "the second stream was not checked at all"
     assert "match the rows' stamps" in said[0], said
     assert "0 row(s) own a frame" not in said[0], said
+
+
+def test_stack_check_says_so_when_no_stamp_column_can_be_resolved(tmp_path, caplog):
+    """An unresolvable stamp column is reported, not silently downgraded.
+
+    The stamp check is the only one that can tell a frame belonging to this
+    run's rows from an orphan. If the descriptors name no single
+    ``acq_timestamp`` key for a stack's device, falling through to the
+    count-only check would pass a stack whose frames belong to nobody — so
+    the run says the check did not happen.
+    """
+    import logging as _logging
+
+    import h5py
+    import numpy as np
+
+    from geecs_bluesky.callbacks import StackCheckCallback
+    from geecs_data_utils.io.scan_stack import FRAMES_DATASET, TIMESTAMPS_DATASET
+
+    scan_dir = tmp_path / "Scan010"
+    device_dir = scan_dir / "UC_Cam"
+    device_dir.mkdir(parents=True)
+    path = device_dir / "UC_Cam.h5"
+    with h5py.File(path, "w", libver="latest") as f:
+        f.create_dataset(FRAMES_DATASET, data=np.zeros((1, 4)))
+        f.create_dataset(TIMESTAMPS_DATASET, data=np.array([100.0]))
+        f.attrs["finalized"] = True
+
+    cb = StackCheckCallback(finalize_timeout=1.0)
+    caplog.set_level(_logging.INFO, logger="geecs_bluesky.callbacks")
+    cb("start", {"uid": "run1", "scan_number": 10, "scan_folder": str(scan_dir)})
+    # the object owns the stack but describes no acq_timestamp
+    cb(
+        "descriptor",
+        {
+            "uid": "d1",
+            "run_start": "run1",
+            "name": "primary",
+            "object_keys": {"uc_cam": ["uc_cam"]},
+        },
+    )
+    cb(
+        "stream_resource",
+        {
+            "uid": "sr1",
+            "run_start": "run1",
+            "data_key": "uc_cam",
+            "mimetype": "application/x-hdf5",
+            "uri": path.as_uri().replace("file:///", "file://localhost/"),
+            "parameters": {"dataset": FRAMES_DATASET, "chunk_shape": (1, 4)},
+        },
+    )
+    cb("event", {"descriptor": "d1", "seq_num": 1, "data": {"uc_cam-meancounts": 1.0}})
+    cb(
+        "stream_datum",
+        {
+            "stream_resource": "sr1",
+            "indices": {"start": 0, "stop": 1},
+            "seq_nums": {"start": 1, "stop": 2},
+        },
+    )
+    cb("stop", {"run_start": "run1", "exit_status": "success"})
+    cb.join(5.0)
+
+    said = [r.getMessage() for r in caplog.records if "uc_cam" in r.getMessage()]
+    assert any("no acq_timestamp column found" in m for m in said), said
 
 
 def test_stack_check_flags_count_and_stamp_mismatches(tmp_path, caplog):
