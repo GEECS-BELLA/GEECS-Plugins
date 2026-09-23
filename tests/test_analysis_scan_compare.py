@@ -136,20 +136,23 @@ def test_scan_background_recipes_are_refused_before_any_copy(tmp_path):
     assert not output.exists()
 
 
-def test_the_scan_paths_patch_is_restored_after_a_failed_run(tmp_path):
+def test_the_scan_paths_patch_is_never_installed_when_construction_fails(tmp_path):
+    """A factory error happens before the patch, so nothing can leak.
+
+    The failure must be a construction-time one: a failure inside
+    ``run_analysis`` was already covered by the old ``try/finally``.
+    """
     import scan_analysis.base as scan_base
+    from geecs_analysis.compat.v2 import UnsupportedRecipe
     from geecs_data_utils import ScanPaths
     from image_analysis.config import load_diagnostic
-    from scan_analysis.base import DataUnavailableWarning
 
     scan, diagnostic = _archive(tmp_path / "share")
     document = load_diagnostic(diagnostic)
+    document.scan.background_source = {"scan_number": 6}
     private = tmp_path / "private"
     harness._copy_scan(scan, "Camera", private)
-    copied = next(private.rglob("Scan007"))
-    for file in (copied / "Camera").iterdir():
-        file.unlink()
     original = scan_base.ScanPaths
-    with pytest.raises(DataUnavailableWarning):
+    with pytest.raises(UnsupportedRecipe):
         harness._run("core", document, private, scan)
     assert scan_base.ScanPaths is original is ScanPaths
