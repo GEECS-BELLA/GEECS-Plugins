@@ -213,3 +213,121 @@ class TestPreview:
         assert seen[0]["vmax"] is None
         assert seen[1]["cmap"] == "viridis" and seen[1]["vmax"] == 1000.0
         assert "window" not in seen[1]
+
+
+_LINE_DOC = {
+    "schema_version": 2,
+    "name": "U_Scope",
+    "analyzer": {"kind": "line"},
+    "image": {"type": "line", "data_loading": {"data_type": "tsv"}},
+    "scan": {"priority": 100, "device": "scope", "file_tail": ".tsv"},
+}
+
+
+class TestLinePreview:
+    """A line diagnostic previews on the shot's trace, not on an image."""
+
+    @pytest.fixture()
+    def seen(self, monkeypatch) -> list:
+        import geecs_portal.processing as ephemeral
+        from matplotlib.figure import Figure
+
+        calls: list = []
+
+        def fake_render(diag, frames, **kwargs):
+            calls.append((frames, kwargs))
+            return [Figure()]
+
+        monkeypatch.setattr(ephemeral, "render_document_ephemeral", fake_render)
+        return calls
+
+    @staticmethod
+    def _post(client, doc, device="scope", shot=1):
+        return client.post(
+            "/configs/api/preview",
+            json={
+                "document": doc,
+                "params": {"uid": "uid-002", "device": device, "shot": shot},
+            },
+        )
+
+    def test_renders_a_native_trace_file_end_to_end(self, scan_folder, configs_tree):
+        np = pytest.importorskip("numpy")
+        (scan_folder / "scope").mkdir()
+        xy = np.column_stack(
+            [np.linspace(0, 1, 50), np.exp(-((np.arange(50) - 25) ** 2) / 20)]
+        )
+        np.savetxt(scan_folder / "scope" / "Scan002_scope_001.tsv", xy, delimiter="\t")
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        r = self._post(client, dict(_LINE_DOC))
+        assert r.status_code == 200, r.text
+        assert r.content[:4] == b"\x89PNG"
+
+    def test_the_analyzer_gets_the_files_values_read_by_the_documents_loader(
+        self, scan_folder, configs_tree, seen
+    ):
+        np = pytest.importorskip("numpy")
+        (scan_folder / "scope").mkdir()
+        xy = np.array([[0.0, 1.0, 5.0], [1.0, 3.0, 6.0], [2.0, 2.0, 7.0]])
+        np.savetxt(scan_folder / "scope" / "Scan002_scope_001.tsv", xy, delimiter="\t")
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        doc = dict(_LINE_DOC)
+        # the DOCUMENT's loader decides the columns: y from column 2, and
+        # column 1 rides along as an auxiliary column
+        doc["image"] = {
+            "type": "line",
+            "data_loading": {
+                "data_type": "tsv",
+                "y_column": 2,
+                "auxiliary_columns": {"other": 1},
+            },
+        }
+        assert self._post(client, doc).status_code == 200
+        ((frames, kwargs),) = seen
+        np.testing.assert_array_equal(frames[0], xy[:, [0, 2]])
+        np.testing.assert_array_equal(
+            kwargs["auxiliary_data"]["_aux_columns"]["other"], xy[:, 1]
+        )
+        assert "file_path" not in kwargs["auxiliary_data"]
+
+    def test_an_array_stack_serves_its_frame(self, scan_folder, configs_tree, seen):
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("h5py")
+        from test_resources import _write_array_stack
+
+        (scan_folder / "scope").mkdir()
+        _write_array_stack(
+            scan_folder / "scope" / "scope.h5",
+            device="scope",
+            variable="trace",
+            frames=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+            axis=[(0.0, 1.0, 3), (0.0, 1.0, 3)],
+        )
+        from test_app import _LV
+
+        catalog = FakeCatalog()
+        detail = _detail(2)
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        # the run joins by the DIAGNOSTIC's device (its name, not the folder):
+        # shot 2's timestamp is the stack's second frame
+        detail.data["U_Scope-acq_timestamp"] = [_LV + 0.5, _LV + 1.0, _LV + 2.0]
+        catalog.details["uid-002"] = detail
+        client = TestClient(
+            create_app(catalog, processing_config_dir=configs_tree, config_editor=True)
+        )
+        doc = dict(_LINE_DOC)
+        doc["image"] = {"type": "line", "data_loading": {"data_type": "pva_stack"}}
+        doc["scan"] = {"device": "scope", "data_format": "device_hdf5"}
+        r = self._post(client, doc, shot=2)
+        assert r.status_code == 200, r.text
+        ((frames, _),) = seen
+        np.testing.assert_array_equal(frames[0][:, 1], [4.0, 5.0, 6.0])
+
+    def test_a_missing_shot_file_is_404(self, scan_folder, configs_tree, seen):
+        (scan_folder / "scope").mkdir()
+        (scan_folder / "scope" / "Scan002_scope_001.tsv").write_text("0\t1\n")
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        r = self._post(client, dict(_LINE_DOC), shot=2)
+        assert r.status_code == 404, r.text
+        assert "no scope file for shot 2" in r.text
+        assert seen == []
