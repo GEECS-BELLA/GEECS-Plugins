@@ -446,23 +446,6 @@ class HiResMagCamSpec(AnalyzerSpecBase):
         }
 
 
-class BCaveMagSpecStitcherSpec(AnalyzerSpecBase):
-    """HTU BCave magspec camera with a Gaussian-weighted vertical lineout for optimization."""
-
-    scalar_keys: ClassVar[frozenset[str]] = frozenset([])
-
-    image_kind: ClassVar[ImageKind] = "camera"
-    kind: Literal["bcave_magspec_stitcher"] = Field(
-        "bcave_magspec_stitcher", description="HTU BCave magspec camera analyzer."
-    )
-    gaussian_sigma: float = Field(
-        20.0, gt=0, description="Width of the Gaussian weighting, pixels."
-    )
-    gaussian_center: float = Field(
-        250.0, description="Centre of the Gaussian weighting, pixels."
-    )
-
-
 class BCaveMagOptSpec(AnalyzerSpecBase):
     """HTU BCave stitched-spectrum optimizer metrics over the trace pipeline."""
 
@@ -524,7 +507,6 @@ AnalyzerSpec = Annotated[
         HasoAnalyzerSpec,
         DownrampPhaseSpec,
         HiResMagCamSpec,
-        BCaveMagSpecStitcherSpec,
         BCaveMagOptSpec,
         PhaseDownrampSpec,
     ],
@@ -545,7 +527,6 @@ __all__ = [
     "AnalyzerSpecBase",
     "ArrayCalibrationSpec",
     "BCaveMagOptSpec",
-    "BCaveMagSpecStitcherSpec",
     "BeamAnalyzerSpec",
     "CalibrationSpec",
     "DnnAxisCalibrationSpec",
