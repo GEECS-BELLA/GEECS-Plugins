@@ -125,3 +125,15 @@ legacy nonfinite propagation. Numerical imports, including cv2, stay lazy.
 prefilter=False, reshape=False. It preserves axes, shape and metadata; its angle
 is in sample-index space, not a transformation of world coordinates. The v2
 adapter reverses crosshair centers once and retains every mask/rotation order.
+
+## Execution units
+
+`compat.v2_run` is the streaming v2 orchestration boundary. The host supplies
+explicit groups and a loader; no path/config discovery or output writes belong
+here. Raw native arrays must be averaged before v2 axis scaling and processing,
+using mean rather than nanmean. Preserve both full bin membership (legacy
+scalar propagation) and actual loaded contributors. Failures are explicit
+outcomes, and raw buffers are released before yielding. Load in declared order
+for reproducible sums; sources can reuse buffers, so snapshot each returned
+array. This runner does not replace scan grouping, scalar/output sinks or the
+factory by itself. Pure analyze/analyze_v2 remain loaded-input-only APIs.

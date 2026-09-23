@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.0] - 2026-09-23
+
+### Added
+
+- Streaming v2 execution over caller-supplied shot groups and loaders, retaining
+  native-dtype average-before-analysis behavior, separate loaded/full membership,
+  explicit failures, provenance and bounded raw-buffer lifetime. Declared member
+  order makes reductions reproducible. No scan route or output sink changes.
+
 ## [0.8.0] - 2026-09-23
 
 ### Added
