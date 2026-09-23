@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.0] - 2026-09-23
+
+### Added
+
+- Named in-memory Frame inputs for pure pipelines and analysis, with preflight
+  validation and immutable binding snapshots. Background subtraction preserves
+  ownership and supports explicit coordinate or sample alignment without I/O,
+  broadcasting or resampling.
+
 ## [0.5.0] - 2026-09-23
 
 ### Added

@@ -47,6 +47,23 @@ Reading inputs and resolving backgrounds belong to data-utils. These processing
 steps neither read nor write files and have no scan, GUI, or device dependencies.
 See [the migration plan](../Planning/analysis_refactor.md) for the next layers.
 
+Loaded backgrounds can be bound by name to `background_frame` steps:
+
+```python
+pipeline = Pipeline(steps=[{"step": "background_frame", "source": "dark"}])
+processed = apply_pipeline(frame, pipeline, inputs={"dark": background_frame})
+```
+
+`analyze` accepts the same `inputs` mapping. Bindings contain immutable Frames;
+the mapping is snapshotted before processing and every required name must exist.
+Specs carry names only, never arrays or instructions to open files. By default,
+backgrounds must match shape, coordinates and signal/axis units. Explicit
+`alignment: samples` supports legacy backgrounds without coordinate metadata,
+while still requiring identical shapes. Neither mode broadcasts or resamples.
+Subtraction preserves negative samples, axes and shot identity; after a crop,
+the caller must supply a background matching that cropped frame. File-backed
+v2 backgrounds still require a source adapter before they can compile.
+
 ## Measurements
 
 ```python
