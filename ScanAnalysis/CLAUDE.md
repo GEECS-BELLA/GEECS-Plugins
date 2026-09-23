@@ -97,6 +97,10 @@ payloads, s-file columns, sidecars and the display-file list exactly, except
 noscan averages, where the legacy wrapper sums shots in directory-listing order
 and a few-ulp tolerance is explicit. Figure content is not compared: the two
 renderers differ by design, so titles and layout are the operator's review.
+`scripts/analysis_scan_compare.py` runs the same comparison on a real scan:
+it copies the scan's inputs into two private trees, runs `route="legacy"` in
+one and `route="core"` in the other, and diffs their analysis trees, so
+nothing is ever written next to the archived scan.
 
 Scan analysis is driven by YAML config files stored in the
 **GEECS-Plugins-configs** repository (not this repo). The documents are

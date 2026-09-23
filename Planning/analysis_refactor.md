@@ -229,9 +229,14 @@ both routes on synthetic scans and compares file lists, HDF5 payloads, s-file
 columns, sidecars and display files exactly (noscan averages within a few ulps:
 the legacy wrapper sums shots in directory-listing order).
 
-Still required for the first milestone: the same comparison on the archived
-canonical beam and MagSpec scans, portal native trace input, operator figure
-review and live optimizer acceptance.
+`scripts/analysis_scan_compare.py` runs that comparison on a real scan from
+private copies of its inputs (`--set scan.data_format=per_shot_files` for the
+beam recipe, whose canonical input is PNG).
+
+Still required for the first milestone: that comparison on the archived
+canonical beam and MagSpec scans (owed: the share was unmounted when the
+harness landed), portal native trace input, operator figure review and live
+optimizer acceptance.
 
 ## Decisions
 
