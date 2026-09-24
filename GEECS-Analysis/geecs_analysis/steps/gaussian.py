@@ -16,7 +16,7 @@ class GaussianSpec(StepSpec):
     """Isotropic Gaussian width in samples, not physical-axis units."""
 
     step: Literal["gaussian"] = "gaussian"
-    sigma: float = Field(1.0, gt=0)
+    sigma: float = Field(1.0, gt=0, description="Gaussian width in samples.")
 
 
 @step(GaussianSpec, ndim={1, 2})

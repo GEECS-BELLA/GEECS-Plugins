@@ -261,9 +261,17 @@ The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
   stale etag / duplicate stem across namespaces → `ConflictError`; an
   invalid document is never written; `etag=None` = create, refuses to
   overwrite), `delete`, `pending_changes()` (git status of the tree),
-  `schema(kind)` (the JSON Schema the form renders). Writes touch only the
-  configs tree — the repo's scan-folder invariant is irrelevant by
-  construction, and pinned portal-side.
+  `schema(kind)` (the JSON Schema the form renders: for `analyzer` the
+  recipe's, with `steps` and `measure` bound to the analysis core's
+  registry by `geecs_analysis.recipe.recipe_schema`). A recipe validates
+  as its schema AND binds to the registry (`compile_recipe`): an unknown
+  step or parameter, a step or measure for the wrong frame shape, a frame
+  input no step uses — reported at the form's field path, listed as
+  invalid, never written. `list()` runs the same cross-checks as
+  `validate()` (a group naming an unknown document lists as invalid too;
+  the analyzers tree is walked once per listing). Writes touch only the configs tree — the repo's
+  scan-folder invariant is irrelevant by construction, and pinned
+  portal-side.
 - **`scan_analysis.config_editor.create_editor_router(store, preview=,
   read_only=)`** — a FastAPI router (the `editor` extra): `/api/list`,
   `/api/schema/{kind}`, `GET/PUT/DELETE /api/{analyzers|groups}/…`,
@@ -271,14 +279,31 @@ The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
   passes a `preview(document, params) -> PNG bytes`), the editor page and
   `static/editor.js` + `editor.css`. Every URL is relative to the mount.
   `editor.js` is a hand-written schema-driven form over pydantic's JSON
-  Schema (objects, `anyOf [T, null]` optionals as toggled sections, the
-  kind-discriminated `analyzer:` union as a select that swaps the
-  variant's fields, enums, **ordered** enum lists for pipelines, arrays of
-  objects, tuples, JSON textareas for free mappings), live YAML preview,
-  server-side error placement by pydantic location, and the optional
-  preview pane (a `preview` button renders the edited document on the
-  host's shot; `auto` re-renders per edit, remembered in localStorage).
-  No build chain, no library — the portal's doctrine.
+  Schema (objects, `anyOf [T, null]` optionals as toggled sections,
+  discriminated unions as a kind select that swaps the variant's fields,
+  enums, tuples, keyed mappings as named cards, keyword mappings as
+  key/value rows), live YAML preview, server-side error placement by
+  pydantic location, and the optional preview pane (a `preview` button
+  renders the edited document on the host's shot; `auto` re-renders per
+  edit, remembered in localStorage). **The form is the recipe's** (format
+  3), laid out as the document reads: Source (naming, `input`, frame
+  `inputs`) → Steps (ordered cards; the add-select lists the registry with
+  `(images)` / `(traces)` hints from `x-ndim`; a name the registry does not
+  know is kept as written and flagged, never swapped) → Measure → Figure
+  (matplotlib keyword rows: numbers, true/false, [lists] typed, other text
+  a string; overlay styles by id) → Summaries → Scan. Reorder and remove
+  rebuild the list from its current values so every field path
+  (`steps.2.bounds`) stays true. A **format 2 diagnostic** (a kind the
+  core has not ported) opens read-only — note, the file as saved, Delete,
+  and the preview of the saved document — until its kind is ported and it
+  converts. The preview is **the run's own draw**: the host renders the
+  document through the sink's per-frame call with the document's `figure`
+  block (`render_document_as_run` in the portal), cropped tight like the
+  product PNG, so what the pane shows is the product file the run would
+  write. The form is pinned under node on a fake DOM
+  (`test_recipe_form_round_trips_and_reorders`: a corpus recipe reads back
+  canonical-equal, move-up swaps steps and renumbers paths). No build
+  chain, no library — the portal's doctrine.
 - **Host.** The data portal mounts it at `/configs` with the preview of
   the **unsaved** document on the scan page's current shot
   (`GEECS-DataPortal/CLAUDE.md`); its **edit configs** link is the
@@ -288,8 +313,9 @@ The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
   the configs repo in an editor and commits).
 
 Adding a field to a schema model is all an editor change needs: the form
-is generated. Adding an analyzer kind (a spec in GEECS-Schemas + a registry
-line in ImageAnalysis) shows up in the kind select automatically.
+is generated. Adding a step, measure or summary kind in GEECS-Analysis
+(its spec's `description=` on every field — the form shows it as help)
+shows up in the add-select automatically.
 
 ### Scatter (`analyzers/common/scatter_plotter_analysis.py`)
 

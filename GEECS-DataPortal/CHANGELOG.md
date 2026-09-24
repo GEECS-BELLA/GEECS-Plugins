@@ -3,6 +3,29 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.0] - 2026-09-24
+
+### Changed
+
+- The config editor's preview is **the run's own draw**:
+  `processing.render_document_as_run` renders the shot through the analysis
+  sink's per-frame call (`single` with the document's `figure` block; a v2
+  renderer translated), and `resources.figure_png(..., tight=True)` crops it
+  like the sink's product PNGs — the pane shows the file a run would write.
+  The portal's palette/window overrides no longer reach the editor preview
+  (they stay on the Images tab's processing selector). Pinned byte-for-byte
+  against `single(analyze_v2(frame), figure_of(recipe))`.
+- The recipe's frame inputs (a background image under `{scan_dir}`) load
+  from the document's device folder under the previewed scan, exactly as
+  the run loads them (before, the placeholder stayed literal and the
+  fallback constant — or an error — stood in for the real frame).
+- A legacy-route preview that draws no figure is a 400, not a 500.
+- The drawer's "duplicate as" reports nothing when the open document is a
+  read-only format 2 diagnostic (the copy was never made); its tooltip
+  names what the copy drops.
+- The drawer's "duplicate for this device" patches the recipe's `device`
+  (and the editor drops `output_name` / `input.folder` from the copy).
+
 ## [0.34.0] - 2026-09-24
 
 ### Changed

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from pydantic import Field
+
 from geecs_analysis.registry import StepSpec, step
 
 if TYPE_CHECKING:
@@ -19,8 +21,12 @@ class RotateSpec(StepSpec):
     """
 
     step: Literal["rotate"] = "rotate"
-    angle: float
-    fill_value: float = 0.0
+    angle: float = Field(
+        ..., description="Rotation angle in degrees, about the array centre."
+    )
+    fill_value: float = Field(
+        0.0, description="Value for pixels rotated in from outside the image."
+    )
 
 
 @step(RotateSpec, ndim={2})

@@ -24,12 +24,14 @@ class CrosshairMaskSpec(StepSpec):
     """
 
     step: Literal["crosshair_mask"] = "crosshair_mask"
-    center: tuple[SampleIndex, SampleIndex]
-    width: PixelCount
-    height: PixelCount
-    thickness: PixelCount
-    angle: float = 0.0
-    value: float = 0.0
+    center: tuple[SampleIndex, SampleIndex] = Field(
+        ..., description="Cross centre (y, x) in local sample indices."
+    )
+    width: PixelCount = Field(..., description="Horizontal bar length in pixels.")
+    height: PixelCount = Field(..., description="Vertical bar length in pixels.")
+    thickness: PixelCount = Field(..., description="Bar thickness in pixels.")
+    angle: float = Field(0.0, description="Rotation of the cross in degrees.")
+    value: float = Field(0.0, description="Replacement value for the masked pixels.")
 
 
 @step(CrosshairMaskSpec, ndim={2})

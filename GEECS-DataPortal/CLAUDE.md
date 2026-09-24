@@ -26,10 +26,14 @@ extending this package.
   same standing as the scanner's preset writes), never the scans tree
   (pinned in `tests/test_config_editor_mount.py`).  Its preview
   renders the *unsaved* document on the scan page's current shot through
-  `geecs_portal.processing.render_document_ephemeral` — the same
-  write-free seam as the Images tab, but drawn the analyzer's own way
-  (its default palette or the document's `scan.renderer` cmap/vmin/vmax,
-  never the pixel view's gray; pinned there too).  The other is `POST /api/run/{uid}/analysis`, which
+  `geecs_portal.processing.render_document_as_run` — the analysis sink's
+  own per-frame call (`single` with the document's `figure` block, a v2
+  renderer translated), cropped tight like the sink's PNGs, so the pane
+  shows the product file a run would write; no portal palette or window
+  reaches it (pinned byte-for-byte there). Kinds the core does not serve
+  fall back to the legacy write-free route. The Images tab's processing
+  selector keeps `render_document_ephemeral` and the portal's own window.
+  The other is `POST /api/run/{uid}/analysis`, which
   runs ONE ScanAnalysis analyzer on ONE scan on the user's click —
   `geecs_portal/analysis_runs.py`, calling `ScanAnalyzer.run_analysis`
   directly on a single worker thread with an in-memory job record.

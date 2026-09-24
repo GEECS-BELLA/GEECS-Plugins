@@ -2157,12 +2157,21 @@ def create_app(
             if trace.auxiliary_column_data
             else None
         )
-        (fig,) = ephemeral.render_document_ephemeral(
-            diag, [trace.data], auxiliary_data=aux
+        figures = ephemeral.render_document_as_run(
+            diag, [trace.data], scan_folder=folder, auxiliary_data=aux
         )
-        return resources.figure_png(fig)
+        if not figures:
+            raise ValueError("this analyzer draws no figure for a single trace")
+        return resources.figure_png(figures[0], tight=True)
 
     def _config_editor_preview(document: dict, params: dict) -> bytes:
+        """The editor's preview: the shot drawn as a run of this document draws it.
+
+        Through ``render_document_as_run`` — the analysis sink's own
+        per-frame call with the document's figure block — and cropped
+        tight like the sink's PNGs, so the pane shows the product file the
+        run would write, not a portal rendering of it.
+        """
         ephemeral = _ephemeral_module()
         from geecs_analysis.recipe import is_line
         from geecs_schemas.analysis import load_analysis_document
@@ -2201,19 +2210,14 @@ def create_app(
             raise kind(str(exc.detail)) from exc
         if resolved.array is None:
             raise LookupError(resolved.reason or resolved.kind)
-        # The analyzer's own figure, as a run of this document would draw it:
-        # its default palette (not the pixel view's gray) unless the document
-        # names one (figure.imshow on a recipe, scan.renderer on a v2
-        # diagnostic), autoscaled unless it sets vmin/vmax.
-        from geecs_schemas.analysis import AnalysisRecipe
-
-        if isinstance(diag, AnalysisRecipe):
-            palette = {k: diag.figure.imshow.get(k) for k in ("cmap", "vmin", "vmax")}
-        else:
-            opts = diag.scan.renderer
-            palette = {"cmap": opts.cmap, "vmin": opts.vmin, "vmax": opts.vmax}
-        (fig,) = ephemeral.render_document_ephemeral(diag, [resolved.array], **palette)
-        return resources.figure_png(fig)
+        # the recipe's frame inputs load from ITS device folder under this scan,
+        # exactly as the run loads them (a background image under {scan_dir})
+        figures = ephemeral.render_document_as_run(
+            diag, [resolved.array], scan_folder=folder
+        )
+        if not figures:
+            raise ValueError("this analyzer draws no figure for a single frame")
+        return resources.figure_png(figures[0], tight=True)
 
     if config_editor and processing_config_dir is not None:
         try:

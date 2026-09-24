@@ -9,17 +9,22 @@ reads use an explicit tree.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Callable, Sequence
 
 import numpy as np
 from geecs_data_utils.analysis_configs import discover_diagnostics, read_diagnostic
 from geecs_data_utils.frames import Frame
-from geecs_schemas.analysis import AnalysisDocument, load_analysis_document
+from geecs_schemas.analysis import (
+    AnalysisDiagnostic,
+    AnalysisDocument,
+    load_analysis_document,
+)
 from pydantic import ValidationError
 from scan_analysis.core_inputs import prepare_v2
 
 from geecs_analysis.compat.v2 import UnsupportedRecipe, analyze_v2
 from geecs_analysis.measurement import Measurement
+from geecs_analysis.recipe import figure_of
 from geecs_analysis.render import RenderError, single
 from geecs_analysis.render.specs import FigureSpec
 
@@ -93,6 +98,40 @@ def _style(
     )
 
 
+def _render(
+    document: AnalysisDocument,
+    arrays: Sequence[np.ndarray],
+    style_for: Callable[[Measurement], FigureSpec],
+    *,
+    data_dir: Path | None = None,
+    auxiliary_data: dict | None = None,
+    legacy: dict | None = None,
+) -> list[Figure]:
+    """Draw each frame through the core, or the legacy write-free route.
+
+    Only a compilation-time capability refusal (``UnsupportedRecipe``: a v2
+    kind the core has not ported) selects the legacy route, with ``legacy``
+    as its keyword arguments; numerical and render failures never retry
+    against another backend.
+    """
+    try:
+        prepared = prepare_v2(document, data_dir=data_dir)
+    except UnsupportedRecipe:
+        from image_analysis import ephemeral
+
+        try:
+            return ephemeral.render_document_ephemeral(
+                document, arrays, auxiliary_data=auxiliary_data, **(legacy or {})
+            )
+        except ephemeral.RenderError as exc:
+            raise RenderError(str(exc)) from exc
+    figures = []
+    for array in arrays:
+        result = analyze_v2(array, prepared.recipe, inputs=prepared.inputs)
+        figures.append(single(result, style_for(result)))
+    return figures
+
+
 def render_document_ephemeral(
     document: AnalysisDocument,
     arrays: Sequence[np.ndarray],
@@ -103,41 +142,58 @@ def render_document_ephemeral(
     vmax: float | None = None,
     auxiliary_data: dict | None = None,
 ) -> list[Figure]:
-    """Draw the supplied (possibly unsaved) document without filesystem writes.
+    """Draw the supplied (possibly unsaved) document with the portal's own styling.
 
-    ``auxiliary_data`` reaches only the legacy fallback (a line trace's
-    auxiliary columns, which e.g. the FROG phase analyzer reads); the core
-    route reads the primary trace alone, exactly as its scan run does.
+    The Images tab's processing view: the portal's finite-pixel window and
+    palette over the processed frame. ``auxiliary_data`` reaches only the
+    legacy fallback (a line trace's auxiliary columns, which e.g. the FROG
+    phase analyzer reads); the core route reads the primary trace alone,
+    exactly as its scan run does.
     """
-    try:
-        prepared = prepare_v2(document)
-    except UnsupportedRecipe:
-        from image_analysis import ephemeral
+    return _render(
+        document,
+        arrays,
+        lambda r: _style(r.frame.data, window=window, cmap=cmap, vmin=vmin, vmax=vmax),
+        auxiliary_data=auxiliary_data,
+        legacy={"window": window, "cmap": cmap, "vmin": vmin, "vmax": vmax},
+    )
 
-        try:
-            return ephemeral.render_document_ephemeral(
-                document,
-                arrays,
-                auxiliary_data=auxiliary_data,
-                window=window,
-                cmap=cmap,
-                vmin=vmin,
-                vmax=vmax,
-            )
-        except ephemeral.RenderError as exc:
-            raise RenderError(str(exc)) from exc
-    figures = []
-    for array in arrays:
-        result = analyze_v2(array, prepared.recipe, inputs=prepared.inputs)
-        figures.append(
-            single(
-                result,
-                _style(
-                    result.frame.data, window=window, cmap=cmap, vmin=vmin, vmax=vmax
-                ),
-            )
-        )
-    return figures
+
+def render_document_as_run(
+    document: AnalysisDocument,
+    arrays: Sequence[np.ndarray],
+    *,
+    scan_folder: Path | None = None,
+    auxiliary_data: dict | None = None,
+) -> list[Figure]:
+    """Draw each frame the way a scan run of *document* draws its products.
+
+    The one per-frame draw: the core's ``single`` with the document's own
+    figure block (``figure_of``: a recipe's ``figure``, a v2 diagnostic's
+    renderer translated) — the call the analysis sink makes for every shot
+    and bin product, so the editor's preview IS the product image. The
+    recipe's frame inputs (a background image under ``{scan_dir}``) load
+    from the document's device folder under *scan_folder*, as the run
+    loads them; without a scan folder the placeholder stays literal. No
+    portal palette or window reaches it. Kinds the core does not serve
+    fall back to the legacy write-free route, which draws its own figure
+    from the diagnostic's renderer fields.
+    """
+    from scan_analysis.core_source import source_directory
+
+    style = figure_of(document)
+    legacy = None
+    if isinstance(document, AnalysisDiagnostic):
+        opts = document.scan.renderer
+        legacy = {"cmap": opts.cmap, "vmin": opts.vmin, "vmax": opts.vmax}
+    return _render(
+        document,
+        arrays,
+        lambda _result: style,
+        data_dir=source_directory(document, scan_folder) if scan_folder else None,
+        auxiliary_data=auxiliary_data,
+        legacy=legacy,
+    )
 
 
 def render_diagnostic_ephemeral(

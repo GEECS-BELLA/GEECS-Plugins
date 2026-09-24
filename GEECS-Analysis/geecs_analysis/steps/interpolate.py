@@ -20,9 +20,15 @@ class InterpolateSpec(StepSpec):
     """
 
     step: Literal["interpolate"] = "interpolate"
-    count: int = Field(ge=2)
-    lower: float | None = None
-    upper: float | None = None
+    count: int = Field(
+        ge=2, description="Number of uniformly spaced samples on the new axis."
+    )
+    lower: float | None = Field(
+        None, description="Start of the new axis; unset uses the trace's minimum."
+    )
+    upper: float | None = Field(
+        None, description="End of the new axis; unset uses the trace's maximum."
+    )
 
     @model_validator(mode="after")
     def ordered_bounds(self) -> Self:

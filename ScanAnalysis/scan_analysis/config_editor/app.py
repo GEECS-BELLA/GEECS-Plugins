@@ -10,7 +10,8 @@ API (under the mount)::
     GET  /                          the editor page (the portal's full-page form)
     GET  /static/editor.js|.css     the editor assets (the portal includes them too)
     GET  /api/list                  analyzers + groups (validity, summary), namespaces, git pending
-    GET  /api/schema/{kind}         JSON Schema for kind = analyzer | group
+    GET  /api/schema/{kind}         JSON Schema for kind = analyzer (the recipe, its
+                                    steps/measure bound to the core's registry) | group
     GET  /api/{kind}s/{id}          one document: raw, etag, yaml, validity
     POST /api/validate/{kind}       {document} -> {ok, errors, canonical, yaml}
     PUT  /api/{kind}s/{ns}/{id}     {document, etag|null} -> saved {etag, yaml, created}; 409 / 422

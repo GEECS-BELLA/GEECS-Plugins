@@ -174,45 +174,125 @@ class TestPreview:
             )["image"]
         )
 
-    def test_draws_with_the_analyzers_palette_and_the_documents_renderer(
-        self, scan_folder, configs_tree, monkeypatch
-    ):
-        """Not the Images tab's gray: the analyzer's default unless scan.renderer says."""
+    def test_the_preview_is_the_runs_own_draw(self, scan_folder, configs_tree):
+        """A recipe's preview: the sink's per-frame call, its figure block, tight crop.
+
+        Byte-equal to ``single(analyze_v2(frame), figure_of(recipe))`` saved
+        with ``bbox_inches="tight"`` — the call and the crop the analysis
+        sink uses for every shot product — so the pane shows the product
+        image the run would write. No portal palette or window reaches it.
+        """
+        import io
+
         np = pytest.importorskip("numpy")
         pytest.importorskip("PIL")
-        import geecs_portal.processing as ephemeral
-        from matplotlib.figure import Figure
+        from geecs_analysis.compat.v2 import analyze_v2
+        from geecs_analysis.recipe import figure_of
+        from geecs_analysis.render import single
+        from geecs_schemas.analysis import load_analysis_document
         from PIL import Image
+        from scan_analysis.core_inputs import prepare_v2
 
-        frame = (np.arange(64, dtype=np.uint16).reshape(8, 8) * 500).astype(np.uint16)
+        rng = np.random.default_rng(1)
+        frame = rng.integers(0, 4000, size=(12, 16), dtype=np.uint16)
         Image.fromarray(frame).save(scan_folder / "cam" / "Scan002_cam_001.png")
-        seen: list[dict] = []
-
-        def fake_render(diag, frames, **kwargs):
-            seen.append(kwargs)
-            return [Figure()]
-
-        monkeypatch.setattr(ephemeral, "render_document_ephemeral", fake_render)
         client = _client(scan_folder, configs_tree, config_editor=True)
-        doc = client.get("/configs/api/analyzers/UC_Crop").json()["document"]
-        params = {"uid": "uid-002", "device": "cam", "shot": 1}
-        assert (
-            client.post(
-                "/configs/api/preview", json={"document": doc, "params": params}
-            ).status_code
-            == 200
+        recipe = {
+            "schema_version": 3,
+            "device": "cam",
+            "input": {"kind": "camera"},
+            "steps": [{"step": "roi", "bounds": [[2, 10], [1, 14]]}],
+            "measure": {"kind": "beam"},
+            "figure": {
+                "imshow": {"cmap": "viridis", "vmin": 0},
+                "axes": {"title": "as the run draws it"},
+                "colorbar": {"label": "counts"},
+            },
+        }
+        r = client.post(
+            "/configs/api/preview",
+            json={
+                "document": recipe,
+                "params": {"uid": "uid-002", "device": "cam", "shot": 1},
+            },
         )
-        doc["scan"]["renderer"] = {"cmap": "viridis", "vmax": 1000.0}
-        assert (
-            client.post(
-                "/configs/api/preview", json={"document": doc, "params": params}
-            ).status_code
-            == 200
+        assert r.status_code == 200, r.text
+        document = load_analysis_document(recipe)
+        prepared = prepare_v2(document)
+        expected = single(
+            analyze_v2(frame, prepared.recipe, inputs=prepared.inputs),
+            figure_of(document),
         )
-        assert seen[0]["cmap"] is None and seen[0]["vmin"] is None
-        assert seen[0]["vmax"] is None
-        assert seen[1]["cmap"] == "viridis" and seen[1]["vmax"] == 1000.0
-        assert "window" not in seen[1]
+        buffer = io.BytesIO()
+        expected.savefig(buffer, format="png", bbox_inches="tight")
+        assert r.content == buffer.getvalue()
+        # and NOT the portal's own styling of the same frame
+        other = single(
+            analyze_v2(frame, prepared.recipe, inputs=prepared.inputs),
+            figure_of(load_analysis_document(dict(recipe, figure={}))),
+        )
+        buffer = io.BytesIO()
+        other.savefig(buffer, format="png", bbox_inches="tight")
+        assert r.content != buffer.getvalue()
+
+    def test_the_preview_loads_the_recipes_frame_inputs_like_the_run(
+        self, scan_folder, configs_tree
+    ):
+        """A background under ``{scan_dir}`` resolves to the device folder, as in a run.
+
+        Without the scan folder the placeholder stays literal, the read
+        fails, and a recipe without a fallback level makes the preview an
+        error — so this test fails (400) if the folder is not passed, and
+        the bytes pin that the REAL background frame was subtracted.
+        """
+        import io
+
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("PIL")
+        from geecs_analysis.compat.v2 import analyze_v2
+        from geecs_analysis.recipe import figure_of
+        from geecs_analysis.render import single
+        from geecs_schemas.analysis import load_analysis_document
+        from PIL import Image
+        from scan_analysis.core_inputs import prepare_v2
+
+        rng = np.random.default_rng(2)
+        frame = rng.integers(500, 4000, size=(12, 16), dtype=np.uint16)
+        background = rng.integers(0, 400, size=(12, 16), dtype=np.uint16)
+        Image.fromarray(frame).save(scan_folder / "cam" / "Scan002_cam_001.png")
+        Image.fromarray(background).save(scan_folder / "cam" / "bg.png")
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        recipe = {
+            "schema_version": 3,
+            "device": "cam",
+            "input": {"kind": "camera"},
+            "inputs": {"bg": {"path": "{scan_dir}/bg.png"}},  # no fallback level
+            "steps": [{"step": "background_frame", "source": "bg"}],
+            "measure": {"kind": "beam"},
+            "figure": {"imshow": {"cmap": "magma"}},
+        }
+        r = client.post(
+            "/configs/api/preview",
+            json={
+                "document": recipe,
+                "params": {"uid": "uid-002", "device": "cam", "shot": 1},
+            },
+        )
+        assert r.status_code == 200, r.text
+        document = load_analysis_document(recipe)
+        prepared = prepare_v2(document, data_dir=scan_folder / "cam")
+        expected = single(
+            analyze_v2(frame, prepared.recipe, inputs=prepared.inputs),
+            figure_of(document),
+        )
+        buffer = io.BytesIO()
+        expected.savefig(buffer, format="png", bbox_inches="tight")
+        assert r.content == buffer.getvalue()
+        # the subtraction happened: the drawn frame is not the raw one
+        assert not np.array_equal(
+            analyze_v2(frame, prepared.recipe, inputs=prepared.inputs).frame.data,
+            frame.astype(float),
+        )
 
 
 _LINE_DOC = {
@@ -238,7 +318,7 @@ class TestLinePreview:
             calls.append((frames, kwargs))
             return [Figure()]
 
-        monkeypatch.setattr(ephemeral, "render_document_ephemeral", fake_render)
+        monkeypatch.setattr(ephemeral, "render_document_as_run", fake_render)
         return calls
 
     @staticmethod

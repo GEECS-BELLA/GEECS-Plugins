@@ -20,11 +20,19 @@ class CircularMaskSpec(StepSpec):
     """
 
     step: Literal["circular_mask"] = "circular_mask"
-    center: tuple[float, float]
-    radius: float = Field(gt=0)
-    units: Literal["index", "axis"] = "index"
-    mask_outside: bool = True
-    value: float = 0.0
+    center: tuple[float, float] = Field(
+        ..., description="Circle centre (y, x) in numpy order, in the chosen units."
+    )
+    radius: float = Field(gt=0, description="Circle radius, in the chosen units.")
+    units: Literal["index", "axis"] = Field(
+        "index",
+        description="'index' = local sample indices; 'axis' = physical axis coordinates.",
+    )
+    mask_outside: bool = Field(
+        True,
+        description="Replace the pixels outside the circle (true) or inside it (false).",
+    )
+    value: float = Field(0.0, description="Replacement value for the masked pixels.")
 
 
 @step(CircularMaskSpec, ndim={2})

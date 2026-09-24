@@ -129,10 +129,15 @@ def safe_cmap(cmap: Optional[str]) -> Optional[str]:
     return str(cmap) if str(cmap) in mpl.colormaps else None
 
 
-def figure_png(fig) -> bytes:
-    """Object-API figure → PNG bytes (never pyplot; safe on the threadpool)."""
+def figure_png(fig, *, tight: bool = False) -> bytes:
+    """Object-API figure → PNG bytes (never pyplot; safe on the threadpool).
+
+    ``tight`` crops to the drawn content (``bbox_inches="tight"``), the way
+    the analysis sink saves a run's figures; a preview of a document uses it
+    so the image matches the product file the run would write.
+    """
     buffer = io.BytesIO()
-    fig.savefig(buffer, format="png")
+    fig.savefig(buffer, format="png", **({"bbox_inches": "tight"} if tight else {}))
     return buffer.getvalue()
 
 

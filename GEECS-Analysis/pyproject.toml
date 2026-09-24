@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-analysis"
-version = "0.13.0"
+version = "0.14.0"
 description = "Pure frame processing and unified GEECS analysis"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"

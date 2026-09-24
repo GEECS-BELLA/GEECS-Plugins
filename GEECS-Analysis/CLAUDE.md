@@ -75,7 +75,11 @@ that `recipe.compile_recipe` binds here — unknown names or parameters,
 undeclared or unused frame bindings, and a step or measure that does not
 process the input's frames raise `RecipeError`. Never duplicate step or
 measure specs into the schema package; the registry is the vocabulary and
-the editor lists it from here. Both formats compile to the one in-memory
+the editor lists it from here — `recipe.recipe_schema()` is the recipe's
+JSON Schema with `steps`/`measure` replaced by the registry's discriminated
+unions, every step/measure/summary variant tagged `x-ndim`; give every spec
+field a `description=`, the form shows it as help (pinned). Both formats
+compile to the one in-memory
 recipe (`V2Recipe`, renamed at A5) and run through `analyze_v2`; consumers
 call `compile_document` / `figure_of` / `summaries_of` / `is_line` and
 never ask which format they hold. `compat.convert.to_v3` converts a v2
