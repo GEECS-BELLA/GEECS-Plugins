@@ -267,7 +267,9 @@ The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
   as its schema AND binds to the registry (`compile_recipe`): an unknown
   step or parameter, a step or measure for the wrong frame shape, a frame
   input no step uses — reported at the form's field path, listed as
-  invalid, never written. Writes touch only the configs tree — the repo's
+  invalid, never written. `list()` runs the same cross-checks as
+  `validate()` (a group naming an unknown document lists as invalid too;
+  the analyzers tree is walked once per listing). Writes touch only the configs tree — the repo's
   scan-folder invariant is irrelevant by construction, and pinned
   portal-side.
 - **`scan_analysis.config_editor.create_editor_router(store, preview=,

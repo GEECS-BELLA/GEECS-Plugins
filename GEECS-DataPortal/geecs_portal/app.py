@@ -2158,7 +2158,7 @@ def create_app(
             else None
         )
         figures = ephemeral.render_document_as_run(
-            diag, [trace.data], auxiliary_data=aux
+            diag, [trace.data], scan_folder=folder, auxiliary_data=aux
         )
         if not figures:
             raise ValueError("this analyzer draws no figure for a single trace")
@@ -2210,7 +2210,11 @@ def create_app(
             raise kind(str(exc.detail)) from exc
         if resolved.array is None:
             raise LookupError(resolved.reason or resolved.kind)
-        figures = ephemeral.render_document_as_run(diag, [resolved.array])
+        # the recipe's frame inputs load from ITS device folder under this scan,
+        # exactly as the run loads them (a background image under {scan_dir})
+        figures = ephemeral.render_document_as_run(
+            diag, [resolved.array], scan_folder=folder
+        )
         if not figures:
             raise ValueError("this analyzer draws no figure for a single frame")
         return resources.figure_png(figures[0], tight=True)

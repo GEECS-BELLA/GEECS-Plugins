@@ -15,7 +15,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   The portal's palette/window overrides no longer reach the editor preview
   (they stay on the Images tab's processing selector). Pinned byte-for-byte
   against `single(analyze_v2(frame), figure_of(recipe))`.
+- The recipe's frame inputs (a background image under `{scan_dir}`) load
+  from the document's device folder under the previewed scan, exactly as
+  the run loads them (before, the placeholder stayed literal and the
+  fallback constant — or an error — stood in for the real frame).
 - A legacy-route preview that draws no figure is a 400, not a 500.
+- The drawer's "duplicate as" reports nothing when the open document is a
+  read-only format 2 diagnostic (the copy was never made); its tooltip
+  names what the copy drops.
 - The drawer's "duplicate for this device" patches the recipe's `device`
   (and the editor drops `output_name` / `input.folder` from the copy).
 

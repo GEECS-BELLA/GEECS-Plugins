@@ -191,7 +191,9 @@
     // parse as JSON; anything else is text (quote text that looks like a
     // number: "1")
     static parseValue(text) { const s = text.trim(); if (s === "") return ""; try { return JSON.parse(s); } catch (_) { return text; } }
-    static showValue(v) { return typeof v === "string" ? v : JSON.stringify(v); }
+    // a string that would parse as JSON ("0.5", a legal matplotlib grey; "true")
+    // is shown quoted, so reading the row back keeps it a string
+    static showValue(v) { if (typeof v !== "string") return JSON.stringify(v); try { JSON.parse(v.trim()); return v.trim() === "" ? v : JSON.stringify(v); } catch (_) { return v; } }
     kvRows(n, value, path, opts) {
       const box = el("div", { class: "kv" });
       const rows = [];
@@ -759,7 +761,9 @@
       const url = URL.createObjectURL(blob);
       previewBox.innerHTML = ""; previewBox.classList.remove("stale"); previewStale = false;
       const img = el("img", { src: url, alt: "preview" }); img.onload = () => URL.revokeObjectURL(url);
-      previewBox.append(img, el("div", { class: "msg" }, `${params.device} / shot ${params.shot} - drawn as a scan run of the document above draws it (unsaved)`));
+      previewBox.append(img, el("div", { class: "msg" }, state.readOnlyDoc
+        ? `${params.device} / shot ${params.shot} - drawn by the saved diagnostic's own analyzer (format 2)`
+        : `${params.device} / shot ${params.shot} - drawn as a scan run of the document above draws it (unsaved)`));
     }
     const previewDebounced = debounce(preview, 300);
     function markPreviewStale() {
@@ -778,9 +782,11 @@
     })();
 
     // Start a new document from the current form's content (a variant of the
-    // open diagnostic for the same device, say); Save then creates it.
+    // open recipe for the same device, say); Save then creates it. Resolves
+    // false when there is nothing to copy (a read-only document, a form that
+    // does not parse) so the host does not announce a copy that does not exist.
     async function duplicate(namespace, id, patch) {
-      const cur = currentDoc(); if (!cur || state.readOnlyDoc) return;
+      const cur = currentDoc(); if (!cur || state.readOnlyDoc) return false;
       state.readOnlyDoc = null;
       const doc = Object.assign(JSON.parse(JSON.stringify(cur)), patch || {});
       // The copy is a new identity: anything that pins the original's data
@@ -790,6 +796,7 @@
       state.id = id; state.namespace = namespace; state.etag = null; state.loadError = null; state.loadYaml = null;
       await buildForm(state.kind, doc, []);
       if (side) renderSide();
+      return true;
     }
 
     return {

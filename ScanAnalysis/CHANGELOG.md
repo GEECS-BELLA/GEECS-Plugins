@@ -22,7 +22,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `validate`/`list`/`read`/`save` bind a recipe to the registry
   (`compile_recipe`) after the schema: an unknown step or parameter, a step
   or measure for the wrong frame shape, a frame input no step uses — reported
-  at the form's field path, listed as invalid, never written.
+  at the form's field path, listed as invalid, never written. The same
+  listing check now applies to groups: a group naming an unknown document
+  lists as invalid (before, only `validate`/`save` refused it), with the
+  analyzers tree walked once per listing.
 - Preview caption: the pane is drawn as a scan run of the document draws it
   (the host's call; see GEECS-DataPortal 0.35.0).
 - Pinned under node on a fake DOM: a corpus beam recipe (frame input, overlay

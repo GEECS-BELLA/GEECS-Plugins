@@ -407,7 +407,13 @@ _BEAM_RECIPE = {
     "schema_version": 3,
     "device": "UC_TopView",
     "description": "IR mode at the input to amp3",
-    "metadata": {"location": "Room 148", "spatial_calibration": 2.44e-05},
+    # "532" and "true" below are STRINGS that would parse as JSON: the rows must
+    # show them quoted and read them back as strings (review #996 finding 1)
+    "metadata": {
+        "location": "Room 148",
+        "spatial_calibration": 2.44e-05,
+        "notes": "532",
+    },
     "input": {"kind": "camera"},
     "inputs": {"bg": {"path": "{scan_dir}/bg.png", "fallback_level": 3}},
     "steps": [
@@ -423,8 +429,9 @@ _BEAM_RECIPE = {
         "fig": {"dpi": 150},
         "axes": {"title": "top view"},
         "overlays": {
-            "com": {"color": "red", "hidden": False},
-            "projection_x": {"scale": 0.2},
+            # "0.5" is a legal matplotlib grey — as a STRING; retyped to 0.5 it breaks the draw
+            "com": {"color": "0.5", "hidden": False},
+            "projection_x": {"scale": 0.2, "label": "true"},
         },
     },
     "summaries": [
@@ -529,8 +536,15 @@ console.log(JSON.stringify(out));
         # every step's fields are addressable by the server's error locations
         assert "steps.1.units" in out[name]["paths"]  # the roi step's field
         assert "steps.1.bounds.0" in out[name]["paths"]  # its first bounds pair
-    # the corpus beam recipe's frame input and overlay rows came back too
+    # the corpus beam recipe's frame input and overlay rows came back too —
+    # the JSON-looking strings as strings, the typed values typed
     assert out["beam"]["roundtrip"]["inputs"] == _BEAM_RECIPE["inputs"]
+    assert out["beam"]["roundtrip"]["figure"]["overlays"]["com"]["color"] == "0.5"
+    assert out["beam"]["roundtrip"]["metadata"]["notes"] == "532"
+    assert out["beam"]["roundtrip"]["figure"]["overlays"]["projection_x"] == {
+        "scale": 0.2,
+        "label": "true",
+    }
     assert (
         out["beam"]["roundtrip"]["figure"]["overlays"]
         == _BEAM_RECIPE["figure"]["overlays"]

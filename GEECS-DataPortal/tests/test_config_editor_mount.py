@@ -235,6 +235,65 @@ class TestPreview:
         other.savefig(buffer, format="png", bbox_inches="tight")
         assert r.content != buffer.getvalue()
 
+    def test_the_preview_loads_the_recipes_frame_inputs_like_the_run(
+        self, scan_folder, configs_tree
+    ):
+        """A background under ``{scan_dir}`` resolves to the device folder, as in a run.
+
+        Without the scan folder the placeholder stays literal, the read
+        fails, and a recipe without a fallback level makes the preview an
+        error — so this test fails (400) if the folder is not passed, and
+        the bytes pin that the REAL background frame was subtracted.
+        """
+        import io
+
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("PIL")
+        from geecs_analysis.compat.v2 import analyze_v2
+        from geecs_analysis.recipe import figure_of
+        from geecs_analysis.render import single
+        from geecs_schemas.analysis import load_analysis_document
+        from PIL import Image
+        from scan_analysis.core_inputs import prepare_v2
+
+        rng = np.random.default_rng(2)
+        frame = rng.integers(500, 4000, size=(12, 16), dtype=np.uint16)
+        background = rng.integers(0, 400, size=(12, 16), dtype=np.uint16)
+        Image.fromarray(frame).save(scan_folder / "cam" / "Scan002_cam_001.png")
+        Image.fromarray(background).save(scan_folder / "cam" / "bg.png")
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        recipe = {
+            "schema_version": 3,
+            "device": "cam",
+            "input": {"kind": "camera"},
+            "inputs": {"bg": {"path": "{scan_dir}/bg.png"}},  # no fallback level
+            "steps": [{"step": "background_frame", "source": "bg"}],
+            "measure": {"kind": "beam"},
+            "figure": {"imshow": {"cmap": "magma"}},
+        }
+        r = client.post(
+            "/configs/api/preview",
+            json={
+                "document": recipe,
+                "params": {"uid": "uid-002", "device": "cam", "shot": 1},
+            },
+        )
+        assert r.status_code == 200, r.text
+        document = load_analysis_document(recipe)
+        prepared = prepare_v2(document, data_dir=scan_folder / "cam")
+        expected = single(
+            analyze_v2(frame, prepared.recipe, inputs=prepared.inputs),
+            figure_of(document),
+        )
+        buffer = io.BytesIO()
+        expected.savefig(buffer, format="png", bbox_inches="tight")
+        assert r.content == buffer.getvalue()
+        # the subtraction happened: the drawn frame is not the raw one
+        assert not np.array_equal(
+            analyze_v2(frame, prepared.recipe, inputs=prepared.inputs).frame.data,
+            frame.astype(float),
+        )
+
 
 _LINE_DOC = {
     "schema_version": 2,

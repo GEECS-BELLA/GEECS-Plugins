@@ -176,13 +176,11 @@ class Saved:
         }
 
 
-#: The document per kind: the analysis recipe (format 3) is what the editor
-#: writes; a v2 diagnostic still loads and validates (``load_analysis_document``
-#: dispatches on the file's own version) but is shown read-only.
-_MODELS: dict[str, type[BaseModel]] = {
-    "analyzer": AnalysisRecipe,
-    "group": AnalysisGroup,
-}
+#: The model per kind, for the kinds with one. An ``analyzer`` file is either
+#: analysis format: the recipe (format 3) is what the editor writes, a v2
+#: diagnostic still loads and validates (``load_analysis_document`` dispatches
+#: on the file's own version) but is shown read-only.
+_MODELS: dict[str, type[BaseModel]] = {"group": AnalysisGroup}
 _FOLDERS: dict[str, str] = {"analyzer": "analyzers", "group": "groups"}
 
 
@@ -334,6 +332,8 @@ class ConfigStore:
     def list(self, kind: DocumentKind) -> list[Entry]:
         """Every document of ``kind``, valid or not (invalid ones carry the error)."""
         entries: list[Entry] = []
+        # the analyzers tree is walked once per listing, not once per group
+        known = set(self.known_ids()) if kind == "group" else None
         for path in self._files(kind):
             ns = self._ns(kind, path)
             try:
@@ -346,9 +346,9 @@ class ConfigStore:
             except Exception as exc:  # noqa: BLE001 — a broken YAML is an entry, not a crash
                 entries.append(Entry(path.stem, ns, kind, False, _one_line(exc)))
                 continue
-            # a recipe the core cannot bind is a file that fails at run time:
-            # listed as invalid, like a group naming an unknown diagnostic
-            errors = self._cross_checks(kind, doc)
+            # beyond the schema: a recipe the core cannot bind, a group naming
+            # an unknown document — files that fail at run time list as invalid
+            errors = self._cross_checks(kind, doc, known=known)
             if errors:
                 entries.append(Entry(path.stem, ns, kind, False, errors[0]["msg"]))
                 continue
@@ -428,15 +428,21 @@ class ConfigStore:
         return Report(True, [], canonical, dump_yaml(canonical))
 
     def _cross_checks(
-        self, kind: DocumentKind, model: BaseModel
+        self,
+        kind: DocumentKind,
+        model: BaseModel,
+        *,
+        known: Optional[set[str]] = None,
     ) -> list[dict[str, str]]:
         """Checks beyond the document's own schema: the tree, and the registry.
 
-        A group's references must name documents in the tree; a recipe's
-        steps and measure must bind to the analysis core's registry.
+        A group's references must name documents in the tree (``known``: the
+        IDs, when the caller already listed them); a recipe's steps and
+        measure must bind to the analysis core's registry.
         """
         if kind == "group":
-            known = set(self.known_ids())
+            if known is None:
+                known = set(self.known_ids())
             return [
                 {"loc": f"analyzers.{i}.ref", "msg": f"unknown diagnostic {ref.ref!r}"}
                 for i, ref in enumerate(model.analyzers)
