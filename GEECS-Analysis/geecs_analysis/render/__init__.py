@@ -42,6 +42,48 @@ def _label(name: str, unit: str) -> str:
     return f"{name} ({unit})" if unit else name
 
 
+# Keywords that place the colorbar themselves; when a recipe passes any of them
+# the layout is the user's, and the colorbar is not refitted to the image.
+_COLORBAR_PLACEMENT_KEYS = frozenset(
+    {"location", "orientation", "shrink", "anchor", "panchor"}
+)
+
+
+def _add_colorbar(fig: Figure, artist, axes: list[Axes], kwargs: dict) -> None:
+    """Add a colorbar whose long side spans the drawn images, not their slots.
+
+    Fixed-aspect images shrink inside the slot the layout engine gives their
+    axes, while a colorbar placed with ``ax=`` keeps the full slot height. A
+    locator re-derives the colorbar box at every draw (layout reruns on each
+    save): it keeps the layout's pad and width rules but maps the slot's
+    vertical extent onto the union of the axes as drawn, so a colorbar on an
+    aspect-free axes is unchanged.
+    """
+    from matplotlib.transforms import Bbox
+
+    colorbar = fig.colorbar(artist, ax=axes, **kwargs)
+    if _COLORBAR_PLACEMENT_KEYS & kwargs.keys():
+        return
+    base = colorbar.ax.get_axes_locator()
+
+    def locate(cax: Axes, renderer) -> Bbox:
+        slot = cax.get_position(original=True)
+        pos = base(cax, renderer) if base else slot
+        laid_out = Bbox.union([ax.get_position(original=True) for ax in axes])
+        for ax in axes:
+            ax.apply_aspect()
+        drawn = Bbox.union([ax.get_position(original=False) for ax in axes])
+        scale = drawn.height / slot.height
+        return Bbox.from_bounds(
+            drawn.x1 + (pos.x0 - laid_out.x1),
+            drawn.y0 + (pos.y0 - slot.y0) * scale,
+            pos.width,
+            pos.height * scale,
+        )
+
+    colorbar.ax.set_axes_locator(locate)
+
+
 def draw_frame(ax: Axes, frame: Frame, style: FigureSpec | None = None) -> None:
     """Draw a 1D trace or calibrated image into supplied object-API axes."""
     import numpy as np
@@ -81,7 +123,7 @@ def draw_frame(ax: Axes, frame: Frame, style: FigureSpec | None = None) -> None:
     ax.set_ylabel(_label(y.label or "y", y.unit))
     colorbar = deepcopy(style.colorbar)
     if colorbar.pop("show", True):
-        ax.figure.colorbar(artist, ax=ax, **colorbar)
+        _add_colorbar(ax.figure, artist, [ax], colorbar)
 
 
 def draw_overlays(
@@ -322,7 +364,7 @@ def image_grid(
             ax.set_visible(False)
         colorbar = deepcopy(style.colorbar)
         if colorbar.pop("show", True):
-            fig.colorbar(artists[0], ax=list(axes[: len(results)]), **colorbar)
+            _add_colorbar(fig, artists[0], list(axes[: len(results)]), colorbar)
         FigureCanvasAgg(fig).draw()
         return fig
     except RenderError:

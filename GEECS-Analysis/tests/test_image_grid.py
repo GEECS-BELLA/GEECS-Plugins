@@ -114,3 +114,13 @@ def test_empty_traces_and_mixed_units_are_refused():
     ):
         with pytest.raises(RenderError):
             image_grid(results)
+
+
+def test_shared_colorbar_spans_the_drawn_panels_not_the_grid_slots():
+    fig = image_grid([result(np.ones((40, 160)))] * 5, columns=3)
+    fig.savefig(BytesIO(), format="png")
+    panels = [ax.get_position(original=False) for ax in fig.axes[:5]]
+    cax = fig.axes[-1].get_position(original=False)
+    assert cax.y0 == pytest.approx(min(p.y0 for p in panels), abs=1e-6)
+    assert cax.y1 == pytest.approx(max(p.y1 for p in panels), abs=1e-6)
+    assert cax.x0 > max(p.x1 for p in panels)
