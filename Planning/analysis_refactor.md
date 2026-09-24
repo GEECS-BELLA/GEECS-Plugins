@@ -236,10 +236,64 @@ backgrounds are refused because the legacy wrapper would write beside the
 archived reference scan. Both use `scan_analysis.route_compare`, the one
 definition of equal outputs.
 
-Still required for the first milestone: that comparison on the archived
-canonical beam and MagSpec scans (owed: the share was unmounted when the
-harness landed), portal native trace input, operator figure review and live
-optimizer acceptance.
+### Archived-scan comparison (2026-09-23)
+
+The harness ran on the two canonical scans from the mounted share, on the
+integration branch at the #983 merge (4f95ba02), with `MPLBACKEND=Agg`:
+
+| Scan | Recipe | Shots | Files per route | legacy / core | Result |
+|---|---|---|---|---|---|
+| Undulator 25_0220 Scan014 | `HTU/Amp4Input.yaml`, `--set scan.data_format=per_shot_files` | 218 | 4: s-file, sidecar, average HDF5, average figure | 5.8 s / 4.7 s | MATCH |
+| Undulator 25_1118 Scan002 | `HTU/BcaveMagSpecStitcherSpec.yaml` | 101 | 5: the same plus the waterfall | 1.2 s / 1.3 s | MATCH |
+
+MATCH means `route_compare` found no difference in the file lists, the
+average HDF5 payloads, the s-file and sidecar tables (decoded, value by
+value: 18 beam scalars over 218 rows; 6 line scalars over 101 rows) or the
+display-file names. The beam average (599×599 float64) is bit-identical; the
+MagSpec average (2000×2 float32) differs by at most 1.1e-11 absolute,
+1.8e-7 relative, 3 ulps of the stored float32 by value spacing, inside the
+4-ulp noscan tolerance above: the one place the tolerance was exercised. The
+comparison bites: adding 1e-3 to one element of the core's average HDF5, or
+changing one value in one s-file row, each produced a `DIFF` line against
+the legacy tree. Tables are compared decoded, so an edit that leaves the
+value unchanged is invisible, as is a figure's pixel content: display files
+are compared by name only.
+
+Two parity facts the MATCH does not show. 50 MagSpec shots are beamless
+(integrated intensity 0) and yield non-finite CoM/rms/fwhm on both routes:
+the sidecars match NaN for NaN; the core logs each (150 `Nonfinite scalar`
+lines), the legacy wrapper logs nothing because its per-shot work runs in
+process pools. And `merge_updates` writes s-file cells through
+`combine_first`, so those 150 NaN cells left the archived 2025 values in
+place on both routes: the s-file comparison there compares the share's
+values with themselves, and the sidecars are the evidence that both routes
+computed the same scalars. On the beam scan every s-file device cell equals
+its sidecar cell. The legacy `append_to_sfile` "columns already exist (will
+overwrite)" notice fires on both routes and is not literally true for NaN
+cells: pre-existing behaviour, part of the cleanup already promised, not a
+route difference.
+
+Figure content is outside the harness (two renderers). Side-by-side
+inspection of the three figures (beam average, MagSpec average trace,
+MagSpec waterfall; the waterfall is the harness's only MagSpec display
+file): identical image, trace, waterfall rows and colour scales; the labels
+and the canvas/tick layout differ. Legacy: `X Pixels`/`Y Pixels` with an
+unlabeled colourbar; `X`/`Y` on the average trace; the TSV column headers on
+the waterfall (`Momentum_GeV/c (MeV)`, `ChargeDen_pC/GeV`). Core: `x (px)`/
+`y (px)` with an `Intensity` colourbar; `x (MeV)` on the trace and the
+waterfall, with the recipe's `label` (`Charge density vs Energy`) as the
+trace's y label and the waterfall's colourbar label; both core canvases are
+larger (beam 616×617 vs 586×475 px, waterfall 1514×1217 vs 1460×1184) and
+the beam ticks sit at 200/400 rather than from the origin. Whether the
+core's labels stand is the operator figure review; nothing in the data
+differs.
+
+`./scripts/check.sh` on this branch ran all ten suites: OK, 3,408 passed.
+
+Still required for the first milestone: portal native trace input (#984,
+open), operator figure review and live optimizer acceptance, then the
+promotion PR. This file is deleted at prune, so the promotion PR's body
+carries the numbers above as its verification section.
 
 ## Decisions
 
