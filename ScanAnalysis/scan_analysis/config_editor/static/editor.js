@@ -491,7 +491,7 @@
     // the summaries over a few shots of the same scan: one image per summary kind
     const summaryBox = el("div", { class: "ce-preview ce-summaries" });
     const shotsInput = el("input", { type: "number", min: "1", max: "8", value: "4", title: "how many shots of the scan, from shot 1, feed the summaries (bounded: a handful, never the whole scan)" });
-    const summaryBtn = el("button", { type: "button", title: "draw every summary of the document over the first shots of the scan, as a run would draw them with one panel per shot", onclick: () => { const d = currentDoc(); if (d && state.kind === "analyzer") summaryPreview(d); } }, "preview summaries");
+    const summaryBtn = el("button", { type: "button", title: "lay out every summary of the document over the first shots of the scan, one panel per shot (a run's grid panels are per bin; this shows each kind's layout and palette on real frames)", onclick: () => { const d = currentDoc(); if (d && state.kind === "analyzer") summaryPreview(d); } }, "preview summaries");
     const summaryHead = el("div", { class: "ce-preview-head" }, el("h4", {}, "summaries"), el("label", { class: "ce-auto" }, "shots ", shotsInput), summaryBtn);
     // The preview renders the edited (unsaved) document on the host's shot.
     // On demand by default - one render per click - or after every edit
@@ -512,11 +512,14 @@
     right.append(el("h4", {}, "yaml"), yamlBox, okBox, errBox);
 
     function hasSummaryPreview() { return hasPreview && !!(state.listing && state.listing.summary_preview); }
+    // the host's own cap on shots per summary preview (its listing says)
+    function shotsMax() { const m = state.listing && Number(state.listing.summary_shots_max); return m > 0 ? m : 8; }
     // ----- listing
     async function loadListing() {
       state.listing = await api(base, "/list");
       if (side) renderSide();
       const draws = hasSummaryPreview(); summaryHead.hidden = !draws; summaryBox.hidden = !draws;
+      shotsInput.max = String(shotsMax());
       return state.listing;
     }
     // The sidebar's collapse state, per browser.  It is a convenience, not
@@ -759,12 +762,12 @@
     async function summaryPreview(doc) {
       const base_params = opts.preview.params();
       if (!base_params) { summaryBox.innerHTML = '<div class="msg">select a device on the Images tab to preview the summaries</div>'; return; }
-      const shots = Math.max(1, Math.min(8, Number(shotsInput.value) || 4));
+      const shots = Math.max(1, Math.min(shotsMax(), Number(shotsInput.value) || 4));
       const params = Object.assign({}, base_params, { shots });
       // a recipe lists its summaries; a format 2 diagnostic draws the fixed pair
       const count = Array.isArray(doc.summaries) ? doc.summaries.length : 2;
       const seq = ++summarySeq;
-      summaryBox.innerHTML = "";
+      summaryBox.innerHTML = ""; summaryBox.classList.remove("stale");
       if (!count) { summaryBox.append(el("div", { class: "msg" }, "the document lists no summaries")); return; }
       summaryBox.append(el("div", { class: "msg" }, `drawing ${count} summar${count === 1 ? "y" : "ies"} over shots 1-${shots}...`));
       const cards = [];
@@ -782,7 +785,7 @@
         const url = URL.createObjectURL(blob);
         const img = el("img", { src: url, alt: `${kind} summary` }); img.onload = () => URL.revokeObjectURL(url);
         const how = kind === "average" ? "their average" : kind === "waterfall" ? "one row per shot" : "one panel per shot";
-        cards.push(el("div", { class: "card" }, img, el("div", { class: "msg" }, `${kind} - shots 1-${shots} of ${params.device}, ${how}, drawn as the run's summary figure`)));
+        cards.push(el("div", { class: "card" }, img, el("div", { class: "msg" }, `${kind} layout over shots 1-${shots} of ${params.device}, ${how} (a run's panels are per bin)`)));
       }
       summaryBox.innerHTML = ""; summaryBox.append(...cards);
     }
@@ -813,6 +816,8 @@
       previewStale = true; previewBox.classList.add("stale");
       const m = previewBox.querySelector(".msg");
       if (m) m.textContent = "edited since this render - click preview (or turn on auto)";
+      // the summary cards were drawn from the document as it was then, too
+      if (summaryBox.hasChildNodes()) { summaryBox.classList.add("stale"); summaryBox.querySelectorAll(".card .msg").forEach((c) => { c.textContent = "edited since this render - click preview summaries"; }); }
     }
 
     // ----- boot

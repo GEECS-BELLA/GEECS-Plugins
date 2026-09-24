@@ -20,9 +20,8 @@ from geecs_schemas.analysis import (
     load_analysis_document,
 )
 from pydantic import ValidationError
-from scan_analysis.core_inputs import prepare_v2
 
-from geecs_analysis.compat.v2 import UnsupportedRecipe, analyze_v2
+from geecs_analysis.compat.v2 import UnsupportedRecipe
 from geecs_analysis.measurement import Measurement
 from geecs_analysis.recipe import figure_of
 from geecs_analysis.render import RenderError, single
@@ -52,9 +51,13 @@ def process_images(
     name: str, arrays: Sequence[np.ndarray], *, config_dir: Path
 ) -> list[np.ndarray | None]:
     """Process each member independently; None preserves the non-image refusal."""
+    from scan_analysis.core_preview import measure_frame, prepare_document
+
     document = load_diagnostic(name, config_dir=config_dir)
     try:
-        prepared = prepare_v2(document)
+        # the batch route has no scan folder in hand: a recipe's frame inputs
+        # keep their placeholder here (fallback level, or an error), as before
+        prepared = prepare_document(document)
     except UnsupportedRecipe:
         from image_analysis.ephemeral import run_document_ephemeral
 
@@ -62,9 +65,7 @@ def process_images(
             getattr(result, "processed_image", None)
             for result in run_document_ephemeral(document, arrays)
         ]
-    results = [
-        analyze_v2(array, prepared.recipe, inputs=prepared.inputs) for array in arrays
-    ]
+    results = [measure_frame(prepared, array) for array in arrays]
     return [r.frame.data if r.frame.data.ndim == 2 else None for r in results]
 
 

@@ -98,8 +98,7 @@ def test_only_capability_refusal_selects_legacy(recipe_tree, monkeypatch):
 
     import scan_analysis.core_preview as core_preview
 
-    monkeypatch.setattr(processing, "analyze_v2", fail_core)
-    # the render path analyses through ScanAnalysis' preview seam
+    # every route analyses through ScanAnalysis' preview seam
     monkeypatch.setattr(core_preview, "analyze_v2", fail_core)
     monkeypatch.setattr(ephemeral, "run_document_ephemeral", forbid_retry)
     monkeypatch.setattr(ephemeral, "render_document_ephemeral", forbid_retry)

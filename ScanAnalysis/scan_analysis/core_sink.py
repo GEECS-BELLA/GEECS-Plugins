@@ -48,6 +48,35 @@ def _destination(directory: Path, name: str) -> Path:
     return path
 
 
+def draw_product(
+    measurement, figure, *, position: float | None = None, position_label: str = ""
+):
+    """The per-frame draw of every shot and bin product: ``single`` with the recipe's figure.
+
+    A bin product on a scan is titled by its position (``label = value``);
+    a shot product, or a preview, carries no title. The editor's frame
+    preview (``core_preview.preview_frame``) makes this same call.
+    """
+    style = figure
+    if position is not None and position_label:
+        title = f"{position_label} = {position:.3f}"
+        style = style.model_copy(update={"axes": {**style.axes, "title": title}})
+    return single(measurement, style)
+
+
+def draw_summary(options, measurements, positions, label: str, figure):
+    """The summary draw: the registered kind's layout over the products it consumes.
+
+    ``options`` is one of the recipe's summary entries; the kind's own
+    function draws ``measurements`` at ``positions`` under ``label``. The
+    sink and the editor's summary preview (``core_preview.preview_summary``)
+    make this same call.
+    """
+    return summary_definition(options).function(
+        list(measurements), list(positions), label, options, figure
+    )
+
+
 def _save_figure(fig, path: Path) -> None:
     try:
         fig.savefig(path, bbox_inches="tight")
@@ -107,12 +136,13 @@ def save_products(
             # The noscan average is a summary: the ``average`` kind draws it.
             average = product
             continue
-        style = spec.figure
-        if product.position is not None and plan.position_label:
-            title = f"{plan.position_label} = {product.position:.3f}"
-            style = style.model_copy(update={"axes": {**style.axes, "title": title}})
         try:
-            fig = single(product.measurement, style)
+            fig = draw_product(
+                product.measurement,
+                spec.figure,
+                position=product.position,
+                position_label=plan.position_label,
+            )
         except RenderError as exc:
             notes.append(f"Skipped {stem}_visual.png: {exc}")
             continue
@@ -130,11 +160,11 @@ def save_products(
                 continue
             panels = plan.summary
         try:
-            fig = definition.function(
+            fig = draw_summary(
+                options,
                 [p.measurement for p in panels],
                 [p.position for p in panels],
                 plan.position_label,
-                options,
                 spec.figure,
             )
         except RenderError as exc:

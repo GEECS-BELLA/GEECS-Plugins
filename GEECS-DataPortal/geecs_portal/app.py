@@ -2211,9 +2211,10 @@ def create_app(
         trace reader (lines); shots the device missed are skipped. The
         summary is drawn by ScanAnalysis' ``core_preview.preview_summary``
         — the sink's own summary call — with one panel per shot at its shot
-        number, labelled ``shot``, so an image grid shows one panel per
-        shot, a waterfall one row per shot, and the ``average`` kind the
-        shots' average.
+        number under the run's noscan label, so an image grid shows one
+        panel per shot, a waterfall one row per shot, and the ``average``
+        kind the shots' average: the kind's layout on real frames (a run's
+        grid panels are per-bin averages).
         """
         from geecs_analysis.recipe import is_line
         from geecs_schemas.analysis import load_analysis_document
@@ -2222,8 +2223,9 @@ def create_app(
         uid = str(params.get("uid") or "")
         device = str(params.get("device") or "")
         day = str(params.get("day") or "")
+        raw_shots = params.get("shots")
         try:
-            shots = int(params.get("shots") or 4)
+            shots = 4 if raw_shots in (None, "") else int(raw_shots)
         except (TypeError, ValueError) as exc:
             raise ValueError("shots must be an integer") from exc
         if not uid or not device:
@@ -2247,8 +2249,10 @@ def create_app(
             raise LookupError(
                 f"none of shots 1-{shots} has a {device} frame: " + "; ".join(missing)
             )
+        from scan_analysis.core_products import NOSCAN_POSITION_LABEL
+
         fig = ephemeral.render_summary_as_run(
-            diag, arrays, positions, "shot", index, scan_folder=folder
+            diag, arrays, positions, NOSCAN_POSITION_LABEL, index, scan_folder=folder
         )
         return resources.figure_png(fig, tight=True)
 
@@ -2297,6 +2301,7 @@ def create_app(
                     ConfigStore(Path(processing_config_dir)),
                     preview=_config_editor_preview,
                     summary_preview=_config_editor_summary_preview,
+                    summary_shots_max=_SUMMARY_SHOTS_MAX,
                     theme_url="/theme",
                 ),
                 prefix="/configs",

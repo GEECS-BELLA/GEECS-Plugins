@@ -333,6 +333,7 @@ class TestSummaryPreview:
         from geecs_schemas.analysis import load_analysis_document
         from PIL import Image
         from scan_analysis.core_preview import preview_summary
+        from scan_analysis.core_products import NOSCAN_POSITION_LABEL
 
         rng = np.random.default_rng(4)
         frames = [
@@ -352,7 +353,12 @@ class TestSummaryPreview:
         document = load_analysis_document(self.RECIPE)
         # the panels sit at their shot numbers, the skipped shots absent
         expected = preview_summary(
-            document, frames, [1.0, 3.0], "shot", 0, scan_folder=scan_folder
+            document,
+            frames,
+            [1.0, 3.0],
+            NOSCAN_POSITION_LABEL,
+            0,
+            scan_folder=scan_folder,
         )
         buffer = io.BytesIO()
         expected.savefig(buffer, format="png", bbox_inches="tight")
@@ -361,7 +367,12 @@ class TestSummaryPreview:
         r = self._post(client, self.RECIPE, 1, shots=4)
         assert r.status_code == 200, r.text
         expected = preview_summary(
-            document, frames, [1.0, 3.0], "shot", 1, scan_folder=scan_folder
+            document,
+            frames,
+            [1.0, 3.0],
+            NOSCAN_POSITION_LABEL,
+            1,
+            scan_folder=scan_folder,
         )
         buffer = io.BytesIO()
         expected.savefig(buffer, format="png", bbox_inches="tight")
@@ -372,8 +383,48 @@ class TestSummaryPreview:
         assert r2.status_code == 200 and r2.content != grid.content
         # no third summary in the document
         assert self._post(client, self.RECIPE, 2, shots=4).status_code == 404
-        # a request beyond the cap reads at most 8 shots (here: the 3 present)
+
+    def test_the_cap_bounds_the_reads(self, scan_folder, configs_tree, monkeypatch):
+        """At most 8 shots are read however many are asked: the shared host's memory."""
+        from dataclasses import replace
+        from types import SimpleNamespace
+
+        import pandas as pd
+        from geecs_portal import resources
+        from test_app import _LV
+
+        np = pytest.importorskip("numpy")
+        loads: list[int] = []
+        frame = np.full((12, 16), 900, dtype=np.uint16)
+
+        def counting_load(folder, device, shot, **kwargs):
+            loads.append(shot)
+            return SimpleNamespace(array=frame, kind="png", reason=None)
+
+        monkeypatch.setattr(resources, "load_shot_array", counting_load)
+        catalog = FakeCatalog()
+        # a run of 20 events, every shot with a timestamp
+        detail = replace(
+            _detail(2),
+            data=pd.DataFrame(
+                {
+                    "scan_event_index": list(range(1, 21)),
+                    "cam-acq_timestamp": [_LV + i for i in range(1, 21)],
+                }
+            ),
+        )
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        catalog.details["uid-002"] = detail
+        client = TestClient(
+            create_app(catalog, processing_config_dir=configs_tree, config_editor=True)
+        )
+        assert client.get("/configs/api/list").json()["summary_shots_max"] == 8
         assert self._post(client, self.RECIPE, 0, shots=500).status_code == 200
+        assert loads == list(range(1, 9))
+        loads.clear()
+        # zero asks for the fewest, not the default
+        assert self._post(client, self.RECIPE, 0, shots=0).status_code == 200
+        assert loads == [1]
 
     def test_no_frames_at_all_is_404_and_bad_shots_400(self, scan_folder, configs_tree):
         client = _client(scan_folder, configs_tree, config_editor=True)

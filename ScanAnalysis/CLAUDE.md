@@ -12,7 +12,8 @@ scan_analysis/
   core_source.py                   # completed-scan native/stack input mapping and reads
   core_scan.py                     # write-free scan preparation, grouping and execution
   core_products.py                 # write-free average/bin and summary product planning
-  core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN
+  core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN; draw_product / draw_summary
+  core_preview.py                  # the editor's previews through the run's own calls (frame; a summary's layout over a few shots)
   core_analyzer.py                 # CoreScanAnalyzer: the core route behind the ScanAnalyzer contract
   route_compare.py                 # snapshot + compare two routes' analysis trees (one equality rule)
   task_queue.py                    # Task claiming, heartbeat, YAML status system
@@ -302,10 +303,16 @@ The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
   resolved from the document's device folder under the scan — cropped
   tight like the product PNG, so what the pane shows is the product file
   the run would write. The **summaries** block (`POST /api/preview/summary`,
-  host hook `summary_preview=`) draws each summary kind over a few of the
-  host's shots through `preview_summary`, the sink's summary call: one
-  panel (row) per shot at its shot number, or the shots' average. Both are
-  pinned byte-for-byte against `save_products`' files
+  host hook `summary_preview=`, cap `summary_shots_max=` carried in
+  `/api/list`) lays out each summary kind over a few of the host's shots
+  through `preview_summary` — `core_sink.draw_summary`, the sink's own
+  call — one panel (row) per shot at its shot number under the run's
+  noscan label (`core_products.NOSCAN_POSITION_LABEL`), or the shots'
+  average. That is the kind's *layout* on real frames (a run's grid
+  panels are per-bin averages, and a camera run on a noscan writes no
+  grid), while the frame preview is the product file itself. Both draws
+  are the sink's functions (`draw_product` / `draw_summary`), pinned
+  byte-for-byte against `save_products`' files
   (`tests/test_core_preview.py`); a host never re-derives the pairing. The form is pinned under node on a fake DOM
   (`test_recipe_form_round_trips_and_reorders`: a corpus recipe reads back
   canonical-equal, move-up swaps steps and renumbers paths). No build

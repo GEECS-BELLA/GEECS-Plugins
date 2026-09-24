@@ -79,6 +79,7 @@ def create_editor_router(
     *,
     preview: Optional[PreviewFn] = None,
     summary_preview: Optional[SummaryPreviewFn] = None,
+    summary_shots_max: int = 8,
     read_only: bool = False,
     theme_url: str = "/theme",
 ) -> APIRouter:
@@ -95,6 +96,9 @@ def create_editor_router(
         Host-provided summary preview (the document's summaries over a few
         shots of the current scan); without it ``POST /api/preview/summary``
         is 404 and the page hides that block.
+    summary_shots_max : int, default 8
+        The most shots the host reads for one summary preview; the page
+        bounds its shots control by it (``/api/list`` carries it).
     read_only : bool, default False
         Serve the browser and validation but refuse writes (405).
     theme_url : str, default "/theme"
@@ -146,6 +150,7 @@ def create_editor_router(
                 "pending": store.pending_changes(),
                 "preview": preview is not None,
                 "summary_preview": summary_preview is not None,
+                "summary_shots_max": summary_shots_max,
                 "read_only": read_only,
             },
             headers={"Cache-Control": "no-cache"},
