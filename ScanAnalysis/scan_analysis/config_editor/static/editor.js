@@ -10,6 +10,7 @@
  *   ConfigEditor.mount(container, {
  *     base,                 // URL of the editor router mount ("" | "/configs" | proxied)
  *     preview,              // null, or {params: () => ({uid, device, shot, day}), label}
+ *                           // (the host's /api/list says whether it also draws summaries)
  *     readOnly,             // hide Save / New / Delete
  *     layout,               // "page" (sidebar + form + right pane) | "drawer" (form + right pane)
  *     initial,              // {kind: "analyzer"|"group", id} to open first
@@ -487,6 +488,11 @@
     const errBox = el("div", { class: "ce-errors" });
     const okBox = el("div", { class: "ce-ok" });
     const previewBox = el("div", { class: "ce-preview" });
+    // the summaries over a few shots of the same scan: one image per summary kind
+    const summaryBox = el("div", { class: "ce-preview ce-summaries" });
+    const shotsInput = el("input", { type: "number", min: "1", max: "8", value: "4", title: "how many shots of the scan, from shot 1, feed the summaries (bounded: a handful, never the whole scan)" });
+    const summaryBtn = el("button", { type: "button", title: "draw every summary of the document over the first shots of the scan, as a run would draw them with one panel per shot", onclick: () => { const d = currentDoc(); if (d && state.kind === "analyzer") summaryPreview(d); } }, "preview summaries");
+    const summaryHead = el("div", { class: "ce-preview-head" }, el("h4", {}, "summaries"), el("label", { class: "ce-auto" }, "shots ", shotsInput), summaryBtn);
     // The preview renders the edited (unsaved) document on the host's shot.
     // On demand by default - one render per click - or after every edit
     // with "auto" on; the choice is remembered per browser.
@@ -501,12 +507,16 @@
       if (autoPreview && previewStale) previewBtn.click();
     });
     if (hasPreview) right.append(el("div", { class: "ce-preview-head" }, el("h4", {}, opts.preview.label || "preview"), previewBtn, el("label", { class: "ce-auto" }, autoBox, " auto")), previewBox);
+    // shown once the listing says the host draws summaries (hidden until then)
+    if (hasPreview) { summaryHead.hidden = true; summaryBox.hidden = true; right.append(summaryHead, summaryBox); }
     right.append(el("h4", {}, "yaml"), yamlBox, okBox, errBox);
 
+    function hasSummaryPreview() { return hasPreview && !!(state.listing && state.listing.summary_preview); }
     // ----- listing
     async function loadListing() {
       state.listing = await api(base, "/list");
       if (side) renderSide();
+      const draws = hasSummaryPreview(); summaryHead.hidden = !draws; summaryBox.hidden = !draws;
       return state.listing;
     }
     // The sidebar's collapse state, per browser.  It is a convenience, not
@@ -644,7 +654,7 @@
         if (!ro.valid) main.append(el("div", { class: "ce-errors" }, (ro.errors || []).map((e) => (e.loc ? `${e.loc}: ` : "") + e.msg).join("\n")));
         main.append(el("pre", { class: "ce-yaml" }, ro.yaml || ""));
         state.form = null; state.formRoot = null; state.dirtyEl = dirty; state.saveBtn = null;
-        errBox.textContent = ""; okBox.textContent = ""; previewBox.innerHTML = ""; yamlBox.textContent = "";
+        errBox.textContent = ""; okBox.textContent = ""; previewBox.innerHTML = ""; summaryBox.innerHTML = ""; yamlBox.textContent = "";
         // the saved document still previews: the pane shows what its run draws
         state.get = ro.valid ? () => d : null;
         if (state.get) await validate();
@@ -673,7 +683,7 @@
           main.append(dl);
         }
       }
-      errBox.textContent = ""; okBox.textContent = ""; previewBox.innerHTML = "";
+      errBox.textContent = ""; okBox.textContent = ""; previewBox.innerHTML = ""; summaryBox.innerHTML = "";
       if (errors && errors.length) { Form.showErrors(formRoot, errors); errBox.textContent = errors.map((e) => `${e.loc}: ${e.msg}`).join("\n"); }
       await validate();
       if (state.etag === null) markDirty();
@@ -742,6 +752,39 @@
         state.kind = null; state.id = null; main.innerHTML = '<div class="ce-empty">deleted</div>'; yamlBox.textContent = "";
         await loadListing();
       } catch (e) { errBox.textContent = e.message; }
+    }
+
+    // ----- the summaries over a few shots (host-provided)
+    let summarySeq = 0;
+    async function summaryPreview(doc) {
+      const base_params = opts.preview.params();
+      if (!base_params) { summaryBox.innerHTML = '<div class="msg">select a device on the Images tab to preview the summaries</div>'; return; }
+      const shots = Math.max(1, Math.min(8, Number(shotsInput.value) || 4));
+      const params = Object.assign({}, base_params, { shots });
+      // a recipe lists its summaries; a format 2 diagnostic draws the fixed pair
+      const count = Array.isArray(doc.summaries) ? doc.summaries.length : 2;
+      const seq = ++summarySeq;
+      summaryBox.innerHTML = "";
+      if (!count) { summaryBox.append(el("div", { class: "msg" }, "the document lists no summaries")); return; }
+      summaryBox.append(el("div", { class: "msg" }, `drawing ${count} summar${count === 1 ? "y" : "ies"} over shots 1-${shots}...`));
+      const cards = [];
+      for (let i = 0; i < count; i++) {
+        const r = await fetch(base + "/api/preview/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document: doc, params, index: i }) });
+        if (seq !== summarySeq) return;
+        const kind = Array.isArray(doc.summaries) && doc.summaries[i] ? doc.summaries[i].kind : `#${i + 1}`;
+        if (!r.ok) {
+          let detail = `HTTP ${r.status}`;
+          try { const b = await r.json(); detail = b.detail + (b.errors ? "\n" + b.errors.map((x) => `${x.loc}: ${x.msg}`).join("\n") : ""); } catch (_) { /* text body */ }
+          cards.push(el("div", { class: "card" }, el("div", { class: "msg" }, kind), el("div", { class: "perr" }, detail)));
+          continue;
+        }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const img = el("img", { src: url, alt: `${kind} summary` }); img.onload = () => URL.revokeObjectURL(url);
+        const how = kind === "average" ? "their average" : kind === "waterfall" ? "one row per shot" : "one panel per shot";
+        cards.push(el("div", { class: "card" }, img, el("div", { class: "msg" }, `${kind} - shots 1-${shots} of ${params.device}, ${how}, drawn as the run's summary figure`)));
+      }
+      summaryBox.innerHTML = ""; summaryBox.append(...cards);
     }
 
     // ----- live preview (host-provided)

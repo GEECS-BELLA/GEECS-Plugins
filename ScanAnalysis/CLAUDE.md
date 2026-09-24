@@ -297,10 +297,16 @@ The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
   core has not ported) opens read-only — note, the file as saved, Delete,
   and the preview of the saved document — until its kind is ported and it
   converts. The preview is **the run's own draw**: the host renders the
-  document through the sink's per-frame call with the document's `figure`
-  block (`render_document_as_run` in the portal), cropped tight like the
-  product PNG, so what the pane shows is the product file the run would
-  write. The form is pinned under node on a fake DOM
+  document through `scan_analysis.core_preview` — `preview_frame`, the
+  sink's per-frame call with the document's `figure` block, frame inputs
+  resolved from the document's device folder under the scan — cropped
+  tight like the product PNG, so what the pane shows is the product file
+  the run would write. The **summaries** block (`POST /api/preview/summary`,
+  host hook `summary_preview=`) draws each summary kind over a few of the
+  host's shots through `preview_summary`, the sink's summary call: one
+  panel (row) per shot at its shot number, or the shots' average. Both are
+  pinned byte-for-byte against `save_products`' files
+  (`tests/test_core_preview.py`); a host never re-derives the pairing. The form is pinned under node on a fake DOM
   (`test_recipe_form_round_trips_and_reorders`: a corpus recipe reads back
   canonical-equal, move-up swaps steps and renumbers paths). No build
   chain, no library — the portal's doctrine.

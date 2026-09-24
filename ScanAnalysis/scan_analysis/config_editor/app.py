@@ -17,6 +17,8 @@ API (under the mount)::
     PUT  /api/{kind}s/{ns}/{id}     {document, etag|null} -> saved {etag, yaml, created}; 409 / 422
     DELETE /api/{kind}s/{id}?etag=  -> 204; 409
     POST /api/preview               {document, params} -> image/png (host-provided; 404 without)
+    POST /api/preview/summary       {document, params, index} -> image/png: the document's
+                                    index-th summary over a few shots (host-provided; 404 without)
 
 Errors are JSON ``{"detail": ...}`` with honest statuses: 404 unknown,
 409 conflict (stale etag / duplicate id), 422 invalid document (with the
@@ -43,7 +45,7 @@ from scan_analysis.config_store import (
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["PreviewFn", "create_editor_router"]
+__all__ = ["PreviewFn", "SummaryPreviewFn", "create_editor_router"]
 
 _HERE = Path(__file__).resolve().parent
 _STATIC = _HERE / "static"
@@ -53,6 +55,11 @@ _TEMPLATES = Jinja2Templates(directory=str(_HERE / "templates"))
 #: edit on pixels the host owns.  Raise ``ValueError`` for a refusal the
 #: user can act on (400) and ``LookupError`` for a missing shot (404).
 PreviewFn = Callable[[Mapping[str, Any], Mapping[str, Any]], bytes]
+#: ``(document, params, index) -> PNG bytes``: the document's ``index``-th
+#: summary drawn over a few of the host's shots (``params.shots``), the way
+#: a run draws it.  Same error ladder; ``LookupError`` also for no summary
+#: at ``index``.
+SummaryPreviewFn = Callable[[Mapping[str, Any], Mapping[str, Any], int], bytes]
 
 _KINDS = {"analyzer", "group"}
 
@@ -71,6 +78,7 @@ def create_editor_router(
     store: ConfigStore,
     *,
     preview: Optional[PreviewFn] = None,
+    summary_preview: Optional[SummaryPreviewFn] = None,
     read_only: bool = False,
     theme_url: str = "/theme",
 ) -> APIRouter:
@@ -83,6 +91,10 @@ def create_editor_router(
     preview : callable, optional
         Host-provided live preview (the portal renders the current shot);
         without it ``POST /api/preview`` is 404 and the page hides the pane.
+    summary_preview : callable, optional
+        Host-provided summary preview (the document's summaries over a few
+        shots of the current scan); without it ``POST /api/preview/summary``
+        is 404 and the page hides that block.
     read_only : bool, default False
         Serve the browser and validation but refuse writes (405).
     theme_url : str, default "/theme"
@@ -133,6 +145,7 @@ def create_editor_router(
                 "known_ids": store.known_ids(),
                 "pending": store.pending_changes(),
                 "preview": preview is not None,
+                "summary_preview": summary_preview is not None,
                 "read_only": read_only,
             },
             headers={"Cache-Control": "no-cache"},
@@ -195,10 +208,8 @@ def create_editor_router(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return Response(status_code=204)
 
-    @router.post("/api/preview")
-    def preview_endpoint(body: dict = Body(...)) -> Response:
-        if preview is None:
-            raise HTTPException(status_code=404, detail="no live preview on this host")
+    def _render_preview(body: dict, draw: Callable[[dict, dict], bytes]) -> Response:
+        """Validate the body's document, hand it to the host, map its errors."""
         document = body.get("document")
         params = body.get("params") or {}
         if not isinstance(document, dict) or not isinstance(params, dict):
@@ -211,7 +222,7 @@ def create_editor_router(
                 {"detail": "invalid document", "errors": report.errors}, status_code=422
             )
         try:
-            png = preview(report.canonical or document, params)
+            png = draw(report.canonical or document, params)
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
@@ -222,6 +233,27 @@ def create_editor_router(
             ) from exc
         return Response(
             content=png, media_type="image/png", headers={"Cache-Control": "no-store"}
+        )
+
+    @router.post("/api/preview")
+    def preview_endpoint(body: dict = Body(...)) -> Response:
+        if preview is None:
+            raise HTTPException(status_code=404, detail="no live preview on this host")
+        return _render_preview(body, preview)
+
+    @router.post("/api/preview/summary")
+    def summary_preview_endpoint(body: dict = Body(...)) -> Response:
+        if summary_preview is None:
+            raise HTTPException(
+                status_code=404, detail="no summary preview on this host"
+            )
+        index = body.get("index", 0)
+        if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+            raise HTTPException(
+                status_code=422, detail="body.index must be a non-negative integer"
+            )
+        return _render_preview(
+            body, lambda document, params: summary_preview(document, params, index)
         )
 
     return router

@@ -3,6 +3,28 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.37.0] - 2026-09-24
+
+### Added
+
+- `scan_analysis.core_preview`: the preview seam that makes the run's own
+  calls and nothing else — `prepare_document` (the run's `prepare_v2`, frame
+  inputs resolved from the document's device folder under the scan),
+  `measure_frame` (its per-frame analysis), `preview_frame` (the sink's
+  per-frame draw) and `preview_summary` (the sink's summary draw: the
+  registered kind over the given measurements at the given positions, the
+  `average` kind over their noscan average). Pinned byte-for-byte against
+  the files `save_products` writes (`tests/test_core_preview.py`). Hosts
+  (the Data Portal) preview through it instead of re-deriving the pairing
+  (#996 review, finding 3).
+- Config editor: `POST /api/preview/summary` (`{document, params, index}` →
+  PNG of the document's `index`-th summary over a few of the host's shots;
+  `create_editor_router(summary_preview=)`, 404 without; `/api/list` says
+  `summary_preview`), and a **summaries** block in the page's right pane —
+  a shots count (default 4, at most 8) and one card per summary kind, each
+  drawn as the run's summary figure with one panel (row) per shot, or the
+  shots' average.
+
 ## [1.36.0] - 2026-09-24
 
 ### Changed
