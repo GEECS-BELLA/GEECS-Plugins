@@ -16,6 +16,7 @@ from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 from geecs_schemas.analysis import (
     AnalysisDiagnostic,
     AnalysisGroup,
+    AnalysisRecipe,
     AnalyzerRef,
     AnalyzerSpec,
     CameraConfig,
@@ -142,6 +143,7 @@ __all__ = [
     # analysis
     "AnalysisDiagnostic",
     "AnalysisGroup",
+    "AnalysisRecipe",
     "AnalyzerRef",
     "AnalyzerSpec",
     "CameraConfig",
@@ -193,6 +195,7 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "derived_channels": DerivedChannels,
     "shot_offsets": ShotOffsets,
     "analysis_diagnostic": AnalysisDiagnostic,
+    "analysis_recipe": AnalysisRecipe,
     "analysis_group": AnalysisGroup,
     "log_entry": LogEntry,
 }

@@ -50,7 +50,9 @@ class FileBackground:
 
     key: str
     path: str
-    fallback_level: float
+    #: Constant to subtract when the file cannot be read; ``None`` makes a
+    #: failed read an error (a v3 recipe's choice; v2 always has a level).
+    fallback_level: float | None
 
 
 @dataclass(frozen=True)

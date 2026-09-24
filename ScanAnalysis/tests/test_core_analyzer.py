@@ -18,6 +18,8 @@ from scan_analysis.analyzers.common.single_device_scan_analyzer import (
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.config import create_scan_analyzer
 from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
+from geecs_analysis.compat.convert import to_v3
+from geecs_analysis.recipe import is_line
 from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
 
 TAG = ScanTag(year=2026, month=1, day=1, number=1, experiment="Test")
@@ -99,7 +101,7 @@ def run(
     monkeypatch, tmp_path, route, doc, *, noscan, device_files=True, single_bin=False
 ):
     base_dir = tmp_path / route
-    line = doc.analyzer.kind in {"line", "trace"}
+    line = is_line(doc)
     scan = build_scan(
         base_dir,
         line=line,
@@ -248,7 +250,6 @@ def test_sorted_waterfall_rows_follow_legacy_sigma_and_bounds_rules(
         "line", renderer={"waterfall_sort_key": "U_Charge", "dpi": 30, **options}
     )
     _, display, plan = run(monkeypatch, tmp_path, "core", doc, noscan=True)
-    assert plan.summary_kind == "waterfall"
     assert [p.identifier for p in plan.summary] == expected_shots
     assert [p.position for p in plan.summary] == sorted(
         [30.0, 10.0, 50.0, 20.0, 60.0, 40.0][n - 1] for n in expected_shots
@@ -302,4 +303,23 @@ def test_core_supports_only_recipes_the_core_can_run():
                 "image": {"type": "line", "data_loading": {"data_type": "npy"}},
             }
         )
+    )
+
+
+@pytest.mark.parametrize("kind,mode,noscan,renderer", CASES)
+def test_converted_recipe_matches_its_v2_source_on_the_core(
+    tmp_path, monkeypatch, kind, mode, noscan, renderer
+):
+    """A v3 recipe converted from a v2 diagnostic writes the identical tree."""
+    doc = document(kind, mode=mode, renderer=renderer)
+    v2_scan, v2_display, _ = run(monkeypatch, tmp_path, "v2", doc, noscan=noscan)
+    v3_scan, v3_display, _ = run(
+        monkeypatch, tmp_path, "v3", to_v3(doc).recipe, noscan=noscan
+    )
+    v2, v3 = snapshot(v2_scan), snapshot(v3_scan)
+    assert sorted(v2) == sorted(v3)
+    # One evaluator, one shot order: exact, the noscan average included.
+    assert compare_snapshots(v2, v3, average_ulps=0) == []
+    assert relative_display(v2_scan, v2_display) == relative_display(
+        v3_scan, v3_display
     )

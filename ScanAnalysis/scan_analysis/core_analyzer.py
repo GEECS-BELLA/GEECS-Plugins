@@ -1,4 +1,4 @@
-"""Run supported v2 diagnostics on the analysis core behind the ScanAnalyzer contract."""
+"""Run analysis recipes (v3) and supported v2 diagnostics on the core behind the ScanAnalyzer contract."""
 
 from __future__ import annotations
 
@@ -11,10 +11,11 @@ import pandas as pd
 from geecs_analysis.compat.v2 import UnsupportedRecipe, compile_v2
 from geecs_analysis.compat.v2_run import UnitResult
 from geecs_data_utils.shot_files import StackMappingUnavailable
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe, WaterfallSummary
 
 from scan_analysis.base import DataUnavailableWarning, ScanAnalyzer
 from scan_analysis.core_products import ProductPlan, plan_products
+from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
 from scan_analysis.core_scan import PreparedScan, prepare_scan
 from scan_analysis.core_sink import save_products
 from scan_analysis.core_source import source_directory
@@ -24,14 +25,19 @@ logger = logging.getLogger(__name__)
 __all__ = ["CoreScanAnalyzer", "core_supports"]
 
 
-def core_supports(document: AnalysisDiagnostic) -> bool:
-    """Whether the whole recipe compiles for the core route, without any reads.
+def core_supports(document: AnalysisDocument) -> bool:
+    """Whether the recipe runs on the core route, decided without any reads.
 
-    Scan-context backgrounds, unported analyzer kinds and unported processing
-    operations all fail compilation with ``UnsupportedRecipe``; those recipes
-    keep the legacy wrappers. File backgrounds are only declared here; the
-    prepared run loads them later through data-utils.
+    An analysis recipe (v3) always does: it has no other route, and one that
+    does not bind to the registry fails when the analyzer is built. For a v2
+    diagnostic, scan-context backgrounds, unported analyzer kinds and
+    unported processing operations all fail compilation with
+    ``UnsupportedRecipe``; those recipes keep the legacy wrappers. File
+    backgrounds are only declared here; the prepared run loads them later
+    through data-utils.
     """
+    if isinstance(document, AnalysisRecipe):
+        return True
     try:
         compile_v2(document, allow_file_backgrounds=True)
     except UnsupportedRecipe:
@@ -40,7 +46,7 @@ def core_supports(document: AnalysisDiagnostic) -> bool:
 
 
 class CoreScanAnalyzer(ScanAnalyzer):
-    """Explicit scan execution of one v2 diagnostic on ``geecs_analysis``.
+    """Explicit scan execution of one analysis document on ``geecs_analysis``.
 
     Honors the contract the task queue, the portal and MCP already call:
     ``run_analysis(scan_tag)`` returns the display files (``None`` when the
@@ -54,13 +60,16 @@ class CoreScanAnalyzer(ScanAnalyzer):
     them, and the output directory is created only when a product is saved.
     """
 
-    def __init__(self, document: AnalysisDiagnostic, *, id: str, priority: int) -> None:
-        super().__init__(device_name=document.name)
+    def __init__(self, document: AnalysisDocument, *, id: str, priority: int) -> None:
         self.document = document.model_copy(deep=True)
+        # Compiling here surfaces a recipe that does not bind to the registry
+        # at construction, before any scan is touched.
+        self.spec: ScanRecipe = scan_recipe(self.document)
+        super().__init__(device_name=self.spec.device)
         self.id = id
         self.priority = priority
         # scalar_sidecar_path prefers ``id``; keep the legacy fallback name too.
-        self._output_name = document.effective_output_name
+        self._output_name = self.spec.output_name
         self.display_contents: list[str] = []
         #: The products chosen by the last run, for inspection and tests.
         self.last_plan: Optional[ProductPlan] = None
@@ -68,7 +77,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
     def _run_analysis_core(self) -> Optional[list[Union[Path, str]]]:
         document = self.document
         scan_folder = Path(self.scan_directory)
-        data_dir = source_directory(document, scan_folder)
+        data_dir = source_directory(self.spec, scan_folder)
         if not data_dir.is_dir() or not any(data_dir.iterdir()):
             raise DataUnavailableWarning(
                 f"Data directory '{data_dir}' does not exist or is empty for "
@@ -86,11 +95,14 @@ class CoreScanAnalyzer(ScanAnalyzer):
             )
             return []
         outcomes = self._execute(prepared)
-        # One legacy knob: ``waterfall_sort_key`` both requests the per-shot
-        # waterfall and names the s-file column; the column resolves against
-        # the rows refreshed by the s-file merge above, as the wrapper did.
-        renderer = document.scan.renderer.as_kwargs()
-        sort_key = renderer.get("waterfall_sort_key")
+        # One legacy knob: the waterfall's ``sort_key`` both requests the
+        # per-shot waterfall and names the s-file column; the column resolves
+        # against the rows refreshed by the s-file merge above, as the wrapper
+        # did. The first waterfall summary carries it.
+        stack = next(
+            (s for s in self.spec.summaries if isinstance(s, WaterfallSummary)), None
+        )
+        sort_key = stack.sort_key if stack is not None else None
         plan = plan_products(
             prepared.prepared.recipe,
             outcomes,
@@ -100,8 +112,8 @@ class CoreScanAnalyzer(ScanAnalyzer):
             parameter_column=None if self.noscan else self.find_scan_param_column()[0],
             sort_requested=bool(sort_key),
             sort_column=self.find_column_for_key(sort_key) if sort_key else None,
-            sort_bounds=renderer.get("waterfall_sort_bounds"),
-            sort_sigma=renderer.get("waterfall_sort_sigma", 3.0),
+            sort_bounds=stack.sort_bounds if stack is not None else None,
+            sort_sigma=stack.sort_sigma if stack is not None else 3.0,
         )
         if (plan.singles or plan.summary) and not self.noscan and not sort_key:
             # Figures name the scan by the cleaned ScanInfo string, not the
@@ -109,7 +121,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
             # included, so a one-bin scan is labelled the same way).
             plan = replace(plan, position_label=self.scan_parameter or "")
         self.last_plan = plan
-        saved = save_products(plan, prepared.prepared.recipe, document, scan_folder)
+        saved = save_products(plan, self.spec, scan_folder)
         for note in saved.notes:
             logger.warning("%s: %s", self.device_name, note)
         self.display_contents = [str(path) for path in saved.display_files]

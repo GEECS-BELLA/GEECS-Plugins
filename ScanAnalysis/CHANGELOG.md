@@ -3,6 +3,30 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.35.0] - 2026-09-24
+
+### Added
+
+- `core_recipe.ScanRecipe` / `scan_recipe`: the one view of either analysis
+  document the scan host needs (compiled recipe, device/folder/naming, file
+  discovery, runtime, figure, summaries).
+- `create_scan_analyzer` accepts a v3 `AnalysisRecipe`: it always runs on
+  the core (`route="legacy"` and injected data are refused for it; a recipe
+  that does not bind to the registry raises at construction). The group
+  loader, `ConfigStore` (listing, validation, saving) and the editor read
+  either format; the editor shows a recipe read-only, as the file it is,
+  until the recipe form lands.
+- `scripts/analysis_convert_corpus.py` (repo root): converts every
+  core-served v2 diagnostic of a configs tree to a recipe in place.
+
+### Changed
+
+- The core sink draws the recipe's listed summary kinds through the
+  registry from the products each consumes; `ProductPlan.summary_kind` is
+  gone (the plan is kind-agnostic). `save_products(plan, spec, scan_folder)`
+  takes the `ScanRecipe`; `source_directory` / `prepare_source` /
+  `prepare_scan` accept either document or the `ScanRecipe`.
+
 ## [1.34.0] - 2026-09-23
 
 ### Added

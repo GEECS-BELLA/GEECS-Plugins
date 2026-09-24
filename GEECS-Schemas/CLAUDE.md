@@ -12,6 +12,22 @@ inherit the enclosing document's version. Export public vocabulary from
 not every nested model. Changes to registered documents also regenerate the
 published JSON schemas and Markdown references through existing tooling.
 
+## Analysis documents
+
+Two formats share `scan_analysis_configs/analyzers/`: the v3
+`AnalysisRecipe` (`analysis/recipe.py`, the analysis core's native shape)
+and the v2 `AnalysisDiagnostic` (kept for the analyzer kinds the core has
+not ported). `load_analysis_document` dispatches on `schema_version`;
+every loader goes through it. The recipe types the document's frame —
+naming, `input`, `inputs`, `scan`, `figure` (`FigureStyle`, the per-frame
+draw) and the summary kinds' option models (`image_grid`, `waterfall`,
+`average`, each declaring the frame dimensionality it draws, which the
+document checks against the input) — and carries `steps` / `measure` as
+registry references (`StepRef` / `MeasureRef`, extra keys allowed on
+purpose): the numerical vocabulary is GEECS-Analysis' registry and is
+never duplicated here. Add a summary kind's option model here and its
+layout in GEECS-Analysis; add a step or measure in GEECS-Analysis alone.
+
 ## Sweep payload
 
 `sweep.py` owns the validated JSON payload, not numerical trajectory

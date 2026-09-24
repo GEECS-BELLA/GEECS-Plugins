@@ -70,3 +70,5 @@
 /* the sidebar is 15rem: let the two inputs share one line rather than stack */
 .ce-new input { width: auto; flex: 1 1 5rem; min-width: 0; }
 .ce-new button { flex: 0 0 auto; }
+
+.ce-main .ce-recipe-note { color: var(--muted); font-size: 12px; line-height: 1.4; margin: 0.2rem 0 0.6rem; }

@@ -27,7 +27,13 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from geecs_schemas.analysis import AnalysisDiagnostic, CameraConfig, Line1DConfig
+from geecs_schemas.analysis import (
+    AnalysisDiagnostic,
+    AnalysisDocument,
+    CameraConfig,
+    Line1DConfig,
+    load_analysis_document,
+)
 from pydantic import ValidationError
 
 from geecs_data_utils.analysis_configs import (
@@ -176,8 +182,8 @@ def load_diagnostic(
     *,
     config_dir: Optional[Path] = None,
     overrides: Optional[Dict[str, Any]] = None,
-) -> AnalysisDiagnostic:
-    """Load a diagnostic YAML by stem or path.
+) -> AnalysisDocument:
+    """Load an analysis document (v3 recipe or v2 diagnostic) by stem or path.
 
     Parameters
     ----------
@@ -197,8 +203,8 @@ def load_diagnostic(
 
     Returns
     -------
-    AnalysisDiagnostic
-        The validated, fully typed document.
+    AnalysisRecipe or AnalysisDiagnostic
+        The validated, fully typed document, as its ``schema_version`` says.
 
     Raises
     ------
@@ -220,7 +226,7 @@ def load_diagnostic(
     )
 
     try:
-        diagnostic = AnalysisDiagnostic.model_validate(data)
+        diagnostic = load_analysis_document(data)
     except ValidationError as exc:
         raise ValueError(f"Invalid diagnostic config at {diag_path}: {exc}") from exc
     diagnostic._source_id = diag_path.stem

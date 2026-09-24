@@ -12,13 +12,13 @@ from pathlib import Path
 from typing import Mapping
 
 import numpy as np
-from geecs_analysis.compat.v2 import V2Recipe, compile_v2
+from geecs_analysis.compat.v2 import V2Recipe
 from geecs_analysis.pipeline import bind_inputs
+from geecs_analysis.recipe import AnalysisDocument, compile_document
 from geecs_analysis.steps.background_constant import BackgroundConstantSpec
 from geecs_analysis.steps.background_frame import BackgroundFrameSpec
 from geecs_data_utils.frames import Frame
 from geecs_data_utils.io.images import read_imaq_image
-from geecs_schemas.analysis import AnalysisDiagnostic
 
 logger = logging.getLogger(__name__)
 
@@ -32,18 +32,20 @@ class PreparedRecipe:
 
 
 def prepare_v2(
-    document: AnalysisDiagnostic, *, data_dir: Path | None = None
+    document: AnalysisDocument, *, data_dir: Path | None = None
 ) -> PreparedRecipe:
-    """Compile before reading inputs; retain v2 file-background fallback behavior.
+    """Compile either document before reading inputs; load its frame inputs.
 
     ``data_dir`` is the device data directory, matching the old scan wrapper's
     ``{scan_dir}`` substitution. A context-free preview leaves the placeholder
-    literal, as before. Load/float-conversion failures select the configured
-    constant and log a warning. Successfully loaded malformed geometry raises
-    instead of silently selecting the constant. Each distinct background is
-    loaded once for this prepared run, including repeated pipeline steps.
+    literal, as before. Load/float-conversion failures select the request's
+    fallback constant and log a warning; a request without one (a v3 recipe
+    that says so) makes the failure an error. Successfully loaded malformed
+    geometry raises instead of silently selecting the constant. Each distinct
+    background is loaded once for this prepared run, including repeated
+    pipeline steps.
     """
-    recipe = compile_v2(document, allow_file_backgrounds=True)
+    recipe = compile_document(document, allow_file_backgrounds=True)
     inputs = {}
     fallbacks = {}
     for request in recipe.file_backgrounds:
@@ -53,6 +55,8 @@ def prepare_v2(
         try:
             background = read_imaq_image(Path(path)).astype(np.float64)
         except Exception as exc:
+            if request.fallback_level is None:
+                raise
             # Legacy catches reader/float conversion failures, but shape
             # validation happens after loading and must remain a hard error.
             logger.warning(

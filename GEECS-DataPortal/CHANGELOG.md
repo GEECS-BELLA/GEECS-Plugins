@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.34.0] - 2026-09-24
+
+### Changed
+
+- Processing, the Images-tab selector and the editor previews load either
+  analysis format; a v3 recipe's preview palette comes from its
+  `figure.imshow`, a v2 diagnostic's from `scan.renderer` as before.
+
 ## [0.33.0] - 2026-09-23
 
 ### Added

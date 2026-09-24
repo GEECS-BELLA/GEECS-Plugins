@@ -29,7 +29,7 @@ import yaml
 from pydantic import JsonValue
 
 if TYPE_CHECKING:
-    from geecs_schemas.analysis import AnalysisDiagnostic
+    from geecs_schemas.analysis import AnalysisDocument
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.scanner_configs import SHOT_CONTROL_FOLDER, scanner_configs_base
@@ -55,6 +55,13 @@ _PRESET_STEM = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
 # ---------------------------------------------------------------------------
 # ConfigResolver protocol
 # ---------------------------------------------------------------------------
+
+
+def diagnostic_device(document: "AnalysisDocument") -> str:
+    """The device an analysis document reads: a v3 recipe's ``device``, a v2 diagnostic's ``name``."""
+    from geecs_schemas.analysis import AnalysisRecipe
+
+    return document.device if isinstance(document, AnalysisRecipe) else document.name
 
 
 def _write_yaml_atomically(path: Path, document: dict) -> None:
@@ -414,14 +421,14 @@ class ConfigsRepoResolver:
 
     def diagnostic_device(self, stem: str) -> str:
         """Resolve a diagnostic's device without importing the analysis runtime."""
-        return self.resolve_diagnostic(stem).name
+        return diagnostic_device(self.resolve_diagnostic(stem))
 
     def resolve_diagnostic(
         self, stem: str, *, overrides: dict[str, JsonValue] | None = None
-    ) -> AnalysisDiagnostic:
-        """Read and validate a diagnostic fresh using the shared read-only source."""
+    ) -> AnalysisDocument:
+        """Read and validate a diagnostic (either format) fresh using the shared read-only source."""
         from geecs_data_utils.analysis_configs import read_diagnostic
-        from geecs_schemas.analysis import AnalysisDiagnostic
+        from geecs_schemas.analysis import load_analysis_document
 
         if not stem or stem in (".", "..") or any(c in stem for c in ("/", "\\")):
             raise GeecsConfigurationError("diagnostic must be a file stem")
@@ -429,7 +436,7 @@ class ConfigsRepoResolver:
             path, document = read_diagnostic(
                 stem, config_dir=self.analysis_config_dir, overrides=overrides
             )
-            diagnostic = AnalysisDiagnostic.model_validate(document)
+            diagnostic = load_analysis_document(document)
             diagnostic._source_id = path.stem
             return diagnostic
         except (KeyError, ValueError, OSError, yaml.YAMLError) as exc:

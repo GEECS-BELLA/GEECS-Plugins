@@ -1,8 +1,9 @@
 """Portal processing/preview routing during the analysis-core migration.
 
-Supported v2 recipes use geecs-analysis. Only a compilation-time capability
-refusal selects the legacy write-free route; numerical/render failures never
-retry against another backend. Configuration reads use an explicit tree.
+Analysis recipes (v3) and supported v2 recipes use geecs-analysis. Only a v2
+compilation-time capability refusal selects the legacy write-free route;
+numerical/render failures never retry against another backend. Configuration
+reads use an explicit tree.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from typing import TYPE_CHECKING, Sequence
 import numpy as np
 from geecs_data_utils.analysis_configs import discover_diagnostics, read_diagnostic
 from geecs_data_utils.frames import Frame
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisDocument, load_analysis_document
 from pydantic import ValidationError
 from scan_analysis.core_inputs import prepare_v2
 
@@ -31,11 +32,11 @@ def list_diagnostics(*, config_dir: Path) -> list[str]:
     return sorted(discover_diagnostics(Path(config_dir)))
 
 
-def load_diagnostic(name: str, *, config_dir: Path) -> AnalysisDiagnostic:
-    """Read and validate a fresh diagnostic without importing legacy analyzers."""
+def load_diagnostic(name: str, *, config_dir: Path) -> AnalysisDocument:
+    """Read and validate a fresh document (either format) without importing legacy analyzers."""
     path, data = read_diagnostic(name, config_dir=Path(config_dir))
     try:
-        document = AnalysisDiagnostic.model_validate(data)
+        document = load_analysis_document(data)
     except ValidationError as exc:
         raise ValueError(f"Invalid diagnostic config at {path}: {exc}") from exc
     document._source_id = path.stem
@@ -93,7 +94,7 @@ def _style(
 
 
 def render_document_ephemeral(
-    document: AnalysisDiagnostic,
+    document: AnalysisDocument,
     arrays: Sequence[np.ndarray],
     *,
     window: tuple[float, float] | None = None,

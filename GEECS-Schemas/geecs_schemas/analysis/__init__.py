@@ -1,8 +1,13 @@
-"""Analysis-config schemas: the diagnostic document, the group document, and their parts.
+"""Analysis-config schemas: the two analysis documents, the group document, and their parts.
 
-Everything ImageAnalysis and ScanAnalysis load from ``scan_analysis_configs/``
-is described here — pydantic only, so editors, the data portal, MCP and
-CI can validate a diagnostic without the analysis stack installed.
+Everything the analysis stack loads from ``scan_analysis_configs/`` is
+described here — pydantic only, so editors, the data portal, MCP and CI
+can validate a document without the analysis stack installed.  Two formats
+share the ``analyzers/`` tree: the v3 :class:`AnalysisRecipe` (the analysis
+core's native shape: input, ordered steps, a measure, the per-frame draw,
+the summary kinds) and the v2 :class:`AnalysisDiagnostic` (kept for the
+analyzer kinds the core has not ported).  :func:`load_analysis_document`
+dispatches on ``schema_version``.
 """
 
 from geecs_schemas.analysis.canonical import canonical_document
@@ -36,6 +41,7 @@ from geecs_schemas.analysis.diagnostic import (
     AnalysisDiagnostic,
     ImageSection,
 )
+from geecs_schemas.analysis.document import AnalysisDocument, load_analysis_document
 from geecs_schemas.analysis.group import AnalysisGroup, AnalyzerRef
 from geecs_schemas.analysis.processing_1d import (
     Data1DLoading,
@@ -70,6 +76,24 @@ from geecs_schemas.analysis.processing_2d import (
     VignetteConfig,
     VignetteMethod,
 )
+from geecs_schemas.analysis.recipe import (
+    CURRENT_RECIPE_VERSION,
+    SUMMARY_KINDS,
+    AnalysisRecipe,
+    AverageSummary,
+    CameraInput,
+    FigureStyle,
+    FrameInput,
+    ImageGridSummary,
+    LineInput,
+    MeasureRef,
+    RecipeInput,
+    RecipeRuntime,
+    StepRef,
+    Summary,
+    WaterfallSummary,
+    declared_schema_version,
+)
 from geecs_schemas.analysis.renderer import RendererOptions
 from geecs_schemas.analysis.scan_runtime import (
     AutodetectBackgroundSpec,
@@ -80,9 +104,14 @@ from geecs_schemas.analysis.scan_runtime import (
 
 __all__ = [
     "ANALYZER_SPECS",
+    "CURRENT_RECIPE_VERSION",
     "CURRENT_SCHEMA_VERSION",
+    "SUMMARY_KINDS",
     "AnalysisDiagnostic",
+    "AnalysisDocument",
     "AnalysisGroup",
+    "AnalysisRecipe",
+    "AverageSummary",
     "AnalyzerRef",
     "AnalyzerSpec",
     "AnalyzerSpecBase",
@@ -95,6 +124,7 @@ __all__ = [
     "BeamAnalyzerSpec",
     "CalibrationSpec",
     "CameraConfig",
+    "CameraInput",
     "CircularMaskConfig",
     "CrosshairConfig",
     "CrosshairMaskingConfig",
@@ -102,13 +132,16 @@ __all__ = [
     "Data1DType",
     "DnnAxisCalibrationSpec",
     "DownrampPhaseSpec",
+    "FigureStyle",
     "FilteringConfig",
+    "FrameInput",
     "FrogRetrievalSpec",
     "FrogSpectralPhaseSpec",
     "FromCurrentScanSpec",
     "HasoAnalyzerSpec",
     "HiResMagCamSpec",
     "IctAnalyzerSpec",
+    "ImageGridSummary",
     "ImageKind",
     "ImageSection",
     "Line1DConfig",
@@ -117,6 +150,7 @@ __all__ = [
     "LineBackgroundMethod",
     "LineFilterMethod",
     "LineFilteringConfig",
+    "LineInput",
     "LineInterpolationConfig",
     "LinePipelineStepType",
     "LineROIConfig",
@@ -124,6 +158,7 @@ __all__ = [
     "LineThresholdMethod",
     "LineThresholdingConfig",
     "MagSpecAnalyzerSpec",
+    "MeasureRef",
     "NormalizationConfig",
     "NormalizationMethod",
     "PhaseDownrampSpec",
@@ -131,9 +166,13 @@ __all__ = [
     "ProcessingStepType",
     "PupilMask",
     "ROIConfig",
+    "RecipeInput",
+    "RecipeRuntime",
     "RendererOptions",
     "ScanRuntime",
     "StandardAnalyzerSpec",
+    "StepRef",
+    "Summary",
     "ThresholdMethod",
     "ThresholdMode",
     "ThresholdingConfig",
@@ -141,5 +180,8 @@ __all__ = [
     "TransformConfig",
     "VignetteConfig",
     "VignetteMethod",
+    "WaterfallSummary",
     "canonical_document",
+    "declared_schema_version",
+    "load_analysis_document",
 ]

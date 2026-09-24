@@ -1,4 +1,4 @@
-"""Save core scan products under the sibling analysis tree, using v2 file names."""
+"""Save core scan products under the sibling analysis tree, using the legacy file names."""
 
 from __future__ import annotations
 
@@ -6,12 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import h5py
-from geecs_analysis.compat.v2 import V2Recipe
-from geecs_analysis.compat.v2_render import image_grid_v2, single_v2, waterfall_v2
-from geecs_analysis.render import RenderError
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_analysis.registry import summary_definition
+from geecs_analysis.render import RenderError, single
 
 from scan_analysis.core_products import ProductPlan
+from scan_analysis.core_recipe import ScanRecipe
 
 
 def _component(value: str, label: str) -> str:
@@ -49,22 +48,37 @@ def _destination(directory: Path, name: str) -> Path:
     return path
 
 
-def save_products(
-    plan: ProductPlan, recipe: V2Recipe, document: AnalysisDiagnostic, scan_folder: Path
-) -> SavedProducts:
-    """Write legacy HDF5/PNG products; disabled saves perform no writes.
+def _save_figure(fig, path: Path) -> None:
+    try:
+        fig.savefig(path, bbox_inches="tight")
+    finally:
+        fig.clear()
 
-    The logical device names files; output_name selects the analyzer directory.
-    HDF5 retains the legacy dataset name, dtype and gzip level. Rendering errors
-    omit only their figure and are returned as notes; data/write errors propagate.
-    Scalar persistence is independent of this sink and of scan.save.
+
+def save_products(
+    plan: ProductPlan, spec: ScanRecipe, scan_folder: Path
+) -> SavedProducts:
+    """Write the HDF5/PNG products; disabled saves perform no writes.
+
+    Every single product stores its data; each bin's figure is the recipe's
+    per-frame draw titled by position. The scan-level figures are the
+    recipe's ``summaries`` in order, each drawn by its registered kind from
+    the products it consumes (the ordered panels, or the noscan average) and
+    skipped without a note when this run produced none of those. Summary
+    figures are the display files, except a trace's averaged figure: the
+    legacy line wrapper never listed it, and the route comparison holds the
+    core to that. The logical device names files;
+    output_name selects the analyzer directory. HDF5 retains the legacy
+    dataset name, dtype and gzip level. Rendering errors omit only their
+    figure and are returned as notes; data/write errors propagate. Scalar
+    persistence is independent of this sink and of ``save``.
     """
-    if not document.scan.save or not (plan.singles or plan.summary):
+    if not spec.save or not (plan.singles or plan.summary):
         return SavedProducts((), (), plan.notes)
-    device = _component(document.name, "Diagnostic name")
+    device = _component(spec.device, "Diagnostic name")
     # An empty output_name falls back to the device, as the legacy wrapper did.
-    output = _component(document.effective_output_name or document.name, "Output name")
-    line = recipe.input_kind == "line"
+    output = _component(spec.output_name or spec.device, "Output name")
+    line = spec.line
     root = analysis_directory(scan_folder)
     target = root / output / ("Array1DScanAnalyzer" if line else "Array2DScanAnalyzer")
     if not target.resolve().is_relative_to(root.resolve()):
@@ -73,12 +87,14 @@ def save_products(
         _component(str(product.identifier), "Product identifier")
     target.mkdir(parents=True, exist_ok=True)
     files, display, notes = [], [], list(plan.notes)
-    options = document.scan.renderer
+    average = None
     for product in plan.singles:
         stem = f"{device}_{product.identifier}_processed"
         data_path = _destination(target, f"{stem}.h5")
         frame = product.measurement.frame
-        data = frame.as_trace().astype(recipe.storage_dtype) if line else frame.data
+        data = (
+            frame.as_trace().astype(spec.recipe.storage_dtype) if line else frame.data
+        )
         with h5py.File(data_path, "w") as handle:
             handle.create_dataset(
                 "data" if line else "image",
@@ -87,44 +103,46 @@ def save_products(
                 compression_opts=4,
             )
         files.append(data_path)
-        title = (
-            f"{plan.position_label} = {product.position:.3f}"
-            if product.position is not None and plan.position_label
-            else None
-        )
+        if product.identifier == "average":
+            # The noscan average is a summary: the ``average`` kind draws it.
+            average = product
+            continue
+        style = spec.figure
+        if product.position is not None and plan.position_label:
+            title = f"{plan.position_label} = {product.position:.3f}"
+            style = style.model_copy(update={"axes": {**style.axes, "title": title}})
         try:
-            fig = single_v2(product.measurement, options, title=title)
+            fig = single(product.measurement, style)
         except RenderError as exc:
             notes.append(f"Skipped {stem}_visual.png: {exc}")
             continue
         path = _destination(target, f"{stem}_visual.png")
-        try:
-            fig.savefig(path, bbox_inches="tight")
-        finally:
-            fig.clear()
+        _save_figure(fig, path)
         files.append(path)
-        if not line and product.identifier == "average":
-            display.append(path)
-    if plan.summary:
-        measurements = [p.measurement for p in plan.summary]
-        positions = [p.position for p in plan.summary]
-        suffix = "summary_waterfall" if line else "averaged_image_grid"
+    for options in spec.summaries:
+        definition = summary_definition(options)
+        if definition.consumes == "average":
+            if average is None:
+                continue
+            panels = (average,)
+        else:
+            if not plan.summary:
+                continue
+            panels = plan.summary
         try:
-            fig = (
-                waterfall_v2(measurements, positions, plan.position_label, options)
-                if line
-                else image_grid_v2(
-                    measurements, positions, options, label=plan.position_label
-                )
+            fig = definition.function(
+                [p.measurement for p in panels],
+                [p.position for p in panels],
+                plan.position_label,
+                options,
+                spec.figure,
             )
         except RenderError as exc:
-            notes.append(f"Skipped {suffix}: {exc}")
-        else:
-            path = _destination(target, f"{device}_{suffix}.png")
-            try:
-                fig.savefig(path, bbox_inches="tight")
-            finally:
-                fig.clear()
-            files.append(path)
+            notes.append(f"Skipped {definition.filename}: {exc}")
+            continue
+        path = _destination(target, f"{device}_{definition.filename}.png")
+        _save_figure(fig, path)
+        files.append(path)
+        if not (line and definition.consumes == "average"):
             display.append(path)
     return SavedProducts(tuple(files), tuple(display), tuple(notes))

@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.13.0] - 2026-09-24
+
+### Added
+
+- `geecs_analysis.recipe`: `compile_recipe` binds a v3 `AnalysisRecipe` to
+  the registry (unknown steps/measures/parameters, undeclared or unused
+  frame bindings and dimensionality mismatches raise `RecipeError`) and
+  compiles it to the same in-memory recipe the v2 adapter produces, so
+  both formats run through one evaluator; `compile_document`, `figure_of`,
+  `summaries_of` and `is_line` read either format.
+- `geecs_analysis.summaries`: the frozen summary kinds, one file each,
+  registered through `registry.summary` (option model, layout function,
+  what it consumes, its filename marker): `image_grid`, `waterfall` (the
+  legacy index-wise geometry, moved here) and `average`.
+- `compat.convert.to_v3`: converts a v2 diagnostic the core serves into a
+  recipe, built on the adapter's compile output and checked by
+  recompiling; what the v3 shape does not carry is reported in its notes.
+
+### Changed
+
+- `render.specs.FigureSpec` is the schema's `FigureStyle` made immutable
+  (one field list); `compat.v2_render` translates `RendererOptions` into a
+  `FigureSpec` (`figure_v2`) and the fixed v2 summary pair (`summaries_v2`),
+  and its `single_v2` / `image_grid_v2` / `waterfall_v2` draw through the
+  kinds. A trace's colorbar keeps its signal label unless the document sets
+  one. `FileBackground.fallback_level` may be `None` (a failed read is then
+  an error).
+
 ## [0.12.1] - 2026-09-24
 
 ### Fixed
