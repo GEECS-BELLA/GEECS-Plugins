@@ -290,10 +290,28 @@ differs.
 
 `./scripts/check.sh` on this branch ran all ten suites: OK, 3,408 passed.
 
-Still required for the first milestone: portal native trace input (#984,
-open), operator figure review and live optimizer acceptance, then the
-promotion PR. This file is deleted at prune, so the promotion PR's body
-carries the numbers above as its verification section.
+### Operator figure review (2026-09-24)
+
+The maintainer reviewed the three side-by-side figures. Verdict: the core's
+axis labels are accepted as drawn. One defect: on the beam average the
+colourbar is oddly sized against the image. Cause: `single_v2` draws a square
+figure with constrained layout and `draw_frame` attaches the colourbar to the
+axes, while `imshow` keeps the image aspect equal, so the axes shrink to fit
+and the colourbar keeps the full allocated height. Fix: size the colourbar
+from the image axes for 2D frames, in both places that attach one: `single`
+(through `draw_frame`) and `image_grid`'s shared colourbar. The maintainer
+also asked that cosmetic controls (labels, colourbar, sizes) and overlays be
+exposed to users. Labels and sizes already are on v2: `scan.renderer` carries
+`xlabel`, `ylabel`, `colorbar_label`, `figsize`, `figsize_inches` and `dpi`,
+and the editor form is schema-driven. The colourbar is row F1; overlays and
+references are the ruling under § 4 and row F2.
+
+Still required for the first milestone: the operator check of a line preview
+on an archived scan (#984 merged 2026-09-24), the colourbar fix (F1, half a
+day, operator-visible on every beam figure; a judgment call to land it before
+promotion rather than ship it as a known defect), live optimizer acceptance,
+then the promotion PR. This file is deleted at prune, so the promotion PR's body
+carries the numbers above and the review verdict as its verification section.
 
 ## Decisions
 
@@ -326,6 +344,9 @@ carries the numbers above as its verification section.
 | Automatic post-scan analysis, worker service, second machine | deferred | Decide with the non-scalar-over-PVA rollout and the new box. Compute is not the constraint (1–5 cores for 30 cameras at 1 Hz); network fan-out is, and each camera server's PVA gateway is the subscription point now that the central capture daemon is retired. |
 | Live scalars as PVs (#744) | deferred | The optimizer already consumes live PVA frames in memory; a central publisher node is the same core plus ~200 lines of p4p. Engine-side telemetry identity is the open question. |
 | Web vs desktop operator surface | done | The PySide6 console was deleted 2026-09-14; GeecsScanner is the web console. Not part of this effort. |
+| Overlay kinds are a registry | decided (2026-09-24) | One file per kind: data class + draw function, registered like steps and measures; `draw_overlays` stops being an `isinstance` chain. Overlays are data in frame coordinates with stable ids, never artists. |
+| Second overlay source = static references | decided (2026-09-24) | `scan.renderer.references` on v2 (`figure.references` on v3): marker, circle, box, segment, text with explicit frame-unit coordinates, producing the same primitives measures do. No data-derived decoration kinds for now; a target whose offset must be a scalar is a measure parameter. |
+| No arbitrary matplotlib in YAML | decided (2026-09-24) | Recipes never name arbitrary matplotlib calls or carry Python: unvalidatable, unlistable by the editor, couples the corpus to matplotlib's API. The fixed kwarg groups (`imshow`, `plot`, `colorbar`, …) and named overlay kinds with free kwargs are the vocabulary, validated by rendering the preview. |
 
 ## The grade (09-06 audits, #803 tree)
 
@@ -505,9 +526,9 @@ figure:
   axes:     {xlabel: x (mm), ylabel: y (mm), title: "{device} bin {bin}"}
   fig:      {figsize: [4, 4], dpi: 150}
   overlays:
-    projection: {color: white, lw: 1}
-    com:        {marker: "+", ms: 12, color: cyan}
-    beam_box:   {hidden: true}
+    projection_x: {color: white, lw: 1}
+    projection_y: {hidden: true}
+    com:          {marker: "+", ms: 12, color: cyan}
 ```
 
 Named kwargs dicts go straight to matplotlib and are validated by rendering
@@ -517,6 +538,56 @@ them. `draw_frame` + `draw_overlays` handle every measure in the corpus; the
 `single`, `grid`, `waterfall`, `animation`, chosen by `frame.ndim`. Output
 filenames keep today's shapes so the portal's parser and MCP's
 display-file contract are untouched.
+
+**Overlays (ruling 2026-09-24).** Custom rendering that is intuitive for
+users was a stated reason for this refactor, and overlays are the common
+customization. The structure: an overlay is *data in frame coordinates with a
+stable id*, never a matplotlib artist; `FigureSpec.overlays` (the `overlays:`
+block above, in the v3 shape) styles or hides it by id, kwargs pass straight
+to matplotlib and the editor's preview validates them; and `draw_frame(ax, …)`
+/ `draw_overlays(ax, …)` take the caller's axes, so a notebook composes
+natively and adds its own matplotlib calls on top. What exists: the beam
+measure emits `projection_x`, `projection_y` and `com`; bin grids average and
+draw them; the noscan average omits shot overlays by the recorded legacy
+convention (GEECS-Analysis `CLAUDE.md` § v2 compatibility, `v2_average`),
+which is why the reviewed beam-average figure carried none. Whether the noscan
+average should carry averaged overlays is an open question for the
+maintainer: a deliberate departure from legacy figure parity, a small change
+in `v2_average` plus that `CLAUDE.md` sentence. On v2 nothing exposes per-id
+styling yet: `single_v2` builds the `FigureSpec` without `overlays`.
+
+Two structural fixes are owed before more measures accumulate (only the beam
+and line measures exist today): overlay kinds become a registry like `@step`
+/ `@measure` (one file per kind holding the data class and its draw function;
+today `draw_overlays` is an `isinstance` chain over `Marker` and `Projection`,
+so every new primitive edits the renderer), and a second producer besides
+measures. Almost every overlay derives from a measure; the remaining case is
+**static reference geometry the user inputs**, such as a target position or
+tolerance circle on a beam image. On the v2 document both live under
+`scan.renderer` (`RendererOptions` gains `overlays` and `references`, mapped
+into the `FigureSpec` by `single_v2` / `image_grid_v2` / `waterfall_v2`); the
+`figure:` block is the v3 shape of the same thing:
+
+```yaml
+scan:
+  renderer:
+    references:
+      - {kind: marker, id: target,    x: 312, y: 205, marker: x, color: white}
+      - {kind: circle, id: tolerance, x: 312, y: 205, r: 15, fill: false}
+    overlays:
+      com: {marker: "+", color: cyan}
+```
+
+Reference kinds are the primitive names (`marker`, `circle`, `box`,
+`segment`, `text`). References produce the same primitives the measures
+produce, styled by the same ids and drawn by the same registry; frame axes
+are origin-aware, so a reference in frame units survives the ROI. When the
+*number* matters (offset from the target), the target is a measure parameter
+and the measure emits the scalars and the overlay together, so they cannot
+disagree. No data-derived decoration kinds (contours, masks) for now.
+Refused: YAML that names arbitrary matplotlib calls or carries Python; the
+fixed kwarg groups (`imshow`, `plot`, `colorbar`, …) plus named overlay kinds
+with free kwargs give the same reach with a vocabulary the editor can list.
 
 ### 5. The document
 
@@ -647,6 +718,8 @@ production observation period; re-estimate after the differential baseline.
 | A1 | Core: `Frame` (in data-utils), 12 steps, `beam` + `line`, `Measurement`, `draw` + `single`, v2 adapter, differential harness | portal processing selector, editor preview and the optimizer on the new stack | nothing yet | 1–2 days | one archived scan as golden fixture; review of `Frame`, step names, overlay set |
 | O1 | GeecsBluesky direct adoption: load/validate recipes, discover scalar outputs, adapt live frames and call `run(ArraySource)`; update dependencies and input capability checks | optimizer uses the new core directly; required for the beam/line milestone | old optimizer imports and ephemeral routing once no longer used there | size after integration audit | evaluator parity tests plus a live optimization run; preserve timing/shot association, reductions, minimum counts and no-writes behavior |
 | A2 | `run_scan`, `grid`/`waterfall`/`animation`, analysis-tree + scalar + s-file sinks, the factory adapter and routing | Analysis tab and MCP on the new stack for every `beam`/`line` recipe (37 of 50) | after a week: the 2D/1D wrappers' beam path is unreachable | 2 days | one archived day end-to-end; s-file columns byte-identical for beam recipes |
+| F1 | Colourbar sized from the image axes in `single` (`draw_frame`) and `image_grid`'s shared colourbar; rendered before/after in the PR | every core beam figure looks right; lands before promotion (see "Still required") | nothing | ½ day | operator look at the before/after |
+| F2 | Overlay-kind registry (`Marker`, `Projection`, `Circle`, `Box`, `Segment`, `Text`); `overlays` (per-id style) and `references` on `RendererOptions` under `scan.renderer`, mapped into `FigureSpec` by the v2 renderers; one editor section (overlays + references) with the live preview as validator | operators add reference geometry without code; developers add a kind in one file | the `isinstance` chain in `draw_overlays` | 1–2 days, two PRs (core + schema, then editor) | preview renders every kind; the maintainer confirmed the set (measure overlays + static references) covers the cases in mind |
 | A3 | Long tail: `ict`, `magspec`, `frog_retrieval`, stitcher as a source, HASO as a source, `bcave_mag_opt`; plugins for the Windows-only ones | each recipe flips as it passes the harness | old ImageAnalysis and ScanAnalysis cores when the last route flips; **this file** | ½ day each | Windows machine, vendor SDK, real data per diagnostic; physics sign-off |
 | A4 | Data-utils read side, additive: `ScanLayout`, `ScanScalars`, `ShotSource` converging on `shot_join` / `scan_stack` | portal deletes its ladder; `ScanData` goes | `ScanPaths` facade after the last caller moves | 2 days | none; spread across small PRs |
 | A5 | Optional: corpus conversion to v3; delete the v2 adapter | one config vocabulary | v2 adapter | 1 day | none |
