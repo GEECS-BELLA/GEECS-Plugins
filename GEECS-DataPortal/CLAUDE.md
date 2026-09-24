@@ -431,7 +431,8 @@ template. Everything else is shared: the same shot→frame join, the same
 Two rules for anyone extending this:
 
 - **The portal never un-pads and never rebuilds an axis.** The gateway
-  pads to the devicetype ceiling and stores a waveform's axis as
+  once padded lineouts (stacks recorded 2026-09-19..24) and stores a
+  waveform's axis as
   `wave_x0`/`wave_dx`; `read_1d_data` owns both facts and hands back the
   trace at its true length. A second copy of that arithmetic here is how
   the two drift.

@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.3] - 2026-09-24
+
+### Changed
+
+- `io.array1d`: `_trim_padding`'s docstring says the NaN pad it strips is
+  on the stacks GeecsPvaGateway 0.12.0-0.13.x recorded (2026-09-19..24);
+  the gateway serves arrays at native length from 0.14.0, where the trim is
+  a no-op. Behaviour unchanged — the padded stacks already on the share
+  still read at their true length. `io.scan_stack`'s illustrative lineout
+  shape is `(n, 2)`, not `(16384, 2)`.
+
 ## [0.36.2] - 2026-09-23
 
 ### Changed

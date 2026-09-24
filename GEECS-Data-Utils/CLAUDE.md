@@ -385,8 +385,10 @@ variable and never for an image one. Read an array stack's shot with
 which returns the same `Data1DResult` a native scope file does — so a 1D
 analyzer reads a Bluesky scan without learning a new concept.
 
-**Never hand a consumer a padded frame.** The gateway pads to the
-devicetype's ceiling with NaN so a run has one shape; that makes two shots
+**Never hand a consumer a padded frame.** The gateway serves arrays at
+native length (GeecsPvaGateway 0.14.0), but the MagSpec lineout stacks it
+recorded 2026-09-19..24 are NaN-padded to a fixed row count so a run had
+one shape; padding makes two shots
 of different true lengths *same-shaped*, which silently defeats the
 shape guard a per-shot averager relies on (`average_data` in ScanAnalysis'
 `single_device_scan_analyzer`) and averages column 1 index-wise over axes

@@ -511,11 +511,12 @@ def _read_npy(
 
 
 def _trim_padding(frame: np.ndarray, source: str) -> np.ndarray:
-    """*frame* with the gateway's trailing NaN pad rows removed.
+    """*frame* with trailing NaN pad rows removed.
 
-    The gateway pads every array frame to its devicetype's ceiling with
-    NaN rows so one run has one shape
-    (``geecs_pva_gateway.streams.pad_rows``).  Handing a consumer the
+    Stacks recorded by GeecsPvaGateway 0.12.0-0.13.x (2026-09-19 to
+    2026-09-24) carry the MagSpec lineouts NaN-padded to a per-devicetype
+    ceiling so one run had one shape; the gateway serves arrays at native
+    length since 0.14.0, where this is a no-op.  Handing a consumer a
     padded frame is worse than useless: a padded set is same-shape, so a
     shape guard that would otherwise refuse to average traces of
     different lengths passes, and column 1 is averaged index-wise across

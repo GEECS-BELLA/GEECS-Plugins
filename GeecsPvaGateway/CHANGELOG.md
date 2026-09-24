@@ -4,6 +4,33 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.14.0] - 2026-09-24
+
+### Removed
+
+- Array padding: served array variables (the MagSpec lineouts `interpSpec`
+  / `interpDiv`, and every other array) post at their **native length** —
+  never NaN-padded, and with no length cap. `streams.pad_rows`,
+  `ArrayTooLongError` and `DeviceSpec.array_ceiling` are deleted;
+  `decode_array` takes the payload alone. The file plugin already fixes a
+  stack's shape at the arm and drops and counts (`shape_errors`) a frame of
+  any other shape, so a lineout follows the image rule: one length per
+  scan, change ΔE or the magnet current between scans. Needs GEECS-Core
+  0.12.0.
+
+### Fixed
+
+- The file plugin refuses a first frame whose shape differs from the one
+  it declared at the arm. Arming on a held frame posts that frame's
+  geometry, which is what the Bluesky descriptor and stream resource
+  declare; the stack itself was opened at the first accepted frame's
+  shape, so a held frame from before an ROI / ΔE / magnet-current change
+  (the held frame refreshes only while something is subscribed) produced
+  a file the record misdescribed, silently. Such frames are now dropped,
+  counted as shape errors and named in `WriteMessage`; the run's own
+  subscription refreshes the held frame, so the next scan arms right. A
+  pre-run refresh that removes even that first failure is a follow-up.
+
 ## [0.13.1] - 2026-09-23
 
 ### Changed
