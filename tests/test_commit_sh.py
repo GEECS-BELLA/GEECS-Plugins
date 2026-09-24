@@ -4,8 +4,9 @@ The script commits with pre-commit's auto-fixes applied first, then re-stages
 the originally staged files. Its failure mode is silent: ``set -e`` aborts
 before ``git commit`` and the output tail looks like a normal hook run, so
 HEAD not advancing is only noticed later. These tests drive the script end
-to end in a temporary repository (a copy of the script lives inside it,
-because the script ``cd``s to its own ``../``), with ``pre-commit`` and
+to end in a temporary repository (a copy of the script lives inside it, so
+the worktree scenario can invoke it by a relative path the way a session
+does), with ``pre-commit`` and
 ``poetry`` replaced by stubs on PATH so nothing depends on the host toolchain.
 """
 
@@ -204,3 +205,53 @@ def test_staged_rename_re_stages_the_destination(repo):
     assert "new.txt" in tracked and "zed.txt" in tracked
     assert _git(work, env, "show", "HEAD:new.txt") == "keep\n" + HOOK_SUFFIX
     assert _git(work, env, "status", "--porcelain", "--untracked-files=no") == ""
+
+
+def test_relative_invocation_from_a_worktree_commits_to_the_worktree(repo):
+    """#932: ``../../../scripts/commit.sh`` from ``.claude/worktrees/<name>/``.
+
+    The script's own file is the MAIN checkout's copy. Deriving the root
+    from ``$0`` cd'd into the main checkout, read its (empty) index and
+    reported "nothing staged" while the worktree's change sat staged. The
+    root must be the checkout the caller is in.
+    """
+    work, env = repo
+    wt = work / ".claude" / "worktrees" / "feature"
+    _git(work, env, "worktree", "add", "-q", "-b", "feature", str(wt))
+    main_before = _git(work, env, "rev-parse", "HEAD").strip()
+
+    (wt / "keep.txt").write_text("keep\nfrom the worktree\n", encoding="utf-8")
+    _git(wt, env, "add", "keep.txt")
+
+    result = subprocess.run(
+        ["bash", "../../../scripts/commit.sh", "-q", "-m", "worktree change"],
+        cwd=wt,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _git(wt, env, "log", "-1", "--format=%s").strip() == "worktree change"
+    assert _git(wt, env, "show", "HEAD:keep.txt") == (
+        "keep\nfrom the worktree\n" + HOOK_SUFFIX
+    )
+    assert _git(work, env, "rev-parse", "main").strip() == main_before
+
+
+def test_outside_any_checkout_fails_loudly(repo, tmp_path):
+    """No git checkout under the caller: say so, rather than guess one."""
+    work, env = repo
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    result = subprocess.run(
+        ["bash", str(work / "scripts" / "commit.sh"), "-m", "x"],
+        cwd=outside,
+        env={**env, "GIT_CEILING_DIRECTORIES": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "not inside a git checkout" in result.stderr

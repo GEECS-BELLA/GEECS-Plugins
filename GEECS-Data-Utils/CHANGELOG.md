@@ -42,6 +42,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   owned read-only arrays, coordinate-preserving crops and Nx2 trace adapters.
   Existing analysis routes are unchanged.
 
+## [0.36.2] - 2026-09-23
+
+### Changed
+
+- `io.scan_stack`: the illustrative lineout shape in `device_kind`'s docstring is
+  `(16384, 2)`, the ceiling GEECS-Core 0.11.2 declares for every MagSpec
+  lineout (#988 review). Docs only.
+
 ## [0.36.1] - 2026-09-22
 
 ### Changed

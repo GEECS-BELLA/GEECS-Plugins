@@ -13,7 +13,7 @@ plugin also captures a device's ARRAY variables — scope traces and
 spectra — and those are x-vs-y data:
 :func:`stack_content` names which a device's stack holds and
 :func:`load_shot_trace` reads one shot of an array stack, so a caller
-never renders a ``(2048, 2)`` lineout as a two-pixel-wide image.
+never renders a ``(16384, 2)`` lineout as a two-pixel-wide image.
 
 Strictly read-only: resolution + reads only; nothing on the scans path
 is ever created (repo scan-folder invariant).  Every lookup validates
