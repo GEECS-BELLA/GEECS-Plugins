@@ -156,7 +156,7 @@ def test_an_undeclared_devicetype_serves_every_typed_array() -> None:
 
 
 def test_array_ceilings_are_per_devicetype() -> None:
-    assert array_ceiling("MagSpecCamera") == 2048
+    assert array_ceiling("MagSpecCamera") == 16384  # 7338 rows at ΔE = 0.25 (#986)
     assert array_ceiling("MagSpecStitcher") == 16384
     assert array_ceiling("PicoscopeV2") is None  # a scope's record length is configured
     assert array_ceiling("ThorlabsWFS") is None

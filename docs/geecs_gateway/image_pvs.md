@@ -75,7 +75,7 @@ What you read:
 
 - **A lineout** is `(rows, 2)` `float64` — column 0 the axis (energy in MeV,
   angle in mrad), column 1 the value — **padded with NaN to a fixed row
-  count per devicetype** (2048 on a MagSpec camera, 16384 on the stitcher)
+  count per devicetype** (16384 on a MagSpec camera and on the stitcher)
   because the real row count moves with the magnet current; count the
   non-NaN rows to find the live length. A single real row (the magnet-off
   default) is an ordinary frame.

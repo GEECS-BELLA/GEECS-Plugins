@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.100.2] - 2026-09-23
+
+### Changed
+
+- `CLAUDE.md`: the MagSpec lineout stack shape it quotes is `(N, 16384, 2)`
+  (the ceiling GEECS-Core 0.11.2 raised, #986). Docs only.
+
 ## [0.100.1] - 2026-09-23
 
 ### Fixed

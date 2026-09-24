@@ -4,6 +4,18 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.11.2] - 2026-09-23
+
+### Changed
+
+- `db.device_streams`: the MagSpec camera lineout ceiling (`array_ceiling`)
+  is 16384 rows, the stitcher's value, instead of 2048. At ΔE = 0.25 a
+  camera's `interpSpec` is 7338 rows (probed live 2026-09-23 on Cam3: the
+  device pushed it every second while the gateway dropped every frame as
+  over the ceiling), so the file plugin could never arm and a strict scan
+  naming the camera died at prepare (26_0923 Scan006, #986). The parity
+  fixture is re-recorded from the DB (no row changed; the date line only).
+
 ## [0.11.1] - 2026-09-22
 
 ### Changed

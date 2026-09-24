@@ -30,8 +30,12 @@ A third, numeric fact rides with them: ``array_ceiling``, the row count the
 gateway pads a variable-length array to (NaN fill) so the PV shape, the
 Bluesky descriptor and the HDF5 stack stay constant across shots — the
 MagSpec lineouts' length is the energy span over a fixed ``dE`` and moves
-with the magnet current (a camera at ~285 rows, the stitcher at ~8218; the
-1 x 2 magnet-off default is an ordinary frame).  Longer than the ceiling is
+with the magnet current and with the configured ΔE (a camera at ~285 rows
+at a coarse ΔE and 7338 rows at ΔE = 0.25, 26_0923; the stitcher at ~8224;
+the 1 x 2 magnet-off default is an ordinary frame).  The cameras and the
+stitcher share one ceiling, 16384: the 2048 the cameras first carried was
+set from the coarse-ΔE observation and dropped every lineout at the fine
+ΔE the stitching needs (26_0923 Scan006, GEECS-Plugins#986).  Longer than the ceiling is
 dropped and counted, never truncated.  ``None`` means "serve at native
 length" (a scope trace's length is its configured record).
 
@@ -139,7 +143,7 @@ DEVICE_TYPE_STREAMS: Mapping[str, DeviceTypeStreams] = {
     "magspeccamera": DeviceTypeStreams(
         capture=("Image", "ImageInterp", "interpSpec", "interpDiv"),
         exclude=frozenset({"EnergyAxis", "AngleAxis"}),  # = the lineouts' column 0
-        array_ceiling=2048,
+        array_ceiling=16384,  # 7338 rows at ΔE = 0.25 (#986); the stitcher's value
     ),
     "magspecstitcher": DeviceTypeStreams(
         capture=("Image", "interpSpec"),

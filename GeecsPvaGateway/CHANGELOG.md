@@ -4,6 +4,18 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.13.1] - 2026-09-23
+
+### Changed
+
+- Served MagSpec camera lineouts (`interpSpec`, `interpDiv`) are padded to
+  16384 rows, the devicetype ceiling GEECS-Core 0.11.2 declares (was 2048,
+  which dropped every lineout at ΔE = 0.25; #986). No gateway code changes;
+  the ceiling is read at startup, so **deploy = pull the share clone and
+  `:restart` the gateway on each MagSpec camera host**. A stack written after
+  the restart is `(N, 16384, 2)`; readers take the real row count from the
+  NaN padding as before.
+
 ## [0.13.0] - 2026-09-21
 
 ### Added
