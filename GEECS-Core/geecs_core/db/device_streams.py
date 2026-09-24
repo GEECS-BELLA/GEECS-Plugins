@@ -20,7 +20,7 @@ polarities because their costs are opposite:
   Picoscope's dead ``ScopeTraces``/``wfm`` rows), because they are a
   downsampled twin for GUIs (``scopeTraceGUI.*``), because they arrive
   malformed (the stitcher's ``interpDiv``, an axis that stops increasing
-  after 190 of 8218 rows), or because they repeat a captured stream's own
+  after 190 of 8224 rows), or because they repeat a captured stream's own
   axis (the MagSpec ``EnergyAxis``/``AngleAxis`` are ``interpSpec``/
   ``interpDiv`` column 0).  **Exclusions name array variables only** —
   no image PV is ever removed here; a Point Grey's ``processed image``

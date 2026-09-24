@@ -3,6 +3,13 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.1] - 2026-09-23
+
+### Changed
+
+- `resources`: the illustrative lineout shape in the module docstring is
+  `(16384, 2)` (GEECS-Core 0.11.2, #988 review). Docs only.
+
 ## [0.30.0] - 2026-09-21
 
 ### Added
