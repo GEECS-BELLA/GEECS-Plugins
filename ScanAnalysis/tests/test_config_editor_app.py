@@ -86,10 +86,40 @@ class TestApi:
         assert body["namespaces"]["analyzer"] == ["HTU"]
         assert body["preview"] is False
         schema = client.get("/api/schema/analyzer").json()
-        assert (
-            schema["properties"]["analyzer"]["discriminator"]["propertyName"] == "kind"
-        )
+        # the recipe's schema, its step vocabulary from the analysis core
+        assert schema["properties"]["input"]["discriminator"]["propertyName"] == "kind"
+        steps = schema["properties"]["steps"]["items"]["discriminator"]
+        assert steps["propertyName"] == "step" and "median" in steps["mapping"]
         assert client.get("/api/schema/nope").status_code == 404
+
+    def test_recipe_roundtrip_and_a_v2_file_still_reads(self, client):
+        recipe = {
+            "schema_version": 3,
+            "device": "UC_New",
+            "input": {"kind": "camera"},
+            "steps": [{"step": "median", "kernel": 5}],
+            "measure": {"kind": "beam"},
+            "figure": {"imshow": {"cmap": "viridis"}},
+            "summaries": [{"kind": "image_grid"}, {"kind": "average"}],
+        }
+        ok = client.post("/api/validate/analyzer", json={"document": recipe}).json()
+        assert ok["ok"], ok["errors"]
+        assert "step: median" in ok["yaml"]
+        bad = dict(recipe, steps=[{"step": "median", "kernel": 4}])
+        report = client.post("/api/validate/analyzer", json={"document": bad}).json()
+        assert not report["ok"] and report["errors"][0]["loc"] == "steps.0.kernel"
+        r = client.put(
+            "/api/analyzers/HTU/UC_New", json={"document": recipe, "etag": None}
+        )
+        assert r.status_code == 201, r.text
+        loaded = client.get("/api/analyzers/UC_New").json()
+        assert loaded["valid"] and loaded["document"]["schema_version"] == 3
+        listing = client.get("/api/list").json()["analyzers"]
+        versions = {a["id"]: a["schema_version"] for a in listing}
+        assert versions == {"UC_A": 2, "UC_New": 3}
+        # the v2 file: still read and valid (the page shows it read-only)
+        old = client.get("/api/analyzers/UC_A").json()
+        assert old["valid"] and old["document"]["schema_version"] == 2
 
     def test_read_validate_save_roundtrip(self, client):
         loaded = client.get("/api/analyzers/UC_A").json()
@@ -293,19 +323,19 @@ class TestSidebarCollapseState:
         ) == {"group": True}
 
 
-@pytest.mark.parametrize("kind, value", [("analyzer", 2), ("group", False)])
-def test_retired_upload_fields_are_hidden_and_preserved(kind, value):
-    """Run the actual object form: no upload control, no loss on save."""
+def test_retired_upload_fields_are_hidden_and_preserved():
+    """Run the actual object form: no upload control, no loss on save.
+
+    The group form only: a v2 diagnostic (the other document with a retired
+    upload field) is shown read-only, never rendered as a form.
+    """
     from geecs_web_theme.testing import node_available
 
     if not node_available():
         pytest.skip("node not available to run JavaScript")
+    kind, value = "group", False
     schema = ConfigStore.schema(kind)
-    if kind == "analyzer":
-        schema = schema["$defs"]["ScanRuntime"]
-        key = "gdoc_slot"
-    else:
-        key = "upload_to_scanlog"
+    key = "upload_to_scanlog"
     field = schema["properties"][key]
     assert field["deprecated"] is True
     source = (
@@ -335,3 +365,188 @@ const form = {
         ["node", "-"], input=harness, text=True, capture_output=True, check=True
     )
     assert json.loads(result.stdout) == [{key: value}, {}]
+
+
+_FAKE_DOM = r"""
+class Node {
+  constructor(tag) { this.tagName = tag.toUpperCase(); this.children = []; this.attrs = {}; this.listeners = {}; this.parent = null; this._class = ""; this.value = ""; this.checked = false; this.disabled = false; }
+  get textContent() { return this._text !== undefined ? this._text : this.children.map((c) => c.textContent).join(""); }
+  set textContent(v) { this._text = String(v); this.children = []; }
+  get className() { return this._class; } set className(v) { this._class = v; }
+  get classList() { const self = this; return {
+    contains(c) { return self._class.split(/\s+/).includes(c); },
+    add(c) { if (!this.contains(c)) self._class = (self._class + " " + c).trim(); },
+    remove(c) { self._class = self._class.split(/\s+/).filter((x) => x && x !== c).join(" "); },
+    toggle(c, on) { if (on === undefined) on = !this.contains(c); on ? this.add(c) : this.remove(c); } }; }
+  set innerHTML(v) { this.children = []; this._html = v; } get innerHTML() { return this._html || ""; }
+  setAttribute(k, v) { this.attrs[k] = String(v); if (k === "value") this.value = String(v); if (k === "disabled") this.disabled = true; }
+  getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
+  addEventListener(t, f) { (this.listeners[t] = this.listeners[t] || []).push(f); }
+  fire(t) { for (const f of this.listeners[t] || []) f({ target: this, preventDefault() {} }); }
+  _adopt(c) { if (typeof c === "string") { const tn = new Node("#text"); tn.textContent = c; c = tn; } if (c.parent) c.parent.children = c.parent.children.filter((x) => x !== c); c.parent = this; return c; }
+  append(...cs) { for (const c of cs) this.children.push(this._adopt(c)); }
+  prepend(...cs) { this.children.unshift(...cs.map((c) => this._adopt(c))); }
+  insertBefore(c, ref) { c = this._adopt(c); const i = this.children.indexOf(ref); if (i < 0) this.children.push(c); else this.children.splice(i, 0, c); }
+  remove() { if (this.parent) { this.parent.children = this.parent.children.filter((x) => x !== this); this.parent = null; } }
+  focus() {}
+  *walk() { for (const c of this.children) { yield c; yield* c.walk(); } }
+  matches(sel) {
+    const m = sel.match(/^([a-z]*)((?:\.[\w-]+)*)((?:\[[^\]]+\])*)$/i); if (!m) return false;
+    if (m[1] && this.tagName !== m[1].toUpperCase()) return false;
+    for (const c of (m[2].match(/\.[\w-]+/g) || [])) if (!this.classList.contains(c.slice(1))) return false;
+    for (const a of (m[3].match(/\[[^\]]+\]/g) || [])) { const am = a.match(/^\[([\w-]+)(?:="([^"]*)")?\]$/); if (!am) return false; const v = this.getAttribute(am[1]); if (v === null) return false; if (am[2] !== undefined && v !== am[2]) return false; }
+    return true; }
+  querySelectorAll(sel) { const parts = sel.split(",").map((s) => s.trim()); const out = []; for (const n of this.walk()) if (parts.some((p) => n.matches(p))) out.push(n); return out; }
+  querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
+}
+const document = { createElement: (t) => new Node(t), getElementById: () => null };
+const window = { document };
+"""
+
+_BEAM_RECIPE = {
+    "schema_version": 3,
+    "device": "UC_TopView",
+    "description": "IR mode at the input to amp3",
+    "metadata": {"location": "Room 148", "spatial_calibration": 2.44e-05},
+    "input": {"kind": "camera"},
+    "inputs": {"bg": {"path": "{scan_dir}/bg.png", "fallback_level": 3}},
+    "steps": [
+        {"step": "background_frame", "source": "bg"},
+        {"step": "roi", "bounds": [[350, 600], [10, 750]]},
+        {"step": "median", "kernel": 5},
+        {"step": "circular_mask", "center": [200, 300], "radius": 50, "units": "axis"},
+    ],
+    "measure": {"kind": "beam", "compute_slopes": True},
+    "scan": {"priority": 10, "average_frames_first": True},
+    "figure": {
+        "imshow": {"cmap": "viridis", "vmin": 0},
+        "fig": {"dpi": 150},
+        "axes": {"title": "top view"},
+        "overlays": {
+            "com": {"color": "red", "hidden": False},
+            "projection_x": {"scale": 0.2},
+        },
+    },
+    "summaries": [
+        {"kind": "image_grid", "panel_size": [6.0, 6.0], "columns": 4},
+        {"kind": "average"},
+    ],
+}
+
+_LINE_RECIPE = {
+    "schema_version": 3,
+    "device": "U_BCaveMagSpec",
+    "output_name": "U_BCaveMagSpec-interpSpec",
+    "input": {
+        "kind": "line",
+        "folder": "U_BCaveMagSpec-interpSpec",
+        "file_tail": ".txt",
+        "format": "device_hdf5",
+        "loading": {"data_type": "pva_stack"},
+        "x_scale": 1000.0,
+        "x_unit": "MeV",
+        "label": "Charge density vs Energy",
+    },
+    "steps": [
+        {"step": "background_constant", "level": 0},
+        {"step": "roi", "bounds": [[60, 160]], "units": "axis"},
+        {"step": "interpolate", "count": 400, "lower": 70},
+        {"step": "clip_below", "level": -10},
+    ],
+    "measure": {"kind": "line"},
+    "summaries": [
+        {"kind": "waterfall", "sort_key": "U_S1:charge", "scale": "sequential"},
+        {"kind": "average"},
+    ],
+}
+
+
+def test_recipe_form_round_trips_and_reorders(tree):
+    """Run the real recipe form under node on a fake DOM.
+
+    What the form reads back is what was loaded (a corpus beam recipe with a
+    frame input and overlay styles; a line recipe), a step the registry does
+    not know is kept as written (never swapped for the first kind), and the
+    card's "move up" swaps the steps while every field path stays true.
+    """
+    from geecs_web_theme.testing import node_available
+
+    if not node_available():
+        pytest.skip("node not available to run JavaScript")
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "scan_analysis/config_editor/static/editor.js"
+    ).read_text()
+    utils = source[
+        source.index("  const esc = ") : source.index("  async function api(")
+    ]
+    classes = source[
+        source.index("  class Schema {") : source.index(
+            "  // -------------------------------------------------------------- editor"
+        )
+    ]
+    sections = re.search(
+        r"const RECIPE_SECTIONS = \(\) => (\[.*?\n    \]);", source, re.S
+    )
+    assert sections, "editor.js: no RECIPE_SECTIONS"
+    docs = {
+        "beam": _BEAM_RECIPE,
+        "line": _LINE_RECIPE,
+        "typo": dict(_BEAM_RECIPE, inputs={}, steps=[{"step": "medain", "kernel": 3}]),
+    }
+    harness = (
+        _FAKE_DOM
+        + utils
+        + classes
+        + f"const SCHEMA = {json.dumps(ConfigStore.schema('analyzer'))};\n"
+        + f"const DOCS = {json.dumps(docs)};\n"
+        + f"const SECTIONS = () => {sections.group(1)};\n"
+        + """
+const schema = new Schema(SCHEMA);
+const form = new Form(schema, () => {});
+const out = {};
+for (const [name, doc] of Object.entries(DOCS)) {
+  const r = form.object(schema.resolve(schema.root), doc, [], false, { sections: SECTIONS(), hidden: new Set(["schema_version"]) });
+  const paths = r.node.querySelectorAll(".field").map((f) => f.getAttribute("data-path"));
+  const ups = r.node.querySelectorAll('button[title="move up"]');
+  out[name] = { roundtrip: r.get(), paths, adder: r.node.querySelectorAll("select.add").map((s) => s.children.map((o) => o.textContent)) };
+  if (ups.length > 1) { ups[1].fire("click"); out[name].after_up = r.get().steps; out[name].paths_after = r.node.querySelectorAll(".field").map((f) => f.getAttribute("data-path")); }
+}
+console.log(JSON.stringify(out));
+"""
+    )
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    out = json.loads(result.stdout)
+    store = ConfigStore(tree)
+    for name in ("beam", "line"):
+        expected = store.validate("analyzer", docs[name])
+        assert expected.ok, expected.errors
+        got = store.validate("analyzer", out[name]["roundtrip"])
+        assert got.ok, got.errors
+        assert got.canonical == expected.canonical, name
+        # every step's fields are addressable by the server's error locations
+        assert "steps.1.units" in out[name]["paths"]  # the roi step's field
+        assert "steps.1.bounds.0" in out[name]["paths"]  # its first bounds pair
+    # the corpus beam recipe's frame input and overlay rows came back too
+    assert out["beam"]["roundtrip"]["inputs"] == _BEAM_RECIPE["inputs"]
+    assert (
+        out["beam"]["roundtrip"]["figure"]["overlays"]
+        == _BEAM_RECIPE["figure"]["overlays"]
+    )
+    # the step list offers the registry, with the frame-shape hints
+    steps_adder = out["beam"]["adder"][0]
+    assert "roi" in steps_adder and "interpolate (traces)" in steps_adder
+    assert "circular_mask (images)" in steps_adder
+    # move up on the second card swaps the first two steps; paths renumber
+    assert out["beam"]["after_up"][:2] == [
+        _BEAM_RECIPE["steps"][1],
+        _BEAM_RECIPE["steps"][0],
+    ]
+    assert "steps.0.units" in out["beam"]["paths_after"]
+    assert "steps.1.units" not in out["beam"]["paths_after"]
+    assert "steps.1.source" in out["beam"]["paths_after"]
+    # an unknown step name is kept as written, for the server to refuse by location
+    assert out["typo"]["roundtrip"]["steps"] == [{"step": "medain", "kernel": 3}]
+    assert not store.validate("analyzer", out["typo"]["roundtrip"]).ok

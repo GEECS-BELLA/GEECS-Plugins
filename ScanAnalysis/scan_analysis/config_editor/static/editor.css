@@ -71,4 +71,45 @@
 .ce-new input { width: auto; flex: 1 1 5rem; min-width: 0; }
 .ce-new button { flex: 0 0 auto; }
 
-.ce-main .ce-recipe-note { color: var(--muted); font-size: 12px; line-height: 1.4; margin: 0.2rem 0 0.6rem; }
+
+/* the recipe form: one section per part of the document (Source, Steps, ...) */
+.ce-form .ce-section { border: 1px solid var(--rule); border-radius: 4px; margin: 0.5rem 0 0.7rem; padding: 0.3rem 0.8rem 0.6rem; }
+.ce-form .ce-section > legend { color: var(--ink); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; padding: 0 0.3rem; }
+.ce-form .ce-section > .ce-section-help { color: var(--muted); font-size: 11px; line-height: 1.3; margin: 0 0 0.3rem; }
+/* a section holding one list (Steps, Summaries) shows the list bare, not in a second box */
+.ce-form .ce-section.ce-flat > fieldset { border: 0; margin: 0; padding: 0; }
+.ce-form .ce-section.ce-flat > fieldset > legend { display: none; }
+/* ordered items: a step, a summary, a frame input — a header row, then the fields */
+.ce-form .list .item.card { flex-direction: column; align-items: stretch; gap: 0; border: 1px solid var(--rule); border-radius: 4px; background: var(--surface-2); }
+.ce-form .list .item.card > .head { display: flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--rule); }
+.ce-form .list .item.card > .head .idx { color: var(--muted); font-size: 11px; min-width: 1.2rem; }
+.ce-form .list .item.card > .head select.kindsel, .ce-form .list .item.card > .head input.key { font-weight: 600; background: var(--surface); }
+.ce-form .list .item.card > .head .spacer { margin-left: auto; }
+.ce-form .list .item.card > .head button { padding: 0 0.4rem; }
+.ce-form .list .item.card > .body { padding: 0.2rem 0.6rem 0.4rem; background: var(--surface); border-radius: 0 0 4px 4px; }
+.ce-form .list .item.card > .body .help.variant { margin: 0.1rem 0 0.3rem; }
+.ce-form .list .item.card > .body:empty { display: none; }
+.ce-form .list > .add { align-self: flex-start; }
+.ce-form .list > select.add { min-width: 12rem; }
+/* keyword groups (figure.imshow, ...): key / value rows, matplotlib's own vocabulary */
+.ce-form .kv { display: flex; flex-direction: column; gap: 0.15rem; }
+.ce-form .kv .row { display: flex; gap: 0.3rem; align-items: center; }
+.ce-form .kv .row input.k { width: 12rem; flex: none; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.ce-form .kv .row input.v { flex: 1; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.ce-form .kv .row button { padding: 0 0.4rem; }
+.ce-form .kv .hint { color: var(--muted); font-size: 11px; }
+.ce-form .field.kvfield { grid-template-columns: 11rem minmax(0, 1fr); }
+.ce-main .ce-readonly-note { color: var(--muted); font-size: 12px; line-height: 1.4; margin: 0.2rem 0 0.6rem; }
+.ce-main .ce-readonly-note code { font-family: ui-monospace, Menlo, Consolas, monospace; }
+.ce-side a .tag { float: right; color: var(--muted); font-size: 10px; border: 1px solid var(--rule); border-radius: 3px; padding: 0 0.25rem; margin-top: 0.15rem; }
+/* help lines wherever they sit: under a field, a variant's description, a list's */
+.ce-form .help { color: var(--muted); font-size: 11px; line-height: 1.3; }
+.ce-form .help.variant, .ce-form fieldset > .help { margin: 0.15rem 0 0.35rem; }
+/* a flat section already says what its one list is for */
+.ce-form .ce-section.ce-flat > fieldset > .help { display: none; }
+/* a light item (a bounds pair, a scalar) is a row, not a card: no header, no label */
+.ce-form .list .item.light { gap: 0.4rem; }
+.ce-form .list .item.light > .field { grid-template-columns: minmax(0, 1fr); padding: 0; }
+.ce-form .list .item.light > .field > label { display: none; }
+.ce-form .list .item.light > .field > .help { display: none; }
+.ce-form .list .item.light > button { padding: 0 0.4rem; }

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from pydantic import Field
+
 from geecs_analysis.registry import MeasureSpec, measure
 
 if TYPE_CHECKING:
@@ -15,8 +17,13 @@ class BeamSpec(MeasureSpec):
     """Beam projections, optional scalar selection and local-index slopes."""
 
     kind: Literal["beam"] = "beam"
-    enabled_stats: tuple[str, ...] | None = None
-    compute_slopes: bool = False
+    enabled_stats: tuple[str, ...] | None = Field(
+        None, description="Scalar names to keep (unset keeps every statistic)."
+    )
+    compute_slopes: bool = Field(
+        False,
+        description="Also fit local slopes of the centroid and peak (image_*_slope_*).",
+    )
 
     def emitted_scalars(self) -> frozenset[str]:
         """Preserve the existing optimizer key-discovery and selection contract."""

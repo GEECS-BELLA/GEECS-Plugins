@@ -1,8 +1,11 @@
 /* GEECS analysis config editor.
  *
- * A schema-driven form over the JSON Schema GEECS-Schemas exports for
- * AnalysisDiagnostic / AnalysisGroup, plus the list, YAML preview, save and
- * (when the host provides one) a live preview of the document under edit.
+ * A schema-driven form over the JSON Schema the store serves: the analysis
+ * recipe (format 3: input, ordered steps and a measure from the analysis
+ * core's registry, the figure, the summaries, the scan runtime) and the
+ * group, plus the list, YAML preview, save and (when the host provides one)
+ * a live preview of the document under edit drawn as a scan run draws it.
+ * A format 2 diagnostic (a kind the core has not ported) is shown read-only.
  *
  *   ConfigEditor.mount(container, {
  *     base,                 // URL of the editor router mount ("" | "/configs" | proxied)
@@ -15,9 +18,11 @@
  *
  * Renders exactly the JSON Schema shapes pydantic v2 emits for these
  * models: objects (with $ref / $defs), optionals (anyOf [T, null]),
- * discriminated unions (oneOf + discriminator), enums / const, arrays of
- * enums / scalars / objects, tuples (prefixItems), and free mappings
- * (additionalProperties -> JSON textarea).  No build chain, no library.
+ * discriminated unions (oneOf + discriminator, as ordered cards in a list),
+ * enums / const, arrays of enums / scalars / objects, tuples (prefixItems),
+ * keyed mappings (additionalProperties: object -> named cards) and keyword
+ * mappings (additionalProperties: any -> key / value rows).  No build
+ * chain, no library.
  */
 (function () {
   "use strict";
@@ -133,7 +138,8 @@
       const title = typeof name === "number" ? `#${name + 1}` : String(name);
       return el("label", { title: meta.description || "" }, title);
     }
-    help(meta) { return meta.description ? el("div", { class: "help" }, meta.description) : null; }
+    static plain(text) { return String(text || "").replace(/``([^`]*)``/g, "$1"); }
+    help(meta) { return meta.description ? el("div", { class: "help" }, Form.plain(meta.description)) : null; }
     field(meta, path, control, extra) {
       return el("div", { class: "field", "data-path": path.join(".") }, this.label(meta, path), control, this.help(meta), extra || null);
     }
@@ -173,7 +179,58 @@
       // otherwise a typo in `metadata` would silently drop the mapping on Save.
       return { node: this.field(n, path, ta, err), get: () => { err.textContent = ""; if (!ta.value.trim()) return undefined; try { return JSON.parse(ta.value); } catch (e) { err.textContent = "invalid JSON: " + e.message; throw new FormParseError(path.join("."), e.message); } } };
     }
-    map(n, value, path) { return this.json(Object.assign({}, n, { description: (n.description || "") + " (JSON mapping)" }), value, path); }
+    map(n, value, path) {
+      // Dict[str, T]: named cards when T is an object (frame inputs, a style
+      // per overlay id), key / value rows when T is anything (a matplotlib
+      // keyword group, free-form metadata)
+      const item = n.additionalProperties;
+      if (item && typeof item === "object" && (item.$ref || item.properties || item.type === "object")) return this.keyedList(n, this.schema.resolve(item), value, path);
+      return this.kvRows(n, value, path);
+    }
+    // key / value rows: numbers, true / false, null, [lists] and {objects}
+    // parse as JSON; anything else is text (quote text that looks like a
+    // number: "1")
+    static parseValue(text) { const s = text.trim(); if (s === "") return ""; try { return JSON.parse(s); } catch (_) { return text; } }
+    static showValue(v) { return typeof v === "string" ? v : JSON.stringify(v); }
+    kvRows(n, value, path, opts) {
+      const box = el("div", { class: "kv" });
+      const rows = [];
+      const addBtn = el("button", { type: "button", class: "add", onclick: () => { add("", undefined); rows[rows.length - 1].key.focus(); } }, "+ keyword");
+      box.append(addBtn);
+      const add = (k, v) => {
+        const key = el("input", { type: "text", class: "k", placeholder: "keyword", value: k ?? "", spellcheck: "false", oninput: () => this.onChange() });
+        const val = el("input", { type: "text", class: "v", placeholder: "value", value: v === undefined ? "" : Form.showValue(v), spellcheck: "false", oninput: () => this.onChange() });
+        const entry = { key, val, row: null };
+        entry.row = el("div", { class: "row" }, key, val, el("button", { type: "button", title: "remove", onclick: () => { rows.splice(rows.indexOf(entry), 1); entry.row.remove(); this.onChange(); } }, "x"));
+        rows.push(entry); box.insertBefore(entry.row, addBtn);
+      };
+      for (const [k, v] of Object.entries(value || {})) add(k, v);
+      const get = () => { const out = {}; for (const r of rows) { const k = r.key.value.trim(); if (k) out[k] = Form.parseValue(r.val.value); } return out; };
+      if (opts && opts.bare) return { node: box, get };
+      return { node: this.field(n, path, box), get };
+    }
+    // named cards: a name input in the header, the item's fields below
+    keyedList(n, item, value, path) {
+      const list = el("div", { class: "list" });
+      const rows = [];
+      const kind = this.schema.kindOf(item);
+      const addBtn = el("button", { type: "button", class: "add", onclick: () => { add("", this.schema.defaultFor(item)); rows[rows.length - 1].key.focus(); this.onChange(); } }, "+ add");
+      list.append(addBtn);
+      const add = (k, v) => {
+        const key = el("input", { type: "text", class: "key", placeholder: "name", value: k ?? "", spellcheck: "false", oninput: () => this.onChange() });
+        const sub = path.concat(k || "?");
+        const r = kind === "map" ? this.kvRows(item, v, sub, { bare: true }) : this.object(item, v, sub, false);
+        const body = el("div", { class: "body" }, r.node.tagName === "FIELDSET" ? (r.node.querySelector(".obj") || r.node) : r.node);
+        const entry = { key, r, row: null };
+        entry.row = el("div", { class: "item card" },
+          el("div", { class: "head" }, key, el("span", { class: "spacer" }), el("button", { type: "button", title: "remove", onclick: () => { rows.splice(rows.indexOf(entry), 1); entry.row.remove(); this.onChange(); } }, "x")),
+          body);
+        rows.push(entry); list.insertBefore(entry.row, addBtn);
+      };
+      for (const [k, v] of Object.entries(value || {})) add(k, v);
+      const legend = el("legend", { title: n.description || "" }, String(path[path.length - 1]));
+      return { node: el("fieldset", {}, legend, this.help(n), list), get: () => { const out = {}; for (const e of rows) { const k = e.key.value.trim(); if (k) out[k] = e.r.get(); } return out; } };
+    }
 
     // --- tuples: fixed inputs side by side
     tuple(n, value, path) {
@@ -216,24 +273,62 @@
       return { node: this.field(n, path, input), get: () => { const parts = input.value.split(",").map((s) => s.trim()).filter(Boolean); if (!parts.length) return optional ? undefined : []; return item.type === "string" ? parts : parts.map(Number); } };
     }
     objectList(n, item, values, path, optional) {
+      // Ordered cards (a step, a summary): the header is the kind select for
+      // a discriminated union, else the index, plus up / down / remove; the
+      // fields sit below.  Reorder and remove rebuild the list from the
+      // current values, so every field path (steps.2.bounds) stays true.
+      const isUnion = this.schema.kindOf(item) === "union";
+      // a pair of numbers or a scalar is a row with its buttons, not a card
+      const light = !isUnion && ["tuple", "number", "string", "bool", "enum"].includes(this.schema.kindOf(item));
       const list = el("div", { class: "list" });
       const items = [];
-      const add = (v, i) => {
-        const r = this.render(item, v, path.concat(i));
-        const row = el("div", { class: "item" }, r.node, el("button", { type: "button", title: "remove", onclick: () => { items.splice(items.indexOf(r), 1); row.remove(); this.onChange(); } }, "x"));
-        items.push(r); list.append(row);
+      const current = () => items.map((it) => { try { return it.get(); } catch (e) { if (e instanceof FormParseError) return it.last; throw e; } });
+      let adder;
+      const rebuild = (vals) => {
+        items.length = 0; list.innerHTML = "";
+        vals.forEach((v, i) => {
+          const r = isUnion ? this.union(item, v, path.concat(i), { header: true }) : this.render(item, v, path.concat(i));
+          r.last = v;
+          const buttons = [
+            el("button", { type: "button", title: "move up", disabled: i === 0, onclick: () => { const c = current(); [c[i - 1], c[i]] = [c[i], c[i - 1]]; rebuild(c); this.onChange(); } }, "\u2191"),
+            el("button", { type: "button", title: "move down", disabled: i === vals.length - 1, onclick: () => { const c = current(); [c[i + 1], c[i]] = [c[i], c[i + 1]]; rebuild(c); this.onChange(); } }, "\u2193"),
+            el("button", { type: "button", title: "remove", onclick: () => { const c = current(); c.splice(i, 1); rebuild(c); this.onChange(); } }, "x"),
+          ];
+          if (light) { list.append(el("div", { class: "item light" }, r.node, ...buttons)); items.push(r); return; }
+          const head = el("div", { class: "head" }, isUnion ? r.head : el("span", { class: "idx" }, `#${i + 1}`), el("span", { class: "spacer" }), ...buttons);
+          const body = el("div", { class: "body" }, isUnion ? r.node : (r.node.tagName === "FIELDSET" ? (r.node.querySelector(".obj") || r.node) : r.node));
+          list.append(el("div", { class: "item card" }, head, body));
+          items.push(r);
+        });
+        list.append(adder);
       };
-      values.forEach(add);
-      const wrap = el("div", {}, list, el("button", { type: "button", onclick: () => { add(this.schema.defaultFor(item), items.length); this.onChange(); } }, "+ add"));
-      return { node: el("fieldset", {}, el("legend", { title: n.description || "" }, String(path[path.length - 1])), wrap), get: () => { const vals = items.map((it) => it.get()).filter((v) => v !== undefined); return vals.length === 0 && optional ? undefined : vals; } };
+      const noun = String(path[path.length - 1]).replace(/ies$/, "y").replace(/s$/, "");
+      if (isUnion) {
+        adder = el("select", { class: "add", onchange: () => { if (adder.value) { rebuild(current().concat([this.schema.defaultFor(this.unionVariant(item, adder.value))])); this.onChange(); } } });
+        adder.append(el("option", { value: "" }, `add ${noun}...`));
+        for (const v of this.unionVariants(item)) adder.append(el("option", { value: String(v.tag), title: v.schema.description || "" }, v.label));
+      } else {
+        adder = el("button", { type: "button", class: "add", onclick: () => { rebuild(current().concat([this.schema.defaultFor(item)])); this.onChange(); } }, `+ add ${noun}`);
+      }
+      rebuild(values);
+      return { node: el("fieldset", {}, el("legend", { title: n.description || "" }, String(path[path.length - 1])), this.help(n), list), get: () => { const vals = items.map((it) => it.get()).filter((v) => v !== undefined); return vals.length === 0 && optional ? undefined : vals; } };
     }
 
     // --- objects
+    // opts: skip (keys not rendered nor written), hidden (keys not rendered,
+    // written as loaded or defaulted: the format version), sections (the
+    // root laid out as titled groups of keys, in that order)
     object(n, value, path, optional, opts) {
       const props = n.properties || {};
       const children = [];
       const body = el("div", { class: "obj" });
       const skip = (opts && opts.skip) || new Set();
+      const hidden = (opts && opts.hidden) || new Set();
+      const sections = (opts && opts.sections) || null;
+      if (sections) for (const s of sections) {
+        s.body = el("fieldset", { class: "ce-section" + (s.keys.length === 1 ? " ce-flat" : "") }, el("legend", {}, s.title), s.help ? el("div", { class: "ce-section-help" }, s.help) : null);
+        body.append(s.body);
+      }
       for (const [key, sub] of Object.entries(props)) {
         if (skip.has(key)) continue;
         // Retired config fields remain round-trippable without offering controls.
@@ -241,8 +336,12 @@
           children.push([key, { get: () => value == null ? undefined : value[key] }]);
           continue;
         }
+        if (hidden.has(key)) {
+          children.push([key, { hidden: true, get: () => (value != null && value[key] !== undefined ? value[key] : this.schema.resolve(sub).default) }]);
+          continue;
+        }
         const r = this.render(sub, value && value[key] !== undefined ? value[key] : undefined, path.concat(key));
-        if (r.node) body.append(r.node);
+        if (r.node) { const sec = sections && sections.find((s) => s.keys.includes(key)); (sec ? sec.body : body).append(r.node); }
         children.push([key, r]);
       }
       const get = () => {
@@ -250,6 +349,7 @@
         for (const [key, r] of children) {
           const v = r.get();
           if (v === undefined) continue;
+          if (r.hidden) { out[key] = v; continue; }
           // a scalar equal to its schema default is left unwritten — the
           // file keeps only what the author set (canonical-form doctrine)
           const sub = this.schema.unwrapOptional(props[key]);
@@ -282,29 +382,52 @@
       check.addEventListener("change", () => { fs.classList.toggle("off", !check.checked); this.onChange(); });
       return { node: fs, get: () => (check.checked ? r.get() : undefined) };
     }
-    union(n, value, path) {
+    unionVariants(n) {
       const disc = n.discriminator.propertyName;
-      const variants = n.oneOf.map((v) => this.schema.resolve(v));
-      const tagOf = (v) => { const p = v.properties && v.properties[disc]; return p ? (p.const !== undefined ? p.const : (p.enum || [])[0]) : v.__name; };
+      return n.oneOf.map((v) => {
+        const schema = this.schema.resolve(v);
+        const p = schema.properties && schema.properties[disc];
+        const tag = p ? (p.const !== undefined ? p.const : (p.enum || [])[0]) : schema.__name;
+        return { tag, schema, label: String(tag) + Form.ndimHint(schema) };
+      });
+    }
+    unionVariant(n, tag) { const v = this.unionVariants(n).find((x) => String(x.tag) === String(tag)); return v ? v.schema : null; }
+    // "(images)" / "(traces)" after a kind the registry says fits one frame shape
+    static ndimHint(v) { const d = v["x-ndim"]; return Array.isArray(d) && d.length === 1 ? (d[0] === 2 ? " (images)" : " (traces)") : ""; }
+    // opts.header: return the kind select separately (a card header) instead
+    // of a labelled field above the variant's fields
+    union(n, value, path, opts) {
+      const disc = n.discriminator.propertyName;
+      const variants = this.unionVariants(n);
       const sel = el("select", { class: "kindsel" });
-      for (const v of variants) sel.append(el("option", { value: String(tagOf(v)), title: v.description || "" }, String(tagOf(v))));
-      const currentTag = value && value[disc] !== undefined ? value[disc] : tagOf(variants[0]);
+      for (const v of variants) sel.append(el("option", { value: String(v.tag), title: v.schema.description || "" }, v.label));
+      const currentTag = value && value[disc] !== undefined ? value[disc] : variants[0].tag;
+      // a name the registry does not know (a typo in the file) is kept as
+      // written and shown as such, never silently swapped for the first kind
+      if (!variants.some((v) => String(v.tag) === String(currentTag))) sel.append(el("option", { value: String(currentTag) }, `${currentTag} (unknown)`));
       sel.value = String(currentTag);
       const holder = el("div", {});
       let current = null;
       const build = (tag, v) => {
-        const variant = variants.find((x) => String(tagOf(x)) === String(tag)) || variants[0];
+        const variant = variants.find((x) => String(x.tag) === String(tag));
         holder.innerHTML = "";
-        current = this.object(variant, v, path, false, { skip: new Set([disc]) });
+        if (!variant) {
+          holder.append(el("div", { class: "ferr" }, `unknown ${disc} "${tag}" - pick a registered one`));
+          current = { tag, get: () => Object.fromEntries(Object.entries(v || {}).filter(([k]) => k !== disc)) };
+          return;
+        }
+        current = this.object(variant.schema, v, path, false, { skip: new Set([disc]) });
         holder.append(current.node.querySelector(".obj") || current.node);
-        if (variant.description) holder.prepend(el("div", { class: "help" }, variant.description));
-        current.tag = tagOf(variant);
+        if (variant.schema.description) holder.prepend(el("div", { class: "help variant" }, Form.plain(variant.schema.description)));
+        current.tag = variant.tag;
       };
       build(currentTag, value);
-      sel.addEventListener("change", () => { build(sel.value, this.schema.defaultFor(variants.find((x) => String(tagOf(x)) === sel.value))); this.onChange(); });
+      sel.addEventListener("change", () => { build(sel.value, this.schema.defaultFor(this.unionVariant(n, sel.value) || {})); this.onChange(); });
+      const get = () => Object.assign({ [disc]: current.tag }, current.get());
+      if (opts && opts.header) return { node: holder, get, head: sel };
       const top = el("div", { class: "field" }, el("label", { title: n.description || "" }, disc), sel);
       const node = path.length === 0 ? el("div", {}, top, holder) : el("fieldset", {}, el("legend", { title: n.description || "" }, String(path[path.length - 1])), top, holder);
-      return { node, get: () => Object.assign({ [disc]: current.tag }, current.get()) };
+      return { node, get };
     }
 
     // --- server-side error display
@@ -335,7 +458,19 @@
     const hasPreview = !!opts.preview;
     const layout = opts.layout || "page";
 
-    const state = { kind: null, id: null, namespace: null, etag: null, listing: null, schemas: {}, form: null, dirty: false, get: null, formRoot: null, dirtyEl: null, saveBtn: null, loadError: null, loadYaml: null };
+    const state = { kind: null, id: null, namespace: null, etag: null, listing: null, schemas: {}, form: null, dirty: false, get: null, formRoot: null, dirtyEl: null, saveBtn: null, loadError: null, loadYaml: null, readOnlyDoc: null };
+
+    // The recipe form, in reading order: what is read, how each frame is
+    // processed, what is measured, how it is drawn, the scan-level figures,
+    // how the run behaves.
+    const RECIPE_SECTIONS = () => [
+      { title: "Source", keys: ["device", "output_name", "scalar_suffix", "description", "input", "inputs"], help: "The device whose folder is read, how one frame is read, and any frame loaded before the run (a background image) for a step to use by name." },
+      { title: "Steps", keys: ["steps"], help: "Processing in order, top to bottom; a step may repeat. A step marked (images) or (traces) fits that input kind only." },
+      { title: "Measure", keys: ["measure"], help: "What is measured on every processed frame; its scalars become s-file columns." },
+      { title: "Figure", keys: ["figure"], help: "The per-frame draw, reused by every product image and summary panel: matplotlib keywords by call (imshow, plot, colorbar, axes, fig) and a style per overlay id (hidden, scale, or plot keywords). Numbers, true / false and [lists] are typed; other text is a string." },
+      { title: "Summaries", keys: ["summaries"], help: "Scan-level figures, each a fixed kind with its own options; an empty list draws none." },
+      { title: "Scan", keys: ["scan", "metadata"], help: "How the recipe runs over a scan, and free-form notes nothing reads." },
+    ];
 
     container.innerHTML = "";
     const root = el("div", { class: "ce" + (layout === "drawer" ? " ce-drawer" : hasPreview ? "" : " ce-nopreview") });
@@ -442,12 +577,13 @@
             el("span", {}, ns),
             el("span", { class: "ce-count" }, bad ? `${byNs[ns].length} · ${bad} bad` : String(byNs[ns].length))));
           trackOpen(grp, key);
-          for (const e of byNs[ns]) grp.append(el("a", { href: "#", class: (state.kind === kind && state.id === e.id ? "sel" : "") + (e.valid ? "" : " bad"), title: e.error || (e.analyzer_kind ? `${e.analyzer_kind} / ${e.device}` : ""), onclick: (ev) => { ev.preventDefault(); open(kind, e.id); } }, e.id));
+          for (const e of byNs[ns]) grp.append(el("a", { href: "#", class: (state.kind === kind && state.id === e.id ? "sel" : "") + (e.valid ? "" : " bad"), title: e.error || (e.analyzer_kind ? `${e.analyzer_kind} / ${e.device}` : ""), onclick: (ev) => { ev.preventDefault(); open(kind, e.id); } }, e.id,
+            kind === "analyzer" && e.valid && e.schema_version !== 3 ? el("span", { class: "tag", title: "format 2 diagnostic: read-only until its kind is ported" }, "v2") : null));
           sec.append(grp);
         }
         side.append(sec);
       };
-      section("diagnostics", "analyzer", L.analyzers, "new diagnostic");
+      section("recipes", "analyzer", L.analyzers, "new recipe");
       section("groups", "group", L.groups, "new group");
       if (L.pending && L.pending.length) side.append(el("div", { class: "pending" }, `${L.pending.length} uncommitted change${L.pending.length === 1 ? "" : "s"} in the configs checkout`));
     }
@@ -466,19 +602,22 @@
       // drops unknown keys, so Save stays off until the user edits on purpose.
       state.loadError = loaded.valid ? null : (loaded.errors || []).map((e) => (e.loc ? `${e.loc}: ` : "") + e.msg).join("\n");
       state.loadYaml = loaded.valid ? null : loaded.yaml;
-      // An analysis recipe (format 3) has no form yet: it is shown as the
-      // file it is, read-only, until the recipe editor lands.
-      state.recipeYaml = kind === "analyzer" && loaded.document && loaded.document.schema_version === 3 ? loaded.yaml : null;
+      // The form is the recipe's (format 3). A format 2 diagnostic - a kind
+      // the analysis core has not ported - is shown as the file it is, read
+      // only; it converts to a recipe when its kind is ported.
+      state.readOnlyDoc = kind === "analyzer" && !(loaded.document && loaded.document.schema_version === 3) ? loaded : null;
       await buildForm(kind, loaded.document, loaded.errors);
       if (side) renderSide();
       if (layout === "page") location.hash = `#/${kind}s/${encodeURIComponent(id)}`;
     }
     async function create(kind, namespace, id) {
-      state.recipeYaml = null;
+      state.readOnlyDoc = null;
       const schema = await schemaFor(kind);
-      const doc = schema.defaultFor(schema.root);
-      if (kind === "analyzer") { doc.name = id; doc.analyzer = { kind: "beam" }; doc.image = { type: "camera" }; }
-      if (kind === "group") doc.name = id;
+      // a new recipe: a camera read as the device, measured as a beam, the
+      // grid and the average as summaries - the corpus's common shape
+      const doc = kind === "analyzer"
+        ? { schema_version: 3, device: id, input: { kind: "camera" }, steps: [], measure: { kind: "beam" }, summaries: [{ kind: "image_grid" }, { kind: "average" }] }
+        : Object.assign(schema.defaultFor(schema.root), { name: id });
       state.kind = kind; state.id = id; state.namespace = namespace; state.etag = null; state.loadError = null; state.loadYaml = null;
       await buildForm(kind, doc, []);
       if (side) renderSide();
@@ -488,17 +627,25 @@
       main.innerHTML = "";
       // The kind, always: a new document is not in the listing yet, so the
       // sidebar highlight cannot say whether this is a diagnostic or a group.
+      const ro = state.readOnlyDoc;
       const title = el("span", { class: "title" },
-        el("span", { class: "ce-kind" }, kind === "analyzer" ? "diagnostic" : "group"),
+        el("span", { class: "ce-kind" }, kind === "analyzer" ? (ro ? "diagnostic \u00b7 format 2" : "recipe") : "group"),
         `${state.namespace}/${state.id}`);
       const dirty = el("span", { class: "dirty" });
       const bar = el("div", { class: "ce-bar" }, title, dirty);
-      if (state.recipeYaml !== null && state.recipeYaml !== undefined) {
+      if (ro) {
+        const d = ro.document || {};
+        const kindName = d.analyzer && d.analyzer.kind ? d.analyzer.kind : "unknown";
+        if (!readOnly && state.etag) bar.append(el("button", { type: "button", onclick: remove }, "Delete"));
         main.append(bar);
-        main.append(el("p", { class: "ce-recipe-note" }, "This is an analysis recipe (format 3): input, ordered steps, a measure, the figure and the summaries. The editor form for this shape is the next slice; until then it is shown as saved and edited in the configs repository."));
-        main.append(el("pre", { class: "ce-yaml" }, state.recipeYaml));
-        state.form = null; state.get = null; state.formRoot = null; state.dirtyEl = dirty; state.saveBtn = null;
+        main.append(el("p", { class: "ce-readonly-note", html: `This is a format 2 diagnostic (kind <code>${esc(kindName)}</code>). The analysis core does not run this kind yet, so the file is shown as saved; it converts to a recipe when the kind is ported. Edit it in the configs repository.` }));
+        if (!ro.valid) main.append(el("div", { class: "ce-errors" }, (ro.errors || []).map((e) => (e.loc ? `${e.loc}: ` : "") + e.msg).join("\n")));
+        main.append(el("pre", { class: "ce-yaml" }, ro.yaml || ""));
+        state.form = null; state.formRoot = null; state.dirtyEl = dirty; state.saveBtn = null;
         errBox.textContent = ""; okBox.textContent = ""; previewBox.innerHTML = ""; yamlBox.textContent = "";
+        // the saved document still previews: the pane shows what its run draws
+        state.get = ro.valid ? () => d : null;
+        if (state.get) await validate();
         return;
       }
       if (!readOnly) {
@@ -510,7 +657,9 @@
       main.append(bar);
       const formRoot = el("div", { class: "ce-form" });
       state.form = new Form(schema, onFormChange);
-      const rendered = state.form.render(schema.root, document, []);
+      const rendered = kind === "analyzer"
+        ? state.form.object(schema.resolve(schema.root), document, [], false, { sections: RECIPE_SECTIONS(), hidden: new Set(["schema_version"]) })
+        : state.form.render(schema.root, document, []);
       formRoot.append(rendered.node);
       main.append(formRoot);
       state.get = rendered.get; state.formRoot = formRoot; state.dirtyEl = dirty;
@@ -550,7 +699,7 @@
       const doc = currentDoc();
       if (!doc) return null;
       const report = await api(base, `/validate/${state.kind}`, { method: "POST", body: JSON.stringify({ document: doc }) });
-      Form.showErrors(state.formRoot, report.errors);
+      if (state.formRoot) Form.showErrors(state.formRoot, report.errors);  // a read-only document has no form
       const banner = loadBanner();
       const untouchedInvalid = !!state.loadError && !state.dirty;
       if (report.ok) {
@@ -610,7 +759,7 @@
       const url = URL.createObjectURL(blob);
       previewBox.innerHTML = ""; previewBox.classList.remove("stale"); previewStale = false;
       const img = el("img", { src: url, alt: "preview" }); img.onload = () => URL.revokeObjectURL(url);
-      previewBox.append(img, el("div", { class: "msg" }, `${params.device} / shot ${params.shot} - rendered through the document above (unsaved)`));
+      previewBox.append(img, el("div", { class: "msg" }, `${params.device} / shot ${params.shot} - drawn as a scan run of the document above draws it (unsaved)`));
     }
     const previewDebounced = debounce(preview, 300);
     function markPreviewStale() {
@@ -631,13 +780,13 @@
     // Start a new document from the current form's content (a variant of the
     // open diagnostic for the same device, say); Save then creates it.
     async function duplicate(namespace, id, patch) {
-      const cur = currentDoc(); if (!cur) return;
+      const cur = currentDoc(); if (!cur || state.readOnlyDoc) return;
+      state.readOnlyDoc = null;
       const doc = Object.assign(JSON.parse(JSON.stringify(cur)), patch || {});
       // The copy is a new identity: anything that pins the original's data
       // folder or output location would make the two overwrite each other.
       delete doc.output_name;
-      if (doc.scan) delete doc.scan.device;
-      if (doc.analyzer) delete doc.analyzer.output_label;
+      if (doc.input) delete doc.input.folder;
       state.id = id; state.namespace = namespace; state.etag = null; state.loadError = null; state.loadYaml = null;
       await buildForm(state.kind, doc, []);
       if (side) renderSide();

@@ -17,9 +17,17 @@ class RoiSpec(StepSpec):
 
     step: Literal["roi"] = "roi"
     bounds: tuple[tuple[float | None, float | None], ...] = Field(
-        min_length=1, max_length=2
+        min_length=1,
+        max_length=2,
+        description=(
+            "(low, high) per dimension in numpy order: rows (y) then columns "
+            "(x) for an image, one pair for a trace; null leaves that side open."
+        ),
     )
-    units: Literal["index", "axis"] = "index"
+    units: Literal["index", "axis"] = Field(
+        "index",
+        description="'index' = half-open sample indices; 'axis' = inclusive physical coordinates.",
+    )
 
     @model_validator(mode="after")
     def valid_bounds(self) -> Self:

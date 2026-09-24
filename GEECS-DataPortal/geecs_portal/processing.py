@@ -20,6 +20,7 @@ from scan_analysis.core_inputs import prepare_v2
 
 from geecs_analysis.compat.v2 import UnsupportedRecipe, analyze_v2
 from geecs_analysis.measurement import Measurement
+from geecs_analysis.recipe import figure_of
 from geecs_analysis.render import RenderError, single
 from geecs_analysis.render.specs import FigureSpec
 
@@ -138,6 +139,46 @@ def render_document_ephemeral(
             )
         )
     return figures
+
+
+def render_document_as_run(
+    document: AnalysisDocument,
+    arrays: Sequence[np.ndarray],
+    *,
+    auxiliary_data: dict | None = None,
+) -> list[Figure]:
+    """Draw each frame the way a scan run of *document* draws its products.
+
+    The one per-frame draw: the core's ``single`` with the document's own
+    figure block (``figure_of``: a recipe's ``figure``, a v2 diagnostic's
+    renderer translated) — the call the analysis sink makes for every shot
+    and bin product, so the editor's preview IS the product image. No
+    portal palette or window reaches it. Kinds the core does not serve fall
+    back to the legacy write-free route, which draws its own figure from
+    the diagnostic's renderer fields.
+    """
+    try:
+        prepared = prepare_v2(document)
+    except UnsupportedRecipe:
+        from image_analysis import ephemeral
+
+        opts = document.scan.renderer
+        try:
+            return ephemeral.render_document_ephemeral(
+                document,
+                arrays,
+                auxiliary_data=auxiliary_data,
+                cmap=opts.cmap,
+                vmin=opts.vmin,
+                vmax=opts.vmax,
+            )
+        except ephemeral.RenderError as exc:
+            raise RenderError(str(exc)) from exc
+    style = figure_of(document)
+    return [
+        single(analyze_v2(array, prepared.recipe, inputs=prepared.inputs), style)
+        for array in arrays
+    ]
 
 
 def render_diagnostic_ephemeral(

@@ -704,9 +704,12 @@ not serve as v2 (4 `magspec` with scan backgrounds, 2 `line_stitcher`,
 2 `ict`, 2 `frog_retrieval`, `bcave_mag_opt`, `haso`, one `trace` with a
 preprocessing-only ROI). The converted corpus lives on the configs branch
 `analysis-recipe-v3` for the maintainer to test against; it merges to the
-configs `main` when he is happy. The editor shows a recipe read-only until
-slice 2 (the recipe form, with the figure preview through the same draw as
-the run); slice 3 previews the summaries over N shots.
+configs `main` when he is happy. Slice 2 (2026-09-24) made the editor the
+recipe's form — Source → Steps (registry-listed, ordered) → Measure →
+Figure → Summaries → Scan, `ConfigStore` binding a recipe to the registry
+before it is written, a v2 diagnostic read-only until its kind is ported,
+the preview drawn through the sink's own per-frame call with the
+document's `figure` block; slice 3 previews the summaries over N shots.
 
 ### 6. Algorithms
 

@@ -21,8 +21,17 @@ class BackgroundFrameSpec(StepSpec):
     """
 
     step: Literal["background_frame"] = "background_frame"
-    source: str = Field(min_length=1)
-    alignment: Literal["axes", "samples"] = "axes"
+    source: str = Field(
+        min_length=1,
+        description="Name of the frame input (the recipe's inputs: key) to subtract.",
+    )
+    alignment: Literal["axes", "samples"] = Field(
+        "axes",
+        description=(
+            "'axes' subtracts by coordinate (same axes and units); 'samples' by "
+            "array index (same shape, no coordinate metadata needed)."
+        ),
+    )
 
 
 @step(BackgroundFrameSpec, ndim={1, 2}, input_field="source")

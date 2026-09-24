@@ -975,9 +975,9 @@ function ceDuplicate() {
   if (!CE || !id) return;
   const cur = CE.current();
   const device = document.getElementById("cedev").value;
-  // the copy targets the preview device: a variant config for THIS camera
-  // (the editor drops output_name / scan.device / output_label from the copy)
-  CE.duplicate(cur.namespace, id, { name: device }).then(() => {
+  // the copy targets the preview device: a variant recipe for THIS camera
+  // (the editor drops output_name and input.folder from the copy)
+  CE.duplicate(cur.namespace, id, { device }).then(() => {
     document.getElementById("cetitle").textContent = `${id} (new — Save to create)`;
     input.value = "";
   });

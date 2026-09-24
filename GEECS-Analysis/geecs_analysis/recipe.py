@@ -21,7 +21,13 @@ from pydantic import ValidationError
 
 from geecs_analysis import summaries as _summaries  # noqa: F401 -- registers the summary kinds
 from geecs_analysis.compat.v2 import FileBackground, V2Recipe, compile_v2
-from geecs_analysis.registry import definition, measure_definition
+from geecs_analysis.registry import (
+    definition,
+    definitions,
+    measure_definition,
+    measure_definitions,
+    summary_definitions,
+)
 from geecs_analysis.render.specs import FigureSpec
 from geecs_analysis.specs import Analysis
 from geecs_analysis.steps.roi import RoiSpec
@@ -149,6 +155,41 @@ def summaries_of(document: AnalysisDocument) -> tuple:
     return summaries_v2(document.scan.renderer, line=is_line(document))
 
 
+def recipe_schema() -> dict:
+    """The recipe's JSON Schema with ``steps`` and ``measure`` bound to the registry.
+
+    The document's own schema types a step as an open reference (a registered
+    name plus parameters as written) because the numerical vocabulary is the
+    core's, not the schema package's. A form needs that vocabulary listed, so
+    this replaces the reference types with the registry's discriminated unions
+    (:class:`geecs_analysis.specs.Analysis`): one variant per registered step
+    and measure, its parameters typed and described. Every step, measure and
+    summary variant carries ``x-ndim``, the frame dimensionalities it
+    processes, so a form can say which fit the input. Validation is not
+    changed by this: a document still validates as :class:`AnalysisRecipe`
+    and then binds through :func:`compile_recipe`.
+    """
+    from geecs_analysis.specs import Analysis
+
+    schema = AnalysisRecipe.model_json_schema()
+    bound = Analysis.model_json_schema()
+    defs = {**schema.get("$defs", {}), **bound.get("$defs", {})}
+    defs.pop("StepRef", None)
+    defs.pop("MeasureRef", None)
+    for item in (*definitions(), *measure_definitions(), *summary_definitions()):
+        defs[item.spec.__name__]["x-ndim"] = sorted(item.ndim)
+    properties = dict(schema["properties"])
+    properties["steps"] = {
+        **properties["steps"],
+        "items": bound["properties"]["steps"]["items"],
+    }
+    properties["measure"] = {
+        **bound["properties"]["measure"],
+        "description": properties["measure"].get("description", ""),
+    }
+    return {**schema, "$defs": defs, "properties": properties}
+
+
 __all__ = [
     "AnalysisDocument",
     "RecipeError",
@@ -156,5 +197,6 @@ __all__ = [
     "compile_recipe",
     "figure_of",
     "is_line",
+    "recipe_schema",
     "summaries_of",
 ]

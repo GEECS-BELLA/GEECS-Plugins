@@ -16,7 +16,12 @@ class MedianSpec(StepSpec):
     """Odd-width median kernel, applied along every sample dimension."""
 
     step: Literal["median"] = "median"
-    kernel: int = Field(3, ge=1, strict=True)
+    kernel: int = Field(
+        3,
+        ge=1,
+        strict=True,
+        description="Odd kernel width in samples, applied along every dimension.",
+    )
 
     @field_validator("kernel")
     @classmethod

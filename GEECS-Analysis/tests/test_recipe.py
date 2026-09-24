@@ -13,8 +13,10 @@ from geecs_analysis.recipe import (
     compile_recipe,
     figure_of,
     is_line,
+    recipe_schema,
     summaries_of,
 )
+from geecs_analysis.registry import definitions
 
 
 def diagnostic(kind="beam", *, scan=None, **image):
@@ -269,3 +271,33 @@ def test_schema_refuses_what_the_core_cannot_see():
                 "summaries": [{"kind": "waterfall"}],
             }
         )
+
+
+def test_recipe_schema_binds_the_registry_vocabulary():
+    """The form's schema lists every registered step, measure and summary, typed."""
+    schema = recipe_schema()
+    steps = schema["properties"]["steps"]["items"]["discriminator"]["mapping"]
+    assert set(steps) == {d.spec.model_fields["step"].default for d in definitions()}
+    assert "roi" in steps and "StepRef" not in schema["$defs"]
+    assert "MeasureRef" not in schema["$defs"]
+    measures = schema["properties"]["measure"]["discriminator"]["mapping"]
+    assert set(measures) == {"beam", "line", "none"}
+    assert schema["$defs"]["RoiSpec"]["x-ndim"] == [1, 2]
+    assert schema["$defs"]["BeamSpec"]["x-ndim"] == [2]
+    assert schema["$defs"]["InterpolateSpec"]["x-ndim"] == [1]
+    assert schema["$defs"]["WaterfallSummary"]["x-ndim"] == [1]
+    assert schema["$defs"]["ImageGridSummary"]["x-ndim"] == [2]
+    # the document's frame is the schema package's, untouched
+    assert schema["properties"]["input"]["discriminator"]["propertyName"] == "kind"
+    assert "FigureStyle" in schema["$defs"]
+    # every parameter is described: the form shows the description as help
+    for name, definition in schema["$defs"].items():
+        if not name.endswith("Spec"):
+            continue
+        for field, prop in definition["properties"].items():
+            if field not in {"step", "kind"}:
+                assert prop.get("description"), (name, field)
+    # the schema is plain JSON (the router serves it)
+    import json
+
+    json.dumps(schema)

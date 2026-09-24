@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from pydantic import Field
+
 from geecs_analysis.registry import StepSpec, step
 
 if TYPE_CHECKING:
@@ -14,7 +16,7 @@ class ClipBelowSpec(StepSpec):
     """Floor samples at the specified level."""
 
     step: Literal["clip_below"] = "clip_below"
-    level: float
+    level: float = Field(..., description="Samples below this level are set to it.")
 
 
 @step(ClipBelowSpec, ndim={1, 2})

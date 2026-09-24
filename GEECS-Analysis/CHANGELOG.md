@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.14.0] - 2026-09-24
+
+### Added
+
+- `geecs_analysis.recipe.recipe_schema()`: the recipe's JSON Schema with
+  `steps` and `measure` bound to the registry's discriminated unions (one
+  variant per registered step and measure, parameters typed), every step,
+  measure and summary variant tagged `x-ndim` with the frame shapes it
+  processes — the vocabulary the config editor's form lists.
+- A `description=` on every step and measure parameter; the form shows it
+  as the field's help. Pinned: `test_recipe_schema_binds_the_registry_vocabulary`.
+
 ## [0.13.0] - 2026-09-24
 
 ### Added

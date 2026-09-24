@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from pydantic import Field
+
 from geecs_analysis.registry import StepSpec, step
 
 if TYPE_CHECKING:
@@ -14,7 +16,7 @@ class ClipAboveSpec(StepSpec):
     """Cap samples at the specified level."""
 
     step: Literal["clip_above"] = "clip_above"
-    level: float
+    level: float = Field(..., description="Samples above this level are set to it.")
 
 
 @step(ClipAboveSpec, ndim={1, 2})

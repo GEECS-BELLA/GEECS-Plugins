@@ -44,6 +44,8 @@ from geecs_schemas.analysis import (
 )
 from pydantic import BaseModel, ValidationError
 
+from geecs_analysis.recipe import RecipeError, compile_recipe, recipe_schema
+
 __all__ = [
     "ConfigStore",
     "ConflictError",
@@ -174,10 +176,11 @@ class Saved:
         }
 
 
-#: The form schema per kind: the v2 diagnostic's, until the editor grows the
-#: recipe form. Loading and validation dispatch on the file's own version.
+#: The document per kind: the analysis recipe (format 3) is what the editor
+#: writes; a v2 diagnostic still loads and validates (``load_analysis_document``
+#: dispatches on the file's own version) but is shown read-only.
 _MODELS: dict[str, type[BaseModel]] = {
-    "analyzer": AnalysisDiagnostic,
+    "analyzer": AnalysisRecipe,
     "group": AnalysisGroup,
 }
 _FOLDERS: dict[str, str] = {"analyzer": "analyzers", "group": "groups"}
@@ -201,6 +204,47 @@ def _errors(exc: ValidationError) -> list[dict[str, str]]:
         {"loc": ".".join(str(part) for part in err["loc"]), "msg": err["msg"]}
         for err in exc.errors()
     ]
+
+
+def _binding_errors(recipe: AnalysisRecipe) -> list[dict[str, str]]:
+    """Bind a recipe to the analysis core's registry; errors carry form locations.
+
+    The schema validates a recipe's frame; the core refuses unknown step or
+    measure names, unknown parameters, a step or measure that does not
+    process the input's frames, and frame inputs no step uses. Refused here,
+    a recipe that would fail at run time is never written. Pydantic's
+    locations name the union variant (``steps.0.roi.bounds``); the variant
+    is dropped so the location matches the form's field path.
+    """
+    try:
+        compile_recipe(recipe, allow_file_backgrounds=True)
+    except RecipeError as exc:
+        cause = exc.__cause__
+        if isinstance(cause, ValidationError):
+            out = []
+            for err in cause.errors():
+                loc = list(err["loc"])
+                if loc[:1] == ["steps"] and len(loc) > 2 and isinstance(loc[2], str):
+                    del loc[2]
+                elif loc[:1] == ["measure"] and len(loc) > 1:
+                    del loc[1]
+                out.append({"loc": ".".join(str(p) for p in loc), "msg": err["msg"]})
+            return out
+        message = str(exc)
+        loc = "steps"
+        if message.startswith("measure "):
+            loc = "measure"
+        elif "frame inputs" in message:
+            loc = "inputs"
+        elif message.startswith("step "):
+            name = message.split("'")[1] if "'" in message else ""
+            index = next(
+                (i for i, s in enumerate(recipe.steps) if s.step == name), None
+            )
+            if index is not None:
+                loc = f"steps.{index}"
+        return [{"loc": loc, "msg": message}]
+    return []
 
 
 def dump_yaml(document: Mapping[str, Any]) -> str:
@@ -302,6 +346,12 @@ class ConfigStore:
             except Exception as exc:  # noqa: BLE001 — a broken YAML is an entry, not a crash
                 entries.append(Entry(path.stem, ns, kind, False, _one_line(exc)))
                 continue
+            # a recipe the core cannot bind is a file that fails at run time:
+            # listed as invalid, like a group naming an unknown diagnostic
+            errors = self._cross_checks(kind, doc)
+            if errors:
+                entries.append(Entry(path.stem, ns, kind, False, errors[0]["msg"]))
+                continue
             entries.append(Entry(path.stem, ns, kind, True, None, self._summary(doc)))
         return entries
 
@@ -380,7 +430,11 @@ class ConfigStore:
     def _cross_checks(
         self, kind: DocumentKind, model: BaseModel
     ) -> list[dict[str, str]]:
-        """Checks that need the tree, not just the document."""
+        """Checks beyond the document's own schema: the tree, and the registry.
+
+        A group's references must name documents in the tree; a recipe's
+        steps and measure must bind to the analysis core's registry.
+        """
         if kind == "group":
             known = set(self.known_ids())
             return [
@@ -388,6 +442,8 @@ class ConfigStore:
                 for i, ref in enumerate(model.analyzers)
                 if ref.ref not in known
             ]
+        if isinstance(model, AnalysisRecipe):
+            return _binding_errors(model)
         return []
 
     # ---------------------------------------------------------------- writing
@@ -489,5 +545,13 @@ class ConfigStore:
 
     @staticmethod
     def schema(kind: DocumentKind) -> dict[str, Any]:
-        """The JSON Schema the editor renders its form from."""
+        """The JSON Schema the editor renders its form from.
+
+        For a recipe it is the document's schema with ``steps`` and
+        ``measure`` bound to the analysis core's registry
+        (:func:`geecs_analysis.recipe.recipe_schema`), so the form lists the
+        step vocabulary and types each step's parameters.
+        """
+        if kind == "analyzer":
+            return recipe_schema()
         return _MODELS[kind].model_json_schema()

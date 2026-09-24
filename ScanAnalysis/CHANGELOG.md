@@ -3,6 +3,32 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.36.0] - 2026-09-24
+
+### Changed
+
+- **The config editor is the recipe's form** (format 3, surface arc slice 2).
+  Laid out as the document reads — Source (naming, `input`, frame `inputs`)
+  → Steps (ordered cards, up/down/remove; the add-select lists the analysis
+  core's registry with `(images)` / `(traces)` hints; a step name the
+  registry does not know is kept as written and flagged, never swapped for
+  another kind) → Measure → Figure (matplotlib keyword rows per call; overlay
+  styles by id) → Summaries (the frozen kinds) → Scan. A new recipe starts as
+  a camera read as the device, measured as a beam, grid + average summaries.
+  The v2 diagnostic form is gone: a format 2 file (a kind the core has not
+  ported) opens read-only — note, the file as saved, Delete, and the preview
+  of the saved document — until its kind is ported and it converts.
+- `ConfigStore.schema("analyzer")` is `geecs_analysis.recipe.recipe_schema()`;
+  `validate`/`list`/`read`/`save` bind a recipe to the registry
+  (`compile_recipe`) after the schema: an unknown step or parameter, a step
+  or measure for the wrong frame shape, a frame input no step uses — reported
+  at the form's field path, listed as invalid, never written.
+- Preview caption: the pane is drawn as a scan run of the document draws it
+  (the host's call; see GEECS-DataPortal 0.35.0).
+- Pinned under node on a fake DOM: a corpus beam recipe (frame input, overlay
+  styles) and a line recipe read back canonical-equal; move-up swaps the
+  steps and renumbers every field path; an unknown step survives as written.
+
 ## [1.35.0] - 2026-09-24
 
 ### Added
