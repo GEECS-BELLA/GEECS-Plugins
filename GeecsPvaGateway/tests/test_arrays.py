@@ -484,7 +484,7 @@ def test_config_serves_arrays_minus_the_devicetype_exclusions(monkeypatch) -> No
     cam = by_dev["UC_MagCam"]
     assert cam.image_variables == ["Image", "ImageInterp"]
     assert cam.array_variables == ["interpDiv", "interpSpec"]
-    assert cam.array_ceiling == 2048 and cam.devicetype == "MagSpecCamera"
+    assert cam.array_ceiling == 16384 and cam.devicetype == "MagSpecCamera"
     ict = by_dev["U_ICT"]
     assert ict.image_variables == [] and ict.array_variables == ["scopeTrace.Channel0"]
     assert ict.array_ceiling is None

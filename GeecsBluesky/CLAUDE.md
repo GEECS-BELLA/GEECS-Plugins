@@ -430,7 +430,7 @@ device's image variables and its served `1darray` variables
 (`served_array_variables`, typed minus the devicetype's exclusions); a
 declared name that is neither is a declaration error (WARNING, skipped).
 A MagSpec camera therefore arms four plugins; its lineouts land as
-`(N, 2048, 2)` float64 stacks, axis in column 0, NaN-padded by the gateway
+`(N, 16384, 2)` float64 stacks, axis in column 0, NaN-padded by the gateway
 to the devicetype ceiling so the descriptor shape holds across a current
 scan.  A devicetype with no declaration keeps the one-image guess
 (`primary_image_variable`: `image`, else the first image variable) — never
