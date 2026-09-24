@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.1] - 2026-09-24
+
+### Fixed
+
+- Image colorbars (`single` / `draw_frame` and `image_grid`'s shared one) span
+  the image axes as drawn instead of the layout slot: a fixed-aspect image no
+  longer sits beside a colorbar taller than itself (operator figure review).
+  The layout's pad, width and `extend` rules are kept; a recipe that passes a
+  placement keyword (`location`, `orientation`, `shrink`, `anchor`,
+  `panchor`) keeps matplotlib's placement untouched.
+
 ## [0.12.0] - 2026-09-23
 
 ### Added

@@ -208,3 +208,23 @@ def test_deferred_canvas_validation_is_inside_render_error_boundary():
     style = FigureSpec(imshow={"vmin": 4, "vmax": 1}, colorbar={"show": False})
     with pytest.raises(RenderError, match="minvalue must be less"):
         single(beam(), style)
+
+
+def _drawn(fig):
+    fig.savefig(io.BytesIO(), format="png")  # layout reruns on every save
+    return [ax.get_position(original=False) for ax in fig.axes]
+
+
+def test_colorbar_spans_the_drawn_image_not_its_layout_slot():
+    # A wide fixed-aspect image leaves its slot short; the colorbar follows it.
+    wide = Measurement({}, Frame.from_array(np.ones((40, 160))), ())
+    image, cax = _drawn(single(wide))
+    assert image.height < 0.6  # the image really is shorter than its slot
+    assert (cax.y0, cax.y1) == pytest.approx((image.y0, image.y1), abs=1e-6)
+    assert 0 < cax.x0 - image.x1 < 0.1
+
+
+def test_colorbar_placement_keywords_leave_layout_to_the_recipe():
+    wide = Measurement({}, Frame.from_array(np.ones((40, 160))), ())
+    image, cax = _drawn(single(wide, FigureSpec(colorbar={"shrink": 0.9})))
+    assert cax.height > image.height + 0.1
