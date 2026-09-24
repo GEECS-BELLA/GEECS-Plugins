@@ -67,7 +67,6 @@ def test_scanned_per_shot_bins_use_all_scalar_rows_for_positions(line):
     assert [p.identifier for p in plan.singles] == [1, 2, 3]
     assert [p.position for p in plan.singles] == [11, 21, 31]
     assert [p.measurement.scalars["signal"] for p in plan.singles] == [1, 3, 5]
-    assert plan.summary_kind == ("waterfall" if line else "image_grid")
     assert plan.position_label == "motor"
     pd.testing.assert_frame_equal(frame, original)
 
@@ -101,7 +100,7 @@ def test_noscan_average_uses_all_units_while_waterfall_orders_by_key(line):
         assert [p.position for p in plan.summary] == [1, 2, 3]
         assert plan.position_label == "Shot Number"
     else:
-        assert not plan.summary and plan.summary_kind is None
+        assert not plan.summary
 
 
 def test_sort_key_bypasses_scan_bins_and_filters_only_the_waterfall():

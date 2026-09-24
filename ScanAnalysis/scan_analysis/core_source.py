@@ -1,4 +1,4 @@
-"""Resolve v2 scan inputs to the shared readers, without legacy analyzers."""
+"""Resolve a recipe's scan inputs to the shared readers, without legacy analyzers."""
 
 from __future__ import annotations
 
@@ -13,9 +13,8 @@ from geecs_data_utils.io.array1d import Data1DConfig, read_1d_data
 from geecs_data_utils.io.images import read_imaq_image
 from geecs_data_utils.io.scan_stack import ShotRef, read_shot
 from geecs_data_utils.shot_files import map_shot_files
-from geecs_schemas.analysis import AnalysisDiagnostic
-from geecs_schemas.analysis.processing_1d import Line1DConfig
-from geecs_schemas.analysis.processing_2d import CameraConfig
+
+from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
 
 
 @dataclass(frozen=True)
@@ -46,19 +45,23 @@ class V2ShotSource:
         return read_imaq_image(path)
 
 
-def source_directory(document: AnalysisDiagnostic, scan_folder: Path) -> Path:
+def _resolved(recipe: ScanRecipe | AnalysisDocument) -> ScanRecipe:
+    return recipe if isinstance(recipe, ScanRecipe) else scan_recipe(recipe)
+
+
+def source_directory(recipe: ScanRecipe | AnalysisDocument, scan_folder: Path) -> Path:
     """Validate a preexisting scan and resolve its single device subfolder."""
     folder = Path(scan_folder)
     if not folder.is_dir():
         raise FileNotFoundError(f"Scan folder does not exist: {folder}")
-    file_device = document.scan.device or document.name
+    file_device = _resolved(recipe).folder
     if file_device in {".", ".."} or "/" in file_device or "\\" in file_device:
         raise ValueError("Input device must name one scan subfolder")
     return folder / file_device
 
 
 def prepare_source(
-    document: AnalysisDiagnostic, scan_folder: Path, rows: pd.DataFrame
+    recipe: ScanRecipe | AnalysisDocument, scan_folder: Path, rows: pd.DataFrame
 ) -> V2ShotSource:
     """Resolve a completed scan using the existing v2 wrapper's source rules.
 
@@ -68,28 +71,22 @@ def prepare_source(
     per-shot files. File mapping reads only identities, not frame arrays. Hosts
     must wait for scan completion before resolving HDF5 stacks over SMB.
     """
-    config = document.image
-    if not isinstance(config, (CameraConfig, Line1DConfig)):
-        raise ValueError("A camera or line input configuration is required")
-    device_dir = source_directory(document, scan_folder)
+    spec = _resolved(recipe)
+    device_dir = source_directory(spec, scan_folder)
     loading_json = None
     stacks_only = False
     default_tail = ".png"
-    if isinstance(config, Line1DConfig):
-        loading = Data1DConfig.model_validate(
-            config.data_loading.model_dump(mode="json")
-        )
+    if spec.line:
+        loading = Data1DConfig.model_validate_json(spec.line_loading_json)
         loading_json = loading.model_dump_json()
         stacks_only = loading.data_type == "pva_stack"
         default_tail = ".csv"
     references = map_shot_files(
         device_dir,
         rows,
-        device=document.name,
-        file_tail=document.scan.file_tail
-        if document.scan.file_tail is not None
-        else default_tail,
-        prefer_stack=document.scan.data_format == "device_hdf5",
+        device=spec.device,
+        file_tail=spec.file_tail if spec.file_tail is not None else default_tail,
+        prefer_stack=spec.prefer_stack,
         stacks_only=stacks_only,
         file_device=device_dir.name,
     )

@@ -1,4 +1,4 @@
-"""Prepare and stream explicit v2 scan analysis without writing scan products."""
+"""Prepare and stream a recipe's explicit scan analysis without writing scan products."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ from typing import Iterable, Iterator, Literal
 import numpy as np
 import pandas as pd
 from geecs_analysis.compat.v2_run import ShotGroup, UnitResult, run_units
-from geecs_schemas.analysis import AnalysisDiagnostic
 
 from scan_analysis.core_inputs import PreparedRecipe, prepare_v2
+from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
 from scan_analysis.core_source import V2ShotSource, prepare_source, source_directory
 
 
@@ -80,6 +80,8 @@ class PreparedScan:
     average_before_analysis: bool
     output_name: str
     metric_suffix: str
+    #: The host-side view the run was prepared from (figure, summaries, save).
+    spec: ScanRecipe | None = None
 
     def run(self) -> Iterator[UnitResult]:
         """Yield core measurements and explicit load/analysis failures lazily."""
@@ -112,26 +114,30 @@ class PreparedScan:
 
 
 def prepare_scan(
-    document: AnalysisDiagnostic, scan_folder: Path, rows: pd.DataFrame
+    document: AnalysisDocument, scan_folder: Path, rows: pd.DataFrame
 ) -> PreparedScan:
     """Snapshot a supported recipe and completed scan before reading shot arrays.
 
-    Compilation rejects unsupported processing before any input reads. File
-    backgrounds are loaded once during preparation; native shot arrays are
-    loaded only as ``run`` advances. Neither preparation nor execution changes
-    the caller's document/rows, writes files, or creates missing scan folders.
-    The host owns completion checks, logging failures, and product sinks.
+    Either document format is accepted. Compilation rejects unsupported
+    processing before any input reads. File backgrounds are loaded once
+    during preparation; native shot arrays are loaded only as ``run``
+    advances. Neither preparation nor execution changes the caller's
+    document/rows, writes files, or creates missing scan folders. The host
+    owns completion checks, logging failures, and product sinks.
     """
     snapshot = document.model_copy(deep=True)
+    spec = scan_recipe(snapshot)
     row_snapshot = rows.copy(deep=True)
-    directory = source_directory(snapshot, scan_folder)
+    directory = source_directory(spec, scan_folder)
     prepared = prepare_v2(snapshot, data_dir=directory)
-    source = prepare_source(snapshot, scan_folder, row_snapshot)
+    source = prepare_source(spec, scan_folder, row_snapshot)
+    mode = "per_bin" if spec.average_frames_first else "per_shot"
     return PreparedScan(
         prepared,
         source,
-        group_shots(row_snapshot, source.references, snapshot.scan.mode),
-        snapshot.scan.mode == "per_bin",
-        snapshot.effective_output_name,
-        snapshot.metric_suffix or "",
+        group_shots(row_snapshot, source.references, mode),
+        spec.average_frames_first,
+        spec.output_name,
+        spec.scalar_suffix,
+        spec,
     )

@@ -5,6 +5,29 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0] - 2026-09-24
+
+### Added
+
+- `geecs_schemas.analysis.recipe`: the **analysis recipe** (format 3,
+  `AnalysisRecipe`), the analysis core's native document — `device` /
+  `output_name` / `scalar_suffix`, a typed `input` (camera, or line with its
+  loader and scaling), `inputs` (frames bound by name), ordered `steps` and a
+  `measure` carried as registry references (`StepRef` / `MeasureRef`: the
+  registered name plus parameters as written, bound by the core), `scan`
+  runtime, `figure` (the per-frame draw, `FigureStyle`) and `summaries`, a
+  list of frozen kinds (`image_grid`, `waterfall`, `average`, each with its
+  own options and the frame dimensionality it draws, checked against the
+  input). Registered as `analysis_recipe` (JSON artifact + reference page).
+- `load_analysis_document`: reads either analysis format by its
+  `schema_version` (3 → recipe, otherwise the v2 diagnostic); the
+  `AnalysisDocument` union names what every loader hands back.
+
+### Changed
+
+- The corpus walk validates each file as its declared format, so a tree
+  mixing v3 recipes and v2 diagnostics is a valid checkout.
+
 ## [0.33.0] - 2026-09-23
 
 ### Removed

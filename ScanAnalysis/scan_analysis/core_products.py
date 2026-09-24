@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Sequence
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -26,11 +26,16 @@ class Product:
 
 @dataclass(frozen=True)
 class ProductPlan:
-    """Single-file products and ordered summary panels, with explicit omissions."""
+    """Single-file products and ordered summary panels, with explicit omissions.
+
+    ``singles`` are the per-unit products (each bin, or the scan's average on
+    a noscan); ``summary`` the ordered panels a scan-level summary kind draws
+    (bin averages, or every shot on a noscan waterfall). Which kinds draw
+    them is the recipe's ``summaries`` list, resolved by the sink.
+    """
 
     singles: tuple[Product, ...] = ()
     summary: tuple[Product, ...] = ()
-    summary_kind: Literal["image_grid", "waterfall"] | None = None
     position_label: str = ""
     notes: tuple[str, ...] = ()
 
@@ -104,7 +109,6 @@ def plan_products(
         return ProductPlan(
             singles,
             tuple(panels),
-            "waterfall" if panels else None,
             sort_column or "Shot Number",
             tuple(notes),
         )
@@ -131,11 +135,9 @@ def plan_products(
             continue
         position = float(rows.loc[rows["Bin #"] == key, parameter_column].mean())
         panels.append(Product(key, measurement, position))
-    kind = "waterfall" if line else "image_grid"
     return ProductPlan(
         tuple(panels),
         tuple(panels) if len(panels) > 1 else (),
-        kind if len(panels) > 1 else None,
         parameter_column,
         tuple(notes),
     )

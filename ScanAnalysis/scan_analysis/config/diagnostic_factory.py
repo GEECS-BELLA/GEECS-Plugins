@@ -1,10 +1,12 @@
-"""Build a runnable scan-analyzer from a unified diagnostic config.
+"""Build a runnable scan-analyzer from either analysis document.
 
-Two routes sit behind one call. A recipe the analysis core can run
+Two routes sit behind one call. An analysis recipe (the v3
+:class:`~geecs_schemas.analysis.AnalysisRecipe`) always runs on the core; a
+v2 diagnostic the analysis core can run
 (:func:`scan_analysis.core_analyzer.core_supports`: beam/line/standard/trace
 kinds, ported processing steps, no scan-context background) becomes a
-:class:`~scan_analysis.core_analyzer.CoreScanAnalyzer`. Every other recipe,
-and any caller passing ``use_injected_data=True``, keeps the legacy wrapping:
+:class:`~scan_analysis.core_analyzer.CoreScanAnalyzer` too. Every other v2
+recipe, and any caller passing ``use_injected_data=True``, keeps the legacy wrapping:
 the image-analyzer instantiation in ImageAnalysis
 (:func:`image_analysis.config.create_image_analyzer`) inside
 :class:`Array2DScanAnalyzer` or :class:`Array1DScanAnalyzer`, populated from
@@ -30,10 +32,16 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Type
 
-from geecs_schemas.analysis import AnalysisDiagnostic, Line1DConfig, ScanRuntime
+from geecs_schemas.analysis import (
+    AnalysisDiagnostic,
+    AnalysisRecipe,
+    Line1DConfig,
+    ScanRuntime,
+)
 from image_analysis.config import create_image_analyzer
 
 from geecs_analysis.compat.v2 import compile_v2
+from geecs_analysis.recipe import AnalysisDocument
 
 from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
 
@@ -46,16 +54,20 @@ __all__ = ["create_scan_analyzer"]
 
 
 def create_scan_analyzer(
-    diag: AnalysisDiagnostic,
+    diag: AnalysisDocument,
     *,
     id: Optional[str] = None,
     priority: Optional[int] = None,
     use_injected_data: bool = False,
     route: Literal["auto", "core", "legacy"] = "auto",
 ) -> "ScanAnalyzer":
-    """Build a ScanAnalyzer from a validated diagnostic config.
+    """Build a ScanAnalyzer from a validated analysis document.
 
-    Routing (``route="auto"``): when :func:`core_supports` accepts the recipe
+    An :class:`AnalysisRecipe` (v3) always becomes a :class:`CoreScanAnalyzer`;
+    it has no legacy route, so ``route="legacy"`` and ``use_injected_data``
+    are refused for it and a recipe that does not bind to the core's
+    registry raises ``RecipeError`` here. For a v2 diagnostic, routing
+    (``route="auto"``): when :func:`core_supports` accepts the recipe
     (a compile-only check, no reads) and ``use_injected_data`` is False, the
     result is a :class:`CoreScanAnalyzer` running on ``geecs_analysis``.
     ``route="legacy"`` forces the wrapper for a supported recipe (the
@@ -70,8 +82,8 @@ def create_scan_analyzer(
 
     Parameters
     ----------
-    diag : AnalysisDiagnostic
-        Validated diagnostic. ``analyzer`` + ``image`` go to
+    diag : AnalysisRecipe or AnalysisDiagnostic
+        Validated document. For a v2 diagnostic, ``analyzer`` + ``image`` go to
         :func:`image_analysis.config.create_image_analyzer`; the typed
         ``scan`` section (:class:`ScanRuntime`) drives the wrapper.
     id : str, optional
@@ -111,14 +123,22 @@ def create_scan_analyzer(
         If the resolved wrapper class can't be instantiated with the
         inferred kwargs.
     """
-    scan_cfg: ScanRuntime = diag.scan  # typed in-document since v2
-
     source_id = getattr(diag, "source_id", None)
-    effective_id = id if id is not None else source_id or diag.name
-    effective_priority = priority if priority is not None else scan_cfg.priority
+    effective_priority = priority if priority is not None else diag.scan.priority
 
     if route not in ("auto", "core", "legacy"):
         raise ValueError(f"route must be auto, core or legacy, not {route!r}")
+    if isinstance(diag, AnalysisRecipe):
+        if route == "legacy":
+            raise ValueError("An analysis recipe (v3) has no legacy route")
+        if use_injected_data:
+            raise ValueError("The core route has no injected-data mode")
+        effective_id = id if id is not None else source_id or diag.device
+        logger.debug("Routing recipe %r to the analysis core", effective_id)
+        return CoreScanAnalyzer(diag, id=effective_id, priority=effective_priority)
+
+    scan_cfg: ScanRuntime = diag.scan  # typed in-document since v2
+    effective_id = id if id is not None else source_id or diag.name
     if route == "core" or (
         route == "auto" and not use_injected_data and core_supports(diag)
     ):

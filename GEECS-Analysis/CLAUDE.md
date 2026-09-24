@@ -65,6 +65,25 @@ Nonfinite scalars remain visible with notes. Never replace them with zero or
 use matching NaNs as evidence of scientific parity. Overlays have stable ids;
 centroid markers are omitted when their coordinates are nonfinite.
 
+## The recipe (format 3)
+
+`geecs_schemas.analysis.AnalysisRecipe` is this core's native document.
+The schema types its frame (naming, `input`, `inputs`, `scan`, `figure`,
+the summary kinds); its `steps` and `measure` are registry references
+(`StepRef` / `MeasureRef`: the registered name plus parameters as written)
+that `recipe.compile_recipe` binds here — unknown names or parameters,
+undeclared or unused frame bindings, and a step or measure that does not
+process the input's frames raise `RecipeError`. Never duplicate step or
+measure specs into the schema package; the registry is the vocabulary and
+the editor lists it from here. Both formats compile to the one in-memory
+recipe (`V2Recipe`, renamed at A5) and run through `analyze_v2`; consumers
+call `compile_document` / `figure_of` / `summaries_of` / `is_line` and
+never ask which format they hold. `compat.convert.to_v3` converts a v2
+diagnostic the core serves, built on the adapter's compile output and
+checked by recompiling; it reports what v3 does not carry instead of
+dropping it. A v3 recipe has no inactive sections: coordinates start where
+the first crop starts.
+
 ## v2 compatibility
 
 `compat.v2.compile_v2` compiles an already-validated schema document, without
@@ -110,11 +129,28 @@ Missing limits autoscale over finite samples across all panels, and degenerate
 limits expand before per-panel copies so colorbar mutation cannot desynchronize
 them. Signal units must agree. The caller still owns aggregation and saving.
 
-`compat.v2_render` translates v2 `RendererOptions` into `FigureSpec` calls for
-single, grid and waterfall products. The waterfall deliberately keeps legacy
-geometry (index-wise stack on the first trace's x grid, midpoint cell edges,
-`waterfall_sort_key` implying even row spacing unless overridden) rather than
-weakening the general renderer's same-grid rule. Palette rules mirror the old
+`render.specs.FigureSpec` is the schema's `FigureStyle` made immutable: the
+recipe's `figure:` block, the per-frame draw every product and every summary
+panel reuses. Keep the field list in the schema; add behaviour here.
+
+`summaries/` holds the frozen summary kinds, one file each, registered with
+`registry.summary(spec, consumes=..., filename=...)`: the schema option model,
+the layout function `(results, positions, label, options, figure) -> Figure`,
+whether it consumes the ordered panels or the noscan average, and the file
+marker the sink appends to the device name (the portal's filename parser and
+MCP's display-file contract read those markers — never change one). The
+frame dimensionality a kind draws is the option model's `frame_ndim`, checked
+by the document; adding a kind is one file here plus its option model in
+GEECS-Schemas, no sink or dispatcher edit. The waterfall kind deliberately
+keeps legacy geometry (index-wise stack on the first trace's x grid, midpoint
+cell edges, a sort key implying even row spacing unless overridden) rather
+than weakening the general renderer's same-grid rule.
+
+`compat.v2_render` translates v2 `RendererOptions` into a `FigureSpec`
+(`figure_v2`: the image palette rule as static keywords, a centred norm for
+the diverging mode) and the fixed v2 summary pair (`summaries_v2`); its
+`single_v2` / `image_grid_v2` / `waterfall_v2` draw through the kinds, so v2
+and v3 documents share one layout per kind. Palette rules mirror the old
 `_get_colormap_params_1d` and are pinned by a differential test that imports
 ScanAnalysis as an oracle; production code must not.
 

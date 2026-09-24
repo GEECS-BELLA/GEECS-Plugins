@@ -1,48 +1,36 @@
-"""Translate v2 figure options and legacy waterfall geometry; never write files."""
+"""Translate v2 ``scan.renderer`` options into the per-frame draw and summary kinds.
+
+The v2 document has no ``figure:`` or ``summaries:``; its ``RendererOptions``
+fold both into one option set with data-dependent palette rules. This module
+expresses those rules as a ``FigureSpec`` (static keywords, a centred norm
+for the diverging image mode) and the fixed v2 summary pair (grid or
+waterfall, plus the average), so a v2 document draws through the same
+kinds a v3 recipe does. The ``*_v2`` entry points draw one product with
+those translations; nothing here writes files.
+"""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Sequence
 
-from geecs_analysis.render import RenderError, image_grid, single
+from geecs_schemas.analysis.recipe import (
+    AverageSummary,
+    ImageGridSummary,
+    WaterfallSummary,
+)
+
+from geecs_analysis.render import single
 from geecs_analysis.render.specs import FigureSpec
+from geecs_analysis.summaries.image_grid import image_grid
+from geecs_analysis.summaries.waterfall import waterfall
 
 if TYPE_CHECKING:
-    import numpy as np
     from matplotlib.figure import Figure
     from geecs_schemas.analysis.renderer import RendererOptions
     from geecs_analysis.measurement import Measurement
 
-
-def _palette(data: np.ndarray, options: RendererOptions, *, line: bool) -> dict:
-    import numpy as np
-    from matplotlib.colors import TwoSlopeNorm
-
-    finite = data[np.isfinite(data)]
-    low, high = (float(finite.min()), float(finite.max())) if finite.size else (0, 1)
-    mode = options.colormap_mode or ("auto" if line else "sequential")
-    cmap = options.cmap or "plasma"
-    if mode == "auto" and line and low < 0 < high:
-        return {
-            "cmap": options.cmap or "RdBu_r",
-            "norm": TwoSlopeNorm(vmin=low, vcenter=0, vmax=high),
-        }
-    if mode == "diverging":
-        limit = max(abs(low), abs(high))
-        return {
-            "vmin": -limit,
-            "vmax": limit,
-            "cmap": options.cmap or ("RdBu_r" if line else "plasma"),
-        }
-    if mode == "sequential" or (mode == "auto" and line):
-        low = min(low, 0) if mode == "auto" else 0
-    else:
-        low = options.vmin if options.vmin is not None else low
-    return {
-        "vmin": low,
-        "vmax": options.vmax if options.vmax is not None else high,
-        "cmap": cmap,
-    }
+#: The v2 grid's panel size when ``figsize`` is unset.
+V2_PANEL_SIZE = (6.0, 6.0)
 
 
 def _axes(options: RendererOptions) -> dict[str, str]:
@@ -53,21 +41,83 @@ def _axes(options: RendererOptions) -> dict[str, str]:
     }
 
 
+def image_palette_v2(options: RendererOptions) -> dict:
+    """The v2 image palette rule as static keywords.
+
+    ``sequential`` (the default) runs from zero to the data maximum;
+    ``diverging`` is symmetric about zero (a centred norm autoscaled over
+    the drawn samples, the grid's included); ``auto`` and ``custom`` use
+    the given limits and autoscale the rest.
+    """
+    mode = options.colormap_mode or "sequential"
+    cmap = options.cmap or "plasma"
+    if mode == "diverging":
+        from matplotlib.colors import CenteredNorm
+
+        return {"norm": CenteredNorm(vcenter=0), "cmap": cmap}
+    palette = {"cmap": cmap}
+    vmin = 0 if mode == "sequential" else options.vmin
+    if vmin is not None:
+        palette["vmin"] = vmin
+    if options.vmax is not None:
+        palette["vmax"] = options.vmax
+    return palette
+
+
+def figure_v2(
+    options: RendererOptions, *, line: bool, title: str | None = None
+) -> FigureSpec:
+    """The v2 renderer's per-frame draw: palette, labels, canvas and dpi."""
+    side = options.figsize_inches or 4
+    palette = {} if line else image_palette_v2(options)
+    # A trace's colorbar (the waterfall's) is labelled by its signal unless
+    # the document says otherwise; an image's defaulted to "Intensity".
+    colorbar = {"label": options.colorbar_label} if options.colorbar_label else {}
+    if not line:
+        colorbar = {"label": options.colorbar_label or "Intensity"}
+    return FigureSpec(
+        imshow=palette,
+        pcolormesh=palette,
+        axes={**_axes(options), **({"title": title} if title else {})},
+        colorbar=colorbar,
+        fig={"figsize": (8, 6) if line else (side, side), "dpi": options.dpi or 150},
+    )
+
+
+def summaries_v2(
+    options: RendererOptions, *, line: bool
+) -> tuple[WaterfallSummary | ImageGridSummary, AverageSummary]:
+    """The fixed v2 summary pair: waterfall or grid, then the average."""
+    if line:
+        return (
+            WaterfallSummary(
+                sort_key=options.waterfall_sort_key,
+                sort_sigma=(
+                    options.waterfall_sort_sigma
+                    if options.waterfall_sort_sigma is not None
+                    else 3.0
+                ),
+                sort_bounds=options.waterfall_sort_bounds,
+                even_spacing=options.waterfall_even_y_spacing,
+                scale=options.colormap_mode or "auto",
+                cmap=options.cmap,
+                vmin=options.vmin,
+                vmax=options.vmax,
+            ),
+            AverageSummary(),
+        )
+    return (
+        ImageGridSummary(panel_size=options.figsize or V2_PANEL_SIZE),
+        AverageSummary(),
+    )
+
+
 def single_v2(
     result: Measurement, options: RendererOptions, *, title: str | None = None
 ) -> Figure:
     """Render a v2 single product with configured labels and color limits."""
     line = result.frame.data.ndim == 1
-    side = options.figsize_inches or 4
-    palette = {} if line else _palette(result.frame.data, options, line=False)
-    style = FigureSpec(
-        imshow=palette,
-        pcolormesh=palette,
-        axes={**_axes(options), **({"title": title} if title else {})},
-        colorbar={"label": options.colorbar_label or "Intensity"},
-        fig={"figsize": (8, 6) if line else (side, side), "dpi": options.dpi or 150},
-    )
-    return single(result, style)
+    return single(result, figure_v2(options, line=line, title=title))
 
 
 def image_grid_v2(
@@ -82,50 +132,8 @@ def image_grid_v2(
     ``label`` names the scanned parameter above the grid, as the legacy
     renderer's ``Scan parameter: …`` suptitle did; empty draws no title.
     """
-    import math
-    import numpy as np
-
-    if not results or len(results) != len(positions):
-        raise RenderError("Image grid requires one position per measurement")
-    columns = math.ceil(math.sqrt(len(results)))
-    rows = math.ceil(len(results) / columns)
-    width, height = options.figsize or (6, 6)
-    palette = _palette(
-        np.concatenate([r.frame.data.ravel() for r in results]), options, line=False
-    )
-    fig = image_grid(
-        results,
-        titles=[
-            f"{p:.2f}" if p is not None else str(i + 1) for i, p in enumerate(positions)
-        ],
-        style=FigureSpec(
-            imshow=palette,
-            pcolormesh=palette,
-            axes=_axes(options),
-            colorbar={"label": options.colorbar_label or "Intensity"},
-            fig={
-                "figsize": (columns * width, rows * height),
-                "dpi": options.dpi or 150,
-            },
-        ),
-    )
-    if label:
-        fig.suptitle(f"Scan parameter: {label}", fontsize=12)
-    return fig
-
-
-def _legacy_edges(values: np.ndarray) -> np.ndarray:
-    import numpy as np
-
-    if len(values) == 1:
-        return np.array([values[0] - 0.5, values[0] + 0.5])
-    return np.concatenate(
-        (
-            [values[0] - (values[1] - values[0]) / 2],
-            (values[:-1] + values[1:]) / 2,
-            [values[-1] + (values[-1] - values[-2]) / 2],
-        )
-    )
+    grid, _ = summaries_v2(options, line=False)
+    return image_grid(results, positions, label, grid, figure_v2(options, line=False))
 
 
 def waterfall_v2(
@@ -134,59 +142,6 @@ def waterfall_v2(
     label: str,
     options: RendererOptions,
 ) -> Figure:
-    """Draw the v2 waterfall's index-wise stack, using the first trace's x axis.
-
-    This deliberately preserves legacy geometry without weakening the general
-    renderer's same-grid requirement. No interpolation or sorting occurs here.
-    Repeated/nonmonotonic scan values retain their v2 midpoint cells; optional
-    even spacing uses row indices with physical values as tick labels. A real
-    zero position is retained (the old renderer replaced it with the bin id).
-    """
-    import numpy as np
-    from matplotlib.figure import Figure
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-
-    if not results or len(results) != len(positions):
-        raise RenderError("Waterfall requires one position per measurement")
-    frames = [r.frame for r in results]
-    if any(f.data.ndim != 1 or f.data.shape != frames[0].data.shape for f in frames):
-        raise RenderError("Waterfall requires equal-length traces")
-    if any(
-        f.unit != frames[0].unit or f.axes[0].unit != frames[0].axes[0].unit
-        for f in frames
-    ):
-        raise RenderError("Waterfall requires matching trace units")
-    values = np.asarray(positions, dtype=float)
-    if not np.all(np.isfinite(values)):
-        raise RenderError("Waterfall positions must be finite")
-    even = options.waterfall_even_y_spacing
-    if even is None:
-        even = bool(options.waterfall_sort_key)
-    centers = np.arange(len(values)) if even else values
-    data = np.stack([f.data for f in frames])
-    try:
-        fig = Figure(figsize=(10, 8), dpi=options.dpi or 150, constrained_layout=True)
-        ax = fig.subplots()
-        artist = ax.pcolormesh(
-            _legacy_edges(frames[0].axes[0].values),
-            _legacy_edges(centers),
-            data,
-            shading="flat",
-            **_palette(data, options, line=True),
-        )
-        indices = np.linspace(0, len(values) - 1, min(40, len(values)), dtype=int)
-        ax.set_yticks(centers[indices], [f"{values[i]:.3f}" for i in indices])
-        axis = frames[0].axes[0]
-        xlabel = axis.label or "x"
-        if axis.unit:
-            xlabel += f" ({axis.unit})"
-        ax.set(xlabel=xlabel, ylabel=label, title=f"Waterfall Plot: {label} Scan")
-        ax.set(**_axes(options))
-        signal = frames[0].label or "Intensity"
-        if frames[0].unit:
-            signal += f" ({frames[0].unit})"
-        fig.colorbar(artist, ax=ax, label=options.colorbar_label or signal)
-        FigureCanvasAgg(fig).draw()
-        return fig
-    except Exception as exc:
-        raise RenderError(f"{type(exc).__name__}: {exc}") from exc
+    """Draw the v2 waterfall's index-wise stack, using the first trace's x axis."""
+    stack, _ = summaries_v2(options, line=True)
+    return waterfall(results, positions, label, stack, figure_v2(options, line=True))

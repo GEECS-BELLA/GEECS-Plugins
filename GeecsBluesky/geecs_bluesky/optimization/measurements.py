@@ -172,7 +172,7 @@ def compile_measurements(
     source_factory: Callable[..., FrameSource] = LiveFrameSource,
 ) -> CompiledMeasurements:
     """Resolve signals, diagnostics, output references and imports before a run opens."""
-    from geecs_analysis.compat.v2 import compile_v2
+    from geecs_analysis.recipe import compile_document
     from geecs_bluesky.namespace import capture_streams
 
     measurements = []
@@ -197,32 +197,33 @@ def compile_measurements(
                 diag = resolver.resolve_diagnostic(
                     spec.diagnostic, overrides=spec.overrides
                 )
-                if diag.analyzer.image_kind != "camera":
+                if diag.input_kind != "camera":
                     raise ValueError(
                         f"{name}: diagnostic {spec.diagnostic} is not supported on live camera frames"
                     )
-                recipe = compile_v2(diag)
+                recipe = compile_document(diag)
                 keys = recipe.analysis.measure.emitted_scalars()
                 if not keys:
                     raise ValueError(f"{name}: diagnostic declares no scalar outputs")
-                detector = namespace.resolve(diag.name)
+                device = diag.device
+                detector = namespace.resolve(device)
                 images = capture_streams(
-                    namespace.roster.variables[diag.name],
-                    namespace.roster.types.get(diag.name, ""),
-                    diag.name,
+                    namespace.roster.variables[device],
+                    namespace.roster.types.get(device, ""),
+                    device,
                 )
                 if not images:
                     raise ValueError(
-                        f"{diag.name}: no image variable in the device roster"
+                        f"{device}: no image variable in the device roster"
                     )
-                diagnostic_devices[spec.diagnostic] = diag.name
-                if diag.name not in sources:
-                    sources[diag.name] = source_factory(
-                        pv_name(namespace.experiment, diag.name, images[0]),
+                diagnostic_devices[spec.diagnostic] = device
+                if device not in sources:
+                    sources[device] = source_factory(
+                        pv_name(namespace.experiment, device, images[0]),
                         keep=max(64, shots_per_step * 3 + 8),
                     )
                 m = CompiledMeasurement(
-                    name, spec, diag.name, detector.acq_timestamp.name, keys, recipe
+                    name, spec, device, detector.acq_timestamp.name, keys, recipe
                 )
                 names.update(f"{name}.{key}" for key in keys)
             measurements.append(m)

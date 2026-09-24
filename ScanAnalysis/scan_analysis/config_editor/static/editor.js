@@ -466,11 +466,15 @@
       // drops unknown keys, so Save stays off until the user edits on purpose.
       state.loadError = loaded.valid ? null : (loaded.errors || []).map((e) => (e.loc ? `${e.loc}: ` : "") + e.msg).join("\n");
       state.loadYaml = loaded.valid ? null : loaded.yaml;
+      // An analysis recipe (format 3) has no form yet: it is shown as the
+      // file it is, read-only, until the recipe editor lands.
+      state.recipeYaml = kind === "analyzer" && loaded.document && loaded.document.schema_version === 3 ? loaded.yaml : null;
       await buildForm(kind, loaded.document, loaded.errors);
       if (side) renderSide();
       if (layout === "page") location.hash = `#/${kind}s/${encodeURIComponent(id)}`;
     }
     async function create(kind, namespace, id) {
+      state.recipeYaml = null;
       const schema = await schemaFor(kind);
       const doc = schema.defaultFor(schema.root);
       if (kind === "analyzer") { doc.name = id; doc.analyzer = { kind: "beam" }; doc.image = { type: "camera" }; }
@@ -489,6 +493,14 @@
         `${state.namespace}/${state.id}`);
       const dirty = el("span", { class: "dirty" });
       const bar = el("div", { class: "ce-bar" }, title, dirty);
+      if (state.recipeYaml !== null && state.recipeYaml !== undefined) {
+        main.append(bar);
+        main.append(el("p", { class: "ce-recipe-note" }, "This is an analysis recipe (format 3): input, ordered steps, a measure, the figure and the summaries. The editor form for this shape is the next slice; until then it is shown as saved and edited in the configs repository."));
+        main.append(el("pre", { class: "ce-yaml" }, state.recipeYaml));
+        state.form = null; state.get = null; state.formRoot = null; state.dirtyEl = dirty; state.saveBtn = null;
+        errBox.textContent = ""; okBox.textContent = ""; previewBox.innerHTML = ""; yamlBox.textContent = "";
+        return;
+      }
       if (!readOnly) {
         state.saveBtn = el("button", { type: "button", class: "primary", onclick: save, disabled: !!state.loadError, title: state.loadError ? "this file does not validate on disk - edit it first, Save then replaces it" : "" }, state.etag ? "Save" : "Create");
         bar.append(state.saveBtn);

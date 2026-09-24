@@ -534,10 +534,46 @@ figure:
 Named kwargs dicts go straight to matplotlib and are validated by rendering
 the editor's preview. Overlays are styled or hidden by the id the measure gave
 them. `draw_frame` + `draw_overlays` handle every measure in the corpus; the
-`@figure` hook covers bespoke panels (FROG's trace and phase). Layouts:
-`single`, `grid`, `waterfall`, `animation`, chosen by `frame.ndim`. Output
-filenames keep today's shapes so the portal's parser and MCP's
-display-file contract are untouched.
+`@figure` hook covers bespoke panels (FROG's trace and phase). `figure:` is
+the **per-frame draw**: it draws every single product (a shot, a bin) and
+every panel inside a summary. Scan-level layouts are not chosen by
+`frame.ndim`; they are listed, see the ruling below.
+
+**Figure and summaries (ruling 2026-09-24, slice 1 of the surface arc).**
+The maintainer's verdict from portal testing was that the backend became
+elegant while the surface stayed the old one: the editor is the v2 form and
+its renderer fields behave inconsistently (`figsize` sizes grid panels,
+`figsize_inches` the square single canvas; the preview honours only
+cmap/vmin/vmax; labels reach saved figures alone). The gap under it was
+structural: rendering ONE frame and rendering the SUMMARY of a scan were one
+option set. The ruling separates them:
+
+- `figure:` = the per-frame draw (`imshow`/`pcolormesh`/`plot`/`colorbar`/
+  `axes`/`fig` keyword groups + `overlays` by id, `references` when F2
+  lands). One block, reused identically by the editor's preview, the
+  per-shot and per-bin products, and every summary panel.
+- `summaries:` = a **list of frozen kinds**, a discriminated union with a
+  registry like `@step`/`@measure` (one file per kind: its option model in
+  GEECS-Schemas, its layout function, what it consumes, its filename marker
+  in `geecs_analysis.summaries`). A kind's options are its own; the frame
+  dimensionality it draws is **validation, not selection** (the document
+  refuses a waterfall on a camera recipe). The initial kinds, from the
+  maintainer's answer on what a summary *is* (usually the bin-averaged
+  representation, a grid for images or a waterfall for traces; one averaged
+  frame for a noscan): `image_grid` (columns, panel size), `waterfall`
+  (sort key/sigma/bounds, even spacing, colour scale rule, cmap, limits),
+  `average`. No animation (gifs retired) and no line overlay until a corpus
+  file asks — none sets `renderer.mode` today. The plan of products is
+  kind-agnostic (per-unit singles plus ordered panels); the sink resolves
+  each listed kind against the registry, draws it from the products it
+  consumes and skips it silently when the run produced none (a grid on a
+  noscan). File names keep today's markers, so the portal's parser and
+  MCP's display-file contract are untouched.
+
+The v2 document has neither block; `scan.renderer` is translated into both
+(`compat.v2_render.figure_v2` / `summaries_v2`) so a v2 diagnostic draws
+through the same kinds. The diverging image palette becomes a centred norm;
+the trace waterfall's data-dependent rules live on the waterfall kind.
 
 **Overlays (ruling 2026-09-24).** Custom rendering that is intuitive for
 users was a stated reason for this refactor, and overlays are the common
@@ -591,28 +627,86 @@ with free kwargs give the same reach with a vocabulary the editor can list.
 
 ### 5. The document
 
+Format 3, `geecs_schemas.analysis.AnalysisRecipe` (shipped 2026-09-24,
+GEECS-Schemas 0.34.0), as the converter writes it for a corpus recipe:
+
 ```yaml
 schema_version: 3
-# id is the file stem: scalar prefix + output dir
-device: UC_TopView                   # or devices: [A, B, C] for a stitched source
+device: UC_VisaEBeam1                # finds the files; stems the products
+output_name: UC_VisaEBeam1-left      # optional: s-file column prefix + output folder
 scalar_suffix: _left                 # optional
-input: {kind: camera}                # camera | trace (+ loader options for traces)
+description: ...                     # the human notes, kept
+input: {kind: camera}                # or kind: line + loading/x_scale/x_unit/label/storage_dtype
+                                     # + folder / file_tail / format when the files need it
+inputs:                              # frames the source layer loads and binds by name
+  camera_background: {path: "{scan_dir}/computed_background.npy", fallback_level: 0}
 steps:
-  - {step: background_constant, level: 5.0}
-  - {step: roi, x: [0, 650], y: [350, 650]}
-  - {step: clip_below, level: 0}
-  - {step: median, kernel: 3}
-  - {step: clip_below, level: 20}    # repeats are fine
-measure: {kind: beam, compute_slopes: false}
-scan: {priority: 10, average_frames_first: false, save: true}
-figure: {imshow: {cmap: plasma}}
+  - {step: background_frame, source: camera_background, alignment: samples}
+  - {step: crosshair_mask, center: [285, 722], width: 108, height: 108, thickness: 10}
+  - {step: roi, bounds: [[290, 623], [558, 891]]}
+measure: {kind: beam}
+scan: {priority: 1}                  # + average_frames_first, save
+figure: {imshow: {vmin: 0}}
+summaries:
+  - {kind: image_grid}
+  - {kind: average}
 ```
 
-Roughly 70–75 leaf fields cover the corpus, against ~181. `priority` stays
-because the queue reads it; `gdoc_slot` is absent from v3. During the
-transition the new package reads today's v2 files through an in-memory
-adapter, accepting but discarding legacy upload settings; the corpus
-converts once, at the end.
+Two vocabularies meet in it, and the dependency direction decides where
+each lives. The document's *frame* (naming, `input`, `inputs`, `scan`,
+`figure`, the summary kinds' option models) is schema vocabulary, fully
+typed in GEECS-Schemas. The *numerical* vocabulary (which steps and
+measures exist, their parameters) is the core's registry and stays there
+(the "where spec models live" decision); the schema carries a step or
+measure as its registered name plus its parameters as written (`StepRef`,
+`MeasureRef`), and `geecs_analysis.recipe.compile_recipe` binds them to the
+registry, refusing unknown names, unknown parameters, undeclared or unused
+frame bindings, and steps or a measure that do not process the input's
+frames. The core's `FigureSpec` is the schema's `FigureStyle` made
+immutable, so the field list exists once. Consumers call
+`compile_document` / `figure_of` / `summaries_of` and never ask which
+format they hold; `load_analysis_document` dispatches on `schema_version`
+in every loader (the group loader, the config store, the portal, the
+optimizer's resolver).
+
+**Naming (corrected from the earlier "id = file stem" decision).** The
+corpus has 20 of 37 core-served recipes whose file stem differs from the
+device (`HTU/Amp2Input` reads `UC_Amp2_IR_Input`) and two recipes over one
+device (`HTT-D-EBeam_Profiler`, one per namespace), so the output label
+cannot be the file stem without renaming files, breaking s-file columns
+and colliding. `device` finds the files and stems the product files;
+`output_name` (default `device`) labels the columns and the output folder;
+`scalar_suffix` ends the columns; the file stem remains the document ID
+groups reference. `scan.device` became `input.folder`, `file_tail` and
+`data_format` (as `format`) moved onto `input` with it: they say how the
+files are found and read.
+
+**Conversion is built on the compile output.** `compat.convert.to_v3`
+compiles the v2 document with the adapter, writes the compiled steps and
+measure back as registry references, carries the naming, input, runtime
+and renderer facts, recompiles the result and compares it with the
+source's compilation before accepting it. Both formats compile to the one
+in-memory recipe and run through the one evaluator, so a converted recipe
+is identical by construction; the in-suite comparison of a v2 diagnostic
+against its converted recipe on the core route pins identical analysis
+trees. What the v3 shape does not carry is reported, never dropped
+silently: `bit_depth` (unused by the core), `gdoc_slot` (retired), and one
+corpus quirk — `UNCLASSIFIED/HTT-C-ASSERTHighR` defines an ROI it never
+runs, and the legacy beam analyzer (reproduced by the v2 adapter) still
+offset its coordinates by that ROI's origin; the recipe has no inactive
+sections, so its coordinates start at (0, 0) and the note says so. The
+image palette's zero floor, which the v2 renderer imposed on every image,
+is written out as `figure.imshow.vmin: 0` so the pure draw keeps it.
+
+`scripts/analysis_convert_corpus.py` converts a configs tree in place
+(37 of 50 on 2026-09-24: 34 beam, 3 line), leaving the 13 the core does
+not serve as v2 (4 `magspec` with scan backgrounds, 2 `line_stitcher`,
+2 `ict`, 2 `frog_retrieval`, `bcave_mag_opt`, `haso`, one `trace` with a
+preprocessing-only ROI). The converted corpus lives on the configs branch
+`analysis-recipe-v3` for the maintainer to test against; it merges to the
+configs `main` when he is happy. The editor shows a recipe read-only until
+slice 2 (the recipe form, with the figure preview through the same draw as
+the run); slice 3 previews the summaries over N shots.
 
 ### 6. Algorithms
 

@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.6.0] - 2026-09-24
+
+### Changed
+
+- `load_diagnostic` returns the document as its `schema_version` declares
+  (a v3 `AnalysisRecipe` or the v2 `AnalysisDiagnostic`), so a group that
+  references a converted recipe loads.
+
 ## [2.5.0] - 2026-09-23
 
 ### Removed

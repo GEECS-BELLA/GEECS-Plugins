@@ -7,7 +7,7 @@ Qt ``ConfigFileGUI`` (deleted in 1.21.0).
 
 Rules the store enforces:
 
-- Documents are the GEECS-Schemas models (``AnalysisDiagnostic`` v2,
+- Documents are the GEECS-Schemas models (``AnalysisRecipe`` v3 and ``AnalysisDiagnostic`` v2,
   ``AnalysisGroup``); a document that does not validate is never written.
 - Writes are atomic (temp file + rename in the same directory) and
   optimistic: a save carries the etag the file had when it was read, and a
@@ -38,7 +38,9 @@ import yaml
 from geecs_schemas.analysis import (
     AnalysisDiagnostic,
     AnalysisGroup,
+    AnalysisRecipe,
     canonical_document,
+    load_analysis_document,
 )
 from pydantic import BaseModel, ValidationError
 
@@ -172,11 +174,20 @@ class Saved:
         }
 
 
+#: The form schema per kind: the v2 diagnostic's, until the editor grows the
+#: recipe form. Loading and validation dispatch on the file's own version.
 _MODELS: dict[str, type[BaseModel]] = {
     "analyzer": AnalysisDiagnostic,
     "group": AnalysisGroup,
 }
 _FOLDERS: dict[str, str] = {"analyzer": "analyzers", "group": "groups"}
+
+
+def _validate_raw(kind: DocumentKind, raw: Mapping[str, Any]) -> BaseModel:
+    """Validate a raw document as its kind: either analysis format, or a group."""
+    if kind == "analyzer":
+        return load_analysis_document(dict(raw))
+    return _MODELS[kind].model_validate(dict(raw))
 
 
 def _one_line(exc: BaseException) -> str:
@@ -279,11 +290,10 @@ class ConfigStore:
     def list(self, kind: DocumentKind) -> list[Entry]:
         """Every document of ``kind``, valid or not (invalid ones carry the error)."""
         entries: list[Entry] = []
-        model = _MODELS[kind]
         for path in self._files(kind):
             ns = self._ns(kind, path)
             try:
-                doc = model.model_validate(self._read_raw(path))
+                doc = _validate_raw(kind, self._read_raw(path))
             except ValidationError as exc:
                 entries.append(
                     Entry(path.stem, ns, kind, False, _errors(exc)[0]["msg"])
@@ -297,13 +307,17 @@ class ConfigStore:
 
     @staticmethod
     def _summary(doc: BaseModel) -> dict[str, Any]:
-        if isinstance(doc, AnalysisDiagnostic):
+        if isinstance(doc, (AnalysisRecipe, AnalysisDiagnostic)):
             return {
-                "name": doc.name,
-                "analyzer_kind": doc.analyzer.kind,
-                "image_type": doc.image_kind,
-                "device": doc.scan.device or doc.name,
+                "name": doc.device,
+                # what runs: the recipe's measure, the diagnostic's analyzer
+                "analyzer_kind": doc.measure.kind
+                if isinstance(doc, AnalysisRecipe)
+                else doc.analyzer.kind,
+                "image_type": doc.input_kind,
+                "device": doc.data_folder,
                 "output_name": doc.effective_output_name,
+                "schema_version": doc.schema_version,
             }
         return {"name": doc.name, "count": len(doc.analyzers)}
 
@@ -354,7 +368,7 @@ class ConfigStore:
     def validate(self, kind: DocumentKind, document: Mapping[str, Any]) -> Report:
         """Validate without writing; the report carries the canonical form."""
         try:
-            model = _MODELS[kind].model_validate(dict(document))
+            model = _validate_raw(kind, document)
         except ValidationError as exc:
             return Report(False, _errors(exc), None, None)
         errors = self._cross_checks(kind, model)

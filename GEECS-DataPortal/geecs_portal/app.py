@@ -339,11 +339,9 @@ class _DiagInfo:
 
     @classmethod
     def from_diagnostic(cls, diag) -> "_DiagInfo":
-        # ``diag.scan`` is the typed ScanRuntime section (GEECS-Schemas) —
-        # read the one field the wrapper reads.
+        # Either format, through the names both documents carry.
         return cls(
-            device=str(diag.scan.device or diag.name),
-            output_name=str(getattr(diag, "effective_output_name", None) or diag.name),
+            device=str(diag.data_folder), output_name=str(diag.effective_output_name)
         )
 
 
@@ -2128,8 +2126,8 @@ def create_app(
             raise kind(str(exc.detail)) from exc
         if detail.data is not None and shot > len(detail.data):
             raise LookupError("shot beyond the run's recorded events")
-        # The run joins by the diagnostic's device (its name), not the folder.
-        acq, column_present = _acq_timestamp(detail, diag.name, shot)
+        # The run joins by the diagnostic's device, not the folder.
+        acq, column_present = _acq_timestamp(detail, diag.device, shot)
         if column_present and acq is None:
             raise LookupError("device missed this shot (no timestamp)")
         # The shot's own event row: the mapper finds the device's
@@ -2140,14 +2138,15 @@ def create_app(
         else:
             rows = pd.DataFrame(index=[0])
         rows["Shotnumber"] = shot
-        picked = diag.model_copy(
-            update={"scan": diag.scan.model_copy(update={"device": device})}
-        )
-        source = prepare_source(picked, folder, rows)
+        from dataclasses import replace
+
+        from scan_analysis.core_recipe import scan_recipe
+
+        source = prepare_source(replace(scan_recipe(diag), folder=device), folder, rows)
         reference = source.references.get(shot)
         if reference is None:
             raise LookupError(f"no {device} file for shot {shot}")
-        trace = read_1d_data(reference, diag.image.data_loading)
+        trace = read_1d_data(reference, diag.line_loading)
         aux = (
             {
                 "_aux_columns": {
@@ -2165,7 +2164,8 @@ def create_app(
 
     def _config_editor_preview(document: dict, params: dict) -> bytes:
         ephemeral = _ephemeral_module()
-        from geecs_schemas.analysis import AnalysisDiagnostic, Line1DConfig
+        from geecs_analysis.recipe import is_line
+        from geecs_schemas.analysis import load_analysis_document
 
         uid = str(params.get("uid") or "")
         device = str(params.get("device") or "")
@@ -2176,8 +2176,8 @@ def create_app(
             raise ValueError("shot must be an integer") from exc
         if not uid or not device or shot < 1:
             raise LookupError("preview needs a scan, a device and a shot (>= 1)")
-        diag = AnalysisDiagnostic.model_validate(document)
-        if isinstance(diag.image, Line1DConfig):
+        diag = load_analysis_document(document)
+        if is_line(diag):
             return _line_preview(diag, uid, device, day, shot)
         try:
             detail = _load_run(uid)
@@ -2202,12 +2202,17 @@ def create_app(
         if resolved.array is None:
             raise LookupError(resolved.reason or resolved.kind)
         # The analyzer's own figure, as a run of this document would draw it:
-        # its default palette (not the pixel view's gray) unless the document's
-        # scan.renderer names one, autoscaled unless it sets vmin/vmax.
-        opts = diag.scan.renderer
-        (fig,) = ephemeral.render_document_ephemeral(
-            diag, [resolved.array], cmap=opts.cmap, vmin=opts.vmin, vmax=opts.vmax
-        )
+        # its default palette (not the pixel view's gray) unless the document
+        # names one (figure.imshow on a recipe, scan.renderer on a v2
+        # diagnostic), autoscaled unless it sets vmin/vmax.
+        from geecs_schemas.analysis import AnalysisRecipe
+
+        if isinstance(diag, AnalysisRecipe):
+            palette = {k: diag.figure.imshow.get(k) for k in ("cmap", "vmin", "vmax")}
+        else:
+            opts = diag.scan.renderer
+            palette = {"cmap": opts.cmap, "vmin": opts.vmin, "vmax": opts.vmax}
+        (fig,) = ephemeral.render_document_ephemeral(diag, [resolved.array], **palette)
         return resources.figure_png(fig)
 
     if config_editor and processing_config_dir is not None:

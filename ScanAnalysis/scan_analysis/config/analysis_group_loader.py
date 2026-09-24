@@ -36,7 +36,7 @@ from geecs_data_utils.analysis_configs import discover_diagnostics
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisGroup
+from geecs_schemas.analysis import AnalysisDocument, AnalysisGroup
 from image_analysis.config import load_diagnostic
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,9 @@ logger = logging.getLogger(__name__)
 class ResolvedDiagnosticConfig(BaseModel):
     """A diagnostic loaded from disk and resolved against a group reference.
 
-    Pairs the on-disk :class:`~geecs_schemas.analysis.AnalysisDiagnostic`
+    Pairs the on-disk document (a v3
+    :class:`~geecs_schemas.analysis.AnalysisRecipe` or a v2
+    :class:`~geecs_schemas.analysis.AnalysisDiagnostic`)
     with its filename-derived ID and the group's effective priority — what
     :func:`scan_analysis.config.create_scan_analyzer` consumes.  Not a
     document anyone writes.
@@ -60,8 +62,8 @@ class ResolvedDiagnosticConfig(BaseModel):
     priority : int
         The group's override if given, else the diagnostic's own
         ``scan.priority``; the loader sorts ascending by it.
-    diagnostic : AnalysisDiagnostic
-        The validated on-disk diagnostic.
+    diagnostic : AnalysisRecipe or AnalysisDiagnostic
+        The validated on-disk document.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -69,7 +71,7 @@ class ResolvedDiagnosticConfig(BaseModel):
     id: str = Field(min_length=1)
     enabled: bool = True
     priority: int = Field(ge=0)
-    diagnostic: AnalysisDiagnostic
+    diagnostic: AnalysisDocument
 
 
 __all__ = [

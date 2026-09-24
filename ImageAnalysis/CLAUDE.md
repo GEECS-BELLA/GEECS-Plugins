@@ -27,7 +27,7 @@ image_analysis/
                                    #          create_image_analyzer, analyzer_class
                                    #          (the MODELS come from geecs_schemas.analysis)
     loader.py                      # Typed loaders over geecs_data_utils.analysis_configs
-    factory.py                     # create_image_analyzer(AnalysisDiagnostic)
+    factory.py                     # create_image_analyzer(AnalysisDiagnostic) — refuses a v3 recipe
     registry.py                    # analyzer kind → implementing class
   processing/
     array2d/
@@ -117,8 +117,10 @@ under their `Line*` names; no re-export shims). `image_analysis.config`
 owns the three things that need the analysis stack:
 
 - **`loader`** — `load_diagnostic(stem_or_path, config_dir=, overrides=)`
-  → `AnalysisDiagnostic` (v2 only — a pre-v2 file is refused; the configs
-  repo was regenerated once and is authored v2-only since);
+  → the document as its `schema_version` says: a v3 `AnalysisRecipe` (runs
+  on the analysis core; `create_image_analyzer` and the ephemeral runners
+  refuse it with a `TypeError`) or the v2 `AnalysisDiagnostic` (a pre-v2
+  file is refused);
   `load_camera_config` / `load_line_config` → the `image:` section of a
   diagnostic, or a bare section; `list_diagnostics`.
 - **`factory`** — `create_image_analyzer(diag)`: resolves the class from
@@ -180,7 +182,7 @@ analyzer = StandardAnalyzer(camera_config=cfg)
 # Mode 2: config-driven factory (production scan path)
 from image_analysis.config import load_diagnostic, create_image_analyzer
 
-diag = load_diagnostic("UC_GaiaMode")          # → AnalysisDiagnostic
+diag = load_diagnostic("UC_GaiaMode")          # → AnalysisDiagnostic, or AnalysisRecipe (v3) — the latter runs on the core
 analyzer = create_image_analyzer(diag)         # → ImageAnalyzer instance
 ```
 
