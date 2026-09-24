@@ -14,12 +14,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Union
 
+from geecs_schemas._base import declared_schema_version
 from geecs_schemas.analysis.diagnostic import AnalysisDiagnostic
-from geecs_schemas.analysis.recipe import (
-    CURRENT_RECIPE_VERSION,
-    AnalysisRecipe,
-    declared_schema_version,
-)
+from geecs_schemas.analysis.recipe import CURRENT_RECIPE_VERSION, AnalysisRecipe
 
 #: What a loader hands back: one of the two document formats.
 AnalysisDocument = Union[AnalysisDiagnostic, AnalysisRecipe]

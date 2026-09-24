@@ -151,8 +151,10 @@ def test_conversion_carries_runtime_input_and_rendering_facts():
         recipe.inputs["camera_background"].path == "{scan_dir}/bg.npy"
         and recipe.inputs["camera_background"].fallback_level == 3.0
     )
-    assert recipe.figure.imshow == {"vmin": 0}
+    assert recipe.figure.imshow == {"vmin": 0} and recipe.figure.fig == {"dpi": 150}
     assert [s.kind for s in recipe.summaries] == ["image_grid", "average"]
+    # the v2 grid's panel size and resolution are written out, not defaulted
+    assert recipe.summaries[0].panel_size == (6, 6)
     assert "scan.gdoc_slot dropped (retired)" in conversion.notes
     assert "image.bit_depth dropped: the core does not use it" in conversion.notes
 
@@ -169,7 +171,7 @@ def test_conversion_carries_runtime_input_and_rendering_facts():
     ).recipe
     assert line.input.folder == "Device-interp" and line.input.file_tail == ".txt"
     assert line.input.x_scale == 1000.0 and line.input.x_unit == "MeV"
-    assert line.figure.imshow == {} and not line.figure.fig
+    assert line.figure.imshow == {} and line.figure.fig == {"dpi": 150}
     stack, average = line.summaries
     assert (
         stack.kind == "waterfall" and stack.sort_key == "U_Charge" and stack.vmin == -1

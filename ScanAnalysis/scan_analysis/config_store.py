@@ -307,21 +307,15 @@ class ConfigStore:
 
     @staticmethod
     def _summary(doc: BaseModel) -> dict[str, Any]:
-        if isinstance(doc, AnalysisRecipe):
+        if isinstance(doc, (AnalysisRecipe, AnalysisDiagnostic)):
             return {
                 "name": doc.device,
-                "analyzer_kind": doc.measure.kind,
-                "image_type": doc.input.kind,
-                "device": doc.input.folder or doc.device,
-                "output_name": doc.effective_output_name,
-                "schema_version": doc.schema_version,
-            }
-        if isinstance(doc, AnalysisDiagnostic):
-            return {
-                "name": doc.name,
-                "analyzer_kind": doc.analyzer.kind,
-                "image_type": doc.image_kind,
-                "device": doc.scan.device or doc.name,
+                # what runs: the recipe's measure, the diagnostic's analyzer
+                "analyzer_kind": doc.measure.kind
+                if isinstance(doc, AnalysisRecipe)
+                else doc.analyzer.kind,
+                "image_type": doc.input_kind,
+                "device": doc.data_folder,
                 "output_name": doc.effective_output_name,
                 "schema_version": doc.schema_version,
             }

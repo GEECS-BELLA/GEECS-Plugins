@@ -172,8 +172,7 @@ def compile_measurements(
     source_factory: Callable[..., FrameSource] = LiveFrameSource,
 ) -> CompiledMeasurements:
     """Resolve signals, diagnostics, output references and imports before a run opens."""
-    from geecs_analysis.recipe import compile_document, is_line
-    from geecs_bluesky.config_resolver import diagnostic_device
+    from geecs_analysis.recipe import compile_document
     from geecs_bluesky.namespace import capture_streams
 
     measurements = []
@@ -198,7 +197,7 @@ def compile_measurements(
                 diag = resolver.resolve_diagnostic(
                     spec.diagnostic, overrides=spec.overrides
                 )
-                if is_line(diag):
+                if diag.input_kind != "camera":
                     raise ValueError(
                         f"{name}: diagnostic {spec.diagnostic} is not supported on live camera frames"
                     )
@@ -206,7 +205,7 @@ def compile_measurements(
                 keys = recipe.analysis.measure.emitted_scalars()
                 if not keys:
                     raise ValueError(f"{name}: diagnostic declares no scalar outputs")
-                device = diagnostic_device(diag)
+                device = diag.device
                 detector = namespace.resolve(device)
                 images = capture_streams(
                     namespace.roster.variables[device],

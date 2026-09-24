@@ -69,6 +69,11 @@ def capture(
     if not inputs:
         raise ValueError("At least one input is required")
     diagnostic = load_diagnostic(config)
+    if not hasattr(diagnostic, "analyzer"):
+        raise ValueError(
+            "The baseline compares the legacy analyzer with the core, so it needs "
+            "a v2 diagnostic; an analysis recipe (schema_version 3) has no legacy side"
+        )
     if diagnostic.analyzer.kind not in {"beam", "line"}:
         raise ValueError("Only beam and line numerical baselines are supported")
     background = diagnostic.image.background

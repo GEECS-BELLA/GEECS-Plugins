@@ -75,9 +75,9 @@ def _figure_v2(options: RendererOptions, *, line: bool, notes: list[str]) -> dic
         figure["axes"] = axes
     if options.colorbar_label:
         figure["colorbar"] = {"label": options.colorbar_label}
-    fig = {}
-    if options.dpi is not None:
-        fig["dpi"] = options.dpi
+    # The v2 renderers drew every figure at 150 dpi; the core default is the
+    # preview's 110, so the resolution is written out (editable, like vmin).
+    fig = {"dpi": options.dpi if options.dpi is not None else 150}
     if options.figsize_inches is not None:
         fig["figsize"] = [options.figsize_inches, options.figsize_inches]
         notes.append(
@@ -111,9 +111,9 @@ def _summaries_v2(options: RendererOptions, *, line: bool) -> list[dict]:
             if value is not None:
                 stack[key] = list(value) if isinstance(value, tuple) else value
         return [stack, {"kind": "average"}]
-    grid: dict = {"kind": "image_grid"}
-    if options.figsize is not None:
-        grid["panel_size"] = list(options.figsize)
+    # The v2 grid drew 6x6 inch panels; the core default is smaller, so the
+    # panel size is written out too.
+    grid: dict = {"kind": "image_grid", "panel_size": list(options.figsize or (6, 6))}
     return [grid, {"kind": "average"}]
 
 
@@ -198,7 +198,7 @@ def to_v3(document: AnalysisDiagnostic) -> Conversion:
         raw["figure"] = figure
     raw["summaries"] = _summaries_v2(scan.renderer, line=line)
 
-    recipe = AnalysisRecipe.model_validate(raw)
+    recipe = AnalysisRecipe.model_validate(_tidy(raw))
     recipe._source_id = document.source_id
     check = compile_recipe(recipe, allow_file_backgrounds=True)
     if check.camera_origin != compiled.camera_origin:

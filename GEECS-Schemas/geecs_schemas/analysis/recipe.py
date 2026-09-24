@@ -29,30 +29,18 @@ recipe the core serves converts to this shape once through
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, Tuple, Union
 
 from pydantic import ConfigDict, Field, PrivateAttr, model_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import (
+    SchemaModel,
+    VersionedSchemaModel,
+    declared_schema_version,
+)
 from geecs_schemas.analysis.processing_1d import Data1DLoading, Data1DType
 
 CURRENT_RECIPE_VERSION = 3
-
-
-def declared_schema_version(data: Mapping[str, object]) -> Optional[int]:
-    """Return the ``schema_version`` a raw document declares, or ``None``.
-
-    A quoted digit counts the same as the int (pydantic coerces it later);
-    anything else (absent, unparseable) is ``None`` and the document is
-    read as the default version of whichever model receives it.
-    """
-    version = data.get("schema_version")
-    if isinstance(version, str) and version.isdigit():
-        version = int(version)
-    if isinstance(version, int) and not isinstance(version, bool):
-        return version
-    return None
 
 
 # --------------------------------------------------------------- vocabulary
@@ -469,8 +457,18 @@ class AnalysisRecipe(VersionedSchemaModel):
 
     @property
     def input_kind(self) -> str:
-        """``"camera"`` or ``"line"``."""
+        """``"camera"`` or ``"line"`` — the same name on both document formats."""
         return self.input.kind
+
+    @property
+    def data_folder(self) -> str:
+        """The subfolder under scans/ScanNNN/ holding the files: ``input.folder`` or the device."""
+        return self.input.folder or self.device
+
+    @property
+    def line_loading(self) -> Optional[Data1DLoading]:
+        """How one trace file is read, for a line recipe; ``None`` for a camera."""
+        return self.input.loading if isinstance(self.input, LineInput) else None
 
     @model_validator(mode="before")
     @classmethod

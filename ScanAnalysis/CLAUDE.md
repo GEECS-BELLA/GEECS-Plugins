@@ -17,7 +17,7 @@ scan_analysis/
   route_compare.py                 # snapshot + compare two routes' analysis trees (one equality rule)
   task_queue.py                    # Task claiming, heartbeat, YAML status system
   config/
-    diagnostic_factory.py          # create_scan_analyzer(AnalysisDiagnostic)
+    diagnostic_factory.py          # create_scan_analyzer(AnalysisRecipe | AnalysisDiagnostic)
     analysis_group_loader.py       # discover_analyzers/groups + load_analysis_group,
                                    #   ResolvedDiagnosticConfig (the models: geecs_schemas.analysis)
   analyzers/
@@ -111,16 +111,21 @@ the archived scan.
 
 Scan analysis is driven by YAML config files stored in the
 **GEECS-Plugins-configs** repository (not this repo). The documents are
-**GEECS-Schemas'** (`geecs_schemas.analysis`, format v2 since
-ScanAnalysis 1.19.0): one `AnalysisDiagnostic` YAML per diagnostic under
-`analyzers/<namespace>/<id>.yaml`, carrying `analyzer:` (which analyzer,
-with its typed parameters), `image:` (the camera / line processing
-section, consumed by ImageAnalysis) and `scan:` (the typed `ScanRuntime`
-section, consumed here); diagnostics are assembled into `AnalysisGroup`
-files under `groups/<namespace>/<group>.yaml`, which explicit runners and the
-task queue consume directly. The corpus is v2 only (regenerated once for
-GEECS-Schemas 0.19.0; a pre-v2 file is refused at load; there is no
-converter). Scatter analyzers sit outside the YAML config
+**GEECS-Schemas'** (`geecs_schemas.analysis`): one YAML per diagnostic
+under `analyzers/<namespace>/<id>.yaml`, in one of two formats read by
+`load_analysis_document` on its `schema_version` — the v3 `AnalysisRecipe`
+(the analysis core's native shape: `input:`, ordered `steps:`, `measure:`,
+the per-frame `figure:`, the `summaries:` kinds; every recipe the core
+serves, 37 of 50 since 2026-09-24) or the v2 `AnalysisDiagnostic`
+(`analyzer:` + `image:` consumed by ImageAnalysis + the typed `scan:`
+section, kept for the unported kinds). Diagnostics are assembled into
+`AnalysisGroup` files under `groups/<namespace>/<group>.yaml`, which
+explicit runners and the task queue consume directly. A pre-v2 file is
+refused at load; `scripts/analysis_convert_corpus.py` (repo root) converts
+a v2 diagnostic the core serves into a recipe, and nothing lifts the other
+way. `core_recipe.ScanRecipe` is the one host-side view of either format;
+the source, runner, planner and sink read it and never ask which document
+they serve. Scatter analyzers sit outside the YAML config
 system entirely — they are plain Python subclasses of
 `ScatterPlotterAnalysis` (see below) because they don't consume images.
 
@@ -165,7 +170,7 @@ thin wrapper around the same two calls.
 ### The documents (`geecs_schemas.analysis`)
 
 ```
-AnalysisDiagnostic                # One YAML per diagnostic (schema_version: 2)
+AnalysisRecipe | AnalysisDiagnostic   # One YAML per diagnostic (schema_version 3, or 2 for unported kinds)
   name: str                       # Device/channel name for input-data discovery
   output_name: Optional[str]      # Output stem override (defaults to name)
   metric_suffix: Optional[str]    # Scalar-key-only suffix (no dir/file effect)
@@ -205,7 +210,7 @@ ResolvedDiagnosticConfig          # What the loader hands the factory (this pack
   id: str                         # Diagnostic filename stem (task-queue ID)
   enabled: bool                   # Refs with enabled: false are excluded
   priority: int                   # Group override, else the diagnostic's own
-  diagnostic: AnalysisDiagnostic
+  diagnostic: AnalysisRecipe | AnalysisDiagnostic   # whichever the file's schema_version says
 ```
 
 `scan_analysis.config` exports only its own things — the group loader,

@@ -19,6 +19,7 @@ from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
 from geecs_schemas.analysis.recipe import LineInput
 from pydantic import ValidationError
 
+from geecs_analysis import summaries as _summaries  # noqa: F401 -- registers the summary kinds
 from geecs_analysis.compat.v2 import FileBackground, V2Recipe, compile_v2
 from geecs_analysis.registry import definition, measure_definition
 from geecs_analysis.render.specs import FigureSpec
@@ -127,9 +128,7 @@ def compile_document(
 
 def is_line(document: AnalysisDocument) -> bool:
     """Whether the document's frames are traces (1D)."""
-    if isinstance(document, AnalysisRecipe):
-        return isinstance(document.input, LineInput)
-    return document.image_kind == "line"
+    return document.input_kind == "line"
 
 
 def figure_of(document: AnalysisDocument) -> FigureSpec:

@@ -57,6 +57,22 @@ class VersionedSchemaModel(SchemaModel):
     )
 
 
+def declared_schema_version(data: Mapping[str, object]) -> int | None:
+    """Return the ``schema_version`` a raw document declares, or ``None``.
+
+    A quoted digit (``"2"`` from YAML or JSON) counts the same as the int —
+    pydantic's lax mode coerces it at field validation, so every reader of
+    the raw stamp must see it the same way. An absent or unparseable
+    version is ``None``: the field default (the current version) applies.
+    """
+    version = data.get("schema_version")
+    if isinstance(version, str) and version.isdigit():
+        version = int(version)
+    if isinstance(version, int) and not isinstance(version, bool):
+        return version
+    return None
+
+
 def stale_schema_version(data: Mapping[str, object], current: int) -> bool:
     """Whether *data* declares a ``schema_version`` older than *current*.
 
@@ -79,9 +95,5 @@ def stale_schema_version(data: Mapping[str, object], current: int) -> bool:
     bool
         ``True`` when a declared version is strictly older than *current*.
     """
-    version = data.get("schema_version")
-    if isinstance(version, str) and version.isdigit():
-        version = int(version)
-    return (
-        isinstance(version, int) and not isinstance(version, bool) and version < current
-    )
+    version = declared_schema_version(data)
+    return version is not None and version < current

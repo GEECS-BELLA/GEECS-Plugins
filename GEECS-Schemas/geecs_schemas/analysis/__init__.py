@@ -92,9 +92,9 @@ from geecs_schemas.analysis.recipe import (
     StepRef,
     Summary,
     WaterfallSummary,
-    declared_schema_version,
 )
 from geecs_schemas.analysis.renderer import RendererOptions
+from geecs_schemas._base import declared_schema_version
 from geecs_schemas.analysis.scan_runtime import (
     AutodetectBackgroundSpec,
     BackgroundSource,

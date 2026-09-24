@@ -1,5 +1,8 @@
 """The frozen summary kinds: registered once each, drawn from the per-frame figure."""
 
+import subprocess
+import sys
+
 import numpy as np
 import pytest
 from geecs_data_utils.frames import Frame
@@ -84,3 +87,19 @@ def test_waterfall_takes_its_palette_from_the_kind_and_labels_from_the_figure():
     np.testing.assert_array_equal(ax.get_yticks(), [0, 1])
     with pytest.raises(RenderError, match="finite"):
         draw([trace([1, 2, 3])], [float("nan")], "", stack, figure)
+
+
+def test_kinds_are_registered_by_the_recipe_module_alone():
+    """A process whose first document is a recipe must still resolve every kind."""
+    script = (
+        "from geecs_analysis.recipe import summaries_of\n"
+        "from geecs_analysis.registry import summary_definition\n"
+        "from geecs_schemas.analysis import AnalysisRecipe\n"
+        "r = AnalysisRecipe.model_validate({'device': 'D', 'input': {'kind': 'camera'},"
+        " 'summaries': [{'kind': 'image_grid'}, {'kind': 'average'}]})\n"
+        "print(sorted(summary_definition(s).filename for s in summaries_of(r)))\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", script], check=True, capture_output=True, text=True
+    )
+    assert out.stdout.strip() == "['average_processed_visual', 'averaged_image_grid']"

@@ -177,3 +177,37 @@ class TestLoader:
     def test_the_v1_layout_is_still_refused(self):
         with pytest.raises(ValidationError, match="pre-v2"):
             load_analysis_document({"image_analyzer": "x.y:Z", "name": "D"})
+
+
+class TestNeutralNames:
+    """Both formats answer device / input_kind / data_folder / line_loading the same way."""
+
+    def test_recipe_and_diagnostic_agree(self):
+        recipe = AnalysisRecipe.model_validate(LINE)
+        diagnostic = AnalysisDiagnostic.model_validate(
+            {
+                "name": "Spec",
+                "output_name": "Spec-interp",
+                "analyzer": {"kind": "line"},
+                "image": {"type": "line", "data_loading": {"data_type": "tsv"}},
+                "scan": {"device": "Spec-interp"},
+            }
+        )
+        for doc in (recipe, diagnostic):
+            assert doc.device == "Spec"
+            assert doc.input_kind == "line"
+            assert doc.data_folder == "Spec-interp"
+            assert doc.effective_output_name == "Spec-interp"
+            assert doc.line_loading.data_type.value == "tsv"
+        camera = AnalysisRecipe.model_validate(CAMERA)
+        assert camera.data_folder == "UC_Test" and camera.line_loading is None
+        assert AnalysisDiagnostic.model_validate(V2).line_loading is None
+
+    def test_declared_version_is_the_base_parse(self):
+        from geecs_schemas._base import declared_schema_version, stale_schema_version
+
+        assert declared_schema_version({"schema_version": "3"}) == 3
+        assert declared_schema_version({"schema_version": True}) is None
+        assert declared_schema_version({}) is None
+        assert stale_schema_version({"schema_version": "1"}, 2)
+        assert not stale_schema_version({}, 2)

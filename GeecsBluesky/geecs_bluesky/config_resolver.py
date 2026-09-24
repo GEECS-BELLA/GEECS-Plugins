@@ -57,13 +57,6 @@ _PRESET_STEM = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
 # ---------------------------------------------------------------------------
 
 
-def diagnostic_device(document: "AnalysisDocument") -> str:
-    """The device an analysis document reads: a v3 recipe's ``device``, a v2 diagnostic's ``name``."""
-    from geecs_schemas.analysis import AnalysisRecipe
-
-    return document.device if isinstance(document, AnalysisRecipe) else document.name
-
-
 def _write_yaml_atomically(path: Path, document: dict) -> None:
     """Write *document* as YAML to *path*: temp file beside it, fsync, ``os.replace``.
 
@@ -421,7 +414,7 @@ class ConfigsRepoResolver:
 
     def diagnostic_device(self, stem: str) -> str:
         """Resolve a diagnostic's device without importing the analysis runtime."""
-        return diagnostic_device(self.resolve_diagnostic(stem))
+        return self.resolve_diagnostic(stem).device
 
     def resolve_diagnostic(
         self, stem: str, *, overrides: dict[str, JsonValue] | None = None

@@ -339,19 +339,9 @@ class _DiagInfo:
 
     @classmethod
     def from_diagnostic(cls, diag) -> "_DiagInfo":
-        # Either format: a v3 recipe keeps the folder on its input, a v2
-        # diagnostic on the typed ScanRuntime section — read the one field
-        # the wrapper reads.
-        from geecs_schemas.analysis import AnalysisRecipe
-
-        if isinstance(diag, AnalysisRecipe):
-            return cls(
-                device=str(diag.input.folder or diag.device),
-                output_name=str(diag.effective_output_name),
-            )
+        # Either format, through the names both documents carry.
         return cls(
-            device=str(diag.scan.device or diag.name),
-            output_name=str(getattr(diag, "effective_output_name", None) or diag.name),
+            device=str(diag.data_folder), output_name=str(diag.effective_output_name)
         )
 
 
@@ -2124,7 +2114,6 @@ def create_app(
         over the way ``analyze_image_file`` hands them to line analyzers.
         """
         import pandas as pd
-        from geecs_schemas.analysis import AnalysisRecipe
         from image_analysis.data_1d_utils import read_1d_data
         from scan_analysis.core_source import prepare_source
 
@@ -2137,11 +2126,8 @@ def create_app(
             raise kind(str(exc.detail)) from exc
         if detail.data is not None and shot > len(detail.data):
             raise LookupError("shot beyond the run's recorded events")
-        # The run joins by the diagnostic's device (its name), not the folder.
-        recipe = isinstance(diag, AnalysisRecipe)
-        acq, column_present = _acq_timestamp(
-            detail, diag.device if recipe else diag.name, shot
-        )
+        # The run joins by the diagnostic's device, not the folder.
+        acq, column_present = _acq_timestamp(detail, diag.device, shot)
         if column_present and acq is None:
             raise LookupError("device missed this shot (no timestamp)")
         # The shot's own event row: the mapper finds the device's
@@ -2160,8 +2146,7 @@ def create_app(
         reference = source.references.get(shot)
         if reference is None:
             raise LookupError(f"no {device} file for shot {shot}")
-        loading = diag.input.loading if recipe else diag.image.data_loading
-        trace = read_1d_data(reference, loading)
+        trace = read_1d_data(reference, diag.line_loading)
         aux = (
             {
                 "_aux_columns": {

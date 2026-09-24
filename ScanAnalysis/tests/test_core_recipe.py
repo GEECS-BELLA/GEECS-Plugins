@@ -1,5 +1,8 @@
 """Either document gives the scan host the same run facts; a recipe routes to the core alone."""
 
+import subprocess
+import sys
+
 import numpy as np
 import pytest
 import yaml
@@ -171,3 +174,28 @@ def test_store_lists_validates_and_writes_a_recipe(tmp_path):
     assert entries["Old"].valid and entries["Old"].summary["schema_version"] == 2
     loaded = store.read("analyzer", "New")
     assert loaded.valid and loaded.document["schema_version"] == 3
+
+
+def test_sink_resolves_every_kind_in_a_fresh_process():
+    """The sink's imports alone register the kinds; no v2 document need load first."""
+    script = (
+        "from scan_analysis.core_sink import save_products  # noqa: F401\n"
+        "from geecs_analysis.registry import summary_definitions\n"
+        "print(sorted(d.filename for d in summary_definitions()))\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", script], check=True, capture_output=True, text=True
+    )
+    assert out.stdout.strip() == (
+        "['average_processed_visual', 'averaged_image_grid', 'summary_waterfall']"
+    )
+
+
+def test_legacy_image_analyzer_entry_points_refuse_a_recipe():
+    from image_analysis.config import create_image_analyzer
+    from image_analysis.ephemeral import _ephemeral_analyzer_for
+
+    with pytest.raises(TypeError, match="analysis core"):
+        create_image_analyzer(recipe())
+    with pytest.raises(TypeError, match="no ephemeral"):
+        _ephemeral_analyzer_for(recipe())

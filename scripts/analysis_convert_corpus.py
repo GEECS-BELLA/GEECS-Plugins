@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import yaml
@@ -58,7 +59,10 @@ def convert_tree(root: Path, *, write: bool) -> int:
         assert isinstance(reread, AnalysisRecipe)
         source = compile_v2(document, allow_file_backgrounds=True)
         result = compile_recipe(reread, allow_file_backgrounds=True)
-        if result != source and not any("coordinates" in n for n in conversion.notes):
+        if any("coordinates" in n for n in conversion.notes):
+            # The one reported difference: an inactive v2 roi's origin.
+            result = replace(result, camera_origin=source.camera_origin)
+        if result != source:
             raise AssertionError(f"{label}: written recipe compiles differently")
         print(f"{label}: v3 ({document.analyzer.kind} -> {reread.measure.kind})")
         for note in conversion.notes:
