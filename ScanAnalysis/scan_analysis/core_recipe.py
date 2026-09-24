@@ -18,12 +18,10 @@ from geecs_analysis.recipe import (
     AnalysisDocument,
     compile_document,
     figure_of,
-    is_line,
     summaries_of,
 )
 from geecs_analysis.render.specs import FigureSpec
 from geecs_schemas.analysis import AnalysisRecipe
-from geecs_schemas.analysis.processing_1d import Line1DConfig
 
 __all__ = ["AnalysisDocument", "ScanRecipe", "scan_recipe"]
 
@@ -64,39 +62,29 @@ class ScanRecipe:
 def scan_recipe(document: AnalysisDocument) -> ScanRecipe:
     """Compile the document (declaring file backgrounds) and read the run facts."""
     recipe = compile_document(document, allow_file_backgrounds=True)
-    line = is_line(document)
+    loading = document.line_loading
     if isinstance(document, AnalysisRecipe):
+        # What only the format knows: where file discovery and the runtime
+        # switches live. Everything named the same way is read below.
         source = document.input
-        return ScanRecipe(
-            recipe=recipe,
-            device=document.device,
-            folder=source.folder or document.device,
-            output_name=document.effective_output_name,
-            scalar_suffix=document.scalar_suffix or "",
-            file_tail=source.file_tail,
-            prefer_stack=source.format == "device_hdf5",
-            line_loading_json=(source.loading.model_dump_json() if line else None),
-            average_frames_first=document.scan.average_frames_first,
-            save=document.scan.save,
-            priority=document.scan.priority,
-            figure=figure_of(document),
-            summaries=summaries_of(document),
-        )
-    config = document.image
+        file_tail, prefer_stack = source.file_tail, source.format == "device_hdf5"
+        scalar_suffix = document.scalar_suffix
+        average_first = document.scan.average_frames_first
+    else:
+        file_tail = document.scan.file_tail
+        prefer_stack = document.scan.data_format == "device_hdf5"
+        scalar_suffix = document.metric_suffix
+        average_first = document.scan.mode == "per_bin"
     return ScanRecipe(
         recipe=recipe,
-        device=document.name,
-        folder=document.scan.device or document.name,
+        device=document.device,
+        folder=document.data_folder,
         output_name=document.effective_output_name,
-        scalar_suffix=document.metric_suffix or "",
-        file_tail=document.scan.file_tail,
-        prefer_stack=document.scan.data_format == "device_hdf5",
-        line_loading_json=(
-            config.data_loading.model_dump_json()
-            if isinstance(config, Line1DConfig)
-            else None
-        ),
-        average_frames_first=document.scan.mode == "per_bin",
+        scalar_suffix=scalar_suffix or "",
+        file_tail=file_tail,
+        prefer_stack=prefer_stack,
+        line_loading_json=loading.model_dump_json() if loading is not None else None,
+        average_frames_first=average_first,
         save=document.scan.save,
         priority=document.scan.priority,
         figure=figure_of(document),
