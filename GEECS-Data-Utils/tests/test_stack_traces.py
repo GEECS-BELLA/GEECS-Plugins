@@ -141,7 +141,7 @@ def test_a_waveform_axis_is_rebuilt_from_x0_and_dx(tmp_path):
 
 
 def test_wave_samples_shortens_a_padded_waveform(tmp_path):
-    """A waveform stack with a ceiling pads like a lineout; wave_samples says where the record ends."""
+    """A NaN-padded waveform frame (the 0.12-0.13 gateway's shape); wave_samples says where the record ends."""
     frames = np.array([[1.0, 2.0, 3.0, np.nan, np.nan]])
     path = _waveform_stack(tmp_path, frames, [(0.0, 1.0, 3)])
 
@@ -212,7 +212,8 @@ def test_a_lineout_is_split_into_its_axis_and_its_values(tmp_path):
 def test_trimming_the_padding_restores_the_shape_guard(tmp_path):
     """The reason un-padding is not cosmetic.
 
-    The gateway pads every frame to the devicetype ceiling, so two shots
+    The 0.12-0.13 gateway padded every MagSpec lineout to a ceiling (those
+    stacks are on the share), so two shots
     whose spectra are different lengths arrive SAME-SHAPED.  A consumer
     that averages per-shot lineouts guards on shape (ScanAnalysis'
     ``average_data`` returns None for inhomogeneous shapes) — and on

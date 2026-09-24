@@ -41,7 +41,11 @@ Session semantics:
   re-pushes its last frame with an unchanged stamp when idle) and not
   older than the stale watermark set at ``Capture=1`` (and moved by
   ``Rewind``).  The first accepted frame opens the file (``LazyOpen``):
-  a session that accepts nothing leaves no file.
+  a session that accepts nothing leaves no file.  The stack's shape is the
+  one the arm declared (the geometry the Bluesky descriptor reads): a frame
+  of any other shape — the first included, which is how a held frame from
+  before an ROI/ΔE change surfaces — is dropped and counted as a shape
+  error, so the file never disagrees with the record.
 - ``NumCaptured_RBV`` posts after each frame is flushed to disk.
 - ``Capture=0`` stamps the reconciliation counters, closes the file and
   releases the subscription.
@@ -405,6 +409,10 @@ class _Session:
     count: int = 0
     file: Any = None  # h5py.File once opened
     shape: tuple[int, ...] | None = None
+    #: The frame shape posted as the stream geometry at the arm — what the
+    #: Bluesky descriptor and stream resource declare.  The first accepted
+    #: frame must match it, or the file would disagree with the record.
+    declared_shape: tuple[int, ...] | None = None
     path: str = ""
 
 
@@ -705,6 +713,7 @@ class HdfFilePlugin:
             # that is all the geometry the stream resource needs (#894).
             # The frame itself is never written — it predates the watermark.
             self._post_geometry(held)
+            session.declared_shape = held.shape
             self._session = session
             self._post("Capture_RBV", True)
             op.done()
@@ -735,6 +744,7 @@ class HdfFilePlugin:
                     logger.warning("%s: arming frame undecodable: %s", self.device, exc)
                     continue
                 self._post_geometry(frame)
+                session.declared_shape = frame.shape
                 self._session = session
                 try:
                     self._on_frame(*item[1:])
@@ -831,6 +841,23 @@ class HdfFilePlugin:
             )
             return
         if session.file is None:
+            if (
+                session.declared_shape is not None
+                and frame.shape != session.declared_shape
+            ):
+                # Armed on a held frame from before a shape change (an ROI,
+                # a ΔE, a magnet current changed since this variable was last
+                # subscribed): the record declares one shape and the device
+                # pushes another.  Opening the stack at the pushed shape
+                # would write a file the descriptor misdescribes, so every
+                # such frame is dropped and named instead.
+                counters.shape_errors += 1
+                self._error(
+                    f"frame shape {frame.shape} != the shape declared at the arm "
+                    f"{session.declared_shape} (held frame from before a shape "
+                    "change); re-run the scan"
+                )
+                return
             try:
                 self._open_file(session, frame)
             except Exception as exc:  # noqa: BLE001 - counted; the count never advances

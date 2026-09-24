@@ -382,6 +382,61 @@ async def test_the_plugin_writes_a_1d_float_stack_and_drops_a_frame_of_another_l
 
 
 @pytest.mark.timeout(30)
+async def test_a_first_frame_unlike_the_held_frame_is_refused_not_written(tmp_path):
+    """Armed on a held frame from before a shape change (ΔE/ROI changed while
+    nothing was subscribed): the descriptor declares the held shape, so a
+    first frame of another shape must not open a stack the record
+    misdescribes — every such frame is dropped, counted and named."""
+    dev = ArrayDevice("interpSpec")
+    await dev.start()
+    gateway, task = await _start_gateway(dev, "interpSpec")
+    plugin = gateway._workers[0].plugins["interpSpec"]
+    prefix = "testexp:u_spec:interpspec" + file_plugin.PLUGIN_SUFFIX
+    ctx = Context("pva", conf=gateway.conf(), useenv=False)
+    loop = asyncio.get_running_loop()
+
+    async def put(suffix: str, value) -> None:
+        await loop.run_in_executor(None, lambda: ctx.put(prefix + suffix, value))
+
+    async def get(suffix: str):
+        return await loop.run_in_executor(None, lambda: ctx.get(prefix + suffix))
+
+    try:
+        run_dir = tmp_path / "Scan004" / "U_Spec-interpSpec"
+        run_dir.mkdir(parents=True)
+        await put("FilePath", str(run_dir) + os.sep)
+        await put("FileName", "U_Spec-interpSpec")
+        # Seed a held frame of 4 rows (the previous configuration): a PVA
+        # client's subscription is what keeps the held frame current.
+        sub = ctx.monitor("testexp:u_spec:interpspec", lambda _v: None)
+        await asyncio.wait_for(dev.connected.wait(), 5)
+        dev.push(_pairs(4), time.time() - 5.0)
+        worker = gateway._workers[0]
+        await _wait_until(lambda: worker._last_frame.get("interpSpec") is not None)
+        sub.close()
+        await asyncio.wait_for(dev.disconnected.wait(), 10)
+        dev.disconnected.clear()
+        dev.connected.clear()
+        await put("Capture", True)
+        assert int(await get("ArraySizeY_RBV")) == 4  # declared from the held frame
+        # ... then the device pushes 3-row frames (the new configuration).
+        t = time.time()
+        dev.push(_pairs(3), t)
+        dev.push(_pairs(3), t + 1)
+        await _wait_until(lambda: plugin.value("UniqueId_RBV") == 2)
+        await asyncio.sleep(0.1)
+        assert plugin.value("NumCaptured_RBV") == 0
+        assert "declared at the arm" in str(plugin.value("WriteMessage"))
+        await put("Capture", False)
+        await asyncio.wait_for(dev.disconnected.wait(), 10)
+        assert not (run_dir / "U_Spec-interpSpec.h5").exists()
+    finally:
+        ctx.close()
+        await _shutdown(task)
+        await dev.stop()
+
+
+@pytest.mark.timeout(30)
 async def test_a_waveform_stack_carries_its_time_axis_as_attributes(tmp_path):
     """A captured scope trace is never an axis-less array: x0, dx and the record
     length ride as per-frame attributes beside the stamps (review of #946)."""
