@@ -30,6 +30,8 @@ import dataclasses
 import importlib
 import logging
 import re
+
+import numpy as np
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -2103,9 +2105,67 @@ def create_app(
     # UNSAVED document on the current shot through the same write-free
     # ephemeral seam the Images tab uses, so dialling in an ROI is a
     # type-and-look loop without a save per iteration.
+    def _line_preview(diag, uid: str, device: str, day: str, shot: int) -> bytes:
+        """A LINE document's preview: the shot's trace as a scan run reads it.
+
+        The shot resolves through the run path's own source rules
+        (:func:`scan_analysis.core_source.prepare_source` — file tail,
+        ``data_format``, the stack-only rule for ``pva_stack``) with the
+        picked device standing in for ``scan.device``; the reference is
+        read with the document's ``data_loading``, auxiliary columns handed
+        over the way ``analyze_image_file`` hands them to line analyzers.
+        """
+        import pandas as pd
+        from image_analysis.data_1d_utils import read_1d_data
+        from scan_analysis.core_source import prepare_source
+
+        ephemeral = _ephemeral_module()
+        try:
+            detail = _load_run(uid)
+            folder, _ = _image_folder(detail, day, device)
+        except HTTPException as exc:
+            kind = LookupError if exc.status_code == 404 else ValueError
+            raise kind(str(exc.detail)) from exc
+        if detail.data is not None and shot > len(detail.data):
+            raise LookupError("shot beyond the run's recorded events")
+        # The run joins by the diagnostic's device (its name), not the folder.
+        acq, column_present = _acq_timestamp(detail, diag.name, shot)
+        if column_present and acq is None:
+            raise LookupError("device missed this shot (no timestamp)")
+        # The shot's own event row: the mapper finds the device's
+        # acq_timestamp AND valid companions in it by normalized name, so a
+        # row the run would skip (valid False) is skipped here too.
+        if detail.data is not None:
+            rows = detail.data.iloc[[shot - 1]].copy()
+        else:
+            rows = pd.DataFrame(index=[0])
+        rows["Shotnumber"] = shot
+        picked = diag.model_copy(
+            update={"scan": diag.scan.model_copy(update={"device": device})}
+        )
+        source = prepare_source(picked, folder, rows)
+        reference = source.references.get(shot)
+        if reference is None:
+            raise LookupError(f"no {device} file for shot {shot}")
+        trace = read_1d_data(reference, diag.image.data_loading)
+        aux = (
+            {
+                "_aux_columns": {
+                    name: np.asarray(values, dtype=float)
+                    for name, values in trace.auxiliary_column_data.items()
+                }
+            }
+            if trace.auxiliary_column_data
+            else None
+        )
+        (fig,) = ephemeral.render_document_ephemeral(
+            diag, [trace.data], auxiliary_data=aux
+        )
+        return resources.figure_png(fig)
+
     def _config_editor_preview(document: dict, params: dict) -> bytes:
         ephemeral = _ephemeral_module()
-        from geecs_schemas.analysis import AnalysisDiagnostic
+        from geecs_schemas.analysis import AnalysisDiagnostic, Line1DConfig
 
         uid = str(params.get("uid") or "")
         device = str(params.get("device") or "")
@@ -2116,6 +2176,9 @@ def create_app(
             raise ValueError("shot must be an integer") from exc
         if not uid or not device or shot < 1:
             raise LookupError("preview needs a scan, a device and a shot (>= 1)")
+        diag = AnalysisDiagnostic.model_validate(document)
+        if isinstance(diag.image, Line1DConfig):
+            return _line_preview(diag, uid, device, day, shot)
         try:
             detail = _load_run(uid)
             folder, _ = _image_folder(detail, day, device)
@@ -2138,7 +2201,6 @@ def create_app(
             raise kind(str(exc.detail)) from exc
         if resolved.array is None:
             raise LookupError(resolved.reason or resolved.kind)
-        diag = AnalysisDiagnostic.model_validate(document)
         # The analyzer's own figure, as a run of this document would draw it:
         # its default palette (not the pixel view's gray) unless the document's
         # scan.renderer names one, autoscaled unless it sets vmin/vmax.

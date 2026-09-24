@@ -3,6 +3,22 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.33.0] - 2026-09-23
+
+### Added
+
+- The config editor's live preview renders LINE diagnostics (`image.type: line`)
+  on the shot's trace. It used to load images only, so a trace document could
+  not be previewed. The shot resolves through the run path's own source rules
+  (`scan_analysis.core_source.prepare_source`: `scan.file_tail`, `data_format`,
+  the stack-only rule for `pva_stack`, the timestamp join by the diagnostic's
+  device), with the picked device standing in for `scan.device`, and is read
+  with the document's `data_loading`. Auxiliary columns reach the legacy
+  fallback renderer (`processing.render_document_ephemeral` grew
+  `auxiliary_data`); the core route reads the primary trace alone, as its
+  scan run does. The shot's own event row feeds the mapper, so a row the run
+  skips (`<device>-valid` false) is refused, not previewed.
+
 ## [0.32.2] - 2026-09-23
 
 ### Changed

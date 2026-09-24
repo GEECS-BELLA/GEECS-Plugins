@@ -100,8 +100,14 @@ def render_document_ephemeral(
     cmap: str | None = None,
     vmin: float | None = None,
     vmax: float | None = None,
+    auxiliary_data: dict | None = None,
 ) -> list[Figure]:
-    """Draw the supplied (possibly unsaved) document without filesystem writes."""
+    """Draw the supplied (possibly unsaved) document without filesystem writes.
+
+    ``auxiliary_data`` reaches only the legacy fallback (a line trace's
+    auxiliary columns, which e.g. the FROG phase analyzer reads); the core
+    route reads the primary trace alone, exactly as its scan run does.
+    """
     try:
         prepared = prepare_v2(document)
     except UnsupportedRecipe:
@@ -109,7 +115,13 @@ def render_document_ephemeral(
 
         try:
             return ephemeral.render_document_ephemeral(
-                document, arrays, window=window, cmap=cmap, vmin=vmin, vmax=vmax
+                document,
+                arrays,
+                auxiliary_data=auxiliary_data,
+                window=window,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
             )
         except ephemeral.RenderError as exc:
             raise RenderError(str(exc)) from exc
