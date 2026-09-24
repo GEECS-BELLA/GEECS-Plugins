@@ -60,12 +60,10 @@ geecs_core/
    it rides here because `AlarmLimits` is `GeecsDb.get_ca_alarm_limits`'s
    return type and splitting the model from its own methods would be worse.
    A second, admitted on the `scalar_policy` precedent: `db/device_streams.py`
-   (which non-scalar variables a devicetype captures, which arrays it never
-   serves, and the padding ceiling for its arrays) is read by the worker and
-   by the PVA gateway — two consumers that may not import each other; the
-   CA gateway serves scalars only and never reads it. The ceiling has one
-   consumer today (the gateway pads) and rides here anyway so the devicetype
-   has one table, not two; a per-instance or DB-driven ceiling would move it.
+   (which non-scalar variables a devicetype captures, and which arrays it
+   never serves) is read by the worker and by the PVA gateway — two
+   consumers that may not import each other; the CA gateway serves scalars
+   only and never reads it.
 
 Two supporting conventions:
 

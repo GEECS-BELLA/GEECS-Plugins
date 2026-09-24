@@ -134,7 +134,7 @@ class _DeviceWorker:
     """One served device: per-stream-variable PVs, gated + supervised subscriptions.
 
     A stream variable is an image (decoded as IMAQ) or an array (one of the
-    three array wire shapes, padded to the devicetype's ceiling) —
+    three array wire shapes, at native length) —
     :mod:`geecs_pva_gateway.streams`; everything below the decode is shared.
 
     Parameters
@@ -246,14 +246,14 @@ class _DeviceWorker:
     def decode(self, var: str, blob: str) -> tuple[np.ndarray, dict]:
         """One pushed value of *var* → ``(array, NTNDArray attributes)``.
 
-        Images decode as IMAQ; arrays as their wire shape, padded to the
-        devicetype's ceiling (:mod:`geecs_pva_gateway.streams`).  Raises on a
+        Images decode as IMAQ; arrays as their wire shape at native length
+        (:mod:`geecs_pva_gateway.streams`).  Raises on a
         payload it cannot account for — the caller counts, never guesses.
         Thread-agnostic: the publisher runs it off-loop, the plugin on its
         writer thread.
         """
         if self._spec.is_array(var):
-            return decode_array(blob, self._spec.array_ceiling)
+            return decode_array(blob)
         return decode_image(blob)
 
     async def stop(self) -> None:

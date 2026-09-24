@@ -26,18 +26,13 @@ polarities because their costs are opposite:
   no image PV is ever removed here; a Point Grey's ``processed image``
   stays served, gated, for whoever watches it.
 
-A third, numeric fact rides with them: ``array_ceiling``, the row count the
-gateway pads a variable-length array to (NaN fill) so the PV shape, the
-Bluesky descriptor and the HDF5 stack stay constant across shots — the
-MagSpec lineouts' length is the energy span over a fixed ``dE`` and moves
-with the magnet current and with the configured ΔE (a camera at ~285 rows
-at a coarse ΔE and 7338 rows at ΔE = 0.25, 26_0923; the stitcher at ~8224;
-the 1 x 2 magnet-off default is an ordinary frame).  The cameras and the
-stitcher share one ceiling, 16384: the 2048 the cameras first carried was
-set from the coarse-ΔE observation and dropped every lineout at the fine
-ΔE the stitching needs (26_0923 Scan006, GEECS-Plugins#986).  Longer than the ceiling is
-dropped and counted, never truncated.  ``None`` means "serve at native
-length" (a scope trace's length is its configured record).
+Arrays are served and captured at their **native length** — there is no
+padding and no ceiling.  A variable-length array (the MagSpec lineouts: the
+energy span over the configured ``dE``) follows the same rule as an image:
+its shape is fixed for the length of a scan (the file plugin takes it from
+the frame it holds at the arm, and a frame of any other shape is dropped
+and counted), and it may change between scans.  Anything that changes the
+shape — a magnet current, a ΔE — is changed between scans, never within one.
 
 Every name is matched against the device's DB rows **case-insensitively** —
 the GEECS DB spells one variable differently across tables, and the device
@@ -97,9 +92,6 @@ class DeviceTypeStreams:
     exclude :
         ``1darray``-typed variables the PVA gateway never serves (and so
         nobody captures).  Never an image variable.
-    array_ceiling :
-        Rows the gateway pads this devicetype's variable-length arrays to
-        (NaN fill; longer is dropped and counted).  ``None`` = native length.
     gate :
         Capture variable → the device's on/off variable that says whether
         *this instance* pushes it (the Picoscope's ``Enable.Ch<X>`` per
@@ -123,7 +115,6 @@ class DeviceTypeStreams:
 
     capture: tuple[str, ...] = ()
     exclude: frozenset[str] = frozenset()
-    array_ceiling: int | None = None
     gate: Mapping[str, str] = field(default_factory=dict)
 
 
@@ -143,12 +134,10 @@ DEVICE_TYPE_STREAMS: Mapping[str, DeviceTypeStreams] = {
     "magspeccamera": DeviceTypeStreams(
         capture=("Image", "ImageInterp", "interpSpec", "interpDiv"),
         exclude=frozenset({"EnergyAxis", "AngleAxis"}),  # = the lineouts' column 0
-        array_ceiling=16384,  # 7338 rows at ΔE = 0.25 (#986); the stitcher's value
     ),
     "magspecstitcher": DeviceTypeStreams(
         capture=("Image", "interpSpec"),
         exclude=frozenset({"interpDiv"}),  # malformed on this devicetype
-        array_ceiling=16384,
     ),
     "frog": DeviceTypeStreams(
         capture=("frogTrace",),
@@ -167,7 +156,7 @@ DEVICE_TYPE_STREAMS: Mapping[str, DeviceTypeStreams] = {
     # Four channels, each armed per instance when its ``Enable.Ch<X>`` reads
     # ``on`` (a two-channel unit, or a four-channel one with two wired,
     # pushes nothing on the others — probed live 2026-09-20: A/B on, C/D
-    # empty).  Served at the configured record length (no ceiling).
+    # empty).
     "picoscopev2": DeviceTypeStreams(
         capture=(
             "scopeTrace.Channel0",
@@ -353,9 +342,3 @@ def gated_off_variables(
         if value.strip().lower() != GATE_ON:
             off.add(name)
     return frozenset(off)
-
-
-def array_ceiling(devicetype: str) -> int | None:
-    """The padding ceiling declared for *devicetype*'s arrays, or ``None`` (native length)."""
-    entry = streams_for(devicetype)
-    return None if entry is None else entry.array_ceiling

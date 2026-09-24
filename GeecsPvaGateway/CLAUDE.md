@@ -31,13 +31,13 @@ geecs_pva_gateway/
   config.py     # DeviceSpec / PvaGatewayConfig; DB-scoped served set
                 #   (enabled devices on this host's IP with a stream variable:
                 #   image-typed, or 1darray-typed and not excluded by
-                #   geecs_core.db.device_streams — exclusions + padding
-                #   ceilings are GEECS-Core's per-devicetype declaration)
+                #   geecs_core.db.device_streams — the exclusions are
+                #   GEECS-Core's per-devicetype declaration)
   streams.py    # per-variable decode + shape: IMAQ for an image; the three
                 #   array wire shapes (geecs_data_utils.io.arrays, sniffed)
-                #   → float64 in physical units, NaN-padded along axis 0 to
-                #   the devicetype ceiling (longer = ArrayTooLongError,
-                #   dropped + counted, never truncated); a waveform's
+                #   → float64 in physical units at native length (never
+                #   padded; the plugin fixes a stack's shape at the arm and
+                #   drops + counts a frame of another shape); a waveform's
                 #   x0/dx/samples ride as NTNDArray attributes and, on an
                 #   array variable's stack, as per-frame attributes
                 #   (wave_x0 / wave_dx / wave_samples, NaN for non-waveforms)
@@ -119,7 +119,7 @@ tests/
 - **Frame path**: push frame → timestamp ladder (`acq_timestamp` →
   `systimestamp`, LabVIEW→Unix, else receive time) → **latest-wins slot** per
   variable → decode (`streams.py`: IMAQ for an image, the array wire shapes
-  padded to the devicetype ceiling for an array) in the default executor, off
+  at native length for an array) in the default executor, off
   the event loop → `pv.post(image, timestamp=...)`. A stalled consumer drops
   stale frames; nothing ever backlogs. Completeness lives in the GEECS file
   path, not this stream.
@@ -197,7 +197,6 @@ tests/
   (per-device-class PVA adoption, DESIGN.md), not a drive-by addition here.
 - **Which arrays are served is the DB minus GEECS-Core's exclusions**
   (`geecs_core.db.device_streams`): never a per-host list, never an image.
-  A devicetype's array shape policy (the padding ceiling) lives there too.
   An instance whose host has no stream device idles on its identity PVs
   rather than exiting.
 - **Text variables**: image and array variables must always be subscribed

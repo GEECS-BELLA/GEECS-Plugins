@@ -81,7 +81,6 @@ from geecs_data_utils.io import (
     WAVEFORM_AXIS_KEYS,
     decode_imaq_image_string,
 )
-from geecs_pva_gateway.streams import ArrayTooLongError
 from geecs_data_utils.io.scan_stack import ATTRIBUTES_GROUP, FRAMES_DATASET
 
 from geecs_pva_gateway import __version__
@@ -448,11 +447,9 @@ class HdfFilePlugin:
     decoder :
         Pushed value → ``(array, attributes)``, the worker's per-variable
         rule (``_DeviceWorker.decode``: IMAQ for an image, the array wire
-        shapes padded to the devicetype ceiling for an array; the
-        attributes are a waveform's axis, empty otherwise).  Default: the
-        IMAQ image decoder.  Raises on a payload it cannot account for; an
-        :class:`~geecs_pva_gateway.streams.ArrayTooLongError` is counted as
-        a shape error (the frame is dropped, never truncated).
+        shapes at native length for an array; the attributes are a
+        waveform's axis, empty otherwise).  Default: the IMAQ image decoder.
+        Raises on a payload it cannot account for.
     is_array :
         Whether *variable* is an array stream: its stack then carries the
         waveform axis attributes (:data:`WAVEFORM_ATTRIBUTE_SUFFIXES`).
@@ -823,10 +820,6 @@ class HdfFilePlugin:
             return
         try:
             frame, payload_attributes = self._decoder(blob)
-        except ArrayTooLongError as exc:
-            counters.shape_errors += 1  # over the devicetype ceiling: dropped, named
-            self._error(str(exc))
-            return
         except Exception as exc:  # noqa: BLE001 - counted, never fatal
             counters.decode_errors += 1
             self._error(f"undecodable frame ({len(blob)} bytes): {exc}")
