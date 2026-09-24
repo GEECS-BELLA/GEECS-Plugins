@@ -47,6 +47,12 @@ WorkingDirectory=@CHECKOUT_ROOT@/qs-checkout/GeecsBluesky
 ExecStart=@POETRY@ run @CHECKOUT_ROOT@/qs-checkout/GeecsBluesky/qserver/launch_re_manager.sh
 Restart=on-failure
 RestartSec=5
+# systemd's default, stated because the launcher depends on it (#804): a
+# stop delivers SIGTERM to the manager directly, and the launcher (its
+# parent, which only records the signal) maps the manager's exit 1 after a
+# stop to 0. A clean stop therefore logs "Deactivated successfully";
+# an exit 1 without a stop is still a failure, so Restart= still sees it.
+KillMode=control-group
 
 [Install]
 WantedBy=multi-user.target

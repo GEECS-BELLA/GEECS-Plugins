@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.100.1] - 2026-09-23
+
+### Fixed
+
+- **A clean stop of the queueserver no longer logs a failure** (#804).
+  bluesky-queueserver's SIGTERM handler (`AtTerm`, 0.0.25) exits 1 after
+  its own clean shutdown, and `launch_re_manager.sh` `exec`'d the manager,
+  so every `systemctl stop`/`restart` left `status=1/FAILURE` in the
+  journal. The launcher now keeps the manager as its foreground child and
+  maps exit 1 to 0 **only** when it received a SIGTERM (and 143, the
+  manager dying of that SIGTERM before its handler is installed, which
+  systemd counted as clean under `exec`); any other status
+  passes through, so a startup failure (also exit 1) still reaches
+  `Restart=on-failure`. `geecs-qserver.service` states
+  `KillMode=control-group` (the default) because the launcher relies on
+  the manager receiving the stop directly. Pinned by
+  `tests/test_launch_re_manager_sh.py` (root).
+
 ## [0.100.0] - 2026-09-22
 
 ### Removed
