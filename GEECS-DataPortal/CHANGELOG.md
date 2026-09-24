@@ -3,6 +3,31 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.0] - 2026-09-24
+
+### Added
+
+- The config editor's **summary preview**: `POST /configs/api/preview/summary`
+  draws the document's summaries over the scan's first shots
+  (`params.shots`, default 4, at most 8 — a handful, never a scan, pinned by
+  a load-counting test; shots the device missed or beyond the run are
+  skipped), one panel per shot at its shot number under the run's noscan
+  label, through ScanAnalysis' `core_preview.preview_summary`
+  (`processing.render_summary_as_run`): each kind's layout on real frames
+  (a run's grid panels are per-bin averages). A v2 kind the core does not
+  run has no summary preview (400).
+
+### Changed
+
+- The editor's frame preview, the Images tab's rendered processing view
+  and its processed-pixel batch route (`process_images`, still without a
+  scan folder — pre-existing) analyse through ScanAnalysis' preview seam
+  (`core_preview.preview_frame` / `prepare_document` + `measure_frame`);
+  the portal no longer re-derives the run's compile/measure pairing, and
+  its byte-for-byte test now pins against that seam. The editor's two shot
+  loaders (`_camera_frame`, `_line_trace`) are shared by its frame and
+  summary previews (the Images tab's own routes keep theirs).
+
 ## [0.35.0] - 2026-09-24
 
 ### Changed

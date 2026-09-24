@@ -709,7 +709,10 @@ recipe's form — Source → Steps (registry-listed, ordered) → Measure →
 Figure → Summaries → Scan, `ConfigStore` binding a recipe to the registry
 before it is written, a v2 diagnostic read-only until its kind is ported,
 the preview drawn through the sink's own per-frame call with the
-document's `figure` block; slice 3 previews the summaries over N shots.
+document's `figure` block; slice 3 (2026-09-24) added
+`scan_analysis.core_preview` (the run's own calls: `preview_frame`,
+`preview_summary`, pinned byte-for-byte against the sink's files), moved the
+portal's previews onto it, and the editor's summaries block over a few shots.
 
 ### 6. Algorithms
 

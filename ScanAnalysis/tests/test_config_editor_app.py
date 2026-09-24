@@ -564,3 +564,81 @@ console.log(JSON.stringify(out));
     # an unknown step name is kept as written, for the server to refuse by location
     assert out["typo"]["roundtrip"]["steps"] == [{"step": "medain", "kernel": 3}]
     assert not store.validate("analyzer", out["typo"]["roundtrip"]).ok
+
+
+def test_summary_preview_ladder(tree):
+    """The summary endpoint: host-provided, index-addressed, the same error ladder."""
+    calls = []
+
+    def summary(document, params, index):
+        calls.append((document["device"], dict(params), index))
+        if index >= 2:
+            raise LookupError("no summary at that index")
+        if params.get("shots") == 0:
+            raise ValueError("needs at least one shot")
+        return b"\x89PNG..."
+
+    recipe = {
+        "schema_version": 3,
+        "device": "UC_X",
+        "input": {"kind": "camera"},
+        "summaries": [{"kind": "image_grid"}, {"kind": "average"}],
+    }
+    app = fastapi.FastAPI()
+    app.include_router(
+        create_editor_router(ConfigStore(tree), summary_preview=summary),
+        prefix="/configs",
+    )
+    c = TestClient(app)
+    assert c.get("/configs/api/list").json()["summary_preview"] is True
+    assert c.get("/configs/api/list").json()["preview"] is False
+    # the figure preview stays 404: the host gave only the summary hook
+    assert (
+        c.post(
+            "/configs/api/preview", json={"document": recipe, "params": {}}
+        ).status_code
+        == 404
+    )
+    ok = c.post(
+        "/configs/api/preview/summary",
+        json={"document": recipe, "params": {"shots": 4}, "index": 1},
+    )
+    assert ok.status_code == 200 and ok.headers["content-type"] == "image/png"
+    assert calls[-1] == ("UC_X", {"shots": 4}, 1)
+    assert (
+        c.post(
+            "/configs/api/preview/summary",
+            json={"document": recipe, "params": {}, "index": 2},
+        ).status_code
+        == 404
+    )
+    assert (
+        c.post(
+            "/configs/api/preview/summary",
+            json={"document": recipe, "params": {"shots": 0}, "index": 0},
+        ).status_code
+        == 400
+    )
+    for bad in (-1, "0", True, 1.5):
+        assert (
+            c.post(
+                "/configs/api/preview/summary",
+                json={"document": recipe, "params": {}, "index": bad},
+            ).status_code
+            == 422
+        ), bad
+    assert (
+        c.post(
+            "/configs/api/preview/summary",
+            json={"document": {"device": "x"}, "params": {}, "index": 0},
+        ).status_code
+        == 422
+    )
+    # without a host hook: 404, never called
+    bare = _host(tree)
+    assert (
+        bare.post(
+            "/api/preview/summary", json={"document": recipe, "params": {}, "index": 0}
+        ).status_code
+        == 404
+    )

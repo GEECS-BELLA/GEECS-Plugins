@@ -111,3 +111,8 @@
 .ce-form .list .item.light > .field > label { display: none; }
 .ce-form .list .item.light > .field > .help { display: none; }
 .ce-form .list .item.light > button { padding: 0 0.4rem; }
+/* the summaries over a few shots: one card per summary kind */
+.ce-summaries { display: flex; flex-direction: column; gap: 0.5rem; }
+.ce-summaries .card { border: 1px solid var(--rule); border-radius: 4px; padding: 0.3rem; background: var(--surface-2); }
+.ce-summaries .card .msg { margin-top: 0.2rem; }
+.ce-preview-head input[type=number] { width: 3.5rem; }

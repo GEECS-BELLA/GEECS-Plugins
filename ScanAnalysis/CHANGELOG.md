@@ -3,6 +3,36 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.37.0] - 2026-09-24
+
+### Added
+
+- `core_sink.draw_product` / `draw_summary`: the sink's per-product and
+  summary draws as functions, called by `save_products` and by the preview
+  seam — one call site for each pairing.
+- `scan_analysis.core_preview`: the preview seam that makes the run's own
+  calls and nothing else — `prepare_document` (the run's `prepare_v2`, frame
+  inputs resolved from the document's device folder under the scan),
+  `measure_frame` (its per-frame analysis), `preview_frame`
+  (`draw_product`: the frame's product image) and `preview_summary`
+  (`draw_summary`: the registered kind's layout over the given measurements
+  at the given positions, the `average` kind over their noscan average).
+  Pinned byte-for-byte against the files `save_products` writes
+  (`tests/test_core_preview.py`). Hosts (the Data Portal) preview through
+  it instead of re-deriving the pairing (#996 review, finding 3).
+  `core_products.NOSCAN_POSITION_LABEL` names a noscan's per-shot positions
+  for both the run and a preview.
+- Config editor: `POST /api/preview/summary` (`{document, params, index}` →
+  PNG of the document's `index`-th summary over a few of the host's shots;
+  `create_editor_router(summary_preview=, summary_shots_max=)`, 404
+  without; `/api/list` says `summary_preview` and `summary_shots_max`), and
+  a **summaries** block in the page's right pane — a shots count (default
+  4, bounded by the host's cap) and one card per summary kind: the kind's
+  layout over those shots, one panel (row) per shot or their average. It
+  is a layout preview on real frames, not a file a run writes (a run's
+  grid panels are per-bin averages); the cards go stale on edit like the
+  frame pane.
+
 ## [1.36.0] - 2026-09-24
 
 ### Changed

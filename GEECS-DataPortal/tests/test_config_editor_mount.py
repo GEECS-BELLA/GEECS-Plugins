@@ -175,23 +175,27 @@ class TestPreview:
         )
 
     def test_the_preview_is_the_runs_own_draw(self, scan_folder, configs_tree):
-        """A recipe's preview: the sink's per-frame call, its figure block, tight crop.
+        """A recipe's preview: ScanAnalysis' ``preview_frame``, tight crop.
 
-        Byte-equal to ``single(analyze_v2(frame), figure_of(recipe))`` saved
-        with ``bbox_inches="tight"`` — the call and the crop the analysis
-        sink uses for every shot product — so the pane shows the product
-        image the run would write. No portal palette or window reaches it.
+        Byte-equal to ``scan_analysis.core_preview.preview_frame`` (the
+        sink's per-frame call with the document's figure block; that module
+        pins itself against the sink's product PNG) saved with
+        ``bbox_inches="tight"`` — so the pane shows the product image the
+        run would write. No portal palette or window reaches it.
         """
         import io
 
         np = pytest.importorskip("numpy")
         pytest.importorskip("PIL")
-        from geecs_analysis.compat.v2 import analyze_v2
         from geecs_analysis.recipe import figure_of
         from geecs_analysis.render import single
         from geecs_schemas.analysis import load_analysis_document
         from PIL import Image
-        from scan_analysis.core_inputs import prepare_v2
+        from scan_analysis.core_preview import (
+            measure_frame,
+            prepare_document,
+            preview_frame,
+        )
 
         rng = np.random.default_rng(1)
         frame = rng.integers(0, 4000, size=(12, 16), dtype=np.uint16)
@@ -218,17 +222,14 @@ class TestPreview:
         )
         assert r.status_code == 200, r.text
         document = load_analysis_document(recipe)
-        prepared = prepare_v2(document)
-        expected = single(
-            analyze_v2(frame, prepared.recipe, inputs=prepared.inputs),
-            figure_of(document),
-        )
         buffer = io.BytesIO()
-        expected.savefig(buffer, format="png", bbox_inches="tight")
+        preview_frame(document, frame, scan_folder=scan_folder).savefig(
+            buffer, format="png", bbox_inches="tight"
+        )
         assert r.content == buffer.getvalue()
-        # and NOT the portal's own styling of the same frame
+        # and NOT the same frame under a different figure block
         other = single(
-            analyze_v2(frame, prepared.recipe, inputs=prepared.inputs),
+            measure_frame(prepare_document(document), frame),
             figure_of(load_analysis_document(dict(recipe, figure={}))),
         )
         buffer = io.BytesIO()
@@ -292,6 +293,150 @@ class TestPreview:
         assert not np.array_equal(
             analyze_v2(frame, prepared.recipe, inputs=prepared.inputs).frame.data,
             frame.astype(float),
+        )
+
+
+class TestSummaryPreview:
+    """The document's summaries over the scan's first shots, as the sink draws them."""
+
+    RECIPE = {
+        "schema_version": 3,
+        "device": "cam",
+        "input": {"kind": "camera"},
+        "steps": [{"step": "roi", "bounds": [[1, 11], [2, 14]]}],
+        "measure": {"kind": "beam"},
+        "figure": {"imshow": {"cmap": "cividis"}},
+        "summaries": [
+            {"kind": "image_grid", "columns": 2, "panel_size": [3.0, 2.5]},
+            {"kind": "average"},
+        ],
+    }
+
+    @staticmethod
+    def _post(client, doc, index, **params):
+        return client.post(
+            "/configs/api/preview/summary",
+            json={
+                "document": doc,
+                "params": {"uid": "uid-002", "device": "cam", **params},
+                "index": index,
+            },
+        )
+
+    def test_summaries_over_the_first_shots_are_the_sinks_own_draw(
+        self, scan_folder, configs_tree
+    ):
+        import io
+
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("PIL")
+        from geecs_schemas.analysis import load_analysis_document
+        from PIL import Image
+        from scan_analysis.core_preview import preview_summary
+        from scan_analysis.core_products import NOSCAN_POSITION_LABEL
+
+        rng = np.random.default_rng(4)
+        frames = [
+            rng.integers(100, 4000, size=(12, 16), dtype=np.uint16) for _ in range(2)
+        ]
+        # the fake run recorded 3 events: shots 1 and 3 have a file, shot 2 the
+        # device missed (no file), shot 4 is beyond the run — both are skipped
+        for shot, frame in zip((1, 3), frames):
+            Image.fromarray(frame).save(
+                scan_folder / "cam" / f"Scan002_cam_{shot:03d}.png"
+            )
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        assert client.get("/configs/api/list").json()["summary_preview"] is True
+        r = self._post(client, self.RECIPE, 0, shots=4)
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"] == "image/png"
+        document = load_analysis_document(self.RECIPE)
+        # the panels sit at their shot numbers, the skipped shots absent
+        expected = preview_summary(
+            document,
+            frames,
+            [1.0, 3.0],
+            NOSCAN_POSITION_LABEL,
+            0,
+            scan_folder=scan_folder,
+        )
+        buffer = io.BytesIO()
+        expected.savefig(buffer, format="png", bbox_inches="tight")
+        assert r.content == buffer.getvalue()
+        # the average kind, over the same shots
+        r = self._post(client, self.RECIPE, 1, shots=4)
+        assert r.status_code == 200, r.text
+        expected = preview_summary(
+            document,
+            frames,
+            [1.0, 3.0],
+            NOSCAN_POSITION_LABEL,
+            1,
+            scan_folder=scan_folder,
+        )
+        buffer = io.BytesIO()
+        expected.savefig(buffer, format="png", bbox_inches="tight")
+        assert r.content == buffer.getvalue()
+        # fewer shots asked: fewer panels (shot 1 only)
+        r2 = self._post(client, self.RECIPE, 0, shots=1)
+        grid = self._post(client, self.RECIPE, 0, shots=4)
+        assert r2.status_code == 200 and r2.content != grid.content
+        # no third summary in the document
+        assert self._post(client, self.RECIPE, 2, shots=4).status_code == 404
+
+    def test_the_cap_bounds_the_reads(self, scan_folder, configs_tree, monkeypatch):
+        """At most 8 shots are read however many are asked: the shared host's memory."""
+        from dataclasses import replace
+        from types import SimpleNamespace
+
+        import pandas as pd
+        from geecs_portal import resources
+        from test_app import _LV
+
+        np = pytest.importorskip("numpy")
+        loads: list[int] = []
+        frame = np.full((12, 16), 900, dtype=np.uint16)
+
+        def counting_load(folder, device, shot, **kwargs):
+            loads.append(shot)
+            return SimpleNamespace(array=frame, kind="png", reason=None)
+
+        monkeypatch.setattr(resources, "load_shot_array", counting_load)
+        catalog = FakeCatalog()
+        # a run of 20 events, every shot with a timestamp
+        detail = replace(
+            _detail(2),
+            data=pd.DataFrame(
+                {
+                    "scan_event_index": list(range(1, 21)),
+                    "cam-acq_timestamp": [_LV + i for i in range(1, 21)],
+                }
+            ),
+        )
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        catalog.details["uid-002"] = detail
+        client = TestClient(
+            create_app(catalog, processing_config_dir=configs_tree, config_editor=True)
+        )
+        assert client.get("/configs/api/list").json()["summary_shots_max"] == 8
+        assert self._post(client, self.RECIPE, 0, shots=500).status_code == 200
+        assert loads == list(range(1, 9))
+        loads.clear()
+        # zero asks for the fewest, not the default
+        assert self._post(client, self.RECIPE, 0, shots=0).status_code == 200
+        assert loads == [1]
+
+    def test_no_frames_at_all_is_404_and_bad_shots_400(self, scan_folder, configs_tree):
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        r = self._post(client, self.RECIPE, 0, shots=3)
+        assert r.status_code == 404 and "none of shots 1-3" in r.json()["detail"]
+        assert self._post(client, self.RECIPE, 0, shots="many").status_code == 400
+        assert (
+            client.post(
+                "/configs/api/preview/summary",
+                json={"document": self.RECIPE, "params": {}, "index": 0},
+            ).status_code
+            == 404
         )
 
 

@@ -15,6 +15,11 @@ from geecs_analysis.measurement import Measurement
 from scan_analysis.core_scan import group_shots
 
 
+#: The position label a noscan's per-shot panels carry (the waterfall's y axis
+#: and title); a preview over a few shots uses the same name.
+NOSCAN_POSITION_LABEL = "Shot Number"
+
+
 @dataclass(frozen=True)
 class Product:
     """One averaged/single measurement with its legacy filename identifier."""
@@ -109,7 +114,7 @@ def plan_products(
         return ProductPlan(
             singles,
             tuple(panels),
-            sort_column or "Shot Number",
+            sort_column or NOSCAN_POSITION_LABEL,
             tuple(notes),
         )
 
