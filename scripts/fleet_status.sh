@@ -288,8 +288,9 @@ if [ "$NET_UP" -eq 1 ]; then
     # A nested object whose detail may hold braces and quotes: parsed with
     # the stdlib json (python3 is already a dependency of --summary), not sed.
     tw=""
-    if [ -n "$sh_" ] && ! command -v python3 >/dev/null 2>&1; then
-        warn "Tiled writer $SC_HOST  no python3 here to parse the scanner's /health — read /var/lib/geecs-tiled-writer/heartbeat.json on the host"
+    # `python3 -c pass`, not `command -v`: macOS's Xcode stub exists and fails.
+    if [ -n "$sh_" ] && ! python3 -c pass >/dev/null 2>&1; then
+        warn "Tiled writer $SC_HOST  no working python3 here to parse the scanner's /health — read /var/lib/geecs-tiled-writer/heartbeat.json on the host"
         rec "role=Tiled writer	state=ok	note=not parsed (no python3 on this machine)"
         sh_tw_skip=1
     fi

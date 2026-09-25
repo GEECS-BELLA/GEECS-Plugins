@@ -361,11 +361,16 @@ on (`registering`, `registering_since`) so no reader mistakes work for
 death: `pid`, `version`, `started_at`, `last_sweep`,
 `sweep_interval`, `tiled_uri`, `tiled_reachable`, `last_ok` (the last
 successful registration), `last_error` (what went wrong in the **latest**
-sweep — a clean sweep clears it; the journal keeps history), `pending`
-(complete files waiting), `in_progress` (runs still open, or unfinished
-files not yet past `--orphan-after`), `failed` (files set aside as
-`.jsonl.failed`), `done` (registered since this process started),
-`registered` (the last 20 uids). **A warning surface, never a gate**: no
+sweep, else the latest failure a backing-off run is still waiting out;
+the journal keeps history), `pending` (complete files waiting: while
+`registering` names a run, those waiting **behind** it; otherwise every
+complete file not yet registered, the backing-off ones included — a
+snapshot at the moment of the write, so "0 waiting" mid-registration can
+be one run behind reality for up to ~25 s), `backing_off` (pending runs
+in a retry cycle after a failed registration), `in_progress` (runs still
+open, or unfinished files not yet past `--orphan-after`), `failed` (files
+set aside as `.jsonl.failed`), `done` (registered since this process
+started), `registered` (the last 20 uids). **A warning surface, never a gate**: no
 preflight and no plan refuses a run over it (owner's ruling, 2026-09-25) —
 with the spool a dead writer loses nothing.
 
@@ -378,9 +383,9 @@ warning uses its liveness half), from the measured 25–28 s per run:
 
 | Word | When | Meaning |
 |---|---|---|
-| `ok` | a fresh heartbeat, Tiled reachable, `failed` 0, `pending` ≤ 1 | the writer keeps up: at most the run that just ended is being registered (`registering` names it) |
-| `degraded` | no heartbeat; a stale one — `last_sweep` older than 3 sweep intervals (~6 s) between registrations, or older than 10 min while `registering` names a run (a Tiled call that never returns): the writer is down or wedged; Tiled unreachable; `pending` ≥ 2 with no error — a backlog of short runs draining at ~25 s each | nothing is lost — runs keep spooling — and a backlog drains by itself; a stale heartbeat or an unreachable Tiled needs a hand |
-| `failed` | `failed` > 0 (a file set aside for an operator), or `pending` ≥ 3 **with** a `last_error` (every registration failing and backing off) | someone has to look |
+| `ok` | a fresh heartbeat, Tiled reachable, `failed` 0, nothing backing off, `pending` ≤ 1 | the writer keeps up: the run that just ended is being registered (`registering` names it), with at most one more waiting behind it |
+| `degraded` | no heartbeat; a stale one — `last_sweep` older than 3 sweep intervals (~6 s) between registrations, or older than 10 min while `registering` names a run (a Tiled call that never returns — or a writer killed mid-registration and not restarted, which `Restart=on-failure` covers in seconds unless the stop was an operator's): the writer is down or wedged; Tiled unreachable; a run `backing_off` after a failed registration; `pending` ≥ 2 with nothing backing off — a backlog of short runs draining at ~25 s each | nothing is lost — runs keep spooling — and a backlog drains by itself; a stale heartbeat, an unreachable Tiled or a backing-off run needs a look (`last_error` says what failed) |
+| `failed` | `failed` > 0 (a file set aside for an operator), or `pending` ≥ 3 **with** runs `backing_off` (every registration failing, retried on the backoff schedule) | someone has to look |
 
 **A stale heartbeat** with the unit `active` means the process is wedged
 (a sweep that never returns — a Tiled call with no timeout): `sudo

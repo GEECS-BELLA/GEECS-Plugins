@@ -428,6 +428,10 @@ class WriterHeartbeat:
     #: counts the complete files waiting *behind* this one.
     registering: str | None = None
     registering_since: float | None = None
+    #: Pending runs in a retry cycle (a registration failed; the next
+    #: attempt waits out its backoff).  Their latest failure stays in
+    #: ``last_error`` between attempts, so a failing backlog reads as one.
+    backing_off: int = 0
 
     def is_stale(self, now: float | None = None) -> bool:
         """Whether the writer has gone quiet for longer than its work explains.
@@ -513,9 +517,10 @@ def heartbeat_verdict(
     """Reduce a heartbeat to ``ok`` / ``degraded`` / ``failed`` and why.
 
     ``failed`` when a file was set aside for an operator, or a backlog has
-    formed **and** the latest attempt failed (every registration failing,
-    backing off); ``degraded`` when the writer is silent (no heartbeat, or
-    a stale one — down or wedged), cannot reach Tiled, or holds more than
+    formed (:data:`PENDING_BACKLOG_MIN`) **and** runs are backing off after
+    failures (every registration failing); ``degraded`` when the writer is
+    silent (no heartbeat, or a stale one — down or wedged), cannot reach
+    Tiled, has a run backing off after a failure, or holds more than
     :data:`PENDING_OK_MAX` complete files (a backlog of short runs drains
     at the writer's own rate: shown, not alarmed); ``ok`` otherwise.  The
     thresholds are the measurement's (25–28 s per run).  Never a gate.
@@ -552,10 +557,11 @@ def heartbeat_verdict(
             f"call{error}",
             False,
         )
-    if heartbeat.pending >= PENDING_BACKLOG_MIN and heartbeat.last_error:
+    if heartbeat.pending >= PENDING_BACKLOG_MIN and heartbeat.backing_off:
         return HeartbeatVerdict(
             "failed",
-            f"{heartbeat.pending} runs waiting and the latest attempt failed{error}",
+            f"{heartbeat.pending} runs waiting, {heartbeat.backing_off} backing "
+            f"off after failures{error}",
             False,
         )
     if not heartbeat.tiled_reachable:
@@ -563,6 +569,13 @@ def heartbeat_verdict(
             "degraded",
             f"Tiled at {heartbeat.tiled_uri} unreachable — {heartbeat.pending} "
             f"waiting; last registered {last_ok}",
+            False,
+        )
+    if heartbeat.backing_off:
+        return HeartbeatVerdict(
+            "degraded",
+            f"{heartbeat.backing_off} run(s) backing off after a failed "
+            f"registration{busy}{error}",
             False,
         )
     if heartbeat.pending > PENDING_OK_MAX:

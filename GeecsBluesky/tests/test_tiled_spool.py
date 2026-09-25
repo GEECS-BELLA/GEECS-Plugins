@@ -497,8 +497,12 @@ def test_heartbeat_verdict_is_the_one_rule(tmp_path: Path) -> None:
     assert heartbeat_verdict(hb(pending=PENDING_OK_MAX + 1), now).level == "degraded"
     draining = heartbeat_verdict(hb(pending=PENDING_BACKLOG_MIN), now)
     assert draining.level == "degraded" and "draining" in draining.reason
-    failing = heartbeat_verdict(hb(pending=PENDING_BACKLOG_MIN, last_error="503"), now)
+    failing = heartbeat_verdict(
+        hb(pending=PENDING_BACKLOG_MIN, backing_off=3, last_error="503"), now
+    )
     assert failing.level == "failed" and "503" in failing.reason
+    one_failing = heartbeat_verdict(hb(pending=1, backing_off=1, last_error="503"), now)
+    assert one_failing.level == "degraded" and "503" in one_failing.reason
     assert heartbeat_verdict(hb(failed=1), now).level == "failed"
     assert heartbeat_verdict(hb(tiled_reachable=False), now).level == "degraded"
     stale = heartbeat_verdict(hb(last_sweep=now - 7, failed=2), now)

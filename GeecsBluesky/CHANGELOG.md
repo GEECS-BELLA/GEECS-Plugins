@@ -21,10 +21,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   three sweeps otherwise. Additive: an older reader ignores the fields.
 - **One verdict over the heartbeat**, `tiled_spool.heartbeat_verdict` →
   `HeartbeatVerdict(level, reason, stale)`: `failed` for a `.failed` file
-  or a backlog (`pending` ≥ 3) **with** a failing attempt; `degraded` for
-  silence, Tiled unreachable, or a backlog draining (a burst of short
-  runs registers at the writer's rate — shown, not alarmed); `ok`
-  otherwise. The engine's environment-open warning uses its `stale` half;
+  or a backlog (`pending` ≥ 3) **with** runs backing off after failures;
+  `degraded` for silence, Tiled unreachable, a run backing off, or a
+  backlog draining (a burst of short runs registers at the writer's rate
+  — shown, not alarmed); `ok` otherwise. The heartbeat gains
+  `backing_off` (pending runs in a retry cycle) and keeps such a run's
+  failure in `last_error` between its attempts — a failing backlog reads
+  as one on every sweep, not only on the sweeps that attempt (review
+  round 2); mid-registration `pending` counts every complete file waiting
+  behind the run in flight, backing-off ones included wherever they sort,
+  and the closing heartbeat recounts a run that opened meanwhile as in
+  progress. The engine's environment-open warning uses its `stale` half;
   the scanner's chip and `fleet_status.sh` show its level. `read_heartbeat`
   reads any `OSError` as absent (a directory at the path, another
   account's file), never raising into a reader's request.

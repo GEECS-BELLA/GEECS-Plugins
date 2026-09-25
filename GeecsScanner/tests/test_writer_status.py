@@ -81,7 +81,11 @@ def _heartbeat(**over) -> WriterHeartbeat:
         ({"pending": PENDING_OK_MAX + 1}, "degraded"),  # a second one waiting
         ({"pending": PENDING_BACKLOG_MIN}, "degraded"),  # short runs draining
         (
-            {"pending": PENDING_BACKLOG_MIN, "last_error": "Scan012: 503"},
+            {
+                "pending": PENDING_BACKLOG_MIN,
+                "backing_off": PENDING_BACKLOG_MIN,
+                "last_error": "Scan012: 503",
+            },
             "failed",
         ),  # a backlog because every attempt fails
         ({"failed": 1}, "failed"),  # a file set aside for an operator
@@ -124,7 +128,10 @@ def test_verdict_words(over: dict, state: str) -> None:
 
 def test_verdict_carries_the_counts_and_the_error() -> None:
     hb = _heartbeat(
-        pending=3, in_progress=1, last_error="Scan012: HTTPStatusError: 503"
+        pending=3,
+        in_progress=1,
+        backing_off=3,
+        last_error="Scan012: HTTPStatusError: 503",
     )
     out = writer_verdict(hb, Path("/x"), now=NOW)
     assert (out.pending, out.in_progress, out.failed) == (3, 1, 0)

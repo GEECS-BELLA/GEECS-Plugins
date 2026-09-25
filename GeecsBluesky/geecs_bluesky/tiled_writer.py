@@ -178,6 +178,9 @@ class SpoolRegistrar:
         self._client: Any = None
         self._attempts: dict[str, int] = {}
         self._next_attempt: dict[str, float] = {}
+        #: The failure each backing-off run is waiting out (uid → text): a
+        #: run in a retry cycle stays a finding between its attempts.
+        self._backoff_errors: dict[str, str] = {}
         self._started_at = clock()
         self._last_ok: float | None = None
         self._last_error: str | None = None
@@ -203,9 +206,50 @@ class SpoolRegistrar:
         now = self._clock()
         # What went wrong in THIS sweep: a run that failed and is still
         # pending shows here even when a later run registered fine; a
-        # clean sweep clears it (the journal keeps the history).
+        # clean sweep clears it (the journal keeps the history) — except
+        # that a run waiting out its backoff keeps its failure on the
+        # heartbeat (``_backoff_errors``): a backlog that is failing, not
+        # draining, must read as one between the attempts too.
         self._last_error = None
         self._prune(now)
+        complete, in_progress = self._classify(now)
+        reachable = self._reachable(self.tiled_uri)
+        started = 0
+        if reachable:
+            for path, orphan in complete:
+                run_uid = run_uid_of(path)
+                if self._next_attempt.get(run_uid, 0.0) > now:
+                    continue  # waiting out its backoff; still pending
+                # A registration is ~25 s of silence (one HTTP call at a
+                # time on the SQLite catalog): say what is being done before
+                # it starts, so a reader's stale rule (``is_stale`` honours
+                # ``registering``) does not call work death. ``pending`` is
+                # what waits BEHIND this one: every complete file not yet
+                # registered this sweep, the backing-off ones included.
+                self._write_heartbeat(
+                    reachable,
+                    pending=len(complete) - started - 1,
+                    in_progress=in_progress,
+                    registering=run_uid,
+                )
+                self._register(path, orphan=orphan, now=now)
+                started += 1
+        elif complete:
+            self._last_error = (
+                f"Tiled at {self.tiled_uri} unreachable; {len(complete)} run(s) waiting"
+            )
+        if started:
+            # Registrations took seconds; a run may have started meanwhile
+            # — recount so its file is in_progress, not pending.
+            _complete, in_progress = self._classify(self._clock())
+        return self._write_heartbeat(
+            reachable,
+            pending=len(self.layout.pending_files()) - in_progress,
+            in_progress=in_progress,
+        )
+
+    def _classify(self, now: float) -> tuple[list[tuple[Path, bool]], int]:
+        """The pending files: ``(complete files (path, orphan), in-progress count)``."""
         complete: list[tuple[Path, bool]] = []
         in_progress = 0
         for path in self.layout.pending_files():
@@ -226,33 +270,7 @@ class SpoolRegistrar:
                 )  # orphan: register with a synthesized stop
             else:
                 in_progress += 1
-        reachable = self._reachable(self.tiled_uri)
-        if reachable:
-            for index, (path, orphan) in enumerate(complete):
-                run_uid = run_uid_of(path)
-                if self._next_attempt.get(run_uid, 0.0) > now:
-                    continue  # waiting out its backoff; still pending
-                # A registration is ~25 s of silence (one HTTP call at a
-                # time on the SQLite catalog): say what is being done before
-                # it starts, so a reader's stale rule (``is_stale`` honours
-                # ``registering``) does not call work death. ``pending`` is
-                # what waits BEHIND this one.
-                self._write_heartbeat(
-                    reachable,
-                    pending=len(complete) - index - 1,
-                    in_progress=in_progress,
-                    registering=run_uid,
-                )
-                self._register(path, orphan=orphan, now=now)
-        elif complete:
-            self._last_error = (
-                f"Tiled at {self.tiled_uri} unreachable; {len(complete)} run(s) waiting"
-            )
-        return self._write_heartbeat(
-            reachable,
-            pending=len(self.layout.pending_files()) - in_progress,
-            in_progress=in_progress,
-        )
+        return complete, in_progress
 
     def _write_heartbeat(
         self,
@@ -264,6 +282,11 @@ class SpoolRegistrar:
     ) -> WriterHeartbeat:
         """The heartbeat as of now, written atomically (a failure is logged, never raised)."""
         now = self._clock()
+        # This sweep's failure, else the latest one a backing-off run is
+        # still waiting out (the journal has them all).
+        last_error = self._last_error
+        if last_error is None and self._backoff_errors:
+            last_error = next(reversed(self._backoff_errors.values()))
         heartbeat = WriterHeartbeat(
             pid=os.getpid(),
             version=_package_version(),
@@ -273,7 +296,8 @@ class SpoolRegistrar:
             tiled_uri=self.tiled_uri,
             tiled_reachable=reachable,
             last_ok=self._last_ok,
-            last_error=self._last_error,
+            last_error=last_error,
+            backing_off=len(self._backoff_errors),
             pending=pending,
             in_progress=in_progress,
             failed=len(self.layout.failed_files()),
@@ -344,6 +368,7 @@ class SpoolRegistrar:
                 return
             delay = min(self.sweep_interval * (2**attempts), self.max_backoff_s)
             self._next_attempt[run_uid] = self._clock() + delay
+            self._backoff_errors[run_uid] = self._last_error
             logger.warning(
                 "%s: registration failed (attempt %d of %d) — next try in %.0f s: %s",
                 label,
@@ -357,6 +382,7 @@ class SpoolRegistrar:
         path.rename(path.with_name(path.name[: -len(".jsonl")] + DONE_SUFFIX))
         self._attempts.pop(run_uid, None)
         self._next_attempt.pop(run_uid, None)
+        self._backoff_errors.pop(run_uid, None)
         self._last_ok = self._clock()
         self._done += 1
         self._registered.append(run_uid)
@@ -381,6 +407,7 @@ class SpoolRegistrar:
         path.rename(failed)
         self._attempts.pop(run_uid, None)
         self._next_attempt.pop(run_uid, None)
+        self._backoff_errors.pop(run_uid, None)
         self._last_error = (
             f"{label}: set aside as {failed.name}: {type(exc).__name__}: {exc}"
         )
