@@ -75,7 +75,12 @@ geecs_bluesky/
   config_resolver.py        # ConfigsRepoResolver: presets, trigger profiles, catalogs, actions
   db_runtime.py             # the DB providers (served set, device types; the scalar
                             #   policy lives in geecs_core.db.scalar_policy)
-  tiled_integration.py      # subscribe_tiled: the stock TiledWriter, reachability-gated
+  tiled_integration.py      # subscribe_tiled_spool (the engine's whole Tiled path) +
+                            #   the shared checks (tiled_server_reachable, SafeDocumentCallback)
+  tiled_spool.py            # the per-run JSONL spool both sides share: layout, the RE
+                            #   callback, complete/in-progress, read-back
+  tiled_writer.py           # geecs-tiled-writer: the sweep that registers spooled runs
+                            #   (the stock TiledWriter, stop made concurrent), the heartbeat
   data_paths.py, forward_expr.py, scanner_configs.py, epics_env.py, exceptions.py
   models/shot_control.py    # ShotControlWrites + QUIESCE_FROM (TriggerState names)
   devices/hdf_plugin.py     # the file plugin's worker side (#806): GeecsHdfIO (+Rewind),
@@ -380,7 +385,8 @@ failure after the claim.
 `geecs_bluesky` first — load-bearing, it sets `EPICS_CA_ADDR_LIST` before
 libca's context exists and `EPICS_PVA_ADDR_LIST` from the `[pva]` hosts
 before the first plugin signal connects; builds `RE` through `make_run_engine(tiled=True,
-sfile=True)`; publishes documents to the proxy; exports the namespace and
+sfile=True)` — `tiled=True` is the document **spool**, not a writer (see
+"Tiled: the spool and the writer service" below); publishes documents to the proxy; exports the namespace and
 the plans — `plan_names.GEECS_PLAN_NAMES`: the stock verbs bound strict,
 `mv`, and `run_action` (a named plan from the experiment's `actions.yaml`
 compiled to stubs over the namespace devices; no run opened, nothing
@@ -409,6 +415,59 @@ failed-items-requeue-at-front, CLI parses Python literals not JSON).
 `bluesky-queueserver-api` behind the `qs-client` extra).
 One-shot blocking CA reads go through `devices/ca/oneshot.py` (one
 persistent reader loop, never a per-call `asyncio.run`).
+
+## Tiled: the spool and the writer service
+
+The engine never talks to Tiled (the scan efficiency arc, 2026-09-25).
+Registering a run — ~250 external datasets on a full HTU preset, one
+register + one data-source update each — took ~25 s **on the engine
+thread** at the stop document with the stock `TiledWriter` subscribed to
+the RE, ahead of unstage and the box's standby (measured 26_0924: 25.5 s
+with the writer, 0.26 s without).  Now:
+
+- **The engine spools** (`tiled_spool.SpoolCallback`, subscribed by
+  `subscribe_tiled_spool` when `config.ini` names a catalog): every
+  document of a run to `<state>/spool/<start time>-<uid>.jsonl`,
+  flushed per document, `fsync`ed at the stop.  Microseconds per
+  document; nothing on the network.  Wrapped in `SafeDocumentCallback`,
+  so a spool failure disables spooling for that run and never fails it.
+- **`geecs-tiled-writer` registers** (`tiled_writer.SpoolRegistrar`, its
+  own systemd unit beside the qserver's): every sweep, complete files
+  (last line a `stop`) replay oldest-first through the stock
+  `TiledWriter` whose run writer registers datasets **concurrently**
+  (`make_concurrent_writer_classes`: the external loop drained in a
+  thread pool *before* the stock `stop`, grouped by `<stream>_<key>` so
+  a re-prepare's second resource still concatenates in order), then
+  rename `.jsonl.done` (pruned after `--keep-days`).  A file the engine
+  never closed (the worker died) registers after `--orphan-after` with a
+  synthesized `fail` stop; `--max-attempts` failures set a file aside as
+  `.jsonl.failed` for an operator.  Idempotent: an existing container
+  for the uid (a writer that died between registering and renaming) is
+  deleted and registered again from the spool.  Unreachable server →
+  nothing attempted, nothing counted as an attempt.
+- **The spool is the writer's only source.**  Not the live 0MQ stream:
+  best-effort by design, and a live + replay pair needs deduplication
+  against `create_container(key=uid)` and partial-registration cleanup.
+  The stock writer batched every table and dataset to the stop anyway,
+  so a run appearing in Tiled at its close plus a few seconds — not at
+  its open — costs nothing that ever worked.
+- **The heartbeat is a warning, never a gate** (`<state>/heartbeat.json`:
+  liveness, `tiled_reachable`, `pending`/`in_progress`/`failed`, the
+  sweep's `last_error`; `read_heartbeat` + `is_stale` for readers).  With
+  the spool a dead writer loses nothing, so no preflight and no plan
+  refuses a run over it — the scanner shows it, `fleet_status.sh` reports
+  it.  Ruled by the owner 2026-09-25 ("service, spool, no refusal gate")
+  over the in-process-thread alternative, for robustness (survives a
+  worker death mid-registration, isolates the Tiled client, restarts
+  alone) and for the shape: the worker is a document producer, every
+  persister a consumer.
+- **One directory, set explicitly in both units:** `GEECS_TILED_WRITER_STATE`
+  (`tiled_spool.default_state_dir`).  The writer also honours systemd's
+  `$STATE_DIRECTORY`; the engine deliberately does not (the qserver unit
+  may own a state directory of its own one day, and the spool must not
+  silently move with it).  Not a site value: the same path on every host.
+
+The s-file, ScanInfo and `scan.log` are unaffected: they never used Tiled.
 
 ## What stays GEECS
 

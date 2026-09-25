@@ -6,6 +6,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.103.0] - 2026-09-25
+
+### Changed
+
+- **Tiled registration leaves the engine thread** (scan efficiency arc,
+  slice 1). The stock `TiledWriter` subscribed to the RE registered every
+  external dataset at the stop document — ~250 on a full HTU preset, one
+  register + one data-source update each, ~25 s on the engine thread ahead
+  of unstage and the trigger box's standby (measured 26_0924: 25.5 s with
+  it, 0.26 s without). `make_run_engine(tiled=True)` now subscribes a
+  per-run JSON Lines **spool** (`tiled_spool.SpoolCallback`, under
+  `GEECS_TILED_WRITER_STATE`; flushed per document, fsynced at the stop,
+  microseconds each, nothing on the network), and the new
+  **`geecs-tiled-writer`** service (`tiled_writer`, its own unit in the
+  deploy PR) registers each complete file through the stock writer with the
+  stop-time registrations made **concurrent** (`make_concurrent_writer_classes`).
+  The spool is the writer's only source (not the best-effort 0MQ stream);
+  a run appears in Tiled at its close plus a few seconds. Orphaned files
+  (the worker died mid-run) register after `--orphan-after` with a
+  synthesized `fail` stop; `--max-attempts` failures set a file aside as
+  `.jsonl.failed`; an existing container for the uid is deleted and
+  registered again, so a writer restart is idempotent. The writer's
+  `heartbeat.json` (liveness, reachability, backlog, the sweep's last
+  error) is a warning surface for the scanner and `fleet_status.sh`,
+  **never a gate** — with the spool a dead writer loses nothing.
+- `tiled_integration.subscribe_tiled` (the in-process writer) is gone —
+  `subscribe_tiled_spool` replaces it; `make_run_engine` drops the
+  `tiled_uri` / `tiled_api_key` arguments nothing passed. The
+  reachability pre-check and `SafeDocumentCallback` stay where they were.
+
 ## [0.102.0] - 2026-09-24
 
 ### Changed

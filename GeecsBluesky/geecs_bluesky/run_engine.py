@@ -53,8 +53,6 @@ def make_run_engine(
     experiment: str | None = None,
     mock: bool = False,
     tiled: bool = False,
-    tiled_uri: str | None = None,
-    tiled_api_key: str | None = None,
     claim: bool = False,
     path_provider: GeecsScanPathProvider | None = None,
     telemetry: Sequence[Any] = (),
@@ -74,10 +72,11 @@ def make_run_engine(
         Connect namespace devices with ophyd-async mock backends (hermetic
         tests).
     tiled :
-        Subscribe the TiledWriter (:func:`~geecs_bluesky.tiled_integration.subscribe_tiled`):
-        best-effort, skip-with-warning when the catalog is unreachable.
-    tiled_uri, tiled_api_key :
-        Explicit catalog location; the shared ``config.ini`` otherwise.
+        Subscribe the Tiled document spool
+        (:func:`~geecs_bluesky.tiled_integration.subscribe_tiled_spool`):
+        every run's documents to one file the ``geecs-tiled-writer``
+        service registers off the engine thread.  On only when
+        ``config.ini`` names a catalog; the engine never reaches Tiled.
     claim :
         Every run is a GEECS scan: claim a scan number, write ScanInfo, the
         s-file and ``scan.log`` into its folder, point *path_provider* at it.
@@ -100,9 +99,9 @@ def make_run_engine(
     RE = RunEngine(context_managers=[])
     RE.record_interruptions = True
     if tiled:
-        from geecs_bluesky.tiled_integration import subscribe_tiled
+        from geecs_bluesky.tiled_integration import subscribe_tiled_spool
 
-        subscribe_tiled(RE, tiled_uri, tiled_api_key)
+        subscribe_tiled_spool(RE)
     if claim:
         if not experiment:
             raise ValueError("make_run_engine(claim=True) needs the experiment name")

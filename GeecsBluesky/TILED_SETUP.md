@@ -30,8 +30,8 @@ from any Python session on the network without touching the raw data files.
 ### Serving the file plugin's stacks (verified 2026-09-11)
 
 The PVA gateway's file plugin (#806) writes each camera's frames as one
-HDF5 stack under the run folder on the data share, and the worker's
-`TiledWriter` registers that file by its `file://` URI.  Two server-side
+HDF5 stack under the run folder on the data share, and the writer
+service's `TiledWriter` registers that file by its `file://` URI.  Two server-side
 facts, both found by failure on the first run (Scan007 of 26_0911):
 
 1. **`readable_storage` must include the data share** as mounted on the
@@ -119,8 +119,11 @@ is the Data Portal's job (GEECS-DataPortal).
 
 ### Client machines
 
-`make_run_engine(tiled=True)` (the worker startup profile included) auto-reads Tiled URI + API key from
-`~/.config/geecs_python_api/config.ini` under `[tiled]`:
+`make_run_engine(tiled=True)` (the worker startup profile included) reads
+`~/.config/geecs_python_api/config.ini` under `[tiled]` to decide whether
+to **spool** the run's documents; the `geecs-tiled-writer` service on the
+same host reads the same section for the catalog it registers them in
+(`CLAUDE.md` § "Tiled: the spool and the writer service"):
 
 ```ini
 [tiled]
@@ -132,7 +135,8 @@ api_key = <stable key>
 
 ## What Works
 
-- The session connects to Tiled on startup and subscribes `TiledWriter` ✓
+- The worker spools every run's documents; `geecs-tiled-writer` registers
+  each run in Tiled at its close, off the engine thread ✓
 - Run start/stop metadata written to catalog ✓
 - Event documents (motor positions, detector scalars, timestamps) written ✓
 - Scan number, scan folder, device list in run start metadata ✓

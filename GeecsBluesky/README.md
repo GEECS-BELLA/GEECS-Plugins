@@ -27,7 +27,9 @@ trigger and wait.  It owns:
   a `scans/ScanNNN/` folder comes into existence)
 - `run_engine.py` — `make_run_engine`: one RunEngine with
   `connect_on_demand` (`preprocessors.py`) installed outermost and the
-  Tiled / s-file callbacks subscribed
+  Tiled spool / s-file callbacks subscribed (`tiled_spool.py`; the
+  `geecs-tiled-writer` service in `tiled_writer.py` registers the spooled
+  runs off the engine thread)
 - `qserver/` — the **queueserver worker**: a bluesky-queueserver RE Manager
   whose startup profile exports the namespace's devices and the stock plans
   (`plan_names.GEECS_PLAN_NAMES`); `qs_client/` — the manager client every
@@ -83,7 +85,7 @@ from geecs_bluesky.namespace import GeecsNamespace
 from geecs_bluesky.plans.strict import geecs_per_step
 from geecs_bluesky.run_engine import make_run_engine
 
-RE = make_run_engine(tiled=True)                      # RE + connect_on_demand + Tiled
+RE = make_run_engine(tiled=True)                      # RE + connect_on_demand + the Tiled spool
 ns = GeecsNamespace.from_experiment("Undulator")      # every DB device, lazily connected
 box = ShotControl.from_profile(
     ConfigsRepoResolver("Undulator").resolve_trigger_profile("HTU-NoGas"),
@@ -100,8 +102,9 @@ scan-number claim and native saving into the claimed folder.
 
 ## Reading data back
 
-Scalars round-trip from Tiled (`TILED_SETUP.md`); native files (images,
-traces) are named with the row's `acq_timestamp` and join by it.
+Scalars round-trip from Tiled (`TILED_SETUP.md`; a run is registered there
+by `geecs-tiled-writer` at its close); native files (images, traces) are
+named with the row's `acq_timestamp` and join by it.
 
 ## Running the tests
 

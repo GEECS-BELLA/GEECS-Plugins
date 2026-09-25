@@ -195,9 +195,12 @@ else:
 logging.getLogger("geecs_bluesky").setLevel(logging.INFO)
 
 # The manager's --keep-re contract needs a top-level `RE` in this module's
-# namespace.  tiled=True: the [tiled] config mechanism
-# (geecs_bluesky.tiled_integration.subscribe_tiled) subscribes a TiledWriter
-# — best-effort, skip-with-log if the catalog is unreachable.  claim=True:
+# namespace.  tiled=True: when config.ini names a catalog, the run's
+# documents are spooled to one file per run
+# (geecs_bluesky.tiled_integration.subscribe_tiled_spool, under
+# GEECS_TILED_WRITER_STATE) for the geecs-tiled-writer service to register
+# off this thread — the ~25 s of dataset registration a full preset costs
+# at the stop no longer holds unstage and the box's standby.  claim=True:
 # every run is a GEECS scan (number, folder, ScanInfo, s-file, scan.log).
 RE = make_run_engine(
     experiment=_experiment,

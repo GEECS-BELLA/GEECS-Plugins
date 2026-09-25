@@ -1,15 +1,23 @@
-"""Tiled catalog integration for the RunEngine (headless and the queueserver worker).
+"""Tiled integration for the RunEngine: the engine-side spool and the shared checks.
 
-One call — :func:`subscribe_tiled` — reads the catalog location from the
-standard ``~/.config/geecs_python_api/config.ini`` (unless given explicitly),
-connects a ``TiledWriter``, and subscribes it to a RunEngine.  Failures degrade
-to a warning: scans run fine without Tiled.
+The engine never talks to Tiled.  :func:`subscribe_tiled_spool` subscribes
+the per-run document spool (:mod:`geecs_bluesky.tiled_spool`) — the
+catalog location from the standard ``~/.config/geecs_python_api/config.ini``
+decides only whether spooling is on at all — and the separate
+``geecs-tiled-writer`` service (:mod:`geecs_bluesky.tiled_writer`)
+registers each run from its spool file.  Failures degrade to a warning:
+scans run fine without Tiled.
+
+Shared here: :func:`tiled_server_reachable` (the bounded TCP pre-check
+the writer runs every sweep) and :class:`SafeDocumentCallback` (the
+run-scoped failure guard any RE callback here wears).
 """
 
 from __future__ import annotations
 
 import logging
 import socket
+from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
 
@@ -96,59 +104,51 @@ class SafeDocumentCallback:
             )
 
 
-def subscribe_tiled(
-    run_engine,
-    tiled_uri: str | None = None,
-    api_key: str | None = None,
-) -> int | None:
-    """Subscribe a TiledWriter to *run_engine*; return the token or ``None``.
+def subscribe_tiled_spool(run_engine, state_dir: Path | None = None) -> int | None:
+    """Subscribe the Tiled document spool to *run_engine*; return the token or ``None``.
 
-    With no explicit ``tiled_uri``, the location comes from
-    :func:`read_tiled_config`.  Silently skips (warning-level log) if
-    ``tiled[client]`` is not installed, no URI is configured, or the server is
-    unreachable — the caller remains functional without Tiled.
+    Spooling is on when ``config.ini`` names a catalog (``[tiled] uri``,
+    :func:`read_tiled_config`) — the same switch that turned the in-process
+    writer on before — and off, with a warning, otherwise: a box with no
+    Tiled has no writer to drain the spool, and the files would only pile
+    up.  The state directory is *state_dir*, else
+    :func:`~geecs_bluesky.tiled_spool.default_state_dir` (the
+    ``GEECS_TILED_WRITER_STATE`` variable the units set).
 
-    Reachability is pre-checked with a bounded TCP connect
-    (:func:`tiled_server_reachable`) *before* the Tiled client is created, so
-    an off-network caller degrades in ~``TILED_REACHABILITY_TIMEOUT_S`` seconds instead of
-    hanging for the Tiled client's full HTTP connect timeout.
+    Nothing here reaches the network: whether the catalog is *reachable*
+    is the writer's concern, sweep by sweep.
     """
-    if tiled_uri is None:
-        tiled_uri, api_key = read_tiled_config()
+    from geecs_bluesky.tiled_spool import SpoolCallback, SpoolLayout, default_state_dir
+
+    tiled_uri, _api_key = read_tiled_config()
     if not tiled_uri:
         logger.warning("No Tiled URI configured — Tiled storage disabled")
         return None
-
-    if not tiled_server_reachable(tiled_uri):
-        logger.warning(
-            "Tiled server %s unreachable; Tiled persistence disabled for this session",
-            tiled_uri,
-        )
-        return None
-
+    layout = SpoolLayout(state_dir if state_dir is not None else default_state_dir())
     try:
-        from bluesky.callbacks.tiled_writer import TiledWriter
-        from tiled.client import from_uri
-    except ImportError:
+        layout.ensure()
+    except OSError:
         logger.warning(
-            "tiled not installed — Tiled storage disabled. "
-            "Enable with: pip install 'tiled[client]'"
-        )
-        return None
-
-    try:
-        client = from_uri(tiled_uri, api_key=api_key)
-        writer = SafeDocumentCallback(
-            TiledWriter(client),
-            label="TiledWriter",
-        )
-        token = run_engine.subscribe(writer)
-        logger.info("TiledWriter subscribed — catalog at %s", tiled_uri)
-        return token
-    except Exception:
-        logger.warning(
-            "Could not connect TiledWriter to %s — Tiled storage disabled",
-            tiled_uri,
+            "Tiled spool directory %s cannot be created — Tiled storage disabled",
+            layout.spool_dir,
             exc_info=True,
         )
         return None
+    token = run_engine.subscribe(
+        SafeDocumentCallback(SpoolCallback(layout), label="TiledSpool")
+    )
+    logger.info(
+        "Tiled spool subscribed — documents to %s for geecs-tiled-writer (catalog %s)",
+        layout.spool_dir,
+        tiled_uri,
+    )
+    return token
+
+
+__all__ = [
+    "TILED_REACHABILITY_TIMEOUT_S",
+    "SafeDocumentCallback",
+    "read_tiled_config",
+    "subscribe_tiled_spool",
+    "tiled_server_reachable",
+]
