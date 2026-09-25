@@ -70,6 +70,7 @@ geecs_bluesky/
   scan_log.py               # ScanLogFile: the root-logger handler one run holds
   plan_names.py             # GEECS_PLAN_NAMES — what the profile exports; import-light
   qserver_ready.py          # geecs-qserver-ensure-ready (#793)
+  stage_timing.py           # the stage/prepare/unstage timing probe (python -m; hardware runbook in its docstring)
   qs_client/                # the RE Manager client every GEECS client uses
                             #   (+ presets.expand_preset: a Preset → the queue item)
   config_resolver.py        # ConfigsRepoResolver: presets, trigger profiles, catalogs, actions

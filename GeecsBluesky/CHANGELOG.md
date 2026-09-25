@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.101.0] - 2026-09-25
+
+### Added
+
+- **`geecs_bluesky.stage_timing` — the stage / prepare / unstage timing
+  probe**, for the ~30 s of setup and teardown a ~30-detector strict run
+  pays, which scales with the detector count although every software
+  layer between the plan and the hardware issues that work concurrently
+  (bluesky's grouped `stage_all`, the detectors' `AsyncStatus` lifecycle,
+  aioca, caproto's per-write tasks, one UDP client per device, one plugin
+  writer thread per camera).  Run on a lab host as
+  `python -m geecs_bluesky.stage_timing --preset <name>`: `isolate`
+  (each detector alone — stage, the strict prepare with its real
+  `localsavingpath` / `save=on` / `Capture=1` writes into a scratch folder,
+  unstage — the per-device estimate), `together` (the plan's grouped
+  shape, wall vs sum vs max of the per-device spans → `parallel` /
+  `serial` / `mixed`), and `--count N` (a real strict count through the
+  worker's wiring with the message timeline read into a phase table:
+  liveness gate, box ARMED, stage, claim + baseline + descriptors, first
+  prepare, shots, close baseline, stop-document callbacks, unstage, box
+  STANDBY; `--no-telemetry` prices the baseline alone).  Every lifecycle
+  call and every PV write behind it is a span, so a slow device is named
+  and the slow write inside it too.  No run, no claim and no shot in the
+  probes; the box is held ARMED around them.  Pinned on mocks by
+  `tests/test_stage_timing.py`.
+
 ## [0.100.2] - 2026-09-23
 
 ### Changed

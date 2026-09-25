@@ -67,8 +67,14 @@ distilled version of that session.
 4. **Column shape** (Tiled, optional): total vs `telemetry_*` columns and
    device count; compare to the framework cost model
    `ms/event ≈ 0.5 + 0.30·devices + 0.013·columns` (mock-benchmarked;
-   see `GeecsBluesky/scripts/bench_plan_overhead.py` to re-derive).
-5. **Verdict**: total time vs ideal (`shots × T + setup + teardown`),
+   the phase-0 measurement in the #807 history).
+5. **Setup / teardown split** (needs a lab host, not a scan folder): when
+   the loss is in setup or teardown and scales with the detector count,
+   `python -m geecs_bluesky.stage_timing --preset <name>` (GeecsBluesky)
+   times every detector's stage / prepare / unstage and the PV writes
+   behind them, alone and grouped, and `--count N` gives a real run's
+   phase table — see its module docstring.
+6. **Verdict**: total time vs ideal (`shots × T + setup + teardown`),
    where the loss is (setup / cadence / teardown), and the top suspect
    with evidence. Reference budgets: 5 Hz is the system limit → 200 ms
    row budget; staged reads ≈ 0 network cost; strict mode floor ≈ 0.4 s
