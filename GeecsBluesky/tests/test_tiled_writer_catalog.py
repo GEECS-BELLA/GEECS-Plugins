@@ -2,16 +2,10 @@
 
 Skips unless ``tiled[server]`` and ``h5py`` are importable (the ``tiled``
 extra is client-only; CI skips this, as it skips the suite's other server
-test).  What the fakes in ``test_tiled_writer.py`` cannot show: the
-default writer factory, the stock ``_RunWriter`` state under the
-concurrent stop, the real normalizer's schema validation of a
-synthesized stop, and ``_delete_existing`` against a real container.
-
-A **file-backed** catalog on purpose: ``tiled.catalog.in_memory`` serves
-everything through one SQLite connection, and the concurrent stop fails
-on it with ``cannot commit transaction - SQL statements in progress`` —
-that is the single connection, not a defect in the concurrency, so do
-not "fix" the thread pool over it.
+test).  What the fakes in ``test_tiled_writer.py`` cannot show: the default writer
+factory (the stock ``TiledWriter``), the real normalizer's schema validation
+of a synthesized stop, and ``_delete_existing`` against a real container.
+File-backed on purpose: it is the catalog shape the deployed server has.
 """
 
 from __future__ import annotations
@@ -148,9 +142,7 @@ def test_spooled_count_round_trips_through_the_real_writer(
     assert _rows(catalog, uid) == 2
 
 
-def test_external_datasets_register_concurrently_and_read_back(
-    tmp_path: Path, catalog
-) -> None:
+def test_external_datasets_register_and_read_back(tmp_path: Path, catalog) -> None:
     layout = SpoolLayout(tmp_path / "state")
     layout.ensure()
     h5 = tmp_path / "cam.h5"

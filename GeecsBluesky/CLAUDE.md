@@ -81,7 +81,7 @@ geecs_bluesky/
                             #   callback (+ the run's lock), complete/in-progress, read-back,
                             #   the heartbeat model + reader (what the scanner and fleet-status read)
   tiled_writer.py           # geecs-tiled-writer: the sweep that registers spooled runs
-                            #   (the stock TiledWriter, stop made concurrent), the retry policy
+                            #   (the stock TiledWriter), the retry policy, the command
   data_paths.py, forward_expr.py, scanner_configs.py, epics_env.py, exceptions.py
   models/shot_control.py    # ShotControlWrites + QUIESCE_FROM (TriggerState names)
   devices/hdf_plugin.py     # the file plugin's worker side (#806): GeecsHdfIO (+Rewind),
@@ -435,10 +435,8 @@ with the writer, 0.26 s without).  Now:
 - **`geecs-tiled-writer` registers** (`tiled_writer.SpoolRegistrar`, its
   own systemd unit beside the qserver's): every sweep, complete files
   (last line a `stop`) replay oldest-first through the stock
-  `TiledWriter` whose run writer registers datasets **concurrently**
-  (`make_concurrent_writer_classes`: the external loop drained in a
-  thread pool *before* the stock `stop`, grouped by `<stream>_<key>` so
-  a re-prepare's second resource still concatenates in order), then
+  `TiledWriter` (serial registration — a concurrent variant measured no
+  gain on the SQLite catalog and was removed, see below), then
   rename `.jsonl.done` (pruned after `--keep-days`).  **Liveness is the
   engine's lock, not silence**: the engine holds `flock` on the run's
   file while the run is open (a paused run goes quiet for longer than
@@ -482,13 +480,18 @@ The s-file, ScanInfo and `scan.log` are unaffected: they never used Tiled.
 **Measured on hardware 2026-09-25 (Scans 004–008 of 26_0925, 3-shot
 counts, 23 devices, 25 plugin stacks):** last shot → `finished` ≈ 2 s
 (was 26 s with the in-process writer); the writer registers such a run
-in **25–28 s (930 documents, 471 HTTP calls)** — a flat ~20 calls/s
-whatever `--max-workers` says, because the SQLite catalog commits one
-write at a time.  Off the engine that costs nobody anything, but a run
-appears in Tiled ~30 s after it ends, not 5.  The concurrency knob pays
-only on a catalog that takes parallel writes (Postgres); the other lever
-is fewer datasets per stream (the plugin registers ~9 per camera: the
-frame plus each per-frame attribute as its own array).  Durability
+in **25–28 s (930 documents, 471 HTTP calls)** — a flat ~20 calls/s,
+because the SQLite catalog commits one write at a time: a concurrent
+stop (four registrations in flight) was tried on hardware, changed
+nothing, and was removed rather than kept as dead machinery over
+bluesky's private internals (git history of #999).  Off the engine that
+costs nobody anything — the next scan's setup overlaps it — but a run
+appears in Tiled ~30 s after it ends, not 5.  The cost is per run, not
+per shot (the same ~230 datasets whatever the length).  The levers are
+server-side: a catalog that takes parallel writes (Postgres, with the
+concurrent stop brought back), or fewer datasets per stream (the plugin
+registers ~9 per camera: the frame plus each per-frame attribute as its
+own array).  Durability
 verified live: runs spooled with the writer down were caught up on
 relaunch; a writer SIGKILLed 74 calls into a registration re-registered
 that run exactly once through the container-exists path.

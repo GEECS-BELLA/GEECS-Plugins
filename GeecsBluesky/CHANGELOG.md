@@ -20,8 +20,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `GEECS_TILED_WRITER_STATE`; flushed per document, fsynced at the stop,
   microseconds each, nothing on the network), and the new
   **`geecs-tiled-writer`** service (`tiled_writer`, its own unit in the
-  deploy PR) registers each complete file through the stock writer with the
-  stop-time registrations made **concurrent** (`make_concurrent_writer_classes`).
+  deploy PR) registers each complete file through the stock writer.
   The spool is the writer's only source (not the best-effort 0MQ stream);
   a run appears in Tiled at its close plus a few seconds. The engine holds
   an advisory lock on the run's file while the run is open, and that —
@@ -46,9 +45,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `dtype_numpy` says — harmless to the s-file export and the portal.
   Hardware-verified 2026-09-25 (Scans 004–008 of 26_0925, 23 devices, 25
   stacks): last shot → finished ≈ 2 s (was 26 s); the writer registers
-  such a run in 25–28 s — a flat ~20 HTTP calls/s regardless of
-  `--max-workers`, the SQLite catalog committing one write at a time —
-  so a run appears in Tiled ~30 s after it ends; catch-up after a dead
+  such a run in 25–28 s — a flat ~20 HTTP calls/s, the SQLite catalog
+  committing one write at a time (a concurrent stop was tried live,
+  changed nothing and was removed) — so a run appears in Tiled ~30 s
+  after it ends while the next scan's setup overlaps it; catch-up after a dead
   writer and exactly-once re-registration after a SIGKILL mid-registration
   both verified live.
 - `tiled_integration.subscribe_tiled` (the in-process writer) is gone —

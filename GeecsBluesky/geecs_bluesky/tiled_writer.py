@@ -2,17 +2,23 @@
 
 The service half of :mod:`geecs_bluesky.tiled_spool`.  Every few seconds
 it sweeps the spool directory: complete files (last line a ``stop``) are
-replayed, oldest first, through the stock ``TiledWriter`` — with the
-stop-time dataset registration made concurrent
-(:func:`make_concurrent_writer_classes`) — and renamed ``.done``.  A file
-with no stop whose engine no longer holds it (the worker died mid-run;
-:func:`~geecs_bluesky.tiled_spool.spool_is_held`) is registered after
-``--orphan-after`` seconds of silence with a synthesized ``fail`` stop; a
-held file is a live run, however long it stays quiet.  Between sweeps it
-writes ``heartbeat.json``: liveness, backlog, the last error.  **Nothing
-reads the heartbeat to refuse a run** — with the spool a dead writer
-loses nothing, so the heartbeat is a warning surface (the scanner's
-status, ``fleet_status.sh``), never a gate.
+replayed, oldest first, through the stock ``TiledWriter`` and renamed
+``.done``.  A file with no stop whose engine no longer holds it (the
+worker died mid-run; :func:`~geecs_bluesky.tiled_spool.spool_is_held`)
+is registered after ``--orphan-after`` seconds of silence with a
+synthesized ``fail`` stop; a held file is a live run, however long it
+stays quiet.  Between sweeps it writes ``heartbeat.json``: liveness,
+backlog, the last error.  **Nothing reads the heartbeat to refuse a run**
+— with the spool a dead writer loses nothing, so the heartbeat is a
+warning surface (the scanner's status, ``fleet_status.sh``), never a gate.
+
+Registration is the stock writer's, serial: one register plus one
+data-source update per external dataset at the stop, ~230 datasets and
+~25 s for a 23-device run (measured 2026-09-25).  A concurrent variant
+was tried on hardware and made no difference — the SQLite catalog
+commits one write at a time — and was removed rather than kept as dead
+machinery; on a catalog that takes parallel writes (Postgres) it would
+be worth bringing back (git history of #999).
 
 Two kinds of failure, treated differently.  A **corrupt file** (a
 malformed line before the last, no start document) will not heal: it is
@@ -30,8 +36,8 @@ renaming, or an earlier failed attempt), deleted and registered again
 from the spool, which holds the whole record.
 
 Run it as ``geecs-tiled-writer`` (the console script; the unit template
-lives beside the qserver's) or ``geecs-tiled-writer --once`` for one
-sweep from a shell.
+lives beside the qserver's), ``python -m geecs_bluesky.tiled_writer`` on
+a checkout with no reinstall, or either with ``--once`` for one sweep.
 """
 
 from __future__ import annotations
@@ -43,7 +49,6 @@ import signal
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
@@ -73,107 +78,13 @@ DEFAULT_KEEP_DAYS = 7.0
 DEFAULT_MAX_ATTEMPTS = 15
 DEFAULT_MAX_BACKOFF_S = 600.0
 DEFAULT_ORPHAN_AFTER_S = 30 * 60.0
-#: Concurrent stop-time registrations.  Tiled's catalog is SQLite: a
-#: handful of writers overlap their HTTP round trips without contending
-#: for the write lock the way dozens would.
-DEFAULT_MAX_WORKERS = 4
 
 
-# ── the concurrent stop ──────────────────────────────────────────────────
+def make_tiled_writer(client: Any) -> Callable[[str, dict], None]:
+    """The stock ``TiledWriter`` over *client* (imported lazily: the tiled extra)."""
+    from bluesky.callbacks.tiled_writer import TiledWriter
 
-
-def _load_tiled_writer_classes() -> tuple[type, type]:
-    """``(TiledWriter, _RunWriter)`` — imported lazily (the tiled extra)."""
-    from bluesky.callbacks.tiled_writer import TiledWriter, _RunWriter
-
-    return TiledWriter, _RunWriter
-
-
-def external_groups(
-    external_data_cache: dict[str, Any],
-    stream_resource_cache: dict[str, Any],
-    desc_nodes: dict[str, Any],
-) -> list[list[Any]]:
-    """Cached StreamDatums grouped by ``<stream>_<data_key>``, arrival order kept.
-
-    Two stream resources of one data key (a re-prepare mid-run) are
-    concatenated by the stock writer in arrival order, so they must stay
-    sequential; different keys are independent and run concurrently.
-    """
-    groups: dict[str, list[Any]] = {}
-    for sres_uid, datum in external_data_cache.items():
-        sres_doc = stream_resource_cache.get(sres_uid)
-        desc_node = desc_nodes.get(datum.get("descriptor")) if sres_doc else None
-        if sres_doc is not None and desc_node is not None:
-            key = f"{desc_node.item['id']}_{sres_doc['data_key']}"
-        else:
-            key = str(sres_uid)
-        groups.setdefault(key, []).append(datum)
-    return list(groups.values())
-
-
-def make_concurrent_writer_classes(max_workers: int = DEFAULT_MAX_WORKERS):
-    """Build the ``TiledWriter`` subclass whose run writer registers datasets concurrently.
-
-    Built on demand rather than at import so the module imports without
-    the ``tiled`` extra (the engine side never needs it).  Pinned to the
-    stock ``_RunWriter.stop`` structure of bluesky 1.15 (the structure
-    test in ``tests/test_tiled_writer.py`` fails loud on a restructure):
-    the external loop is drained concurrently *before* the stock ``stop``
-    runs, which then finds the cache empty and does the rest (internal
-    tables, the validation pass, the stop metadata) unchanged.
-    """
-    TiledWriter, _RunWriter = _load_tiled_writer_classes()
-    # A class body cannot read a closure variable it also assigns.
-    workers_wanted = max_workers
-
-    class ConcurrentRunWriter(_RunWriter):
-        """The stock run writer with the stop-time registrations in a thread pool."""
-
-        max_workers = workers_wanted
-
-        def stop(self, doc):
-            groups = external_groups(
-                self._external_data_cache,
-                self._stream_resource_cache,
-                self._desc_nodes,
-            )
-            self._external_data_cache.clear()
-            if groups:
-                workers = max(1, min(self.max_workers, len(groups)))
-                with ThreadPoolExecutor(max_workers=workers) as pool:
-                    # list() re-raises the first failure once every worker
-                    # has finished — no half-cancelled pool.
-                    list(pool.map(self._write_group, groups))
-            super().stop(doc)
-
-        def _write_group(self, datums) -> None:
-            for datum in datums:
-                self._write_external_data(datum)
-
-    class ConcurrentTiledWriter(TiledWriter):
-        """``TiledWriter`` whose per-run writer is :class:`ConcurrentRunWriter`."""
-
-        def _factory(self, name, doc):
-            # The stock factory with the run writer swapped (bluesky 1.15).
-            cb = run_writer = ConcurrentRunWriter(
-                self.client, batch_size=self._batch_size
-            )
-            if self._normalizer:
-                cb = self._normalizer(
-                    patches=self.patches, spec_to_mimetype=self.spec_to_mimetype
-                )
-                cb.subscribe(run_writer)
-            if self.backup_directory:
-                from bluesky.callbacks.tiled_writer import (
-                    JSONLinesWriter,
-                    _ConditionalBackup,
-                )
-
-                cb = _ConditionalBackup(cb, [JSONLinesWriter(self.backup_directory)])
-            return [cb], []
-
-    return ConcurrentTiledWriter, ConcurrentRunWriter
+    return TiledWriter(client)
 
 
 # ── the registrar ────────────────────────────────────────────────────────
@@ -213,9 +124,8 @@ class SpoolRegistrar:
     tiled_uri, api_key :
         The catalog.
     writer_factory :
-        ``client -> callback``; the default builds a
-        :func:`make_concurrent_writer_classes` writer.  Tests inject a
-        recorder.
+        ``client -> callback``; the default is :func:`make_tiled_writer`.
+        Tests inject a recorder.
     client_factory :
         ``() -> client``; the default is ``tiled.client.from_uri``.
     reachable :
@@ -244,13 +154,12 @@ class SpoolRegistrar:
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         max_backoff_s: float = DEFAULT_MAX_BACKOFF_S,
         orphan_after_s: float = DEFAULT_ORPHAN_AFTER_S,
-        max_workers: int = DEFAULT_MAX_WORKERS,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self.layout = layout
         self.tiled_uri = tiled_uri
         self._api_key = api_key
-        self._writer_factory = writer_factory or self._default_writer_factory
+        self._writer_factory = writer_factory or make_tiled_writer
         self._client_factory = client_factory or self._default_client_factory
         if reachable is None:
             from geecs_bluesky.tiled_integration import tiled_server_reachable
@@ -263,7 +172,6 @@ class SpoolRegistrar:
         self.max_attempts = int(max_attempts)
         self.max_backoff_s = float(max_backoff_s)
         self.orphan_after_s = float(orphan_after_s)
-        self.max_workers = int(max_workers)
         self._clock = clock
         self._client: Any = None
         self._attempts: dict[str, int] = {}
@@ -280,10 +188,6 @@ class SpoolRegistrar:
         from tiled.client import from_uri
 
         return from_uri(self.tiled_uri, api_key=self._api_key)
-
-    def _default_writer_factory(self, client: Any) -> Callable[[str, dict], None]:
-        writer_cls, _run_writer_cls = make_concurrent_writer_classes(self.max_workers)
-        return writer_cls(client)
 
     def _get_client(self) -> Any:
         if self._client is None:
@@ -547,12 +451,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds of silence before an unfinished run its engine no longer holds is registered as failed",
     )
     parser.add_argument(
-        "--max-workers",
-        type=int,
-        default=DEFAULT_MAX_WORKERS,
-        help="concurrent dataset registrations at a run's stop",
-    )
-    parser.add_argument(
         "--once", action="store_true", help="one sweep, then exit (0 = the sweep ran)"
     )
     return parser
@@ -589,7 +487,6 @@ def main(argv: list[str] | None = None) -> int:
         max_attempts=args.max_attempts,
         max_backoff_s=args.max_backoff,
         orphan_after_s=args.orphan_after,
-        max_workers=args.max_workers,
     )
     logger.info(
         "geecs-tiled-writer %s: spool %s → %s (every %.1f s)",
@@ -618,12 +515,10 @@ def main(argv: list[str] | None = None) -> int:
 __all__ = [
     "DEFAULT_MAX_ATTEMPTS",
     "DEFAULT_MAX_BACKOFF_S",
-    "DEFAULT_MAX_WORKERS",
     "SpoolRegistrar",
     "build_parser",
-    "external_groups",
     "main",
-    "make_concurrent_writer_classes",
+    "make_tiled_writer",
     "synthesized_stop",
 ]
 

@@ -1,4 +1,4 @@
-"""geecs-tiled-writer: the sweep, the retry policy, the concurrent stop.
+"""geecs-tiled-writer: the sweep, the retry policy, the command.
 
 Hermetic: the Tiled client and the writer callback are fakes (the real
 catalog round trip is ``test_tiled_writer_catalog.py``, opt-in).  What the
@@ -11,12 +11,9 @@ all of it in the heartbeat.
 
 from __future__ import annotations
 
-import inspect
 import logging
 import os
 import socket
-import threading
-import time
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +30,6 @@ from geecs_bluesky.tiled_spool import (
 )
 from geecs_bluesky.tiled_writer import (
     SpoolRegistrar,
-    external_groups,
     main,
     synthesized_stop,
 )
@@ -477,186 +473,21 @@ def test_empty_spool_still_writes_a_heartbeat(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The concurrent stop
+# The writer the registrar builds
 # ---------------------------------------------------------------------------
 
 
-class _Desc:
-    def __init__(self, stream: str) -> None:
-        self.item = {"id": stream}
-
-
-class _Root:
-    """The run's container as the stock ``stop`` uses it."""
-
-    def __init__(self) -> None:
-        self.metadata: dict = {}
-        self.updated: list[dict] = []
-
-    def update_metadata(self, metadata, drop_revision=False) -> None:
-        self.updated.append(metadata)
-
-
-def test_external_groups_by_stream_and_key_in_arrival_order() -> None:
-    desc_nodes = {"d1": _Desc("primary"), "d2": _Desc("cam2_stream")}
-    sres = {
-        "r1": {"data_key": "cam1"},
-        "r2": {"data_key": "cam1"},  # a re-prepare: same key, second resource
-        "r3": {"data_key": "cam1-lineout"},
-        "r4": {"data_key": "cam2"},
-    }
-    cache = {
-        "r1": {"stream_resource": "r1", "descriptor": "d1"},
-        "r3": {"stream_resource": "r3", "descriptor": "d1"},
-        "r2": {"stream_resource": "r2", "descriptor": "d1"},
-        "r4": {"stream_resource": "r4", "descriptor": "d2"},
-        "r5": {
-            "stream_resource": "r5",
-            "descriptor": "d1",
-        },  # no resource doc: its own group
-    }
-    groups = external_groups(cache, sres, desc_nodes)
-    assert [[d["stream_resource"] for d in g] for g in groups] == [
-        ["r1", "r2"],
-        ["r3"],
-        ["r4"],
-        ["r5"],
-    ]
-
-
-def _concurrent_run_writer(max_workers: int):
-    pytest.importorskip("bluesky.callbacks.tiled_writer")
-    from geecs_bluesky.tiled_writer import make_concurrent_writer_classes
-
-    _writer_cls, run_writer_cls = make_concurrent_writer_classes(max_workers)
-    writer = run_writer_cls(client=object())
-    writer.root_node = _Root()
-    writer._desc_nodes = {"d1": _Desc("primary")}
-    writer._stream_resource_cache = {
-        "r1": {"data_key": "cam1"},
-        "r2": {"data_key": "cam1"},
-        "r3": {"data_key": "cam2"},
-        "r4": {"data_key": "cam3"},
-    }
-    writer._external_data_cache = {
-        f"r{i}": {"stream_resource": f"r{i}", "descriptor": "d1"} for i in (1, 2, 3, 4)
-    }
-    return writer
-
-
-def _instrument(writer, monkeypatch: pytest.MonkeyPatch, delay: float = 0.05):
-    """Record each registration's window and the peak overlap.
-
-    The stock ``stop`` is left in place: it runs after the drain against
-    the fake root node, so a drain that failed to clear the cache would
-    register every datum a second time.
-    """
-    lock = threading.Lock()
-    state = {"active": 0, "peak": 0}
-    calls: list[str] = []
-    windows: dict[str, tuple[float, float]] = {}
-
-    def _write(datum):
-        with lock:
-            state["active"] += 1
-            state["peak"] = max(state["peak"], state["active"])
-        started = time.monotonic()
-        time.sleep(delay)
-        with lock:
-            state["active"] -= 1
-            calls.append(datum["stream_resource"])
-        windows[datum["stream_resource"]] = (started, time.monotonic())
-
-    monkeypatch.setattr(writer, "_write_external_data", _write)
-    return state, windows, calls
-
-
-def test_concurrent_stop_overlaps_groups_and_keeps_a_key_sequential(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    writer = _concurrent_run_writer(max_workers=4)
-    state, windows, calls = _instrument(writer, monkeypatch)
-    writer.stop({"uid": "stop", "exit_status": "success"})
-    assert sorted(calls) == [
-        "r1",
-        "r2",
-        "r3",
-        "r4",
-    ]  # each once: the stock stop found nothing
-    assert state["peak"] >= 2, "the groups were registered one after another"
-    # r1 and r2 share a data key: the second starts after the first ends.
-    assert windows["r2"][0] >= windows["r1"][1]
-    # The real stock stop ran afterwards and wrote the stop metadata.
-    assert (
-        writer.root_node.updated
-        and writer.root_node.updated[0]["stop"]["uid"] == "stop"
-    )
-
-
-def test_concurrent_stop_max_workers_one_is_sequential(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The knob bites: with one worker nothing overlaps (and the test above would fail)."""
-    writer = _concurrent_run_writer(max_workers=1)
-    state, windows, _calls = _instrument(writer, monkeypatch)
-    writer.stop({"uid": "stop", "exit_status": "success"})
-    assert len(windows) == 4 and state["peak"] == 1
-
-
-def test_concurrent_stop_propagates_a_group_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    writer = _concurrent_run_writer(max_workers=4)
-
-    def _write(datum):
-        if datum["stream_resource"] == "r3":
-            raise RuntimeError("registration refused")
-
-    monkeypatch.setattr(writer, "_write_external_data", _write)
-    with pytest.raises(RuntimeError, match="registration refused"):
-        writer.stop({"uid": "stop", "exit_status": "success"})
-    assert writer.root_node.updated == []  # the stock stop never ran
-
-
-def test_stock_run_writer_structure_still_matches_the_override() -> None:
-    """The override drains the stock stop's external loop before it runs.
-
-    ``bluesky`` is pinned loosely (``>=1.12``); a relock past 1.15 that
-    restructures ``_RunWriter`` would leave the drain finding nothing and
-    registration silently serial again.  Fail loud here instead.
-    """
+def test_default_writer_is_the_stock_tiled_writer() -> None:
+    """No subclass over bluesky internals: the registrar replays through the stock writer."""
     tiled_writer = pytest.importorskip("bluesky.callbacks.tiled_writer")
-    stop_source = inspect.getsource(tiled_writer._RunWriter.stop)
-    assert "self._external_data_cache.values()" in stop_source
-    assert "self._write_external_data(" in stop_source
-    writer = tiled_writer._RunWriter(client=object())
-    for attribute in ("_external_data_cache", "_stream_resource_cache", "_desc_nodes"):
-        assert hasattr(writer, attribute), attribute
-    factory_source = inspect.getsource(tiled_writer.TiledWriter._factory)
-    assert "_RunWriter(self.client, batch_size=self._batch_size)" in factory_source
-
-
-def test_concurrent_tiled_writer_factory_builds_the_concurrent_run_writer() -> None:
-    tiled_writer = pytest.importorskip("bluesky.callbacks.tiled_writer")
-    from geecs_bluesky.tiled_writer import make_concurrent_writer_classes
-
-    writer_cls, run_writer_cls = make_concurrent_writer_classes(2)
+    from geecs_bluesky.tiled_writer import make_tiled_writer
 
     class _Client:
         def include_data_sources(self):
             return self
 
-    plain = writer_cls(_Client(), normalizer=None)
-    callbacks, _ = plain._factory("start", {"uid": "x"})
-    assert isinstance(callbacks[0], run_writer_cls)
-    assert callbacks[0].max_workers == 2
-
-    normalized = writer_cls(_Client())
-    callbacks, _ = normalized._factory("start", {"uid": "x"})
-    assert isinstance(callbacks[0], tiled_writer.RunNormalizer)
-    assert any(
-        isinstance(cb, run_writer_cls) for cb in callbacks[0]._token_refs.values()
-    )
+    writer = make_tiled_writer(_Client())
+    assert type(writer) is tiled_writer.TiledWriter
 
 
 # ---------------------------------------------------------------------------
