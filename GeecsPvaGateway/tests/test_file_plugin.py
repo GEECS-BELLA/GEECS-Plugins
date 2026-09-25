@@ -484,7 +484,9 @@ async def test_session_semantics_over_raw_pva(tmp_path):
         try:
             await put("Capture", True)
             assert bool(await get("Capture_RBV")) is True
-            cam.push(IMG, time.time())  # fresh: the first frame to write
+            # Fresh, and of the held frame's shape (the section above left the
+            # held frame at 5 x 7; another shape is refused before the open).
+            cam.push(bigger + 2, time.time())
             await _wait_until(lambda: plugin.value("WriteStatus") == "Write Error")
             assert "share refused" in str(await get("WriteMessage"))
             assert plugin.value("NumCaptured_RBV") == 0

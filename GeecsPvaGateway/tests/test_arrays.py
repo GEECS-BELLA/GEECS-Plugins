@@ -1,8 +1,8 @@
-"""Array variables end to end: the wire shapes → padded float64 NTNDArrays → 1-D/2-D stacks.
+"""Array variables end to end: the wire shapes → native-length float64 NTNDArrays → 1-D/2-D stacks.
 
 A fake device pushes one named variable with a payload the test chooses
 (nested pairs, a LabVIEW waveform, an image), so the gateway's per-variable
-decode, the ceiling padding, the NTNDArray attributes and the file plugin's
+decode at native length, the NTNDArray attributes and the file plugin's
 1-D and float paths are pinned over a real ``isolate=True`` PVA server —
 the same harness shape as ``test_server.py`` / ``test_file_plugin.py``.
 """
@@ -28,7 +28,7 @@ from p4p.client.thread import Context  # noqa: E402
 from geecs_pva_gateway import file_plugin  # noqa: E402
 from geecs_pva_gateway.config import DeviceSpec, PvaGatewayConfig  # noqa: E402
 from geecs_pva_gateway.server import GeecsPvaGateway  # noqa: E402
-from geecs_pva_gateway.streams import ArrayTooLongError, pad_rows  # noqa: E402
+from geecs_pva_gateway.streams import decode_array  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not file_plugin.available(), reason="h5py")
 
@@ -129,7 +129,7 @@ class ArrayDevice:
                 writer.close()
 
 
-async def _start_gateway(dev: ArrayDevice, variable: str, ceiling: int | None):
+async def _start_gateway(dev: ArrayDevice, variable: str):
     spec = DeviceSpec(
         device=DEVICE.decode(),
         host="127.0.0.1",
@@ -137,7 +137,6 @@ async def _start_gateway(dev: ArrayDevice, variable: str, ceiling: int | None):
         experiment="testexp",
         devicetype="MagSpecCamera",
         array_variables=[variable],
-        array_ceiling=ceiling,
     )
     gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", devices=[spec]))
     task = asyncio.create_task(gateway.run(isolate=True))
@@ -166,17 +165,17 @@ async def _wait_until(predicate, timeout: float = 5.0) -> None:
 
 
 # ------------------------------------------------------------------ unit
-def test_pad_rows_fills_with_nan_and_refuses_to_truncate() -> None:
-    padded = pad_rows(np.array([[1.0, 2.0]]), 4)
-    assert padded.shape == (4, 2) and padded.dtype == np.float64
-    assert padded[0].tolist() == [1.0, 2.0] and np.isnan(padded[1:]).all()
-    assert pad_rows(np.arange(3.0), 3).tolist() == [
-        0.0,
-        1.0,
-        2.0,
-    ]  # exactly at the ceiling
-    with pytest.raises(ArrayTooLongError, match="never truncated"):
-        pad_rows(np.zeros((5, 2)), 4)
+def test_arrays_decode_at_native_length_with_no_cap() -> None:
+    """No padding and no ceiling: a 10^5-row lineout and a 1-row default both
+    come back exactly as long as they were pushed."""
+    rows = 100_000
+    long = ",".join(f"[{i:.1f},{i % 7:.1f}]" for i in range(rows))
+    values, _ = decode_array(f"[{long}]".encode())
+    assert values.shape == (rows, 2) and values.dtype == np.float64
+    assert not np.isnan(values).any()
+    assert values[-1].tolist() == [rows - 1.0, (rows - 1) % 7]
+    single, _ = decode_array(b"[[5.155832E+1,0.000000E+0]]")
+    assert single.shape == (1, 2)
 
 
 def test_array_plugins_declare_the_waveform_axis_after_the_scalars() -> None:
@@ -240,18 +239,18 @@ def test_an_idle_instance_is_named_after_its_served_host_not_the_machine() -> No
 
 # -------------------------------------------------------- end to end: PV
 @pytest.mark.timeout(30)
-async def test_pairs_are_posted_padded_to_the_ceiling_and_a_single_row_is_fine():
-    """A 285-row lineout and a 1-row default both post as (8, 2) — the ceiling here."""
+async def test_pairs_are_posted_at_native_length_and_a_single_row_is_fine():
+    """A 5-row lineout posts as (5, 2) and the 1-row default as (1, 2) — no padding."""
     dev = ArrayDevice("interpSpec")
     await dev.start()
-    gateway, task = await _start_gateway(dev, "interpSpec", ceiling=8)
+    gateway, task = await _start_gateway(dev, "interpSpec")
     try:
         received: list = []
         got = threading.Event()
 
         def on_update(value) -> None:
             received.append(value)
-            if value.shape == (8, 2):
+            if value.shape in ((5, 2), (1, 2)):
                 got.set()
 
         ctx = Context("pva", conf=gateway.conf(), useenv=False)
@@ -262,17 +261,17 @@ async def test_pairs_are_posted_padded_to_the_ceiling_and_a_single_row_is_fine()
             dev.push(_pairs(5), time.time())
             await loop.run_in_executor(None, got.wait, 10)
             frame = np.asarray(received[-1])
-            assert frame.shape == (8, 2) and frame.dtype == np.float64
+            assert frame.shape == (5, 2) and frame.dtype == np.float64
             assert frame[0].tolist() == pytest.approx([51.55832, 0.0])
             assert frame[4, 0] == pytest.approx(51.55832 + 4 * 0.25)
-            assert np.isnan(frame[5:]).all()
-            # The 1 x 2 magnet-off default is an ordinary frame, same shape.
+            assert not np.isnan(frame).any()
+            # The 1 x 2 magnet-off default is an ordinary frame at its own length.
             got.clear()
             received.clear()
             dev.push(b"[[5.155832E+1,0.000000E+0]]", time.time())
             await loop.run_in_executor(None, got.wait, 10)
             frame = np.asarray(received[-1])
-            assert frame.shape == (8, 2) and np.isnan(frame[1:]).all()
+            assert frame.shape == (1, 2)
             sub.close()
         finally:
             ctx.close()
@@ -285,7 +284,7 @@ async def test_pairs_are_posted_padded_to_the_ceiling_and_a_single_row_is_fine()
 async def test_a_waveform_posts_volts_at_native_length_with_its_axis_attributes():
     dev = ArrayDevice("scopeTrace.Channel0")
     await dev.start()
-    gateway, task = await _start_gateway(dev, "scopeTrace.Channel0", ceiling=None)
+    gateway, task = await _start_gateway(dev, "scopeTrace.Channel0")
     try:
         received: list = []
         got = threading.Event()
@@ -319,14 +318,15 @@ async def test_a_waveform_posts_volts_at_native_length_with_its_axis_attributes(
 
 # ---------------------------------------------------- end to end: stack
 @pytest.mark.timeout(30)
-async def test_the_plugin_writes_a_1d_float_stack_and_drops_over_ceiling_frames(
+async def test_the_plugin_writes_a_1d_float_stack_and_drops_a_frame_of_another_length(
     tmp_path,
 ):
-    """1-D float64 frames: ArraySizeY 0, DataType Float64, a (N, n) stack;
-    an over-ceiling frame is counted as a shape error and never truncated."""
+    """1-D float64 frames: ArraySizeY 0, DataType Float64, a (N, n) stack whose
+    length is fixed at the arm; a frame of another length is counted as a
+    shape error and dropped — never padded, never truncated."""
     dev = ArrayDevice("interpSpec")
     await dev.start()
-    gateway, task = await _start_gateway(dev, "interpSpec", ceiling=4)
+    gateway, task = await _start_gateway(dev, "interpSpec")
     plugin = gateway._workers[0].plugins["interpSpec"]
     prefix = "testexp:u_spec:interpspec" + file_plugin.PLUGIN_SUFFIX
     ctx = Context("pva", conf=gateway.conf(), useenv=False)
@@ -343,8 +343,9 @@ async def test_the_plugin_writes_a_1d_float_stack_and_drops_over_ceiling_frames(
         run_dir.mkdir(parents=True)
         await put("FilePath", str(run_dir) + os.sep)
         await put("FileName", "U_Spec-interpSpec")
-        # A CSV payload is a 1-D array: padded to (4,), posted 1-D.
-        dev.push(b"1.0,2.0\r\n", time.time() - 5.0)
+        # A CSV payload is a 1-D array, posted 1-D at its own length; the
+        # held frame fixes the stack at (4,).
+        dev.push(b"0.0,0.0,0.0,0.0\r\n", time.time() - 5.0)
         await put("Capture", True)
         assert bool(await get("Capture_RBV")) is True
         assert int(await get("ArraySizeX_RBV")) == 4
@@ -352,30 +353,83 @@ async def test_the_plugin_writes_a_1d_float_stack_and_drops_over_ceiling_frames(
         assert str(await get("DataType_RBV")) == "Float64"
 
         t = time.time()
-        dev.push(b"1.0,2.0", t)
-        dev.push(b"3.0", t + 1)
-        dev.push(b"1,2,3,4,5", t + 2)  # five > ceiling 4: dropped, counted
+        dev.push(b"1.0,2.0,3.0,4.0", t)
+        dev.push(b"3.0", t + 1)  # shorter than the stack: dropped, counted
+        dev.push(b"1,2,3,4,5", t + 2)  # longer than the stack: dropped, counted
         dev.push(b"4.0,5.0,6.0,7.0", t + 3)
-        await _wait_until(lambda: plugin.value("NumCaptured_RBV") == 3)
+        await _wait_until(lambda: plugin.value("NumCaptured_RBV") == 2)
         await asyncio.sleep(0.1)
-        assert plugin.value("NumCaptured_RBV") == 3
-        assert "ceiling" in str(plugin.value("WriteMessage"))
+        assert plugin.value("NumCaptured_RBV") == 2
+        assert "stack shape" in str(plugin.value("WriteMessage"))
         await put("Capture", False)
         await asyncio.wait_for(dev.disconnected.wait(), 10)
 
         with h5py.File(run_dir / "U_Spec-interpSpec.h5", "r") as f:
             frames = f[file_plugin.FRAMES_DATASET]
-            assert frames.shape == (3, 4) and frames.dtype == np.float64
-            np.testing.assert_array_equal(frames[0][:2], [1.0, 2.0])
-            assert np.isnan(frames[0][2:]).all()
-            assert frames[1][0] == 3.0 and np.isnan(frames[1][1:]).all()
-            np.testing.assert_array_equal(frames[2], [4.0, 5.0, 6.0, 7.0])
-            assert f.attrs["shape_errors"] == 1
-            assert f.attrs["frames_written"] == 3
+            assert frames.shape == (2, 4) and frames.dtype == np.float64
+            np.testing.assert_array_equal(frames[0], [1.0, 2.0, 3.0, 4.0])
+            np.testing.assert_array_equal(frames[1], [4.0, 5.0, 6.0, 7.0])
+            assert f.attrs["shape_errors"] == 2
+            assert f.attrs["frames_written"] == 2
             # An array stack always carries the axis attributes; a CSV
             # lineout has no axis, so they read NaN.
             dx = f[f"{file_plugin.ATTRIBUTES_GROUP}/u_spec-hdf-interpspec-wave_dx"][:]
-            assert dx.shape == (3,) and np.isnan(dx).all()
+            assert dx.shape == (2,) and np.isnan(dx).all()
+    finally:
+        ctx.close()
+        await _shutdown(task)
+        await dev.stop()
+
+
+@pytest.mark.timeout(30)
+async def test_a_first_frame_unlike_the_held_frame_is_refused_not_written(tmp_path):
+    """Armed on a held frame from before a shape change (ΔE/ROI changed while
+    nothing was subscribed): the descriptor declares the held shape, so a
+    first frame of another shape must not open a stack the record
+    misdescribes — every such frame is dropped, counted and named."""
+    dev = ArrayDevice("interpSpec")
+    await dev.start()
+    gateway, task = await _start_gateway(dev, "interpSpec")
+    plugin = gateway._workers[0].plugins["interpSpec"]
+    prefix = "testexp:u_spec:interpspec" + file_plugin.PLUGIN_SUFFIX
+    ctx = Context("pva", conf=gateway.conf(), useenv=False)
+    loop = asyncio.get_running_loop()
+
+    async def put(suffix: str, value) -> None:
+        await loop.run_in_executor(None, lambda: ctx.put(prefix + suffix, value))
+
+    async def get(suffix: str):
+        return await loop.run_in_executor(None, lambda: ctx.get(prefix + suffix))
+
+    try:
+        run_dir = tmp_path / "Scan004" / "U_Spec-interpSpec"
+        run_dir.mkdir(parents=True)
+        await put("FilePath", str(run_dir) + os.sep)
+        await put("FileName", "U_Spec-interpSpec")
+        # Seed a held frame of 4 rows (the previous configuration): a PVA
+        # client's subscription is what keeps the held frame current.
+        sub = ctx.monitor("testexp:u_spec:interpspec", lambda _v: None)
+        await asyncio.wait_for(dev.connected.wait(), 5)
+        dev.push(_pairs(4), time.time() - 5.0)
+        worker = gateway._workers[0]
+        await _wait_until(lambda: worker._last_frame.get("interpSpec") is not None)
+        sub.close()
+        await asyncio.wait_for(dev.disconnected.wait(), 10)
+        dev.disconnected.clear()
+        dev.connected.clear()
+        await put("Capture", True)
+        assert int(await get("ArraySizeY_RBV")) == 4  # declared from the held frame
+        # ... then the device pushes 3-row frames (the new configuration).
+        t = time.time()
+        dev.push(_pairs(3), t)
+        dev.push(_pairs(3), t + 1)
+        await _wait_until(lambda: plugin.value("UniqueId_RBV") == 2)
+        await asyncio.sleep(0.1)
+        assert plugin.value("NumCaptured_RBV") == 0
+        assert "declared at the arm" in str(plugin.value("WriteMessage"))
+        await put("Capture", False)
+        await asyncio.wait_for(dev.disconnected.wait(), 10)
+        assert not (run_dir / "U_Spec-interpSpec.h5").exists()
     finally:
         ctx.close()
         await _shutdown(task)
@@ -388,7 +442,7 @@ async def test_a_waveform_stack_carries_its_time_axis_as_attributes(tmp_path):
     length ride as per-frame attributes beside the stamps (review of #946)."""
     dev = ArrayDevice("scopeTrace.Channel0")
     await dev.start()
-    gateway, task = await _start_gateway(dev, "scopeTrace.Channel0", ceiling=None)
+    gateway, task = await _start_gateway(dev, "scopeTrace.Channel0")
     plugin = gateway._workers[0].plugins["scopeTrace.Channel0"]
     prefix = "testexp:u_spec:scopetrace_channel0" + file_plugin.PLUGIN_SUFFIX
     ctx = Context("pva", conf=gateway.conf(), useenv=False)
@@ -436,8 +490,8 @@ async def test_a_waveform_stack_carries_its_time_axis_as_attributes(tmp_path):
 
 # ---------------------------------------------------------------- config
 def test_config_serves_arrays_minus_the_devicetype_exclusions(monkeypatch) -> None:
-    """A MagSpec camera: images + interpSpec/interpDiv served, the axes excluded,
-    the ceiling declared; a scope with only arrays is served; a timing box is not."""
+    """A MagSpec camera: images + interpSpec/interpDiv served, the axes excluded;
+    a scope with only arrays is served; a timing box is not."""
     from geecs_core.db.geecs_db import GeecsDb
 
     endpoints = {
@@ -484,10 +538,9 @@ def test_config_serves_arrays_minus_the_devicetype_exclusions(monkeypatch) -> No
     cam = by_dev["UC_MagCam"]
     assert cam.image_variables == ["Image", "ImageInterp"]
     assert cam.array_variables == ["interpDiv", "interpSpec"]
-    assert cam.array_ceiling == 16384 and cam.devicetype == "MagSpecCamera"
+    assert cam.devicetype == "MagSpecCamera"
     ict = by_dev["U_ICT"]
     assert ict.image_variables == [] and ict.array_variables == ["scopeTrace.Channel0"]
-    assert ict.array_ceiling is None
     gateway = GeecsPvaGateway(cfg)
     assert "testexp:u_ict:scopetrace_channel0" in gateway.pv_names
     assert "testexp:u_ict:scopetracegui_channel0" not in gateway.pv_names

@@ -4,6 +4,19 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.12.0] - 2026-09-24
+
+### Removed
+
+- `db.device_streams`: the `array_ceiling` padding ceiling — the
+  `DeviceTypeStreams.array_ceiling` field, the `array_ceiling()` helper and
+  the 16384-row entries on `MagSpecCamera` / `MagSpecStitcher`. Arrays are
+  served and captured at their native length, like images: a stack's shape
+  is fixed for a scan at the arm, a frame of any other shape is dropped and
+  counted, and a variable-length array (the MagSpec lineouts) changes
+  length only between scans. Only the two MagSpec devicetypes ever declared
+  a ceiling; no other array had a length cap.
+
 ## [0.11.2] - 2026-09-23
 
 ### Changed

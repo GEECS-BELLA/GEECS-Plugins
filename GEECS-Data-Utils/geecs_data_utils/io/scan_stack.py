@@ -328,7 +328,7 @@ def stack_content_kind(stack: "str | Path | h5py.File") -> StackContent:
     rows (a spectrum: its axis in column 0).
 
     The distinction is the renderer's and the reader's: an image is
-    pixels, an array is x-vs-y, and a ``(16384, 2)`` lineout drawn as
+    pixels, an array is x-vs-y, and an ``(n, 2)`` lineout drawn as
     pixels is a two-pixel-wide strip.  Use
     :func:`~geecs_data_utils.io.array1d.read_1d_data` with
     :attr:`~geecs_data_utils.io.array1d.Data1DType.PVA_STACK` to read one

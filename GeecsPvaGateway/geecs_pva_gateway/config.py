@@ -5,8 +5,8 @@ keep those whose GEECS endpoint IP belongs to this machine and that expose at
 least one **stream** variable — an image-typed one, or a ``1darray``-typed one
 the devicetype does not exclude (:func:`geecs_core.db.device_streams.
 served_array_variables`).  The GEECS DB is the source of truth — there is no
-per-host config file; the per-devicetype exclusions and padding ceilings are
-the one curated overlay, and they live in GEECS-Core beside the type rule.
+per-host config file; the per-devicetype exclusions are the one curated
+overlay, and they live in GEECS-Core beside the type rule.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import socket
 
 from pydantic import BaseModel, Field
 
-from geecs_core.db.device_streams import array_ceiling, served_array_variables
+from geecs_core.db.device_streams import served_array_variables
 from geecs_core.db.scalar_policy import GeecsDbScalarPolicy
 from geecs_core.db.variable_types import (  # noqa: F401 - image_variables re-exported
     image_variables,
@@ -60,8 +60,7 @@ class DeviceSpec(BaseModel):
     A stream variable is served as one ``NTNDArray`` PV with one file plugin:
     an ``image_variables`` entry decodes as an IMAQ image, an
     ``array_variables`` entry as one of the three array wire shapes
-    (:mod:`geecs_pva_gateway.streams`), padded to ``array_ceiling`` rows
-    when the devicetype declares one.
+    (:mod:`geecs_pva_gateway.streams`) at native length.
     """
 
     device: str
@@ -73,8 +72,6 @@ class DeviceSpec(BaseModel):
     #: The ``1darray`` variables the devicetype does not exclude
     #: (:func:`geecs_core.db.device_streams.served_array_variables`).
     array_variables: list[str] = Field(default_factory=list)
-    #: Rows the arrays are padded to (NaN) — ``None`` = native length.
-    array_ceiling: int | None = None
     #: The subscribed numeric scalars the file plugin writes beside every
     #: frame (:func:`geecs_core.db.variable_types.scalar_attribute_variables`,
     #: the one home for the rule); they join the stream variable's one TCP
@@ -148,7 +145,7 @@ class PvaGatewayConfig(BaseModel):
         var_map = GeecsDb.get_experiment_device_variables(
             experiment, enabled_only=enabled_only
         )
-        # The per-devicetype exclusions and ceilings key on the devicetype.
+        # The per-devicetype exclusions key on the devicetype.
         types = GeecsDb.get_experiment_device_types(
             experiment, enabled_only=enabled_only
         )
@@ -189,7 +186,6 @@ class PvaGatewayConfig(BaseModel):
                     devicetype=devicetype,
                     image_variables=image_vars,
                     array_variables=array_vars,
-                    array_ceiling=array_ceiling(devicetype),
                     scalar_variables=scalar_attribute_variables(
                         var_map.get(device, []),
                         subscribed.get(device, []),

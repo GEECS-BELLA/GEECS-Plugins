@@ -437,9 +437,11 @@ device's image variables and its served `1darray` variables
 (`served_array_variables`, typed minus the devicetype's exclusions); a
 declared name that is neither is a declaration error (WARNING, skipped).
 A MagSpec camera therefore arms four plugins; its lineouts land as
-`(N, 16384, 2)` float64 stacks, axis in column 0, NaN-padded by the gateway
-to the devicetype ceiling so the descriptor shape holds across a current
-scan.  A devicetype with no declaration keeps the one-image guess
+`(N, rows, 2)` float64 stacks, axis in column 0, at native length: the row
+count is the energy span over the configured ΔE, fixed for the scan like an
+image's shape (a frame of another length is dropped and counted by the
+plugin), so anything that changes it — a magnet current, a ΔE — changes
+between scans, never within one.  A devicetype with no declaration keeps the one-image guess
 (`primary_image_variable`: `image`, else the first image variable) — never
 guess a second stream, declare it, and never declare a variable the device
 does not push on every shot (the FROG's `SpatialImage` cost an arm timeout

@@ -12,7 +12,6 @@ from geecs_core.db import device_streams
 from geecs_core.db.device_streams import (
     DEVICE_TYPE_STREAMS,
     DeviceTypeStreams,
-    array_ceiling,
     capture_gates,
     gated_off_variables,
     capture_variables,
@@ -153,13 +152,6 @@ def test_an_undeclared_devicetype_serves_every_typed_array() -> None:
     ]
     assert served_array_variables("HamamatsuSpectrometerDAQ", rows) == ["counts"]
     assert array_variables(rows) == ["counts"]
-
-
-def test_array_ceilings_are_per_devicetype() -> None:
-    assert array_ceiling("MagSpecCamera") == 16384  # 7338 rows at ΔE = 0.25 (#986)
-    assert array_ceiling("MagSpecStitcher") == 16384
-    assert array_ceiling("PicoscopeV2") is None  # a scope's record length is configured
-    assert array_ceiling("ThorlabsWFS") is None
 
 
 def test_point_grey_declaration_equals_the_historic_one_image_default() -> None:

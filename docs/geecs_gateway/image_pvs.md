@@ -74,11 +74,11 @@ undulator:u_bcaveict:scopetrace_channel0          (from scopeTrace.Channel0)
 What you read:
 
 - **A lineout** is `(rows, 2)` `float64` — column 0 the axis (energy in MeV,
-  angle in mrad), column 1 the value — **padded with NaN to a fixed row
-  count per devicetype** (16384 on a MagSpec camera and on the stitcher)
-  because the real row count moves with the magnet current; count the
-  non-NaN rows to find the live length. A single real row (the magnet-off
-  default) is an ordinary frame.
+  angle in mrad), column 1 the value — at its **native length**, never
+  padded: the row count is the energy span over the configured ΔE, so it
+  moves with the magnet current and the ΔE. A scan records one length (a
+  frame of another is dropped and counted), so change either between scans.
+  A single real row (the magnet-off default) is an ordinary frame.
 - **A scope trace** is `(samples,)` `float64` in **volts**, at the device's
   configured record length; its time axis rides in the NTNDArray
   `attribute` list — `x0` and `dx` in seconds, `samples`, and the raw
