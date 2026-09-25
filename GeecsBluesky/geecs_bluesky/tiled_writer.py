@@ -626,3 +626,9 @@ __all__ = [
     "make_concurrent_writer_classes",
     "synthesized_stop",
 ]
+
+
+if (
+    __name__ == "__main__"
+):  # `python -m geecs_bluesky.tiled_writer` — a checkout with no reinstall
+    sys.exit(main())

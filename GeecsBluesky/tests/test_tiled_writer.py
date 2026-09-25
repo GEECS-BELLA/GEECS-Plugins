@@ -682,6 +682,36 @@ def test_main_once_sweeps_and_writes_the_heartbeat(tmp_path: Path) -> None:
     assert (tmp_path / "spool").is_dir()
 
 
+def test_module_runs_as_a_script(tmp_path: Path) -> None:
+    """``python -m geecs_bluesky.tiled_writer`` is the by-hand path on a checkout with no reinstall.
+
+    Found on the worker: without the ``__main__`` block the module imported
+    and exited silently, no log line, no heartbeat.
+    """
+    import subprocess
+    import sys
+
+    uri = f"http://127.0.0.1:{_dead_port()}"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "geecs_bluesky.tiled_writer",
+            "--once",
+            "--state-dir",
+            str(tmp_path),
+            "--tiled-uri",
+            uri,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "geecs-tiled-writer" in result.stderr and "swept:" in result.stderr
+    assert read_heartbeat(tmp_path / "heartbeat.json") is not None
+
+
 def test_main_without_a_catalog_is_a_configuration_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
