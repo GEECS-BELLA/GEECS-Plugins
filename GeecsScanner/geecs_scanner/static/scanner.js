@@ -90,6 +90,15 @@
     if (title) el.title = title;
   }
 
+  // The Tiled writer's word rides on every status poll (StatusOut.tiled_writer):
+  // ok / degraded / failed from its heartbeat, a warning the room can see —
+  // never a gate: nothing here disables Start over it.
+  function renderWriterChip(tw) {
+    if (!tw) { setChip($("chip-writer"), K.unknown, "tiled writer", "Tiled writer: not read"); return; }
+    var word = tw.state === K.ok ? K.ok : (tw.state === K.failed ? K.failed : K.degraded);
+    setChip($("chip-writer"), word, "tiled writer", tw.detail || tw.state);
+  }
+
   /* ------------------------------------------------------------- now */
 
   function fmtAge(s) { return s < 0 ? "" : s.toFixed(1) + " s"; }
@@ -111,6 +120,7 @@
       if (running) setChip($("now-chip"), runWord, st.re_state);
       else setChip($("now-chip"), K.unknown, "idle");
     }
+    renderWriterChip(st.tiled_writer);
     $("btn-pause").disabled = st.re_state !== "running";
     $("btn-pause").hidden = st.re_state === "paused";
     $("btn-resume").hidden = st.re_state !== "paused";

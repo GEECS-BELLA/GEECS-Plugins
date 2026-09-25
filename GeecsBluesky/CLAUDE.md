@@ -461,7 +461,11 @@ with the writer, 0.26 s without).  Now:
   its open — costs nothing that ever worked.
 - **The heartbeat is a warning, never a gate** (`<state>/heartbeat.json`:
   liveness, `tiled_reachable`, `pending`/`in_progress`/`failed`, the
-  sweep's `last_error`; `read_heartbeat` + `is_stale` for readers).  With
+  sweep's `last_error`, and `registering` — written just before each
+  registration, because a registration is ~25 s of silence that
+  `is_stale` must not read as death; `read_heartbeat` + the one
+  `heartbeat_verdict` for every reader: the engine's open-time warning,
+  the scanner's chip, `fleet_status.sh`).  With
   the spool a dead writer loses nothing, so no preflight and no plan
   refuses a run over it — the scanner shows it, `fleet_status.sh` reports
   it.  Ruled by the owner 2026-09-25 ("service, spool, no refusal gate")
@@ -473,7 +477,12 @@ with the writer, 0.26 s without).  Now:
   (`tiled_spool.default_state_dir`).  The writer also honours systemd's
   `$STATE_DIRECTORY`; the engine deliberately does not (the qserver unit
   may own a state directory of its own one day, and the spool must not
-  silently move with it).  Not a site value: the same path on every host.
+  silently move with it).  Not a site value: the same path on every host
+  — `/var/lib/geecs-tiled-writer`, the `StateDirectory=` both
+  `qserver/deploy/geecs-tiled-writer.service` and the qserver unit
+  declare (the scanner's unit sets the variable too, for its chip).
+  Deploy, the hand-over from a by-hand writer, and what the heartbeat's
+  words mean: `qserver/deploy/DEPLOYMENT.md` § The Tiled writer.
 
 The s-file, ScanInfo and `scan.log` are unaffected: they never used Tiled.
 

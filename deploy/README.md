@@ -24,7 +24,9 @@ scripts/fleet_status.sh                                       # from any client:
 
 The unit templates themselves stay with their services
 (`GeecsCAGateway/deploy/`, `GEECS-DataPortal/deploy/`,
-`GeecsLogbook/deploy/`, `GeecsBluesky/qserver/deploy/` — two units, the manager and the
-`geecs-qserver-ready` readiness oneshot, rendered and enabled together —
+`GeecsLogbook/deploy/`, `GeecsBluesky/qserver/deploy/` — three units: the manager and the
+`geecs-qserver-ready` readiness oneshot, rendered and enabled together, and
+`geecs-tiled-writer`, the Tiled writer over the engine's spool, its own
+service from the same clone and env —
 `GEECS-MCP/deploy/`, `GeecsScanner/deploy/`); this directory only
 knows their list.

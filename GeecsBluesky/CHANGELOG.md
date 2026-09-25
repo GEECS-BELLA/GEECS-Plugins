@@ -6,6 +6,60 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.104.0] - 2026-09-25
+
+### Changed
+
+- **The heartbeat names the run it is registering.** A registration is
+  ~25 s of silence (one HTTP call at a time on the SQLite catalog), and a
+  heartbeat written only at the end of a sweep read as stale — "down or
+  wedged" — for most of every run's registration (the deploy PR's review,
+  finding 1). The writer now writes the heartbeat once more just before
+  each registration with `registering` (the run's uid) and
+  `registering_since`; `WriterHeartbeat.is_stale` allows
+  `STALE_WHILE_REGISTERING_S` (10 min) of silence while a run is named,
+  three sweeps otherwise. Additive: an older reader ignores the fields.
+- **One verdict over the heartbeat**, `tiled_spool.heartbeat_verdict` →
+  `HeartbeatVerdict(level, reason, stale)`: `failed` for a `.failed` file
+  or a backlog (`pending` ≥ 3) **with** runs backing off after failures;
+  `degraded` for silence, Tiled unreachable, a run backing off, or a
+  backlog draining (a burst of short runs registers at the writer's rate
+  — shown, not alarmed); `ok` otherwise. The heartbeat gains
+  `backing_off` (pending runs in a retry cycle) and keeps such a run's
+  failure in `last_error` between its attempts — a failing backlog reads
+  as one on every sweep, not only on the sweeps that attempt (review
+  round 2); mid-registration `pending` counts every complete file waiting
+  behind the run in flight, backing-off ones included wherever they sort,
+  and the closing heartbeat recounts a run that opened meanwhile as in
+  progress. The engine's environment-open warning uses its `stale` half;
+  the scanner's chip and `fleet_status.sh` show its level. `read_heartbeat`
+  reads any `OSError` as absent (a directory at the path, another
+  account's file), never raising into a reader's request.
+
+### Added
+
+- **`geecs-tiled-writer.service`** (`qserver/deploy/`), the writer's unit
+  template in the site-profile style: the worker's clone and env
+  (`qs-checkout/GeecsBluesky`, `ExecStart=@POETRY@ run geecs-tiled-writer`),
+  `StateDirectory=geecs-tiled-writer` and
+  `Environment=GEECS_TILED_WRITER_STATE=/var/lib/geecs-tiled-writer`,
+  `Restart=on-failure`; no ordering against the manager (peers over one
+  directory). `geecs-qserver.service` declares the same `StateDirectory=`
+  and `Environment=` (two units may; the engine reads only the variable);
+  the scanner's unit sets the variable for its chip. Rendered by
+  `deploy/render_units.sh`, provisioned by `deploy/bootstrap_host.sh`
+  (`--only tiled-writer`; its extras are the worker's set on purpose — a
+  `poetry install --extras tiled` alone would strip `ca`/`qserver`/
+  `optimize` from the env the running worker uses).
+- `qserver/deploy/DEPLOYMENT.md` § The Tiled writer: install, the ordered
+  hand-over from the by-hand writer left by the 0.103.0 verification
+  (drain → stop → units → start the unit → restart the queueserver so the
+  engine reads the new directory → restart the scanner), the heartbeat's
+  fields and the scanner's words for them, `.failed` files, a stale
+  heartbeat. `docs/platform/fleet_map.md` gains the writer's row and the
+  spool in the diagram; `scripts/fleet_status.sh` a "Tiled writer" row
+  read from the scanner's `/health`.
+
 ## [0.103.0] - 2026-09-25
 
 ### Changed

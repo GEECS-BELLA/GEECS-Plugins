@@ -42,8 +42,11 @@ opens a spool file; what the stock writer lacks is the numpy-aware
 encoder, the flush-per-document, the fsync and the completeness mark.
 
 The writer's heartbeat model lives here too (:class:`WriterHeartbeat`,
-:func:`read_heartbeat`): the scanner and ``fleet_status.sh`` read it, and
-a reader of a JSON file has no business importing the service loop.
+:func:`read_heartbeat`, and the one verdict over it,
+:func:`heartbeat_verdict`): the engine, the scanner and ``fleet_status.sh``
+read it, and a reader of a JSON file has no business importing the
+service loop.  **The verdict is a warning, never a gate** — nothing
+refuses a run over it (owner's ruling, 2026-09-25).
 """
 
 from __future__ import annotations
@@ -80,8 +83,20 @@ DONE_SUFFIX = ".jsonl.done"
 FAILED_SUFFIX = ".jsonl.failed"
 
 #: A heartbeat older than this many sweep intervals is stale (the writer
-#: is down or wedged).
+#: is down or wedged) — unless it says a registration is in flight.
 STALE_AFTER_SWEEPS = 3
+#: A heartbeat carrying ``registering`` goes quiet for the whole
+#: registration (25–28 s per run measured on the SQLite catalog, one call
+#: at a time): only this much silence is stale then — a Tiled call that
+#: never returns, not a long run.
+STALE_WHILE_REGISTERING_S = 600.0
+#: ``pending`` at or below this reads ``ok``: the writer registers one run
+#: in ~25–28 s, so the run that just ended is the one complete file it
+#: may hold.  At :data:`PENDING_BACKLOG_MIN` a backlog has formed (a burst
+#: of short runs is one; every registration failing is the other — the
+#: heartbeat's ``last_error`` tells them apart).
+PENDING_OK_MAX = 1
+PENDING_BACKLOG_MIN = 3
 
 #: How much of a file's tail :func:`spool_state` reads to find its last
 #: line — a stop document is a few hundred bytes; 64 KiB covers any
@@ -407,11 +422,29 @@ class WriterHeartbeat:
     failed: int = 0
     done: int = 0
     registered: list[str] = field(default_factory=list)
+    #: The run being registered right now (its uid), written just before
+    #: the registration starts — the ~25 s of silence that follows is work,
+    #: not death; ``None`` between registrations.  While set, ``pending``
+    #: counts the complete files waiting *behind* this one.
+    registering: str | None = None
+    registering_since: float | None = None
+    #: Pending runs in a retry cycle (a registration failed; the next
+    #: attempt waits out its backoff).  Their latest failure stays in
+    #: ``last_error`` between attempts, so a failing backlog reads as one.
+    backing_off: int = 0
 
     def is_stale(self, now: float | None = None) -> bool:
-        """Whether the writer has missed :data:`STALE_AFTER_SWEEPS` sweeps."""
+        """Whether the writer has gone quiet for longer than its work explains.
+
+        :data:`STALE_AFTER_SWEEPS` sweeps between registrations; while
+        ``registering`` names a run, :data:`STALE_WHILE_REGISTERING_S`
+        (a registration is silent for its whole duration).
+        """
         now = time.time() if now is None else now
-        return now - self.last_sweep > STALE_AFTER_SWEEPS * self.sweep_interval
+        quiet = now - self.last_sweep
+        if self.registering is not None:
+            return quiet > STALE_WHILE_REGISTERING_S
+        return quiet > STALE_AFTER_SWEEPS * self.sweep_interval
 
     def to_json(self) -> str:
         """The file's content."""
@@ -434,14 +467,130 @@ def write_heartbeat(path: Path, heartbeat: WriterHeartbeat) -> None:
 
 
 def read_heartbeat(path: Path) -> WriterHeartbeat | None:
-    """The heartbeat on disk, or ``None`` when there is none (never ran here)."""
+    """The heartbeat on disk, or ``None`` when there is none or it cannot be read.
+
+    A missing file (the writer never ran here) is silent; an unreadable
+    one (a torn write, another account's permissions, a directory at the
+    path) is logged — both read as ``None``, which the verdict calls
+    degraded, never an error for the reader's own request.
+    """
     try:
         return WriterHeartbeat.from_json(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return None
-    except (ValueError, TypeError) as exc:
+    except (OSError, ValueError, TypeError) as exc:
         logger.warning("%s unreadable: %s", path, exc)
         return None
+
+
+def _age(now: float, then: float | None) -> str:
+    if then is None:
+        return "never"
+    seconds = max(0.0, now - then)
+    if seconds < 90:
+        return f"{seconds:.0f} s ago"
+    if seconds < 5400:
+        return f"{seconds / 60:.0f} min ago"
+    return f"{seconds / 3600:.1f} h ago"
+
+
+@dataclass(frozen=True)
+class HeartbeatVerdict:
+    """The one reading of a heartbeat: a level and the reason in words.
+
+    ``level`` is ``ok`` / ``degraded`` / ``failed`` — the kit's status words,
+    so a surface renders it as is.  ``stale`` is the liveness half alone
+    (what the engine warns about at environment open).
+    """
+
+    level: str
+    reason: str
+    stale: bool
+
+
+def heartbeat_verdict(
+    heartbeat: WriterHeartbeat | None,
+    now: float | None = None,
+    *,
+    path: Path | None = None,
+) -> HeartbeatVerdict:
+    """Reduce a heartbeat to ``ok`` / ``degraded`` / ``failed`` and why.
+
+    ``failed`` when a file was set aside for an operator, or a backlog has
+    formed (:data:`PENDING_BACKLOG_MIN`) **and** runs are backing off after
+    failures (every registration failing); ``degraded`` when the writer is
+    silent (no heartbeat, or a stale one — down or wedged), cannot reach
+    Tiled, has a run backing off after a failure, or holds more than
+    :data:`PENDING_OK_MAX` complete files (a backlog of short runs drains
+    at the writer's own rate: shown, not alarmed); ``ok`` otherwise.  The
+    thresholds are the measurement's (25–28 s per run).  Never a gate.
+    """
+    now = time.time() if now is None else now
+    where = f" at {path}" if path is not None else ""
+    if heartbeat is None:
+        return HeartbeatVerdict(
+            "degraded",
+            f"no writer heartbeat{where} — is geecs-tiled-writer running? "
+            "(runs keep spooling; nothing reaches Tiled until it is)",
+            True,
+        )
+    last_ok = _age(now, heartbeat.last_ok)
+    error = f": {heartbeat.last_error}" if heartbeat.last_error else ""
+    busy = f" (registering {heartbeat.registering})" if heartbeat.registering else ""
+    if heartbeat.is_stale(now):
+        what = (
+            f"registering {heartbeat.registering} since "
+            f"{_age(now, heartbeat.registering_since)}"
+            if heartbeat.registering
+            else f"last sweep {_age(now, heartbeat.last_sweep)}"
+        )
+        return HeartbeatVerdict(
+            "degraded",
+            f"writer heartbeat stale (pid {heartbeat.pid}, {what}) — down or "
+            "wedged; runs keep spooling",
+            True,
+        )
+    if heartbeat.failed > 0:
+        return HeartbeatVerdict(
+            "failed",
+            f"{heartbeat.failed} run(s) set aside as .failed — an operator's "
+            f"call{error}",
+            False,
+        )
+    if heartbeat.pending >= PENDING_BACKLOG_MIN and heartbeat.backing_off:
+        return HeartbeatVerdict(
+            "failed",
+            f"{heartbeat.pending} runs waiting, {heartbeat.backing_off} backing "
+            f"off after failures{error}",
+            False,
+        )
+    if not heartbeat.tiled_reachable:
+        return HeartbeatVerdict(
+            "degraded",
+            f"Tiled at {heartbeat.tiled_uri} unreachable — {heartbeat.pending} "
+            f"waiting; last registered {last_ok}",
+            False,
+        )
+    if heartbeat.backing_off:
+        return HeartbeatVerdict(
+            "degraded",
+            f"{heartbeat.backing_off} run(s) backing off after a failed "
+            f"registration{busy}{error}",
+            False,
+        )
+    if heartbeat.pending > PENDING_OK_MAX:
+        return HeartbeatVerdict(
+            "degraded",
+            f"{heartbeat.pending} runs waiting to register{busy} — draining "
+            f"at ~25 s each; last registered {last_ok}",
+            False,
+        )
+    return HeartbeatVerdict(
+        "ok",
+        f"writer alive (pid {heartbeat.pid}){busy}; {heartbeat.pending} "
+        f"waiting, {heartbeat.in_progress} in progress; last registered {last_ok}",
+        False,
+    )
 
 
 __all__ = [
@@ -450,8 +599,12 @@ __all__ = [
     "ENV_STATE_DIR",
     "FAILED_SUFFIX",
     "HEARTBEAT_FILE",
+    "HeartbeatVerdict",
+    "PENDING_BACKLOG_MIN",
+    "PENDING_OK_MAX",
     "PENDING_SUFFIX",
     "STALE_AFTER_SWEEPS",
+    "STALE_WHILE_REGISTERING_S",
     "SpoolCallback",
     "SpoolError",
     "SpoolLayout",
@@ -459,6 +612,7 @@ __all__ = [
     "WriterHeartbeat",
     "default_state_dir",
     "encode_line",
+    "heartbeat_verdict",
     "iter_documents",
     "read_heartbeat",
     "run_uid_of",
