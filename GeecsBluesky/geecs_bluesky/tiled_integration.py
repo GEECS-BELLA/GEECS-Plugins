@@ -116,9 +116,16 @@ def subscribe_tiled_spool(run_engine, state_dir: Path | None = None) -> int | No
     ``GEECS_TILED_WRITER_STATE`` variable the units set).
 
     Nothing here reaches the network: whether the catalog is *reachable*
-    is the writer's concern, sweep by sweep.
+    is the writer's concern, sweep by sweep.  A missing or stale writer
+    heartbeat under the state directory is a WARNING here, not a refusal:
+    the runs still spool, and reach Tiled once a writer runs.
     """
-    from geecs_bluesky.tiled_spool import SpoolCallback, SpoolLayout, default_state_dir
+    from geecs_bluesky.tiled_spool import (
+        SpoolCallback,
+        SpoolLayout,
+        default_state_dir,
+        read_heartbeat,
+    )
 
     tiled_uri, _api_key = read_tiled_config()
     if not tiled_uri:
@@ -134,6 +141,13 @@ def subscribe_tiled_spool(run_engine, state_dir: Path | None = None) -> int | No
             exc_info=True,
         )
         return None
+    heartbeat = read_heartbeat(layout.heartbeat_path)
+    if heartbeat is None or heartbeat.is_stale():
+        logger.warning(
+            "no fresh geecs-tiled-writer heartbeat under %s — runs will spool "
+            "there and reach Tiled only once the writer runs",
+            layout.state_dir,
+        )
     token = run_engine.subscribe(
         SafeDocumentCallback(SpoolCallback(layout), label="TiledSpool")
     )

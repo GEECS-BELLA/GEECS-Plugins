@@ -78,9 +78,10 @@ geecs_bluesky/
   tiled_integration.py      # subscribe_tiled_spool (the engine's whole Tiled path) +
                             #   the shared checks (tiled_server_reachable, SafeDocumentCallback)
   tiled_spool.py            # the per-run JSONL spool both sides share: layout, the RE
-                            #   callback, complete/in-progress, read-back
+                            #   callback (+ the run's lock), complete/in-progress, read-back,
+                            #   the heartbeat model + reader (what the scanner and fleet-status read)
   tiled_writer.py           # geecs-tiled-writer: the sweep that registers spooled runs
-                            #   (the stock TiledWriter, stop made concurrent), the heartbeat
+                            #   (the stock TiledWriter, stop made concurrent), the retry policy
   data_paths.py, forward_expr.py, scanner_configs.py, epics_env.py, exceptions.py
   models/shot_control.py    # ShotControlWrites + QUIESCE_FROM (TriggerState names)
   devices/hdf_plugin.py     # the file plugin's worker side (#806): GeecsHdfIO (+Rewind),
@@ -438,13 +439,22 @@ with the writer, 0.26 s without).  Now:
   (`make_concurrent_writer_classes`: the external loop drained in a
   thread pool *before* the stock `stop`, grouped by `<stream>_<key>` so
   a re-prepare's second resource still concatenates in order), then
-  rename `.jsonl.done` (pruned after `--keep-days`).  A file the engine
-  never closed (the worker died) registers after `--orphan-after` with a
-  synthesized `fail` stop; `--max-attempts` failures set a file aside as
-  `.jsonl.failed` for an operator.  Idempotent: an existing container
-  for the uid (a writer that died between registering and renaming) is
-  deleted and registered again from the spool.  Unreachable server →
-  nothing attempted, nothing counted as an attempt.
+  rename `.jsonl.done` (pruned after `--keep-days`).  **Liveness is the
+  engine's lock, not silence**: the engine holds `flock` on the run's
+  file while the run is open (a paused run goes quiet for longer than
+  any deadline), and only a file with no stop that nobody holds
+  registers after `--orphan-after` with a synthesized `fail` stop.  Two
+  failure kinds: a **corrupt file** (a malformed line, no start — an
+  empty file is never a success) is set aside as `.jsonl.failed` at
+  once; **everything else** (Tiled 5xx through a restart, a rotated
+  key, full storage) backs off per run — the sweep interval doubling per
+  attempt, capped at `--max-backoff` — for `--max-attempts` (15, ~75
+  min) before the file is set aside and its half-registered container
+  removed.  Idempotent: an existing container for the uid (a writer
+  that died between registering and renaming, an earlier failed
+  attempt) is deleted and registered again from the spool.
+  Unreachable server → nothing attempted, nothing counted as an
+  attempt.
 - **The spool is the writer's only source.**  Not the live 0MQ stream:
   best-effort by design, and a live + replay pair needs deduplication
   against `create_container(key=uid)` and partial-registration cleanup.

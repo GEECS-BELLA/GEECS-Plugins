@@ -3,9 +3,14 @@
 ## What Is This
 
 Tiled is the persistent scalar/metadata store for all GEECS Bluesky scans.
-Every scan (queue-submitted or headless, on `make_run_engine(tiled=True)`) writes start/stop/event documents
-to a Tiled catalog on the DB server (`192.168.6.14`).  Data is then queryable
-from any Python session on the network without touching the raw data files.
+Every scan (queue-submitted or headless, on `make_run_engine(tiled=True)`)
+spools its start/stop/event documents to a per-run file, and the host's
+`geecs-tiled-writer` service registers each run in the Tiled catalog on
+the DB server (`192.168.6.14`) at its close.  A headless engine on a
+machine with no writer spools and nothing drains it — the engine warns at
+startup when no fresh writer heartbeat is under its state directory.  Data
+is then queryable from any Python session on the network without touching
+the raw data files.
 
 ---
 

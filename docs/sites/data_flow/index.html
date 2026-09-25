@@ -583,9 +583,9 @@ const INFO = {
   "status": "hardening",
   "does": "Every run's start document, per-shot events and stop document, searchable over HTTP. This is where 'what did scan 12 record' is answered without opening files.",
   "how": [
-   "The RunEngine writes through TiledWriter into the catalog on the central server (port 8000, web UI at /ui).",
+   "The RunEngine spools each run's documents to a per-run file on the worker; the geecs-tiled-writer service registers the run in the catalog on the central server (port 8000, web UI at /ui) at its close, off the engine thread.",
    "One read seam, `ScanCatalog` in GEECS-Data-Utils, serves the Data Portal and GEECS-MCP; column semantics live in one schema module so no consumer reinterprets a name.",
-   "After each scan the s-file is exported from Tiled best-effort, which keeps the file-based analysis path fed."
+   "The s-file is written from the run's own rows at its close (no Tiled round trip), which keeps the file-based analysis path fed."
   ],
   "now": "Deployed as a systemd `tiled` service. Scalars and metadata are solid; referenced files are not yet served through it.",
   "next": [

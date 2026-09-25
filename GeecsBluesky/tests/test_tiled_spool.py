@@ -11,6 +11,7 @@ failure never fails the run.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 import pytest
@@ -22,14 +23,19 @@ from geecs_bluesky.tiled_integration import (
 from geecs_bluesky.tiled_spool import (
     DEFAULT_STATE_DIR,
     ENV_STATE_DIR,
+    STALE_AFTER_SWEEPS,
     SpoolCallback,
     SpoolError,
     SpoolLayout,
     SpoolState,
+    WriterHeartbeat,
     default_state_dir,
     iter_documents,
+    read_heartbeat,
     run_uid_of,
+    spool_is_held,
     spool_state,
+    write_heartbeat,
 )
 
 RUN: list[tuple[str, dict]] = [
@@ -156,6 +162,52 @@ def test_unserializable_document_is_loud_and_scoped_to_the_run(
     # r1's file holds exactly the start: the refused document was never half-written.
     r1 = next(p for p in layout.pending_files() if run_uid_of(p) == "r1")
     assert [name for name, _ in iter_documents(r1)] == ["start"]
+
+
+def test_start_the_encoder_refuses_leaves_no_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The line is encoded before the file exists: the writer never meets an empty file."""
+    layout, spool = _spool(tmp_path)
+    safe = SafeDocumentCallback(spool, label="TiledSpool")
+    with caplog.at_level(logging.ERROR):
+        safe("start", {"uid": "r1", "time": 1.0, "md": {"bad": object()}})
+        safe(
+            "stop",
+            {"uid": "s", "run_start": "r1", "time": 2.0, "exit_status": "success"},
+        )
+        safe("start", {"uid": "r2", "time": 3.0})
+        safe(
+            "stop",
+            {"uid": "s2", "run_start": "r2", "time": 4.0, "exit_status": "success"},
+        )
+    assert [run_uid_of(p) for p in layout.pending_files()] == ["r2"]
+    assert (
+        "TiledSpool failed while handling start document during run r1" in caplog.text
+    )
+
+
+def test_run_file_is_held_while_the_run_is_open(tmp_path: Path) -> None:
+    """The engine's lock is the writer's liveness signal for an unfinished file."""
+    pytest.importorskip("fcntl")
+    layout, spool = _spool(tmp_path)
+    spool(*RUN[0])
+    (path,) = layout.pending_files()
+    assert spool_is_held(path) is True
+    spool(*RUN[1])
+    assert spool_is_held(path) is True
+    spool(*RUN[3])  # the stop closes the file and releases the lock
+    assert spool_is_held(path) is False
+
+
+def test_abandoned_run_releases_its_lock(tmp_path: Path) -> None:
+    pytest.importorskip("fcntl")
+    layout, spool = _spool(tmp_path)
+    spool("start", {"uid": "r", "time": 1.0})
+    (path,) = layout.pending_files()
+    with pytest.raises(TypeError):
+        spool("event", {"uid": "e", "data": {"bad": object()}})
+    assert spool_is_held(path) is False
 
 
 def test_nested_start_is_refused(tmp_path: Path) -> None:
@@ -299,6 +351,34 @@ def test_subscribe_tiled_spool_never_opens_a_socket(
     assert spool_state(layout.pending_files()[0]) is SpoolState.COMPLETE
 
 
+def test_subscribe_tiled_spool_warns_without_a_fresh_writer_heartbeat(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A headless engine spooling with no writer to drain it is told so (a warning, never a refusal)."""
+    monkeypatch.setattr(
+        "geecs_bluesky.tiled_integration.read_tiled_config",
+        lambda: ("http://192.0.2.1:8000", None),
+    )
+    layout = SpoolLayout(tmp_path / "state")
+    with caplog.at_level(logging.WARNING):
+        assert subscribe_tiled_spool(_Engine(), layout.state_dir) == 1
+    assert "no fresh geecs-tiled-writer heartbeat" in caplog.text
+    caplog.clear()
+    fresh = WriterHeartbeat(
+        pid=1,
+        version="x",
+        started_at=0.0,
+        last_sweep=time.time(),
+        sweep_interval=2.0,
+        tiled_uri="u",
+        tiled_reachable=True,
+    )
+    write_heartbeat(layout.heartbeat_path, fresh)
+    with caplog.at_level(logging.WARNING):
+        assert subscribe_tiled_spool(_Engine(), layout.state_dir) == 1
+    assert "heartbeat" not in caplog.text
+
+
 def test_subscribe_tiled_spool_reads_the_state_variable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -342,3 +422,44 @@ def test_make_run_engine_tiled_spools_and_never_builds_a_tiled_client(
     assert spool_state(path) is SpoolState.COMPLETE
     names = [name for name, _ in iter_documents(path)]
     assert names[0] == "start" and names[-1] == "stop"
+
+
+# ---------------------------------------------------------------------------
+# The writer's heartbeat (written by the service, read here by everyone else)
+# ---------------------------------------------------------------------------
+
+
+def test_heartbeat_round_trip_atomic_and_staleness(tmp_path: Path) -> None:
+    path = tmp_path / "heartbeat.json"
+    heartbeat = WriterHeartbeat(
+        pid=1,
+        version="0.103.0",
+        started_at=100.0,
+        last_sweep=200.0,
+        sweep_interval=2.0,
+        tiled_uri="http://tiled.test:8000",
+        tiled_reachable=True,
+        last_ok=150.0,
+    )
+    write_heartbeat(path, heartbeat)
+    assert not path.with_name("heartbeat.json.tmp").exists()
+    assert read_heartbeat(path) == heartbeat
+    assert heartbeat.is_stale(now=200.0 + STALE_AFTER_SWEEPS * 2.0) is False
+    assert heartbeat.is_stale(now=200.0 + STALE_AFTER_SWEEPS * 2.0 + 0.1) is True
+
+
+def test_heartbeat_reader_tolerates_absence_and_newer_fields(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    path = tmp_path / "heartbeat.json"
+    assert read_heartbeat(path) is None
+    path.write_text(
+        '{"pid": 1, "version": "x", "started_at": 1, "last_sweep": 2, '
+        '"sweep_interval": 2.0, "tiled_uri": "u", "tiled_reachable": true, '
+        '"a_field_from_the_future": 42}'
+    )
+    assert read_heartbeat(path) is not None
+    path.write_text("{not json")
+    with caplog.at_level(logging.WARNING):
+        assert read_heartbeat(path) is None
+    assert "unreadable" in caplog.text

@@ -4,19 +4,30 @@ The service half of :mod:`geecs_bluesky.tiled_spool`.  Every few seconds
 it sweeps the spool directory: complete files (last line a ``stop``) are
 replayed, oldest first, through the stock ``TiledWriter`` — with the
 stop-time dataset registration made concurrent
-(:class:`ConcurrentRunWriter`) — and renamed ``.done``; a file the engine
-never finished (the worker died mid-run) is registered after
+(:func:`make_concurrent_writer_classes`) — and renamed ``.done``.  A file
+with no stop whose engine no longer holds it (the worker died mid-run;
+:func:`~geecs_bluesky.tiled_spool.spool_is_held`) is registered after
 ``--orphan-after`` seconds of silence with a synthesized ``fail`` stop; a
-file that fails ``--max-attempts`` times is renamed ``.failed`` and left
-for an operator.  Between sweeps it writes ``heartbeat.json``: liveness,
-backlog, the last error.  **Nothing reads the heartbeat to refuse a run**
-— with the spool a dead writer loses nothing, so the heartbeat is a
-warning surface (the scanner's status, ``fleet_status.sh``), never a gate.
+held file is a live run, however long it stays quiet.  Between sweeps it
+writes ``heartbeat.json``: liveness, backlog, the last error.  **Nothing
+reads the heartbeat to refuse a run** — with the spool a dead writer
+loses nothing, so the heartbeat is a warning surface (the scanner's
+status, ``fleet_status.sh``), never a gate.
+
+Two kinds of failure, treated differently.  A **corrupt file** (a
+malformed line before the last, no start document) will not heal: it is
+set aside as ``.jsonl.failed`` at once, for an operator.  Everything else
+— Tiled answering 5xx through a restart, a rotated key, full storage, a
+transient — is retried per run with **exponential backoff** (the sweep
+interval doubling per attempt, capped at ``--max-backoff``) for
+``--max-attempts`` attempts, roughly an hour and a quarter at the
+defaults, before the file is set aside and any half-registered
+container removed.  The spool is durable; giving up early gains nothing.
 
 Idempotent by construction: before a replay the run's container is
 looked up and, when present (a writer that died between registering and
-renaming), deleted and registered again from the spool, which holds the
-whole record.
+renaming, or an earlier failed attempt), deleted and registered again
+from the spool, which holds the whole record.
 
 Run it as ``geecs-tiled-writer`` (the console script; the unit template
 lives beside the qserver's) or ``geecs-tiled-writer --once`` for one
@@ -26,7 +37,6 @@ sweep from a shell.
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import signal
@@ -34,7 +44,6 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -44,36 +53,40 @@ from geecs_bluesky.tiled_spool import (
     SpoolError,
     SpoolLayout,
     SpoolState,
+    WriterHeartbeat,
     default_state_dir,
     iter_documents,
     run_uid_of,
+    spool_is_held,
     spool_state,
+    write_heartbeat,
 )
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_SWEEP_INTERVAL_S = 2.0
 DEFAULT_KEEP_DAYS = 7.0
-DEFAULT_MAX_ATTEMPTS = 3
+#: Attempts before a run that keeps failing at Tiled is set aside.  With
+#: the backoff doubling from the sweep interval and capped at
+#: :data:`DEFAULT_MAX_BACKOFF_S`, fifteen attempts span ~75 minutes — a
+#: Tiled restart or migration, not a blip.
+DEFAULT_MAX_ATTEMPTS = 15
+DEFAULT_MAX_BACKOFF_S = 600.0
 DEFAULT_ORPHAN_AFTER_S = 30 * 60.0
 #: Concurrent stop-time registrations.  Tiled's catalog is SQLite: a
 #: handful of writers overlap their HTTP round trips without contending
 #: for the write lock the way dozens would.
 DEFAULT_MAX_WORKERS = 4
 
-#: A heartbeat older than this many sweep intervals is stale (the writer
-#: is down or wedged).
-STALE_AFTER_SWEEPS = 3
-
 
 # ── the concurrent stop ──────────────────────────────────────────────────
 
 
-def _load_tiled_writer_classes() -> tuple[type, type, int]:
-    """``(TiledWriter, _RunWriter, BATCH_SIZE)`` — imported lazily (tiled extra)."""
-    from bluesky.callbacks.tiled_writer import BATCH_SIZE, TiledWriter, _RunWriter
+def _load_tiled_writer_classes() -> tuple[type, type]:
+    """``(TiledWriter, _RunWriter)`` — imported lazily (the tiled extra)."""
+    from bluesky.callbacks.tiled_writer import TiledWriter, _RunWriter
 
-    return TiledWriter, _RunWriter, BATCH_SIZE
+    return TiledWriter, _RunWriter
 
 
 def external_groups(
@@ -104,12 +117,13 @@ def make_concurrent_writer_classes(max_workers: int = DEFAULT_MAX_WORKERS):
 
     Built on demand rather than at import so the module imports without
     the ``tiled`` extra (the engine side never needs it).  Pinned to the
-    stock ``_RunWriter.stop`` structure of bluesky 1.15: the external
-    loop is drained concurrently *before* the stock ``stop`` runs, which
-    then finds the cache empty and does the rest (internal tables, the
-    validation pass, the stop metadata) unchanged.
+    stock ``_RunWriter.stop`` structure of bluesky 1.15 (the structure
+    test in ``tests/test_tiled_writer.py`` fails loud on a restructure):
+    the external loop is drained concurrently *before* the stock ``stop``
+    runs, which then finds the cache empty and does the rest (internal
+    tables, the validation pass, the stop metadata) unchanged.
     """
-    TiledWriter, _RunWriter, BATCH_SIZE = _load_tiled_writer_classes()
+    TiledWriter, _RunWriter = _load_tiled_writer_classes()
     # A class body cannot read a closure variable it also assigns.
     workers_wanted = max_workers
 
@@ -162,64 +176,6 @@ def make_concurrent_writer_classes(max_workers: int = DEFAULT_MAX_WORKERS):
     return ConcurrentTiledWriter, ConcurrentRunWriter
 
 
-# ── the heartbeat ────────────────────────────────────────────────────────
-
-
-@dataclass
-class WriterHeartbeat:
-    """What the writer says about itself between sweeps (``heartbeat.json``)."""
-
-    pid: int
-    version: str
-    started_at: float
-    last_sweep: float
-    sweep_interval: float
-    tiled_uri: str
-    tiled_reachable: bool
-    last_ok: float | None = None
-    last_error: str | None = None
-    pending: int = 0
-    in_progress: int = 0
-    failed: int = 0
-    done: int = 0
-    registered: list[str] = field(default_factory=list)
-
-    def is_stale(self, now: float | None = None) -> bool:
-        """Whether the writer has missed :data:`STALE_AFTER_SWEEPS` sweeps."""
-        now = time.time() if now is None else now
-        return now - self.last_sweep > STALE_AFTER_SWEEPS * self.sweep_interval
-
-    def to_json(self) -> str:
-        """The file's content."""
-        return json.dumps(asdict(self), indent=2, sort_keys=True)
-
-    @classmethod
-    def from_json(cls, text: str) -> WriterHeartbeat:
-        """Parse a heartbeat file; unknown keys are ignored (a newer writer)."""
-        raw = json.loads(text)
-        known = {f for f in cls.__dataclass_fields__}
-        return cls(**{k: v for k, v in raw.items() if k in known})
-
-
-def write_heartbeat(path: Path, heartbeat: WriterHeartbeat) -> None:
-    """Atomic write (temp file + rename): a reader never sees a torn file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(heartbeat.to_json(), encoding="utf-8")
-    os.replace(tmp, path)
-
-
-def read_heartbeat(path: Path) -> WriterHeartbeat | None:
-    """The heartbeat on disk, or ``None`` when there is none (never ran here)."""
-    try:
-        return WriterHeartbeat.from_json(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return None
-    except (ValueError, TypeError) as exc:
-        logger.warning("%s unreadable: %s", path, exc)
-        return None
-
-
 # ── the registrar ────────────────────────────────────────────────────────
 
 
@@ -266,6 +222,9 @@ class SpoolRegistrar:
         ``uri -> bool``; the bounded TCP pre-check by default.  An
         unreachable server skips every replay this sweep (the backlog
         waits; nothing is counted as an attempt).
+    held :
+        ``path -> bool``; whether the engine still holds a file open
+        (:func:`~geecs_bluesky.tiled_spool.spool_is_held`).
     clock :
         ``time.time`` unless a test says otherwise.
     """
@@ -279,9 +238,11 @@ class SpoolRegistrar:
         writer_factory: Callable[[Any], Callable[[str, dict], None]] | None = None,
         client_factory: Callable[[], Any] | None = None,
         reachable: Callable[[str], bool] | None = None,
+        held: Callable[[Path], bool] = spool_is_held,
         sweep_interval: float = DEFAULT_SWEEP_INTERVAL_S,
         keep_days: float = DEFAULT_KEEP_DAYS,
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        max_backoff_s: float = DEFAULT_MAX_BACKOFF_S,
         orphan_after_s: float = DEFAULT_ORPHAN_AFTER_S,
         max_workers: int = DEFAULT_MAX_WORKERS,
         clock: Callable[[], float] = time.time,
@@ -296,14 +257,17 @@ class SpoolRegistrar:
 
             reachable = tiled_server_reachable
         self._reachable = reachable
+        self._held = held
         self.sweep_interval = float(sweep_interval)
         self.keep_days = float(keep_days)
         self.max_attempts = int(max_attempts)
+        self.max_backoff_s = float(max_backoff_s)
         self.orphan_after_s = float(orphan_after_s)
         self.max_workers = int(max_workers)
         self._clock = clock
         self._client: Any = None
         self._attempts: dict[str, int] = {}
+        self._next_attempt: dict[str, float] = {}
         self._started_at = clock()
         self._last_ok: float | None = None
         self._last_error: str | None = None
@@ -347,6 +311,9 @@ class SpoolRegistrar:
                 continue
             if state is SpoolState.COMPLETE:
                 complete.append((path, False))
+            elif self._held(path):
+                # The engine holds it: a live run, paused or long — alive.
+                in_progress += 1
             elif now - path.stat().st_mtime > self.orphan_after_s:
                 complete.append(
                     (path, True)
@@ -356,6 +323,9 @@ class SpoolRegistrar:
         reachable = self._reachable(self.tiled_uri)
         if reachable:
             for path, orphan in complete:
+                run_uid = run_uid_of(path)
+                if self._next_attempt.get(run_uid, 0.0) > now:
+                    continue  # waiting out its backoff; still pending
                 self._register(path, orphan=orphan, now=now)
         elif complete:
             self._last_error = (
@@ -403,15 +373,20 @@ class SpoolRegistrar:
             self._delete_existing(client, run_uid)
             writer = self._writer_factory(client)
             count = 0
-            saw_stop = False
+            saw_start = saw_stop = False
             for name, doc in iter_documents(path):
                 if name == "start":
+                    saw_start = True
                     scan = doc.get("scan_number")
                     if scan is not None:
                         label = f"Scan{int(scan):03d} ({run_uid})"
                 writer(name, doc)
                 count += 1
                 saw_stop = name == "stop"
+            if not saw_start:
+                raise SpoolError(
+                    f"{path.name}: no start document — nothing to register"
+                )
             if not saw_stop:
                 writer("stop", synthesized_stop(run_uid, at=path.stat().st_mtime))
                 logger.warning(
@@ -420,33 +395,33 @@ class SpoolRegistrar:
                     label,
                     " (orphan)" if orphan else "",
                 )
+        except SpoolError as exc:
+            # The file itself is the problem; a retry reads the same bytes.
+            self._set_aside(path, run_uid, label, exc, attempts=None)
+            return
         except Exception as exc:
             self._client = None  # a fresh client next time: the old one may be wedged
             attempts = self._attempts.get(run_uid, 0) + 1
             self._attempts[run_uid] = attempts
             self._last_error = f"{label}: {type(exc).__name__}: {exc}"
             if attempts >= self.max_attempts:
-                failed = path.with_name(path.name[: -len(".jsonl")] + FAILED_SUFFIX)
-                path.rename(failed)
-                logger.error(
-                    "%s: registration failed %d time(s) — giving up, kept as %s",
-                    label,
-                    attempts,
-                    failed.name,
-                    exc_info=True,
-                )
-            else:
-                logger.warning(
-                    "%s: registration failed (attempt %d of %d): %s",
-                    label,
-                    attempts,
-                    self.max_attempts,
-                    exc,
-                    exc_info=True,
-                )
+                self._set_aside(path, run_uid, label, exc, attempts=attempts)
+                return
+            delay = min(self.sweep_interval * (2**attempts), self.max_backoff_s)
+            self._next_attempt[run_uid] = self._clock() + delay
+            logger.warning(
+                "%s: registration failed (attempt %d of %d) — next try in %.0f s: %s",
+                label,
+                attempts,
+                self.max_attempts,
+                delay,
+                exc,
+                exc_info=True,
+            )
             return
         path.rename(path.with_name(path.name[: -len(".jsonl")] + DONE_SUFFIX))
         self._attempts.pop(run_uid, None)
+        self._next_attempt.pop(run_uid, None)
         self._last_ok = self._clock()
         self._done += 1
         self._registered.append(run_uid)
@@ -456,6 +431,46 @@ class SpoolRegistrar:
             time.monotonic() - started,
             count,
         )
+
+    def _set_aside(
+        self,
+        path: Path,
+        run_uid: str,
+        label: str,
+        exc: BaseException,
+        *,
+        attempts: int | None,
+    ) -> None:
+        """Rename ``.failed``, drop a half-registered container, say so loudly."""
+        failed = path.with_name(path.name[: -len(".jsonl")] + FAILED_SUFFIX)
+        path.rename(failed)
+        self._attempts.pop(run_uid, None)
+        self._next_attempt.pop(run_uid, None)
+        self._last_error = (
+            f"{label}: set aside as {failed.name}: {type(exc).__name__}: {exc}"
+        )
+        try:
+            self._delete_existing(self._get_client(), run_uid)
+        except Exception as cleanup_exc:  # noqa: BLE001 - best effort, reported
+            logger.warning(
+                "%s: a partial container may remain in Tiled (%s)", label, cleanup_exc
+            )
+            self._client = None
+        if attempts is None:
+            logger.error(
+                "%s: the spool file cannot be registered from — kept as %s: %s",
+                label,
+                failed.name,
+                exc,
+            )
+        else:
+            logger.error(
+                "%s: registration failed %d time(s) — giving up, kept as %s",
+                label,
+                attempts,
+                failed.name,
+                exc_info=exc,
+            )
 
     def _delete_existing(self, client: Any, run_uid: str) -> None:
         """A container left by an earlier attempt goes; the spool holds the whole record."""
@@ -478,8 +493,6 @@ class SpoolRegistrar:
         while not stop.is_set():
             try:
                 self.sweep()
-            except SpoolError:
-                logger.exception("sweep aborted by a corrupt spool file")
             except Exception:
                 logger.exception("sweep failed")
             stop.wait(self.sweep_interval)
@@ -519,13 +532,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-attempts",
         type=int,
         default=DEFAULT_MAX_ATTEMPTS,
-        help="registration failures before a run is set aside as .failed",
+        help="registration failures (on the backoff schedule) before a run is set aside as .failed",
+    )
+    parser.add_argument(
+        "--max-backoff",
+        type=float,
+        default=DEFAULT_MAX_BACKOFF_S,
+        help="longest wait between two attempts on one run, seconds",
     )
     parser.add_argument(
         "--orphan-after",
         type=float,
         default=DEFAULT_ORPHAN_AFTER_S,
-        help="seconds of silence before an unfinished run is registered as failed",
+        help="seconds of silence before an unfinished run its engine no longer holds is registered as failed",
     )
     parser.add_argument(
         "--max-workers",
@@ -568,6 +587,7 @@ def main(argv: list[str] | None = None) -> int:
         sweep_interval=args.sweep_interval,
         keep_days=args.keep_days,
         max_attempts=args.max_attempts,
+        max_backoff_s=args.max_backoff,
         orphan_after_s=args.orphan_after,
         max_workers=args.max_workers,
     )
@@ -596,15 +616,13 @@ def main(argv: list[str] | None = None) -> int:
 
 
 __all__ = [
+    "DEFAULT_MAX_ATTEMPTS",
+    "DEFAULT_MAX_BACKOFF_S",
     "DEFAULT_MAX_WORKERS",
-    "STALE_AFTER_SWEEPS",
     "SpoolRegistrar",
-    "WriterHeartbeat",
     "build_parser",
     "external_groups",
     "main",
     "make_concurrent_writer_classes",
-    "read_heartbeat",
     "synthesized_stop",
-    "write_heartbeat",
 ]

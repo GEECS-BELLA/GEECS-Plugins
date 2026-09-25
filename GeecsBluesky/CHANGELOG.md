@@ -23,14 +23,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   deploy PR) registers each complete file through the stock writer with the
   stop-time registrations made **concurrent** (`make_concurrent_writer_classes`).
   The spool is the writer's only source (not the best-effort 0MQ stream);
-  a run appears in Tiled at its close plus a few seconds. Orphaned files
-  (the worker died mid-run) register after `--orphan-after` with a
-  synthesized `fail` stop; `--max-attempts` failures set a file aside as
-  `.jsonl.failed`; an existing container for the uid is deleted and
-  registered again, so a writer restart is idempotent. The writer's
-  `heartbeat.json` (liveness, reachability, backlog, the sweep's last
-  error) is a warning surface for the scanner and `fleet_status.sh`,
-  **never a gate** — with the spool a dead writer loses nothing.
+  a run appears in Tiled at its close plus a few seconds. The engine holds
+  an advisory lock on the run's file while the run is open, and that —
+  not silence — is how the writer tells a live run (paused for an hour, a
+  long count) from an orphan: a file with no stop whose engine no longer
+  holds it registers after `--orphan-after` with a synthesized `fail`
+  stop. A corrupt file (a malformed line, no start document — an empty
+  file is never a success) is set aside as `.jsonl.failed` at once; any
+  other failure (Tiled answering 5xx through a restart, a rotated key)
+  is retried per run with exponential backoff, `--max-attempts` (15,
+  ~75 min at the defaults, cap `--max-backoff`) before the file is set
+  aside and its half-registered container removed. An existing container
+  for the uid is deleted and registered again, so a writer restart is
+  idempotent. The writer's `heartbeat.json` (liveness, reachability,
+  backlog, the sweep's last error; the model and reader live in
+  `tiled_spool`, the shared module) is a warning surface for the scanner
+  and `fleet_status.sh`, **never a gate** — with the spool a dead writer
+  loses nothing; the engine warns at subscribe when no fresh heartbeat
+  is under the state directory. One consequence of the JSON hop: a
+  replayed table's numpy scalar columns come back at the Python width
+  (`float32` → `float64`, `int16` → `int64`), whatever the descriptor's
+  `dtype_numpy` says — harmless to the s-file export and the portal.
 - `tiled_integration.subscribe_tiled` (the in-process writer) is gone —
   `subscribe_tiled_spool` replaces it; `make_run_engine` drops the
   `tiled_uri` / `tiled_api_key` arguments nothing passed. The

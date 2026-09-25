@@ -25,13 +25,25 @@ the units set it explicitly — see :func:`default_state_dir`)::
 
     <state>/spool/<start time>-<run uid>.jsonl          being written / awaiting registration
     <state>/spool/<start time>-<run uid>.jsonl.done     registered (pruned after --keep-days)
-    <state>/spool/<start time>-<run uid>.jsonl.failed   gave up after --max-attempts; an operator's call
+    <state>/spool/<start time>-<run uid>.jsonl.failed   set aside (corrupt, or gave up); an operator's call
     <state>/heartbeat.json                              the writer's liveness + backlog
 
 A file is *complete* when its last line is a ``stop`` document.  The engine
 flushes every line (a worker that dies mid-run leaves every document it
 emitted) and calls ``fsync`` once at the stop, so a complete file is
-durable before the run is reported finished.
+durable before the run is reported finished.  While a run is open the
+engine **holds an advisory lock** on its file (``flock``): that, not
+silence, is how the writer tells a live run — paused for an hour, or a
+long count — from one whose worker died (:func:`spool_is_held`).
+
+The line format is the stock ``bluesky.callbacks.json_writer`` one,
+``{"name": ..., "doc": ...}`` per line, so any bluesky JSON Lines reader
+opens a spool file; what the stock writer lacks is the numpy-aware
+encoder, the flush-per-document, the fsync and the completeness mark.
+
+The writer's heartbeat model lives here too (:class:`WriterHeartbeat`,
+:func:`read_heartbeat`): the scanner and ``fleet_status.sh`` read it, and
+a reader of a JSON file has no business importing the service loop.
 """
 
 from __future__ import annotations
@@ -39,10 +51,17 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from collections.abc import Iterator, Mapping
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import IO, Any, Callable
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows: no advisory locks
+    fcntl = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +79,10 @@ PENDING_SUFFIX = ".jsonl"
 DONE_SUFFIX = ".jsonl.done"
 FAILED_SUFFIX = ".jsonl.failed"
 
+#: A heartbeat older than this many sweep intervals is stale (the writer
+#: is down or wedged).
+STALE_AFTER_SWEEPS = 3
+
 #: How much of a file's tail :func:`spool_state` reads to find its last
 #: line — a stop document is a few hundred bytes; 64 KiB covers any
 #: document the engine emits last.
@@ -67,7 +90,7 @@ _TAIL_BYTES = 64 * 1024
 
 
 class SpoolError(RuntimeError):
-    """A spool file that cannot be read back (a malformed line before the last)."""
+    """A spool file that cannot be registered from (corrupt, or without a start)."""
 
 
 class SpoolState(str, Enum):
@@ -141,7 +164,7 @@ class SpoolLayout:
         )
 
     def failed_files(self) -> list[Path]:
-        """Every file the writer gave up on."""
+        """Every file the writer set aside."""
         if not self.spool_dir.is_dir():
             return []
         return sorted(
@@ -165,7 +188,9 @@ def _json_default(value: Any) -> Any:
 
     numpy scalars and arrays (readings), ``Path`` (a provider's directory).
     Anything else is a real error — a document the writer could not
-    replay faithfully must not be spooled as its ``repr``.
+    replay faithfully must not be spooled as its ``repr``.  A numpy scalar
+    comes back as the Python type (``float32`` → ``float``): the replayed
+    table's dtype is the wide one, whatever ``dtype_numpy`` said.
     """
     try:
         import numpy as np
@@ -186,14 +211,47 @@ def encode_line(name: str, doc: Mapping[str, Any]) -> str:
     return json.dumps({"name": name, "doc": doc}, default=_json_default) + "\n"
 
 
+def _hold(fh: IO[str]) -> None:
+    """Take the run's advisory lock on its open file (released by close)."""
+    if fcntl is not None:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def spool_is_held(path: Path) -> bool:
+    """Whether the engine still holds *path* open for a run (its advisory lock).
+
+    The writer's liveness test for a file with no stop: a paused run and a
+    long count both go silent for longer than any deadline, but the engine
+    holds the lock until the stop is written or the process dies.  Without
+    advisory locks (Windows) every file reads as not held and the writer
+    falls back to the silence deadline alone.
+    """
+    if fcntl is None:  # pragma: no cover - Windows
+        return False
+    try:
+        fh = open(path, "rb")
+    except OSError:
+        return False
+    with fh:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except OSError:
+            return True
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        return False
+
+
 class SpoolCallback:
     """The engine-side RunEngine callback: one JSON Lines file per run.
 
-    ``start`` opens the run's file; every document is written and flushed
-    (the OS holds it from then on — a dying worker loses nothing it
-    emitted); ``stop`` is written, fsynced and the file closed.  One
-    run at a time: the plans here never nest runs, and a second ``start``
-    while a file is open is an error rather than a silent second file.
+    ``start`` opens the run's file and takes its lock; every document is
+    written and flushed (the OS holds it from then on — a dying worker
+    loses nothing it emitted); ``stop`` is written, fsynced and the file
+    closed, which releases the lock.  A start the encoder refuses leaves
+    no file behind (the line is encoded before the file exists), so the
+    writer never meets an empty file.  One run at a time: the plans here
+    never nest runs, and a second ``start`` while a file is open is an
+    error rather than a silent second file.
 
     Subscribed through :class:`~geecs_bluesky.tiled_integration.SafeDocumentCallback`,
     so a spool failure (disk full, a document the encoder refuses) is
@@ -217,16 +275,8 @@ class SpoolCallback:
     def __call__(self, name: str, doc: Mapping[str, Any]) -> None:
         """Spool one document."""
         if name == "start":
-            if self._file is not None:
-                self._abandon()
-                raise SpoolError(
-                    f"start of run {doc.get('uid')} while run {self._run_uid} is "
-                    "still open — nested runs are not spooled"
-                )
-            self._layout.ensure()
-            path = self._layout.file_for(str(doc["uid"]), float(doc.get("time", 0.0)))
-            self._file = open(path, "w", encoding="utf-8")
-            self._run_uid = str(doc["uid"])
+            self._open(doc)
+            return
         if self._file is None:
             raise SpoolError(f"{name} document with no run open (run {self._run_uid})")
         try:
@@ -236,14 +286,37 @@ class SpoolCallback:
                 self._fsync(self._file.fileno())
         except Exception:
             # Whatever went wrong, this run's file is not going to be
-            # completed by us: close it so the writer never sees a complete
-            # file that the engine kept appending to after a failure.
+            # completed by us: close it (releasing the lock) so the writer
+            # sees an unfinished run, never a complete file the engine
+            # kept appending to after a failure.
             self._abandon()
             raise
         if name == "stop":
             self._file.close()
             self._file = None
             self._run_uid = None
+
+    def _open(self, doc: Mapping[str, Any]) -> None:
+        if self._file is not None:
+            self._abandon()
+            raise SpoolError(
+                f"start of run {doc.get('uid')} while run {self._run_uid} is "
+                "still open — nested runs are not spooled"
+            )
+        line = encode_line("start", doc)  # before the file exists
+        self._layout.ensure()
+        path = self._layout.file_for(str(doc["uid"]), float(doc.get("time", 0.0)))
+        fh = open(path, "w", encoding="utf-8")
+        try:
+            _hold(fh)
+            fh.write(line)
+            fh.flush()
+        except Exception:
+            fh.close()
+            path.unlink(missing_ok=True)
+            raise
+        self._file = fh
+        self._run_uid = str(doc["uid"])
 
     def _abandon(self) -> None:
         if self._file is not None:
@@ -313,6 +386,64 @@ def iter_documents(path: Path) -> Iterator[tuple[str, dict[str, Any]]]:
         yield str(name), dict(doc)
 
 
+# ── the writer's heartbeat (written by the service, read by everyone else) ──
+
+
+@dataclass
+class WriterHeartbeat:
+    """What the writer says about itself between sweeps (``heartbeat.json``)."""
+
+    pid: int
+    version: str
+    started_at: float
+    last_sweep: float
+    sweep_interval: float
+    tiled_uri: str
+    tiled_reachable: bool
+    last_ok: float | None = None
+    last_error: str | None = None
+    pending: int = 0
+    in_progress: int = 0
+    failed: int = 0
+    done: int = 0
+    registered: list[str] = field(default_factory=list)
+
+    def is_stale(self, now: float | None = None) -> bool:
+        """Whether the writer has missed :data:`STALE_AFTER_SWEEPS` sweeps."""
+        now = time.time() if now is None else now
+        return now - self.last_sweep > STALE_AFTER_SWEEPS * self.sweep_interval
+
+    def to_json(self) -> str:
+        """The file's content."""
+        return json.dumps(asdict(self), indent=2, sort_keys=True)
+
+    @classmethod
+    def from_json(cls, text: str) -> WriterHeartbeat:
+        """Parse a heartbeat file; unknown keys are ignored (a newer writer)."""
+        raw = json.loads(text)
+        known = {f for f in cls.__dataclass_fields__}
+        return cls(**{k: v for k, v in raw.items() if k in known})
+
+
+def write_heartbeat(path: Path, heartbeat: WriterHeartbeat) -> None:
+    """Atomic write (temp file + rename): a reader never sees a torn file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(heartbeat.to_json(), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def read_heartbeat(path: Path) -> WriterHeartbeat | None:
+    """The heartbeat on disk, or ``None`` when there is none (never ran here)."""
+    try:
+        return WriterHeartbeat.from_json(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (ValueError, TypeError) as exc:
+        logger.warning("%s unreadable: %s", path, exc)
+        return None
+
+
 __all__ = [
     "DEFAULT_STATE_DIR",
     "DONE_SUFFIX",
@@ -320,13 +451,18 @@ __all__ = [
     "FAILED_SUFFIX",
     "HEARTBEAT_FILE",
     "PENDING_SUFFIX",
+    "STALE_AFTER_SWEEPS",
     "SpoolCallback",
     "SpoolError",
     "SpoolLayout",
     "SpoolState",
+    "WriterHeartbeat",
     "default_state_dir",
     "encode_line",
     "iter_documents",
+    "read_heartbeat",
     "run_uid_of",
+    "spool_is_held",
     "spool_state",
+    "write_heartbeat",
 ]

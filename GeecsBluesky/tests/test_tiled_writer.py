@@ -1,14 +1,17 @@
-"""geecs-tiled-writer: the sweep, the heartbeat, the concurrent stop.
+"""geecs-tiled-writer: the sweep, the retry policy, the concurrent stop.
 
-Hermetic: the Tiled client and the writer callback are fakes.  What the
+Hermetic: the Tiled client and the writer callback are fakes (the real
+catalog round trip is ``test_tiled_writer_catalog.py``, opt-in).  What the
 service promises — replay in order, mark done, leave an unfinished run
-alone until its stop lands (or the orphan deadline passes), attempt
-nothing while the server is unreachable, retry then set aside, register
-idempotently, prune, and say all of it in the heartbeat.
+alone while its engine holds it or until the orphan deadline, attempt
+nothing while the server is unreachable, back off then set aside,
+set a corrupt file aside at once, register idempotently, prune, and say
+all of it in the heartbeat.
 """
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 import socket
@@ -23,18 +26,16 @@ from geecs_bluesky.tiled_spool import (
     SpoolLayout,
     SpoolState,
     encode_line,
+    read_heartbeat,
     run_uid_of,
+    spool_is_held,
     spool_state,
 )
 from geecs_bluesky.tiled_writer import (
-    STALE_AFTER_SWEEPS,
     SpoolRegistrar,
-    WriterHeartbeat,
     external_groups,
     main,
-    read_heartbeat,
     synthesized_stop,
-    write_heartbeat,
 )
 
 URI = "http://tiled.test:8000"
@@ -147,6 +148,9 @@ def _registrar(layout: SpoolLayout, recorder: _Recorder, **kwargs) -> SpoolRegis
     client = kwargs.pop("client", None) or _FakeClient()
     kwargs.setdefault("clock", _Clock())
     kwargs.setdefault("reachable", lambda uri: True)
+    # Liveness is asserted explicitly where it matters (the lock tests);
+    # everywhere else no engine holds anything.
+    kwargs.setdefault("held", lambda path: False)
     if clients is None:
         clients = []
     kwargs.setdefault("client_factory", lambda: clients.append(client) or client)
@@ -248,6 +252,30 @@ def test_unfinished_file_younger_than_the_deadline_is_not_an_orphan(
     assert recorder.calls == [] and heartbeat.in_progress == 1
 
 
+def test_held_file_is_a_live_run_however_long_it_is_quiet(tmp_path: Path) -> None:
+    """A paused run goes silent past any deadline; the engine's lock says it is alive."""
+    fcntl = pytest.importorskip("fcntl")
+    layout = SpoolLayout(tmp_path)
+    path = _write(layout, _docs("run-l", 1000.0)[:-1])
+    clock = _Clock()
+    old = clock.now - 7200.0
+    os.utime(path, (old, old))
+    engine = open(path, "a")  # the engine's handle, lock held for the run
+    fcntl.flock(engine.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    recorder = _Recorder()
+    registrar = _registrar(
+        layout, recorder, clock=clock, orphan_after_s=1800.0, held=spool_is_held
+    )
+    try:
+        heartbeat = registrar.sweep()
+        assert recorder.calls == [] and heartbeat.in_progress == 1
+        assert layout.pending_files() == [path]  # not renamed under the engine
+    finally:
+        engine.close()  # the worker exits: the lock goes with it
+    heartbeat = registrar.sweep()
+    assert heartbeat.done == 1 and recorder.calls[-1][1]["exit_status"] == "fail"
+
+
 def test_synthesized_stop_is_schema_valid() -> None:
     """The writer's normalizer validates every document; a synthesized stop must pass."""
     event_model = pytest.importorskip("event_model")
@@ -277,45 +305,135 @@ def test_unreachable_server_attempts_nothing_and_counts_no_attempt(
     assert heartbeat.last_error is None
 
 
-def test_failures_retry_then_set_the_run_aside(
+# ---------------------------------------------------------------------------
+# The retry policy
+# ---------------------------------------------------------------------------
+
+
+def test_failures_back_off_then_set_the_run_aside(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     layout = SpoolLayout(tmp_path)
     _write(layout, _docs("run-f", 1000.0))
     _write(layout, _docs("run-g", 1001.0))
-    recorder = _Recorder(fail={"run-f": 2})  # run-f fails twice; run-g succeeds
-    clients: list = []
-    registrar = _registrar(layout, recorder, clients=clients, max_attempts=2)
+    recorder = _Recorder(fail={"run-f": 3})  # run-f keeps failing; run-g succeeds
+    clock = _Clock()
+    client = _FakeClient()
+    registrar = _registrar(
+        layout, recorder, clock=clock, client=client, max_attempts=2, sweep_interval=2.0
+    )
     with caplog.at_level(logging.WARNING):
         first = registrar.sweep()
     assert first.failed == 0 and first.pending == 1 and first.done == 1
     assert [doc["uid"] for name, doc in recorder.calls if name == "start"] == ["run-g"]
     assert "run-f: RuntimeError: tiled said no" in (first.last_error or "")
-    assert "attempt 1 of 2" in caplog.text
-    assert [run_uid_of(p) for p in layout.pending_files()] == ["run-f"]
+    assert "attempt 1 of 2" in caplog.text and "next try in 4 s" in caplog.text
+    # Inside the backoff window: no attempt, and the sweep is clean.
+    built = recorder.built
+    clock.now += 1.0
     second = registrar.sweep()
-    assert second.failed == 1 and second.pending == 0
+    assert recorder.built == built and second.pending == 1 and second.last_error is None
+    # The failed attempt left a partial container behind; the deadline passes.
+    client.existing.add("run-f")
+    clock.now += 4.0
+    third = registrar.sweep()
+    assert recorder.built == built + 1
+    assert third.failed == 1 and third.pending == 0
     assert [p.name for p in layout.failed_files()] == ["1000-run-f.jsonl.failed"]
-    assert "giving up" in caplog.text
-    # A failure drops the client so the next attempt gets a fresh one: one
-    # built for run-f (dropped), one for run-g (kept, reused by run-f's retry).
-    assert len(clients) == 2
+    assert client.nodes["run-f"].deleted, (
+        "the half-registered container stayed in Tiled"
+    )
+    assert "giving up" in caplog.text and "set aside" in (third.last_error or "")
+
+
+def test_backoff_doubles_from_the_sweep_interval_and_caps(tmp_path: Path) -> None:
+    layout = SpoolLayout(tmp_path)
+    _write(layout, _docs("run-x", 1000.0))
+    recorder = _Recorder(fail={"run-x": 20})
+    clock = _Clock()
+    registrar = _registrar(
+        layout,
+        recorder,
+        clock=clock,
+        sweep_interval=2.0,
+        max_backoff_s=10.0,
+        max_attempts=10,
+    )
+    registrar.sweep()
+    built = 1
+    assert recorder.built == built
+    for delay in (4.0, 8.0, 10.0, 10.0):
+        clock.now += delay - 0.5
+        registrar.sweep()
+        assert recorder.built == built, (
+            f"attempted {delay - 0.5:.1f} s in, before its {delay:.0f} s"
+        )
+        clock.now += 0.5
+        registrar.sweep()
+        built += 1
+        assert recorder.built == built
+    assert layout.failed_files() == []  # five attempts of ten: still pending
 
 
 def test_failure_count_is_per_run(tmp_path: Path) -> None:
     layout = SpoolLayout(tmp_path)
     _write(layout, _docs("run-h", 1000.0))
     recorder = _Recorder(fail={"run-h": 1, "run-i": 2})
-    registrar = _registrar(layout, recorder, max_attempts=3)
-    registrar.sweep()
-    registrar.sweep()
+    clock = _Clock()
+    registrar = _registrar(
+        layout, recorder, clock=clock, max_attempts=3, sweep_interval=2.0
+    )
+    registrar.sweep()  # run-h attempt 1 fails
+    clock.now += 4.0
+    registrar.sweep()  # run-h registers
     assert layout.failed_files() == [] and len(layout.done_files()) == 1
     _write(layout, _docs("run-i", 1002.0))
-    registrar.sweep()
-    registrar.sweep()
+    registrar.sweep()  # run-i attempt 1
+    clock.now += 4.0
+    registrar.sweep()  # run-i attempt 2
     # run-i's two failures do not inherit run-h's one: still pending, not failed.
     assert [run_uid_of(p) for p in layout.pending_files()] == ["run-i"]
     assert layout.failed_files() == []
+
+
+def test_corrupt_file_is_set_aside_at_once(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A retry reads the same bytes: a corrupt file is an operator's call, not a backoff."""
+    layout = SpoolLayout(tmp_path)
+    path = _write(layout, _docs("run-k", 1000.0))
+    lines = path.read_text().splitlines(keepends=True)
+    lines[1] = "{not json\n"
+    path.write_text("".join(lines))
+    client = _FakeClient(
+        existing={"run-k"}
+    )  # the start got registered before the bad line
+    recorder = _Recorder()
+    with caplog.at_level(logging.ERROR):
+        heartbeat = _registrar(layout, recorder, client=client).sweep()
+    assert heartbeat.failed == 1 and heartbeat.done == 0 and heartbeat.pending == 0
+    assert [p.name for p in layout.failed_files()] == ["1000-run-k.jsonl.failed"]
+    assert "line 2 unreadable" in (heartbeat.last_error or "")
+    assert "cannot be registered from" in caplog.text
+    assert client.nodes["run-k"].deleted  # no half-run left in Tiled
+    assert recorder.built == 1  # one attempt, no retry
+
+
+def test_empty_file_is_never_registered_as_a_success(tmp_path: Path) -> None:
+    """A start the engine could not spool: after the deadline it is set aside, not done."""
+    layout = SpoolLayout(tmp_path)
+    layout.ensure()
+    path = layout.file_for("run-empty", 1000.0)
+    path.write_text("")
+    clock = _Clock()
+    old = clock.now - 7200.0
+    os.utime(path, (old, old))
+    recorder = _Recorder()
+    heartbeat = _registrar(layout, recorder, clock=clock, orphan_after_s=1800.0).sweep()
+    assert heartbeat.done == 0 and heartbeat.failed == 1
+    assert recorder.calls == []
+    assert "no start document" in (heartbeat.last_error or "")
+    assert [p.name for p in layout.failed_files()] == ["1000-run-empty.jsonl.failed"]
 
 
 def test_existing_container_is_deleted_before_replay(
@@ -359,47 +477,6 @@ def test_empty_spool_still_writes_a_heartbeat(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The heartbeat file
-# ---------------------------------------------------------------------------
-
-
-def test_heartbeat_round_trip_atomic_and_staleness(tmp_path: Path) -> None:
-    path = tmp_path / "heartbeat.json"
-    heartbeat = WriterHeartbeat(
-        pid=1,
-        version="0.103.0",
-        started_at=100.0,
-        last_sweep=200.0,
-        sweep_interval=2.0,
-        tiled_uri=URI,
-        tiled_reachable=True,
-        last_ok=150.0,
-    )
-    write_heartbeat(path, heartbeat)
-    assert not path.with_name("heartbeat.json.tmp").exists()
-    assert read_heartbeat(path) == heartbeat
-    assert heartbeat.is_stale(now=200.0 + STALE_AFTER_SWEEPS * 2.0) is False
-    assert heartbeat.is_stale(now=200.0 + STALE_AFTER_SWEEPS * 2.0 + 0.1) is True
-
-
-def test_heartbeat_reader_tolerates_absence_and_newer_fields(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    path = tmp_path / "heartbeat.json"
-    assert read_heartbeat(path) is None
-    path.write_text(
-        '{"pid": 1, "version": "x", "started_at": 1, "last_sweep": 2, '
-        '"sweep_interval": 2.0, "tiled_uri": "u", "tiled_reachable": true, '
-        '"a_field_from_the_future": 42}'
-    )
-    assert read_heartbeat(path) is not None
-    path.write_text("{not json")
-    with caplog.at_level(logging.WARNING):
-        assert read_heartbeat(path) is None
-    assert "unreadable" in caplog.text
-
-
-# ---------------------------------------------------------------------------
 # The concurrent stop
 # ---------------------------------------------------------------------------
 
@@ -407,6 +484,17 @@ def test_heartbeat_reader_tolerates_absence_and_newer_fields(
 class _Desc:
     def __init__(self, stream: str) -> None:
         self.item = {"id": stream}
+
+
+class _Root:
+    """The run's container as the stock ``stop`` uses it."""
+
+    def __init__(self) -> None:
+        self.metadata: dict = {}
+        self.updated: list[dict] = []
+
+    def update_metadata(self, metadata, drop_revision=False) -> None:
+        self.updated.append(metadata)
 
 
 def test_external_groups_by_stream_and_key_in_arrival_order() -> None:
@@ -442,6 +530,7 @@ def _concurrent_run_writer(max_workers: int):
 
     _writer_cls, run_writer_cls = make_concurrent_writer_classes(max_workers)
     writer = run_writer_cls(client=object())
+    writer.root_node = _Root()
     writer._desc_nodes = {"d1": _Desc("primary")}
     writer._stream_resource_cache = {
         "r1": {"data_key": "cam1"},
@@ -456,11 +545,15 @@ def _concurrent_run_writer(max_workers: int):
 
 
 def _instrument(writer, monkeypatch: pytest.MonkeyPatch, delay: float = 0.05):
-    """Record each registration's window and the peak overlap; stub the stock stop."""
-    from bluesky.callbacks.tiled_writer import _RunWriter
+    """Record each registration's window and the peak overlap.
 
+    The stock ``stop`` is left in place: it runs after the drain against
+    the fake root node, so a drain that failed to clear the cache would
+    register every datum a second time.
+    """
     lock = threading.Lock()
     state = {"active": 0, "peak": 0}
+    calls: list[str] = []
     windows: dict[str, tuple[float, float]] = {}
 
     def _write(datum):
@@ -471,30 +564,33 @@ def _instrument(writer, monkeypatch: pytest.MonkeyPatch, delay: float = 0.05):
         time.sleep(delay)
         with lock:
             state["active"] -= 1
+            calls.append(datum["stream_resource"])
         windows[datum["stream_resource"]] = (started, time.monotonic())
 
-    seen_by_stock: list[dict] = []
     monkeypatch.setattr(writer, "_write_external_data", _write)
-    monkeypatch.setattr(
-        _RunWriter,
-        "stop",
-        lambda self, doc: seen_by_stock.append(dict(self._external_data_cache)),
-    )
-    return state, windows, seen_by_stock
+    return state, windows, calls
 
 
 def test_concurrent_stop_overlaps_groups_and_keeps_a_key_sequential(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     writer = _concurrent_run_writer(max_workers=4)
-    state, windows, seen_by_stock = _instrument(writer, monkeypatch)
-    writer.stop({"uid": "stop"})
-    assert set(windows) == {"r1", "r2", "r3", "r4"}
+    state, windows, calls = _instrument(writer, monkeypatch)
+    writer.stop({"uid": "stop", "exit_status": "success"})
+    assert sorted(calls) == [
+        "r1",
+        "r2",
+        "r3",
+        "r4",
+    ]  # each once: the stock stop found nothing
     assert state["peak"] >= 2, "the groups were registered one after another"
     # r1 and r2 share a data key: the second starts after the first ends.
     assert windows["r2"][0] >= windows["r1"][1]
-    # The stock stop ran afterwards with nothing left to register.
-    assert seen_by_stock == [{}]
+    # The real stock stop ran afterwards and wrote the stop metadata.
+    assert (
+        writer.root_node.updated
+        and writer.root_node.updated[0]["stop"]["uid"] == "stop"
+    )
 
 
 def test_concurrent_stop_max_workers_one_is_sequential(
@@ -502,16 +598,14 @@ def test_concurrent_stop_max_workers_one_is_sequential(
 ) -> None:
     """The knob bites: with one worker nothing overlaps (and the test above would fail)."""
     writer = _concurrent_run_writer(max_workers=1)
-    state, windows, _seen = _instrument(writer, monkeypatch)
-    writer.stop({"uid": "stop"})
+    state, windows, _calls = _instrument(writer, monkeypatch)
+    writer.stop({"uid": "stop", "exit_status": "success"})
     assert len(windows) == 4 and state["peak"] == 1
 
 
 def test_concurrent_stop_propagates_a_group_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from bluesky.callbacks.tiled_writer import _RunWriter
-
     writer = _concurrent_run_writer(max_workers=4)
 
     def _write(datum):
@@ -519,9 +613,27 @@ def test_concurrent_stop_propagates_a_group_failure(
             raise RuntimeError("registration refused")
 
     monkeypatch.setattr(writer, "_write_external_data", _write)
-    monkeypatch.setattr(_RunWriter, "stop", lambda self, doc: None)
     with pytest.raises(RuntimeError, match="registration refused"):
-        writer.stop({"uid": "stop"})
+        writer.stop({"uid": "stop", "exit_status": "success"})
+    assert writer.root_node.updated == []  # the stock stop never ran
+
+
+def test_stock_run_writer_structure_still_matches_the_override() -> None:
+    """The override drains the stock stop's external loop before it runs.
+
+    ``bluesky`` is pinned loosely (``>=1.12``); a relock past 1.15 that
+    restructures ``_RunWriter`` would leave the drain finding nothing and
+    registration silently serial again.  Fail loud here instead.
+    """
+    tiled_writer = pytest.importorskip("bluesky.callbacks.tiled_writer")
+    stop_source = inspect.getsource(tiled_writer._RunWriter.stop)
+    assert "self._external_data_cache.values()" in stop_source
+    assert "self._write_external_data(" in stop_source
+    writer = tiled_writer._RunWriter(client=object())
+    for attribute in ("_external_data_cache", "_stream_resource_cache", "_desc_nodes"):
+        assert hasattr(writer, attribute), attribute
+    factory_source = inspect.getsource(tiled_writer.TiledWriter._factory)
+    assert "_RunWriter(self.client, batch_size=self._batch_size)" in factory_source
 
 
 def test_concurrent_tiled_writer_factory_builds_the_concurrent_run_writer() -> None:
