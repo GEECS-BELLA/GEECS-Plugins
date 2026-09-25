@@ -33,15 +33,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   plugin-backed cameras of a gated run still write no native files (the
   #738 dual-write stays strict-only); a `.scalars` view still saves
   nothing.
-- **`StackCheckCallback` counts a native essential's files against the
+- **`StackCheckCallback` matches a native essential's files to the
   rows.** At the stop of a gated run, for each `-nonscalar_save_path`
-  column of the `shots` rows, the regular files in that directory are
-  counted against the rows (waiting, bounded by `finalize_timeout`, for
-  the count to reach the rows — there is no write-complete readback) and
-  one `native files check` line is appended to `scan.log` beside the
-  stack verdicts: INFO on a match, WARNING on a mismatch (a shortfall is
-  a dropped frame, a surplus a retaken step's or an in-flight edge's
-  file), never a failure.
+  column of the `shots` rows, every row's own `<owner>-acq_timestamp` is
+  matched against the files in that directory through the naming
+  contract (`geecs_data_utils.native_files.native_file_keys`, the
+  `%.3f` stamp in the name with the tail left to the device — a per-shot
+  sidecar rides with its shot, an Explorer `Thumbs.db` is nobody's file),
+  waiting, bounded by `finalize_timeout`, for every row's file first
+  (there is no write-complete readback). One `native files check` line is
+  appended to `scan.log` beside the stack verdicts: INFO when every row
+  has its file and no file stamp is without a row, WARNING otherwise —
+  rows without a file (a dropped frame) and file stamps with no row (a
+  retaken step's, an in-flight edge's) counted **separately** so neither
+  hides the other (review finding 1); never a failure. Requires
+  geecs-data-utils 0.42.0.
 
 ### Removed
 

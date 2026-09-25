@@ -344,8 +344,11 @@ camera, ~4 s the HASO) and between steps the box is OFF, so a well-behaved
 device writes nothing.  Its `-nonscalar_save_path` column rides in every
 `shots` row as a run-long constant.  A dropped frame from it is a missing
 file, **no retake** (as the LabVIEW scanner had it for years); the stack
-check appends a files-versus-rows line per such device to `scan.log`
-(WARNING on a mismatch, never a failure).  A plugin-backed camera in a
+check appends a files-versus-rows line per such device to `scan.log` —
+each row's stamp matched to a file by the naming contract
+(`geecs_data_utils.native_files.native_file_keys`), rows without a file
+and file stamps without a row counted apart (WARNING on either, never a
+failure).  A plugin-backed camera in a
 gated run still writes no native files (the #738 dual-write is
 strict-only).  A native-saving device as a **non-essential** is not
 admitted yet — slice 2b.

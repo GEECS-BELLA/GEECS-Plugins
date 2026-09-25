@@ -401,6 +401,50 @@ def test_immediate_pause_mid_batch_retakes_the_step(
     assert shot_control.standing_state == "OFF"
 
 
+def test_immediate_pause_with_a_native_essential_toggles_saving_once(
+    RE: RunEngine, box: GatedBox, shot_control: ShotControl, tmp_path: Path
+) -> None:
+    """The retake path (review finding 2): the native saver is prepared once, before the pause.
+
+    The retaken step keeps writing under the same run-long ``save=on`` —
+    no second prepare, no toggle; the rows are the retake's quota and the
+    save path is constant across the abandoned attempt and the retake.
+    """
+    (tmp_path / "Scan001").mkdir()
+    cam, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.4)
+    native = _camera(RE, box, "UC_Native", tmp_path=tmp_path, shot_timeout=0.4)
+    saves = _saves(native)
+    col = DocCollector()
+    RE.subscribe(col)
+
+    def pause_soon() -> None:
+        while box.edges < 2:
+            time.sleep(0.01)
+        RE.request_pause()
+
+    threading.Thread(target=pause_soon, daemon=True).start()
+    with pytest.raises(RunEngineInterrupted):
+        RE(
+            bp.count(
+                [cam, native],
+                6,
+                per_shot=gated_per_shot(shot_control, quota=6, shot_timeout=0.4),
+            )
+        )
+    assert RE.state == "paused"
+    assert saves == ["off", "on"]  # prepared before the pause, still saving
+    time.sleep(0.2)
+    RE.resume()
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert box.scan_runs == 3, box.states
+    assert saves == ["off", "on", "off"]  # the retake toggled nothing
+    rows = _events_from_pages(col, "shots")
+    assert len(rows) == 6
+    directory = str(tmp_path / "Scan001" / "UC_Native")
+    assert [r["data"]["uc_native-nonscalar_save_path"] for r in rows] == [directory] * 6
+    assert _datums_by_key(col)["uc_a"] == [{"start": 0, "stop": 6}]
+
+
 def test_pause_resumed_inside_the_count_timeout_window_still_retakes(
     RE: RunEngine, tmp_path: Path
 ) -> None:

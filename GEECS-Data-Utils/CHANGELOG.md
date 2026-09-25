@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.42.0] - 2026-09-25
+
+### Added
+
+- `native_files.native_file_keys(directory)`: the listing-side complement
+  of `probe_native_file` — every native file of a device folder keyed by
+  the millisecond stamp its name renders, tail-agnostic (a per-shot
+  sidecar lists under its shot's key; a file with no rendered stamp is
+  left out). For GeecsBluesky's close-out files-versus-rows check of a
+  gated run's native-saving essential (the module's consumer list names
+  it).
+
 ## [0.41.0] - 2026-09-23
 
 ### Added

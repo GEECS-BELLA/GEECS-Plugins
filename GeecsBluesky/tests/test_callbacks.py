@@ -988,9 +988,12 @@ def test_a_gated_run_with_a_native_essential_gets_its_s_file_and_a_files_line(
         str(directory)
     ] * 3
     stamps = [r["data"]["uc_native-acq_timestamp"] for r in rows]
-    # LabVIEW writes one file per shot, named by the stamp — behind the edge
+    # LabVIEW writes one file per shot, named by the stamp — behind the edge —
+    # plus, on a wavefront sensor, a sidecar per shot; Explorer leaves its own.
     for stamp in stamps:
-        (directory / f"UC_Native_{stamp:.3f}.png").write_bytes(b"x")
+        (directory / f"UC_Native_{stamp:.3f}.himg").write_bytes(b"x")
+        (directory / f"UC_Native_{stamp:.3f}.has").write_bytes(b"x")
+    (directory / "Thumbs.db").write_bytes(b"x")
     stack_check.join(10.0)
     sfile.join(10.0)
 
@@ -1002,28 +1005,58 @@ def test_a_gated_run_with_a_native_essential_gets_its_s_file_and_a_files_line(
     assert not any("save_path" in c or c.startswith("uc_") for c in table.columns)
     log = (tmp_path / "scans" / "Scan001" / "scan.log").read_text()
     assert (
-        "INFO native files check: uc_native: 3 native file(s) in UC_Native/ "
-        "for 3 shots row(s)" in log
+        "INFO native files check: uc_native: 3 shots row(s), each with a native "
+        "file in UC_Native/" in log
     )
     assert "WARNING" not in log
 
-    # A dropped frame: one file short — a WARNING line, never a failure.  The
-    # same documents replayed into the callback alone, against the same folder.
-    (directory / f"UC_Native_{stamps[-1]:.3f}.png").unlink()
-    again = StackCheckCallback(finalize_timeout=0.6)
-    again("start", {**col.docs["start"][0], "uid": "again"})
-    again(
-        "descriptor",
-        {"uid": "d-again", "run_start": "again", "name": "shots", "object_keys": {}},
-    )
-    for i, row in enumerate(rows, start=1):
-        again("event", {"descriptor": "d-again", "seq_num": i, "data": row["data"]})
-    again("stop", {"run_start": "again", "exit_status": "success"})
-    again.join(10.0)
-    log = (tmp_path / "scans" / "Scan001" / "scan.log").read_text()
+    def replay(uid: str, rows_data, **start_extra) -> None:
+        """The run's documents into a callback of their own, same folder."""
+        again = StackCheckCallback(finalize_timeout=0.6)
+        again("start", {**col.docs["start"][0], "uid": uid, **start_extra})
+        again(
+            "descriptor",
+            {"uid": f"d-{uid}", "run_start": uid, "name": "shots", "object_keys": {}},
+        )
+        for i, data in enumerate(rows_data, start=1):
+            again("event", {"descriptor": f"d-{uid}", "seq_num": i, "data": data})
+        again("stop", {"run_start": uid, "exit_status": "success"})
+        again.join(10.0)
+
+    def log_text() -> str:
+        return (tmp_path / "scans" / "Scan001" / "scan.log").read_text()
+
+    # A dropped frame AND a retaken step's extra files: the two are counted
+    # apart (review finding 1 — a bare count would have read "1 orphan").
+    (directory / f"UC_Native_{stamps[-1]:.3f}.himg").unlink()
+    (directory / f"UC_Native_{stamps[-1]:.3f}.has").unlink()
+    for extra in (stamps[0] - 1.0, stamps[0] - 2.0):
+        (directory / f"UC_Native_{extra:.3f}.himg").write_bytes(b"x")
+    replay("again", [r["data"] for r in rows])
     assert (
-        "WARNING native files check: uc_native: 2 native file(s) in UC_Native/ "
-        "but 3 shots row(s) — MISMATCH (1 row(s) without a file)" in log
+        "WARNING native files check: uc_native: 2 of 3 shots row(s) have a native "
+        "file in UC_Native/ — MISMATCH (1 row(s) without a file, 2 file stamp(s) "
+        "with no row)" in log_text()
+    )
+    # A column that is not constant is its own defect; the first value is checked.
+    drifted = [dict(r["data"]) for r in rows]
+    drifted[1]["uc_native-nonscalar_save_path"] = str(directory / "elsewhere")
+    replay("drift", drifted)
+    assert (
+        "WARNING native files check: uc_native: uc_native-nonscalar_save_path is "
+        "not constant over the rows (2 values); checking "
+        + str(directory)
+        in log_text()
+    )
+    # The directory never appeared (a device that never took the path).
+    gone = [
+        {**r["data"], "uc_native-nonscalar_save_path": str(directory / "never")}
+        for r in rows
+    ]
+    replay("gone", gone)
+    assert (
+        f"WARNING native files check: uc_native: native directory "
+        f"{directory / 'never'} missing but 3 shots row(s)" in log_text()
     )
 
 
