@@ -121,3 +121,68 @@ class TestImageGrid:
             attachment_base="/log/attachments",
         )
         assert out.count('src="/log/attachments/x/') == 2 and "figgrid" in out
+
+
+class TestMath:
+    """Equations: parsed and marked here, typeset in the browser by math.js."""
+
+    def test_inline_math_is_marked_and_escaped(self) -> None:
+        """The TeX survives as text, `<` included, inside the inline mark."""
+        out = render_markdown("energy $E = \\gamma m c^2 < 1$ here")
+        assert '<span class="math-inline">E = \\gamma m c^2 &lt; 1</span>' in out
+        assert "$" not in out
+
+    def test_a_display_block(self) -> None:
+        """``$$`` on lines of its own is a block of its own."""
+        out = render_markdown("$$\n\\int_0^1 x\\,dx\n$$\n\nafter")
+        assert '<div class="math-display">\\int_0^1 x\\,dx</div>' in out
+        assert "<p>after</p>" in out
+
+    def test_double_dollar_inside_a_paragraph_is_a_span(self) -> None:
+        """Display mode still, but a <div> inside <p> is not HTML."""
+        out = render_markdown("see $$a<b$$ there")
+        assert '<p>see <span class="math-display">a&lt;b</span> there</p>' in out
+
+    def test_money_is_not_math(self) -> None:
+        """Pandoc's rules: no space inside the dollars, no digit against them."""
+        out = render_markdown("cost $5 and $10 each; $ x $ spaced; 1$x$2")
+        assert "math-" not in out
+        assert "$5 and $10 each; $ x $ spaced; 1$x$2" in out
+
+    def test_an_escaped_dollar_is_a_dollar(self) -> None:
+        """``\\$`` is how a note writes a price next to an equation."""
+        out = render_markdown("\\$5 flat, $E$ ok")
+        assert "$5 flat" in out and '<span class="math-inline">E</span>' in out
+
+    def test_math_in_code_stays_code(self) -> None:
+        """A code span is literal, dollars included."""
+        out = render_markdown("`$x$` in code")
+        assert "<code>$x$</code>" in out and "math-" not in out
+
+    def test_markup_inside_math_never_emerges(self) -> None:
+        """TeX is text to the page; a tag written between the dollars stays so."""
+        out = render_markdown('$<img src=x onerror="alert(1)">$')
+        assert "<img" not in out and "&lt;img" in out
+        assert 'class="math-inline"' in out
+
+    def test_an_authored_mark_is_text(self) -> None:
+        """Only the renderer writes the marks; typing one gets escaped HTML."""
+        out = render_markdown('<span class="math-inline">\\rule{9em}{9em}</span>')
+        assert '<span class="math-inline"' not in out and "&lt;span" in out
+
+    def test_the_marks_are_the_only_classes_the_sanitiser_admits(self) -> None:
+        """The second lock, exercised directly: any other class is stripped."""
+        import nh3
+
+        from geecs_logbook.render import _ATTRIBUTES, _CLASSES, _TAGS
+
+        out = nh3.clean(
+            '<span class="math-inline evil">a</span><div class="math-inline">b</div>'
+            '<p class="callout">c</p>',
+            tags=_TAGS,
+            attributes=_ATTRIBUTES,
+            allowed_classes=_CLASSES,
+        )
+        assert '<span class="math-inline">a</span>' in out
+        assert 'math-inline">b' not in out  # a div carries display marks only
+        assert "callout" not in out

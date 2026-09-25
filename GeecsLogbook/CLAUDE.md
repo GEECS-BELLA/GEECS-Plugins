@@ -145,6 +145,20 @@ package. Rules the store enforces, each pinned in `tests/test_store.py`:
 `body_md` is opaque: `render.render_markdown` (markdown-it + nh3) is the
 only thing that reads it, and only to draw it — plus the tag scan.
 
+**Equations** are parsed there too: `$…$` and `$$…$$` (the `dollarmath`
+plugin under pandoc's rules — no space inside the dollars, no digit
+against them, so `$5 and $10` is money and `\$` a literal dollar), escaped
+and marked `math-inline` / `math-display`, the only `class` values the
+sanitiser admits. `static/math.js` typesets the marks with a **vendored
+KaTeX** (`static/vendor/katex-<version>/`, no CDN — control-room machines
+may lack internet; upgrading = replacing the directory and both
+templates' references in one commit, which `tests/test_templates.py` pins).
+KaTeX never sees markdown, so it is not the second renderer this package
+refuses; without it — no script, the markdown mirror — the TeX reads as
+source, which is also what GitHub draws from the same `$`. The composer's
+preview typesets the same way, and a TeX error keeps its source on screen
+with the reason as its title, never a blank.
+
 ## The ops book reads by month, from the store alone
 
 `/month/2026-09` is the other book: every `ops` entry in the month,

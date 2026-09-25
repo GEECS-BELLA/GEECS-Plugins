@@ -43,6 +43,14 @@ from geecs_logbook.render import summarize
         ("\n\n\nleading blank lines", "leading blank lines"),
         ("", ""),
         ("```\nimport os\n```", ""),
+        # an inline equation keeps its TeX, dollars and all: "Fitted  to
+        # the spectrum" would be the summary otherwise. A display block is
+        # skipped like a fence and the prose after it wins.
+        (
+            "Fitted $E = \\gamma m c^2$ to the spectrum",
+            "Fitted $E = \\gamma m c^2$ to the spectrum",
+        ),
+        ("$$\n\\int x\n$$\n\nintegrated", "integrated"),
         # A table's first cell is an ordinary inline token, so it wins unless
         # cells are skipped — and "Parameter" or "Date" is content-free while
         # LOOKING like a summary. Both shapes come from the editor's own

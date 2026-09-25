@@ -20,7 +20,8 @@
  *     becomes a markdown table;
  *   - paste a link to another note (the Link button on any entry copies
  *     one): it becomes a labelled reference to that note;
- *   - Preview, rendered by the server exactly as the page will show it;
+ *   - Preview, rendered by the server exactly as the page will show it
+ *     (its equations typeset by math.js, as the page's are);
  *   - type buttons: a template's prefill lands in the textarea and the
  *     entry records which template it started from;
  *   - ⌘/Ctrl+Enter saves.
@@ -472,6 +473,7 @@
     try {
       const data = await api("POST", "/preview", { body_md: ta.value });
       pane.innerHTML = data.html;
+      if (window.logbookTypeset) window.logbookTypeset(pane);
       pane.hidden = false; ta.hidden = true; btn.classList.add("is-on");
     } catch (err) { fail(form, err); }
   }
@@ -505,6 +507,8 @@
       run: (ta) => insertBlock(ta, rowsToMarkdown([["Parameter", "Value", "Note"], ["", "", ""]]), true) },
     { key: "callout", label: "callout", title: "Callout — NOTE, TIP, WARNING or CAUTION",
       run: (ta) => insertBlock(ta, "> [!NOTE]\n> ", true) },
+    { key: "math", label: "∑ math", title: "Equation — $…$ inline, or $$ on lines of its own for display",
+      run: (ta) => wrap(ta, "$", "$", "E = mc^2") },
     { key: "image", label: "image", title: "Attach an image or PDF (or paste / drop one)", run: null },
     { key: "preview", label: "preview", title: "Show it as the page will", run: null },
   ];

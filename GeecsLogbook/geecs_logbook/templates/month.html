@@ -15,6 +15,11 @@
 {# kit.css after theme.css: the kit styles THROUGH the theme's tokens and
    defines none of its own. Every kit rule is scoped to .kit on <body>. #}
 <link rel="stylesheet" href="{{ root }}/theme/kit.css">
+{# Equations: render.py marks them, KaTeX draws them. Vendored — no CDN,
+   control-room machines may lack internet; upgrading = replacing the
+   directory and every reference to it in one commit (tests/test_templates.py
+   pins that the two agree). Before scanlog.css, which sets the margins. #}
+<link rel="stylesheet" href="{{ root }}/static/vendor/katex-0.18.9/katex.min.css">
 <link rel="stylesheet" href="{{ root }}/static/scanlog.css">
 </head>
 <body class="kit">
@@ -205,6 +210,10 @@ document.getElementById("q").addEventListener("input", ev => {
   });
 });
 </script>
+{# KaTeX, then math.js — both deferred, so the order holds and the marks
+   are typeset once the page is parsed; the composer's preview calls it again. #}
+<script src="{{ root }}/static/vendor/katex-0.18.9/katex.min.js" defer></script>
+<script src="{{ root }}/static/math.js" defer></script>
 <script src="{{ root }}/static/editor.js" defer></script>
 <script src="{{ root }}/static/nav.js" defer></script>
 <script>

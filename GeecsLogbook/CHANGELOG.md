@@ -5,6 +5,27 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.13.0] - 2026-09-25
+
+### Added
+
+- **Equations.** `$E = mc^2$` inline and `$$…$$` on lines of its own render
+  as typeset math in both books and in the composer's preview; a **∑ math**
+  toolbar button wraps the selection. The server parses them
+  (`mdit-py-plugins`' dollarmath under pandoc's rules: no space inside the
+  dollars and no digit against them, so `$5 and $10` stays money, and `\$`
+  is a literal dollar), escapes them, and marks each one `math-inline` /
+  `math-display` — the only classes the sanitiser now admits, each on the
+  tag that carries it. `static/math.js` typesets the marks with **KaTeX
+  0.18.9, vendored** under `static/vendor/` (no CDN: control-room machines
+  may lack internet; `tests/test_templates.py` pins that the pages name the
+  version shipped). `trust` stays off and rules are size-bounded, so a note
+  cannot link or paint through TeX. TeX KaTeX rejects stays on screen as
+  source with the reason as its tooltip. The stored body and the markdown
+  mirror are unchanged — GitHub draws the same `$` syntax — and a collapsed
+  entry's summary keeps an inline equation as its TeX rather than dropping
+  it.
+
 ## [0.12.0] - 2026-09-17
 
 ### Changed

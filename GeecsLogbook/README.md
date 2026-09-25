@@ -17,6 +17,10 @@ relative form, so no mount prefix or host reaches the record.
 Type buttons on every composer come from `logbook_templates/*.md` in the
 configs checkout — see `examples/logbook_templates/README.md`.
 
+Notes are Markdown; `$E = mc^2$` inline and `$$…$$` on lines of its own
+are typeset (KaTeX, vendored — no internet needed) on the page and in the
+composer's preview, and stay plain `$` syntax in the store and the mirror.
+
 This package is a **consumer of scan folders** and never a producer. See
 the repository `CLAUDE.md` for the invariant.
 

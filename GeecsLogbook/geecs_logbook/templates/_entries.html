@@ -106,7 +106,7 @@
   month page puts its date picker there.
 #}
 {% macro composer(seeds, scan=none, after=none, day=none, rows=3,
-                  placeholder='Add a note… Markdown works.', anchor=none) %}
+                  placeholder='Add a note… Markdown works; $…$ for an equation.', anchor=none) %}
     <form class="composer" data-scan="{{ scan if scan is not none else '' }}"
           data-after="{{ after if after is not none else '' }}"
           {%- if day %} data-day="{{ day }}"{% endif %}>

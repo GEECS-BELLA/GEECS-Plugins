@@ -1,4 +1,4 @@
-"""Markdown to HTML for the logbook — one renderer, server-side, sanitized.
+r"""Markdown to HTML for the logbook — one renderer, server-side, sanitized.
 
 One renderer on purpose. The web view, the export and anything else that
 shows an entry all go through this function, so they cannot disagree. A
@@ -32,15 +32,32 @@ Callouts (``> [!WARNING]``) are recognised after sanitizing: the marker is
 plain text that survives (2), so no allowlist has to be widened to carry a
 class through. GitHub renders the same syntax, so the markdown mirror looks
 right there too.
+
+Equations are the one thing the browser finishes. ``$E = mc^2$`` and a
+``$$…$$`` block are parsed HERE (``dollarmath``, pandoc's rules: no space
+inside the opening or closing ``$`` and no digit against them, so
+``$5 and $10`` stays money; ``\$`` is a literal dollar), escaped, and
+marked ``math-inline`` / ``math-display`` — the only classes the sanitiser
+admits, and only on the tag that carries each. ``static/math.js`` then
+hands every mark's text to a vendored KaTeX. That is not the second
+renderer refused above: KaTeX never sees markdown, only the TeX this
+function chose, and wherever it is absent — no script, an export, the
+markdown mirror — the source reads as the equation it is, which is also
+what GitHub draws from the same ``$``.
 """
 
 from __future__ import annotations
 
 import html
 import re
+from typing import Sequence
 
 import nh3
 from markdown_it import MarkdownIt
+from markdown_it.renderer import RendererProtocol
+from markdown_it.token import Token
+from markdown_it.utils import EnvType, OptionsDict
+from mdit_py_plugins.dollarmath import dollarmath_plugin
 from mdit_py_plugins.tasklists import tasklists_plugin
 
 #: The four callout flavours, matching GitHub's.
@@ -52,11 +69,73 @@ CALLOUTS = ("NOTE", "TIP", "WARNING", "CAUTION")
 _TAGS = nh3.ALLOWED_TAGS | {"input"}
 _ATTRIBUTES = {**nh3.ALLOWED_ATTRIBUTES, "input": {"type", "checked", "disabled"}}
 
+#: The equation marks ``static/math.js`` typesets, and the only ``class``
+#: values the sanitiser admits: each on the tag that carries it, nothing
+#: else on any tag. Authored HTML is escaped by the parser anyway (``html``
+#: is off); this is the second lock.
+MATH_INLINE = "math-inline"
+MATH_DISPLAY = "math-display"
+_CLASSES = {"span": {MATH_INLINE, MATH_DISPLAY}, "div": {MATH_DISPLAY}}
+
 _md = (
     MarkdownIt("commonmark", {"html": False, "breaks": False, "typographer": False})
     .enable(["table", "strikethrough"])
     .use(tasklists_plugin)
+    # Pandoc's rules, because lab notes talk money and ranges: ``$ x $``
+    # and ``1$x$2`` are text, ``\$`` is a dollar. Labels off: ``(1)`` after
+    # a block is prose here, not an anchor the page would have to serve.
+    .use(
+        dollarmath_plugin,
+        allow_labels=False,
+        allow_space=False,
+        allow_digits=False,
+        double_inline=True,
+    )
 )
+
+
+def _tex(tokens: Sequence[Token], idx: int) -> str:
+    """The TeX of one math token, escaped so it survives as text."""
+    return html.escape(tokens[idx].content.strip())
+
+
+def _math_inline(
+    self: RendererProtocol,
+    tokens: Sequence[Token],
+    idx: int,
+    options: OptionsDict,
+    env: EnvType,
+) -> str:
+    return f'<span class="{MATH_INLINE}">{_tex(tokens, idx)}</span>'
+
+
+def _math_inline_double(
+    self: RendererProtocol,
+    tokens: Sequence[Token],
+    idx: int,
+    options: OptionsDict,
+    env: EnvType,
+) -> str:
+    # ``$$…$$`` inside a paragraph: display mode, but a <span> — the
+    # plugin's own <div> inside a <p> is not HTML.
+    return f'<span class="{MATH_DISPLAY}">{_tex(tokens, idx)}</span>'
+
+
+def _math_block(
+    self: RendererProtocol,
+    tokens: Sequence[Token],
+    idx: int,
+    options: OptionsDict,
+    env: EnvType,
+) -> str:
+    return f'<div class="{MATH_DISPLAY}">{_tex(tokens, idx)}</div>\n'
+
+
+# The plugin's renderers write ``class="math inline"`` and friends; these
+# replace them with the marks above, escaped the same way.
+_md.add_render_rule("math_inline", _math_inline)
+_md.add_render_rule("math_inline_double", _math_inline_double)
+_md.add_render_rule("math_block", _math_block)
 
 #: ``> [!WARNING]`` renders as a blockquote whose first paragraph starts
 #: with the marker. Matched on sanitized output; non-greedy to the closing
@@ -113,7 +192,11 @@ def render_markdown(
     """
     rendered = _md.render(body_md or "")
     clean = nh3.clean(
-        rendered, tags=_TAGS, attributes=_ATTRIBUTES, link_rel="noopener noreferrer"
+        rendered,
+        tags=_TAGS,
+        attributes=_ATTRIBUTES,
+        allowed_classes=_CLASSES,
+        link_rel="noopener noreferrer",
     )
     clean = _callouts(clean)
     clean = _image_grids(clean)
@@ -157,17 +240,23 @@ def _callouts(fragment: str) -> str:
 
 
 def _plain(token) -> str:
-    """The readable text of one inline token.
+    r"""The readable text of one inline token.
 
     An image's ``content`` IS its alt, and a line break inside a block is a
     child with no content — so both are handled here rather than by joining
     on content alone, which glued a wrapped callout's two lines together.
+    An inline equation keeps its TeX between its dollars: "Fitted $E =
+    \gamma m c^2$ to it" summarises as itself, not as "Fitted  to it".
     """
-    return "".join(
-        " " if child.type in {"softbreak", "hardbreak"} else child.content
-        for child in (token.children or [])
-        if child.type in {"text", "code_inline", "softbreak", "hardbreak", "image"}
-    ).strip()
+    parts: list[str] = []
+    for child in token.children or []:
+        if child.type in {"softbreak", "hardbreak"}:
+            parts.append(" ")
+        elif child.type in {"math_inline", "math_inline_double"}:
+            parts.append(f"${child.content}$")
+        elif child.type in {"text", "code_inline", "image"}:
+            parts.append(child.content)
+    return "".join(parts).strip()
 
 
 def summarize(body_md: str, limit: int = 120) -> str:

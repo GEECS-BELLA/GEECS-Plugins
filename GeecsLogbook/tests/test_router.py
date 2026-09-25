@@ -586,3 +586,30 @@ class TestLongDay:
         assert html.count('class="scanrow"') == 25
         headings = {h.strip() for h in re.findall(r"<h4>(.*?)</h4>", html, re.S)}
         assert headings == {"Go to a day", "Scans &middot; 25"}, headings
+
+
+class TestEquations:
+    """The typesetter is vendored and served by this process, on both books."""
+
+    VENDOR = "/static/vendor/katex-0.18.9"
+
+    def test_serves_the_vendored_katex(self, client: TestClient) -> None:
+        """Stylesheet, script and a font resolve under the static mount."""
+        for name in ("katex.min.css", "katex.min.js", "fonts/KaTeX_Main-Regular.woff2"):
+            res = client.get(f"{self.VENDOR}/{name}")
+            assert res.status_code == 200, name
+        assert client.get("/static/math.js").status_code == 200
+
+    def test_both_books_load_it(self, client: TestClient) -> None:
+        """Each page names the shipped KaTeX and the typesetter."""
+        for url in ("/day/2026-09-11", "/month/2026-09"):
+            html = client.get(url).text
+            assert f"{self.VENDOR}/katex.min.css" in html, url
+            assert f"{self.VENDOR}/katex.min.js" in html, url
+            assert "/static/math.js" in html, url
+
+    def test_an_equation_reaches_the_page_marked(self, writable: TestClient) -> None:
+        """What the store holds is `$...$`; what the page carries is the mark."""
+        _post(writable, body_md="fit $E = mc^2$ ok", scan=1)
+        html = writable.get("/day/2026-09-11").text
+        assert '<span class="math-inline">E = mc^2</span>' in html

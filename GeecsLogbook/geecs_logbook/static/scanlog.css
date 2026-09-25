@@ -338,3 +338,12 @@ section.daygroup[hidden]{display:none}
 .kbdhint{margin-top:8px;font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
 kbd{font:inherit;font-family:var(--ff-mono);font-size:10px;border:1px solid var(--rule);border-radius:3px;
   padding:0 4px;background:var(--surface);color:var(--slate)}
+
+/* equations: render.py marks them, math.js typesets them with the vendored
+   KaTeX, which inherits the prose colour — a theme switch reaches every
+   formula. A mark KaTeX refused keeps its TeX on screen, in the page's
+   error colour, with the reason as its title. */
+.entry-body .math-display{overflow-x:auto;overflow-y:hidden;margin:8px 0}
+.entry-body .math-display .katex-display{margin:4px 0}
+.entry-body .math-error{font-family:var(--ff-mono);font-size:12.5px;color:var(--crit);
+  border-bottom:1px dotted var(--crit)}

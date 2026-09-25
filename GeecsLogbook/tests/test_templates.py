@@ -145,3 +145,25 @@ def test_both_books_share_one_collapse_preference() -> None:
             keys |= set(re.findall(r"localStorage\.\w+\(\s*[\"\']([^\"\']+)", block))
             keys |= set(re.findall(r'(?:const|let|var)\s+KEY\s*=\s*"([^"]+)"', block))
     assert keys == {"scanlog.expandAll"}, keys
+
+
+_VENDORED_KATEX = re.compile(r"/static/vendor/(katex-[\d.]+)/(katex\.min\.(?:css|js))")
+
+
+@pytest.mark.parametrize("template", _TEMPLATES, ids=lambda p: p.name)
+def test_the_typesetter_a_page_loads_is_the_one_shipped(template: Path) -> None:
+    """Upgrading KaTeX is replacing the directory AND every reference, in one commit.
+
+    A page naming a version that is not under ``static/vendor/`` loads
+    nothing (no CDN fallback exists, by design) and every equation on it
+    falls back to TeX source. The two must agree, and there is one KaTeX.
+    """
+    refs = _VENDORED_KATEX.findall(template.read_text(encoding="utf-8"))
+    if not refs:
+        pytest.skip("no equations on this page")
+    vendor = _PKG / "static" / "vendor"
+    for folder, name in refs:
+        assert (vendor / folder / name).is_file(), (
+            f"{template.name} loads {folder}/{name}, not shipped"
+        )
+    assert {folder for folder, _ in refs} == {p.name for p in vendor.iterdir()}
