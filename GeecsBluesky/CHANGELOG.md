@@ -44,6 +44,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   replayed table's numpy scalar columns come back at the Python width
   (`float32` → `float64`, `int16` → `int64`), whatever the descriptor's
   `dtype_numpy` says — harmless to the s-file export and the portal.
+  Hardware-verified 2026-09-25 (Scans 004–008 of 26_0925, 23 devices, 25
+  stacks): last shot → finished ≈ 2 s (was 26 s); the writer registers
+  such a run in 25–28 s — a flat ~20 HTTP calls/s regardless of
+  `--max-workers`, the SQLite catalog committing one write at a time —
+  so a run appears in Tiled ~30 s after it ends; catch-up after a dead
+  writer and exactly-once re-registration after a SIGKILL mid-registration
+  both verified live.
 - `tiled_integration.subscribe_tiled` (the in-process writer) is gone —
   `subscribe_tiled_spool` replaces it; `make_run_engine` drops the
   `tiled_uri` / `tiled_api_key` arguments nothing passed. The

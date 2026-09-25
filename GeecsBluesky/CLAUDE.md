@@ -479,6 +479,20 @@ with the writer, 0.26 s without).  Now:
 
 The s-file, ScanInfo and `scan.log` are unaffected: they never used Tiled.
 
+**Measured on hardware 2026-09-25 (Scans 004–008 of 26_0925, 3-shot
+counts, 23 devices, 25 plugin stacks):** last shot → `finished` ≈ 2 s
+(was 26 s with the in-process writer); the writer registers such a run
+in **25–28 s (930 documents, 471 HTTP calls)** — a flat ~20 calls/s
+whatever `--max-workers` says, because the SQLite catalog commits one
+write at a time.  Off the engine that costs nobody anything, but a run
+appears in Tiled ~30 s after it ends, not 5.  The concurrency knob pays
+only on a catalog that takes parallel writes (Postgres); the other lever
+is fewer datasets per stream (the plugin registers ~9 per camera: the
+frame plus each per-frame attribute as its own array).  Durability
+verified live: runs spooled with the writer down were caught up on
+relaunch; a writer SIGKILLed 74 calls into a registration re-registered
+that run exactly once through the container-exists path.
+
 ## What stays GEECS
 
 The DB as the roster's source of truth (`db_runtime`); day-scoped scan
