@@ -15,9 +15,10 @@ pydantic = ">=2.7"
 # Rendering entries. markdown-it-py is CommonMark-compliant with a plugin
 # architecture (tables, strikethrough, footnotes); nh3 sanitizes the output,
 # which matters because an agent writes into the same field a human does.
+# nh3 >= 0.2.22 for `allowed_classes` (the equation marks' per-tag lock).
 markdown-it-py = ">=3.0"
 mdit-py-plugins = ">=0.4"
-nh3 = ">=0.2"
+nh3 = ">=0.2.22"
 python-multipart = ">=0.0.9"
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true }
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }

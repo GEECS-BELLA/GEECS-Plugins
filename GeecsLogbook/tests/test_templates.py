@@ -166,4 +166,5 @@ def test_the_typesetter_a_page_loads_is_the_one_shipped(template: Path) -> None:
         assert (vendor / folder / name).is_file(), (
             f"{template.name} loads {folder}/{name}, not shipped"
         )
-    assert {folder for folder, _ in refs} == {p.name for p in vendor.iterdir()}
+    shipped = {p.name for p in vendor.glob("katex-*") if p.is_dir()}
+    assert {folder for folder, _ in refs} == shipped

@@ -252,8 +252,13 @@ def _plain(token) -> str:
     for child in token.children or []:
         if child.type in {"softbreak", "hardbreak"}:
             parts.append(" ")
-        elif child.type in {"math_inline", "math_inline_double"}:
-            parts.append(f"${child.content}$")
+        elif child.type == "math_inline":
+            parts.append(f"${child.content.strip()}$")
+        elif child.type == "math_inline_double":
+            # ``$$`` typed straight under a text line, no blank line between:
+            # one paragraph, so the block is inline here; its newlines are
+            # not the author's words.
+            parts.append(f"$${child.content.strip()}$$")
         elif child.type in {"text", "code_inline", "image"}:
             parts.append(child.content)
     return "".join(parts).strip()

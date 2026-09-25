@@ -24,7 +24,7 @@ project adheres to semantic versioning.
   source with the reason as its tooltip. The stored body and the markdown
   mirror are unchanged — GitHub draws the same `$` syntax — and a collapsed
   entry's summary keeps an inline equation as its TeX rather than dropping
-  it.
+  it. Requires `nh3 >= 0.2.22` (`allowed_classes`).
 
 ## [0.12.0] - 2026-09-17
 

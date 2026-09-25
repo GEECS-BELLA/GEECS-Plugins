@@ -77,6 +77,9 @@ _DENSITY_TOKENS = {"--pad", "--row-h", "--gap"}
 
 #: The web surfaces bound by the rule. Adding a surface means adding it
 #: here — a new page that skips the tokens should fail loudly, not quietly.
+#: Vendored third-party assets (the portal's Plotly bundle, the logbook's
+#: `static/vendor/katex-*`) are exempt: they are upstream bytes, not a
+#: surface, and the page around them still styles through the tokens.
 _SURFACES = [
     "GeecsWebTheme/geecs_web_theme/static/theme.css",
     "GeecsWebTheme/geecs_web_theme/static/kit.css",
@@ -91,6 +94,7 @@ _SURFACES = [
     "GeecsLogbook/geecs_logbook/templates/_entries.html",
     "GeecsLogbook/geecs_logbook/static/editor.js",
     "GeecsLogbook/geecs_logbook/static/nav.js",
+    "GeecsLogbook/geecs_logbook/static/math.js",
     "ScanAnalysis/scan_analysis/config_editor/static/editor.css",
     "ScanAnalysis/scan_analysis/config_editor/templates/editor.html",
     "GeecsScanner/geecs_scanner/templates/console.html",

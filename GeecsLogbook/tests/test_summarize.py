@@ -51,6 +51,9 @@ from geecs_logbook.render import summarize
             "Fitted $E = \\gamma m c^2$ to the spectrum",
         ),
         ("$$\n\\int x\n$$\n\nintegrated", "integrated"),
+        # a $$ block typed straight under a text line is INSIDE that
+        # paragraph: one line, its own dollars, none of its newlines
+        ("text line\n$$\nx = 1\n$$\nmore", "text line $$x = 1$$ more"),
         # A table's first cell is an ordinary inline token, so it wins unless
         # cells are skipped — and "Parameter" or "Date" is content-free while
         # LOOKING like a summary. Both shapes come from the editor's own

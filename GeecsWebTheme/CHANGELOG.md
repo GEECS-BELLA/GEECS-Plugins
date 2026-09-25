@@ -4,6 +4,14 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.6.2] - 2026-09-25
+
+### Changed
+
+- The literal-colour guard now walks the logbook's `static/math.js` (the
+  equation typesetter, GeecsLogbook 0.13.0) and states that vendored
+  third-party assets under a surface's `static/` are exempt.
+
 ## [0.6.1] - 2026-09-13
 
 ### Changed
