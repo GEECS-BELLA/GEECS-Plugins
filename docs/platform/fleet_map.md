@@ -28,9 +28,12 @@ back into this table.
     amended **2026-09-25** for the Tiled writer — a new row and the
     `qs → Tiled` edge (GeecsBluesky 0.103.0 moved registration off the
     engine thread into `geecs-tiled-writer`, its own unit over the spool
-    under `/var/lib/geecs-tiled-writer`; **not yet deployed as the unit** —
-    the worker runs a by-hand writer until the deploy PR's switch is done,
-    per the qserver runbook). The seven repo-managed Linux services — CA
+    under `/var/lib/geecs-tiled-writer`); **deployed live the same day**
+    (the by-hand-to-unit switch per the qserver runbook at 10:53:
+    geecs-tiled-writer 0.104.0, queueserver reopened on the new spool,
+    scanner 0.14.0 with its chip; a 3-shot count registered through the
+    unit in 27.9 s and a SIGKILL mid-registration was healed by systemd's
+    restart with the run registered once). The seven repo-managed Linux services — CA
     gateway, queueserver worker and its Tiled writer, GEECS-MCP HTTP, Data
     Portal, Logbook, Scanner —
     run as **system** units rendered from the host's `site.env`
