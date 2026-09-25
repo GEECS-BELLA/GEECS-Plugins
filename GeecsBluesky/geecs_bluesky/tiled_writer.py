@@ -8,7 +8,9 @@ worker died mid-run; :func:`~geecs_bluesky.tiled_spool.spool_is_held`)
 is registered after ``--orphan-after`` seconds of silence with a
 synthesized ``fail`` stop; a held file is a live run, however long it
 stays quiet.  Between sweeps it writes ``heartbeat.json``: liveness,
-backlog, the last error.  **Nothing reads the heartbeat to refuse a run**
+backlog, the last error — and once more just before each registration,
+naming the run (``registering``), since a registration is ~25 s of
+silence that a reader must not mistake for death.  **Nothing reads the heartbeat to refuse a run**
 — with the spool a dead writer loses nothing, so the heartbeat is a
 warning surface (the scanner's status, ``fleet_status.sh``), never a gate.
 
@@ -226,30 +228,59 @@ class SpoolRegistrar:
                 in_progress += 1
         reachable = self._reachable(self.tiled_uri)
         if reachable:
-            for path, orphan in complete:
+            for index, (path, orphan) in enumerate(complete):
                 run_uid = run_uid_of(path)
                 if self._next_attempt.get(run_uid, 0.0) > now:
                     continue  # waiting out its backoff; still pending
+                # A registration is ~25 s of silence (one HTTP call at a
+                # time on the SQLite catalog): say what is being done before
+                # it starts, so a reader's stale rule (``is_stale`` honours
+                # ``registering``) does not call work death. ``pending`` is
+                # what waits BEHIND this one.
+                self._write_heartbeat(
+                    reachable,
+                    pending=len(complete) - index - 1,
+                    in_progress=in_progress,
+                    registering=run_uid,
+                )
                 self._register(path, orphan=orphan, now=now)
         elif complete:
             self._last_error = (
                 f"Tiled at {self.tiled_uri} unreachable; {len(complete)} run(s) waiting"
             )
+        return self._write_heartbeat(
+            reachable,
+            pending=len(self.layout.pending_files()) - in_progress,
+            in_progress=in_progress,
+        )
+
+    def _write_heartbeat(
+        self,
+        reachable: bool,
+        *,
+        pending: int,
+        in_progress: int,
+        registering: str | None = None,
+    ) -> WriterHeartbeat:
+        """The heartbeat as of now, written atomically (a failure is logged, never raised)."""
+        now = self._clock()
         heartbeat = WriterHeartbeat(
             pid=os.getpid(),
             version=_package_version(),
             started_at=self._started_at,
-            last_sweep=self._clock(),
+            last_sweep=now,
             sweep_interval=self.sweep_interval,
             tiled_uri=self.tiled_uri,
             tiled_reachable=reachable,
             last_ok=self._last_ok,
             last_error=self._last_error,
-            pending=len(self.layout.pending_files()) - in_progress,
+            pending=pending,
             in_progress=in_progress,
             failed=len(self.layout.failed_files()),
             done=self._done,
             registered=self._registered[-20:],
+            registering=registering,
+            registering_since=now if registering else None,
         )
         try:
             write_heartbeat(self.layout.heartbeat_path, heartbeat)

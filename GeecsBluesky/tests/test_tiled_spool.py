@@ -463,3 +463,64 @@ def test_heartbeat_reader_tolerates_absence_and_newer_fields(
     with caplog.at_level(logging.WARNING):
         assert read_heartbeat(path) is None
     assert "unreadable" in caplog.text
+
+
+def test_heartbeat_verdict_is_the_one_rule(tmp_path: Path) -> None:
+    """ok / degraded / failed from the heartbeat's own fields, thresholds pinned."""
+    from geecs_bluesky.tiled_spool import (
+        PENDING_BACKLOG_MIN,
+        PENDING_OK_MAX,
+        STALE_WHILE_REGISTERING_S,
+        heartbeat_verdict,
+    )
+
+    now = 1_000.0
+
+    def hb(**over: object) -> WriterHeartbeat:
+        fields: dict = dict(
+            pid=1,
+            version="x",
+            started_at=0.0,
+            last_sweep=now - 1,
+            sweep_interval=2.0,
+            tiled_uri="http://t:8000",
+            tiled_reachable=True,
+            last_ok=now - 30,
+        )
+        fields.update(over)
+        return WriterHeartbeat(**fields)
+
+    none = heartbeat_verdict(None, now, path=tmp_path / "hb.json")
+    assert none.level == "degraded" and none.stale and str(tmp_path) in none.reason
+    assert heartbeat_verdict(hb(), now).level == "ok"
+    assert heartbeat_verdict(hb(pending=PENDING_OK_MAX), now).level == "ok"
+    assert heartbeat_verdict(hb(pending=PENDING_OK_MAX + 1), now).level == "degraded"
+    draining = heartbeat_verdict(hb(pending=PENDING_BACKLOG_MIN), now)
+    assert draining.level == "degraded" and "draining" in draining.reason
+    failing = heartbeat_verdict(hb(pending=PENDING_BACKLOG_MIN, last_error="503"), now)
+    assert failing.level == "failed" and "503" in failing.reason
+    assert heartbeat_verdict(hb(failed=1), now).level == "failed"
+    assert heartbeat_verdict(hb(tiled_reachable=False), now).level == "degraded"
+    stale = heartbeat_verdict(hb(last_sweep=now - 7, failed=2), now)
+    assert stale.level == "degraded" and stale.stale  # silence beats the counts
+    busy = hb(last_sweep=now - 100, registering="r", registering_since=now - 100)
+    assert heartbeat_verdict(busy, now).level == "ok"
+    wedged = hb(
+        last_sweep=now - STALE_WHILE_REGISTERING_S - 1,
+        registering="r",
+        registering_since=now - STALE_WHILE_REGISTERING_S - 1,
+    )
+    assert heartbeat_verdict(wedged, now).stale
+    # every level is a kit status word, so a surface renders it as is
+    assert {v.level for v in (none, draining, failing, stale)} <= {
+        "ok",
+        "degraded",
+        "failed",
+    }
+
+
+def test_heartbeat_reader_reads_an_unreadable_path_as_absent(tmp_path: Path) -> None:
+    # a directory at the path (a misconfigured GEECS_TILED_WRITER_STATE):
+    # OSError, not FileNotFoundError — still None, never an exception into
+    # a reader's request
+    assert read_heartbeat(tmp_path) is None

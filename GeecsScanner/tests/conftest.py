@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -29,7 +31,12 @@ def manager(streams: ProgressCache) -> DemoQueueClient:
 
 
 @pytest.fixture
-def service(manager: DemoQueueClient, streams: ProgressCache) -> ScannerService:
+def service(
+    manager: DemoQueueClient, streams: ProgressCache, tmp_path: Path
+) -> ScannerService:
+    # The writer's heartbeat is read from a path of the test's own, never
+    # from the developer's ~/.local/state (or wherever GEECS_TILED_WRITER_STATE
+    # points on this machine).
     return ScannerService(
         manager,
         DemoResolver(),
@@ -40,6 +47,7 @@ def service(manager: DemoQueueClient, streams: ProgressCache) -> ScannerService:
         version="0.0.0+test",
         settables=DemoSettables(),
         readback=DemoReadback(manager),
+        heartbeat_path=tmp_path / "heartbeat.json",
     )
 
 

@@ -66,10 +66,12 @@ Environment=GEECS_TILED_WRITER_STATE=/var/lib/geecs-tiled-writer
 # never by editing the rendered unit.
 Restart=on-failure
 RestartSec=5
-# A stop is honoured between sweeps; a registration in flight (~25-30 s on
-# the SQLite catalog) finishes first. systemd's default stop timeout (90 s)
-# covers it. A SIGKILL mid-registration is safe anyway: the next start finds
-# the half-registered container and registers the run again from the spool.
+# A stop is honoured between sweeps, and a sweep registers every complete
+# file it finds (~25-30 s each on the SQLite catalog): one run in flight
+# finishes inside systemd's default stop timeout (90 s); a backlog of
+# several does not, and the stop ends in SIGKILL. Safe either way: the
+# next start finds the half-registered container and registers that run
+# again from the spool, exactly once.
 SyslogIdentifier=geecs-tiled-writer
 
 [Install]

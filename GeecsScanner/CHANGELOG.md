@@ -16,17 +16,21 @@ project adheres to semantic versioning.
   `heartbeat.json` under `GEECS_TILED_WRITER_STATE` (the units' shared
   `/var/lib/geecs-tiled-writer`; no flag — the path is the units'
   contract, `heartbeat_path=` on the service for tests), and a "tiled writer" chip in the page's health
-  strip beside "manager" and "doc stream". The rule
-  (`service/writer_status.py`), from the measured 25–28 s per run: `ok`
-  is a fresh heartbeat with Tiled reachable, no `.failed` file and
-  `pending` ≤ 1 (the run that just ended); `degraded` is silence (no
-  heartbeat, or one older than three sweeps: down or wedged), Tiled
-  unreachable, or `pending` 2; `failed` is a file set aside for an
-  operator or `pending` ≥ 3. **Shown, never a gate**: nothing about a
-  submit changes with the word (pinned), per the owner's ruling. The unit
-  template sets `GEECS_TILED_WRITER_STATE`; `scripts/fleet_status.sh` reads
-  the field for its "Tiled writer" row. Demo mode reads the same default
-  path and shows the honest word (degraded on a laptop with no writer).
+  strip beside "manager" and "doc stream". The rule is the writer's —
+  `geecs_bluesky.tiled_spool.heartbeat_verdict` (GeecsBluesky 0.104.0),
+  from the measured 25–28 s per run: `ok` is a fresh heartbeat with Tiled
+  reachable, no `.failed` file and `pending` ≤ 1 (the run that just
+  ended, named by `registering`); `degraded` is silence (no heartbeat, or
+  one older than three sweeps — or than 10 min while registering: down or
+  wedged), Tiled unreachable, or a backlog draining; `failed` is a file
+  set aside for an operator or a backlog with a failing attempt.
+  `service/writer_status.py` only projects it onto the API model. **Shown,
+  never a gate**: nothing about a submit changes with the word (pinned),
+  per the owner's ruling. The unit template sets
+  `GEECS_TILED_WRITER_STATE`; `scripts/fleet_status.sh` reads the field for
+  its "Tiled writer" row. Demo mode reads the same default path and shows
+  the honest word (degraded on a laptop with no writer); the test fixture
+  points at a path of its own.
 
 ## [0.13.1] - 2026-09-21
 

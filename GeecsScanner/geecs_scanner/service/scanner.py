@@ -254,7 +254,7 @@ class ScannerService:
             manager=st.connected,
             readiness=st.readiness,
             experiment=self.experiment,
-            tiled_writer=st.tiled_writer or self.tiled_writer(),
+            tiled_writer=st.tiled_writer,
         )
 
     def queue(self, history_limit: int = 10) -> QueueOut:

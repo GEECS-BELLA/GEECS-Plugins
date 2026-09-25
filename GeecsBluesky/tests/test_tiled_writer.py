@@ -20,8 +20,10 @@ from typing import Any
 import pytest
 
 from geecs_bluesky.tiled_spool import (
+    STALE_WHILE_REGISTERING_S,
     SpoolLayout,
     SpoolState,
+    WriterHeartbeat,
     encode_line,
     read_heartbeat,
     run_uid_of,
@@ -550,3 +552,65 @@ def test_main_without_a_catalog_is_a_configuration_error(
         "geecs_bluesky.tiled_integration.read_tiled_config", lambda: (None, None)
     )
     assert main(["--once", "--state-dir", str(tmp_path)]) == 2
+
+
+# ---------------------------------------------------------------------------
+# The heartbeat during a registration (the deploy PR's review, finding 1)
+# ---------------------------------------------------------------------------
+
+
+def test_heartbeat_names_the_run_before_its_registration_starts(
+    tmp_path: Path,
+) -> None:
+    """A registration is ~25 s of silence: the heartbeat on disk says so first.
+
+    A writer stand-in reads the heartbeat file mid-registration (at the
+    stop document, the moment the stock writer does its ~500 HTTP calls)
+    and a reader 30 s later must not call it stale; after the sweep the
+    run is no longer named.
+    """
+    from geecs_bluesky.tiled_spool import heartbeat_verdict
+
+    layout = SpoolLayout(tmp_path)
+    _write(layout, _docs("run-a", 1000.0, scan=12))
+    _write(layout, _docs("run-b", 2000.0))
+    clock = _Clock()
+    seen: list[tuple[str, WriterHeartbeat | None]] = []
+
+    class _Peeking(_Recorder):
+        def __call__(self, client):
+            inner = super().__call__(client)
+
+            def callback(name: str, doc: dict) -> None:
+                if name == "stop":
+                    seen.append(
+                        (doc["run_start"], read_heartbeat(layout.heartbeat_path))
+                    )
+                inner(name, doc)
+
+            return callback
+
+    registrar = _registrar(layout, _Peeking(), clock=clock)
+    final = registrar.sweep()
+    assert [uid for uid, _ in seen] == ["run-a", "run-b"]
+    first, second = (hb for _, hb in seen)
+    assert first is not None and first.registering == "run-a"
+    assert (
+        first.registering_since == clock.now and first.pending == 1
+    )  # run-b waits behind
+    assert second is not None and second.registering == "run-b" and second.pending == 0
+    # 30 s into it (the measured 25–28 s): alive, and the verdict says what it is doing
+    assert not first.is_stale(now=clock.now + 30)
+    verdict = heartbeat_verdict(first, now=clock.now + 30)
+    assert verdict.level == "ok" and "registering run-a" in verdict.reason
+    # …but a registration that never returns is stale
+    assert first.is_stale(now=clock.now + STALE_WHILE_REGISTERING_S + 1)
+    assert heartbeat_verdict(first, now=clock.now + STALE_WHILE_REGISTERING_S + 1).stale
+    # the sweep's closing heartbeat names nothing and counts nothing pending
+    assert final.registering is None and final.registering_since is None
+    assert final.pending == 0 and final.done == 2
+    on_disk = read_heartbeat(layout.heartbeat_path)
+    assert on_disk is not None and on_disk.registering is None
+    # between registrations the three-sweep rule applies
+    assert not on_disk.is_stale(now=clock.now + 6)
+    assert on_disk.is_stale(now=clock.now + 6.1)

@@ -461,7 +461,11 @@ with the writer, 0.26 s without).  Now:
   its open — costs nothing that ever worked.
 - **The heartbeat is a warning, never a gate** (`<state>/heartbeat.json`:
   liveness, `tiled_reachable`, `pending`/`in_progress`/`failed`, the
-  sweep's `last_error`; `read_heartbeat` + `is_stale` for readers).  With
+  sweep's `last_error`, and `registering` — written just before each
+  registration, because a registration is ~25 s of silence that
+  `is_stale` must not read as death; `read_heartbeat` + the one
+  `heartbeat_verdict` for every reader: the engine's open-time warning,
+  the scanner's chip, `fleet_status.sh`).  With
   the spool a dead writer loses nothing, so no preflight and no plan
   refuses a run over it — the scanner shows it, `fleet_status.sh` reports
   it.  Ruled by the owner 2026-09-25 ("service, spool, no refusal gate")

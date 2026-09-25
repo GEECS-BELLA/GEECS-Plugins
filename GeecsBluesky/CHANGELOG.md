@@ -6,7 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
-## [0.103.1] - 2026-09-25
+## [0.104.0] - 2026-09-25
+
+### Changed
+
+- **The heartbeat names the run it is registering.** A registration is
+  ~25 s of silence (one HTTP call at a time on the SQLite catalog), and a
+  heartbeat written only at the end of a sweep read as stale — "down or
+  wedged" — for most of every run's registration (the deploy PR's review,
+  finding 1). The writer now writes the heartbeat once more just before
+  each registration with `registering` (the run's uid) and
+  `registering_since`; `WriterHeartbeat.is_stale` allows
+  `STALE_WHILE_REGISTERING_S` (10 min) of silence while a run is named,
+  three sweeps otherwise. Additive: an older reader ignores the fields.
+- **One verdict over the heartbeat**, `tiled_spool.heartbeat_verdict` →
+  `HeartbeatVerdict(level, reason, stale)`: `failed` for a `.failed` file
+  or a backlog (`pending` ≥ 3) **with** a failing attempt; `degraded` for
+  silence, Tiled unreachable, or a backlog draining (a burst of short
+  runs registers at the writer's rate — shown, not alarmed); `ok`
+  otherwise. The engine's environment-open warning uses its `stale` half;
+  the scanner's chip and `fleet_status.sh` show its level. `read_heartbeat`
+  reads any `OSError` as absent (a directory at the path, another
+  account's file), never raising into a reader's request.
 
 ### Added
 

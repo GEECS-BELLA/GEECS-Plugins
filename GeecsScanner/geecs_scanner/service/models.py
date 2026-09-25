@@ -53,9 +53,8 @@ class StatusOut(BaseModel):
     readiness_detail: str = ""
     experiment: str
     identity: str = Field(description="What this process submits as")
-    tiled_writer: Optional[TiledWriterOut] = Field(
-        default=None,
-        description="The Tiled writer's heartbeat verdict (the page's chip); shown, never a gate",
+    tiled_writer: TiledWriterOut = Field(
+        description="The Tiled writer's heartbeat verdict (the page's chip); shown, never a gate"
     )
 
 

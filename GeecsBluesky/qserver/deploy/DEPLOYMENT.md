@@ -355,7 +355,10 @@ hand-over, in a window with no scan running:
 ### The heartbeat, and what its words mean
 
 `/var/lib/geecs-tiled-writer/heartbeat.json`, rewritten atomically after
-every sweep (2 s): `pid`, `version`, `started_at`, `last_sweep`,
+every sweep (2 s) and once more just before each registration — a
+registration is ~25 s of silence, and the heartbeat names the run it is
+on (`registering`, `registering_since`) so no reader mistakes work for
+death: `pid`, `version`, `started_at`, `last_sweep`,
 `sweep_interval`, `tiled_uri`, `tiled_reachable`, `last_ok` (the last
 successful registration), `last_error` (what went wrong in the **latest**
 sweep — a clean sweep clears it; the journal keeps history), `pending`
@@ -369,14 +372,15 @@ with the spool a dead writer loses nothing.
 Read it three ways: `cat` on the host; the scanner's `GET /health` →
 `tiled_writer` and its "tiled writer" chip; `scripts/fleet_status.sh`'s
 "Tiled writer" row (read from the scanner's `/health` — the probe runs
-from an operator's machine). The scanner's word, from the measured
-25–28 s per run:
+from an operator's machine). One rule for all three,
+`geecs_bluesky.tiled_spool.heartbeat_verdict` (the engine's environment-open
+warning uses its liveness half), from the measured 25–28 s per run:
 
 | Word | When | Meaning |
 |---|---|---|
-| `ok` | a fresh heartbeat, Tiled reachable, `failed` 0, `pending` ≤ 1 | the writer keeps up: at most the last run is being registered |
-| `degraded` | no heartbeat, or `last_sweep` older than 3 sweep intervals (~6 s: the writer is down or wedged); Tiled unreachable; `pending` 2 | nothing is lost — runs keep spooling — but nothing reaches Tiled until it is fixed |
-| `failed` | `failed` > 0 (a file set aside for an operator), or `pending` ≥ 3 (a backlog: the writer is not keeping up, or every registration fails and is backing off — `last_error` says which) | someone has to look |
+| `ok` | a fresh heartbeat, Tiled reachable, `failed` 0, `pending` ≤ 1 | the writer keeps up: at most the run that just ended is being registered (`registering` names it) |
+| `degraded` | no heartbeat; a stale one — `last_sweep` older than 3 sweep intervals (~6 s) between registrations, or older than 10 min while `registering` names a run (a Tiled call that never returns): the writer is down or wedged; Tiled unreachable; `pending` ≥ 2 with no error — a backlog of short runs draining at ~25 s each | nothing is lost — runs keep spooling — and a backlog drains by itself; a stale heartbeat or an unreachable Tiled needs a hand |
+| `failed` | `failed` > 0 (a file set aside for an operator), or `pending` ≥ 3 **with** a `last_error` (every registration failing and backing off) | someone has to look |
 
 **A stale heartbeat** with the unit `active` means the process is wedged
 (a sweep that never returns — a Tiled call with no timeout): `sudo

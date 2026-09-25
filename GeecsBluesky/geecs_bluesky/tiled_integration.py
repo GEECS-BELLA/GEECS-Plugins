@@ -124,6 +124,7 @@ def subscribe_tiled_spool(run_engine, state_dir: Path | None = None) -> int | No
         SpoolCallback,
         SpoolLayout,
         default_state_dir,
+        heartbeat_verdict,
         read_heartbeat,
     )
 
@@ -141,12 +142,18 @@ def subscribe_tiled_spool(run_engine, state_dir: Path | None = None) -> int | No
             exc_info=True,
         )
         return None
-    heartbeat = read_heartbeat(layout.heartbeat_path)
-    if heartbeat is None or heartbeat.is_stale():
+    # The one verdict (tiled_spool.heartbeat_verdict — the scanner's chip and
+    # fleet_status.sh read the same); the engine cares about its liveness
+    # half alone.
+    verdict = heartbeat_verdict(
+        read_heartbeat(layout.heartbeat_path), path=layout.heartbeat_path
+    )
+    if verdict.stale:
         logger.warning(
-            "no fresh geecs-tiled-writer heartbeat under %s — runs will spool "
-            "there and reach Tiled only once the writer runs",
+            "no fresh geecs-tiled-writer heartbeat under %s (%s) — runs will "
+            "spool there and reach Tiled only once the writer runs",
             layout.state_dir,
+            verdict.reason,
         )
     token = run_engine.subscribe(
         SafeDocumentCallback(SpoolCallback(layout), label="TiledSpool")

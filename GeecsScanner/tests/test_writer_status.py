@@ -4,10 +4,13 @@ Hermetic: a heartbeat file per state is written the way ``geecs-tiled-writer``
 writes it (``geecs_bluesky.tiled_spool.write_heartbeat``), the service is
 pointed at it, and the verdict is read through ``/health`` and the SSE
 status.  The chip's word per state runs the page's own ``renderWriterChip``
-under node.  What is pinned: the rule's thresholds (the measured 25–28 s
-per run — ``pending`` ≤ 1 fresh is ok, ≥ 3 or a ``.failed`` file is failed,
-silence is degraded), that a missing file is degraded and never an error,
-and that **nothing about a submit changes** with the word.
+under node.  The rule itself is the writer's (``tiled_spool.heartbeat_verdict``,
+pinned in GeecsBluesky); what is pinned here is the projection — the
+words reach the API per heartbeat (the measured 25–28 s per run:
+``pending`` ≤ 1 fresh is ok, a ``.failed`` file or a backlog with a
+failing attempt is failed, silence is degraded, a registration in flight
+is not silence), that a missing or unreadable file is degraded and never
+an error, and that **nothing about a submit changes** with the word.
 """
 
 from __future__ import annotations
@@ -31,12 +34,13 @@ from geecs_scanner.service.demo import (
     demo_preflight,
 )
 from geecs_scanner.service.models import SubmitIn
-from geecs_scanner.service.writer_status import (
-    PENDING_FAILED_MIN,
+from geecs_bluesky.tiled_spool import (
+    PENDING_BACKLOG_MIN,
     PENDING_OK_MAX,
-    read_writer_status,
-    writer_verdict,
+    STALE_WHILE_REGISTERING_S,
 )
+
+from geecs_scanner.service.writer_status import read_writer_status, writer_verdict
 from geecs_scanner.web import create_app
 
 _PKG = Path(__file__).resolve().parents[1] / "geecs_scanner"
@@ -75,21 +79,40 @@ def _heartbeat(**over) -> WriterHeartbeat:
             "ok",
         ),  # the run that just ended
         ({"pending": PENDING_OK_MAX + 1}, "degraded"),  # a second one waiting
-        ({"pending": PENDING_FAILED_MIN}, "failed"),  # a backlog
+        ({"pending": PENDING_BACKLOG_MIN}, "degraded"),  # short runs draining
+        (
+            {"pending": PENDING_BACKLOG_MIN, "last_error": "Scan012: 503"},
+            "failed",
+        ),  # a backlog because every attempt fails
         ({"failed": 1}, "failed"),  # a file set aside for an operator
         ({"tiled_reachable": False}, "degraded"),
         ({"last_sweep": NOW - 7}, "degraded"),  # > 3 sweeps of silence
         ({"last_sweep": NOW - 5}, "ok"),  # < 3 sweeps: alive
+        (
+            {"last_sweep": NOW - 30, "registering": "r", "registering_since": NOW - 30},
+            "ok",
+        ),  # a registration in flight is work, not silence
+        (
+            {
+                "last_sweep": NOW - STALE_WHILE_REGISTERING_S - 1,
+                "registering": "r",
+                "registering_since": NOW - STALE_WHILE_REGISTERING_S - 1,
+            },
+            "degraded",
+        ),  # …until it has taken longer than any registration
     ],
     ids=[
         "idle",
         "one-pending",
         "two-pending",
-        "backlog",
+        "backlog-draining",
+        "backlog-failing",
         "set-aside",
         "tiled-down",
         "stale",
         "fresh-enough",
+        "registering",
+        "registering-wedged",
     ],
 )
 def test_verdict_words(over: dict, state: str) -> None:
@@ -125,6 +148,10 @@ def test_unreadable_heartbeat_is_degraded(tmp_path: Path) -> None:
     path = tmp_path / "heartbeat.json"
     path.write_text("{not json")
     assert read_writer_status(path, now=NOW).state == "degraded"
+    # a directory at the path (GEECS_TILED_WRITER_STATE misconfigured), or a
+    # file another account owns: still a word, never an exception through
+    # /api/status (which the SSE generator polls every second)
+    assert read_writer_status(tmp_path, now=NOW).state == "degraded"
 
 
 # ------------------------------------------------------------ the service

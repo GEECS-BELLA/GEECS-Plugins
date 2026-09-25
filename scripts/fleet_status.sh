@@ -281,14 +281,19 @@ if [ "$NET_UP" -eq 1 ]; then
     # worker host, and the scanner's /health reads it (tiled_writer: the
     # kit word the scanner's chip shows, plus the heartbeat's counts). This
     # probe runs from an operator's machine, so the scanner is the reader.
-    # The word is the scanner's verdict (GeecsBluesky 0.103.0's measured
-    # 25-28 s per run: ok = fresh heartbeat, pending <= 1; degraded = no or
-    # stale heartbeat, Tiled unreachable, pending 2; failed = a .failed file
-    # or pending >= 3). A warning surface, never a gate: nothing refuses a
-    # run over it, and the spool waits through a dead writer.
+    # The word is geecs_bluesky.tiled_spool.heartbeat_verdict's (the one
+    # rule; its thresholds are documented there and in the qserver
+    # runbook). A warning surface, never a gate: nothing refuses a run
+    # over it, and the spool waits through a dead writer.
     # A nested object whose detail may hold braces and quotes: parsed with
     # the stdlib json (python3 is already a dependency of --summary), not sed.
-    tw="$(printf '%s' "$sh_" | python3 -c '
+    tw=""
+    if [ -n "$sh_" ] && ! command -v python3 >/dev/null 2>&1; then
+        warn "Tiled writer $SC_HOST  no python3 here to parse the scanner's /health — read /var/lib/geecs-tiled-writer/heartbeat.json on the host"
+        rec "role=Tiled writer	state=ok	note=not parsed (no python3 on this machine)"
+        sh_tw_skip=1
+    fi
+    [ "${sh_tw_skip:-0}" = "1" ] || tw="$(printf '%s' "$sh_" | python3 -c '
 import json, sys
 try:
     tw = json.load(sys.stdin).get("tiled_writer")
@@ -302,7 +307,7 @@ if isinstance(tw, dict):
         tw_counts="pending ${twp:-?}, in progress ${twi:-?}, failed ${twf:-?}"
         case "$tws" in
             ok)       ok "Tiled writer $SC_HOST (heartbeat via the scanner)  $tw_counts — ${twd:-keeping up}"
-                      rec "role=Tiled writer	state=ok	checkout=<root>/qs-checkout (the worker's)" ;;
+                      rec "role=Tiled writer	state=ok" ;;   # the checkout is stage 2's to observe
             degraded) warn "Tiled writer $SC_HOST (heartbeat via the scanner)  DEGRADED — ${twd:-?} ($tw_counts; runs keep spooling, nothing reaches Tiled until it is fixed)"
                       rec "role=Tiled writer	state=ok	note=degraded: ${twd:-?}" ;;
             failed)   bad "Tiled writer $SC_HOST (heartbeat via the scanner)  FAILED — ${twd:-?} ($tw_counts; see journalctl -u geecs-tiled-writer)"
@@ -310,6 +315,8 @@ if isinstance(tw, dict):
             *)        warn "Tiled writer $SC_HOST  the scanner's /health has a tiled_writer field but no state word (${tws:-empty}) — scanner too old, or a shape change"
                       rec "role=Tiled writer	state=ok	note=unreadable tiled_writer field in the scanner's /health" ;;
         esac
+    elif [ "${sh_tw_skip:-0}" = "1" ]; then
+        :   # said above
     elif [ -n "$sh_" ]; then
         warn "Tiled writer $SC_HOST  the scanner's /health (geecs-scanner ${sv:-?}) carries no tiled_writer field — a scanner before 0.14.0; read /var/lib/geecs-tiled-writer/heartbeat.json on the host (stage 2 lists the unit)"
         rec "role=Tiled writer	state=ok	note=heartbeat not readable from here (scanner ${sv:-?} predates the field)"
