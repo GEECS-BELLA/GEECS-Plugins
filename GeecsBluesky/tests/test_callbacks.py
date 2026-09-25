@@ -943,6 +943,90 @@ def test_a_gated_scan_writes_its_s_file_from_the_shots_rows_and_the_stacks(
     assert not any(c.startswith("uc_") for c in table.columns)
 
 
+def test_a_gated_run_with_a_native_essential_gets_its_s_file_and_a_files_line(
+    RE, gated_worker, tmp_path, caplog
+):
+    """The 2026-09-25 ruling end to end: a native-saving essential in a gated run.
+
+    The ``shots`` rows carry its save path as a run-long constant; the
+    s-file (the rows renamed by the headers) carries its scalars and its
+    stamp and drops the path column as it drops every companion; the
+    stack check counts the files in that directory against the rows and
+    appends the verdict to ``scan.log`` — INFO when they match, WARNING
+    on a shortfall (a dropped frame is a missing file, no retake), never
+    a failure.
+    """
+    from ophyd_async.core import StaticFilenameProvider, StaticPathProvider
+
+    from geecs_bluesky.callbacks import StackCheckCallback
+    from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
+
+    plans, gated_box, sfile = gated_worker
+    stack_check = StackCheckCallback(finalize_timeout=4.0)
+    RE.subscribe(stack_check)
+    caplog.set_level(logging.INFO, logger="geecs_bluesky.callbacks")
+    directory = tmp_path / "scans" / "Scan001" / "UC_Native"
+    native = _camera(
+        RE,
+        gated_box,
+        "UC_Native",
+        provider=StaticPathProvider(StaticFilenameProvider("f"), directory),
+    )
+    set_mock_value(native.meancounts, 5.0)
+    gauge = CaSnapshotReadable(
+        "U_Gauge", ["Pressure"], experiment="TestExp", name="u_gauge"
+    )
+    connect_mock(RE, gauge)
+    set_mock_value(gauge.pressure, 3e-6)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(plans["count"]([native, gauge], 3, acquisition="gated"))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert col.docs["start"][0]["shot_clock"] == "UC_Native"
+    rows = _events_from_pages(col, "shots")
+    assert [r["data"]["uc_native-nonscalar_save_path"] for r in rows] == [
+        str(directory)
+    ] * 3
+    stamps = [r["data"]["uc_native-acq_timestamp"] for r in rows]
+    # LabVIEW writes one file per shot, named by the stamp — behind the edge
+    for stamp in stamps:
+        (directory / f"UC_Native_{stamp:.3f}.png").write_bytes(b"x")
+    stack_check.join(10.0)
+    sfile.join(10.0)
+
+    table = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
+    assert len(table) == 3
+    assert list(table["UC_Native MeanCounts"]) == [5.0] * 3
+    assert list(table["UC_Native acq_timestamp"]) == pytest.approx(stamps)
+    assert list(table["U_Gauge Pressure"]) == [3e-6] * 3
+    assert not any("save_path" in c or c.startswith("uc_") for c in table.columns)
+    log = (tmp_path / "scans" / "Scan001" / "scan.log").read_text()
+    assert (
+        "INFO native files check: uc_native: 3 native file(s) in UC_Native/ "
+        "for 3 shots row(s)" in log
+    )
+    assert "WARNING" not in log
+
+    # A dropped frame: one file short — a WARNING line, never a failure.  The
+    # same documents replayed into the callback alone, against the same folder.
+    (directory / f"UC_Native_{stamps[-1]:.3f}.png").unlink()
+    again = StackCheckCallback(finalize_timeout=0.6)
+    again("start", {**col.docs["start"][0], "uid": "again"})
+    again(
+        "descriptor",
+        {"uid": "d-again", "run_start": "again", "name": "shots", "object_keys": {}},
+    )
+    for i, row in enumerate(rows, start=1):
+        again("event", {"descriptor": "d-again", "seq_num": i, "data": row["data"]})
+    again("stop", {"run_start": "again", "exit_status": "success"})
+    again.join(10.0)
+    log = (tmp_path / "scans" / "Scan001" / "scan.log").read_text()
+    assert (
+        "WARNING native files check: uc_native: 2 native file(s) in UC_Native/ "
+        "but 3 shots row(s) — MISMATCH (1 row(s) without a file)" in log
+    )
+
+
 def test_a_gated_run_whose_stack_never_finalizes_still_gets_its_s_file(
     RE, gated_worker, tmp_path, caplog, axes_namespace
 ):

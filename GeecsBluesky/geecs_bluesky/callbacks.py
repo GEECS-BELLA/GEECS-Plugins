@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -794,6 +795,17 @@ class StackCheckCallback(_StreamCallback):
       count alone — a non-essential camera's frame for shot *k* may land
       during *k+1* and an orphan there is normal, not a defect.
 
+    A gated run's **native-saving essentials** (no plugin; their LabVIEW
+    files are their record, 2026-09-25 ruling) get a files-versus-rows
+    line of their own: the sampler writes each one's
+    ``-nonscalar_save_path`` column into every ``shots`` row as a run-long
+    constant, and the regular files in that directory are counted against
+    the rows — waiting, bounded, for the count to reach the rows first
+    (there is no write-complete readback; the last file lands a LabVIEW
+    loop period after the last edge).  A shortfall is a dropped frame (a
+    missing file, no retake) and a surplus a retaken step's or an
+    in-flight edge's file: WARNING either way, never a failure.
+
     The stop document precedes ``unstage`` (``Capture=0``, when the plugin
     finalizes and closes the file), and a run callback must not block the
     RunEngine — so the check runs on a small thread that waits, bounded,
@@ -877,6 +889,60 @@ class StackCheckCallback(_StreamCallback):
                 stack.width,
                 self.finalize_timeout,
             )
+        if gated:
+            for owner, directory, rows in _native_save_dirs(dict(start), run):
+                self.spawn(
+                    f"native-files[{owner}]",
+                    self._check_native_files,
+                    dict(start),
+                    owner,
+                    directory,
+                    rows,
+                    self.finalize_timeout,
+                )
+
+    @staticmethod
+    def _check_native_files(
+        start: Mapping[str, Any],
+        owner: str,
+        directory: Path,
+        rows: int,
+        timeout: float,
+    ) -> None:
+        """Count the regular files in *directory* against the ``shots`` rows.
+
+        Waits, bounded by *timeout*, for the count to reach the rows (the
+        device writes a LabVIEW loop period behind the edge); then one
+        line, WARNING on a mismatch — never a failure.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            files = _count_files(directory)
+            if files >= rows or time.monotonic() >= deadline:
+                break
+            time.sleep(0.5)
+        if not directory.is_dir():
+            message = f"{owner}: native directory {directory} missing"
+            message += f" but {rows} shots row(s)" if rows else ""
+            warning = bool(rows)
+        elif files == rows:
+            message = (
+                f"{owner}: {files} native file(s) in {directory.name}/ for "
+                f"{rows} shots row(s)"
+            )
+            warning = False
+        else:
+            detail = (
+                f"{rows - files} row(s) without a file"
+                if files < rows
+                else f"{files - rows} orphan file(s)"
+            )
+            message = (
+                f"{owner}: {files} native file(s) in {directory.name}/ but "
+                f"{rows} shots row(s) — MISMATCH ({detail})"
+            )
+            warning = True
+        _stack_verdict(start, message, warning=warning, kind="native files check")
 
     @staticmethod
     def _check(
@@ -1024,7 +1090,49 @@ def _shot_stamps(
     )
 
 
-def _stack_verdict(start: Mapping[str, Any], message: str, *, warning: bool) -> None:
+def _count_files(directory: Path) -> int:
+    """The regular files in *directory* (``0`` when it does not exist)."""
+    try:
+        return sum(1 for p in directory.iterdir() if p.is_file())
+    except OSError:
+        return 0
+
+
+def _native_save_dirs(
+    start: Mapping[str, Any], run: _RunStreams
+) -> list[tuple[str, Path, int]]:
+    """``(owner, directory, rows)`` per native-saving essential of a gated run.
+
+    The sampler writes the device's ``-nonscalar_save_path`` column into
+    every ``shots`` row as a run-long constant (``EVENT_SCHEMA.md``); a
+    column that is not constant is reported as a defect of its own and
+    its first value is counted.
+    """
+    from geecs_bluesky.devices.detector import LvNativeFileDataLogic
+
+    suffix = LvNativeFileDataLogic.datakey_suffix
+    rows = run.stream_rows(SHOTS_STREAM)
+    out: list[tuple[str, Path, int]] = []
+    for column in sorted({c for row in rows for c in row if c.endswith(suffix)}):
+        owner = column[: -len(suffix)]
+        values = [str(row[column]) for row in rows if row.get(column)]
+        if not values:
+            continue
+        if len(set(values)) > 1:
+            _stack_verdict(
+                start,
+                f"{owner}: {column} is not constant over the shots rows "
+                f"({len(set(values))} values); counting {values[0]}",
+                warning=True,
+                kind="native files check",
+            )
+        out.append((owner, Path(values[0]), len(rows)))
+    return out
+
+
+def _stack_verdict(
+    start: Mapping[str, Any], message: str, *, warning: bool, kind: str = "stack check"
+) -> None:
     """Log the verdict and append it to the run's ``scan.log`` (already closed)."""
     scan = start.get("scan_number")
     line = f"scan {scan}: {message}"
@@ -1038,7 +1146,7 @@ def _stack_verdict(start: Mapping[str, Any], message: str, *, warning: bool) -> 
             with log_path.open("a", encoding="utf-8") as fh:
                 stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 level = "WARNING" if warning else "INFO"
-                fh.write(f"{stamp} {level} stack check: {message}\n")
+                fh.write(f"{stamp} {level} {kind}: {message}\n")
     except OSError:
         logger.debug(
             "could not append the stack verdict to %s", log_path, exc_info=True

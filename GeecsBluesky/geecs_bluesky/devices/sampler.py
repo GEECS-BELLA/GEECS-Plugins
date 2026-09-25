@@ -15,7 +15,10 @@ collect`` verbs (``Flyable`` + ``EventCollectable`` + ``Preparable``):
 - **Row.**  On each tick, the latest cached reading of every member (the
   strict row's rule: *the latest value of every subscribed non-plugin
   signal, into a row the trigger generated*), plus the clock's own stamp
-  column so the row joins to the cameras' frames by stamp.
+  column so the row joins to the cameras' frames by stamp — and, for a
+  native-saving essential (a device without a plugin whose LabVIEW files
+  are its record), its ``-nonscalar_save_path`` column, the run-long
+  constant its files are found under; they join by stamp too.
 - **Quota.**  ``prepare(N)`` sets the step's shot count; ``complete`` is
   done after *N* ticks, or fails with
   :exc:`~geecs_bluesky.exceptions.GeecsTriggerTimeoutError` when the clock
@@ -59,19 +62,27 @@ _Read = Callable[[], Awaitable[dict[str, Reading]]]
 def _readers_for(obj: Any) -> list[tuple[Any, _Describe, _Read]]:
     """``(key object, describe, read)`` per column source of *obj*.
 
-    A :class:`GeecsDetector` (a triggered scalar device without a plugin)
-    and a :class:`ScalarsView` of one contribute the detector's scalar
-    signals individually — the detector's ``read`` needs a prepare context
-    the sampler never gives it, and the view masks a missed shot the
-    sampler never fires.  Anything else with ``read`` / ``describe`` (a
-    scalar-only device, a motor, a signal, the bin counter) is one source.
+    A :class:`GeecsDetector` (a triggered device without a plugin) and a
+    :class:`ScalarsView` of one contribute the detector's scalar signals
+    individually — the detector's ``read`` is its prepared readables, and
+    the view masks a missed shot the sampler never fires.  A
+    **native-saving** detector listed itself (not through its view) also
+    contributes those prepared readables: the gated plan prepares it once,
+    unbounded, before the ``shots`` stream is declared, and in that fly
+    prepare its whole per-event reading is the ``-nonscalar_save_path``
+    column — the run-long constant that says where its files landed.
+    Anything else with ``read`` / ``describe`` (a scalar-only device, a
+    motor, a signal, the bin counter) is one source.
     """
     owner = obj._owner if isinstance(obj, ScalarsView) else obj
     if isinstance(owner, GeecsDetector):
-        return [
+        readers: list[tuple[Any, _Describe, _Read]] = [
             (sig, sig.describe, sig.read)  # type: ignore[list-item]
             for sig in owner._scalar_signals()
         ]
+        if obj is owner and owner.native_save and not owner.plugin_backed:
+            readers.append((owner, owner.describe, owner.read))
+        return readers
     if isinstance(obj, ScalarsView):
         return [(owner, owner.describe, owner.read)]
 

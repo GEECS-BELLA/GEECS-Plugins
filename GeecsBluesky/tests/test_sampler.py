@@ -191,3 +191,66 @@ def test_prepare_and_kickoff_order_is_enforced(RE: RunEngine) -> None:
             await sampler.prepare(0)
 
     _run(RE, scenario)
+
+
+def test_a_native_saving_members_save_path_rides_in_every_row(
+    RE: RunEngine, tmp_path
+) -> None:
+    """A native-saving essential (no plugin): its prepared reading joins its scalars.
+
+    The gated plan prepares it once, unbounded, before the stream is
+    declared; in that fly prepare its whole per-event reading is the
+    ``-nonscalar_save_path`` column, a run-long constant the sampler puts
+    in every ``shots`` row beside the device's scalars and stamp.
+    """
+    from ophyd_async.core import StaticFilenameProvider, StaticPathProvider
+
+    from geecs_bluesky.devices.detector import UNBOUNDED_TRIGGER_INFO
+
+    (tmp_path / "Scan001").mkdir()
+    directory = tmp_path / "Scan001" / "UC_Native"
+    native = GeecsDetector(
+        "UC_Native",
+        ["MeanCounts"],
+        experiment="TestExp",
+        name="uc_native",
+        path_provider=StaticPathProvider(StaticFilenameProvider("f"), directory),
+    )
+    _ict, gauge, bins = _members(RE)
+    connect_mock(RE, native)
+    set_mock_value(native.acq_timestamp, 100.0)
+    set_mock_value(native.meancounts, 9.0)
+    sampler = ShotSampler(
+        [native, gauge, bins], native.acq_timestamp, clock_name="UC_Native"
+    )
+
+    async def scenario():
+        await native.stage()
+        await native.prepare(UNBOUNDED_TRIGGER_INFO)
+        await sampler.prepare(2)
+        keys = await sampler.describe_collect()
+        await sampler.kickoff()
+        status = sampler.complete()
+        for stamp in (101.0, 102.0):
+            await asyncio.sleep(0.02)
+            set_mock_value(native.acq_timestamp, stamp)
+        await status
+        rows = [row async for row in sampler.collect()]
+        await native.unstage()
+        return keys, rows
+
+    keys, rows = _run(RE, scenario)
+    assert set(keys) == {
+        "uc_native-meancounts",
+        "uc_native-acq_timestamp",
+        "uc_native-nonscalar_save_path",
+        "u_gauge-pressure",
+        "bin_number",
+    }
+    assert keys["uc_native-nonscalar_save_path"]["dtype"] == "string"
+    assert [r["data"]["uc_native-nonscalar_save_path"] for r in rows] == [
+        str(directory)
+    ] * 2
+    assert [r["data"]["uc_native-meancounts"] for r in rows] == [9.0, 9.0]
+    assert [r["data"]["uc_native-acq_timestamp"] for r in rows] == [101.0, 102.0]
+    assert all(set(r["timestamps"]) == set(keys) for r in rows)

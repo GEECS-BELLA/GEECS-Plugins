@@ -39,12 +39,12 @@ Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
   skipped too.  Reads the caller's :class:`~.client.QueueClient` when
   given (``client=``), else builds and closes one from the shared config.
   Two phase-2 rules read off the same device tree: every ``non_essential``
-  device, and
-  every essential *camera* of a ``gated`` run, must be plugin-backed (the
-  tree lists the ``hdf`` child of a plugin-backed detector — a
-  LabVIEW-native camera has ``save`` but no ``hdf``); and a gated run
-  needs at least one essential *triggered* device (an ``acq_timestamp``
-  child), camera or scalar — "nothing counts shots; use strict" otherwise.
+  device must be plugin-backed (the tree lists the ``hdf`` child of a
+  plugin-backed detector — a LabVIEW-native camera has ``save`` but no
+  ``hdf``); and a gated run needs at least one essential *triggered*
+  device (an ``acq_timestamp`` child), camera or scalar — "nothing counts
+  shots; use strict" otherwise.  An essential without a plugin is admitted
+  in a gated run (its LabVIEW files are its record, 2026-09-25 ruling).
 - ``gateway_liveness`` — one CA read of the ``CONNECTED`` PV of each
   preset device **and of each device the trigger profile writes** (the
   preset's profile, else the experiment default — resolved through the
@@ -317,8 +317,10 @@ def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
 
     *known* is the tree flattened to dotted names.  A plugin-backed
     detector has an ``hdf`` child; a LabVIEW-native camera has ``save``
-    (and ``localsavingpath``) but no ``hdf``; a triggered device has an
-    ``acq_timestamp`` child; a scalar-only device has neither.
+    (and ``localsavingpath``) but no ``hdf`` — admitted as a gated
+    essential since the 2026-09-25 ruling, refused as a non-essential
+    still; a triggered device has an ``acq_timestamp`` child; a
+    scalar-only device has neither.
 
     Parameters
     ----------
@@ -347,20 +349,6 @@ def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
         )
     if not gated:
         return None
-    native = [
-        r
-        for r in detectors
-        if not r.endswith(".scalars")
-        and f"{r}.save" in known
-        and f"{r}.hdf" not in known
-    ]
-    if native:
-        return (
-            f"gated acquisition: native-saving device(s) without a file plugin: "
-            f"{', '.join(native)} — a gated batch counts frames the plugin "
-            "writes; a device saving through LabVIEW cannot. Use "
-            "acquisition='strict' or record its scalars only (save_images: false)."
-        )
     owners = [r[: -len(".scalars")] if r.endswith(".scalars") else r for r in detectors]
     if not any(f"{r}.acq_timestamp" in known for r in owners):
         return (

@@ -121,7 +121,9 @@ the recorded physical targets, not a relative coordinate after its zero moved.
   `ScalarsDataLogic` (the DB-subscribed scalars + the stamp as columns) and
   `LvNativeFileDataLogic` (LabVIEW-native saving: `save=on` at prepare from
   a `PathProvider`, `save=off` at stage and unstage; a per-event reading of
-  the directory — there is no write-complete readback).  It refuses
+  the directory — there is no write-complete readback; on a device with no
+  plugin it is the one logic of a fly prepare, the gated run's run-long
+  saving).  It refuses
   a bare `bp.count([cam])` at prepare: a GEECS camera cannot self-trigger.
   `connected_status` reads the gateway's `CONNECTED` PV — the liveness
   signal, never a column.  `stage()` stages the scalar signals so per-shot
@@ -145,7 +147,9 @@ the recorded physical targets, not a relative coordinate after its zero moved.
   EventCollectable, clocked by an essential triggered device's
   `acq_timestamp`, one `shots` event per tick with the latest cached
   reading of every member (scalar-only devices, triggered scalars, `.scalars`
-  views, the motors, `bin_number`) and the tick's stamp as the clock column;
+  views, the motors, `bin_number`, and a native-saving essential's
+  `-nonscalar_save_path` — the device's whole prepared reading in a fly
+  prepare) and the tick's stamp as the clock column;
   `complete` is done after the quota, fails when the clock stops.
 - **`GeecsNamespace`** — every enabled device of the experiment, built from
   the DB roster (loud on failure) and connected on first use by
@@ -327,7 +331,24 @@ lands between steps, an immediate pause drives OFF and the resume
 the batch's statuses through `abandon_step` / `cancel_step`, rewinds to the
 step's baseline).  A stalled camera fails `complete` with the GEECS
 timeout and the box goes OFF.  A gated step needs an essential triggered
-device (the clock); a native camera cannot be essential there.
+device (the clock).  A **LabVIEW-native saving device without a file
+plugin may be essential** (owner's ruling, 2026-09-25): the row is the
+stamp and its files follow by stamp, exactly as strict treats such a
+device — the plugin count is a convenience, not what makes a batch.  It is
+a sampler member (its scalars, its stamp, and it may be the clock); the
+plan prepares it **once**, at the run's first step, unbounded
+(`UNBOUNDED_TRIGGER_INFO`, `gated.native_essentials`), so the device's own
+lifecycle switches saving on then and off at `unstage` — run-long, never
+per step: each toggle costs the device one LabVIEW loop period (~1.5 s a
+camera, ~4 s the HASO) and between steps the box is OFF, so a well-behaved
+device writes nothing.  Its `-nonscalar_save_path` column rides in every
+`shots` row as a run-long constant.  A dropped frame from it is a missing
+file, **no retake** (as the LabVIEW scanner had it for years); the stack
+check appends a files-versus-rows line per such device to `scan.log`
+(WARNING on a mismatch, never a failure).  A plugin-backed camera in a
+gated run still writes no native files (the #738 dual-write is
+strict-only).  A native-saving device as a **non-essential** is not
+admitted yet — slice 2b.
 
 **Non-essential stream** (`non_essential=[…]`, strict or gated): the
 listed plugin-backed detectors are staged, prepared unbounded, kicked off
@@ -557,8 +578,10 @@ channel's state, and a PV for a variable the device does not push sits at
 its initial enum value — which on `on,off` reads `on` for every channel,
 wired or not (observed live, 2026-09-22).  `set` has no bearing on capture.
 Consequences worth knowing: `plugin_backed` is a **static** fact, a scope
-with every channel disabled has no file plugin at all and a gated batch
-refuses it by name, and changing which channels are captured means editing
+with every channel disabled has no file plugin at all — in a gated run it
+is then a native-saving essential when it has saving controls (its own
+files are its record) and a plain triggered clock device otherwise — and
+changing which channels are captured means editing
 the DB row — the worker picks it up when its namespace is built, not
 per run.  A plugin-backed camera keeps writing its native
 PNGs beside the stack (dual-write, the rollout's parity evidence) until
