@@ -3,6 +3,30 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.6.0] - 2026-09-24
+
+### Changed
+
+- `load_diagnostic` returns the document as its `schema_version` declares
+  (a v3 `AnalysisRecipe` or the v2 `AnalysisDiagnostic`), so a group that
+  references a converted recipe loads.
+
+## [2.5.0] - 2026-09-23
+
+### Removed
+
+- Retired the legacy `bcave_magspec_stitcher` camera analyzer kind and its
+  schema/registry entry. The `line`, `line_stitcher` and `bcave_mag_opt`
+  analyzers remain, including MagSpec trace/waterfall workflows.
+
+## [2.4.1] - 2026-09-23
+
+### Changed
+
+- Delegate diagnostic discovery and YAML loading to Data Utils so live
+  consumers can read the same recipes without importing ImageAnalysis.
+  Existing typed loaders and default config-root resolution are retained.
+
 ## [2.4.0] - 2026-09-21
 
 ### Added

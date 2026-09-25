@@ -33,7 +33,7 @@ class GeecsPathsConfig:
         The base directory for storing GEECS data locally.
     experiment : str, optional
         The default experiment name. May be None on analysis-only machines where
-        the experiment is always supplied at runtime (e.g. via LiveWatch GUI).
+        the experiment is always supplied at runtime (e.g. via the data portal).
     image_analysis_configs_path : Path
         path to directory containing image analysis configs
     scan_analysis_configs_path : Path

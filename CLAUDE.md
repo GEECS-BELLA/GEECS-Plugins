@@ -8,10 +8,11 @@ tooling. Each subdirectory is an independent Python package with its own
 
 | Package | Description |
 |---|---|
+| `GEECS-Analysis/` | Replacement pure analysis core under development: coordinate-aware steps and numpy-free specs; consumers migrate on the analysis integration branch |
 | `ScanAnalysis/` | Post-scan analysis framework: task queue, YAML config system, scan analyzers |
 | `ImageAnalysis/` | Per-image analysis: pipelines, offline analyzers, config models |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
-| `GEECS-Schemas/` | Lightweight Pydantic/GEST config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) and for the analysis configs (`geecs_schemas.analysis`: the `AnalysisDiagnostic` v2 document with its kind-discriminated analyzer specs, `AnalysisGroup`) + legacy-YAML converters + the docgen Markdown reference generator. Depends on Pydantic and gest-api (VOCS) — importable without Xopt or analysis |
+| `GEECS-Schemas/` | Lightweight Pydantic/GEST config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) and for the analysis configs (`geecs_schemas.analysis`: the `AnalysisRecipe` v3 document — the analysis core's native shape: input, ordered steps, a measure, the per-frame `figure`, the summary kinds — beside the `AnalysisDiagnostic` v2 document with its kind-discriminated analyzer specs for the unported kinds, `AnalysisGroup`, and `load_analysis_document` dispatching on `schema_version`) + legacy-YAML converters + the docgen Markdown reference generator. Depends on Pydantic and gest-api (VOCS) — importable without Xopt or analysis |
 | `GeecsBluesky/` | Bluesky RunEngine backend, rebuilt as a native Bluesky application (#807): the queueserver worker (`qserver/` — RE Manager profile exporting the device namespace and the stock `bluesky.plans` verbs), `GeecsNamespace` (every DB device as an ophyd-async noun; acquirers are `GeecsDetector`, a stock `StandardDetector`), `ShotControl` (the trigger box as a Movable/Pausable), the strict `take_reading` (the fire between trigger and wait), the `qs_client` manager client, Tiled integration |
 | `GEECS-Core/` | The GEECS access **library**: UDP/TCP wire protocol (`transport/`), experiment DB (`db/GeecsDb`), PV naming contract, the one `GeecsError` tree, and the `FakeGeecsServer` test double — extracted from GeecsCAGateway 2026-08-20; see its `DESIGN.md` for the layering rules — plus the thin synchronous `GeecsDevice` client (`client/`), the successor to GEECS-PythonAPI's device objects |
 | `GeecsCAGateway/` | The caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async, built on GEECS-Core — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
@@ -151,6 +152,10 @@ GEECS-Data-Utils     →  (no intra-repo deps — foundational data layer)
 LogMaker4GoogleDocs  →  (no intra-repo deps — pure Google API wrapper)
 GEECS-Schemas        →  (no intra-repo deps — Pydantic/GEST config vocabulary)
 
+GEECS-Analysis       →  GEECS-Data-Utils (Frame/Axis, no input readers in the core),
+                        GEECS-Schemas (the v3 recipe document it binds to its
+                        registry, the FigureStyle its FigureSpec extends, the
+                        summary kinds' option models, and the v2 adapter)
 ImageAnalysis        →  GEECS-Data-Utils, GEECS-Schemas (the analysis-config
                         documents and processing models it consumes)
 GEECS-Core           →  (no intra-repo deps — the GEECS access library:
@@ -163,7 +168,7 @@ GeecsPvaGateway      →  GEECS-Core (transport, DB, pv_naming, the DB
                         — the distributed PVA image server on the camera
                         servers
 GeecsBluesky         →  GEECS-Data-Utils, GEECS-Core, GEECS-Schemas
-                        (+ ImageAnalysis/xopt, optional via the
+                        (+ GEECS-Analysis/xopt, optional via the
                         `optimize` extra — the native ask/tell and live measurement
                         stack in geecs_bluesky.optimization;
                         + bluesky-queueserver-api, optional via the
@@ -173,11 +178,10 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         seam + the shared browser helpers; the scan
                         browser of the suite — never imports the scanner
                         or tiled directly)
-                        (+ ImageAnalysis + ScanAnalysis, optional via the
-                        `analysis` extra — the Images tab's
-                        ephemeral-processing selector over
-                        image_analysis.ephemeral's write-free seam, and
-                        the Analysis tab's direct ScanAnalyzer runs)
+                        (+ GEECS-Analysis + ImageAnalysis + ScanAnalysis, optional via
+                        the `analysis` extra — core processing/preview for supported
+                        v2 recipes with legacy ephemeral fallback, and the
+                        Analysis tab's direct ScanAnalyzer runs)
                         GeecsWebTheme (the shared palette; the portal
                         mounts it at /theme for itself and the config
                         editor inside this app). Never imports GeecsLogbook
@@ -208,8 +212,8 @@ GeecsLogbook         →  GEECS-Data-Utils (ScanPaths only — it reads scan
                         a peer VIEW LAYER of GEECS-DataPortal. Never
                         imports the portal, ScanAnalysis, or anything
                         Bluesky
-ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, GEECS-Schemas,
-                        LogMaker4GoogleDocs (+ fastapi/jinja2 via the
+ScanAnalysis         →  GEECS-Data-Utils, GEECS-Analysis, ImageAnalysis, GEECS-Schemas,
+                        (+ fastapi/jinja2 via the
                         `editor` extra — scan_analysis.config_editor,
                         the web config editor router the portal mounts
                         at /configs, its one host;
@@ -254,8 +258,7 @@ both gateways and GeecsBluesky share lives in `geecs_core.db.variable_types`.
 `GEECS-Data-Utils` is the foundational layer — everything depends on it and it
 depends on nothing else in the repo. `GeecsScanner` sits at the top of the
 DAQ side. `ScanAnalysis` and `ImageAnalysis` are the most actively
-developed analysis packages. `LogMaker4GoogleDocs` is optional everywhere — missing it
-causes silent skips, not errors.
+developed analysis packages. `LogMaker4GoogleDocs` is a standalone legacy package; analysis no longer imports it.
 
 ## How Packages Are Used Together (Typical Analysis Flow)
 
@@ -269,8 +272,8 @@ causes silent skips, not errors.
    per-shot image files → `ImageAnalyzerResult`
 4. **ScanAnalysis** `Array2DScanAnalyzer` or `Array1DScanAnalyzer` wraps an
    `ImageAnalyzer`, aggregates per-shot results, renders summary plots
-5. **LogMaker4GoogleDocs** uploads summary figures to Google Drive and inserts
-   them into the experiment Google Doc (triggered by `gdoc_slot` config)
+5. The **Data Portal** displays saved results; analysis is explicitly requested
+   there. Automatic watching and Google Docs uploads are retired.
 
 ## GEECS Data Folder Convention
 
@@ -421,13 +424,8 @@ find by failure. The contract page is `docs/platform/site_profile.md`;
 The rule binds **new** units, scripts, and defaults, and the existing
 ones were cleaned up in 2026-09 (the PVA fleet roster comes from the DB
 with the deployed set in `config.ini [pva] addr_list`; timezone defaults
-are the host's zone; no default experiment in code). The literals
-deliberately left are the LiveWatch/LogMaker path's — `EXPERIMENT_FILE_IDS`
-in `geecs_data_utils.doc_id_lookup` (Google Doc index IDs) and the
-facility list in `ScanAnalysis/LiveWatchGUI/live_watch_window.py` that
-reads them (plus the timezone in `apps_script/Code.gs`, the Google-side
-log generator) — they move with the LogMaker refactor under "Known debt"
-below, not opportunistically.
+are the host's zone; no default experiment in code). The remaining legacy Google-side timezone in
+`apps_script/Code.gs` belongs to the standalone LogMaker package.
 
 ## Known debt we have deliberately deferred
 
@@ -448,13 +446,8 @@ revisit. Speculative cleanup is not.
   `GeecsLogbook/`, being built in phases; LogMaker stays in place and
   untouched until that arc can carry the Google Doc export, at which point
   it is deleted rather than tidied.
-  The per-experiment Google Doc index IDs (`EXPERIMENT_FILE_IDS` in
-  `geecs_data_utils.doc_id_lookup`, LiveWatch's facility dropdown) were
-  going to get their config home in the refactor that is no longer
-  happening. **They are now unowned**: whichever lands first — the
-  logbook's export phase or a LiveWatch change that needs them — gives them
-  one, in the configs repo's per-experiment tree or the share INI LogMaker
-  already reads. `ScanAnalysis` still hard-depends on LogMaker until then.
+  Analysis no longer depends on this package; LiveWatch and its Google Doc
+  lookup helpers have been retired.
 
 If you find yourself adding to this list, consider whether you're capturing
 real institutional knowledge or accumulating procrastination. Both are

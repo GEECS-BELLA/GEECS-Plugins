@@ -3,6 +3,113 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.0] - 2026-09-24
+
+### Added
+
+- The config editor's **summary preview**: `POST /configs/api/preview/summary`
+  draws the document's summaries over the scan's first shots
+  (`params.shots`, default 4, at most 8 — a handful, never a scan, pinned by
+  a load-counting test; shots the device missed or beyond the run are
+  skipped), one panel per shot at its shot number under the run's noscan
+  label, through ScanAnalysis' `core_preview.preview_summary`
+  (`processing.render_summary_as_run`): each kind's layout on real frames
+  (a run's grid panels are per-bin averages). A v2 kind the core does not
+  run has no summary preview (400).
+
+### Changed
+
+- The editor's frame preview, the Images tab's rendered processing view
+  and its processed-pixel batch route (`process_images`, still without a
+  scan folder — pre-existing) analyse through ScanAnalysis' preview seam
+  (`core_preview.preview_frame` / `prepare_document` + `measure_frame`);
+  the portal no longer re-derives the run's compile/measure pairing, and
+  its byte-for-byte test now pins against that seam. The editor's two shot
+  loaders (`_camera_frame`, `_line_trace`) are shared by its frame and
+  summary previews (the Images tab's own routes keep theirs).
+
+## [0.35.0] - 2026-09-24
+
+### Changed
+
+- The config editor's preview is **the run's own draw**:
+  `processing.render_document_as_run` renders the shot through the analysis
+  sink's per-frame call (`single` with the document's `figure` block; a v2
+  renderer translated), and `resources.figure_png(..., tight=True)` crops it
+  like the sink's product PNGs — the pane shows the file a run would write.
+  The portal's palette/window overrides no longer reach the editor preview
+  (they stay on the Images tab's processing selector). Pinned byte-for-byte
+  against `single(analyze_v2(frame), figure_of(recipe))`.
+- The recipe's frame inputs (a background image under `{scan_dir}`) load
+  from the document's device folder under the previewed scan, exactly as
+  the run loads them (before, the placeholder stayed literal and the
+  fallback constant — or an error — stood in for the real frame).
+- A legacy-route preview that draws no figure is a 400, not a 500.
+- The drawer's "duplicate as" reports nothing when the open document is a
+  read-only format 2 diagnostic (the copy was never made); its tooltip
+  names what the copy drops.
+- The drawer's "duplicate for this device" patches the recipe's `device`
+  (and the editor drops `output_name` / `input.folder` from the copy).
+
+## [0.34.0] - 2026-09-24
+
+### Changed
+
+- Processing, the Images-tab selector and the editor previews load either
+  analysis format; a v3 recipe's preview palette comes from its
+  `figure.imshow`, a v2 diagnostic's from `scan.renderer` as before.
+
+## [0.33.0] - 2026-09-23
+
+### Added
+
+- The config editor's live preview renders LINE diagnostics (`image.type: line`)
+  on the shot's trace. It used to load images only, so a trace document could
+  not be previewed. The shot resolves through the run path's own source rules
+  (`scan_analysis.core_source.prepare_source`: `scan.file_tail`, `data_format`,
+  the stack-only rule for `pva_stack`, the timestamp join by the diagnostic's
+  device), with the picked device standing in for `scan.device`, and is read
+  with the document's `data_loading`. Auxiliary columns reach the legacy
+  fallback renderer (`processing.render_document_ephemeral` grew
+  `auxiliary_data`); the core route reads the primary trace alone, as its
+  scan run does. The shot's own event row feeds the mapper, so a row the run
+  skips (`<device>-valid` false) is refused, not previewed.
+
+## [0.32.2] - 2026-09-23
+
+### Changed
+
+- The real-factory test follows ScanAnalysis 1.33.0: a supported beam recipe
+  from the configs tree now builds a `CoreScanAnalyzer`, and the `scan.device`
+  override is read from its document. No runtime change.
+
+## [0.32.1] - 2026-09-23
+
+### Changed
+
+- Legacy-fallback tests now use an unported flip; camera rotation and crosshair
+  masks are supported directly by the shared core.
+
+## [0.32.0] - 2026-09-23
+
+### Changed
+
+- Camera file-background processing and unsaved previews now use the new core
+  through shared source preparation, preserving load-failure fallback and
+  explicit geometry errors. Backgrounds are snapshotted once per request.
+
+## [0.31.0] - 2026-09-23
+
+### Changed
+
+- Supported v2 recipes in the Images processing selector and unsaved config
+  editor preview now use geecs-analysis directly, including object-API figures
+  and coordinate-aware beam overlays. Unported recipes retain the legacy
+  write-free backend; execution errors never trigger a silent fallback.
+- Preserve process-each-shot-before-averaging for bin images, display windows,
+  preview renderer options, error responses and config-editor saves. Explicit
+  scan execution remains on the existing factory pending runner migration.
+
 ## [0.30.1] - 2026-09-23
 
 ### Changed

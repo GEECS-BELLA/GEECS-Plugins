@@ -1,0 +1,730 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AverageSummary": {
+      "additionalProperties": false,
+      "description": "The scan's averaged frame (a noscan or count scan), drawn with ``figure``.",
+      "properties": {
+        "kind": {
+          "const": "average",
+          "default": "average",
+          "description": "The scan's averaged frame.",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "AverageSummary",
+      "type": "object"
+    },
+    "CameraInput": {
+      "additionalProperties": false,
+      "description": "Frames are camera images (2D).",
+      "properties": {
+        "kind": {
+          "const": "camera",
+          "default": "camera",
+          "description": "Image input.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "folder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder).",
+          "title": "Folder"
+        },
+        "file_tail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Filename suffix that identifies this device's files ('.png', '.txt', '_postprocessed.tsv'); unset uses the kind's default.",
+          "title": "File Tail"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "enum": [
+                "per_shot_files",
+                "device_hdf5"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "'device_hdf5' reads the per-device frame stack the PVA gateway's file plugin writes; a camera falls back to per-shot files when no stack can be mapped, a 'pva_stack' trace does not.",
+          "title": "Format"
+        }
+      },
+      "title": "CameraInput",
+      "type": "object"
+    },
+    "Data1DLoading": {
+      "additionalProperties": false,
+      "description": "How to read one trace file into an x-vs-y array.\n\nMirrors ``geecs_data_utils.io.array1d.Data1DConfig`` field for field \u2014\nthe reader is handed ``Data1DConfig.model_validate(loading.model_dump())``\n\u2014 so the schema package stays pydantic-only while the reader keeps its\nown model.",
+      "properties": {
+        "data_type": {
+          "$ref": "#/$defs/Data1DType",
+          "description": "File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, 'csv' / 'tsv' for delimited text, 'npy' for a saved array, 'pva_stack' for one shot of the per-device capture stack a Bluesky scan writes (traces and spectra alike; the reader takes its axis from the stack and hands back the trace at its true length, never the padded one)."
+        },
+        "trace_index": {
+          "default": 0,
+          "description": "Which trace / channel holds the y values (scope formats).",
+          "minimum": 0,
+          "title": "Trace Index",
+          "type": "integer"
+        },
+        "x_trace_index": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which trace holds the x values; unset derives x from the waveform properties (scope formats).",
+          "title": "X Trace Index"
+        },
+        "delimiter": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Column delimiter for csv/tsv; unset uses the format's default.",
+          "title": "Delimiter"
+        },
+        "x_column": {
+          "default": 0,
+          "description": "Column index of x (text formats).",
+          "minimum": 0,
+          "title": "X Column",
+          "type": "integer"
+        },
+        "y_column": {
+          "default": 1,
+          "description": "Column index of y (text formats).",
+          "minimum": 0,
+          "title": "Y Column",
+          "type": "integer"
+        },
+        "auxiliary_columns": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Extra named columns to load alongside y, for analyzers that need them (name -> column index).",
+          "title": "Auxiliary Columns",
+          "type": "object"
+        }
+      },
+      "required": [
+        "data_type"
+      ],
+      "title": "Data1DLoading",
+      "type": "object"
+    },
+    "Data1DType": {
+      "description": "The file formats the 1D reader understands.",
+      "enum": [
+        "tek_scope_hdf5",
+        "tdms_scope",
+        "csv",
+        "tsv",
+        "npy",
+        "pva_stack"
+      ],
+      "title": "Data1DType",
+      "type": "string"
+    },
+    "FigureStyle": {
+      "additionalProperties": false,
+      "description": "The per-frame draw: matplotlib keyword groups and overlay styles by id.\n\nEach group passes straight to the matplotlib call of that name and is\nvalidated by rendering (the editor's preview); the analysis core owns\nthe frame's geometry, so image ``extent`` cannot be set.  ``colorbar.show``\nhides the colorbar; an overlay entry's ``hidden`` hides that overlay and\nits ``scale`` sets a projection's height as a fraction of the image.\nEvery summary kind reuses this draw for its panels.",
+      "properties": {
+        "imshow": {
+          "additionalProperties": true,
+          "description": "Axes.imshow keywords (cmap, vmin, vmax, ...).",
+          "title": "Imshow",
+          "type": "object"
+        },
+        "pcolormesh": {
+          "additionalProperties": true,
+          "description": "Axes.pcolormesh keywords, used for nonuniform image axes.",
+          "title": "Pcolormesh",
+          "type": "object"
+        },
+        "plot": {
+          "additionalProperties": true,
+          "description": "Axes.plot keywords for traces.",
+          "title": "Plot",
+          "type": "object"
+        },
+        "colorbar": {
+          "additionalProperties": true,
+          "description": "Figure.colorbar keywords (label, ...); show: false hides it.",
+          "title": "Colorbar",
+          "type": "object"
+        },
+        "axes": {
+          "additionalProperties": true,
+          "description": "Axes.set keywords (xlabel, ylabel, title).",
+          "title": "Axes",
+          "type": "object"
+        },
+        "fig": {
+          "additionalProperties": true,
+          "description": "Figure keywords (figsize, dpi).",
+          "title": "Fig",
+          "type": "object"
+        },
+        "overlays": {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "description": "Style per overlay id the measure emits (projection_x, projection_y, com): Axes.plot keywords, plus hidden and scale.",
+          "title": "Overlays",
+          "type": "object"
+        }
+      },
+      "title": "FigureStyle",
+      "type": "object"
+    },
+    "FrameInput": {
+      "additionalProperties": false,
+      "description": "A frame the source layer loads before the run and binds by name.\n\nSteps refer to it by the key it is stored under (``background_frame``'s\n``source``).  The analysis core never opens the path; the scan host\nresolves ``{scan_dir}`` to the device's data directory and loads it.",
+      "properties": {
+        "path": {
+          "description": "File to load ('{scan_dir}' stands for the device's data directory under the scan).",
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "fallback_level": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the file cannot be read, subtract this constant instead of the frame and warn; unset makes a failed read an error.",
+          "title": "Fallback Level"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "FrameInput",
+      "type": "object"
+    },
+    "ImageGridSummary": {
+      "additionalProperties": false,
+      "description": "One panel per bin (the bin-averaged image), one shared colour scale.",
+      "properties": {
+        "kind": {
+          "const": "image_grid",
+          "default": "image_grid",
+          "description": "One panel per bin, one shared colour scale.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "columns": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Panels per row; unset squares the grid.",
+          "title": "Columns"
+        },
+        "panel_size": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Panel (width, height) in inches; unset uses the renderer default.",
+          "title": "Panel Size"
+        }
+      },
+      "title": "ImageGridSummary",
+      "type": "object"
+    },
+    "LineInput": {
+      "additionalProperties": false,
+      "description": "Frames are traces (1D): how one file is read and scaled.",
+      "properties": {
+        "kind": {
+          "const": "line",
+          "default": "line",
+          "description": "Trace input.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "folder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder).",
+          "title": "Folder"
+        },
+        "file_tail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Filename suffix that identifies this device's files ('.png', '.txt', '_postprocessed.tsv'); unset uses the kind's default.",
+          "title": "File Tail"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "enum": [
+                "per_shot_files",
+                "device_hdf5"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "'device_hdf5' reads the per-device frame stack the PVA gateway's file plugin writes; a camera falls back to per-shot files when no stack can be mapped, a 'pva_stack' trace does not.",
+          "title": "Format"
+        },
+        "loading": {
+          "$ref": "#/$defs/Data1DLoading",
+          "description": "How to read one trace file."
+        },
+        "x_scale": {
+          "default": 1.0,
+          "description": "Multiply the file's x values by this before processing.",
+          "title": "X Scale",
+          "type": "number"
+        },
+        "y_scale": {
+          "default": 1.0,
+          "description": "Multiply the file's y values by this before processing.",
+          "title": "Y Scale",
+          "type": "number"
+        },
+        "x_unit": {
+          "default": "",
+          "description": "Unit of the scaled x axis (axis labels).",
+          "title": "X Unit",
+          "type": "string"
+        },
+        "y_unit": {
+          "default": "",
+          "description": "Unit of the scaled y values (axis labels).",
+          "title": "Y Unit",
+          "type": "string"
+        },
+        "label": {
+          "default": "",
+          "description": "What the trace is (the y-axis label).",
+          "title": "Label",
+          "type": "string"
+        },
+        "storage_dtype": {
+          "default": "float32",
+          "description": "Precision of the stored processed trace; statistics are taken from the stored values, so this rounds them too.",
+          "enum": [
+            "float32",
+            "float64"
+          ],
+          "title": "Storage Dtype",
+          "type": "string"
+        }
+      },
+      "required": [
+        "loading"
+      ],
+      "title": "LineInput",
+      "type": "object"
+    },
+    "MeasureRef": {
+      "additionalProperties": true,
+      "description": "The measure by its registered kind, parameters as written.\n\n``none`` (the default) processes frames without measuring anything.",
+      "properties": {
+        "kind": {
+          "default": "none",
+          "description": "Registered measure kind ('beam', 'line', 'none'). The remaining keys are that measure's parameters.",
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "MeasureRef",
+      "type": "object"
+    },
+    "RecipeRuntime": {
+      "additionalProperties": false,
+      "description": "How the recipe runs over a scan.",
+      "properties": {
+        "priority": {
+          "default": 100,
+          "description": "Run order within a group: lower runs first. 100 is the background default.",
+          "minimum": 0,
+          "title": "Priority",
+          "type": "integer"
+        },
+        "average_frames_first": {
+          "default": false,
+          "description": "Average each bin's frames before processing and measure once per bin, for metrics that are not linear in the image; default measures every frame.",
+          "title": "Average Frames First",
+          "type": "boolean"
+        },
+        "save": {
+          "default": true,
+          "description": "Write per-shot / per-bin products and the summary figures into the analysis tree. S-file scalar columns are written regardless.",
+          "title": "Save",
+          "type": "boolean"
+        }
+      },
+      "title": "RecipeRuntime",
+      "type": "object"
+    },
+    "StepRef": {
+      "additionalProperties": true,
+      "description": "One processing step by its registered name, parameters as written.\n\nEvery key other than ``step`` is a parameter of that step and is\nvalidated by the analysis core's registry when the recipe compiles\n(unknown parameters are refused there, exactly as unknown keys are\nrefused here for typed sections).",
+      "properties": {
+        "step": {
+          "description": "Registered step name ('roi', 'median', 'background_constant', ...). The remaining keys are that step's parameters.",
+          "minLength": 1,
+          "title": "Step",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step"
+      ],
+      "title": "StepRef",
+      "type": "object"
+    },
+    "WaterfallSummary": {
+      "additionalProperties": false,
+      "description": "Every bin's (or, on a noscan, every shot's) trace as one row of a heat map.",
+      "properties": {
+        "kind": {
+          "const": "waterfall",
+          "default": "waterfall",
+          "description": "Every row a bin's (or shot's) trace.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "sort_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "On a noscan, order rows by this s-file column instead of shot number ('Device:Var' or a substring); also skips bin averaging.",
+          "title": "Sort Key"
+        },
+        "sort_sigma": {
+          "default": 3.0,
+          "description": "Drop rows whose sort-key value lies outside mean \u00b1 this many standard deviations.",
+          "exclusiveMinimum": 0,
+          "title": "Sort Sigma",
+          "type": "number"
+        },
+        "sort_bounds": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Explicit (low, high) bounds on the sort key; overrides the sigma cut.",
+          "title": "Sort Bounds"
+        },
+        "even_spacing": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Draw rows at equal height regardless of position spacing; unset means yes when sorting by a key, no otherwise.",
+          "title": "Even Spacing"
+        },
+        "scale": {
+          "default": "auto",
+          "description": "'sequential' runs 0 to max; 'diverging' is symmetric about zero; 'auto' centres on zero when the data crosses it; 'custom' uses vmin/vmax as given.",
+          "enum": [
+            "auto",
+            "sequential",
+            "diverging",
+            "custom"
+          ],
+          "title": "Scale",
+          "type": "string"
+        },
+        "cmap": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Matplotlib colormap name.",
+          "title": "Cmap"
+        },
+        "vmin": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Colour scale minimum.",
+          "title": "Vmin"
+        },
+        "vmax": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Colour scale maximum.",
+          "title": "Vmax"
+        }
+      },
+      "title": "WaterfallSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One device's analysis: input, ordered steps, a measure, the draw, the summaries.\n\nThe file's stem is the recipe ID that groups reference.  ``device`` is\nthe device whose folder holds the input files and whose name stems the\nproduct files; ``output_name`` (defaulting to ``device``) labels\neverything written \u2014 s-file columns, the output folder.",
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "description": "Format version of this recipe. Leave at 3 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "device": {
+      "description": "The device whose data folder under scans/ScanNNN/ is analyzed.",
+      "minLength": 1,
+      "title": "Device",
+      "type": "string"
+    },
+    "output_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Label for everything this recipe writes (s-file column prefix, output folder). Defaults to device; set it to run two recipes over one device with distinct outputs.",
+      "title": "Output Name"
+    },
+    "scalar_suffix": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Suffix appended to every s-file column name; scalars only, never files or folders.",
+      "title": "Scalar Suffix"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Free-text note about this recipe.",
+      "title": "Description"
+    },
+    "metadata": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Free-form documentary fields; nothing reads them.",
+      "title": "Metadata"
+    },
+    "input": {
+      "description": "Where the frames come from and how one is read.",
+      "discriminator": {
+        "mapping": {
+          "camera": "#/$defs/CameraInput",
+          "line": "#/$defs/LineInput"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CameraInput"
+        },
+        {
+          "$ref": "#/$defs/LineInput"
+        }
+      ],
+      "title": "Input"
+    },
+    "inputs": {
+      "additionalProperties": {
+        "$ref": "#/$defs/FrameInput"
+      },
+      "description": "Frames loaded before the run and bound by name for steps that take one (a background image).",
+      "title": "Inputs",
+      "type": "object"
+    },
+    "steps": {
+      "description": "Processing steps in order; any order, repeats allowed.",
+      "items": {
+        "$ref": "#/$defs/StepRef"
+      },
+      "title": "Steps",
+      "type": "array"
+    },
+    "measure": {
+      "$ref": "#/$defs/MeasureRef",
+      "description": "What is measured on each processed frame."
+    },
+    "scan": {
+      "$ref": "#/$defs/RecipeRuntime"
+    },
+    "figure": {
+      "$ref": "#/$defs/FigureStyle",
+      "description": "The per-frame draw, reused by every summary kind."
+    },
+    "summaries": {
+      "description": "Scan-level figures, each a frozen kind with its own options; an empty list draws no summary.",
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "average": "#/$defs/AverageSummary",
+            "image_grid": "#/$defs/ImageGridSummary",
+            "waterfall": "#/$defs/WaterfallSummary"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/ImageGridSummary"
+          },
+          {
+            "$ref": "#/$defs/WaterfallSummary"
+          },
+          {
+            "$ref": "#/$defs/AverageSummary"
+          }
+        ]
+      },
+      "title": "Summaries",
+      "type": "array"
+    }
+  },
+  "required": [
+    "device",
+    "input"
+  ],
+  "title": "AnalysisRecipe",
+  "type": "object"
+}

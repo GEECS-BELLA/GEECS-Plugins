@@ -26,10 +26,20 @@ extending this package.
   same standing as the scanner's preset writes), never the scans tree
   (pinned in `tests/test_config_editor_mount.py`).  Its preview
   renders the *unsaved* document on the scan page's current shot through
-  `image_analysis.ephemeral.render_document_ephemeral` — the same
-  write-free seam as the Images tab, but drawn the analyzer's own way
-  (its default palette or the document's `scan.renderer` cmap/vmin/vmax,
-  never the pixel view's gray; pinned there too).  The other is `POST /api/run/{uid}/analysis`, which
+  `geecs_portal.processing.render_document_as_run` — ScanAnalysis'
+  `core_preview.preview_frame`, the analysis sink's own per-frame call
+  (`single` with the document's `figure` block, frame inputs resolved
+  under the scan), cropped tight like the sink's PNGs, so the pane shows
+  the product file a run would write; no portal palette or window reaches
+  it (pinned byte-for-byte against that seam). Its **summaries** block
+  (`POST /configs/api/preview/summary`, `render_summary_as_run` →
+  `core_preview.preview_summary`) draws each summary over the scan's first
+  shots (`params.shots`, at most 8 — never a whole scan on the shared
+  host), one panel per shot. Kinds the core does not serve fall back to
+  the legacy write-free route for the frame and have no summary preview.
+  The Images tab's processing selector keeps `render_document_ephemeral`
+  and the portal's own window, analysing through the same seam.
+  The other is `POST /api/run/{uid}/analysis`, which
   runs ONE ScanAnalysis analyzer on ONE scan on the user's click —
   `geecs_portal/analysis_runs.py`, calling `ScanAnalyzer.run_analysis`
   directly on a single worker thread with an in-memory job record.
@@ -167,6 +177,7 @@ geecs_portal/
   app.py         # create_app(catalog, default_experiment=…) — all routes
   analysis.py    # /api boundary chores: filters/bincfg/display parsing,
                  #   JSON shaping (NaN→null), "show the code" snippets
+  processing.py  # core compilation/execution and legacy fallback for unported recipes
   analysis_runs.py  # analysis runs: AnalysisRunner (one worker thread,
                  #   one job per scan, thread-scoped log capture), the
                  #   ScanAnalysis factory seam, artifact containment
@@ -254,7 +265,7 @@ image slice: `cmap` matplotlib-colormap name + `plo`/`phi` percentile
 window — types 400 at parse, values degrade to grayscale/defaults;
 edited via the Images plotbar's "display…" popup — plus `mode`
 (0.18.0): `"rendered"` serves the analyzer's own figure via
-`image_analysis.ephemeral.render_diagnostic_ephemeral` (object-API
+`geecs_portal.processing.render_diagnostic_ephemeral` (object-API
 `Figure`, never pyplot — the one sanctioned matplotlib path on a
 request thread; per-bin = the base renderer over the averaged image,
 overlays dropped; the colormap defaults to `gray` like the pixel
@@ -264,18 +275,22 @@ precedent and a deliberate exception to "values degrade" — a wrong
 mode is a broken link, not a cosmetic) and
 `?processing=<diagnostic id>` (the `processing` URL state): the named ImageAnalysis diagnostic runs
 **ephemerally** on the served pixels via
-`image_analysis.ephemeral.run_diagnostic_ephemeral` — the write-free
-seam (its structural no-writes contract lives in ImageAnalysis
-CLAUDE.md "Ephemeral runs"; the read-only doctrine is preserved by
-construction).  Per-shot renders the `processed_image`; per-bin
+`geecs_portal.processing.process_images` — the write-free
+router: supported v2 recipes compile once per request batch and run on
+`geecs-analysis`; only `UnsupportedRecipe` at compilation selects the legacy
+ImageAnalysis ephemeral route. Runtime or rendering errors never retry on a
+second backend. The legacy structural no-writes contract remains in
+ImageAnalysis CLAUDE.md "Ephemeral runs"; the core accepts arrays only.  Per-shot renders the `processed_image`; per-bin
 processes each member THEN averages (nonlinear-correct).  The feature
 is **explicit-opt-in**: `--processing-configs <tree>` /
 `create_app(processing_config_dir=…)` names the configs tree — the
 portal deliberately never falls back to the global config resolution
 (two competing resolution paths exist, so the portal names its tree
-explicitly), and ImageAnalysis rides the optional
-`analysis` extra; missing either hides the selector and 404s the
-param.  Errors map honestly: unknown diagnostic 404,
+explicitly). The `analysis` extra installs the core and legacy runtime. A
+missing config root or core runtime hides the selector and 404s the param.
+Supported recipes need no legacy import; unported recipes require ImageAnalysis
+for fallback and report a processing failure if it is unavailable.
+Errors map honestly: unknown diagnostic 404,
 denylisted/miswired 400, analyzer failure 400 — never a 500.
 **Analysis runs** (0.16.0): `GET /api/run/{uid}/analysis`
 lists every loadable diagnostic in the same `--processing-configs`
@@ -463,3 +478,19 @@ The shared send-to-log modebar action exports its clicked Plotly host (Plot,
 Grid average or Grid error), through the same dialog and remembered browser
 entry. Grid captions identify the scalar, statistic, axes and visit; exports
 retain square plotting areas independently of the Plot tab's display settings.
+
+## Processing migration (0.31.0)
+
+`processing.py` owns the temporary backend choice and the portal display style,
+not numerical algorithms. Discovery/reads delegate to Data Utils, schema
+validation to GEECS-Schemas, execution/rendering to geecs-analysis. The config
+editor still uses ScanAnalysis ConfigStore; explicit scan runs still use its
+factory. Bin images process each shot before averaging and omit shot overlays.
+The image preview source ladder is unchanged; trace rendering accepts already
+loaded Nx2 data but does not add native trace discovery to the editor yet.
+
+Camera file backgrounds use `scan_analysis.core_inputs.prepare_v2`, shared with
+future scan execution: one load per prepared run, legacy constant fallback on
+read failure, hard errors for loaded geometry mismatches. Unsaved previews use
+their supplied document without saving it. No device-directory context is
+invented for previews, so `{scan_dir}` remains literal there as before.

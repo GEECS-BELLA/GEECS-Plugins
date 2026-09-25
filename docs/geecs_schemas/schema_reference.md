@@ -621,7 +621,7 @@ One device's analysis: which analyzer, how frames are cleaned up, how it runs ov
 | `output_name` | `str (optional)` | no | None | Label for everything this analyzer writes (s-file column prefix, output folder). Defaults to name; set it to run two analyzers over one device with distinct outputs. |
 | `metric_suffix` | `str (optional)` | no | None | Suffix appended to every s-file column name; affects scalars only, never files or folders. |
 | `description` | `str (optional)` | no | None | Free-text note about this diagnostic. |
-| `analyzer` | `StandardAnalyzerSpec \| TraceAnalyzerSpec \| LineAnalyzerSpec \| BeamAnalyzerSpec \| MagSpecAnalyzerSpec \| FrogRetrievalSpec \| FrogSpectralPhaseSpec \| IctAnalyzerSpec \| LineStitcherSpec \| HasoAnalyzerSpec \| DownrampPhaseSpec \| HiResMagCamSpec \| BCaveMagSpecStitcherSpec \| BCaveMagOptSpec \| PhaseDownrampSpec` | yes | — | Which analyzer runs and its own parameters; chosen by kind. |
+| `analyzer` | `StandardAnalyzerSpec \| TraceAnalyzerSpec \| LineAnalyzerSpec \| BeamAnalyzerSpec \| MagSpecAnalyzerSpec \| FrogRetrievalSpec \| FrogSpectralPhaseSpec \| IctAnalyzerSpec \| LineStitcherSpec \| HasoAnalyzerSpec \| DownrampPhaseSpec \| HiResMagCamSpec \| BCaveMagOptSpec \| PhaseDownrampSpec` | yes | — | Which analyzer runs and its own parameters; chosen by kind. |
 | `image` | `CameraConfig \| Line1DConfig (optional)` | no | None | How raw frames (type: camera) or traces (type: line) are cleaned up before analysis. Omit for analyzers that read their own file formats (kind haso, phase_downramp). |
 | `scan` | `ScanRuntime` | no | ScanRuntime(priority=100, mode='per_shot', save=True, gdoc_slot=None, device=None, file_tail=None, data_format=None, renderer=RendererOptions(colormap_mode=None, cmap=None, vmin=None, vmax=None, duration=None, dpi=None, xlabel=None, ylabel=None, colorbar_label=None, mode=None, waterfall_sort_key=None, waterfall_sort_sigma=None, waterfall_sort_bounds=None, waterfall_even_y_spacing=None, figsize=None, figsize_inches=None), background_source=None) | How the analyzer runs over a scan: order, per shot or per bin, saving, files. |
 
@@ -825,16 +825,6 @@ HTU high-resolution magspec camera: beam metrics plus a bow-tie fit of the trace
 | `n_beam_size_clearance` | `int` | no | 4 | Bow-tie fit: beam-size clearance in pixels. |
 | `min_total_counts` | `float` | no | 2500.0 | Bow-tie fit: skip frames with fewer total counts. |
 | `threshold_factor` | `float` | no | 10.0 | Bow-tie fit: threshold factor. |
-
-### BCaveMagSpecStitcherSpec
-
-HTU BCave magspec camera with a Gaussian-weighted vertical lineout for optimization.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `kind` | `'bcave_magspec_stitcher'` | no | 'bcave_magspec_stitcher' | HTU BCave magspec camera analyzer. |
-| `gaussian_sigma` | `float` | no | 20.0 | Width of the Gaussian weighting, pixels. |
-| `gaussian_center` | `float` | no | 250.0 | Centre of the Gaussian weighting, pixels. |
 
 ### BCaveMagOptSpec
 
@@ -1088,7 +1078,7 @@ How the analyzer runs over a scan: order, granularity, what is saved, where file
 | `priority` | `int` | no | 100 | Run order within a group: lower runs first. 100 is the background default. |
 | `mode` | `'per_shot' \| 'per_bin'` | no | 'per_shot' | 'per_shot' analyzes every frame; 'per_bin' averages each bin's frames first and analyzes once per bin — for metrics that are not linear in the image. |
 | `save` | `bool` | no | True | Write per-shot / per-bin outputs (HDF5, PNG) into the analysis tree. S-file scalar columns are written regardless. |
-| `gdoc_slot` | `int (optional)` | no | None | Which cell (0-3) of the scan-log entry's 2x2 figure table gets this analyzer's summary; unset uploads figures as links instead. |
+| `gdoc_slot` | `int (optional)` | no | None | Retired Google Docs table slot; accepted for existing configs and ignored. |
 | `device` | `str (optional)` | no | None | Data subfolder under the scan when it differs from the diagnostic name (stitched or post-processed outputs in a sibling folder). |
 | `file_tail` | `str (optional)` | no | None | Filename suffix that identifies this device's files ('.png', '.tdms', '_postprocessed.tsv'); unset uses the analyzer's default. |
 | `data_format` | `'per_shot_files' \| 'device_hdf5' (optional)` | no | None | 'device_hdf5' reads the per-device frame stack the PVA gateway's file plugin writes. A camera analyzer falls back to per-shot files when no stack can be mapped; a 1D analyzer loading 'pva_stack' does NOT — that loader cannot read a per-shot path, so the scan records no_data instead. Only for analyzers that do not derive output names from the shot file path. |
@@ -1144,6 +1134,166 @@ Use the averaged-background file another analyzer already wrote for this scan.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 
+## `analysis_recipe`
+
+### AnalysisRecipe
+
+One device's analysis: input, ordered steps, a measure, the draw, the summaries.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 3 | Format version of this recipe. Leave at 3 — tools update this automatically when the file format changes. |
+| `device` | `str` | yes | — | The device whose data folder under scans/ScanNNN/ is analyzed. |
+| `output_name` | `str (optional)` | no | None | Label for everything this recipe writes (s-file column prefix, output folder). Defaults to device; set it to run two recipes over one device with distinct outputs. |
+| `scalar_suffix` | `str (optional)` | no | None | Suffix appended to every s-file column name; scalars only, never files or folders. |
+| `description` | `str (optional)` | no | None | Free-text note about this recipe. |
+| `metadata` | `dict[str, Any] (optional)` | no | None | Free-form documentary fields; nothing reads them. |
+| `input` | `CameraInput \| LineInput` | yes | — | Where the frames come from and how one is read. |
+| `inputs` | `dict[str, FrameInput]` | no | empty | Frames loaded before the run and bound by name for steps that take one (a background image). |
+| `steps` | `list[StepRef]` | no | empty | Processing steps in order; any order, repeats allowed. |
+| `measure` | `MeasureRef` | no | MeasureRef(kind='none') | What is measured on each processed frame. |
+| `scan` | `RecipeRuntime` | no | RecipeRuntime(priority=100, average_frames_first=False, save=True) | How the recipe runs over a scan. |
+| `figure` | `FigureStyle` | no | FigureStyle(imshow={}, pcolormesh={}, plot={}, colorbar={}, axes={}, fig={}, overlays={}) | The per-frame draw, reused by every summary kind. |
+| `summaries` | `list[ImageGridSummary \| WaterfallSummary \| AverageSummary]` | no | empty | Scan-level figures, each a frozen kind with its own options; an empty list draws no summary. |
+
+Example:
+
+```yaml
+schema_version: 3
+device: UC_TopView               # the device folder under scans/ScanNNN/; stems the products
+output_name: UC_TopView_left     # optional: label outputs differently from the device
+input: {kind: camera}            # or kind: line, with loading/x_scale/x_unit/label/storage_dtype
+inputs:                          # frames the scan host loads and binds by name
+  camera_background: {path: "{scan_dir}/computed_background.npy", fallback_level: 0}
+steps:                           # in order, repeats allowed; the core's registry validates each
+  - {step: background_frame, source: camera_background, alignment: samples}
+  - {step: roi, bounds: [[350, 650], [0, 650]]}
+  - {step: median, kernel: 3}
+measure: {kind: beam, enabled_stats: [image_total, x_CoM, y_CoM]}
+scan: {priority: 10, average_frames_first: false, save: true}
+figure:                          # the per-frame draw: matplotlib keyword groups, overlays by id
+  imshow: {cmap: plasma, vmin: 0}
+  axes: {xlabel: x (px)}
+  overlays: {projection_y: {hidden: true}}
+summaries:                       # scan-level figures, each a frozen kind with its own options
+  - {kind: image_grid, columns: 3}
+  - {kind: average}
+# a v2 diagnostic (analyzer: + image:) is the other format of this tree;
+# load_analysis_document reads either by schema_version.
+```
+
+### CameraInput
+
+Frames are camera images (2D).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'camera'` | no | 'camera' | Image input. |
+| `folder` | `str (optional)` | no | None | Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder). |
+| `file_tail` | `str (optional)` | no | None | Filename suffix that identifies this device's files ('.png', '.txt', '_postprocessed.tsv'); unset uses the kind's default. |
+| `format` | `'per_shot_files' \| 'device_hdf5' (optional)` | no | None | 'device_hdf5' reads the per-device frame stack the PVA gateway's file plugin writes; a camera falls back to per-shot files when no stack can be mapped, a 'pva_stack' trace does not. |
+
+### LineInput
+
+Frames are traces (1D): how one file is read and scaled.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'line'` | no | 'line' | Trace input. |
+| `folder` | `str (optional)` | no | None | Data subfolder under scans/ScanNNN/ when it differs from the device (stitched or post-processed outputs in a sibling folder). |
+| `file_tail` | `str (optional)` | no | None | Filename suffix that identifies this device's files ('.png', '.txt', '_postprocessed.tsv'); unset uses the kind's default. |
+| `format` | `'per_shot_files' \| 'device_hdf5' (optional)` | no | None | 'device_hdf5' reads the per-device frame stack the PVA gateway's file plugin writes; a camera falls back to per-shot files when no stack can be mapped, a 'pva_stack' trace does not. |
+| `loading` | `Data1DLoading` | yes | — | How to read one trace file. |
+| `x_scale` | `float` | no | 1.0 | Multiply the file's x values by this before processing. |
+| `y_scale` | `float` | no | 1.0 | Multiply the file's y values by this before processing. |
+| `x_unit` | `str` | no | '' | Unit of the scaled x axis (axis labels). |
+| `y_unit` | `str` | no | '' | Unit of the scaled y values (axis labels). |
+| `label` | `str` | no | '' | What the trace is (the y-axis label). |
+| `storage_dtype` | `'float32' \| 'float64'` | no | 'float32' | Precision of the stored processed trace; statistics are taken from the stored values, so this rounds them too. |
+
+### FrameInput
+
+A frame the source layer loads before the run and binds by name.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `path` | `str` | yes | — | File to load ('{scan_dir}' stands for the device's data directory under the scan). |
+| `fallback_level` | `float (optional)` | no | None | When the file cannot be read, subtract this constant instead of the frame and warn; unset makes a failed read an error. |
+
+### StepRef
+
+One processing step by its registered name, parameters as written.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `step` | `str` | yes | — | Registered step name ('roi', 'median', 'background_constant', ...). The remaining keys are that step's parameters. |
+
+### MeasureRef
+
+The measure by its registered kind, parameters as written.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `str` | no | 'none' | Registered measure kind ('beam', 'line', 'none'). The remaining keys are that measure's parameters. |
+
+### RecipeRuntime
+
+How the recipe runs over a scan.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `priority` | `int` | no | 100 | Run order within a group: lower runs first. 100 is the background default. |
+| `average_frames_first` | `bool` | no | False | Average each bin's frames before processing and measure once per bin, for metrics that are not linear in the image; default measures every frame. |
+| `save` | `bool` | no | True | Write per-shot / per-bin products and the summary figures into the analysis tree. S-file scalar columns are written regardless. |
+
+### FigureStyle
+
+The per-frame draw: matplotlib keyword groups and overlay styles by id.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `imshow` | `dict[str, Any]` | no | empty | Axes.imshow keywords (cmap, vmin, vmax, ...). |
+| `pcolormesh` | `dict[str, Any]` | no | empty | Axes.pcolormesh keywords, used for nonuniform image axes. |
+| `plot` | `dict[str, Any]` | no | empty | Axes.plot keywords for traces. |
+| `colorbar` | `dict[str, Any]` | no | empty | Figure.colorbar keywords (label, ...); show: false hides it. |
+| `axes` | `dict[str, Any]` | no | empty | Axes.set keywords (xlabel, ylabel, title). |
+| `fig` | `dict[str, Any]` | no | empty | Figure keywords (figsize, dpi). |
+| `overlays` | `dict[str, dict[str, Any]]` | no | empty | Style per overlay id the measure emits (projection_x, projection_y, com): Axes.plot keywords, plus hidden and scale. |
+
+### ImageGridSummary
+
+One panel per bin (the bin-averaged image), one shared colour scale.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'image_grid'` | no | 'image_grid' | One panel per bin, one shared colour scale. |
+| `columns` | `int (optional)` | no | None | Panels per row; unset squares the grid. |
+| `panel_size` | `tuple[float, float] (optional)` | no | None | Panel (width, height) in inches; unset uses the renderer default. |
+
+### WaterfallSummary
+
+Every bin's (or, on a noscan, every shot's) trace as one row of a heat map.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'waterfall'` | no | 'waterfall' | Every row a bin's (or shot's) trace. |
+| `sort_key` | `str (optional)` | no | None | On a noscan, order rows by this s-file column instead of shot number ('Device:Var' or a substring); also skips bin averaging. |
+| `sort_sigma` | `float` | no | 3.0 | Drop rows whose sort-key value lies outside mean ± this many standard deviations. |
+| `sort_bounds` | `tuple[float, float] (optional)` | no | None | Explicit (low, high) bounds on the sort key; overrides the sigma cut. |
+| `even_spacing` | `bool (optional)` | no | None | Draw rows at equal height regardless of position spacing; unset means yes when sorting by a key, no otherwise. |
+| `scale` | `'auto' \| 'sequential' \| 'diverging' \| 'custom'` | no | 'auto' | 'sequential' runs 0 to max; 'diverging' is symmetric about zero; 'auto' centres on zero when the data crosses it; 'custom' uses vmin/vmax as given. |
+| `cmap` | `str (optional)` | no | None | Matplotlib colormap name. |
+| `vmin` | `float (optional)` | no | None | Colour scale minimum. |
+| `vmax` | `float (optional)` | no | None | Colour scale maximum. |
+
+### AverageSummary
+
+The scan's averaged frame (a noscan or count scan), drawn with ``figure``.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'average'` | no | 'average' | The scan's averaged frame. |
+
 ## `analysis_group`
 
 ### AnalysisGroup
@@ -1155,7 +1305,7 @@ A named set of diagnostics to run after each scan, in priority order.
 | `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
 | `name` | `str` | yes | — | Display name, conventionally <facility>_<purpose>. |
 | `description` | `str (optional)` | no | None | Free-text note about when this group is used. |
-| `upload_to_scanlog` | `bool` | no | True | Upload the group's summary figures to the experiment scan log. |
+| `upload_to_scanlog` | `bool` | no | True | Retired upload option; accepted for existing configs and ignored. |
 | `analyzers` | `list[AnalyzerRef]` | no | empty | The diagnostics to run; a bare ID means enabled with the diagnostic's own priority. |
 
 Example:

@@ -67,34 +67,6 @@
       "title": "BCaveMagOptSpec",
       "type": "object"
     },
-    "BCaveMagSpecStitcherSpec": {
-      "additionalProperties": false,
-      "description": "HTU BCave magspec camera with a Gaussian-weighted vertical lineout for optimization.",
-      "properties": {
-        "kind": {
-          "const": "bcave_magspec_stitcher",
-          "default": "bcave_magspec_stitcher",
-          "description": "HTU BCave magspec camera analyzer.",
-          "title": "Kind",
-          "type": "string"
-        },
-        "gaussian_sigma": {
-          "default": 20.0,
-          "description": "Width of the Gaussian weighting, pixels.",
-          "exclusiveMinimum": 0,
-          "title": "Gaussian Sigma",
-          "type": "number"
-        },
-        "gaussian_center": {
-          "default": 250.0,
-          "description": "Centre of the Gaussian weighting, pixels.",
-          "title": "Gaussian Center",
-          "type": "number"
-        }
-      },
-      "title": "BCaveMagSpecStitcherSpec",
-      "type": "object"
-    },
     "BackgroundConfig": {
       "additionalProperties": false,
       "description": "Subtract a background from every frame before analysis.\n\nTwo stages: a primary background (a constant level, a saved frame, or\nthe frame's own border), then an optional extra constant taken off\nafterwards.  Backgrounds that depend on the scan \u2014 another scan's\ndark frames, or an aggregate of this scan's own shots \u2014 are requested\nwith ``scan.background_source`` on the diagnostic instead; the scan\nanalyzer resolves that to a file and rewrites this section to\n``from_file`` before shots are processed.",
@@ -2125,7 +2097,8 @@
             }
           ],
           "default": null,
-          "description": "Which cell (0-3) of the scan-log entry's 2x2 figure table gets this analyzer's summary; unset uploads figures as links instead.",
+          "deprecated": true,
+          "description": "Retired Google Docs table slot; accepted for existing configs and ignored.",
           "title": "Gdoc Slot"
         },
         "device": {
@@ -2487,7 +2460,6 @@
       "discriminator": {
         "mapping": {
           "bcave_mag_opt": "#/$defs/BCaveMagOptSpec",
-          "bcave_magspec_stitcher": "#/$defs/BCaveMagSpecStitcherSpec",
           "beam": "#/$defs/BeamAnalyzerSpec",
           "downramp_phase": "#/$defs/DownrampPhaseSpec",
           "frog_retrieval": "#/$defs/FrogRetrievalSpec",
@@ -2540,9 +2512,6 @@
         },
         {
           "$ref": "#/$defs/HiResMagCamSpec"
-        },
-        {
-          "$ref": "#/$defs/BCaveMagSpecStitcherSpec"
         },
         {
           "$ref": "#/$defs/BCaveMagOptSpec"

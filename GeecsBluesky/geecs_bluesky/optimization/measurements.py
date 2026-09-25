@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from numpy.typing import NDArray
 from geecs_schemas import OptimizerConfig, optimizer_required_devices
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_data_utils.frames import ShotMeta
 from geecs_schemas.optimizer_config import (
     DiagnosticMeasurement,
     SignalMeasurement,
@@ -29,6 +29,7 @@ from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET
 from .live_frames import FrameSource, LiveFrameSource
 
 if TYPE_CHECKING:
+    from geecs_analysis.compat.v2 import V2Recipe
     from geecs_bluesky.config_resolver import ConfigsRepoResolver
     from geecs_bluesky.namespace import GeecsNamespace
 
@@ -37,14 +38,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class CompiledMeasurement:
-    """Resolved document, event key and output names for one measurement."""
+    """Compiled recipe, event key and output names for one measurement."""
 
     name: str
     spec: SignalMeasurement | DiagnosticMeasurement
     device: str
     event_key: str
     keys: frozenset[str]
-    diagnostic: AnalysisDiagnostic | None = None
+    recipe: V2Recipe | None = None
     readable: object | None = None
 
 
@@ -72,7 +73,7 @@ class CompiledMeasurements:
         """Join raw LabVIEW reading stamps to Unix PVA frame stamps."""
         frames = {}
         for measurement in self.measurements:
-            if measurement.diagnostic is not None and measurement.device not in frames:
+            if measurement.recipe is not None and measurement.device not in frames:
                 stamps = [
                     float(row[measurement.event_key]) - LABVIEW_EPOCH_OFFSET
                     for row in rows
@@ -89,7 +90,7 @@ class CompiledMeasurements:
         frames: Mapping[str, Mapping[float, NDArray]],
     ) -> BinResult:
         """Reduce valid measurements, then evaluate derived outputs in order."""
-        from image_analysis.ephemeral import run_document_ephemeral
+        from geecs_analysis.compat.v2 import analyze_v2
 
         outputs: dict[str, float] = {}
         counts: dict[str, int] = {}
@@ -111,14 +112,20 @@ class CompiledMeasurements:
                         continue
                     frame = frames.get(m.device, {}).get(stamp)
                     if frame is not None:
-                        selected.append(frame)
+                        selected.append((stamp, frame))
                         seen.add(stamp)
                 valid = len(selected)
                 if m.spec.frames == "per_bin" and selected:
-                    selected = [np.mean(selected, axis=0)]
-                for frame in selected:
+                    selected = [
+                        (None, np.mean([frame for _, frame in selected], axis=0))
+                    ]
+                for stamp, frame in selected:
                     try:
-                        (result,) = run_document_ephemeral(m.diagnostic, [frame])
+                        result = analyze_v2(
+                            frame,
+                            m.recipe,
+                            shot=ShotMeta(device=m.device, acq_timestamp=stamp),
+                        )
                         value = {
                             f"{m.name}.{key}": float(result.scalars[key])
                             for key in m.keys
@@ -165,8 +172,7 @@ def compile_measurements(
     source_factory: Callable[..., FrameSource] = LiveFrameSource,
 ) -> CompiledMeasurements:
     """Resolve signals, diagnostics, output references and imports before a run opens."""
-    from image_analysis.config import load_diagnostic
-    from image_analysis.ephemeral import EPHEMERAL_DENYLIST
+    from geecs_analysis.recipe import compile_document
     from geecs_bluesky.namespace import capture_streams
 
     measurements = []
@@ -188,39 +194,36 @@ def compile_measurements(
                 )
                 names.add(name)
             else:
-                diag = load_diagnostic(
-                    spec.diagnostic,
-                    config_dir=resolver.analysis_config_dir,
-                    overrides=spec.overrides,
+                diag = resolver.resolve_diagnostic(
+                    spec.diagnostic, overrides=spec.overrides
                 )
-                if (
-                    diag.analyzer.kind in EPHEMERAL_DENYLIST
-                    or diag.analyzer.image_kind != "camera"
-                ):
+                if diag.input_kind != "camera":
                     raise ValueError(
                         f"{name}: diagnostic {spec.diagnostic} is not supported on live camera frames"
                     )
-                keys = diag.analyzer.emitted_scalars()
+                recipe = compile_document(diag)
+                keys = recipe.analysis.measure.emitted_scalars()
                 if not keys:
                     raise ValueError(f"{name}: diagnostic declares no scalar outputs")
-                detector = namespace.resolve(diag.name)
+                device = diag.device
+                detector = namespace.resolve(device)
                 images = capture_streams(
-                    namespace.roster.variables[diag.name],
-                    namespace.roster.types.get(diag.name, ""),
-                    diag.name,
+                    namespace.roster.variables[device],
+                    namespace.roster.types.get(device, ""),
+                    device,
                 )
                 if not images:
                     raise ValueError(
-                        f"{diag.name}: no image variable in the device roster"
+                        f"{device}: no image variable in the device roster"
                     )
-                diagnostic_devices[spec.diagnostic] = diag.name
-                if diag.name not in sources:
-                    sources[diag.name] = source_factory(
-                        pv_name(namespace.experiment, diag.name, images[0]),
+                diagnostic_devices[spec.diagnostic] = device
+                if device not in sources:
+                    sources[device] = source_factory(
+                        pv_name(namespace.experiment, device, images[0]),
                         keep=max(64, shots_per_step * 3 + 8),
                     )
                 m = CompiledMeasurement(
-                    name, spec, diag.name, detector.acq_timestamp.name, keys, diag
+                    name, spec, device, detector.acq_timestamp.name, keys, recipe
                 )
                 names.update(f"{name}.{key}" for key in keys)
             measurements.append(m)

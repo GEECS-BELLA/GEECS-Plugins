@@ -88,13 +88,20 @@ qserver/                    # the worker: launcher, startup profile, permissions
 
 The bound `optimize` plan in `plans/optimize.py` runs strict acquisition in
 one run, with one bin per iteration. `OptimizerConfig` lives in GEECS-Schemas
-and embeds GEST's VOCS; Xopt and ImageAnalysis load only inside the worker's
+and embeds GEST's VOCS; Xopt and GEECS-Analysis load only inside the worker's
 optional optimize path. Validation and frame subscriptions precede the scan
 claim. Measurements use actual readbacks and timestamp-matched live frames.
 The `optimization` stream and JSON config provenance follow `EVENT_SCHEMA.md`.
 Optimizer expansion takes the same configs resolver in preflight and
 `submit_preset`; saving a preset validates its authored document without expansion.
-Analysis diagnostics resolve through Data Utils' shared config-root manager.
+Analysis diagnostics resolve through Data Utils' shared config-root manager and
+read-only YAML reader via `ConfigsRepoResolver.resolve_diagnostic`. The worker
+compiles each diagnostic once through `geecs_analysis.compat.v2`; scalar discovery
+comes from the compiled measure. Unsupported active processing fails before
+acquisition. Live diagnostics remain camera-only. Per-shot results carry the
+matched Unix acquisition timestamp; a per-bin mean carries no invented shot
+number or timestamp. Evaluation does no config I/O and uses no ImageAnalysis.
+The existing reduction/min_shots rules and `measurement.scalar` names survive.
 Relative pseudos restore on unstage; the scanner's explicit Set to best uses
 the recorded physical targets, not a relative coordinate after its zero moved.
 

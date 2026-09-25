@@ -4,12 +4,11 @@ The Scan Analysis package coordinates analysis across complete experimental
 scans. Rather than analysing individual shots in isolation, it iterates a
 configured analyzer across every shot in a scan, bins results by the scanned
 parameter, renders summary figures, and appends derived scalars back to the
-s-file. Display figures can optionally be uploaded to a Google Doc e-log via
-`LogMaker4GoogleDocs`.
+s-file. Run analysis explicitly from the data portal or Python.
 
 The fastest way to see it in action is the
 [Analysis tutorial](../tutorials/analysis.md), which walks the canonical
-config editor → group → LiveWatch loop end to end.
+config editor → preview → explicit run loop end to end.
 
 ---
 
@@ -35,29 +34,15 @@ the analyzer's `_run_analysis_core()` does the work that's specific to the
 diagnostic. See [Basic Usage (2D)](examples/basic_usage.ipynb) for a full
 walkthrough.
 
-### Live (automated) via LiveWatch
+### From the data portal
 
-A `LiveTaskRunner` watches a data directory for new scans and dispatches an
-analyzer group as each scan completes. Multiple runners can co-operate over
-the same data directory — a heartbeat-based task queue ensures each scan is
-claimed and processed exactly once.
+Select a completed scan and open its **Analysis** tab to run a configured
+diagnostic. Use **edit configs** to edit and preview an unsaved document
+before saving. The editor remains part of the portal.
 
-```python
-from geecs_data_utils import ScanTag
-from scan_analysis.live_task_runner import LiveTaskRunner
-
-today = ScanTag(year=2026, month=5, day=27, number=0, experiment="Undulator")
-runner = LiveTaskRunner(
-    analyzer_group="HTU/baseline",   # path-key into scan_analysis_configs/groups/
-    date_tag=today,
-    gdoc_enabled=False,
-)
-runner.run()
-```
-
-In practice nobody calls this directly — the **[LiveWatch GUI](../tutorials/analysis.md)**
-wraps it with a friendly interface. The Python API exists so headless
-runners and tests can drive it the same way.
+Automatic watching and Google Docs uploads have been retired. The existing
+queue/status API remains available for explicit MCP runs; a future automatic
+analysis service has not yet been designed.
 
 ---
 
@@ -82,7 +67,6 @@ Group YAMLs look like:
 ```yaml
 name: HTU_baseline
 description: standard HTU shift analysis
-upload_to_scanlog: true
 analyzers:
   - Amp4Input
   - Amp4Output
@@ -91,11 +75,14 @@ analyzers:
   - {ref: Amp3Input, enabled: false}  # temporarily disabled here, not deleted
 ```
 
-`LiveTaskRunner` loads a group by path-key (`"HTU/baseline"`), resolves
-each ref to its diagnostic config, instantiates the right `ImageAnalyzer`,
-wraps it in the appropriate `ScanAnalyzer` (`Array2DScanAnalyzer` for
-camera configs, `Array1DScanAnalyzer` for line configs), and dispatches
-them per-scan according to their priorities.
+`load_analysis_group` loads a group by path-key (`"HTU/baseline"`), resolves
+each ref to its diagnostic config, builds a `ScanAnalyzer` for each, and
+dispatches them per-scan according to their priorities. A recipe the
+`geecs_analysis` core can run (beam, line, standard and trace kinds with
+ported processing steps and no scan-context background) becomes a
+`CoreScanAnalyzer`; anything else instantiates the right `ImageAnalyzer`
+and wraps it in the legacy `Array2DScanAnalyzer` (camera configs) or
+`Array1DScanAnalyzer` (line configs). Both routes write the same files.
 
 Authoring these YAMLs by hand is fine;
 the **[config editor](../tutorials/analysis.md)** is the friendlier path.
@@ -108,12 +95,11 @@ Each analyzer produces:
 
 - **Display files** — summary figures (typically `.png`) that visualise
   the scan. Returned from `run_analysis()` for interactive use; recorded
-  in the task-queue status file for live runs; optionally uploaded to the
-  experiment's Google Doc when `gdoc_enabled=True`.
+  in the task-queue status file when running through the queue.
 - **Derived scalars** appended back to the s-file as new columns.
 
-See [GDoc Upload](examples/gdoc_upload.ipynb) for the e-log integration
-details.
+Legacy `scan.gdoc_slot` and group `upload_to_scanlog` fields are accepted
+but ignored. They are hidden in the editor.
 
 ---
 
@@ -122,9 +108,7 @@ details.
 ```
 scan_analysis/
 ├── base.py                   # ScanAnalyzer abstract base
-├── live_task_runner.py       # LiveTaskRunner — watches + dispatches
 ├── task_queue.py             # Heartbeat-based queue; claim/release/status YAML
-├── gdoc_upload.py            # Optional LogMaker4GoogleDocs integration
 ├── config/
 │   ├── diagnostic_factory.py     # create_scan_analyzer(diag, ...)
 │   └── analysis_group_loader.py  # discover_analyzers/groups + load_analysis_group,
@@ -138,11 +122,12 @@ scan_analysis/
     └── Undulator/                 # Experiment-specific specialised analyzers
 ```
 
-The common pattern: `LiveTaskRunner` reads a group YAML →
+The Python group workflow: read a group YAML →
 `load_analysis_group` → resolves refs →
 `create_scan_analyzer(r.diagnostic, id=r.id, priority=r.priority)` builds
-each → `Array2DScanAnalyzer` (or 1D) wraps the underlying `ImageAnalyzer`
-→ `run_analysis(scan_tag)` does the work.
+each → a `CoreScanAnalyzer` on the analysis core, or `Array2DScanAnalyzer`
+(or 1D) wrapping the underlying `ImageAnalyzer` for recipes the core does
+not run yet → `run_analysis(scan_tag)` does the work.
 
 ---
 
@@ -186,14 +171,12 @@ the full surface area.
 |---|---|
 | [Basic Usage (2D)](examples/basic_usage.ipynb) | Run an `Array2DScanAnalyzer` on a scan, interactively |
 | [Basic Usage (1D)](examples/basic_usage_1D.ipynb) | The same flow for a 1D signal |
-| [Live Watch](examples/live_watch.ipynb) | Drive `LiveTaskRunner` headlessly from a script |
-| [GDoc Upload](examples/gdoc_upload.ipynb) | Wire summary figures into a Google Doc e-log |
 | [Scatter Plot Analysis](examples/scatter_plot_analysis.ipynb) | Generic two-axis scatter analyzer over multiple devices |
 
 ## See also
 
 - The [Analysis tutorial](../tutorials/analysis.md) — the no-Python
-  config editor → group → LiveWatch path.
+  config editor → preview → explicit run path.
 - [Image Analysis overview](../image_analysis/overview.md) — the
   per-shot processing layer that diagnostic configs configure.
 - [Data Utils overview](../geecs_data_utils/overview.md) — `ScanTag` and

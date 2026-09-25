@@ -1,18 +1,24 @@
 # ScanAnalysis — Developer Context for Claude
 
-Post-scan analysis framework. Watches for new scans, runs configurable chains of
-image/1D analyzers, and optionally uploads summary figures to Google Docs.
+Post-scan analysis framework. Explicit portal and Python runs execute configurable
+image/1D analyzers. Automatic watching and Google Docs uploads are retired.
 
 ## Package Layout
 
 ```
 scan_analysis/
   base.py                          # ScanAnalyzer abstract base class
-  live_task_runner.py              # LiveTaskRunner: watches for s-files → drives queue
+  core_inputs.py                   # v2 core compilation + loaded file-background bindings
+  core_source.py                   # completed-scan native/stack input mapping and reads
+  core_scan.py                     # write-free scan preparation, grouping and execution
+  core_products.py                 # write-free average/bin and summary product planning
+  core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN; draw_product / draw_summary
+  core_preview.py                  # the editor's previews through the run's own calls (frame; a summary's layout over a few shots)
+  core_analyzer.py                 # CoreScanAnalyzer: the core route behind the ScanAnalyzer contract
+  route_compare.py                 # snapshot + compare two routes' analysis trees (one equality rule)
   task_queue.py                    # Task claiming, heartbeat, YAML status system
-  gdoc_upload.py                   # GDoc upload integration (optional logmaker dep)
   config/
-    diagnostic_factory.py          # create_scan_analyzer(AnalysisDiagnostic)
+    diagnostic_factory.py          # create_scan_analyzer(AnalysisRecipe | AnalysisDiagnostic)
     analysis_group_loader.py       # discover_analyzers/groups + load_analysis_group,
                                    #   ResolvedDiagnosticConfig (the models: geecs_schemas.analysis)
   analyzers/
@@ -25,18 +31,102 @@ scan_analysis/
 
 ## Config System (YAML → Pydantic → Factory → Instances)
 
+`core_inputs.prepare_v2` prepares supported v2 recipes for the new numerical
+core. It is shared with portal processing/unsaved previews and imports no legacy
+analyzers. Compile capabilities before any reads, then load backgrounds once via
+data-utils and bind immutable Frames. Failed file loads retain the v2 constant
+fallback; loaded shape errors propagate. `data_dir` means the device directory
+when resolving `{scan_dir}`. Context-free previews leave that placeholder
+literal. This adapter never writes, mutates the caller's config, or resolves
+scan-background directives. Explicit scan execution still uses the old factory.
+
+`core_source.prepare_source` maps a completed scan's scalar rows to native
+files or capture-stack frames through data-utils. The returned `V2ShotSource`
+snapshots references and reader settings, retains `ShotRef` indices, and loads
+native arrays without dtype conversion or caching. Diagnostic identity selects
+timestamp columns; `scan.device` selects the folder/native filename stem.
+Camera stack preference may fall back to native files; stack-only traces cannot.
+The source never creates folders or writes files. Hosts must wait for scan
+completion before discovering HDF5 stacks over SMB. Reader metadata is not
+returned by this raw-array adapter; v2 recipes supply configured labels/units.
+
+`core_scan.prepare_scan` snapshots config, rows, source, recipe and scalar naming
+for one explicit run. `PreparedScan.run()` streams core `UnitResult` outcomes;
+`scalar_records()` projects bare scalars to `{output_name}_{key}{metric_suffix}`
+without mutating the result or caller's rows. Per-bin updates include all bin
+members even when some inputs fail. Groups follow scalar-row order; empty bins
+are omitted and missing bin values form no group. Duplicate/nonpositive shot
+numbers and fractional bin ids are explicit preparation errors. No sinks or
+legacy factory route change are included in this adapter.
+
+`core_products.plan_products` chooses saved average/bin measurements and ordered
+summary panels without rendering or writing. Preserve the old figure gate
+(more than two successful execution units), separately from scalar persistence.
+Noscan means are unweighted over successful units; scanned per-shot summaries
+use NaN-aware post-analysis bin averages, while raw-bin mode reuses its outcomes.
+Scan positions average all scalar rows in each bin, including missing inputs.
+Line sort requests bypass scanned-bin rendering; finite/bounds/sigma filtering
+changes waterfall rows only, not the all-unit average. Omitted products carry
+notes; the sink owns logging and file naming.
+
+`core_sink.save_products` is the only core-route writer of scan products. It
+resolves the sibling `analysis/ScanNNN/<output_name>/Array{1,2}DScanAnalyzer/`
+directory from an existing raw scan folder, refuses path components and
+symlinks that escape it, and never creates `scans/ScanNNN/`. File names keep
+the legacy shapes (`{device}_{id}_processed.h5`, `_processed_visual.png`,
+`_averaged_image_grid.png`, `_summary_waterfall.png`) so `parse_output_filename`
+and MCP's display-file contract are unchanged. HDF5 retains the legacy dataset
+name, storage dtype and gzip level. `scan.save: false` writes nothing. A
+rendering failure omits only its figure and is returned as a note; data and
+write errors propagate. Scalar persistence is independent of this sink.
+
+`core_analyzer.CoreScanAnalyzer` is the core route behind the contract the task
+queue, the portal and MCP call. It inherits scan-tag handling, s-file reading
+and scalar persistence from `ScanAnalyzer` and runs `prepare_scan` → `run` →
+`scalar_records` → sidecar + s-file merge → `plan_products` → `save_products`.
+A missing or empty device folder, or stack-only input without a stack, raises
+`DataUnavailableWarning`. Scalars are persisted before products, so a product
+write failure never loses them, and the waterfall sort column resolves against
+the refreshed rows as the legacy wrapper did. Summary figures are labelled
+with the cleaned ScanInfo parameter, not the s-file column. `core_supports`
+is the routing predicate: compile only, no reads; scan-context backgrounds and
+unported kinds or steps stay on the legacy wrappers. `create_scan_analyzer`
+selects this route for every recipe `core_supports` accepts unless the caller
+passes `use_injected_data=True`; the legacy wrappers stay until the observation
+period ends. `tests/test_core_analyzer.py` runs both routes on
+synthetic beam, line, standard and trace scans and compares file lists, HDF5
+payloads, s-file columns, sidecars and the display-file list exactly, except
+noscan averages, where the legacy wrapper sums shots in directory-listing order
+and a few-ulp tolerance is explicit. Figure content is not compared: the two
+renderers differ by design, so titles and layout are the operator's review.
+`route_compare.snapshot_analysis_tree` / `compare_snapshots` are the one
+definition of "the same outputs"; the differential test and
+`scripts/analysis_scan_compare.py` both use them. The script runs the
+comparison on a real scan: it copies the scan's inputs into two private trees,
+runs `route="legacy"` in one and `route="core"` in the other, and diffs their
+analysis trees. It refuses recipes with `scan.background_source`: the legacy
+wrapper resolves the reference scan through its own `ScanPaths`, outside the
+private tree, and caches a background beside the archived scan; the core does
+not run those recipes anyway. For every other recipe nothing is written next to
+the archived scan.
+
 Scan analysis is driven by YAML config files stored in the
 **GEECS-Plugins-configs** repository (not this repo). The documents are
-**GEECS-Schemas'** (`geecs_schemas.analysis`, format v2 since
-ScanAnalysis 1.19.0): one `AnalysisDiagnostic` YAML per diagnostic under
-`analyzers/<namespace>/<id>.yaml`, carrying `analyzer:` (which analyzer,
-with its typed parameters), `image:` (the camera / line processing
-section, consumed by ImageAnalysis) and `scan:` (the typed `ScanRuntime`
-section, consumed here); diagnostics are assembled into `AnalysisGroup`
-files under `groups/<namespace>/<group>.yaml`, which `LiveWatch` and the
-task queue consume directly. The corpus is v2 only (regenerated once for
-GEECS-Schemas 0.19.0; a pre-v2 file is refused at load; there is no
-converter). Scatter analyzers sit outside the YAML config
+**GEECS-Schemas'** (`geecs_schemas.analysis`): one YAML per diagnostic
+under `analyzers/<namespace>/<id>.yaml`, in one of two formats read by
+`load_analysis_document` on its `schema_version` — the v3 `AnalysisRecipe`
+(the analysis core's native shape: `input:`, ordered `steps:`, `measure:`,
+the per-frame `figure:`, the `summaries:` kinds; every recipe the core
+serves, 37 of 50 since 2026-09-24) or the v2 `AnalysisDiagnostic`
+(`analyzer:` + `image:` consumed by ImageAnalysis + the typed `scan:`
+section, kept for the unported kinds). Diagnostics are assembled into
+`AnalysisGroup` files under `groups/<namespace>/<group>.yaml`, which
+explicit runners and the task queue consume directly. A pre-v2 file is
+refused at load; `scripts/analysis_convert_corpus.py` (repo root) converts
+a v2 diagnostic the core serves into a recipe, and nothing lifts the other
+way. `core_recipe.ScanRecipe` is the one host-side view of either format;
+the source, runner, planner and sink read it and never ask which document
+they serve. Scatter analyzers sit outside the YAML config
 system entirely — they are plain Python subclasses of
 `ScatterPlotterAnalysis` (see below) because they don't consume images.
 
@@ -57,13 +147,31 @@ for a in analyzers:
     a.run_analysis(scan_tag)
 ```
 
+`create_scan_analyzer` has two routes behind one contract: a recipe that
+`core_supports` accepts becomes a `CoreScanAnalyzer` on `geecs_analysis`;
+anything else (unported kinds or steps, scan-context backgrounds, or
+`use_injected_data=True`) gets the legacy `Array1DScanAnalyzer` /
+`Array2DScanAnalyzer` wrapper around an ImageAnalysis analyzer. `route="legacy"`
+forces the wrapper for a supported recipe (the observation-period escape hatch
+and the comparison harness's oracle); `route="core"` forces the core and raises
+`UnsupportedRecipe` when it cannot run the recipe. Legacy runtime attributes
+assigned after construction (`background_source`, `flag_save_data`, `file_tail`)
+are inert on a `CoreScanAnalyzer`: its behaviour comes from its own copy of the
+document, so override the document, or ask for `route="legacy"`. Tests that pin
+the wrappers' kwargs mapping use `route="legacy"`; the auto-routing tests force
+the wrapper with a schema-valid feature the core refuses (a flip, or a
+preprocessing-only trace ROI).
+
+`discover_analyzers` delegates to `geecs_data_utils.analysis_configs`; group
+lookup remains here because group aliases have different rules.
+
 `task_queue.load_analyzers_from_config(group_name, config_dir=...)` is a
 thin wrapper around the same two calls.
 
 ### The documents (`geecs_schemas.analysis`)
 
 ```
-AnalysisDiagnostic                # One YAML per diagnostic (schema_version: 2)
+AnalysisRecipe | AnalysisDiagnostic   # One YAML per diagnostic (schema_version 3, or 2 for unported kinds)
   name: str                       # Device/channel name for input-data discovery
   output_name: Optional[str]      # Output stem override (defaults to name)
   metric_suffix: Optional[str]    # Scalar-key-only suffix (no dir/file effect)
@@ -76,7 +184,7 @@ ScanRuntime                       # the scan: section
   priority: int                   # Lower = runs first (100 default)
   mode: Literal["per_shot", "per_bin"]  # default per_shot
   save: bool                      # Write per-shot/bin outputs to the analysis tree
-  gdoc_slot: Optional[int]        # 0-3 → table cell; None → hyperlink upload
+  gdoc_slot: Optional[int]        # Retired, accepted but ignored
   device: Optional[str]           # Data-subfolder override (defaults to name)
   file_tail: Optional[str]        # Filename suffix matching this device's files
   data_format: Optional[...]      # "device_hdf5" opts in to the capture frame
@@ -103,7 +211,7 @@ ResolvedDiagnosticConfig          # What the loader hands the factory (this pack
   id: str                         # Diagnostic filename stem (task-queue ID)
   enabled: bool                   # Refs with enabled: false are excluded
   priority: int                   # Group override, else the diagnostic's own
-  diagnostic: AnalysisDiagnostic
+  diagnostic: AnalysisRecipe | AnalysisDiagnostic   # whichever the file's schema_version says
 ```
 
 `scan_analysis.config` exports only its own things — the group loader,
@@ -154,9 +262,17 @@ The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
   stale etag / duplicate stem across namespaces → `ConflictError`; an
   invalid document is never written; `etag=None` = create, refuses to
   overwrite), `delete`, `pending_changes()` (git status of the tree),
-  `schema(kind)` (the JSON Schema the form renders). Writes touch only the
-  configs tree — the repo's scan-folder invariant is irrelevant by
-  construction, and pinned portal-side.
+  `schema(kind)` (the JSON Schema the form renders: for `analyzer` the
+  recipe's, with `steps` and `measure` bound to the analysis core's
+  registry by `geecs_analysis.recipe.recipe_schema`). A recipe validates
+  as its schema AND binds to the registry (`compile_recipe`): an unknown
+  step or parameter, a step or measure for the wrong frame shape, a frame
+  input no step uses — reported at the form's field path, listed as
+  invalid, never written. `list()` runs the same cross-checks as
+  `validate()` (a group naming an unknown document lists as invalid too;
+  the analyzers tree is walked once per listing). Writes touch only the configs tree — the repo's
+  scan-folder invariant is irrelevant by construction, and pinned
+  portal-side.
 - **`scan_analysis.config_editor.create_editor_router(store, preview=,
   read_only=)`** — a FastAPI router (the `editor` extra): `/api/list`,
   `/api/schema/{kind}`, `GET/PUT/DELETE /api/{analyzers|groups}/…`,
@@ -164,14 +280,43 @@ The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
   passes a `preview(document, params) -> PNG bytes`), the editor page and
   `static/editor.js` + `editor.css`. Every URL is relative to the mount.
   `editor.js` is a hand-written schema-driven form over pydantic's JSON
-  Schema (objects, `anyOf [T, null]` optionals as toggled sections, the
-  kind-discriminated `analyzer:` union as a select that swaps the
-  variant's fields, enums, **ordered** enum lists for pipelines, arrays of
-  objects, tuples, JSON textareas for free mappings), live YAML preview,
-  server-side error placement by pydantic location, and the optional
-  preview pane (a `preview` button renders the edited document on the
-  host's shot; `auto` re-renders per edit, remembered in localStorage).
-  No build chain, no library — the portal's doctrine.
+  Schema (objects, `anyOf [T, null]` optionals as toggled sections,
+  discriminated unions as a kind select that swaps the variant's fields,
+  enums, tuples, keyed mappings as named cards, keyword mappings as
+  key/value rows), live YAML preview, server-side error placement by
+  pydantic location, and the optional preview pane (a `preview` button
+  renders the edited document on the host's shot; `auto` re-renders per
+  edit, remembered in localStorage). **The form is the recipe's** (format
+  3), laid out as the document reads: Source (naming, `input`, frame
+  `inputs`) → Steps (ordered cards; the add-select lists the registry with
+  `(images)` / `(traces)` hints from `x-ndim`; a name the registry does not
+  know is kept as written and flagged, never swapped) → Measure → Figure
+  (matplotlib keyword rows: numbers, true/false, [lists] typed, other text
+  a string; overlay styles by id) → Summaries → Scan. Reorder and remove
+  rebuild the list from its current values so every field path
+  (`steps.2.bounds`) stays true. A **format 2 diagnostic** (a kind the
+  core has not ported) opens read-only — note, the file as saved, Delete,
+  and the preview of the saved document — until its kind is ported and it
+  converts. The preview is **the run's own draw**: the host renders the
+  document through `scan_analysis.core_preview` — `preview_frame`, the
+  sink's per-frame call with the document's `figure` block, frame inputs
+  resolved from the document's device folder under the scan — cropped
+  tight like the product PNG, so what the pane shows is the product file
+  the run would write. The **summaries** block (`POST /api/preview/summary`,
+  host hook `summary_preview=`, cap `summary_shots_max=` carried in
+  `/api/list`) lays out each summary kind over a few of the host's shots
+  through `preview_summary` — `core_sink.draw_summary`, the sink's own
+  call — one panel (row) per shot at its shot number under the run's
+  noscan label (`core_products.NOSCAN_POSITION_LABEL`), or the shots'
+  average. That is the kind's *layout* on real frames (a run's grid
+  panels are per-bin averages, and a camera run on a noscan writes no
+  grid), while the frame preview is the product file itself. Both draws
+  are the sink's functions (`draw_product` / `draw_summary`), pinned
+  byte-for-byte against `save_products`' files
+  (`tests/test_core_preview.py`); a host never re-derives the pairing. The form is pinned under node on a fake DOM
+  (`test_recipe_form_round_trips_and_reorders`: a corpus recipe reads back
+  canonical-equal, move-up swaps steps and renumbers paths). No build
+  chain, no library — the portal's doctrine.
 - **Host.** The data portal mounts it at `/configs` with the preview of
   the **unsaved** document on the scan page's current shot
   (`GEECS-DataPortal/CLAUDE.md`); its **edit configs** link is the
@@ -181,8 +326,9 @@ The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
   the configs repo in an editor and commits).
 
 Adding a field to a schema model is all an editor change needs: the form
-is generated. Adding an analyzer kind (a spec in GEECS-Schemas + a registry
-line in ImageAnalysis) shows up in the kind select automatically.
+is generated. Adding a step, measure or summary kind in GEECS-Analysis
+(its spec's `description=` on every field — the form shows it as help)
+shows up in the add-select automatically.
 
 ### Scatter (`analyzers/common/scatter_plotter_analysis.py`)
 
@@ -199,6 +345,7 @@ reference example. The former `analyzer_config_models.py` +
 
 ```
 ScanAnalyzer  (base.py)
+  ├── CoreScanAnalyzer  (core_analyzer.py) — the geecs_analysis route
   ├── SingleDeviceScanAnalyzer  (single_device_scan_analyzer.py)
   │     ├── Array2DScanAnalyzer  (array2D_scan_analysis.py)
   │     │     └── HIMGWithAveraging  (Undulator/HIMG_with_average_saving.py)
@@ -210,10 +357,14 @@ ScanAnalyzer  (base.py)
 ### `ScanAnalyzer.run_analysis(scan_tag) -> Optional[list[Path | str]]`
 
 The main entry point. Returns a list of **display files** (paths to summary
-figures) that the task queue stores and optionally uploads to GDocs, or
+figures) that the task queue records, or
 `None` when there was nothing to analyze.
 
 ### `SingleDeviceScanAnalyzer`
+
+Input mapping delegates to `geecs_data_utils.shot_files.map_shot_files`.
+The adapter retains stack-only absence as `DataUnavailableWarning` so MCP
+records `no_data`; the shared data layer has no queue or analysis imports.
 
 - Holds an `ImageAnalyzer` instance
 - `_run_analysis_core()` → resolves the device data folder, then dispatches
@@ -266,7 +417,9 @@ shared instance state across tasks is undefined under parallelism.
 
 ## Task Queue System (`task_queue.py`)
 
-Enables multiple `LiveTaskRunner` processes to divide work without conflicts.
+Retained for explicit MCP runs and status compatibility. Atomic claims prevent
+concurrent runners from owning the same task; this is not a new automatic
+post-scan service. That service remains a separate design decision.
 
 ### How It Works
 
@@ -313,6 +466,14 @@ reader: a new `to_dict()` key fails there until `STATUS_FIELDS` /
 `AnalysisStatus` in GEECS-Data-Utils learn it — extend both in the same
 PR as the writer change.
 
+## Scalar persistence
+
+Scalar persistence in `base.py` delegates to `geecs_data_utils.scalar_files`:
+one lock/merge implementation coordinates legacy and new runners. ScanAnalysis
+still owns sidecar destination names, sibling analysis-directory creation and
+refreshing `auxiliary_data`. Preserve the difference between s-file merging
+(missing updates retain old cells) and sidecars (generated NaNs remain NaN).
+
 ## Renderer output names are a consumed contract
 
 `RenderContext.get_filename` (`analyzers/renderers/config.py`) and the
@@ -325,51 +486,18 @@ pairing. (The wrappers' own `parts[-2].isdigit()` bin-key parsing in
 `array2D_scan_analysis.py` / `array1d_scan_analysis.py` predates this
 helper and is a known follow-up.)
 
-## Live Watching (`live_task_runner.py`)
+## Retired watching and uploads
 
-`LiveTaskRunner` watches a data directory for new s-files (scan summary files),
-enqueues analysis tasks, and drives `run_worklist()`.
-
-```python
-runner = LiveTaskRunner(
-    analyzer_group="baseline",          # group name under groups/<namespace>/
-    date_tag=ScanTag(year=..., experiment="Undulator", ...),
-    config_dir=None,                    # None → uses paths_config default
-    document_id=None,                   # None → reads from INI (live mode);
-                                        # explicit string → historical doc (backtest)
-)
-runner.start()
-```
-
-Multiple `LiveTaskRunner` instances can run concurrently — the heartbeat
-staleness system handles contention.
-
-## GDoc Upload (`gdoc_upload.py`)
-
-Called by `run_worklist()` after an analyzer completes, if `gdoc_slot is not None`.
-
-```python
-upload_summary_to_gdoc(
-    scan_tag,               # ScanTag; carries scan number + experiment
-    display_files,          # List of paths; uploads display_files[-1]
-    gdoc_slot,              # 0=row0/col0, 1=row0/col1, 2=row1/col0, 3=row1/col1
-    document_id=None,       # None → reads from experiment INI
-)
-```
-
-- **Per-day folder:** If `ImageParentFolderID` is set in the experiment INI,
-  images land in a date-named subfolder under it (persistent). Otherwise falls
-  back to `_FALLBACK_IMAGE_FOLDER` (may be purged).
-- **logmaker optional:** If `logmaker_4_googledocs` is not installed, calls are
-  silently skipped.
+LiveWatchGUI, LiveTaskRunner and Google Docs uploads were removed in 1.26.0.
+The config editor, ConfigStore, group loader and explicit task queue remain.
+Existing `gdoc_slot` and `upload_to_scanlog` fields validate but have no effect;
+the editor hides these deprecated fields and preserves authored values.
+ScanAnalysis has no LogMaker, watchdog or Qt dependency.
 
 ## Key Design Decisions
 
 - **`priority`** — Lower number runs first. Default 100; use low numbers
   for fast diagnostics.
-- **`gdoc_slot`** — Set 0-3 to insert into a 2×2 table cell. Omit (None) to
-  upload display files as hyperlinks instead, when the runner has gdoc
-  upload enabled.
 - **`enabled: false`** on a group ref — Disable an analyzer without
   removing it from the group config.
 - **`analyzer.kind`** — Picks the analyzer and types its parameters; the
@@ -393,7 +521,7 @@ In practice:
   analysis code.
 - `task_queue.init_status_for_scan` and `task_queue.update_status` verify
   `scan_folder.is_dir()` and bail with an `ERROR` log if it's missing — they
-  do **not** auto-create. LiveWatch keeps running other work; if the scan
+  do **not** auto-create. The queue keeps running other work; if the scan
   folder later reappears, discovery can pick it up on a later processing pass
   or after relaunch.
 - `analysis_status/` is the only directory ever auto-created by this package,

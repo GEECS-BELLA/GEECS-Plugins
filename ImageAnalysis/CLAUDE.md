@@ -26,8 +26,8 @@ image_analysis/
                                    #          load_diagnostic, list_diagnostics,
                                    #          create_image_analyzer, analyzer_class
                                    #          (the MODELS come from geecs_schemas.analysis)
-    loader.py                      # YAML → typed model loaders
-    factory.py                     # create_image_analyzer(AnalysisDiagnostic)
+    loader.py                      # Typed loaders over geecs_data_utils.analysis_configs
+    factory.py                     # create_image_analyzer(AnalysisDiagnostic) — refuses a v3 recipe
     registry.py                    # analyzer kind → implementing class
   processing/
     array2d/
@@ -117,8 +117,10 @@ under their `Line*` names; no re-export shims). `image_analysis.config`
 owns the three things that need the analysis stack:
 
 - **`loader`** — `load_diagnostic(stem_or_path, config_dir=, overrides=)`
-  → `AnalysisDiagnostic` (v2 only — a pre-v2 file is refused; the configs
-  repo was regenerated once and is authored v2-only since);
+  → the document as its `schema_version` says: a v3 `AnalysisRecipe` (runs
+  on the analysis core; `create_image_analyzer` and the ephemeral runners
+  refuse it with a `TypeError`) or the v2 `AnalysisDiagnostic` (a pre-v2
+  file is refused);
   `load_camera_config` / `load_line_config` → the `image:` section of a
   diagnostic, or a bare section; `list_diagnostics`.
 - **`factory`** — `create_image_analyzer(diag)`: resolves the class from
@@ -180,7 +182,7 @@ analyzer = StandardAnalyzer(camera_config=cfg)
 # Mode 2: config-driven factory (production scan path)
 from image_analysis.config import load_diagnostic, create_image_analyzer
 
-diag = load_diagnostic("UC_GaiaMode")          # → AnalysisDiagnostic
+diag = load_diagnostic("UC_GaiaMode")          # → AnalysisDiagnostic, or AnalysisRecipe (v3) — the latter runs on the core
 analyzer = create_image_analyzer(diag)         # → ImageAnalyzer instance
 ```
 
@@ -359,13 +361,7 @@ pinned by `tests/test_ephemeral.py` for `StandardAnalyzer`,
 (2D `@staticmethod`s taking `vmin`/`vmax`/`cmap`) and
 `Standard1DAnalyzer` (instance method taking plot kwargs). A renderer
 that ignored `ax` would return an empty seam figure AND leak a
-pyplot-registered figure per request on a server thread. Known
-exception: `Undulator/BCaveMagSpecStitcher.py` keeps a legacy
-`render_image(image, analysis_results_dict, …)` signature (and a
-legacy dict `analyze_image` return) — through the seam either shape
-ends as a `RenderError` (the dict reaches its renderer and fails
-there); it predates the `ImageAnalyzerResult` contract and is not a
-template. `render_frame_figure(image, …)` is the
+pyplot-registered figure per request on a server thread. `render_frame_figure(image, …)` is the
 base-renderer-only companion for images that are not one result (bin
 averages).
 
@@ -396,3 +392,12 @@ The write gate is structural, and it depends on two conventions that
 
 `list_diagnostics(config_dir=...)` (in `image_analysis.config`)
 enumerates the loadable diagnostic IDs for pickers over the same tree.
+
+## Retired BCave camera analyzer
+
+The legacy `bcave_magspec_stitcher` camera kind and
+`Undulator/BCaveMagSpecStitcher.py` are removed. They used a pre-
+ImageAnalyzerResult dict return and are not a supported migration target.
+The `line`, `line_stitcher` and `bcave_mag_opt` kinds remain, including the
+MagSpec interpSpec trace used for waterfall plots. Diagnostic filenames
+containing "Stitcher" do not imply the retired camera kind; inspect `analyzer.kind`.

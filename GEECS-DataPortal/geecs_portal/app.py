@@ -30,6 +30,8 @@ import dataclasses
 import importlib
 import logging
 import re
+
+import numpy as np
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -337,11 +339,9 @@ class _DiagInfo:
 
     @classmethod
     def from_diagnostic(cls, diag) -> "_DiagInfo":
-        # ``diag.scan`` is the typed ScanRuntime section (GEECS-Schemas) —
-        # read the one field the wrapper reads.
+        # Either format, through the names both documents carry.
         return cls(
-            device=str(diag.scan.device or diag.name),
-            output_name=str(getattr(diag, "effective_output_name", None) or diag.name),
+            device=str(diag.data_folder), output_name=str(diag.effective_output_name)
         )
 
 
@@ -612,7 +612,7 @@ def create_app(
         }
 
     def _ephemeral_module():
-        """``image_analysis.ephemeral``, or the feature's 404 ladder.
+        """The portal's backend router, or the feature's 404 ladder.
 
         The one place the "configured? installed?" preamble lives for
         the processing selector and the rendered view alike.
@@ -624,11 +624,9 @@ def create_app(
                 "(start it with --processing-configs)",
             )
         try:
-            # import_module (not ``from image_analysis import ephemeral``):
-            # the package attribute survives an uninstalled/blocked
-            # submodule, the sys.modules lookup does not — the
-            # missing-extra test blocks the submodule.
-            ephemeral = importlib.import_module("image_analysis.ephemeral")
+            # Check the optional runtime even when the router is cached.
+            importlib.import_module("geecs_analysis.compat.v2")
+            ephemeral = importlib.import_module("geecs_portal.processing")
         except ImportError as exc:
             raise HTTPException(
                 status_code=404,
@@ -640,11 +638,9 @@ def create_app(
     def _render_processing_figure(array, processing: str, render: dict) -> bytes:
         """The rendered view of ONE shot: the analyzer draws its own result.
 
-        Same seam family as ``_apply_processing`` (write-free, denylist,
-        one analyzer per call) — ``render_diagnostic_ephemeral`` hands
-        the analyzer's ``render_image`` an object-API axes, so overlays
-        (projections, markers, calibrated axes) come through without
-        any pyplot state on a request thread. Same status ladder as the
+        Same write-free router as ``_apply_processing``: supported recipes
+        use core measurements and object-API figures; unported recipes keep
+        the legacy ephemeral renderer. Same status ladder as the
         pixel path: unknown diagnostic 404, denylisted / invalid config
         400, analyzer failure 400, and "ran but cannot be drawn"
         (``RenderError``) 404 — the pixel path's "render failed" /
@@ -1109,8 +1105,10 @@ def create_app(
         if processing_config_dir is None:
             return []
         try:
-            from image_analysis.config import list_diagnostics, load_diagnostic
-        except ImportError:
+            processing_api = _ephemeral_module()
+            list_diagnostics = processing_api.list_diagnostics
+            load_diagnostic = processing_api.load_diagnostic
+        except HTTPException:
             return []
         # Fingerprint BEFORE listing: a YAML landing between the two
         # scans then costs one harmless revalidation, instead of a
@@ -1391,15 +1389,14 @@ def create_app(
     def _apply_processing(arrays: list, processing: str) -> list:
         """Ephemeral-process *arrays* → the analyzers' processed images.
 
-        One :func:`image_analysis.ephemeral.run_diagnostic_ephemeral`
-        call (one analyzer instantiation for the whole batch); the
-        write-free contract lives in that seam. Refusals map onto the
+        One compiled recipe for the batch, or the retained legacy ephemeral
+        route for an unsupported recipe. Refusals map onto the
         endpoint ladder: unknown diagnostic → 404, denylisted/miswired
         → 400, analyzer failure → 400 honestly — never a 500.
         """
         ephemeral = _ephemeral_module()
         try:
-            results = ephemeral.run_diagnostic_ephemeral(
+            processed = ephemeral.process_images(
                 processing, arrays, config_dir=processing_config_dir
             )
         except (KeyError, FileNotFoundError) as exc:
@@ -1412,9 +1409,6 @@ def create_app(
             raise HTTPException(
                 status_code=400, detail=f"processing failed: {exc}"
             ) from exc
-        # getattr: a legacy analyzer returning a dict (BCaveMagSpecStitcher)
-        # must be a refusal here, not an AttributeError → 500.
-        processed = [getattr(result, "processed_image", None) for result in results]
         if any(image is None for image in processed):
             raise HTTPException(
                 status_code=404,
@@ -2109,28 +2103,73 @@ def create_app(
     # UNSAVED document on the current shot through the same write-free
     # ephemeral seam the Images tab uses, so dialling in an ROI is a
     # type-and-look loop without a save per iteration.
-    def _config_editor_preview(document: dict, params: dict) -> bytes:
-        ephemeral = _ephemeral_module()
-        from geecs_schemas.analysis import AnalysisDiagnostic
-
-        uid = str(params.get("uid") or "")
-        device = str(params.get("device") or "")
-        day = str(params.get("day") or "")
-        try:
-            shot = int(params.get("shot") or 0)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("shot must be an integer") from exc
-        if not uid or not device or shot < 1:
-            raise LookupError("preview needs a scan, a device and a shot (>= 1)")
+    def _preview_scan(uid: str, device: str, day: str):
+        """The run + its scan folder for a preview, with the editor's error ladder."""
         try:
             detail = _load_run(uid)
             folder, _ = _image_folder(detail, day, device)
-            if detail.data is not None and shot > len(detail.data):
-                raise LookupError("shot beyond the run's recorded events")
-            acq, column_present = _acq_timestamp(detail, device, shot)
-            if column_present and acq is None:
-                raise LookupError("device missed this shot (no timestamp)")
-            complete = bool(detail.summary.exit_status)
+        except HTTPException as exc:
+            kind = LookupError if exc.status_code == 404 else ValueError
+            raise kind(str(exc.detail)) from exc
+        return detail, folder
+
+    def _line_trace(diag, detail, folder, device: str, shot: int):
+        """One shot's trace as a scan run reads it: ``(Nx2 array, auxiliary)``.
+
+        The shot resolves through the run path's own source rules
+        (:func:`scan_analysis.core_source.prepare_source` — file tail,
+        ``data_format``, the stack-only rule for ``pva_stack``) with the
+        picked device standing in for the recipe's folder; the reference is
+        read with the document's loading, auxiliary columns handed over the
+        way ``analyze_image_file`` hands them to line analyzers.
+        """
+        from dataclasses import replace
+
+        import pandas as pd
+        from image_analysis.data_1d_utils import read_1d_data
+        from scan_analysis.core_recipe import scan_recipe
+        from scan_analysis.core_source import prepare_source
+
+        if detail.data is not None and shot > len(detail.data):
+            raise LookupError("shot beyond the run's recorded events")
+        # The run joins by the diagnostic's device, not the folder.
+        acq, column_present = _acq_timestamp(detail, diag.device, shot)
+        if column_present and acq is None:
+            raise LookupError("device missed this shot (no timestamp)")
+        # The shot's own event row: the mapper finds the device's
+        # acq_timestamp AND valid companions in it by normalized name, so a
+        # row the run would skip (valid False) is skipped here too.
+        if detail.data is not None:
+            rows = detail.data.iloc[[shot - 1]].copy()
+        else:
+            rows = pd.DataFrame(index=[0])
+        rows["Shotnumber"] = shot
+        source = prepare_source(replace(scan_recipe(diag), folder=device), folder, rows)
+        reference = source.references.get(shot)
+        if reference is None:
+            raise LookupError(f"no {device} file for shot {shot}")
+        trace = read_1d_data(reference, diag.line_loading)
+        aux = (
+            {
+                "_aux_columns": {
+                    name: np.asarray(values, dtype=float)
+                    for name, values in trace.auxiliary_column_data.items()
+                }
+            }
+            if trace.auxiliary_column_data
+            else None
+        )
+        return trace.data, aux
+
+    def _camera_frame(detail, folder, uid: str, device: str, shot: int):
+        """One shot's pixel array through the Images tab's own source ladder."""
+        if detail.data is not None and shot > len(detail.data):
+            raise LookupError("shot beyond the run's recorded events")
+        acq, column_present = _acq_timestamp(detail, device, shot)
+        if column_present and acq is None:
+            raise LookupError("device missed this shot (no timestamp)")
+        complete = bool(detail.summary.exit_status)
+        try:
             resolved = resources.load_shot_array(
                 folder,
                 device,
@@ -2144,15 +2183,111 @@ def create_app(
             raise kind(str(exc.detail)) from exc
         if resolved.array is None:
             raise LookupError(resolved.reason or resolved.kind)
-        diag = AnalysisDiagnostic.model_validate(document)
-        # The analyzer's own figure, as a run of this document would draw it:
-        # its default palette (not the pixel view's gray) unless the document's
-        # scan.renderer names one, autoscaled unless it sets vmin/vmax.
-        opts = diag.scan.renderer
-        (fig,) = ephemeral.render_document_ephemeral(
-            diag, [resolved.array], cmap=opts.cmap, vmin=opts.vmin, vmax=opts.vmax
+        return resolved.array
+
+    def _line_preview(diag, uid: str, device: str, day: str, shot: int) -> bytes:
+        """A LINE document's preview: the shot's trace drawn as the run draws it."""
+        ephemeral = _ephemeral_module()
+        detail, folder = _preview_scan(uid, device, day)
+        data, aux = _line_trace(diag, detail, folder, device, shot)
+        figures = ephemeral.render_document_as_run(
+            diag, [data], scan_folder=folder, auxiliary_data=aux
         )
-        return resources.figure_png(fig)
+        if not figures:
+            raise ValueError("this analyzer draws no figure for a single trace")
+        return resources.figure_png(figures[0], tight=True)
+
+    #: the summary preview reads this many shots at most: a handful, never a
+    #: scan (an image run is gigabytes; the host is shared)
+    _SUMMARY_SHOTS_MAX = 8
+
+    def _config_editor_summary_preview(
+        document: dict, params: dict, index: int
+    ) -> bytes:
+        """The document's ``index``-th summary over the scan's first shots.
+
+        ``params.shots`` (default 4, at most 8) shots are read from shot 1
+        through the Images tab's own source ladder (frames) or the run's
+        trace reader (lines); shots the device missed are skipped. The
+        summary is drawn by ScanAnalysis' ``core_preview.preview_summary``
+        — the sink's own summary call — with one panel per shot at its shot
+        number under the run's noscan label, so an image grid shows one
+        panel per shot, a waterfall one row per shot, and the ``average``
+        kind the shots' average: the kind's layout on real frames (a run's
+        grid panels are per-bin averages).
+        """
+        from geecs_analysis.recipe import is_line
+        from geecs_schemas.analysis import load_analysis_document
+
+        ephemeral = _ephemeral_module()
+        uid = str(params.get("uid") or "")
+        device = str(params.get("device") or "")
+        day = str(params.get("day") or "")
+        raw_shots = params.get("shots")
+        try:
+            shots = 4 if raw_shots in (None, "") else int(raw_shots)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("shots must be an integer") from exc
+        if not uid or not device:
+            raise LookupError("summary preview needs a scan and a device")
+        shots = max(1, min(_SUMMARY_SHOTS_MAX, shots))
+        diag = load_analysis_document(document)
+        detail, folder = _preview_scan(uid, device, day)
+        arrays, positions, missing = [], [], []
+        for shot in range(1, shots + 1):
+            try:
+                if is_line(diag):
+                    array, _aux = _line_trace(diag, detail, folder, device, shot)
+                else:
+                    array = _camera_frame(detail, folder, uid, device, shot)
+            except LookupError as exc:
+                missing.append(f"shot {shot}: {exc}")
+                continue
+            arrays.append(array)
+            positions.append(float(shot))
+        if not arrays:
+            raise LookupError(
+                f"none of shots 1-{shots} has a {device} frame: " + "; ".join(missing)
+            )
+        from scan_analysis.core_products import NOSCAN_POSITION_LABEL
+
+        fig = ephemeral.render_summary_as_run(
+            diag, arrays, positions, NOSCAN_POSITION_LABEL, index, scan_folder=folder
+        )
+        return resources.figure_png(fig, tight=True)
+
+    def _config_editor_preview(document: dict, params: dict) -> bytes:
+        """The editor's preview: the shot drawn as a run of this document draws it.
+
+        Through ``render_document_as_run`` — the analysis sink's own
+        per-frame call with the document's figure block — and cropped
+        tight like the sink's PNGs, so the pane shows the product file the
+        run would write, not a portal rendering of it.
+        """
+        ephemeral = _ephemeral_module()
+        from geecs_analysis.recipe import is_line
+        from geecs_schemas.analysis import load_analysis_document
+
+        uid = str(params.get("uid") or "")
+        device = str(params.get("device") or "")
+        day = str(params.get("day") or "")
+        try:
+            shot = int(params.get("shot") or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("shot must be an integer") from exc
+        if not uid or not device or shot < 1:
+            raise LookupError("preview needs a scan, a device and a shot (>= 1)")
+        diag = load_analysis_document(document)
+        if is_line(diag):
+            return _line_preview(diag, uid, device, day, shot)
+        detail, folder = _preview_scan(uid, device, day)
+        array = _camera_frame(detail, folder, uid, device, shot)
+        # the recipe's frame inputs load from ITS device folder under this scan,
+        # exactly as the run loads them (a background image under {scan_dir})
+        figures = ephemeral.render_document_as_run(diag, [array], scan_folder=folder)
+        if not figures:
+            raise ValueError("this analyzer draws no figure for a single frame")
+        return resources.figure_png(figures[0], tight=True)
 
     if config_editor and processing_config_dir is not None:
         try:
@@ -2165,6 +2300,8 @@ def create_app(
                 create_editor_router(
                     ConfigStore(Path(processing_config_dir)),
                     preview=_config_editor_preview,
+                    summary_preview=_config_editor_summary_preview,
+                    summary_shots_max=_SUMMARY_SHOTS_MAX,
                     theme_url="/theme",
                 ),
                 prefix="/configs",

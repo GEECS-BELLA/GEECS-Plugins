@@ -33,7 +33,6 @@ from geecs_data_utils import ScanPaths, ScanTag
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.config.analysis_group_loader import load_analysis_group
 from scan_analysis.config.diagnostic_factory import create_scan_analyzer
-from scan_analysis.gdoc_upload import upload_links_to_gdoc, upload_summary_to_gdoc
 
 logger = logging.getLogger(__name__)
 
@@ -448,8 +447,7 @@ def read_day_statuses(
     """Return all task statuses for every scan discovered on a given day.
 
     Scans are discovered by looking for s-files under the day's ``analysis/``
-    folder (the same folder that :class:`~scan_analysis.live_task_runner.LiveTaskRunner`
-    watches).
+    folder.
 
     Parameters
     ----------
@@ -659,11 +657,9 @@ def run_worklist(
     *,
     base_directory: Optional[Path] = None,
     dry_run: bool = False,
-    gdoc_enabled: bool = False,
-    document_id: Optional[str] = None,
 ) -> None:
     """
-    Run analyzers on the given worklist (single-app; no locking).
+    Run analyzers on the given worklist with atomic task claims.
 
     Updates status files to claimed/done/failed.
     If dry_run=True, skip analyzer execution but update status as done.
@@ -676,14 +672,6 @@ def run_worklist(
         Root for scan data; defaults to configured base path.
     dry_run : bool
         If True, skip analysis execution but still update status to done.
-    gdoc_enabled : bool
-        Master switch for all Google Doc uploads. When False (the default),
-        no uploads are attempted regardless of per-analyzer gdoc_slot settings.
-    document_id : str, optional
-        Google Doc ID for gdoc uploads. If None, the ID is read from the
-        experiment INI (the default live-running behaviour). Pass an explicit
-        ID to target a specific document (e.g., a historical log during
-        back-testing).
     """
     for priority, tag, analyzer in worklist:
         scan_folder = ScanPaths.get_scan_folder_path(
@@ -755,22 +743,6 @@ def run_worklist(
                 priority,
                 display_files,
             )
-            if not dry_run and display_files and gdoc_enabled:
-                gdoc_slot = getattr(analyzer, "gdoc_slot", None)
-                if gdoc_slot is not None:
-                    upload_summary_to_gdoc(
-                        scan_tag=tag,
-                        display_files=display_files,
-                        gdoc_slot=gdoc_slot,
-                        document_id=document_id,
-                    )
-                else:
-                    upload_links_to_gdoc(
-                        scan_tag=tag,
-                        analyzer_id=analyzer_id,
-                        display_files=display_files,
-                        document_id=document_id,
-                    )
         except DataUnavailableWarning:
             # Device did not record data for this scan — expected, not an error.
             stop_event.set()

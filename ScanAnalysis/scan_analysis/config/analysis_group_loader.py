@@ -31,10 +31,12 @@ import logging
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Union
 
+from geecs_data_utils.analysis_configs import discover_diagnostics
+
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisGroup
+from geecs_schemas.analysis import AnalysisDocument, AnalysisGroup
 from image_analysis.config import load_diagnostic
 
 logger = logging.getLogger(__name__)
@@ -43,7 +45,9 @@ logger = logging.getLogger(__name__)
 class ResolvedDiagnosticConfig(BaseModel):
     """A diagnostic loaded from disk and resolved against a group reference.
 
-    Pairs the on-disk :class:`~geecs_schemas.analysis.AnalysisDiagnostic`
+    Pairs the on-disk document (a v3
+    :class:`~geecs_schemas.analysis.AnalysisRecipe` or a v2
+    :class:`~geecs_schemas.analysis.AnalysisDiagnostic`)
     with its filename-derived ID and the group's effective priority — what
     :func:`scan_analysis.config.create_scan_analyzer` consumes.  Not a
     document anyone writes.
@@ -58,8 +62,8 @@ class ResolvedDiagnosticConfig(BaseModel):
     priority : int
         The group's override if given, else the diagnostic's own
         ``scan.priority``; the loader sorts ascending by it.
-    diagnostic : AnalysisDiagnostic
-        The validated on-disk diagnostic.
+    diagnostic : AnalysisRecipe or AnalysisDiagnostic
+        The validated on-disk document.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -67,7 +71,7 @@ class ResolvedDiagnosticConfig(BaseModel):
     id: str = Field(min_length=1)
     enabled: bool = True
     priority: int = Field(ge=0)
-    diagnostic: AnalysisDiagnostic
+    diagnostic: AnalysisDocument
 
 
 __all__ = [
@@ -89,7 +93,7 @@ class LoadedAnalysisGroup(BaseModel):
     description : str, optional
         Free-text description from the group config.
     upload_to_scanlog : bool
-        Whether the runner should upload outputs to the scan log.
+        Retired upload flag; retained for config compatibility and ignored.
     analyzers : list of ResolvedDiagnosticConfig
         Diagnostics referenced by the group, in execution order. Sorted
         by effective priority ascending. Entries whose group reference
@@ -134,24 +138,7 @@ def discover_analyzers(base_dir: Path) -> Dict[str, Path]:
     ValueError
         If two analyzer YAMLs share the same file stem.
     """
-    analyzers_dir = base_dir / "analyzers"
-    if not analyzers_dir.is_dir():
-        raise FileNotFoundError(
-            f"Analyzer directory not found: {analyzers_dir}. "
-            f"Expected the unified-configs layout under {base_dir}."
-        )
-
-    index: Dict[str, Path] = {}
-    for path in sorted(_iter_yaml_files(analyzers_dir)):
-        stem = path.stem
-        if stem in index:
-            raise ValueError(
-                f"Duplicate diagnostic ID '{stem}' at {path} and "
-                f"{index[stem]}. Diagnostic file stems must be unique "
-                f"across the entire 'analyzers/' tree."
-            )
-        index[stem] = path
-    return index
+    return discover_diagnostics(base_dir)
 
 
 def discover_groups(base_dir: Path) -> Dict[str, Path]:

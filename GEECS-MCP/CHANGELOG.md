@@ -4,6 +4,12 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.2] - 2026-09-23
+
+### Changed
+
+- Document explicit queue execution after LiveWatch and Google Docs upload retirement; tool execution and status contracts are unchanged.
+
 ## [0.9.1] - 2026-09-16
 
 ### Changed

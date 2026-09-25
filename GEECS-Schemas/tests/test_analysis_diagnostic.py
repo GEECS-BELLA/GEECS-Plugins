@@ -31,7 +31,7 @@ class TestRegistry:
         assert SCHEMA_REGISTRY["analysis_group"] is AnalysisGroup
 
     def test_every_union_member_has_a_distinct_kind(self):
-        assert len(ANALYZER_SPECS) == 15
+        assert len(ANALYZER_SPECS) == 14
         for kind, model in ANALYZER_SPECS.items():
             assert model.model_fields["kind"].default == kind
             assert model.image_kind in ("camera", "line", None)

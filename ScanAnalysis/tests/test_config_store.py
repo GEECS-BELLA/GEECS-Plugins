@@ -212,11 +212,100 @@ class TestSave:
             store.read("analyzer", "PW_B")
 
 
-def test_schema_is_the_document_json_schema(tree):
+def test_schema_is_the_recipe_bound_to_the_registry(tree):
+    """The form's schema: the recipe's frame, its steps and measure from the core."""
     schema = ConfigStore(tree).schema("analyzer")
-    assert "analyzer" in schema["properties"]
-    assert schema["properties"]["analyzer"]["discriminator"]["propertyName"] == "kind"
+    assert schema["properties"]["input"]["discriminator"]["propertyName"] == "kind"
+    steps = schema["properties"]["steps"]["items"]["discriminator"]
+    assert steps["propertyName"] == "step" and "roi" in steps["mapping"]
+    assert "beam" in schema["properties"]["measure"]["discriminator"]["mapping"]
+    assert "analyzer" not in schema["properties"]  # no v2 form
+
+
+def _recipe(**patch):
+    doc = {
+        "schema_version": 3,
+        "device": "UC_A",
+        "input": {"kind": "camera"},
+        "steps": [{"step": "roi", "bounds": [[0, 4], [1, 6]]}, {"step": "median"}],
+        "measure": {"kind": "beam"},
+        "summaries": [{"kind": "image_grid"}],
+    }
+    doc.update(patch)
+    return doc
+
+
+class TestRecipeBinding:
+    """A recipe that the analysis core cannot run is refused before it is written."""
+
+    def test_a_bindable_recipe_validates_and_saves(self, tree):
+        store = ConfigStore(tree)
+        report = store.validate("analyzer", _recipe())
+        assert report.ok, report.errors
+        saved = store.save("analyzer", "HTU", "New", _recipe(), etag=None)
+        assert saved.created
+        entries = {e.id: e for e in store.list("analyzer")}
+        assert entries["New"].valid and entries["New"].summary["schema_version"] == 3
+
+    @pytest.mark.parametrize(
+        "patch, loc, needle",
+        [
+            ({"steps": [{"step": "nope"}]}, "steps.0", "does not match any"),
+            ({"steps": [{"step": "roi"}]}, "steps.0.bounds", "required"),
+            ({"steps": [{"step": "median", "kernle": 3}]}, "steps.0.kernle", "extra"),
+            ({"steps": [{"step": "interpolate", "count": 5}]}, "steps.0", "camera"),
+            ({"measure": {"kind": "line"}}, "measure", "does not measure"),
+            ({"measure": {"kind": "beam", "slopes": 1}}, "measure.slopes", "extra"),
+            (
+                {"inputs": {"bg": {"path": "{scan_dir}/bg.png"}}},
+                "inputs",
+                "no step uses",
+            ),
+        ],
+    )
+    def test_an_unbindable_recipe_is_refused_with_a_form_location(
+        self, tree, patch, loc, needle
+    ):
+        store = ConfigStore(tree)
+        report = store.validate("analyzer", _recipe(**patch))
+        assert not report.ok
+        assert report.errors[0]["loc"] == loc, report.errors
+        assert needle in report.errors[0]["msg"].lower(), report.errors
+        with pytest.raises(DocumentInvalid):
+            store.save("analyzer", "HTU", "Bad", _recipe(**patch), etag=None)
+        assert not (tree / "analyzers" / "HTU" / "Bad.yaml").exists()
+
+    def test_an_unbindable_file_lists_as_invalid(self, tree):
+        (tree / "analyzers" / "HTU" / "Typo.yaml").write_text(
+            yaml.safe_dump(_recipe(steps=[{"step": "medain"}]))
+        )
+        entries = {e.id: e for e in ConfigStore(tree).list("analyzer")}
+        assert not entries["Typo"].valid and "medain" in (entries["Typo"].error or "")
+        loaded = ConfigStore(tree).read("analyzer", "Typo")
+        assert not loaded.valid and loaded.errors[0]["loc"] == "steps.0"
 
 
 def test_pending_changes_is_none_outside_git(tree):
     assert ConfigStore(tree).pending_changes() in (None, [])
+
+
+@pytest.mark.parametrize(
+    "kind, document, expected",
+    [
+        ("analyzer", _doc(gdoc_slot=2), {"gdoc_slot": 2}),
+        (
+            "group",
+            {"name": "old", "upload_to_scanlog": False},
+            {"upload_to_scanlog": False},
+        ),
+    ],
+)
+def test_retired_upload_fields_round_trip(tmp_path, kind, document, expected):
+    """Saving old configs preserves authored legacy values without migration."""
+    (tmp_path / ("analyzers" if kind == "analyzer" else "groups")).mkdir()
+    store = ConfigStore(tmp_path)
+    store.save(kind, "example", "old", document, etag=None)
+    saved = store.read(kind, "old").document
+    payload = saved["scan"] if kind == "analyzer" else saved
+    for key, value in expected.items():
+        assert payload[key] == value

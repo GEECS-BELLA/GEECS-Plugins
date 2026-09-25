@@ -59,6 +59,13 @@ def create_image_analyzer(diag: AnalysisDiagnostic) -> Any:
     TypeError
         If the class rejects the kwargs — a signature/registry mismatch.
     """
+    if not isinstance(diag, AnalysisDiagnostic):
+        raise TypeError(
+            "an analysis recipe (schema_version 3) runs on the analysis core, "
+            "not on an ImageAnalyzer: build it with "
+            "scan_analysis.config.create_scan_analyzer or compile it with "
+            "geecs_analysis.recipe.compile_recipe"
+        )
     cls = analyzer_class(diag.analyzer.kind)
     kwargs: dict[str, Any] = {}
     if isinstance(diag.image, CameraConfig):

@@ -146,7 +146,13 @@ def _refuse_file_path(auxiliary_data: Optional[Dict[str, Any]]) -> None:
 
 
 def _ephemeral_analyzer_for(diag: "AnalysisDiagnostic") -> "ImageAnalyzer":
-    """Denylist gate + instantiation for an already-validated document."""
+    """Denylist gate + instantiation for an already-validated v2 document."""
+    if not hasattr(diag, "analyzer"):
+        raise TypeError(
+            "an analysis recipe (schema_version 3) has no ephemeral ImageAnalyzer "
+            "route: compile it with geecs_analysis.recipe.compile_recipe and "
+            "run it on the core"
+        )
     kind = diag.analyzer.kind
     if kind in EPHEMERAL_DENYLIST:
         raise ValueError(

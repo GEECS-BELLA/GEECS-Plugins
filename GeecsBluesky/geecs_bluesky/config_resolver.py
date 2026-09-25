@@ -23,9 +23,13 @@ import os
 import re
 import tempfile
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable, TYPE_CHECKING
 
 import yaml
+from pydantic import JsonValue
+
+if TYPE_CHECKING:
+    from geecs_schemas.analysis import AnalysisDocument
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.scanner_configs import SHOT_CONTROL_FOLDER, scanner_configs_base
@@ -410,22 +414,26 @@ class ConfigsRepoResolver:
 
     def diagnostic_device(self, stem: str) -> str:
         """Resolve a diagnostic's device without importing the analysis runtime."""
-        from geecs_schemas.analysis import AnalysisDiagnostic
+        return self.resolve_diagnostic(stem).device
+
+    def resolve_diagnostic(
+        self, stem: str, *, overrides: dict[str, JsonValue] | None = None
+    ) -> AnalysisDocument:
+        """Read and validate a diagnostic (either format) fresh using the shared read-only source."""
+        from geecs_data_utils.analysis_configs import read_diagnostic
+        from geecs_schemas.analysis import load_analysis_document
 
         if not stem or stem in (".", "..") or any(c in stem for c in ("/", "\\")):
             raise GeecsConfigurationError("diagnostic must be a file stem")
-        paths = [
-            p
-            for p in (self.analysis_config_dir / "analyzers").rglob("*")
-            if p.suffix in (".yaml", ".yml") and p.stem == stem
-        ]
-        if len(paths) != 1:
-            raise GeecsConfigurationError(
-                f"diagnostic {stem!r}: expected one document, found {len(paths)}"
+        try:
+            path, document = read_diagnostic(
+                stem, config_dir=self.analysis_config_dir, overrides=overrides
             )
-        return AnalysisDiagnostic.model_validate(
-            self._load_yaml(paths[0], "diagnostic", stem)
-        ).name
+            diagnostic = load_analysis_document(document)
+            diagnostic._source_id = path.stem
+            return diagnostic
+        except (KeyError, ValueError, OSError, yaml.YAMLError) as exc:
+            raise GeecsConfigurationError(f"diagnostic {stem!r}: {exc}") from exc
 
     def list_optimizer_configs(self) -> list[str]:
         """Optimizer-config names (``OptimizerConfig`` documents; sorted; ``[]`` if none)."""

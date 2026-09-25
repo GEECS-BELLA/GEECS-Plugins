@@ -187,6 +187,7 @@ jobs:
               # selecting nothing stays legitimate there: tolerate pytest's
               # no-tests-collected exit code (5) on that line only.
               poetry run pytest tests -m "not integration and not gui" --tb=short -q || [ $? -eq 5 ]
+              poetry run pytest GEECS-Analysis/tests -m "not integration and not gui" --tb=short -q
               poetry run pytest ImageAnalysis/tests -m "not integration and not gui" --tb=short -q
               poetry run pytest ScanAnalysis/tests -m "not integration and not gui" --tb=short -q
               poetry run pytest GEECS-Data-Utils/tests -m "not integration and not gui" --tb=short -q

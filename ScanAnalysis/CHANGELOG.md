@@ -3,6 +3,212 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.37.0] - 2026-09-24
+
+### Added
+
+- `core_sink.draw_product` / `draw_summary`: the sink's per-product and
+  summary draws as functions, called by `save_products` and by the preview
+  seam — one call site for each pairing.
+- `scan_analysis.core_preview`: the preview seam that makes the run's own
+  calls and nothing else — `prepare_document` (the run's `prepare_v2`, frame
+  inputs resolved from the document's device folder under the scan),
+  `measure_frame` (its per-frame analysis), `preview_frame`
+  (`draw_product`: the frame's product image) and `preview_summary`
+  (`draw_summary`: the registered kind's layout over the given measurements
+  at the given positions, the `average` kind over their noscan average).
+  Pinned byte-for-byte against the files `save_products` writes
+  (`tests/test_core_preview.py`). Hosts (the Data Portal) preview through
+  it instead of re-deriving the pairing (#996 review, finding 3).
+  `core_products.NOSCAN_POSITION_LABEL` names a noscan's per-shot positions
+  for both the run and a preview.
+- Config editor: `POST /api/preview/summary` (`{document, params, index}` →
+  PNG of the document's `index`-th summary over a few of the host's shots;
+  `create_editor_router(summary_preview=, summary_shots_max=)`, 404
+  without; `/api/list` says `summary_preview` and `summary_shots_max`), and
+  a **summaries** block in the page's right pane — a shots count (default
+  4, bounded by the host's cap) and one card per summary kind: the kind's
+  layout over those shots, one panel (row) per shot or their average. It
+  is a layout preview on real frames, not a file a run writes (a run's
+  grid panels are per-bin averages); the cards go stale on edit like the
+  frame pane.
+
+## [1.36.0] - 2026-09-24
+
+### Changed
+
+- **The config editor is the recipe's form** (format 3, surface arc slice 2).
+  Laid out as the document reads — Source (naming, `input`, frame `inputs`)
+  → Steps (ordered cards, up/down/remove; the add-select lists the analysis
+  core's registry with `(images)` / `(traces)` hints; a step name the
+  registry does not know is kept as written and flagged, never swapped for
+  another kind) → Measure → Figure (matplotlib keyword rows per call; overlay
+  styles by id) → Summaries (the frozen kinds) → Scan. A new recipe starts as
+  a camera read as the device, measured as a beam, grid + average summaries.
+  The v2 diagnostic form is gone: a format 2 file (a kind the core has not
+  ported) opens read-only — note, the file as saved, Delete, and the preview
+  of the saved document — until its kind is ported and it converts.
+- `ConfigStore.schema("analyzer")` is `geecs_analysis.recipe.recipe_schema()`;
+  `validate`/`list`/`read`/`save` bind a recipe to the registry
+  (`compile_recipe`) after the schema: an unknown step or parameter, a step
+  or measure for the wrong frame shape, a frame input no step uses — reported
+  at the form's field path, listed as invalid, never written. The same
+  listing check now applies to groups: a group naming an unknown document
+  lists as invalid (before, only `validate`/`save` refused it), with the
+  analyzers tree walked once per listing.
+- Preview caption: the pane is drawn as a scan run of the document draws it
+  (the host's call; see GEECS-DataPortal 0.35.0).
+- Pinned under node on a fake DOM: a corpus beam recipe (frame input, overlay
+  styles) and a line recipe read back canonical-equal; move-up swaps the
+  steps and renumbers every field path; an unknown step survives as written.
+
+## [1.35.0] - 2026-09-24
+
+### Added
+
+- `core_recipe.ScanRecipe` / `scan_recipe`: the one view of either analysis
+  document the scan host needs (compiled recipe, device/folder/naming, file
+  discovery, runtime, figure, summaries).
+- `create_scan_analyzer` accepts a v3 `AnalysisRecipe`: it always runs on
+  the core (`route="legacy"` and injected data are refused for it; a recipe
+  that does not bind to the registry raises at construction). The group
+  loader, `ConfigStore` (listing, validation, saving) and the editor read
+  either format; the editor shows a recipe read-only, as the file it is,
+  until the recipe form lands.
+- `scripts/analysis_convert_corpus.py` (repo root): converts every
+  core-served v2 diagnostic of a configs tree to a recipe in place.
+
+### Changed
+
+- The core sink draws the recipe's listed summary kinds through the
+  registry from the products each consumes; `ProductPlan.summary_kind` is
+  gone (the plan is kind-agnostic). `save_products(plan, spec, scan_folder)`
+  takes the `ScanRecipe`; `source_directory` / `prepare_source` /
+  `prepare_scan` accept either document or the `ScanRecipe`.
+
+## [1.34.0] - 2026-09-23
+
+### Added
+
+- `route_compare`: the one definition of equal route outputs (decoded HDF5
+  payloads and scalar tables exact, noscan averages within a few ulps, other
+  files by presence), shared by the in-suite differential test and
+  `scripts/analysis_scan_compare.py`.
+
+## [1.33.0] - 2026-09-23
+
+### Changed
+
+- `create_scan_analyzer` routes every recipe the analysis core compiles
+  (beam, line, standard and trace kinds with ported steps and no scan-context
+  background) to `CoreScanAnalyzer`; other recipes, and `use_injected_data`,
+  keep the legacy `Array1DScanAnalyzer` / `Array2DScanAnalyzer` wrappers. The
+  task queue, the portal and MCP call the same contract on both routes. The
+  legacy wrappers stay in place for the production observation period, and
+  `route="legacy"` / `route="core"` force either implementation explicitly.
+
+## [1.32.0] - 2026-09-23
+
+### Added
+
+- `CoreScanAnalyzer`: explicit scan execution on the analysis core behind the
+  unchanged `ScanAnalyzer` contract (display files, `DataUnavailableWarning`,
+  sidecar + s-file scalars, `cleanup`), and `core_supports`, the compile-only
+  routing predicate. Not yet selected by the factory. A differential test runs
+  both routes on synthetic beam and line scans and compares products, scalar
+  files and display files.
+
+### Changed
+
+- ScanAnalysis tests default to the headless matplotlib backend; the legacy
+  wrappers render from worker threads, which the macOS backend aborts on.
+
+## [1.31.0] - 2026-09-23
+
+### Added
+
+- Core-route product sink: write average/bin HDF5 arrays and PNG figures under
+  the sibling analysis tree with the legacy directory and filename shapes, so
+  `parse_output_filename` and MCP display files are unchanged. Refuse escaping
+  path components and symlinks before creating output directories; never touch
+  the raw scan folder. An empty ``output_name`` falls back to the device
+  directory as before. Rendering failures omit only their figure and are
+  reported as notes; disabled saves write nothing.
+
+## [1.30.0] - 2026-09-23
+
+### Added
+
+- Write-free planning of average/bin products and waterfall/grid summaries from
+  core outcomes. Preserve full-row scan positions, already-analyzed raw bins,
+  unweighted noscan averages, shot ordering and sort-column/bounds/sigma filters.
+  Retain the legacy more-than-two-successful-units figure gate; scalar products
+  remain independent. Explicit notes report omitted summaries or averages.
+
+## [1.29.1] - 2026-09-23
+
+### Changed
+
+- Delegate scalar normalization, s-file lock/merge and sidecar serialization to
+  data-utils so retained analyzers and the new runner share persistence behavior.
+  Keep destination naming, output-directory creation and in-memory refresh here.
+
+## [1.29.0] - 2026-09-23
+
+### Added
+
+- Write-free scan execution through the new core: snapshot a v2 recipe, native
+  source, scalar-row grouping and output naming; stream per-shot or raw-bin-mean
+  results; project scalar records onto the legacy full-bin membership. Preserve
+  bare core measurements and expose input/analysis failures separately. Duplicate
+  or invalid shot numbers and fractional bin ids fail instead of being coerced.
+  Product sinks and the factory route change remain separate work.
+
+## [1.28.0] - 2026-09-23
+
+### Added
+
+- Read-only completed-scan input adapter for the new core runner. Snapshot native
+  reader settings and shot references, retain capture-stack frame indices and
+  native array precision, and keep diagnostic timestamp identity separate from
+  device-folder overrides. Existing scan execution still uses the legacy factory.
+
+
+## [1.27.1] - 2026-09-23
+
+### Changed
+
+- Source preflight tests now use an unported flip to pin capability refusal,
+  since image rotation is supported by the shared core.
+
+## [1.27.0] - 2026-09-23
+
+### Added
+
+- Shared preparation of v2 core recipes with file backgrounds loaded through
+  data-utils. Preserve constant fallback, duplicate steps, additional offsets
+  and device-directory placeholders without config mutation or file writes.
+  Preparation loads each background once per run; successful loads with bad
+  geometry remain errors. Scan-context aggregation stays on the legacy route.
+
+## [1.26.1] - 2026-09-23
+
+### Changed
+
+- Delegate input mapping to data-utils; retain the stack-only `no_data` queue outcome and existing shot/filename behavior.
+
+## [1.26.0] - 2026-09-23
+
+### Removed
+
+- LiveWatchGUI, LiveTaskRunner and Google Docs upload execution, including Qt, watchdog and LogMaker dependencies. Explicit queue/status APIs, groups, ConfigStore and the portal editor remain; retired upload fields are hidden without discarding existing values.
+
+## [1.25.1] - 2026-09-23
+
+### Changed
+
+- Delegate diagnostic discovery to the shared Data Utils reader while retaining
+  the public `discover_analyzers` API and group-specific lookup behavior.
 
 ## [1.25.0] - 2026-09-22
 

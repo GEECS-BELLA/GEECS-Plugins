@@ -6,7 +6,7 @@ runs, an agent can see what the
 summary figures, and — since GEECS-MCP 0.7.0 — trigger the analysis
 itself. The backend is the existing ScanAnalysis framework, used as-is:
 the same diagnostic YAMLs, analyzers, and task-queue bookkeeping that the
-LiveWatch tooling drives, now callable on demand.
+explicit scan runner drives, now callable on demand.
 
 ## Reading results (R)
 

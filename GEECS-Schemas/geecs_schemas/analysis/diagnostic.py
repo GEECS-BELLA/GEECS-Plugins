@@ -21,7 +21,7 @@ from pydantic import Field, PrivateAttr, model_validator
 
 from geecs_schemas._base import VersionedSchemaModel, stale_schema_version
 from geecs_schemas.analysis.analyzers import AnalyzerSpec
-from geecs_schemas.analysis.processing_1d import Line1DConfig
+from geecs_schemas.analysis.processing_1d import Data1DLoading, Line1DConfig
 from geecs_schemas.analysis.processing_2d import CameraConfig
 from geecs_schemas.analysis.scan_runtime import ScanRuntime
 
@@ -104,6 +104,29 @@ class AnalysisDiagnostic(VersionedSchemaModel):
     def image_kind(self) -> Optional[str]:
         """``"camera"``, ``"line"`` or ``None`` — read off the image section."""
         return None if self.image is None else self.image.type
+
+    # The format-neutral names a consumer reads without asking which document
+    # it holds; the v3 recipe (``recipe.py``) carries the same properties.
+
+    @property
+    def device(self) -> str:
+        """The device whose files are analyzed (``name``); the recipe's ``device``."""
+        return self.name
+
+    @property
+    def input_kind(self) -> Optional[str]:
+        """``"camera"``, ``"line"`` or ``None``; the recipe's ``input.kind``."""
+        return self.image_kind
+
+    @property
+    def data_folder(self) -> str:
+        """The subfolder under scans/ScanNNN/ holding the files: ``scan.device`` or the device."""
+        return self.scan.device or self.name
+
+    @property
+    def line_loading(self) -> Optional[Data1DLoading]:
+        """How one trace file is read, for a line diagnostic; ``None`` otherwise."""
+        return self.image.data_loading if isinstance(self.image, Line1DConfig) else None
 
     @model_validator(mode="before")
     @classmethod

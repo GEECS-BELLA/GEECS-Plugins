@@ -1,8 +1,6 @@
 """The analysis-domain execution tools: run ScanAnalyzers on demand (#686).
 
-``run_scan_analysis`` restores a currently-dormant capability through the
-new architecture (the LiveTaskRunner fleet has not run post-migration):
-it enqueues and executes the ScanAnalysis pipeline for one scan, on this
+``run_scan_analysis`` enqueues and executes the ScanAnalysis pipeline for one scan, on this
 serving host.  **ScanAnalysis as-is is the backend by owner decision
 (2026-08-24)** — the Tiled-based analysis stack is the recorded long-term
 direction, so the verb surface stays backend-neutral (names a diagnostic
@@ -30,9 +28,7 @@ Execution shape — submit-and-poll, never a blocking tool call:
    heartbeat / stale-reclaim machinery narrates progress into the status
    files the read tools already parse.
 
-Google-Doc upload stays hard-off (``run_worklist``'s ``gdoc_enabled``
-default): publishing to the experiment log is an outward-facing action
-that would need its own explicitly-gated verb.
+Google Docs uploads and automatic scan watching have been retired.
 
 ScanAnalysis imports are lazy and guarded — the ``analysis-run`` extra is
 optional, and without it every tool here refuses with a message naming

@@ -735,3 +735,40 @@ class TestScanFolderCreationInvariant:
         # Nothing on the path should have been brought into existence.
         assert not deep_missing.exists()
         assert not deep_missing.parent.exists()
+
+
+def test_explicit_run_records_figures_without_upload_dependencies(tmp_path):
+    """The surviving queue runs with retired imports actively refused."""
+    import subprocess
+    import sys
+
+    code = r"""
+import importlib.abc
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+class RefuseRetired(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in {'logmaker_4_googledocs', 'PyQt5', 'watchdog', 'LiveWatchGUI'} or fullname in {'scan_analysis.gdoc_upload', 'scan_analysis.live_task_runner'}:
+            raise AssertionError('retired dependency: ' + fullname)
+sys.meta_path.insert(0, RefuseRetired())
+from geecs_data_utils import ScanTag, ScanPaths
+from scan_analysis.config import create_scan_analyzer
+from scan_analysis.config_store import ConfigStore
+from scan_analysis.task_queue import run_worklist, read_statuses
+base = Path(sys.argv[1])
+tag = ScanTag(year=2025, month=1, day=1, number=42, experiment='Test')
+folder = ScanPaths.get_scan_folder_path(tag=tag, base_directory=base)
+# Fixture acquisition; the queue is forbidden to create this folder itself.
+folder.mkdir(parents=True)
+figure = base / 'summary.png'
+analyzer = SimpleNamespace(id='beam', priority=1, gdoc_slot=2,
+    run_analysis=lambda tag: [figure], cleanup=lambda: None)
+run_worklist([(1, tag, analyzer)], base_directory=base)
+(status,) = read_statuses(folder)
+assert status.state == 'done'
+assert status.display_files == [str(figure)]
+assert not list(folder.rglob('*.claim'))
+"""
+    subprocess.run([sys.executable, "-c", code, str(tmp_path)], check=True)

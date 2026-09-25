@@ -12,8 +12,6 @@ All analyzers must inherit from :class:`ScanAnalyzer` and implement
 
 # %% imports
 from __future__ import annotations
-import os
-import time
 from typing import TYPE_CHECKING, Optional, Union, NamedTuple
 
 if TYPE_CHECKING:
@@ -24,6 +22,11 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from geecs_data_utils import ScanData, ScanPaths
+from geecs_data_utils.scalar_files import (
+    merge_sfile,
+    prepare_updates,
+    write_scalar_sidecar,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -319,157 +322,22 @@ class ScanAnalyzer:
         else:
             plt.close("all")  # Ensure plots close when not using the GUI
 
-    def _acquire_sfile_lock(
-        self, lock_path: Path, timeout: float = 10.0, interval: float = 0.1
-    ) -> bool:
-        """Best-effort file lock using a sidecar `.lock` file."""
-        start = time.time()
-        while True:
-            try:
-                with lock_path.open("x") as f:
-                    f.write(str(os.getpid()))
-                return True
-            except FileExistsError:
-                if (time.time() - start) >= timeout:
-                    logger.warning(
-                        "Could not acquire s-file lock %s within %.1fs",
-                        lock_path,
-                        timeout,
-                    )
-                    return False
-                time.sleep(interval)
-            except Exception as e:
-                logger.warning("Lock error on %s: %s", lock_path, e)
-                return False
-
-    def _release_sfile_lock(self, lock_path: Path) -> None:
-        """Remove the sidecar lock file if present."""
-        try:
-            lock_path.unlink(missing_ok=True)
-        except Exception as e:
-            logger.warning("Failed to remove lock %s: %s", lock_path, e)
-
     def _merge_auxiliary_data(
         self, updates: pd.DataFrame, key: str = "Shotnumber"
     ) -> Optional[pd.DataFrame]:
-        """
-        Merge updates into the s-file with a simple lock and in-memory refresh.
-
-        - Aligns on ``key`` (default ``Shotnumber``)
-        - Adds new shots if they are not already present
-        - Overwrites existing columns when the same shot/key is supplied
-        """
-        if self.auxiliary_file_path is None or updates is None:
+        """Merge through the shared s-file lock and refresh in-memory data."""
+        if self.auxiliary_file_path is None:
             return None
-
-        lock_path = self.auxiliary_file_path.with_suffix(
-            self.auxiliary_file_path.suffix + ".lock"
-        )
-        if not self._acquire_sfile_lock(lock_path):
-            return None
-
-        try:
-            if key not in updates:
-                logger.warning("Updates missing key column %s; skipping merge", key)
-                return None
-
-            if self.auxiliary_file_path.exists():
-                try:
-                    current = pd.read_csv(self.auxiliary_file_path, sep="\t")
-                except Exception as e:
-                    logger.warning(
-                        "Failed reading s-file %s: %s", self.auxiliary_file_path, e
-                    )
-                    return None
-                if key not in current:
-                    logger.warning(
-                        "Existing s-file missing key column %s; skipping merge", key
-                    )
-                    return None
-            else:
-                current = pd.DataFrame()
-
-            updates_clean = updates.copy()
-            updates_clean = updates_clean.drop_duplicates(subset=[key], keep="last")
-
-            if not current.empty and key in current:
-                missing = set(current[key]) - set(updates_clean[key])
-                if missing:
-                    logger.warning(
-                        "append_to_sfile: %d shot(s) missing in update for %s; "
-                        "existing rows will be kept unchanged",
-                        len(missing),
-                        self.device_name,
-                    )
-
-            # Use combine_first to merge updates into current data while preserving existing columns.
-            if current.empty:
-                merged = updates_clean.sort_values(by=key)
-            else:
-                # Align on key (Shotnumber). combine_first prioritizes values from the caller (updates_clean)
-                # but fills missing columns/values from the argument (current).
-                # This ensures we update analysis values without dropping other columns from the s-file.
-                merged = (
-                    updates_clean.set_index(key)
-                    .combine_first(current.set_index(key))
-                    .reset_index()
-                    .sort_values(by=key)
-                )
-
-                # Optional: Restore original column order for stability, appending new columns at the end
-                original_cols = [c for c in current.columns if c in merged.columns]
-                new_cols = [c for c in merged.columns if c not in original_cols]
-                merged = merged[original_cols + new_cols]
-
-            merged.to_csv(self.auxiliary_file_path, sep="\t", index=False, header=True)
+        merged = merge_sfile(self.auxiliary_file_path, updates, key)
+        if merged is not None:
             self.auxiliary_data = merged
-            return merged
-        finally:
-            self._release_sfile_lock(lock_path)
+        return merged
 
     def _prepare_updates_dataframe(
         self, data: pd.DataFrame, key: str = "Shotnumber"
     ) -> Optional[pd.DataFrame]:
-        """Normalize updates, enforce presence of the key, and drop invalid rows."""
-        if not isinstance(data, pd.DataFrame):
-            logger.warning("append_to_sfile: expected DataFrame, got %s", type(data))
-            return None
-
-        updates = data.copy()
-        if updates is None or updates.empty:
-            logger.warning("append_to_sfile: no data to append.")
-            return None
-
-        key_candidates = [c for c in updates.columns if c.lower() == key.lower()]
-        if not key_candidates:
-            logger.warning(
-                "append_to_sfile: missing %s column (case-insensitive); skipping append",
-                key,
-            )
-            return None
-        if len(key_candidates) > 1:
-            logger.warning(
-                "append_to_sfile: multiple Shotnumber-like columns found %s; using %s",
-                key_candidates,
-                key_candidates[0],
-            )
-        primary_key_col = key_candidates[0]
-        updates = updates.rename(columns={primary_key_col: key}).drop(
-            columns=[c for c in key_candidates if c != primary_key_col], errors="ignore"
-        )
-
-        before_drop = len(updates)
-        updates = updates.dropna(subset=[key])
-        if updates.empty:
-            logger.warning("append_to_sfile: all rows missing %s; skipping append", key)
-            return None
-        dropped = before_drop - len(updates)
-        if dropped:
-            logger.warning(
-                "append_to_sfile: dropped %d row(s) missing %s", dropped, key
-            )
-
-        return updates
+        """Normalize updates through the shared scalar-table adapter."""
+        return prepare_updates(data, key)
 
     def append_to_sfile(self, data: pd.DataFrame) -> None:
         """
@@ -544,10 +412,8 @@ class ScanAnalyzer:
         if sidecar_path is None:
             return None
 
-        key = "Shotnumber"
-        updates = updates.drop_duplicates(subset=[key], keep="last").sort_values(by=key)
         sidecar_path.parent.mkdir(parents=True, exist_ok=True)
-        updates.set_index(key).to_csv(sidecar_path, sep="\t", index=True, header=True)
+        write_scalar_sidecar(sidecar_path, updates)
         logger.info("Wrote scalar sidecar to %s", sidecar_path)
         return sidecar_path
 

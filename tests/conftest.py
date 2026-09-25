@@ -14,9 +14,14 @@ Run hardware integration tests (in the lab):
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
+
+# Legacy scan wrappers render from worker threads; the interactive macOS
+# backend aborts the interpreter on that. CI is headless already.
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 
 # ---------------------------------------------------------------------------

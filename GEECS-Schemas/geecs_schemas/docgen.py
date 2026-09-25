@@ -245,6 +245,29 @@ scan:
 # pre-v2 files (image_analyzer class path, image.analysis, kwargs) are
 # refused; the corpus is v2 only.
 """,
+    "analysis_recipe": """\
+schema_version: 3
+device: UC_TopView               # the device folder under scans/ScanNNN/; stems the products
+output_name: UC_TopView_left     # optional: label outputs differently from the device
+input: {kind: camera}            # or kind: line, with loading/x_scale/x_unit/label/storage_dtype
+inputs:                          # frames the scan host loads and binds by name
+  camera_background: {path: "{scan_dir}/computed_background.npy", fallback_level: 0}
+steps:                           # in order, repeats allowed; the core's registry validates each
+  - {step: background_frame, source: camera_background, alignment: samples}
+  - {step: roi, bounds: [[350, 650], [0, 650]]}
+  - {step: median, kernel: 3}
+measure: {kind: beam, enabled_stats: [image_total, x_CoM, y_CoM]}
+scan: {priority: 10, average_frames_first: false, save: true}
+figure:                          # the per-frame draw: matplotlib keyword groups, overlays by id
+  imshow: {cmap: plasma, vmin: 0}
+  axes: {xlabel: x (px)}
+  overlays: {projection_y: {hidden: true}}
+summaries:                       # scan-level figures, each a frozen kind with its own options
+  - {kind: image_grid, columns: 3}
+  - {kind: average}
+# a v2 diagnostic (analyzer: + image:) is the other format of this tree;
+# load_analysis_document reads either by schema_version.
+""",
     "analysis_group": """\
 schema_version: 1
 name: HTU_baseline

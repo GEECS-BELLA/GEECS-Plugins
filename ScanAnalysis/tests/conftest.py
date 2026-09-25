@@ -6,6 +6,11 @@ import os
 
 import pytest
 
+# The legacy scan wrappers render per-bin figures from worker threads, which
+# the interactive macOS backend cannot do (it aborts the interpreter). CI is
+# headless already; this keeps a developer's local run headless too.
+os.environ.setdefault("MPLBACKEND", "Agg")
+
 
 @pytest.fixture(scope="session")
 def qapp():

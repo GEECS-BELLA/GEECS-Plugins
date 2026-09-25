@@ -4,8 +4,8 @@ Google Docs/Drive/Sheets API wrapper for automated experiment logs. Creates
 per-day Google Docs from templates, fills in placeholders, uploads images to
 Drive, and inserts them into a 2×2 table within each scan's log entry.
 
-Used by ScanAnalysis for automatic post-scan figure upload. Optional everywhere —
-missing it causes silent skips, not errors.
+Retained for standalone legacy callers. The ScanAnalysis upload integration
+has been retired.
 
 ## Package Layout
 
@@ -78,7 +78,7 @@ whose `DEFAULT` section maps bare key names to replacement values.
 
 **`insertImageToExperimentLog(scanNumber, row, column, image_path, documentID=None, experiment='Undulator') -> bool`**
 
-The main convenience function for ScanAnalysis integration:
+The main standalone image-upload convenience function:
 
 1. Resolves `documentID` from experiment INI if not provided
 2. Determines image folder:
@@ -106,28 +106,11 @@ _folder_id_cache = {}      # (parent_folder_id, folder_name) → folder_id
 `get_or_create_folder(parent_folder_id, folder_name)` is cached — only queries
 Drive once per (parent, name) per process. Safe for all-day runs.
 
-## Integration with ScanAnalysis
+## Retired ScanAnalysis integration
 
-`ScanAnalysis/scan_analysis/gdoc_upload.py` wraps `insertImageToExperimentLog`:
-
-```python
-upload_summary_to_gdoc(
-    display_files,        # List of paths; uploads display_files[-1]
-    scan_number,
-    gdoc_slot,            # 0-3 → (row, col) in the 2×2 table
-    document_id=None,     # None reads from INI
-    experiment="Undulator",
-)
-```
-
-`gdoc_slot` mapping:
-```
-0 → row=0, col=0    1 → row=0, col=1
-2 → row=1, col=0    3 → row=1, col=1
-```
-
-This is set per-analyzer in the scan analysis YAML config. Omitting `gdoc_slot`
-puts the analyzer into hyperlink mode (future PR).
+ScanAnalysis no longer imports this package or uploads figures to Google
+Docs. Its former upload wrapper and LiveWatch caller were removed. This
+standalone package remains for legacy callers until its own retirement.
 
 ## Apps Script Dependency
 
@@ -169,7 +152,7 @@ cfg = configparser.ConfigParser()
 cfg["DEFAULT"] = {"ScanNumber": f"{scan_num:03d}", "Description": description}
 g.findAndReplace(doc_id, cfg, servicevar=svc)
 
-# 4. After analysis: insert image (called by ScanAnalysis automatically)
+# 4. Explicit standalone upload (no ScanAnalysis integration)
 g.insertImageToExperimentLog(
     scanNumber=scan_num, row=0, column=0,
     image_path="/path/to/summary.png",

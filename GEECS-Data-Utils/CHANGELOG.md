@@ -3,6 +3,44 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.41.0] - 2026-09-23
+
+### Added
+
+- Shared scalar table normalization, locked s-file merging and generated sidecar
+  writing, extracted from ScanAnalysis. Preserve last-update deduplication,
+  unrelated cells and column order; missing s-file updates keep existing values,
+  while sidecars retain generated NaNs. Never create parent directories.
+- Normalize colliding case variants of Shotnumber without accidentally deleting
+  the selected key; duplicate labels consistently keep the first key column.
+
+## [0.40.0] - 2026-09-23
+
+### Changed
+
+- Move completed-scan shot-to-native-file and capture-stack mapping into `shot_files.map_shot_files`, preserving timestamp joins, legacy fallback and direct stat probes without analysis dependencies or writes.
+
+## [0.39.0] - 2026-09-23
+
+### Removed
+
+- The LiveWatch-only Google Doc ID lookup helper and its package exports.
+
+## [0.38.0] - 2026-09-23
+
+### Added
+
+- Read-only diagnostic YAML discovery and loading in `analysis_configs`,
+  shared independently of numerical analyzers. Recursive overrides own their
+  nested values; schema validation remains with the consumer.
+
+## [0.37.0] - 2026-09-23
+
+### Added
+
+- `frames.Frame`, `Axis` and `ShotMeta`: shared in-memory 1D/2D samples with
+  owned read-only arrays, coordinate-preserving crops and Nx2 trace adapters.
+  Existing analysis routes are unchanged.
 ## [0.36.3] - 2026-09-24
 
 ### Changed

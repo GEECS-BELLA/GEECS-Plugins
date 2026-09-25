@@ -14,10 +14,6 @@ from image_analysis.config import create_image_analyzer
 def test_declared_scalars_are_emitted(kind):
     if kind in {"haso", "frog_retrieval"}:
         pytest.skip("vendor SDK/DLL; declarations reviewed against analyze_image")
-    if kind == "bcave_magspec_stitcher":
-        pytest.skip(
-            "legacy dict-return analyzer; no guaranteed ImageAnalyzerResult scalars"
-        )
     spec = {"kind": kind}
     if kind == "magspec":
         spec.update(

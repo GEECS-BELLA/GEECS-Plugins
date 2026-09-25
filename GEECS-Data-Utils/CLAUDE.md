@@ -16,6 +16,8 @@ geecs_data_utils/
                                #   analysis_status/*.yaml (ScanAnalysis task_queue's
                                #   TaskStatus.to_dict() shape; contract pinned in
                                #   ScanAnalysis's suite, #682)
+  shot_files.py                # completed-scan shot rows → native Path / stack ShotRef
+  scalar_files.py              # shared s-file lock/merge and generated-scalar writes
   type_defs.py                 # ScanTag, ScanMode, ScanConfig, ECSDump Pydantic models
   geecs_paths_config.py        # GeecsPathsConfig: base path + experiment resolution
   config_base.py               # ConfigDirManager: generic config directory management
@@ -57,6 +59,18 @@ geecs_data_utils/
 ```
 
 ## Core Abstractions
+
+### Coordinate-aware samples (`frames`)
+
+`Frame`, `Axis` and `ShotMeta` in `geecs_data_utils.frames` are the in-memory
+sample vocabulary for the new analysis core. They do no I/O. A trace is 1D
+with one coordinate axis; an image is 2D with axes in numpy `(y, x)` order.
+Construction copies data to read-only float64 arrays so reuse of a live
+source buffer cannot change in-flight analysis. Coordinate vectors are finite,
+owned and read-only; invalid signal values remain visible to measures.
+`crop` slices coordinates and data together, preserving calibrated/global
+positions. `from_trace` / `as_trace` adapt the existing Nx2 reader convention
+without resampling. No current consumer is switched by introducing these types.
 
 ### `ScanTag`
 
@@ -127,6 +141,19 @@ Also provides optional paths for config repos and FROG DLL.
 ```
 
 `ScanPaths` validates this convention and raises if the path doesn't conform.
+
+## Scalar output files
+
+`scalar_files` owns generated-scalar normalization and persistence shared by
+legacy and replacement analysis runners. `merge_sfile` holds the existing
+`.txt.lock` exclusive sidecar across read/merge/write, preserves unrelated
+columns/cells, and refreshes the caller through its returned DataFrame. Missing
+update values retain existing s-file cells (`combine_first` compatibility);
+`write_scalar_sidecar` writes the generated values themselves, including NaNs.
+Both keep the last duplicate shot update and sort by shot identity. Neither
+creates parent directories; destination naming and directory policy belong to
+the source host. Case-insensitive key normalization keeps the first matching
+column, including when other case variants or duplicate labels coexist.
 
 ## Binning System
 
@@ -210,6 +237,14 @@ ScanDatabaseBuilder.stream_to_parquet(
 ```
 
 ## Config Directory Management
+
+`analysis_configs` owns read-only discovery of unique diagnostic stems under
+`analyzers/`, YAML mapping reads, and recursive overrides. `read_diagnostic`
+requires an explicit config root for stems (or accepts an explicit `Path`) and
+returns the source path and a fresh raw document. It neither validates analysis
+schemas nor imports numerical analyzers; consumers own typed validation and
+default-root selection. No folders are created. ImageAnalysis's typed loader
+delegates here; other consumers should share this boundary.
 
 `ConfigDirManager` (config_base.py) manages a directory that can hold multiple
 YAML config files. ImageAnalysis and ScanAnalysis now resolve through the
@@ -444,3 +479,15 @@ are never reconciled. Results include geometry, sample counts and member shots.
 `tiled_schema.shot_axis_for_frame` is the shared shot-identity resolver used by
 Grid and re-exported by the portal figures module for Plot/Images and notebooks.
 It preserves the union frame's suffixed s-file fallback after name collisions.
+
+### Completed-scan input references
+
+`shot_files.map_shot_files(directory, rows, device=..., file_tail=...)` owns
+the mapping formerly inside SingleDeviceScanAnalyzer. It reads directories,
+stats native files and reads stack timestamps, never frame arrays or outputs.
+Only use HDF5 discovery after the scan closes. A partial timestamp join never
+falls back to shot-number filenames; only a zero join can. Native direct
+stat probes bypass stale SMB listings. `prefer_stack=True` tries capture
+frames first, while `stacks_only=True` refuses native fallback with
+`StackMappingUnavailable`. The ScanAnalysis adapter translates that into its
+`DataUnavailableWarning`; queue/status policy remains outside data-utils.

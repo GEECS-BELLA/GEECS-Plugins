@@ -9,7 +9,7 @@ detached, so the status files are the one observable surface.
 
 The statuses were already initialized server-side (visible queued rows
 even if this process dies before claiming); this worker only builds the
-worklist and runs it.  ``gdoc_enabled`` stays at its hard-off default.
+worklist and runs it.  Google Docs uploads are retired.
 """
 
 from __future__ import annotations

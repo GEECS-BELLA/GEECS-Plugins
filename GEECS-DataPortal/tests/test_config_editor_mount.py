@@ -174,42 +174,418 @@ class TestPreview:
             )["image"]
         )
 
-    def test_draws_with_the_analyzers_palette_and_the_documents_renderer(
-        self, scan_folder, configs_tree, monkeypatch
-    ):
-        """Not the Images tab's gray: the analyzer's default unless scan.renderer says."""
+    def test_the_preview_is_the_runs_own_draw(self, scan_folder, configs_tree):
+        """A recipe's preview: ScanAnalysis' ``preview_frame``, tight crop.
+
+        Byte-equal to ``scan_analysis.core_preview.preview_frame`` (the
+        sink's per-frame call with the document's figure block; that module
+        pins itself against the sink's product PNG) saved with
+        ``bbox_inches="tight"`` — so the pane shows the product image the
+        run would write. No portal palette or window reaches it.
+        """
+        import io
+
         np = pytest.importorskip("numpy")
         pytest.importorskip("PIL")
-        import image_analysis.ephemeral as ephemeral
-        from matplotlib.figure import Figure
+        from geecs_analysis.recipe import figure_of
+        from geecs_analysis.render import single
+        from geecs_schemas.analysis import load_analysis_document
         from PIL import Image
+        from scan_analysis.core_preview import (
+            measure_frame,
+            prepare_document,
+            preview_frame,
+        )
 
-        frame = (np.arange(64, dtype=np.uint16).reshape(8, 8) * 500).astype(np.uint16)
+        rng = np.random.default_rng(1)
+        frame = rng.integers(0, 4000, size=(12, 16), dtype=np.uint16)
         Image.fromarray(frame).save(scan_folder / "cam" / "Scan002_cam_001.png")
-        seen: list[dict] = []
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        recipe = {
+            "schema_version": 3,
+            "device": "cam",
+            "input": {"kind": "camera"},
+            "steps": [{"step": "roi", "bounds": [[2, 10], [1, 14]]}],
+            "measure": {"kind": "beam"},
+            "figure": {
+                "imshow": {"cmap": "viridis", "vmin": 0},
+                "axes": {"title": "as the run draws it"},
+                "colorbar": {"label": "counts"},
+            },
+        }
+        r = client.post(
+            "/configs/api/preview",
+            json={
+                "document": recipe,
+                "params": {"uid": "uid-002", "device": "cam", "shot": 1},
+            },
+        )
+        assert r.status_code == 200, r.text
+        document = load_analysis_document(recipe)
+        buffer = io.BytesIO()
+        preview_frame(document, frame, scan_folder=scan_folder).savefig(
+            buffer, format="png", bbox_inches="tight"
+        )
+        assert r.content == buffer.getvalue()
+        # and NOT the same frame under a different figure block
+        other = single(
+            measure_frame(prepare_document(document), frame),
+            figure_of(load_analysis_document(dict(recipe, figure={}))),
+        )
+        buffer = io.BytesIO()
+        other.savefig(buffer, format="png", bbox_inches="tight")
+        assert r.content != buffer.getvalue()
+
+    def test_the_preview_loads_the_recipes_frame_inputs_like_the_run(
+        self, scan_folder, configs_tree
+    ):
+        """A background under ``{scan_dir}`` resolves to the device folder, as in a run.
+
+        Without the scan folder the placeholder stays literal, the read
+        fails, and a recipe without a fallback level makes the preview an
+        error — so this test fails (400) if the folder is not passed, and
+        the bytes pin that the REAL background frame was subtracted.
+        """
+        import io
+
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("PIL")
+        from geecs_analysis.compat.v2 import analyze_v2
+        from geecs_analysis.recipe import figure_of
+        from geecs_analysis.render import single
+        from geecs_schemas.analysis import load_analysis_document
+        from PIL import Image
+        from scan_analysis.core_inputs import prepare_v2
+
+        rng = np.random.default_rng(2)
+        frame = rng.integers(500, 4000, size=(12, 16), dtype=np.uint16)
+        background = rng.integers(0, 400, size=(12, 16), dtype=np.uint16)
+        Image.fromarray(frame).save(scan_folder / "cam" / "Scan002_cam_001.png")
+        Image.fromarray(background).save(scan_folder / "cam" / "bg.png")
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        recipe = {
+            "schema_version": 3,
+            "device": "cam",
+            "input": {"kind": "camera"},
+            "inputs": {"bg": {"path": "{scan_dir}/bg.png"}},  # no fallback level
+            "steps": [{"step": "background_frame", "source": "bg"}],
+            "measure": {"kind": "beam"},
+            "figure": {"imshow": {"cmap": "magma"}},
+        }
+        r = client.post(
+            "/configs/api/preview",
+            json={
+                "document": recipe,
+                "params": {"uid": "uid-002", "device": "cam", "shot": 1},
+            },
+        )
+        assert r.status_code == 200, r.text
+        document = load_analysis_document(recipe)
+        prepared = prepare_v2(document, data_dir=scan_folder / "cam")
+        expected = single(
+            analyze_v2(frame, prepared.recipe, inputs=prepared.inputs),
+            figure_of(document),
+        )
+        buffer = io.BytesIO()
+        expected.savefig(buffer, format="png", bbox_inches="tight")
+        assert r.content == buffer.getvalue()
+        # the subtraction happened: the drawn frame is not the raw one
+        assert not np.array_equal(
+            analyze_v2(frame, prepared.recipe, inputs=prepared.inputs).frame.data,
+            frame.astype(float),
+        )
+
+
+class TestSummaryPreview:
+    """The document's summaries over the scan's first shots, as the sink draws them."""
+
+    RECIPE = {
+        "schema_version": 3,
+        "device": "cam",
+        "input": {"kind": "camera"},
+        "steps": [{"step": "roi", "bounds": [[1, 11], [2, 14]]}],
+        "measure": {"kind": "beam"},
+        "figure": {"imshow": {"cmap": "cividis"}},
+        "summaries": [
+            {"kind": "image_grid", "columns": 2, "panel_size": [3.0, 2.5]},
+            {"kind": "average"},
+        ],
+    }
+
+    @staticmethod
+    def _post(client, doc, index, **params):
+        return client.post(
+            "/configs/api/preview/summary",
+            json={
+                "document": doc,
+                "params": {"uid": "uid-002", "device": "cam", **params},
+                "index": index,
+            },
+        )
+
+    def test_summaries_over_the_first_shots_are_the_sinks_own_draw(
+        self, scan_folder, configs_tree
+    ):
+        import io
+
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("PIL")
+        from geecs_schemas.analysis import load_analysis_document
+        from PIL import Image
+        from scan_analysis.core_preview import preview_summary
+        from scan_analysis.core_products import NOSCAN_POSITION_LABEL
+
+        rng = np.random.default_rng(4)
+        frames = [
+            rng.integers(100, 4000, size=(12, 16), dtype=np.uint16) for _ in range(2)
+        ]
+        # the fake run recorded 3 events: shots 1 and 3 have a file, shot 2 the
+        # device missed (no file), shot 4 is beyond the run — both are skipped
+        for shot, frame in zip((1, 3), frames):
+            Image.fromarray(frame).save(
+                scan_folder / "cam" / f"Scan002_cam_{shot:03d}.png"
+            )
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        assert client.get("/configs/api/list").json()["summary_preview"] is True
+        r = self._post(client, self.RECIPE, 0, shots=4)
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"] == "image/png"
+        document = load_analysis_document(self.RECIPE)
+        # the panels sit at their shot numbers, the skipped shots absent
+        expected = preview_summary(
+            document,
+            frames,
+            [1.0, 3.0],
+            NOSCAN_POSITION_LABEL,
+            0,
+            scan_folder=scan_folder,
+        )
+        buffer = io.BytesIO()
+        expected.savefig(buffer, format="png", bbox_inches="tight")
+        assert r.content == buffer.getvalue()
+        # the average kind, over the same shots
+        r = self._post(client, self.RECIPE, 1, shots=4)
+        assert r.status_code == 200, r.text
+        expected = preview_summary(
+            document,
+            frames,
+            [1.0, 3.0],
+            NOSCAN_POSITION_LABEL,
+            1,
+            scan_folder=scan_folder,
+        )
+        buffer = io.BytesIO()
+        expected.savefig(buffer, format="png", bbox_inches="tight")
+        assert r.content == buffer.getvalue()
+        # fewer shots asked: fewer panels (shot 1 only)
+        r2 = self._post(client, self.RECIPE, 0, shots=1)
+        grid = self._post(client, self.RECIPE, 0, shots=4)
+        assert r2.status_code == 200 and r2.content != grid.content
+        # no third summary in the document
+        assert self._post(client, self.RECIPE, 2, shots=4).status_code == 404
+
+    def test_the_cap_bounds_the_reads(self, scan_folder, configs_tree, monkeypatch):
+        """At most 8 shots are read however many are asked: the shared host's memory."""
+        from dataclasses import replace
+        from types import SimpleNamespace
+
+        import pandas as pd
+        from geecs_portal import resources
+        from test_app import _LV
+
+        np = pytest.importorskip("numpy")
+        loads: list[int] = []
+        frame = np.full((12, 16), 900, dtype=np.uint16)
+
+        def counting_load(folder, device, shot, **kwargs):
+            loads.append(shot)
+            return SimpleNamespace(array=frame, kind="png", reason=None)
+
+        monkeypatch.setattr(resources, "load_shot_array", counting_load)
+        catalog = FakeCatalog()
+        # a run of 20 events, every shot with a timestamp
+        detail = replace(
+            _detail(2),
+            data=pd.DataFrame(
+                {
+                    "scan_event_index": list(range(1, 21)),
+                    "cam-acq_timestamp": [_LV + i for i in range(1, 21)],
+                }
+            ),
+        )
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        catalog.details["uid-002"] = detail
+        client = TestClient(
+            create_app(catalog, processing_config_dir=configs_tree, config_editor=True)
+        )
+        assert client.get("/configs/api/list").json()["summary_shots_max"] == 8
+        assert self._post(client, self.RECIPE, 0, shots=500).status_code == 200
+        assert loads == list(range(1, 9))
+        loads.clear()
+        # zero asks for the fewest, not the default
+        assert self._post(client, self.RECIPE, 0, shots=0).status_code == 200
+        assert loads == [1]
+
+    def test_no_frames_at_all_is_404_and_bad_shots_400(self, scan_folder, configs_tree):
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        r = self._post(client, self.RECIPE, 0, shots=3)
+        assert r.status_code == 404 and "none of shots 1-3" in r.json()["detail"]
+        assert self._post(client, self.RECIPE, 0, shots="many").status_code == 400
+        assert (
+            client.post(
+                "/configs/api/preview/summary",
+                json={"document": self.RECIPE, "params": {}, "index": 0},
+            ).status_code
+            == 404
+        )
+
+
+_LINE_DOC = {
+    "schema_version": 2,
+    "name": "U_Scope",
+    "analyzer": {"kind": "line"},
+    "image": {"type": "line", "data_loading": {"data_type": "tsv"}},
+    "scan": {"priority": 100, "device": "scope", "file_tail": ".tsv"},
+}
+
+
+class TestLinePreview:
+    """A line diagnostic previews on the shot's trace, not on an image."""
+
+    @pytest.fixture()
+    def seen(self, monkeypatch) -> list:
+        import geecs_portal.processing as ephemeral
+        from matplotlib.figure import Figure
+
+        calls: list = []
 
         def fake_render(diag, frames, **kwargs):
-            seen.append(kwargs)
+            calls.append((frames, kwargs))
             return [Figure()]
 
-        monkeypatch.setattr(ephemeral, "render_document_ephemeral", fake_render)
+        monkeypatch.setattr(ephemeral, "render_document_as_run", fake_render)
+        return calls
+
+    @staticmethod
+    def _post(client, doc, device="scope", shot=1):
+        return client.post(
+            "/configs/api/preview",
+            json={
+                "document": doc,
+                "params": {"uid": "uid-002", "device": device, "shot": shot},
+            },
+        )
+
+    def test_renders_a_native_trace_file_end_to_end(self, scan_folder, configs_tree):
+        np = pytest.importorskip("numpy")
+        (scan_folder / "scope").mkdir()
+        xy = np.column_stack(
+            [np.linspace(0, 1, 50), np.exp(-((np.arange(50) - 25) ** 2) / 20)]
+        )
+        np.savetxt(scan_folder / "scope" / "Scan002_scope_001.tsv", xy, delimiter="\t")
         client = _client(scan_folder, configs_tree, config_editor=True)
-        doc = client.get("/configs/api/analyzers/UC_Crop").json()["document"]
-        params = {"uid": "uid-002", "device": "cam", "shot": 1}
-        assert (
-            client.post(
-                "/configs/api/preview", json={"document": doc, "params": params}
-            ).status_code
-            == 200
+        r = self._post(client, dict(_LINE_DOC))
+        assert r.status_code == 200, r.text
+        assert r.content[:4] == b"\x89PNG"
+
+    def test_the_analyzer_gets_the_files_values_read_by_the_documents_loader(
+        self, scan_folder, configs_tree, seen
+    ):
+        np = pytest.importorskip("numpy")
+        (scan_folder / "scope").mkdir()
+        xy = np.array([[0.0, 1.0, 5.0], [1.0, 3.0, 6.0], [2.0, 2.0, 7.0]])
+        np.savetxt(scan_folder / "scope" / "Scan002_scope_001.tsv", xy, delimiter="\t")
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        doc = dict(_LINE_DOC)
+        # the DOCUMENT's loader decides the columns: y from column 2, and
+        # column 1 rides along as an auxiliary column
+        doc["image"] = {
+            "type": "line",
+            "data_loading": {
+                "data_type": "tsv",
+                "y_column": 2,
+                "auxiliary_columns": {"other": 1},
+            },
+        }
+        assert self._post(client, doc).status_code == 200
+        ((frames, kwargs),) = seen
+        np.testing.assert_array_equal(frames[0], xy[:, [0, 2]])
+        np.testing.assert_array_equal(
+            kwargs["auxiliary_data"]["_aux_columns"]["other"], xy[:, 1]
         )
-        doc["scan"]["renderer"] = {"cmap": "viridis", "vmax": 1000.0}
-        assert (
-            client.post(
-                "/configs/api/preview", json={"document": doc, "params": params}
-            ).status_code
-            == 200
+        assert "file_path" not in kwargs["auxiliary_data"]
+
+    def test_an_array_stack_serves_its_frame(self, scan_folder, configs_tree, seen):
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("h5py")
+        from test_resources import _write_array_stack
+
+        (scan_folder / "scope").mkdir()
+        _write_array_stack(
+            scan_folder / "scope" / "scope.h5",
+            device="scope",
+            variable="trace",
+            frames=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+            axis=[(0.0, 1.0, 3), (0.0, 1.0, 3)],
         )
-        assert seen[0]["cmap"] is None and seen[0]["vmin"] is None
-        assert seen[0]["vmax"] is None
-        assert seen[1]["cmap"] == "viridis" and seen[1]["vmax"] == 1000.0
-        assert "window" not in seen[1]
+        from test_app import _LV
+
+        catalog = FakeCatalog()
+        detail = _detail(2)
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        # the run joins by the DIAGNOSTIC's device (its name, not the folder):
+        # shot 2's timestamp is the stack's second frame
+        detail.data["U_Scope-acq_timestamp"] = [_LV + 0.5, _LV + 1.0, _LV + 2.0]
+        catalog.details["uid-002"] = detail
+        client = TestClient(
+            create_app(catalog, processing_config_dir=configs_tree, config_editor=True)
+        )
+        doc = dict(_LINE_DOC)
+        doc["image"] = {"type": "line", "data_loading": {"data_type": "pva_stack"}}
+        doc["scan"] = {"device": "scope", "data_format": "device_hdf5"}
+        r = self._post(client, doc, shot=2)
+        assert r.status_code == 200, r.text
+        ((frames, _),) = seen
+        np.testing.assert_array_equal(frames[0][:, 1], [4.0, 5.0, 6.0])
+
+    def test_a_missing_shot_file_is_404(self, scan_folder, configs_tree, seen):
+        (scan_folder / "scope").mkdir()
+        (scan_folder / "scope" / "Scan002_scope_001.tsv").write_text("0\t1\n")
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        r = self._post(client, dict(_LINE_DOC), shot=2)
+        assert r.status_code == 404, r.text
+        assert "no scope file for shot 2" in r.text
+        assert seen == []
+
+    def test_a_shot_the_run_marks_invalid_is_not_previewed(
+        self, scan_folder, configs_tree, seen
+    ):
+        """valid=False means the frame belongs to another shot: the run skips it."""
+        pytest.importorskip("h5py")
+        from test_app import _LV
+        from test_resources import _write_array_stack
+
+        (scan_folder / "scope").mkdir()
+        _write_array_stack(
+            scan_folder / "scope" / "scope.h5",
+            device="scope",
+            variable="trace",
+            frames=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+            axis=[(0.0, 1.0, 3), (0.0, 1.0, 3)],
+        )
+        catalog = FakeCatalog()
+        detail = _detail(2)
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        detail.data["U_Scope-acq_timestamp"] = [_LV + 0.5, _LV + 1.0, _LV + 2.0]
+        detail.data["U_Scope-valid"] = [True, False, True]
+        catalog.details["uid-002"] = detail
+        client = TestClient(
+            create_app(catalog, processing_config_dir=configs_tree, config_editor=True)
+        )
+        doc = dict(_LINE_DOC)
+        doc["image"] = {"type": "line", "data_loading": {"data_type": "pva_stack"}}
+        doc["scan"] = {"device": "scope", "data_format": "device_hdf5"}
+        assert self._post(client, doc, shot=1).status_code == 200
+        r = self._post(client, doc, shot=2)
+        assert r.status_code == 404, r.text
+        assert len(seen) == 1

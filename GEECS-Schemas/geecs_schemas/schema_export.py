@@ -29,7 +29,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisGroup
+from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisGroup, AnalysisRecipe
 from geecs_schemas.scan_request import (
     ActionBindings,
     CaptureSettings,
@@ -60,6 +60,9 @@ EXPORTED_SCHEMAS: dict[str, type[BaseModel]] = {
     # renders its forms from, one variant per analyzer kind.
     "analysis_diagnostic": AnalysisDiagnostic,
     "analysis_group": AnalysisGroup,
+    # The v3 recipe (the analysis core's native shape); steps/measure carry
+    # the core registry's vocabulary, which this artifact lists by name only.
+    "analysis_recipe": AnalysisRecipe,
 }
 
 #: Where the artifacts live, relative to the repo root.

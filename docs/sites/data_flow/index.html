@@ -308,10 +308,10 @@ svg.has-sel .step:not(.on){opacity:.25}
     <circle class="st st-robust" cx="1170" cy="514" r="4"/>
   </g>
 
-  <g class="n" data-id="scan-analysis" tabindex="0" role="button" aria-label="ScanAnalysis + LogMaker: open details">
+  <g class="n" data-id="scan-analysis" tabindex="0" role="button" aria-label="ScanAnalysis: open details">
     <rect class="node" x="920" y="558" width="260" height="44" rx="6"/>
-    <text class="t-title" x="934" y="576">ScanAnalysis + LogMaker</text>
-    <text class="t-sub" x="934" y="592">LiveWatch sees the s-file → analyzers → Google Doc log</text>
+    <text class="t-title" x="934" y="576">ScanAnalysis</text>
+    <text class="t-sub" x="934" y="592">Data portal request → analyzers → saved results</text>
     <circle class="st st-robust" cx="1170" cy="568" r="4"/>
   </g>
 
@@ -379,7 +379,7 @@ svg.has-sel .step:not(.on){opacity:.25}
     <li><span class="n">3</span><span><b>Every shot lands in three places.</b> Readings become Bluesky documents in Tiled. Each PVA gateway writes its cameras' frames to the share as one HDF5 stack per camera per scan. LabVIEW devices keep saving their native per-shot files.</span></li>
     <li><span class="n">4</span><span><b>The engine owns the scan folder.</b> It alone claims <code>ScanNNN</code>, writes ScanInfo and exports the s-file. Analysis code only ever reads that folder.</span></li>
     <li><span class="n">5</span><span><b>People read it back.</b> Data Portal and notebooks share one catalog layer over Tiled and the share. MCP answers "what did scan 12 give" from the same place.</span></li>
-    <li><span class="n">6</span><span><b>Analysis runs itself.</b> LiveWatch sees the new s-file, ScanAnalysis runs the configured analyzers, LogMaker posts the figures to the experiment Google Doc.</span></li>
+    <li><span class="n">6</span><span><b>Run analysis explicitly.</b> The data portal runs a configured diagnostic on a completed scan and displays saved results.</span></li>
   </ol>
 </section>
 
@@ -760,21 +760,21 @@ const INFO = {
  ]
 },
 "scan-analysis": {
-  "name": "ScanAnalysis and LogMaker",
-  "role": "Automatic post-scan analysis and the Google Doc experiment log.",
+  "name": "ScanAnalysis",
+  "role": "Explicit post-scan analysis and saved results.",
   "status": "robust",
-  "does": "Watches for finished scans, runs the configured chain of image and 1D analyzers, renders summary figures, and posts them into the day's Google Doc.",
+  "does": "Runs configured image and 1D analyzers on completed scans, writes derived scalars, and renders summary figures.",
   "how": [
    "YAML diagnostic configs in the configs repo load into Pydantic models; a factory builds the analyzer. One diagnostic file carries both the per-image section and the per-scan section.",
-   "LiveWatch (a PyQt5 GUI) sees the new s-file and drives a file-based task queue: per-scan status files with claim, heartbeat and staleness rules, so several machines can share the work with no central coordinator.",
-   "LogMaker4GoogleDocs wraps the Docs and Drive APIs. It is optional everywhere; when absent, uploads are skipped silently."
+   "The data portal runs analysis explicitly. The existing queue retains per-scan status files, claims and heartbeats for MCP compatibility; automatic watching and Google Docs uploads are retired.",
+   "The portal config editor previews unsaved diagnostics before an explicit save and run."
   ],
-  "now": "In production daily. The v2 analysis configs and their web config editor landed 2026-09-08; the analysis core is being refactored in place behind the same factory, with LiveWatch and the queue kept.",
+  "now": "The v2 configs and web editor remain. The analysis core is being refactored; portal runs are the operational endpoint. A future automatic analysis service is not yet designed.",
   "next": [
    "Finish the analysis-core refactor; move the remaining notebooks and mirror pairs onto the v2 constructors.",
    "A generalized 2D scan analyzer so defining an image analyzer is enough.",
    "Decide whether ScanAnalysis reads Tiled or keeps reading exported s-files.",
-   "The LogMaker refactor, which also gives the per-experiment Google Doc IDs a proper config home."
+   "Design automatic post-scan execution as a separate service."
   ],
   "vision": "ImageAnalysis is where a single image is analyzed; ScanAnalysis is where anything more complex lives. Configs are the whole definition of an analysis.",
   "meta": [
