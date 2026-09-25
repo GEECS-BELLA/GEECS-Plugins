@@ -122,9 +122,11 @@ def probe_native_file(
     return None
 
 
-#: A rendered stamp anywhere in a native filename — ``_{acq_timestamp:.3f}``
-#: followed by the tail (never another digit): the contract's shape with the
-#: tail left open, for a reader that has the directory but not the tail.
+#: A rendered stamp in a native filename — ``_{acq_timestamp:.3f}`` followed
+#: by the tail (never another digit): the contract's shape with the tail
+#: left open, for a reader that has the directory but not the tail.  The
+#: stamp precedes the tail, so the **last** such token in the name is the
+#: stamp — a stem carrying one of its own (``U_Spec_2.500um_…``) is not.
 _ANY_TAIL_TIMESTAMP = re.compile(r"_(?P<ts>\d+\.\d{3})(?!\d)")
 
 
@@ -159,10 +161,10 @@ def native_file_keys(directory: Path) -> dict[int, list[Path]]:
     for entry in entries:
         if not entry.is_file():
             continue
-        match = _ANY_TAIL_TIMESTAMP.search(entry.name)
-        if match is None:
+        stamps = _ANY_TAIL_TIMESTAMP.findall(entry.name)
+        if not stamps:
             continue
-        keys.setdefault(timestamp_key(float(match["ts"])), []).append(entry)
+        keys.setdefault(timestamp_key(float(stamps[-1])), []).append(entry)
     return keys
 
 

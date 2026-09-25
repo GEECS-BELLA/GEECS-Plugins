@@ -249,6 +249,7 @@ class TestNativeFileKeys:
             "U_HasoLift_1790360952.123.has",
             "U_HasoLift_1790360953.124.himg",
             "UC_Cam-Temporal_1790360954.125.png",
+            "U_Spec_2.500um_1790360956.127.txt",  # a stem with a token of its own
             "Thumbs.db",
             "notes.txt",
         ):
@@ -259,6 +260,7 @@ class TestNativeFileKeys:
             timestamp_key(1790360952.123),
             timestamp_key(1790360953.124),
             timestamp_key(1790360954.125),
+            timestamp_key(1790360956.127),  # the last token, never the stem's
         }
         assert [p.name for p in keys[timestamp_key(1790360952.123)]] == [
             "U_HasoLift_1790360952.123.has",
