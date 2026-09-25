@@ -33,6 +33,7 @@ geecs_scanner/
     settables.py  the movable panel's list: GEECS-Core's numeric_settables over GeecsDb rows, cached per process
     readback.py   one aioca caget of the gateway's readback PV (geecs_core.pv_naming) — the service's one async path
     trajectory.py isolated hardware-free preview over shared Bluesky expansion
+    writer_status.py the Tiled writer's heartbeat → one kit word (the "tiled writer" chip, /health); shown, never a gate
   web/
     app.py        create_app (the process) and create_scanner_router (the same as a router)
     pages.py      GET / — the page (make_templates from geecs_web_theme.web: `root` in every context)
@@ -80,9 +81,12 @@ deploy/           the unit template + DEPLOYMENT.md
 - **Imports.** `geecs_bluesky.qs_client`, `geecs_bluesky.config_resolver`,
   `geecs_bluesky.plan_names`, `geecs_bluesky.trajectory` (hardware-free
   numerical expansion only), `geecs_schemas`, `geecs_web_theme`,
-  `geecs_core.db` (the settables list) and `geecs_core.pv_naming` + `aioca`
+  `geecs_core.db` (the settables list), `geecs_core.pv_naming` + `aioca`
   (the readback — the scanner reads gateway PVs directly, like the
-  preflight does through the client seam). Never the
+  preflight does through the client seam), and
+  `geecs_bluesky.tiled_spool` (the writer's heartbeat model and reader —
+  the shared side of the spool, never `tiled_writer`, the service loop).
+  Never the
   portal, the logbook, GEECS-MCP, or the engine's
   `plans`/`devices`/`run_engine`/`namespace`. `tests/test_boundaries.py`
   pins this and the absence of facility literals in code.
@@ -110,6 +114,16 @@ deploy/           the unit template + DEPLOYMENT.md
 - **Portal links are URL only.** `--portal-url` (a site value) prefixes
   `/run/<uid>` and `/day/<iso>` links in the rail; nothing from the portal
   is imported.
+- **The Tiled writer's word is shown, never enforced.** `service/writer_status.py`
+  reads `heartbeat.json` under `GEECS_TILED_WRITER_STATE` (the unit sets
+  it; `/var/lib/geecs-tiled-writer`, the same on every host) and reduces it
+  to `ok` / `degraded` / `failed` for the "tiled writer" chip and
+  `/health`'s `tiled_writer` (`scripts/fleet_status.sh` reads it there).
+  With the spool a dead writer loses nothing, so no preflight question, no
+  Start gate and no refusal ever comes from it (owner's ruling 2026-09-25;
+  pinned in `tests/test_writer_status.py`). The thresholds are the
+  measurement's (25–28 s per run): `pending` ≤ 1 fresh is ok, ≥ 3 or a
+  `.failed` file is failed.
 
 ## Testing
 

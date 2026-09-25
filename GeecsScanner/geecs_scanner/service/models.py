@@ -13,6 +13,31 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
+class TiledWriterOut(BaseModel):
+    """The Tiled writer's heartbeat as one kit word (a warning, never a gate).
+
+    ``state`` is ``ok`` / ``degraded`` / ``failed`` (``unknown`` only while
+    unset); the counts are the heartbeat's own.  Read by the page's chip,
+    ``/health`` (``scripts/fleet_status.sh``'s row) and nothing that
+    decides whether a scan runs.
+    """
+
+    state: str = Field(description="A kit status word")
+    detail: str = ""
+    pending: int = Field(default=0, description="Complete spool files waiting")
+    in_progress: int = Field(
+        default=0, description="Runs still open (or unfinished files)"
+    )
+    failed: int = Field(default=0, description="Files set aside as .failed")
+    last_ok: Optional[float] = Field(
+        default=None, description="Last registration, epoch"
+    )
+    last_error: Optional[str] = None
+    stale: bool = Field(
+        default=False, description="No heartbeat, or one older than three sweeps"
+    )
+
+
 class StatusOut(BaseModel):
     """One poll of the manager, plus the readiness verdict over it."""
 
@@ -28,6 +53,10 @@ class StatusOut(BaseModel):
     readiness_detail: str = ""
     experiment: str
     identity: str = Field(description="What this process submits as")
+    tiled_writer: Optional[TiledWriterOut] = Field(
+        default=None,
+        description="The Tiled writer's heartbeat verdict (the page's chip); shown, never a gate",
+    )
 
 
 class QueueRow(BaseModel):
@@ -197,6 +226,9 @@ class HealthOut(BaseModel):
     manager: bool
     readiness: str
     experiment: str
+    tiled_writer: TiledWriterOut = Field(
+        description="The Tiled writer's heartbeat verdict — fleet_status.sh's row"
+    )
 
 
 class MoveIn(BaseModel):

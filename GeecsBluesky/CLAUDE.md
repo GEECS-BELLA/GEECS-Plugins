@@ -473,7 +473,12 @@ with the writer, 0.26 s without).  Now:
   (`tiled_spool.default_state_dir`).  The writer also honours systemd's
   `$STATE_DIRECTORY`; the engine deliberately does not (the qserver unit
   may own a state directory of its own one day, and the spool must not
-  silently move with it).  Not a site value: the same path on every host.
+  silently move with it).  Not a site value: the same path on every host
+  — `/var/lib/geecs-tiled-writer`, the `StateDirectory=` both
+  `qserver/deploy/geecs-tiled-writer.service` and the qserver unit
+  declare (the scanner's unit sets the variable too, for its chip).
+  Deploy, the hand-over from a by-hand writer, and what the heartbeat's
+  words mean: `qserver/deploy/DEPLOYMENT.md` § The Tiled writer.
 
 The s-file, ScanInfo and `scan.log` are unaffected: they never used Tiled.
 

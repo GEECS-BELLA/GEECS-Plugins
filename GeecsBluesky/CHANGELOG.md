@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.103.1] - 2026-09-25
+
+### Added
+
+- **`geecs-tiled-writer.service`** (`qserver/deploy/`), the writer's unit
+  template in the site-profile style: the worker's clone and env
+  (`qs-checkout/GeecsBluesky`, `ExecStart=@POETRY@ run geecs-tiled-writer`),
+  `StateDirectory=geecs-tiled-writer` and
+  `Environment=GEECS_TILED_WRITER_STATE=/var/lib/geecs-tiled-writer`,
+  `Restart=on-failure`; no ordering against the manager (peers over one
+  directory). `geecs-qserver.service` declares the same `StateDirectory=`
+  and `Environment=` (two units may; the engine reads only the variable);
+  the scanner's unit sets the variable for its chip. Rendered by
+  `deploy/render_units.sh`, provisioned by `deploy/bootstrap_host.sh`
+  (`--only tiled-writer`; its extras are the worker's set on purpose — a
+  `poetry install --extras tiled` alone would strip `ca`/`qserver`/
+  `optimize` from the env the running worker uses).
+- `qserver/deploy/DEPLOYMENT.md` § The Tiled writer: install, the ordered
+  hand-over from the by-hand writer left by the 0.103.0 verification
+  (drain → stop → units → start the unit → restart the queueserver so the
+  engine reads the new directory → restart the scanner), the heartbeat's
+  fields and the scanner's words for them, `.failed` files, a stale
+  heartbeat. `docs/platform/fleet_map.md` gains the writer's row and the
+  spool in the diagram; `scripts/fleet_status.sh` a "Tiled writer" row
+  read from the scanner's `/health`.
+
 ## [0.103.0] - 2026-09-25
 
 ### Changed

@@ -1,0 +1,76 @@
+# GEECS Tiled writer — systemd unit TEMPLATE.
+#
+# Do not copy this file to /etc/systemd/system by hand. Render it from the
+# host's site.env with `deploy/render_units.sh` (or `deploy/bootstrap_host.sh`)
+# — see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
+# time (paths + identity); ${VARIABLE} values come from site.env at start via
+# EnvironmentFile= (valid only in command arguments).
+#
+# What this is: the consumer half of the Tiled spool. The RunEngine (the
+# geecs-qserver unit) never talks to Tiled; it writes every document of a
+# run to one JSON Lines file under the spool directory below, and this
+# service registers each complete file in the catalog off the engine
+# thread — ~25 s per run on the SQLite catalog, which used to hold the
+# engine at the stop document (GeecsBluesky 0.103.0). Its heartbeat
+# (<state>/heartbeat.json) is a WARNING surface — the scanner's chip and
+# scripts/fleet_status.sh read it — never a gate: a dead writer loses
+# nothing, the spool waits, and the first writer to run catches up.
+#
+# Upgrade (the worker's clone; a pull there is a deploy of the worker too):
+#   git -C <checkout> pull && (cd GeecsBluesky && poetry install --extras "ca tiled qserver optimize") && sudo systemctl restart geecs-tiled-writer
+#   (poetry not on PATH as the service account? use "$GEECS_POETRY" from site.env)
+#
+# See DEPLOYMENT.md (this directory) § The Tiled writer.
+
+[Unit]
+Description=GEECS Tiled writer (registers spooled Bluesky runs in Tiled, off the engine)
+After=network-online.target
+Wants=network-online.target
+# Deliberately no ordering against geecs-qserver: the two are peers over one
+# directory. The writer drains whatever the engine spooled, whether the
+# engine is up, restarting, or gone; the engine spools whether or not the
+# writer is up.
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+# Poetry resolves its cache/venvs under $HOME; systemd does not always set it.
+Environment=HOME=@SERVICE_HOME@
+# The host's site profile: TZ (journal timestamps). The catalog itself comes
+# from the service account's config.ini ([tiled] uri + api_key), as for
+# every other Tiled client — the key is never in site.env.
+EnvironmentFile=@SITE_ENV@
+# The writer runs from the WORKER's checkout and env (qs-checkout,
+# GeecsBluesky, the same extras): the spool line format is the engine's,
+# and the two halves of one contract must never drift apart.
+WorkingDirectory=@CHECKOUT_ROOT@/qs-checkout/GeecsBluesky
+# Poetry's ABSOLUTE path: systemd's service PATH omits ~/.local/bin.
+ExecStart=@POETRY@ run geecs-tiled-writer
+# The spool contract. systemd creates /var/lib/geecs-tiled-writer, owns it
+# to the service user and exports it as $STATE_DIRECTORY; the geecs-qserver
+# unit declares the SAME StateDirectory (two units may) so the engine's
+# spool files land where this service sweeps. GEECS_TILED_WRITER_STATE is
+# still set explicitly, here and in the qserver unit: the engine reads only
+# the variable (never $STATE_DIRECTORY — the qserver unit may own a state
+# directory of its own one day, and the spool must not silently move with
+# it), and a two-process contract is never left to a per-unit default. Not
+# a site value — the same path on every host — so it lives here, not in
+# site.env. Layout: spool/<time>-<uid>.jsonl (pending), .jsonl.done
+# (registered; pruned after 7 days), .jsonl.failed (set aside for an
+# operator), heartbeat.json.
+StateDirectory=geecs-tiled-writer
+Environment=GEECS_TILED_WRITER_STATE=/var/lib/geecs-tiled-writer
+# Knobs (--sweep-interval, --keep-days, --max-attempts, --max-backoff,
+# --orphan-after) keep their defaults here; a site that needs another value
+# overrides ExecStart= in a drop-in (systemctl edit geecs-tiled-writer),
+# never by editing the rendered unit.
+Restart=on-failure
+RestartSec=5
+# A stop is honoured between sweeps; a registration in flight (~25-30 s on
+# the SQLite catalog) finishes first. systemd's default stop timeout (90 s)
+# covers it. A SIGKILL mid-registration is safe anyway: the next start finds
+# the half-registered container and registers the run again from the spool.
+SyslogIdentifier=geecs-tiled-writer
+
+[Install]
+WantedBy=multi-user.target

@@ -5,6 +5,29 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.14.0] - 2026-09-25
+
+### Added
+
+- **The Tiled writer's word** (scan efficiency arc, the deploy PR of
+  GeecsBluesky 0.103.0): `/health` and `/api/status` (so every SSE status
+  frame) gain `tiled_writer` — `state`, `detail`, `pending`, `in_progress`,
+  `failed`, `last_ok`, `last_error`, `stale` — read from the writer's
+  `heartbeat.json` under `GEECS_TILED_WRITER_STATE` (the units' shared
+  `/var/lib/geecs-tiled-writer`; no flag — the path is the units'
+  contract, `heartbeat_path=` on the service for tests), and a "tiled writer" chip in the page's health
+  strip beside "manager" and "doc stream". The rule
+  (`service/writer_status.py`), from the measured 25–28 s per run: `ok`
+  is a fresh heartbeat with Tiled reachable, no `.failed` file and
+  `pending` ≤ 1 (the run that just ended); `degraded` is silence (no
+  heartbeat, or one older than three sweeps: down or wedged), Tiled
+  unreachable, or `pending` 2; `failed` is a file set aside for an
+  operator or `pending` ≥ 3. **Shown, never a gate**: nothing about a
+  submit changes with the word (pinned), per the owner's ruling. The unit
+  template sets `GEECS_TILED_WRITER_STATE`; `scripts/fleet_status.sh` reads
+  the field for its "Tiled writer" row. Demo mode reads the same default
+  path and shows the honest word (degraded on a laptop with no writer).
+
 ## [0.13.1] - 2026-09-21
 
 ### Changed
