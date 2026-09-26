@@ -1,5 +1,6 @@
 """Coordinate and ownership invariants for trace/image processing frames."""
 
+import pickle
 from dataclasses import FrozenInstanceError
 
 import numpy as np
@@ -134,3 +135,25 @@ def test_invalid_signal_values_survive_for_measure_to_handle():
 def test_invalid_shot_identity(kwargs):
     with pytest.raises(ValueError):
         ShotMeta(**kwargs)
+
+
+def test_pickled_frames_arrive_read_only_with_provenance():
+    """A frame crossing a process boundary keeps its values AND its immutability."""
+    frame = Frame.from_array(
+        np.arange(6.0).reshape(2, 3),
+        axes=(Axis([5.0, 2.0], "mm", "y"), Axis([1.0, 2.0, 4.0], "mm", "x")),
+        shot=ShotMeta("cam", 3, 12.5),
+        unit="counts",
+        label="signal",
+    )
+    copy = pickle.loads(pickle.dumps(frame))
+    np.testing.assert_array_equal(copy.data, frame.data)
+    assert copy.shot == frame.shot and (copy.unit, copy.label) == ("counts", "signal")
+    assert [a.unit for a in copy.axes] == ["mm", "mm"]
+    np.testing.assert_array_equal(copy.axes[0].values, [5.0, 2.0])
+    assert not copy.data.flags.writeable
+    assert all(not axis.values.flags.writeable for axis in copy.axes)
+    with pytest.raises(ValueError, match="read-only"):
+        copy.data[0, 0] = 1
+    with pytest.raises(ValueError, match="read-only"):
+        copy.axes[1].values[0] = 9

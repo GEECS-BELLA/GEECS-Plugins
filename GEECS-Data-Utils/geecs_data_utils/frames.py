@@ -24,6 +24,14 @@ def _owned_array(values: ArrayLike) -> NDArray[np.float64]:
     return array
 
 
+def _restore_read_only(instance: object, state: dict) -> None:
+    """Rebind pickled fields on a frozen instance, re-freezing its arrays."""
+    for name, value in state.items():
+        if isinstance(value, np.ndarray):
+            value.flags.writeable = False
+        object.__setattr__(instance, name, value)
+
+
 @dataclass(frozen=True, eq=False)
 class Axis:
     """Coordinates of one dimension, copied from the caller and read-only.
@@ -44,6 +52,15 @@ class Axis:
         if not np.isfinite(values).all():
             raise ValueError("Axis coordinates must be finite")
         object.__setattr__(self, "values", values)
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore a pickled axis with its coordinates read-only again.
+
+        numpy pickles an array's values, not its flags, so an axis crossing
+        a process boundary (a worker's measurement returning to the parent)
+        would otherwise arrive writable.
+        """
+        _restore_read_only(self, state)
 
     def sliced(self, selection: slice) -> Axis:
         """Select coordinates without changing their units or labels."""
@@ -101,6 +118,10 @@ class Frame:
             raise TypeError("Shot provenance must be ShotMeta or None")
         object.__setattr__(self, "data", data)
         object.__setattr__(self, "axes", axes)
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore a pickled frame with its samples read-only again (see Axis)."""
+        _restore_read_only(self, state)
 
     @classmethod
     def from_array(

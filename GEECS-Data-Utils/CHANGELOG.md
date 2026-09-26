@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.44.0] - 2026-09-26
+
+### Added
+
+- `io.scan_stack.read_frame(stack, shot_index)`: the read behind `read_shot`
+  against a handle the caller keeps open across a run (one open per stack
+  per run instead of one per shot — each open is several SMB round trips);
+  the same bounds check on both paths (#1003).
+
+### Fixed
+
+- `frames.Frame` / `frames.Axis` arrive read-only after unpickling (numpy
+  pickles values, not flags), so a measurement crossing a process boundary
+  keeps the immutability the constructor gives it (#1003).
 ## [0.43.0] - 2026-09-26
 
 ### Added

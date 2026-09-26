@@ -44,6 +44,8 @@ class Measurement:
     Nonfinite scalars are retained as the algorithms emit them. Notes expose
     those undefined results to consumers instead of turning them into zeros.
     Caller dictionaries and sequences are copied to immutable containers.
+    A measurement pickles (a worker process returns one to its parent), and
+    the copy carries the same scalars, frame, overlays and notes.
     """
 
     scalars: Mapping[str, float]
@@ -75,3 +77,19 @@ class Measurement:
         object.__setattr__(self, "scalars", MappingProxyType(values))
         object.__setattr__(self, "overlays", overlays)
         object.__setattr__(self, "notes", notes)
+
+    def __getstate__(self) -> dict:
+        """Pickle the owned values as plain containers (a proxy view cannot be)."""
+        return {
+            "scalars": dict(self.scalars),
+            "frame": self.frame,
+            "overlays": self.overlays,
+            "notes": self.notes,
+        }
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the read-only view without re-annotating the notes."""
+        object.__setattr__(self, "scalars", MappingProxyType(dict(state["scalars"])))
+        object.__setattr__(self, "frame", state["frame"])
+        object.__setattr__(self, "overlays", tuple(state["overlays"]))
+        object.__setattr__(self, "notes", tuple(state["notes"]))

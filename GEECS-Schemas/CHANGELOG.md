@@ -5,6 +5,15 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0] - 2026-09-26
+
+### Added
+
+- `AnalysisRecipe.scan.workers` (default 1, positive): the worker processes
+  a scan run may use to read and measure frames in parallel. A request: the
+  host caps it at its own limit and runs small scans serially, and the
+  outputs are identical either way (#1003). The reference page and the
+  published `analysis_recipe.schema.json` are regenerated.
 ## [0.34.1] - 2026-09-26
 
 ### Changed

@@ -83,14 +83,22 @@ class PreparedScan:
     #: The host-side view the run was prepared from (figure, summaries, save).
     spec: ScanRecipe | None = None
 
-    def run(self) -> Iterator[UnitResult]:
-        """Yield core measurements and explicit load/analysis failures lazily."""
+    def run(self, *, workers: int = 1) -> Iterator[UnitResult]:
+        """Yield core measurements and explicit load/analysis failures lazily.
+
+        The source is entered once for the run (one handle per capture
+        stack). ``workers > 1`` analyzes the groups in the core's process
+        pool — the source, recipe and bound inputs travel to each worker
+        once — and still yields them in group order, so the numbers are the
+        serial run's. The host decides the count (``core_workers``).
+        """
         return run_units(
             self.prepared.recipe,
             self.groups,
-            self.source.load,
+            self.source,
             average_before_analysis=self.average_before_analysis,
             inputs=self.prepared.inputs,
+            workers=workers,
         )
 
     def scalar_records(self, result: UnitResult) -> list[dict[str, float | int]]:

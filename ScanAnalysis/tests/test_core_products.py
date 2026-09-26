@@ -253,3 +253,47 @@ def test_scanned_products_match_legacy_bin_adapter(averaged):
         np.testing.assert_array_equal(
             product.measurement.frame.data, entry["result"].processed_image
         )
+
+
+def test_fractional_bin_ids_are_refused_not_truncated():
+    """Bin membership is group_shots' rule: a fractional bin is an error, never bin 1."""
+    frame = rows().assign(**{"Bin #": [1.0, 1.5, 2.0, 2.0, 3.0, 3.0]})
+    with pytest.raises(ValueError, match="Bin #"):
+        plan_products(
+            recipe(),
+            [outcome(n, float(n)) for n in range(1, 7)],
+            frame,
+            average_before_analysis=False,
+            noscan=False,
+            parameter_column="motor",
+        )
+
+
+def test_bins_fold_in_row_order_whatever_order_the_outcomes_arrive():
+    """Five same-bin outcomes in shuffled order average exactly as in row order."""
+    rng = np.random.default_rng(3)
+    values = rng.uniform(0, 1, (5, 4, 4))
+    frame = pd.DataFrame(
+        {"Shotnumber": [1, 2, 3, 4, 5, 6], "Bin #": [1] * 5 + [2], "motor": range(6)}
+    )
+
+    def result(n):
+        data = values[n - 1] if n <= 5 else np.zeros((4, 4))
+        return UnitResult(
+            ShotGroup(n, (n,)),
+            (n,),
+            Measurement({"s": float(n)}, Frame.from_array(data)),
+        )
+
+    kwargs = dict(average_before_analysis=False, noscan=False, parameter_column="motor")
+    shuffled = plan_products(
+        recipe(), [result(n) for n in (5, 3, 1, 6, 4, 2)], frame, **kwargs
+    )
+    ordered = plan_products(recipe(), [result(n) for n in range(1, 7)], frame, **kwargs)
+    np.testing.assert_array_equal(
+        shuffled.singles[0].measurement.frame.data, np.nanmean(values, axis=0)
+    )
+    np.testing.assert_array_equal(
+        shuffled.singles[0].measurement.frame.data,
+        ordered.singles[0].measurement.frame.data,
+    )
