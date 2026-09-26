@@ -162,7 +162,7 @@ class _Gate:
     def __init__(self) -> None:
         self.frames = 0
 
-    async def frames_this_step(self) -> int:
+    async def frames_this_batch(self) -> int:
         return self.frames
 
 

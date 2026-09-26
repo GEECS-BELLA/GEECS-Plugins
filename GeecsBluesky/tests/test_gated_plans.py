@@ -531,6 +531,57 @@ def test_immediate_pause_with_a_native_essential_toggles_saving_once(
     _assert_contiguous(_datums_by_key(col)["uc_a"], 6)
 
 
+def test_stop_while_paused_releases_the_batch_hold(
+    RE: RunEngine,
+    box: GatedBox,
+    shot_control: ShotControl,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review of #1005 finding 1: Pause then Stop leaves no batch hook on the long-lived box."""
+    monkeypatch.setattr(gated, "PROGRESS_PERIOD_S", 0.1)
+    cam, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.4)
+    _pause_after(RE, box, 3, defer=True)
+    with pytest.raises(RunEngineInterrupted):
+        RE(
+            bp.count(
+                [cam],
+                40,
+                per_shot=gated_per_shot(shot_control, quota=40, shot_timeout=0.4),
+            )
+        )
+    assert shot_control._batch_hook is not None  # paused inside the batch
+    RE.stop()
+    assert shot_control._batch_hook is None
+
+
+def test_a_failed_batch_raises_its_own_error_when_recording_fails_too(
+    RE: RunEngine,
+    box: GatedBox,
+    shot_control: ShotControl,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review of #1005 finding 2: a stalled camera's error wins over the settle's I/O."""
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.3)
+    b, _ = _plugin_camera(RE, box, "UC_B", tmp_path, shot_timeout=0.3)
+    box.stall = {"uc_b"}
+
+    async def unreachable(self, frames: int) -> None:
+        raise TimeoutError("plugin unreachable")
+
+    monkeypatch.setattr(GeecsDetector, "truncate_to", unreachable)
+    with pytest.raises(GeecsTriggerTimeoutError, match="UC_B"):
+        RE(
+            bp.count(
+                [a, b],
+                3,
+                per_shot=gated_per_shot(shot_control, quota=3, shot_timeout=0.3),
+            )
+        )
+    assert box.states[-1] == "off"
+
+
 def test_pause_resumed_inside_the_count_timeout_window_still_continues(
     RE: RunEngine, tmp_path: Path
 ) -> None:

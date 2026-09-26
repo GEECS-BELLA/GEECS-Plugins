@@ -30,11 +30,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   of the step holds its frame (`ShotSampler(gates=…)`), so no row is ever
   one a pause discards.  A paused step may carry more than one `primary`
   datum per camera (contiguous; `EVENT_SCHEMA.md`).
+- **A failed batch records the shots it kept, then raises its own error.**
+  A stalled camera or a silent clock settles the batch like a pause (the
+  shots every device reached are recorded, best effort) before the named
+  `GeecsTriggerTimeoutError` — which always wins over a failure of that
+  recording.  Before, a failed batch recorded nothing.
 
 ### Removed
 
 - `GeecsDetector.rewind_to_step_baseline` and `ShotSampler.cancel_step`
-  (the retake's), replaced by `GeecsDetector.frames_this_step` /
+  (the retake's), replaced by `GeecsDetector.frames_this_batch` /
   `truncate_to` and `ShotSampler.stop` / `keep`.
 
 ## [0.106.0] - 2026-09-26

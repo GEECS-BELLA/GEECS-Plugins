@@ -309,46 +309,53 @@ def gated_take_reading(
                 sampler.mark_cancelled()
 
             mark = shot_control.pause_count
-            shot_control.hold_for_batch(end_batch)
             finished = False
             failure: FailedStatus | None = None
+            shot_control.hold_for_batch(end_batch)
             try:
-                yield from bps.mv(shot_control, TriggerState.SCAN.value)
-                group = short_uid("gated-complete")
-                yield from bps.complete_all(*plugin, sampler, group=group, wait=False)
-                # The batch's wait, in slices: each slice collects the rows
-                # every camera holds the frame of (the scanner's progress
-                # moves shot by shot) and offers a checkpoint, where a
-                # deferred pause — the scanner's Pause — lands mid-batch.
-                while True:
-                    finished = yield from bps.wait(
-                        group=group,
-                        timeout=PROGRESS_PERIOD_S,
-                        error_on_timeout=False,
+                try:
+                    yield from bps.mv(shot_control, TriggerState.SCAN.value)
+                    group = short_uid("gated-complete")
+                    yield from bps.complete_all(
+                        *plugin, sampler, group=group, wait=False
                     )
-                    if shot_control.pause_count != mark:
-                        finished = False  # an immediate pause cut the wait
-                        break
-                    yield from bps.collect(sampler, name=shots_stream)
-                    if finished:
-                        break
-                    yield from bps.checkpoint()
-                    if shot_control.pause_count != mark:
-                        break  # a deferred pause landed at the checkpoint
-            except FailedStatus as exc:
-                failure = exc
-            if not finished:
-                end_batch()
-            try:
-                yield from bps.mv(shot_control, TriggerState.OFF.value)
-            except FailedStatus as exc:
-                # A status of this batch failed between the wait's return and
-                # the mark: the same abandon path.
-                failure = failure or exc
-                finished = False
-                end_batch()
-                yield from bps.mv(shot_control, TriggerState.OFF.value)
+                    # The batch's wait, in slices: each slice collects the
+                    # rows every camera holds the frame of (the scanner's
+                    # progress moves shot by shot) and offers a checkpoint,
+                    # where a deferred pause — the scanner's Pause — lands
+                    # mid-batch.
+                    while True:
+                        finished = yield from bps.wait(
+                            group=group,
+                            timeout=PROGRESS_PERIOD_S,
+                            error_on_timeout=False,
+                        )
+                        if shot_control.pause_count != mark:
+                            finished = False  # an immediate pause cut the wait
+                            break
+                        yield from bps.collect(sampler, name=shots_stream)
+                        if finished:
+                            break
+                        yield from bps.checkpoint()
+                        if shot_control.pause_count != mark:
+                            break  # a deferred pause landed at the checkpoint
+                except FailedStatus as exc:
+                    failure = exc
+                if not finished:
+                    end_batch()
+                try:
+                    yield from bps.mv(shot_control, TriggerState.OFF.value)
+                except FailedStatus as exc:
+                    # A status of this batch failed between the wait's return
+                    # and the mark: the same abandon path.
+                    failure = failure or exc
+                    finished = False
+                    end_batch()
+                    yield from bps.mv(shot_control, TriggerState.OFF.value)
             finally:
+                # Always released — a stop or abort thrown in while paused
+                # included — or a later pause of any run would call this
+                # batch's hook and skip its own resume restore.
                 shot_control.hold_for_batch(None)
             # The in-flight edge lands.
             yield from bps.sleep(drain)
@@ -372,19 +379,27 @@ def gated_take_reading(
                 shots = sampler.sampled
                 if plugin:
                     frames = await asyncio.gather(
-                        *(d.frames_this_step() for d in plugin)
+                        *(d.frames_this_batch() for d in plugin)
                     )
                     shots = min(shots, *frames)
                 await asyncio.gather(*(d.truncate_to(shots) for d in plugin))
                 sampler.keep(shots)
                 kept["shots"] = shots
 
-            yield from bps.wait_for([settle])
-            if plugin:
-                yield from bps.collect(*plugin, name=name)
-            yield from bps.collect(sampler, name=shots_stream)
-            done += kept["shots"]
             if failure is not None:
+                # Record what the batch kept, best effort — the batch's own
+                # error is what the operator must see, never a settle
+                # timeout on the camera that caused it.
+                try:
+                    yield from bps.wait_for([settle])
+                    if plugin:
+                        yield from bps.collect(*plugin, name=name)
+                    yield from bps.collect(sampler, name=shots_stream)
+                except Exception:  # noqa: BLE001 - the batch's failure wins
+                    logger.warning(
+                        "gated batch failed; recording its kept shots failed too",
+                        exc_info=True,
+                    )
                 cause = failure.__cause__
                 if isinstance(cause, GeecsTriggerTimeoutError):
                     raise cause
@@ -393,6 +408,11 @@ def gated_take_reading(
                     shot_timeout,
                     f"gated batch failed: {failure_cause_text(failure)}",
                 ) from failure
+            yield from bps.wait_for([settle])
+            if plugin:
+                yield from bps.collect(*plugin, name=name)
+            yield from bps.collect(sampler, name=shots_stream)
+            done += kept["shots"]
             if done >= quota:
                 state["steps"] += 1
                 return None

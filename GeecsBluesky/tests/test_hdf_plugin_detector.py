@@ -596,14 +596,14 @@ def test_a_paused_batch_keeps_its_frames_and_the_step_continues(
         await asyncio.sleep(0.02)
         await cam.abandon_step()  # settles the pending complete (no frames come)
         assert status.done and status.success
-        assert await cam.frames_this_step() == 3
+        assert await cam.frames_this_batch() == 3
         await cam.truncate_to(2)  # the sampler reached two
-        assert await cam.frames_this_step() == 2
+        assert await cam.frames_this_batch() == 2
         docs = [doc async for doc in cam.collect_asset_docs()]
         # the rest of the step: two more, baselined after the kept frames
         await cam.prepare(gated_trigger_info(2, exposure_timeout=0.3))
         assert cam.step_baseline == 2
-        assert await cam.frames_this_step() == 0
+        assert await cam.frames_this_batch() == 0
         await cam.kickoff()
         status = cam.complete()
         await asyncio.sleep(0.02)

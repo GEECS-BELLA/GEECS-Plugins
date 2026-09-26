@@ -352,7 +352,7 @@ scanner's progress), each only once every camera holds its frame.
 checkpoint (≤ ~1.5 s), an immediate one at once; the batch holds the box
 (`ShotControl.hold_for_batch`), so the pause marks it over synchronously
 and the resume restores nothing — the plan keeps the shots every device
-reached (`GeecsDetector.frames_this_step` / `truncate_to`,
+reached (`GeecsDetector.frames_this_batch` / `truncate_to`,
 `ShotSampler.stop` / `keep`), records them, and continues the step with
 the remaining shots.  At most the in-flight shot is lost.  The step body
 is not rewindable (a resume replays nothing).  A stalled camera fails `complete` with the GEECS

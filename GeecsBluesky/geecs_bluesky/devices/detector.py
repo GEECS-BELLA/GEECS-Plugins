@@ -1066,8 +1066,8 @@ class GeecsDetector(StandardDetector):
         ctx = self._prepare_ctx
         return None if ctx is None else int(ctx.collections_written)
 
-    async def frames_this_step(self) -> int:
-        """Frames past the step's baseline — the fewest any plugin holds.
+    async def frames_this_batch(self) -> int:
+        """Frames past the batch's baseline (its prepare) — the fewest any plugin holds.
 
         What the sampler gates its rows on (a row goes out only once every
         plugin-backed essential holds that shot's frame) and what a pause

@@ -178,7 +178,7 @@ class ShotSampler:
     gates :
         The step's plugin-backed essential detectors: a row is collected
         only once each of them holds that shot's frame
-        (:meth:`~geecs_bluesky.devices.detector.GeecsDetector.frames_this_step`).
+        (:meth:`~geecs_bluesky.devices.detector.GeecsDetector.frames_this_batch`).
     name :
         The Bluesky object name (the ``shots`` stream's collect object).
     """
@@ -322,7 +322,7 @@ class ShotSampler:
         """Yield the rows not yet yielded whose frame every gate holds, and forget them."""
         ready = len(self._rows)
         if self._gates:
-            frames = await asyncio.gather(*(g.frames_this_step() for g in self._gates))
+            frames = await asyncio.gather(*(g.frames_this_batch() for g in self._gates))
             ready = min(ready, min(frames) - self.emitted)
         ready = max(0, ready)
         rows, self._rows = self._rows[:ready], self._rows[ready:]

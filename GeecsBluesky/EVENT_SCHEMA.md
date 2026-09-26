@@ -141,7 +141,9 @@ batch interrupted by a **pause** keeps the shots every device reached and
 the step continues after the resume, so one step may carry **more than
 one stream datum per camera** in `primary` — contiguous, together
 exactly the step's quota (the in-flight shot at the pause may be lost;
-nothing before it is).  Both additive: a reader that indexes datums by
+nothing before it is).  A batch that **fails** (a stalled camera, a
+silent clock) records the shots it kept the same way, best effort, before
+the run fails.  All additive: a reader that indexes datums by
 their `indices` and rows by `seq_num` / stamp sees the same record.
 
 The s-file of such a run is the `shots` rows with each stack's per-frame

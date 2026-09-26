@@ -62,7 +62,7 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "describe_configuration",
         "discard_uncollected",
         "events_to_kickoff",
-        "frames_this_step",
+        "frames_this_batch",
         "get_index",
         "get_trigger_deadtime",
         "hints",
