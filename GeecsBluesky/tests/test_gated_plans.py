@@ -355,27 +355,44 @@ def test_gated_stalled_camera_fails_loudly_with_the_box_off(
     assert shot_control.standing_state == "OFF"
 
 
-def test_immediate_pause_mid_batch_retakes_the_step(
+def _pause_after(RE: RunEngine, box: GatedBox, edges: int, *, defer: bool) -> dict:
+    """Request a pause once *edges* edges have landed; record the edge count then."""
+    seen: dict[str, int] = {}
+
+    def pause_soon() -> None:
+        while box.edges < edges:
+            time.sleep(0.01)
+        seen["edges"] = box.edges
+        RE.request_pause(defer=defer)
+
+    threading.Thread(target=pause_soon, daemon=True).start()
+    return seen
+
+
+def _assert_contiguous(datums: list[dict], total: int) -> list[int]:
+    """The datums tile ``0..total`` in order; returns their widths."""
+    assert datums[0]["start"] == 0 and datums[-1]["stop"] == total
+    for prev, nxt in zip(datums, datums[1:]):
+        assert prev["stop"] == nxt["start"]
+    return [d["stop"] - d["start"] for d in datums]
+
+
+def test_immediate_pause_mid_batch_continues_the_step(
     RE: RunEngine, box: GatedBox, shot_control: ShotControl, tmp_path: Path
 ) -> None:
-    """Sam 2026-09-12: an immediate pause drives OFF; resume retakes the step.
+    """Sam 2026-09-26: a pause pauses — the shots taken are kept, the step continues.
 
     The pause lands after a couple of shots; ``ShotControl.pause`` drives
-    OFF, ``resume`` restores SCAN before the plan runs again (so edges
-    slip in), the plan sees the pause counter advanced, abandons the
-    batch, rewinds the stack to the step's baseline and takes the whole
-    step again: the datum still covers exactly ``quota`` frames.
+    OFF and, the batch holding the box, the resume restores nothing: the
+    plan keeps the shots every device reached (the in-flight frame past
+    them trimmed), records them, and re-arms for the rest of the quota.
+    One run of SCAN before the pause, one after — never the whole step
+    again.
     """
     cam, rewinds = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.4)
     col = DocCollector()
     RE.subscribe(col)
-
-    def pause_soon() -> None:
-        while box.edges < 2:
-            time.sleep(0.01)
-        RE.request_pause()
-
-    threading.Thread(target=pause_soon, daemon=True).start()
+    _pause_after(RE, box, 2, defer=False)
     with pytest.raises(RunEngineInterrupted):
         RE(
             bp.count(
@@ -387,28 +404,103 @@ def test_immediate_pause_mid_batch_retakes_the_step(
     assert RE.state == "paused"
     assert box.states[-1] == "off"  # pause() drove OFF
     time.sleep(0.2)
+    assert box.states[-1] == "off"
     RE.resume()
     assert col.docs["stop"][-1]["exit_status"] == "success"
-    # the interrupted batch, the resume's restore (SCAN before the plan
-    # runs, undone by the step's OFF), then the retake
-    assert box.scan_runs == 3, box.states
-    datums = _datums_by_key(col)["uc_a"]
-    assert datums == [{"start": 0, "stop": 6}]
-    # rewound to the step's baseline (0) before the retake, then trimmed to 6
-    assert rewinds[0] == 0 and rewinds[-1] == 6
+    assert box.scan_runs == 2, box.states  # the resume did not restore SCAN
+    widths = _assert_contiguous(_datums_by_key(col)["uc_a"], 6)
+    assert len(widths) == 2 and widths[0] >= 2  # the pre-pause shots were kept
+    # the first arm's zero, the settle at the kept shots, the step's quota
+    assert rewinds == [0, widths[0], 6]
     rows = _events_from_pages(col, "shots")
-    assert len(rows) == 6
+    assert [r["seq_num"] for r in rows] == list(range(1, 7))
+    stamps = [r["data"]["uc_a-acq_timestamp"] for r in rows]
+    assert stamps == sorted(stamps) and len(set(stamps)) == 6
     assert shot_control.standing_state == "OFF"
+
+
+def test_deferred_pause_lands_mid_batch(
+    RE: RunEngine,
+    box: GatedBox,
+    shot_control: ShotControl,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The scanner's Pause (a deferred pause) lands inside a batch, not at its end.
+
+    A 40-shot count at 20 edges/s runs 2 s; the batch offers a checkpoint
+    every progress period, so the pause lands long before the quota —
+    the shots taken are kept and the step completes after the resume.
+    """
+    monkeypatch.setattr(gated, "PROGRESS_PERIOD_S", 0.1)
+    cam, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.4)
+    col = DocCollector()
+    RE.subscribe(col)
+    _pause_after(RE, box, 3, defer=True)
+    with pytest.raises(RunEngineInterrupted):
+        RE(
+            bp.count(
+                [cam],
+                40,
+                per_shot=gated_per_shot(shot_control, quota=40, shot_timeout=0.4),
+            )
+        )
+    assert RE.state == "paused"
+    assert box.edges < 30, box.edges  # paused mid-batch, well before the quota
+    # rows out while paused: those collected before the checkpoint (the
+    # shots between it and the OFF are recorded by the settle on resume)
+    shown = len(_events_from_pages(col, "shots"))
+    assert shown >= 3
+    RE.resume()
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert box.scan_runs == 2, box.states
+    widths = _assert_contiguous(_datums_by_key(col)["uc_a"], 40)
+    assert widths[0] >= shown  # every shot before the pause kept
+    assert len(_events_from_pages(col, "shots")) == 40
+
+
+def test_pause_mid_step_of_a_gated_scan_continues_that_step(
+    RE: RunEngine, box: GatedBox, shot_control: ShotControl, tmp_path: Path
+) -> None:
+    """A step scan paused inside a step: that step completes at its position, then the next."""
+    cam, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.4)
+    magnet = _magnet(RE)
+    col = DocCollector()
+    RE.subscribe(col)
+    _pause_after(RE, box, 2, defer=False)
+    with pytest.raises(RunEngineInterrupted):
+        RE(
+            bp.scan(
+                [cam],
+                magnet,
+                -1.0,
+                1.0,
+                2,
+                per_step=gated_per_step(
+                    shot_control, shots_per_step=5, shot_timeout=0.4
+                ),
+            )
+        )
+    time.sleep(0.1)
+    RE.resume()
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert box.scan_runs == 3, box.states  # step 1 in two batches, step 2 in one
+    widths = _assert_contiguous(_datums_by_key(col)["uc_a"], 10)
+    assert len(widths) == 3 and widths[0] + widths[1] == 5 and widths[2] == 5
+    rows = _events_from_pages(col, "shots")
+    assert [r["data"]["bin_number"] for r in rows] == [1] * 5 + [2] * 5
+    assert [r["data"]["u_s1h-current-position"] for r in rows] == pytest.approx(
+        [-1.0] * 5 + [1.0] * 5
+    )
 
 
 def test_immediate_pause_with_a_native_essential_toggles_saving_once(
     RE: RunEngine, box: GatedBox, shot_control: ShotControl, tmp_path: Path
 ) -> None:
-    """The retake path (review finding 2): the native saver is prepared once, before the pause.
+    """The native saver is prepared once, before the pause; the continued step toggles nothing.
 
-    The retaken step keeps writing under the same run-long ``save=on`` —
-    no second prepare, no toggle; the rows are the retake's quota and the
-    save path is constant across the abandoned attempt and the retake.
+    The step keeps writing under the same run-long ``save=on``; the rows
+    are the quota, the save path constant across both batches.
     """
     (tmp_path / "Scan001").mkdir()
     cam, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.4)
@@ -416,13 +508,7 @@ def test_immediate_pause_with_a_native_essential_toggles_saving_once(
     saves = _saves(native)
     col = DocCollector()
     RE.subscribe(col)
-
-    def pause_soon() -> None:
-        while box.edges < 2:
-            time.sleep(0.01)
-        RE.request_pause()
-
-    threading.Thread(target=pause_soon, daemon=True).start()
+    _pause_after(RE, box, 2, defer=False)
     with pytest.raises(RunEngineInterrupted):
         RE(
             bp.count(
@@ -436,47 +522,100 @@ def test_immediate_pause_with_a_native_essential_toggles_saving_once(
     time.sleep(0.2)
     RE.resume()
     assert col.docs["stop"][-1]["exit_status"] == "success"
-    assert box.scan_runs == 3, box.states
-    assert saves == ["off", "on", "off"]  # the retake toggled nothing
+    assert box.scan_runs == 2, box.states
+    assert saves == ["off", "on", "off"]  # the continued step toggled nothing
     rows = _events_from_pages(col, "shots")
     assert len(rows) == 6
     directory = str(tmp_path / "Scan001" / "UC_Native")
     assert [r["data"]["uc_native-nonscalar_save_path"] for r in rows] == [directory] * 6
-    assert _datums_by_key(col)["uc_a"] == [{"start": 0, "stop": 6}]
+    _assert_contiguous(_datums_by_key(col)["uc_a"], 6)
 
 
-def test_pause_resumed_inside_the_count_timeout_window_still_retakes(
+def test_pause_resumed_inside_the_count_timeout_window_still_continues(
     RE: RunEngine, tmp_path: Path
 ) -> None:
     """Review of #850 finding 1: no edge in flight at OFF, resume 0.3 s later.
 
     The camera's ``complete`` (0.4 s per-frame budget) times out *after*
-    the resume but *before* the plan's settle: the abandonment is marked
-    synchronously the moment the interrupted wait returns, so the late
-    failure is pardoned instead of thrown into the plan at ``mv(OFF)`` or
-    the drain sleep — and the step is retaken.
+    the resume but *before* the plan's settle: the pause marked the batch
+    over synchronously, so the late failure is pardoned instead of thrown
+    into the plan — and the step continues.
     """
     box = GatedBox(late_edge=False)
     sc = ShotControl(GATED_WRITES, experiment="TestExp", name="sc", setter_factory=box)
     connect_mock(RE, sc)
-    cam, rewinds = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.4)
+    cam, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.4)
     col = DocCollector()
     RE.subscribe(col)
-
-    def pause_soon() -> None:
-        while box.edges < 2:
-            time.sleep(0.01)
-        RE.request_pause()
-
-    threading.Thread(target=pause_soon, daemon=True).start()
+    _pause_after(RE, box, 2, defer=False)
     with pytest.raises(RunEngineInterrupted):
         RE(bp.count([cam], 6, per_shot=gated_per_shot(sc, quota=6, shot_timeout=0.4)))
     time.sleep(0.3)  # inside the 0.4 s window measured from the last frame
     RE.resume()
     assert col.docs["stop"][-1]["exit_status"] == "success"
-    assert _datums_by_key(col)["uc_a"] == [{"start": 0, "stop": 6}]
+    _assert_contiguous(_datums_by_key(col)["uc_a"], 6)
     assert len(_events_from_pages(col, "shots")) == 6
-    assert rewinds[0] == 0  # the partial frames left the stack before the retake
+
+
+def test_a_long_pause_outlasting_every_timeout_still_continues(
+    RE: RunEngine, box: GatedBox, shot_control: ShotControl, tmp_path: Path
+) -> None:
+    """An operator's pause runs far past the cameras' and the clock's budgets: no failure."""
+    cam, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.2)
+    col = DocCollector()
+    RE.subscribe(col)
+    _pause_after(RE, box, 2, defer=False)
+    with pytest.raises(RunEngineInterrupted):
+        RE(
+            bp.count(
+                [cam],
+                6,
+                per_shot=gated_per_shot(shot_control, quota=6, shot_timeout=0.2),
+            )
+        )
+    time.sleep(1.0)  # five times every budget
+    RE.resume()
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    _assert_contiguous(_datums_by_key(col)["uc_a"], 6)
+    assert len(_events_from_pages(col, "shots")) == 6
+
+
+def test_shots_rows_arrive_during_the_batch(
+    RE: RunEngine,
+    box: GatedBox,
+    shot_control: ShotControl,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The scanner's progress: ``shots`` rows go out while the box still runs.
+
+    Each ``shots`` document is stamped with the edge count at the moment it
+    is emitted; a 30-shot batch at 20 edges/s collected every 0.1 s emits
+    most of its rows before the quota's edge, and no row before its
+    camera frame exists.  The total is unchanged.
+    """
+    monkeypatch.setattr(gated, "PROGRESS_PERIOD_S", 0.1)
+    cam, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+    col = DocCollector()
+    RE.subscribe(col)
+    shots_descriptors: set[str] = set()
+    emitted: list[tuple[int, int, int]] = []  # (rows so far, edges, camera frames)
+
+    def watch(name: str, doc: dict) -> None:
+        if name == "descriptor" and doc["name"] == "shots":
+            shots_descriptors.add(doc["uid"])
+        if name == "event_page" and doc["descriptor"] in shots_descriptors:
+            rows = doc["seq_num"][-1]
+            emitted.append((rows, box.edges, box.counts.get("uc_a", 0)))
+
+    RE.subscribe(watch)
+    RE(bp.count([cam], 30, per_shot=gated_per_shot(shot_control, quota=30)))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert len(_events_from_pages(col, "shots")) == 30
+    assert len(emitted) > 3, emitted  # several collects, not one at the end
+    assert emitted[0][1] < 30, emitted  # the first rows went out mid-batch
+    assert all(rows <= frames for rows, _, frames in emitted), emitted
+    assert _datums_by_key(col)["uc_a"] == [{"start": 0, "stop": 30}]
 
 
 def _saves(device: GeecsDetector) -> list[str]:

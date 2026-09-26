@@ -727,7 +727,7 @@ class ScannerService:
     # --------------------------------------------------------------- verbs
 
     def pause(self, body: VerbIn) -> VerbOut:
-        """Deferred pause: takes effect at the next step boundary."""
+        """Deferred pause: lands at the plan's next checkpoint (the next shot; mid-batch within ~1.5 s in gated)."""
         return self._verb("request_pause", body)
 
     def resume(self, body: VerbIn) -> VerbOut:

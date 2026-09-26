@@ -141,7 +141,9 @@ the recorded physical targets, not a relative coordinate after its zero moved.
   notification ever raises.  Not a flyer: the box has no counter, so in
   gated mode (phase 2) the plan drives it SCAN after
   the detectors' `kickoff` and OFF after their `complete`; `pause_count`
-  is how a gated step learns a pause interrupted its batch.
+  is how a gated step learns a pause interrupted its batch, and
+  `hold_for_batch` makes that pause end the batch at once and leave the
+  restart to the plan.
 - **`ShotSampler`** (`devices/sampler.py`) — the gated run's record of
   every device without a plugin (phase 2b): Flyable +
   EventCollectable, clocked by an essential triggered device's
@@ -331,22 +333,29 @@ each run bracketed OFF → STANDBY; per step the box free-runs in SCAN while
 the plugin-backed essential cameras count `shots_per_step` frames each —
 
 ```
-mv(box, OFF); [repeat: drain wait, rewind_to_step_baseline]
-prepare(cameras, gated_trigger_info(N)); prepare(sampler, N)
+mv(box, OFF); [first step: drain wait, arm + zero_count]
+prepare(cameras, gated_trigger_info(remaining)); prepare(sampler, remaining)
 declare_stream(*cameras, "primary"); declare_stream(sampler, "shots")   # once
 kickoff(*cameras, sampler); mv(box, SCAN)
-complete(*cameras, sampler); mv(box, OFF); drain wait
+complete(*cameras, sampler), waited in ~1 s slices: collect(sampler) + checkpoint
+mv(box, OFF); drain wait
 truncate_to_quota; collect(*cameras, "primary"); collect(sampler, "shots")
 ```
 
 `primary` is a datum stream (one datum per camera per step, the frames and
 their per-frame scalars in the stack); `shots` carries one event per shot
 from the `ShotSampler` (the clock stamp, the motors, `bin_number`, every
-non-plugin scalar).  The step body is not rewindable: a deferred pause
-lands between steps, an immediate pause drives OFF and the resume
-**retakes the step** (the plan reads `ShotControl.pause_count`, settles
-the batch's statuses through `abandon_step` / `cancel_step`, rewinds to the
-step's baseline).  A stalled camera fails `complete` with the GEECS
+non-plugin scalar).  `shots` rows go out **during** the batch (the
+scanner's progress), each only once every camera holds its frame.
+**Pause means pause now** (owner's ruling 2026-09-26, replacing the
+2026-09-12 retake-the-step): a deferred pause lands at the batch's next
+checkpoint (≤ ~1.5 s), an immediate one at once; the batch holds the box
+(`ShotControl.hold_for_batch`), so the pause marks it over synchronously
+and the resume restores nothing — the plan keeps the shots every device
+reached (`GeecsDetector.frames_this_step` / `truncate_to`,
+`ShotSampler.stop` / `keep`), records them, and continues the step with
+the remaining shots.  At most the in-flight shot is lost.  The step body
+is not rewindable (a resume replays nothing).  A stalled camera fails `complete` with the GEECS
 timeout and the box goes OFF.  A gated step needs an essential triggered
 device (the clock).  A **LabVIEW-native saving device without a file
 plugin may be essential** (owner's ruling, 2026-09-25): the row is the

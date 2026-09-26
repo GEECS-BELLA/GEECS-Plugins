@@ -15,26 +15,25 @@ files are their record, exactly as in strict — :func:`native_essentials`),
 included (:class:`~geecs_bluesky.devices.sampler.ShotSampler`), and the
 box *B*::
 
-    mv(B, OFF)                                   # the step opens quiet — also after a
-                                                 #   resume, which restored SCAN first
+    mv(B, OFF)                                   # the step opens quiet
     if the run's first step:
+        sleep(period + max drain + margin)       # STANDBY's in-flight frame lands
         prepare(N, unbounded)                    # saving on, run-long (off at unstage)
         prepare(D); wait_for(D.zero_count)       # arm, then zero the plugin's stale count
-    if repeating (an immediate pause interrupted the step):
-        sleep(period + max drain + margin)       # the in-flight frame lands
-        wait_for(D.rewind_to_step_baseline)      # the partial frames leave the stacks
-    prepare(D, gated_trigger_info(quota))        # capture on, count baselined
-    prepare(S, quota)                            # the sampler: clock + columns
+    prepare(D, gated_trigger_info(remaining))    # capture on, count baselined
+    prepare(S, remaining)                        # the sampler: clock + columns
     declare_stream(*D, name="primary")           # first step only
     declare_stream(S, name="shots")              # first step only
     kickoff(*D, S)                               # quota armed, fly mode
     mv(B, SCAN)                                  # edges flow
-    complete(*D, S)                              # every D (and S) counted its quota
+    complete(*D, S) in slices of PROGRESS_PERIOD_S:
+        collect(S, name="shots")                 # the rows every D holds the frame of
+        checkpoint                               # a deferred pause lands here
     mv(B, OFF)                                   # edges stop
     sleep(period + max drain + margin)           # the in-flight frame lands
     wait_for(D.truncate_to_quota)                # rewind to baseline + quota
-    collect(*D, name="primary")                  # one datum per D: the step's frames
-    collect(S, name="shots")                     # one event per shot: everything else
+    collect(*D, name="primary")                  # one datum per D: the batch's frames
+    collect(S, name="shots")                     # the batch's last rows
 
 Two streams per gated run: ``primary`` carries the frames and their
 per-frame attributes (a datum stream, no events); ``shots`` carries one
@@ -46,15 +45,21 @@ camera *D* is empty and the sampler alone gates the step — a native-saving
 essential clocks it as any triggered device does; a run with no essential
 triggered device at all is refused ("nothing counts shots; use strict").
 
-**Pause** (Sam, 2026-09-12): the step body is not rewindable and holds no
-checkpoint, so a *deferred* pause lands between steps (the stock
-``move_per_step`` checkpoint) — a real pause in both modes.  An
-*immediate* pause mid-batch drives the box OFF (``ShotControl.pause``);
-on resume the RunEngine restores SCAN before the plan runs again, the
-plan sees the box's pause counter advanced, abandons the batch (the
-pending ``complete`` statuses settle instead of failing into a later
-message), rewinds every plugin to the step's baseline and **retakes the
-step from its first shot**.
+**Pause** (Sam, 2026-09-26 — pause means *pause now*; it replaces the
+2026-09-12 retake, which answered "fail or repeat the step?" when pausing
+in place had not been offered): a pause mid-batch, deferred (it lands at
+the batch's next checkpoint, within a progress period — the scanner's
+Pause) or immediate, drives the box OFF (``ShotControl.pause``).  The
+batch holds the box (``ShotControl.hold_for_batch``), so the pause marks
+the batch over at once — its pending statuses settle instead of timing
+out while the operator works — and the resume restores nothing.  The
+plan then keeps the shots **every** device reached: the frames past them
+leave the stacks (``truncate_to``), the rows past them are dropped (none
+went out — a row is collected only once every camera holds its frame),
+the kept ones are recorded, and the step continues with a batch of the
+remaining shots at the same position.  The shot in flight at the pause
+may be lost; nothing before it is.  The step body stays not rewindable:
+a resume replays no message.
 
 The **non-essential stream** is the run-long job: the devices
 listed ``non_essential=[…]`` are staged, prepared unbounded, kicked off
@@ -71,6 +76,7 @@ the rep rate and never aborts a run, in either mode.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Sequence
 from typing import Any, Callable
@@ -120,6 +126,9 @@ logger = logging.getLogger(__name__)
 TRIGGER_PERIOD_S = 1.0
 #: Margin on top of the period and the largest drain offset.
 DRAIN_MARGIN_S = 0.25
+#: How often a running batch collects its settled rows and offers a
+#: checkpoint: the scanner's progress cadence and the latency of its Pause.
+PROGRESS_PERIOD_S = 1.0
 
 
 def shot_clock(devices: Sequence[Any]) -> tuple[Any, str]:
@@ -222,7 +231,11 @@ def gated_take_reading(
         if sampler is None:
             clock, clock_name = shot_clock(devices)
             sampler = ShotSampler(
-                members, clock, clock_name=clock_name, shot_timeout=shot_timeout
+                members,
+                clock,
+                clock_name=clock_name,
+                shot_timeout=shot_timeout,
+                gates=plugin,
             )
             state["sampler"] = sampler
         elif [id(m) for m in sampler.members] != [id(m) for m in members]:
@@ -236,19 +249,18 @@ def gated_take_reading(
             for d in plugin:
                 offsets.append(float((yield from bps.rd(d.drain_offset)) or 0.0))
             drain += max(offsets)
-        mark = getattr(shot_control, "pause_count", 0)
         first_step = state["steps"] == 0
-        attempt = 0
+        done = 0  # the step's shots already recorded (a pause keeps them)
+        batches = 0
         while True:
-            attempt += 1
+            batches += 1
+            first_batch = first_step and batches == 1
             yield from bps.mv(shot_control, TriggerState.OFF.value)
-            if attempt > 1 or first_step:
+            if first_batch:
                 # The in-flight frame lands (STANDBY passed edges before the
-                # run opened; a resume restored SCAN before the plan ran).
+                # run opened).
                 yield from bps.sleep(drain)
-                if attempt > 1 and plugin:
-                    yield from bps.wait_for([d.rewind_to_step_baseline for d in plugin])
-            if native and first_step and attempt == 1:
+            if native and first_batch:
                 # The native-saving essentials: ONE prepare per run, here,
                 # with the box quiet — the device's lifecycle switches
                 # LabVIEW's saving on for the run (off at unstage).  Never
@@ -264,8 +276,9 @@ def gated_take_reading(
                         d, UNBOUNDED_TRIGGER_INFO, group=group, wait=False
                     )
                 yield from bps.wait(group=group)
-            info = gated_trigger_info(quota, exposure_timeout=shot_timeout)
-            if plugin and first_step and attempt == 1:
+            remaining = quota - done
+            info = gated_trigger_info(remaining, exposure_timeout=shot_timeout)
+            if plugin and first_batch:
                 # The run's first arm: the plugin's NumCaptured_RBV still
                 # reads the previous session's count until a frame lands
                 # (found on hardware, A2), so arm, zero the count inside the
@@ -278,7 +291,7 @@ def gated_take_reading(
             group = short_uid("gated-prepare")
             for d in plugin:
                 yield from bps.prepare(d, info, group=group, wait=False)
-            yield from bps.prepare(sampler, quota, group=group, wait=False)
+            yield from bps.prepare(sampler, remaining, group=group, wait=False)
             yield from bps.wait(group=group)
             if not state["declared"]:
                 if plugin:
@@ -286,53 +299,91 @@ def gated_take_reading(
                 yield from bps.declare_stream(sampler, name=shots_stream, collect=True)
                 state["declared"] = True
             yield from bps.kickoff_all(*plugin, sampler, wait=True)
-            yield from bps.mv(shot_control, TriggerState.SCAN.value)
+
+            def end_batch() -> None:
+                # Synchronously: the batch is over — its pending statuses
+                # settle instead of failing into whatever message the plan
+                # is at next (the RunEngine throws a failed status there).
+                for d in plugin:
+                    d.mark_abandoned()
+                sampler.mark_cancelled()
+
+            mark = shot_control.pause_count
+            shot_control.hold_for_batch(end_batch)
+            finished = False
             failure: FailedStatus | None = None
             try:
-                yield from bps.complete_all(*plugin, sampler, wait=True)
+                yield from bps.mv(shot_control, TriggerState.SCAN.value)
+                group = short_uid("gated-complete")
+                yield from bps.complete_all(*plugin, sampler, group=group, wait=False)
+                # The batch's wait, in slices: each slice collects the rows
+                # every camera holds the frame of (the scanner's progress
+                # moves shot by shot) and offers a checkpoint, where a
+                # deferred pause — the scanner's Pause — lands mid-batch.
+                while True:
+                    finished = yield from bps.wait(
+                        group=group,
+                        timeout=PROGRESS_PERIOD_S,
+                        error_on_timeout=False,
+                    )
+                    if shot_control.pause_count != mark:
+                        finished = False  # an immediate pause cut the wait
+                        break
+                    yield from bps.collect(sampler, name=shots_stream)
+                    if finished:
+                        break
+                    yield from bps.checkpoint()
+                    if shot_control.pause_count != mark:
+                        break  # a deferred pause landed at the checkpoint
             except FailedStatus as exc:
                 failure = exc
-            interrupted = getattr(shot_control, "pause_count", 0) != mark
-            if interrupted or failure is not None:
-                # The batch is over: say so NOW, before yielding another
-                # message — a pending complete timing out in the next loop
-                # iteration is then pardoned instead of thrown into the plan.
-                for d in plugin:
-                    d.mark_abandoned()
-                sampler.mark_cancelled()
+            if not finished:
+                end_batch()
             try:
                 yield from bps.mv(shot_control, TriggerState.OFF.value)
-                if failure is None and not interrupted:
-                    # The in-flight edge lands; a pause landing here counts
-                    # too (its resume restored SCAN and more edges came).
-                    yield from bps.sleep(drain)
-                    interrupted = getattr(shot_control, "pause_count", 0) != mark
-                    if interrupted:
-                        for d in plugin:
-                            d.mark_abandoned()
-                        sampler.mark_cancelled()
             except FailedStatus as exc:
                 # A status of this batch failed between the wait's return and
-                # the mark (one loop iteration): the same abandon path.
+                # the mark: the same abandon path.
                 failure = failure or exc
-                for d in plugin:
-                    d.mark_abandoned()
-                sampler.mark_cancelled()
+                finished = False
+                end_batch()
                 yield from bps.mv(shot_control, TriggerState.OFF.value)
-            if interrupted or failure is not None:
-                # Settle the batch's pending statuses before anything else.
-                yield from bps.wait_for(
-                    [d.abandon_step for d in plugin] + [sampler.cancel_step]
-                )
-            if interrupted:
-                mark = getattr(shot_control, "pause_count", 0)
-                logger.warning(
-                    "gated step interrupted by a pause after %d/%d shot(s) — "
-                    "retaking the step from its first shot",
-                    sampler.sampled,
-                    quota,
-                )
-                continue
+            finally:
+                shot_control.hold_for_batch(None)
+            # The in-flight edge lands.
+            yield from bps.sleep(drain)
+            if finished:
+                if plugin:
+                    yield from bps.wait_for([d.truncate_to_quota for d in plugin])
+                    yield from bps.collect(*plugin, name=name)
+                yield from bps.collect(sampler, name=shots_stream)
+                state["steps"] += 1
+                return None
+            # Paused (or failed) mid-batch: keep the shots every device
+            # reached — the frames past them leave the stacks, the rows past
+            # them are dropped (none of them went out: a row is collected only
+            # once every camera holds its frame) — and record them.
+            if plugin:
+                yield from bps.wait_for([d.abandon_step for d in plugin])
+            kept: dict[str, int] = {}
+
+            async def settle() -> None:
+                await sampler.stop()
+                shots = sampler.sampled
+                if plugin:
+                    frames = await asyncio.gather(
+                        *(d.frames_this_step() for d in plugin)
+                    )
+                    shots = min(shots, *frames)
+                await asyncio.gather(*(d.truncate_to(shots) for d in plugin))
+                sampler.keep(shots)
+                kept["shots"] = shots
+
+            yield from bps.wait_for([settle])
+            if plugin:
+                yield from bps.collect(*plugin, name=name)
+            yield from bps.collect(sampler, name=shots_stream)
+            done += kept["shots"]
             if failure is not None:
                 cause = failure.__cause__
                 if isinstance(cause, GeecsTriggerTimeoutError):
@@ -342,12 +393,16 @@ def gated_take_reading(
                     shot_timeout,
                     f"gated batch failed: {failure_cause_text(failure)}",
                 ) from failure
-            if plugin:
-                yield from bps.wait_for([d.truncate_to_quota for d in plugin])
-                yield from bps.collect(*plugin, name=name)
-            yield from bps.collect(sampler, name=shots_stream)
-            state["steps"] += 1
-            return None
+            if done >= quota:
+                state["steps"] += 1
+                return None
+            logger.warning(
+                "gated batch paused after %d/%d shot(s) — the step continues "
+                "from shot %d",
+                done,
+                quota,
+                done + 1,
+            )
 
     return take_reading
 
@@ -374,7 +429,7 @@ def gated_per_shot(shot_control: Any, **kwargs: Any) -> Callable[..., Any]:
         yield Msg("checkpoint")
         body = take_reading([*detectors, bins], quota)
         # Not rewindable: a resume must not replay the batch's messages —
-        # the plan retakes the step itself (module docstring, Pause).
+        # the plan continues the step itself (module docstring, Pause).
         return (yield from name_failed_status(rewindable_wrapper(body, False)))
 
     per_shot.__name__ = per_shot.__qualname__ = "gated_per_shot"
