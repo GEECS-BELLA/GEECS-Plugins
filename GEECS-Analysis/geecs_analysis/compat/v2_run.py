@@ -253,14 +253,17 @@ def _worker_init(
     import atexit
     from logging.handlers import QueueHandler
 
-    root = logging.getLogger()
-    root.addHandler(QueueHandler(queue))
-    root.setLevel(level)
     # A spawned interpreter has an empty registry; the builtins register on
     # import, and unpickling the recipe imports only the specs it carries.
+    # Imported before the forwarding handler exists: the records those
+    # modules emit at import time are start-up lines the parent already
+    # logged once, and would otherwise reach the host log once per worker.
     import geecs_analysis.measures  # noqa: F401
     import geecs_analysis.steps  # noqa: F401
 
+    root = logging.getLogger()
+    root.addHandler(QueueHandler(queue))
+    root.setLevel(level)
     opened = _opened(load)
     read = opened.__enter__()
     atexit.register(opened.__exit__, None, None, None)

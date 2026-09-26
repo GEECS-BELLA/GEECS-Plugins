@@ -52,6 +52,7 @@ HELPER = textwrap.dedent(
 
         def __call__(self, shot):
             assert self.opened, "read before the source was entered"
+            self._record("read")
             if shot == 5:
                 raise OSError(f"missing {shot}")
             if shot == 3:
@@ -93,6 +94,17 @@ def events(records):
     return {p.name: p.read_text().split() for p in records.iterdir()}
 
 
+def lifecycle(records):
+    """Each process's open/close sequence, reads left out."""
+    return {
+        pid: [e for e in seen if e != "read"] for pid, seen in events(records).items()
+    }
+
+
+def reads(records):
+    return sum(e == "read" for seen in events(records).values() for e in seen)
+
+
 def same_scalars(a, b):
     assert list(a) == list(b)
     for key in a:
@@ -130,7 +142,7 @@ def test_pool_yields_the_serial_sequence_and_opens_each_worker_once(source, aver
     else:
         groups = [ShotGroup(n, (n,)) for n in range(1, 13)]
     serial = list(run_units(compiled, groups, loader, average_before_analysis=average))
-    assert events(records) == {str(os.getpid()): ["open", "close"]}
+    assert lifecycle(records) == {str(os.getpid()): ["open", "close"]}
     for path in records.iterdir():
         path.unlink()
     pooled = list(
@@ -141,10 +153,11 @@ def test_pool_yields_the_serial_sequence_and_opens_each_worker_once(source, aver
     # The failed shot is an outcome in both modes, never an exception.
     failed = [o for o in pooled if o.load_failures]
     assert [f.shot for o in failed for f in o.load_failures] == [5]
-    workers = events(records)
+    workers = lifecycle(records)
     assert str(os.getpid()) not in workers, "the parent read nothing itself"
     assert 1 <= len(workers) <= 2
     assert all(seen == ["open", "close"] for seen in workers.values())
+    assert reads(records) == sum(len(g.shots) for g in groups)
 
 
 def test_worker_log_records_reach_the_parent_logger(source, caplog):
@@ -167,17 +180,18 @@ def test_closing_a_pooled_run_early_shuts_the_pool_down(source):
     assert first.group.key == 1
     outcomes.close()
     # Every worker that opened the source also closed it: the pool exited
-    # through its atexit handlers, and the untouched groups were dropped.
-    seen = events(records)
+    # through its atexit handlers, and the untouched groups were dropped —
+    # at most the window (2 × workers) was in flight past the first result.
+    seen = lifecycle(records)
     assert seen and all(value == ["open", "close"] for value in seen.values())
-    assert not any(records.parent.glob("dummy"))
+    assert 1 <= reads(records) <= 1 + 2 * 2, f"{reads(records)} of 40 groups read"
 
 
 def test_pool_refuses_multi_member_groups_in_per_shot_mode(source):
     loader, records = source
     with pytest.raises(ValueError, match="single-member"):
         list(run_units(recipe(), [ShotGroup(1, (1, 2))], loader, workers=2))
-    assert all(value == ["open", "close"] for value in events(records).values())
+    assert all(value == ["open", "close"] for value in lifecycle(records).values())
 
 
 def test_serial_default_creates_no_pool(monkeypatch):

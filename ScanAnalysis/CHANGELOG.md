@@ -19,6 +19,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   sequence, built on the collector, so every product, note and gate is as
   before. Pinned: `tests/test_core_streaming.py` tracks the frames a
   300-shot run keeps alive (at most 3; the old list kept all 300).
+  Bin membership comes from `core_scan.group_shots` (a fractional `Bin #`
+  is still refused, never truncated); `plan_products` folds a bin in
+  scalar-row order whatever order its outcomes arrive in; a result the
+  products cannot fold raises only after the scalars are persisted.
 - `core_source.V2ShotSource` is the run's loader and a context manager:
   entered once per run (`PreparedScan.run`) and once per pooled worker, it
   keeps **one handle per capture stack open across the run** instead of one

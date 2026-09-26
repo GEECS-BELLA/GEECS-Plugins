@@ -21,7 +21,9 @@
   many are folded; scalars kept and reduced at the end; traces retained and
   reduced at storage dtype as before. The sequential fold is numpy's own
   order for a first-axis stack reduction, so the result equals
-  `np.mean` / `np.nanmean` over the stack **bit for bit** (pinned against the
+  `np.mean` / `np.nanmean` over the stack **bit for bit** for frames of more
+  than one element — a stack of 1×1 frames reduces along a contiguous axis,
+  pairwise (pinned against the
   stack, and by the unchanged differential tests against the legacy
   `ImageAnalyzerResult.average`). `average_results` is now built on it.
 - `Measurement` pickles (a worker returns one to its parent): the scalar

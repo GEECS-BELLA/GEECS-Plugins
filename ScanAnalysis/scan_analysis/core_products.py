@@ -18,6 +18,8 @@ from geecs_analysis.compat.v2_average import RunningAverage
 from geecs_analysis.compat.v2_run import UnitResult
 from geecs_analysis.measurement import Measurement
 
+from scan_analysis.core_scan import group_shots
+
 #: The position label a noscan's per-shot panels carry (the waterfall's y axis
 #: and title); a preview over a few shots uses the same name.
 NOSCAN_POSITION_LABEL = "Shot Number"
@@ -55,16 +57,17 @@ def bin_of_shot(rows: pd.DataFrame) -> dict[int, int]:
     """``{shot number: bin key}`` for every row with a bin, from the s-file rows.
 
     Which bin each shot's result folds into is known before any frame is
-    loaded, so a scanned run accumulates per bin as it streams. Rows without
-    a bin value form no bin, as ``core_scan.group_shots`` decides; an absent
-    ``Bin #`` column means no bins at all.
+    loaded, so a scanned run accumulates per bin as it streams. The
+    membership is :func:`core_scan.group_shots`'s, one definition: a row
+    without a bin value forms no bin, an absent ``Bin #`` column means no
+    bins at all, and a fractional bin id is refused, never truncated.
     """
     if "Bin #" not in rows:
         return {}
     return {
-        int(shot): int(value)
-        for shot, value in zip(rows["Shotnumber"], rows["Bin #"], strict=True)
-        if not pd.isna(value)
+        shot: group.key
+        for group in group_shots(rows, rows["Shotnumber"], "per_bin")
+        for shot in group.shots
     }
 
 
@@ -263,7 +266,10 @@ def plan_products(
     column or ``None``, always passed together. Scanned summaries
     average per-shot results by bin, or reuse already-analyzed raw bin means;
     parameter positions use every scalar row in the bin, not only loaded shots.
-    The fold is :class:`ProductCollector`'s, one definition for both.
+    The fold is :class:`ProductCollector`'s, one definition for both; a
+    scanned per-shot run's bins are folded in scalar-row order whatever
+    order the outcomes are given in, the order the old planner reduced in
+    (the analyzer already yields them that way).
     """
     collector = ProductCollector(
         recipe,
@@ -272,6 +278,11 @@ def plan_products(
         noscan=noscan,
         sort_requested=sort_requested,
     )
+    if not collector.unbinned and not average_before_analysis and "Bin #" in rows:
+        position = {int(n): i for i, n in enumerate(rows["Shotnumber"])}
+        outcomes = sorted(
+            outcomes, key=lambda o: position.get(o.group.key, len(position))
+        )
     for outcome in outcomes:
         collector.add(outcome)
     return collector.plan(

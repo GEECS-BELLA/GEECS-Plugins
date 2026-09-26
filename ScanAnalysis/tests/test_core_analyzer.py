@@ -326,7 +326,7 @@ def test_converted_recipe_matches_its_v2_source_on_the_core(
     )
 
 
-@pytest.mark.parametrize("kind,mode,noscan,renderer", CASES[:3] + CASES[3:4])
+@pytest.mark.parametrize("kind,mode,noscan,renderer", CASES[:4])
 def test_pooled_run_writes_the_identical_tree(
     tmp_path, monkeypatch, caplog, kind, mode, noscan, renderer
 ):
@@ -368,3 +368,21 @@ def test_host_cap_bounds_the_recipe_request(tmp_path, monkeypatch, caplog):
     assert any(
         r.getMessage().endswith(f"{SHOTS} units, 1 worker") for r in caplog.records
     )
+
+
+def test_a_fold_error_raises_only_after_the_scalars_persist(tmp_path, monkeypatch):
+    """A result the products cannot fold never costs the run its scalar columns."""
+    from scan_analysis import core_analyzer
+
+    def refuse(self, outcome):
+        raise ValueError("Averaged results must have matching units")
+
+    monkeypatch.setattr(core_analyzer.ProductCollector, "add", refuse)
+    with pytest.raises(ValueError, match="matching units"):
+        run(monkeypatch, tmp_path, "core", document(), noscan=False)
+    scan = next(
+        p for p in (tmp_path / "core").rglob("Scan001") if p.parent.name == "scans"
+    )
+    tree = snapshot(scan)
+    assert "Scan001/Scan001_Diag.txt" in tree
+    assert "Diag_x_CoM" in tree["s1.txt"][1].columns

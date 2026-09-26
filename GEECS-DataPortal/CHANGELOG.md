@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.2] - 2026-09-26
+
+### Changed
+
+- `DEPLOYMENT.md`'s memory-ceiling section: a portal analysis run streams
+  since ScanAnalysis 1.38.0 (#1003) instead of holding every processed
+  frame, and a recipe's `scan.workers` pool spawns children that live
+  inside the unit's `MemoryHigh`/`MemoryMax` — size `[analysis]
+  worker_cap` in the service account's `config.ini` with the ceiling.
+  Documentation only.
+
 ## [0.36.1] - 2026-09-26
 
 ### Fixed

@@ -237,7 +237,9 @@ projections and markers accumulate as a float64 sum (plus a per-element
 count in bin mode, the `nanmean` shape), so memory is one frame however
 many are folded; the sequential fold is numpy's own order for reducing a
 stack along its first axis, so the quotient equals `np.mean`/`np.nanmean`
-over the stack **bit for bit** — pinned against the stack and by the
+over the stack **bit for bit** for frames of more than one element (a stack
+of 1×1 frames reduces along a contiguous axis, pairwise) — pinned against
+the stack and by the
 unchanged differential tests against the legacy `ImageAnalyzerResult.average`.
 Scalars are a few floats per unit and are kept and reduced at the end,
 because numpy's pairwise 1-D sum is *not* a running sum; traces are kept

@@ -147,7 +147,9 @@ class RunningAverage:
     float64 sums, so memory is one frame however many results are folded,
     and the sequential fold is numpy's own order for reducing a stack along
     its first axis: the quotient equals ``np.mean`` / ``np.nanmean`` over the
-    stack bit for bit. Scalars are a few floats per result and are kept and
+    stack bit for bit for any frame of more than one element (numpy reduces a
+    stack of 1×1 frames along a contiguous axis, pairwise). Scalars are a few
+    floats per result and are kept and
     reduced at the end, because numpy's pairwise sum over a 1-D vector is
     not a running sum. Trace results (rank 1) are kept and reduced at the
     storage dtype at the end, exactly as before; a scan keeps every trace

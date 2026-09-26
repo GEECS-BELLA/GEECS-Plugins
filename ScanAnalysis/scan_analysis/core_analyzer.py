@@ -56,8 +56,9 @@ class CoreScanAnalyzer(ScanAnalyzer):
     scalar persistence are inherited unchanged from :class:`ScanAnalyzer`.
 
     Deliberate differences from the legacy wrappers: scalars are persisted
-    before products are written, so a product write failure never loses
-    them, and the output directory is created only when a product is saved.
+    before products are written, so a product write failure — or a result
+    the products cannot fold, raised after the persist — never loses them,
+    and the output directory is created only when a product is saved.
 
     The run streams: each outcome's scalars are queued and its measurement
     folded into the products (``ProductCollector``) as it arrives, so a
@@ -159,6 +160,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
             "" if workers == 1 else "s",
         )
         pending: list[dict] = []
+        fold_error: ValueError | None = None
         for outcome in prepared.run(workers=workers):
             for failure in outcome.load_failures:
                 logger.warning(
@@ -174,7 +176,14 @@ class CoreScanAnalyzer(ScanAnalyzer):
                 continue
             for note in outcome.measurement.notes:
                 logger.warning("Unit %s: %s", outcome.group.key, note)
-            collector.add(outcome)
+            # A result the products cannot fold (units or axes that disagree,
+            # a repeated key) is raised only after the scalars are persisted,
+            # as the old sequence planner raised after the s-file merge.
+            if fold_error is None:
+                try:
+                    collector.add(outcome)
+                except ValueError as exc:
+                    fold_error = exc
             pending.extend(prepared.scalar_records(outcome))
         if pending:
             updates = pd.DataFrame(pending)
@@ -189,6 +198,8 @@ class CoreScanAnalyzer(ScanAnalyzer):
                         rows.loc[mask, key] = value
             self.write_scalar_sidecar(updates)
             self.append_to_sfile(updates)
+        if fold_error is not None:
+            raise fold_error
 
     def cleanup(self) -> None:
         """Release the loaded s-file and the display list after a run."""
