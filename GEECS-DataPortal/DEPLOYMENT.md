@@ -115,12 +115,30 @@ from `site.env`; nothing site-specific is typed into the unit by hand.
 Tiled, MySQL and the queueserver). Above HIGH systemd throttles and
 reclaims the portal; at MAX it kills it and `Restart=on-failure` brings
 it back — so a runaway portal evicts itself before the kernel picks a
-victim, and the victim is the portal rather than Tiled (#834). To change
+victim, and the victim is the portal rather than Tiled (#834). The unit
+also sets `MemorySwapMax=0`: without it the portal is pushed into swap
+above HIGH instead of reaching MAX, and hangs rather than restarting.
+Portal analysis runs execute in this process, and today they hold every
+processed frame of a scan until its summary figures are drawn (#1003) —
+a 3600-shot 600×600 camera run needs ~10 GB — so size HIGH/MAX for the
+largest analysis you run here, or run big ones elsewhere. To change
 the numbers: edit `site.env`, re-render, `daemon-reload`, restart. For a
 quick change without a re-render, `sudo systemctl set-property
 geecs-data-portal MemoryMax=6G` writes a persistent drop-in;
 `systemctl revert geecs-data-portal` removes it. `systemctl status`
 shows the current `Memory:` line against the cap.
+
+**Unresponsive but `active (running)`.** If pages time out while the
+unit reports running, check whether the portal is pinned at its memory
+line: `systemctl status geecs-data-portal` (`Memory:` at `high:` with
+`available: 0B`) and
+`cat /sys/fs/cgroup/system.slice/geecs-data-portal.service/memory.swap.current`.
+A plain `systemctl restart` then sits in the stop timeout, because the
+process cannot page itself back in to shut down cleanly; skip it with
+`sudo systemctl kill -s KILL geecs-data-portal` and the pending restart
+proceeds. On a host whose unit predates `MemorySwapMax=0`,
+`sudo systemctl set-property geecs-data-portal MemorySwapMax=0` applies
+it without a re-render.
 
 Verify:
 
