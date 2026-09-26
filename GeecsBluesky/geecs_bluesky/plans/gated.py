@@ -97,7 +97,7 @@ from bluesky.utils import (
 from geecs_data_utils.shot_join import SHOTS_STREAM, non_essential_stream
 from geecs_schemas.trigger_profile import TriggerState
 
-from geecs_bluesky.devices.ca._view import ScalarsView
+from geecs_bluesky.devices.ca._view import ScalarsView, owner_of
 from geecs_bluesky.devices.detector import (
     DEFAULT_SHOT_TIMEOUT,
     UNBOUNDED_TRIGGER_INFO,
@@ -152,7 +152,7 @@ def shot_clock(devices: Sequence[Any]) -> tuple[Any, str]:
         or (isinstance(d, ScalarsView) and isinstance(d._owner, GeecsDetector))
     ]
     for candidate in [*plugin, *others]:
-        owner = candidate._owner if isinstance(candidate, ScalarsView) else candidate
+        owner = owner_of(candidate)
         return owner.acq_timestamp, owner._geecs_device_name
     raise GeecsConfigurationError(
         "a gated run needs at least one essential triggered device (a camera "
@@ -427,11 +427,7 @@ def refuse_free_running_non_essentials(devices: Sequence[Any]) -> None:
     GeecsConfigurationError
         Naming the devices.
     """
-    unstamped = [
-        d
-        for d in devices
-        if not isinstance(d._owner if isinstance(d, ScalarsView) else d, GeecsDetector)
-    ]
+    unstamped = [d for d in devices if not isinstance(owner_of(d), GeecsDetector)]
     if unstamped:
         names = ", ".join(getattr(d, "name", str(d)) for d in unstamped)
         raise GeecsConfigurationError(
@@ -494,7 +490,7 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
     # What the run stages: a view's owner (a view has no lifecycle of its own).
     roots: list[Any] = []
     for flyer in flyers:
-        root = flyer._owner if isinstance(flyer, ScalarsView) else flyer
+        root = owner_of(flyer)
         if all(root is not r for r in roots):
             roots.append(root)
     plugin = [f for f in flyers if isinstance(f, GeecsDetector) and f.plugin_backed]

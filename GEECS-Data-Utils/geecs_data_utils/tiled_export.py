@@ -443,23 +443,28 @@ def _event_stream_columns(object_name: str, node: Any) -> FrameColumns | None:
     table part is read like the rows' (never an array part); a stream with
     no events still yields its numeric keys from the stream's
     ``data_keys`` metadata (the descriptor's), so the offline s-file
-    carries the same all-``NaN`` columns the live one does.  ``None`` for a
-    stream with no table and no such keys — a plugin camera's datum-only
-    stream, read from its attribute arrays instead.
+    carries the same all-``NaN`` columns the live one does.  ``None``
+    (quietly) for a stream without the device's own ``<name>-acq_timestamp``
+    — a plugin camera's datum-only stream, read from its attribute arrays
+    instead.
     """
     from geecs_data_utils.shot_join import (
+        ACQ_TIMESTAMP_SUFFIX,
         frame_columns_from_events,
         numeric_data_keys,
     )
     from geecs_data_utils.tiled_catalog import read_primary_scalars
 
+    # The device's OWN stamp column is what makes it an event stream: a
+    # plugin camera's datum stream carries per-frame numeric keys too
+    # (``<name>-hdf-<variable>-frame_acq_timestamp``) but never this one.
+    stamp = f"{object_name}{ACQ_TIMESTAMP_SUFFIX}"
     table = read_primary_scalars(node)
-    if table is not None and len(table):
-        events = table.to_dict("records")
-        return frame_columns_from_events(object_name, events)
+    if table is not None and len(table) and stamp in table.columns:
+        return frame_columns_from_events(object_name, table.to_dict("records"))
     data_keys = (getattr(node, "metadata", None) or {}).get("data_keys") or {}
     keys = numeric_data_keys(data_keys)
-    if not keys:
+    if stamp not in keys:
         return None
     return frame_columns_from_events(object_name, [], keys=keys)
 

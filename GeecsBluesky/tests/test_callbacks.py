@@ -1151,6 +1151,25 @@ def test_a_slow_non_essential_native_saver_joins_by_stamp_and_checks_its_files(
     )
 
 
+def test_a_scalars_view_non_essential_reaches_the_s_file(RE, gated_worker, tmp_path):
+    """Review finding 1: ``X.scalars`` non-essential streams into ``<X>_stream``.
+
+    The start document's ``non_essential`` must name the same object, or the
+    s-file callback never buffers the stream and the device's columns are
+    silently absent (``save_images: false`` + ``essential: false``, the case
+    ``expand_preset`` now admits).
+    """
+    plans, box, sfile = gated_worker
+    a = _camera(RE, box, "UC_A")
+    slow = _camera(RE, box, "U_Slow")
+    set_mock_value(slow.meancounts, 9.0)
+    RE(plans["count"]([a], 3, non_essential=[slow.scalars]))
+    sfile.join(10.0)
+    table = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
+    assert list(table["U_Slow MeanCounts"]) == [9.0] * 3
+    assert list(table["U_Slow acq_timestamp"]) == list(table["UC_A acq_timestamp"])
+
+
 def test_a_gated_run_whose_stack_never_finalizes_still_gets_its_s_file(
     RE, gated_worker, tmp_path, caplog, axes_namespace
 ):

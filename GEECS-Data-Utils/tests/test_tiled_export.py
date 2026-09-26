@@ -699,3 +699,50 @@ def test_the_offline_re_export_of_an_empty_event_stream_reads_its_keys() -> None
     assert len(columns) == 0
     assert set(columns.columns) == {"u_slow-acq_timestamp", "u_slow-current"}
     assert read_frame_columns(_FakeSlowRun([]), "primary") == []
+
+
+def test_a_plugin_non_essential_stream_is_not_mistaken_for_an_event_stream(
+    caplog,
+) -> None:
+    """Review finding 2: a datum stream's numeric keys are not an event stream's.
+
+    A plugin camera listed non-essential has numeric ``data_keys`` of its own
+    (the per-frame attributes) but no ``<name>-acq_timestamp``: it is read
+    from its attribute arrays, with no "not joined" warning on the way.
+    """
+    import logging
+
+    import numpy as np
+
+    from geecs_data_utils.tiled_export import read_frame_columns
+
+    stream = _FakeStream(
+        {
+            "uc_b": _FakePart(np.zeros((3, 2, 2)), "array"),
+            "uc_b-hdf-image-frame_acq_timestamp": _FakePart(
+                np.array([1.0, 2.0, 3.0]), "array"
+            ),
+            "uc_b-hdf-image-meancounts": _FakePart(np.array([4.0, 5.0, 6.0]), "array"),
+        }
+    )
+    stream.metadata["data_keys"] = {
+        "uc_b": {"dtype": "number"},
+        "uc_b-hdf-image-frame_acq_timestamp": {"dtype": "number"},
+        "uc_b-hdf-image-meancounts": {"dtype": "number"},
+    }
+
+    class _Run:
+        metadata = {"start": {**_slow_start(), "non_essential": ["uc_b"]}}
+
+        def __iter__(self):
+            return iter(["primary", "uc_b_stream"])
+
+        def __getitem__(self, key):
+            if key == "primary":
+                return _FakeStream({"internal": _FakePart(_strict_rows(), "table")})
+            return stream
+
+    with caplog.at_level(logging.WARNING):
+        (columns,) = read_frame_columns(_Run(), "primary")
+    assert columns.object_name == "uc_b" and len(columns) == 3
+    assert "not joined" not in caplog.text

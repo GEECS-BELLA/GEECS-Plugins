@@ -32,7 +32,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   view is never prepared; a stream that recorded nothing is a WARNING at
   the close. A device with no stamp (free-running) is refused at bind
   (`gated.refuse_free_running_non_essentials`, in `strict_plan` and
-  `optimize`) — deferred.
+  `optimize`) — deferred. The start document's `non_essential` names each
+  device by its **owner** (a `.scalars` view's stream is
+  `<owner>_stream`), so the s-file finds a view's stream too.
+- `devices.ca._view.owner_of`: the one view → owner unwrapping rule, now
+  used by the sampler, the gated plan, the registry and `optimize`
+  (previously copy-pasted six ways).
 - The live s-file joins every non-essential **event** stream onto the rows
   by stamp (`geecs_data_utils.shot_join.frame_columns_from_events`): its
   columns on the rows it stamped, `NaN` on the rest (all-`NaN` from the

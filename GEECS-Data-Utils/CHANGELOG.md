@@ -22,7 +22,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `tiled_export.read_frame_columns` reads the non-essential event streams
   the start document's `non_essential` names (their table part; an empty
   one through the stream's `data_keys` metadata), so the offline
-  re-export writes the columns the worker's live s-file does.
+  re-export writes the columns the worker's live s-file does. Only a
+  stream carrying the device's own `<name>-acq_timestamp` is read that
+  way: a plugin camera's datum stream (numeric per-frame keys, no such
+  column) goes to its attribute arrays as before, with no warning.
 
 ## [0.42.0] - 2026-09-25
 

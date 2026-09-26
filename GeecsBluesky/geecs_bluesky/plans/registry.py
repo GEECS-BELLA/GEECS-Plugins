@@ -20,6 +20,7 @@ import bluesky.plans as bp
 import bluesky.preprocessors as bpp
 from geecs_schemas.trigger_profile import TriggerState
 
+from geecs_bluesky.devices.ca._view import owner_of
 from geecs_bluesky.devices.ca.liveness import read_disconnected
 from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.shot_control import ShotControl
@@ -346,8 +347,8 @@ def strict_plan(
         # Compared by OWNER: ``X.scalars`` essential with ``X`` non-essential
         # is the same camera twice — its one acquire logic would be in fly
         # mode for the stream while the view expects the strict stamp wait.
-        owners = {id(getattr(d, "_owner", d)) for d in detectors}
-        both = [d for d in non_essential if id(getattr(d, "_owner", d)) in owners]
+        owners = {id(owner_of(d)) for d in detectors}
+        both = [d for d in non_essential if id(owner_of(d)) in owners]
         if both:
             names = ", ".join(getattr(d, "name", str(d)) for d in both)
             raise GeecsConfigurationError(
@@ -361,7 +362,11 @@ def strict_plan(
         md["trigger_profile"] = profile_key
         md["shots_per_step"] = shots_per_step
         md["acquisition"] = acquisition
-        md["non_essential"] = [getattr(d, "name", str(d)) for d in non_essential]
+        # The OWNER's name: a ``.scalars`` view streams into ``<owner>_stream``,
+        # and the s-file finds the stream by this list.
+        md["non_essential"] = [
+            getattr(owner_of(d), "name", str(d)) for d in non_essential
+        ]
         md["native_image_save"] = native_files
         if shot_period is not None:
             md["shot_period"] = shot_period

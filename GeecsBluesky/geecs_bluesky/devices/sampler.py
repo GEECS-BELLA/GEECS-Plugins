@@ -64,7 +64,7 @@ from event_model import DataKey
 from event_model.documents.event import PartialEvent
 from ophyd_async.core import AsyncStatus, SignalR, merge_gathered_dicts
 
-from geecs_bluesky.devices.ca._view import ScalarsView
+from geecs_bluesky.devices.ca._view import ScalarsView, owner_of
 from geecs_bluesky.devices.detector import DEFAULT_SHOT_TIMEOUT, GeecsDetector
 from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
 
@@ -124,7 +124,7 @@ def _readers_for(obj: Any) -> list[tuple[Any, _Describe, _Read]]:
     Anything else with ``read`` / ``describe`` (a scalar-only device, a
     motor, a signal, the bin counter) is one source.
     """
-    owner = obj._owner if isinstance(obj, ScalarsView) else obj
+    owner = owner_of(obj)
     if isinstance(owner, GeecsDetector):
         readers: list[tuple[Any, _Describe, _Read]] = [
             (sig, sig.describe, sig.read)  # type: ignore[list-item]
@@ -204,7 +204,7 @@ class ShotSampler:
             int, tuple[str, SignalR[float], dict[int, tuple[_Describe, _Read]]]
         ] = {}
         for member in self._members:
-            owner = member._owner if isinstance(member, ScalarsView) else member
+            owner = owner_of(member)
             acq = getattr(owner, "acq_timestamp", None)
             if (
                 isinstance(owner, GeecsDetector)
@@ -479,7 +479,7 @@ class StampStream:
     parent = None
 
     def __init__(self, device: Any) -> None:
-        owner = device._owner if isinstance(device, ScalarsView) else device
+        owner = owner_of(device)
         if not isinstance(owner, GeecsDetector):
             raise TypeError(
                 f"{getattr(device, 'name', device)!r} has no shot stamp: a "

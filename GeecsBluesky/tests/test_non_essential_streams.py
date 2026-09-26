@@ -254,6 +254,9 @@ def test_a_scalars_view_non_essential_streams_its_scalars_without_files(
     RE.subscribe(col)
     RE(count([a], 3, non_essential=[native.scalars]))
     assert col.docs["stop"][-1]["exit_status"] == "success"
+    # the start document names the stream the s-file must find (review
+    # finding 1): the owner's, like the stream itself
+    assert col.docs["start"][0]["non_essential"] == ["uc_native"]
     assert "on" not in saves and saves == ["off", "off"]  # stage, unstage
     assert not (tmp_path / "Scan001" / "UC_Native").exists()
     events = _events_from_pages(col, "uc_native_stream")
