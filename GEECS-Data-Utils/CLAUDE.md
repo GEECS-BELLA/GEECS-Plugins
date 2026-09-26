@@ -71,6 +71,9 @@ owned and read-only; invalid signal values remain visible to measures.
 `crop` slices coordinates and data together, preserving calibrated/global
 positions. `from_trace` / `as_trace` adapt the existing Nx2 reader convention
 without resampling. No current consumer is switched by introducing these types.
+Both pickle, and arrive **read-only again** (`__setstate__` re-freezes the
+arrays; numpy pickles values, not flags) — the analysis core's process-pool
+workers return measurements built on them.
 
 ### `ScanTag`
 
@@ -457,6 +460,12 @@ read back from Linux.  Three rules hold on this side, and the writer's half
 3. **One frame per chunk** is the written layout, because the two access
    patterns are per-shot random access (`read_shot`) and whole-stack
    reads; whole-frame chunks serve both.
+4. **A run keeps one handle.** Each open is several protocol round trips
+   over SMB (~2 ms of a 5 ms per-frame read), so a consumer reading every
+   frame of one stack opens it once and reads through `read_frame(f, i)`
+   — the read behind `read_shot`, same bounds check — rather than
+   `read_shot` per frame. ScanAnalysis's `V2ShotSource` does this per run
+   and per pool worker.
 
 ## Key Dependency
 

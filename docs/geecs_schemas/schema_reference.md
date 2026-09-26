@@ -1152,7 +1152,7 @@ One device's analysis: input, ordered steps, a measure, the draw, the summaries.
 | `inputs` | `dict[str, FrameInput]` | no | empty | Frames loaded before the run and bound by name for steps that take one (a background image). |
 | `steps` | `list[StepRef]` | no | empty | Processing steps in order; any order, repeats allowed. |
 | `measure` | `MeasureRef` | no | MeasureRef(kind='none') | What is measured on each processed frame. |
-| `scan` | `RecipeRuntime` | no | RecipeRuntime(priority=100, average_frames_first=False, save=True) | How the recipe runs over a scan. |
+| `scan` | `RecipeRuntime` | no | RecipeRuntime(priority=100, average_frames_first=False, save=True, workers=1) | How the recipe runs over a scan. |
 | `figure` | `FigureStyle` | no | FigureStyle(imshow={}, pcolormesh={}, plot={}, colorbar={}, axes={}, fig={}, overlays={}) | The per-frame draw, reused by every summary kind. |
 | `summaries` | `list[ImageGridSummary \| WaterfallSummary \| AverageSummary]` | no | empty | Scan-level figures, each a frozen kind with its own options; an empty list draws no summary. |
 
@@ -1245,6 +1245,7 @@ How the recipe runs over a scan.
 | `priority` | `int` | no | 100 | Run order within a group: lower runs first. 100 is the background default. |
 | `average_frames_first` | `bool` | no | False | Average each bin's frames before processing and measure once per bin, for metrics that are not linear in the image; default measures every frame. |
 | `save` | `bool` | no | True | Write per-shot / per-bin products and the summary figures into the analysis tree. S-file scalar columns are written regardless. |
+| `workers` | `int` | no | 1 | Worker processes a scan run may use to read and measure frames in parallel; 1 (the default) runs in the calling process. The host caps it at its own limit and runs small scans serially; the outputs are identical either way. |
 
 ### FigureStyle
 

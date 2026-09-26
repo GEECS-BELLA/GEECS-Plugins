@@ -11,7 +11,8 @@ scan_analysis/
   core_inputs.py                   # v2 core compilation + loaded file-background bindings
   core_source.py                   # completed-scan native/stack input mapping and reads
   core_scan.py                     # write-free scan preparation, grouping and execution
-  core_products.py                 # write-free average/bin and summary product planning
+  core_products.py                 # write-free average/bin and summary product planning (ProductCollector streams it)
+  core_workers.py                  # the worker count a run gets: recipe request, host cap (config.ini), small-run floor
   core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN; draw_product / draw_summary
   core_preview.py                  # the editor's previews through the run's own calls (frame; a summary's layout over a few shots)
   core_analyzer.py                 # CoreScanAnalyzer: the core route behind the ScanAnalyzer contract
@@ -49,6 +50,16 @@ Camera stack preference may fall back to native files; stack-only traces cannot.
 The source never creates folders or writes files. Hosts must wait for scan
 completion before discovering HDF5 stacks over SMB. Reader metadata is not
 returned by this raw-array adapter; v2 recipes supply configured labels/units.
+The source is the run's loader (callable per shot) **and a context manager**:
+`PreparedScan.run` enters it once, and a pooled run enters it once in every
+worker, so one capture stack is opened once per run/worker and read through
+`scan_stack.read_frame`, not once per shot (each open is several SMB round
+trips). Outside the context a read opens and closes by itself, as before.
+Handles never pickle (`__getstate__` drops them; the source travels closed)
+and are closed on completion, error or an early `close()` of the run's
+iterator — `open_stacks` shows what is held, and `tests/test_core_streaming.py`
+pins one open per run. Trace stacks (`pva_stack`) still open per read inside
+the shared 1-D reader; a one-handle path for them is a data-utils change.
 
 `core_scan.prepare_scan` snapshots config, rows, source, recipe and scalar naming
 for one explicit run. `PreparedScan.run()` streams core `UnitResult` outcomes;
@@ -57,7 +68,9 @@ without mutating the result or caller's rows. Per-bin updates include all bin
 members even when some inputs fail. Groups follow scalar-row order; empty bins
 are omitted and missing bin values form no group. Duplicate/nonpositive shot
 numbers and fractional bin ids are explicit preparation errors. No sinks or
-legacy factory route change are included in this adapter.
+legacy factory route change are included in this adapter. `run(workers=N)`
+hands the count to the core's ordered pool (`geecs_analysis.compat.v2_run`);
+the outcomes arrive in group order whatever the count.
 
 `core_products.plan_products` chooses saved average/bin measurements and ordered
 summary panels without rendering or writing. Preserve the old figure gate
@@ -68,6 +81,24 @@ Scan positions average all scalar rows in each bin, including missing inputs.
 Line sort requests bypass scanned-bin rendering; finite/bounds/sigma filtering
 changes waterfall rows only, not the all-unit average. Omitted products carry
 notes; the sink owns logging and file naming.
+
+`ProductCollector` is that planning **as the run streams** (#1003), and
+`plan_products` is built on it — one definition. It is built before the run
+from what is known then (noscan or scanned, raw-bin or per-shot, a line
+sort request, the shot→bin membership from the rows): a noscan (or a sorted
+line waterfall) keeps one `RunningAverage` over every unit plus, for a line
+recipe, every unit's measurement for the panels; a scanned per-shot run
+keeps one `RunningAverage` per bin, folded in row order — the order the old
+`group_shots`/`average_results` pair reduced in, so the numbers are
+identical; a raw-bin run keeps each bin's measurement. A camera frame is
+folded and dropped, so a camera scan holds one running frame per product
+however long it is (memory target: bins × one frame + the in-flight
+window; `test_core_streaming.py` tracks the frames a 300-shot run keeps
+alive). `plan(rows, ...)` runs after the scalar merge because a waterfall
+sort column may be one of this run's own outputs. The figure gate
+(`MIN_SUCCESSFUL_UNITS`) is a counter. Anything that must see every
+outcome again does not belong in the analyzer — it belongs in the
+collector as running state.
 
 `core_sink.save_products` is the only core-route writer of scan products. It
 resolves the sibling `analysis/ScanNNN/<output_name>/Array{1,2}DScanAnalyzer/`
@@ -82,8 +113,20 @@ write errors propagate. Scalar persistence is independent of this sink.
 
 `core_analyzer.CoreScanAnalyzer` is the core route behind the contract the task
 queue, the portal and MCP call. It inherits scan-tag handling, s-file reading
-and scalar persistence from `ScanAnalyzer` and runs `prepare_scan` → `run` →
-`scalar_records` → sidecar + s-file merge → `plan_products` → `save_products`.
+and scalar persistence from `ScanAnalyzer` and runs `prepare_scan` → `run`
+(streamed into a `ProductCollector`, scalar records queued per outcome) →
+sidecar + s-file merge → `collector.plan` → `save_products`. The worker
+count is `core_workers.effective_workers(spec.workers, len(groups),
+cap=self.worker_cap)`: serial when the recipe asks for one or the run has
+fewer than `MIN_UNITS_FOR_POOL` (50) units, else the recipe's `scan.workers`
+capped by the host — `CoreScanAnalyzer.worker_cap` when a host process set
+it, else `config.ini [analysis] worker_cap` (a facility value: never in a
+recipe), else one core fewer than the machine has — and logged as
+`<device>: <n> units, <k> workers`. The count is a throughput knob only:
+`test_pooled_run_writes_the_identical_tree` holds the pooled tree to the
+serial one at 0 ulp. Hosts that run analyses (the portal's thread pool, the
+task queue, MCP's detached worker) are threaded processes; the pool is
+`spawn`, so their entry points must keep their `__main__` guards.
 A missing or empty device folder, or stack-only input without a stack, raises
 `DataUnavailableWarning`. Scalars are persisted before products, so a product
 write failure never loses them, and the waterfall sort column resolves against

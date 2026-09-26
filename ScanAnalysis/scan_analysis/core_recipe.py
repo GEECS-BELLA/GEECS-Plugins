@@ -52,6 +52,9 @@ class ScanRecipe:
     priority: int
     figure: FigureSpec
     summaries: tuple
+    #: Worker processes the recipe asks for (``scan.workers``; a v2 diagnostic
+    #: has no such field and runs serially). The host caps it.
+    workers: int = 1
 
     @property
     def line(self) -> bool:
@@ -70,11 +73,13 @@ def scan_recipe(document: AnalysisDocument) -> ScanRecipe:
         file_tail, prefer_stack = source.file_tail, source.format == "device_hdf5"
         scalar_suffix = document.scalar_suffix
         average_first = document.scan.average_frames_first
+        workers = document.scan.workers
     else:
         file_tail = document.scan.file_tail
         prefer_stack = document.scan.data_format == "device_hdf5"
         scalar_suffix = document.metric_suffix
         average_first = document.scan.mode == "per_bin"
+        workers = 1
     return ScanRecipe(
         recipe=recipe,
         device=document.device,
@@ -89,4 +94,5 @@ def scan_recipe(document: AnalysisDocument) -> ScanRecipe:
         priority=document.scan.priority,
         figure=figure_of(document),
         summaries=summaries_of(document),
+        workers=workers,
     )

@@ -9,16 +9,16 @@ from typing import Optional, Union
 
 import pandas as pd
 from geecs_analysis.compat.v2 import UnsupportedRecipe, compile_v2
-from geecs_analysis.compat.v2_run import UnitResult
 from geecs_data_utils.shot_files import StackMappingUnavailable
 from geecs_schemas.analysis import AnalysisRecipe, WaterfallSummary
 
 from scan_analysis.base import DataUnavailableWarning, ScanAnalyzer
-from scan_analysis.core_products import ProductPlan, plan_products
+from scan_analysis.core_products import ProductCollector, ProductPlan
 from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
 from scan_analysis.core_scan import PreparedScan, prepare_scan
 from scan_analysis.core_sink import save_products
 from scan_analysis.core_source import source_directory
+from scan_analysis.core_workers import effective_workers
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +56,23 @@ class CoreScanAnalyzer(ScanAnalyzer):
     scalar persistence are inherited unchanged from :class:`ScanAnalyzer`.
 
     Deliberate differences from the legacy wrappers: scalars are persisted
-    before products are written, so a product write failure never loses
-    them, and the output directory is created only when a product is saved.
+    before products are written, so a product write failure — or a result
+    the products cannot fold, raised after the persist — never loses them,
+    and the output directory is created only when a product is saved.
+
+    The run streams: each outcome's scalars are queued and its measurement
+    folded into the products (``ProductCollector``) as it arrives, so a
+    camera scan holds one running frame per product however long it is.
+    The recipe's ``scan.workers`` asks for a process pool; the count it gets
+    is ``core_workers.effective_workers`` — capped by :attr:`worker_cap`
+    (a host's override; ``None`` reads the client ``config.ini``) and serial
+    for a small run — and is logged with the unit count. Outputs do not
+    depend on the count.
     """
+
+    #: A host's cap on the workers any run gets (the portal, the task
+    #: queue); ``None`` resolves ``core_workers.host_worker_cap`` at run time.
+    worker_cap: Optional[int] = None
 
     def __init__(self, document: AnalysisDocument, *, id: str, priority: int) -> None:
         self.document = document.model_copy(deep=True)
@@ -94,23 +108,25 @@ class CoreScanAnalyzer(ScanAnalyzer):
                 "No data files mapped for %s; nothing to analyze.", self.device_name
             )
             return []
-        outcomes = self._execute(prepared)
         # One legacy knob: the waterfall's ``sort_key`` both requests the
         # per-shot waterfall and names the s-file column; the column resolves
-        # against the rows refreshed by the s-file merge above, as the wrapper
+        # against the rows refreshed by the s-file merge below, as the wrapper
         # did. The first waterfall summary carries it.
         stack = next(
             (s for s in self.spec.summaries if isinstance(s, WaterfallSummary)), None
         )
         sort_key = stack.sort_key if stack is not None else None
-        plan = plan_products(
+        collector = ProductCollector(
             prepared.prepared.recipe,
-            outcomes,
             self.auxiliary_data,
             average_before_analysis=prepared.average_before_analysis,
             noscan=self.noscan,
-            parameter_column=None if self.noscan else self.find_scan_param_column()[0],
             sort_requested=bool(sort_key),
+        )
+        self._execute(prepared, collector)
+        plan = collector.plan(
+            self.auxiliary_data,
+            parameter_column=None if self.noscan else self.find_scan_param_column()[0],
             sort_column=self.find_column_for_key(sort_key) if sort_key else None,
             sort_bounds=stack.sort_bounds if stack is not None else None,
             sort_sigma=stack.sort_sigma if stack is not None else 3.0,
@@ -127,11 +143,25 @@ class CoreScanAnalyzer(ScanAnalyzer):
         self.display_contents = [str(path) for path in saved.display_files]
         return list(self.display_contents)
 
-    def _execute(self, prepared: PreparedScan) -> list[UnitResult]:
-        """Stream the units, log failures and persist scalars before products."""
-        outcomes: list[UnitResult] = []
+    def _execute(self, prepared: PreparedScan, collector: ProductCollector) -> None:
+        """Stream the units into the collector; log failures; persist scalars.
+
+        Nothing per unit outlives its iteration but its scalar records and
+        what the collector keeps.
+        """
+        workers = effective_workers(
+            self.spec.workers, len(prepared.groups), cap=self.worker_cap
+        )
+        logger.info(
+            "%s: %d units, %d worker%s",
+            self.device_name,
+            len(prepared.groups),
+            workers,
+            "" if workers == 1 else "s",
+        )
         pending: list[dict] = []
-        for outcome in prepared.run():
+        fold_error: ValueError | None = None
+        for outcome in prepared.run(workers=workers):
             for failure in outcome.load_failures:
                 logger.warning(
                     "Skipping shot %s in unit %s (load failed: %s)",
@@ -146,7 +176,14 @@ class CoreScanAnalyzer(ScanAnalyzer):
                 continue
             for note in outcome.measurement.notes:
                 logger.warning("Unit %s: %s", outcome.group.key, note)
-            outcomes.append(outcome)
+            # A result the products cannot fold (units or axes that disagree,
+            # a repeated key) is raised only after the scalars are persisted,
+            # as the old sequence planner raised after the s-file merge.
+            if fold_error is None:
+                try:
+                    collector.add(outcome)
+                except ValueError as exc:
+                    fold_error = exc
             pending.extend(prepared.scalar_records(outcome))
         if pending:
             updates = pd.DataFrame(pending)
@@ -161,7 +198,8 @@ class CoreScanAnalyzer(ScanAnalyzer):
                         rows.loc[mask, key] = value
             self.write_scalar_sidecar(updates)
             self.append_to_sfile(updates)
-        return outcomes
+        if fold_error is not None:
+            raise fold_error
 
     def cleanup(self) -> None:
         """Release the loaded s-file and the display list after a run."""

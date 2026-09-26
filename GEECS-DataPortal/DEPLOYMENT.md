@@ -118,11 +118,16 @@ it back — so a runaway portal evicts itself before the kernel picks a
 victim, and the victim is the portal rather than Tiled (#834). The unit
 also sets `MemorySwapMax=0`: without it the portal is pushed into swap
 above HIGH instead of reaching MAX, and hangs rather than restarting.
-Portal analysis runs execute in this process, and today they hold every
-processed frame of a scan until its summary figures are drawn (#1003) —
-a 3600-shot 600×600 camera run needs ~10 GB — so size HIGH/MAX for the
-largest analysis you run here, or run big ones elsewhere. To change
-the numbers: edit `site.env`, re-render, `daemon-reload`, restart. For a
+Portal analysis runs execute in this process. Since ScanAnalysis 1.38.0
+(#1003) a run streams — it holds one running frame per product, not
+every processed frame, so a 3600-shot 600×600 camera run needs a few
+hundred MB, not ~10 GB — and a recipe's `scan.workers` may spawn a
+process pool. Those workers are children of this unit, so they count
+inside HIGH/MAX too, and each one imports the analysis stack (a few
+hundred MB) before it reads a frame. Size the pool with the ceiling:
+set `[analysis] worker_cap` in the service account's `config.ini`
+(the default is every core but one — on a 4 GB MAX, two workers is the
+honest number), never in a recipe. To change the numbers: edit `site.env`, re-render, `daemon-reload`, restart. For a
 quick change without a re-render, `sudo systemctl set-property
 geecs-data-portal MemoryMax=6G` writes a persistent drop-in;
 `systemctl revert geecs-data-portal` removes it. `systemctl status`

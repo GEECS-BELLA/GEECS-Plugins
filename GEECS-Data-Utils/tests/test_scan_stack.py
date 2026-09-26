@@ -15,6 +15,8 @@ from geecs_data_utils.io.scan_stack import (
     FRAMES_DATASET,
     TIMESTAMPS_DATASET,
     is_stack_file,
+    open_stack,
+    read_frame,
     read_shot,
     read_stack_timestamps,
 )
@@ -101,6 +103,17 @@ def test_read_shot_and_timestamps(tmp_path) -> None:
         read_shot(path, 3)
     with pytest.raises(TypeError):
         read_shot(path)  # plain path with no index
+
+
+def test_read_frame_against_an_open_handle_matches_read_shot(tmp_path) -> None:
+    """One handle across many frames reads what one open per frame reads."""
+    path = _write_stack(tmp_path / "UC_Cam")
+    with open_stack(path) as f:
+        frames = [read_frame(f, i) for i in range(3)]
+        with pytest.raises(IndexError, match="outside stack"):
+            read_frame(f, 3)
+    for i, frame in enumerate(frames):
+        np.testing.assert_array_equal(frame, read_shot(path, i))
 
 
 def test_shotref_behaves_as_path_and_pickles(tmp_path) -> None:
