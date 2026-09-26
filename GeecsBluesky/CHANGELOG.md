@@ -24,6 +24,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `PROGRESS_PERIOD_S` (1 s) slices with a checkpoint each, so a deferred
   pause lands within ~1.5 s instead of at the end of the step (the whole
   run, for a gated count).
+- **Pause is consistent across every scan type.**  A strict step scan
+  now offers a checkpoint before every shot of a step (the stock count
+  already did), so the scanner's Pause lands after the shot in progress
+  instead of at the end of the step — strict count, strict step scan,
+  gated count and gated step scan all pause within about a shot.
 - **`shots` rows arrive during the batch.**  Each slice collects the
   sampler, so the scanner's progress climbs shot by shot instead of jumping
   at the batch's end.  A row goes out only once every plugin-backed camera
