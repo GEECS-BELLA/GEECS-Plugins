@@ -70,16 +70,19 @@ _Describe = Callable[[], Awaitable[dict[str, DataKey]]]
 _Read = Callable[[], Awaitable[dict[str, Reading]]]
 
 #: How long the sampler waits, after the clock's stamp, for each other
-#: stamped member's stamp PV to arrive and be this shot's: most of the
-#: 1 Hz period, so a batch's end costs at most one extra edge.  Measured
-#: 2026-09-25 under a steady internal 1 Hz trigger: the cameras' stamp
-#: PVs arrive 3–40 ms after the frame's time, the HASO's 0.77 s (its
-#: file is written first) — which a 0.5 s budget missed on every shot of
-#: Scan016 while its files sat there 50 ms after each clock tick.  A
-#: device that has not stamped by the budget missed the shot — its
-#: columns read NaN, never the previous shot's values (Scan015: sampling
-#: at the tick recorded every HASO row one frame late).
-SETTLE_TIMEOUT_S = 0.9
+#: stamped member's stamp PV to arrive and be this shot's.  Measured
+#: 2026-09-25 (26_0925, the HASO as the essential): the cameras' stamp
+#: PVs reach the worker 20–40 ms after the frame's time; the HASO's
+#: 0.77 s with saving off and **0.89–0.96 s with saving on during a gated
+#: batch** (its 24.5 MB file is written first), i.e. up to ~1 s after the
+#: clock's tick arrives.  A 0.5 s budget missed every HASO shot (Scan016)
+#: and 0.9 s caught about half, jitter deciding each row (Scans 018,
+#: 019); 1.5 s clears it with margin and bounds a batch's end at two
+#: extra edges when the last shot's device stays silent.  A device that
+#: has not stamped by the budget missed the shot — its columns read NaN,
+#: never the previous shot's values (Scan015: sampling at the tick
+#: recorded every HASO row one frame late).
+SETTLE_TIMEOUT_S = 1.5
 #: A member's stamp is this shot's when it lies within this many seconds
 #: of the clock's stamp (the devices stamp one edge within ~0.3 s of each
 #: other; the period is 1 s).  A cached stamp further away is a previous

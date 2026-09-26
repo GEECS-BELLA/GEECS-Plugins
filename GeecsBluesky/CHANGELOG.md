@@ -39,7 +39,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   reading taken at the tick carried the previous shot's stamp in every
   row — the first row stale, the last frame an orphan, the files joined
   one row late). A member with a stamp of its own (a triggered device
-  without a plugin, or its view) is now given `SETTLE_TIMEOUT_S` (0.9 s — the HASO's stamp PV arrives 0.77 s after its frame's time, measured; the cameras' within 40 ms)
+  without a plugin, or its view) is now given `SETTLE_TIMEOUT_S` (1.5 s — measured 26_0925: the cameras' stamp PVs reach the worker within 40 ms of the frame, the HASO's 0.89–0.96 s with saving on during a batch)
   for its cached stamp to fall within `SHOT_WINDOW_S` (0.5 s) of the
   clock's before it is read; one that does not make it missed the shot —
   its numeric columns read `NaN` (a string column, the save path, stays),
