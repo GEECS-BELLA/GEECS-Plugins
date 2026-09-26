@@ -18,7 +18,11 @@ from scan_analysis.analyzers.common.single_device_scan_analyzer import (
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.config import create_scan_analyzer
 from scan_analysis import core_workers
-from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
+from scan_analysis.core_analyzer import (
+    CoreScanAnalyzer,
+    core_supports,
+    write_scalars_into_rows,
+)
 from geecs_analysis.compat.convert import to_v3
 from geecs_analysis.recipe import is_line
 from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
@@ -386,3 +390,40 @@ def test_a_fold_error_raises_only_after_the_scalars_persist(tmp_path, monkeypatc
     tree = snapshot(scan)
     assert "Scan001/Scan001_Diag.txt" in tree
     assert "Diag_x_CoM" in tree["s1.txt"][1].columns
+
+
+def _cell_by_cell(rows, records):
+    """The per-cell loop ``write_scalars_into_rows`` replaced: the reference."""
+    for record in records:
+        mask = rows["Shotnumber"] == record["Shotnumber"]
+        for key, value in record.items():
+            if key != "Shotnumber":
+                rows.loc[mask, key] = value
+
+
+@pytest.mark.parametrize(
+    "records",
+    [
+        # overwrite an existing column on some shots; add a new one
+        [{"Shotnumber": n, "old": 10.0 * n, "new": n + 0.5} for n in (2, 4, 5)],
+        # a later record for the same shot wins
+        [{"Shotnumber": 3, "new": 1.0}, {"Shotnumber": 3, "new": 2.0}],
+        # a record lacking a key leaves that shot's existing cell alone
+        [{"Shotnumber": 1, "old": 7.0, "new": 1.0}, {"Shotnumber": 2, "new": 2.0}],
+        # NaN overwrites an existing value, as the loop did
+        [{"Shotnumber": 4, "old": float("nan")}],
+        # a shot absent from the s-file still creates the column
+        [{"Shotnumber": 99, "only_missing": 3.0}],
+        # an integer scalar into an existing float column and a new column
+        [{"Shotnumber": n, "old": n, "count": n} for n in (1, 6)],
+    ],
+    ids=["overwrite+new", "last-wins", "missing-key", "nan", "no-match", "ints"],
+)
+def test_write_scalars_into_rows_matches_the_cell_loop(records):
+    rows = pd.DataFrame(
+        {"Shotnumber": [1, 2, 3, 4, 5, 6], "Bin #": 1, "old": np.arange(6.0)}
+    )
+    expected = rows.copy()
+    _cell_by_cell(expected, records)
+    write_scalars_into_rows(rows, records)
+    pd.testing.assert_frame_equal(rows, expected)
