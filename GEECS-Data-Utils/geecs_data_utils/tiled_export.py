@@ -22,9 +22,10 @@ recovered.  See ``GeecsBluesky/EVENT_SCHEMA.md``.
 device per shot, so its rows are the ``primary`` events.  A *gated* run's
 ``primary`` is datum-only — the frames and their per-frame scalars live in
 each camera's stack — and its rows are the per-shot sampler's ``shots``
-events; a *non-essential* camera streams into its own ``<name>_stream``
-whichever mode the run used.  Either way the per-frame columns are joined
-onto the rows by offset-corrected stamp
+events; a *non-essential* device streams into its own ``<name>_stream``
+whichever mode the run used — a plugin camera's frames, or one event per
+stamp a triggered device without a plugin published.  Either way the
+per-frame columns are joined onto the rows by offset-corrected stamp
 (:mod:`geecs_data_utils.shot_join`): one s-file row per essential shot,
 orphan frames left in the stack.
 
@@ -49,6 +50,7 @@ from geecs_data_utils.shot_join import (
     FrameColumns,
     clock_device,
     join_frames_to_shots,
+    non_essential_stream,
     row_windows,
     shot_clock_column,
 )
@@ -342,9 +344,12 @@ def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
     """Per-frame columns of every stream of a recorded run except the rows'.
 
     A stream other than the one the rows came from carries no per-shot row
-    of its own: a gated run's ``primary`` and every non-essential camera's
-    ``<name>_stream``.  Its per-frame attribute columns are 1-D arrays
-    named ``<device>-hdf-<variable>-<suffix>``
+    of its own: a gated run's ``primary`` and every non-essential device's
+    ``<name>_stream``.  A non-essential device **without** a file plugin
+    records an event per stamp it published instead of frames; its
+    stream's table (named from the start document's ``non_essential``) is
+    read as join columns by :func:`_event_stream_columns`.  Otherwise
+    its per-frame attribute columns are 1-D arrays named ``<device>-hdf-<variable>-<suffix>``
     (``io.scan_stack.parse_attribute_name``), read **by name** — the frame
     stack itself, the only multi-dimensional part, is never touched, and a
     stream with no such part (``baseline``) contributes nothing.  The
@@ -385,11 +390,21 @@ def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
     )
     from geecs_data_utils.shot_join import frame_columns_from_attributes
 
+    start = dict((getattr(run, "metadata", None) or {}).get("start") or {})
+    event_streams = {
+        non_essential_stream(str(name)): str(name)
+        for name in start.get("non_essential") or ()
+    }
     out: list[FrameColumns] = []
     for stream in sorted(run):
         if stream == row_stream:
             continue
         node = run[stream]
+        if stream in event_streams:
+            columns = _event_stream_columns(event_streams[stream], node)
+            if columns is not None:
+                out.append(columns)
+                continue
         contents = node.get_contents()
         per_device: dict[str, dict[str, Any]] = {}
         for part in contents:
@@ -418,6 +433,35 @@ def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
                 columns = columns.truncated(referenced)
             out.append(columns)
     return out
+
+
+def _event_stream_columns(object_name: str, node: Any) -> FrameColumns | None:
+    """A non-essential device's event stream as join columns, or ``None``.
+
+    The stream of a triggered device without a file plugin: one event per
+    stamp it published (``shot_join.frame_columns_from_events``).  Its
+    table part is read like the rows' (never an array part); a stream with
+    no events still yields its numeric keys from the stream's
+    ``data_keys`` metadata (the descriptor's), so the offline s-file
+    carries the same all-``NaN`` columns the live one does.  ``None`` for a
+    stream with no table and no such keys — a plugin camera's datum-only
+    stream, read from its attribute arrays instead.
+    """
+    from geecs_data_utils.shot_join import (
+        frame_columns_from_events,
+        numeric_data_keys,
+    )
+    from geecs_data_utils.tiled_catalog import read_primary_scalars
+
+    table = read_primary_scalars(node)
+    if table is not None and len(table):
+        events = table.to_dict("records")
+        return frame_columns_from_events(object_name, events)
+    data_keys = (getattr(node, "metadata", None) or {}).get("data_keys") or {}
+    keys = numeric_data_keys(data_keys)
+    if not keys:
+        return None
+    return frame_columns_from_events(object_name, [], keys=keys)
 
 
 def _referenced_frames(contents: Mapping[str, Any], device: str) -> int:

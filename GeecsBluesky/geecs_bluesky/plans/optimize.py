@@ -22,7 +22,11 @@ from geecs_bluesky.optimization_events import (
 )
 from geecs_schemas import TriggerState
 
-from .gated import non_essential_wrapper, run_bracket
+from .gated import (
+    non_essential_wrapper,
+    refuse_free_running_non_essentials,
+    run_bracket,
+)
 from .strict import BinCounter, geecs_take_reading, name_failed_status
 
 if TYPE_CHECKING:
@@ -157,7 +161,8 @@ def optimize_plan(
         shot_period : float, optional
             Minimum time between strict fires, seconds.
         non_essential : list, optional
-            Extra cameras streamed independently of the objective.
+            Triggered devices streamed independently of the objective, each
+            into its own ``<name>_stream`` and joined by stamp.
         native_image_save : bool, optional
             Whether the plugin-backed cameras also write their LabVIEW
             per-shot files; the experiment default when omitted.  The
@@ -191,6 +196,7 @@ def optimize_plan(
             raise GeecsConfigurationError("shot_period must be finite and positive")
         detectors = list(detectors)
         non_essential = list(non_essential or ())
+        refuse_free_running_non_essentials(non_essential)
         catalog = resolver.scan_variable_catalog().variables
         movables = {}
         move_references = {}

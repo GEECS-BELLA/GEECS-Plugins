@@ -27,7 +27,7 @@ adds (phase 1 PR 2):
 | `geecs_scalar_headers` | `scalar_headers` preprocessor | Event key → legacy `Device Variable` header for every staged device (the s-file and the browser's display names) |
 | `shot_clock` / `shot_clock_column` | the bound plan (gated) | The device whose `acq_timestamp` is the shot id, and the row column carrying it — what the s-file's join keys on |
 | `trigger_profile` | the bound plan | The trigger profile that drove the shots |
-| `native_image_save` | the bound plan | The run's LabVIEW-files **switch** — the preset's value, else the experiment default (#738) — not a record of what was written. It reaches a plugin-backed camera only as a strict full detector (a `.scalars` view, a non-essential stream and a gated batch's plugin-backed cameras write no native files whatever it says; a device without a file plugin always writes them, as a strict detector or a gated essential). Whether a device wrote is the presence of its `<det>-nonscalar_save_path` column, in `primary` (strict) or `shots` (gated) |
+| `native_image_save` | the bound plan | The run's LabVIEW-files **switch** — the preset's value, else the experiment default (#738) — not a record of what was written. It reaches a plugin-backed camera only as a strict full detector (a `.scalars` view, a non-essential stream and a gated batch's plugin-backed cameras write no native files whatever it says; a device without a file plugin always writes them, as a strict detector, a gated essential or a non-essential). Whether a device wrote is the presence of its `<det>-nonscalar_save_path` column, in `primary` (strict), `shots` (gated) or its own `<det>_stream` (a non-essential) |
 | `shots_per_step` | the bound plan | Rows per position (`1` for `count`, whose `num` is the shot count) |
 | `description`, `background` | the client (`md`) | The preset's description (ScanInfo's `ScanStartInfo`) and background flag |
 | `geecs` | the client (`md`) | Provenance only: `{preset, submission}` — never a worker instruction |
@@ -140,8 +140,49 @@ columns joined on by offset-corrected stamp
 `<ophyd>-<scalar>` — the same spellings a strict row uses, so one header
 map renames both.  One row per essential shot: a frame with no shot inside
 the join window stays in the stack and in Tiled and is left out of the
-s-file.  The same join adds a **non-essential** camera's columns
-(`<name>_stream`) to either mode's rows.
+s-file.  The same join adds a **non-essential** device's columns
+(`<name>_stream`, below) to either mode's rows.
+
+## Event stream `<name>_stream` (a non-essential device, either mode)
+
+A device listed `non_essential` streams for the run into its own
+`<ophyd name>_stream` (`geecs_data_utils.shot_join.non_essential_stream`),
+never waited on and never failing the run.  Two shapes:
+
+- a **plugin-backed** camera: a datum stream (its stack, as `primary` is
+  in a gated run), no events;
+- a **triggered device without a plugin** (2026-09-26 — a LabVIEW-native
+  saver, a scalar device with a stamp, or a detector's `.scalars` view):
+  **one event per stamp the device published** while the run was open,
+  recorded the moment the stamp arrived, at the device's own rate:
+
+| Column | Meaning |
+|---|---|
+| `<name>-acq_timestamp` | The device's own stamp — the event's shot id and the join key |
+| `<name>-<variable>` | Its subscribed scalars, the latest cached values when the stamp arrived (the spellings a strict row uses) |
+| `<name>-nonscalar_save_path` | A native saver listed itself (not its `.scalars` view): the directory its LabVIEW files landed in, a run-long constant (saving on at the run's unbounded prepare, off at `unstage`); the files are named with the event's stamp |
+
+The descriptor's configuration carries the device's
+`<name>-drain_offset` under the object `<name>` (the stream's collect
+object is named after the device).  A device that published nothing has a
+declared, empty stream (and a WARNING in the log).  The s-file joins these
+events onto the rows as it joins frames — each row takes the nearest event
+inside its own window, by offset-corrected stamp; a row with none reads
+`NaN` in the device's columns (a device slower than the rep rate leaves
+`NaN` on the rows it missed; an empty stream gives all-`NaN` columns from
+the descriptor's numeric data keys), an event no row's window reaches
+stays in the stream and in Tiled and is left out of the s-file, and a
+string column (the save path) is never an s-file column.  The start
+document's `non_essential` names which `<name>_stream`s these are (the
+offline re-export reads them from there; `baseline` is never joined).  The
+stack check matches a native saver's **events** (not the rows) to its
+files: events without a file and file stamps without an event counted
+apart, files stamped after the last event (saved between the stream's
+close and the unstage) apart again — WARNING on the first two, never a
+failure.
+
+An additive stream convention, not a schema change: a reader that never
+looked for these streams sees the runs it saw before.
 
 ## Event stream `baseline`
 

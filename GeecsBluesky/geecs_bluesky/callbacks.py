@@ -56,7 +56,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from geecs_data_utils.shot_join import SHOTS_STREAM
+from geecs_data_utils.shot_join import (
+    SHOTS_STREAM,
+    non_essential_stream,
+    numeric_data_keys,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import numpy as np
@@ -205,11 +209,22 @@ class _RunStreams:
     drain_offsets :
         Object name → its ``drain_offset`` config value, seconds (read from
         the streams' descriptor configuration).
+    event_streams :
+        Stream name → object name, for every non-essential stream the start
+        document names (``<name>_stream``).  The ones that carry events are
+        a triggered device without a file plugin, one event per stamp it
+        published (GeecsBluesky's ``StampStream``): buffered like the rows
+        and joined onto them by stamp.
+    stream_keys :
+        Stream name → its descriptor's numeric data keys, for those streams
+        (so one that recorded nothing still contributes its ``NaN`` columns).
     """
 
     rows: dict[str, list[tuple[int, dict[str, Any]]]] = field(default_factory=dict)
     stacks: dict[str, _Stack] = field(default_factory=dict)
     drain_offsets: dict[str, float] = field(default_factory=dict)
+    event_streams: dict[str, str] = field(default_factory=dict)
+    stream_keys: dict[str, list[str]] = field(default_factory=dict)
 
     def stream_rows(self, stream: str) -> list[dict[str, Any]]:
         """The event rows of *stream*, in arrival order (the s-file's rows)."""
@@ -238,6 +253,31 @@ class _RunStreams:
     def datum_only_stacks(self) -> list[_Stack]:
         """The stacks whose stream carried no event rows — the ones to join."""
         return [s for s in self.stacks.values() if not self.rows.get(s.stream)]
+
+    def event_stream_columns(self) -> list["FrameColumns"]:
+        """Every non-essential event stream as join columns (in memory, no I/O).
+
+        A stream that is a plugin camera's (it references a stack) is left
+        to :meth:`datum_only_stacks`; the rest — a triggered device without
+        a plugin — join by the stamp each event carries.
+        """
+        from geecs_data_utils.shot_join import (
+            ACQ_TIMESTAMP_SUFFIX,
+            frame_columns_from_events,
+        )
+
+        stacked = {s.stream for s in self.stacks.values()}
+        out = []
+        for stream, obj in self.event_streams.items():
+            keys = self.stream_keys.get(stream, ())
+            if stream in stacked or f"{obj}{ACQ_TIMESTAMP_SUFFIX}" not in keys:
+                continue  # a plugin camera's datum stream (framed or not)
+            columns = frame_columns_from_events(
+                obj, self.stream_rows(stream), keys=keys
+            )
+            if columns is not None:
+                out.append(columns)
+        return out
 
 
 class _StreamCallback(_RunCallback):
@@ -278,7 +318,12 @@ class _StreamCallback(_RunCallback):
                 k: v for k, v in self._resources.items() if v[0] != stale
             }
             self._owners.pop(stale, None)
-        self._runs[str(start["uid"])] = _RunStreams()
+        self._runs[str(start["uid"])] = _RunStreams(
+            event_streams={
+                non_essential_stream(str(name)): str(name)
+                for name in start.get("non_essential") or ()
+            }
+        )
 
     def on_descriptor(self, doc: Document) -> None:
         """Index the descriptor's stream and harvest its drain offsets."""
@@ -286,7 +331,10 @@ class _StreamCallback(_RunCallback):
         run = self._runs.get(run_uid)
         if run is None:
             return
-        self._streams[str(doc["uid"])] = (run_uid, str(doc.get("name")))
+        stream = str(doc.get("name"))
+        self._streams[str(doc["uid"])] = (run_uid, stream)
+        if stream in run.event_streams:
+            run.stream_keys[stream] = numeric_data_keys(doc.get("data_keys") or {})
         owners = self._owners.setdefault(run_uid, {})
         for obj, keys in (doc.get("object_keys") or {}).items():
             for key in keys or ():
@@ -302,9 +350,11 @@ class _StreamCallback(_RunCallback):
         if owner is None:
             return
         run_uid, stream = owner
-        if stream not in ROW_STREAMS:
-            return  # baseline telemetry and monitors are never per-shot rows
         run = self._runs.get(run_uid)
+        if stream not in ROW_STREAMS and (
+            run is None or stream not in run.event_streams
+        ):
+            return  # baseline telemetry and monitors are never per-shot rows
         if run is not None:
             run.rows.setdefault(stream, []).append(
                 (int(doc["seq_num"]), dict(doc.get("data") or {}))
@@ -631,9 +681,10 @@ class SFileCallback(_StreamCallback):
                 stop.get("exit_status"),
             )
             return
+        events = run.event_stream_columns()
         stacks = run.datum_only_stacks()
         if not stacks:
-            self._write(start, rows, (), run.drain_offsets)
+            self._write(start, rows, events, run.drain_offsets)
             return
         logger.info(
             "scan %s: s-file from the %s rows joined to %d stack(s): %s",
@@ -650,6 +701,7 @@ class SFileCallback(_StreamCallback):
             stacks,
             dict(run.drain_offsets),
             self.finalize_timeout,
+            events,
         )
 
     def _join_and_write(
@@ -659,6 +711,7 @@ class SFileCallback(_StreamCallback):
         stacks: list[_Stack],
         drain_offsets: Mapping[str, float],
         finalize_timeout: float,
+        events: "Sequence[FrameColumns]" = (),
     ) -> None:
         from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET
         from geecs_data_utils.io.scan_stack import (
@@ -714,7 +767,7 @@ class SFileCallback(_StreamCallback):
                 )
                 columns = columns.truncated(stack.width)
             frames.append(columns)
-        self._write(start, rows, frames, drain_offsets)
+        self._write(start, rows, [*frames, *events], drain_offsets)
 
     @staticmethod
     def _write(
@@ -912,6 +965,24 @@ class StackCheckCallback(_StreamCallback):
                     stamps,
                     self.finalize_timeout,
                 )
+        # A non-essential native saver without a plugin (either mode): its
+        # stream's EVENTS are matched to its files — one event per stamp it
+        # published, so an event without a file is a lost save and a file
+        # without an event a stamp the stream never saw.
+        for stream in run.event_streams:
+            rows = run.stream_rows(stream)
+            for owner, directory, stamps in _native_save_dirs(dict(start), rows):
+                self.spawn(
+                    f"native-files[{owner}]",
+                    self._check_native_files,
+                    dict(start),
+                    owner,
+                    directory,
+                    stamps,
+                    self.finalize_timeout,
+                    f"{stream} event",
+                    True,
+                )
 
     @staticmethod
     def _check_native_files(
@@ -920,15 +991,22 @@ class StackCheckCallback(_StreamCallback):
         directory: Path,
         stamps: Sequence[float],
         timeout: float,
+        record: str = "shots row",
+        stream_closes: bool = False,
     ) -> None:
-        """Match the rows' *stamps* against the native files in *directory*.
+        """Match the records' *stamps* against the native files in *directory*.
 
-        Waits, bounded by *timeout*, for every row to have its file (the
-        device writes a LabVIEW loop period behind the edge); then one
-        line, WARNING on a row without a file or a file stamp with no row
-        — never a failure.
+        *record* names what a stamp came from — a gated run's ``shots row``,
+        or a non-essential stream's event (*stream_closes*).  Waits, bounded by *timeout*,
+        for every record to have its file (the device writes a LabVIEW
+        loop period behind the edge); then one line, WARNING on a record
+        without a file or a file stamp with no record — never a failure.
+        For a non-essential stream, files stamped **after** its last event
+        are counted apart and are no defect: the device keeps saving from
+        the stream's close (before ``close_run``) to its ``unstage``, and
+        a slow device's last frame lands in that gap.
         """
-        from geecs_data_utils.native_files import native_file_keys
+        from geecs_data_utils.native_files import native_file_keys, timestamp_key
 
         deadline = time.monotonic() + timeout
         while True:
@@ -938,22 +1016,36 @@ class StackCheckCallback(_StreamCallback):
                 break
             time.sleep(0.5)
         rows = len(stamps)
-        orphans = len(set(keys) - claimed)
+        short = record.split()[-1]  # "row", "event"
+        unclaimed = set(keys) - claimed
+        trailing = 0
+        finite = [s for s in stamps if s == s]
+        if stream_closes and finite:
+            last = timestamp_key(max(finite)) + 1  # the %.3f rounding neighbour
+            trailing = sum(1 for key in unclaimed if key > last)
+        orphans = len(unclaimed) - trailing
+        after = (
+            f"; {trailing} file(s) after its last event (saved between the "
+            "stream's close and its unstage)"
+            if trailing
+            else ""
+        )
         if not directory.is_dir():
             message = f"{owner}: native directory {directory} missing"
-            message += f" but {rows} shots row(s)" if rows else ""
+            message += f" but {rows} {record}(s)" if rows else ""
             warning = bool(rows)
         elif not missing and not orphans:
             message = (
-                f"{owner}: {rows} shots row(s), each with a native file in "
-                f"{directory.name}/"
+                f"{owner}: {rows} {record}(s), each with a native file in "
+                f"{directory.name}/{after}"
             )
             warning = False
         else:
             message = (
-                f"{owner}: {rows - len(missing)} of {rows} shots row(s) have a "
+                f"{owner}: {rows - len(missing)} of {rows} {record}(s) have a "
                 f"native file in {directory.name}/ — MISMATCH ({len(missing)} "
-                f"row(s) without a file, {orphans} file stamp(s) with no row)"
+                f"{short}(s) without a file, {orphans} file stamp(s) with no "
+                f"{short}){after}"
             )
             warning = True
         _stack_verdict(start, message, warning=warning, kind="native files check")

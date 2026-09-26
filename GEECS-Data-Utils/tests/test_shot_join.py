@@ -356,3 +356,83 @@ def test_waveform_axis_attributes_are_not_scalar_columns() -> None:
         "u_ict-frame_recv_timestamp",
         "u_ict-maxv",
     }
+
+
+# ----------------------------------- a non-essential device's event stream
+def test_the_non_essential_stream_is_named_after_its_device() -> None:
+    from geecs_data_utils.shot_join import non_essential_stream
+
+    assert non_essential_stream("u_haso") == "u_haso_stream"
+
+
+def test_events_become_join_columns_keyed_by_their_own_stamp() -> None:
+    """One event per stamp the device published: numeric columns, strings left out."""
+    from geecs_data_utils.shot_join import frame_columns_from_events
+
+    events = [
+        {
+            "u_haso-acq_timestamp": 1001.02,
+            "u_haso-rms": 0.5,
+            "u_haso-nonscalar_save_path": "/scan/U_HASO",
+        },
+        {
+            "u_haso-acq_timestamp": 1004.02,
+            "u_haso-rms": 0.7,
+            "u_haso-nonscalar_save_path": "/scan/U_HASO",
+        },
+    ]
+    columns = frame_columns_from_events("u_haso", events)
+    assert columns is not None and columns.object_name == "u_haso"
+    assert list(columns.stamps) == [1001.02, 1004.02]
+    assert set(columns.columns) == {"u_haso-acq_timestamp", "u_haso-rms"}
+    assert list(columns.columns["u_haso-rms"]) == [0.5, 0.7]
+
+
+def test_a_stream_with_no_events_keeps_its_keys_for_nan_columns() -> None:
+    from geecs_data_utils.shot_join import frame_columns_from_events
+
+    columns = frame_columns_from_events(
+        "u_ps", [], keys=["u_ps-acq_timestamp", "u_ps-current"]
+    )
+    assert columns is not None and len(columns) == 0
+    assert set(columns.columns) == {"u_ps-acq_timestamp", "u_ps-current"}
+    assert frame_columns_from_events("u_ps", []) is None  # nothing vouched for
+
+
+def test_events_without_their_stamp_column_are_not_joinable(caplog) -> None:
+    from geecs_data_utils.shot_join import frame_columns_from_events
+
+    with caplog.at_level(logging.WARNING):
+        assert frame_columns_from_events("u_ps", [{"u_ps-current": 1.0}]) is None
+    assert "u_ps-acq_timestamp" in caplog.text
+
+
+def test_numeric_data_keys_leave_the_save_path_out() -> None:
+    from geecs_data_utils.shot_join import numeric_data_keys
+
+    keys = {
+        "u_haso-acq_timestamp": {"dtype": "number"},
+        "u_haso-count": {"dtype": "integer"},
+        "u_haso-nonscalar_save_path": {"dtype": "string"},
+    }
+    assert numeric_data_keys(keys) == ["u_haso-acq_timestamp", "u_haso-count"]
+
+
+def test_a_slow_device_s_events_land_on_their_rows_with_nan_elsewhere() -> None:
+    """A third of the rows get an event (by stamp, not by position); the rest NaN.
+
+    One event lands between rows — a stamp no row's window reaches — and is
+    an orphan: it stays in the stream, out of the s-file.
+    """
+    from geecs_data_utils.shot_join import frame_columns_from_events
+
+    shots = np.array([1001.0, 1002.0, 1003.0, 1004.0, 1005.0, 1006.0])
+    events = [
+        {"u_slow-acq_timestamp": 1003.01, "u_slow-v": 3.0},
+        {"u_slow-acq_timestamp": 1006.02, "u_slow-v": 6.0},
+        {"u_slow-acq_timestamp": 1007.5, "u_slow-v": 7.5},
+    ]
+    columns = frame_columns_from_events("u_slow", events)
+    join = _join(shots, columns.stamps)
+    assert join.frame_for_shot == (None, None, 0, None, None, 1)
+    assert join.orphans == (2,)

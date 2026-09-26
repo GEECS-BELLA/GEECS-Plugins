@@ -819,18 +819,20 @@ def test_non_essential_with_a_gated_run(
     }
 
 
-def test_a_non_essential_scope_with_no_streams_sits_the_run_out(
+def test_a_non_essential_scope_with_no_streams_streams_by_stamp(
     RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path, caplog
 ) -> None:
-    """A non-essential scope with every channel disabled is not declared or kicked off.
+    """A non-essential scope with every channel disabled gets its stamp stream.
 
-    Non-essential means "record it if you can" — so unlike the essential
-    case above this must not refuse; the count succeeds and no
-    ``u_ict`` stream appears. (The stock path aborted the run at kickoff
-    with "not streamable", Codex review of #948.)
+    It used to sit the run out with a WARNING (Codex review of #948: the
+    stock path aborted at kickoff, "not streamable").  Since the 2026-09-26
+    ruling a triggered device without a plugin is recorded by stamp in its
+    own ``u_ict_stream`` — here every edge stamps it, so the stream carries
+    events and the run succeeds; nothing is prepared (no saving controls).
     """
     a = _camera(RE, box, "UC_A")
     ict = _all_off_scope(RE, tmp_path, native_save=False)
+    box.cameras.append(ict)
     assert not ict.plugin_backed
     col = DocCollector()
     RE.subscribe(col)
@@ -838,19 +840,11 @@ def test_a_non_essential_scope_with_no_streams_sits_the_run_out(
     with caplog.at_level(logging.WARNING, logger="geecs_bluesky.plans.gated"):
         RE(count([a], 2, acquisition="gated", non_essential=[ict]))
     assert col.docs["stop"][-1]["exit_status"] == "success"
-    # The skip is loud, and says which of the two causes it is — the
-    # operator cannot tell "no plugin" from "every channel disabled".
-    said = [
-        r.getMessage()
-        for r in caplog.records
-        if "not streamed this run" in r.getMessage()
-    ]
-    assert len(said) == 1 and "u_ict" in said[0]  # the ophyd name
-    assert "no file plugin" in said[0] and "disabled in the DB" in said[0]
-    assert not any(
-        d["name"] != "shots" and any(k.startswith("u_ict") for k in d["data_keys"])
-        for d in col.docs["descriptor"]
-    )
+    assert not [r for r in caplog.records if "u_ict" in r.getMessage().lower()]
+    events = _events_from_pages(col, "u_ict_stream")
+    assert len(events) >= 2
+    assert all("u_ict-acq_timestamp" in e["data"] for e in events)
+    assert not any(k.startswith("u_ict") for k in _shots_descriptor(col)["data_keys"])
 
 
 def _all_off_scope(

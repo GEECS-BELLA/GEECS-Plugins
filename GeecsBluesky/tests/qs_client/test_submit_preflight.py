@@ -451,29 +451,47 @@ class TestAcquisitionRules:
 
         return acquisition_refusal(expand_preset(preset), set(self.TREE))
 
-    def test_non_essential_needs_the_plugin(self, engine):
+    def test_non_essential_needs_a_stamp_not_a_plugin(self, engine):
+        """The 2026-09-26 ruling: any triggered device may be non-essential.
+
+        Plugin or not, in either mode, and scalars-only too — its own
+        stream, joined by stamp.  Only a device with no stamp (a
+        free-running gauge) is refused: nothing could place its readings on
+        a shot (deferred).
+        """
+        gated = {"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}}
+        for extra in ({}, {"plan": gated}):
+            for device in (
+                {"device": "UC_Native", "essential": False},
+                {"device": "U_ICT", "essential": False},
+                {"device": "UC_Native", "essential": False, "save_images": False},
+            ):
+                preset = _preset(devices=[{"device": "UC_Plugin"}, device], **extra)
+                assert self._refusal(preset, engine) is None, (device, extra)
+            preset = _preset(
+                devices=[
+                    {"device": "U_ICT"},
+                    {"device": "UC_Plugin", "essential": False, "save_images": False},
+                ],
+                **extra,
+            )
+            assert self._refusal(preset, engine) is None, extra
         preset = _preset(
             devices=[
                 {"device": "UC_Plugin"},
-                {"device": "UC_Native", "essential": False},
+                {"device": "U_Gauge", "essential": False},
             ]
         )
         refusal = self._refusal(preset, engine)
-        assert refusal and "non-essential" in refusal and "UC_Native" in refusal
-        preset = _preset(
-            devices=[
-                {"device": "UC_Native"},
-                {"device": "UC_Plugin", "essential": False},
-            ]
-        )
-        assert self._refusal(preset, engine) is None  # strict + a plugin stream
+        assert refusal and "no shot stamp" in refusal and "U_Gauge" in refusal
+        assert "UC_Plugin" not in refusal
 
     def test_gated_admits_a_native_saving_essential(self, engine):
         """The 2026-09-25 ruling: a device without a plugin is a gated essential.
 
         Beside a plugin camera, alone (it clocks the batch: it has a stamp),
-        or scalars-only — none is refused.  As a *non-essential* it still is
-        (the non-essential rule above is slice 2b's, untouched).
+        or scalars-only — none is refused; nor, since 2026-09-26, as a
+        non-essential beside them.
         """
         gated = {"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}}
         preset = _preset(
@@ -497,8 +515,7 @@ class TestAcquisitionRules:
             ],
             plan=gated,
         )
-        refusal = self._refusal(preset, engine)
-        assert refusal and "non-essential" in refusal and "UC_Native" in refusal
+        assert self._refusal(preset, engine) is None
 
     def test_gated_needs_a_shot_clock(self, engine):
         preset = _preset(
