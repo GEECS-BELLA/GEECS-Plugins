@@ -322,8 +322,12 @@ configured + extra installed + folder resolvable) — a bookmarked
 `/api/run/{uid}` payload): the Analysis tab's per-analyzer **edit** button
 opens `scan_analysis.config_editor`'s form in a drawer over the page
 (`openConfigEditor` in `run.html` loads `/configs/static/editor.js` on
-first use); the drawer's own device + shot pick what the preview
-renders (on demand via its `preview` button, or per edit with `auto`); a save refreshes the analyzer list and, when the Images tab
+first use); the preview renders the drawer's shot of the **recipe's own
+data folder** (`diag.data_folder` — the server ignores any device in the
+params; there is no device picker, 0.37.0: it once drew one camera
+through another's recipe), on demand via its `preview` button or per
+edit with `auto`; **duplicate as** copies the open recipe for the same
+device with `output_name` set to the new id; a save refreshes the analyzer list and, when the Images tab
 shows that diagnostic, the shot image.  The editor's own API is documented
 in `ScanAnalysis/CLAUDE.md`.
 `GET /run/{uid}/artifact?path=<relative>` serves one produced file —

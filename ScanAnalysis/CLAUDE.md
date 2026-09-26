@@ -287,8 +287,17 @@ The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
   pydantic location, and the optional preview pane (a `preview` button
   renders the edited document on the host's shot; `auto` re-renders per
   edit, remembered in localStorage). **The form is the recipe's** (format
-  3), laid out as the document reads: Source (naming, `input`, frame
-  `inputs`) → Steps (ordered cards; the add-select lists the registry with
+  3), laid out as the document reads, each section a `<details>` closed
+  on open with a one-line gist in its header (`sectionGist`; a server
+  error opens the section and card holding it): Source (`device`, the
+  resolved-names line — reads `scans/ScanNNN/<folder>/`, writes
+  `<label>_<metric><suffix>` and `analysis/ScanNNN/<label>/`, from
+  `namesOf` — then a nested **naming overrides** group, `output_name` +
+  `scalar_suffix`, closed unless the document sets one; `input`, frame
+  `inputs`) → Steps (each step / summary card folds to its gist; an ROI's
+  `bounds` are fixed `y`/`x` rows, or one `x` row for a line, by the
+  document's input kind; a schema `maxItems` hides a list's adder at
+  the cap; ordered cards; the add-select lists the registry with
   `(images)` / `(traces)` hints from `x-ndim`; a name the registry does not
   know is kept as written and flagged, never swapped) → Measure → Figure
   (matplotlib keyword rows: numbers, true/false, [lists] typed, other text

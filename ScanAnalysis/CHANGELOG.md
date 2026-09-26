@@ -3,6 +3,29 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.38.0] - 2026-09-26
+
+### Changed
+
+- The recipe editor reads at a glance: every section (Source, Steps,
+  Measure, Figure, Summaries, Scan) is a collapsible block, closed on
+  open, with a one-line gist in its header — Steps shows the pipeline
+  (`roi y 150–350 x 400–600 → background_constant level=50`). Each step
+  and summary card folds to its own gist. A server-side error opens the
+  section and card that hold it.
+- Source shows the resolved names under `device` — where the recipe reads
+  (`scans/ScanNNN/<folder>/`) and what it writes (`<label>_<metric><suffix>`
+  columns, `analysis/ScanNNN/<label>/`) — and nests `output_name` and
+  `scalar_suffix` in a **naming overrides** group, closed unless the
+  document sets one. The schema is unchanged.
+- An ROI's `bounds` are fixed axis rows — `y` and `x` for a camera, `x`
+  for a line — with no add / remove / reorder; any list with a schema
+  `maxItems` hides its adder at the cap.
+- `duplicate(namespace, id)` copies the open recipe for the same device
+  and sets the copy's `output_name` to the new id (so the two write
+  distinct columns and folders); it keeps `input.folder`. The `patch`
+  argument is gone.
+
 ## [1.37.0] - 2026-09-24
 
 ### Added

@@ -2118,8 +2118,8 @@ def create_app(
 
         The shot resolves through the run path's own source rules
         (:func:`scan_analysis.core_source.prepare_source` — file tail,
-        ``data_format``, the stack-only rule for ``pva_stack``) with the
-        picked device standing in for the recipe's folder; the reference is
+        ``data_format``, the stack-only rule for ``pva_stack``) over
+        ``device``, the recipe's own data folder; the reference is
         read with the document's loading, auxiliary columns handed over the
         way ``analyze_image_file`` hands them to line analyzers.
         """
@@ -2221,17 +2221,19 @@ def create_app(
 
         ephemeral = _ephemeral_module()
         uid = str(params.get("uid") or "")
-        device = str(params.get("device") or "")
         day = str(params.get("day") or "")
         raw_shots = params.get("shots")
         try:
             shots = 4 if raw_shots in (None, "") else int(raw_shots)
         except (TypeError, ValueError) as exc:
             raise ValueError("shots must be an integer") from exc
-        if not uid or not device:
-            raise LookupError("summary preview needs a scan and a device")
+        if not uid:
+            raise LookupError("summary preview needs a scan")
         shots = max(1, min(_SUMMARY_SHOTS_MAX, shots))
         diag = load_analysis_document(document)
+        # the document's own data folder, never a host-picked device: a
+        # preview of one camera's frames under another's recipe is a lie
+        device = diag.data_folder
         detail, folder = _preview_scan(uid, device, day)
         arrays, positions, missing = [], [], []
         for shot in range(1, shots + 1):
@@ -2269,15 +2271,16 @@ def create_app(
         from geecs_schemas.analysis import load_analysis_document
 
         uid = str(params.get("uid") or "")
-        device = str(params.get("device") or "")
         day = str(params.get("day") or "")
         try:
             shot = int(params.get("shot") or 0)
         except (TypeError, ValueError) as exc:
             raise ValueError("shot must be an integer") from exc
-        if not uid or not device or shot < 1:
-            raise LookupError("preview needs a scan, a device and a shot (>= 1)")
+        if not uid or shot < 1:
+            raise LookupError("preview needs a scan and a shot (>= 1)")
         diag = load_analysis_document(document)
+        # the document's own data folder (see the summary preview)
+        device = diag.data_folder
         if is_line(diag):
             return _line_preview(diag, uid, device, day, shot)
         detail, folder = _preview_scan(uid, device, day)

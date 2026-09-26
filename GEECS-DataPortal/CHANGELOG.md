@@ -3,6 +3,24 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.37.0] - 2026-09-26
+
+### Fixed
+
+- The config editor's preview reads the **recipe's own data folder**
+  (`data_folder`), never a host-picked device: the drawer's "preview
+  device" picker could draw one camera's frame through another camera's
+  recipe, labelled as the recipe's. The picker is removed and the preview
+  handlers ignore a `device` param.
+
+### Changed
+
+- The drawer's recipe switcher lists recipes for this scan's devices
+  first; **duplicate as** copies the open recipe for the same device
+  (retarget by editing its `device`).
+- The Analysis tab row names the data device only when it differs from
+  the recipe id (`on <device>`), instead of repeating the id.
+
 ## [0.36.1] - 2026-09-26
 
 ### Fixed

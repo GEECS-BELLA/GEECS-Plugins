@@ -174,6 +174,48 @@ class TestPreview:
             )["image"]
         )
 
+    def test_the_preview_reads_the_recipes_own_device(self, scan_folder, configs_tree):
+        """No host-picked device: the frame is the recipe's folder, whatever the params say.
+
+        The drawer once had a "preview device" picker that drew one camera's
+        frame through another camera's recipe, labelled as the recipe's.
+        """
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("PIL")
+        from PIL import Image
+
+        (scan_folder / "other").mkdir()
+        rng = np.random.default_rng(3)
+        for device in ("cam", "other"):
+            frame = rng.integers(0, 4000, size=(8, 8), dtype=np.uint16)
+            Image.fromarray(frame).save(
+                scan_folder / device / f"Scan002_{device}_001.png"
+            )
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        recipe = {
+            "schema_version": 3,
+            "device": "cam",
+            "input": {"kind": "camera"},
+            "measure": {"kind": "beam"},
+        }
+
+        def preview(**params):
+            return client.post(
+                "/configs/api/preview",
+                json={
+                    "document": recipe,
+                    "params": {"uid": "uid-002", "shot": 1, **params},
+                },
+            )
+
+        own = preview()
+        assert own.status_code == 200, own.text
+        assert preview(device="other").content == own.content
+        recipe["device"] = "other"
+        assert preview().content != own.content
+        # and the drawer offers no device to pick
+        assert 'id="cedev"' not in client.get("/run/uid-002").text
+
     def test_the_preview_is_the_runs_own_draw(self, scan_folder, configs_tree):
         """A recipe's preview: ScanAnalysis' ``preview_frame``, tight crop.
 
