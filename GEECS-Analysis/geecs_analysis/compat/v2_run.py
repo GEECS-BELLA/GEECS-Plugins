@@ -249,11 +249,11 @@ def _exit_with_parent() -> None:
     ``finally`` (SIGTERM or SIGKILL to a task runner or a detached analysis
     process) never delivers end-of-file: the workers would live on under
     init, each holding its stack handle. A daemon thread waits on the
-    parent's sentinel and exits the worker when it fires; the operating
-    system closes the worker's files.
+    parent's sentinel and terminates the worker when it fires; the
+    operating system closes the worker's files.
     """
     import multiprocessing
-    import os
+    import signal
     import threading
     from multiprocessing.connection import wait
 
@@ -263,7 +263,9 @@ def _exit_with_parent() -> None:
 
     def watch() -> None:
         wait([parent.sentinel])
-        os._exit(1)
+        # The default SIGTERM action ends the process at once, as os._exit
+        # would (the core imports no os): no queue flush, no atexit.
+        signal.raise_signal(signal.SIGTERM)
 
     threading.Thread(target=watch, name="exit-with-parent", daemon=True).start()
 
