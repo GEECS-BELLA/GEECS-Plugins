@@ -373,6 +373,7 @@ class Node {
   get textContent() { return this._text !== undefined ? this._text : this.children.map((c) => c.textContent).join(""); }
   set textContent(v) { this._text = String(v); this.children = []; }
   get className() { return this._class; } set className(v) { this._class = v; }
+  get parentElement() { return this.parent; }
   get classList() { const self = this; return {
     contains(c) { return self._class.split(/\s+/).includes(c); },
     add(c) { if (!this.contains(c)) self._class = (self._class + " " + c).trim(); },
@@ -500,6 +501,10 @@ def test_recipe_form_round_trips_and_reorders(tree):
         "beam": _BEAM_RECIPE,
         "line": _LINE_RECIPE,
         "typo": dict(_BEAM_RECIPE, inputs={}, steps=[{"step": "medain", "kernel": 3}]),
+        # a camera ROI on a line (an input kind changed): not fixed rows
+        "mismatch": dict(
+            _LINE_RECIPE, steps=[{"step": "roi", "bounds": [[1, 2], [3, 4]]}]
+        ),
     }
     harness = (
         _FAKE_DOM
@@ -510,13 +515,27 @@ def test_recipe_form_round_trips_and_reorders(tree):
         + f"const SECTIONS = () => {sections.group(1)};\n"
         + """
 const schema = new Schema(SCHEMA);
-const form = new Form(schema, () => {});
 const out = {};
 for (const [name, doc] of Object.entries(DOCS)) {
+  const form = new Form(schema, () => {}, { ndim: () => (doc.input.kind === "line" ? 1 : 2) });
   const r = form.object(schema.resolve(schema.root), doc, [], false, { sections: SECTIONS(), hidden: new Set(["schema_version"]) });
   const paths = r.node.querySelectorAll(".field").map((f) => f.getAttribute("data-path"));
   const ups = r.node.querySelectorAll('button[title="move up"]');
-  out[name] = { roundtrip: r.get(), paths, adder: r.node.querySelectorAll("select.add").map((s) => s.children.map((o) => o.textContent)) };
+  const cards = r.node.querySelectorAll("div.card").filter((c) => c.querySelector("button.fold"));
+  out[name] = {
+    roundtrip: r.get(), paths, adder: r.node.querySelectorAll("select.add").map((s) => s.children.map((o) => o.textContent)),
+    axes: r.node.querySelectorAll("span.axis-l").map((a) => a.textContent),
+    bounds_buttons: r.node.querySelectorAll("div.axis").map((row) => row.querySelectorAll("button").length),
+    shut: cards.map((c) => c.classList.contains("shut")),
+    gists: cards.map((c) => c.querySelector("span.ce-gist").textContent),
+    steps_gist: sectionGist("Steps", doc), source_gist: sectionGist("Source", doc), names: namesOf(doc),
+    adv_open: r.node.querySelectorAll("details.ce-adv").map((d) => d.getAttribute("open") !== null),
+  };
+  // a server error inside a folded card in a closed section opens both
+  out[name].bounds_removes = r.node.querySelectorAll('button[title="remove"]').length;
+  if (name === "typo" || name === "mismatch") continue;
+  Form.showErrors(r.node, [{ loc: "steps.1.units", msg: "bad" }]);
+  out[name].opened = [r.node.querySelectorAll("details.ce-section")[1].open === true, !cards[1].classList.contains("shut"), cards[0].classList.contains("shut")];
   if (ups.length > 1) { ups[1].fire("click"); out[name].after_up = r.get().steps; out[name].paths_after = r.node.querySelectorAll(".field").map((f) => f.getAttribute("data-path")); }
 }
 console.log(JSON.stringify(out));
@@ -563,6 +582,37 @@ console.log(JSON.stringify(out));
     assert "steps.1.source" in out["beam"]["paths_after"]
     # an unknown step name is kept as written, for the server to refuse by location
     assert out["typo"]["roundtrip"]["steps"] == [{"step": "medain", "kernel": 3}]
+    # an ROI's bounds are fixed axis rows by frame shape: no add / remove / reorder
+    assert out["beam"]["axes"] == ["y", "x"]
+    assert out["line"]["axes"] == ["x"]
+    assert out["beam"]["bounds_buttons"] == [0, 0]
+    # a count the frame shape does not fit stays an editable list, so the
+    # operator can remove the extra pair (the form rebuilds on a kind change)
+    assert out["mismatch"]["axes"] == []
+    assert out["mismatch"]["bounds_removes"] >= 3  # 2 pairs + the step card
+    # step and summary cards start folded to a one-line gist
+    assert all(out["beam"]["shut"]) and len(out["beam"]["shut"]) == 6
+    assert out["beam"]["gists"][1] == "y 350\u2013600 x 10\u2013750"
+    assert out["beam"]["steps_gist"].startswith(
+        "background_frame source=bg \u2192 roi y 350\u2013600 x 10\u2013750 \u2192 median kernel=5"
+    )
+    # the resolved names: a plain recipe is named after its device throughout;
+    # the line recipe's overrides are open and its folder / label resolved
+    assert out["beam"]["names"] == {
+        "device": "UC_TopView",
+        "folder": "UC_TopView",
+        "label": "UC_TopView",
+        "suffix": "",
+    }
+    assert out["beam"]["adv_open"] == [False]
+    assert out["line"]["adv_open"] == [True]
+    assert out["line"]["names"]["folder"] == "U_BCaveMagSpec-interpSpec"
+    assert out["line"]["source_gist"] == (
+        "U_BCaveMagSpec-interpSpec \u00b7 line \u2192 U_BCaveMagSpec-interpSpec_*"
+    )
+    # an error never hides in a folded section or card
+    # (only the card holding the error: its neighbours stay folded)
+    assert out["beam"]["opened"] == [True, True, True]
     assert not store.validate("analyzer", out["typo"]["roundtrip"]).ok
 
 

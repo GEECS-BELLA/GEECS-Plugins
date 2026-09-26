@@ -384,13 +384,11 @@
 <!-- config editor drawer: edit a diagnostic next to the scan, preview on the current shot -->
 <div class="cedrawer" id="cedrawer">
   <div class="cehead">
-    <span class="t" id="cetitle">config editor</span>
-    <label class="dim">diagnostic
-      <select id="cediag" title="switch the document under edit; diagnostics for the preview device are listed first"></select></label>
-    <span class="dup"><input id="cedup" placeholder="new id" title="create a copy of the open recipe under this id (same namespace) for the preview device; output_name and input.folder are not copied; Save then writes it (a format 2 diagnostic cannot be copied here)"><button class="act" onclick="ceDuplicate()">duplicate as</button></span>
-    <label class="dim">preview device
-      <select id="cedev">{% for d in devices %}<option value="{{ d }}"{% if d == sel_device %} selected{% endif %}>{{ d }}</option>{% endfor %}</select></label>
-    <label class="dim">shot <input type="number" id="ceshot" min="1" value="{{ shot }}"></label>
+    <span class="t" id="cetitle">edit recipe</span>
+    <label class="dim">recipe
+      <select id="cediag" title="switch the recipe under edit; recipes for this scan's devices are listed first"></select></label>
+    <span class="dup"><input id="cedup" placeholder="new id" title="copy the open recipe under this id (same namespace, same device); the copy's output_name is set to the new id so the two write distinct columns and folders; Save then writes it (a format 2 diagnostic cannot be copied here)"><button class="act" onclick="ceDuplicate()">duplicate as</button></span>
+    <label class="dim" title="the preview reads this shot of the recipe's own device">shot <input type="number" id="ceshot" min="1" value="{{ shot }}"></label>
     <a href="{{ root }}/configs/" target="_blank">full editor ↗</a>
     <button class="act" onclick="closeConfigEditor()">close</button>
   </div>
@@ -559,6 +557,7 @@ const ROOT = {{ root | tojson }};  // proxy mount prefix ("" at root)
 const IS_TRACE = {{ is_trace | tojson }};
 const DAY = {{ day | tojson }};
 const SEL_DEVICE = {{ sel_device | tojson }};
+const SCAN_DEVICES = new Set({{ devices | tojson }});
 const VERSION = {{ portal_version | tojson }};
 const TRACE_COLORS = {{ trace_colors | tojson }};
 // The DEFAULT colour for trace i comes from the theme (--trace-1..4), read
@@ -900,14 +899,14 @@ const SHOT = {{ shot | tojson }};
 
 // ---------------- config editor drawer ----------------
 // The editor script (served by the mounted router) renders the form; this
-// page supplies the preview parameters — the drawer's device + shot — and
-// refreshes the analyzer list / shot image after a save.
+// page supplies the preview parameters — this scan and the drawer's shot;
+// the device is the recipe's own, never picked here — and refreshes the
+// analyzer list / shot image after a save.
 let CE = null;
+const CE_TITLE = "edit recipe";
 function cePreviewParams() {
-  const dev = document.getElementById("cedev");
   const shot = document.getElementById("ceshot");
-  if (!dev || !dev.value) return null;
-  return { uid: UID, day: DAY, device: dev.value, shot: Number(shot.value) || 1 };
+  return { uid: UID, day: DAY, shot: Number(shot.value) || 1 };
 }
 function openConfigEditor(id) {
   if (!CONFIG_EDITOR) return;
@@ -927,31 +926,29 @@ function openConfigEditor(id) {
       onSaved: (saved) => {
         refreshAnalysis(true);
         CE.reloadListing().then(ceFillDiagnostics);
-        document.getElementById("cetitle").textContent = saved.id;
+        document.getElementById("cetitle").textContent = CE_TITLE;
         // the Images tab's processed view keys the diagnostic by name; a
         // save changes it — re-fetch the shot image if it is showing it
         const img = document.getElementById("shotimg");
         if (img && S.processing === saved.id) img.src = img.src.replace(/([&?])_=\d+/, "") + `&_=${Date.now()}`;
       },
     });
-    ["cedev", "ceshot"].forEach((k) => document.getElementById(k).addEventListener("change", () => CE && CE.refreshPreview()));
-    document.getElementById("cedev").addEventListener("change", () => ceFillDiagnostics(CE.listing()));
+    document.getElementById("ceshot").addEventListener("change", () => CE && CE.refreshPreview());
     document.getElementById("cediag").addEventListener("change", (e) => ceSwitch(e.target.value));
   });
-  ensure.then(() => { document.getElementById("cetitle").textContent = id; return CE.open("analyzer", id); })
+  ensure.then(() => { document.getElementById("cetitle").textContent = CE_TITLE; return CE.open("analyzer", id); })
         .then(() => CE.ready.then(() => ceFillDiagnostics(CE.listing())))
         .catch((e) => { document.getElementById("ceditor").innerHTML = `<div class="plotmsg">${esc(e.message)}</div>`; });
 }
-// The drawer's diagnostic switcher: every loadable diagnostic, the ones whose
-// data device is the preview device first (the Analysis tab's applicability
-// test), the rest below — several configs per device is the normal case.
+// The drawer's recipe switcher: every loadable recipe, the ones whose data
+// device recorded in this scan first (the Analysis tab's applicability
+// test), the rest below — several recipes per device is the normal case.
 function ceFillDiagnostics(listing) {
   const sel = document.getElementById("cediag");
   if (!sel || !listing) return;
-  const device = document.getElementById("cedev").value;
   const current = CE && CE.current().id;
-  const mine = listing.analyzers.filter(a => a.device === device);
-  const others = listing.analyzers.filter(a => a.device !== device);
+  const mine = listing.analyzers.filter(a => SCAN_DEVICES.has(a.device));
+  const others = listing.analyzers.filter(a => !SCAN_DEVICES.has(a.device));
   sel.innerHTML = "";
   const group = (label, items) => {
     if (!items.length) return;
@@ -959,14 +956,14 @@ function ceFillDiagnostics(listing) {
     for (const a of items) { const o = document.createElement("option"); o.value = a.id; o.textContent = a.valid ? a.id : `${a.id} (invalid)`; og.appendChild(o); }
     sel.appendChild(og);
   };
-  group(`for ${device}`, mine);
+  group("in this scan", mine);
   group("other devices", others);
   if (current) sel.value = current;
 }
 function ceSwitch(id) {
   if (!CE || !id || id === CE.current().id) return;
   if (CE.isDirty() && !confirm("Discard unsaved changes and open " + id + "?")) { document.getElementById("cediag").value = CE.current().id; return; }
-  document.getElementById("cetitle").textContent = id;
+  document.getElementById("cetitle").textContent = CE_TITLE;
   CE.open("analyzer", id).then(() => ceFillDiagnostics(CE.listing()));
 }
 function ceDuplicate() {
@@ -974,10 +971,9 @@ function ceDuplicate() {
   const id = (input.value || "").trim();
   if (!CE || !id) return;
   const cur = CE.current();
-  const device = document.getElementById("cedev").value;
-  // the copy targets the preview device: a variant recipe for THIS camera
-  // (the editor drops output_name and input.folder from the copy)
-  CE.duplicate(cur.namespace, id, { device }).then((copied) => {
+  // a variant recipe for the same device (the editor gives the copy its
+  // own output_name); retarget it by editing its device field
+  CE.duplicate(cur.namespace, id).then((copied) => {
     if (!copied) return;  // a read-only (format 2) document: nothing was copied
     document.getElementById("cetitle").textContent = `${id} (new — Save to create)`;
     input.value = "";
@@ -1055,7 +1051,8 @@ function renderAnalyzer(a, anyRunning) {
   // attribute — the #765 review's dead-button finding).
   const edit = CONFIG_EDITOR ? `<button class="act" data-id="${escAttr(a.id)}" onclick="openConfigEditor(this.dataset.id)" title="edit this diagnostic's YAML with a live preview on the current shot">edit</button> ` : "";
   const button = `${edit}<button class="act" ${anyRunning ? "disabled" : ""} data-id="${escAttr(a.id)}" onclick="startAnalysis(this.dataset.id)">${label}</button>`;
-  const device = a.device ? `<span class="dim mono" title="data device">${esc(a.device)}</span>` : "";
+  // the data device only when it says something the recipe id does not
+  const device = a.device && a.device !== a.id ? `<span class="dim mono" title="the device whose data this recipe reads">on ${esc(a.device)}</span>` : "";
   const when = job && job.finished ? `<span class="dim" style="font-size:11px">${new Date(job.finished * 1000).toLocaleTimeString()}</span>` : "";
   let body = "";
   if (job && job.error) body += `<p class="err">${esc(job.error)}</p>`;

@@ -43,6 +43,50 @@
   };
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
+  // ---------------------------------------------------------------- gists
+  // One-line readings of a document part, for a collapsed header: a step,
+  // a summary, a section.  Display only — nothing parses them back.
+  const clip = (text, n) => (text.length > n ? text.slice(0, n - 1) + "\u2026" : text);
+  const fmtValue = (v) => {
+    if (v === null || v === undefined) return "\u00b7";
+    if (Array.isArray(v)) return "[" + v.map(fmtValue).join(",") + "]";
+    if (typeof v === "object") return "{\u2026}";
+    return String(v);
+  };
+  // an ROI's bounds read as axes: rows (y) then columns (x) for an image, x for a trace
+  const roiGist = (bounds, units) => {
+    const axes = bounds.length === 2 ? ["y", "x"] : ["x"];
+    return bounds.map((b, i) => `${axes[i] || "#" + (i + 1)} ${fmtValue((b || [])[0])}\u2013${fmtValue((b || [])[1])}`).join(" ") + (units === "axis" ? " (axis)" : "");
+  };
+  function itemGist(item) {
+    if (!item || typeof item !== "object") return "";
+    const tag = item.step ?? item.kind ?? "";
+    if (tag === "roi" && Array.isArray(item.bounds) && item.bounds.length) return `roi ${roiGist(item.bounds, item.units)}`;
+    const params = Object.entries(item).filter(([k, v]) => k !== "step" && k !== "kind" && v !== undefined);
+    return clip(params.length ? `${tag} ${params.map(([k, v]) => `${k}=${fmtValue(v)}`).join(" ")}` : String(tag), 60);
+  }
+  // Where a recipe reads and what it writes, resolved from its naming
+  // fields as the run resolves them (core_recipe.scan_recipe): the one
+  // line that explains device / input.folder / output_name / scalar_suffix.
+  function namesOf(doc) {
+    const device = doc.device || "?";
+    const folder = (doc.input && doc.input.folder) || device;
+    const label = doc.output_name || device;
+    return { device, folder, label, suffix: doc.scalar_suffix || "" };
+  }
+  function sectionGist(title, doc) {
+    const list = (xs, f) => (Array.isArray(xs) && xs.length ? xs.map(f).join(" \u2192 ") : "none");
+    switch (title) {
+      case "Source": { const n = namesOf(doc); const kind = doc.input && doc.input.kind ? ` \u00b7 ${doc.input.kind}` : ""; return `${n.folder}${kind}` + (n.label !== n.device || n.suffix ? ` \u2192 ${n.label}_*${n.suffix}` : ""); }
+      case "Steps": return clip(list(doc.steps, itemGist), 140);
+      case "Measure": return doc.measure ? itemGist(doc.measure) : "";
+      case "Figure": { const keys = Object.keys(doc.figure || {}); return keys.length ? keys.join(", ") : "defaults"; }
+      case "Summaries": return Array.isArray(doc.summaries) && doc.summaries.length ? doc.summaries.map((x) => x.kind).join(", ") : "none";
+      case "Scan": { const e = Object.entries(doc.scan || {}); return e.length ? clip(e.map(([k, v]) => `${k}=${fmtValue(v)}`).join(" "), 80) : "defaults"; }
+      default: return "";
+    }
+  }
+
   async function api(base, path, opts) {
     const r = await fetch(base + "/api" + path, Object.assign({ headers: { "Content-Type": "application/json" } }, opts || {}));
     if (r.status === 204) return null;
@@ -123,7 +167,9 @@
   // Each renderer returns {node, get()}; get() returns the JSON value or
   // undefined (omit the key).
   class Form {
-    constructor(schema, onChange) { this.schema = schema; this.onChange = onChange; }
+    // ctx.ndim(): the frame dimensions the document's input yields (2 for a
+    // camera, 1 for a line) - fixes how many ROI bounds rows are shown
+    constructor(schema, onChange, ctx) { this.schema = schema; this.onChange = onChange; this.ctx = ctx || {}; }
 
     render(node, value, path) {
       const { inner, optional, meta } = this.schema.unwrapOptional(node);
@@ -275,45 +321,86 @@
       const input = el("input", { type: "text", value: values.join(", "), placeholder: optional ? "(unset) - comma separated" : "comma separated", oninput: () => this.onChange() });
       return { node: this.field(n, path, input), get: () => { const parts = input.value.split(",").map((s) => s.trim()).filter(Boolean); if (!parts.length) return optional ? undefined : []; return item.type === "string" ? parts : parts.map(Number); } };
     }
+    // An ROI's bounds as fixed axis rows (y, x for an image; x for a trace)
+    // when the stored pairs fit the document's frame shape, else null and
+    // the generic capped list (a file with the wrong count stays editable).
+    boundsAxes(item, path, values) {
+      if (path[path.length - 1] !== "bounds" || this.schema.kindOf(item) !== "tuple" || !this.ctx.ndim) return null;
+      const ndim = this.ctx.ndim();
+      if (values.length && values.length !== ndim) return null;
+      return ndim === 1 ? ["x"] : ["y", "x"];
+    }
+    axisRows(n, item, values, path, axes) {
+      const rows = axes.map((axis, i) => {
+        const r = this.render(item, values[i], path.concat(i));
+        return { r, node: el("div", { class: "item light axis" }, el("span", { class: "axis-l", title: axis === "y" ? "rows: the first numpy dimension" : "columns / samples" }, axis), r.node) };
+      });
+      const list = el("div", { class: "list" }, ...rows.map((x) => x.node));
+      const get = () => rows.map((x) => { const v = x.r.get(); return v === undefined ? [null, null] : v.map((b) => (b === undefined ? null : b)); });
+      return { node: el("fieldset", {}, el("legend", { title: n.description || "" }, String(path[path.length - 1])), this.help(n), list), get };
+    }
     objectList(n, item, values, path, optional) {
       // Ordered cards (a step, a summary): the header is the kind select for
       // a discriminated union, else the index, plus up / down / remove; the
       // fields sit below.  Reorder and remove rebuild the list from the
       // current values, so every field path (steps.2.bounds) stays true.
+      const axes = this.boundsAxes(item, path, values);
+      if (axes) return this.axisRows(n, item, values, path, axes);
       const isUnion = this.schema.kindOf(item) === "union";
       // a pair of numbers or a scalar is a row with its buttons, not a card
       const light = !isUnion && ["tuple", "number", "string", "bool", "enum"].includes(this.schema.kindOf(item));
       const list = el("div", { class: "list" });
       const items = [];
+      // a union card (a step, a summary) folds to its one-line gist; the
+      // open ones stay open across a reorder / remove / add
+      const cards = [];
+      const openNow = () => cards.map((c) => !c.classList.contains("shut"));
       const current = () => items.map((it) => { try { return it.get(); } catch (e) { if (e instanceof FormParseError) return it.last; throw e; } });
+      const move = (arr, i, j) => { [arr[i], arr[j]] = [arr[j], arr[i]]; return arr; };
       let adder;
-      const rebuild = (vals) => {
-        items.length = 0; list.innerHTML = "";
+      const rebuild = (vals, opens) => {
+        items.length = 0; cards.length = 0; list.innerHTML = "";
         vals.forEach((v, i) => {
           const r = isUnion ? this.union(item, v, path.concat(i), { header: true }) : this.render(item, v, path.concat(i));
           r.last = v;
           const buttons = [
-            el("button", { type: "button", title: "move up", disabled: i === 0, onclick: () => { const c = current(); [c[i - 1], c[i]] = [c[i], c[i - 1]]; rebuild(c); this.onChange(); } }, "\u2191"),
-            el("button", { type: "button", title: "move down", disabled: i === vals.length - 1, onclick: () => { const c = current(); [c[i + 1], c[i]] = [c[i], c[i + 1]]; rebuild(c); this.onChange(); } }, "\u2193"),
-            el("button", { type: "button", title: "remove", onclick: () => { const c = current(); c.splice(i, 1); rebuild(c); this.onChange(); } }, "x"),
+            el("button", { type: "button", title: "move up", disabled: i === 0, onclick: () => { const o = openNow(); rebuild(move(current(), i - 1, i), move(o, i - 1, i)); this.onChange(); } }, "\u2191"),
+            el("button", { type: "button", title: "move down", disabled: i === vals.length - 1, onclick: () => { const o = openNow(); rebuild(move(current(), i + 1, i), move(o, i + 1, i)); this.onChange(); } }, "\u2193"),
+            el("button", { type: "button", title: "remove", disabled: n.minItems !== undefined && vals.length <= n.minItems, onclick: () => { const c = current(), o = openNow(); c.splice(i, 1); o.splice(i, 1); rebuild(c, o); this.onChange(); } }, "x"),
           ];
           if (light) { list.append(el("div", { class: "item light" }, r.node, ...buttons)); items.push(r); return; }
-          const head = el("div", { class: "head" }, isUnion ? r.head : el("span", { class: "idx" }, `#${i + 1}`), el("span", { class: "spacer" }), ...buttons);
           const body = el("div", { class: "body" }, isUnion ? r.node : (r.node.tagName === "FIELDSET" ? (r.node.querySelector(".obj") || r.node) : r.node));
-          list.append(el("div", { class: "item card" }, head, body));
+          const card = el("div", { class: "item card" });
+          let lead = el("span", { class: "idx" }, `#${i + 1}`);
+          if (isUnion) {
+            const gist = el("span", { class: "ce-gist", title: "click to show / hide this item's fields" });
+            const toggle = el("button", { type: "button", class: "fold", title: "show / hide fields" }, "\u25b8");
+            const flip = () => card.classList.toggle("shut");
+            toggle.addEventListener("click", flip); gist.addEventListener("click", flip);
+            const refresh = () => { let cur; try { cur = r.get(); } catch (_) { return; } gist.textContent = itemGist(cur).replace(/^\S+\s?/, ""); };
+            card.addEventListener("input", refresh); card.addEventListener("change", refresh);
+            refresh();
+            if (!(opens && opens[i])) card.classList.add("shut");
+            lead = el("span", { class: "lead" }, toggle, el("span", { class: "idx" }, `${i + 1}`), r.head, gist);
+            cards.push(card);
+          }
+          card.append(el("div", { class: "head" }, lead, el("span", { class: "spacer" }), ...buttons), body);
+          list.append(card);
           items.push(r);
         });
+        // a schema cap (an ROI's two pairs) hides the adder at the cap
+        adder.hidden = n.maxItems !== undefined && vals.length >= n.maxItems;
         list.append(adder);
       };
       const noun = String(path[path.length - 1]).replace(/ies$/, "y").replace(/s$/, "");
       if (isUnion) {
-        adder = el("select", { class: "add", onchange: () => { if (adder.value) { rebuild(current().concat([this.schema.defaultFor(this.unionVariant(item, adder.value))])); this.onChange(); } } });
+        adder = el("select", { class: "add", onchange: () => { if (adder.value) { rebuild(current().concat([this.schema.defaultFor(this.unionVariant(item, adder.value))]), openNow().concat([true])); this.onChange(); } } });
         adder.append(el("option", { value: "" }, `add ${noun}...`));
         for (const v of this.unionVariants(item)) adder.append(el("option", { value: String(v.tag), title: v.schema.description || "" }, v.label));
       } else {
-        adder = el("button", { type: "button", class: "add", onclick: () => { rebuild(current().concat([this.schema.defaultFor(item)])); this.onChange(); } }, `+ add ${noun}`);
+        adder = el("button", { type: "button", class: "add", onclick: () => { rebuild(current().concat([this.schema.defaultFor(item)]), openNow().concat([true])); this.onChange(); } }, `+ add ${noun}`);
       }
-      rebuild(values);
+      rebuild(values, []);
       return { node: el("fieldset", {}, el("legend", { title: n.description || "" }, String(path[path.length - 1])), this.help(n), list), get: () => { const vals = items.map((it) => it.get()).filter((v) => v !== undefined); return vals.length === 0 && optional ? undefined : vals; } };
     }
 
@@ -328,8 +415,20 @@
       const skip = (opts && opts.skip) || new Set();
       const hidden = (opts && opts.hidden) || new Set();
       const sections = (opts && opts.sections) || null;
+      // A section is a collapsible block, closed until asked for; its
+      // header carries a one-line gist the host refreshes.  An `advanced`
+      // group (the naming overrides) nests closed inside it unless the
+      // document sets one of its keys.
       if (sections) for (const s of sections) {
-        s.body = el("fieldset", { class: "ce-section" + (s.keys.length === 1 ? " ce-flat" : "") }, el("legend", {}, s.title), s.help ? el("div", { class: "ce-section-help" }, s.help) : null);
+        s.gistEl = el("span", { class: "ce-gist" });
+        s.body = el("details", { class: "ce-section" + (s.keys.length === 1 ? " ce-flat" : "") },
+          el("summary", {}, el("span", { class: "ce-section-t" }, s.title), s.gistEl),
+          s.help ? el("div", { class: "ce-section-help" }, s.help) : null);
+        if (s.advanced) {
+          s.namesEl = el("div", { class: "ce-names" });
+          const set = s.advanced.keys.some((k) => value && value[k] !== undefined && value[k] !== null && value[k] !== "");
+          s.advEl = el("details", { class: "ce-adv", open: set }, el("summary", {}, s.advanced.title), s.advanced.help ? el("div", { class: "help" }, s.advanced.help) : null);
+        }
         body.append(s.body);
       }
       for (const [key, sub] of Object.entries(props)) {
@@ -344,7 +443,15 @@
           continue;
         }
         const r = this.render(sub, value && value[key] !== undefined ? value[key] : undefined, path.concat(key));
-        if (r.node) { const sec = sections && sections.find((s) => s.keys.includes(key)); (sec ? sec.body : body).append(r.node); }
+        if (r.node) {
+          const sec = sections && sections.find((s) => s.keys.includes(key));
+          const adv = sections && sections.find((s) => s.advanced && s.advanced.keys.includes(key));
+          if (adv) {
+            // the resolved names and the overrides sit together, where the first override falls
+            if (!adv.advPlaced) { adv.advPlaced = true; adv.body.append(adv.namesEl, adv.advEl); }
+            adv.advEl.append(r.node);
+          } else (sec ? sec.body : body).append(r.node);
+        }
         children.push([key, r]);
       }
       const get = () => {
@@ -445,7 +552,14 @@
           target = root.querySelector(`.field[data-path="${cand.join(".")}"]`)
             || root.querySelector(`.field[data-path="${cand.filter((_, i) => i !== 1).join(".")}"]`);
         }
-        if (target) { target.classList.add("err"); target.append(el("div", { class: "ferr srv" }, err.msg)); }
+        if (target) {
+          target.classList.add("err"); target.append(el("div", { class: "ferr srv" }, err.msg));
+          // an error never hides inside a folded section or card
+          for (let p = target.parentElement; p && p !== root; p = p.parentElement) {
+            if (p.tagName === "DETAILS") p.open = true;
+            if (p.classList.contains("shut")) p.classList.remove("shut");
+          }
+        }
       }
     }
   }
@@ -467,7 +581,8 @@
     // processed, what is measured, how it is drawn, the scan-level figures,
     // how the run behaves.
     const RECIPE_SECTIONS = () => [
-      { title: "Source", keys: ["device", "output_name", "scalar_suffix", "description", "input", "inputs"], help: "The device whose folder is read, how one frame is read, and any frame loaded before the run (a background image) for a step to use by name." },
+      { title: "Source", keys: ["device", "output_name", "scalar_suffix", "description", "input", "inputs"], help: "The device whose folder is read, how one frame is read, and any frame loaded before the run (a background image) for a step to use by name.",
+        advanced: { title: "naming overrides", keys: ["output_name", "scalar_suffix"], help: "Optional. Rename what this recipe writes (a readable label, or two recipes on one device), or tag its s-file columns (a variant of the same analysis). Unset, everything is named after the device." } },
       { title: "Steps", keys: ["steps"], help: "Processing in order, top to bottom; a step may repeat. A step marked (images) or (traces) fits that input kind only." },
       { title: "Measure", keys: ["measure"], help: "What is measured on every processed frame; its scalars become s-file columns." },
       { title: "Figure", keys: ["figure"], help: "The per-frame draw, reused by every product image and summary panel: matplotlib keywords by call (imshow, plot, colorbar, axes, fig) and a style per overlay id (hidden, scale, or plot keywords). Numbers, true / false and [lists] are typed; other text is a string." },
@@ -511,6 +626,13 @@
     if (hasPreview) { summaryHead.hidden = true; summaryBox.hidden = true; right.append(summaryHead, summaryBox); }
     right.append(el("h4", {}, "yaml"), yamlBox, okBox, errBox);
 
+    // the scan subfolder a document reads: a recipe's input.folder or
+    // device, a format 2 diagnostic's scan.device or name
+    function dataFolder(doc) {
+      if (!doc) return "";
+      if (doc.schema_version === 3) return (doc.input && doc.input.folder) || doc.device || "";
+      return (doc.scan && doc.scan.device) || doc.name || "";
+    }
     function hasSummaryPreview() { return hasPreview && !!(state.listing && state.listing.summary_preview); }
     // the host's own cap on shots per summary preview (its listing says)
     function shotsMax() { const m = state.listing && Number(state.listing.summary_shots_max); return m > 0 ? m : 8; }
@@ -671,13 +793,18 @@
       }
       main.append(bar);
       const formRoot = el("div", { class: "ce-form" });
-      state.form = new Form(schema, onFormChange);
+      state.form = new Form(schema, onFormChange, {
+        ndim: () => { let d = document; try { if (state.get) d = state.get(); } catch (_) { /* mid-edit */ } return d && d.input && d.input.kind === "line" ? 1 : 2; },
+      });
+      state.get = null;  // the ctx above reads the loaded document until the form exists
+      state.sections = kind === "analyzer" ? RECIPE_SECTIONS() : null;
       const rendered = kind === "analyzer"
-        ? state.form.object(schema.resolve(schema.root), document, [], false, { sections: RECIPE_SECTIONS(), hidden: new Set(["schema_version"]) })
+        ? state.form.object(schema.resolve(schema.root), document, [], false, { sections: state.sections, hidden: new Set(["schema_version"]) })
         : state.form.render(schema.root, document, []);
       formRoot.append(rendered.node);
       main.append(formRoot);
       state.get = rendered.get; state.formRoot = formRoot; state.dirtyEl = dirty;
+      state.inputKind = document && document.input ? document.input.kind : undefined;
       if (kind === "group" && state.listing) {
         formRoot.querySelectorAll('.field[data-path$=".ref"] input').forEach((inp) => inp.setAttribute("list", "ce-known-ids"));
         if (!window.document.getElementById("ce-known-ids")) {
@@ -687,6 +814,7 @@
         }
       }
       errBox.textContent = ""; okBox.textContent = ""; previewBox.innerHTML = ""; summaryBox.innerHTML = "";
+      refreshGists();
       if (errors && errors.length) { Form.showErrors(formRoot, errors); errBox.textContent = errors.map((e) => `${e.loc}: ${e.msg}`).join("\n"); }
       await validate();
       if (state.etag === null) markDirty();
@@ -708,7 +836,39 @@
         ? `Save will REPLACE a file that does not validate on disk:\n${state.loadError}`
         : `This file does not validate on disk:\n${state.loadError}\nThe form is a reconstruction from the schema (unknown keys dropped); the YAML pane shows the file as it is. Edit to enable Save.`;
     }
-    const onFormChange = () => { markDirty(); validateDebounced(); };
+    const onFormChange = () => { markDirty(); validateDebounced(); refreshGistsDebounced(); rebuildOnKindChange(); };
+    // The frame shape decides how a step renders (an ROI's fixed y / x rows):
+    // a changed input kind rebuilds the form from the document as edited, so
+    // a camera ROI moved onto a line shows its now-wrong count as an editable
+    // list instead of rows fixed at the old shape.  Open sections stay open.
+    function rebuildOnKindChange() {
+      if (!state.sections || !state.get) return;
+      let doc; try { doc = state.get(); } catch (_) { return; }
+      const kind = doc.input && doc.input.kind;
+      if (kind === state.inputKind) return;
+      const open = state.sections.filter((s) => s.body && s.body.open).map((s) => s.title);
+      buildForm(state.kind, doc, []).then(() => {
+        for (const s of state.sections) if (open.includes(s.title)) s.body.open = true;
+        markDirty();
+      });
+    }
+    // The section headers' gists and the resolved-names line, from the form
+    // as it stands (quietly skipped while a keyword box does not parse).
+    function refreshGists() {
+      if (!state.sections || !state.get) return;
+      let doc; try { doc = state.get(); } catch (_) { return; }
+      for (const s of state.sections) {
+        if (s.gistEl) s.gistEl.textContent = sectionGist(s.title, doc);
+        if (s.namesEl) {
+          const n = namesOf(doc);
+          s.namesEl.innerHTML = "";
+          s.namesEl.append(
+            el("span", { class: "k" }, "reads"), el("span", {}, el("code", {}, `scans/ScanNNN/${n.folder}/`)),
+            el("span", { class: "k" }, "writes"), el("span", {}, el("code", {}, `${n.label}_<metric>${n.suffix}`), " s-file columns, ", el("code", {}, `analysis/ScanNNN/${n.label}/`)));
+        }
+      }
+    }
+    const refreshGistsDebounced = debounce(refreshGists, 150);
 
     async function validate() {
       const doc = currentDoc();
@@ -761,7 +921,7 @@
     let summarySeq = 0;
     async function summaryPreview(doc) {
       const base_params = opts.preview.params();
-      if (!base_params) { summaryBox.innerHTML = '<div class="msg">select a device on the Images tab to preview the summaries</div>'; return; }
+      if (!base_params) { summaryBox.innerHTML = '<div class="msg">open a scan to preview the summaries</div>'; return; }
       const shots = Math.max(1, Math.min(shotsMax(), Number(shotsInput.value) || 4));
       const params = Object.assign({}, base_params, { shots });
       // a recipe lists its summaries; a format 2 diagnostic draws the fixed pair
@@ -785,7 +945,7 @@
         const url = URL.createObjectURL(blob);
         const img = el("img", { src: url, alt: `${kind} summary` }); img.onload = () => URL.revokeObjectURL(url);
         const how = kind === "average" ? "their average" : kind === "waterfall" ? "one row per shot" : "one panel per shot";
-        cards.push(el("div", { class: "card" }, img, el("div", { class: "msg" }, `${kind} layout over shots 1-${shots} of ${params.device}, ${how} (a run's panels are per bin)`)));
+        cards.push(el("div", { class: "card" }, img, el("div", { class: "msg" }, `${kind} layout over shots 1-${shots} of ${dataFolder(doc)}, ${how} (a run's panels are per bin)`)));
       }
       summaryBox.innerHTML = ""; summaryBox.append(...cards);
     }
@@ -794,7 +954,7 @@
     let previewSeq = 0;
     async function preview(doc) {
       const params = opts.preview.params();
-      if (!params) { previewBox.innerHTML = '<div class="msg">select a device and shot on the Images tab to preview</div>'; return; }
+      if (!params) { previewBox.innerHTML = '<div class="msg">open a scan to preview</div>'; return; }
       const seq = ++previewSeq;
       const r = await fetch(base + "/api/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document: doc, params }) });
       if (seq !== previewSeq) return;
@@ -808,8 +968,8 @@
       previewBox.innerHTML = ""; previewBox.classList.remove("stale"); previewStale = false;
       const img = el("img", { src: url, alt: "preview" }); img.onload = () => URL.revokeObjectURL(url);
       previewBox.append(img, el("div", { class: "msg" }, state.readOnlyDoc
-        ? `${params.device} / shot ${params.shot} - drawn by the saved diagnostic's own analyzer (format 2)`
-        : `${params.device} / shot ${params.shot} - drawn as a scan run of the document above draws it (unsaved)`));
+        ? `${dataFolder(doc)} / shot ${params.shot} - drawn by the saved diagnostic's own analyzer (format 2)`
+        : `${dataFolder(doc)} / shot ${params.shot} - drawn as a scan run of the document above draws it (unsaved)`));
     }
     const previewDebounced = debounce(preview, 300);
     function markPreviewStale() {
@@ -829,18 +989,18 @@
       else if (!state.kind) main.innerHTML = '<div class="ce-empty">select a diagnostic or group</div>';
     })();
 
-    // Start a new document from the current form's content (a variant of the
-    // open recipe for the same device, say); Save then creates it. Resolves
-    // false when there is nothing to copy (a read-only document, a form that
-    // does not parse) so the host does not announce a copy that does not exist.
-    async function duplicate(namespace, id, patch) {
+    // Start a new document from the current form's content: a variant of the
+    // open recipe for the same device; Save then creates it. Resolves false
+    // when there is nothing to copy (a read-only document, a form that does
+    // not parse) so the host does not announce a copy that does not exist.
+    async function duplicate(namespace, id) {
       const cur = currentDoc(); if (!cur || state.readOnlyDoc) return false;
       state.readOnlyDoc = null;
-      const doc = Object.assign(JSON.parse(JSON.stringify(cur)), patch || {});
-      // The copy is a new identity: anything that pins the original's data
-      // folder or output location would make the two overwrite each other.
-      delete doc.output_name;
-      if (doc.input) delete doc.input.folder;
+      const doc = JSON.parse(JSON.stringify(cur));
+      // The copy reads the same data but is a new identity: its outputs are
+      // labelled by its own id, or the two would write the same columns and
+      // folder.  Retarget it by editing its device.
+      if (id !== doc.device) doc.output_name = id; else delete doc.output_name;
       state.id = id; state.namespace = namespace; state.etag = null; state.loadError = null; state.loadYaml = null;
       await buildForm(state.kind, doc, []);
       if (side) renderSide();

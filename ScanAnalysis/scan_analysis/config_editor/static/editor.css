@@ -72,19 +72,47 @@
 .ce-new button { flex: 0 0 auto; }
 
 
-/* the recipe form: one section per part of the document (Source, Steps, ...) */
-.ce-form .ce-section { border: 1px solid var(--rule); border-radius: 4px; margin: 0.5rem 0 0.7rem; padding: 0.3rem 0.8rem 0.6rem; }
-.ce-form .ce-section > legend { color: var(--ink); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; padding: 0 0.3rem; }
+/* the recipe form: one collapsible section per part of the document (Source,
+   Steps, ...), closed until asked for; the header says what is inside */
+.ce-form .ce-section { border: 1px solid var(--rule); border-radius: 4px; margin: 0 0 0.5rem; padding: 0 0.8rem; background: var(--surface); }
+.ce-form .ce-section[open] { padding-bottom: 0.6rem; }
+.ce-form details > summary { list-style: none; cursor: pointer; }
+.ce-form details > summary::-webkit-details-marker { display: none; }
+.ce-form .ce-section > summary { display: flex; align-items: baseline; gap: 0.8rem; padding: 0.5rem 0; }
+.ce-form .ce-section > summary::before, .ce-form .ce-adv > summary::before { content: "\25b8"; color: var(--muted); font-size: 14px; width: 0.9rem; flex: none; transition: transform 0.12s; display: inline-block; }
+.ce-form .ce-section[open] > summary::before, .ce-form .ce-adv[open] > summary::before { transform: rotate(90deg); }
+.ce-form .ce-section > summary .ce-section-t { color: var(--ink); font-weight: 600; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; flex: none; }
+.ce-form .ce-section > summary .ce-gist { color: var(--muted); font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ce-form .ce-section[open] > summary { border-bottom: 1px solid var(--rule); margin-bottom: 0.4rem; }
+.ce-form .ce-section > summary:hover .ce-section-t { color: var(--accent); }
 .ce-form .ce-section > .ce-section-help { color: var(--muted); font-size: 11px; line-height: 1.3; margin: 0 0 0.3rem; }
 /* a section holding one list (Steps, Summaries) shows the list bare, not in a second box */
 .ce-form .ce-section.ce-flat > fieldset { border: 0; margin: 0; padding: 0; }
 .ce-form .ce-section.ce-flat > fieldset > legend { display: none; }
+/* where the recipe reads and what it writes, resolved from the naming fields */
+.ce-form .ce-names { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.2rem 0.5rem; align-items: baseline; margin: 0.2rem 0 0.3rem 11.6rem; font-size: 11px; color: var(--muted); }
+.ce-form .ce-names .k { text-align: right; }
+.ce-form .ce-names code { font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--ink); background: var(--surface-2); border-radius: 3px; padding: 0 0.3rem; }
+/* the naming overrides: nested, closed unless the document sets one */
+.ce-form .ce-adv { margin: 0 0 0.3rem 11.6rem; }
+.ce-form .ce-adv > summary { display: flex; align-items: baseline; gap: 0.3rem; color: var(--muted); font-size: 12px; padding: 0.1rem 0; }
+.ce-form .ce-adv > summary:hover { color: var(--accent); }
+.ce-form .ce-adv[open] { border-left: 2px solid var(--rule); padding-left: 0.6rem; margin-left: 11.3rem; }
+.ce-form .ce-adv > .help { margin: 0.1rem 0 0.3rem; }
+.ce-form .ce-adv .field { grid-template-columns: 8rem minmax(0, 1fr); }
 /* ordered items: a step, a summary, a frame input — a header row, then the fields */
 .ce-form .list .item.card { flex-direction: column; align-items: stretch; gap: 0; border: 1px solid var(--rule); border-radius: 4px; background: var(--surface-2); }
 .ce-form .list .item.card > .head { display: flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--rule); }
 .ce-form .list .item.card > .head .idx { color: var(--muted); font-size: 11px; min-width: 1.2rem; }
 .ce-form .list .item.card > .head select.kindsel, .ce-form .list .item.card > .head input.key { font-weight: 600; background: var(--surface); }
 .ce-form .list .item.card > .head .spacer { margin-left: auto; }
+/* a folding card (a step, a summary): chevron, number, kind, gist */
+.ce-form .list .item.card > .head .lead { display: flex; align-items: center; gap: 0.4rem; min-width: 0; flex: 1 1 auto; }
+.ce-form .list .item.card > .head button.fold { border: 0; background: none; color: var(--muted); padding: 0 0.2rem; font-size: 14px; transition: transform 0.12s; transform: rotate(90deg); }
+.ce-form .list .item.card.shut > .head button.fold { transform: none; }
+.ce-form .list .item.card > .head .ce-gist { color: var(--muted); font-size: 11px; font-family: ui-monospace, Menlo, Consolas, monospace; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ce-form .list .item.card.shut > .body { display: none; }
+.ce-form .list .item.card.shut > .head { border-bottom: 0; }
 .ce-form .list .item.card > .head button { padding: 0 0.4rem; }
 .ce-form .list .item.card > .body { padding: 0.2rem 0.6rem 0.4rem; background: var(--surface); border-radius: 0 0 4px 4px; }
 .ce-form .list .item.card > .body .help.variant { margin: 0.1rem 0 0.3rem; }
@@ -111,6 +139,8 @@
 .ce-form .list .item.light > .field > label { display: none; }
 .ce-form .list .item.light > .field > .help { display: none; }
 .ce-form .list .item.light > button { padding: 0 0.4rem; }
+/* an ROI's bounds: one fixed row per axis, named */
+.ce-form .list .item.light.axis .axis-l { width: 1.2rem; color: var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; text-align: right; }
 /* the summaries over a few shots: one card per summary kind */
 .ce-summaries { display: flex; flex-direction: column; gap: 0.5rem; }
 .ce-summaries .card { border: 1px solid var(--rule); border-radius: 4px; padding: 0.3rem; background: var(--surface-2); }
