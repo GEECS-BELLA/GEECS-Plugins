@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.1] - 2026-09-26
+
+### Fixed
+
+- The unit template sets **`MemorySwapMax=0`**, so the memory ceiling
+  (#834) is enforced: a runaway portal now reaches `MemoryMax=` and is
+  killed and restarted, instead of being pushed into swap above
+  `MemoryHigh=` and hanging. On 2026-09-25 a whole-scan Analysis-tab run
+  (3600 shots × 600×600) grew to ~19 GB — the host's entire swap — and
+  left the portal unresponsive for hours while systemd still reported it
+  running. DEPLOYMENT.md gains the triage and recovery for that state and
+  the note that portal analysis memory scales with scan size (#1003);
+  `deploy/site.env.example` gains sizing guidance for a large-memory host.
+
 ## [0.36.0] - 2026-09-24
 
 ### Added
