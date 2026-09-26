@@ -6,6 +6,236 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.106.0] - 2026-09-26
+
+### Added
+
+- **A non-essential device without a file plugin streams for the run, in
+  both acquisition modes** (owner's ruling, 2026-09-26; scan-efficiency
+  arc, slice 2b). A *triggered* device — one saving its own LabVIEW files
+  (the HASO, a camera on a host without the PVA gateway) or one with
+  scalars and a stamp only (a power supply, a gauge), or any detector's
+  `.scalars` view — listed `non_essential` is a nice-to-have diagnostic
+  that never throttles the rep rate and never fails the scan. It is not
+  sampled at the row (that would wait for it — the HASO's stamp PV reaches
+  the worker 0.89–0.96 s after its frame — or record the previous shot,
+  Scan015): the new `devices/sampler.StampStream` (Flyable +
+  EventCollectable over one device) subscribes to its `acq_timestamp` at
+  `kickoff` and records **one event per stamp it publishes** — the stamp,
+  its cached scalars and, a native saver, its `-nonscalar_save_path` —
+  into `<name>_stream`, the shape a non-essential plugin camera's stream
+  already had; `complete` is immediate, and the descriptor carries the
+  device's `drain_offset` for the join. `non_essential_wrapper` builds one
+  per such device beside the plugin flyers: a native saver is prepared
+  unbounded after `open_run`, so its own lifecycle switches saving on
+  there and off at `unstage` (rule 2, 2a's `_flies` path); a `.scalars`
+  view is never prepared; a stream that recorded nothing is a WARNING at
+  the close. A device with no stamp (free-running) is refused at bind
+  (`gated.refuse_free_running_non_essentials`, in `strict_plan` and
+  `optimize`) — deferred. The start document's `non_essential` names each
+  device by its **owner** (a `.scalars` view's stream is
+  `<owner>_stream`), so the s-file finds a view's stream too.
+- `devices.ca._view.owner_of`: the one view → owner unwrapping rule, now
+  used by the sampler, the gated plan, the registry and `optimize`
+  (previously copy-pasted six ways).
+- The live s-file joins every non-essential **event** stream onto the rows
+  by stamp (`geecs_data_utils.shot_join.frame_columns_from_events`): its
+  columns on the rows it stamped, `NaN` on the rest (all-`NaN` from the
+  descriptor's keys when it published nothing); an event with no row in
+  its window stays in the stream. `_StreamCallback` buffers the streams
+  the start document's `non_essential` names.
+- `StackCheckCallback` checks a non-essential native saver's files against
+  its stream's **events** (not the rows) in either mode: events without a
+  file and file stamps without an event counted apart (WARNING), files
+  stamped after the last event (saved between the stream's close and the
+  unstage) counted apart again and no defect — never a failure.
+
+### Changed
+
+- The preflight's "non-essential device(s) without a file plugin" refusal
+  is gone; `acquisition_refusal` now refuses only a non-essential with no
+  `acq_timestamp` (the free-running case). `expand_preset` expands a
+  non-essential with `save_images: false` to its `.scalars` view instead
+  of refusing it ("a scalars-only device cannot fly" no longer holds).
+- A non-essential device that is not plugin-backed (a scope with every
+  channel disabled included) is streamed by stamp instead of sitting the
+  run out with a WARNING.
+- `EVENT_SCHEMA.md`: the `<name>_stream` event stream (additive — no
+  schema version change); `CLAUDE.md`'s non-essential paragraph.
+
+## [0.105.0] - 2026-09-25
+
+### Changed
+
+- **A gated run admits a LabVIEW-native saving device without a file
+  plugin as an essential** (owner's ruling, 2026-09-25; scan-efficiency
+  arc, slice 2a). The row is the stamp and the files follow by stamp,
+  exactly as strict treats such a device — the plugin count is a
+  convenience, not what makes a batch. `GeecsDetector` admits a fly
+  prepare on a device with no plugin as run-long native saving: its
+  `LvNativeFileDataLogic` is the one logic of that prepare
+  (`_flies`), so `describe`/`read` are the `-nonscalar_save_path` column
+  alone; a *bounded* batch there is still refused ("cannot count a batch
+  of N"), and so is a fly prepare on a device with neither a plugin nor
+  saving controls. `gated_take_reading` prepares the step's native
+  essentials (`gated.native_essentials`) **once**, at the run's first
+  step, with `UNBOUNDED_TRIGGER_INFO` — the device's own lifecycle
+  switches saving on then and off at `unstage`, never per step (a toggle
+  costs the device one LabVIEW loop period; the box is OFF between
+  steps). `ShotSampler` records such a member's prepared reading beside
+  its scalars and stamp, so every `shots` row carries its save path as a
+  run-long constant (an additive column convention — `EVENT_SCHEMA.md`,
+  no version bump); it may be the shot clock as any triggered device. A
+  dropped frame from it is a missing file, **no retake**. The
+  plugin-backed cameras of a gated run still write no native files (the
+  #738 dual-write stays strict-only); a `.scalars` view still saves
+  nothing.
+- **`ShotSampler` reads a stamped member for its own shot, never the
+  previous one** (found on Scan015 of 26_0925, the first gated count with
+  the HASO essential: its stamp lands ~40 ms after the clock's, and a
+  reading taken at the tick carried the previous shot's stamp in every
+  row — the first row stale, the last frame an orphan, the files joined
+  one row late). A member with a stamp of its own (a triggered device
+  without a plugin, or its view) is now given `SETTLE_TIMEOUT_S` (1.5 s — measured 26_0925: the cameras' stamp PVs reach the worker within 40 ms of the frame, the HASO's 0.89–0.96 s with saving on during a batch)
+  for its cached stamp to fall within `SHOT_WINDOW_S` (0.5 s) of the
+  clock's before it is read; one that does not make it missed the shot —
+  its numeric columns read `NaN` (a string column, the save path, stays),
+  `ShotSampler.missed` counts it, the log says so once per member and
+  once at the step's end. Unstamped members and the clock device's own
+  scalars are read at the tick as before. A pre-existing gated-mode
+  property for every sampled triggered device slower than the clock; it
+  mattered once files joined by that stamp.
+- **`StackCheckCallback` matches a native essential's files to the
+  rows.** At the stop of a gated run, for each `-nonscalar_save_path`
+  column of the `shots` rows, every row's own `<owner>-acq_timestamp` is
+  matched against the files in that directory through the naming
+  contract (`geecs_data_utils.native_files.native_file_keys`, the
+  `%.3f` stamp in the name with the tail left to the device — a per-shot
+  sidecar rides with its shot, an Explorer `Thumbs.db` is nobody's file),
+  waiting, bounded by `finalize_timeout`, for every row's file first
+  (there is no write-complete readback). One `native files check` line is
+  appended to `scan.log` beside the stack verdicts: INFO when every row
+  has its file and no file stamp is without a row, WARNING otherwise —
+  rows without a file (a dropped frame) and file stamps with no row (a
+  retaken step's, an in-flight edge's) counted **separately** so neither
+  hides the other (review finding 1); never a failure. Requires
+  geecs-data-utils 0.42.0.
+
+### Removed
+
+- `plans.gated.refuse_native_essentials`, its bind-time call in
+  `strict_plan`, and the preflight's "gated acquisition: native-saving
+  device(s) without a file plugin" refusal (`acquisition_refusal`). The
+  non-essential-without-a-plugin rule is untouched (slice 2b's), and so
+  is the shot-clock rule. An all-off scope (every capture channel
+  disabled in the DB) is no longer refused by name in a gated run: with
+  saving controls it is a native-saving essential, without them a plain
+  triggered clock device.
+
+## [0.104.0] - 2026-09-25
+
+### Changed
+
+- **The heartbeat names the run it is registering.** A registration is
+  ~25 s of silence (one HTTP call at a time on the SQLite catalog), and a
+  heartbeat written only at the end of a sweep read as stale — "down or
+  wedged" — for most of every run's registration (the deploy PR's review,
+  finding 1). The writer now writes the heartbeat once more just before
+  each registration with `registering` (the run's uid) and
+  `registering_since`; `WriterHeartbeat.is_stale` allows
+  `STALE_WHILE_REGISTERING_S` (10 min) of silence while a run is named,
+  three sweeps otherwise. Additive: an older reader ignores the fields.
+- **One verdict over the heartbeat**, `tiled_spool.heartbeat_verdict` →
+  `HeartbeatVerdict(level, reason, stale)`: `failed` for a `.failed` file
+  or a backlog (`pending` ≥ 3) **with** runs backing off after failures;
+  `degraded` for silence, Tiled unreachable, a run backing off, or a
+  backlog draining (a burst of short runs registers at the writer's rate
+  — shown, not alarmed); `ok` otherwise. The heartbeat gains
+  `backing_off` (pending runs in a retry cycle) and keeps such a run's
+  failure in `last_error` between its attempts — a failing backlog reads
+  as one on every sweep, not only on the sweeps that attempt (review
+  round 2); mid-registration `pending` counts every complete file waiting
+  behind the run in flight, backing-off ones included wherever they sort,
+  and the closing heartbeat recounts a run that opened meanwhile as in
+  progress. The engine's environment-open warning uses its `stale` half;
+  the scanner's chip and `fleet_status.sh` show its level. `read_heartbeat`
+  reads any `OSError` as absent (a directory at the path, another
+  account's file), never raising into a reader's request.
+
+### Added
+
+- **`geecs-tiled-writer.service`** (`qserver/deploy/`), the writer's unit
+  template in the site-profile style: the worker's clone and env
+  (`qs-checkout/GeecsBluesky`, `ExecStart=@POETRY@ run geecs-tiled-writer`),
+  `StateDirectory=geecs-tiled-writer` and
+  `Environment=GEECS_TILED_WRITER_STATE=/var/lib/geecs-tiled-writer`,
+  `Restart=on-failure`; no ordering against the manager (peers over one
+  directory). `geecs-qserver.service` declares the same `StateDirectory=`
+  and `Environment=` (two units may; the engine reads only the variable);
+  the scanner's unit sets the variable for its chip. Rendered by
+  `deploy/render_units.sh`, provisioned by `deploy/bootstrap_host.sh`
+  (`--only tiled-writer`; its extras are the worker's set on purpose — a
+  `poetry install --extras tiled` alone would strip `ca`/`qserver`/
+  `optimize` from the env the running worker uses).
+- `qserver/deploy/DEPLOYMENT.md` § The Tiled writer: install, the ordered
+  hand-over from the by-hand writer left by the 0.103.0 verification
+  (drain → stop → units → start the unit → restart the queueserver so the
+  engine reads the new directory → restart the scanner), the heartbeat's
+  fields and the scanner's words for them, `.failed` files, a stale
+  heartbeat. `docs/platform/fleet_map.md` gains the writer's row and the
+  spool in the diagram; `scripts/fleet_status.sh` a "Tiled writer" row
+  read from the scanner's `/health`.
+
+## [0.103.0] - 2026-09-25
+
+### Changed
+
+- **Tiled registration leaves the engine thread** (scan efficiency arc,
+  slice 1). The stock `TiledWriter` subscribed to the RE registered every
+  external dataset at the stop document — ~250 on a full HTU preset, one
+  register + one data-source update each, ~25 s on the engine thread ahead
+  of unstage and the trigger box's standby (measured 26_0924: 25.5 s with
+  it, 0.26 s without). `make_run_engine(tiled=True)` now subscribes a
+  per-run JSON Lines **spool** (`tiled_spool.SpoolCallback`, under
+  `GEECS_TILED_WRITER_STATE`; flushed per document, fsynced at the stop,
+  microseconds each, nothing on the network), and the new
+  **`geecs-tiled-writer`** service (`tiled_writer`, its own unit in the
+  deploy PR) registers each complete file through the stock writer.
+  The spool is the writer's only source (not the best-effort 0MQ stream);
+  a run appears in Tiled at its close plus a few seconds. The engine holds
+  an advisory lock on the run's file while the run is open, and that —
+  not silence — is how the writer tells a live run (paused for an hour, a
+  long count) from an orphan: a file with no stop whose engine no longer
+  holds it registers after `--orphan-after` with a synthesized `fail`
+  stop. A corrupt file (a malformed line, no start document — an empty
+  file is never a success) is set aside as `.jsonl.failed` at once; any
+  other failure (Tiled answering 5xx through a restart, a rotated key)
+  is retried per run with exponential backoff, `--max-attempts` (15,
+  ~75 min at the defaults, cap `--max-backoff`) before the file is set
+  aside and its half-registered container removed. An existing container
+  for the uid is deleted and registered again, so a writer restart is
+  idempotent. The writer's `heartbeat.json` (liveness, reachability,
+  backlog, the sweep's last error; the model and reader live in
+  `tiled_spool`, the shared module) is a warning surface for the scanner
+  and `fleet_status.sh`, **never a gate** — with the spool a dead writer
+  loses nothing; the engine warns at subscribe when no fresh heartbeat
+  is under the state directory. One consequence of the JSON hop: a
+  replayed table's numpy scalar columns come back at the Python width
+  (`float32` → `float64`, `int16` → `int64`), whatever the descriptor's
+  `dtype_numpy` says — harmless to the s-file export and the portal.
+  Hardware-verified 2026-09-25 (Scans 004–008 of 26_0925, 23 devices, 25
+  stacks): last shot → finished ≈ 2 s (was 26 s); the writer registers
+  such a run in 25–28 s — a flat ~20 HTTP calls/s, the SQLite catalog
+  committing one write at a time (a concurrent stop was tried live,
+  changed nothing and was removed) — so a run appears in Tiled ~30 s
+  after it ends while the next scan's setup overlaps it; catch-up after a dead
+  writer and exactly-once re-registration after a SIGKILL mid-registration
+  both verified live.
+- `tiled_integration.subscribe_tiled` (the in-process writer) is gone —
+  `subscribe_tiled_spool` replaces it; `make_run_engine` drops the
+  `tiled_uri` / `tiled_api_key` arguments nothing passed. The
+  reachability pre-check and `SafeDocumentCallback` stay where they were.
+
 ## [0.102.0] - 2026-09-24
 
 ### Changed

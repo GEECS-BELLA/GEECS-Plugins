@@ -24,8 +24,10 @@
 #   1. self-reported versions over the services' own protocols: Tiled
 #      (HTTP), Data Portal (/health), queueserver readiness (0MQ status +
 #      plans_allowed — a listening manager with a closed worker environment
-#      is NOT READY, #793), MCP (port), CA gateway (lab_status.sh
-#      --hardware, read-only CA), PVA image fleet (read-only pvAccess gets)
+#      is NOT READY, #793), MCP (port), scanner (/health), the Tiled writer
+#      (its heartbeat, as the scanner's /health reports it), CA gateway
+#      (lab_status.sh --hardware, read-only CA), PVA image fleet (read-only
+#      pvAccess gets)
 #   2. host checkouts over ssh: every geecs-* systemd unit -> the clone it
 #      runs from -> branch / sha / dirty / installed-vs-pyproject version /
 #      "checkout moved after the service started"
@@ -275,6 +277,55 @@ if [ "$NET_UP" -eq 1 ]; then
         rec "role=GEECS Scanner	state=absent"
     fi
 
+    # Tiled writer — no port of its own; its heartbeat.json lives on the
+    # worker host, and the scanner's /health reads it (tiled_writer: the
+    # kit word the scanner's chip shows, plus the heartbeat's counts). This
+    # probe runs from an operator's machine, so the scanner is the reader.
+    # The word is geecs_bluesky.tiled_spool.heartbeat_verdict's (the one
+    # rule; its thresholds are documented there and in the qserver
+    # runbook). A warning surface, never a gate: nothing refuses a run
+    # over it, and the spool waits through a dead writer.
+    # A nested object whose detail may hold braces and quotes: parsed with
+    # the stdlib json (python3 is already a dependency of --summary), not sed.
+    tw=""
+    # `python3 -c pass`, not `command -v`: macOS's Xcode stub exists and fails.
+    if [ -n "$sh_" ] && ! python3 -c pass >/dev/null 2>&1; then
+        warn "Tiled writer $SC_HOST  no working python3 here to parse the scanner's /health — read /var/lib/geecs-tiled-writer/heartbeat.json on the host"
+        rec "role=Tiled writer	state=ok	note=not parsed (no python3 on this machine)"
+        sh_tw_skip=1
+    fi
+    [ "${sh_tw_skip:-0}" = "1" ] || tw="$(printf '%s' "$sh_" | python3 -c '
+import json, sys
+try:
+    tw = json.load(sys.stdin).get("tiled_writer")
+except ValueError:
+    tw = None
+if isinstance(tw, dict):
+    print("\t".join(str(tw.get(k, "")).replace("\t", " ").replace("\n", " ") for k in ("state", "detail", "pending", "failed", "in_progress")))
+' 2>/dev/null)"
+    if [ -n "$tw" ]; then
+        IFS=$'\t' read -r tws twd twp twf twi <<< "$tw"
+        tw_counts="pending ${twp:-?}, in progress ${twi:-?}, failed ${twf:-?}"
+        case "$tws" in
+            ok)       ok "Tiled writer $SC_HOST (heartbeat via the scanner)  $tw_counts — ${twd:-keeping up}"
+                      rec "role=Tiled writer	state=ok" ;;   # the checkout is stage 2's to observe
+            degraded) warn "Tiled writer $SC_HOST (heartbeat via the scanner)  DEGRADED — ${twd:-?} ($tw_counts; runs keep spooling, nothing reaches Tiled until it is fixed)"
+                      rec "role=Tiled writer	state=ok	note=degraded: ${twd:-?}" ;;
+            failed)   bad "Tiled writer $SC_HOST (heartbeat via the scanner)  FAILED — ${twd:-?} ($tw_counts; see journalctl -u geecs-tiled-writer)"
+                      rec "role=Tiled writer	state=down	note=${twd:-failed}" ;;
+            *)        warn "Tiled writer $SC_HOST  the scanner's /health has a tiled_writer field but no state word (${tws:-empty}) — scanner too old, or a shape change"
+                      rec "role=Tiled writer	state=ok	note=unreadable tiled_writer field in the scanner's /health" ;;
+        esac
+    elif [ "${sh_tw_skip:-0}" = "1" ]; then
+        :   # said above
+    elif [ -n "$sh_" ]; then
+        warn "Tiled writer $SC_HOST  the scanner's /health (geecs-scanner ${sv:-?}) carries no tiled_writer field — a scanner before 0.14.0; read /var/lib/geecs-tiled-writer/heartbeat.json on the host (stage 2 lists the unit)"
+        rec "role=Tiled writer	state=ok	note=heartbeat not readable from here (scanner ${sv:-?} predates the field)"
+    else
+        skip "Tiled writer no scanner /health to read the heartbeat from (stage 2 lists the unit)"
+        rec "role=Tiled writer	state=absent	note=no scanner /health to read the heartbeat from"
+    fi
+
     # CA gateway — /lab-status tier 2 (read-only CA gets). Contract: its
     # stdout carries one `role=CA gateway<TAB>...` record; the rest is prose.
     if [ -n "$EXPERIMENT" ]; then
@@ -333,7 +384,7 @@ role_for_port() { case "$1" in
     5064) echo "CA gateway";; 8000) echo "Tiled";; 8200) echo "Data Portal";; 8400) echo "Logbook";; 8100) echo "GEECS-MCP";; 8300) echo "GEECS Scanner";;
     60615) echo "Queueserver RE Manager";; 5568) echo "Bluesky doc proxy";; *) echo "port $1";; esac; }
 role_for_unit() { case "$1" in
-    geecs-ca-gateway*) echo "CA gateway";; tiled*) echo "Tiled";; geecs-data-portal*) echo "Data Portal";;
+    geecs-ca-gateway*) echo "CA gateway";; geecs-tiled-writer*|tiled-writer*) echo "Tiled writer";; tiled*) echo "Tiled";; geecs-data-portal*) echo "Data Portal";;
     geecs-logbook*) echo "Logbook";;
     geecs-mcp*) echo "GEECS-MCP";; geecs-scanner*) echo "GEECS Scanner";; geecs-qserver-ready*) echo "Queueserver readiness";;
     geecs-qserver*) echo "Queueserver RE Manager";;
@@ -488,7 +539,10 @@ emit() {  # emit ROLE NAME MANAGED STATE PID CWD PYEXE
 }
 # 1) systemd units, system and user scope
 for scope in "" "--user"; do
-    units="$(systemctl $scope list-units --all --plain --no-legend "geecs-*" "tiled.service" 2>/dev/null | awk "{print \$1}")"
+    # tiled-writer* catches a by-hand writer started as a transient user
+    # unit (the 0.103.0 hand-over: tiled-writer-manual) so the switch to
+    # the real unit is visible from here.
+    units="$(systemctl $scope list-units --all --plain --no-legend "geecs-*" "tiled.service" "tiled-writer*" 2>/dev/null | awk "{print \$1}")"
     for u in $units; do
         active="$(systemctl $scope show -p ActiveState --value "$u")/$(systemctl $scope show -p SubState --value "$u")"
         pid="$(systemctl $scope show -p MainPID --value "$u")"

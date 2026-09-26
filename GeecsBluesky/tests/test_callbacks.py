@@ -7,6 +7,7 @@ import logging
 from functools import partial
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -941,6 +942,232 @@ def test_a_gated_scan_writes_its_s_file_from_the_shots_rows_and_the_stacks(
     assert list(table["U_Gauge Pressure"]) == [2e-6] * 4
     assert list(table["U_S1H Current"]) == pytest.approx([-1.0, -1.0, 1.0, 1.0])
     assert not any(c.startswith("uc_") for c in table.columns)
+
+
+def test_a_gated_run_with_a_native_essential_gets_its_s_file_and_a_files_line(
+    RE, gated_worker, tmp_path, caplog
+):
+    """The 2026-09-25 ruling end to end: a native-saving essential in a gated run.
+
+    The ``shots`` rows carry its save path as a run-long constant; the
+    s-file (the rows renamed by the headers) carries its scalars and its
+    stamp and drops the path column as it drops every companion; the
+    stack check counts the files in that directory against the rows and
+    appends the verdict to ``scan.log`` — INFO when they match, WARNING
+    on a shortfall (a dropped frame is a missing file, no retake), never
+    a failure.
+    """
+    from ophyd_async.core import StaticFilenameProvider, StaticPathProvider
+
+    from geecs_bluesky.callbacks import StackCheckCallback
+    from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
+
+    plans, gated_box, sfile = gated_worker
+    stack_check = StackCheckCallback(finalize_timeout=4.0)
+    RE.subscribe(stack_check)
+    caplog.set_level(logging.INFO, logger="geecs_bluesky.callbacks")
+    directory = tmp_path / "scans" / "Scan001" / "UC_Native"
+    native = _camera(
+        RE,
+        gated_box,
+        "UC_Native",
+        provider=StaticPathProvider(StaticFilenameProvider("f"), directory),
+    )
+    set_mock_value(native.meancounts, 5.0)
+    gauge = CaSnapshotReadable(
+        "U_Gauge", ["Pressure"], experiment="TestExp", name="u_gauge"
+    )
+    connect_mock(RE, gauge)
+    set_mock_value(gauge.pressure, 3e-6)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(plans["count"]([native, gauge], 3, acquisition="gated"))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert col.docs["start"][0]["shot_clock"] == "UC_Native"
+    rows = _events_from_pages(col, "shots")
+    assert [r["data"]["uc_native-nonscalar_save_path"] for r in rows] == [
+        str(directory)
+    ] * 3
+    stamps = [r["data"]["uc_native-acq_timestamp"] for r in rows]
+    # LabVIEW writes one file per shot, named by the stamp — behind the edge —
+    # plus, on a wavefront sensor, a sidecar per shot; Explorer leaves its own.
+    for stamp in stamps:
+        (directory / f"UC_Native_{stamp:.3f}.himg").write_bytes(b"x")
+        (directory / f"UC_Native_{stamp:.3f}.has").write_bytes(b"x")
+    (directory / "Thumbs.db").write_bytes(b"x")
+    stack_check.join(10.0)
+    sfile.join(10.0)
+
+    table = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
+    assert len(table) == 3
+    assert list(table["UC_Native MeanCounts"]) == [5.0] * 3
+    assert list(table["UC_Native acq_timestamp"]) == pytest.approx(stamps)
+    assert list(table["U_Gauge Pressure"]) == [3e-6] * 3
+    assert not any("save_path" in c or c.startswith("uc_") for c in table.columns)
+    log = (tmp_path / "scans" / "Scan001" / "scan.log").read_text()
+    assert (
+        "INFO native files check: uc_native: 3 shots row(s), each with a native "
+        "file in UC_Native/" in log
+    )
+    assert "WARNING" not in log
+
+    def replay(uid: str, rows_data, **start_extra) -> None:
+        """The run's documents into a callback of their own, same folder."""
+        again = StackCheckCallback(finalize_timeout=0.6)
+        again("start", {**col.docs["start"][0], "uid": uid, **start_extra})
+        again(
+            "descriptor",
+            {"uid": f"d-{uid}", "run_start": uid, "name": "shots", "object_keys": {}},
+        )
+        for i, data in enumerate(rows_data, start=1):
+            again("event", {"descriptor": f"d-{uid}", "seq_num": i, "data": data})
+        again("stop", {"run_start": uid, "exit_status": "success"})
+        again.join(10.0)
+
+    def log_text() -> str:
+        return (tmp_path / "scans" / "Scan001" / "scan.log").read_text()
+
+    # A dropped frame AND a retaken step's extra files: the two are counted
+    # apart (review finding 1 — a bare count would have read "1 orphan").
+    (directory / f"UC_Native_{stamps[-1]:.3f}.himg").unlink()
+    (directory / f"UC_Native_{stamps[-1]:.3f}.has").unlink()
+    for extra in (stamps[0] - 1.0, stamps[0] - 2.0):
+        (directory / f"UC_Native_{extra:.3f}.himg").write_bytes(b"x")
+    replay("again", [r["data"] for r in rows])
+    assert (
+        "WARNING native files check: uc_native: 2 of 3 shots row(s) have a native "
+        "file in UC_Native/ — MISMATCH (1 row(s) without a file, 2 file stamp(s) "
+        "with no row)" in log_text()
+    )
+    # A column that is not constant is its own defect; the first value is checked.
+    drifted = [dict(r["data"]) for r in rows]
+    drifted[1]["uc_native-nonscalar_save_path"] = str(directory / "elsewhere")
+    replay("drift", drifted)
+    assert (
+        "WARNING native files check: uc_native: uc_native-nonscalar_save_path is "
+        "not constant over the rows (2 values); checking "
+        + str(directory)
+        in log_text()
+    )
+    # The directory never appeared (a device that never took the path).
+    gone = [
+        {**r["data"], "uc_native-nonscalar_save_path": str(directory / "never")}
+        for r in rows
+    ]
+    replay("gone", gone)
+    assert (
+        f"WARNING native files check: uc_native: native directory "
+        f"{directory / 'never'} missing but 3 shots row(s)" in log_text()
+    )
+
+
+@pytest.mark.parametrize("mode", ["strict", "gated"])
+def test_a_slow_non_essential_native_saver_joins_by_stamp_and_checks_its_files(
+    RE, gated_worker, tmp_path, caplog, mode
+):
+    """Slice 2b end to end: the HASO's shape, three times slower than the rep rate.
+
+    Its ``u_slow_stream`` events join the rows by their own stamps — its
+    scalars and stamp on every third row, ``NaN`` on the rest — and a
+    power supply that never stamps reads ``NaN`` on every row.  The files
+    check matches the stream's EVENTS (not the rows) to the files: every
+    event has its file, and a file stamped after the last event (saved
+    between the stream's close and the unstage) is counted apart, no
+    warning.
+    """
+    from ophyd_async.core import StaticFilenameProvider, StaticPathProvider
+
+    from geecs_bluesky.callbacks import StackCheckCallback
+
+    plans, box, sfile = gated_worker
+    stack_check = StackCheckCallback(finalize_timeout=4.0)
+    RE.subscribe(stack_check)
+    caplog.set_level(logging.INFO, logger="geecs_bluesky.callbacks")
+    a = _camera(RE, box, "UC_A")
+    directory = tmp_path / "scans" / "Scan001" / "U_Slow"
+    slow = _camera(
+        RE,
+        box,
+        "U_Slow",
+        provider=StaticPathProvider(StaticFilenameProvider("f"), directory),
+    )
+    set_mock_value(slow.meancounts, 4.0)
+    box.drop = {("u_slow", k) for k in range(1, 200) if k % 3}
+    dead = _camera(RE, box, "U_Dead")
+    box.cameras.remove(dead)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(plans["count"]([a], 6, acquisition=mode, non_essential=[slow, dead]))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    events = _events_from_pages(col, "u_slow_stream")
+    stamps = [e["data"]["u_slow-acq_timestamp"] for e in events]
+    assert len(stamps) == box.edges // 3 >= 2
+    for stamp in [*stamps, stamps[-1] + 3.0]:  # + one saved after the close
+        (directory / f"U_Slow_{stamp:.3f}.himg").write_bytes(b"x")
+    stack_check.join(10.0)
+    sfile.join(10.0)
+
+    table = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
+    assert len(table) == 6
+    rows = _events_from_pages(col, "primary" if mode == "strict" else "shots")
+    by_stamp = dict(zip([r["data"]["uc_a-acq_timestamp"] for r in rows], range(6)))
+    hit = sorted(by_stamp[s] for s in stamps if s in by_stamp)
+    assert hit == [2, 5]
+    counts = table["U_Slow MeanCounts"].to_numpy()
+    assert list(counts[hit]) == [4.0, 4.0]
+    assert np.isnan(np.delete(counts, hit)).all()
+    assert list(table["U_Slow acq_timestamp"].to_numpy()[hit]) == pytest.approx(
+        [stamps[0], stamps[1]]
+    )
+    assert np.isnan(table["U_Dead MeanCounts"].to_numpy()).all()
+    log = (tmp_path / "scans" / "Scan001" / "scan.log").read_text()
+    assert (
+        f"INFO native files check: u_slow: {len(stamps)} u_slow_stream event(s), "
+        "each with a native file in U_Slow/; 1 file(s) after its last event" in log
+    )
+    assert "WARNING native files check" not in log
+
+    # An event without its file, and a file between events with none: counted
+    # apart, a WARNING, never a failure.
+    (directory / f"U_Slow_{stamps[0]:.3f}.himg").unlink()
+    (directory / f"U_Slow_{stamps[0] + 1.0:.3f}.himg").write_bytes(b"x")
+    again = StackCheckCallback(finalize_timeout=0.6)
+    start = col.docs["start"][0]
+    again("start", {**start, "uid": "again"})
+    again(
+        "descriptor",
+        {"uid": "d", "run_start": "again", "name": "u_slow_stream", "object_keys": {}},
+    )
+    for i, e in enumerate(events, start=1):
+        again("event", {"descriptor": "d", "seq_num": i, "data": e["data"]})
+    again("stop", {"run_start": "again", "exit_status": "success"})
+    again.join(10.0)
+    log = (tmp_path / "scans" / "Scan001" / "scan.log").read_text()
+    assert (
+        f"WARNING native files check: u_slow: {len(stamps) - 1} of {len(stamps)} "
+        "u_slow_stream event(s) have a native file in U_Slow/ — MISMATCH (1 "
+        "event(s) without a file, 1 file stamp(s) with no event); 1 file(s) "
+        "after its last event" in log
+    )
+
+
+def test_a_scalars_view_non_essential_reaches_the_s_file(RE, gated_worker, tmp_path):
+    """Review finding 1: ``X.scalars`` non-essential streams into ``<X>_stream``.
+
+    The start document's ``non_essential`` must name the same object, or the
+    s-file callback never buffers the stream and the device's columns are
+    silently absent (``save_images: false`` + ``essential: false``, the case
+    ``expand_preset`` now admits).
+    """
+    plans, box, sfile = gated_worker
+    a = _camera(RE, box, "UC_A")
+    slow = _camera(RE, box, "U_Slow")
+    set_mock_value(slow.meancounts, 9.0)
+    RE(plans["count"]([a], 3, non_essential=[slow.scalars]))
+    sfile.join(10.0)
+    table = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
+    assert list(table["U_Slow MeanCounts"]) == [9.0] * 3
+    assert list(table["U_Slow acq_timestamp"]) == list(table["UC_A acq_timestamp"])
 
 
 def test_a_gated_run_whose_stack_never_finalizes_still_gets_its_s_file(

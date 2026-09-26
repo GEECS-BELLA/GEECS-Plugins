@@ -361,7 +361,11 @@ this package and must never depend on GeecsBluesky or a GUI package).
 - **`shot_join`** — the one home of the rule that joins a run's per-frame
   stream columns onto its shot rows (`FrameColumns`,
   `join_frames_to_shots`, `row_windows`, `shot_clock_column`,
-  `frame_columns_from_attributes`, `SHOTS_STREAM`).  Pure arithmetic over
+  `frame_columns_from_attributes`, `SHOTS_STREAM`) — and a non-essential
+  device's **event** stream onto them the same way
+  (`frame_columns_from_events`, `non_essential_stream`: one event per stamp
+  a triggered device without a plugin published, NaN on the rows it
+  missed).  Pure arithmetic over
   arrays — no I/O, no Bluesky, no pandas — because two callers must agree
   exactly: the worker's live s-file callback, reading the stacks off the
   share, and `tiled_export`'s offline re-export, reading the same columns
@@ -383,7 +387,8 @@ this package and must never depend on GeecsBluesky or a GUI package).
   offline (`write_scalar_files_from_tiled`).  The rows are `primary`'s
   events when it has them and the per-shot `shots` events otherwise (a
   gated run), and `join_frame_columns` appends every datum-only stream's
-  per-frame columns before `geecs_scalar_headers` renames and orders them
+  per-frame columns (and every non-essential event stream's, named by the
+  start document's `non_essential`) before `geecs_scalar_headers` renames and orders them
   — one projection for both shapes of run.  `read_frame_columns` reads a
   stream's 1-D attribute arrays **by name** and never the frame stack
   itself (the #834/#836 lesson).
