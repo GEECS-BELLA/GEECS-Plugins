@@ -975,7 +975,7 @@ function ceDuplicate() {
   // own output_name); retarget it by editing its device field
   CE.duplicate(cur.namespace, id).then((copied) => {
     if (!copied) return;  // a read-only (format 2) document: nothing was copied
-    document.getElementById("cetitle").textContent = "new copy — Save to create";
+    document.getElementById("cetitle").textContent = `${id} (new — Save to create)`;
     input.value = "";
   });
 }

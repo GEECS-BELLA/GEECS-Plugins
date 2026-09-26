@@ -501,6 +501,10 @@ def test_recipe_form_round_trips_and_reorders(tree):
         "beam": _BEAM_RECIPE,
         "line": _LINE_RECIPE,
         "typo": dict(_BEAM_RECIPE, inputs={}, steps=[{"step": "medain", "kernel": 3}]),
+        # a camera ROI on a line (an input kind changed): not fixed rows
+        "mismatch": dict(
+            _LINE_RECIPE, steps=[{"step": "roi", "bounds": [[1, 2], [3, 4]]}]
+        ),
     }
     harness = (
         _FAKE_DOM
@@ -528,7 +532,8 @@ for (const [name, doc] of Object.entries(DOCS)) {
     adv_open: r.node.querySelectorAll("details.ce-adv").map((d) => d.getAttribute("open") !== null),
   };
   // a server error inside a folded card in a closed section opens both
-  if (name === "typo") continue;
+  out[name].bounds_removes = r.node.querySelectorAll('button[title="remove"]').length;
+  if (name === "typo" || name === "mismatch") continue;
   Form.showErrors(r.node, [{ loc: "steps.1.units", msg: "bad" }]);
   out[name].opened = [r.node.querySelectorAll("details.ce-section")[1].open === true, !cards[1].classList.contains("shut"), cards[0].classList.contains("shut")];
   if (ups.length > 1) { ups[1].fire("click"); out[name].after_up = r.get().steps; out[name].paths_after = r.node.querySelectorAll(".field").map((f) => f.getAttribute("data-path")); }
@@ -581,6 +586,10 @@ console.log(JSON.stringify(out));
     assert out["beam"]["axes"] == ["y", "x"]
     assert out["line"]["axes"] == ["x"]
     assert out["beam"]["bounds_buttons"] == [0, 0]
+    # a count the frame shape does not fit stays an editable list, so the
+    # operator can remove the extra pair (the form rebuilds on a kind change)
+    assert out["mismatch"]["axes"] == []
+    assert out["mismatch"]["bounds_removes"] >= 3  # 2 pairs + the step card
     # step and summary cards start folded to a one-line gist
     assert all(out["beam"]["shut"]) and len(out["beam"]["shut"]) == 6
     assert out["beam"]["gists"][1] == "y 350\u2013600 x 10\u2013750"

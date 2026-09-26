@@ -804,6 +804,7 @@
       formRoot.append(rendered.node);
       main.append(formRoot);
       state.get = rendered.get; state.formRoot = formRoot; state.dirtyEl = dirty;
+      state.inputKind = document && document.input ? document.input.kind : undefined;
       if (kind === "group" && state.listing) {
         formRoot.querySelectorAll('.field[data-path$=".ref"] input').forEach((inp) => inp.setAttribute("list", "ce-known-ids"));
         if (!window.document.getElementById("ce-known-ids")) {
@@ -835,7 +836,22 @@
         ? `Save will REPLACE a file that does not validate on disk:\n${state.loadError}`
         : `This file does not validate on disk:\n${state.loadError}\nThe form is a reconstruction from the schema (unknown keys dropped); the YAML pane shows the file as it is. Edit to enable Save.`;
     }
-    const onFormChange = () => { markDirty(); validateDebounced(); refreshGistsDebounced(); };
+    const onFormChange = () => { markDirty(); validateDebounced(); refreshGistsDebounced(); rebuildOnKindChange(); };
+    // The frame shape decides how a step renders (an ROI's fixed y / x rows):
+    // a changed input kind rebuilds the form from the document as edited, so
+    // a camera ROI moved onto a line shows its now-wrong count as an editable
+    // list instead of rows fixed at the old shape.  Open sections stay open.
+    function rebuildOnKindChange() {
+      if (!state.sections || !state.get) return;
+      let doc; try { doc = state.get(); } catch (_) { return; }
+      const kind = doc.input && doc.input.kind;
+      if (kind === state.inputKind) return;
+      const open = state.sections.filter((s) => s.body && s.body.open).map((s) => s.title);
+      buildForm(state.kind, doc, []).then(() => {
+        for (const s of state.sections) if (open.includes(s.title)) s.body.open = true;
+        markDirty();
+      });
+    }
     // The section headers' gists and the resolved-names line, from the form
     // as it stands (quietly skipped while a keyword box does not parse).
     function refreshGists() {
