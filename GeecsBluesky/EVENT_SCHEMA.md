@@ -115,7 +115,15 @@ non-plugin subscribed signal, the scanned motors' readbacks,
 `bin_number`, and the clock device's `acq_timestamp`, which is the shot id
 the sampler ticked on.  A plugin-backed camera's own scalars are **not**
 repeated here; they ride in its stack as per-frame attributes
-(`<ophyd>-hdf-<variable>-<scalar>`, GeecsPvaGateway >= 0.9).
+(`<ophyd>-hdf-<variable>-<scalar>`, GeecsPvaGateway >= 0.9).  A member
+with a stamp of its own (a triggered device without a plugin, or its
+view) is read once its `<det>-acq_timestamp` lands within half a period
+of the clock's, not at the tick (its stamp lands after the clock's
+whenever its device is slower); on a shot it missed, its numeric columns
+read **`NaN`** and its `<det>-acq_timestamp` is `NaN` too — never the
+previous shot's values (Scan015 of 26_0925 recorded every HASO row one
+frame late before this rule).  A string column of such a member (the
+save path below) is a run-long constant and stays.
 
 | Column | Meaning |
 |---|---|

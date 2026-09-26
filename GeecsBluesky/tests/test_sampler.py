@@ -254,3 +254,145 @@ def test_a_native_saving_members_save_path_rides_in_every_row(
     assert [r["data"]["uc_native-meancounts"] for r in rows] == [9.0, 9.0]
     assert [r["data"]["uc_native-acq_timestamp"] for r in rows] == [101.0, 102.0]
     assert all(set(r["timestamps"]) == set(keys) for r in rows)
+
+
+# ---------------------------------------------------------------------------
+# The settle: a stamped member is read for ITS shot, never the previous one
+# (Scan015 of 26_0925: the HASO's stamp lands ~40 ms after the clock's)
+# ---------------------------------------------------------------------------
+
+
+def _late_member(RE: RunEngine) -> GeecsDetector:
+    late = GeecsDetector("U_Late", ["Val"], experiment="TestExp", name="u_late")
+    connect_mock(RE, late)
+    set_mock_value(late.acq_timestamp, 100.0)
+    set_mock_value(late.val, 0.0)
+    return late
+
+
+def test_a_member_slower_than_the_clock_is_read_for_its_own_shot(RE: RunEngine) -> None:
+    """Its stamp lands 40 ms after the tick: the row carries THIS shot's values."""
+    ict, gauge, bins = _members(RE)
+    late = _late_member(RE)
+    sampler = ShotSampler(
+        [ict, gauge, bins, late], ict.acq_timestamp, clock_name="U_ICT"
+    )
+
+    async def scenario():
+        await sampler.prepare(3)
+        await sampler.kickoff()
+        status = sampler.complete()
+        for i, stamp in enumerate((101.0, 102.0, 103.0)):
+            await asyncio.sleep(0.02)
+            set_mock_value(ict.acq_timestamp, stamp)
+            await asyncio.sleep(0.04)  # the slower device stamps after the clock
+            set_mock_value(late.val, float(i + 1))
+            set_mock_value(late.acq_timestamp, stamp + 0.04)
+        await status
+        return [row async for row in sampler.collect()]
+
+    rows = _run(RE, scenario)
+    assert [r["data"]["u_late-acq_timestamp"] for r in rows] == [101.04, 102.04, 103.04]
+    assert [r["data"]["u_late-val"] for r in rows] == [1.0, 2.0, 3.0]
+    assert [r["data"]["u_ict-acq_timestamp"] for r in rows] == [101.0, 102.0, 103.0]
+    assert sampler.missed == {}
+
+
+def test_a_member_that_misses_a_shot_reads_nan_not_the_previous_shot(
+    RE: RunEngine, tmp_path, caplog
+) -> None:
+    """No stamp of its own within the window: NaN for that row, the path column kept."""
+    import logging
+    import math
+
+    from ophyd_async.core import StaticFilenameProvider, StaticPathProvider
+
+    from geecs_bluesky.devices.detector import UNBOUNDED_TRIGGER_INFO
+
+    (tmp_path / "Scan001").mkdir()
+    directory = tmp_path / "Scan001" / "UC_Native"
+    native = GeecsDetector(
+        "UC_Native",
+        ["MeanCounts"],
+        experiment="TestExp",
+        name="uc_native",
+        path_provider=StaticPathProvider(StaticFilenameProvider("f"), directory),
+    )
+    ict, gauge, bins = _members(RE)
+    connect_mock(RE, native)
+    set_mock_value(native.acq_timestamp, 100.0)
+    set_mock_value(native.meancounts, 9.0)
+    sampler = ShotSampler(
+        [ict, gauge, bins, native],
+        ict.acq_timestamp,
+        clock_name="U_ICT",
+        settle_timeout=0.15,
+    )
+
+    async def scenario():
+        await native.stage()
+        await native.prepare(UNBOUNDED_TRIGGER_INFO)
+        await sampler.prepare(3)
+        await sampler.kickoff()
+        status = sampler.complete()
+        for stamp in (101.0, 102.0, 103.0):
+            await asyncio.sleep(0.25)
+            set_mock_value(ict.acq_timestamp, stamp)
+            if stamp != 102.0:  # the second shot: no frame, no stamp
+                await asyncio.sleep(0.04)
+                set_mock_value(native.meancounts, stamp)
+                set_mock_value(native.acq_timestamp, stamp + 0.04)
+        await status
+        rows = [row async for row in sampler.collect()]
+        await native.unstage()
+        return rows
+
+    with caplog.at_level(logging.INFO):
+        rows = _run(RE, scenario)
+    stamps = [r["data"]["uc_native-acq_timestamp"] for r in rows]
+    counts = [r["data"]["uc_native-meancounts"] for r in rows]
+    assert stamps[0] == 101.04 and stamps[2] == 103.04 and math.isnan(stamps[1])
+    assert counts[0] == 101.0 and counts[2] == 103.0 and math.isnan(counts[1])
+    assert [r["data"]["uc_native-nonscalar_save_path"] for r in rows] == [
+        str(directory)
+    ] * 3
+    assert [r["data"]["u_ict-acq_timestamp"] for r in rows] == [101.0, 102.0, 103.0]
+    assert sampler.missed == {"UC_Native": 1}
+    assert "UC_Native stamped nothing within 0.15 s of shot 102.0" in caplog.text
+    assert "shots missed this step — UC_Native 1 of 3" in caplog.text
+
+
+def test_the_settle_never_exceeds_its_budget(RE: RunEngine) -> None:
+    """A member that never stamps costs at most the budget per shot, and reads NaN."""
+    import math
+
+    ict, gauge, bins = _members(RE)
+    late = _late_member(RE)
+    sampler = ShotSampler(
+        [ict, gauge, bins, late],
+        ict.acq_timestamp,
+        clock_name="U_ICT",
+        settle_timeout=0.2,
+    )
+
+    async def scenario():
+        await sampler.prepare(3)
+        await sampler.kickoff()
+        status = sampler.complete()
+        for stamp in (101.0, 102.0, 103.0):
+            await asyncio.sleep(0.3)
+            set_mock_value(ict.acq_timestamp, stamp)
+        started = time.monotonic()
+        await status
+        return [row async for row in sampler.collect()], time.monotonic() - started
+
+    rows, tail = _run(RE, scenario)
+    assert all(math.isnan(r["data"]["u_late-acq_timestamp"]) for r in rows)
+    assert all(math.isnan(r["data"]["u_late-val"]) for r in rows)
+    assert [r["data"]["u_gauge-pressure"] for r in rows] == [
+        2e-7
+    ] * 3  # unstamped: at the tick
+    assert sampler.missed == {"U_Late": 3}
+    assert tail < 0.5, (
+        f"complete waited {tail:.2f} s after the last tick — more than one budget"
+    )

@@ -151,6 +151,16 @@ the recorded physical targets, not a relative coordinate after its zero moved.
   `-nonscalar_save_path` — the device's whole prepared reading in a fly
   prepare) and the tick's stamp as the clock column;
   `complete` is done after the quota, fails when the clock stops.
+  **A member with a stamp of its own is not read at the tick**: its
+  stamp lands after the clock's whenever its device is slower (the
+  HASO: ~40 ms, Scan015 of 26_0925), and a reading taken at the tick is
+  the previous shot's — so the sampler gives each such member
+  `SETTLE_TIMEOUT_S` (0.5 s) for its cached stamp to fall within
+  `SHOT_WINDOW_S` (0.5 s) of the clock's before reading it, and on
+  timeout writes `NaN` into its numeric columns (the string save path
+  stays): a stale reading never passes as data, and the missing file for
+  that row is simply missing.  `ShotSampler.missed` counts them per
+  step; the log says so once per member and once at the step's end.
 - **`GeecsNamespace`** — every enabled device of the experiment, built from
   the DB roster (loud on failure) and connected on first use by
   `connect_on_demand`.  Triggerable (`looks_triggerable`) → `GeecsDetector`
@@ -335,7 +345,9 @@ device (the clock).  A **LabVIEW-native saving device without a file
 plugin may be essential** (owner's ruling, 2026-09-25): the row is the
 stamp and its files follow by stamp, exactly as strict treats such a
 device — the plugin count is a convenience, not what makes a batch.  It is
-a sampler member (its scalars, its stamp, and it may be the clock); the
+a sampler member (its scalars, its stamp, and it may be the clock — read
+after its own stamp lands, the sampler's settle above, so its files join
+to their own rows); the
 plan prepares it **once**, at the run's first step, unbounded
 (`UNBOUNDED_TRIGGER_INFO`, `gated.native_essentials`), so the device's own
 lifecycle switches saving on then and off at `unstage` — run-long, never

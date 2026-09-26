@@ -33,6 +33,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   plugin-backed cameras of a gated run still write no native files (the
   #738 dual-write stays strict-only); a `.scalars` view still saves
   nothing.
+- **`ShotSampler` reads a stamped member for its own shot, never the
+  previous one** (found on Scan015 of 26_0925, the first gated count with
+  the HASO essential: its stamp lands ~40 ms after the clock's, and a
+  reading taken at the tick carried the previous shot's stamp in every
+  row — the first row stale, the last frame an orphan, the files joined
+  one row late). A member with a stamp of its own (a triggered device
+  without a plugin, or its view) is now given `SETTLE_TIMEOUT_S` (0.5 s)
+  for its cached stamp to fall within `SHOT_WINDOW_S` (0.5 s) of the
+  clock's before it is read; one that does not make it missed the shot —
+  its numeric columns read `NaN` (a string column, the save path, stays),
+  `ShotSampler.missed` counts it, the log says so once per member and
+  once at the step's end. Unstamped members and the clock device's own
+  scalars are read at the tick as before. A pre-existing gated-mode
+  property for every sampled triggered device slower than the clock; it
+  mattered once files joined by that stamp.
 - **`StackCheckCallback` matches a native essential's files to the
   rows.** At the stop of a gated run, for each `-nonscalar_save_path`
   column of the `shots` rows, every row's own `<owner>-acq_timestamp` is
