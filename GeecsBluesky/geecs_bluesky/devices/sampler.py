@@ -1,4 +1,8 @@
-"""ShotSampler — one event per shot for every device that has no plugin.
+"""ShotSampler — one event per shot for every device that has no plugin — and StampStream.
+
+:class:`StampStream` (at the end) is the non-essential counterpart: one
+event per stamp a single non-essential triggered device without a plugin
+publishes, in its own ``<name>_stream``, never tied to a row.
 
 The gated batch has no per-shot ``create/read/save``: the box free-runs
 and the plugin-backed cameras count their own frames.  Every *other*
@@ -60,7 +64,7 @@ from event_model import DataKey
 from event_model.documents.event import PartialEvent
 from ophyd_async.core import AsyncStatus, SignalR, merge_gathered_dicts
 
-from geecs_bluesky.devices.ca._view import ScalarsView
+from geecs_bluesky.devices.ca._view import ScalarsView, owner_of
 from geecs_bluesky.devices.detector import DEFAULT_SHOT_TIMEOUT, GeecsDetector
 from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
 
@@ -120,7 +124,7 @@ def _readers_for(obj: Any) -> list[tuple[Any, _Describe, _Read]]:
     Anything else with ``read`` / ``describe`` (a scalar-only device, a
     motor, a signal, the bin counter) is one source.
     """
-    owner = obj._owner if isinstance(obj, ScalarsView) else obj
+    owner = owner_of(obj)
     if isinstance(owner, GeecsDetector):
         readers: list[tuple[Any, _Describe, _Read]] = [
             (sig, sig.describe, sig.read)  # type: ignore[list-item]
@@ -200,7 +204,7 @@ class ShotSampler:
             int, tuple[str, SignalR[float], dict[int, tuple[_Describe, _Read]]]
         ] = {}
         for member in self._members:
-            owner = member._owner if isinstance(member, ScalarsView) else member
+            owner = owner_of(member)
             acq = getattr(owner, "acq_timestamp", None)
             if (
                 isinstance(owner, GeecsDetector)
@@ -437,4 +441,163 @@ class ShotSampler:
         self._unsubscribe()
 
 
-__all__ = ["ShotSampler"]
+class StampStream:
+    """One event per stamp a non-essential device publishes, for the whole run.
+
+    The non-essential **stream** of a device with no file plugin (the
+    2026-09-26 ruling): a *triggered* device — a camera or a wavefront
+    sensor saving its own LabVIEW files, a scalar device with a stamp (a
+    power supply, a gauge) — listed ``non_essential`` is a nice-to-have
+    diagnostic that must never hold up acquisition.  Sampling it at the
+    row would either wait for it (its write time back in the rep rate: the
+    HASO's stamp PV reaches the worker ~0.9 s after its frame, a strict
+    row is read ~0.5 s after the fire) or record the previous shot (the
+    Scan015 defect).  So it gets its own event stream instead, the shape a
+    non-essential plugin camera's ``<name>_stream`` already has: this
+    small software device (``Flyable`` + ``EventCollectable``) subscribes
+    to the device's ``acq_timestamp`` at ``kickoff`` and, **the moment**
+    each new stamp arrives, records one event — the stamp itself, the
+    device's cached scalars and (a native saver, prepared unbounded by the
+    plan) its ``-nonscalar_save_path``.  Nothing waits on it and nothing
+    attributes at read time: its events join the rows by stamp afterwards
+    (``geecs_data_utils.shot_join``), a device slower than the rep rate
+    leaving ``NaN`` on the rows it missed.
+
+    Rule 2 holds: the device's own lifecycle switches its saving on (the
+    plan's unbounded prepare) and off (its ``unstage``); this object only
+    reads.  ``complete`` is immediate — the run's close is the stream's
+    end — and ``collect`` yields what was recorded.
+
+    Parameters
+    ----------
+    device :
+        The non-essential device: a :class:`GeecsDetector` without a file
+        plugin, or a detector's ``.scalars`` view (scalars and stamp only,
+        no files).
+    """
+
+    parent = None
+
+    def __init__(self, device: Any) -> None:
+        owner = owner_of(device)
+        if not isinstance(owner, GeecsDetector):
+            raise TypeError(
+                f"{getattr(device, 'name', device)!r} has no shot stamp: a "
+                "non-essential stream records a triggered device"
+            )
+        self._device = device
+        self._owner = owner
+        # The DEVICE's name: the descriptor's configuration and object_keys
+        # are keyed by the collect object's name, and the join looks the
+        # drain offset up under the device's (``<name>-drain_offset``).
+        self.name = owner.name
+        self._stamp: SignalR[float] = owner.acq_timestamp
+        self._readers = [(d, r) for _, d, r in _readers_for(device)]
+        self._events: list[PartialEvent] = []
+        self._queue: asyncio.Queue[float | None] = asyncio.Queue()
+        self._task: asyncio.Task[None] | None = None
+        self._last: float | None = None
+        self._subscribed = False
+        #: Events recorded this run (the close's WARNING when it stays 0).
+        self.published = 0
+
+    @property
+    def device(self) -> Any:
+        """The non-essential device this stream records (as listed)."""
+        return self._device
+
+    @property
+    def device_name(self) -> str:
+        """The GEECS device name (messages)."""
+        return self._owner._geecs_device_name
+
+    async def describe_collect(self) -> dict[str, DataKey]:
+        """The event's data keys: the device's scalars, its stamp, its save path."""
+        return await merge_gathered_dicts(describe() for describe, _ in self._readers)
+
+    async def read_configuration(self) -> dict[str, Reading]:
+        """The device's drain offset — what the join corrects its stamps by."""
+        return await self._owner.drain_offset.read()
+
+    async def describe_configuration(self) -> dict[str, DataKey]:
+        """Data key of the drain offset."""
+        return await self._owner.drain_offset.describe()
+
+    def kickoff(self) -> AsyncStatus:
+        """Take the current stamp as already seen and record every later one."""
+
+        async def do() -> None:
+            await self._stop()
+            self._events = []
+            self.published = 0
+            self._last = await self._stamp.get_value()
+            self._queue = asyncio.Queue()
+            self._stamp.subscribe_reading(self._on_stamp)
+            self._subscribed = True
+            self._task = asyncio.create_task(self._record())
+
+        return AsyncStatus(do())
+
+    def complete(self) -> AsyncStatus:
+        """Immediately: stop listening, record what already arrived, done."""
+        return AsyncStatus(self._stop())
+
+    async def collect(self):
+        """Yield the recorded events (one per stamp) and forget them."""
+        events, self._events = self._events, []
+        for event in events:
+            yield event
+
+    # ------------------------------------------------------------ internals
+    def _on_stamp(self, reading: dict[str, Any]) -> None:
+        value = reading[self._stamp.name]["value"]
+        if value is None or value <= 0 or value == self._last:
+            return  # the subscribe echo, the gateway's placeholder, or a repeat
+        self._last = value
+        self._queue.put_nowait(float(value))
+
+    async def _record(self) -> None:
+        while True:
+            stamp = await self._queue.get()
+            if stamp is None:
+                return
+            try:
+                readings = await merge_gathered_dicts(
+                    read() for _, read in self._readers
+                )
+            except Exception as exc:  # noqa: BLE001 - a non-essential never fails
+                logger.warning(
+                    "%s: stamp %s not recorded (%s: %s)",
+                    self.name,
+                    stamp,
+                    type(exc).__name__,
+                    exc,
+                )
+                continue
+            data = {k: r["value"] for k, r in readings.items()}
+            # The event is the stamp's shot even if a newer stamp has landed
+            # in the cache meanwhile.
+            data[self._stamp.name] = stamp
+            self._events.append(
+                PartialEvent(
+                    time=time.time(),
+                    data=data,
+                    timestamps={k: r["timestamp"] for k, r in readings.items()},
+                )
+            )
+            self.published += 1
+
+    async def _stop(self) -> None:
+        if self._subscribed:
+            try:
+                self._stamp.clear_sub(self._on_stamp)
+            except Exception:  # noqa: BLE001 - best effort on a torn-down signal
+                logger.debug("%s: clear_sub failed", self.name, exc_info=True)
+            self._subscribed = False
+        task, self._task = self._task, None
+        if task is not None and not task.done():
+            self._queue.put_nowait(None)  # after every stamp already queued
+            await task
+
+
+__all__ = ["ShotSampler", "StampStream"]

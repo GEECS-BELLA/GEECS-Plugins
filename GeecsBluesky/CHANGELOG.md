@@ -6,6 +6,63 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.106.0] - 2026-09-26
+
+### Added
+
+- **A non-essential device without a file plugin streams for the run, in
+  both acquisition modes** (owner's ruling, 2026-09-26; scan-efficiency
+  arc, slice 2b). A *triggered* device — one saving its own LabVIEW files
+  (the HASO, a camera on a host without the PVA gateway) or one with
+  scalars and a stamp only (a power supply, a gauge), or any detector's
+  `.scalars` view — listed `non_essential` is a nice-to-have diagnostic
+  that never throttles the rep rate and never fails the scan. It is not
+  sampled at the row (that would wait for it — the HASO's stamp PV reaches
+  the worker 0.89–0.96 s after its frame — or record the previous shot,
+  Scan015): the new `devices/sampler.StampStream` (Flyable +
+  EventCollectable over one device) subscribes to its `acq_timestamp` at
+  `kickoff` and records **one event per stamp it publishes** — the stamp,
+  its cached scalars and, a native saver, its `-nonscalar_save_path` —
+  into `<name>_stream`, the shape a non-essential plugin camera's stream
+  already had; `complete` is immediate, and the descriptor carries the
+  device's `drain_offset` for the join. `non_essential_wrapper` builds one
+  per such device beside the plugin flyers: a native saver is prepared
+  unbounded after `open_run`, so its own lifecycle switches saving on
+  there and off at `unstage` (rule 2, 2a's `_flies` path); a `.scalars`
+  view is never prepared; a stream that recorded nothing is a WARNING at
+  the close. A device with no stamp (free-running) is refused at bind
+  (`gated.refuse_free_running_non_essentials`, in `strict_plan` and
+  `optimize`) — deferred. The start document's `non_essential` names each
+  device by its **owner** (a `.scalars` view's stream is
+  `<owner>_stream`), so the s-file finds a view's stream too.
+- `devices.ca._view.owner_of`: the one view → owner unwrapping rule, now
+  used by the sampler, the gated plan, the registry and `optimize`
+  (previously copy-pasted six ways).
+- The live s-file joins every non-essential **event** stream onto the rows
+  by stamp (`geecs_data_utils.shot_join.frame_columns_from_events`): its
+  columns on the rows it stamped, `NaN` on the rest (all-`NaN` from the
+  descriptor's keys when it published nothing); an event with no row in
+  its window stays in the stream. `_StreamCallback` buffers the streams
+  the start document's `non_essential` names.
+- `StackCheckCallback` checks a non-essential native saver's files against
+  its stream's **events** (not the rows) in either mode: events without a
+  file and file stamps without an event counted apart (WARNING), files
+  stamped after the last event (saved between the stream's close and the
+  unstage) counted apart again and no defect — never a failure.
+
+### Changed
+
+- The preflight's "non-essential device(s) without a file plugin" refusal
+  is gone; `acquisition_refusal` now refuses only a non-essential with no
+  `acq_timestamp` (the free-running case). `expand_preset` expands a
+  non-essential with `save_images: false` to its `.scalars` view instead
+  of refusing it ("a scalars-only device cannot fly" no longer holds).
+- A non-essential device that is not plugin-backed (a scope with every
+  channel disabled included) is streamed by stamp instead of sitting the
+  run out with a WARNING.
+- `EVENT_SCHEMA.md`: the `<name>_stream` event stream (additive — no
+  schema version change); `CLAUDE.md`'s non-essential paragraph.
+
 ## [0.105.0] - 2026-09-25
 
 ### Changed

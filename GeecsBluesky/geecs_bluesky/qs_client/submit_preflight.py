@@ -39,9 +39,9 @@ Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
   skipped too.  Reads the caller's :class:`~.client.QueueClient` when
   given (``client=``), else builds and closes one from the shared config.
   Two phase-2 rules read off the same device tree: every ``non_essential``
-  device must be plugin-backed (the tree lists the ``hdf`` child of a
-  plugin-backed detector — a LabVIEW-native camera has ``save`` but no
-  ``hdf``); and a gated run needs at least one essential *triggered*
+  device must be triggered (an ``acq_timestamp`` child — plugin-backed or
+  not, since the 2026-09-26 ruling; a free-running device is deferred);
+  and a gated run needs at least one essential *triggered*
   device (an ``acq_timestamp`` child), camera or scalar — "nothing counts
   shots; use strict" otherwise.  An essential without a plugin is admitted
   in a gated run (its LabVIEW files are its record, 2026-09-25 ruling).
@@ -318,9 +318,11 @@ def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
     *known* is the tree flattened to dotted names.  A plugin-backed
     detector has an ``hdf`` child; a LabVIEW-native camera has ``save``
     (and ``localsavingpath``) but no ``hdf`` — admitted as a gated
-    essential since the 2026-09-25 ruling, refused as a non-essential
-    still; a triggered device has an ``acq_timestamp`` child; a
-    scalar-only device has neither.
+    essential since the 2026-09-25 ruling and as a non-essential in either
+    mode since the 2026-09-26 one (its own stream, one event per stamp); a
+    triggered device has an ``acq_timestamp`` child; a scalar-only device
+    has neither, and is refused as a non-essential (nothing could place
+    its readings on a shot — the free-running case is deferred).
 
     Parameters
     ----------
@@ -338,18 +340,19 @@ def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
     gated = item.kwargs.get("acquisition", "strict") == "gated"
     non_essential = list(item.kwargs.get("non_essential") or ())
     detectors = list(item.args[0]) if item.args else []
-    no_plugin = [r for r in non_essential if f"{r}.hdf" not in known]
-    if no_plugin:
+    unstamped = [
+        r for r in non_essential if f"{_owner_reference(r)}.acq_timestamp" not in known
+    ]
+    if unstamped:
         return (
-            f"non-essential device(s) without a file plugin: {', '.join(no_plugin)} "
-            "— a non-essential device streams its frames through the PVA "
-            "gateway's file plugin; the worker sees none for these (a "
-            "LabVIEW-native camera, or a scalar-only device). Make them "
-            "essential or leave them out."
+            f"non-essential device(s) with no shot stamp: {', '.join(unstamped)} "
+            "— a non-essential device is recorded by its acq_timestamp and "
+            "joined to the shots by it; a free-running device (no stamp) is "
+            "not admitted as non-essential yet. Make it essential."
         )
     if not gated:
         return None
-    owners = [r[: -len(".scalars")] if r.endswith(".scalars") else r for r in detectors]
+    owners = [_owner_reference(r) for r in detectors]
     if not any(f"{r}.acq_timestamp" in known for r in owners):
         return (
             "gated acquisition: no essential triggered device — nothing counts "
@@ -357,6 +360,13 @@ def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
             "acq_timestamp), or use acquisition='strict'."
         )
     return None
+
+
+def _owner_reference(reference: str) -> str:
+    """``X.scalars`` → ``X``; any other reference unchanged."""
+    return (
+        reference[: -len(".scalars")] if reference.endswith(".scalars") else reference
+    )
 
 
 def _check_liveness(

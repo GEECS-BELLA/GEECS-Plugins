@@ -5,6 +5,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.14.1] - 2026-09-26
+
+### Changed
+
+- The device table's note no longer says "Not essential + no images is
+  refused at expansion": since GeecsBluesky 0.106.0 a non-essential
+  device without images streams its scalars by stamp (slice 2b of the
+  scan-efficiency arc).
+
 ## [0.14.0] - 2026-09-25
 
 ### Added

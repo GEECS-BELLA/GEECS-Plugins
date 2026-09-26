@@ -18,7 +18,8 @@ of them), and setup/closeout rituals and the ``SaveRole`` enum (an
 explicit action plan is its own queue item).  What phase 2 added
 (GEECS-Plugins#807): ``essential`` on each
 device — an essential device is waited on every shot, a non-essential
-one streams its frames for the run and never holds a shot — and the
+one streams for the run (its frames, or one record per shot it stamps)
+and never holds a shot — and the
 acquisition mode as a plan keyword (``acquisition: gated`` in
 ``plan.kwargs``, beside ``shots_per_step``), not a preset field.
 ``native_image_save`` (0.31.0) is the run-level switch for LabVIEW's
@@ -52,9 +53,12 @@ class PresetDevice(SchemaModel):
     ``essential`` (default on) means the scan waits for this device on
     every shot — a shot is not complete without its reading.  Off means
     the device streams what it produces for the run's duration (its
-    frames, through the camera server's file plugin) and never holds a
-    shot or aborts a run: the choice for a slow or unreliable camera whose
-    frames are welcome but not required (phase 2, GEECS-Plugins#807).
+    frames through the camera server's file plugin, or — without one —
+    its readings and LabVIEW files for every shot it stamps, joined to the
+    shots afterwards) and never holds a shot or aborts a run: the choice
+    for a slow or unreliable device whose data are welcome but not
+    required (phase 2, GEECS-Plugins#807; 2026-09-26 for devices without a
+    plugin).
     """
 
     device: str = Field(
@@ -78,11 +82,11 @@ class PresetDevice(SchemaModel):
         True,
         description=(
             "Wait for this device on every shot (on, the default) — a shot is "
-            "not complete without its reading. Off streams the device's "
-            "frames for the run's duration instead: it never holds a shot or "
-            "aborts the scan, so use it for a slow or unreliable camera whose "
-            "frames are welcome but not required. Off needs the images saved "
-            "(a scalars-only device cannot stream)."
+            "not complete without its reading. Off streams the device for the "
+            "run's duration instead, at its own rate, joined to the shots by "
+            "its timestamp: it never holds a shot or aborts the scan, so use "
+            "it for a slow or unreliable device whose data are welcome but "
+            "not required. The device needs a shot timestamp (acq_timestamp)."
         ),
     )
 

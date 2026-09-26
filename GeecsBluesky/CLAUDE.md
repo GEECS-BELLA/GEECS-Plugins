@@ -161,6 +161,13 @@ the recorded physical targets, not a relative coordinate after its zero moved.
   stays): a stale reading never passes as data, and the missing file for
   that row is simply missing.  `ShotSampler.missed` counts them per
   step; the log says so once per member and once at the step's end.
+- **`StampStream`** (`devices/sampler.py`, slice 2b) — a non-essential
+  triggered device without a plugin, recorded for the run in its own
+  `<name>_stream`: Flyable + EventCollectable over ONE device, subscribed
+  to its `acq_timestamp` at `kickoff`, one event per advance (the stamp,
+  the cached scalars, a native saver's save path); `complete` immediate,
+  `read_configuration` the device's `drain_offset` (the join's
+  correction); it never reads at a row and never fails the run.
 - **`GeecsNamespace`** — every enabled device of the experiment, built from
   the DB roster (loud on failure) and connected on first use by
   `connect_on_demand`.  Triggerable (`looks_triggerable`) → `GeecsDetector`
@@ -362,21 +369,41 @@ each row's stamp matched to a file by the naming contract
 and file stamps without a row counted apart (WARNING on either, never a
 failure).  A plugin-backed camera in a
 gated run still writes no native files (the #738 dual-write is
-strict-only).  A native-saving device as a **non-essential** is not
-admitted yet — slice 2b.
+strict-only).  As a **non-essential** such a device gets a stream of
+its own (below).
 
 **Non-essential stream** (`non_essential=[…]`, strict or gated): the
-listed plugin-backed detectors are staged, prepared unbounded, kicked off
-right after `open_run` and each collected alone into `<name>_stream`
-before `close_run` — `fly_during_wrapper`'s shape with the stage and
-prepare it lacks, per plan, never RunEngine-level
-`SupplementalData.flyers`; nothing waits on them.  `shot_period` is the
-strict rep-rate throttle (#840).
+listed devices are staged, prepared unbounded, kicked off right after
+`open_run` and each collected alone into `<name>_stream` before
+`close_run` — `fly_during_wrapper`'s shape with the stage and prepare it
+lacks, per plan, never RunEngine-level `SupplementalData.flyers`; nothing
+waits on them, and from the close on every step of theirs is a
+contingency that never fails the run.  A plugin-backed camera flies itself
+(a datum stream).  A **triggered device without a plugin** — one saving
+its own LabVIEW files (the HASO, a camera on a host without the PVA
+gateway) or one with scalars only and a stamp (a power supply, a gauge),
+or any detector's `.scalars` view — is a "nice-to-have diagnostic that
+must not hold up acquisition" (owner's ruling, 2026-09-26): it is **not**
+sampled at the row, which would either wait for it (the HASO's stamp PV
+reaches the worker ~0.9 s after its frame; its write time back in the rep
+rate) or record the previous shot (Scan015).  A
+`devices/sampler.StampStream` records it instead — monitor-driven, one
+event per stamp it publishes (`<name>-acq_timestamp`, its cached scalars
+and, a native saver listed itself, its `-nonscalar_save_path`), the moment
+the stamp arrives; `complete` is immediate (the run's close is the end).
+Rule 2 holds: a native saver's own unbounded prepare switches its saving
+on (2a's `_flies` path) and its `unstage` off; the stream only reads, and
+its descriptor carries the device's `drain_offset` for the join.  A
+device that publishes nothing leaves an empty stream and a WARNING at the
+close.  A device with **no** stamp (free-running) is refused at bind
+(`refuse_free_running_non_essentials`, and the preflight) — deferred.
+`shot_period` is the strict rep-rate throttle (#840).
 
 **The s-file of a run with stream data** (phase 2c): the rows
 are `primary`'s events when it has them and the sampler's `shots` events
-otherwise, and every **datum-only** stream's per-frame columns are joined
-onto them by offset-corrected stamp — the join itself is
+otherwise, and every **datum-only** stream's per-frame columns — and
+every non-essential **event** stream's events (a device without a plugin,
+one "frame" per stamp) — are joined onto them by offset-corrected stamp — the join itself is
 `geecs_data_utils.shot_join`, shared with the offline re-export so the two
 cannot drift, and fed **one** drain-offsets map (from the streams'
 descriptor configuration) that covers both sides of every comparison.  One
@@ -390,7 +417,13 @@ s-file is written on a thread (a stack may only be read once the plugin
 finalizes it, which happens at `unstage`, after the stop document); a run
 with no datum-only stream is still written synchronously.
 `StackCheckCallback` checks a non-essential stream by count and a *gated*
-stack by count **and** stamps — one frame per `shots` row, none orphaned.
+stack by count **and** stamps — one frame per `shots` row, none orphaned —
+and a non-essential native saver's files against its stream's **events**
+(not the rows; events without a file and file stamps without an event
+counted apart, files after the last event — saved between the stream's
+close and the unstage — apart again; WARNING, never failure).  A device
+slower than the rep rate simply leaves `NaN` on the rows it missed; an
+event no row's window reaches stays in the stream and in Tiled.
 
 ## The GEECS scan: one claim, three files, one telemetry stream
 
