@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.15.0] - 2026-09-26
+
+### Added
+
+- `compat.v2_run.run_units(..., workers=N)`: a bounded, ordered `spawn`
+  process pool for the scan loop (#1003). `workers <= 1` is the serial loop
+  unchanged, no pool built. Above that each worker receives the recipe, the
+  bound inputs and the loader once (pickled into its initializer), reads and
+  analyzes its own groups, and the outcomes are yielded in declared group
+  order through a window of at most `2 × workers` in flight — so a host's
+  accumulation sees the serial sequence and computes the same numbers.
+  Worker log records are forwarded to the parent's loggers (`QueueHandler`
+  / `QueueListener`), closing the iterator shuts the pool down, and per-unit
+  failures stay outcomes. A loader that is also a context manager is entered
+  once per run and once per worker (a source keeping one stack handle).
+- `compat.v2_average.RunningAverage`: the legacy summary average folded one
+  measurement at a time — float64 sum (+ per-element count in bin mode) for
+  camera frames, projections and markers, so memory is one frame however
+  many are folded; scalars kept and reduced at the end; traces retained and
+  reduced at storage dtype as before. The sequential fold is numpy's own
+  order for a first-axis stack reduction, so the result equals
+  `np.mean` / `np.nanmean` over the stack **bit for bit** (pinned against the
+  stack, and by the unchanged differential tests against the legacy
+  `ImageAnalyzerResult.average`). `average_results` is now built on it.
+- `Measurement` pickles (a worker returns one to its parent): the scalar
+  view travels as a plain dict and is restored read-only; notes are not
+  re-annotated. Pinned in `tests/test_pickling.py` with the compiled
+  recipes of both formats.
+
 ## [0.14.0] - 2026-09-24
 
 ### Added

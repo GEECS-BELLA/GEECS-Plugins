@@ -193,6 +193,35 @@ for reproducible sums; sources can reuse buffers, so snapshot each returned
 array. This runner does not replace scan grouping, scalar/output sinks or the
 factory by itself. Pure analyze/analyze_v2 remain loaded-input-only APIs.
 
+`run_units(..., workers=N)` is the one pool (#1003). `workers <= 1` is the
+serial loop, no pool built. Above that, a `spawn` `ProcessPoolExecutor`
+(the hosts are threaded service processes — never fork them) receives the
+recipe, the bound inputs and the loader **once per worker** through its
+initializer, each worker reads and analyzes its own groups, and outcomes
+are yielded **in declared group order** through a window of `2 × workers`
+in flight — so whatever the host accumulates sees the serial sequence and
+every number is the serial run's; that is the acceptance rule, not a
+tolerance. Worker log records reach the parent's loggers through a
+`QueueHandler`/`QueueListener` pair (at the parent's root level or above;
+an algorithm's `logger.warning` must never vanish in a worker). Closing
+the iterator shuts the pool down (in-flight groups finish so workers exit
+through their `atexit` handlers; queued ones are dropped). A loader that is
+also a context manager is entered once per run and once per worker — the
+protocol a source uses to keep one stack handle. Two rules this imposes on
+step and measure authors: **every step/measure/summary registers at import
+time** (a spawned worker rebuilds the registry by importing
+`geecs_analysis.steps` / `.measures`; unpickling a spec imports only its
+own module), and **no step keeps cross-shot state**. Host concerns —
+`cpu_count`, config, the small-run floor — live in ScanAnalysis
+(`core_workers`), never here. The loader must pickle; a plain callable
+works (a dict's `__getitem__`), a host source implements
+`__getstate__`. Under pytest's importlib mode a test loader class must
+live in a real module on `sys.path` (`tests/test_v2_pool.py` writes one).
+
+`Measurement`, `Frame` and `Axis` pickle for exactly this (the scalar view
+travels as a dict and is restored read-only; unpickled arrays are re-frozen
+in data-utils); keep `__getstate__`/`__setstate__` in step with the fields.
+
 `compat.v2_average.average_results` owns the post-analysis summary conventions:
 noscan uses ordinary means and omits shot overlays; bin summaries use nanmean
 and average projections. Never re-analyze the averaged processed frame to
@@ -201,3 +230,17 @@ storage dtype, preserving float32 accumulation and the legacy index-wise axis
 average. This is deliberately a v2 boundary, not a general alignment/resampling
 operation. Mismatched shapes skip the averaged figure; unit/rank and camera-axis
 mismatches raise. Aggregate frames have no individual shot identity.
+
+`RunningAverage` is that fold one measurement at a time, and
+`average_results` is built on it — one definition. Camera frames,
+projections and markers accumulate as a float64 sum (plus a per-element
+count in bin mode, the `nanmean` shape), so memory is one frame however
+many are folded; the sequential fold is numpy's own order for reducing a
+stack along its first axis, so the quotient equals `np.mean`/`np.nanmean`
+over the stack **bit for bit** — pinned against the stack and by the
+unchanged differential tests against the legacy `ImageAnalyzerResult.average`.
+Scalars are a few floats per unit and are kept and reduced at the end,
+because numpy's pairwise 1-D sum is *not* a running sum; traces are kept
+and reduced at storage dtype as before (a scan keeps every trace for its
+waterfall anyway). A mixed shape marks the average and `result()` is
+`None`; later results still fold for their scalars.

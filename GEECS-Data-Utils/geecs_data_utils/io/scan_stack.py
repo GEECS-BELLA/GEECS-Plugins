@@ -18,8 +18,9 @@ This module is the read side of that contract, deliberately small:
   :func:`stack_scalar_variables` — every per-frame attribute (the stamps
   and, since GeecsPvaGateway 0.9, the device's subscribed numeric
   scalars), keyed by dataset name, and the raw names behind them.
-- :func:`read_shot` — one frame by index (a single chunk read), and
-  :func:`frame_index_for_acq_timestamp` for a caller that wants to
+- :func:`read_shot` — one frame by index (a single chunk read;
+  :func:`read_frame` is the same read against a handle the caller keeps
+  open across a run), and :func:`frame_index_for_acq_timestamp` for a caller that wants to
   address a frame (by :class:`ShotRef`) rather than receive it.
 - :func:`stack_content_kind` — whether the frames are pixels or an
   x-vs-y array (the gateway serves both through one file plugin), which
@@ -279,13 +280,25 @@ def read_shot(ref: "ShotRef | Path", shot_index: int | None = None) -> np.ndarra
         if shot_index is None:
             raise TypeError("read_shot needs a ShotRef or an explicit shot_index")
     with open_stack(ref) as f:
-        frames = f[FRAMES_DATASET]
-        if not 0 <= shot_index < frames.shape[0]:
-            raise IndexError(
-                f"shot_index {shot_index} outside stack of {frames.shape[0]} "
-                f"frames: {ref}"
-            )
-        return np.asarray(frames[shot_index])
+        return read_frame(f, shot_index)
+
+
+def read_frame(stack: "h5py.File", shot_index: int) -> np.ndarray:
+    """Read frame *shot_index* from an already-open stack — one chunk read.
+
+    The read behind :func:`read_shot`, for a caller that holds one handle
+    across many shots (a scan run reading every frame of one stack: each
+    open is several protocol round trips over SMB, and one handle per run
+    or per worker is the whole point of that caller). Bounds are checked
+    here so both paths refuse an out-of-range index the same way.
+    """
+    frames = stack[FRAMES_DATASET]
+    if not 0 <= shot_index < frames.shape[0]:
+        raise IndexError(
+            f"shot_index {shot_index} outside stack of {frames.shape[0]} "
+            f"frames: {stack.filename}"
+        )
+    return np.asarray(frames[shot_index])
 
 
 #: What one frame of a stack holds.  The gateway serves images and arrays

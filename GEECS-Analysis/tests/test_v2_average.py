@@ -1,13 +1,15 @@
 """Saved averages retain legacy dtype, NaN and post-analysis semantics."""
 
+import contextlib
+
 import numpy as np
 import pytest
 from geecs_data_utils.frames import Axis, Frame, ShotMeta
 from geecs_schemas.analysis import AnalysisDiagnostic
 
 from geecs_analysis.compat.v2 import analyze_v2, compile_v2
-from geecs_analysis.compat.v2_average import average_results
-from geecs_analysis.measurement import Measurement, Projection
+from geecs_analysis.compat.v2_average import RunningAverage, average_results
+from geecs_analysis.measurement import Marker, Measurement, Projection
 
 
 def recipe(kind="camera", storage="float32"):
@@ -155,3 +157,72 @@ def test_scalar_key_policy_matches_each_legacy_summary():
         "x": 3,
         "y": 8,
     }
+
+
+@pytest.mark.parametrize("mode", ["noscan", "bin"])
+def test_running_fold_equals_the_stacked_reduction_bit_for_bit(mode):
+    """One frame of memory, and not one ulp of difference from the stack mean."""
+    _, compiled = recipe()
+    rng = np.random.default_rng(7)
+    frames = rng.uniform(0, 4000, (300, 24, 30))
+    frames[rng.uniform(size=frames.shape) < 0.02] = np.nan
+    frames[:, 3, 3] = np.nan  # an all-NaN pixel: NaN in both modes
+    projections = rng.uniform(0, 1, (300, 30))
+    markers = rng.uniform(0, 1, (300, 2))
+    markers[::7, 0] = np.nan
+    running = RunningAverage(compiled, mode=mode)
+    results = []
+    for frame, projection, marker in zip(frames, projections, markers, strict=True):
+        result = Measurement(
+            {"a": float(frame[0, 0]) if np.isfinite(frame[0, 0]) else np.nan},
+            Frame.from_array(frame),
+            (
+                Projection("projection_x", 1, Frame.from_array(projection)),
+                Marker("centroid", float(marker[0]), float(marker[1])),
+            ),
+        )
+        results.append(result)
+        running.add(result)
+    assert running.count == 300 and not running.mixed
+    folded = running.result()
+    reduce = np.mean if mode == "noscan" else np.nanmean
+    with (
+        np.errstate(all="ignore"),
+        pytest.warns(RuntimeWarning, match="empty slice")
+        if mode == "bin"
+        else contextlib.nullcontext(),
+    ):
+        expected_frame = reduce(frames, axis=0)
+    np.testing.assert_array_equal(folded.frame.data, expected_frame)
+    values = [r.scalars["a"] for r in results]
+    with np.errstate(all="ignore"):
+        expected = float(reduce(values))
+    assert folded.scalars["a"] == expected or (
+        mode == "noscan" and np.isnan(folded.scalars["a"]) and np.isnan(expected)
+    )
+    assert np.isfinite(folded.scalars["a"]) == (mode == "bin")
+    if mode == "noscan":
+        assert not folded.overlays
+    else:
+        by_id = {o.id: o for o in folded.overlays}
+        np.testing.assert_array_equal(
+            by_id["projection_x"].frame.data, np.nanmean(projections, axis=0)
+        )
+        x, y = np.nanmean(markers, axis=0)
+        assert (by_id["centroid"].x, by_id["centroid"].y) == (x, y)
+    # The sequence form is the same fold.
+    whole = average_results(results, compiled, mode=mode)
+    np.testing.assert_array_equal(whole.frame.data, folded.frame.data)
+    assert np.testing.assert_equal(dict(whole.scalars), dict(folded.scalars)) is None
+
+
+def test_running_fold_marks_mixed_shapes_but_keeps_counting():
+    _, compiled = recipe()
+    running = RunningAverage(compiled, mode="noscan")
+    running.add(Measurement({"x": 1}, Frame.from_array(np.ones((2, 2)))))
+    running.add(Measurement({"x": 3}, Frame.from_array(np.ones((3, 2)))))
+    running.add(Measurement({"x": 5}, Frame.from_array(np.ones((2, 2)))))
+    assert running.count == 3 and running.mixed
+    assert running.result() is None
+    with pytest.raises(ValueError, match="rank"):
+        running.add(Measurement({}, Frame.from_array([1, 2])))

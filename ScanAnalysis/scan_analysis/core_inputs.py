@@ -25,10 +25,27 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class PreparedRecipe:
-    """An immutable compiled recipe and its already-loaded frame bindings."""
+    """An immutable compiled recipe and its already-loaded frame bindings.
+
+    Pickles (a pooled run sends it to each worker once): the bound inputs
+    travel as a plain mapping and are rebound as a read-only view.
+    """
 
     recipe: V2Recipe
     inputs: Mapping[str, Frame]
+
+    def __getstate__(self) -> dict:
+        """Pickle the bindings as a plain dict (a proxy view cannot be)."""
+        return {"recipe": self.recipe, "inputs": dict(self.inputs)}
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the read-only binding view."""
+        object.__setattr__(self, "recipe", state["recipe"])
+        object.__setattr__(
+            self,
+            "inputs",
+            bind_inputs(state["recipe"].analysis.steps, dict(state["inputs"])),
+        )
 
 
 def prepare_v2(

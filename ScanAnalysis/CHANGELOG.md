@@ -3,6 +3,45 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.38.0] - 2026-09-26
+
+### Changed
+
+- The core route streams its products (#1003). `CoreScanAnalyzer._execute`
+  no longer collects every `UnitResult`: each outcome's scalars are queued
+  and its measurement folded into `core_products.ProductCollector` — one
+  `RunningAverage` for a noscan (or a sorted line waterfall), one per bin
+  for a scanned per-shot run, the bin's own measurement for a raw-bin run —
+  and the frame is dropped. A camera scan now holds one running frame per
+  product however many shots it has (the 26_0924 Scan007 run held every
+  processed frame, ~10 GB, to draw one average); line traces are kept, the
+  waterfall needs every one. `plan_products` is the same planning over a
+  sequence, built on the collector, so every product, note and gate is as
+  before. Pinned: `tests/test_core_streaming.py` tracks the frames a
+  300-shot run keeps alive (at most 3; the old list kept all 300).
+- `core_source.V2ShotSource` is the run's loader and a context manager:
+  entered once per run (`PreparedScan.run`) and once per pooled worker, it
+  keeps **one handle per capture stack open across the run** instead of one
+  open per shot (~2 ms/shot over SMB); outside the context each read opens
+  and closes as before. Handles never pickle and are closed on completion,
+  error or early close (`open_stacks` shows them). Trace stacks still open
+  per read inside the shared 1-D reader.
+
+### Added
+
+- `scan.workers`: `core_recipe.ScanRecipe.workers` carries the recipe's
+  request (1 for a v2 diagnostic); `core_workers.effective_workers` decides
+  the count — serial when the recipe asks for one or the run has fewer
+  than `MIN_UNITS_FOR_POOL` (50) units, else the request capped at the host's
+  `host_worker_cap` (`config.ini [analysis] worker_cap`, default one core
+  fewer than the machine has; `CoreScanAnalyzer.worker_cap` overrides it
+  for a host process). `PreparedScan.run(workers=N)` runs the core's ordered
+  pool; the analyzer logs `<device>: <n> units, <k> workers`. Outputs do
+  not depend on the count: `test_pooled_run_writes_the_identical_tree`
+  compares the pooled tree to the serial one at 0 ulp.
+- `PreparedRecipe` and `V2ShotSource` pickle (their read-only views travel
+  as plain mappings), so a pooled run can send them to its workers.
+
 ## [1.37.0] - 2026-09-24
 
 ### Added

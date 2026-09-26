@@ -110,6 +110,17 @@ class TestShape:
         assert recipe.summaries == [] and recipe.inputs == {}
         assert recipe.scan.priority == 100 and recipe.scan.save
         assert not recipe.scan.average_frames_first
+        assert recipe.scan.workers == 1
+
+    def test_workers_is_a_positive_count(self):
+        recipe = AnalysisRecipe.model_validate(
+            {"device": "D", "input": {"kind": "camera"}, "scan": {"workers": 8}}
+        )
+        assert recipe.scan.workers == 8
+        with pytest.raises(ValidationError):
+            AnalysisRecipe.model_validate(
+                {"device": "D", "input": {"kind": "camera"}, "scan": {"workers": 0}}
+            )
 
     def test_canonical_form_round_trips_with_step_parameters(self):
         recipe = AnalysisRecipe.model_validate(CAMERA)

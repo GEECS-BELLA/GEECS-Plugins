@@ -365,6 +365,16 @@ class RecipeRuntime(SchemaModel):
             "the analysis tree. S-file scalar columns are written regardless."
         ),
     )
+    workers: int = Field(
+        1,
+        ge=1,
+        description=(
+            "Worker processes a scan run may use to read and measure frames "
+            "in parallel; 1 (the default) runs in the calling process. The "
+            "host caps it at its own limit and runs small scans serially; "
+            "the outputs are identical either way."
+        ),
+    )
 
 
 # ----------------------------------------------------------------- document
