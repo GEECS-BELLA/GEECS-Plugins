@@ -47,8 +47,13 @@ def test_gated_rows_on_the_shots_stream_count_too() -> None:
     )
     c.on_document("descriptor", {"uid": "p", "name": "primary"})
     c.on_document("descriptor", {"uid": "s", "name": "shots"})
-    c.on_document("event", {"descriptor": "s", "seq_num": 9})  # a gated run's rows
-    assert c.snapshot().shots_done == 9
+    # a gated run's rows arrive as event pages, several per batch
+    c.on_document("event_page", {"descriptor": "s", "seq_num": [1, 2, 3]})
+    assert c.snapshot().shots_done == 3
+    c.on_document("event_page", {"descriptor": "s", "seq_num": [4, 5]})
+    assert c.snapshot().shots_done == 5
+    c.on_document("event_page", {"descriptor": "p", "seq_num": []})  # no rows
+    assert c.snapshot().shots_done == 5
 
 
 def test_row_streams_are_the_sfile_writers() -> None:
