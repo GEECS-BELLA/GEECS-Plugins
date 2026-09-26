@@ -205,7 +205,9 @@ tolerance. Worker log records reach the parent's loggers through a
 `QueueHandler`/`QueueListener` pair (at the parent's root level or above;
 an algorithm's `logger.warning` must never vanish in a worker). Closing
 the iterator shuts the pool down (in-flight groups finish so workers exit
-through their `atexit` handlers; queued ones are dropped). A loader that is
+through their `atexit` handlers; queued ones are dropped). A host killed
+without reaching that `finally` still leaves no orphan: every worker exits
+when its parent's sentinel fires (`_exit_with_parent`). A loader that is
 also a context manager is entered once per run and once per worker — the
 protocol a source uses to keep one stack handle. Two rules this imposes on
 step and measure authors: **every step/measure/summary registers at import

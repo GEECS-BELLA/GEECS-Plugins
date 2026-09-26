@@ -241,6 +241,33 @@ class _ForwardToLoggers(logging.Handler):
 _WORKER: dict[str, Any] = {}
 
 
+def _exit_with_parent() -> None:
+    """End this worker the moment the process that owns the pool is gone.
+
+    A pool worker blocks on its task queue, and every worker holds a writer
+    end of that queue itself, so a parent killed without running its
+    ``finally`` (SIGTERM or SIGKILL to a task runner or a detached analysis
+    process) never delivers end-of-file: the workers would live on under
+    init, each holding its stack handle. A daemon thread waits on the
+    parent's sentinel and exits the worker when it fires; the operating
+    system closes the worker's files.
+    """
+    import multiprocessing
+    import os
+    import threading
+    from multiprocessing.connection import wait
+
+    parent = multiprocessing.parent_process()
+    if parent is None:
+        return
+
+    def watch() -> None:
+        wait([parent.sentinel])
+        os._exit(1)
+
+    threading.Thread(target=watch, name="exit-with-parent", daemon=True).start()
+
+
 def _worker_init(
     queue: Any,
     level: int,
@@ -264,6 +291,7 @@ def _worker_init(
     root = logging.getLogger()
     root.addHandler(QueueHandler(queue))
     root.setLevel(level)
+    _exit_with_parent()
     opened = _opened(load)
     read = opened.__enter__()
     atexit.register(opened.__exit__, None, None, None)

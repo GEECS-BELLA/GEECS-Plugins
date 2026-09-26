@@ -13,7 +13,9 @@
   accumulation sees the serial sequence and computes the same numbers.
   Worker log records are forwarded to the parent's loggers (`QueueHandler`
   / `QueueListener`), closing the iterator shuts the pool down, and per-unit
-  failures stay outcomes. A loader that is also a context manager is entered
+  failures stay outcomes. Each worker also exits the moment the pool's owner
+  dies (a daemon thread on the parent's sentinel), so a SIGTERM/SIGKILLed
+  host that never reaches its `finally` leaves no worker holding a stack. A loader that is also a context manager is entered
   once per run and once per worker (a source keeping one stack handle).
 - `compat.v2_average.RunningAverage`: the legacy summary average folded one
   measurement at a time — float64 sum (+ per-element count in bin mode) for

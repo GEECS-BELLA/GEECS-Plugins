@@ -31,9 +31,10 @@ HELPER = textwrap.dedent(
 
 
     class Source:
-        def __init__(self, shape, record_dir):
+        def __init__(self, shape, record_dir, delay=0.0):
             self.shape = shape
             self.record_dir = str(record_dir)
+            self.delay = delay
             self.opened = False
 
         def _record(self, event):
@@ -53,6 +54,10 @@ HELPER = textwrap.dedent(
         def __call__(self, shot):
             assert self.opened, "read before the source was entered"
             self._record("read")
+            if self.delay:
+                import time
+
+                time.sleep(self.delay)
             if shot == 5:
                 raise OSError(f"missing {shot}")
             if shot == 3:
@@ -208,3 +213,72 @@ def test_serial_default_creates_no_pool(monkeypatch):
         )
     )
     assert [o.group.key for o in outcomes] == [1, 2]
+
+
+DRIVER = textwrap.dedent(
+    """
+    import sys
+    from pathlib import Path
+
+    from geecs_schemas.analysis import AnalysisDiagnostic
+
+    from geecs_analysis.compat.v2 import compile_v2
+    from geecs_analysis.compat.v2_run import ShotGroup, run_units
+    from pool_helper import Source
+
+    if __name__ == "__main__":
+        compiled = compile_v2(
+            AnalysisDiagnostic.model_validate(
+                {"name": "Camera", "analyzer": {"kind": "beam"}, "image": {"type": "camera"}}
+            )
+        )
+        source = Source((4, 6), Path(sys.argv[1]), delay=0.5)
+        groups = [ShotGroup(n, (n + 10,)) for n in range(1, 400)]
+        for outcome in run_units(compiled, groups, source, workers=2):
+            print(outcome.group.key, flush=True)
+    """
+)
+
+
+def test_workers_exit_when_the_pool_owner_is_killed(source, tmp_path):
+    """A SIGKILLed host (no finally, no atexit) leaves no worker behind."""
+    import signal
+    import subprocess
+    import sys
+    import time
+
+    _, records = source
+    driver = tmp_path / "driver.py"
+    driver.write_text(DRIVER)
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
+    host = subprocess.Popen([sys.executable, str(driver), str(records)], env=env)
+    try:
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            if sum("open" in seen for seen in events(records).values()) == 2:
+                break
+            assert host.poll() is None, "the driver ended before its pool started"
+            time.sleep(0.1)
+        else:
+            pytest.fail("the pool never started two workers")
+        workers = [int(pid) for pid in events(records)]
+        host.send_signal(signal.SIGKILL)
+        host.wait(timeout=10)
+
+        def alive(pid):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            return True
+
+        deadline = time.monotonic() + 10
+        while any(alive(pid) for pid in workers) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        survivors = [pid for pid in workers if alive(pid)]
+        for pid in survivors:
+            os.kill(pid, signal.SIGKILL)
+        assert not survivors, f"workers {survivors} outlived their pool's owner"
+    finally:
+        if host.poll() is None:
+            host.kill()
