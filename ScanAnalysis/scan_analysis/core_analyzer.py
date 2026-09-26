@@ -22,7 +22,38 @@ from scan_analysis.core_workers import effective_workers
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["CoreScanAnalyzer", "core_supports"]
+__all__ = ["CoreScanAnalyzer", "core_supports", "write_scalars_into_rows"]
+
+
+def write_scalars_into_rows(rows: pd.DataFrame, records: list[dict]) -> None:
+    """Write each record's scalars, in place, into the rows of its shot.
+
+    The outcome of assigning cell by cell in record order — a later record
+    for the same shot wins, a key a record lacks leaves that shot's cell
+    alone, a new column is NaN on every other row, and a key whose shots
+    match no row still creates its column — written as one aligned
+    assignment per column. Cell by cell, a 3600-shot run's 18 scalars took
+    ~12 s against a 187-column s-file (worker host, 2026-09-26); this takes tens
+    of milliseconds.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The scan's s-file rows, keyed by a ``Shotnumber`` column; mutated.
+    records : list of dict
+        One mapping per shot: ``Shotnumber`` plus the scalars to write.
+    """
+    shots = rows["Shotnumber"]
+    keys = dict.fromkeys(k for r in records for k in r if k != "Shotnumber")
+    for key in keys:
+        given = {r["Shotnumber"]: r[key] for r in records if key in r}
+        hit = shots.isin(list(given))
+        if hit.any():
+            rows.loc[hit, key] = shots[hit].map(given)
+        else:
+            # An empty assignment still creates the column, as the cell
+            # loop did, with the dtype that value gives it.
+            rows.loc[hit, key] = next(iter(given.values()))
 
 
 def core_supports(document: AnalysisDocument) -> bool:
@@ -190,12 +221,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
             # The legacy wrapper wrote its scalars into the in-memory rows
             # before persisting, so a waterfall sorted by one of this run's
             # own columns resolves even when the s-file merge is refused.
-            rows = self.auxiliary_data
-            for record in pending:
-                mask = rows["Shotnumber"] == record["Shotnumber"]
-                for key, value in record.items():
-                    if key != "Shotnumber":
-                        rows.loc[mask, key] = value
+            write_scalars_into_rows(self.auxiliary_data, pending)
             self.write_scalar_sidecar(updates)
             self.append_to_sfile(updates)
         if fold_error is not None:

@@ -3,6 +3,25 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.39.1] - 2026-09-26
+
+### Fixed
+
+- The core route's end-of-run scalar write into the in-memory s-file rows
+  (`CoreScanAnalyzer._execute`) is one aligned assignment per column
+  (`core_analyzer.write_scalars_into_rows`) instead of a `rows.loc[mask,
+  key] = value` per shot per scalar. The cell loop took **11.98 s** on the
+  worker host against 26_0924 Scan007 (a 3616 × 187 s-file, 3600 shots × 18
+  scalars) — most of the ~13 s between the last shot and the sidecar write;
+  the replacement takes **~40 ms** on a table of that shape (dev machine,
+  where the loop took 4.0 s), so about 12 s off every 3600-shot run, serial
+  or pooled. The
+  outcome is the cell loop's, pinned against it in
+  `tests/test_core_analyzer.py::test_write_scalars_into_rows_matches_the_cell_loop`
+  (overwrite + new column, a later record for the same shot wins, a key a
+  record lacks leaves that cell alone, NaN overwrites, a shot absent from
+  the s-file still creates the column, integer scalars).
+
 ## [1.39.0] - 2026-09-26
 
 ### Changed
