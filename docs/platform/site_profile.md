@@ -33,6 +33,11 @@ keep their own `config.ini` exactly as before.
 What is **not** a site value: the fleet's port numbers. The fleet map
 fixes them (CA 5064, Tiled 8000, portal 8200, MCP 8100, logbook 8400,
 queueserver 60615/60625/5568, PVA 5075/5076) and every client assumes them.
+Nor are the units' state directories (`/var/lib/geecs-logbook` for the
+entries, `/var/lib/geecs-tiled-writer` for the Tiled spool): the same
+path on every host, declared by `StateDirectory=` in the units — the
+spool's is also set explicitly as `GEECS_TILED_WRITER_STATE` in the three
+units that share it (queueserver, writer, scanner), never in `site.env`.
 
 ## What `site.env` carries
 
@@ -95,7 +100,7 @@ delivers them.
 |---|---|---|
 | `gateway-checkout` | CA gateway | control-room-critical, moves rarely |
 | `portal-checkout` | Data Portal **and** the logbook (its own unit and poetry env inside `GeecsLogbook/`) | iterates in days; the two web viewers ship together — a pull is a deploy of both, so restart both |
-| `qs-checkout` | queueserver worker; also the MCP server's install source and the web scanner's (`geecs-scanner`, a client of the plan surface this checkout defines) | the MCP bakes a non-editable venv (`<root>/geecs-mcp-venv`) from it so a pull never mutates code under the running server |
+| `qs-checkout` | queueserver worker **and** the Tiled writer (`geecs-tiled-writer`: the same package, `GeecsBluesky`, the same poetry env — the consumer half of the worker's document spool); also the MCP server's install source and the web scanner's (`geecs-scanner`, a client of the plan surface this checkout defines) | the MCP bakes a non-editable venv (`<root>/geecs-mcp-venv`) from it so a pull never mutates code under the running server; the writer shares the worker's env on purpose (one spool line format, one env — a pull there is a deploy of both, so restart both) |
 
 The root is the site's choice (`GEECS_CHECKOUT_ROOT`): the service
 account's home costs no sudo; `/opt/geecs` is the same layout with one

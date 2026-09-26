@@ -17,7 +17,8 @@ to reach:
 
 - the Channel Access gateway host,
 - the GEECS MySQL database,
-- the Tiled server when Tiled publishing is enabled,
+- the Tiled server when Tiled publishing is enabled (reached by the
+  `geecs-tiled-writer` unit, never by the engine — § The Tiled writer),
 - the mounted GEECS data share used for scan-folder claim, ScanInfo writes,
   native per-shot saves, and legacy s-file export.
 
@@ -146,7 +147,8 @@ by `deploy/render_units.sh` from the host's `site.env`; the experiment
 `EPICS_CA_AUTO_ADDR_LIST=NO`) reach the process from the same file via
 `EnvironmentFile=`. Nothing is typed into the unit by hand.
 
-The queueserver is **two units** from the same template directory:
+The queueserver is **two units** from the same template directory
+(plus the Tiled writer's, its own service — see § The Tiled writer):
 `geecs-qserver.service` (the manager) and `geecs-qserver-ready.service`, a
 `Type=oneshot` readiness assertion ordered after it (`Requires=` +
 `PartOf=`, so it re-runs on every manager restart). bluesky-queueserver
@@ -265,6 +267,147 @@ means:
   saving is on, the free-run `flush` stream — so tolerate unknown document
   names and stream names, not only unknown fields. Additive changes — new columns, new metadata keys — do not bump
   the version; only a rename, removal, or semantics change bumps it.
+
+---
+
+## The Tiled writer
+
+Since GeecsBluesky 0.103.0 the engine **never talks to Tiled**: it spools
+every document of a run to one JSON Lines file, and a separate process,
+`geecs-tiled-writer`, registers each complete file in the catalog at the
+run's close, off the engine thread (`../../CLAUDE.md` § "Tiled: the
+spool and the writer service" has the design; the numbers: ~25–28 s per
+run on the SQLite catalog, which used to hold the engine at the stop
+document). The writer is its own unit, `geecs-tiled-writer.service`, a
+template beside this one, rendered and installed through the same path.
+A worker on 0.103.0 **with no writer running registers nothing**: the
+spool files pile up (nothing is lost — the first writer to run catches up
+the whole backlog, oldest first) and no new run appears in Tiled.
+
+### Install
+
+The writer runs from the **worker's** clone and env (`qs-checkout`,
+`GeecsBluesky`, the same extras — one spool line format, one env). The
+`poetry install` of § 1 registers the `geecs-tiled-writer` console script;
+nothing more to install. Render, install, enable — `deploy/bootstrap_host.sh`
+does the unprivileged part for the whole host (`--only tiled-writer` for
+just this unit; its extras are the worker's set on purpose, so a rerun
+never strips the worker's env):
+
+```bash
+# as the service account
+<root>/qs-checkout/deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging
+sudo install -m 0644 ~/deploy-staging/geecs-tiled-writer.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now geecs-tiled-writer.service
+journalctl -u geecs-tiled-writer -n 5 --no-pager    # "geecs-tiled-writer 0.103.x: spool /var/lib/geecs-tiled-writer/spool → http://…"
+```
+
+Three units share one directory. `StateDirectory=geecs-tiled-writer` is
+declared by **both** `geecs-tiled-writer.service` and
+`geecs-qserver.service` (systemd allows it; both run as the service
+account, so ownership agrees), and `GEECS_TILED_WRITER_STATE=/var/lib/geecs-tiled-writer`
+is set explicitly in the writer's, the queueserver's and the scanner's
+units — the engine reads only the variable, never `$STATE_DIRECTORY`, and
+a two-process contract is never left to a per-unit default. Not a site
+value: the same path on every host, so it lives in the units, not in
+`site.env`. The catalog (`[tiled] uri` + `api_key`) comes from the service
+account's `config.ini`, as for every other Tiled client.
+
+### Switching from a by-hand writer to the unit
+
+The 0.103.0 hardware verification left the worker with a writer started
+by hand — a transient user unit (`systemd-run --user --unit
+tiled-writer-manual …`) spooling under the developer default,
+`~/.local/state/geecs-tiled-writer`. **Two writers on one spool directory
+race on the same files**, and the engine reads `GEECS_TILED_WRITER_STATE`
+only when its worker environment opens, so the switch is an ordered
+hand-over, in a window with no scan running:
+
+1. **Let the by-hand writer drain.** `cat
+   ~/.local/state/geecs-tiled-writer/heartbeat.json` (as the service
+   account) until `pending` is 0 and `in_progress` is 0; no complete file
+   is then waiting under `~/.local/state/geecs-tiled-writer/spool/`.
+2. **Stop it:** `systemctl --user stop tiled-writer-manual` (a transient
+   unit is gone once stopped; there is nothing to disable). The `.done`
+   files it leaves behind are inert — delete the directory once the unit
+   below has run for a day, or leave it.
+3. **Install the re-rendered units** — the queueserver's now carries the
+   `StateDirectory=` and `Environment=` lines, the scanner's the
+   `Environment=` line — with the writer's, then `daemon-reload`.
+4. **Start the unit:** `sudo systemctl enable --now geecs-tiled-writer`.
+   systemd creates `/var/lib/geecs-tiled-writer`; the journal's first line
+   names that spool directory.
+5. **Restart the queueserver:** `sudo systemctl restart geecs-qserver`
+   (the readiness oneshot reopens the environment; the journal's `Tiled
+   spool subscribed` line names the new directory). Until this restart the
+   engine still spools to the **old** directory, where nobody sweeps —
+   that is why step 1 comes first and why no scan may run in between. A
+   run that lands there anyway is registered with one sweep of the writer
+   pointed at the old directory:
+   `GEECS_TILED_WRITER_STATE=~/.local/state/geecs-tiled-writer poetry run geecs-tiled-writer --once`.
+6. **Restart the scanner:** `sudo systemctl restart geecs-scanner` — it
+   reads the heartbeat at the new path for its "tiled writer" chip.
+7. Run a 3-shot count; `journalctl -u geecs-tiled-writer` shows
+   `Scan0NN (<uid>): registered in X s (N documents)`; the spool file is
+   `.jsonl.done` under `/var/lib/geecs-tiled-writer/spool/`.
+
+### The heartbeat, and what its words mean
+
+`/var/lib/geecs-tiled-writer/heartbeat.json`, rewritten atomically after
+every sweep (2 s) and once more just before each registration — a
+registration is ~25 s of silence, and the heartbeat names the run it is
+on (`registering`, `registering_since`) so no reader mistakes work for
+death: `pid`, `version`, `started_at`, `last_sweep`,
+`sweep_interval`, `tiled_uri`, `tiled_reachable`, `last_ok` (the last
+successful registration), `last_error` (what went wrong in the **latest**
+sweep, else the latest failure a backing-off run is still waiting out;
+the journal keeps history), `pending` (complete files waiting: while
+`registering` names a run, those waiting **behind** it; otherwise every
+complete file not yet registered, the backing-off ones included — a
+snapshot at the moment of the write, so "0 waiting" mid-registration can
+be one run behind reality for up to ~25 s), `backing_off` (pending runs
+in a retry cycle after a failed registration), `in_progress` (runs still
+open, or unfinished files not yet past `--orphan-after`), `failed` (files
+set aside as `.jsonl.failed`), `done` (registered since this process
+started), `registered` (the last 20 uids). **A warning surface, never a gate**: no
+preflight and no plan refuses a run over it (owner's ruling, 2026-09-25) —
+with the spool a dead writer loses nothing.
+
+Read it three ways: `cat` on the host; the scanner's `GET /health` →
+`tiled_writer` and its "tiled writer" chip; `scripts/fleet_status.sh`'s
+"Tiled writer" row (read from the scanner's `/health` — the probe runs
+from an operator's machine). One rule for all three,
+`geecs_bluesky.tiled_spool.heartbeat_verdict` (the engine's environment-open
+warning uses its liveness half), from the measured 25–28 s per run:
+
+| Word | When | Meaning |
+|---|---|---|
+| `ok` | a fresh heartbeat, Tiled reachable, `failed` 0, nothing backing off, `pending` ≤ 1 | the writer keeps up: the run that just ended is being registered (`registering` names it), with at most one more waiting behind it |
+| `degraded` | no heartbeat; a stale one — `last_sweep` older than 3 sweep intervals (~6 s) between registrations, or older than 10 min while `registering` names a run (a Tiled call that never returns — or a writer killed mid-registration and not restarted, which `Restart=on-failure` covers in seconds unless the stop was an operator's): the writer is down or wedged; Tiled unreachable; a run `backing_off` after a failed registration; `pending` ≥ 2 with nothing backing off — a backlog of short runs draining at ~25 s each | nothing is lost — runs keep spooling — and a backlog drains by itself; a stale heartbeat, an unreachable Tiled or a backing-off run needs a look (`last_error` says what failed) |
+| `failed` | `failed` > 0 (a file set aside for an operator), or `pending` ≥ 3 **with** runs `backing_off` (every registration failing, retried on the backoff schedule) | someone has to look |
+
+**A stale heartbeat** with the unit `active` means the process is wedged
+(a sweep that never returns — a Tiled call with no timeout): `sudo
+systemctl restart geecs-tiled-writer`. Mid-registration is safe: the
+next start finds the half-registered container and registers the run
+again from the spool, exactly once (verified live 2026-09-25 with
+`kill -9`).
+
+**`.jsonl.failed` files** are an operator's call. A corrupt file (a
+malformed line, no start document) is set aside at once and will not heal;
+anything else was retried on the backoff schedule for `--max-attempts`
+(15, ~75 min) first, its half-registered container removed, and the reason
+is in the journal (`registration failed 15 time(s) — giving up`). To try
+again once the cause is fixed: rename `<file>.jsonl.failed` back to
+`<file>.jsonl` — the next sweep picks it up (a container of that uid is
+deleted and registered again). Nothing prunes `.failed` files.
+
+Knobs (`--sweep-interval`, `--keep-days` 7, `--max-attempts` 15,
+`--max-backoff` 600, `--orphan-after` 1800) are CLI arguments with their
+defaults in the unit; change one with a drop-in (`sudo systemctl edit
+geecs-tiled-writer`, an `ExecStart=` override), never by editing the
+rendered unit.
 
 ---
 

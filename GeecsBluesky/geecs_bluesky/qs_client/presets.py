@@ -10,9 +10,9 @@ submission is a translation of names, nothing more:
   ``save_images`` is off (the scalars-only view every namespace device
   carries: on a detector the shot wait without the files, on a
   scalar-only device what the device reads); an ``essential: false``
-  device goes to the bound plan's ``non_essential`` list instead (phase
-  2 — streamed for the run, never waited on;
-  it needs its frames, so ``save_images: false`` there is refused);
+  device goes to the bound plan's ``non_essential`` list instead, under
+  the same binding (streamed for the run into its own stream, joined by
+  stamp, never waited on; ``.scalars`` records its scalars without files);
 - ``acquisition`` (``strict`` / ``gated``) and ``shot_period`` ride in
   ``plan.kwargs`` like ``shots_per_step`` does;
 - each scan-variable string in ``plan.args`` / ``plan.kwargs`` — a
@@ -224,22 +224,17 @@ def expand_preset(
     non_essential: list[str] = []
     devices = merge_required_devices(preset, required_devices).devices
     for d in devices:
-        essential = getattr(d, "essential", True)
-        if essential:
-            detectors.append(
-                device_reference(d.device)
-                if d.save_images
-                else device_reference(d.device) + ".scalars"
-            )
-        elif not d.save_images:
-            raise GeecsConfigurationError(
-                f"preset {preset.name!r}: {d.device!r} is non-essential with "
-                "save_images off — a non-essential device is its frame stream "
-                "(a scalars-only device cannot fly); make it essential or save "
-                "its images"
-            )
+        reference = (
+            device_reference(d.device)
+            if d.save_images
+            else device_reference(d.device) + ".scalars"
+        )
+        if getattr(d, "essential", True):
+            detectors.append(reference)
         else:
-            non_essential.append(device_reference(d.device))
+            # Non-essential, either way (2026-09-26 ruling): its own stream,
+            # joined by stamp; ``.scalars`` records its scalars without files.
+            non_essential.append(reference)
     references: list[str] = [*detectors, *non_essential]
     args = [_resolve(a, catalog, references) for a in plan.args]
     kwargs = {k: _resolve(v, catalog, references) for k, v in plan.kwargs.items()}

@@ -63,7 +63,13 @@ environment state, allowed-plan count, queue depth — a manager that
 answers with its environment closed knows zero plans and refuses every
 submission as "not in the list of allowed plans"; the script prints
 `NOT READY` for that, never `OK`, #793), MCP port liveness (no version
-endpoint; stage 2 reads its venv), the CA gateway's heartbeat /
+endpoint; stage 2 reads its venv), the scanner's `/health` (readiness
+word + version), the **Tiled writer** through that same answer (its
+`tiled_writer` word — `ok` / `degraded` / `failed` from the heartbeat
+on the worker host, which the probe cannot read directly; a `[WARN]`
+"DEGRADED" row is a warning, never a gate — runs keep spooling; `[DOWN]`
+"FAILED" means a `.failed` file or a backlog with a failing attempt:
+`journalctl -u geecs-tiled-writer`), the CA gateway's heartbeat /
 `devices_connected` / `version` PVs (from `lab_status.sh --hardware`,
 read-only — its `role=CA gateway` record line is the contract, not the
 prose), and every PVA image gateway's `version` + `heartbeat` PVs via

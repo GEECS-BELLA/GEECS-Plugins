@@ -38,6 +38,13 @@ WorkingDirectory=@CHECKOUT_ROOT@/qs-checkout/GeecsScanner
 # --root-path /scan when the front door mounts the scanner under a prefix
 # and does not send X-Forwarded-Prefix.
 ExecStart=@POETRY@ run geecs-scanner --experiment ${GEECS_EXPERIMENT} $GEECS_SCANNER_EXTRA_ARGS
+# The Tiled writer's heartbeat: the scanner reads
+# <GEECS_TILED_WRITER_STATE>/heartbeat.json for its "tiled writer" chip and
+# the tiled_writer field of /health (a warning, never a gate on submit) —
+# the same directory the geecs-qserver and geecs-tiled-writer units own
+# (their StateDirectory). Read-only here, so no StateDirectory= of its own.
+# Not a site value — the same path on every host.
+Environment=GEECS_TILED_WRITER_STATE=/var/lib/geecs-tiled-writer
 Restart=on-failure
 RestartSec=5
 # Nothing in flight belongs to this process — a scan continues on the

@@ -236,3 +236,38 @@ class TestProbeNativeFile:
         rendered.write_bytes(b"png")
         assert rendered.name.endswith("100.001.png")  # the divergence is real
         assert probe_native_file(tmp_path, "cam", ".png", ts) == rendered
+
+
+class TestNativeFileKeys:
+    """The listing keyed by stamp, tail-agnostic (the close-out check's reader)."""
+
+    def test_keys_every_stamped_file_and_groups_sidecars(self, tmp_path):
+        from geecs_data_utils.native_files import native_file_keys, timestamp_key
+
+        for name in (
+            "U_HasoLift_1790360952.123.himg",
+            "U_HasoLift_1790360952.123.has",
+            "U_HasoLift_1790360953.124.himg",
+            "UC_Cam-Temporal_1790360954.125.png",
+            "U_Spec_2.500um_1790360956.127.txt",  # a stem with a token of its own
+            "Thumbs.db",
+            "notes.txt",
+        ):
+            (tmp_path / name).write_bytes(b"x")
+        (tmp_path / "sub_1790360955.126").mkdir()  # a directory is never a file
+        keys = native_file_keys(tmp_path)
+        assert set(keys) == {
+            timestamp_key(1790360952.123),
+            timestamp_key(1790360953.124),
+            timestamp_key(1790360954.125),
+            timestamp_key(1790360956.127),  # the last token, never the stem's
+        }
+        assert [p.name for p in keys[timestamp_key(1790360952.123)]] == [
+            "U_HasoLift_1790360952.123.has",
+            "U_HasoLift_1790360952.123.himg",
+        ]
+
+    def test_a_missing_directory_lists_nothing(self, tmp_path):
+        from geecs_data_utils.native_files import native_file_keys
+
+        assert native_file_keys(tmp_path / "nowhere") == {}

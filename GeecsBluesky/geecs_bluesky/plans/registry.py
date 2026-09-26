@@ -20,6 +20,7 @@ import bluesky.plans as bp
 import bluesky.preprocessors as bpp
 from geecs_schemas.trigger_profile import TriggerState
 
+from geecs_bluesky.devices.ca._view import owner_of
 from geecs_bluesky.devices.ca.liveness import read_disconnected
 from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.shot_control import ShotControl
@@ -38,7 +39,7 @@ from geecs_bluesky.plans.gated import (
     gated_per_shot,
     gated_per_step,
     non_essential_wrapper,
-    refuse_native_essentials,
+    refuse_free_running_non_essentials,
     run_bracket,
     shot_clock,
 )
@@ -221,9 +222,12 @@ def native_image_save_wrapper(
     - a ``.scalars`` view is skipped: the view leaves its owner's data
       logics unprepared (``GeecsDetectorScalars``), so the owner writes
       nothing either way;
-    - a fly prepare (a gated batch, a non-essential stream) leaves the
-      native logic out of the context, so the bound plan applies this
-      wrapper to strict runs only and never passes ``non_essential``.
+    - a fly prepare (a gated batch, a non-essential stream) leaves a
+      plugin-backed camera's native logic out of the context — and a
+      native saver without a plugin (a gated essential, a non-essential in
+      either mode) keeps its files as its only record — so the bound plan
+      applies this wrapper to strict runs only and never passes
+      ``non_essential``.
 
     Restored to the construction default — on, the dual-write — by a
     ``finalize_wrapper``, success, abort or stop alike.  ``RE.halt()``
@@ -339,11 +343,12 @@ def strict_plan(
         )
         bound_args = signature.bind_partial(*args, **kwargs).arguments
         detectors = list(bound_args.get("detectors") or ())
+        refuse_free_running_non_essentials(non_essential)
         # Compared by OWNER: ``X.scalars`` essential with ``X`` non-essential
         # is the same camera twice — its one acquire logic would be in fly
         # mode for the stream while the view expects the strict stamp wait.
-        owners = {id(getattr(d, "_owner", d)) for d in detectors}
-        both = [d for d in non_essential if id(getattr(d, "_owner", d)) in owners]
+        owners = {id(owner_of(d)) for d in detectors}
+        both = [d for d in non_essential if id(owner_of(d)) in owners]
         if both:
             names = ", ".join(getattr(d, "name", str(d)) for d in both)
             raise GeecsConfigurationError(
@@ -357,12 +362,15 @@ def strict_plan(
         md["trigger_profile"] = profile_key
         md["shots_per_step"] = shots_per_step
         md["acquisition"] = acquisition
-        md["non_essential"] = [getattr(d, "name", str(d)) for d in non_essential]
+        # The OWNER's name: a ``.scalars`` view streams into ``<owner>_stream``,
+        # and the s-file finds the stream by this list.
+        md["non_essential"] = [
+            getattr(owner_of(d), "name", str(d)) for d in non_essential
+        ]
         md["native_image_save"] = native_files
         if shot_period is not None:
             md["shot_period"] = shot_period
         if acquisition == "gated":
-            refuse_native_essentials(detectors)  # before the claim, before any move
             clock, clock_name = shot_clock(detectors)
             md["shot_clock"] = clock_name
             # The row COLUMN as well as the device: the s-file writer and the
@@ -401,8 +409,10 @@ def strict_plan(
             kwargs[hook] = geecs_per_shot(shot_control, shot_period=shot_period)
         inner = non_essential_wrapper(stock(*args, md=md, **kwargs), non_essential)
         if acquisition == "strict":
-            # A gated batch is a fly prepare: the native logic is left out
-            # of the context, so there is nothing to switch (nor to log).
+            # A gated batch is a fly prepare: a plugin-backed camera's native
+            # logic is left out of the context and a native-saving essential
+            # (no plugin) saves whatever the switch says, so there is nothing
+            # to switch (nor to log).
             inner = native_image_save_wrapper(inner, detectors, native_files)
         opening = TriggerState.OFF if acquisition == "gated" else TriggerState.ARMED
         # Before the first move, before the claim (#852).
@@ -497,10 +507,17 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
         "        'strict' (default) fires the box once per row; 'gated' lets it\n"
         "        free-run while the plugin-backed cameras count a batch — the\n"
         "        run is bracketed OFF → STANDBY, frames go to 'primary' as datums\n"
-        "        and one 'shots' event per shot carries everything else.\n"
+        "        and one 'shots' event per shot carries everything else.  A\n"
+        "        device without a file plugin saves its LabVIEW files run-long\n"
+        "        (on at the first step, off at unstage); a dropped frame is a\n"
+        "        missing file, never a retake.\n"
         "    non_essential : list of devices, optional\n"
-        "        Plugin-backed detectors streamed for the run's duration, each in\n"
-        "        its own '<name>_stream'; never waited on.\n"
+        "        Triggered devices recorded for the run's duration, each in its\n"
+        "        own '<name>_stream' and joined to the shots by stamp; never\n"
+        "        waited on, never failing the run.  A plugin-backed camera\n"
+        "        streams its frames; a device without a plugin records one\n"
+        "        event per stamp it publishes (its scalars, and its LabVIEW\n"
+        "        files if it saves them).  A device with no stamp is refused.\n"
         "    shot_period : float, optional\n"
         "        Strict only: seconds between fires (a deliberate rep-rate\n"
         "        throttle); None fires as fast as the shot allows.  A gated\n"

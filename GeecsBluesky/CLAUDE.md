@@ -75,7 +75,13 @@ geecs_bluesky/
   config_resolver.py        # ConfigsRepoResolver: presets, trigger profiles, catalogs, actions
   db_runtime.py             # the DB providers (served set, device types; the scalar
                             #   policy lives in geecs_core.db.scalar_policy)
-  tiled_integration.py      # subscribe_tiled: the stock TiledWriter, reachability-gated
+  tiled_integration.py      # subscribe_tiled_spool (the engine's whole Tiled path) +
+                            #   the shared checks (tiled_server_reachable, SafeDocumentCallback)
+  tiled_spool.py            # the per-run JSONL spool both sides share: layout, the RE
+                            #   callback (+ the run's lock), complete/in-progress, read-back,
+                            #   the heartbeat model + reader (what the scanner and fleet-status read)
+  tiled_writer.py           # geecs-tiled-writer: the sweep that registers spooled runs
+                            #   (the stock TiledWriter), the retry policy, the command
   data_paths.py, forward_expr.py, scanner_configs.py, epics_env.py, exceptions.py
   models/shot_control.py    # ShotControlWrites + QUIESCE_FROM (TriggerState names)
   devices/hdf_plugin.py     # the file plugin's worker side (#806): GeecsHdfIO (+Rewind),
@@ -115,7 +121,9 @@ the recorded physical targets, not a relative coordinate after its zero moved.
   `ScalarsDataLogic` (the DB-subscribed scalars + the stamp as columns) and
   `LvNativeFileDataLogic` (LabVIEW-native saving: `save=on` at prepare from
   a `PathProvider`, `save=off` at stage and unstage; a per-event reading of
-  the directory — there is no write-complete readback).  It refuses
+  the directory — there is no write-complete readback; on a device with no
+  plugin it is the one logic of a fly prepare, the gated run's run-long
+  saving).  It refuses
   a bare `bp.count([cam])` at prepare: a GEECS camera cannot self-trigger.
   `connected_status` reads the gateway's `CONNECTED` PV — the liveness
   signal, never a column.  `stage()` stages the scalar signals so per-shot
@@ -139,8 +147,27 @@ the recorded physical targets, not a relative coordinate after its zero moved.
   EventCollectable, clocked by an essential triggered device's
   `acq_timestamp`, one `shots` event per tick with the latest cached
   reading of every member (scalar-only devices, triggered scalars, `.scalars`
-  views, the motors, `bin_number`) and the tick's stamp as the clock column;
+  views, the motors, `bin_number`, and a native-saving essential's
+  `-nonscalar_save_path` — the device's whole prepared reading in a fly
+  prepare) and the tick's stamp as the clock column;
   `complete` is done after the quota, fails when the clock stops.
+  **A member with a stamp of its own is not read at the tick**: its
+  stamp lands after the clock's whenever its device is slower (the
+  HASO: ~40 ms, Scan015 of 26_0925), and a reading taken at the tick is
+  the previous shot's — so the sampler gives each such member
+  `SETTLE_TIMEOUT_S` (1.5 s — measured 26_0925: the cameras' stamp PVs reach the worker within 40 ms of the frame, the HASO's 0.89–0.96 s with saving on during a batch) for its cached stamp to fall within
+  `SHOT_WINDOW_S` (0.5 s) of the clock's before reading it, and on
+  timeout writes `NaN` into its numeric columns (the string save path
+  stays): a stale reading never passes as data, and the missing file for
+  that row is simply missing.  `ShotSampler.missed` counts them per
+  step; the log says so once per member and once at the step's end.
+- **`StampStream`** (`devices/sampler.py`, slice 2b) — a non-essential
+  triggered device without a plugin, recorded for the run in its own
+  `<name>_stream`: Flyable + EventCollectable over ONE device, subscribed
+  to its `acq_timestamp` at `kickoff`, one event per advance (the stamp,
+  the cached scalars, a native saver's save path); `complete` immediate,
+  `read_configuration` the device's `drain_offset` (the join's
+  correction); it never reads at a row and never fails the run.
 - **`GeecsNamespace`** — every enabled device of the experiment, built from
   the DB roster (loud on failure) and connected on first use by
   `connect_on_demand`.  Triggerable (`looks_triggerable`) → `GeecsDetector`
@@ -321,20 +348,62 @@ lands between steps, an immediate pause drives OFF and the resume
 the batch's statuses through `abandon_step` / `cancel_step`, rewinds to the
 step's baseline).  A stalled camera fails `complete` with the GEECS
 timeout and the box goes OFF.  A gated step needs an essential triggered
-device (the clock); a native camera cannot be essential there.
+device (the clock).  A **LabVIEW-native saving device without a file
+plugin may be essential** (owner's ruling, 2026-09-25): the row is the
+stamp and its files follow by stamp, exactly as strict treats such a
+device — the plugin count is a convenience, not what makes a batch.  It is
+a sampler member (its scalars, its stamp, and it may be the clock — read
+after its own stamp lands, the sampler's settle above, so its files join
+to their own rows); the
+plan prepares it **once**, at the run's first step, unbounded
+(`UNBOUNDED_TRIGGER_INFO`, `gated.native_essentials`), so the device's own
+lifecycle switches saving on then and off at `unstage` — run-long, never
+per step: each toggle costs the device one LabVIEW loop period (~1.5 s a
+camera, ~4 s the HASO) and between steps the box is OFF, so a well-behaved
+device writes nothing.  Its `-nonscalar_save_path` column rides in every
+`shots` row as a run-long constant.  A dropped frame from it is a missing
+file, **no retake** (as the LabVIEW scanner had it for years); the stack
+check appends a files-versus-rows line per such device to `scan.log` —
+each row's stamp matched to a file by the naming contract
+(`geecs_data_utils.native_files.native_file_keys`), rows without a file
+and file stamps without a row counted apart (WARNING on either, never a
+failure).  A plugin-backed camera in a
+gated run still writes no native files (the #738 dual-write is
+strict-only).  As a **non-essential** such a device gets a stream of
+its own (below).
 
 **Non-essential stream** (`non_essential=[…]`, strict or gated): the
-listed plugin-backed detectors are staged, prepared unbounded, kicked off
-right after `open_run` and each collected alone into `<name>_stream`
-before `close_run` — `fly_during_wrapper`'s shape with the stage and
-prepare it lacks, per plan, never RunEngine-level
-`SupplementalData.flyers`; nothing waits on them.  `shot_period` is the
-strict rep-rate throttle (#840).
+listed devices are staged, prepared unbounded, kicked off right after
+`open_run` and each collected alone into `<name>_stream` before
+`close_run` — `fly_during_wrapper`'s shape with the stage and prepare it
+lacks, per plan, never RunEngine-level `SupplementalData.flyers`; nothing
+waits on them, and from the close on every step of theirs is a
+contingency that never fails the run.  A plugin-backed camera flies itself
+(a datum stream).  A **triggered device without a plugin** — one saving
+its own LabVIEW files (the HASO, a camera on a host without the PVA
+gateway) or one with scalars only and a stamp (a power supply, a gauge),
+or any detector's `.scalars` view — is a "nice-to-have diagnostic that
+must not hold up acquisition" (owner's ruling, 2026-09-26): it is **not**
+sampled at the row, which would either wait for it (the HASO's stamp PV
+reaches the worker ~0.9 s after its frame; its write time back in the rep
+rate) or record the previous shot (Scan015).  A
+`devices/sampler.StampStream` records it instead — monitor-driven, one
+event per stamp it publishes (`<name>-acq_timestamp`, its cached scalars
+and, a native saver listed itself, its `-nonscalar_save_path`), the moment
+the stamp arrives; `complete` is immediate (the run's close is the end).
+Rule 2 holds: a native saver's own unbounded prepare switches its saving
+on (2a's `_flies` path) and its `unstage` off; the stream only reads, and
+its descriptor carries the device's `drain_offset` for the join.  A
+device that publishes nothing leaves an empty stream and a WARNING at the
+close.  A device with **no** stamp (free-running) is refused at bind
+(`refuse_free_running_non_essentials`, and the preflight) — deferred.
+`shot_period` is the strict rep-rate throttle (#840).
 
 **The s-file of a run with stream data** (phase 2c): the rows
 are `primary`'s events when it has them and the sampler's `shots` events
-otherwise, and every **datum-only** stream's per-frame columns are joined
-onto them by offset-corrected stamp — the join itself is
+otherwise, and every **datum-only** stream's per-frame columns — and
+every non-essential **event** stream's events (a device without a plugin,
+one "frame" per stamp) — are joined onto them by offset-corrected stamp — the join itself is
 `geecs_data_utils.shot_join`, shared with the offline re-export so the two
 cannot drift, and fed **one** drain-offsets map (from the streams'
 descriptor configuration) that covers both sides of every comparison.  One
@@ -348,7 +417,13 @@ s-file is written on a thread (a stack may only be read once the plugin
 finalizes it, which happens at `unstage`, after the stop document); a run
 with no datum-only stream is still written synchronously.
 `StackCheckCallback` checks a non-essential stream by count and a *gated*
-stack by count **and** stamps — one frame per `shots` row, none orphaned.
+stack by count **and** stamps — one frame per `shots` row, none orphaned —
+and a non-essential native saver's files against its stream's **events**
+(not the rows; events without a file and file stamps without an event
+counted apart, files after the last event — saved between the stream's
+close and the unstage — apart again; WARNING, never failure).  A device
+slower than the rep rate simply leaves `NaN` on the rows it missed; an
+event no row's window reaches stays in the stream and in Tiled.
 
 ## The GEECS scan: one claim, three files, one telemetry stream
 
@@ -380,7 +455,8 @@ failure after the claim.
 `geecs_bluesky` first — load-bearing, it sets `EPICS_CA_ADDR_LIST` before
 libca's context exists and `EPICS_PVA_ADDR_LIST` from the `[pva]` hosts
 before the first plugin signal connects; builds `RE` through `make_run_engine(tiled=True,
-sfile=True)`; publishes documents to the proxy; exports the namespace and
+sfile=True)` — `tiled=True` is the document **spool**, not a writer (see
+"Tiled: the spool and the writer service" below); publishes documents to the proxy; exports the namespace and
 the plans — `plan_names.GEECS_PLAN_NAMES`: the stock verbs bound strict,
 `mv`, and `run_action` (a named plan from the experiment's `actions.yaml`
 compiled to stubs over the namespace devices; no run opened, nothing
@@ -409,6 +485,94 @@ failed-items-requeue-at-front, CLI parses Python literals not JSON).
 `bluesky-queueserver-api` behind the `qs-client` extra).
 One-shot blocking CA reads go through `devices/ca/oneshot.py` (one
 persistent reader loop, never a per-call `asyncio.run`).
+
+## Tiled: the spool and the writer service
+
+The engine never talks to Tiled (the scan efficiency arc, 2026-09-25).
+Registering a run — ~250 external datasets on a full HTU preset, one
+register + one data-source update each — took ~25 s **on the engine
+thread** at the stop document with the stock `TiledWriter` subscribed to
+the RE, ahead of unstage and the box's standby (measured 26_0924: 25.5 s
+with the writer, 0.26 s without).  Now:
+
+- **The engine spools** (`tiled_spool.SpoolCallback`, subscribed by
+  `subscribe_tiled_spool` when `config.ini` names a catalog): every
+  document of a run to `<state>/spool/<start time>-<uid>.jsonl`,
+  flushed per document, `fsync`ed at the stop.  Microseconds per
+  document; nothing on the network.  Wrapped in `SafeDocumentCallback`,
+  so a spool failure disables spooling for that run and never fails it.
+- **`geecs-tiled-writer` registers** (`tiled_writer.SpoolRegistrar`, its
+  own systemd unit beside the qserver's): every sweep, complete files
+  (last line a `stop`) replay oldest-first through the stock
+  `TiledWriter` (serial registration — a concurrent variant measured no
+  gain on the SQLite catalog and was removed, see below), then
+  rename `.jsonl.done` (pruned after `--keep-days`).  **Liveness is the
+  engine's lock, not silence**: the engine holds `flock` on the run's
+  file while the run is open (a paused run goes quiet for longer than
+  any deadline), and only a file with no stop that nobody holds
+  registers after `--orphan-after` with a synthesized `fail` stop.  Two
+  failure kinds: a **corrupt file** (a malformed line, no start — an
+  empty file is never a success) is set aside as `.jsonl.failed` at
+  once; **everything else** (Tiled 5xx through a restart, a rotated
+  key, full storage) backs off per run — the sweep interval doubling per
+  attempt, capped at `--max-backoff` — for `--max-attempts` (15, ~75
+  min) before the file is set aside and its half-registered container
+  removed.  Idempotent: an existing container for the uid (a writer
+  that died between registering and renaming, an earlier failed
+  attempt) is deleted and registered again from the spool.
+  Unreachable server → nothing attempted, nothing counted as an
+  attempt.
+- **The spool is the writer's only source.**  Not the live 0MQ stream:
+  best-effort by design, and a live + replay pair needs deduplication
+  against `create_container(key=uid)` and partial-registration cleanup.
+  The stock writer batched every table and dataset to the stop anyway,
+  so a run appearing in Tiled at its close plus a few seconds — not at
+  its open — costs nothing that ever worked.
+- **The heartbeat is a warning, never a gate** (`<state>/heartbeat.json`:
+  liveness, `tiled_reachable`, `pending`/`in_progress`/`failed`, the
+  sweep's `last_error`, and `registering` — written just before each
+  registration, because a registration is ~25 s of silence that
+  `is_stale` must not read as death; `read_heartbeat` + the one
+  `heartbeat_verdict` for every reader: the engine's open-time warning,
+  the scanner's chip, `fleet_status.sh`).  With
+  the spool a dead writer loses nothing, so no preflight and no plan
+  refuses a run over it — the scanner shows it, `fleet_status.sh` reports
+  it.  Ruled by the owner 2026-09-25 ("service, spool, no refusal gate")
+  over the in-process-thread alternative, for robustness (survives a
+  worker death mid-registration, isolates the Tiled client, restarts
+  alone) and for the shape: the worker is a document producer, every
+  persister a consumer.
+- **One directory, set explicitly in both units:** `GEECS_TILED_WRITER_STATE`
+  (`tiled_spool.default_state_dir`).  The writer also honours systemd's
+  `$STATE_DIRECTORY`; the engine deliberately does not (the qserver unit
+  may own a state directory of its own one day, and the spool must not
+  silently move with it).  Not a site value: the same path on every host
+  — `/var/lib/geecs-tiled-writer`, the `StateDirectory=` both
+  `qserver/deploy/geecs-tiled-writer.service` and the qserver unit
+  declare (the scanner's unit sets the variable too, for its chip).
+  Deploy, the hand-over from a by-hand writer, and what the heartbeat's
+  words mean: `qserver/deploy/DEPLOYMENT.md` § The Tiled writer.
+
+The s-file, ScanInfo and `scan.log` are unaffected: they never used Tiled.
+
+**Measured on hardware 2026-09-25 (Scans 004–008 of 26_0925, 3-shot
+counts, 23 devices, 25 plugin stacks):** last shot → `finished` ≈ 2 s
+(was 26 s with the in-process writer); the writer registers such a run
+in **25–28 s (930 documents, 471 HTTP calls)** — a flat ~20 calls/s,
+because the SQLite catalog commits one write at a time: a concurrent
+stop (four registrations in flight) was tried on hardware, changed
+nothing, and was removed rather than kept as dead machinery over
+bluesky's private internals (git history of #999).  Off the engine that
+costs nobody anything — the next scan's setup overlaps it — but a run
+appears in Tiled ~30 s after it ends, not 5.  The cost is per run, not
+per shot (the same ~230 datasets whatever the length).  The levers are
+server-side: a catalog that takes parallel writes (Postgres, with the
+concurrent stop brought back), or fewer datasets per stream (the plugin
+registers ~9 per camera: the frame plus each per-frame attribute as its
+own array).  Durability
+verified live: runs spooled with the writer down were caught up on
+relaunch; a writer SIGKILLed 74 calls into a registration re-registered
+that run exactly once through the container-exists path.
 
 ## What stays GEECS
 
@@ -462,8 +626,10 @@ channel's state, and a PV for a variable the device does not push sits at
 its initial enum value — which on `on,off` reads `on` for every channel,
 wired or not (observed live, 2026-09-22).  `set` has no bearing on capture.
 Consequences worth knowing: `plugin_backed` is a **static** fact, a scope
-with every channel disabled has no file plugin at all and a gated batch
-refuses it by name, and changing which channels are captured means editing
+with every channel disabled has no file plugin at all — in a gated run it
+is then a native-saving essential when it has saving controls (its own
+files are its record) and a plain triggered clock device otherwise — and
+changing which channels are captured means editing
 the DB row — the worker picks it up when its namespace is built, not
 per run.  A plugin-backed camera keeps writing its native
 PNGs beside the stack (dual-write, the rollout's parity evidence) until

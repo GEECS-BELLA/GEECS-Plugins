@@ -9,7 +9,12 @@ rows instead:
   plugin-backed camera's stack, referenced by a datum-only stream with no
   events at all; its rows are the per-shot sampler's ``shots`` events;
 - a **non-essential** camera streams for a whole run into its own
-  ``<name>_stream``, and its frame for shot *k* may arrive during *k+1*.
+  ``<name>_stream``, and its frame for shot *k* may arrive during *k+1*;
+- a **non-essential** triggered device *without* a file plugin (a
+  LabVIEW-native saver, a scalar device with a stamp) records one event
+  per stamp it publishes in its own ``<name>_stream``
+  (:func:`frame_columns_from_events`) — at its own rate, slower than the
+  rows' if it is slow.
 
 Both are joined to the rows by the one shot identity GEECS has, the
 device's ``acq_timestamp``.  Cross-device stamps of one shot differ by a
@@ -27,8 +32,8 @@ one frame per row and one row per frame — so no window arithmetic has to
 carry the "a frame belongs to one row" invariant on its own.
 
 A frame no row claims is an **orphan**: the extra edge at a step's end, a
-frame taken during an interrupted step, a non-essential camera's frame for
-a shot nobody recorded.  It stays in the stack and in Tiled and is left out
+frame taken during an interrupted step, a non-essential device's frame or
+event for a shot nobody recorded.  It stays in the stack and in Tiled and is left out
 of the s-file (Sam, 2026-09-12): one s-file row per
 essential shot, always.
 
@@ -61,6 +66,12 @@ ACQ_TIMESTAMP_SUFFIX = "-acq_timestamp"
 #: plan writes it, the worker's s-file callback reads it, and the offline
 #: re-export reads it back out of Tiled.
 SHOTS_STREAM = "shots"
+
+#: A non-essential device's stream is ``<ophyd name>`` + this suffix, in
+#: either mode: a plugin camera's datum-only stream, or the event stream a
+#: triggered device without a plugin gets (one event per stamp it
+#: published).  A document contract like :data:`SHOTS_STREAM`.
+NON_ESSENTIAL_STREAM_SUFFIX = "_stream"
 
 #: The stack attribute suffix that carries a frame's GEECS acquisition
 #: stamp (``geecs_data_utils.io.scan_stack.TIMESTAMP_SUFFIX``); as an
@@ -150,6 +161,92 @@ class ShotJoin:
     def matched(self) -> int:
         """How many shot rows got a frame."""
         return sum(1 for index in self.frame_for_shot if index is not None)
+
+
+def non_essential_stream(object_name: str) -> str:
+    """The stream a non-essential device's data goes to (``uc_haso`` → ``uc_haso_stream``)."""
+    return f"{object_name}{NON_ESSENTIAL_STREAM_SUFFIX}"
+
+
+def numeric_data_keys(data_keys: Mapping[str, Any]) -> list[str]:
+    """The keys of a descriptor's ``data_keys`` whose ``dtype`` is numeric.
+
+    What an event stream contributes to the s-file when it recorded no
+    event at all (:func:`frame_columns_from_events`'s *keys*): a string
+    column — a native saver's save path — is never a join column.
+    """
+    return [
+        str(key)
+        for key, spec in data_keys.items()
+        if (spec or {}).get("dtype") in ("number", "integer", "boolean")
+    ]
+
+
+def frame_columns_from_events(
+    object_name: str,
+    events: Sequence[Mapping[str, Any]],
+    *,
+    keys: Sequence[str] = (),
+) -> FrameColumns | None:
+    """Build a :class:`FrameColumns` from a non-essential device's event stream.
+
+    A triggered device without a file plugin, listed non-essential, records
+    one event per stamp it published (``<name>_stream``,
+    GeecsBluesky's ``StampStream``): its ``<name>-acq_timestamp`` and its
+    scalars, the spellings a strict row uses.  Each event is one "frame"
+    of the join — keyed by that stamp, placed on the nearest row inside the
+    row's window exactly as a plugin camera's frames are, a row it missed
+    reading ``NaN`` and an event no row claims left in the stream (and in
+    Tiled), out of the s-file.
+
+    Only numeric columns are carried: the ``-nonscalar_save_path`` string
+    (where a native saver's files landed) is not an s-file column.  The
+    stamps are already in the rows' LabVIEW epoch.
+
+    Parameters
+    ----------
+    object_name :
+        The device's ophyd name — the stream's name without its suffix, the
+        prefix of its columns and the key of its drain offset.
+    events :
+        The stream's event data, one mapping per event, in arrival order.
+    keys :
+        The stream's data keys, when known (the descriptor's), so a stream
+        with **no** events still contributes its columns — all ``NaN`` on
+        the rows: a device that published nothing is visibly absent, not
+        silently missing from the s-file.
+
+    Returns
+    -------
+    FrameColumns or None
+        ``None`` when the stream has no ``<object_name>-acq_timestamp``
+        column (nothing to join on).
+    """
+    stamp_key = f"{object_name}{ACQ_TIMESTAMP_SUFFIX}"
+    columns: dict[str, np.ndarray] = {}
+    if events:
+        for name in dict.fromkeys(k for event in events for k in event):
+            values = [event.get(name) for event in events]
+            if any(isinstance(v, (str, bytes)) for v in values):
+                continue  # a save path, a status string: not an s-file column
+            try:
+                columns[name] = np.asarray(
+                    [np.nan if v is None else v for v in values], dtype=float
+                )
+            except (TypeError, ValueError):
+                continue
+    else:
+        columns = {name: np.empty(0) for name in keys}
+    if stamp_key not in columns:
+        logger.warning(
+            "%s: no %s among its stream's columns; not joined", object_name, stamp_key
+        )
+        return None
+    return FrameColumns(
+        object_name=object_name,
+        stamps=columns[stamp_key],
+        columns=columns,
+    )
 
 
 def shot_clock_column(
@@ -472,12 +569,16 @@ __all__ = [
     "ACQ_TIMESTAMP_SUFFIX",
     "DEFAULT_SHOT_PERIOD_S",
     "FRAME_STAMP_SUFFIX",
+    "NON_ESSENTIAL_STREAM_SUFFIX",
     "SHOTS_STREAM",
     "FrameColumns",
     "ShotJoin",
     "clock_device",
     "frame_columns_from_attributes",
+    "frame_columns_from_events",
     "join_frames_to_shots",
+    "non_essential_stream",
+    "numeric_data_keys",
     "row_windows",
     "shot_clock_column",
 ]

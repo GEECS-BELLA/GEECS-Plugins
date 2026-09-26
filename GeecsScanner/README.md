@@ -44,7 +44,7 @@ without a worker.
 | route | answers |
 |---|---|
 | `GET /` | **the page** — Now, New scan, Queue on the kit |
-| `GET /health` | liveness, manager reachable, readiness word, version |
+| `GET /health` | liveness, manager reachable, readiness word, version, the Tiled writer's word (`tiled_writer`, from its heartbeat; shown, never a gate) |
 | `GET /api/status` | one manager poll + the readiness verdict |
 | `GET /api/queue?history=` | running / waiting / finished rows, summarized |
 | `GET /api/progress` | the latest-run picture (also on the event stream) |

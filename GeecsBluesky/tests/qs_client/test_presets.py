@@ -230,15 +230,26 @@ def test_all_essential_preset_carries_no_non_essential_keyword() -> None:
     assert "non_essential" not in item.kwargs and "acquisition" not in item.kwargs
 
 
-def test_non_essential_scalars_only_and_bad_acquisition_are_refused() -> None:
-    with pytest.raises(
-        GeecsConfigurationError, match="non-essential with save_images off"
-    ):
-        expand_preset(
-            _preset(
-                devices=[{"device": "UC_Cam", "essential": False, "save_images": False}]
-            )
+def test_non_essential_scalars_only_streams_its_view() -> None:
+    """2026-09-26: a non-essential with save_images off is its ``.scalars`` view.
+
+    It streams its scalars by stamp (no files) — the refusal this replaces
+    said a scalars-only device "cannot fly".
+    """
+    item = expand_preset(
+        _preset(
+            devices=[
+                {"device": "UC_A"},
+                {"device": "UC_Cam", "essential": False, "save_images": False},
+            ]
         )
+    )
+    assert item.args == [["UC_A"]]
+    assert item.kwargs["non_essential"] == ["UC_Cam.scalars"]
+    assert item.references[:2] == ["UC_A", "UC_Cam.scalars"]
+
+
+def test_bad_acquisition_is_refused() -> None:
     with pytest.raises(GeecsConfigurationError, match="acquisition='sloppy'"):
         expand_preset(
             _preset(plan={"name": "count", "kwargs": {"acquisition": "sloppy"}})

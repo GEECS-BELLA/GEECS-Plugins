@@ -5,6 +5,42 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.14.1] - 2026-09-26
+
+### Changed
+
+- The device table's note no longer says "Not essential + no images is
+  refused at expansion": since GeecsBluesky 0.106.0 a non-essential
+  device without images streams its scalars by stamp (slice 2b of the
+  scan-efficiency arc).
+
+## [0.14.0] - 2026-09-25
+
+### Added
+
+- **The Tiled writer's word** (scan efficiency arc, the deploy PR of
+  GeecsBluesky 0.103.0): `/health` and `/api/status` (so every SSE status
+  frame) gain `tiled_writer` — `state`, `detail`, `pending`, `in_progress`,
+  `failed`, `last_ok`, `last_error`, `stale` — read from the writer's
+  `heartbeat.json` under `GEECS_TILED_WRITER_STATE` (the units' shared
+  `/var/lib/geecs-tiled-writer`; no flag — the path is the units'
+  contract, `heartbeat_path=` on the service for tests), and a "tiled writer" chip in the page's health
+  strip beside "manager" and "doc stream". The rule is the writer's —
+  `geecs_bluesky.tiled_spool.heartbeat_verdict` (GeecsBluesky 0.104.0),
+  from the measured 25–28 s per run: `ok` is a fresh heartbeat with Tiled
+  reachable, no `.failed` file and `pending` ≤ 1 (the run that just
+  ended, named by `registering`); `degraded` is silence (no heartbeat, or
+  one older than three sweeps — or than 10 min while registering: down or
+  wedged), Tiled unreachable, or a backlog draining; `failed` is a file
+  set aside for an operator or a backlog with a failing attempt.
+  `service/writer_status.py` only projects it onto the API model. **Shown,
+  never a gate**: nothing about a submit changes with the word (pinned),
+  per the owner's ruling. The unit template sets
+  `GEECS_TILED_WRITER_STATE`; `scripts/fleet_status.sh` reads the field for
+  its "Tiled writer" row. Demo mode reads the same default path and shows
+  the honest word (degraded on a laptop with no writer); the test fixture
+  points at a path of its own.
+
 ## [0.13.1] - 2026-09-21
 
 ### Changed

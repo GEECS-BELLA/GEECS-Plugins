@@ -3,6 +3,42 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.43.0] - 2026-09-26
+
+### Added
+
+- `shot_join.frame_columns_from_events(object_name, events, keys=())`: a
+  non-essential device's **event** stream (GeecsBluesky's `StampStream` —
+  one event per stamp a triggered device without a file plugin published)
+  as join columns, keyed by each event's own `<name>-acq_timestamp`; only
+  numeric columns (the save path is not an s-file column); *keys* keeps a
+  stream with no events joinable as all-`NaN` columns. Joined onto the
+  rows by `join_frame_columns` exactly as a camera's frames are — a device
+  slower than the rep rate leaves `NaN` on the rows it missed, an event no
+  row's window reaches is an orphan (in the stream and in Tiled, out of
+  the s-file).
+- `shot_join.non_essential_stream(name)` / `NON_ESSENTIAL_STREAM_SUFFIX`
+  (the `<name>_stream` document contract) and `numeric_data_keys`.
+- `tiled_export.read_frame_columns` reads the non-essential event streams
+  the start document's `non_essential` names (their table part; an empty
+  one through the stream's `data_keys` metadata), so the offline
+  re-export writes the columns the worker's live s-file does. Only a
+  stream carrying the device's own `<name>-acq_timestamp` is read that
+  way: a plugin camera's datum stream (numeric per-frame keys, no such
+  column) goes to its attribute arrays as before, with no warning.
+
+## [0.42.0] - 2026-09-25
+
+### Added
+
+- `native_files.native_file_keys(directory)`: the listing-side complement
+  of `probe_native_file` — every native file of a device folder keyed by
+  the millisecond stamp its name renders, tail-agnostic (a per-shot
+  sidecar lists under its shot's key; a file with no rendered stamp is
+  left out). For GeecsBluesky's close-out files-versus-rows check of a
+  gated run's native-saving essential (the module's consumer list names
+  it).
+
 ## [0.41.0] - 2026-09-23
 
 ### Added

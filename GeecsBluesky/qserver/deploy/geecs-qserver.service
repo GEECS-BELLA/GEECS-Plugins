@@ -45,6 +45,19 @@ WorkingDirectory=@CHECKOUT_ROOT@/qs-checkout/GeecsBluesky
 # directory" every RestartSec. The launch script derives the startup
 # directory from its own location; QS_STARTUP_DIR overrides it.
 ExecStart=@POETRY@ run @CHECKOUT_ROOT@/qs-checkout/GeecsBluesky/qserver/launch_re_manager.sh
+# The Tiled spool (GeecsBluesky 0.103.0): the engine writes every run's
+# documents to <state>/spool/ and the geecs-tiled-writer unit (this
+# directory) registers them in Tiled off the engine thread. Both units
+# declare the SAME StateDirectory (systemd allows it; both run as the
+# service user) and both set GEECS_TILED_WRITER_STATE explicitly — the
+# engine deliberately ignores $STATE_DIRECTORY (tiled_spool.default_state_dir:
+# this unit may own a state directory of its own one day, and the spool must
+# not silently move with it). Read when the worker environment opens: a
+# change here takes effect at the next `qserver environment open` after
+# this unit restarts (geecs-qserver-ready does that). Not a site value —
+# the same path on every host.
+StateDirectory=geecs-tiled-writer
+Environment=GEECS_TILED_WRITER_STATE=/var/lib/geecs-tiled-writer
 Restart=on-failure
 RestartSec=5
 # systemd's default, stated because the launcher depends on it (#804): a

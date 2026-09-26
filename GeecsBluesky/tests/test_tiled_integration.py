@@ -1,14 +1,17 @@
-"""Tests for tiled_integration: SafeDocumentCallback + reachability pre-check.
+"""Tests for tiled_integration: SafeDocumentCallback + the reachability pre-check.
 
 Pins two review findings:
 
-* a single TiledWriter exception permanently disabled Tiled persistence on
-  the session's long-lived RunEngine — a failure must only drop the remainder
+* a single writer exception permanently disabled Tiled persistence on the
+  session's long-lived RunEngine — a failure must only drop the remainder
   of the current run, and the next ``start`` document must re-enable the
   callback and be forwarded itself;
-* ``subscribe_tiled`` called ``from_uri`` unconditionally, so building a
-  session off the lab network hung for the Tiled client's full HTTP connect
-  timeout — a bounded TCP pre-check must skip the subscription promptly.
+* ``from_uri`` was called unconditionally, so building a session off the
+  lab network hung for the Tiled client's full HTTP connect timeout — the
+  bounded TCP pre-check (now the writer service's per-sweep check) must
+  answer promptly.
+
+The spool subscription itself is covered in ``test_tiled_spool.py``.
 """
 
 from __future__ import annotations
@@ -21,7 +24,6 @@ import pytest
 
 from geecs_bluesky.tiled_integration import (
     SafeDocumentCallback,
-    subscribe_tiled,
     tiled_server_reachable,
 )
 
@@ -95,19 +97,8 @@ def test_safe_document_callback_failure_on_start_recovers_next_run(caplog) -> No
 
 
 # ---------------------------------------------------------------------------
-# Reachability pre-check (off-network construction must not block)
+# Reachability pre-check (an off-network sweep must not block)
 # ---------------------------------------------------------------------------
-
-
-class _Engine:
-    """RunEngine stand-in recording subscriptions (never a real RE needed)."""
-
-    def __init__(self) -> None:
-        self.subscribed: list = []
-
-    def subscribe(self, callback) -> int:
-        self.subscribed.append(callback)
-        return len(self.subscribed)
 
 
 def _dead_port() -> int:
@@ -119,61 +110,13 @@ def _dead_port() -> int:
     return port
 
 
-def test_subscribe_tiled_unreachable_server_skips_promptly(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """No listener → warning + no subscription, well under the old HTTP timeout."""
-    engine = _Engine()
+def test_tiled_server_reachable_answers_promptly_for_a_dead_port() -> None:
+    """No listener → False, well under the Tiled client's HTTP timeout."""
     uri = f"http://127.0.0.1:{_dead_port()}"
     started = time.monotonic()
-    with caplog.at_level(logging.WARNING):
-        token = subscribe_tiled(engine, uri)
+    assert tiled_server_reachable(uri) is False
     elapsed = time.monotonic() - started
-
-    assert token is None
-    assert engine.subscribed == []
     assert elapsed < 3.0, f"pre-check took {elapsed:.1f}s — it hung"
-    assert f"Tiled server {uri} unreachable" in caplog.text
-    assert "Tiled persistence disabled" in caplog.text
-
-
-def test_subscribe_tiled_reachable_server_still_subscribes(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A reachable server takes the pre-existing path: client built, writer on."""
-    pytest.importorskip("tiled.client")
-
-    class _FakeConnection:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return False
-
-    seen: dict = {}
-    monkeypatch.setattr(
-        "socket.create_connection",
-        lambda address, timeout=None: seen.update(address=address, timeout=timeout)
-        or _FakeConnection(),
-    )
-    monkeypatch.setattr(
-        "tiled.client.from_uri",
-        lambda uri, api_key=None: seen.update(uri=uri, api_key=api_key) or object(),
-    )
-    monkeypatch.setattr(
-        "bluesky.callbacks.tiled_writer.TiledWriter",
-        lambda client: lambda name, doc: None,
-    )
-
-    engine = _Engine()
-    token = subscribe_tiled(engine, "http://192.0.2.1:8000", api_key="secret")
-
-    assert token == 1
-    assert len(engine.subscribed) == 1
-    assert isinstance(engine.subscribed[0], SafeDocumentCallback)
-    assert seen["address"] == ("192.0.2.1", 8000)
-    assert seen["uri"] == "http://192.0.2.1:8000"
-    assert seen["api_key"] == "secret"
 
 
 def test_tiled_server_reachable_parses_default_ports(

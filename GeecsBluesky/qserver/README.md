@@ -4,7 +4,7 @@ This directory contains the user-level launch mechanics for a local
 bluesky-queueserver RE Manager, plus the startup profile itself
 (`startup/startup.py`) that turns the launched manager into a runnable GEECS
 worker: it builds the module-level `RE` the manager keeps alive across
-queue items (Tiled + s-file callbacks subscribed), exports every device of
+queue items (the Tiled spool + s-file callbacks subscribed), exports every device of
 the experiment as a noun (`GeecsNamespace`) and registers count, sweep, optimize and utilities over them (`geecs_bluesky.plan_names.GEECS_PLAN_NAMES`).
 See `startup/startup.py`'s module docstring for the import-order and
 experiment-resolution contracts, and `../CLAUDE.md` for the rebuilt scan

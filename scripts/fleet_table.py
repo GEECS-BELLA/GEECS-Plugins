@@ -23,6 +23,7 @@ ROLE_ORDER = [
     "Queueserver RE Manager",
     "Queueserver readiness",
     "Bluesky doc proxy",
+    "Tiled writer",
     "GEECS-MCP",
     "GEECS Scanner",
     "Redis",

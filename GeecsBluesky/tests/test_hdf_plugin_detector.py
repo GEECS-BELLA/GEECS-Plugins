@@ -628,31 +628,76 @@ def test_batch_count_timeout_is_the_geecs_error(RE: RunEngine, tmp_path: Path) -
     _run(RE, lambda: cam.unstage())
 
 
-def test_fly_prepare_refused_without_a_plugin_and_skips_native_saving(
+def test_fly_prepare_without_a_plugin_is_run_long_native_saving_or_refused(
     RE: RunEngine, tmp_path: Path
 ) -> None:
-    """A LabVIEW-native camera cannot count a batch; a plugin camera's native saving stays off."""
+    """No plugin: an unbounded fly prepare switches LabVIEW saving on, run-long.
+
+    The 2026-09-25 ruling — a device without a file plugin is a gated
+    essential whose files are its record.  Its data path in that prepare
+    is the native logic alone (the save-path column, no scalars: those the
+    sampler reads); a *bounded* batch is still refused (nothing of it can
+    count), and so is a fly prepare on a device with neither a plugin nor
+    saving controls.  A plugin camera's native saving stays off in every
+    fly prepare.
+    """
     from geecs_bluesky.devices.detector import (
         UNBOUNDED_TRIGGER_INFO,
         gated_trigger_info,
     )
     from geecs_bluesky.exceptions import GeecsConfigurationError
 
+    (tmp_path / "Scan001").mkdir()
     native = GeecsDetector(
-        "UC_Native", ["MeanCounts"], name="uc_native", native_save=True
+        "UC_Native",
+        ["MeanCounts"],
+        experiment="TestExp",
+        name="uc_native",
+        path_provider=StaticPathProvider(
+            StaticFilenameProvider("UC_Native"), tmp_path / "Scan001" / "UC_Native"
+        ),
     )
     connect_mock(RE, native)
     _run(RE, lambda: native.stage())
-    with pytest.raises(GeecsConfigurationError, match="no file plugin"):
+    with pytest.raises(GeecsConfigurationError, match="cannot count a batch of 2"):
         _run(RE, lambda: native.prepare(gated_trigger_info(2)))
-    with pytest.raises(GeecsConfigurationError, match="no file plugin"):
-        _run(RE, lambda: native.prepare(UNBOUNDED_TRIGGER_INFO))
+    assert _run(RE, lambda: native.save.get_value()) == "off"
+    _run(RE, lambda: native.prepare(UNBOUNDED_TRIGGER_INFO))
+    assert _run(RE, lambda: native.save.get_value()) == "on"
+    assert (tmp_path / "Scan001" / "UC_Native").is_dir()
+    described = _run(RE, lambda: native.describe())
+    assert set(described) == {"uc_native-nonscalar_save_path"}
+    read = _run(RE, lambda: native.read())
+    assert read["uc_native-nonscalar_save_path"]["value"] == str(
+        tmp_path / "Scan001" / "UC_Native"
+    )
     _run(RE, lambda: native.unstage())
+    assert _run(RE, lambda: native.save.get_value()) == "off"
+
+    # saving controls but no path provider (frames not wanted): admitted, nothing on
+    unwanted = GeecsDetector(
+        "UC_Unwanted", ["MeanCounts"], name="uc_unwanted", native_save=True
+    )
+    connect_mock(RE, unwanted)
+    _run(RE, lambda: unwanted.stage())
+    _run(RE, lambda: unwanted.prepare(UNBOUNDED_TRIGGER_INFO))
+    assert _run(RE, lambda: unwanted.save.get_value()) == "off"
+    assert _run(RE, lambda: unwanted.describe()) == {}
+    _run(RE, lambda: unwanted.unstage())
+
+    # neither a plugin nor saving controls: nothing to record
+    ict = GeecsDetector("U_ICT", ["Charge"], name="u_ict")
+    connect_mock(RE, ict)
+    _run(RE, lambda: ict.stage())
+    with pytest.raises(GeecsConfigurationError, match="no LabVIEW saving controls"):
+        _run(RE, lambda: ict.prepare(UNBOUNDED_TRIGGER_INFO))
+    with pytest.raises(GeecsConfigurationError, match="no LabVIEW saving controls"):
+        _run(RE, lambda: ict.prepare(gated_trigger_info(2)))
+    _run(RE, lambda: ict.unstage())
 
     provider = StaticPathProvider(
         StaticFilenameProvider("UC_Both"), tmp_path / "Scan001" / "UC_Both"
     )
-    (tmp_path / "Scan001").mkdir()
     both = GeecsDetector(
         "UC_Both",
         ["MeanCounts"],

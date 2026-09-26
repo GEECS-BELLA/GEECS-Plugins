@@ -5,6 +5,17 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.1] - 2026-09-26
+
+### Changed
+
+- `PresetDevice.essential`'s description (and the class docstring): off
+  streams the device for the run at its own rate, joined to the shots by
+  its timestamp — a device without a file plugin included since
+  GeecsBluesky 0.106.0; "Off needs the images saved" is gone (a
+  scalars-only non-essential streams its scalars). Description only; the
+  field is unchanged.
+
 ## [0.34.0] - 2026-09-24
 
 ### Added

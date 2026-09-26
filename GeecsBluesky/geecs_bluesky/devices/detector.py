@@ -30,7 +30,12 @@ plan's refire gate understands, and :meth:`GeecsDetector.discard_uncollected`
 is the late-frame guard the plan calls before the retake.
 
 In a **gated** batch (phase 2) the same
-device flies: ``prepare(number_of_events=N)`` baselines the plugin's count,
+device flies (a device with no plugin flies too, as a native-saving
+essential: one unbounded prepare at the run's first step switches
+LabVIEW's saving on for the run — :class:`LvNativeFileDataLogic` — and
+the per-shot sampler records its scalars, its stamp and its save-path
+column, the plan never kicks it off): ``prepare(number_of_events=N)``
+baselines the plugin's count,
 ``kickoff`` arms the quota and switches the acquire logic to *fly mode*
 (``complete`` returns when the plugin has counted the quota — the stamp
 wait is a strict-mode concept, so ``wait_for_idle`` is a no-op there;
@@ -126,15 +131,20 @@ class FlyTriggerInfo(TriggerInfo):
     The mode cannot be read off the event count — a gated step of one shot
     (``shots_per_step=1``, the default) prepares with ``number_of_events=1``,
     the strict signature — so the plan says it with the type: a
-    :class:`FlyTriggerInfo` prepare takes the streamable logic only (no
-    per-event scalars, no LabVIEW-native saving) and is refused on a camera
-    without a plugin; a plain :class:`TriggerInfo` is a strict shot.
+    :class:`FlyTriggerInfo` prepare takes the flying logics only (no
+    per-event scalars): a plugin's stream, or — on a device with no plugin
+    that saves natively — its run-long LabVIEW-native saving, unbounded
+    (:data:`UNBOUNDED_TRIGGER_INFO`; a bounded batch is refused there,
+    nothing of it can count); a plain :class:`TriggerInfo` is a strict shot.
     """
 
 
 #: How a non-essential stream prepares a plugin-backed camera: external
 #: edges, an unbounded number of events (``0`` — the plugin counts what it
-#: gets for the run's duration; nothing waits on it).
+#: gets for the run's duration; nothing waits on it).  Also how a gated run
+#: prepares a native-saving essential without a plugin, once at its first
+#: step: LabVIEW's saving is switched on for the run's duration (off again
+#: at ``unstage``) and the device writes one file per edge, run-long.
 UNBOUNDED_TRIGGER_INFO = FlyTriggerInfo(
     trigger=DetectorTrigger.EXTERNAL_EDGE,
     number_of_events=0,
@@ -450,6 +460,16 @@ class LvNativeFileDataLogic(DetectorDataLogic):
     the cameras the file plugin covers and restore it after
     (:func:`~geecs_bluesky.plans.registry.native_image_save_wrapper`).
 
+    In a **gated** run a device without a file plugin is admitted as an
+    essential with this logic as its whole data path (2026-09-25 ruling):
+    the plan prepares it **once**, at the run's first step, unbounded —
+    saving on for the run, off at ``unstage``, never toggled per step (a
+    toggle costs the device one LabVIEW loop period, ~1.5 s a camera, ~4 s
+    the HASO, and between steps the box is OFF so nothing is written) —
+    and the per-shot sampler carries this column in every ``shots`` row as
+    a run-long constant.  Its files follow by stamp as in a strict run; a
+    dropped frame is a missing file, never a retake.
+
     The device directory is created with ``mkdir(exist_ok=True)`` **inside an
     existing scan folder** only — the scan folder itself is claimed by the
     scanner (root ``CLAUDE.md``, "Analysis code is a consumer of scan
@@ -762,9 +782,11 @@ class GeecsDetector(StandardDetector):
         ``False`` for a scalars-only device, for a camera whose frames are
         not wanted (``native_save`` without a path provider) and for one
         the run switched off — the bound plans' ``native_image_save``
-        argument, applied to plugin-backed cameras only
+        argument, applied to plugin-backed cameras of a strict run only
         (:func:`~geecs_bluesky.plans.registry.native_image_save_wrapper`,
-        PNG retirement #738).  Setting it flips the data logic's switch and
+        PNG retirement #738; a gated run's plugin-backed cameras never
+        save natively, and a device without a plugin saves in either mode).
+        Setting it flips the data logic's switch and
         nothing else: the controls stay owned, so a stale ``save=on`` is
         still cleared at ``stage``.  A device without the controls refuses
         the set — there is nothing to switch.
@@ -843,20 +865,35 @@ class GeecsDetector(StandardDetector):
         """A :class:`FlyTriggerInfo` (a batch, an unbounded stream) — never a strict shot."""
         return isinstance(value, FlyTriggerInfo)
 
+    def _flies(self, logic: Any) -> bool:
+        """Whether *logic* takes part in a fly prepare.
+
+        The streamable logics always (the plugin's stack is the record); the
+        LabVIEW-native logic only on a device **without** a plugin — a
+        native-saving essential of a gated run (2026-09-25 ruling), whose
+        files are its record exactly as in a strict run, written run-long.
+        A plugin-backed camera's native logic stays out: the stack is its
+        record and the #738 dual-write is a strict-mode switch.
+        """
+        if _data_logic_supported(logic.prepare_unbounded):
+            return True
+        return logic is self._native_logic and not self._hdf_ios
+
     async def _update_prepare_context(self, trigger_info: TriggerInfo) -> None:
-        """The stock context; in a fly prepare only the streamable logics take part.
+        """The stock context; in a fly prepare only the flying logics take part.
 
         A :class:`FlyTriggerInfo` prepare — a batch (the gated step, any
         quota, one included) or an unbounded stream (a non-essential
-        detector) — produces data through the plugin's stream only: the
-        per-event readables — the scalar columns
-        (a gated run's rows come from the sampler) and
-        LabVIEW-native saving (the plugin counts the frames; native saving
-        would write every edge's frame unbounded) — are left out, where the
-        stock logic would refuse ("Multiple collections not supported") or
-        switch native saving on.  Switching mode invalidates a context the
-        stock code would otherwise reuse (it keys reuse on
-        ``collections_per_event`` alone).
+        detector, a native-saving essential's run-long saving) — produces
+        no per-event scalar columns (a gated run's rows come from the
+        sampler), so the scalars logic is left out, where the stock logic
+        would refuse ("Multiple collections not supported").  Which data
+        logics fly is :meth:`_flies`: the plugin's, and on a device with no
+        plugin the native one — its ``-nonscalar_save_path`` column is then
+        the device's whole per-event reading, what the sampler puts in the
+        ``shots`` row.  Switching mode invalidates a context the stock code
+        would otherwise reuse (it keys reuse on ``collections_per_event``
+        alone).
         """
         fly = self._is_fly_prepare(trigger_info)
         if (
@@ -865,9 +902,7 @@ class GeecsDetector(StandardDetector):
         ):
             self._prepare_ctx = None
         saved = self._data_logics
-        self._data_logics = tuple(
-            dl for dl in saved if not fly or _data_logic_supported(dl.prepare_unbounded)
-        )
+        self._data_logics = tuple(dl for dl in saved if not fly or self._flies(dl))
         try:
             await super()._update_prepare_context(trigger_info)
         finally:
@@ -882,16 +917,27 @@ class GeecsDetector(StandardDetector):
         frame while arming, a missing directory) is lost and the failure
         reads as a bare timeout on the PV.  ``WriteMessage`` holds the
         reason; it is attached to the exception as a note.  A fly prepare
-        (a batch or an unbounded stream) on a camera without a plugin is
-        refused here, before any move: nothing of it can count.
+        on a device without a plugin is admitted only as **run-long
+        LabVIEW-native saving** — :data:`UNBOUNDED_TRIGGER_INFO`, once per
+        run, the gated plan's prepare of a native-saving essential: the
+        device cannot count a batch (nothing of it counts), and one with no
+        saving controls either has nothing to record.  Both are refused
+        here, before any move.
         """
         if self._is_fly_prepare(value) and not self._hdf_ios:
-            raise GeecsConfigurationError(
-                f"{self._geecs_device_name} has no file plugin: it cannot count a "
-                "batch or stream frames (a LabVIEW-native camera in a gated run "
-                "or a non-essential list) — use acquisition='strict', or list "
-                "its scalars only"
-            )
+            if self._native_logic is None:
+                raise GeecsConfigurationError(
+                    f"{self._geecs_device_name} has no file plugin and no LabVIEW "
+                    "saving controls: it cannot count a batch or stream frames — "
+                    "use acquisition='strict', or list its scalars only"
+                )
+            if value.number_of_events:
+                raise GeecsConfigurationError(
+                    f"{self._geecs_device_name} has no file plugin: it cannot count "
+                    f"a batch of {value.number_of_events}; its LabVIEW-native "
+                    "saving is run-long — prepare it unbounded, once per run "
+                    "(the gated plan does)"
+                )
         try:
             await super().prepare(value)
         except Exception as exc:

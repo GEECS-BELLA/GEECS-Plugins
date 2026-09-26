@@ -51,17 +51,24 @@ nothing else changes.
 ## Verify
 
 ```bash
-curl -s localhost:8300/health | jq            # ok, manager, readiness, version
+curl -s localhost:8300/health | jq            # ok, manager, readiness, version, tiled_writer
 curl -s localhost:8300/api/status | jq        # re_state, readiness word
 curl -N localhost:8300/api/events             # status / progress / console events
 ```
 
 `readiness` must read `ready`; anything else names the recovery gesture
 (`environment_closed` → the `geecs-qserver-ready` unit; `plans_empty` →
-`qserver permissions reload lists`). `scripts/fleet_status.sh` reads
+`qserver permissions reload lists`). `tiled_writer.state` is the Tiled
+writer's word (`ok` / `degraded` / `failed`, from its heartbeat under
+`GEECS_TILED_WRITER_STATE` — the unit sets it to
+`/var/lib/geecs-tiled-writer`, the directory the `geecs-qserver` and
+`geecs-tiled-writer` units own; the qserver runbook § The Tiled writer
+says what each word means) — shown on the page as the "tiled writer"
+chip, **never a gate on submit**. `scripts/fleet_status.sh` reads
 `/health` here for the fleet picture (ok only when `readiness` is `ready`)
-and shows the unit as "GEECS Scanner"; a host without the scanner shows
-the role as absent, not down.
+and shows the unit as "GEECS Scanner", and reads the writer's word from
+the same answer for its "Tiled writer" row; a host without the scanner
+shows the role as absent, not down.
 
 ## Behind the front door
 

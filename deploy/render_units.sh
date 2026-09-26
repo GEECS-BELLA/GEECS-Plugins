@@ -55,6 +55,7 @@ TEMPLATES=(
     GeecsLogbook/deploy/geecs-logbook.service
     GeecsBluesky/qserver/deploy/geecs-qserver.service
     GeecsBluesky/qserver/deploy/geecs-qserver-ready.service
+    GeecsBluesky/qserver/deploy/geecs-tiled-writer.service
     GEECS-MCP/deploy/geecs-mcp.service
     GeecsScanner/deploy/geecs-scanner.service
 )

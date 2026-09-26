@@ -36,6 +36,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any, Optional
 
 from geecs_scanner.service.errors import ScannerError
@@ -70,6 +71,7 @@ from geecs_scanner.service.models import (
     StatusOut,
     SubmitIn,
     SubmitOut,
+    TiledWriterOut,
     VerbIn,
     VerbOut,
 )
@@ -124,6 +126,10 @@ class ScannerService:
     readback : ReadbackSource, optional
         Where a variable's live value comes from; defaults to the CA
         gateway (:class:`~geecs_scanner.service.readback.CaReadback`).
+    heartbeat_path : Path, optional
+        The Tiled writer's ``heartbeat.json``; defaults to the one under
+        ``GEECS_TILED_WRITER_STATE`` (the units' shared state directory).
+        Read for the chip and ``/health`` only — never to gate a submit.
     """
 
     def __init__(
@@ -139,6 +145,7 @@ class ScannerService:
         portal_url: str = "",
         settables: Any = None,
         readback: Any = None,
+        heartbeat_path: Optional[Path] = None,
     ) -> None:
         self.client = client
         self.resolver = resolver
@@ -151,6 +158,7 @@ class ScannerService:
         self._preflight = preflight
         self._settables = settables
         self._readback = readback
+        self._heartbeat_path = heartbeat_path
         self._lock = threading.Lock()
 
     # ----------------------------------------------------- settables + readback
@@ -181,6 +189,21 @@ class ScannerService:
 
     # ------------------------------------------------------------- reads
 
+    def tiled_writer(self) -> TiledWriterOut:
+        """The Tiled writer's heartbeat as a kit word — shown on the page, never a gate.
+
+        One small file read, no lock, no manager call; a heartbeat that is
+        missing or unreadable is ``degraded`` (runs keep spooling).
+        """
+        from geecs_scanner.service.writer_status import (
+            default_heartbeat_path,
+            read_writer_status,
+        )
+
+        if self._heartbeat_path is None:
+            self._heartbeat_path = default_heartbeat_path()
+        return read_writer_status(self._heartbeat_path)
+
     def status(self) -> StatusOut:
         """One manager poll plus the readiness verdict (never raises)."""
         snap = self.client.status()
@@ -198,6 +221,7 @@ class ScannerService:
             readiness_detail=verdict.detail,
             experiment=self.experiment,
             identity=self.identity,
+            tiled_writer=self.tiled_writer(),
         )
 
     def trajectory(
@@ -222,7 +246,7 @@ class ScannerService:
         return preview(sweep, cancelled)
 
     def health(self) -> HealthOut:
-        """Liveness + the manager probe + version."""
+        """Liveness + the manager probe + the writer's word + version."""
         st = self.status()
         return HealthOut(
             ok=True,
@@ -230,6 +254,7 @@ class ScannerService:
             manager=st.connected,
             readiness=st.readiness,
             experiment=self.experiment,
+            tiled_writer=st.tiled_writer,
         )
 
     def queue(self, history_limit: int = 10) -> QueueOut:

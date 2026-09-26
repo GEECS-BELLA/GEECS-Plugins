@@ -33,18 +33,18 @@ _PROBE_PATH = Path(__file__).resolve().parent / "_qserver_startup_probe.py"
 
 @pytest.fixture(autouse=True)
 def _no_tiled_subscription(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stub out Tiled subscription — its config chain is not hermetic.
+    """Stub out the Tiled spool subscription — its config chain is not hermetic.
 
-    ``subscribe_tiled`` itself already degrades gracefully off-network (a
-    bounded reachability check), but *reading* its config
-    (``geecs_data_utils.tiled_catalog.read_tiled_config``) touches the same
-    ``config.ini`` this test suite otherwise avoids entirely. Startup
-    profile testing is about the profile's own wiring, not Tiled's config
-    resolution, so it is stubbed rather than routed through a real or fake
-    config file.
+    ``subscribe_tiled_spool`` never reaches the network, but *reading* its
+    config (``geecs_data_utils.tiled_catalog.read_tiled_config``) touches
+    the same ``config.ini`` this test suite otherwise avoids entirely.
+    Startup profile testing is about the profile's own wiring, not Tiled's
+    config resolution, so it is stubbed rather than routed through a real
+    or fake config file.
     """
     monkeypatch.setattr(
-        "geecs_bluesky.tiled_integration.subscribe_tiled", lambda *a, **kw: None
+        "geecs_bluesky.tiled_integration.subscribe_tiled_spool",
+        lambda *a, **kw: None,
     )
     # No 0MQ publisher in-process: a connected-but-peerless PUB socket makes
     # the zmq context's teardown block (linger) for the next test's whole

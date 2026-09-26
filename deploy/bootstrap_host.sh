@@ -8,7 +8,7 @@
 #   deploy/bootstrap_host.sh SITE_ENV [--ref REF] [--only svc,svc] [--dry-run] [--no-install]
 #
 #   --ref REF      git ref to check out in each clone (default: master)
-#   --only LIST    comma-separated subset of: gateway,portal,logbook,qserver,mcp,scanner
+#   --only LIST    comma-separated subset of: gateway,portal,logbook,qserver,tiled-writer,mcp,scanner
 #                  (re-stages only these: the staging dir's units are cleared first,
 #                  so the printed install line covers exactly this run)
 #   --no-install   clone/fetch only; skip poetry/pip installs
@@ -60,14 +60,24 @@ say() { printf '\n== %s\n' "$1"; }
 # with the worker, without a shared working tree under a running service).
 # The logbook shares portal-checkout (the two web viewers, restarted
 # together after a pull) with its own poetry env inside GeecsLogbook/.
-SERVICES="gateway portal logbook qserver mcp scanner"
-clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal|logbook) echo "portal-checkout";; qserver|mcp|scanner) echo "qs-checkout";; esac; }
-pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; logbook) echo "GeecsLogbook";; qserver) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; scanner) echo "GeecsScanner";; esac; }
-extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook) echo "";; qserver) echo "ca tiled qserver optimize";; mcp) echo "analysis-run";; scanner) echo "";; esac; }
+# The Tiled writer (geecs-tiled-writer, GeecsBluesky 0.103.0) is the
+# consumer half of the engine's document spool: it runs from the WORKER's
+# package and env (qs-checkout/GeecsBluesky — one spool line format, one
+# env) and needs the `tiled` extra, which the worker's set already carries.
+# Its extras are therefore the worker's set, deliberately: `poetry install
+# --extras` REMOVES the optional packages of every extra it is not given, so
+# a `--only tiled-writer` run installing "tiled" alone would strip ca /
+# qserver / optimize from the env the running worker uses.
+SERVICES="gateway portal logbook qserver tiled-writer mcp scanner"
+clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal|logbook) echo "portal-checkout";; qserver|tiled-writer|mcp|scanner) echo "qs-checkout";; esac; }
+pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; logbook) echo "GeecsLogbook";; qserver|tiled-writer) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; scanner) echo "GeecsScanner";; esac; }
+extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook) echo "";; qserver|tiled-writer) echo "ca tiled qserver optimize";; mcp) echo "analysis-run";; scanner) echo "";; esac; }
 # The queueserver is two units: the manager and the geecs-qserver-ready oneshot
 # that opens its worker environment and asserts the plan list after every
-# (re)start (#793) — enabled together, rendered from the same clone.
-units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; mcp) echo "geecs-mcp";; scanner) echo "geecs-scanner";; esac; }
+# (re)start (#793) — enabled together, rendered from the same clone. The
+# Tiled writer is its own service (own unit, own restart, no ordering
+# against the manager): the spool directory is the only thing they share.
+units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; tiled-writer) echo "geecs-tiled-writer";; mcp) echo "geecs-mcp";; scanner) echo "geecs-scanner";; esac; }
 wanted()     { [ -z "$ONLY" ] || case ",$ONLY," in *",$1,"*) return 0;; *) return 1;; esac; }
 # An --only name that is not a service used to select nothing and exit 0 —
 # indistinguishable from success, so a stale runbook (or a retired role)
@@ -159,6 +169,9 @@ for c in $(for s in $SERVICES; do wanted "$s" && clone_of "$s"; done | sort -u);
 done
 
 say "environments (inside each package dir, with that service's extras)"
+# Two services on one package dir with one extras set (the worker and the
+# Tiled writer) share one env: install it once per run.
+INSTALLED_ENVS=" "
 for s in $SERVICES; do
     wanted "$s" || continue
     dir="$GEECS_CHECKOUT_ROOT/$(clone_of "$s")/$(pkgdir_of "$s")"
@@ -167,6 +180,8 @@ for s in $SERVICES; do
     if [ ! -d "$dir" ]; then
         echo "  $s: clone not present yet ($dir) — rerun after the clone step has run for real"; continue
     fi
+    case "$INSTALLED_ENVS" in *" $dir "*) echo "  $s: shares the env installed above ($dir)"; continue ;; esac
+    INSTALLED_ENVS="$INSTALLED_ENVS$dir "
     if [ "$s" = "mcp" ]; then
         venv="$GEECS_CHECKOUT_ROOT/geecs-mcp-venv"
         [ -d "$venv" ] || run python3.11 -m venv "$venv"
@@ -245,6 +260,7 @@ templates_of() { case "$1" in
     gateway) echo "GeecsCAGateway/deploy/geecs-ca-gateway.service";; portal) echo "GEECS-DataPortal/deploy/geecs-data-portal.service";;
     logbook) echo "GeecsLogbook/deploy/geecs-logbook.service";;
     qserver) echo "GeecsBluesky/qserver/deploy/geecs-qserver.service GeecsBluesky/qserver/deploy/geecs-qserver-ready.service";;
+    tiled-writer) echo "GeecsBluesky/qserver/deploy/geecs-tiled-writer.service";;
     mcp) echo "GEECS-MCP/deploy/geecs-mcp.service";;
     scanner) echo "GeecsScanner/deploy/geecs-scanner.service";; esac; }
 TEMPLATE_PATHS=()

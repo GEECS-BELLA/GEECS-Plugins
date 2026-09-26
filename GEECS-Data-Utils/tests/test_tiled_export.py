@@ -548,3 +548,201 @@ def test_a_stack_part_without_a_reported_shape_is_not_truncated() -> None:
 
     (columns,) = read_frame_columns(_Run(), "shots")
     assert len(columns) == 3
+
+
+# ------------------------------- a non-essential device without a plugin
+def _slow_start() -> dict:
+    return {
+        "scan_number": 14,
+        "acquisition": "strict",
+        "detectors": ["uc_a"],
+        "non_essential": ["u_slow"],
+        "geecs_scalar_headers": {
+            "uc_a-acq_timestamp": "UC_A acq_timestamp",
+            "u_slow-acq_timestamp": "U_Slow acq_timestamp",
+            "u_slow-current": "U_Slow Current",
+        },
+    }
+
+
+def _strict_rows() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "bin_number": [1, 1, 1, 1, 1, 1],
+            "uc_a-acq_timestamp": [1001.0, 1002.0, 1003.0, 1004.0, 1005.0, 1006.0],
+        }
+    )
+
+
+def test_a_non_essential_event_stream_joins_by_stamp_with_nan_rows() -> None:
+    """Every third shot has the slow device's reading, on ITS row; the rest NaN."""
+    import numpy as np
+
+    from geecs_data_utils.shot_join import frame_columns_from_events
+
+    events = [
+        {"u_slow-acq_timestamp": 1003.02, "u_slow-current": 3.0},
+        {"u_slow-acq_timestamp": 1006.02, "u_slow-current": 6.0},
+    ]
+    frames = [frame_columns_from_events("u_slow", events)]
+    df = build_legacy_scalar_dataframe(_slow_start(), _strict_rows(), frames)
+    assert len(df) == 6
+    current = df["U_Slow Current"].to_numpy()
+    assert np.isnan(current[[0, 1, 3, 4]]).all()
+    assert list(current[[2, 5]]) == [3.0, 6.0]
+    stamps = df["U_Slow acq_timestamp"].to_numpy()
+    assert list(stamps[[2, 5]]) == [1003.02, 1006.02]
+
+
+def test_a_non_essential_that_published_nothing_reads_nan_on_every_row() -> None:
+    import numpy as np
+
+    from geecs_data_utils.shot_join import frame_columns_from_events
+
+    frames = [
+        frame_columns_from_events(
+            "u_slow", [], keys=["u_slow-acq_timestamp", "u_slow-current"]
+        )
+    ]
+    df = build_legacy_scalar_dataframe(_slow_start(), _strict_rows(), frames)
+    assert len(df) == 6 and np.isnan(df["U_Slow Current"].to_numpy()).all()
+
+
+class _FakeSlowRun:
+    """A strict run with a non-essential device without a plugin, as Tiled holds it."""
+
+    def __init__(self, events: list[dict], data_keys: dict | None = None) -> None:
+        stream = _FakeStream(
+            {"internal": _FakePart(pd.DataFrame(events), "table")} if events else {},
+            configuration={"u_slow": {"data": {"u_slow-drain_offset": 0.02}}},
+        )
+        if data_keys is not None:
+            stream.metadata["data_keys"] = data_keys
+        self._streams = {
+            "primary": _FakeStream({"internal": _FakePart(_strict_rows(), "table")}),
+            "u_slow_stream": stream,
+            # telemetry: a table with stamp columns that must never be joined
+            "baseline": _FakeStream(
+                {
+                    "internal": _FakePart(
+                        pd.DataFrame({"u_slow-acq_timestamp": [1.0, 2.0]}), "table"
+                    )
+                }
+            ),
+        }
+        self.metadata = {"start": _slow_start()}
+
+    def __iter__(self):
+        """The stream names."""
+        return iter(self._streams)
+
+    def __getitem__(self, key):
+        """One stream node."""
+        return self._streams[key]
+
+
+def test_the_offline_re_export_joins_a_non_essential_event_stream(tmp_path) -> None:
+    """Read back out of Tiled: the same columns the live s-file has, baseline ignored."""
+    import numpy as np
+
+    from geecs_data_utils.tiled_export import (
+        read_drain_offsets,
+        read_frame_columns,
+        read_run_rows,
+        write_scalar_files,
+    )
+
+    run = _FakeSlowRun(
+        [
+            {
+                "u_slow-acq_timestamp": 1003.02,
+                "u_slow-current": 3.0,
+                "u_slow-nonscalar_save_path": "/x",
+            },
+            {
+                "u_slow-acq_timestamp": 1006.02,
+                "u_slow-current": 6.0,
+                "u_slow-nonscalar_save_path": "/x",
+            },
+        ]
+    )
+    rows, stream = read_run_rows(run)
+    assert stream == "primary"
+    (columns,) = read_frame_columns(run, stream)
+    assert columns.object_name == "u_slow"
+    assert "u_slow-nonscalar_save_path" not in columns.columns
+    assert read_drain_offsets(run) == {"u_slow": 0.02}
+    folder = tmp_path / "scans" / "Scan014"
+    folder.mkdir(parents=True)
+    start = {**run.metadata["start"], "scan_folder": str(folder)}
+    result = write_scalar_files(
+        start, rows, [columns], drain_offsets=read_drain_offsets(run)
+    )
+    reloaded = pd.read_csv(result[1], delimiter="\t")
+    current = reloaded["U_Slow Current"].to_numpy()
+    assert list(current[[2, 5]]) == [3.0, 6.0] and np.isnan(current[[0, 1, 3, 4]]).all()
+
+
+def test_the_offline_re_export_of_an_empty_event_stream_reads_its_keys() -> None:
+    """No events: the stream's ``data_keys`` metadata still gives the NaN columns."""
+    from geecs_data_utils.tiled_export import read_frame_columns
+
+    run = _FakeSlowRun(
+        [],
+        data_keys={
+            "u_slow-acq_timestamp": {"dtype": "number"},
+            "u_slow-current": {"dtype": "number"},
+            "u_slow-nonscalar_save_path": {"dtype": "string"},
+        },
+    )
+    (columns,) = read_frame_columns(run, "primary")
+    assert len(columns) == 0
+    assert set(columns.columns) == {"u_slow-acq_timestamp", "u_slow-current"}
+    assert read_frame_columns(_FakeSlowRun([]), "primary") == []
+
+
+def test_a_plugin_non_essential_stream_is_not_mistaken_for_an_event_stream(
+    caplog,
+) -> None:
+    """Review finding 2: a datum stream's numeric keys are not an event stream's.
+
+    A plugin camera listed non-essential has numeric ``data_keys`` of its own
+    (the per-frame attributes) but no ``<name>-acq_timestamp``: it is read
+    from its attribute arrays, with no "not joined" warning on the way.
+    """
+    import logging
+
+    import numpy as np
+
+    from geecs_data_utils.tiled_export import read_frame_columns
+
+    stream = _FakeStream(
+        {
+            "uc_b": _FakePart(np.zeros((3, 2, 2)), "array"),
+            "uc_b-hdf-image-frame_acq_timestamp": _FakePart(
+                np.array([1.0, 2.0, 3.0]), "array"
+            ),
+            "uc_b-hdf-image-meancounts": _FakePart(np.array([4.0, 5.0, 6.0]), "array"),
+        }
+    )
+    stream.metadata["data_keys"] = {
+        "uc_b": {"dtype": "number"},
+        "uc_b-hdf-image-frame_acq_timestamp": {"dtype": "number"},
+        "uc_b-hdf-image-meancounts": {"dtype": "number"},
+    }
+
+    class _Run:
+        metadata = {"start": {**_slow_start(), "non_essential": ["uc_b"]}}
+
+        def __iter__(self):
+            return iter(["primary", "uc_b_stream"])
+
+        def __getitem__(self, key):
+            if key == "primary":
+                return _FakeStream({"internal": _FakePart(_strict_rows(), "table")})
+            return stream
+
+    with caplog.at_level(logging.WARNING):
+        (columns,) = read_frame_columns(_Run(), "primary")
+    assert columns.object_name == "uc_b" and len(columns) == 3
+    assert "not joined" not in caplog.text
