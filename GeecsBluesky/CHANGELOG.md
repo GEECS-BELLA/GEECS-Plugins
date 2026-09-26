@@ -6,6 +6,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.107.0] - 2026-09-26
+
+### Changed
+
+- **A pause in a gated batch pauses — it no longer retakes the step.**
+  The 2026-09-12 rule (resume re-shoots the whole step from its first shot;
+  for a gated `count` that meant throwing away every shot taken) is
+  replaced by the owner's 2026-09-26 ruling: the box goes OFF, the shots
+  every device reached are kept and recorded, and after the resume the step
+  continues with the remaining shots at the same position.  At most the
+  shot in flight at the pause is lost.  `ShotControl.hold_for_batch` makes
+  a pause end the batch synchronously (its statuses settle instead of
+  timing out during a long pause) and leaves the restart to the plan, so
+  the resume no longer drives SCAN before the plan runs.
+- **The scanner's Pause lands mid-batch.**  The batch's wait runs in
+  `PROGRESS_PERIOD_S` (1 s) slices with a checkpoint each, so a deferred
+  pause lands within ~1.5 s instead of at the end of the step (the whole
+  run, for a gated count).
+- **Pause is consistent across every scan type.**  A strict step scan
+  now offers a checkpoint before every shot of a step (the stock count
+  already did), so the scanner's Pause lands after the shot in progress
+  instead of at the end of the step — strict count, strict step scan,
+  gated count and gated step scan all pause within about a shot.
+- **`shots` rows arrive during the batch.**  Each slice collects the
+  sampler, so the scanner's progress climbs shot by shot instead of jumping
+  at the batch's end.  A row goes out only once every plugin-backed camera
+  of the step holds its frame (`ShotSampler(gates=…)`), so no row is ever
+  one a pause discards.  A paused step may carry more than one `primary`
+  datum per camera (contiguous; `EVENT_SCHEMA.md`).
+- **A failed batch records the shots it kept, then raises its own error.**
+  A stalled camera or a silent clock settles the batch like a pause (the
+  shots every device reached are recorded, best effort) before the named
+  `GeecsTriggerTimeoutError` — which always wins over a failure of that
+  recording.  Before, a failed batch recorded nothing.
+
+### Removed
+
+- `GeecsDetector.rewind_to_step_baseline` and `ShotSampler.cancel_step`
+  (the retake's), replaced by `GeecsDetector.frames_this_batch` /
+  `truncate_to` and `ShotSampler.stop` / `keep`.
+
 ## [0.106.0] - 2026-09-26
 
 ### Added

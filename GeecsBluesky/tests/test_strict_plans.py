@@ -11,6 +11,7 @@ SINGLESHOT put, the worst case for the baseline.
 from __future__ import annotations
 
 import asyncio
+import time
 import logging
 import math
 from pathlib import Path
@@ -180,6 +181,53 @@ def test_scan_moves_then_fires(
         1001.0 + i for i in range(5)
     ]
     assert list(col.docs["start"][0]["motors"]) == ["u_s1h-current"]
+
+
+def test_deferred_pause_lands_between_the_shots_of_a_step(
+    RE: RunEngine, box: FakeBox, shot_control: ShotControl
+) -> None:
+    """The scanner's Pause in a strict step scan lands after the shot in progress.
+
+    Five shots per step: the pause requested after the second shot lands
+    long before the step's fifth, and the resume finishes both steps with
+    every shot recorded once.
+    """
+    import threading
+
+    from bluesky.utils import RunEngineInterrupted
+
+    cam = _camera(RE, box, "UC_Cam")
+    magnet = CaMotor(
+        "U_S1H", "Current", experiment="TestExp", tolerance=0.01, name="u_s1h-current"
+    )
+    connect_mock(RE, magnet)
+    follow_setpoint(magnet)
+    col = DocCollector()
+    RE.subscribe(col)
+
+    def pause_soon() -> None:
+        while box.fires < 2:
+            time.sleep(0.005)
+        RE.request_pause(defer=True)
+
+    threading.Thread(target=pause_soon, daemon=True).start()
+    with pytest.raises(RunEngineInterrupted):
+        RE(
+            bp.scan(
+                [cam],
+                magnet,
+                -1.0,
+                1.0,
+                2,
+                per_step=geecs_per_step(shot_control, shots_per_step=5),
+            )
+        )
+    assert box.fires < 5, box.fires  # inside the first step
+    RE.resume()
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    events = col.primary_events()
+    assert box.fires == 10 and len(events) == 10
+    assert [e["data"]["bin_number"] for e in events] == [1] * 5 + [2] * 5
 
 
 def test_two_cameras_share_one_fire(

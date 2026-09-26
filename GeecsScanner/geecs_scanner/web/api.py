@@ -185,7 +185,7 @@ def register(router: APIRouter, service: ScannerService) -> None:
 
     @router.post("/api/pause", response_model=VerbOut)
     def pause(body: VerbIn | None = None) -> VerbOut:
-        """Deferred pause at the next step boundary."""
+        """Deferred pause at the plan's next checkpoint (the next shot, or mid-batch)."""
         return service.pause(body or VerbIn())
 
     @router.post("/api/resume", response_model=VerbOut)

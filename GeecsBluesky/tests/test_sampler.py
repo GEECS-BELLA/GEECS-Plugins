@@ -123,12 +123,59 @@ def test_silent_clock_fails_complete_with_the_geecs_timeout(RE: RunEngine) -> No
     _run(RE, scenario)
 
 
-def test_cancel_step_settles_a_pending_complete_and_drops_the_rows(
-    RE: RunEngine,
-) -> None:
+def test_collect_mid_batch_yields_disjoint_ordered_rows(RE: RunEngine) -> None:
+    """The progress collects: each yields only the rows since the last; none new, none out."""
     ict, gauge, _ = _members(RE)
     sampler = ShotSampler(
         [gauge], ict.acq_timestamp, clock_name="U_ICT", shot_timeout=5.0
+    )
+
+    async def tick(stamp: float) -> None:
+        set_mock_value(ict.acq_timestamp, stamp)
+        await asyncio.sleep(0.02)
+
+    async def scenario():
+        await sampler.prepare(4)
+        await sampler.kickoff()
+        status = sampler.complete()
+        await asyncio.sleep(0.02)
+        await tick(101.0)
+        await tick(102.0)
+        first = [row async for row in sampler.collect()]
+        await tick(103.0)
+        second = [row async for row in sampler.collect()]
+        third = [row async for row in sampler.collect()]
+        await tick(104.0)
+        await status
+        last = [row async for row in sampler.collect()]
+        return first, second, third, last
+
+    batches = _run(RE, scenario)
+    stamps = [[r["data"]["u_ict-acq_timestamp"] for r in b] for b in batches]
+    assert stamps == [[101.0, 102.0], [103.0], [], [104.0]]
+    assert sampler.emitted == 4
+
+
+class _Gate:
+    """A plugin-backed essential as the sampler sees it: frames past the baseline."""
+
+    def __init__(self) -> None:
+        self.frames = 0
+
+    async def frames_this_batch(self) -> int:
+        return self.frames
+
+
+def test_collect_waits_for_every_gate_to_hold_the_frame(RE: RunEngine) -> None:
+    """A row goes out only once every plugin camera holds its shot's frame."""
+    ict, gauge, _ = _members(RE)
+    fast, slow = _Gate(), _Gate()
+    sampler = ShotSampler(
+        [gauge],
+        ict.acq_timestamp,
+        clock_name="U_ICT",
+        shot_timeout=5.0,
+        gates=[fast, slow],  # type: ignore[list-item]
     )
 
     async def scenario():
@@ -136,24 +183,64 @@ def test_cancel_step_settles_a_pending_complete_and_drops_the_rows(
         await sampler.kickoff()
         status = sampler.complete()
         await asyncio.sleep(0.02)
-        set_mock_value(ict.acq_timestamp, 101.0)
-        await asyncio.sleep(0.02)
-        assert sampler.sampled == 1
-        await sampler.cancel_step()
-        await status  # settled, not failed
-        rows = [row async for row in sampler.collect()]
-        # re-armed for the retake
-        await sampler.prepare(1)
+        for stamp in (101.0, 102.0, 103.0):
+            set_mock_value(ict.acq_timestamp, stamp)
+            await asyncio.sleep(0.02)
+        await status
+        fast.frames, slow.frames = 3, 1
+        first = [row async for row in sampler.collect()]
+        slow.frames = 3
+        rest = [row async for row in sampler.collect()]
+        return first, rest
+
+    first, rest = _run(RE, scenario)
+    assert [r["data"]["u_ict-acq_timestamp"] for r in first] == [101.0]
+    assert [r["data"]["u_ict-acq_timestamp"] for r in rest] == [102.0, 103.0]
+
+
+def test_stop_settles_a_pending_complete_and_keep_trims_the_rows(
+    RE: RunEngine,
+) -> None:
+    """A pause's settle: the batch ends quietly, the rows past the kept shots go."""
+    ict, gauge, _ = _members(RE)
+    sampler = ShotSampler(
+        [gauge], ict.acq_timestamp, clock_name="U_ICT", shot_timeout=5.0
+    )
+
+    async def scenario():
+        await sampler.prepare(5)
         await sampler.kickoff()
         status = sampler.complete()
         await asyncio.sleep(0.02)
-        set_mock_value(ict.acq_timestamp, 102.0)
+        for stamp in (101.0, 102.0, 103.0):
+            set_mock_value(ict.acq_timestamp, stamp)
+            await asyncio.sleep(0.02)
+        out = [row async for row in sampler.collect()]  # a progress collect
+        set_mock_value(ict.acq_timestamp, 104.0)
+        await asyncio.sleep(0.02)
+        await sampler.stop()
+        await status  # settled, not failed
+        set_mock_value(ict.acq_timestamp, 105.0)  # after the stop: not sampled
+        await asyncio.sleep(0.02)
+        with pytest.raises(RuntimeError, match="already went out"):
+            sampler.keep(2)
+        sampler.keep(3)  # the in-flight fourth shot is dropped
+        kept = [row async for row in sampler.collect()]
+        # the rest of the step, re-armed
+        await sampler.prepare(2)
+        await sampler.kickoff()
+        status = sampler.complete()
+        await asyncio.sleep(0.02)
+        for stamp in (106.0, 107.0):
+            set_mock_value(ict.acq_timestamp, stamp)
+            await asyncio.sleep(0.02)
         await status
-        return rows, [row async for row in sampler.collect()]
+        return out, kept, [row async for row in sampler.collect()]
 
-    dropped, retaken = _run(RE, scenario)
-    assert dropped == []
-    assert [r["data"]["u_ict-acq_timestamp"] for r in retaken] == [102.0]
+    out, kept, rest = _run(RE, scenario)
+    assert [r["data"]["u_ict-acq_timestamp"] for r in out] == [101.0, 102.0, 103.0]
+    assert kept == []
+    assert [r["data"]["u_ict-acq_timestamp"] for r in rest] == [106.0, 107.0]
 
 
 def test_a_plugin_cameras_clock_rides_as_its_own_column(RE: RunEngine) -> None:

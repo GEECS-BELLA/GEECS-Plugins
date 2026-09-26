@@ -204,17 +204,14 @@ class ProgressCache:
                             },
                         )
                 if str(doc.get("descriptor")) in self._rows:
-                    seq = _as_int(doc.get("seq_num")) or 0
-                    self._state["shots_done"] = max(
-                        seq, int(self._state.get("shots_done") or 0)
-                    )
-                    # Progress proves the resume: a row after a failed-move
-                    # pause means the operator resumed, so the reason and
-                    # the paused word go (the MCP's finding #683-1).
-                    if self._state.get("state") == "paused":
-                        self._state["state"] = "running"
-                        self._state["paused_reason"] = None
-                    self._state["updated_at"] = now
+                    self._count_rows(_as_int(doc.get("seq_num")) or 0, now)
+            elif name == "event_page":
+                # A gated run's ``shots`` rows arrive as pages (the sampler's
+                # collect), several per batch.
+                if str(doc.get("descriptor")) in self._rows:
+                    seqs = [_as_int(v) or 0 for v in doc.get("seq_num") or []]
+                    if seqs:
+                        self._count_rows(max(seqs), now)
             elif name == "stop":
                 status = str(doc.get("exit_status") or "")
                 if (
@@ -232,6 +229,17 @@ class ProgressCache:
                 self._state["state"] = "done" if status == "success" else "aborted"
                 self._state["updated_at"] = now
             self._version += 1
+
+    def _count_rows(self, seq: int, now: float) -> None:
+        """Rows up to *seq* are recorded (caller holds the lock)."""
+        self._state["shots_done"] = max(seq, int(self._state.get("shots_done") or 0))
+        # Progress proves the resume: a row after a failed-move pause means
+        # the operator resumed, so the reason and the paused word go (the
+        # MCP's finding #683-1).
+        if self._state.get("state") == "paused":
+            self._state["state"] = "running"
+            self._state["paused_reason"] = None
+        self._state["updated_at"] = now
 
     def push_console_line(
         self, text: str, failed_move_prefix: Optional[str] = None

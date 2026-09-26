@@ -573,10 +573,15 @@ def test_fly_mode_counts_and_skips_the_stamp_wait(
     _run(RE, lambda: cam.unstage())
 
 
-def test_rewind_to_step_baseline_and_abandon_step(
+def test_a_paused_batch_keeps_its_frames_and_the_step_continues(
     RE: RunEngine, tmp_path: Path
 ) -> None:
-    """A retaken step: the partial frames leave the stack; a pending complete settles."""
+    """A pause's settle: keep the shots reached, trim the rest, re-arm for the remainder.
+
+    Two of four frames counted, a third in flight when the settle decides
+    on two: ``truncate_to(2)`` trims the third; the next prepare baselines
+    after the kept frames, and the step's datums tile ``0..4``.
+    """
     from geecs_bluesky.devices.detector import gated_trigger_info
 
     cam, rewinds = _batch_camera(RE, tmp_path)
@@ -587,26 +592,29 @@ def test_rewind_to_step_baseline_and_abandon_step(
         await cam.kickoff()
         status = cam.complete()
         await asyncio.sleep(0.02)
-        set_mock_value(cam.hdf.num_captured, 2)  # two of four, then the pause
+        set_mock_value(cam.hdf.num_captured, 3)  # three of four, then the pause
         await asyncio.sleep(0.02)
         await cam.abandon_step()  # settles the pending complete (no frames come)
         assert status.done and status.success
-        await cam.rewind_to_step_baseline()
-        assert await cam.hdf.num_captured.get_value() == 0
-        # the retake: baseline is still 0, quota 4
-        await cam.prepare(gated_trigger_info(4, exposure_timeout=0.3))
-        assert cam.step_baseline == 0
+        assert await cam.frames_this_batch() == 3
+        await cam.truncate_to(2)  # the sampler reached two
+        assert await cam.frames_this_batch() == 2
+        docs = [doc async for doc in cam.collect_asset_docs()]
+        # the rest of the step: two more, baselined after the kept frames
+        await cam.prepare(gated_trigger_info(2, exposure_timeout=0.3))
+        assert cam.step_baseline == 2
+        assert await cam.frames_this_batch() == 0
         await cam.kickoff()
         status = cam.complete()
         await asyncio.sleep(0.02)
         set_mock_value(cam.hdf.num_captured, 4)
         await status
-        return [doc async for doc in cam.collect_asset_docs()]
+        return docs + [doc async for doc in cam.collect_asset_docs()]
 
     docs = _run(RE, lambda: scenario())
-    assert rewinds == [0]
-    datum = next(d for n, d in docs if n == "stream_datum")
-    assert datum["indices"] == {"start": 0, "stop": 4}
+    assert rewinds == [2]
+    datums = [d["indices"] for n, d in docs if n == "stream_datum"]
+    assert datums == [{"start": 0, "stop": 2}, {"start": 2, "stop": 4}]
     _run(RE, lambda: cam.unstage())
 
 

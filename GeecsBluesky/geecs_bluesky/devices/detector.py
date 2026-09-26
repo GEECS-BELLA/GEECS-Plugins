@@ -41,9 +41,9 @@ baselines the plugin's count,
 wait is a strict-mode concept, so ``wait_for_idle`` is a no-op there;
 ``trigger`` switches back), :meth:`GeecsDetector.truncate_to_quota` rewinds
 the extra in-flight frame after the box goes OFF, and
-:meth:`GeecsDetector.rewind_to_step_baseline` throws a repeated step's
-partial frames away before it is retaken.  A gated step the plan abandons
-(an immediate pause, a stalled neighbour) is told so
+:meth:`GeecsDetector.truncate_to` keeps the shots every device reached
+when a pause interrupts the batch (the step continues from there).  A
+gated batch the plan abandons (a pause, a stalled neighbour) is told so
 (:meth:`GeecsDetector.abandon_step`): the pending ``complete`` then settles
 quietly instead of failing into a later message.
 
@@ -1032,7 +1032,7 @@ class GeecsDetector(StandardDetector):
         """Wait for a pending gated ``complete`` to settle (after :meth:`mark_abandoned`).
 
         Called by the plan after it drove the box OFF on an interrupted or
-        failed step, before it rewinds and retakes (or fails) the step —
+        failed batch, before it trims the stack and continues (or fails) —
         so no status of the abandoned step fails into a later message.
         """
         self.mark_abandoned()
@@ -1066,20 +1066,47 @@ class GeecsDetector(StandardDetector):
         ctx = self._prepare_ctx
         return None if ctx is None else int(ctx.collections_written)
 
-    async def truncate_to_quota(self) -> None:
-        """Rewind every plugin to ``baseline + quota``: the step's frames, exactly.
+    async def frames_this_batch(self) -> int:
+        """Frames past the batch's baseline (its prepare) — the fewest any plugin holds.
 
-        The gated step's trim: after ``complete`` returned and the box
-        went OFF, at most one more edge was in flight; once it has landed
-        (the plan waits one period plus the drain offset), every frame past
-        the quota is truncated and a later arrival is stale to the plugin.
-        A no-op without a plugin or outside ``prepare``.
+        What the sampler gates its rows on (a row goes out only once every
+        plugin-backed essential holds that shot's frame) and what a pause
+        settles to.  ``0`` without a plugin or outside ``prepare``.
+        """
+        ctx = self._prepare_ctx
+        if ctx is None or not ctx.streamable_data_providers:
+            return 0
+        counts = await asyncio.gather(
+            *(
+                sdp.collections_written_signal.get_value()
+                for sdp in ctx.streamable_data_providers
+            )
+        )
+        return max(0, min(int(c) for c in counts) - int(ctx.collections_written))
+
+    async def truncate_to(self, frames: int) -> None:
+        """Rewind every plugin to ``baseline + frames``: the step's first *frames*, exactly.
+
+        The gated batch's trim.  At the batch's end *frames* is the quota
+        (:meth:`truncate_to_quota`): after ``complete`` returned and the box
+        went OFF at most one more edge was in flight, and once it has landed
+        (the plan waits one period plus the drain offset) every frame past
+        the quota goes.  After a pause mid-batch it is the shot count every
+        device of the step reached — the frames kept, the next batch of the
+        step appends after them.  A frame arriving later is stale to the
+        plugin.  A no-op without a plugin or outside ``prepare``.
         """
         ctx = self._prepare_ctx
         if ctx is None or not self._hdf_ios:
             return
-        keep = int(ctx.collections_written + ctx.trigger_info.number_of_collections)
-        await self._rewind_plugins(keep, "quota")
+        await self._rewind_plugins(int(ctx.collections_written) + int(frames), "step")
+
+    async def truncate_to_quota(self) -> None:
+        """Rewind every plugin to ``baseline + quota`` (:meth:`truncate_to`)."""
+        ctx = self._prepare_ctx
+        if ctx is None or not self._hdf_ios:
+            return
+        await self.truncate_to(ctx.trigger_info.number_of_collections)
 
     async def zero_count(self) -> None:
         """Rewind every plugin to zero after a run's first arm: the count starts clean.
@@ -1101,19 +1128,6 @@ class GeecsDetector(StandardDetector):
         if self._prepare_ctx is None or not self._hdf_ios:
             return
         await self._rewind_plugins(0, "fresh session")
-
-    async def rewind_to_step_baseline(self) -> None:
-        """Rewind every plugin to the count the step's prepare baselined.
-
-        The repeated-step path (Sam 2026-09-12): after an immediate
-        pause the step is retaken from its first shot, so the partial frames
-        (and any edge that slipped in between the resume and the OFF) leave
-        the stack first.  A no-op without a plugin or outside ``prepare``.
-        """
-        ctx = self._prepare_ctx
-        if ctx is None or not self._hdf_ios:
-            return
-        await self._rewind_plugins(int(ctx.collections_written), "step baseline")
 
     async def _rewind_plugins(self, keep: int | None, what: str) -> None:
         """Rewind every plugin to *keep* frames (``None``: each provider's ``last_emitted``)."""

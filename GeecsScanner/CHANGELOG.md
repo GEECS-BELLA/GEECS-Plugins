@@ -5,6 +5,22 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.14.2] - 2026-09-26
+
+### Fixed
+
+- **A gated run's progress counts.**  The reducer counted `event`
+  documents only, but a gated run's `shots` rows arrive as `event_page`s
+  (the sampler's collect), so `shots_done` sat at 0 for every gated run —
+  found on hardware (26_0926 Scan021).  Pages now count, by their highest
+  `seq_num`; with GeecsBluesky 0.107.0 they arrive during the batch.
+
+### Changed
+
+- The pause verb's docstrings say where a deferred pause lands now: the
+  plan's next checkpoint — the next shot, or mid-batch within ~1.5 s in a
+  gated run (GeecsBluesky 0.107.0) — not "the next step boundary".
+
 ## [0.14.1] - 2026-09-26
 
 ### Changed

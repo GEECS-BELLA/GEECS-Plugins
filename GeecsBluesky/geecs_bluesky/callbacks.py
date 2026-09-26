@@ -860,8 +860,8 @@ class StackCheckCallback(_StreamCallback):
     file) — waiting, bounded, for every row's file first (there is no
     write-complete readback; the last file lands a LabVIEW loop period
     after the last edge).  Rows without a file (a dropped frame — a
-    missing file, no retake) and file stamps with no row (a retaken step's,
-    an in-flight edge's) are counted **separately**, so neither hides the
+    missing file, no retake) and file stamps with no row (the shot in
+    flight at a pause, an in-flight edge's) are counted **separately**, so neither hides the
     other: WARNING on either, never a failure.
 
     The stop document precedes ``unstage`` (``Capture=0``, when the plugin

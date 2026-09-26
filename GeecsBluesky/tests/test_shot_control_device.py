@@ -147,6 +147,40 @@ def test_pause_stops_edges_in_gated_mode(
     assert Recorder.log[-1] == ("DG", "Source", "edges")
 
 
+def test_a_held_batch_ends_before_the_quiesce_and_resume_restores_nothing(
+    RE: RunEngine, shot_control: ShotControl
+) -> None:
+    """``hold_for_batch``: the hook runs first, the box goes OFF, the plan restarts it."""
+    RE(mv(shot_control, "SCAN"))
+    seen: list[str] = []
+    shot_control.hold_for_batch(lambda: seen.append(shot_control.standing_state))
+    _run(RE, lambda: shot_control.pause())
+    assert seen == ["SCAN"]  # called before the OFF writes
+    assert shot_control.standing_state == "OFF"
+    _run(RE, lambda: shot_control.resume())
+    assert shot_control.standing_state == "OFF"  # the plan owns the restart
+    # released: a pause restores again
+    shot_control.hold_for_batch(None)
+    RE(mv(shot_control, "SCAN"))
+    _run(RE, lambda: shot_control.pause())
+    _run(RE, lambda: shot_control.resume())
+    assert shot_control.standing_state == "SCAN"
+
+
+def test_a_failing_batch_hook_never_stops_the_quiesce(
+    RE: RunEngine, shot_control: ShotControl, caplog
+) -> None:
+    RE(mv(shot_control, "SCAN"))
+
+    def boom() -> None:
+        raise RuntimeError("hook")
+
+    shot_control.hold_for_batch(boom)
+    _run(RE, lambda: shot_control.pause())
+    assert shot_control.standing_state == "OFF"
+    assert "pause hook failed" in caplog.text
+
+
 def test_run_engine_pauses_the_box_it_set(
     RE: RunEngine, shot_control: ShotControl
 ) -> None:

@@ -132,6 +132,20 @@ save path below) is a run-long constant and stays.
 An additive column convention, not a schema change: a reader that never
 looked for the column in `shots` sees the rows it saw before.
 
+**When the rows arrive** (GeecsBluesky 0.107.0): the plan collects the
+sampler about once a second **during** a batch, so `shots` pages arrive
+mid-batch rather than one page at its end — a row goes out once every
+plugin-backed camera of the step holds that shot's frame, and a row once
+out is never withdrawn.  `seq_num` stays one sequence over the run.  A
+batch interrupted by a **pause** keeps the shots every device reached and
+the step continues after the resume, so one step may carry **more than
+one stream datum per camera** in `primary` — contiguous, together
+exactly the step's quota (the in-flight shot at the pause may be lost;
+nothing before it is).  A batch that **fails** (a stalled camera, a
+silent clock) records the shots it kept the same way, best effort, before
+the run fails.  All additive: a reader that indexes datums by
+their `indices` and rows by `seq_num` / stamp sees the same record.
+
 The s-file of such a run is the `shots` rows with each stack's per-frame
 columns joined on by offset-corrected stamp
 (`geecs_data_utils.shot_join`): the attribute

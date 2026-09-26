@@ -465,6 +465,11 @@ def geecs_per_step(
         yield from bps.move_per_step(step, pos_cache)
         bins.value += 1
         for _ in range(shots_per_step):
+            # A checkpoint per shot, as the stock count has: the scanner's
+            # Pause (a deferred pause) lands after the shot in progress,
+            # not at the end of the step (Sam 2026-09-26: pause means pause
+            # in every mode).
+            yield from bps.checkpoint()
             yield from take_reading([*detectors, *motors, bins])
 
     def per_step(

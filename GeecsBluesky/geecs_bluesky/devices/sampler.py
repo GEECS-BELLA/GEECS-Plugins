@@ -40,8 +40,14 @@ collect`` verbs (``Flyable`` + ``EventCollectable`` + ``Preparable``):
   stops for ``shot_timeout`` — the sampler *counts*, so a gated run needs at
   least one essential triggered device even without a camera.
 - **Stream.**  ``collect`` yields the rows as events of the ``shots``
-  stream (one event per shot; at 1 Hz, no flood).  ``describe_collect`` is
-  the union of the members' descriptions.
+  stream (one event per shot; at 1 Hz, no flood).  The plan collects
+  about once a second **during** the batch, so the scanner's progress
+  moves shot by shot; each ``collect`` yields only the rows not yet
+  yielded, and only those whose frame every *gate* (the step's
+  plugin-backed essentials) already holds — a row, once out, is never a
+  shot the step discards, since a pause keeps exactly the shots every
+  device reached.  ``describe_collect`` is the union of the members'
+  descriptions.
 
 The members are read through their own ``read`` / ``describe`` (a
 ``GeecsDetector`` or its ``.scalars`` view through the detector's scalar
@@ -169,6 +175,10 @@ class ShotSampler:
         each triggered member without a plugin is given *settle_timeout*
         for its own stamp to land within *shot_window* of the clock's;
         one that does not is recorded as ``NaN`` for that shot.
+    gates :
+        The step's plugin-backed essential detectors: a row is collected
+        only once each of them holds that shot's frame
+        (:meth:`~geecs_bluesky.devices.detector.GeecsDetector.frames_this_batch`).
     name :
         The Bluesky object name (the ``shots`` stream's collect object).
     """
@@ -184,10 +194,12 @@ class ShotSampler:
         shot_timeout: float = DEFAULT_SHOT_TIMEOUT,
         settle_timeout: float = SETTLE_TIMEOUT_S,
         shot_window: float = SHOT_WINDOW_S,
+        gates: Sequence[GeecsDetector] = (),
         name: str = "shot_sampler",
     ) -> None:
         self.name = name
         self._members = list(members)
+        self._gates = list(gates)
         self._clock = clock
         self._clock_name = clock_name
         self.shot_timeout = shot_timeout
@@ -237,8 +249,10 @@ class ShotSampler:
         self._task: asyncio.Task[None] | None = None
         self._cancelled = asyncio.Event()
         self._subscribed = False
-        #: Shots sampled in the current step (tests, logs).
+        #: Shots sampled since the last ``prepare`` (tests, logs).
         self.sampled = 0
+        #: Rows ``collect`` has yielded since the last ``prepare``.
+        self.emitted = 0
 
     # ----------------------------------------------------------- protocols
     @property
@@ -262,6 +276,7 @@ class ShotSampler:
             self._quota = quota
             self._rows = []
             self.sampled = 0
+            self.emitted = 0
             self.missed = {}
             self._ticks = asyncio.Queue()
             self._cancelled = asyncio.Event()
@@ -304,20 +319,41 @@ class ShotSampler:
         return await merge_gathered_dicts(describe() for describe in describes)
 
     async def collect(self):
-        """Yield the sampled rows (one event per shot) and forget them."""
-        rows, self._rows = self._rows, []
+        """Yield the rows not yet yielded whose frame every gate holds, and forget them."""
+        ready = len(self._rows)
+        if self._gates:
+            frames = await asyncio.gather(*(g.frames_this_batch() for g in self._gates))
+            ready = min(ready, min(frames) - self.emitted)
+        ready = max(0, ready)
+        rows, self._rows = self._rows[:ready], self._rows[ready:]
+        self.emitted += len(rows)
         for row in rows:
             yield row
 
     def mark_cancelled(self) -> None:
-        """Synchronously: the step is over; the sampling task ends quietly."""
+        """Synchronously: the batch is over; the sampling task ends quietly."""
         self._cancelled.set()
 
-    async def cancel_step(self) -> None:
-        """Abandon the step: stop sampling, drop the rows, settle the task."""
+    async def stop(self) -> None:
+        """End the batch: stop sampling and settle the task; the rows are kept."""
         self.mark_cancelled()
         await self._stop_task()
-        self._rows = []
+
+    def keep(self, shots: int) -> None:
+        """Keep the batch's first *shots* rows (a pause's settle); the rest are dropped.
+
+        Rows already collected are never taken back: *shots* is at least
+        :attr:`emitted` by construction (the plan settles to the shots
+        every device reached, and a row is collected only once every gate
+        holds its frame).
+        """
+        if shots < self.emitted:
+            raise RuntimeError(
+                f"{self.name}: cannot keep {shots} shot(s) — {self.emitted} "
+                "row(s) already went out"
+            )
+        del self._rows[shots - self.emitted :]
+        self.sampled = min(self.sampled, shots)
 
     # ------------------------------------------------------------ internals
     def _on_clock(self, reading: dict[str, Any]) -> None:
