@@ -401,6 +401,50 @@ def test_immediate_pause_mid_batch_retakes_the_step(
     assert shot_control.standing_state == "OFF"
 
 
+def test_immediate_pause_with_a_native_essential_toggles_saving_once(
+    RE: RunEngine, box: GatedBox, shot_control: ShotControl, tmp_path: Path
+) -> None:
+    """The retake path (review finding 2): the native saver is prepared once, before the pause.
+
+    The retaken step keeps writing under the same run-long ``save=on`` —
+    no second prepare, no toggle; the rows are the retake's quota and the
+    save path is constant across the abandoned attempt and the retake.
+    """
+    (tmp_path / "Scan001").mkdir()
+    cam, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.4)
+    native = _camera(RE, box, "UC_Native", tmp_path=tmp_path, shot_timeout=0.4)
+    saves = _saves(native)
+    col = DocCollector()
+    RE.subscribe(col)
+
+    def pause_soon() -> None:
+        while box.edges < 2:
+            time.sleep(0.01)
+        RE.request_pause()
+
+    threading.Thread(target=pause_soon, daemon=True).start()
+    with pytest.raises(RunEngineInterrupted):
+        RE(
+            bp.count(
+                [cam, native],
+                6,
+                per_shot=gated_per_shot(shot_control, quota=6, shot_timeout=0.4),
+            )
+        )
+    assert RE.state == "paused"
+    assert saves == ["off", "on"]  # prepared before the pause, still saving
+    time.sleep(0.2)
+    RE.resume()
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert box.scan_runs == 3, box.states
+    assert saves == ["off", "on", "off"]  # the retake toggled nothing
+    rows = _events_from_pages(col, "shots")
+    assert len(rows) == 6
+    directory = str(tmp_path / "Scan001" / "UC_Native")
+    assert [r["data"]["uc_native-nonscalar_save_path"] for r in rows] == [directory] * 6
+    assert _datums_by_key(col)["uc_a"] == [{"start": 0, "stop": 6}]
+
+
 def test_pause_resumed_inside_the_count_timeout_window_still_retakes(
     RE: RunEngine, tmp_path: Path
 ) -> None:
@@ -435,20 +479,105 @@ def test_pause_resumed_inside_the_count_timeout_window_still_retakes(
     assert rewinds[0] == 0  # the partial frames left the stack before the retake
 
 
-def test_a_native_camera_cannot_be_essential_in_a_gated_step(
+def _saves(device: GeecsDetector) -> list[str]:
+    """Every put to the device's ``save`` control, in order."""
+    from ophyd_async.core import callback_on_mock_put
+
+    puts: list[str] = []
+    callback_on_mock_put(device.save, lambda value, **_: puts.append(value))
+    return puts
+
+
+def _shots_descriptor(col: DocCollector) -> dict:
+    return next(d for d in col.docs["descriptor"] if d["name"] == "shots")
+
+
+def test_a_native_saving_device_is_a_gated_essential_saving_run_long(
     RE: RunEngine, box: GatedBox, shot_control: ShotControl, tmp_path: Path
 ) -> None:
-    """Review of #850 finding 3: the worker refuses it, as the preflight does."""
+    """The 2026-09-25 ruling: no plugin, LabVIEW files as the record — admitted.
+
+    Beside the plugin camera (the clock), the native saver is a sampler
+    member: saving switches on exactly once (the run's first prepare) and
+    off exactly once (unstage); every ``shots`` row carries its scalars,
+    its stamp and its save path as a run-long constant.
+    """
+    (tmp_path / "Scan001").mkdir()
     plugin, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
-    native = _camera(RE, box, "UC_Native", native_save=True)
-    with pytest.raises(GeecsConfigurationError, match="file plugin: UC_Native"):
-        RE(
-            bp.count(
-                [plugin, native], 2, per_shot=gated_per_shot(shot_control, quota=2)
-            )
+    native = _camera(RE, box, "UC_Native", tmp_path=tmp_path)
+    set_mock_value(native.meancounts, 7.0)
+    saves = _saves(native)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(bp.count([plugin, native], 3, per_shot=gated_per_shot(shot_control, quota=3)))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    # stage clears a stale flag, the first prepare switches on, unstage off
+    assert saves == ["off", "on", "off"]
+    directory = tmp_path / "Scan001" / "UC_Native"
+    assert directory.is_dir()
+    rows = _events_from_pages(col, "shots")
+    assert len(rows) == 3
+    assert [r["data"]["uc_native-nonscalar_save_path"] for r in rows] == [
+        str(directory)
+    ] * 3
+    assert [r["data"]["uc_native-meancounts"] for r in rows] == [7.0] * 3
+    stamps = [r["data"]["uc_native-acq_timestamp"] for r in rows]
+    assert stamps == sorted(stamps) and len(set(stamps)) == 3
+    keys = _shots_descriptor(col)["data_keys"]
+    assert keys["uc_native-nonscalar_save_path"]["dtype"] == "string"
+    assert "uc_a-nonscalar_save_path" not in keys  # the plugin camera: its stack
+    assert _datums_by_key(col)["uc_a"] == [{"start": 0, "stop": 3}]
+    assert box.scan_runs == 1 and shot_control.standing_state == "OFF"
+
+
+def test_a_native_essential_keeps_saving_across_the_steps_of_a_gated_scan(
+    RE: RunEngine, box: GatedBox, shot_control: ShotControl, tmp_path: Path
+) -> None:
+    """Three positions, two shots each: one ``save=on``, one ``save=off`` — never per step.
+
+    A toggle costs the device a LabVIEW loop period and the box is OFF
+    between steps, so the saving is run-long by design; with no plugin
+    camera the native saver is the clock and ``primary`` is never declared.
+    """
+    (tmp_path / "Scan001").mkdir()
+    native = _camera(RE, box, "UC_Native", tmp_path=tmp_path)
+    magnet = _magnet(RE)
+    saves = _saves(native)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(
+        bp.scan(
+            [native],
+            magnet,
+            -1.0,
+            1.0,
+            3,
+            per_step=gated_per_step(shot_control, shots_per_step=2),
         )
-    assert box.scan_runs == 0
-    # its scalars-only view is fine: it rides in the sampler
+    )
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert saves == ["off", "on", "off"]
+    assert box.scan_runs == 3
+    assert {d["name"] for d in col.docs["descriptor"]} == {"shots"}
+    rows = _events_from_pages(col, "shots")
+    assert [r["data"]["bin_number"] for r in rows] == [1, 1, 2, 2, 3, 3]
+    assert [r["data"]["u_s1h-current-position"] for r in rows] == pytest.approx(
+        [-1.0, -1.0, 0.0, 0.0, 1.0, 1.0]
+    )
+    directory = str(tmp_path / "Scan001" / "UC_Native")
+    assert [r["data"]["uc_native-nonscalar_save_path"] for r in rows] == [directory] * 6
+    stamps = [r["data"]["uc_native-acq_timestamp"] for r in rows]
+    assert stamps == sorted(stamps) and len(set(stamps)) == 6
+
+
+def test_a_native_devices_scalars_view_saves_nothing_in_a_gated_run(
+    RE: RunEngine, box: GatedBox, shot_control: ShotControl, tmp_path: Path
+) -> None:
+    """``save_images: false``: the view rides in the sampler, the owner writes nothing."""
+    (tmp_path / "Scan001").mkdir()
+    plugin, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+    native = _camera(RE, box, "UC_Native", tmp_path=tmp_path)
+    saves = _saves(native)
     col = DocCollector()
     RE.subscribe(col)
     RE(
@@ -457,13 +586,22 @@ def test_a_native_camera_cannot_be_essential_in_a_gated_step(
         )
     )
     assert col.docs["stop"][-1]["exit_status"] == "success"
-    assert "uc_native-meancounts" in _events_from_pages(col, "shots")[0]["data"]
+    assert "on" not in saves
+    assert not (tmp_path / "Scan001" / "UC_Native").exists()
+    rows = _events_from_pages(col, "shots")
+    assert "uc_native-meancounts" in rows[0]["data"]
+    assert "uc_native-nonscalar_save_path" not in rows[0]["data"]
 
 
 def test_gated_quota_one_is_a_fly_prepare_without_native_saving(
     RE: RunEngine, box: GatedBox, shot_control: ShotControl, tmp_path: Path
 ) -> None:
-    """Review of #850 finding 2: shots_per_step=1 (the default) must not switch save=on."""
+    """Review of #850 finding 2: shots_per_step=1 (the default) must not switch save=on.
+
+    A plugin-backed camera in a gated run never saves natively (the stack
+    is its record; the #738 dual-write is strict-only) — whatever the
+    2026-09-25 ruling admits for a device *without* a plugin.
+    """
     from ophyd_async.core import StaticFilenameProvider, StaticPathProvider
 
     (tmp_path / "Scan001").mkdir()
@@ -510,6 +648,10 @@ def test_gated_quota_one_is_a_fly_prepare_without_native_saving(
         {"start": 0, "stop": 1},
         {"start": 1, "stop": 2},
     ]
+    assert not (tmp_path / "Scan001" / "UC_Both").exists()
+    assert not any(
+        k.endswith("-nonscalar_save_path") for k in _shots_descriptor(col)["data_keys"]
+    )
 
 
 # --------------------------------------------------------- bound plans / md
@@ -719,14 +861,24 @@ def _all_off_scope(
     Since gating moved to the DB (``geecs_core.db.device_streams``), the
     namespace filters the disabled channels out before construction — so an
     all-off scope reaches the plan layer with **no** file plugins, exactly
-    like a camera that never had one. There is nothing left to latch.
+    like a camera that never had one. There is nothing left to latch.  With
+    *native_save* it carries the namespace's path provider, as a
+    native-saving device does.
     """
+    from ophyd_async.core import StaticFilenameProvider, StaticPathProvider
+
+    provider = (
+        StaticPathProvider(StaticFilenameProvider("f"), tmp_path / "Scan001" / "U_ICT")
+        if native_save
+        else None
+    )
     ict = GeecsDetector(
         "U_ICT",
         ["MeanCounts"],
         experiment="TestExp",
         name="u_ict",
         native_save=native_save,
+        path_provider=provider,
         hdf_plugins=[],
     )
     connect_mock(RE, ict)
@@ -734,26 +886,35 @@ def _all_off_scope(
     return ict
 
 
-def test_a_native_saving_scope_with_every_channel_off_is_refused_by_name(
+def test_a_native_saving_scope_with_every_channel_off_is_a_native_essential(
     RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path
 ) -> None:
-    """Every channel disabled leaves no plugin, so a gated batch cannot count it.
+    """Every channel disabled leaves no plugin: the scope saves natively, run-long.
 
-    The refusal is deliberate (owner's call): a scope with nothing enabled
-    has nothing to record, and a gated run that silently carried it would
-    hide a config mistake. What matters is that the message names the real
-    cause — "every capture channel disabled" — and not just "no file
-    plugin", which is what an operator would otherwise have to guess at.
+    The 2026-09-25 ruling supersedes the refusal this test used to pin: a
+    device without a file plugin is a gated essential exactly as strict
+    treats it — the plugin count is a convenience, not what makes a batch —
+    and an all-off scope with LabVIEW saving controls is one of them.  The
+    plugin camera clocks the batch; the scope's save path rides in every
+    ``shots`` row.
     """
+    (tmp_path / "Scan001").mkdir()
     a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
     ict = _all_off_scope(RE, tmp_path, native_save=True)
+    box.cameras.append(ict)
     assert ict.native_save and not ict.plugin_backed
+    saves = _saves(ict)
+    col = DocCollector()
+    RE.subscribe(col)
     count = bind_plans(profiles)["count"]
-    with pytest.raises(GeecsConfigurationError) as excinfo:
-        RE(count([a, ict], 2, acquisition="gated"))
-    message = str(excinfo.value)
-    assert "U_ICT" in message
-    assert "disabled" in message and "channels" in message
+    RE(count([a, ict], 2, acquisition="gated"))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert col.docs["start"][0]["shot_clock"] == "UC_A"
+    assert saves == ["off", "on", "off"]
+    rows = _events_from_pages(col, "shots")
+    assert [r["data"]["u_ict-nonscalar_save_path"] for r in rows] == [
+        str(tmp_path / "Scan001" / "U_ICT")
+    ] * 2
 
 
 def test_non_essential_wrapper_without_flyers_is_the_plan(
@@ -783,19 +944,46 @@ def test_scalars_view_essential_with_its_owner_non_essential_is_refused(
     assert box.fires == 0
 
 
-def test_native_essential_is_refused_before_the_run_opens(
+def test_the_bound_gated_plan_admits_a_native_essential_and_lets_it_clock(
     RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path
 ) -> None:
-    """Review of #850 R1: the bound plan refuses at bind time — no run, no claim, no move."""
+    """The refusal of #850 R1 is gone (2026-09-25 ruling): bind time admits it.
+
+    Alone with a gauge the native saver is the shot clock (it has a stamp),
+    named in the start document as any triggered device would be; beside a
+    plugin camera that camera clocks and the native saver still saves.
+    """
+    (tmp_path / "Scan001").mkdir()
+    native = _camera(RE, box, "UC_Native", tmp_path=tmp_path)
+    gauge = CaSnapshotReadable(
+        "U_Gauge", ["Pressure"], experiment="TestExp", name="u_gauge"
+    )
+    connect_mock(RE, gauge)
+    set_mock_value(gauge.pressure, 1e-6)
+    count = bind_plans(profiles)["count"]
+    col = DocCollector()
+    token = RE.subscribe(col)
+    RE(count([native, gauge], 4, acquisition="gated"))
+    start = col.docs["start"][0]
+    assert start["acquisition"] == "gated" and start["shot_clock"] == "UC_Native"
+    assert start["shot_clock_column"] == "uc_native-acq_timestamp"
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    rows = _events_from_pages(col, "shots")
+    assert len(rows) == 4
+    assert [r["data"]["u_gauge-pressure"] for r in rows] == [1e-6] * 4
+    directory = str(tmp_path / "Scan001" / "UC_Native")
+    assert [r["data"]["uc_native-nonscalar_save_path"] for r in rows] == [directory] * 4
+    assert box.states[0] == "off" and profiles.resolve(None).standing_state == "STANDBY"
+    RE.unsubscribe(token)
+
     plugin, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
-    native = _camera(RE, box, "UC_Native", native_save=True)
     col = DocCollector()
     RE.subscribe(col)
-    count = bind_plans(profiles)["count"]
-    with pytest.raises(GeecsConfigurationError, match="file plugin: UC_Native"):
-        RE(count([plugin, native], 2, acquisition="gated"))
-    assert col.docs["start"] == []  # refused before open_run
-    assert box.states == []  # the box was never driven
+    RE(count([native, plugin], 2, acquisition="gated"))
+    assert col.docs["start"][0]["shot_clock"] == "UC_A"
+    rows = _events_from_pages(col, "shots")
+    assert [r["data"]["uc_native-nonscalar_save_path"] for r in rows] == [directory] * 2
+    assert _datums_by_key(col)["uc_a"] == [{"start": 0, "stop": 2}]
 
 
 def test_non_essential_that_fails_at_the_close_does_not_fail_the_run(

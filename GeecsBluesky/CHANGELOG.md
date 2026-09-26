@@ -6,6 +6,75 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.105.0] - 2026-09-25
+
+### Changed
+
+- **A gated run admits a LabVIEW-native saving device without a file
+  plugin as an essential** (owner's ruling, 2026-09-25; scan-efficiency
+  arc, slice 2a). The row is the stamp and the files follow by stamp,
+  exactly as strict treats such a device — the plugin count is a
+  convenience, not what makes a batch. `GeecsDetector` admits a fly
+  prepare on a device with no plugin as run-long native saving: its
+  `LvNativeFileDataLogic` is the one logic of that prepare
+  (`_flies`), so `describe`/`read` are the `-nonscalar_save_path` column
+  alone; a *bounded* batch there is still refused ("cannot count a batch
+  of N"), and so is a fly prepare on a device with neither a plugin nor
+  saving controls. `gated_take_reading` prepares the step's native
+  essentials (`gated.native_essentials`) **once**, at the run's first
+  step, with `UNBOUNDED_TRIGGER_INFO` — the device's own lifecycle
+  switches saving on then and off at `unstage`, never per step (a toggle
+  costs the device one LabVIEW loop period; the box is OFF between
+  steps). `ShotSampler` records such a member's prepared reading beside
+  its scalars and stamp, so every `shots` row carries its save path as a
+  run-long constant (an additive column convention — `EVENT_SCHEMA.md`,
+  no version bump); it may be the shot clock as any triggered device. A
+  dropped frame from it is a missing file, **no retake**. The
+  plugin-backed cameras of a gated run still write no native files (the
+  #738 dual-write stays strict-only); a `.scalars` view still saves
+  nothing.
+- **`ShotSampler` reads a stamped member for its own shot, never the
+  previous one** (found on Scan015 of 26_0925, the first gated count with
+  the HASO essential: its stamp lands ~40 ms after the clock's, and a
+  reading taken at the tick carried the previous shot's stamp in every
+  row — the first row stale, the last frame an orphan, the files joined
+  one row late). A member with a stamp of its own (a triggered device
+  without a plugin, or its view) is now given `SETTLE_TIMEOUT_S` (1.5 s — measured 26_0925: the cameras' stamp PVs reach the worker within 40 ms of the frame, the HASO's 0.89–0.96 s with saving on during a batch)
+  for its cached stamp to fall within `SHOT_WINDOW_S` (0.5 s) of the
+  clock's before it is read; one that does not make it missed the shot —
+  its numeric columns read `NaN` (a string column, the save path, stays),
+  `ShotSampler.missed` counts it, the log says so once per member and
+  once at the step's end. Unstamped members and the clock device's own
+  scalars are read at the tick as before. A pre-existing gated-mode
+  property for every sampled triggered device slower than the clock; it
+  mattered once files joined by that stamp.
+- **`StackCheckCallback` matches a native essential's files to the
+  rows.** At the stop of a gated run, for each `-nonscalar_save_path`
+  column of the `shots` rows, every row's own `<owner>-acq_timestamp` is
+  matched against the files in that directory through the naming
+  contract (`geecs_data_utils.native_files.native_file_keys`, the
+  `%.3f` stamp in the name with the tail left to the device — a per-shot
+  sidecar rides with its shot, an Explorer `Thumbs.db` is nobody's file),
+  waiting, bounded by `finalize_timeout`, for every row's file first
+  (there is no write-complete readback). One `native files check` line is
+  appended to `scan.log` beside the stack verdicts: INFO when every row
+  has its file and no file stamp is without a row, WARNING otherwise —
+  rows without a file (a dropped frame) and file stamps with no row (a
+  retaken step's, an in-flight edge's) counted **separately** so neither
+  hides the other (review finding 1); never a failure. Requires
+  geecs-data-utils 0.42.0.
+
+### Removed
+
+- `plans.gated.refuse_native_essentials`, its bind-time call in
+  `strict_plan`, and the preflight's "gated acquisition: native-saving
+  device(s) without a file plugin" refusal (`acquisition_refusal`). The
+  non-essential-without-a-plugin rule is untouched (slice 2b's), and so
+  is the shot-clock rule. An all-off scope (every capture channel
+  disabled in the DB) is no longer refused by name in a gated run: with
+  saving controls it is a native-saving essential, without them a plain
+  triggered clock device.
+
 ## [0.104.0] - 2026-09-25
 
 ### Changed

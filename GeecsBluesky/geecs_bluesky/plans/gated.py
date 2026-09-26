@@ -9,13 +9,17 @@ exact by construction, because arming precedes the edges and the frames
 are counted by the thing that writes them.
 
 Per step (after ``move_per_step``), for *D* = the plugin-backed essential
-detectors, *S* = the per-shot sampler over every other device of the step
-(:class:`~geecs_bluesky.devices.sampler.ShotSampler`), and the box *B*::
+detectors, *N* = the LabVIEW-native saving essentials (no plugin; their
+files are their record, exactly as in strict — :func:`native_essentials`),
+*S* = the per-shot sampler over every other device of the step, *N*
+included (:class:`~geecs_bluesky.devices.sampler.ShotSampler`), and the
+box *B*::
 
     mv(B, OFF)                                   # the step opens quiet — also after a
                                                  #   resume, which restored SCAN first
-    if the run's first step:                     # arm, then zero the plugin's stale count
-        prepare(D); wait_for(D.zero_count)
+    if the run's first step:
+        prepare(N, unbounded)                    # saving on, run-long (off at unstage)
+        prepare(D); wait_for(D.zero_count)       # arm, then zero the plugin's stale count
     if repeating (an immediate pause interrupted the step):
         sleep(period + max drain + margin)       # the in-flight frame lands
         wait_for(D.rewind_to_step_baseline)      # the partial frames leave the stacks
@@ -34,10 +38,13 @@ detectors, *S* = the per-shot sampler over every other device of the step
 
 Two streams per gated run: ``primary`` carries the frames and their
 per-frame attributes (a datum stream, no events); ``shots`` carries one
-event per shot with the clock stamp, the motors' readbacks, ``bin_number``
-and every non-plugin scalar.  With no plugin-backed camera *D* is empty
-and the sampler alone gates the step; a run with no essential triggered
-device at all is refused ("nothing counts shots; use strict").
+event per shot with the clock stamp, the motors' readbacks, ``bin_number``,
+every non-plugin scalar and each native-saving essential's
+``-nonscalar_save_path`` (a run-long constant; its files join by stamp, a
+dropped frame is a missing file and never a retake).  With no plugin-backed
+camera *D* is empty and the sampler alone gates the step — a native-saving
+essential clocks it as any triggered device does; a run with no essential
+triggered device at all is refused ("nothing counts shots; use strict").
 
 **Pause** (Sam, 2026-09-12): the step body is not rewindable and holds no
 checkpoint, so a *deferred* pause lands between steps (the stock
@@ -150,40 +157,24 @@ def shot_clock(devices: Sequence[Any]) -> tuple[Any, str]:
     )
 
 
-def refuse_native_essentials(devices: Sequence[Any]) -> None:
-    """Refuse a LabVIEW-native saving device as an essential of a gated run.
+def native_essentials(devices: Sequence[Any]) -> list[GeecsDetector]:
+    """The LabVIEW-native saving essentials of a gated step: no plugin, saving controls.
 
-    The preflight's rule, worker-side: a gated batch counts frames the
-    plugin writes, and a device that saves natively without one (a
-    LabVIEW-native camera, a DAQ with its own file writer) can neither
-    count nor stream.
-    Called by the bound plan at bind time (before the run is claimed or
-    anything moves) and by the step itself.
-
-    Raises
-    ------
-    GeecsConfigurationError
-        Naming the cameras.
+    A device without a file plugin — a LabVIEW-native camera, a DAQ or a
+    wavefront sensor with its own file writer, a gated devicetype whose
+    every capture channel is disabled in the DB — is an essential of a
+    gated run exactly as strict treats it (2026-09-25 ruling): its row is
+    the sampler's and its files follow by stamp; the plugin count is a
+    convenience, not what makes a batch.  The plan prepares these **once**,
+    at the run's first step, unbounded: the device's own lifecycle switches
+    LabVIEW's saving on then and off at ``unstage``.  A ``.scalars`` view
+    is never one — the view leaves its owner's data logics unprepared.
     """
-    # A device with no file plugin: it has none at all, or — for a gated
-    # devicetype — every one of its capture channels is disabled in the DB,
-    # which leaves it with none.  Both are refused here and the message says
-    # so, because a gated batch counts frames the plugin writes.
-    native = [
+    return [
         d
         for d in devices
         if isinstance(d, GeecsDetector) and d.native_save and not d.plugin_backed
     ]
-    if native:
-        names = ", ".join(d._geecs_device_name for d in native)
-        raise GeecsConfigurationError(
-            f"gated acquisition: native-saving device(s) without a file plugin: "
-            f"{names} — a gated batch counts frames the plugin writes; a "
-            "device saving through LabVIEW cannot. A gated devicetype (a "
-            "scope) also lands here when every one of its capture channels "
-            "is disabled in the DB. Use acquisition='strict', enable a "
-            "channel, or record its scalars only (save_images: false)."
-        )
 
 
 def gated_take_reading(
@@ -222,7 +213,7 @@ def gated_take_reading(
             d for d in devices if isinstance(d, GeecsDetector) and d.plugin_backed
         ]
         members = [d for d in devices if d not in plugin]
-        refuse_native_essentials(members)
+        native = native_essentials(members)
         sampler = state["sampler"]
         if sampler is None:
             clock, clock_name = shot_clock(devices)
@@ -253,6 +244,22 @@ def gated_take_reading(
                 yield from bps.sleep(drain)
                 if attempt > 1 and plugin:
                     yield from bps.wait_for([d.rewind_to_step_baseline for d in plugin])
+            if native and first_step and attempt == 1:
+                # The native-saving essentials: ONE prepare per run, here,
+                # with the box quiet — the device's lifecycle switches
+                # LabVIEW's saving on for the run (off at unstage).  Never
+                # per step: a toggle costs the device one LabVIEW loop
+                # period, and between steps the box is OFF so a well-behaved
+                # device writes nothing.  Nothing waits on them: a dropped
+                # frame is a missing file, not a retake (as the LabVIEW
+                # scanner had it for years).  They are sampler members: the
+                # row carries their scalars, their stamp and the save path.
+                group = short_uid("gated-native")
+                for d in native:
+                    yield from bps.prepare(
+                        d, UNBOUNDED_TRIGGER_INFO, group=group, wait=False
+                    )
+                yield from bps.wait(group=group)
             info = gated_trigger_info(quota, exposure_timeout=shot_timeout)
             if plugin and first_step and attempt == 1:
                 # The run's first arm: the plugin's NumCaptured_RBV still
@@ -575,8 +582,8 @@ __all__ = [
     "gated_per_shot",
     "gated_per_step",
     "gated_take_reading",
+    "native_essentials",
     "non_essential_wrapper",
-    "refuse_native_essentials",
     "run_bracket",
     "shot_clock",
 ]

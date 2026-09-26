@@ -468,22 +468,37 @@ class TestAcquisitionRules:
         )
         assert self._refusal(preset, engine) is None  # strict + a plugin stream
 
-    def test_gated_essential_camera_needs_the_plugin(self, engine):
+    def test_gated_admits_a_native_saving_essential(self, engine):
+        """The 2026-09-25 ruling: a device without a plugin is a gated essential.
+
+        Beside a plugin camera, alone (it clocks the batch: it has a stamp),
+        or scalars-only — none is refused.  As a *non-essential* it still is
+        (the non-essential rule above is slice 2b's, untouched).
+        """
+        gated = {"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}}
         preset = _preset(
-            devices=[{"device": "UC_Native"}, {"device": "UC_Plugin"}],
-            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
+            devices=[{"device": "UC_Native"}, {"device": "UC_Plugin"}], plan=gated
         )
-        refusal = self._refusal(preset, engine)
-        assert refusal and "gated" in refusal and "UC_Native" in refusal
-        # its scalars only: legal (it rides in the sampler)
+        assert self._refusal(preset, engine) is None
+        preset = _preset(devices=[{"device": "UC_Native"}], plan=gated)
+        assert self._refusal(preset, engine) is None
         preset = _preset(
             devices=[
                 {"device": "UC_Native", "save_images": False},
                 {"device": "UC_Plugin"},
             ],
-            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
+            plan=gated,
         )
         assert self._refusal(preset, engine) is None
+        preset = _preset(
+            devices=[
+                {"device": "UC_Plugin"},
+                {"device": "UC_Native", "essential": False},
+            ],
+            plan=gated,
+        )
+        refusal = self._refusal(preset, engine)
+        assert refusal and "non-essential" in refusal and "UC_Native" in refusal
 
     def test_gated_needs_a_shot_clock(self, engine):
         preset = _preset(

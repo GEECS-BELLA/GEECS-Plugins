@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -794,6 +795,22 @@ class StackCheckCallback(_StreamCallback):
       count alone — a non-essential camera's frame for shot *k* may land
       during *k+1* and an orphan there is normal, not a defect.
 
+    A gated run's **native-saving essentials** (no plugin; their LabVIEW
+    files are their record, 2026-09-25 ruling) get a files-versus-rows
+    line of their own: the sampler writes each one's
+    ``-nonscalar_save_path`` column into every ``shots`` row as a run-long
+    constant, and every row's own stamp (``<owner>-acq_timestamp``) is
+    matched against the files in that directory by the naming contract
+    (``geecs_data_utils.native_files``: ``{stem}_{stamp:.3f}{tail}``, the
+    tail the device's — so the listing is keyed by stamp, a per-shot
+    sidecar rides with its shot and an Explorer ``Thumbs.db`` is nobody's
+    file) — waiting, bounded, for every row's file first (there is no
+    write-complete readback; the last file lands a LabVIEW loop period
+    after the last edge).  Rows without a file (a dropped frame — a
+    missing file, no retake) and file stamps with no row (a retaken step's,
+    an in-flight edge's) are counted **separately**, so neither hides the
+    other: WARNING on either, never a failure.
+
     The stop document precedes ``unstage`` (``Capture=0``, when the plugin
     finalizes and closes the file), and a run callback must not block the
     RunEngine — so the check runs on a small thread that waits, bounded,
@@ -877,6 +894,69 @@ class StackCheckCallback(_StreamCallback):
                 stack.width,
                 self.finalize_timeout,
             )
+        if gated:
+            # The sampler's rows.  Stream-agnostic below this line: a strict
+            # run's ``primary`` carries the same column with the same
+            # semantics, and the day the strict line is wanted this reads
+            # ``run.row_stream()`` instead (a partial strict row — a missed
+            # shot, NaN stamp — would then count as a row without a file,
+            # which it is).
+            rows = run.stream_rows(SHOTS_STREAM)
+            for owner, directory, stamps in _native_save_dirs(dict(start), rows):
+                self.spawn(
+                    f"native-files[{owner}]",
+                    self._check_native_files,
+                    dict(start),
+                    owner,
+                    directory,
+                    stamps,
+                    self.finalize_timeout,
+                )
+
+    @staticmethod
+    def _check_native_files(
+        start: Mapping[str, Any],
+        owner: str,
+        directory: Path,
+        stamps: Sequence[float],
+        timeout: float,
+    ) -> None:
+        """Match the rows' *stamps* against the native files in *directory*.
+
+        Waits, bounded by *timeout*, for every row to have its file (the
+        device writes a LabVIEW loop period behind the edge); then one
+        line, WARNING on a row without a file or a file stamp with no row
+        — never a failure.
+        """
+        from geecs_data_utils.native_files import native_file_keys
+
+        deadline = time.monotonic() + timeout
+        while True:
+            keys = native_file_keys(directory)
+            claimed, missing = _match_stamps(stamps, keys)
+            if not missing or time.monotonic() >= deadline:
+                break
+            time.sleep(0.5)
+        rows = len(stamps)
+        orphans = len(set(keys) - claimed)
+        if not directory.is_dir():
+            message = f"{owner}: native directory {directory} missing"
+            message += f" but {rows} shots row(s)" if rows else ""
+            warning = bool(rows)
+        elif not missing and not orphans:
+            message = (
+                f"{owner}: {rows} shots row(s), each with a native file in "
+                f"{directory.name}/"
+            )
+            warning = False
+        else:
+            message = (
+                f"{owner}: {rows - len(missing)} of {rows} shots row(s) have a "
+                f"native file in {directory.name}/ — MISMATCH ({len(missing)} "
+                f"row(s) without a file, {orphans} file stamp(s) with no row)"
+            )
+            warning = True
+        _stack_verdict(start, message, warning=warning, kind="native files check")
 
     @staticmethod
     def _check(
@@ -1024,7 +1104,78 @@ def _shot_stamps(
     )
 
 
-def _stack_verdict(start: Mapping[str, Any], message: str, *, warning: bool) -> None:
+def _match_stamps(
+    stamps: Sequence[float], keys: Mapping[int, Any]
+) -> tuple[set[int], list[int]]:
+    """``(claimed file keys, indices of rows without a file)`` for *stamps* over *keys*.
+
+    A row claims the file rendering its stamp (``timestamp_key``, probed
+    with the ``%.3f`` rounding neighbours — a canonicalisation, never a
+    tolerance window); a row with no stamp (``NaN``) claims nothing.
+    """
+    import math
+
+    from geecs_data_utils.native_files import timestamp_key, timestamp_key_candidates
+
+    claimed: set[int] = set()
+    missing: list[int] = []
+    for index, stamp in enumerate(stamps):
+        hit = None
+        if not math.isnan(stamp):
+            for candidate in timestamp_key_candidates(timestamp_key(stamp)):
+                if candidate in keys:
+                    hit = candidate
+                    break
+        if hit is None:
+            missing.append(index)
+        else:
+            claimed.add(hit)
+    return claimed, missing
+
+
+def _native_save_dirs(
+    start: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]
+) -> list[tuple[str, Path, list[float]]]:
+    """``(owner, directory, the rows' stamps)`` per native-saving device of *rows*.
+
+    The device's ``-nonscalar_save_path`` column is a run-long constant
+    (``EVENT_SCHEMA.md``); a column that is not constant is reported as a
+    defect of its own and its first value is checked.  The stamps are the
+    rows' own ``<owner>-acq_timestamp`` (``NaN`` where a row has none).
+    """
+    from geecs_bluesky.devices.detector import ACQ_TIMESTAMP, LvNativeFileDataLogic
+
+    suffix = LvNativeFileDataLogic.datakey_suffix
+    out: list[tuple[str, Path, list[float]]] = []
+    for column in sorted({c for row in rows for c in row if c.endswith(suffix)}):
+        owner = column[: -len(suffix)]
+        values = [str(row[column]) for row in rows if row.get(column)]
+        if not values:
+            continue
+        if len(set(values)) > 1:
+            _stack_verdict(
+                start,
+                f"{owner}: {column} is not constant over the rows "
+                f"({len(set(values))} values); checking {values[0]}",
+                warning=True,
+                kind="native files check",
+            )
+        stamp_column = f"{owner}-{ACQ_TIMESTAMP}"
+        stamps = [_as_float(row.get(stamp_column)) for row in rows]
+        out.append((owner, Path(values[0]), stamps))
+    return out
+
+
+def _as_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+def _stack_verdict(
+    start: Mapping[str, Any], message: str, *, warning: bool, kind: str = "stack check"
+) -> None:
     """Log the verdict and append it to the run's ``scan.log`` (already closed)."""
     scan = start.get("scan_number")
     line = f"scan {scan}: {message}"
@@ -1038,7 +1189,7 @@ def _stack_verdict(start: Mapping[str, Any], message: str, *, warning: bool) -> 
             with log_path.open("a", encoding="utf-8") as fh:
                 stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 level = "WARNING" if warning else "INFO"
-                fh.write(f"{stamp} {level} stack check: {message}\n")
+                fh.write(f"{stamp} {level} {kind}: {message}\n")
     except OSError:
         logger.debug(
             "could not append the stack verdict to %s", log_path, exc_info=True

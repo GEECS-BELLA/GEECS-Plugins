@@ -27,7 +27,7 @@ adds (phase 1 PR 2):
 | `geecs_scalar_headers` | `scalar_headers` preprocessor | Event key → legacy `Device Variable` header for every staged device (the s-file and the browser's display names) |
 | `shot_clock` / `shot_clock_column` | the bound plan (gated) | The device whose `acq_timestamp` is the shot id, and the row column carrying it — what the s-file's join keys on |
 | `trigger_profile` | the bound plan | The trigger profile that drove the shots |
-| `native_image_save` | the bound plan | The run's LabVIEW-files **switch** — the preset's value, else the experiment default (#738) — not a record of what was written. It reaches a plugin-backed camera only as a strict full detector (a `.scalars` view, a non-essential stream and a gated batch write no native files whatever it says; a camera without a file plugin always writes them). Whether a camera wrote is the presence of its `<det>-nonscalar_save_path` column |
+| `native_image_save` | the bound plan | The run's LabVIEW-files **switch** — the preset's value, else the experiment default (#738) — not a record of what was written. It reaches a plugin-backed camera only as a strict full detector (a `.scalars` view, a non-essential stream and a gated batch's plugin-backed cameras write no native files whatever it says; a device without a file plugin always writes them, as a strict detector or a gated essential). Whether a device wrote is the presence of its `<det>-nonscalar_save_path` column, in `primary` (strict) or `shots` (gated) |
 | `shots_per_step` | the bound plan | Rows per position (`1` for `count`, whose `num` is the shot count) |
 | `description`, `background` | the client (`md`) | The preset's description (ScanInfo's `ScanStartInfo`) and background flag |
 | `geecs` | the client (`md`) | Provenance only: `{preset, submission}` — never a worker instruction |
@@ -115,7 +115,22 @@ non-plugin subscribed signal, the scanned motors' readbacks,
 `bin_number`, and the clock device's `acq_timestamp`, which is the shot id
 the sampler ticked on.  A plugin-backed camera's own scalars are **not**
 repeated here; they ride in its stack as per-frame attributes
-(`<ophyd>-hdf-<variable>-<scalar>`, GeecsPvaGateway >= 0.9).
+(`<ophyd>-hdf-<variable>-<scalar>`, GeecsPvaGateway >= 0.9).  A member
+with a stamp of its own (a triggered device without a plugin, or its
+view) is read once its `<det>-acq_timestamp` lands within half a period
+of the clock's, not at the tick (its stamp lands after the clock's
+whenever its device is slower); on a shot it missed, its numeric columns
+read **`NaN`** and its `<det>-acq_timestamp` is `NaN` too — never the
+previous shot's values (Scan015 of 26_0925 recorded every HASO row one
+frame late before this rule).  A string column of such a member (the
+save path below) is a run-long constant and stays.
+
+| Column | Meaning |
+|---|---|
+| `<det>-nonscalar_save_path` | A **native-saving essential**'s save directory (a device without a file plugin — a LabVIEW-native camera, a DAQ or wavefront sensor with its own file writer, a scope with every capture channel disabled; admitted as a gated essential 2026-09-25): the same companion column a strict row carries, here a **run-long constant** — LabVIEW's saving is switched on at the run's first prepare and off at `unstage`, never per step. Its scalars and its own `<det>-acq_timestamp` ride in the row like any non-plugin device's (it may be the clock). Its files are named by that stamp and join by it (`geecs_data_utils.native_files`); a shot on which it dropped a frame is a row with no file — **no retake**, as the LabVIEW scanner had it. The stack check matches every row's stamp to a file in that directory at the stop (`geecs_data_utils.native_files.native_file_keys`) and appends a `native files check` line to `scan.log` — rows without a file and file stamps without a row counted apart (WARNING on either, never a failure). Absent for a plugin-backed camera (its stack is its record) and for a `.scalars` view |
+
+An additive column convention, not a schema change: a reader that never
+looked for the column in `shots` sees the rows it saw before.
 
 The s-file of such a run is the `shots` rows with each stack's per-frame
 columns joined on by offset-corrected stamp

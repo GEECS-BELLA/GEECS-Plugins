@@ -38,7 +38,6 @@ from geecs_bluesky.plans.gated import (
     gated_per_shot,
     gated_per_step,
     non_essential_wrapper,
-    refuse_native_essentials,
     run_bracket,
     shot_clock,
 )
@@ -221,9 +220,11 @@ def native_image_save_wrapper(
     - a ``.scalars`` view is skipped: the view leaves its owner's data
       logics unprepared (``GeecsDetectorScalars``), so the owner writes
       nothing either way;
-    - a fly prepare (a gated batch, a non-essential stream) leaves the
-      native logic out of the context, so the bound plan applies this
-      wrapper to strict runs only and never passes ``non_essential``.
+    - a fly prepare (a gated batch, a non-essential stream) leaves a
+      plugin-backed camera's native logic out of the context — and a gated
+      run's native-saving essential (no plugin) keeps its files as its only
+      record — so the bound plan applies this wrapper to strict runs only
+      and never passes ``non_essential``.
 
     Restored to the construction default — on, the dual-write — by a
     ``finalize_wrapper``, success, abort or stop alike.  ``RE.halt()``
@@ -362,7 +363,6 @@ def strict_plan(
         if shot_period is not None:
             md["shot_period"] = shot_period
         if acquisition == "gated":
-            refuse_native_essentials(detectors)  # before the claim, before any move
             clock, clock_name = shot_clock(detectors)
             md["shot_clock"] = clock_name
             # The row COLUMN as well as the device: the s-file writer and the
@@ -401,8 +401,10 @@ def strict_plan(
             kwargs[hook] = geecs_per_shot(shot_control, shot_period=shot_period)
         inner = non_essential_wrapper(stock(*args, md=md, **kwargs), non_essential)
         if acquisition == "strict":
-            # A gated batch is a fly prepare: the native logic is left out
-            # of the context, so there is nothing to switch (nor to log).
+            # A gated batch is a fly prepare: a plugin-backed camera's native
+            # logic is left out of the context and a native-saving essential
+            # (no plugin) saves whatever the switch says, so there is nothing
+            # to switch (nor to log).
             inner = native_image_save_wrapper(inner, detectors, native_files)
         opening = TriggerState.OFF if acquisition == "gated" else TriggerState.ARMED
         # Before the first move, before the claim (#852).
@@ -497,7 +499,10 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
         "        'strict' (default) fires the box once per row; 'gated' lets it\n"
         "        free-run while the plugin-backed cameras count a batch — the\n"
         "        run is bracketed OFF → STANDBY, frames go to 'primary' as datums\n"
-        "        and one 'shots' event per shot carries everything else.\n"
+        "        and one 'shots' event per shot carries everything else.  A\n"
+        "        device without a file plugin saves its LabVIEW files run-long\n"
+        "        (on at the first step, off at unstage); a dropped frame is a\n"
+        "        missing file, never a retake.\n"
         "    non_essential : list of devices, optional\n"
         "        Plugin-backed detectors streamed for the run's duration, each in\n"
         "        its own '<name>_stream'; never waited on.\n"

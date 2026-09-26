@@ -36,6 +36,11 @@ or to match it — so every consumer is a reader joining rows to files:
   millisecond key, the dual-write evidence behind PNG retirement (#738).
 - ``geecs_data_utils.io.scan_stack`` — the same key, in this package, to
   find a stack frame by a row's stamp.
+- ``geecs_bluesky.callbacks`` (GeecsBluesky) — the *close-out* side: the
+  stack check's files-versus-rows line for a gated run's native-saving
+  essential, matching the ``shots`` rows' stamps against the directory's
+  listing (:func:`native_file_keys`) — the tail is the device's to choose,
+  so the listing is keyed by stamp alone.
 
 Millisecond canonicalization
 ----------------------------
@@ -70,6 +75,7 @@ __all__ = [
     "native_file_name_from_key",
     "native_file_path",
     "probe_native_file",
+    "native_file_keys",
     "timestamp_key",
     "timestamp_key_candidates",
     "filename_timestamp_regex",
@@ -114,6 +120,52 @@ def probe_native_file(
         if candidate.exists():
             return candidate
     return None
+
+
+#: A rendered stamp in a native filename — ``_{acq_timestamp:.3f}`` followed
+#: by the tail (never another digit): the contract's shape with the tail
+#: left open, for a reader that has the directory but not the tail.  The
+#: stamp precedes the tail, so the **last** such token in the name is the
+#: stamp — a stem carrying one of its own (``U_Spec_2.500um_…``) is not.
+_ANY_TAIL_TIMESTAMP = re.compile(r"_(?P<ts>\d+\.\d{3})(?!\d)")
+
+
+def native_file_keys(directory: Path) -> dict[int, list[Path]]:
+    """List the native files of *directory* keyed by their filename's millisecond stamp.
+
+    The listing-side complement of :func:`probe_native_file` for a reader
+    that knows the directory but not the device's file tail (the close-out
+    check of a scan: the tail is the device server's choice).  Every file
+    whose name renders a stamp (``{stem}_{acq_timestamp:.3f}{tail}``) lands
+    under :func:`timestamp_key` of that stamp; a device that writes a
+    sidecar per shot (a wavefront sensor's ``.himg`` + ``.has``) lists both
+    under one key, and a file with no rendered stamp in its name (an
+    Explorer ``Thumbs.db``, a stray note) is not a native file and is left
+    out.  A missing directory lists nothing.
+
+    Parameters
+    ----------
+    directory : Path
+        The device folder holding the native files.
+
+    Returns
+    -------
+    dict of int to list of Path
+        Millisecond key → the files rendering that stamp, in listing order.
+    """
+    keys: dict[int, list[Path]] = {}
+    try:
+        entries = sorted(directory.iterdir())
+    except OSError:
+        return keys
+    for entry in entries:
+        if not entry.is_file():
+            continue
+        stamps = _ANY_TAIL_TIMESTAMP.findall(entry.name)
+        if not stamps:
+            continue
+        keys.setdefault(timestamp_key(float(stamps[-1])), []).append(entry)
+    return keys
 
 
 def render_timestamp(acq_timestamp: float) -> str:
