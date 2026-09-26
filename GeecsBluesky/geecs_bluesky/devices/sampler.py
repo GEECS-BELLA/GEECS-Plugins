@@ -70,13 +70,16 @@ _Describe = Callable[[], Awaitable[dict[str, DataKey]]]
 _Read = Callable[[], Awaitable[dict[str, Reading]]]
 
 #: How long the sampler waits, after the clock's stamp, for each other
-#: stamped member's stamp to be this shot's: half the 1 Hz period.  A
-#: device that has not stamped by then missed the shot — its columns read
-#: NaN, never the previous shot's values.  Found on Scan015 of 26_0925:
-#: the HASO's stamp lands ~40 ms after the clock's, and sampling at the
-#: tick recorded every row one frame late, so its files joined one row
-#: late too.
-SETTLE_TIMEOUT_S = 0.5
+#: stamped member's stamp PV to arrive and be this shot's: most of the
+#: 1 Hz period, so a batch's end costs at most one extra edge.  Measured
+#: 2026-09-25 under a steady internal 1 Hz trigger: the cameras' stamp
+#: PVs arrive 3–40 ms after the frame's time, the HASO's 0.77 s (its
+#: file is written first) — which a 0.5 s budget missed on every shot of
+#: Scan016 while its files sat there 50 ms after each clock tick.  A
+#: device that has not stamped by the budget missed the shot — its
+#: columns read NaN, never the previous shot's values (Scan015: sampling
+#: at the tick recorded every HASO row one frame late).
+SETTLE_TIMEOUT_S = 0.9
 #: A member's stamp is this shot's when it lies within this many seconds
 #: of the clock's stamp (the devices stamp one edge within ~0.3 s of each
 #: other; the period is 1 s).  A cached stamp further away is a previous

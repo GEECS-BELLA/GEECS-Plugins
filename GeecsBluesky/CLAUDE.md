@@ -155,7 +155,7 @@ the recorded physical targets, not a relative coordinate after its zero moved.
   stamp lands after the clock's whenever its device is slower (the
   HASO: ~40 ms, Scan015 of 26_0925), and a reading taken at the tick is
   the previous shot's — so the sampler gives each such member
-  `SETTLE_TIMEOUT_S` (0.5 s) for its cached stamp to fall within
+  `SETTLE_TIMEOUT_S` (0.9 s — the HASO's stamp PV arrives 0.77 s after its frame's time, measured; the cameras' within 40 ms) for its cached stamp to fall within
   `SHOT_WINDOW_S` (0.5 s) of the clock's before reading it, and on
   timeout writes `NaN` into its numeric columns (the string save path
   stays): a stale reading never passes as data, and the missing file for
