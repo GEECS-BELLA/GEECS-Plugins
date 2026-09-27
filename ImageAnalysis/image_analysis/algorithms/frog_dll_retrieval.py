@@ -8,25 +8,29 @@ this module uses a subprocess call to a standalone worker script
 (_frog_dll_worker.py) that runs under a 32-bit Python interpreter.
 
 Requirements:
-    - Windows OS (the DLL is a Windows shared library)
+    - Windows, or Linux with 32-bit Wine (the DLL is a Windows shared library
+      that imports only KERNEL32; under Wine its results are bit-identical)
     - 32-bit Python interpreter (embeddable package is sufficient)
     - FROG.dll file
     - Paths configured in ~/.config/geecs_python_api/config.ini:
         [Paths]
         frog_dll_path = D:\\path\\to\\FROG.dll
         frog_python32_path = D:\\path\\to\\python32\\python.exe
+        # Linux only: the command that runs the Windows Python, e.g.
+        frog_launcher = env WINEDEBUG=-all wine
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import shlex
 import struct
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 import numpy as np
 from geecs_schemas.analysis import FrogRetrievalSpec
@@ -156,6 +160,11 @@ class FrogDllRetrieval:
         Path to FROG.dll.
     python32_path : str or Path
         Path to a 32-bit Python interpreter (e.g., embeddable package).
+    launcher : sequence of str, optional
+        Command prefix that runs the interpreter, e.g. ``("wine",)`` on a
+        Linux host. Empty (the default) runs it directly, as on Windows.
+        Each retrieval starts one interpreter (under Wine, one Wine process)
+        and it exits with the shot, so no state crosses shots.
 
     Raises
     ------
@@ -183,9 +192,11 @@ class FrogDllRetrieval:
         self,
         dll_path: str | Path,
         python32_path: str | Path,
+        launcher: Sequence[str] = (),
     ):
         self.dll_path = Path(dll_path)
         self.python32_path = Path(python32_path)
+        self.launcher: tuple[str, ...] = tuple(launcher)
 
         if not self.dll_path.exists():
             raise FileNotFoundError(
@@ -349,6 +360,7 @@ class FrogDllRetrieval:
         # Run the worker script in 32-bit Python
         try:
             cmd = [
+                *self.launcher,
                 str(self.python32_path),
                 str(_WORKER_SCRIPT),
                 input_path,
@@ -474,10 +486,13 @@ class FrogDllRetrieval:
         cls,
         dll_path: Optional[str | Path] = None,
         python32_path: Optional[str | Path] = None,
+        launcher: Optional[Sequence[str]] = None,
     ) -> FrogDllRetrieval:
         """Create a FrogDllRetrieval instance using paths from the GEECS config.
 
         Attempts to load paths from GeecsPathsConfig if not provided directly.
+        The launcher is read from ``frog_launcher`` (split like a shell
+        command line) when not given; absent, the interpreter runs directly.
 
         Parameters
         ----------
@@ -485,6 +500,8 @@ class FrogDllRetrieval:
             Override for the DLL path. If None, reads from config.
         python32_path : str or Path, optional
             Override for the 32-bit Python path. If None, reads from config.
+        launcher : sequence of str, optional
+            Override for the command prefix. If None, reads from config.
 
         Returns
         -------
@@ -496,11 +513,14 @@ class FrogDllRetrieval:
         FileNotFoundError
             If paths cannot be found in config or on disk.
         """
-        if dll_path is None or python32_path is None:
+        if dll_path is None or python32_path is None or launcher is None:
             try:
                 from geecs_data_utils import GeecsPathsConfig
 
                 config = GeecsPathsConfig()
+
+                if launcher is None:
+                    launcher = shlex.split(getattr(config, "frog_launcher", None) or "")
 
                 if dll_path is None:
                     cfg_dll = getattr(config, "frog_dll_path", None)
@@ -530,4 +550,6 @@ class FrogDllRetrieval:
                     "directly."
                 )
 
-        return cls(dll_path=dll_path, python32_path=python32_path)
+        return cls(
+            dll_path=dll_path, python32_path=python32_path, launcher=launcher or ()
+        )

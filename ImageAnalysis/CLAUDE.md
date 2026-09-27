@@ -388,7 +388,12 @@ The write gate is structural, and it depends on two conventions that
    transient temp files and spawns a ~seconds 32-bit DLL subprocess per
    frame (cleaned up afterwards, but a per-request viewer must trigger
    neither). Remove an entry only when the analyzer gains an explicit
-   ephemeral mode.
+   ephemeral mode. A `frog_retrieval` diagnostic now runs on the analysis
+   core (the `frog` measure); the portal's browser stays off the DLL there
+   too, because `core_preview.prepare_document` refuses service measures
+   unless asked (`ServicesNotRequested`) and falls back to this route.
+   `FrogDllRetrieval` runs on Linux under 32-bit Wine when `[Paths]
+   frog_launcher` names the command (results bit-identical to Windows).
 
 `list_diagnostics(config_dir=...)` (in `image_analysis.config`)
 enumerates the loadable diagnostic IDs for pickers over the same tree.

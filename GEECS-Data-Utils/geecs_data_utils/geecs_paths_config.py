@@ -135,6 +135,9 @@ class GeecsPathsConfig:
         # Optional tool-specific paths loaded from config.ini
         self.frog_dll_path: Optional[Path] = None
         self.frog_python32_path: Optional[Path] = None
+        #: Command prefix that runs the 32-bit Windows Python (e.g. ``wine``
+        #: on a Linux host); unset runs it directly, as on Windows.
+        self.frog_launcher: Optional[str] = None
         self.wavekit_config_path: Optional[Path] = None
 
         if config_path.exists():
@@ -148,6 +151,10 @@ class GeecsPathsConfig:
                 if _config.has_option("Paths", "frog_python32_path"):
                     self.frog_python32_path = self._validate_path(
                         Path(_config["Paths"]["frog_python32_path"])
+                    )
+                if _config.has_option("Paths", "frog_launcher"):
+                    self.frog_launcher = (
+                        _config["Paths"]["frog_launcher"].strip() or None
                     )
                 if _config.has_option("Paths", "wavekit_config_path"):
                     self.wavekit_config_path = self._validate_path(

@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.7.0] - 2026-09-26
+
+### Added
+
+- `FrogDllRetrieval(launcher=...)` and `[Paths] frog_launcher` (read by
+  `from_config`, split like a shell command line): a command prefix for the
+  32-bit worker, so the FROG.dll retrieval runs on Linux under 32-bit Wine
+  (`frog_launcher = env WINEDEBUG=-all wine`). Verified on the worker host
+  against Windows results (26_0910 Scan103): scalars and lineouts
+  bit-identical at the same iteration count. Unset, the interpreter runs
+  directly, as on Windows.
+
 ## [2.6.0] - 2026-09-24
 
 ### Changed

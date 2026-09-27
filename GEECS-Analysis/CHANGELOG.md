@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.16.0] - 2026-09-26
+
+### Added
+
+- The `frog` measure: GRENOUILLE/FROG pulse retrieval (#1003 item 6). It
+  calls a retriever the host binds — Kane's 32-bit FROG.dll through
+  ImageAnalysis' `FrogDllRetrieval`, natively or under Wine — and packages
+  the result as the legacy `GrenouilleAnalyzer` did: `temporal_fwhm`,
+  `spectral_fwhm`, `frog_error`, `frog_iterations`, `tw_per_joule`, the
+  retrieved trace as the frame with its two projections, and the
+  temporal/spectral lineouts as extras. `compile_v2` now compiles the v2
+  `frog_retrieval` kind to it (so `to_v3` converts those diagnostics); a
+  differential test holds it to the legacy analyzer on the same fake DLL.
+- Measure **services**: `@measure(..., service=name)` declares a
+  host-supplied collaborator the measure calls (the core may not start a
+  program or read config). `bind_inputs(..., measure=)` binds it from
+  `inputs`, `pipeline.apply_measure` hands it over, and it travels to pool
+  workers with the inputs. `@measure(..., sidecar=name)` names the per-shot
+  table a scan host writes from the measurement's extras.
+- `Measurement.extras`: named auxiliary frames beside the main frame,
+  neither drawn nor averaged; pickled with the measurement.
+
 ## [0.15.0] - 2026-09-26
 
 ### Added

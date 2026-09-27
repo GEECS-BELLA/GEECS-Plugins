@@ -3,6 +3,29 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.40.0] - 2026-09-26
+
+### Added
+
+- FROG/Grenouille (`frog_retrieval` diagnostics, `frog` recipes) runs on
+  the core route, pooled like every other recipe (#1003 item 6).
+  `core_services` builds the retriever a measure names from this host's
+  `config.ini` (`[Paths] frog_dll_path`, `frog_python32_path`,
+  `frog_launcher`) when the run is prepared, so a host without the DLL
+  fails before any shot is read.
+- Per-shot sidecar tables: `core_sink.write_shot_table` writes a measure's
+  extras beside the shot's raw file in the legacy layout — for FROG,
+  `<shot>_retrieved_lineouts.tsv` with the legacy columns, so follow-on
+  analyzers keep reading them (owner ruling: they stay in the scans tree
+  for now). Written whatever `save` says, as before; a stack frame gets
+  `<stack>_<shot>_retrieved_lineouts.tsv`; no directory is created.
+- `prepare_v2(services=)` / `core_preview.prepare_document(services=)`: a
+  service measure is refused with `ServicesNotRequested` (an
+  `UnsupportedRecipe`) unless the caller asks. `prepare_document` defaults
+  to not asking, so the portal's shot browser keeps its old route and never
+  starts the DLL per view; the editor's `preview_frame` / `preview_summary`
+  and scan runs ask.
+
 ## [1.39.1] - 2026-09-26
 
 ### Fixed

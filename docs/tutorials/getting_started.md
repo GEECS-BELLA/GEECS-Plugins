@@ -130,6 +130,7 @@ What each section is for, and who reads it:
 | `[Paths] scan_analysis_configs_path` | Analyzer/diagnostic YAMLs in the configs repo | ScanAnalysis, the data portal config editor |
 | `[Paths] image_analysis_configs_path` | Camera/1D analyzer configs in the configs repo | ImageAnalysis |
 | `[Paths] scanner_config_root_path` | The configs repo root (scanner configs, derived channels, experiment defaults) | GEECS Scanner, GeecsBluesky, the CA gateway, GEECS-MCP |
+| `[Paths] frog_dll_path`, `frog_python32_path`, `frog_launcher` | Grenouille/FROG retrieval (optional): Kane's 32-bit `FROG.dll`, the 32-bit (embeddable) Windows Python that loads it, and — on Linux only — the command that runs that Python, e.g. `env WINEDEBUG=-all wine` (needs 32-bit Wine; unset runs it directly, as on Windows) | ImageAnalysis `FrogDllRetrieval`; ScanAnalysis builds it for `frog` recipes (the Data Portal, the task queue) |
 | `[Experiment] expt` | Your experiment's GEECS name (e.g. `Undulator`) | Nearly everything |
 | `[Experiment] rep_rate_hz` | Machine rep rate, for shot-count estimates | GEECS Scanner, GeecsBluesky |
 | `[tiled] uri`, `[tiled] api_key` | Tiled data-server access (optional) | GeecsBluesky, the Data Portal |

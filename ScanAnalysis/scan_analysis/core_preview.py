@@ -47,7 +47,10 @@ __all__ = [
 
 
 def prepare_document(
-    document: AnalysisDocument, *, scan_folder: Optional[Path] = None
+    document: AnalysisDocument,
+    *,
+    scan_folder: Optional[Path] = None,
+    services: bool = False,
 ) -> PreparedRecipe:
     """Compile the document and load its frame inputs the way a run does.
 
@@ -55,12 +58,15 @@ def prepare_document(
     device folder under that scan (``source_directory``); without one the
     placeholder stays literal, as ``prepare_v2`` documents. Raises
     ``UnsupportedRecipe`` for a v2 kind the core does not serve — the
-    caller keeps its own route for those.
+    caller keeps its own route for those. A measure that runs an external
+    program per frame (``frog``) is refused the same way unless the caller
+    asks for ``services``: a per-request view must never start one; the
+    explicit previews below do.
     """
     data_dir = (
         source_directory(document, scan_folder) if scan_folder is not None else None
     )
-    return prepare_v2(document, data_dir=data_dir)
+    return prepare_v2(document, data_dir=data_dir, services=services)
 
 
 def measure_frame(prepared: PreparedRecipe, array: np.ndarray) -> Measurement:
@@ -74,8 +80,11 @@ def preview_frame(
     *,
     scan_folder: Optional[Path] = None,
 ) -> Figure:
-    """One frame drawn as the sink draws every shot product (``draw_product``)."""
-    prepared = prepare_document(document, scan_folder=scan_folder)
+    """One frame drawn as the sink draws every shot product (``draw_product``).
+
+    An explicit preview: a measure's service (the FROG DLL) runs, as in a run.
+    """
+    prepared = prepare_document(document, scan_folder=scan_folder, services=True)
     return draw_product(measure_frame(prepared, array), figure_of(document))
 
 
@@ -107,7 +116,7 @@ def preview_summary(
     if not arrays or len(arrays) != len(positions):
         raise ValueError("a summary preview needs one position per frame")
     options = summaries[index]
-    prepared = prepare_document(document, scan_folder=scan_folder)
+    prepared = prepare_document(document, scan_folder=scan_folder, services=True)
     results = [measure_frame(prepared, array) for array in arrays]
     figure = figure_of(document)
     if summary_definition(options).consumes == "average":

@@ -23,7 +23,7 @@ from geecs_analysis.pipeline import bind_inputs
 
 if TYPE_CHECKING:
     import numpy as np
-    from geecs_data_utils.frames import Frame, ShotMeta
+    from geecs_data_utils.frames import ShotMeta
     from geecs_analysis.measurement import Measurement
 
 #: The multiprocessing start method of the worker pool. The hosts are
@@ -99,7 +99,7 @@ def _run_group(
     group: ShotGroup,
     load: Loader,
     average_before_analysis: bool,
-    bound: Mapping[str, Frame],
+    bound: Mapping[str, object],
     metadata: Mapping[int, ShotMeta],
 ) -> UnitResult:
     """Load one group's members in declared order and evaluate the recipe."""
@@ -148,7 +148,7 @@ def run_units(
     load: Loader,
     *,
     average_before_analysis: bool = False,
-    inputs: Mapping[str, Frame] | None = None,
+    inputs: Mapping[str, object] | None = None,
     shot_metadata: Mapping[int, ShotMeta] | None = None,
     workers: int = 1,
 ) -> Iterator[UnitResult]:
@@ -160,7 +160,9 @@ def run_units(
     full scalar-write membership survives. Incompatible raw shapes or analysis
     failures yield an explicit unsuccessful outcome and later groups continue.
 
-    Required frame bindings are snapshotted before the first load. The loader
+    Required frame bindings (and a measure's service, e.g. the FROG
+    retriever) are snapshotted before the first load; a pooled run sends
+    them to each worker once, so a service must pickle. The loader
     belongs to the source host; no paths, config reads, writes or renderer
     state live here. A loader that is also a context manager is entered once
     per run (and once per worker), for a source that keeps one stack handle.
@@ -179,7 +181,7 @@ def run_units(
     """
     from geecs_data_utils.frames import ShotMeta
 
-    bound = bind_inputs(recipe.analysis.steps, inputs)
+    bound = bind_inputs(recipe.analysis.steps, inputs, measure=recipe.analysis.measure)
     metadata = dict(shot_metadata or {})
     if any(
         not isinstance(identity, ShotMeta) or identity.shot_number != number
@@ -210,7 +212,7 @@ def _run_serial(
     groups: Iterable[ShotGroup],
     load: Loader,
     average_before_analysis: bool,
-    bound: Mapping[str, Frame],
+    bound: Mapping[str, object],
     metadata: Mapping[int, ShotMeta],
 ) -> Iterator[UnitResult]:
     with _opened(load) as read:
@@ -275,7 +277,7 @@ def _worker_init(
     level: int,
     recipe: V2Recipe,
     load: Loader,
-    inputs: Mapping[str, Frame],
+    inputs: Mapping[str, object],
     average_before_analysis: bool,
 ) -> None:
     """Configure one spawned worker: logging, the registry, the opened loader."""
@@ -301,7 +303,9 @@ def _worker_init(
         recipe=recipe,
         read=read,
         average=average_before_analysis,
-        bound=bind_inputs(recipe.analysis.steps, inputs),
+        bound=bind_inputs(
+            recipe.analysis.steps, inputs, measure=recipe.analysis.measure
+        ),
     )
 
 
@@ -323,7 +327,7 @@ def _run_pooled(
     groups: Iterable[ShotGroup],
     load: Loader,
     average_before_analysis: bool,
-    inputs: dict[str, Frame],
+    inputs: dict[str, object],
     metadata: Mapping[int, ShotMeta],
     workers: int,
 ) -> Iterator[UnitResult]:

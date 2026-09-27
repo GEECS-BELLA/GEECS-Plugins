@@ -22,6 +22,18 @@ still uses ScanAnalysis until its runner/sinks and acceptance tests land.
 - `geecs_analysis.specs` must import without numpy/scipy/matplotlib or the
   data-utils package. Step specs sit beside their pure function; numerical
   imports belong inside the function and Frame annotations under TYPE_CHECKING.
+- A measure that needs something the core may not do itself (start a
+  program, read config) names a **service** at registration:
+  `@measure(spec, ndim=..., service="frog")`. The host binds the
+  collaborator in `inputs` under that name (`bind_inputs(..., measure=)`
+  keeps it; `apply_measure` hands it over as the third argument); the core
+  calls it and never builds, configures or inspects it. It must pickle —
+  a pooled run sends it to each worker once. ScanAnalysis builds services
+  (`core_services`), a notebook passes one by hand. `frog` is the one
+  service measure: Kane's FROG.dll via ImageAnalysis' `FrogDllRetrieval`.
+  A measure's named auxiliary frames go in `Measurement.extras` (neither
+  drawn nor averaged); its registered `sidecar` names the per-shot table a
+  scan host writes from them.
 - Register each builtin in `steps/__init__.py`; the registry constructs the
   discriminated spec union. Adding a builtin must not require a dispatcher edit.
   Runtime/plugin registration after spec construction is not supported yet.
