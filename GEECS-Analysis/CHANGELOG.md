@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.17.0] - 2026-09-27
+
+### Added
+
+- The `ict` measure: ICT charge (`charge_pC`) and pulse time
+  (`ICT Signal Peak_us`) from an oscilloscope trace, the legacy
+  `ICT1DAnalyzer` (#1003). `algorithms.ict` is ImageAnalysis'
+  `apply_ict_analysis` ported unchanged; a differential test holds it to
+  the original bit for bit over 36 traces, including pulses near either
+  end. `compile_v2` compiles the v2 `ict` kind to it and `to_v3` converts
+  those diagnostics.
+
+### Changed (from the legacy route)
+
+- The charge filters the stored (float32-rounded) trace at float64; the
+  legacy analyzer handed scipy the float32 array, so its low-pass ran in
+  float32. Charges agree to ~1e-7 relative (pinned at 1e-6).
+- A trace the algorithm cannot analyze gives NaN scalars with a note; the
+  legacy analyzer wrote 0 pC, indistinguishable from no charge.
+- Products store the processed trace at the recipe's `storage_dtype`
+  (float32 by default); the legacy analyzer saved its raw input at float64.
+
 ## [0.16.0] - 2026-09-26
 
 ### Added
