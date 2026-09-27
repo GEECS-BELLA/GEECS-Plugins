@@ -16,7 +16,9 @@
 
 - The charge filters the stored (float32-rounded) trace at float64; the
   legacy analyzer handed scipy the float32 array, so its low-pass ran in
-  float32. Charges agree to ~1e-7 relative (pinned at 1e-6).
+  float32. On a real BCave ICT scan (26_0924 Scan011, 31 shots of
+  0.4–2.7 pC) charges agree to a median 1e-7 and at most 7e-6 relative;
+  pulse times are identical.
 - A trace the algorithm cannot analyze gives NaN scalars with a note; the
   legacy analyzer wrote 0 pC, indistinguishable from no charge.
 - Products store the processed trace at the recipe's `storage_dtype`

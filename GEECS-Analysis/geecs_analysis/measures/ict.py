@@ -52,7 +52,8 @@ def ict(frame: Frame, spec: IctSpec) -> Measurement:
     The samples are the stored trace's (float32-rounded by default), filtered
     at float64: the legacy analyzer handed scipy the float32 array itself, so
     its low-pass ran in float32 and its charge differs from this one by about
-    1e-7 relative. The algorithm is otherwise the legacy one bit for bit.
+    1e-7 relative (up to ~1e-5 on sub-pC charges). The algorithm is
+    otherwise the legacy one bit for bit.
     """
     from geecs_analysis.algorithms.ict import apply_ict_analysis
     from geecs_analysis.measurement import Measurement

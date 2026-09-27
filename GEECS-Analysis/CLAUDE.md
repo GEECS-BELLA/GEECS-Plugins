@@ -115,7 +115,8 @@ constant fallback on reader/conversion failure. `analyze_v2(inputs=...)` never
 loads a file or chooses fallback. Scan-background directives remain unported.
 `ict` compiles to the `ict` measure (`algorithms.ict`, ported from
 ImageAnalysis bit for bit). Its charge filters the stored trace at float64
-where legacy filtered the float32 array in float32 (~1e-7 relative), and a
+where legacy filtered the float32 array in float32 (~1e-7 relative, up to
+~1e-5 on sub-pC charges), and a
 trace the algorithm cannot analyze is NaN with a note, not legacy's 0 pC.
 The compiler's supported subset is documented in its docstring and pinned by
 differential tests. Never silently skip an active unported operation.
