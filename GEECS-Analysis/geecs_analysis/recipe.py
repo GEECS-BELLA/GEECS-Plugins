@@ -20,7 +20,12 @@ from geecs_schemas.analysis.recipe import LineInput
 from pydantic import ValidationError
 
 from geecs_analysis import summaries as _summaries  # noqa: F401 -- registers the summary kinds
-from geecs_analysis.compat.v2 import FileBackground, V2Recipe, compile_v2
+from geecs_analysis.compat.v2 import (
+    FileBackground,
+    ScanBackground,
+    V2Recipe,
+    compile_v2,
+)
 from geecs_analysis.registry import (
     definition,
     definitions,
@@ -119,6 +124,17 @@ def compile_recipe(
         file_backgrounds=tuple(
             FileBackground(key, binding.path, binding.fallback_level)
             for key, binding in recipe.inputs.items()
+            if binding.from_scan is None
+        ),
+        scan_backgrounds=tuple(
+            ScanBackground(
+                key,
+                binding.from_scan.scan,
+                binding.from_scan.statistic,
+                binding.from_scan.percentile,
+            )
+            for key, binding in recipe.inputs.items()
+            if binding.from_scan is not None
         ),
     )
 

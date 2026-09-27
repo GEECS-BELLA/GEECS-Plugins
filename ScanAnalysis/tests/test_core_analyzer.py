@@ -299,7 +299,8 @@ def test_contract_attributes_and_cleanup():
 def test_core_supports_only_recipes_the_core_can_run():
     assert core_supports(document())
     assert core_supports(document("line"))
-    assert not core_supports(document(background_source={"scan_number": 5}))
+    assert core_supports(document(background_source={"scan_number": 5}))
+    assert not core_supports(document(background_source={"autodetect": {}}))
     assert not core_supports(
         AnalysisDiagnostic.model_validate(
             {

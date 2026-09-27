@@ -174,29 +174,84 @@ class LineInput(_InputBase):
 RecipeInput = Annotated[Union[CameraInput, LineInput], Field(discriminator="kind")]
 
 
-class FrameInput(SchemaModel):
-    """A frame the source layer loads before the run and binds by name.
+class ScanStatistic(SchemaModel):
+    """A frame computed from a scan's own frames of this device, before the run.
 
-    Steps refer to it by the key it is stored under (``background_frame``'s
-    ``source``).  The analysis core never opens the path; the scan host
-    resolves ``{scan_dir}`` to the device's data directory and loads it.
+    ``scan`` unset means the scan being analyzed; a number means that scan of
+    the same day (a dark scan).  The statistic is taken per pixel across every
+    frame, exactly (no subsampling); the scan host caches the result in the
+    analysis tree beside that scan's other outputs.
     """
 
-    path: str = Field(
-        ...,
+    scan: Optional[int] = Field(
+        None,
+        ge=0,
+        description=(
+            "Scan number of the same day to take the frames from; unset takes "
+            "them from the scan being analyzed."
+        ),
+    )
+    statistic: Literal["mean", "median", "percentile"] = Field(
+        "mean", description="Per-pixel statistic across the scan's frames."
+    )
+    percentile: Optional[float] = Field(
+        None,
+        ge=0,
+        le=100,
+        description="The percentile (0-100) when statistic is 'percentile'.",
+    )
+
+    @model_validator(mode="after")
+    def _percentile_goes_with_its_statistic(self) -> "ScanStatistic":
+        """A percentile value exactly when the statistic is a percentile."""
+        if (self.statistic == "percentile") != (self.percentile is not None):
+            raise ValueError(
+                "percentile is required for statistic 'percentile' and only for it"
+            )
+        return self
+
+
+class FrameInput(SchemaModel):
+    """A frame the source layer loads (or computes) before the run and binds by name.
+
+    Steps refer to it by the key it is stored under (``background_frame``'s
+    ``source``).  The analysis core never opens a file or reads a scan; the
+    scan host does: a ``path`` (``{scan_dir}`` resolved to the device's data
+    directory), or a ``from_scan`` statistic over a scan's frames.  Exactly
+    one of the two is set.
+    """
+
+    path: Optional[str] = Field(
+        None,
         min_length=1,
         description=(
             "File to load ('{scan_dir}' stands for the device's data "
             "directory under the scan)."
         ),
     )
+    from_scan: Optional[ScanStatistic] = Field(
+        None,
+        description=(
+            "Compute the frame from a scan's frames (a dark scan's mean, or "
+            "this scan's median/percentile) instead of loading a file."
+        ),
+    )
     fallback_level: Optional[float] = Field(
         None,
         description=(
             "When the file cannot be read, subtract this constant instead of "
-            "the frame and warn; unset makes a failed read an error."
+            "the frame and warn; unset makes a failed read an error. Files only."
         ),
     )
+
+    @model_validator(mode="after")
+    def _one_source(self) -> "FrameInput":
+        """Exactly one of path / from_scan; a fallback only for a file."""
+        if (self.path is None) == (self.from_scan is None):
+            raise ValueError("a frame input needs exactly one of path or from_scan")
+        if self.from_scan is not None and self.fallback_level is not None:
+            raise ValueError("fallback_level applies to a path, not to from_scan")
+        return self
 
 
 # ------------------------------------------------------------------- figure
@@ -526,6 +581,7 @@ __all__ = [
     "CameraInput",
     "FigureStyle",
     "FrameInput",
+    "ScanStatistic",
     "ImageGridSummary",
     "LineInput",
     "MeasureRef",

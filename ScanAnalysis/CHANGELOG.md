@@ -3,6 +3,31 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.41.0] - 2026-09-27
+
+### Added
+
+- `core_backgrounds`: scan backgrounds on the core route (#1003 item 5). A
+  dark scan's mean or this scan's median/percentile is computed exactly
+  before the run — the mean as a float64 running sum, order statistics
+  from a native-dtype scratch copy (on disk once past 256 MB) reduced a
+  strip of rows at a time, so memory is frames × one strip however long
+  the scan — and equals the legacy whole-stack aggregation bit for bit. A
+  capture stack is read frame by frame. Cached in the analysis tree of the
+  source scan, named by the statistic (a dark scan's mean shares the legacy
+  wrapper's file); a missing source scan raises and nothing is created.
+- `prepare_v2(compute_scan_backgrounds=False)` — every preview — only uses
+  a computed cache and refuses otherwise (`ScanContextRequired`), so a
+  per-request view never reads a whole scan or writes a file.
+
+### Changed
+
+- Beam/standard recipes with a `scan_number` or `from_current_scan`
+  background now run on the core route (their analysis trees equal the
+  legacy wrapper's). The current-scan cache is named per statistic, so a
+  changed percentile no longer reuses the legacy wrapper's single
+  `dynamic_background.npy`.
+
 ## [1.40.0] - 2026-09-26
 
 ### Added

@@ -5,6 +5,7 @@ import sys
 
 import numpy as np
 import pytest
+from geecs_schemas.analysis.scan_runtime import BackgroundSource
 from geecs_schemas.analysis import AnalysisDiagnostic
 
 from geecs_analysis.compat.v2 import UnsupportedRecipe, analyze_v2, compile_v2
@@ -49,13 +50,18 @@ def test_explicit_opt_in_snapshots_one_request_for_repeated_steps():
     np.testing.assert_array_equal(actual.frame.data, data - 24)
 
 
-def test_inactive_background_has_no_request_and_scan_sources_stay_unsupported():
+def test_inactive_background_has_no_request_and_scan_sources_need_a_host():
     doc = document()
     doc.image.pipeline = []
     assert not compile_v2(doc).file_backgrounds
-    doc.scan.background_source = {"scan_number": 2}
+    scan = doc.scan.model_copy(
+        update={"background_source": BackgroundSource(scan_number=2)}
+    )
+    doc = doc.model_copy(update={"scan": scan})
     with pytest.raises(UnsupportedRecipe, match="Scan backgrounds"):
-        compile_v2(doc, allow_file_backgrounds=True)
+        compile_v2(doc)
+    compiled = compile_v2(doc, allow_file_backgrounds=True)
+    assert not compiled.file_backgrounds and not compiled.scan_backgrounds
 
 
 def test_opt_in_compilation_does_not_import_readers_or_numerical_dependencies():

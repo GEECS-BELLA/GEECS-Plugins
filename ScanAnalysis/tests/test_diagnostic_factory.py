@@ -136,9 +136,9 @@ class TestScanWrapperSelection:
         analyzer = create_scan_analyzer(_diag(alias="standard_1d", legacy=True))
         assert isinstance(analyzer, Array1DScanAnalyzer)
 
-    def test_scan_context_background_stays_on_the_wrapper(self):
+    def test_autodetect_background_stays_on_the_wrapper(self):
         analyzer = create_scan_analyzer(
-            _diag(scan={"background_source": {"scan_number": 5}})
+            _diag(scan={"background_source": {"autodetect": {}}})
         )
         assert isinstance(analyzer, Array2DScanAnalyzer)
 
@@ -301,7 +301,7 @@ class TestBackgroundSourceAttachment:
 
     def test_scan_number_directive_attached(self):
         analyzer = create_scan_analyzer(
-            _diag(scan={"background_source": {"scan_number": 5}})
+            _diag(scan={"background_source": {"scan_number": 5}}), route="legacy"
         )
         assert analyzer.background_source is not None
         assert analyzer.background_source.scan_number == 5
@@ -318,7 +318,8 @@ class TestBackgroundSourceAttachment:
                         }
                     }
                 }
-            )
+            ),
+            route="legacy",
         )
         assert analyzer.background_source is not None
         assert analyzer.background_source.scan_number is None

@@ -5,6 +5,16 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0] - 2026-09-27
+
+### Added
+
+- `ScanStatistic` and `FrameInput.from_scan`: a recipe's frame input can be
+  a per-pixel statistic (`mean`, `median`, `percentile`) over a scan's
+  frames — a dark scan of the same day (`scan: N`) or the scan being
+  analyzed (unset) — instead of a file. Exactly one of `path` / `from_scan`;
+  `fallback_level` applies to a path only (#1003 item 5).
+
 ## [0.35.0] - 2026-09-26
 
 ### Added

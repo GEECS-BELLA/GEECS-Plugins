@@ -174,7 +174,7 @@ def to_v3(document: AnalysisDiagnostic) -> Conversion:
     if getattr(config, "metadata", None):
         raw["metadata"] = dict(config.metadata)
     raw["input"] = source
-    if compiled.file_backgrounds:
+    if compiled.file_backgrounds or compiled.scan_backgrounds:
         raw["inputs"] = {
             request.key: {
                 "path": request.path,
@@ -182,6 +182,13 @@ def to_v3(document: AnalysisDiagnostic) -> Conversion:
             }
             for request in compiled.file_backgrounds
         }
+        for request in compiled.scan_backgrounds:
+            statistic = {"statistic": request.statistic}
+            if request.scan_number is not None:
+                statistic["scan"] = request.scan_number
+            if request.percentile is not None:
+                statistic["percentile"] = request.percentile
+            raw["inputs"][request.key] = {"from_scan": statistic}
     raw["steps"] = [_spec_mapping(spec, "step") for spec in compiled.analysis.steps]
     raw["measure"] = _spec_mapping(compiled.analysis.measure, "kind")
     runtime: dict = {}

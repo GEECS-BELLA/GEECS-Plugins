@@ -68,11 +68,22 @@ class PreparedRecipe:
         )
 
 
+class ScanContextRequired(UnsupportedRecipe):
+    """A scan background needs the scan it comes from, or a computed cache.
+
+    A context-free preview (no scan folder), or a per-request view whose
+    background no run has computed yet, refuses the recipe this way — an
+    ``UnsupportedRecipe``, so the caller keeps its old route — rather than
+    read a whole scan or write a file to draw one frame.
+    """
+
+
 def prepare_v2(
     document: AnalysisDocument,
     *,
     data_dir: Path | None = None,
     services: bool = True,
+    compute_scan_backgrounds: bool = True,
 ) -> PreparedRecipe:
     """Compile either document before reading inputs; load its frame inputs.
 
@@ -87,6 +98,12 @@ def prepare_v2(
     from this host's config, so a host that cannot provide it fails now,
     before any shot is read; ``services=False`` refuses such a recipe with
     :class:`ServicesNotRequested` instead, before any file is read.
+
+    A scan background (``scan.background_source``, a recipe's ``from_scan``
+    input) is computed from its scan's frames by ``core_backgrounds`` — and
+    cached — before any shot is read; ``compute_scan_backgrounds=False``
+    uses only an existing cache and refuses the recipe
+    (``ScanContextRequired``) otherwise.
     """
     recipe = compile_document(document, allow_file_backgrounds=True)
     service = measure_definition(recipe.analysis.measure).service
@@ -128,8 +145,35 @@ def prepare_v2(
         recipe = replace(
             recipe, analysis=recipe.analysis.model_copy(update={"steps": steps})
         )
+    for request in recipe.scan_backgrounds:
+        inputs[request.key] = Frame.from_array(
+            _scan_background(document, request, data_dir, compute_scan_backgrounds)
+        )
     inputs.update(services_for(recipe.analysis.measure))
     return PreparedRecipe(
         recipe,
         bind_inputs(recipe.analysis.steps, inputs, measure=recipe.analysis.measure),
     )
+
+
+def _scan_background(document, request, data_dir, compute):
+    """One scan-background request, resolved against the run's device folder."""
+    from scan_analysis.core_backgrounds import resolve_scan_background
+    from scan_analysis.core_recipe import scan_recipe
+
+    if data_dir is None:
+        raise ScanContextRequired(
+            "A scan background needs the scan it comes from (no scan folder given)"
+        )
+    spec = scan_recipe(document)
+    try:
+        return resolve_scan_background(
+            request,
+            data_dir=Path(data_dir),
+            device=spec.device,
+            file_tail=spec.file_tail,
+            prefer_stack=spec.prefer_stack,
+            compute=compute,
+        )
+    except LookupError as exc:
+        raise ScanContextRequired(str(exc)) from exc

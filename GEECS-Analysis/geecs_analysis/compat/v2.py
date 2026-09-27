@@ -57,6 +57,21 @@ class FileBackground:
 
 
 @dataclass(frozen=True)
+class ScanBackground:
+    """A source-layer request for a frame computed from a scan's frames.
+
+    ``scan_number`` ``None`` is the scan being analyzed. The core never reads
+    a scan: the host computes the per-pixel ``statistic`` (``mean``,
+    ``median`` or ``percentile``) and binds the frame under ``key``.
+    """
+
+    key: str
+    scan_number: int | None
+    statistic: Literal["mean", "median", "percentile"]
+    percentile: float | None = None
+
+
+@dataclass(frozen=True)
 class V2Recipe:
     """An immutable in-memory recipe and explicit legacy conversion conventions."""
 
@@ -73,6 +88,7 @@ class V2Recipe:
     label: str = ""
     camera_origin: tuple[int, int] = (0, 0)
     file_backgrounds: tuple[FileBackground, ...] = ()
+    scan_backgrounds: tuple[ScanBackground, ...] = ()
 
 
 def compile_v2(
@@ -89,15 +105,17 @@ def compile_v2(
     cannot be represented by Frame. Inactive sections are ignored as before.
     File backgrounds require explicit source-layer opt-in; the compiled recipe
     then declares requests and expects loaded Frame inputs at execution time.
+    So do scan backgrounds (``scan.background_source``: ``scan_number`` and
+    ``from_current_scan``, declared as ``ScanBackground`` requests the host
+    computes); ``autodetect`` is refused.
     ``frog_retrieval`` compiles to the ``frog`` measure, which needs the host
     to bind its retriever service at execution time.
     """
     kind = document.analyzer.kind
     if kind not in {"beam", "line", "standard", "trace", "frog_retrieval"}:
         raise UnsupportedRecipe(f"Analyzer not ported: {kind}")
-    if document.scan.background_source is not None:
-        raise UnsupportedRecipe("Scan backgrounds must be resolved by a source")
     config = document.image
+    scan_background = _scan_background(document, allow_file_backgrounds)
     if not isinstance(config, (CameraConfig, Line1DConfig)):
         raise UnsupportedRecipe("A camera or line processing section is required")
     if kind in {"beam", "standard", "frog_retrieval"} and not isinstance(
@@ -121,7 +139,10 @@ def compile_v2(
             continue
         steps.extend(
             _camera_steps(
-                name.value, config, allow_file_backgrounds=allow_file_backgrounds
+                name.value,
+                config,
+                allow_file_backgrounds=allow_file_backgrounds,
+                scan_background=scan_background is not None,
             )
             if isinstance(config, CameraConfig)
             else _line_steps(name.value, config)
@@ -151,16 +172,25 @@ def compile_v2(
             (config.roi.y_min, config.roi.x_min) if config.roi is not None else (0, 0)
         )
         requests = ()
+        scans = ()
         if any(isinstance(spec, BackgroundFrameSpec) for spec in steps):
             background = config.background
-            requests = (
-                FileBackground(
-                    key="camera_background",
-                    path=str(background.file_path),
-                    fallback_level=background.constant_level,
-                ),
-            )
-        return V2Recipe(**common, camera_origin=origin, file_backgrounds=requests)
+            if scan_background is not None:
+                scans = (scan_background,)
+            else:
+                requests = (
+                    FileBackground(
+                        key="camera_background",
+                        path=str(background.file_path),
+                        fallback_level=background.constant_level,
+                    ),
+                )
+        return V2Recipe(
+            **common,
+            camera_origin=origin,
+            file_backgrounds=requests,
+            scan_backgrounds=scans,
+        )
     if config.processing_dtype != "float64" or config.storage_dtype not in {
         "float32",
         "float64",
@@ -179,8 +209,36 @@ def compile_v2(
     )
 
 
+def _scan_background(
+    document: AnalysisDiagnostic, allow_file_backgrounds: bool
+) -> ScanBackground | None:
+    """The v2 ``scan.background_source`` as a host request; unported variants refuse.
+
+    ``scan_number`` is that scan's mean frame, ``from_current_scan`` this
+    scan's median or percentile — the legacy wrapper's two computations.
+    ``autodetect`` (a precomputed ``_averaged`` file) is not ported.
+    """
+    source = document.scan.background_source
+    if source is None:
+        return None
+    if not allow_file_backgrounds:
+        raise UnsupportedRecipe("Scan backgrounds must be resolved by a source")
+    if not isinstance(document.image, CameraConfig):
+        raise UnsupportedRecipe("Scan backgrounds apply to camera recipes only")
+    if source.scan_number is not None:
+        return ScanBackground("camera_background", source.scan_number, "mean")
+    if source.from_current_scan is not None:
+        spec = source.from_current_scan
+        return ScanBackground("camera_background", None, spec.method, spec.percentile)
+    raise UnsupportedRecipe("Scan background not ported: autodetect")
+
+
 def _camera_steps(
-    name: str, config: CameraConfig, *, allow_file_backgrounds: bool
+    name: str,
+    config: CameraConfig,
+    *,
+    allow_file_backgrounds: bool,
+    scan_background: bool = False,
 ) -> list[StepSpec]:
     section = getattr(config, name)
     if name == "transforms":
@@ -210,6 +268,16 @@ def _camera_steps(
             for cross in section.crosshairs
         ]
     if name == "background":
+        if scan_background:
+            # The legacy wrapper rewrote the section to a from_file background
+            # pointing at the computed frame; the constant level no longer
+            # applies, the additional constant still does.
+            steps = [
+                BackgroundFrameSpec(source="camera_background", alignment="samples")
+            ]
+            if section.additional_constant != 0:
+                steps.append(BackgroundConstantSpec(level=section.additional_constant))
+            return steps
         if section.method not in {None, "constant"} and not (
             section.method == "from_file" and allow_file_backgrounds
         ):
