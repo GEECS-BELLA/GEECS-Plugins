@@ -145,11 +145,15 @@ def test_the_scan_paths_patch_is_never_installed_when_construction_fails(tmp_pat
     import scan_analysis.base as scan_base
     from geecs_analysis.compat.v2 import UnsupportedRecipe
     from geecs_data_utils import ScanPaths
+    from geecs_schemas.analysis.scan_runtime import BackgroundSource
     from image_analysis.config import load_diagnostic
 
     scan, diagnostic = _archive(tmp_path / "share")
     document = load_diagnostic(diagnostic)
-    document.scan.background_source = {"scan_number": 6}
+    # autodetect is the one scan background the core still refuses
+    document.scan.background_source = BackgroundSource.model_validate(
+        {"autodetect": {}}
+    )
     private = tmp_path / "private"
     harness._copy_scan(scan, "Camera", private)
     original = scan_base.ScanPaths
