@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.17.0] - 2026-09-27
+
+### Changed
+
+- `compile_v2` compiles `trace` recipes with an active ROI (unblocks
+  148Spectro, #1003). A shot whose ROI selects no samples fails explicitly
+  ("ROI selects no samples"), as a `line` recipe's already did; the legacy
+  preprocessing-only analyzer returned an empty trace. Otherwise the output
+  equals the legacy analyzer's (pinned across in-range, clipped, outside and
+  single-point bounds at both storage dtypes).
+
 ## [0.16.0] - 2026-09-26
 
 ### Added

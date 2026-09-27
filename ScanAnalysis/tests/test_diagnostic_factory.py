@@ -35,7 +35,7 @@ _SPECS_BY_ALIAS = {
 # Schema-valid features the analysis core refuses at compile time, so a
 # test can pin the legacy wrappers' behaviour without changing the factory.
 _LEGACY_CAMERA = {"pipeline": ["transforms"], "transforms": {"flip_horizontal": True}}
-_LEGACY_LINE = {"pipeline": ["roi"], "roi": {"x_min": 0.0, "x_max": 1.0}}
+_LEGACY_LINE = {"pipeline": ["filtering"], "filtering": {"method": "bilateral"}}
 
 
 def _diag(

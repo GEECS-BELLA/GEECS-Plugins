@@ -281,15 +281,33 @@ for module in ("numpy", "scipy", "matplotlib", "image_analysis", "geecs_data_uti
     )
 
 
-def test_trace_roi_empty_result_stays_on_legacy_route():
+@pytest.mark.parametrize(
+    "bounds",
+    [(1.5, 3.5), (0.0, 4.0), (-5.0, 2.0), (3.0, 99.0), (2.0, 2.0)],
+)
+@pytest.mark.parametrize("storage", ["float32", "float64"])
+def test_trace_roi_matches_the_legacy_trace_analyzer(bounds, storage):
+    x = np.linspace(0.0, 4.0, 9)
+    data = np.column_stack((x, np.sin(x) + 2))
+    doc = document(
+        "trace",
+        pipeline=["roi"],
+        roi={"x_min": bounds[0], "x_max": bounds[1]},
+        storage_dtype=storage,
+    )
+    compare(doc, data)
+
+
+def test_a_trace_roi_that_selects_nothing_fails_the_shot_explicitly():
+    """Legacy returned an empty trace; the core fails that shot with a reason."""
     from image_analysis.ephemeral import run_document_ephemeral
 
     doc = document("trace", pipeline=["roi"], roi={"x_min": 20, "x_max": 30})
     data = np.column_stack((np.arange(5.0), np.ones(5)))
     (legacy,) = run_document_ephemeral(doc, [data])
     assert legacy.line_data.shape == (0, 2)
-    with pytest.raises(UnsupportedRecipe, match="empty result"):
-        compile_v2(doc)
+    with pytest.raises(ValueError, match="ROI selects no samples"):
+        analyze_v2(data, compile_v2(doc))
 
 
 @pytest.mark.parametrize("mask_outside", [True, False])
