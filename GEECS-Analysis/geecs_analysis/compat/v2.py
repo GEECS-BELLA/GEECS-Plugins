@@ -90,10 +90,19 @@ def compile_v2(
     File backgrounds require explicit source-layer opt-in; the compiled recipe
     then declares requests and expects loaded Frame inputs at execution time.
     ``frog_retrieval`` compiles to the ``frog`` measure, which needs the host
-    to bind its retriever service at execution time.
+    to bind its retriever service at execution time. ``line_stitcher``
+    compiles to the ``line`` measure; joining the sibling devices' traces
+    is the source's job (the document's ``sibling_folders``).
     """
     kind = document.analyzer.kind
-    if kind not in {"beam", "line", "standard", "trace", "frog_retrieval"}:
+    if kind not in {
+        "beam",
+        "line",
+        "line_stitcher",
+        "standard",
+        "trace",
+        "frog_retrieval",
+    }:
         raise UnsupportedRecipe(f"Analyzer not ported: {kind}")
     if document.scan.background_source is not None:
         raise UnsupportedRecipe("Scan backgrounds must be resolved by a source")
@@ -104,7 +113,9 @@ def compile_v2(
         config, CameraConfig
     ):
         raise UnsupportedRecipe(f"{kind} requires a camera input")
-    if kind in {"line", "trace"} and not isinstance(config, Line1DConfig):
+    if kind in {"line", "line_stitcher", "trace"} and not isinstance(
+        config, Line1DConfig
+    ):
         raise UnsupportedRecipe(f"{kind} requires a line input")
     # Legacy preprocessing-only traces can successfully return empty Nx2 data.
     # Frame cannot represent that result. Until an empty-result contract exists,
@@ -131,7 +142,9 @@ def compile_v2(
             enabled_stats=document.analyzer.enabled_stats,
             compute_slopes=document.analyzer.compute_slopes,
         )
-    elif kind == "line":
+    elif kind in {"line", "line_stitcher"}:
+        # A stitcher is a line analyzer over the joined trace; the source
+        # (the scan host) joins the sibling devices' segments before this.
         measure = LineSpec()
     elif kind == "frog_retrieval":
         measure = FrogSpec.model_validate(

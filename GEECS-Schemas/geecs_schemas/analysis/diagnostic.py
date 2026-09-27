@@ -128,6 +128,11 @@ class AnalysisDiagnostic(VersionedSchemaModel):
         """How one trace file is read, for a line diagnostic; ``None`` otherwise."""
         return self.image.data_loading if isinstance(self.image, Line1DConfig) else None
 
+    @property
+    def sibling_folders(self) -> tuple[str, ...]:
+        """A ``line_stitcher``'s sibling device folders; the recipe's ``input.siblings``."""
+        return tuple(getattr(self.analyzer, "sibling_devices", None) or ())
+
     @model_validator(mode="before")
     @classmethod
     def _refuse_v1_layout(cls, data: object) -> object:

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.17.0] - 2026-09-27
+
+### Added
+
+- `compile_v2` compiles the v2 `line_stitcher` kind to the `line` measure;
+  the scan host joins the sibling traces. `to_v3` carries the siblings into
+  `input.siblings` (checked on the converted recipe) and notes the dropped
+  `output_label`.
+
 ## [0.16.0] - 2026-09-26
 
 ### Added

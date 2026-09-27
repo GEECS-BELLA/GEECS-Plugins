@@ -5,6 +5,17 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0] - 2026-09-27
+
+### Added
+
+- `LineInput.siblings`: data folders of other devices whose same-shot
+  traces are stitched to the input's (the line stitcher on the analysis
+  core). A recipe refuses a repeated sibling, a path, or its own folder.
+- `sibling_folders` on both documents: a recipe's `input.siblings`, a v2
+  `line_stitcher`'s `sibling_devices` (empty otherwise), read the same way
+  by the scan host.
+
 ## [0.35.0] - 2026-09-26
 
 ### Added
