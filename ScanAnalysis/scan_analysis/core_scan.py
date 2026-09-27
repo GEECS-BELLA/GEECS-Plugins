@@ -129,8 +129,10 @@ def prepare_scan(
     Either document format is accepted. Compilation rejects unsupported
     processing before any input reads. File backgrounds are loaded once
     during preparation; native shot arrays are loaded only as ``run``
-    advances. Neither preparation nor execution changes the caller's
-    document/rows, writes files, or creates missing scan folders. The host
+    advances. A scan background is computed from its scan's frames here and
+    cached in that scan's analysis tree (``core_backgrounds``) — the one
+    write preparation may make. Neither preparation nor execution changes
+    the caller's document/rows or creates missing scan folders. The host
     owns completion checks, logging failures, and product sinks.
     """
     snapshot = document.model_copy(deep=True)

@@ -267,3 +267,48 @@ def test_a_preview_uses_a_computed_background_and_never_computes_one(
     prepared = prepare_document(doc, scan_folder=scan)
     assert "camera_background" in prepared.inputs
     assert sorted((scan.parent.parent / "analysis").rglob("*")) == before
+
+
+def test_the_frames_are_the_devices_own_folder_as_the_legacy_wrapper_took_them(
+    tmp_path,
+):
+    """A suffixed input folder (derived traces) still takes the raw camera's background."""
+    from scan_analysis.core_backgrounds import background_cache_path
+
+    data_dir = tmp_path / "day" / "scans" / "Scan002" / f"{DEVICE}-interp"
+    request = ScanBackground("camera_background", 1, "mean")
+    frames_dir, cache = background_cache_path(request, data_dir, DEVICE)
+    assert frames_dir == tmp_path / "day" / "scans" / "Scan001" / DEVICE
+    assert cache == (
+        tmp_path
+        / "day"
+        / "analysis"
+        / "Scan001"
+        / DEVICE
+        / f"{DEVICE}_background_avg.npy"
+    )
+
+
+def test_concurrent_computations_each_publish_a_whole_cache(tmp_path):
+    """Two runs sharing a dark scan: both succeed, one complete file, no leftovers."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    scan = build_day(tmp_path)
+    request = ScanBackground("camera_background", 1, "mean")
+
+    def resolve(_):
+        return resolve_scan_background(
+            request,
+            data_dir=scan / DEVICE,
+            device=DEVICE,
+            file_tail=".npy",
+            prefer_stack=False,
+        )
+
+    with ThreadPoolExecutor(4) as pool:
+        results = list(pool.map(resolve, range(4)))
+    for result in results[1:]:
+        np.testing.assert_array_equal(result, results[0])
+    folder = scan.parent.parent / "analysis" / "Scan001" / DEVICE
+    assert [p.name for p in folder.iterdir()] == [f"{DEVICE}_background_avg.npy"]
+    np.testing.assert_array_equal(np.load(next(folder.iterdir())), results[0])

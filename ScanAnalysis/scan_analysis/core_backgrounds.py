@@ -10,8 +10,9 @@ The statistic is exact — no subsampling, no approximation — and memory is
 bounded however long the scan is:
 
 - **mean** is a float64 running sum over the frames in order, which is the
-  order numpy reduces a stack along its first axis, so it equals the legacy
-  ``np.mean(np.stack(frames), axis=0)`` bit for bit.
+  order numpy reduces a stack along its first axis, so for camera frames
+  (integers) it equals the legacy ``np.mean(np.stack(frames), axis=0)`` bit
+  for bit; legacy accumulated float32 frames in float32, this in float64.
 - **median / percentile** need every value of a pixel at once. The frames
   are written once, at their native dtype, into a scratch array on disk
   (in memory when small), then reduced a horizontal strip of rows at a
@@ -156,7 +157,8 @@ def background_cache_path(
     """``(the source scan's device folder, the cached frame's path)``.
 
     The source scan is the analyzed one (``scan_number`` unset) or that
-    scan of the same day; the cache sits in its analysis folder under the
+    scan of the same day; the frames are the *device's* folder (the legacy
+    wrapper's choice), and the cache sits in its analysis folder under the
     device — for a dark scan's mean, the legacy wrapper's own file
     (``<device>_background_avg.npy``), so both routes share one compute.
     """
@@ -164,9 +166,11 @@ def background_cache_path(
     if request.scan_number is not None:
         scan_folder = scan_folder.parent / f"Scan{request.scan_number:03d}"
     analysis = scan_folder.parent.parent / "analysis" / scan_folder.name
-    return scan_folder / Path(data_dir).name, analysis / device / _cache_name(
-        device, request
-    )
+    # The legacy wrapper took the frames from the *device's* folder even when
+    # ``scan.device`` points the run's input elsewhere (a suffixed folder of
+    # derived traces): the background is the raw camera's. Same here, so the
+    # shared cache always holds the same frame.
+    return scan_folder / device, analysis / device / _cache_name(device, request)
 
 
 def _frame_loaders(
@@ -228,9 +232,14 @@ def resolve_scan_background(
     background = scan_statistic(loaders, request.statistic, request.percentile)
     # The analysis tree may be created; the scan folder above was checked.
     cache.parent.mkdir(parents=True, exist_ok=True)
-    partial = cache.with_suffix(".partial.npy")
-    np.save(partial, background)
-    partial.replace(cache)
+    # A private temp file per writer, renamed into place: two runs computing
+    # the same background at once each publish a whole file (the same
+    # frame), and a reader never sees a partial one.
+    with tempfile.NamedTemporaryFile(
+        dir=cache.parent, prefix=f".{cache.stem}.", suffix=".npy", delete=False
+    ) as handle:
+        np.save(handle, background)
+    Path(handle.name).replace(cache)
     logger.info(
         "Saved scan background to %s (%s of %d frames)",
         cache,
