@@ -14,7 +14,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   equals the legacy wrapper's on a stitched scan). Siblings are mapped by
   their own device's timestamps, so native timestamp-named files stitch —
   the legacy filename swap found none of them. A shot or folder a sibling
-  lacks is stitched without it, with a warning.
+  lacks is stitched without it, with a warning; so is a stack-only sibling
+  that holds no stack. Native-name stitching needs the device-named config
+  shape (`name` the device, `scan.device` its folder); the folder-named
+  shape maps shot-number files only, for the input and siblings alike.
 
 ### Removed
 

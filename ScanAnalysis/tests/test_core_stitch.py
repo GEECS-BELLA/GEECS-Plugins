@@ -264,3 +264,20 @@ def test_a_recipe_refuses_bad_siblings(siblings, message):
                 },
             }
         )
+
+
+def test_a_stack_only_sibling_without_a_stack_is_stitched_around(tmp_path, caplog):
+    """A pva_stack input whose sibling folder holds no stack keeps running."""
+    from scan_analysis import core_source
+
+    scan = build_scan(tmp_path)
+    rows = pd.read_csv(scan.parent.parent / "analysis" / "s1.txt", sep="\t")
+    from dataclasses import replace
+
+    spec = replace(core_source._resolved(document()), prefer_stack=True)
+    with caplog.at_level(logging.WARNING, logger="scan_analysis.core_source"):
+        refs = core_source._sibling_references(
+            spec, f"MagSpec2{SUFFIX}", scan, rows, stacks_only=True
+        )
+    assert refs == {}
+    assert any("stitching without it" in r.getMessage() for r in caplog.records)

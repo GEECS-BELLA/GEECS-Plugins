@@ -13,7 +13,7 @@ import pandas as pd
 from geecs_data_utils.io.array1d import Data1DConfig, read_1d_data
 from geecs_data_utils.io.images import read_imaq_image
 from geecs_data_utils.io.scan_stack import ShotRef, open_stack, read_frame, read_shot
-from geecs_data_utils.shot_files import map_shot_files
+from geecs_data_utils.shot_files import StackMappingUnavailable, map_shot_files
 
 from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
 
@@ -210,8 +210,9 @@ def _sibling_references(
     The sibling's device name is its folder with the input's folder suffix
     removed (``X-interpSpec`` for input device ``Y`` in folder
     ``Y-interpSpec`` is device ``X``), so its own timestamp column joins its
-    own files. A missing sibling folder maps no shots (warned once); the
-    input's shots are then stitched without it.
+    own files. A missing sibling folder, or a stack-only sibling without a
+    stack, maps no shots (warned once); the input's shots are then stitched
+    without it.
     """
     if folder in {".", ".."} or "/" in folder or "\\" in folder:
         raise ValueError("A sibling must name one scan subfolder")
@@ -227,12 +228,20 @@ def _sibling_references(
             "Sibling folder %s does not exist; stitching without it", directory
         )
         return {}
-    return map_shot_files(
-        directory,
-        rows,
-        device=device,
-        file_tail=spec.file_tail if spec.file_tail is not None else ".csv",
-        prefer_stack=spec.prefer_stack,
-        stacks_only=stacks_only,
-        file_device=folder,
-    )
+    try:
+        return map_shot_files(
+            directory,
+            rows,
+            device=device,
+            file_tail=spec.file_tail if spec.file_tail is not None else ".csv",
+            prefer_stack=spec.prefer_stack,
+            stacks_only=stacks_only,
+            file_device=folder,
+        )
+    except StackMappingUnavailable as exc:
+        # A stack-only sibling with no stack is a missing sibling, not a
+        # missing input: the run stitches without it.
+        logger.warning(
+            "Sibling %s maps no shots (%s); stitching without it", folder, exc
+        )
+        return {}
