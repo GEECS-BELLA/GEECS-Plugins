@@ -17,8 +17,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   extras beside the shot's raw file in the legacy layout — for FROG,
   `<shot>_retrieved_lineouts.tsv` with the legacy columns, so follow-on
   analyzers keep reading them (owner ruling: they stay in the scans tree
-  for now). Written whatever `save` says, as before; a stack frame gets
-  `<stack>_<shot>_retrieved_lineouts.tsv`; no directory is created.
+  for now). Written whatever `save` says, as before; a stack frame gets the legacy
+  shot-number name `ScanNNN_<device>_<shot>_retrieved_lineouts.tsv`, which
+  data-utils' shot mapping resolves; no directory is created.
 - `prepare_v2(services=)` / `core_preview.prepare_document(services=)`: a
   service measure is refused with `ServicesNotRequested` (an
   `UnsupportedRecipe`) unless the caller asks. `prepare_document` defaults

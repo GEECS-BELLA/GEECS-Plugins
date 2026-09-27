@@ -229,9 +229,11 @@ def test_shot_table_paths_sit_beside_the_file_or_the_stack():
     assert shot_table_path(Path("/d/Dev/Scan001_Dev_004.png"), 4, "t") == Path(
         "/d/Dev/Scan001_Dev_004_t.tsv"
     )
-    assert shot_table_path(ShotRef("/d/Dev/Dev.h5", 3), 4, "t") == Path(
-        "/d/Dev/Dev_004_t.tsv"
+    assert shot_table_path(ShotRef("/d/scans/Scan007/Dev/Dev.h5", 3), 4, "t") == Path(
+        "/d/scans/Scan007/Dev/Scan007_Dev_004_t.tsv"
     )
+    with pytest.raises(ValueError, match="ScanNNN"):
+        shot_table_path(ShotRef("/d/Dev/Dev.h5", 3), 4, "t")
     with pytest.raises(ValueError):
         shot_table_path(Path("/d/x.png"), 1, "../escape")
 
@@ -261,3 +263,36 @@ def test_a_per_request_view_never_starts_the_dll_but_the_explicit_preview_does(
     figure = preview_frame(document(), np.full((10, 12), 3, dtype=np.uint16))
     assert built == [1]
     assert figure.axes
+
+
+@pytest.mark.parametrize("stack", [False, True])
+def test_a_written_table_maps_back_to_its_shot(tmp_path, stack):
+    """A follow-on recipe reading the tables (input ``folder``) finds each one."""
+    from geecs_data_utils.frames import Axis, Frame
+    from geecs_data_utils.shot_files import map_shot_files
+
+    from geecs_analysis.measurement import Measurement
+    from scan_analysis.core_sink import write_shot_table
+
+    device = tmp_path / "scans" / "Scan007" / "Dev"
+    device.mkdir(parents=True)  # fixture acquisition
+    time = Axis(np.linspace(-1.0, 1.0, 4), label="time", unit="fs")
+    measurement = Measurement(
+        scalars={},
+        frame=Frame.from_array(np.zeros((2, 2))),
+        extras={"temporal_intensity": Frame.from_array(np.ones(4), axes=(time,))},
+    )
+    rows = pd.DataFrame({"Shotnumber": [1, 2], "Dev acq_timestamp": [11.5, 12.5]})
+    for shot, ts in ((1, 11.5), (2, 12.5)):
+        if stack:
+            reference = ShotRef(device / "Dev.h5", shot - 1)
+        else:
+            reference = device / f"Dev_{ts}.png"
+        write_shot_table(measurement, reference, shot, "retrieved_lineouts")
+    mapped = map_shot_files(
+        device, rows, device="Dev", file_tail="_retrieved_lineouts.tsv"
+    )
+    assert sorted(mapped) == [1, 2]
+    assert all(
+        path.name.endswith("_retrieved_lineouts.tsv") for path in mapped.values()
+    )

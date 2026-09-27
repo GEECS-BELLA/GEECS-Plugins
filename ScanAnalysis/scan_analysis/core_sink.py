@@ -8,6 +8,7 @@ where the legacy analyzer wrote it and where follow-on analyzers read it
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -191,13 +192,18 @@ def shot_table_path(reference: Path, shot: int, name: str) -> Path:
     """Where one shot's sidecar table goes: beside the shot's own file.
 
     A per-shot file ``X.png`` gets ``X_<name>.tsv``. A frame of a capture
-    stack ``D.h5`` gets ``D_<shot:03d>_<name>.tsv`` beside the stack, one
-    file per shot.
+    stack ``scans/ScanNNN/Dev/Dev.h5`` gets the legacy shot-number name
+    ``ScanNNN_Dev_<shot:03d>_<name>.tsv`` beside the stack, one file per
+    shot — a name data-utils' shot mapping resolves, so a follow-on recipe
+    reading these tables (its input ``folder``) finds them.
     """
     _component(name, "Sidecar name")
     if isinstance(reference, ShotRef):
         stack = Path(str(reference))
-        return stack.parent / f"{stack.stem}_{shot:03d}_{name}.tsv"
+        scan = stack.parent.parent.name
+        if not re.fullmatch(r"Scan\d{3,}", scan):
+            raise ValueError(f"Stack {stack} is not under a scans/ScanNNN folder")
+        return stack.parent / f"{scan}_{stack.parent.name}_{shot:03d}_{name}.tsv"
     reference = Path(reference)
     return reference.parent / f"{reference.stem}_{name}.tsv"
 

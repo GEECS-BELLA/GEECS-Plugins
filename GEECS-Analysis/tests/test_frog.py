@@ -284,3 +284,24 @@ def test_a_pooled_frog_run_equals_the_serial_run(tmp_path, monkeypatch):
     for (_, _, a), (_, _, b) in zip(serial, pooled, strict=True):
         np.testing.assert_array_equal(a, b)
     monkeypatch.delitem(importlib.sys.modules, "frog_pool_helper", raising=False)
+
+
+def test_frog_spec_mirrors_the_v2_spec():
+    """Same fields and defaults, and no bound the v2 schema lacks: every v2
+    config the legacy route ran must compile (target_error 0 = never stop)."""
+    from geecs_schemas.analysis import FrogRetrievalSpec
+
+    v2 = FrogRetrievalSpec.model_fields
+    core = FrogSpec.model_fields
+    assert set(core) - {"kind"} == set(v2) - {"kind"}
+    for name in set(core) - {"kind"}:
+        assert core[name].default == v2[name].default, name
+    edge = {"target_error": 0.0, "max_time_seconds": 0.0, "max_iterations": 0}
+    document = AnalysisDiagnostic.model_validate(
+        {
+            "name": "Dev",
+            "analyzer": {"kind": "frog_retrieval", **edge},
+            "image": {"type": "camera"},
+        }
+    )
+    assert compile_v2(document).analysis.measure == FrogSpec(**edge)

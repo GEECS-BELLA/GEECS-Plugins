@@ -39,8 +39,10 @@ SCALARS = (
 class FrogSpec(MeasureSpec):
     """Retrieval parameters, passed unchanged to the host's retriever.
 
-    The defaults are the v2 ``frog_retrieval`` analyzer's, so a converted
-    diagnostic writes only what it set.
+    Fields, defaults and bounds are the v2 ``frog_retrieval`` analyzer's
+    (``test_frog_spec_mirrors_the_v2_spec`` pins it), so every v2 config the
+    legacy route ran compiles, and a converted diagnostic writes only what
+    it set.
     """
 
     kind: Literal["frog"] = "frog"
@@ -54,11 +56,11 @@ class FrogSpec(MeasureSpec):
         512, description="Retrieval grid size: 512, 256, 128 or 64."
     )
     target_error: float = Field(
-        0.005, gt=0, description="Stop once the FROG error falls below this."
+        0.005,
+        description="Stop once the FROG error falls below this (0: never stop early).",
     )
     max_time_seconds: float = Field(
         5.0,
-        gt=0,
         description=(
             "Stop the retrieval loop after this many seconds. A time cap makes "
             "the result depend on the host's speed and load; prefer max_iterations."
@@ -66,7 +68,6 @@ class FrogSpec(MeasureSpec):
     )
     max_iterations: int = Field(
         1_000_000_000,
-        ge=1,
         description="Stop the retrieval loop after this many iterations.",
     )
     noise_subtype: int = Field(
