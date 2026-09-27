@@ -3,6 +3,13 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.40.1] - 2026-09-27
+
+### Changed
+
+- Tests and CLAUDE.md: the legacy-wrapper selection tests force the wrapper
+  with a bilateral trace filter, since a trace ROI now runs on the core.
+
 ## [1.40.0] - 2026-09-26
 
 ### Added
@@ -26,13 +33,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   to not asking, so the portal's shot browser keeps its old route and never
   starts the DLL per view; the editor's `preview_frame` / `preview_summary`
   and scan runs ask.
-
-## [1.39.2] - 2026-09-27
-
-### Changed
-
-- Tests and CLAUDE.md: the legacy-wrapper selection tests force the wrapper
-  with a bilateral trace filter, since a trace ROI now runs on the core.
 
 ## [1.39.1] - 2026-09-26
 
