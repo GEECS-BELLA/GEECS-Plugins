@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Mapping
 
-from geecs_analysis.pipeline import apply_pipeline
+from geecs_analysis.pipeline import apply_measure, apply_pipeline
 from geecs_analysis.registry import measure_definition
 from geecs_analysis.specs import Analysis
 
@@ -14,14 +14,18 @@ if TYPE_CHECKING:
 
 
 def analyze(
-    frame: Frame, recipe: Analysis, *, inputs: Mapping[str, Frame] | None = None
+    frame: Frame, recipe: Analysis, *, inputs: Mapping[str, object] | None = None
 ) -> Measurement:
-    """Process and measure one frame without scan state, file access or rendering."""
+    """Process and measure one frame without scan state, file access or rendering.
+
+    ``inputs`` holds the frames the steps bind and, for a measure that names
+    a service (``frog``), the host's collaborator under that name.
+    """
     definition = measure_definition(recipe.measure)
     if frame.data.ndim not in definition.ndim:
         raise ValueError(
             f"{recipe.measure.kind} does not support {frame.data.ndim}D frames"
         )
-    return definition.function(
-        apply_pipeline(frame, recipe, inputs=inputs), recipe.measure
+    return apply_measure(
+        apply_pipeline(frame, recipe, inputs=inputs), recipe.measure, inputs=inputs
     )

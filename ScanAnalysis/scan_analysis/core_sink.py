@@ -1,11 +1,21 @@
-"""Save core scan products under the sibling analysis tree, using the legacy file names."""
+"""Save core scan products under the sibling analysis tree, using the legacy file names.
+
+One exception to "under the analysis tree": a measure's per-shot sidecar
+table (the FROG retrieval's lineouts) is written beside the shot's raw file,
+where the legacy analyzer wrote it and where follow-on analyzers read it
+(a recipe input's ``folder``). It never creates a directory.
+"""
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 import h5py
+import numpy as np
+import pandas as pd
+from geecs_data_utils.io.scan_stack import ShotRef
 from geecs_analysis.registry import summary_definition
 from geecs_analysis.render import RenderError, single
 
@@ -176,3 +186,65 @@ def save_products(
         if not (line and definition.consumes == "average"):
             display.append(path)
     return SavedProducts(tuple(files), tuple(display), tuple(notes))
+
+
+def shot_table_path(reference: Path, shot: int, name: str) -> Path:
+    """Where one shot's sidecar table goes: beside the shot's own file.
+
+    A per-shot file ``X.png`` gets ``X_<name>.tsv``. A frame of a capture
+    stack ``scans/ScanNNN/Dev/Dev.h5`` gets the legacy shot-number name
+    ``ScanNNN_Dev_<shot:03d>_<name>.tsv`` beside the stack, one file per
+    shot — a name data-utils' shot mapping resolves, so a follow-on recipe
+    reading these tables (its input ``folder``) finds them.
+    """
+    _component(name, "Sidecar name")
+    if isinstance(reference, ShotRef):
+        stack = Path(str(reference))
+        scan = stack.parent.parent.name
+        if not re.fullmatch(r"Scan\d{3,}", scan):
+            raise ValueError(f"Stack {stack} is not under a scans/ScanNNN folder")
+        return stack.parent / f"{scan}_{stack.parent.name}_{shot:03d}_{name}.tsv"
+    reference = Path(reference)
+    return reference.parent / f"{reference.stem}_{name}.tsv"
+
+
+def write_shot_table(measurement, reference: Path, shot: int, name: str) -> Path:
+    """Write a measurement's extras as one tab-separated table beside the shot.
+
+    Each distinct coordinate axis is written once, as ``<label>_<unit>``,
+    before the first extra sampled on it; each extra is a column named by
+    its key; shorter columns are padded with NaN. For the FROG retrieval this
+    is the legacy ``*_retrieved_lineouts.tsv`` layout exactly (``time_fs``,
+    ``temporal_intensity``, ``temporal_phase``, ``wavelength_nm``,
+    ``spectral_intensity``, ``spectral_phase``). The shot's directory must
+    already exist; nothing is created but the file.
+    """
+    path = shot_table_path(reference, shot, name)
+    if not path.parent.is_dir():
+        raise FileNotFoundError(f"Shot directory does not exist: {path.parent}")
+    columns: dict[str, np.ndarray] = {}
+    for key, frame in measurement.extras.items():
+        if frame.data.ndim != 1:
+            raise ValueError(f"Extra {key} is not a trace; it cannot be a column")
+        axis = frame.axes[0]
+        axis_name = f"{axis.label}_{axis.unit}" if axis.label else f"{key}_x"
+        if axis_name not in columns:
+            columns[axis_name] = axis.values
+        elif not np.array_equal(columns[axis_name], axis.values):
+            raise ValueError(f"Extras disagree on the {axis_name} coordinates")
+        if key in columns:
+            raise ValueError(f"Extra {key} collides with an axis column")
+        columns[key] = frame.data
+    length = max(len(values) for values in columns.values())
+    table = pd.DataFrame(
+        {
+            key: np.pad(
+                np.asarray(values, dtype=np.float64),
+                (0, length - len(values)),
+                constant_values=np.nan,
+            )
+            for key, values in columns.items()
+        }
+    )
+    table.to_csv(path, sep="\t", index=False)
+    return path

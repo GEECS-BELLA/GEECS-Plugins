@@ -3,6 +3,13 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.45.0] - 2026-09-26
+
+### Added
+
+- `GeecsPathsConfig.frog_launcher`: the optional `[Paths] frog_launcher`
+  command prefix that runs the 32-bit FROG worker (e.g. `wine` on Linux).
+
 ## [0.44.0] - 2026-09-26
 
 ### Added

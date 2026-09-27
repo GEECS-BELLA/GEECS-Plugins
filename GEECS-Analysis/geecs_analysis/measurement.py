@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import isfinite
 from numbers import Real
 from types import MappingProxyType
@@ -45,13 +45,19 @@ class Measurement:
     those undefined results to consumers instead of turning them into zeros.
     Caller dictionaries and sequences are copied to immutable containers.
     A measurement pickles (a worker process returns one to its parent), and
-    the copy carries the same scalars, frame, overlays and notes.
+    the copy carries the same scalars, frame, overlays, notes and extras.
+
+    ``extras`` are named auxiliary frames a measure produces beside its main
+    frame (the FROG retrieval's temporal and spectral lineouts). They are
+    neither drawn nor averaged; a scan host may persist them per shot as the
+    measure's registered ``sidecar`` table.
     """
 
     scalars: Mapping[str, float]
     frame: Frame
     overlays: tuple[Overlay, ...] = ()
     notes: tuple[str, ...] = ()
+    extras: Mapping[str, Frame] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Own the results and annotate invalid scalars without hiding them."""
@@ -74,9 +80,16 @@ class Measurement:
             for key, value in values.items()
             if not isfinite(value)
         )
+        extras = dict(self.extras)
+        for key, value in extras.items():
+            if not isinstance(key, str) or not key:
+                raise ValueError("Extra keys must be nonempty strings")
+            if not isinstance(value, Frame):
+                raise TypeError(f"Extra {key} must be a Frame")
         object.__setattr__(self, "scalars", MappingProxyType(values))
         object.__setattr__(self, "overlays", overlays)
         object.__setattr__(self, "notes", notes)
+        object.__setattr__(self, "extras", MappingProxyType(extras))
 
     def __getstate__(self) -> dict:
         """Pickle the owned values as plain containers (a proxy view cannot be)."""
@@ -85,6 +98,7 @@ class Measurement:
             "frame": self.frame,
             "overlays": self.overlays,
             "notes": self.notes,
+            "extras": dict(self.extras),
         }
 
     def __setstate__(self, state: dict) -> None:
@@ -93,3 +107,4 @@ class Measurement:
         object.__setattr__(self, "frame", state["frame"])
         object.__setattr__(self, "overlays", tuple(state["overlays"]))
         object.__setattr__(self, "notes", tuple(state["notes"]))
+        object.__setattr__(self, "extras", MappingProxyType(dict(state["extras"])))

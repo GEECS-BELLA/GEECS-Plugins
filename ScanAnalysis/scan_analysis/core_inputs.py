@@ -12,27 +12,43 @@ from pathlib import Path
 from typing import Mapping
 
 import numpy as np
-from geecs_analysis.compat.v2 import V2Recipe
+from geecs_analysis.compat.v2 import UnsupportedRecipe, V2Recipe
 from geecs_analysis.pipeline import bind_inputs
+from geecs_analysis.registry import measure_definition
 from geecs_analysis.recipe import AnalysisDocument, compile_document
 from geecs_analysis.steps.background_constant import BackgroundConstantSpec
 from geecs_analysis.steps.background_frame import BackgroundFrameSpec
 from geecs_data_utils.frames import Frame
 from geecs_data_utils.io.images import read_imaq_image
 
+from scan_analysis.core_services import services_for
+
 logger = logging.getLogger(__name__)
+
+
+class ServicesNotRequested(UnsupportedRecipe):
+    """The recipe's measure needs a service and this caller did not ask for one.
+
+    A measure with a service (the FROG retrieval) starts an external program
+    per frame. Scan runs and the editor's explicit previews ask for it; a
+    per-request view (the portal's shot browser) does not, and — this being
+    an ``UnsupportedRecipe`` — keeps the route it had before the port, which
+    refuses such a kind outright.
+    """
 
 
 @dataclass(frozen=True)
 class PreparedRecipe:
-    """An immutable compiled recipe and its already-loaded frame bindings.
+    """An immutable compiled recipe, its loaded frame bindings and its services.
 
-    Pickles (a pooled run sends it to each worker once): the bound inputs
-    travel as a plain mapping and are rebound as a read-only view.
+    ``inputs`` holds the frames the steps bind and, when the measure names a
+    service (``core_services``), the collaborator built for it. Pickles (a
+    pooled run sends it to each worker once): the bound inputs travel as a
+    plain mapping and are rebound as a read-only view.
     """
 
     recipe: V2Recipe
-    inputs: Mapping[str, Frame]
+    inputs: Mapping[str, object]
 
     def __getstate__(self) -> dict:
         """Pickle the bindings as a plain dict (a proxy view cannot be)."""
@@ -44,12 +60,19 @@ class PreparedRecipe:
         object.__setattr__(
             self,
             "inputs",
-            bind_inputs(state["recipe"].analysis.steps, dict(state["inputs"])),
+            bind_inputs(
+                state["recipe"].analysis.steps,
+                dict(state["inputs"]),
+                measure=state["recipe"].analysis.measure,
+            ),
         )
 
 
 def prepare_v2(
-    document: AnalysisDocument, *, data_dir: Path | None = None
+    document: AnalysisDocument,
+    *,
+    data_dir: Path | None = None,
+    services: bool = True,
 ) -> PreparedRecipe:
     """Compile either document before reading inputs; load its frame inputs.
 
@@ -60,9 +83,19 @@ def prepare_v2(
     that says so) makes the failure an error. Successfully loaded malformed
     geometry raises instead of silently selecting the constant. Each distinct
     background is loaded once for this prepared run, including repeated
-    pipeline steps.
+    pipeline steps. A measure's service (the FROG retriever) is built here
+    from this host's config, so a host that cannot provide it fails now,
+    before any shot is read; ``services=False`` refuses such a recipe with
+    :class:`ServicesNotRequested` instead, before any file is read.
     """
     recipe = compile_document(document, allow_file_backgrounds=True)
+    service = measure_definition(recipe.analysis.measure).service
+    if service is not None and not services:
+        raise ServicesNotRequested(
+            f"the {recipe.analysis.measure.kind!r} measure runs the {service!r} "
+            "service (an external program per frame); this caller did not ask "
+            "for services"
+        )
     inputs = {}
     fallbacks = {}
     for request in recipe.file_backgrounds:
@@ -95,4 +128,8 @@ def prepare_v2(
         recipe = replace(
             recipe, analysis=recipe.analysis.model_copy(update={"steps": steps})
         )
-    return PreparedRecipe(recipe, bind_inputs(recipe.analysis.steps, inputs))
+    inputs.update(services_for(recipe.analysis.measure))
+    return PreparedRecipe(
+        recipe,
+        bind_inputs(recipe.analysis.steps, inputs, measure=recipe.analysis.measure),
+    )

@@ -8,12 +8,13 @@ image/1D analyzers. Automatic watching and Google Docs uploads are retired.
 ```
 scan_analysis/
   base.py                          # ScanAnalyzer abstract base class
-  core_inputs.py                   # v2 core compilation + loaded file-background bindings
+  core_inputs.py                   # v2 core compilation + loaded file-background bindings + services
+  core_services.py                 # the services a measure names (the FROG retriever), built from config.ini
   core_source.py                   # completed-scan native/stack input mapping and reads
   core_scan.py                     # write-free scan preparation, grouping and execution
   core_products.py                 # write-free average/bin and summary product planning (ProductCollector streams it)
   core_workers.py                  # the worker count a run gets: recipe request, host cap (config.ini), small-run floor
-  core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN; draw_product / draw_summary
+  core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN; draw_product / draw_summary; per-shot sidecar tables beside the raw file
   core_preview.py                  # the editor's previews through the run's own calls (frame; a summary's layout over a few shots)
   core_analyzer.py                 # CoreScanAnalyzer: the core route behind the ScanAnalyzer contract
   route_compare.py                 # snapshot + compare two routes' analysis trees (one equality rule)
@@ -40,6 +41,15 @@ fallback; loaded shape errors propagate. `data_dir` means the device directory
 when resolving `{scan_dir}`. Context-free previews leave that placeholder
 literal. This adapter never writes, mutates the caller's config, or resolves
 scan-background directives. Explicit scan execution still uses the old factory.
+A measure that names a service (`frog`: the FROG.dll retrieval, an external
+program per frame) gets it from `core_services.services_for`, built from
+this host's `config.ini` when the run is prepared — a host without the DLL
+fails there, before any shot is read. `prepare_v2(services=False)` refuses
+such a recipe with `ServicesNotRequested` (an `UnsupportedRecipe`):
+`core_preview.prepare_document` defaults to that, so the portal's shot
+browser keeps its old route (which refuses FROG) and never starts the DLL
+per view; `preview_frame` / `preview_summary` — the editor's explicit
+previews — and scan runs ask for services.
 
 `core_source.prepare_source` maps a completed scan's scalar rows to native
 files or capture-stack frames through data-utils. The returned `V2ShotSource`
@@ -580,6 +590,13 @@ In practice:
   and only via `mkdir(exist_ok=True)` — no `parents=True`.
 - Analyzers write their outputs to `<date>/analysis/Scan<NNN>/...`, the
   *sibling* of `scans/Scan<NNN>/`. Never write back into the scans tree.
+  One deliberate exception (owner ruling 2026-09-26): a measure's per-shot
+  sidecar table — the FROG `*_retrieved_lineouts.tsv` — is written beside
+  the shot's raw file (`core_sink.write_shot_table`), where the legacy
+  analyzer wrote it and follow-on analyzers read it through a recipe
+  input's `folder`. It creates no directory. Moving derived artifacts
+  under `analysis/` and letting inputs read from there is a separate,
+  undecided design question.
 
 Do not treat a missing entire scan folder as `no_data`. `no_data` means the
 scan exists but a specific device/analyzer has no usable data. If the scan

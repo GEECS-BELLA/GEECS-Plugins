@@ -9,6 +9,7 @@ from typing import Optional, Union
 
 import pandas as pd
 from geecs_analysis.compat.v2 import UnsupportedRecipe, compile_v2
+from geecs_analysis.registry import measure_definition
 from geecs_data_utils.shot_files import StackMappingUnavailable
 from geecs_schemas.analysis import AnalysisRecipe, WaterfallSummary
 
@@ -16,7 +17,7 @@ from scan_analysis.base import DataUnavailableWarning, ScanAnalyzer
 from scan_analysis.core_products import ProductCollector, ProductPlan
 from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
 from scan_analysis.core_scan import PreparedScan, prepare_scan
-from scan_analysis.core_sink import save_products
+from scan_analysis.core_sink import save_products, write_shot_table
 from scan_analysis.core_source import source_directory
 from scan_analysis.core_workers import effective_workers
 
@@ -192,6 +193,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
         )
         pending: list[dict] = []
         fold_error: ValueError | None = None
+        sidecar = measure_definition(prepared.prepared.recipe.analysis.measure).sidecar
         for outcome in prepared.run(workers=workers):
             for failure in outcome.load_failures:
                 logger.warning(
@@ -215,6 +217,8 @@ class CoreScanAnalyzer(ScanAnalyzer):
                     collector.add(outcome)
                 except ValueError as exc:
                     fold_error = exc
+            if sidecar is not None:
+                self._write_sidecar(prepared, outcome, sidecar)
             pending.extend(prepared.scalar_records(outcome))
         if pending:
             updates = pd.DataFrame(pending)
@@ -226,6 +230,23 @@ class CoreScanAnalyzer(ScanAnalyzer):
             self.append_to_sfile(updates)
         if fold_error is not None:
             raise fold_error
+
+    def _write_sidecar(self, prepared: PreparedScan, outcome, name: str) -> None:
+        """Write one shot's sidecar table beside its file, as the legacy analyzer did.
+
+        Written whatever ``save`` says (the legacy analyzer wrote it on every
+        analyzed shot) and only for a single-shot unit: a bin's averaged
+        frame has no one shot to sit beside. A write failure is logged and
+        the run goes on; the shot's scalars are unaffected.
+        """
+        measurement = outcome.measurement
+        if not measurement.extras or len(outcome.loaded_shots) != 1:
+            return
+        shot = outcome.loaded_shots[0]
+        try:
+            write_shot_table(measurement, prepared.source.references[shot], shot, name)
+        except (OSError, ValueError) as exc:
+            logger.warning("Shot %s: %s table not written: %s", shot, name, exc)
 
     def cleanup(self) -> None:
         """Release the loaded s-file and the display list after a run."""

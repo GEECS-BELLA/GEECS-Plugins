@@ -16,10 +16,11 @@ from geecs_schemas.analysis.processing_1d import Line1DConfig
 from geecs_schemas.analysis.processing_2d import CameraConfig
 
 from geecs_analysis.measures.beam import BeamSpec
+from geecs_analysis.measures.frog import FrogSpec
 from geecs_analysis.measures.line import LineSpec
 from geecs_analysis.measures.none import NoneSpec
-from geecs_analysis.pipeline import apply_step, bind_inputs
-from geecs_analysis.registry import StepSpec, measure_definition
+from geecs_analysis.pipeline import apply_measure, apply_step, bind_inputs
+from geecs_analysis.registry import StepSpec
 from geecs_analysis.specs import Analysis
 from geecs_analysis.steps.background_constant import BackgroundConstantSpec
 from geecs_analysis.steps.background_frame import BackgroundFrameSpec
@@ -36,7 +37,7 @@ from geecs_analysis.steps.zero_below import ZeroBelowSpec
 
 if TYPE_CHECKING:
     import numpy as np
-    from geecs_data_utils.frames import Frame, ShotMeta
+    from geecs_data_utils.frames import ShotMeta
     from geecs_analysis.measurement import Measurement
 
 
@@ -77,7 +78,7 @@ class V2Recipe:
 def compile_v2(
     document: AnalysisDiagnostic, *, allow_file_backgrounds: bool = False
 ) -> V2Recipe:
-    """Translate supported beam/line/standard/trace recipes, without file access.
+    """Translate supported beam/line/standard/trace/frog_retrieval recipes, without file access.
 
     Currently covers constant backgrounds, ROI, circular/crosshair masks, trace
     interpolation, Gaussian/median filtering, fixed-canvas rotation,
@@ -88,16 +89,20 @@ def compile_v2(
     cannot be represented by Frame. Inactive sections are ignored as before.
     File backgrounds require explicit source-layer opt-in; the compiled recipe
     then declares requests and expects loaded Frame inputs at execution time.
+    ``frog_retrieval`` compiles to the ``frog`` measure, which needs the host
+    to bind its retriever service at execution time.
     """
     kind = document.analyzer.kind
-    if kind not in {"beam", "line", "standard", "trace"}:
+    if kind not in {"beam", "line", "standard", "trace", "frog_retrieval"}:
         raise UnsupportedRecipe(f"Analyzer not ported: {kind}")
     if document.scan.background_source is not None:
         raise UnsupportedRecipe("Scan backgrounds must be resolved by a source")
     config = document.image
     if not isinstance(config, (CameraConfig, Line1DConfig)):
         raise UnsupportedRecipe("A camera or line processing section is required")
-    if kind in {"beam", "standard"} and not isinstance(config, CameraConfig):
+    if kind in {"beam", "standard", "frog_retrieval"} and not isinstance(
+        config, CameraConfig
+    ):
         raise UnsupportedRecipe(f"{kind} requires a camera input")
     if kind in {"line", "trace"} and not isinstance(config, Line1DConfig):
         raise UnsupportedRecipe(f"{kind} requires a line input")
@@ -128,6 +133,10 @@ def compile_v2(
         )
     elif kind == "line":
         measure = LineSpec()
+    elif kind == "frog_retrieval":
+        measure = FrogSpec.model_validate(
+            document.analyzer.model_dump(include=set(FrogSpec.model_fields) - {"kind"})
+        )
     else:
         measure = NoneSpec()
     common = dict(
@@ -291,7 +300,7 @@ def analyze_v2(
     recipe: V2Recipe,
     *,
     shot: ShotMeta | None = None,
-    inputs: Mapping[str, Frame] | None = None,
+    inputs: Mapping[str, object] | None = None,
 ) -> Measurement:
     """Run already-loaded raw samples with legacy scaling/rounding conventions.
 
@@ -302,7 +311,7 @@ def analyze_v2(
     import numpy as np
     from geecs_data_utils.frames import Axis, Frame
 
-    bound = bind_inputs(recipe.analysis.steps, inputs)
+    bound = bind_inputs(recipe.analysis.steps, inputs, measure=recipe.analysis.measure)
     if recipe.input_kind == "camera":
         if data.ndim != 2:
             raise ValueError("Camera input must be HxW")
@@ -352,9 +361,7 @@ def analyze_v2(
                 )
             ),
         )
-    result = measure_definition(recipe.analysis.measure).function(
-        frame, recipe.analysis.measure
-    )
+    result = apply_measure(frame, recipe.analysis.measure, inputs=bound)
     if (
         recipe.input_kind == "line"
         and recipe.storage_dtype == "float64"

@@ -81,11 +81,20 @@ def definition(spec: StepSpec) -> StepDefinition:
 
 @dataclass(frozen=True)
 class MeasureDefinition:
-    """A measurement spec, function and supported dimensions."""
+    """A measurement spec, function and supported dimensions.
+
+    ``service`` names a host-supplied collaborator the measure calls (the
+    FROG retrieval, which runs an external program the core may not start);
+    the host binds it in ``inputs`` under that key and the function then
+    takes ``(frame, spec, service)``. ``sidecar`` names the per-shot table a
+    scan host writes from the measurement's ``extras`` (``None``: none).
+    """
 
     spec: type[MeasureSpec]
-    function: Callable[[Frame, MeasureSpec], Measurement]
+    function: Callable[..., Measurement]
     ndim: frozenset[int]
+    service: str | None = None
+    sidecar: str | None = None
 
 
 _MEASURES: dict[type[MeasureSpec], MeasureDefinition] = {}
@@ -93,18 +102,29 @@ MeasureT = TypeVar("MeasureT", bound=MeasureSpec)
 
 
 def measure(
-    spec: type[MeasureT], *, ndim: set[int]
-) -> Callable[
-    [Callable[[Frame, MeasureT], Measurement]], Callable[[Frame, MeasureT], Measurement]
-]:
-    """Register a builtin measure before constructing the spec union."""
+    spec: type[MeasureT],
+    *,
+    ndim: set[int],
+    service: str | None = None,
+    sidecar: str | None = None,
+) -> Callable[[Callable[..., Measurement]], Callable[..., Measurement]]:
+    """Register a builtin measure before constructing the spec union.
+
+    A measure with a ``service`` receives the host's bound collaborator as a
+    third argument; see :class:`MeasureDefinition`.
+    """
     if not ndim or not ndim <= {1, 2}:
         raise ValueError("Measure dimensions must be a nonempty subset of {1, 2}")
+    for label, value in (("service", service), ("sidecar", sidecar)):
+        if value is not None and not value:
+            raise ValueError(f"A measure's {label} must be a nonempty name")
 
-    def register(function: Callable[[Frame, MeasureT], Measurement]):
+    def register(function: Callable[..., Measurement]):
         if spec in _MEASURES:
             raise ValueError(f"Measure spec already registered: {spec.__name__}")
-        _MEASURES[spec] = MeasureDefinition(spec, function, frozenset(ndim))
+        _MEASURES[spec] = MeasureDefinition(
+            spec, function, frozenset(ndim), service, sidecar
+        )
         return function
 
     return register
