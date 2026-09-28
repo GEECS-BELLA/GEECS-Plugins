@@ -113,8 +113,10 @@ compilation still refuses them, including for the live optimizer. The source
 adapter in `scan_analysis.core_inputs` loads via data-utils and applies the v2
 constant fallback on reader/conversion failure. `analyze_v2(inputs=...)` never
 loads a file or chooses fallback. Scan-background directives remain unported.
-The compiler's supported subset is documented in its docstring and pinned by
-differential tests. Never silently skip an active unported operation.
+`line_stitcher` compiles to the `line` measure: joining the sibling
+devices' segments is the scan host's source (ScanAnalysis `core_source`),
+so the core sees one trace. The compiler's supported subset is documented
+in its docstring and pinned by differential tests. Never silently skip an active unported operation.
 Explicit identity transforms compile to no steps; fixed-canvas rotation is
 supported. Flips and distortion correction still raise UnsupportedRecipe.
 

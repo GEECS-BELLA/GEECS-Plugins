@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
@@ -12,9 +13,11 @@ import pandas as pd
 from geecs_data_utils.io.array1d import Data1DConfig, read_1d_data
 from geecs_data_utils.io.images import read_imaq_image
 from geecs_data_utils.io.scan_stack import ShotRef, open_stack, read_frame, read_shot
-from geecs_data_utils.shot_files import map_shot_files
+from geecs_data_utils.shot_files import StackMappingUnavailable, map_shot_files
 
 from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -33,17 +36,32 @@ class V2ShotSource:
     without them (a pooled run enters it once in every worker), and they are
     closed when the context exits, however it exits. Trace stacks
     (``pva_stack``) still open per read inside the shared 1-D reader.
+
+    ``siblings`` stitches a multi-device trace (the legacy ``LineStitcher``):
+    one ``(folder, shot → reference)`` pair per sibling device, read with
+    the same trace reader; each loaded shot is the input's trace joined with
+    every sibling's same-shot trace and sorted by x, exactly as the legacy
+    stitcher joined them. A shot a sibling lacks is stitched without it,
+    with a warning.
     """
 
     data_dir: Path
     references: Mapping[int, Path]
     line_loading_json: str | None = None
+    siblings: tuple[tuple[str, Mapping[int, Path]], ...] = ()
     _stacks: dict = field(default_factory=dict, init=False, repr=False, compare=False)
     _entered: bool = field(default=False, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         """Snapshot references so edits to a caller's map cannot rebind reads."""
         object.__setattr__(self, "references", MappingProxyType(dict(self.references)))
+        object.__setattr__(
+            self,
+            "siblings",
+            tuple(
+                (folder, MappingProxyType(dict(refs))) for folder, refs in self.siblings
+            ),
+        )
 
     def __getstate__(self) -> dict:
         """Pickle the references as a plain dict and never an open handle."""
@@ -51,6 +69,7 @@ class V2ShotSource:
             "data_dir": self.data_dir,
             "references": dict(self.references),
             "line_loading_json": self.line_loading_json,
+            "siblings": [(folder, dict(refs)) for folder, refs in self.siblings],
         }
 
     def __setstate__(self, state: dict) -> None:
@@ -60,6 +79,14 @@ class V2ShotSource:
             self, "references", MappingProxyType(dict(state["references"]))
         )
         object.__setattr__(self, "line_loading_json", state["line_loading_json"])
+        object.__setattr__(
+            self,
+            "siblings",
+            tuple(
+                (folder, MappingProxyType(dict(refs)))
+                for folder, refs in state["siblings"]
+            ),
+        )
         object.__setattr__(self, "_stacks", {})
         object.__setattr__(self, "_entered", False)
 
@@ -90,7 +117,24 @@ class V2ShotSource:
         path = self.references[shot]
         if self.line_loading_json is not None:
             loading = Data1DConfig.model_validate_json(self.line_loading_json)
-            return read_1d_data(path, loading).data
+            data = read_1d_data(path, loading).data
+            if not self.siblings:
+                return data
+            segments = [data]
+            for folder, refs in self.siblings:
+                if shot not in refs:
+                    logger.warning(
+                        "Shot %s: no %s trace; stitching the available segments "
+                        "without it",
+                        shot,
+                        folder,
+                    )
+                    continue
+                segments.append(read_1d_data(refs[shot], loading).data)
+            combined = np.concatenate(segments, axis=0)
+            # The legacy stitcher's sort (numpy's default kind): same order
+            # of equal-x samples, so the processed trace is identical.
+            return combined[combined[:, 0].argsort()]
         if isinstance(path, ShotRef):
             if not self._entered:
                 return read_shot(path)
@@ -147,4 +191,57 @@ def prepare_source(
         stacks_only=stacks_only,
         file_device=device_dir.name,
     )
-    return V2ShotSource(device_dir, references, loading_json)
+    siblings = tuple(
+        (folder, _sibling_references(spec, folder, scan_folder, rows, stacks_only))
+        for folder in spec.siblings
+    )
+    return V2ShotSource(device_dir, references, loading_json, siblings)
+
+
+def _sibling_references(
+    spec: ScanRecipe,
+    folder: str,
+    scan_folder: Path,
+    rows: pd.DataFrame,
+    stacks_only: bool,
+) -> dict[int, Path]:
+    """Map one sibling device's shots the way the input's are mapped.
+
+    The sibling's device name is its folder with the input's folder suffix
+    removed (``X-interpSpec`` for input device ``Y`` in folder
+    ``Y-interpSpec`` is device ``X``), so its own timestamp column joins its
+    own files. A missing sibling folder, or a stack-only sibling without a
+    stack, maps no shots (warned once); the input's shots are then stitched
+    without it.
+    """
+    if folder in {".", ".."} or "/" in folder or "\\" in folder:
+        raise ValueError("A sibling must name one scan subfolder")
+    suffix = (
+        spec.folder[len(spec.device) :]
+        if spec.folder != spec.device and spec.folder.startswith(spec.device)
+        else ""
+    )
+    device = folder[: -len(suffix)] if suffix and folder.endswith(suffix) else folder
+    directory = Path(scan_folder) / folder
+    if not directory.is_dir():
+        logger.warning(
+            "Sibling folder %s does not exist; stitching without it", directory
+        )
+        return {}
+    try:
+        return map_shot_files(
+            directory,
+            rows,
+            device=device,
+            file_tail=spec.file_tail if spec.file_tail is not None else ".csv",
+            prefer_stack=spec.prefer_stack,
+            stacks_only=stacks_only,
+            file_device=folder,
+        )
+    except StackMappingUnavailable as exc:
+        # A stack-only sibling with no stack is a missing sibling, not a
+        # missing input: the run stitches without it.
+        logger.warning(
+            "Sibling %s maps no shots (%s); stitching without it", folder, exc
+        )
+        return {}
