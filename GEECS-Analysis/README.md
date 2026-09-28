@@ -102,9 +102,9 @@ subsequent editor mutations do not change a compiled run. Unsupported active
 features raise `UnsupportedRecipe`; this module does not invoke a fallback.
 Readers remain separate and supply native-dtype arrays so legacy trace scaling
 precision is preserved. Trace processing is currently restricted to float64,
-with float32/float64 storage rounding before measurement. Preprocessing-only
-`trace` recipes with active ROI stay unsupported: legacy may return an empty
-array, which Frame intentionally cannot represent. Fixed-canvas image rotation is supported; camera flips and distortion
+with float32/float64 storage rounding before measurement. A trace ROI that
+selects no samples fails that shot explicitly (legacy returned an empty
+array, which Frame intentionally cannot represent). Fixed-canvas image rotation is supported; camera flips and distortion
 correction remain unsupported. The optimizer
 compiles supported camera recipes once before acquisition.
 

@@ -223,7 +223,7 @@ are inert on a `CoreScanAnalyzer`: its behaviour comes from its own copy of the
 document, so override the document, or ask for `route="legacy"`. Tests that pin
 the wrappers' kwargs mapping use `route="legacy"`; the auto-routing tests force
 the wrapper with a schema-valid feature the core refuses (a flip, or a
-preprocessing-only trace ROI).
+bilateral trace filter).
 
 `discover_analyzers` delegates to `geecs_data_utils.analysis_configs`; group
 lookup remains here because group aliases have different rules.
