@@ -55,6 +55,9 @@ class ScanRecipe:
     #: Worker processes the recipe asks for (``scan.workers``; a v2 diagnostic
     #: has no such field and runs serially). The host caps it.
     workers: int = 1
+    #: Sibling device folders whose same-shot traces the source joins to the
+    #: input's (a stitched multi-camera spectrum); empty for most recipes.
+    siblings: tuple[str, ...] = ()
 
     @property
     def line(self) -> bool:
@@ -95,4 +98,5 @@ def scan_recipe(document: AnalysisDocument) -> ScanRecipe:
         figure=figure_of(document),
         summaries=summaries_of(document),
         workers=workers,
+        siblings=document.sibling_folders,
     )

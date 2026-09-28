@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.17.0] - 2026-09-27
+## [0.18.0] - 2026-09-28
 
 ### Added
 
@@ -23,6 +23,15 @@
   legacy analyzer wrote 0 pC, indistinguishable from no charge.
 - Products store the processed trace at the recipe's `storage_dtype`
   (float32 by default); the legacy analyzer saved its raw input at float64.
+
+## [0.17.0] - 2026-09-27
+
+### Added
+
+- `compile_v2` compiles the v2 `line_stitcher` kind to the `line` measure;
+  the scan host joins the sibling traces. `to_v3` carries the siblings into
+  `input.siblings` (checked on the converted recipe) and notes the dropped
+  `output_label`.
 
 ## [0.16.0] - 2026-09-26
 

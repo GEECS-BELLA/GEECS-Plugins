@@ -2121,7 +2121,10 @@ def create_app(
         ``data_format``, the stack-only rule for ``pva_stack``) over
         ``device``, the recipe's own data folder; the reference is
         read with the document's loading, auxiliary columns handed over the
-        way ``analyze_image_file`` hands them to line analyzers.
+        way ``analyze_image_file`` hands them to line analyzers. A stitched
+        input (``sibling_folders``) is the source's own joined trace, as the
+        run reads it, and carries no auxiliary columns (the legacy stitcher
+        passed none either).
         """
         from dataclasses import replace
 
@@ -2148,6 +2151,8 @@ def create_app(
         reference = source.references.get(shot)
         if reference is None:
             raise LookupError(f"no {device} file for shot {shot}")
+        if source.siblings:
+            return source.load(shot), None
         trace = read_1d_data(reference, diag.line_loading)
         aux = (
             {

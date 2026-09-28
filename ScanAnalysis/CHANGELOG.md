@@ -3,6 +3,29 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.41.0] - 2026-09-27
+
+### Added
+
+- The line stitcher runs on the core route (`line_stitcher` diagnostics and
+  recipes with `input.siblings`), pooled like any recipe. `V2ShotSource`
+  joins each sibling folder's same-shot trace to the input's and sorts by x
+  exactly as the legacy `LineStitcher` did (the core route's analysis tree
+  equals the legacy wrapper's on a stitched scan). Siblings are mapped by
+  their own device's timestamps, so native timestamp-named files stitch —
+  the legacy filename swap found none of them. A shot or folder a sibling
+  lacks is stitched without it, with a warning; so is a stack-only sibling
+  that holds no stack. Native-name stitching needs the device-named config
+  shape (`name` the device, `scan.device` its folder); the folder-named
+  shape maps shot-number files only, for the input and siblings alike.
+
+### Removed
+
+- On the core route, the stitched per-shot TSVs the legacy stitcher wrote
+  into `scans/ScanNNN/<output_label>/` (owner ruling 2026-09-27: nothing
+  reads them; the processed trace is saved under `analysis/` as for every
+  recipe). The legacy route still writes them.
+
 ## [1.40.0] - 2026-09-26
 
 ### Added
