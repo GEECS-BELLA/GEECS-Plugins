@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.37.1] - 2026-09-27
+
+### Fixed
+
+- The config editor's line previews (frame and summary) draw a stitched
+  document's joined trace, as the run reads it (`V2ShotSource.load`), not
+  its first device's segment alone.
+
 ## [0.37.0] - 2026-09-26
 
 ### Fixed

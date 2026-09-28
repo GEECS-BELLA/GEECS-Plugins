@@ -17,6 +17,7 @@ from geecs_schemas.analysis.processing_2d import CameraConfig
 
 from geecs_analysis.measures.beam import BeamSpec
 from geecs_analysis.measures.frog import FrogSpec
+from geecs_analysis.measures.ict import IctSpec
 from geecs_analysis.measures.line import LineSpec
 from geecs_analysis.measures.none import NoneSpec
 from geecs_analysis.pipeline import apply_measure, apply_step, bind_inputs
@@ -92,10 +93,21 @@ def compile_v2(
     File backgrounds require explicit source-layer opt-in; the compiled recipe
     then declares requests and expects loaded Frame inputs at execution time.
     ``frog_retrieval`` compiles to the ``frog`` measure, which needs the host
-    to bind its retriever service at execution time.
+    to bind its retriever service at execution time; ``ict`` to the ``ict``
+    measure. ``line_stitcher`` compiles to the ``line`` measure; joining the
+    sibling devices' traces is the source's job (the document's
+    ``sibling_folders``).
     """
     kind = document.analyzer.kind
-    if kind not in {"beam", "line", "standard", "trace", "frog_retrieval"}:
+    if kind not in {
+        "beam",
+        "line",
+        "line_stitcher",
+        "standard",
+        "trace",
+        "frog_retrieval",
+        "ict",
+    }:
         raise UnsupportedRecipe(f"Analyzer not ported: {kind}")
     if document.scan.background_source is not None:
         raise UnsupportedRecipe("Scan backgrounds must be resolved by a source")
@@ -106,7 +118,9 @@ def compile_v2(
         config, CameraConfig
     ):
         raise UnsupportedRecipe(f"{kind} requires a camera input")
-    if kind in {"line", "trace"} and not isinstance(config, Line1DConfig):
+    if kind in {"line", "line_stitcher", "trace", "ict"} and not isinstance(
+        config, Line1DConfig
+    ):
         raise UnsupportedRecipe(f"{kind} requires a line input")
     steps = []
     for name in config.pipeline:
@@ -125,8 +139,14 @@ def compile_v2(
             enabled_stats=document.analyzer.enabled_stats,
             compute_slopes=document.analyzer.compute_slopes,
         )
-    elif kind == "line":
+    elif kind in {"line", "line_stitcher"}:
+        # A stitcher is a line analyzer over the joined trace; the source
+        # (the scan host) joins the sibling devices' segments before this.
         measure = LineSpec()
+    elif kind == "ict":
+        measure = IctSpec.model_validate(
+            document.analyzer.model_dump(include=set(IctSpec.model_fields) - {"kind"})
+        )
     elif kind == "frog_retrieval":
         measure = FrogSpec.model_validate(
             document.analyzer.model_dump(include=set(FrogSpec.model_fields) - {"kind"})

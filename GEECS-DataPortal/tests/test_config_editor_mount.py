@@ -590,6 +590,26 @@ class TestLinePreview:
         ((frames, _),) = seen
         np.testing.assert_array_equal(frames[0][:, 1], [4.0, 5.0, 6.0])
 
+    def test_a_stitched_document_previews_the_joined_trace(
+        self, scan_folder, configs_tree, seen
+    ):
+        """The run joins the sibling devices' traces; the preview draws the same."""
+        np = pytest.importorskip("numpy")
+        low = np.column_stack([np.linspace(0, 1, 5), np.arange(5.0)])
+        high = np.column_stack([np.linspace(2, 3, 5), np.arange(5.0) + 10])
+        for folder, xy in (("scope", high), ("scope2", low)):
+            (scan_folder / folder).mkdir()
+            np.savetxt(
+                scan_folder / folder / f"Scan002_{folder}_001.tsv", xy, delimiter="\t"
+            )
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        doc = dict(_LINE_DOC)
+        doc["analyzer"] = {"kind": "line_stitcher", "sibling_devices": ["scope2"]}
+        assert self._post(client, doc).status_code == 200
+        ((frames, kwargs),) = seen
+        np.testing.assert_array_equal(frames[0], np.concatenate([low, high]))
+        assert not (kwargs.get("auxiliary_data") or {}).get("_aux_columns")
+
     def test_a_missing_shot_file_is_404(self, scan_folder, configs_tree, seen):
         (scan_folder / "scope").mkdir()
         (scan_folder / "scope" / "Scan002_scope_001.tsv").write_text("0\t1\n")
