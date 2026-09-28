@@ -128,6 +128,31 @@ class TestHiResMagCamWaistPosition:
             32 + vertical_offset, abs=0.25
         )
 
+    def test_y0_reads_the_track_at_the_waist_not_the_image_centroid(self, analyzer):
+        # Shear the bow-tie about column 64 (0.5 rows per column) and put the
+        # charge off-centre: the whole-image centroid then sits on the track
+        # where the charge is, the waist reading on the track at x0.
+        shear = 0.5
+        image = generate_bowtie_image(
+            shape=(128, 128),
+            total_charge=1.0,
+            noise_level=10.0,
+            background_level=0,
+            energy_center=90,
+            energy_spread=30,
+            seed=42,
+        )
+        image = np.stack(
+            [np.roll(image[:, c], round(shear * (c - 64))) for c in range(128)],
+            axis=1,
+        )
+        result = analyzer.analyze_image(image)
+        x0 = analyzer.algo.evaluate(np.where(image < 10, 0, image).astype(float)).x0
+        track_at_waist = 64 + shear * (x0 - 64)
+        # The test only discriminates if the two readings differ.
+        assert abs(result.scalars["y_CoM"] - track_at_waist) > 1.0
+        assert result.scalars["bowtie_y0"] == pytest.approx(track_at_waist, abs=0.75)
+
     def test_y0_nan_on_blank_frame(self, analyzer):
         result = analyzer.analyze_image(np.zeros((64, 128), dtype=np.uint16))
         assert math.isnan(result.scalars["bowtie_y0"])
