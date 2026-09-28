@@ -407,6 +407,22 @@
           ],
           "title": "Storage Dtype",
           "type": "string"
+        },
+        "siblings": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stitch: data folders of other devices whose same-shot traces are joined to this input's and sorted by x before processing (the segments of a multi-camera spectrometer). A shot missing from a sibling is stitched without it.",
+          "title": "Siblings"
         }
       },
       "required": [

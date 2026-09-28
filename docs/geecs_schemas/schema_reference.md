@@ -1210,6 +1210,7 @@ Frames are traces (1D): how one file is read and scaled.
 | `y_unit` | `str` | no | '' | Unit of the scaled y values (axis labels). |
 | `label` | `str` | no | '' | What the trace is (the y-axis label). |
 | `storage_dtype` | `'float32' \| 'float64'` | no | 'float32' | Precision of the stored processed trace; statistics are taken from the stored values, so this rounds them too. |
+| `siblings` | `list[str] (optional)` | no | None | Stitch: data folders of other devices whose same-shot traces are joined to this input's and sorted by x before processing (the segments of a multi-camera spectrometer). A shot missing from a sibling is stitched without it. |
 
 ### FrameInput
 

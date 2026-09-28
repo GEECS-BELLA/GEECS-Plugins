@@ -83,6 +83,16 @@ and are closed on completion, error or an early `close()` of the run's
 iterator — `open_stacks` shows what is held, and `tests/test_core_streaming.py`
 pins one open per run. Trace stacks (`pva_stack`) still open per read inside
 the shared 1-D reader; a one-handle path for them is a data-utils change.
+A stitched line input (the legacy `line_stitcher`; a recipe's
+`input.siblings`, the document's `sibling_folders`) maps every sibling
+folder the way it maps its own — each sibling's device is its folder less
+the input folder's suffix, so its own timestamp column joins its own files
+(the legacy stitcher's filename swap finds nothing on native timestamp
+names) — and `load` returns the input's trace joined with each sibling's
+same-shot trace, sorted by x with the legacy sort. A shot or folder a
+sibling lacks is stitched without it, with a warning. The stitched TSVs
+the legacy analyzer wrote into the scan folder are dropped on this route
+(owner ruling 2026-09-27); the processed trace is saved under `analysis/`.
 
 `core_scan.prepare_scan` snapshots config, rows, source, recipe and scalar naming
 for one explicit run. `PreparedScan.run()` streams core `UnitResult` outcomes;
@@ -226,7 +236,7 @@ are inert on a `CoreScanAnalyzer`: its behaviour comes from its own copy of the
 document, so override the document, or ask for `route="legacy"`. Tests that pin
 the wrappers' kwargs mapping use `route="legacy"`; the auto-routing tests force
 the wrapper with a schema-valid feature the core refuses (a flip, or a
-preprocessing-only trace ROI).
+bilateral trace filter).
 
 `discover_analyzers` delegates to `geecs_data_utils.analysis_configs`; group
 lookup remains here because group aliases have different rules.

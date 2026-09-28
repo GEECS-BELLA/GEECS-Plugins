@@ -17,6 +17,7 @@ from geecs_schemas.analysis.processing_2d import CameraConfig
 
 from geecs_analysis.measures.beam import BeamSpec
 from geecs_analysis.measures.frog import FrogSpec
+from geecs_analysis.measures.ict import IctSpec
 from geecs_analysis.measures.line import LineSpec
 from geecs_analysis.measures.none import NoneSpec
 from geecs_analysis.pipeline import apply_measure, apply_step, bind_inputs
@@ -101,18 +102,31 @@ def compile_v2(
     absolute trace clipping and non-inverted constant image thresholds
     (to_zero/truncate/truncate_inv). Trace processing must be float64 and
     storage float32/float64. Other active features are refused before execution.
-    Preprocessing-only trace ROIs remain unported because empty legacy outputs
-    cannot be represented by Frame. Inactive sections are ignored as before.
+    A trace ROI that selects no samples of a shot fails that shot explicitly
+    ("ROI selects no samples"), as it already did for ``line``; the legacy
+    preprocessing-only analyzer returned an empty trace. Inactive sections
+    are ignored as before.
     File backgrounds require explicit source-layer opt-in; the compiled recipe
     then declares requests and expects loaded Frame inputs at execution time.
     So do scan backgrounds (``scan.background_source``: ``scan_number`` and
     ``from_current_scan``, declared as ``ScanBackground`` requests the host
     computes); ``autodetect`` is refused.
     ``frog_retrieval`` compiles to the ``frog`` measure, which needs the host
-    to bind its retriever service at execution time.
+    to bind its retriever service at execution time; ``ict`` to the ``ict``
+    measure. ``line_stitcher`` compiles to the ``line`` measure; joining the
+    sibling devices' traces is the source's job (the document's
+    ``sibling_folders``).
     """
     kind = document.analyzer.kind
-    if kind not in {"beam", "line", "standard", "trace", "frog_retrieval"}:
+    if kind not in {
+        "beam",
+        "line",
+        "line_stitcher",
+        "standard",
+        "trace",
+        "frog_retrieval",
+        "ict",
+    }:
         raise UnsupportedRecipe(f"Analyzer not ported: {kind}")
     config = document.image
     scan_background = _scan_background(document, allow_file_backgrounds)
@@ -122,16 +136,10 @@ def compile_v2(
         config, CameraConfig
     ):
         raise UnsupportedRecipe(f"{kind} requires a camera input")
-    if kind in {"line", "trace"} and not isinstance(config, Line1DConfig):
+    if kind in {"line", "line_stitcher", "trace", "ict"} and not isinstance(
+        config, Line1DConfig
+    ):
         raise UnsupportedRecipe(f"{kind} requires a line input")
-    # Legacy preprocessing-only traces can successfully return empty Nx2 data.
-    # Frame cannot represent that result. Until an empty-result contract exists,
-    # leave ALL trace ROI recipes on the old route rather than conditionally fail
-    # when one shot has no samples in the requested physical range.
-    if kind == "trace" and config.roi is not None and "roi" in config.pipeline:
-        raise UnsupportedRecipe(
-            "Preprocessing-only trace ROI may produce an empty result"
-        )
     steps = []
     for name in config.pipeline:
         section = getattr(config, name.value)
@@ -152,8 +160,14 @@ def compile_v2(
             enabled_stats=document.analyzer.enabled_stats,
             compute_slopes=document.analyzer.compute_slopes,
         )
-    elif kind == "line":
+    elif kind in {"line", "line_stitcher"}:
+        # A stitcher is a line analyzer over the joined trace; the source
+        # (the scan host) joins the sibling devices' segments before this.
         measure = LineSpec()
+    elif kind == "ict":
+        measure = IctSpec.model_validate(
+            document.analyzer.model_dump(include=set(IctSpec.model_fields) - {"kind"})
+        )
     elif kind == "frog_retrieval":
         measure = FrogSpec.model_validate(
             document.analyzer.model_dump(include=set(FrogSpec.model_fields) - {"kind"})

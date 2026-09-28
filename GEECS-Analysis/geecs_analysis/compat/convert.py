@@ -151,6 +151,14 @@ def to_v3(document: AnalysisDiagnostic) -> Conversion:
         ):
             if value != default:
                 source[key] = value
+        if document.sibling_folders:
+            source["siblings"] = list(document.sibling_folders)
+            if getattr(document.analyzer, "output_label", None) is not None:
+                notes.append(
+                    "analyzer.output_label dropped: the stitched traces are no "
+                    "longer written into the scan folder (owner ruling "
+                    "2026-09-27); the processed trace is saved under analysis/"
+                )
     else:
         if "bit_depth" in config.model_fields_set:
             notes.append("image.bit_depth dropped: the core does not use it")
@@ -214,6 +222,8 @@ def to_v3(document: AnalysisDiagnostic) -> Conversion:
             f"v2 roi section's origin); the recipe starts them at {check.camera_origin}"
         )
         check = replace(check, camera_origin=compiled.camera_origin)
+    if recipe.sibling_folders != document.sibling_folders:
+        raise AssertionError("converted recipe does not stitch its source's siblings")
     if check != compiled:
         raise AssertionError(
             "converted recipe does not compile to its source: "

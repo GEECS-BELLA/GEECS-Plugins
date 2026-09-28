@@ -155,6 +155,15 @@ class LineInput(_InputBase):
             "from the stored values, so this rounds them too."
         ),
     )
+    siblings: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Stitch: data folders of other devices whose same-shot traces are "
+            "joined to this input's and sorted by x before processing (the "
+            "segments of a multi-camera spectrometer). A shot missing from a "
+            "sibling is stitched without it."
+        ),
+    )
 
     @model_validator(mode="after")
     def _stack_source_agrees(self) -> "LineInput":
@@ -559,6 +568,28 @@ class AnalysisRecipe(VersionedSchemaModel):
                 "analysis recipe; use load_analysis_document to dispatch"
             )
         return data
+
+    @property
+    def sibling_folders(self) -> Tuple[str, ...]:
+        """Folders whose same-shot traces are stitched to the input's; empty for most."""
+        if isinstance(self.input, LineInput) and self.input.siblings:
+            return tuple(self.input.siblings)
+        return ()
+
+    @model_validator(mode="after")
+    def _siblings_are_other_folders(self) -> "AnalysisRecipe":
+        """Each sibling is a distinct single folder, never the input's own."""
+        folders = self.sibling_folders
+        if len(set(folders)) != len(folders):
+            raise ValueError("input.siblings repeats a folder")
+        for folder in folders:
+            if not folder or folder in {".", ".."} or "/" in folder or "\\" in folder:
+                raise ValueError(f"input.siblings entry {folder!r} is not one folder")
+            if folder == self.data_folder:
+                raise ValueError(
+                    f"input.siblings names the input's own folder {folder!r}"
+                )
+        return self
 
     @model_validator(mode="after")
     def _summaries_fit_the_input(self) -> "AnalysisRecipe":

@@ -29,13 +29,14 @@ _SPECS_BY_ALIAS = {
     "standard_1d": {"kind": "trace"},
     "haso": {"kind": "haso", "wavekit_config_file_path": "/wfs.dat"},
     "ict": {"kind": "ict"},
+    "frog_spectral_phase": {"kind": "frog_spectral_phase"},
 }
 
 
 # Schema-valid features the analysis core refuses at compile time, so a
 # test can pin the legacy wrappers' behaviour without changing the factory.
 _LEGACY_CAMERA = {"pipeline": ["transforms"], "transforms": {"flip_horizontal": True}}
-_LEGACY_LINE = {"pipeline": ["roi"], "roi": {"x_min": 0.0, "x_max": 1.0}}
+_LEGACY_LINE = {"pipeline": ["filtering"], "filtering": {"method": "bilateral"}}
 
 
 def _diag(
@@ -145,7 +146,7 @@ class TestScanWrapperSelection:
     def test_unported_kind_stays_on_the_wrapper(self):
         analyzer = create_scan_analyzer(
             _diag(
-                alias="ict",
+                alias="frog_spectral_phase",
                 image={"type": "line", "data_loading": {"data_type": "csv"}},
             )
         )

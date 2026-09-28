@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.17.0] - 2026-09-27
+## [0.20.0] - 2026-09-28
 
 ### Added
 
@@ -12,6 +12,50 @@
   additional constant), as the legacy wrapper rewrote it. The host computes
   the frame; the core never reads a scan. `autodetect` stays unported.
   `to_v3` converts them to `from_scan` inputs.
+
+## [0.19.0] - 2026-09-28
+
+### Changed
+
+- `compile_v2` compiles `trace` recipes with an active ROI (unblocks
+  148Spectro, #1003). A shot whose ROI selects no samples fails explicitly
+  ("ROI selects no samples"), as a `line` recipe's already did; the legacy
+  preprocessing-only analyzer returned an empty trace. Otherwise the output
+  equals the legacy analyzer's (pinned across in-range, clipped, outside and
+  single-point bounds at both storage dtypes).
+
+## [0.18.0] - 2026-09-28
+
+### Added
+
+- The `ict` measure: ICT charge (`charge_pC`) and pulse time
+  (`ICT Signal Peak_us`) from an oscilloscope trace, the legacy
+  `ICT1DAnalyzer` (#1003). `algorithms.ict` is ImageAnalysis'
+  `apply_ict_analysis` ported unchanged; a differential test holds it to
+  the original bit for bit over 36 traces, including pulses near either
+  end. `compile_v2` compiles the v2 `ict` kind to it and `to_v3` converts
+  those diagnostics.
+
+### Changed (from the legacy route)
+
+- The charge filters the stored (float32-rounded) trace at float64; the
+  legacy analyzer handed scipy the float32 array, so its low-pass ran in
+  float32. On a real BCave ICT scan (26_0924 Scan011, 31 shots of
+  0.4–2.7 pC) charges agree to a median 1e-7 and at most 7e-6 relative;
+  pulse times are identical.
+- A trace the algorithm cannot analyze gives NaN scalars with a note; the
+  legacy analyzer wrote 0 pC, indistinguishable from no charge.
+- Products store the processed trace at the recipe's `storage_dtype`
+  (float32 by default); the legacy analyzer saved its raw input at float64.
+
+## [0.17.0] - 2026-09-27
+
+### Added
+
+- `compile_v2` compiles the v2 `line_stitcher` kind to the `line` measure;
+  the scan host joins the sibling traces. `to_v3` carries the siblings into
+  `input.siblings` (checked on the converted recipe) and notes the dropped
+  `output_label`.
 
 ## [0.16.0] - 2026-09-26
 
