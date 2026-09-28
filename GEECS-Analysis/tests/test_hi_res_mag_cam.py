@@ -144,8 +144,24 @@ def test_the_differential_cases_cover_an_accepted_fit_and_both_rejections():
             "background": {"method": "constant", "constant_level": 20},
             "filtering": {"median_kernel_size": 3},
         },
+        # The waist (column 64) lies 4 columns PAST the crop on either side:
+        # the fit still accepts it, and legacy reports it beyond the edge.
+        {
+            "pipeline": ["roi"],
+            "roi": {"x_min": 0, "x_max": 60, "y_min": 0, "y_max": 64},
+        },
+        {
+            "pipeline": ["roi"],
+            "roi": {"x_min": 68, "x_max": 128, "y_min": 0, "y_max": 64},
+        },
     ],
-    ids=["plain", "roi", "background+median"],
+    ids=[
+        "plain",
+        "roi",
+        "background+median",
+        "waist past right edge",
+        "waist past left edge",
+    ],
 )
 def test_the_v2_route_matches_the_legacy_analyzer(seed, image):
     """Same frame and config through HiResMagCamAnalyzer and through the core."""
@@ -175,6 +191,23 @@ def test_the_v2_route_matches_the_legacy_analyzer(seed, image):
     np.testing.assert_array_equal(
         weights.frame.axes[0].values, core.frame.axes[1].values
     )
+
+
+@pytest.mark.parametrize(
+    "roi,side",
+    [
+        ({"x_min": 0, "x_max": 60, "y_min": 0, "y_max": 64}, "right"),
+        ({"x_min": 68, "x_max": 128, "y_min": 0, "y_max": 64}, "left"),
+    ],
+)
+def test_a_waist_past_the_crop_reads_past_the_edge_not_clamped_to_it(roi, side):
+    """The fit accepts a waist within ten columns of data; x0 must say where it is."""
+    core = analyze_v2(bowtie(1), compile_v2(diagnostic(pipeline=["roi"], roi=roi)))
+    assert core.scalars["emittance_proxy"] != REJECTED
+    x0 = core.scalars["bowtie_x0"]
+    assert x0 == pytest.approx(64, abs=4)
+    # A clamped value would sit exactly on the last (first) column.
+    assert x0 > roi["x_max"] - 1 if side == "right" else x0 < roi["x_min"]
 
 
 def test_the_waist_column_is_in_sensor_pixels_like_the_centroid():

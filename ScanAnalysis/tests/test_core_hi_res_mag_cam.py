@@ -21,6 +21,12 @@ from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tre
 
 TAG = ScanTag(year=2026, month=1, day=1, number=1, experiment="Test")
 SHOTS = 6
+#: The generator puts the waist at column 64 of 128; each bin's frames are
+#: shifted so the waist really moves: 54, 64, then 104 — four columns past
+#: the crop below, where the fit still accepts it and must report it there.
+WAIST = 64
+SHIFTS = (-10, 0, 40)
+ROI = {"x_min": 0, "x_max": 100, "y_min": 0, "y_max": 64}
 BOWTIE = [
     "Diag_emittance_proxy",
     "Diag_total_counts",
@@ -37,10 +43,20 @@ def document(mode: str) -> AnalysisDiagnostic:
             "name": "UC_HiResMagCam",
             "output_name": "Diag",
             "analyzer": {"kind": "hi_res_mag_cam", "min_total_counts": 1500},
-            "image": {"type": "camera", "pipeline": []},
+            "image": {"type": "camera", "pipeline": ["roi"], "roi": ROI},
             "scan": {"mode": mode, "file_tail": ".npy", "renderer": {"dpi": 30}},
         }
     )
+
+
+def shift_columns(frame: np.ndarray, k: int) -> np.ndarray:
+    """Move every column by ``k`` (positive = rightwards), zero-filling; no wrap."""
+    out = np.zeros_like(frame)
+    if k >= 0:
+        out[:, k:] = frame[:, : frame.shape[1] - k]
+    else:
+        out[:, :k] = frame[:, -k:]
+    return out
 
 
 def build_scan(base_dir: Path) -> Path:
@@ -57,13 +73,12 @@ def build_scan(base_dir: Path) -> Path:
     for shot in range(1, SHOTS + 1):
         frame = generate_bowtie_image(
             shape=(64, 128),
-            total_charge=1.0,
             noise_level=10.0,
             background_level=0,
-            energy_center=50 + 10 * ((shot - 1) // 2),
             vertical_offset=shot - 3,
             seed=shot,
         )
+        frame = shift_columns(frame, SHIFTS[(shot - 1) // 2])
         np.save(device / f"Scan001_UC_HiResMagCam_{shot:03d}.npy", frame)
     analysis = scan.parent.parent / "analysis"
     analysis.mkdir()
@@ -107,11 +122,17 @@ def test_the_core_route_matches_the_legacy_wrapper(tmp_path, monkeypatch, mode):
     assert compare_snapshots(old, new) == []
     rows = pd.read_csv(core.parent.parent / "analysis" / "s1.txt", sep="\t")
     assert set(BOWTIE) <= set(rows.columns)
-    accepted = rows["Diag_emittance_proxy"] != 1e6
-    assert accepted.all(), "the fixture's bow-ties must all fit"
-    # Per bin, the waist column follows the fixture's energy centre; per
-    # shot, every shot of a bin reads the same fit input, so equal within it.
+    assert (rows["Diag_emittance_proxy"] != 1e6).all(), "every bow-tie must fit"
+    # The waist column tracks where each bin's frames put it, in sensor
+    # pixels. The third bin's waist sits four columns past the crop: an
+    # extrapolated fit, so looser — but past the edge, never clamped to it.
     x0 = rows["Diag_bowtie_x0"]
-    assert x0.notna().all() and (x0.diff().dropna() >= -1.0).all()
+    expected = np.array(
+        [WAIST + SHIFTS[(shot - 1) // 2] for shot in rows["Shotnumber"]]
+    )
+    inside = (rows["Bin #"] != 3).to_numpy()
+    np.testing.assert_allclose(x0[inside], expected[inside], atol=1.5)
+    np.testing.assert_allclose(x0[~inside], expected[~inside], atol=5)
+    assert (x0[~inside] > ROI["x_max"]).all()
     if mode == "per_bin":
         assert (rows.groupby("Bin #")["Diag_bowtie_x0"].nunique() == 1).all()

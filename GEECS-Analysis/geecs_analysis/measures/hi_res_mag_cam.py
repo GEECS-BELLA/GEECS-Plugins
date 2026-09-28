@@ -61,15 +61,18 @@ class HiResMagCamSpec(MeasureSpec):
 
 @measure(HiResMagCamSpec, ndim={2})
 def hi_res_mag_cam(frame: Frame, spec: HiResMagCamSpec) -> Measurement:
-    """Beam statistics of the frame, then the bow-tie fit of its columns.
+    """The ``beam`` measurement of the frame, then the bow-tie fit of its columns.
 
-    Beam statistics use the frame's coordinates, as the ``beam`` measure
-    does. The fit and ``total_counts`` see the frame floored at
-    ``FIT_FLOOR`` counts, as the legacy analyzer did; the measured frame
+    The beam statistics and their overlays are the ``beam`` measure's own
+    (called, not copied). The fit and ``total_counts`` see the frame floored
+    at ``FIT_FLOOR`` counts, as the legacy analyzer did; the measured frame
     itself is unchanged. ``emittance_proxy`` is the fit score with its
     legacy failure values (the ``1e6`` sentinel, NaN on a fit exception).
-    The waist column ``bowtie_x0`` (in the frame's column coordinates),
-    the waist size ``bowtie_w0``, the divergence ``bowtie_theta`` and
+    The waist column ``bowtie_x0`` is the fit's column mapped through the
+    frame's column axis — affinely, so a waist the fit places a few columns
+    past the frame (it accepts one within ten columns of data) reads
+    beyond the edge as the legacy ``x0 + x_min`` did, never clamped to it.
+    It, the waist size ``bowtie_w0``, the divergence ``bowtie_theta`` and
     ``bowtie_r_squared`` are NaN, with a note, whenever the fit is
     rejected — never the sentinel, so averaging them over shots or bins
     excludes failed fits by itself.
@@ -77,17 +80,13 @@ def hi_res_mag_cam(frame: Frame, spec: HiResMagCamSpec) -> Measurement:
     import numpy as np
     from geecs_data_utils.frames import Frame
 
-    from geecs_analysis.algorithms.basic_beam_stats import (
-        beam_profile_stats,
-        flatten_beam_stats,
-    )
     from geecs_analysis.algorithms.bowtie_fit import BowtieFitAlgorithm
-    from geecs_analysis.measurement import Marker, Measurement, Projection
+    from geecs_analysis.measurement import Measurement, Projection
+    from geecs_analysis.measures.beam import beam
 
     if frame.data.ndim != 2:
         raise ValueError("HiResMagCam measurement requires a 2D frame")
-    stats = beam_profile_stats(frame.data, tuple(axis.values for axis in frame.axes))
-    scalars = flatten_beam_stats(stats)
+    stats = beam(frame, BeamSpec())
 
     floored = frame.data.copy()
     floored[floored < FIT_FLOOR] = 0
@@ -104,11 +103,13 @@ def hi_res_mag_cam(frame: Frame, spec: HiResMagCamSpec) -> Measurement:
             else "Bow-tie fit failed",
         )
     columns = frame.axes[1].values
+    spacing = float(columns[1] - columns[0]) if columns.size > 1 else 1.0
+    scalars = dict(stats.scalars)
     scalars.update(
         {
             "emittance_proxy": fit.score,
             "total_counts": float(np.sum(floored)),
-            "bowtie_x0": float(np.interp(fit.x0, np.arange(columns.size), columns))
+            "bowtie_x0": float(columns[0]) + fit.x0 * spacing
             if accepted
             else float("nan"),
             "bowtie_w0": fit.w0 if accepted else float("nan"),
@@ -116,42 +117,20 @@ def hi_res_mag_cam(frame: Frame, spec: HiResMagCamSpec) -> Measurement:
             "bowtie_r_squared": fit.r_squared if accepted else float("nan"),
         }
     )
-
-    overlays: list[Projection | Marker] = [
-        Projection(
-            "projection_x",
-            1,
-            Frame.from_array(
-                frame.data.sum(axis=0),
-                axes=(frame.axes[1],),
-                shot=frame.shot,
-                unit=frame.unit,
-            ),
+    # The legacy render overlay: the per-column weights the fit used.
+    weights = Projection(
+        "bowtie_weights",
+        1,
+        Frame.from_array(
+            np.asarray(fit.weights, dtype=float),
+            axes=(frame.axes[1],),
+            shot=frame.shot,
+            unit=frame.unit,
         ),
-        Projection(
-            "projection_y",
-            0,
-            Frame.from_array(
-                frame.data.sum(axis=1),
-                axes=(frame.axes[0],),
-                shot=frame.shot,
-                unit=frame.unit,
-            ),
-        ),
-        # The legacy render overlay: the per-column weights the fit used.
-        Projection(
-            "bowtie_weights",
-            1,
-            Frame.from_array(
-                np.asarray(fit.weights, dtype=float),
-                axes=(frame.axes[1],),
-                shot=frame.shot,
-                unit=frame.unit,
-            ),
-        ),
-    ]
-    if np.isfinite(stats.x.CoM) and np.isfinite(stats.y.CoM):
-        overlays.append(Marker("com", stats.x.CoM, stats.y.CoM))
+    )
     return Measurement(
-        scalars=scalars, frame=frame, overlays=tuple(overlays), notes=notes
+        scalars=scalars,
+        frame=stats.frame,
+        overlays=stats.overlays + (weights,),
+        notes=notes,
     )
