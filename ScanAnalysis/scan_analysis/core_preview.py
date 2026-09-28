@@ -66,7 +66,14 @@ def prepare_document(
     data_dir = (
         source_directory(document, scan_folder) if scan_folder is not None else None
     )
-    return prepare_v2(document, data_dir=data_dir, services=services)
+    # A preview never reads a whole scan or writes a cache: a scan background
+    # is used only once a run has computed it (``ScanContextRequired``).
+    return prepare_v2(
+        document,
+        data_dir=data_dir,
+        services=services,
+        compute_scan_backgrounds=False,
+    )
 
 
 def measure_frame(prepared: PreparedRecipe, array: np.ndarray) -> Measurement:

@@ -112,7 +112,11 @@ them; only a source host that can bind those requests should opt in. Default
 compilation still refuses them, including for the live optimizer. The source
 adapter in `scan_analysis.core_inputs` loads via data-utils and applies the v2
 constant fallback on reader/conversion failure. `analyze_v2(inputs=...)` never
-loads a file or chooses fallback. Scan-background directives remain unported.
+loads a file or chooses fallback. Scan backgrounds (`scan.background_source`
+`scan_number` / `from_current_scan`, a recipe's `from_scan` input) compile
+the same way to `ScanBackground` requests on the compiled recipe — the host
+computes the frame (ScanAnalysis `core_backgrounds`) and binds it for
+`background_frame`; the core never reads a scan. `autodetect` is refused.
 `ict` compiles to the `ict` measure (`algorithms.ict`, ported from
 ImageAnalysis bit for bit). Its charge filters the stored trace at float64
 where legacy filtered the float32 array in float32 (~1e-7 relative, up to

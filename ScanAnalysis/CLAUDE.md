@@ -10,6 +10,7 @@ scan_analysis/
   base.py                          # ScanAnalyzer abstract base class
   core_inputs.py                   # v2 core compilation + loaded file-background bindings + services
   core_services.py                 # the services a measure names (the FROG retriever), built from config.ini
+  core_backgrounds.py              # scan backgrounds: exact strip-wise per-pixel statistics over a scan's frames, cached
   core_source.py                   # completed-scan native/stack input mapping and reads
   core_scan.py                     # write-free scan preparation, grouping and execution
   core_products.py                 # write-free average/bin and summary product planning (ProductCollector streams it)
@@ -39,8 +40,20 @@ analyzers. Compile capabilities before any reads, then load backgrounds once via
 data-utils and bind immutable Frames. Failed file loads retain the v2 constant
 fallback; loaded shape errors propagate. `data_dir` means the device directory
 when resolving `{scan_dir}`. Context-free previews leave that placeholder
-literal. This adapter never writes, mutates the caller's config, or resolves
-scan-background directives. Explicit scan execution still uses the old factory.
+literal. This adapter never mutates the caller's config. A scan background
+(`scan.background_source` `scan_number` / `from_current_scan`, a recipe's
+`from_scan` input) is computed by `core_backgrounds.resolve_scan_background`
+before any shot is read: the mean of a dark scan's frames, or the median /
+a percentile of this scan's, exact — a float64 running sum for the mean, and
+for order statistics one pass into a native-dtype scratch copy (in memory
+when small, on disk otherwise) reduced a strip of rows at a time, so memory
+is frames × one strip. Pinned bit for bit against the legacy whole-stack
+aggregation. It is cached in the analysis tree of the scan it comes from
+(`analysis/ScanNNN/<device>/<device>_background_{avg|median|pNN}.npy` — a
+dark scan's mean is the legacy wrapper's own file); a missing source scan
+raises, never creates. `compute_scan_backgrounds=False` (every preview)
+only reads that cache and refuses otherwise (`ScanContextRequired`, an
+`UnsupportedRecipe`): a per-request view never reads a whole scan or writes.
 A measure that names a service (`frog`: the FROG.dll retrieval, an external
 program per frame) gets it from `core_services.services_for`, built from
 this host's `config.ini` when the run is prepared — a host without the DLL
@@ -152,8 +165,8 @@ A missing or empty device folder, or stack-only input without a stack, raises
 write failure never loses them, and the waterfall sort column resolves against
 the refreshed rows as the legacy wrapper did. Summary figures are labelled
 with the cleaned ScanInfo parameter, not the s-file column. `core_supports`
-is the routing predicate: compile only, no reads; scan-context backgrounds and
-unported kinds or steps stay on the legacy wrappers. `create_scan_analyzer`
+is the routing predicate: compile only, no reads; unported kinds or steps
+(and an `autodetect` background) stay on the legacy wrappers. `create_scan_analyzer`
 selects this route for every recipe `core_supports` accepts unless the caller
 passes `use_injected_data=True`; the legacy wrappers stay until the observation
 period ends. `tests/test_core_analyzer.py` runs both routes on
@@ -212,7 +225,7 @@ for a in analyzers:
 
 `create_scan_analyzer` has two routes behind one contract: a recipe that
 `core_supports` accepts becomes a `CoreScanAnalyzer` on `geecs_analysis`;
-anything else (unported kinds or steps, scan-context backgrounds, or
+anything else (unported kinds or steps, an `autodetect` background, or
 `use_injected_data=True`) gets the legacy `Array1DScanAnalyzer` /
 `Array2DScanAnalyzer` wrapper around an ImageAnalysis analyzer. `route="legacy"`
 forces the wrapper for a supported recipe (the observation-period escape hatch

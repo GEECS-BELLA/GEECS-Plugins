@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.20.0] - 2026-09-28
+
+### Added
+
+- Scan backgrounds compile (#1003 item 5): a v2 `scan.background_source`
+  (`scan_number` → that scan's mean, `from_current_scan` → this scan's
+  median or percentile) and a v3 `from_scan` frame input become
+  `ScanBackground` requests on the compiled recipe, with the background
+  section compiled to `background_frame` on the computed frame (plus the
+  additional constant), as the legacy wrapper rewrote it. The host computes
+  the frame; the core never reads a scan. `autodetect` stays unported.
+  `to_v3` converts them to `from_scan` inputs.
+
 ## [0.19.0] - 2026-09-28
 
 ### Changed

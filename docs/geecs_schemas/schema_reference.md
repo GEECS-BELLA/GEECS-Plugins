@@ -1214,12 +1214,23 @@ Frames are traces (1D): how one file is read and scaled.
 
 ### FrameInput
 
-A frame the source layer loads before the run and binds by name.
+A frame the source layer loads (or computes) before the run and binds by name.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `path` | `str` | yes | — | File to load ('{scan_dir}' stands for the device's data directory under the scan). |
-| `fallback_level` | `float (optional)` | no | None | When the file cannot be read, subtract this constant instead of the frame and warn; unset makes a failed read an error. |
+| `path` | `str (optional)` | no | None | File to load ('{scan_dir}' stands for the device's data directory under the scan). |
+| `from_scan` | `ScanStatistic (optional)` | no | None | Compute the frame from a scan's frames (a dark scan's mean, or this scan's median/percentile) instead of loading a file. |
+| `fallback_level` | `float (optional)` | no | None | When the file cannot be read, subtract this constant instead of the frame and warn; unset makes a failed read an error. Files only. |
+
+### ScanStatistic
+
+A frame computed from a scan's own frames of this device, before the run.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `scan` | `int (optional)` | no | None | Scan number of the same day to take the frames from; unset takes them from the scan being analyzed. |
+| `statistic` | `'mean' \| 'median' \| 'percentile'` | no | 'mean' | Per-pixel statistic across the scan's frames. |
+| `percentile` | `float (optional)` | no | None | The percentile (0-100) when statistic is 'percentile'. |
 
 ### StepRef
 

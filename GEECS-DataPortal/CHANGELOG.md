@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.37.2] - 2026-09-28
+
+### Fixed
+
+- A v3 recipe the analysis core declines to draw (a scan background no run
+  has computed yet, a view without a scan folder) is a clear 400 naming the
+  reason; it no longer falls to the legacy route, which has no v3 path.
+
 ## [0.37.1] - 2026-09-27
 
 ### Fixed

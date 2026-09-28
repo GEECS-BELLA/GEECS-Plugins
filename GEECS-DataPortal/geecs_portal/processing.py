@@ -17,6 +17,7 @@ from geecs_data_utils.frames import Frame
 from geecs_schemas.analysis import (
     AnalysisDiagnostic,
     AnalysisDocument,
+    AnalysisRecipe,
     load_analysis_document,
 )
 from pydantic import ValidationError
@@ -29,6 +30,19 @@ from geecs_analysis.render.specs import FigureSpec
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
+
+
+def _no_legacy_route(document: AnalysisDocument, exc: UnsupportedRecipe) -> None:
+    """Refuse clearly when the core declines a v3 recipe: it has no legacy route.
+
+    A v2 diagnostic the core declines falls back to the legacy write-free
+    route. A v3 recipe has none, so a refusal (a scan background no run has
+    computed yet, a view without a scan folder) is reported as a
+    ``ValueError`` — the portal's 400 — naming the reason, instead of the
+    legacy route's "no ephemeral ImageAnalyzer route".
+    """
+    if isinstance(document, AnalysisRecipe):
+        raise ValueError(f"this recipe cannot be drawn here: {exc}") from exc
 
 
 def list_diagnostics(*, config_dir: Path) -> list[str]:
@@ -58,7 +72,8 @@ def process_images(
         # the batch route has no scan folder in hand: a recipe's frame inputs
         # keep their placeholder here (fallback level, or an error), as before
         prepared = prepare_document(document)
-    except UnsupportedRecipe:
+    except UnsupportedRecipe as exc:
+        _no_legacy_route(document, exc)
         from image_analysis.ephemeral import run_document_ephemeral
 
         return [
@@ -122,7 +137,8 @@ def _render(
 
     try:
         prepared = prepare_document(document, scan_folder=scan_folder)
-    except UnsupportedRecipe:
+    except UnsupportedRecipe as exc:
+        _no_legacy_route(document, exc)
         from image_analysis import ephemeral
 
         try:
@@ -196,7 +212,8 @@ def render_document_as_run(
         return [
             preview_frame(document, array, scan_folder=scan_folder) for array in arrays
         ]
-    except UnsupportedRecipe:
+    except UnsupportedRecipe as exc:
+        _no_legacy_route(document, exc)
         return _render(
             document,
             arrays,

@@ -224,3 +224,22 @@ def test_file_background_geometry_error_does_not_retry_legacy(recipe_tree, monke
         processing.render_document_ephemeral(
             AnalysisDiagnostic.model_validate(document), [np.ones((20, 20))]
         )
+
+
+def test_a_v3_recipe_the_core_declines_is_a_clear_refusal_not_a_legacy_error():
+    """A v3 recipe has no legacy route: a scan background no run computed is a 400."""
+    from geecs_schemas.analysis import AnalysisRecipe
+
+    from geecs_portal import processing
+
+    recipe = AnalysisRecipe.model_validate(
+        {
+            "schema_version": 3,
+            "device": "Cam",
+            "input": {"kind": "camera"},
+            "inputs": {"camera_background": {"from_scan": {"statistic": "median"}}},
+            "steps": [{"step": "background_frame", "source": "camera_background"}],
+        }
+    )
+    with pytest.raises(ValueError, match="cannot be drawn here.*scan background"):
+        processing.render_document_as_run(recipe, [np.ones((4, 5))])
