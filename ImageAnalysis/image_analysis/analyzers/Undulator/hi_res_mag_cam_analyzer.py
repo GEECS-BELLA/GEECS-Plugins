@@ -32,7 +32,9 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
 
     This analyzer extends BeamAnalyzer to add custom bowtie fitting for
     emittance estimation. It uses the standard processing pipeline from
-    the config file, then applies the bowtie fit algorithm.
+    the config file, then applies the bowtie fit algorithm. Alongside the
+    emittance proxy it reports ``bowtie_y0``, the beam's vertical position
+    (row index) at the fitted waist column.
     """
 
     def __init__(
@@ -105,10 +107,17 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
         # Run bowtie fit algorithm
         bowtie_result = self.algo.evaluate(final_image)
 
+        # Columns that entered the fit, for reading the beam height at the waist
+        _, weights, valid_mask = self.algo.get_last_profile()
+        fit_columns = valid_mask & (weights > 0)
+
         # Add bowtie fit results to scalars
         bowtie_scalars = {
             "emittance_proxy": bowtie_result.score,
             "total_counts": np.sum(final_image),
+            "bowtie_y0": self.center_at_waist(
+                final_image, bowtie_result.x0, fit_columns
+            ),
         }
 
         # Merge with existing scalars from beam analysis
@@ -131,6 +140,41 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
             }
 
         return result
+
+    @staticmethod
+    def center_at_waist(image: np.ndarray, x0: float, fit_columns: np.ndarray) -> float:
+        """Return the beam's vertical position at the fitted waist column.
+
+        The intensity-weighted vertical centroid of each column that entered
+        the bowtie fit, linearly interpolated at the fractional waist column
+        ``x0``. Deliberately never extrapolates: when the fit failed (``x0``
+        non-finite, or the ``1e6`` sentinel) or ``x0`` lies outside the span
+        of fitted columns, the result is NaN rather than a projected value.
+
+        Parameters
+        ----------
+        image : numpy.ndarray
+            The 2D frame the bowtie fit was evaluated on, shape ``(H, W)``.
+        x0 : float
+            Fitted waist column (``BowtieFitResult.x0``).
+        fit_columns : numpy.ndarray of bool, shape (W,)
+            Columns that entered the fit (valid and with positive weight).
+
+        Returns
+        -------
+        float
+            Row index of the beam centre at the waist, in processed-frame
+            pixels (any ROI crop already applied); NaN when undefined.
+        """
+        columns = np.flatnonzero(fit_columns)
+        if columns.size == 0 or not (
+            np.isfinite(x0) and columns[0] <= x0 <= columns[-1]
+        ):
+            return np.nan
+        selected = image[:, columns].astype(float)
+        rows = np.arange(image.shape[0])
+        centers = (rows @ selected) / selected.sum(axis=0)
+        return float(np.interp(x0, columns, centers))
 
     @staticmethod
     def render_image(

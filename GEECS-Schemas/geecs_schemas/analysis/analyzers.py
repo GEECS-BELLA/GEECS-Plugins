@@ -443,6 +443,7 @@ class HiResMagCamSpec(AnalyzerSpecBase):
         return BeamAnalyzerSpec().emitted_scalars() | {
             "emittance_proxy",
             "total_counts",
+            "bowtie_y0",
         }
 
 

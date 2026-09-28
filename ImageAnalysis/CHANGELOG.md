@@ -3,6 +3,21 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.8.0] - 2026-09-27
+
+### Added
+
+- `HiResMagCamAnalyzer` reports `bowtie_y0`: the beam's vertical position
+  at the fitted bow-tie waist column, i.e. where the beam is imaged into
+  the spectrometer, one value per image. It is the intensity-weighted
+  vertical centroid of the columns that entered the bow-tie fit, linearly
+  interpolated at the fractional waist column `x0`
+  (`HiResMagCamAnalyzer.center_at_waist`). It never extrapolates: when the
+  fit fails, or `x0` falls outside the span of fitted columns, the value is
+  NaN rather than a projected number. The unit is a row index of the
+  processed frame (any ROI crop already applied). `BowtieFitAlgorithm` and
+  the analyzer's existing outputs are unchanged (GEECS-Schemas 0.36.0).
+
 ## [2.7.0] - 2026-09-26
 
 ### Added

@@ -5,6 +5,14 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0] - 2026-09-27
+
+### Added
+
+- `HiResMagCamSpec.emitted_scalars()` declares `bowtie_y0`, the beam's
+  vertical position at the bow-tie waist column that `HiResMagCamAnalyzer`
+  now reports (ImageAnalysis 2.8.0).
+
 ## [0.35.0] - 2026-09-26
 
 ### Added

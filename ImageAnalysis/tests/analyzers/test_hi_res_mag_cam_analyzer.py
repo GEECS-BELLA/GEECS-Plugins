@@ -2,6 +2,7 @@
 
 import math
 
+import numpy as np
 import pytest
 
 from geecs_schemas.analysis import HiResMagCamSpec
@@ -65,7 +66,7 @@ class TestHiResMagCamAnalyzerScalars:
     """Scalar presence tests on bowtie synthetic image."""
 
     BEAM_SCALARS = ["x_CoM", "y_CoM", "image_total", "image_peak_value"]
-    BOWTIE_SCALARS = ["emittance_proxy", "total_counts"]
+    BOWTIE_SCALARS = ["emittance_proxy", "total_counts", "bowtie_y0"]
 
     def test_beam_scalars_present(self, analyzer, bowtie_image):
         result = analyzer.analyze_image(bowtie_image)
@@ -107,3 +108,44 @@ class TestHiResMagCamAnalyzerResult:
     def test_render_data_has_bowtie_weights(self, analyzer, bowtie_image):
         result = analyzer.analyze_image(bowtie_image)
         assert "bowtie_weights" in result.render_data
+
+
+class TestHiResMagCamWaistPosition:
+    """``bowtie_y0``: the beam's vertical position at the fitted waist column."""
+
+    @pytest.mark.parametrize("vertical_offset", [-10, 0, 7])
+    def test_y0_tracks_beam_height(self, analyzer, vertical_offset):
+        image = generate_bowtie_image(
+            shape=(64, 128),
+            total_charge=1.0,
+            noise_level=10.0,
+            background_level=0,
+            vertical_offset=vertical_offset,
+            seed=42,
+        )
+        result = analyzer.analyze_image(image)
+        assert result.scalars["bowtie_y0"] == pytest.approx(
+            32 + vertical_offset, abs=0.25
+        )
+
+    def test_y0_nan_on_blank_frame(self, analyzer):
+        result = analyzer.analyze_image(np.zeros((64, 128), dtype=np.uint16))
+        assert math.isnan(result.scalars["bowtie_y0"])
+
+    def test_center_at_waist_interpolates_tilted_track(self):
+        # A single-pixel track that climbs one row every 4 columns: the
+        # whole-image centroid is the track's mean, the waist reading is not.
+        image = np.zeros((40, 40))
+        for col in range(40):
+            image[5 + col // 4, col] = 100.0
+        fit_columns = np.ones(40, dtype=bool)
+        # Columns 11 and 12 sit on rows 7 and 8; x0 = 11.5 is halfway between.
+        y0 = HiResMagCamAnalyzer.center_at_waist(image, 11.5, fit_columns)
+        assert y0 == pytest.approx(7.5)
+
+    @pytest.mark.parametrize("x0", [np.nan, 1e6, 2.0, 30.0])
+    def test_center_at_waist_never_extrapolates(self, x0):
+        image = np.ones((20, 40))
+        fit_columns = np.zeros(40, dtype=bool)
+        fit_columns[5:25] = True
+        assert math.isnan(HiResMagCamAnalyzer.center_at_waist(image, x0, fit_columns))
