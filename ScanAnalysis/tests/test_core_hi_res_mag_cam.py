@@ -133,6 +133,7 @@ def test_the_core_route_matches_the_legacy_wrapper(tmp_path, monkeypatch, mode):
     inside = (rows["Bin #"] != 3).to_numpy()
     np.testing.assert_allclose(x0[inside], expected[inside], atol=1.5)
     np.testing.assert_allclose(x0[~inside], expected[~inside], atol=5)
-    assert (x0[~inside] > ROI["x_max"]).all()
+    # A clamped value would sit exactly on the last ROI column (x_max - 1).
+    assert (x0[~inside] > ROI["x_max"] - 1).all()
     if mode == "per_bin":
         assert (rows.groupby("Bin #")["Diag_bowtie_x0"].nunique() == 1).all()
