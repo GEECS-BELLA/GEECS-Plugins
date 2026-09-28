@@ -29,6 +29,7 @@ _SPECS_BY_ALIAS = {
     "standard_1d": {"kind": "trace"},
     "haso": {"kind": "haso", "wavekit_config_file_path": "/wfs.dat"},
     "ict": {"kind": "ict"},
+    "frog_spectral_phase": {"kind": "frog_spectral_phase"},
 }
 
 
@@ -145,7 +146,7 @@ class TestScanWrapperSelection:
     def test_unported_kind_stays_on_the_wrapper(self):
         analyzer = create_scan_analyzer(
             _diag(
-                alias="ict",
+                alias="frog_spectral_phase",
                 image={"type": "line", "data_loading": {"data_type": "csv"}},
             )
         )
