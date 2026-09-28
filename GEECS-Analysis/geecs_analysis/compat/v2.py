@@ -17,6 +17,7 @@ from geecs_schemas.analysis.processing_2d import CameraConfig
 
 from geecs_analysis.measures.beam import BeamSpec
 from geecs_analysis.measures.frog import FrogSpec
+from geecs_analysis.measures.hi_res_mag_cam import HiResMagCamSpec
 from geecs_analysis.measures.ict import IctSpec
 from geecs_analysis.measures.line import LineSpec
 from geecs_analysis.measures.none import NoneSpec
@@ -115,7 +116,9 @@ def compile_v2(
     to bind its retriever service at execution time; ``ict`` to the ``ict``
     measure. ``line_stitcher`` compiles to the ``line`` measure; joining the
     sibling devices' traces is the source's job (the document's
-    ``sibling_folders``).
+    ``sibling_folders``). ``hi_res_mag_cam`` compiles to the measure of
+    that name (its ``threshold_factor`` is not carried: the fit never read
+    it).
     """
     kind = document.analyzer.kind
     if kind not in {
@@ -126,15 +129,19 @@ def compile_v2(
         "trace",
         "frog_retrieval",
         "ict",
+        "hi_res_mag_cam",
     }:
         raise UnsupportedRecipe(f"Analyzer not ported: {kind}")
     config = document.image
     scan_background = _scan_background(document, allow_file_backgrounds)
     if not isinstance(config, (CameraConfig, Line1DConfig)):
         raise UnsupportedRecipe("A camera or line processing section is required")
-    if kind in {"beam", "standard", "frog_retrieval"} and not isinstance(
-        config, CameraConfig
-    ):
+    if kind in {
+        "beam",
+        "standard",
+        "frog_retrieval",
+        "hi_res_mag_cam",
+    } and not isinstance(config, CameraConfig):
         raise UnsupportedRecipe(f"{kind} requires a camera input")
     if kind in {"line", "line_stitcher", "trace", "ict"} and not isinstance(
         config, Line1DConfig
@@ -171,6 +178,12 @@ def compile_v2(
     elif kind == "frog_retrieval":
         measure = FrogSpec.model_validate(
             document.analyzer.model_dump(include=set(FrogSpec.model_fields) - {"kind"})
+        )
+    elif kind == "hi_res_mag_cam":
+        measure = HiResMagCamSpec.model_validate(
+            document.analyzer.model_dump(
+                include=set(HiResMagCamSpec.model_fields) - {"kind"}
+            )
         )
     else:
         measure = NoneSpec()
@@ -431,9 +444,10 @@ def analyze_v2(
             y_label=recipe.label,
             shot=shot,
         )
-    elif recipe.analysis.measure.kind == "beam":
-        # This is deliberately v2-only: BeamAnalyzer uses the configured origin
-        # once even when ROI is skipped or repeated, unlike the pure Frame API.
+    elif recipe.analysis.measure.kind in {"beam", "hi_res_mag_cam"}:
+        # This is deliberately v2-only: BeamAnalyzer (and the HiResMagCam
+        # analyzer built on it) uses the configured origin once even when ROI
+        # is skipped or repeated, unlike the pure Frame API.
         frame = frame.replace(
             data=frame.data,
             axes=tuple(

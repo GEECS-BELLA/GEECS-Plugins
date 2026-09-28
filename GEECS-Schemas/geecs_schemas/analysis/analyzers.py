@@ -439,10 +439,20 @@ class HiResMagCamSpec(AnalyzerSpecBase):
     )
 
     def emitted_scalars(self) -> frozenset[str]:
-        """Return beam statistics and bow-tie metrics."""
+        """Return beam statistics and bow-tie metrics.
+
+        ``emittance_proxy`` keeps its optimizer contract (``1e6`` when the
+        fit is rejected). The waist column ``bowtie_x0`` (sensor pixels,
+        like ``x_CoM``), waist size ``bowtie_w0``, divergence
+        ``bowtie_theta`` and ``bowtie_r_squared`` are NaN on a rejected fit.
+        """
         return BeamAnalyzerSpec().emitted_scalars() | {
             "emittance_proxy",
             "total_counts",
+            "bowtie_x0",
+            "bowtie_w0",
+            "bowtie_theta",
+            "bowtie_r_squared",
         }
 
 

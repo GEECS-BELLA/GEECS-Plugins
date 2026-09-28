@@ -124,7 +124,13 @@ where legacy filtered the float32 array in float32 (~1e-7 relative, up to
 trace the algorithm cannot analyze is NaN with a note, not legacy's 0 pC.
 `line_stitcher` compiles to the `line` measure: joining the sibling
 devices' segments is the scan host's source (ScanAnalysis `core_source`),
-so the core sees one trace. The compiler's supported subset is documented
+so the core sees one trace. `hi_res_mag_cam` compiles to the measure of
+that name (`algorithms.bowtie_fit`, ported bit for bit): the beam
+statistics, then the fit on the frame floored at 10 counts as the legacy
+analyzer did; `emittance_proxy` keeps its `1e6` sentinel for the optimizer,
+the fit parameters (`bowtie_x0` in sensor pixels, `w0`, `theta`, `r²`) are
+NaN with a note on a rejected fit. The v2 `threshold_factor` is dropped
+(never read). The compiler's supported subset is documented
 in its docstring and pinned by differential tests. Never silently skip an active unported operation.
 Explicit identity transforms compile to no steps; fixed-canvas rotation is
 supported. Flips and distortion correction still raise UnsupportedRecipe.

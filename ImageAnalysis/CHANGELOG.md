@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.8.0] - 2026-09-28
+
+### Added
+
+- `HiResMagCamAnalyzer` reports the bow-tie fit's parameters beside the
+  emittance proxy: `bowtie_x0` (the waist column, in sensor pixels like
+  `x_CoM`), `bowtie_w0`, `bowtie_theta` and `bowtie_r_squared`. They are
+  NaN when the fit is rejected, while `emittance_proxy` keeps its `1e6`
+  sentinel for the optimizer. The same scalars come from the analysis
+  core's `hi_res_mag_cam` measure (GEECS-Analysis 0.21.0), which this
+  analyzer now serves as the differential oracle for.
+
 ## [2.7.0] - 2026-09-26
 
 ### Added
