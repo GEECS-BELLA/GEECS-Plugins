@@ -84,6 +84,19 @@ def compile_recipe(
     }
     reference = measure_input(analysis.measure)
     if reference is not None:
+        if reference in required:
+            # The reference goes through the steps: a step subtracting the
+            # same frame would leave the measure comparing against zeros.
+            raise RecipeError(
+                f"frame input {reference!r} is bound by a step and by the measure; "
+                "declare the measure's comparison frame under its own name"
+            )
+        binding = recipe.inputs.get(reference)
+        if binding is not None and binding.fallback_level is not None:
+            raise RecipeError(
+                f"frame input {reference!r} is the measure's comparison frame; a "
+                "fallback_level (a constant for a background step) cannot stand in for it"
+            )
         required.add(reference)
     declared = set(recipe.inputs)
     if required - declared:

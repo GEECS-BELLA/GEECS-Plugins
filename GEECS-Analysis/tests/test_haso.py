@@ -29,7 +29,6 @@ from geecs_analysis.registry import MeasureSpec, measure, measure_definition
 from geecs_analysis.run import analyze
 from geecs_analysis.specs import Analysis
 from geecs_analysis.steps.background_constant import BackgroundConstantSpec
-from geecs_analysis.steps.background_frame import BackgroundFrameSpec
 
 SENSOR = "WFS_HASO4_LIFT_680_8244_gain_enabled.dat"
 ROWS, COLS = 6, 8
@@ -278,22 +277,20 @@ def test_a_reference_is_processed_by_the_shot_steps():
     )
 
 
-def test_a_step_sharing_the_reference_key_sees_the_raw_frame():
-    # background_frame subtracts the probe from the shot AND from the
-    # reference; the step itself must be handed the loaded probe, never the
-    # processed one (which would be all zeros after its own subtraction).
-    engine = FakeEngine()
-    shot, probe = pixels(seed=3) + 300, pixels(seed=5)
-    analyze(
-        Frame.from_array(shot),
-        Analysis(
-            steps=[BackgroundFrameSpec(source="probe")], measure=spec(reference="probe")
-        ),
-        inputs={"haso": engine, "probe": Frame.from_array(probe)},
+def test_a_step_and_the_reference_may_not_share_a_key():
+    # The reference goes through the steps, so a step subtracting the same
+    # frame would leave the measure comparing against zeros.
+    shared = reference_recipe(steps=[{"step": "background_frame", "source": "probe"}])
+    with pytest.raises(ValueError, match="bound by a step and by the measure"):
+        compile_recipe(shared, allow_file_backgrounds=True)
+
+
+def test_a_reference_has_no_constant_fallback():
+    fallback = reference_recipe(
+        inputs={"probe": {"path": "{scan_dir}/probe.png", "fallback_level": 0}}
     )
-    sent, parameters = engine.calls[0]
-    np.testing.assert_array_equal(sent, shot.astype(float) - probe)
-    assert not parameters["reference"].any()
+    with pytest.raises(ValueError, match="fallback_level"):
+        compile_recipe(fallback, allow_file_backgrounds=True)
 
 
 def test_a_v3_recipe_declares_and_binds_the_reference():

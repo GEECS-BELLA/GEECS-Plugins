@@ -39,25 +39,22 @@ def bind_inputs(
 
     supplied = inputs if inputs is not None else {}
     resolved = {}
+
+    def bind_frame(key: str) -> None:
+        if key not in supplied:
+            raise ValueError(f"Missing frame input: {key}")
+        value = supplied[key]
+        if not isinstance(value, Frame):
+            raise TypeError(f"Frame input {key!r} must be a Frame")
+        resolved[key] = value
+
     for spec in steps:
         field = definition(spec).input_field
-        if field is None:
-            continue
-        key = getattr(spec, field)
-        if key not in supplied:
-            raise ValueError(f"Missing frame input: {key}")
-        value = supplied[key]
-        if not isinstance(value, Frame):
-            raise TypeError(f"Frame input {key!r} must be a Frame")
-        resolved[key] = value
+        if field is not None:
+            bind_frame(getattr(spec, field))
     key = measure_input(measure) if measure is not None else None
     if key is not None:
-        if key not in supplied:
-            raise ValueError(f"Missing frame input: {key}")
-        value = supplied[key]
-        if not isinstance(value, Frame):
-            raise TypeError(f"Frame input {key!r} must be a Frame")
-        resolved[key] = value
+        bind_frame(key)
     service = measure_definition(measure).service if measure is not None else None
     if service is not None:
         if service not in supplied:
@@ -92,7 +89,9 @@ def process_measure_input(
 
     The evaluator passes its own step fold as ``process``, so the
     comparison frame is processed exactly as the measured frame is (a
-    reference must see the same background subtraction as every shot).
+    reference must see the same background subtraction as every shot);
+    the steps themselves keep the loaded frames (``compile_recipe`` refuses
+    a key bound by both a step and the measure).
     Unchanged when the measure takes no frame input.
     """
     key = measure_input(spec)

@@ -12,6 +12,9 @@
   hands it over as the last argument (`None` when unset), and
   `compile_recipe` counts it when matching declared against used inputs
   (its messages now say "steps or the measure").
+  It refuses a key bound by both a step and the measure (the reference
+  would be processed to zeros) and a `fallback_level` on the measure's
+  key (a constant cannot stand in for a comparison frame).
 - The `haso` measure's `reference`: a frame input (a same-day probe-only
   scan's mean, `from_scan`) whose slopes the engine subtracts from every
   shot's before the mask and filters, so the processed phase, slopes,
