@@ -176,3 +176,21 @@ def resolve_annotations(
         parameters=parameters, return_annotation=inspect.Signature.empty
     )
     return plan
+
+
+def is_connected(obj: Any) -> bool:
+    """Whether an ophyd-async device already holds a successful connection.
+
+    Real mode: a finished, error-free connect task.  Mock mode: a
+    ``DeviceMock`` is installed (mock connects are never cached by
+    ophyd-async, and reconnecting would rebuild the mock backends and drop
+    any test callbacks registered on them).  One rule for the two callers
+    that connect on demand: the RunEngine preprocessor
+    (:func:`geecs_bluesky.preprocessors.connect_on_demand`) and the
+    background snapshot's probe
+    (:class:`geecs_bluesky.devices.background.BackgroundSnapshot`).
+    """
+    if getattr(obj, "_mock", None) is not None:
+        return True
+    task = getattr(obj, "_connect_task", None)
+    return bool(task is not None and task.done() and task.exception() is None)

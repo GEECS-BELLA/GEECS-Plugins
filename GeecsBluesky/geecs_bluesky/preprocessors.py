@@ -22,6 +22,8 @@ from bluesky.preprocessors import msg_mutator, plan_mutator
 from bluesky.utils import Msg
 from ophyd_async.plan_stubs import ensure_connected
 
+from geecs_bluesky.utils import is_connected
+
 logger = logging.getLogger(__name__)
 
 #: Messages whose object must be connected before the RunEngine processes them.
@@ -56,20 +58,6 @@ def is_namespace_object(obj: Any) -> bool:
         obj = getattr(obj, "parent", None)
         seen += 1
     return False
-
-
-def is_connected(obj: Any) -> bool:
-    """Whether an ophyd-async device already holds a successful connection.
-
-    Real mode: a finished, error-free connect task.  Mock mode: a
-    ``DeviceMock`` is installed (mock connects are never cached by
-    ophyd-async, and reconnecting would rebuild the mock backends and drop
-    any test callbacks registered on them).
-    """
-    if getattr(obj, "_mock", None) is not None:
-        return True
-    task = getattr(obj, "_connect_task", None)
-    return bool(task is not None and task.done() and task.exception() is None)
 
 
 def connect_on_demand(
