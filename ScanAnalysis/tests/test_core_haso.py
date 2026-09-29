@@ -297,7 +297,7 @@ def test_a_store_that_cannot_be_renamed_keeps_the_scalars(
 
 
 def test_a_leftover_part_file_refuses_the_store_not_the_run(
-    tmp_path, monkeypatch, helper
+    tmp_path, monkeypatch, helper, caplog
 ):
     scan = build_scan(tmp_path)
     part = _store_of(scan).with_name(f"{DEVICE}_wavefront.h5.part")
@@ -305,14 +305,18 @@ def test_a_leftover_part_file_refuses_the_store_not_the_run(
     part.write_bytes(b"a run died here")
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=tmp_path))
     analyzer = CoreScanAnalyzer(recipe(), id=DEVICE, priority=1)
-    try:
-        analyzer.run_analysis(TAG)
-    finally:
-        analyzer.cleanup()
+    with caplog.at_level(logging.WARNING, logger="scan_analysis.core_analyzer"):
+        try:
+            analyzer.run_analysis(TAG)
+        finally:
+            analyzer.cleanup()
     rows = pd.read_csv(scan.parent.parent / "analysis" / "s12.txt", sep="\t")
     assert rows[f"{DEVICE}_phase_rms"].notna().sum() == SHOTS
-    # The stale part is left for a human; nothing else was written.
+    # The stale part is left for a human; nothing else was written; the
+    # operator's one signal is an ERROR record naming the file.
     assert part.read_bytes() == b"a run died here" and not _store_of(scan).exists()
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1 and str(part) in errors[0].getMessage()
 
 
 def test_save_false_stores_nothing_but_keeps_the_scalars(tmp_path, monkeypatch, helper):
