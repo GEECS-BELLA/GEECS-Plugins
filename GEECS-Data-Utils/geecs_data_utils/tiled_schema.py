@@ -164,14 +164,16 @@ _normalize_token = normalize_token
 def device_acq_timestamp_column(columns: Sequence[str], device: str) -> Optional[str]:
     """Find *device*'s own ``acq_timestamp`` event column, or ``None``.
 
-    The event column keys by the schema-safe device name while callers
-    often hold the on-disk folder stem — hyphens, case, and suffix
-    punctuation differ.  Both sides normalize by collapsing runs of
-    non-alphanumerics to single underscores (the same matching rule
-    ScanAnalysis's reader uses), so ``U_BCaveMagSpec-interpSpec``
-    matches ``u_bcavemagspec_interpspec-acq_timestamp``.  Telemetry and
-    ``ts_``-companion spellings never match (their prefixes carry extra
-    tokens).
+    THE device↔column rule, for every spelling the column takes across
+    the data paths — ``"<dev>-acq_timestamp"`` (event key),
+    ``"<Device> acq_timestamp"`` (s-file header), ``"<Device>:acq_timestamp"``
+    (in-memory frame): the whole column name and the device both go
+    through :func:`normalize_token` and must then be equal to
+    ``"<token>_acq_timestamp"``, so ``U_BCaveMagSpec-interpSpec`` matches
+    ``u_bcavemagspec_interpspec-acq_timestamp``, and telemetry / ``ts_``
+    companions never match (their prefixes carry extra tokens).  Shared
+    by ScanAnalysis's shot mapper, the ``.himg`` stack converter and the
+    portal — never re-derive it in a consumer.
 
     Parameters
     ----------
@@ -186,14 +188,10 @@ def device_acq_timestamp_column(columns: Sequence[str], device: str) -> Optional
         The matching ``<dev>-acq_timestamp`` column name, or ``None``
         when the run has no timestamp column for this device.
     """
-    token = _normalize_token(device)
+    wanted = f"{_normalize_token(device)}_acq_timestamp"
     for column in columns:
-        name = str(column)
-        if not name.endswith(_ACQ_TIMESTAMP_SUFFIX):
-            continue
-        prefix = name[: -len(_ACQ_TIMESTAMP_SUFFIX)]
-        if _normalize_token(prefix) == token:
-            return name
+        if _normalize_token(str(column)) == wanted:
+            return str(column)
     return None
 
 

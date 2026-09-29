@@ -8,6 +8,10 @@ file from disk. It also provides :func:`decode_imaq_image_string`, which decodes
 an in-memory NI IMAQ "Flatten Image to String" payload received live over the
 device TCP stream (not a file), and — in :mod:`geecs_data_utils.io.arrays` — the
 decoders for the three array payload shapes devices push the same way.
+:mod:`geecs_data_utils.io.himg` is the SDK-free codec for the HASO ``.himg``
+container and :mod:`geecs_data_utils.io.himg_stack` the converter that
+writes a device's capture stack from a folder of them (the one writer in
+this subpackage; ``scan_stack`` stays the reader).
 """
 
 from geecs_data_utils.io.array1d import (
@@ -25,6 +29,25 @@ from geecs_data_utils.io.arrays import (
     decode_csv_values,
     decode_labview_waveform,
     decode_nested_pairs,
+)
+from geecs_data_utils.io.himg import (
+    HimgFormatError,
+    HimgHeader,
+    himg_bytes,
+    parse_himg,
+    parse_himg_header,
+    read_himg,
+    write_himg,
+)
+from geecs_data_utils.io.himg_stack import (
+    HimgSource,
+    HimgStackError,
+    HimgStackReport,
+    HimgVerifyReport,
+    convert_himg_folder,
+    himg_sources,
+    verify_himg_stack,
+    write_himg_stack,
 )
 from geecs_data_utils.io.images import (
     average_frames,
@@ -53,12 +76,19 @@ __all__ = [
     "Data1DResult",
     "Data1DType",
     "DecodedArray",
+    "HimgFormatError",
+    "HimgHeader",
+    "HimgSource",
+    "HimgStackError",
+    "HimgStackReport",
+    "HimgVerifyReport",
     "LABVIEW_EPOCH_OFFSET",
     "WAVEFORM_ATTRIBUTE_KEYS",
     "WAVEFORM_ATTRIBUTE_SUFFIXES",
     "WAVEFORM_AXIS_KEYS",
     "ShotRef",
     "average_frames",
+    "convert_himg_folder",
     "decode_array_payload",
     "decode_csv_values",
     "decode_imaq_image_string",
@@ -66,9 +96,14 @@ __all__ = [
     "decode_nested_pairs",
     "find_stack_file",
     "frame_index_for_acq_timestamp",
+    "himg_bytes",
+    "himg_sources",
     "is_stack_file",
     "load_image_from_h5",
+    "parse_himg",
+    "parse_himg_header",
     "read_1d_data",
+    "read_himg",
     "read_imaq_image",
     "read_imaq_png_image",
     "read_shot",
@@ -78,4 +113,7 @@ __all__ = [
     "stack_content_kind",
     "stack_scalar_variables",
     "read_tsv_file",
+    "verify_himg_stack",
+    "write_himg",
+    "write_himg_stack",
 ]

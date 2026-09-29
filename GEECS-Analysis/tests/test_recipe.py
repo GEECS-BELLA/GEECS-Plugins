@@ -281,10 +281,19 @@ def test_recipe_schema_binds_the_registry_vocabulary():
     assert "roi" in steps and "StepRef" not in schema["$defs"]
     assert "MeasureRef" not in schema["$defs"]
     measures = schema["properties"]["measure"]["discriminator"]["mapping"]
-    assert set(measures) == {"beam", "frog", "hi_res_mag_cam", "ict", "line", "none"}
+    assert set(measures) == {
+        "beam",
+        "frog",
+        "haso",
+        "hi_res_mag_cam",
+        "ict",
+        "line",
+        "none",
+    }
     assert schema["$defs"]["RoiSpec"]["x-ndim"] == [1, 2]
     assert schema["$defs"]["BeamSpec"]["x-ndim"] == [2]
     assert schema["$defs"]["FrogSpec"]["x-ndim"] == [2]
+    assert schema["$defs"]["HasoSpec"]["x-ndim"] == [2]
     assert schema["$defs"]["InterpolateSpec"]["x-ndim"] == [1]
     assert schema["$defs"]["WaterfallSummary"]["x-ndim"] == [1]
     assert schema["$defs"]["ImageGridSummary"]["x-ndim"] == [2]

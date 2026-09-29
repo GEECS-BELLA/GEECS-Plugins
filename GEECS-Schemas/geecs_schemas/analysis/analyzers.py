@@ -3,7 +3,7 @@
 Every analyzer the analysis suite ships has one *spec* model here, chosen
 by the ``kind`` field.  The spec carries exactly the analyzer's own
 parameters (a FROG retrieval's grid size, a magspec's energy calibration,
-HASO's pupil mask); the frame clean-up lives in the ``image:`` section and
+an ICT's charge polarity); the frame clean-up lives in the ``image:`` section and
 the scan-time behaviour in ``scan:``.  Because the set of kinds is closed
 and lives here, a diagnostic document validates completely with pydantic
 alone — an editor renders a form per kind from the JSON Schema, and a typo
@@ -13,7 +13,7 @@ ImageAnalysis maps each ``kind`` to the class that implements it
 (``image_analysis.config.registry``); adding an analyzer means adding a
 spec here and one registry line there.  Each spec's ``image_kind`` says
 which ``image:`` section it works on — ``"camera"``, ``"line"`` or ``None``
-for analyzers that read their own file formats (HASO, phase maps).
+for analyzers that read their own file formats (phase maps).
 """
 
 from __future__ import annotations
@@ -27,6 +27,11 @@ from pydantic import Field, field_validator, model_validator
 from geecs_schemas._base import SchemaModel
 
 ImageKind = Optional[Literal["camera", "line"]]
+#: Who runs a kind.  ``"frame"``: an ImageAnalyzer per frame — ImageAnalysis'
+#: registry maps the kind to its class and ScanAnalysis wraps it over the
+#: scan.  ``"scan"``: one step over the device folder that ScanAnalysis
+#: dispatches itself, with no ImageAnalyzer at all (a converter).
+AnalyzerScope = Literal["frame", "scan"]
 
 
 class AnalyzerSpecBase(SchemaModel):
@@ -35,6 +40,8 @@ class AnalyzerSpecBase(SchemaModel):
     #: Which ``image:`` section this analyzer consumes: "camera", "line", or
     #: None when it loads its own file format and takes no image section.
     image_kind: ClassVar[ImageKind] = "camera"
+    #: Who runs the kind — see :data:`AnalyzerScope`.
+    scope: ClassVar[AnalyzerScope] = "frame"
     scalar_keys: ClassVar[frozenset[str]] = frozenset()
 
     def emitted_scalars(self) -> frozenset[str]:
@@ -363,38 +370,25 @@ class LineStitcherSpec(AnalyzerSpecBase):
     )
 
 
-class PupilMask(SchemaModel):
-    """Rectangular pupil mask on the HASO slopes grid, inclusive bounds; -1 means the far edge."""
+class HimgToStackSpec(AnalyzerSpecBase):
+    """Convert this device's HASO ``.himg`` files into its per-scan capture stack — data management, not analysis.
 
-    top: int = Field(1, description="Top row of the pupil (inclusive).")
-    bottom: int = Field(
-        -1, description="Bottom row of the pupil (inclusive); -1 = last row."
-    )
-    left: int = Field(1, description="Left column of the pupil (inclusive).")
-    right: int = Field(
-        -1, description="Right column of the pupil (inclusive); -1 = last column."
-    )
-
-
-class HasoAnalyzerSpec(AnalyzerSpecBase):
-    """HASO wavefront sensor: slopes to phase and Zernike terms through WaveKit (Windows, licensed)."""
+    Writes ``<device>/<device>.h5`` beside the ``.himg`` files (which stay)
+    in the layout every stack reader already prefers: the frames, the
+    per-frame acquisition stamps, and each file's header and SHA-256, so
+    every frame rebuilds its source byte-identically (checked after
+    writing).  One step over the scan's device folder; no per-frame
+    analysis, no scalars.  Run it once per scan; a second run verifies the
+    existing stack.  Deleting the sources is a separate, explicit step.
+    """
 
     scalar_keys: ClassVar[frozenset[str]] = frozenset([])
 
     image_kind: ClassVar[ImageKind] = None
-    kind: Literal["haso"] = Field(
-        "haso", description="HASO wavefront analyzer via WaveKit."
+    scope: ClassVar[AnalyzerScope] = "scan"
+    kind: Literal["himg_to_stack"] = Field(
+        "himg_to_stack", description="HASO .himg folder → capture-stack converter."
     )
-    wavekit_config_file_path: Path = Field(
-        ..., description="The WaveKit sensor configuration (.dat) for this HASO head."
-    )
-    mask: PupilMask = Field(
-        default_factory=PupilMask, description="Pupil mask applied to the slopes."
-    )
-    background_path: Optional[Path] = Field(
-        None, description="A .has slopes file subtracted as background."
-    )
-    laser_wavelength: float = Field(800.0, gt=0, description="Probe wavelength, nm.")
 
 
 # ---------------------------------------------------------------------------
@@ -514,7 +508,7 @@ AnalyzerSpec = Annotated[
         FrogSpectralPhaseSpec,
         IctAnalyzerSpec,
         LineStitcherSpec,
-        HasoAnalyzerSpec,
+        HimgToStackSpec,
         DownrampPhaseSpec,
         HiResMagCamSpec,
         BCaveMagOptSpec,
@@ -533,6 +527,7 @@ ANALYZER_SPECS: dict[str, type[AnalyzerSpecBase]] = {
 
 __all__ = [
     "ANALYZER_SPECS",
+    "AnalyzerScope",
     "AnalyzerSpec",
     "AnalyzerSpecBase",
     "ArrayCalibrationSpec",
@@ -543,8 +538,8 @@ __all__ = [
     "DownrampPhaseSpec",
     "FrogRetrievalSpec",
     "FrogSpectralPhaseSpec",
-    "HasoAnalyzerSpec",
     "HiResMagCamSpec",
+    "HimgToStackSpec",
     "IctAnalyzerSpec",
     "ImageKind",
     "LineAnalyzerSpec",
@@ -552,7 +547,6 @@ __all__ = [
     "MagSpecAnalyzerSpec",
     "PhaseDownrampSpec",
     "PolynomialCalibrationSpec",
-    "PupilMask",
     "StandardAnalyzerSpec",
     "TraceAnalyzerSpec",
 ]

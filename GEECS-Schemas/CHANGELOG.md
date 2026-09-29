@@ -5,15 +5,34 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.38.0] - 2026-09-28
+## [0.40.0] - 2026-09-29
 
 ### Added
 
 - `HiResMagCamSpec.emitted_scalars()` declares the bow-tie fit parameters
   the analyzer now reports beside `emittance_proxy`: `bowtie_x0` (the
   waist column, sensor pixels), `bowtie_w0`, `bowtie_theta` and
-  `bowtie_r_squared` — NaN when the fit is rejected (ImageAnalysis 2.8.0,
-  GEECS-Analysis 0.21.0).
+  `bowtie_r_squared` — NaN when the fit is rejected (ImageAnalysis 2.10.0,
+  GEECS-Analysis 0.22.0).
+
+## [0.39.0] - 2026-09-29
+
+### Removed
+
+- The v2 `haso` analyzer kind (`HasoAnalyzerSpec`, `PupilMask`): the HASO
+  wavefront analysis is the analysis core's `haso` measure on a v3 recipe
+  (GEECS-Analysis 0.21.0). The `ANALYZER_SPECS` registry has 14 kinds;
+  the schema reference and the diagnostic JSON Schema are regenerated.
+
+## [0.38.0] - 2026-09-28
+
+### Added
+
+- `AnalyzerSpecBase.scope` (`AnalyzerScope`: `"frame"` | `"scan"`) — who
+  runs a kind: an ImageAnalyzer per frame (every kind until now), or one
+  step over the device folder that ScanAnalysis dispatches itself.
+- `HimgToStackSpec` (`kind: himg_to_stack`, scope `scan`, no image
+  section): convert a HASO device's `.himg` files into its capture stack.
 
 ## [0.37.0] - 2026-09-28
 

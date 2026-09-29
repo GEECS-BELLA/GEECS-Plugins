@@ -4,12 +4,15 @@ The diagnostic document (``geecs_schemas.analysis.AnalysisDiagnostic``)
 names its analyzer by ``kind``; the class path left the YAML in format v2
 so a module refactor never breaks a config.  This module resolves a kind
 to its class — lazily, so importing the registry never imports vendor
-SDKs (HASO's WaveKit, the FROG DLL wrapper).
+SDKs (the FROG DLL wrapper).
 
 Adding an analyzer: one spec model in ``geecs_schemas.analysis.analyzers``
 (joined into ``AnalyzerSpec``) and one line in :data:`ANALYZER_CLASS_PATHS`
 here.  ``tests/test_config_registry.py`` pins that the two tables cover the
-same kinds.
+same kinds — the *frame-scoped* kinds (:data:`FRAME_KINDS`).  A kind whose
+spec declares ``scope = "scan"`` (a converter over the device folder, such
+as ``himg_to_stack``) has no ImageAnalyzer: ScanAnalysis dispatches it
+itself, and this registry refuses it by name.
 """
 
 from __future__ import annotations
@@ -19,7 +22,18 @@ from typing import Type
 
 from geecs_schemas.analysis import ANALYZER_SPECS
 
-__all__ = ["ANALYZER_CLASS_PATHS", "analyzer_class", "import_class_path"]
+__all__ = [
+    "ANALYZER_CLASS_PATHS",
+    "FRAME_KINDS",
+    "analyzer_class",
+    "import_class_path",
+]
+
+#: The kinds that run an ImageAnalyzer per frame — every spec whose scope is
+#: ``"frame"``.  The registry covers exactly these.
+FRAME_KINDS: frozenset[str] = frozenset(
+    kind for kind, spec in ANALYZER_SPECS.items() if spec.scope == "frame"
+)
 
 #: kind → fully qualified class path of the ImageAnalyzer implementing it.
 ANALYZER_CLASS_PATHS: dict[str, str] = {
@@ -32,18 +46,17 @@ ANALYZER_CLASS_PATHS: dict[str, str] = {
     "frog_spectral_phase": "image_analysis.analyzers.frog_spectral_phase_analyzer.FrogSpectralPhaseAnalyzer",
     "ict": "image_analysis.analyzers.ict_1d_analyzer.ICT1DAnalyzer",
     "line_stitcher": "image_analysis.analyzers.line_stitcher.LineStitcher",
-    "haso": "image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor",
     "downramp_phase": "image_analysis.analyzers.downramp_phase_analyzer.DownrampPhaseAnalyzer",
     "hi_res_mag_cam": "image_analysis.analyzers.Undulator.hi_res_mag_cam_analyzer.HiResMagCamAnalyzer",
     "bcave_mag_opt": "image_analysis.analyzers.Undulator.BCaveMagSpecStitcherOpt.BCaveMagOpt",
     "phase_downramp": "image_analysis.analyzers.density_from_phase_analysis.PhaseDownrampProcessor",
 }
 
-_missing = set(ANALYZER_SPECS) ^ set(ANALYZER_CLASS_PATHS)
+_missing = FRAME_KINDS ^ set(ANALYZER_CLASS_PATHS)
 if _missing:  # pragma: no cover — a packaging error, caught at import
     raise RuntimeError(
         "ImageAnalysis analyzer registry and geecs_schemas.analysis.ANALYZER_SPECS "
-        f"disagree on kinds: {sorted(_missing)}"
+        f"disagree on frame-scoped kinds: {sorted(_missing)}"
     )
 
 
@@ -79,6 +92,11 @@ def analyzer_class(kind: str) -> Type:
     try:
         class_path = ANALYZER_CLASS_PATHS[kind]
     except KeyError as exc:
+        if kind in ANALYZER_SPECS:
+            raise KeyError(
+                f"Analyzer kind {kind!r} is scan-scoped (ScanAnalysis runs it over "
+                "the device folder); it has no ImageAnalyzer"
+            ) from exc
         raise KeyError(
             f"Unknown analyzer kind {kind!r}; known kinds: {sorted(ANALYZER_CLASS_PATHS)}"
         ) from exc

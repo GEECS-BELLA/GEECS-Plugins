@@ -4,6 +4,15 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.3] - 2026-09-29
+
+### Changed
+
+- The "cannot run on this host" refusal is documented as any analyzer
+  class this host cannot import (the FROG and HASO recipes now run on
+  the analysis core under Wine); the test stands in an unimportable
+  class through the registry instead of the deleted v2 `haso` kind.
+
 ## [0.9.2] - 2026-09-23
 
 ### Changed

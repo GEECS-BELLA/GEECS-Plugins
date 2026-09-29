@@ -393,6 +393,11 @@ The rule is pinned by tests:
 - `ImageAnalysis/tests/analyzers/test_magspec_calib.py::TestScanFolderInvariant`
 - `ImageAnalysis/tests/processing/test_array1d_background.py`
 - `GEECS-Data-Utils/tests/test_scan_paths_create_invariant.py`
+- `GEECS-Data-Utils/tests/test_himg_stack.py::TestRefusals::test_a_missing_folder_is_never_created`
+  and `ScanAnalysis/tests/test_himg_to_stack.py::TestRun::test_missing_device_folder_is_no_data_and_stays_missing`
+  — the `.himg` → capture-stack converter, the second analysis-side writer
+  into an existing `scans/ScanNNN/<device>/` folder after the FROG per-shot
+  sidecar (one file, no directory; ScanAnalysis's CLAUDE.md lists both)
 - `GeecsLogbook/tests/test_scan_reader.py::TestScanFolderCreationInvariant`
 
 Each package's CLAUDE.md restates this rule with package-specific guidance for

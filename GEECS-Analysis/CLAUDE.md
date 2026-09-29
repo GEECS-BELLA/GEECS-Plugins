@@ -29,11 +29,17 @@ still uses ScanAnalysis until its runner/sinks and acceptance tests land.
   keeps it; `apply_measure` hands it over as the third argument); the core
   calls it and never builds, configures or inspects it. It must pickle —
   a pooled run sends it to each worker once. ScanAnalysis builds services
-  (`core_services`), a notebook passes one by hand. `frog` is the one
-  service measure: Kane's FROG.dll via ImageAnalysis' `FrogDllRetrieval`.
+  (`core_services`), a notebook passes one by hand. Two service measures:
+  `frog` (Kane's FROG.dll via ImageAnalysis' `FrogDllRetrieval`) and `haso`
+  (Imagine Optic's WaveKit via ImageAnalysis' `HasoWaveKit`; the measure
+  rounds and clips the processed frame to the sensor's uint16 pixels and
+  packages the processed phase as the frame, raw phase / intensity /
+  slopes / pupil as extras, two pupil scalars).
   A measure's named auxiliary frames go in `Measurement.extras` (neither
   drawn nor averaged); its registered `sidecar` names the per-shot table a
-  scan host writes from them.
+  scan host writes from 1D extras beside the shot, its `shot_store` the
+  per-scan HDF5 a scan host writes every single-shot frame and extras to
+  under the analysis tree (2D extras: the wavefront products).
 - Register each builtin in `steps/__init__.py`; the registry constructs the
   discriminated spec union. Adding a builtin must not require a dispatcher edit.
   Runtime/plugin registration after spec construction is not supported yet.

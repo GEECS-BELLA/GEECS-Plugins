@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.21.0] - 2026-09-28
+## [0.22.0] - 2026-09-29
 
 ### Added
 
@@ -24,6 +24,27 @@
   `compile_v2` compiles the v2 `hi_res_mag_cam` kind to it and `to_v3`
   converts those diagnostics, noting a set `threshold_factor` as dropped
   (the fit never read it; the measure has no such field).
+
+## [0.21.0] - 2026-09-29
+
+### Added
+
+- The `haso` measure (`measures/haso.py`): HASO wavefront reconstruction
+  through a host-supplied WaveKit engine (service `haso`), a rewrite for
+  the v3 recipe of the deleted v2 `haso` analyzer keeping its function.
+  `HasoSpec`: `sensor_config` (a file name the host resolves), `mask`
+  (numpy slice bounds on the slopes grid; unset keeps the sensor's pupil),
+  `filters` (the legacy defaults: tilt x/y, curvature, astigmatism 0/45
+  removed), `wavelength_nm` 800, `start_subpupil` (87, 64), `zonal_prefs`
+  (100, 500, 1e-6). The processed frame is rounded and clipped to the
+  sensor's uint16 pixels before the engine sees it (a numpy background
+  subtraction equals the SDK's, verified); the processed zonal phase is
+  the measurement frame, raw phase / intensity / slopes x, y / pupil the
+  extras, `phase_rms` and `phase_pv` inside the pupil the scalars.
+- `@measure(shot_store=...)` / `MeasureDefinition.shot_store`: a measure
+  may name the per-scan store a scan host writes every single-shot frame
+  and extras to (the `haso` measure's `wavefront`), beside `sidecar` for
+  1D extras.
 
 ## [0.20.0] - 2026-09-28
 

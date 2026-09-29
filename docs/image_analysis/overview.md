@@ -96,7 +96,6 @@ image_analysis/
 │   ├── standard_analyzer.py     #   StandardAnalyzer — pass-through with stats
 │   ├── line_analyzer.py         #   Line1DAnalyzer / Standard1DAnalyzer
 │   ├── grenouille_analyzer.py   #   FROG pulse characterisation
-│   ├── HASO_himg_has_processor.py  # HASO wavefront sensor
 │   └── …
 ├── config/                      # loaders + factory (the MODELS live in geecs_schemas.analysis)
 │   ├── factory.py               #   create_image_analyzer(diag)
@@ -161,7 +160,6 @@ metadata.
 | [Basic Offline Analysis](examples/basic_usage_image_analyzer.ipynb) | Load → process → analyze a single camera image end to end |
 | [Basic Usage — 1D Analyzer](examples/basic_usage_1D_analyzer.ipynb) | The same flow for a 1D signal trace |
 | [Grenouille Analysis](examples/grenouille_analysis.ipynb) | FROG pulse characterisation as a worked example |
-| [HasoLift Analysis](examples/HasoLift_analysis.ipynb) | Reading `.himg` wavefront data |
 
 ## See also
 

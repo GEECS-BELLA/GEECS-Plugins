@@ -888,55 +888,6 @@
       "title": "FromCurrentScanSpec",
       "type": "object"
     },
-    "HasoAnalyzerSpec": {
-      "additionalProperties": false,
-      "description": "HASO wavefront sensor: slopes to phase and Zernike terms through WaveKit (Windows, licensed).",
-      "properties": {
-        "kind": {
-          "const": "haso",
-          "default": "haso",
-          "description": "HASO wavefront analyzer via WaveKit.",
-          "title": "Kind",
-          "type": "string"
-        },
-        "wavekit_config_file_path": {
-          "description": "The WaveKit sensor configuration (.dat) for this HASO head.",
-          "format": "path",
-          "title": "Wavekit Config File Path",
-          "type": "string"
-        },
-        "mask": {
-          "$ref": "#/$defs/PupilMask",
-          "description": "Pupil mask applied to the slopes."
-        },
-        "background_path": {
-          "anyOf": [
-            {
-              "format": "path",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "A .has slopes file subtracted as background.",
-          "title": "Background Path"
-        },
-        "laser_wavelength": {
-          "default": 800.0,
-          "description": "Probe wavelength, nm.",
-          "exclusiveMinimum": 0,
-          "title": "Laser Wavelength",
-          "type": "number"
-        }
-      },
-      "required": [
-        "wavekit_config_file_path"
-      ],
-      "title": "HasoAnalyzerSpec",
-      "type": "object"
-    },
     "HiResMagCamSpec": {
       "additionalProperties": false,
       "description": "HTU high-resolution magspec camera: beam metrics plus a bow-tie fit of the trace.",
@@ -971,6 +922,21 @@
         }
       },
       "title": "HiResMagCamSpec",
+      "type": "object"
+    },
+    "HimgToStackSpec": {
+      "additionalProperties": false,
+      "description": "Convert this device's HASO ``.himg`` files into its per-scan capture stack \u2014 data management, not analysis.\n\nWrites ``<device>/<device>.h5`` beside the ``.himg`` files (which stay)\nin the layout every stack reader already prefers: the frames, the\nper-frame acquisition stamps, and each file's header and SHA-256, so\nevery frame rebuilds its source byte-identically (checked after\nwriting).  One step over the scan's device folder; no per-frame\nanalysis, no scalars.  Run it once per scan; a second run verifies the\nexisting stack.  Deleting the sources is a separate, explicit step.",
+      "properties": {
+        "kind": {
+          "const": "himg_to_stack",
+          "default": "himg_to_stack",
+          "description": "HASO .himg folder \u2192 capture-stack converter.",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "HimgToStackSpec",
       "type": "object"
     },
     "IctAnalyzerSpec": {
@@ -1740,38 +1706,6 @@
       "title": "ProcessingStepType",
       "type": "string"
     },
-    "PupilMask": {
-      "additionalProperties": false,
-      "description": "Rectangular pupil mask on the HASO slopes grid, inclusive bounds; -1 means the far edge.",
-      "properties": {
-        "top": {
-          "default": 1,
-          "description": "Top row of the pupil (inclusive).",
-          "title": "Top",
-          "type": "integer"
-        },
-        "bottom": {
-          "default": -1,
-          "description": "Bottom row of the pupil (inclusive); -1 = last row.",
-          "title": "Bottom",
-          "type": "integer"
-        },
-        "left": {
-          "default": 1,
-          "description": "Left column of the pupil (inclusive).",
-          "title": "Left",
-          "type": "integer"
-        },
-        "right": {
-          "default": -1,
-          "description": "Right column of the pupil (inclusive); -1 = last column.",
-          "title": "Right",
-          "type": "integer"
-        }
-      },
-      "title": "PupilMask",
-      "type": "object"
-    },
     "ROIConfig": {
       "additionalProperties": false,
       "description": "Crop the frame to a rectangular region of interest, in pixels.",
@@ -2464,8 +2398,8 @@
           "downramp_phase": "#/$defs/DownrampPhaseSpec",
           "frog_retrieval": "#/$defs/FrogRetrievalSpec",
           "frog_spectral_phase": "#/$defs/FrogSpectralPhaseSpec",
-          "haso": "#/$defs/HasoAnalyzerSpec",
           "hi_res_mag_cam": "#/$defs/HiResMagCamSpec",
+          "himg_to_stack": "#/$defs/HimgToStackSpec",
           "ict": "#/$defs/IctAnalyzerSpec",
           "line": "#/$defs/LineAnalyzerSpec",
           "line_stitcher": "#/$defs/LineStitcherSpec",
@@ -2505,7 +2439,7 @@
           "$ref": "#/$defs/LineStitcherSpec"
         },
         {
-          "$ref": "#/$defs/HasoAnalyzerSpec"
+          "$ref": "#/$defs/HimgToStackSpec"
         },
         {
           "$ref": "#/$defs/DownrampPhaseSpec"
@@ -2546,7 +2480,7 @@
         }
       ],
       "default": null,
-      "description": "How raw frames (type: camera) or traces (type: line) are cleaned up before analysis. Omit for analyzers that read their own file formats (kind haso, phase_downramp).",
+      "description": "How raw frames (type: camera) or traces (type: line) are cleaned up before analysis. Omit for analyzers that read their own file formats (kind phase_downramp).",
       "title": "Image"
     },
     "scan": {

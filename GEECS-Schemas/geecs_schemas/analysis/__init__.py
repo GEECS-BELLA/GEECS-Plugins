@@ -13,6 +13,7 @@ dispatches on ``schema_version``.
 from geecs_schemas.analysis.canonical import canonical_document
 from geecs_schemas.analysis.analyzers import (
     ANALYZER_SPECS,
+    AnalyzerScope,
     AnalyzerSpec,
     AnalyzerSpecBase,
     ArrayCalibrationSpec,
@@ -23,8 +24,8 @@ from geecs_schemas.analysis.analyzers import (
     DownrampPhaseSpec,
     FrogRetrievalSpec,
     FrogSpectralPhaseSpec,
-    HasoAnalyzerSpec,
     HiResMagCamSpec,
+    HimgToStackSpec,
     IctAnalyzerSpec,
     ImageKind,
     LineAnalyzerSpec,
@@ -32,7 +33,6 @@ from geecs_schemas.analysis.analyzers import (
     MagSpecAnalyzerSpec,
     PhaseDownrampSpec,
     PolynomialCalibrationSpec,
-    PupilMask,
     StandardAnalyzerSpec,
     TraceAnalyzerSpec,
 )
@@ -105,6 +105,7 @@ from geecs_schemas.analysis.scan_runtime import (
 
 __all__ = [
     "ANALYZER_SPECS",
+    "AnalyzerScope",
     "CURRENT_RECIPE_VERSION",
     "CURRENT_SCHEMA_VERSION",
     "SUMMARY_KINDS",
@@ -140,7 +141,7 @@ __all__ = [
     "FrogRetrievalSpec",
     "FrogSpectralPhaseSpec",
     "FromCurrentScanSpec",
-    "HasoAnalyzerSpec",
+    "HimgToStackSpec",
     "HiResMagCamSpec",
     "IctAnalyzerSpec",
     "ImageGridSummary",
@@ -166,7 +167,6 @@ __all__ = [
     "PhaseDownrampSpec",
     "PolynomialCalibrationSpec",
     "ProcessingStepType",
-    "PupilMask",
     "ROIConfig",
     "RecipeInput",
     "RecipeRuntime",

@@ -58,15 +58,12 @@ __all__ = [
 #: convention makes them pure. Remove an entry only when the analyzer
 #: gains an explicit no-write mode.
 #:
-#: * HASO writes five sidecars per shot from ``load_image`` (instance
-#:   state), its module hard-imports the wavekit SDK, and its
-#:   ``analyze_image`` without that ``load_image`` returns a
-#:   meaningless pass-through — no ephemeral calling convention exists.
 #: * Grenouille's ``analyze_image`` unconditionally writes transient
 #:   temp files and spawns a ~seconds 32-bit DLL subprocess per frame —
 #:   cleaned up afterwards, but a per-request viewer must not trigger
-#:   either.
-EPHEMERAL_DENYLIST = frozenset({"haso", "frog_retrieval"})
+#:   either. (The HASO analyzer, the other entry, left with the ``haso``
+#:   measure's move to the analysis core in 2.9.0.)
+EPHEMERAL_DENYLIST = frozenset({"frog_retrieval"})
 
 
 def run_diagnostic_ephemeral(
@@ -154,6 +151,12 @@ def _ephemeral_analyzer_for(diag: "AnalysisDiagnostic") -> "ImageAnalyzer":
             "run it on the core"
         )
     kind = diag.analyzer.kind
+    if type(diag.analyzer).scope != "frame":
+        raise ValueError(
+            f"Analyzer kind {kind!r} is scan-scoped: it runs once over the "
+            "device folder (ScanAnalysis) and has no per-frame analyzer to "
+            "run on in-memory frames."
+        )
     if kind in EPHEMERAL_DENYLIST:
         raise ValueError(
             f"Analyzer kind {kind!r} cannot run ephemerally: its side "
