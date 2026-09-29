@@ -118,7 +118,6 @@ def test_plugin_camera_count_on_hardware() -> None:
         tiled=True,
         claim=True,
         path_provider=provider,
-        telemetry=namespace.telemetry(),
     )
     plans = bind_plans(profiles)
     print(

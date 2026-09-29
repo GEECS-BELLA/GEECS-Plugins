@@ -51,6 +51,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   preset field rides as the plan keyword when set, a copy in
   `plan.kwargs` is refused.
 
+### Removed
+
+- The open/close `baseline` stream and `install_telemetry`:
+  `make_run_engine` no longer takes `telemetry` / `connect_timeout`, and
+  the worker profile no longer reads `QS_CONNECT_TIMEOUT` (the 20 s
+  connect of every telemetry object at environment open goes with it —
+  the background probe connects what it needs, per run, within its own
+  budget).  Two rows per run that no reader joined, strict for every
+  member: one unserved PV failed every scan after its claim (26_0928
+  Scans 005–009, #1016).  The background columns are the one mechanism.
+
 ## [0.107.0] - 2026-09-26
 
 ### Changed

@@ -45,8 +45,9 @@ Phase 0 (one camera as a `GeecsDetector`, strict shots under stock
 deleted the `ScanRequest` funnel, the free-run mode, `GeecsSession` and
 the funnel-only devices; PR 2 added the plan layer — the stock plans
 registered strict under their own names, every run claiming a scan
-number, the ScanInfo / s-file / `scan.log` callbacks, the baseline
-telemetry stream, presets as the saved queue item.  PR 3 accepted it on
+number, the ScanInfo / s-file / `scan.log` callbacks, presets as the
+saved queue item (its open/close baseline telemetry stream was replaced
+by per-row background telemetry, #1016).  PR 3 accepted it on
 HTU (Scans 104–108 of 26_0910, in process and through a second RE
 Manager — `tests/test_phase1_hardware.py`).
 

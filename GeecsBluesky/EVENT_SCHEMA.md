@@ -28,6 +28,8 @@ adds (phase 1 PR 2):
 | `shot_clock` / `shot_clock_column` | the bound plan (gated) | The device whose `acq_timestamp` is the shot id, and the row column carrying it — what the s-file's join keys on |
 | `trigger_profile` | the bound plan | The trigger profile that drove the shots |
 | `native_image_save` | the bound plan | The run's LabVIEW-files **switch** — the preset's value, else the experiment default (#738) — not a record of what was written. It reaches a plugin-backed camera only as a strict full detector (a `.scalars` view, a non-essential stream and a gated batch's plugin-backed cameras write no native files whatever it says; a device without a file plugin always writes them, as a strict detector, a gated essential or a non-essential). Whether a device wrote is the presence of its `<det>-nonscalar_save_path` column, in `primary` (strict), `shots` (gated) or its own `<det>_stream` (a non-essential) |
+| `background_telemetry` | the bound plan | Whether the run read the background telemetry into its rows (the preset's value, else the experiment default; `False` also when the namespace has nothing outside the run) |
+| `background_dropped` | the bound plan (`background_wrapper`) | GEECS device names the background probe dropped for this run — no answer within its budget (a PV the gateway does not serve, a failed connect or describe); absent when the run read no background |
 | `shots_per_step` | the bound plan | Rows per position (`1` for `count`, whose `num` is the shot count) |
 | `description`, `background` | the client (`md`) | The preset's description (ScanInfo's `ScanStartInfo`) and background flag |
 | `geecs` | the client (`md`) | Provenance only: `{preset, submission}` — never a worker instruction |
@@ -188,7 +190,7 @@ the descriptor's numeric data keys), an event no row's window reaches
 stays in the stream and in Tiled and is left out of the s-file, and a
 string column (the save path) is never an s-file column.  The start
 document's `non_essential` names which `<name>_stream`s these are (the
-offline re-export reads them from there; `baseline` is never joined).  The
+offline re-export reads them from there).  The
 stack check matches a native saver's **events** (not the rows) to its
 files: events without a file and file stamps without an event counted
 apart, files stamped after the last event (saved between the stream's
@@ -198,14 +200,24 @@ failure.
 An additive stream convention, not a schema change: a reader that never
 looked for these streams sees the runs it saw before.
 
-## Event stream `baseline`
+## Background telemetry columns
 
-Every subscribed scalar of the experiment, read at the open and the close
-of every run (`SupplementalData(baseline=namespace.telemetry())`): each
-scalar-only device's columns and each detector's scalar signals, under the
-same keys as in `primary`.  Two rows per run.  Which of them should be
-per-event monitors instead is decided from measurement (#929), not up
-front.
+Every subscribed scalar of the experiment whose device is **not** in the
+run — not a detector, not the owner of a listed `.scalars` view, not a
+non-essential device, not a scan motor — rides in every row of the run's
+row stream (`primary` for a strict run, `shots` for a gated one) under the
+same `<device>-<variable>` keys a listed device would carry, read softly
+from the gateway's monitor cache by the run's `BackgroundSnapshot`
+(GEECS-Plugins#1016, #929 — what Master Control logged).  A detector
+outside the run contributes its scalars and its `acq_timestamp` as its
+monitor cache holds them (the last frame's), so a row's alignment to that
+device is checkable.  A reading the gateway marks INVALID (a dead device's
+stale readbacks) is `NaN`; a device the probe dropped (the start
+document's `background_dropped`) has no columns in that run; the columns
+carry their `Device Variable` headers in `geecs_scalar_headers`, so the
+s-file has them like any other.  The run-level `baseline` stream (two
+open/close rows) that preceded this is gone: a reader that looked for it
+sees runs without it; nothing in the repo joined it.
 
 ## Legacy `Device Variable` headers
 

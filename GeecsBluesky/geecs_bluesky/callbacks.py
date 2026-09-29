@@ -78,8 +78,8 @@ DEFAULT_FINALIZE_TIMEOUT_S = 15.0
 
 #: The streams whose events can be a run's per-shot rows, in preference
 #: order: ``primary`` for a strict run, the per-shot sampler's ``shots`` for
-#: a gated one.  No other stream's events are buffered — ``baseline``'s two
-#: open/close rows are telemetry, not shots.
+#: a gated one.  No other stream's events are buffered (a monitor stream is
+#: not shots).
 ROW_STREAMS = ("primary", SHOTS_STREAM)
 
 #: How many runs' buffers to keep when a run never emits a stop document
@@ -354,7 +354,7 @@ class _StreamCallback(_RunCallback):
         if stream not in ROW_STREAMS and (
             run is None or stream not in run.event_streams
         ):
-            return  # baseline telemetry and monitors are never per-shot rows
+            return  # a monitor stream is never per-shot rows
         if run is not None:
             run.rows.setdefault(stream, []).append(
                 (int(doc["seq_num"]), dict(doc.get("data") or {}))
@@ -642,9 +642,9 @@ class SFileCallback(_StreamCallback):
     The rows are the ``primary`` events when the run has them (strict:
     every essential device is read per shot) and the per-shot sampler's
     ``shots`` events otherwise (gated: ``primary`` carries only the
-    cameras' frames).  The baseline stream's open/close telemetry is never
-    a row source.  The columns are whatever the rows carried, renamed and
-    ordered by ``geecs_scalar_headers`` inside
+    cameras' frames).  The columns are whatever the rows carried — the run's
+    devices and its background telemetry alike — renamed and ordered by
+    ``geecs_scalar_headers`` inside
     :func:`geecs_data_utils.build_legacy_scalar_dataframe`.
 
     Every **datum-only** stream of the run — a gated run's cameras, a

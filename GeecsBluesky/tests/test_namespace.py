@@ -864,9 +864,8 @@ def test_add_pseudos_refuses_case_clashes_and_plan_names(caplog) -> None:
 
 
 def test_namespace_pseudo_scans_through_connect_on_demand() -> None:
-    """A pseudo touched by a plan connects its own components: the telemetry
-    connect at environment open may have left one out (run_engine.install_telemetry
-    drops members that fail to connect)."""
+    """A pseudo touched by a plan connects its own components: nothing connected
+    them at environment open (namespace devices connect on first use)."""
     import bluesky.plan_stubs as bps
     import bluesky.plans as bp
     from bluesky import RunEngine

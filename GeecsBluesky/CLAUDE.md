@@ -14,7 +14,7 @@ queue item naming a stock plan and namespace devices runs a complete
 strict GEECS scan — claimed scan number, the detectors' files in
 `ScanNNN/<device>/` (an HDF5 stack from the PVA gateway's file plugin on
 the rolled camera servers, LabVIEW-native files elsewhere), ScanInfo, the
-s-file, `scan.log`, the baseline telemetry stream.  The worker registers
+s-file, `scan.log`, the background telemetry in every row.  The worker registers
 the stock `bluesky.plans` verbs under their own names with the strict
 `take_reading` pre-bound (`plans/registry.py`); a client submits a stock
 plan item or a saved preset (`qs_client.submit_plan` / `submit_preset`).
@@ -64,7 +64,8 @@ geecs_bluesky/
   plans/claim_scan.py       # the day-scoped claim (the ONE folder creator), the
                             #   claim_scan preprocessor, GeecsScanPathProvider
   plans/action_compiler.py  # ActionPlan → plan stubs; the namespace is its SettableFactory
-  run_engine.py             # make_run_engine: RE + claim + headers + baseline + callbacks
+  devices/background.py     # BackgroundSnapshot — the run's background telemetry (#1016)
+  run_engine.py             # make_run_engine: RE + claim + headers + callbacks
   preprocessors.py          # connect_on_demand (installed outermost), scalar_headers
   callbacks.py              # ScanInfo ini, the s-file, scan.log, the stack check — per run, best-effort
   scan_log.py               # ScanLogFile: the root-logger handler one run holds
@@ -434,18 +435,15 @@ close and the unstage — apart again; WARNING, never failure).  A device
 slower than the rep rate simply leaves `NaN` on the rows it missed; an
 event no row's window reaches stays in the stream and in Tiled.
 
-## The GEECS scan: one claim, three files, one telemetry stream
+## The GEECS scan: one claim, three files, the background in every row
 
-`make_run_engine(experiment, claim=True, path_provider=…, telemetry=…)`
-installs, in this order: the `claim_scan` preprocessor (**every run
-claims** a scan number on `open_run` — `scan_number`, `scan_folder`,
-`experiment`, `scan_tag` into the start document, the shared
-`GeecsScanPathProvider` pointed at `ScanNNN/`; a failed claim refuses the
-run), `scalar_headers` (the staged devices' `Device Variable` headers
-into `geecs_scalar_headers`), `SupplementalData(baseline=…)` (every
-scalar-only device and every detector's scalar signals, read at open and
-close — a detector itself is Triggerable and would wait for a shot ARMED
-never delivers), and last `connect_on_demand`.  Three callbacks write
+`make_run_engine(experiment, claim=True, path_provider=…)` installs, in
+this order: the `claim_scan` preprocessor (**every run claims** a scan
+number on `open_run` — `scan_number`, `scan_folder`, `experiment`,
+`scan_tag` into the start document, the shared `GeecsScanPathProvider`
+pointed at `ScanNNN/`; a failed claim refuses the run), `scalar_headers`
+(the staged devices' `Device Variable` headers into
+`geecs_scalar_headers`), and last `connect_on_demand`.  Three callbacks write
 **into** the claimed folder, never creating it: `ScanInfoCallback` (the
 legacy `[Scan Info]` keys downstream parses, `ScanEndInfo` filled at the
 stop), `SFileCallback` (`ScanDataScanNNN.txt` + `analysis/sNNN.txt` from
@@ -453,9 +451,38 @@ the run's own per-shot rows joined to its stacks, for any exit status with
 rows — no Tiled round trip), `ScanLogCallback`.  A detector's native files go to
 `ScanNNN/<GEECS device>/`; `X.scalars` (a view every namespace device
 carries) in the detector list records the same columns without files
-(`save_images: false`).  The telemetry set is connected once at build and
-an unconnectable member is dropped with a warning — never a per-run
-failure after the claim.
+(`save_images: false`).
+
+**Background telemetry** (#1016, #929 — Master Control parity, owner's
+ruling 2026-09-28): every scalar the experiment logs (`get='yes'`) whose
+device is not in the run is read into every row as well, softly —
+`devices/background.BackgroundSnapshot`, one more detector the registry
+appends to every bound scan verb (strict: read per shot; gated: a sampler
+member, read at the tick; `optimize` too).  Members = `namespace.telemetry()`
+minus every root device the run stages (its detectors, a `.scalars` view's
+owner, the non-essential devices, the scan motors — no event key twice;
+`background_wrapper` collects the `stage` messages and probes right before
+`open_run`, so the sweep's resolved axes count).  The probe is bounded
+(`PROBE_TIMEOUT_S`, 1 s, concurrent across members): one that does not
+answer — a PV the gateway does not serve (the roster drift of #1016), a
+failed connect or describe — is left out of **that run only**, named in
+the log and in the start document's `background_dropped`, and probed again
+at the next run (a device back after a gateway restart returns without an
+environment reopen).  Per shot the read is a monitor-cache hit; an INVALID
+reading (the gateway's mark on a dead device's stale readbacks) is `NaN`, a
+member that stops answering is `NaN`, every declared key is in every row,
+and `read` never raises — nothing here can fail or stall a scan.  Switch:
+`ExperimentDefaults.background_telemetry` (read per run, on by default),
+overridden by `Preset.background_telemetry` / the plans'
+`background_telemetry` keyword; the start document says which
+(`background_telemetry`).  The columns carry their `Device Variable`
+headers, so the s-file gets them unchanged (~300 extra columns on a full
+HTU experiment, accepted).  There is **no run-level baseline stream** any
+more: the open/close `SupplementalData` baseline, strict for every member,
+failed every scan after its claim when one PV was unserved (26_0928 Scans
+005–009) and was retired with `install_telemetry`.  The archiver (a later
+arc) is for history and trends — never a source of s-file columns, never
+read in the scan path.
 
 ## The worker (`qserver/`)
 

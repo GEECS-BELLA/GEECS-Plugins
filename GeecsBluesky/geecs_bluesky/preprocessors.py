@@ -176,10 +176,9 @@ def install_connect_on_demand(
     """Install :func:`connect_on_demand` as the **outermost** RunEngine preprocessor.
 
     The RunEngine composes ``preprocessors`` in list order, first-appended
-    innermost — so a preprocessor appended *later* (``SupplementalData``,
-    the phase-2 preamble) injects messages that an earlier-appended
-    ``connect_on_demand`` never sees, and a baseline read of an unconnected
-    device fails.  This therefore removes any existing instance and
+    innermost — so a preprocessor appended *later* injects messages that an
+    earlier-appended ``connect_on_demand`` never sees, and a read of an
+    unconnected device fails.  This therefore removes any existing instance and
     re-appends itself last; call it again after installing anything else.
     """
     run_engine.preprocessors[:] = [
