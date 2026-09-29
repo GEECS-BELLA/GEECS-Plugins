@@ -225,10 +225,13 @@ using mean rather than nanmean — and folded into a running sum as each
 member loads (`_Sum`, in the intermediate dtype `np.mean` would use), so a
 raw-bin unit holds one native frame and one accumulator however many shots
 the bin has (#1025: a 5000-shot noscan is one bin; collecting its frames
-first wedged the portal). The quotient equals the stacked `np.mean` bit for
-bit (`test_raw_bin_fold_equals_the_stacked_mean_bit_for_bit`), and
-`test_a_long_raw_bin_average_keeps_at_most_two_raw_frames_alive` pins the
-memory shape. Preserve both full bin membership (legacy
+first wedged the portal). For a bin of one dtype and frames of more than
+one element the quotient equals the stacked `np.mean` bit for bit
+(`test_raw_bin_fold_equals_the_stacked_mean_bit_for_bit`; a stack of 1×1
+frames sums pairwise and can differ in the last bit); a member whose dtype
+would promote the accumulator is refused, since no fold reproduces the
+stack's promoted sum. `test_a_long_raw_bin_average_keeps_at_most_two_raw_frames_alive`
+pins the memory shape. Preserve both full bin membership (legacy
 scalar propagation) and actual loaded contributors. Failures are explicit
 outcomes, and raw buffers are released before yielding. Load in declared order
 for reproducible sums; sources can reuse buffers, so snapshot each returned

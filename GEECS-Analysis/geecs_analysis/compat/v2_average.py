@@ -22,7 +22,7 @@ AverageMode = Literal["noscan", "bin"]
 
 
 class _Sum:
-    """A float64 running sum of equally shaped arrays, with a per-element count.
+    """A running sum of equally shaped arrays, with a per-element count.
 
     In ``bin`` mode NaN samples are left out of both the sum and the count
     (``nanmean``); in ``noscan`` mode every sample counts and NaN propagates
@@ -31,6 +31,10 @@ class _Sum:
     bit — it is a memory shape, not a numerical approximation. ``dtype`` is
     the accumulator's (float64 unless a caller matches another reduction's
     intermediate, as the raw-bin mean does for float32 samples).
+
+    ``compat.v2_run`` folds raw-bin members with it (``skip_nan=False``)
+    and holds that mean to the stacked ``np.mean`` bit for bit, so a change
+    here changes raw-bin results too (``tests/test_v2_run.py`` pins them).
     """
 
     def __init__(

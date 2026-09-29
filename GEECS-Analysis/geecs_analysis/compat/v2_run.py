@@ -143,11 +143,14 @@ def _run_group(
                 f"{total.total.shape} and {data.shape}"
             )
             total = None
+        elif _mean_dtype(np.result_type(native, data.dtype)) != total.total.dtype:
+            # The stack would sum every member in the promoted dtype; the
+            # members already folded were rounded in the narrower one, so
+            # no fold reproduces it. A mix that keeps the accumulator's
+            # dtype (integer samples, all summed in float64) folds exactly.
+            error = f"Incompatible raw dtypes in group: {native} and {data.dtype}"
+            total = None
         else:
-            if data.dtype != native:
-                # The stack would have been promoted to a common dtype.
-                native = np.result_type(native, data.dtype)
-                total.total = total.total.astype(_mean_dtype(native), copy=False)
             total.add(data)
         data = None
     measurement = None

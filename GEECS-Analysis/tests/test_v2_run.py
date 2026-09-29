@@ -376,21 +376,21 @@ def test_a_broadcastable_member_is_still_an_incompatible_shape():
     assert result.loaded_shots == (1, 2, 3) and not result.load_failures
 
 
-@pytest.mark.parametrize(
-    "dtypes", [(np.uint16, np.float32), (np.float32, np.float64), (np.uint8, np.int32)]
-)
-def test_mixed_member_dtypes_average_as_the_promoted_stack(dtypes, monkeypatch):
+@pytest.mark.parametrize("dtypes", [(np.uint8, np.int32), (np.int16, np.uint16)])
+def test_mixed_integer_members_average_as_the_promoted_stack(dtypes, monkeypatch):
+    """Integer samples all sum in float64, so a mid-bin switch folds exactly."""
     import geecs_analysis.compat.v2_run as v2_run
 
     rng = np.random.default_rng(7)
-    frames = [(rng.uniform(0, 200, (4, 5))).astype(dtypes[n % 2]) for n in range(9)]
+    frames = [rng.integers(0, 200, (4, 5)).astype(dtypes[n >= 5]) for n in range(9)]
     seen = []
     real = v2_run.analyze_v2
-    monkeypatch.setattr(
-        v2_run,
-        "analyze_v2",
-        lambda raw, *a, **k: seen.append(raw) or real(raw, *a, **k),
-    )
+
+    def capture(raw, *args, **kwargs):
+        seen.append(raw.copy())
+        return real(raw, *args, **kwargs)
+
+    monkeypatch.setattr(v2_run, "analyze_v2", capture)
     (result,) = run_units(
         recipe(),
         [ShotGroup(1, tuple(range(1, 10)))],
@@ -401,3 +401,23 @@ def test_mixed_member_dtypes_average_as_the_promoted_stack(dtypes, monkeypatch):
     assert result.error is None
     assert seen[0].dtype == expected.dtype
     assert seen[0].tobytes() == expected.tobytes()
+
+
+@pytest.mark.parametrize("dtypes", [(np.float32, np.float64), (np.uint16, np.float32)])
+def test_a_member_that_would_promote_the_sum_is_an_incompatible_dtype(dtypes):
+    """The stack sums every member in the promoted dtype; a fold cannot.
+
+    Several members are folded before the switch, so the sum already
+    carries rounding in the narrower dtype (a single folded member would
+    be exact and hide it).
+    """
+    rng = np.random.default_rng(3)
+    frames = [rng.uniform(0, 200, (8, 8)).astype(dtypes[n >= 5]) for n in range(7)]
+    (result,) = run_units(
+        recipe(),
+        [ShotGroup(1, tuple(range(1, 8)))],
+        lambda shot: frames[shot - 1],
+        average_before_analysis=True,
+    )
+    assert result.measurement is None and "Incompatible raw dtypes" in result.error
+    assert result.loaded_shots == tuple(range(1, 8)) and not result.load_failures

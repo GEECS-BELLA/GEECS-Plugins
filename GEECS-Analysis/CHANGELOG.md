@@ -17,8 +17,12 @@
   order, load failures with the bin's full membership, and the
   incompatible-shape outcome are kept; a member that would broadcast
   into the sum (a (1, N) frame in an (M, N) bin) is an incompatible
-  shape, as it was for the stack; a bin of mixed member dtypes promotes
-  as the stack did.
+  shape, as it was for the stack. A member whose dtype would change the
+  accumulator's (a float64 frame in a float32 bin, a float32 frame in an
+  integer bin) is now an explicit incompatible-dtype outcome: the stack
+  summed every member in the promoted dtype, which no fold of members
+  already rounded can reproduce. Mixed integer dtypes (all summed in
+  float64) still average, bit for bit.
 
 ## [0.22.0] - 2026-09-29
 
