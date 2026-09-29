@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.46.1] - 2026-09-29
+
+### Fixed
+
+- `tiled_export.build_legacy_scalar_dataframe` builds the s-file frame in
+  one allocation instead of inserting column by column: with the background
+  telemetry columns of GEECS-Plugins#1016 (~300 on a full HTU experiment)
+  the old shape tripped pandas' "DataFrame is highly fragmented"
+  `PerformanceWarning` on every scan.  Same columns, same order.
+
 ## [0.46.0] - 2026-09-28
 
 ### Added

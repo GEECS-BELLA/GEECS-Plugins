@@ -746,3 +746,33 @@ def test_a_plugin_non_essential_stream_is_not_mistaken_for_an_event_stream(
         (columns,) = read_frame_columns(_Run(), "primary")
     assert columns.object_name == "uc_b" and len(columns) == 3
     assert "not joined" not in caplog.text
+
+
+def test_a_wide_frame_is_built_in_one_allocation() -> None:
+    """~300 background columns (GEECS-Plugins#1016) must not fragment the frame.
+
+    Column-by-column inserts into an existing frame trip pandas'
+    ``PerformanceWarning`` ("DataFrame is highly fragmented") past ~100
+    columns — once per scan, in the worker's journal.  The builder collects
+    the columns first and allocates once.
+    """
+    import warnings
+
+    n = 300
+    rows = pd.DataFrame({f"dev{i}-x": [float(i)] * 4 for i in range(n)})
+    rows["bin_number"] = [1, 1, 2, 2]
+    start = {
+        "scan_number": 7,
+        "geecs_scalar_headers": {f"dev{i}-x": f"Dev{i} X" for i in range(n)},
+    }
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", pd.errors.PerformanceWarning)
+        df = build_legacy_scalar_dataframe(start, rows)
+    assert list(df.columns)[:3] == ["Bin #", "scan", "Dev0 X"]
+    assert list(df.columns)[-2:] == ["Dev299 X", "Shotnumber"]
+    assert df["Dev42 X"].tolist() == [42.0] * 4 and df["Shotnumber"].tolist() == [
+        1,
+        2,
+        3,
+        4,
+    ]
