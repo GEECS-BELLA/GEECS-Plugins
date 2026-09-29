@@ -319,7 +319,9 @@ class CoreScanAnalyzer(ScanAnalyzer):
         try:
             store.add(shot, outcome.measurement)
         except (OSError, ValueError) as exc:
-            stale = store.count == 0 and store.part.exists()
+            # Never opened: the part belongs to another run (live or dead),
+            # and the discard below leaves it alone.
+            stale = store._handle is None and store.part.exists()
             (logger.error if stale else logger.warning)(
                 "Shot %s: shot store not written (%s); %s",
                 shot,
