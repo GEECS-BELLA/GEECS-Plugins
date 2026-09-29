@@ -468,7 +468,12 @@ answer — a PV the gateway does not serve (the roster drift of #1016), a
 failed connect or describe — is left out of **that run only**, named in
 the log and in the start document's `background_dropped`, and probed again
 at the next run (a device back after a gateway restart returns without an
-environment reopen).  Per shot the read is a monitor-cache hit; an INVALID
+environment reopen).  The profile connects the candidates once at
+environment open (`devices/background.warm_up`, bounded by
+`QS_CONNECT_TIMEOUT`, nothing dropped for good), so a run's probe finds
+them connected — without it the first scan after every environment open
+lost 62 of 118 devices to the probe's budget (26_0929 Scan001).  Per shot
+the read is a monitor-cache hit; an INVALID
 reading (the gateway's mark on a dead device's stale readbacks) is `NaN`, a
 member that stops answering is `NaN`, every declared key is in every row,
 and `read` never raises — nothing here can fail or stall a scan.  Switch:

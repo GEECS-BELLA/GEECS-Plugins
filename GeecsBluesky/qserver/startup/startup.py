@@ -43,6 +43,14 @@ loud here rather than have every submitted plan fail identically later.
 ``QS_DEVICE_NAMESPACE=off`` is the hermetic switch (tests, a box without DB
 or data-share reach): no namespace, no trigger profiles, no scan claim —
 the plans are registered but refuse to run.
+
+``QS_CONNECT_TIMEOUT`` bounds the background telemetry's warm-up
+(:func:`~geecs_bluesky.devices.background.warm_up`: every candidate's
+first connect, once, when the environment opens), in seconds; default
+20.0.  Only a PV the gateway does not serve runs it out — concurrently, so
+the whole set costs one budget — and such a device is probed again at
+every run.  A CI runner with no gateway would otherwise stall every
+startup-profile test for the full budget; a hermetic caller sets it low.
 """
 
 from __future__ import annotations
@@ -55,6 +63,7 @@ import os
 import geecs_bluesky  # noqa: F401
 
 from geecs_bluesky.config_resolver import ConfigsRepoResolver
+from geecs_bluesky.devices.background import warm_up_on
 from geecs_bluesky.namespace import GeecsNamespace, motor_targets
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
@@ -87,6 +96,25 @@ def _resolve_experiment() -> str:
         "or configure [Experiment] expt in "
         "~/.config/geecs_python_api/config.ini"
     )
+
+
+def _connect_timeout() -> float:
+    """Seconds to bound the warm-up connect; ``QS_CONNECT_TIMEOUT`` or 20.0.
+
+    An unparseable value is a configuration mistake, not a reason to stall
+    the worker for the default on every start, so it is reported and the
+    default used.
+    """
+    raw = os.environ.get("QS_CONNECT_TIMEOUT")
+    if not raw:
+        return 20.0
+    try:
+        return float(raw)
+    except ValueError:
+        logging.getLogger(__name__).warning(
+            "QS_CONNECT_TIMEOUT=%r is not a number — using the 20.0 s default", raw
+        )
+        return 20.0
 
 
 _experiment = _resolve_experiment()
@@ -178,6 +206,11 @@ RE = make_run_engine(
     claim=not _hermetic,
     path_provider=_path_provider,
 )
+if not _hermetic:
+    # The background telemetry's candidates connect once, here, so a run's
+    # probe finds them connected (its 1 s budget then covers the stage and
+    # the first reading alone).  Bounded, and never a drop for good.
+    warm_up_on(RE, namespace.telemetry(), timeout=_connect_timeout())
 
 # The plans the manager discovers (every generator function in this
 # namespace is a plan to it — profile_ops.plans_from_nspace): the stock

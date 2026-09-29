@@ -578,3 +578,31 @@ def test_a_member_invalid_at_the_start_is_kept_and_named(RE, caplog) -> None:
     assert "U_Stale (served but INVALID at the start)" in caplog.text
     row = run(RE, snapshot.read)
     assert math.isnan(row["u_stale-x"]["value"]) and row["u_live-x"]["value"] == 5.0
+
+
+# --------------------------------------------------- the environment-open warm-up
+def test_warm_up_connects_the_unconnected_and_names_the_rest(RE, caplog) -> None:
+    """26_0929 Scan001: the first run must not pay every first connect in its probe."""
+    from geecs_bluesky.devices.background import warm_up_on
+
+    fresh = Fake("u_fresh", geecs="U_Fresh")
+    done = Fake("u_done", geecs="U_Done")
+    run(RE, lambda: done.connect())
+    token = done._mock
+    dead = Fake("u_dead", geecs="U_Dead", connectable=False)
+    slow = UnservedDevice("u_slow", delay=0.5, served=False)
+    with caplog.at_level(logging.INFO, logger="geecs_bluesky.devices.background"):
+        failed = warm_up_on(RE, [fresh, done, dead, slow], timeout=0.2)
+    assert failed == ["U_Dead", "U_SLOW"]
+    assert is_connected(fresh) and done._mock is token  # connected; left alone
+    assert "3 of 4 candidate device(s)" not in caplog.text  # two failed, two connected
+    assert "2 of 4 candidate device(s) connected at environment open" in caplog.text
+    assert (
+        "not connected at environment open (probed again at every run): U_Dead, U_SLOW"
+        in caplog.text
+    )
+    # The warm-up never poisons a later probe either: the slow one is a
+    # verdict in the cache, the fresh one is a member at once.
+    snapshot = BackgroundSnapshot([fresh, dead, slow], probe_timeout=0.2)
+    run(RE, lambda: snapshot.probe(staged=[]))
+    assert snapshot.members == [fresh] and snapshot.dropped == ["U_Dead", "U_SLOW"]

@@ -34,6 +34,14 @@ nothing is skipped):
   the run: an unexpected error is logged and recorded in the start
   document (``background_probe_error``), and the run opens without
   background columns.
+- **Warm-up.**  The worker connects every candidate once when its
+  environment opens (:func:`warm_up`, bounded by ``QS_CONNECT_TIMEOUT``),
+  so a run's probe finds them connected and its budget covers the stage
+  and the first reading only.  Without it the first scan after every
+  environment open paid ~400 first connects inside the probe's second —
+  62 of 118 devices missed it on HTU (26_0929 Scan001).  Nothing is
+  dropped for good: a candidate the warm-up could not connect (a PV the
+  gateway does not serve) is named once and probed again at every run.
 - **Read.**  One reading per shot from the members' monitor caches (the
   probe's first read proved each cache live, so a read is a cache hit —
   no wait).  A reading the gateway marks INVALID reads ``NaN``; so does a
@@ -83,6 +91,10 @@ PROBE_TIMEOUT_S = 1.0
 #: reads from its monitor cache without waiting; this bounds the shot if
 #: something went wrong meanwhile (its columns then read ``NaN``).
 READ_TIMEOUT_S = 0.5
+#: The environment-open warm-up's budget, seconds (:func:`warm_up`): every
+#: candidate's first connect at once, paid once per environment open —
+#: only an unserved PV runs it out, and never inside a run.
+WARM_UP_TIMEOUT_S = 20.0
 
 #: The probe's note on a member kept although every reading it gave was
 #: INVALID: served, but the gateway marks the device down.
@@ -403,4 +415,63 @@ class BackgroundSnapshot:
             return None
 
 
-__all__ = ["PROBE_TIMEOUT_S", "READ_TIMEOUT_S", "BackgroundSnapshot"]
+async def warm_up(
+    candidates: Sequence[Any], *, mock: bool = False, timeout: float = WARM_UP_TIMEOUT_S
+) -> list[str]:
+    """Connect every candidate that is not yet, concurrently, within *timeout*.
+
+    Returns the GEECS device names that did not connect (logged once, at
+    WARNING).  Nothing is dropped: a run's probe retries an unconnected
+    member every time, so a device the gateway starts serving later is
+    back at the next run.  A member already connected is left alone (a
+    mock's callbacks would be lost by a reconnect).
+    """
+    pending = [m for m in candidates if not is_connected(m)]
+    started = time.monotonic()
+    results = await asyncio.gather(
+        *(m.connect(mock=mock, timeout=timeout) for m in pending),
+        return_exceptions=True,
+    )
+    failed: list[str] = []
+    for member, result in zip(pending, results):
+        if isinstance(result, BaseException):
+            name = geecs_device_name(member)
+            if name not in failed:
+                failed.append(name)
+    logger.info(
+        "background telemetry: %d of %d candidate device(s) connected at "
+        "environment open in %.1f s",
+        len({geecs_device_name(m) for m in candidates}) - len(failed),
+        len({geecs_device_name(m) for m in candidates}),
+        time.monotonic() - started,
+    )
+    if failed:
+        logger.warning(
+            "background telemetry: not connected at environment open (probed "
+            "again at every run): %s",
+            ", ".join(failed),
+        )
+    return failed
+
+
+def warm_up_on(
+    run_engine: Any,
+    candidates: Sequence[Any],
+    *,
+    mock: bool = False,
+    timeout: float = WARM_UP_TIMEOUT_S,
+) -> list[str]:
+    """:func:`warm_up` on the RunEngine's loop, from the thread building the worker."""
+    return asyncio.run_coroutine_threadsafe(
+        warm_up(candidates, mock=mock, timeout=timeout), run_engine._loop
+    ).result(timeout + 10.0)
+
+
+__all__ = [
+    "PROBE_TIMEOUT_S",
+    "READ_TIMEOUT_S",
+    "WARM_UP_TIMEOUT_S",
+    "BackgroundSnapshot",
+    "warm_up",
+    "warm_up_on",
+]

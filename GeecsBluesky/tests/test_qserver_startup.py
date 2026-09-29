@@ -53,6 +53,11 @@ def _no_tiled_subscription(monkeypatch: pytest.MonkeyPatch) -> None:
     # The DB-backed device namespace is exercised by its own test below;
     # every other in-process run skips it (no GEECS DB here).
     monkeypatch.setenv("QS_DEVICE_NAMESPACE", "off")
+    # There is no CA gateway here: the in-process tests that build a
+    # namespace would otherwise stall in the background telemetry's warm-up
+    # for the full default budget.  The connect still happens (and fails,
+    # and is logged); it just fails promptly.
+    monkeypatch.setenv("QS_CONNECT_TIMEOUT", "0.1")
 
 
 def test_startup_profile_defines_re_and_plans_headless(tmp_path: Path) -> None:
