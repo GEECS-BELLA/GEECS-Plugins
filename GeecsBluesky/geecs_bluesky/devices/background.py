@@ -28,15 +28,18 @@ nothing is skipped):
   this run only**: named once in the log and in the start document's
   ``background_dropped``.  The next run probes it again, so a device that
   reappears (a gateway restart) is back without the environment
-  reopening.
+  reopening.  A member served but already INVALID (the gateway's mark on
+  a device whose stream to it is down) is kept and named once: its
+  columns read ``NaN`` until it recovers.  The probe itself never fails
+  the run: an unexpected error is logged and recorded in the start
+  document (``background_probe_error``), and the run opens without
+  background columns.
 - **Read.**  One reading per shot from the members' monitor caches (the
   probe's first read proved each cache live, so a read is a cache hit —
-  no wait).  A reading the gateway marks INVALID — the device's stream to
-  the gateway is down and its readbacks are stale, the gateway's contract
-  — reads ``NaN``; so does a member whose read fails or outlasts
-  :data:`READ_TIMEOUT_S` (a backstop, never the path).  Every declared
-  key is in every row, so descriptor and events always agree, and
-  ``read`` never raises.
+  no wait).  A reading the gateway marks INVALID reads ``NaN``; so does a
+  member whose read fails or outlasts :data:`READ_TIMEOUT_S` (a backstop,
+  never the path).  Every declared key is in every row, so descriptor and
+  events always agree, and ``read`` never raises.
 - **Headers.**  ``_column_headers`` is the union of the active members' —
   the ``scalar_headers`` preprocessor merges it into the start document's
   ``geecs_scalar_headers`` at ``open_run`` (after the probe), so the
@@ -65,7 +68,7 @@ from bluesky.utils import maybe_await, root_ancestor
 from event_model import DataKey
 from ophyd_async.core import AsyncStatus
 
-from geecs_bluesky.devices.ca._view import owner_of
+from geecs_bluesky.devices.ca._view import geecs_device_name, owner_of
 from geecs_bluesky.utils import is_connected
 
 logger = logging.getLogger(__name__)
@@ -81,18 +84,9 @@ PROBE_TIMEOUT_S = 1.0
 #: something went wrong meanwhile (its columns then read ``NaN``).
 READ_TIMEOUT_S = 0.5
 
-
-def _device_name(obj: Any) -> str:
-    """The GEECS device a member belongs to: its own name, else its nearest ancestor's."""
-    node = obj
-    for _ in range(8):
-        name = getattr(node, "_geecs_device_name", None)
-        if name is not None:
-            return str(name)
-        node = getattr(node, "parent", None)
-        if node is None:
-            break
-    return str(getattr(obj, "name", obj))
+#: The probe's note on a member kept although every reading it gave was
+#: INVALID: served, but the gateway marks the device down.
+_STALE = "served but INVALID at the start"
 
 
 def _invalid(reading: Reading) -> bool:
@@ -119,6 +113,11 @@ def _blank(datakey: DataKey) -> Reading:
     return {"value": value, "timestamp": time.time()}
 
 
+def _one_line(exc: BaseException) -> str:
+    """``Type: message`` on one line (a NotConnectedError's text spans lines)."""
+    return f"{type(exc).__name__}: {' '.join(str(exc).split())}"
+
+
 async def _call(obj: Any, method: str) -> None:
     """Call ``obj.<method>()`` if it exists and await whatever it returns."""
     fn = getattr(obj, method, None)
@@ -127,6 +126,12 @@ async def _call(obj: Any, method: str) -> None:
     status = fn()
     if inspect.isawaitable(status):
         await status
+
+
+def _retrieved(task: asyncio.Task[Any]) -> None:
+    """Mark a finished task's exception retrieved (asyncio's "never retrieved" noise)."""
+    if not task.cancelled():
+        task.exception()
 
 
 class BackgroundSnapshot:
@@ -167,6 +172,7 @@ class BackgroundSnapshot:
         self._active: list[Any] = []
         self._datakeys: dict[int, dict[str, DataKey]] = {}
         self._dropped: list[str] = []
+        self._probe_error = ""
         self._warned: set[int] = set()
 
     def __repr__(self) -> str:
@@ -193,6 +199,11 @@ class BackgroundSnapshot:
         return list(self._dropped)
 
     @property
+    def probe_error(self) -> str:
+        """``Type: message`` of a probe that failed outright this run, else empty."""
+        return self._probe_error
+
+    @property
     def _column_headers(self) -> dict[str, str]:
         """Event key → legacy ``Device Variable`` header, for the active members."""
         headers: dict[str, str] = {}
@@ -216,6 +227,7 @@ class BackgroundSnapshot:
             self._active = []
             self._datakeys = {}
             self._dropped = []
+            self._probe_error = ""
             self._warned = set()
 
         return AsyncStatus(do())
@@ -232,6 +244,11 @@ class BackgroundSnapshot:
     async def probe(self, staged: Sequence[Any] = ()) -> None:
         """Decide this run's members: drop the run's own devices, probe the rest.
 
+        Never raises: an error in the probe itself (not in a member — a
+        member's failure is its own drop) leaves the run without background
+        columns, logged at ERROR and recorded in :attr:`probe_error` for
+        the start document.
+
         Parameters
         ----------
         staged :
@@ -242,6 +259,18 @@ class BackgroundSnapshot:
             to the run.  The rest are probed concurrently; the ones that
             answer within the budget are this run's members.
         """
+        self._probe_error = ""
+        try:
+            await self._probe(staged)
+        except Exception as exc:  # noqa: BLE001 - the run opens regardless
+            self._active, self._datakeys = [], {}
+            self._probe_error = _one_line(exc)
+            logger.exception(
+                "background telemetry: the probe failed — no background columns "
+                "this run"
+            )
+
+    async def _probe(self, staged: Sequence[Any]) -> None:
         excluded = {id(root_ancestor(owner_of(obj))) for obj in staged}
         members = [
             m
@@ -253,53 +282,74 @@ class BackgroundSnapshot:
         self._datakeys = {
             id(m): keys for m, (keys, _) in zip(members, results) if keys is not None
         }
-        reasons: dict[str, str] = {}  # device → why, the first reason seen
-        for m, (keys, reason) in zip(members, results):
+        reasons: dict[str, str] = {}  # dropped device → why, the first reason seen
+        stale: list[str] = []  # kept, but every reading INVALID
+        for m, (keys, note) in zip(members, results):
+            name = geecs_device_name(m)
             if keys is None:
-                reasons.setdefault(_device_name(m), reason or "")
-        dropped = list(reasons)
-        self._dropped = dropped
-        own = {_device_name(m) for m in self._candidates} - {
-            _device_name(m) for m in members
+                reasons.setdefault(name, note)
+            elif note and name not in stale:
+                stale.append(name)
+        self._dropped = list(reasons)
+        own = {geecs_device_name(m) for m in self._candidates} - {
+            geecs_device_name(m) for m in members
         }
         logger.info(
             "background telemetry: %d device(s) read per shot (%d in the run "
             "already, %d dropped)",
-            len({_device_name(m) for m in self._active}),
+            len({geecs_device_name(m) for m in self._active}),
             len(own),
-            len(dropped),
+            len(reasons),
         )
-        if dropped:
+        if reasons:
             logger.warning(
                 "background telemetry: left out of this run (probed again at the "
                 "next): %s",
                 "; ".join(f"{name} ({why})" for name, why in reasons.items()),
             )
+        if stale:
+            logger.warning(
+                "background telemetry: %s — the gateway marks the device down; its "
+                "columns read NaN until it recovers",
+                ", ".join(f"{name} ({_STALE})" for name in stale),
+            )
 
     async def _probe_one(self, member: Any) -> tuple[dict[str, DataKey] | None, str]:
         """Connect, stage, describe and read *member* once, within the budget.
 
-        Returns ``(data keys, "")`` for a member that answered, else
-        ``(None, why)``.
+        Returns ``(data keys, note)``: the keys and ``""`` for a member that
+        answered, the keys and :data:`_STALE` for one whose every reading is
+        INVALID, ``(None, why)`` for one dropped.
         """
 
-        async def go() -> dict[str, DataKey]:
+        async def go() -> tuple[dict[str, DataKey], str]:
             if not is_connected(member):
-                await member.connect(mock=self._mock, timeout=self.probe_timeout)
+                # Shielded: the probe's timeout must not cancel the connect
+                # itself.  ophyd-async caches the connect as a task on the
+                # device, and a cancelled one poisons every later connect
+                # and connected-check (review of #1018).  The connect keeps
+                # its own timeout, so it ends on its own and the cache holds
+                # a proper verdict for the next run's probe.
+                task = asyncio.ensure_future(
+                    member.connect(mock=self._mock, timeout=self.probe_timeout)
+                )
+                task.add_done_callback(_retrieved)
+                await asyncio.shield(task)
             await _call(member, "stage")
             keys = dict(await maybe_await(member.describe()))
-            await maybe_await(member.read())  # the first cached value has landed
-            return keys
+            readings = await maybe_await(member.read())  # the first cached value
+            stale = bool(readings) and all(_invalid(r) for r in readings.values())
+            return keys, _STALE if stale else ""
 
         try:
-            return await asyncio.wait_for(go(), self.probe_timeout), ""
+            return await asyncio.wait_for(go(), self.probe_timeout)
         except asyncio.TimeoutError:
             reason = f"no answer within {self.probe_timeout:.1f} s"
         except Exception as exc:  # noqa: BLE001 - a member never fails the run
-            reason = f"{type(exc).__name__}: {' '.join(str(exc).split())}"
+            reason = _one_line(exc)
         logger.debug(
             "background telemetry: %s (%s) dropped — %s",
-            _device_name(member),
+            geecs_device_name(member),
             getattr(member, "name", member),
             reason,
         )
@@ -312,7 +362,7 @@ class BackgroundSnapshot:
         except Exception:  # noqa: BLE001 - best effort, after the run
             logger.debug(
                 "background telemetry: %s did not unstage cleanly",
-                _device_name(member),
+                geecs_device_name(member),
                 exc_info=True,
             )
 
@@ -345,11 +395,10 @@ class BackgroundSnapshot:
             if id(member) not in self._warned:
                 self._warned.add(id(member))
                 logger.warning(
-                    "background telemetry: %s stopped answering (%s: %s) — its "
-                    "columns read NaN for the rest of the run",
-                    _device_name(member),
-                    type(exc).__name__,
-                    exc,
+                    "background telemetry: %s stopped answering (%s) — its columns "
+                    "read NaN for the rest of the run",
+                    geecs_device_name(member),
+                    _one_line(exc),
                 )
             return None
 

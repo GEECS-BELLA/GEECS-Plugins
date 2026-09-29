@@ -46,7 +46,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   share one experiment-default reader (fail-open to on, per run).
 - `utils.is_connected` is the one connected-already rule (moved from
   `preprocessors`, which re-exports it): the connect-on-demand
-  preprocessor and the background probe both use it.
+  preprocessor and the background probe both use it.  A cancelled connect
+  task now reads as not connected instead of raising.
+- `devices.ca._view.geecs_device_name` is the one "which GEECS device is
+  this plan object" rule (a device, a `.scalars` view, a detector's signal,
+  a settable child); `plans.strict.geecs_name` delegates to it.
+- The background probe shields each member's connect from its own timeout
+  (a cancelled ophyd-async connect task poisoned every later probe and
+  connect of that device — found by the review of #1018), records a
+  member served but INVALID at the start in the journal, and never fails
+  the run itself: an unexpected error in the probe is logged at ERROR and
+  recorded in the start document as `background_probe_error`.
 - `qs_client.presets.RUN_LEVEL_FIELDS` gains `background_telemetry`: the
   preset field rides as the plan keyword when set, a copy in
   `plan.kwargs` is refused.

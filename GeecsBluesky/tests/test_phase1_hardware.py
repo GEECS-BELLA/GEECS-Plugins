@@ -18,7 +18,8 @@ Two tests, the second only with ``GEECS_HW_QSERVER`` set:
    ``ScanNNN/`` folder, the camera's native files named by the rows'
    stamps in ``ScanNNN/<device>/``, ``ScanInfoScanNNN.ini`` with the keys
    downstream parses, the s-file with ``Bin #`` per step, ``scan.log``,
-   the ``baseline`` stream, the box driven back to STANDBY after each
+   the background telemetry columns (no ``baseline`` stream), the box
+   driven back to STANDBY after each
    run (the profile device's standing state; ARMED is observed by the
    shots landing); and records the per-shot cadence (the every-other-edge
    phase-0 measurement on a motor scan is the number PR 3 measures).

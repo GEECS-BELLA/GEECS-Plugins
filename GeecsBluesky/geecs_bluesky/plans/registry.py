@@ -264,8 +264,10 @@ def background_wrapper(plan: Any, snapshot: BackgroundSnapshot) -> Any:
     — as a message the RunEngine awaits, inside the plan, so the exclusion
     sees the sweep's resolved axes as well as the detector list — and the
     devices the probe dropped ride in the start document as
-    ``background_dropped`` (GEECS device names).  Before the claim, so a
-    slow probe costs the run nothing but its bounded budget.
+    ``background_dropped`` (GEECS device names); a probe that failed
+    outright (never a member's failure, which is its own drop) adds
+    ``background_probe_error``.  Before the claim, so a slow probe costs
+    the run nothing but its bounded budget.
     """
     staged: list[Any] = []
     opened = False
@@ -282,14 +284,12 @@ def background_wrapper(plan: Any, snapshot: BackgroundSnapshot) -> Any:
 
         def _probe_then_open():
             yield from bps.wait_for([functools.partial(snapshot.probe, list(staged))])
+            record: dict[str, Any] = {"background_dropped": snapshot.dropped}
+            if snapshot.probe_error:
+                record["background_probe_error"] = snapshot.probe_error
             return (
                 yield Msg(
-                    "open_run",
-                    msg.obj,
-                    *msg.args,
-                    run=msg.run,
-                    **msg.kwargs,
-                    background_dropped=snapshot.dropped,
+                    "open_run", msg.obj, *msg.args, run=msg.run, **msg.kwargs, **record
                 )
             )
 

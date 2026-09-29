@@ -193,4 +193,9 @@ def is_connected(obj: Any) -> bool:
     if getattr(obj, "_mock", None) is not None:
         return True
     task = getattr(obj, "_connect_task", None)
-    return bool(task is not None and task.done() and task.exception() is None)
+    return bool(
+        task is not None
+        and task.done()
+        and not task.cancelled()  # ``exception()`` would raise on a cancelled one
+        and task.exception() is None
+    )

@@ -18,7 +18,12 @@ pytest.importorskip("aioca")
 
 import bluesky.plan_stubs as bps  # noqa: E402
 from bluesky import RunEngine  # noqa: E402
-from ophyd_async.core import NotConnectedError, set_mock_value  # noqa: E402
+from ophyd_async.core import (  # noqa: E402
+    Device,
+    DeviceConnector,
+    NotConnectedError,
+    set_mock_value,
+)
 
 from geecs_bluesky.devices.background import (  # noqa: E402
     BackgroundSnapshot,
@@ -34,6 +39,7 @@ from geecs_bluesky.plans.registry import (  # noqa: E402
     resolve_background_telemetry,
 )
 from geecs_bluesky.preprocessors import scalar_headers  # noqa: E402
+from geecs_bluesky.utils import is_connected  # noqa: E402
 from tests.ca_mock_helpers import DocCollector, connect_mock, follow_setpoint  # noqa: E402
 from tests.test_plan_registry import payload  # noqa: E402
 from tests.test_strict_plans import WRITES, FakeBox, _camera  # noqa: E402
@@ -459,3 +465,116 @@ def test_no_telemetry_set_or_nothing_outside_the_run_is_fine(RE, box, profiles):
         "uc_cam-acq_timestamp",
         "bin_number",
     }
+
+
+# ------------------------------------------------------- review of #1018
+class _ScriptedConnector(DeviceConnector):
+    """A real ophyd-async connect: *delay* seconds, then served or not."""
+
+    def __init__(self, delay: float, served: bool) -> None:
+        self.delay = delay
+        self.served = served
+
+    async def connect_real(self, device, timeout, force_reconnect):
+        await asyncio.sleep(self.delay)
+        if not self.served:
+            raise NotConnectedError(f"ca://{device.name}")
+
+    async def connect_mock(self, device, mock):
+        return None
+
+
+class UnservedDevice(Device):
+    """A real ophyd-async device (a cached connect task) whose PV may not be served."""
+
+    def __init__(self, name: str, *, delay: float, served: bool) -> None:
+        self._geecs_device_name = name.upper()
+        self.scripted = _ScriptedConnector(delay, served)
+        super().__init__(name=name, connector=self.scripted)
+
+    async def describe(self):
+        return {f"{self.name}-x": {"source": "fake", "dtype": "number", "shape": []}}
+
+    async def read(self):
+        return {f"{self.name}-x": {"value": 1.0, "timestamp": 1.0, "alarm_severity": 0}}
+
+
+def test_a_connect_outlasting_the_budget_never_poisons_the_next_probe(RE) -> None:
+    """P1 of the review: the probe's timeout must not cancel ophyd-async's cached connect.
+
+    A cancelled connect task made ``is_connected`` raise and ophyd-async's
+    ``connect`` refuse ever after, so from the second run on the probe died
+    silently and every background column vanished.
+    """
+    gauge = _gauge(RE)
+    slow = UnservedDevice("u_slow", delay=0.5, served=False)
+    snapshot = BackgroundSnapshot([slow, gauge], probe_timeout=0.2)
+    run(RE, lambda: snapshot.probe(staged=[]))
+    assert snapshot.members == [gauge] and snapshot.dropped == ["U_SLOW"]
+    assert snapshot.probe_error == ""
+    # At once, while the shielded connect is still pending: the same verdict.
+    run(RE, lambda: snapshot.probe(staged=[]))
+    assert snapshot.members == [gauge] and snapshot.dropped == ["U_SLOW"]
+    # The connect ended on its own (its own timeout): a verdict, not a cancel.
+    run(RE, lambda: asyncio.sleep(0.6))
+    assert slow._connect_task.done() and not slow._connect_task.cancelled()
+    assert run(RE, lambda: asyncio.sleep(0, result=is_connected(slow))) is False
+    # The PV is served now (a gateway restart): the next probe has it.
+    slow.scripted.served, slow.scripted.delay = True, 0.0
+    run(RE, lambda: snapshot.probe(staged=[]))
+    assert snapshot.members == [slow, gauge] and snapshot.dropped == []
+
+
+def test_the_probe_connects_what_nobody_connected_yet(RE, box, profiles) -> None:
+    """A member never touched before the run is connected by the probe (mock here)."""
+    cam = _camera(RE, box, "UC_Cam")
+    gauge = CaSnapshotReadable(
+        "U_Gauge", ["Pressure"], experiment="TestExp", name="u_gauge"
+    )
+    assert not is_connected(gauge)
+    ns = Namespace({"UC_Cam": cam}, [gauge])
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(bind_plans(profiles, settables=ns, mock=True)["count"]([cam], 1))
+    assert is_connected(gauge)
+    assert "u_gauge-pressure" in col.primary_events()[-1]["data"]
+    assert col.docs["start"][-1]["background_dropped"] == []
+
+
+def test_a_failed_probe_is_recorded_and_the_run_still_opens(
+    RE, box, profiles, monkeypatch, caplog
+) -> None:
+    """P2 of the review: the probe's own failure is loud and in the start document."""
+    cam = _camera(RE, box, "UC_Cam")
+    gauge = _gauge(RE)
+    ns = Namespace({"UC_Cam": cam}, [gauge])
+
+    async def broken(self, staged):
+        raise RuntimeError("an unexpected staged object")
+
+    monkeypatch.setattr(BackgroundSnapshot, "_probe", broken)
+    col = DocCollector()
+    RE.subscribe(col)
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.background"):
+        RE(bind_plans(profiles, settables=ns)["count"]([cam], 1))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    start = col.docs["start"][-1]
+    assert start["background_telemetry"] is True and start["background_dropped"] == []
+    assert (
+        start["background_probe_error"] == "RuntimeError: an unexpected staged object"
+    )
+    assert "u_gauge-pressure" not in col.primary_events()[-1]["data"]
+    assert "the probe failed" in caplog.text
+
+
+def test_a_member_invalid_at_the_start_is_kept_and_named(RE, caplog) -> None:
+    """Served but INVALID (the gateway marks the device down): NaN, and said once."""
+    stale = Fake("u_stale", geecs="U_Stale", value=3.0, severity=-1)
+    live = Fake("u_live", geecs="U_Live", value=5.0)
+    snapshot = BackgroundSnapshot([stale, live])
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.background"):
+        run(RE, lambda: snapshot.probe(staged=[]))
+    assert snapshot.members == [stale, live] and snapshot.dropped == []
+    assert "U_Stale (served but INVALID at the start)" in caplog.text
+    row = run(RE, snapshot.read)
+    assert math.isnan(row["u_stale-x"]["value"]) and row["u_live-x"]["value"] == 5.0

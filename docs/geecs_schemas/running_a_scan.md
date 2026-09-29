@@ -156,10 +156,12 @@ mutually exclusive.
 ## Where the data lands
 
 - **The s-file** (`ScanDataScanNNN.txt`, copied to `analysis/sNNN.txt`) carries
-  the Tier-1 scalars. For **image / file-saving devices**, the device's
-  **`acq_timestamp`** column now appears in the s-file as well — the raw device
-  acquisition timestamp that ties each saved frame back to its scan row. It is
-  surfaced only for file-saving devices; pure-scalar devices don't get it.
+  the Tier-1 scalars and the background columns. For every **triggered
+  device** the device's **`acq_timestamp`** column appears in the s-file as
+  well — the raw device acquisition timestamp that ties each saved frame back
+  to its scan row: the run's own devices' as their shot stamp, and a triggered
+  device outside the run's as its last frame's (background telemetry), so a
+  row's alignment to it is checkable. Pure-scalar devices have no stamp.
 - **Tiled** holds the full per-shot event stream: Tier-1 data *and* the
   background-telemetry columns, under the same `<device>-<variable>` keys as
   any other column. The worker writes the s-file from the run's own rows at
