@@ -376,9 +376,24 @@ def test_a_broadcastable_member_is_still_an_incompatible_shape():
     assert result.loaded_shots == (1, 2, 3) and not result.load_failures
 
 
-@pytest.mark.parametrize("dtypes", [(np.uint8, np.int32), (np.int16, np.uint16)])
-def test_mixed_integer_members_average_as_the_promoted_stack(dtypes, monkeypatch):
-    """Integer samples all sum in float64, so a mid-bin switch folds exactly."""
+@pytest.mark.parametrize(
+    "dtypes",
+    [
+        (np.uint8, np.int32),
+        (np.int16, np.uint16),
+        (np.float16, np.float32),
+        (np.float16, np.int16),
+    ],
+)
+def test_mixed_members_that_keep_the_sum_average_as_the_promoted_stack(
+    dtypes, monkeypatch
+):
+    """A mid-bin switch that keeps the accumulator's dtype folds exactly.
+
+    Integer samples all sum in float64 and float16 sums in float32, so the
+    folded members were never rounded narrower; the result takes the
+    promoted stack's dtype (float32, not float16, once a float32 joins).
+    """
     import geecs_analysis.compat.v2_run as v2_run
 
     rng = np.random.default_rng(7)

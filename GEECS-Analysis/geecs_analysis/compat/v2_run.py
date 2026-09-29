@@ -151,6 +151,9 @@ def _run_group(
             error = f"Incompatible raw dtypes in group: {native} and {data.dtype}"
             total = None
         else:
+            # The result dtype follows the promoted stack (float16 members
+            # joined by float32 ones average to float32, not float16).
+            native = np.result_type(native, data.dtype)
             total.add(data)
         data = None
     measurement = None
