@@ -221,7 +221,14 @@ adapter reverses crosshair centers once and retains every mask/rotation order.
 `compat.v2_run` is the streaming v2 orchestration boundary. The host supplies
 explicit groups and a loader; no path/config discovery or output writes belong
 here. Raw native arrays must be averaged before v2 axis scaling and processing,
-using mean rather than nanmean. Preserve both full bin membership (legacy
+using mean rather than nanmean — and folded into a running sum as each
+member loads (`_Sum`, in the intermediate dtype `np.mean` would use), so a
+raw-bin unit holds one native frame and one accumulator however many shots
+the bin has (#1025: a 5000-shot noscan is one bin; collecting its frames
+first wedged the portal). The quotient equals the stacked `np.mean` bit for
+bit (`test_raw_bin_fold_equals_the_stacked_mean_bit_for_bit`), and
+`test_a_long_raw_bin_average_keeps_at_most_two_raw_frames_alive` pins the
+memory shape. Preserve both full bin membership (legacy
 scalar propagation) and actual loaded contributors. Failures are explicit
 outcomes, and raw buffers are released before yielding. Load in declared order
 for reproducible sums; sources can reuse buffers, so snapshot each returned

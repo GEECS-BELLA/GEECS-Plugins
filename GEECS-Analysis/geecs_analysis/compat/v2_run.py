@@ -24,6 +24,7 @@ from geecs_analysis.pipeline import bind_inputs
 if TYPE_CHECKING:
     import numpy as np
     from geecs_data_utils.frames import ShotMeta
+    from geecs_analysis.compat.v2_average import _Sum
     from geecs_analysis.measurement import Measurement
 
 #: The multiprocessing start method of the worker pool. The hosts are
@@ -106,9 +107,16 @@ def _run_group(
     import numpy as np
     from geecs_data_utils.frames import ShotMeta
 
+    from geecs_analysis.compat.v2_average import _Sum
+
     loaded = []
-    arrays = []
     failures = []
+    # Per bin, each frame is folded into a running sum as it arrives (plain
+    # mean, not nanmean: a NaN sample propagates), so the group holds one
+    # native frame and one accumulator however many shots it has. Per shot,
+    # the single frame is kept.
+    total: _Sum | None = None
+    first = native = error = None
     for shot in group.shots:
         try:
             data = load(shot)
@@ -116,20 +124,45 @@ def _run_group(
                 raise TypeError("Source must return a native ndarray")
         except Exception as exc:
             failures.append(LoadFailure(shot, str(exc)))
-        else:
-            loaded.append(shot)
+            continue
+        loaded.append(shot)
+        if error is not None:
+            pass
+        elif not average_before_analysis:
             # A streaming source may reuse its read buffer on the next
             # call. Retain this shot's native precision and values now.
-            arrays.append(data.copy())
+            first = data.copy()
+        elif total is None:
+            native = data.dtype
+            total = _Sum(data, skip_nan=False, dtype=_mean_dtype(native))
+        elif data.shape != total.total.shape:
+            # The stacked mean refused ragged members. Later members are
+            # still read so the bin's loads and failures are all reported.
+            error = (
+                f"Incompatible raw shapes in group: "
+                f"{total.total.shape} and {data.shape}"
+            )
+            total = None
+        else:
+            if data.dtype != native:
+                # The stack would have been promoted to a common dtype.
+                native = np.result_type(native, data.dtype)
+                total.total = total.total.astype(_mean_dtype(native), copy=False)
+            total.add(data)
+        data = None
     measurement = None
-    error = None
-    if not arrays:
+    raw = None
+    if error is None and not loaded:
         error = "No loadable inputs in group"
-    else:
+    elif error is None:
         try:
-            raw = np.mean(arrays, axis=0) if average_before_analysis else arrays[0]
             shot = None
-            if not average_before_analysis:
+            if average_before_analysis:
+                raw = total.mean()
+                if native == np.float16:
+                    raw = raw.astype(native)
+            else:
+                raw = first
                 number = group.shots[0]
                 shot = metadata.get(number, ShotMeta(recipe.device, number))
             measurement = analyze_v2(raw, recipe, shot=shot, inputs=bound)
@@ -137,9 +170,24 @@ def _run_group(
             error = str(exc)
     # Release native arrays before the outcome travels. Only the owned
     # Measurement and lightweight outcome survive while the sink handles it.
-    arrays.clear()
-    data = raw = None
+    total = first = raw = None
     return UnitResult(group, tuple(loaded), measurement, tuple(failures), error)
+
+
+def _mean_dtype(native: np.dtype) -> np.dtype:
+    """The intermediate dtype ``np.mean`` sums samples of ``native`` in.
+
+    Integer and bool samples sum in float64, float16 in float32 (the mean is
+    cast back to float16), every other dtype in itself — so a float32 trace
+    averages in float32 exactly as the stacked mean did.
+    """
+    import numpy as np
+
+    if np.issubdtype(native, np.integer) or native == np.bool_:
+        return np.dtype(np.float64)
+    if native == np.float16:
+        return np.dtype(np.float32)
+    return native
 
 
 def run_units(
@@ -152,11 +200,13 @@ def run_units(
     shot_metadata: Mapping[int, ShotMeta] | None = None,
     workers: int = 1,
 ) -> Iterator[UnitResult]:
-    """Yield ordered outcomes, loading at most one group's raw arrays at a time.
+    """Yield ordered outcomes, holding at most one raw frame at a time.
 
     Per-shot mode requires single-member groups. Per-bin mode averages native
     arrays before v2 scaling/processing, preserving numpy's legacy dtype and
-    mean (not nanmean) semantics. Bad loads are excluded; the original bin's
+    mean (not nanmean) semantics: each member is folded into a running sum as
+    it loads, so a bin of any size holds one frame and one accumulator, and
+    the quotient is the stacked ``np.mean`` bit for bit. Bad loads are excluded; the original bin's
     full scalar-write membership survives. Incompatible raw shapes or analysis
     failures yield an explicit unsuccessful outcome and later groups continue.
 

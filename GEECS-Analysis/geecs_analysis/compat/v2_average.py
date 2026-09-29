@@ -28,14 +28,22 @@ class _Sum:
     (``nanmean``); in ``noscan`` mode every sample counts and NaN propagates
     (``mean``). Numpy reduces a stack along its first axis in exactly this
     sequential order, so the quotient equals the stacked reduction bit for
-    bit — it is a memory shape, not a numerical approximation.
+    bit — it is a memory shape, not a numerical approximation. ``dtype`` is
+    the accumulator's (float64 unless a caller matches another reduction's
+    intermediate, as the raw-bin mean does for float32 samples).
     """
 
-    def __init__(self, first: np.ndarray, *, skip_nan: bool) -> None:
+    def __init__(
+        self,
+        first: np.ndarray,
+        *,
+        skip_nan: bool,
+        dtype: np.dtype | type | None = None,
+    ) -> None:
         import numpy as np
 
         self.skip_nan = skip_nan
-        self.total = np.array(first, dtype=np.float64, copy=True)
+        self.total = np.array(first, dtype=dtype or np.float64, copy=True)
         self.count = 1
         if skip_nan:
             missing = np.isnan(self.total)

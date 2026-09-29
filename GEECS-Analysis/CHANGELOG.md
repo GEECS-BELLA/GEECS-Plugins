@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.23.0] - 2026-09-29
+
+### Changed
+
+- A per-bin (`average_frames_first`) run streams its raw frames (#1025).
+  `compat.v2_run` used to collect a copy of every loaded frame of a group
+  and `np.mean` the list, so a noscan — one bin — held the whole scan: on
+  a 5000-shot UC_HiResMagCam scan the portal's run reached its 3.0G
+  `MemoryHigh` and stalled. Each member is now folded into a running sum
+  as it loads (`_Sum`, which gains an optional accumulator `dtype`), in
+  the intermediate dtype `np.mean` would use — float64 for integer
+  frames, float32 for float32 traces, float32 cast back for float16 —
+  so the quotient is the stacked mean bit for bit, and a bin holds one
+  native frame and one accumulator however many shots it has. Load
+  order, load failures with the bin's full membership, and the
+  incompatible-shape outcome are kept; a member that would broadcast
+  into the sum (a (1, N) frame in an (M, N) bin) is an incompatible
+  shape, as it was for the stack; a bin of mixed member dtypes promotes
+  as the stack did.
+
 ## [0.22.0] - 2026-09-29
 
 ### Added
