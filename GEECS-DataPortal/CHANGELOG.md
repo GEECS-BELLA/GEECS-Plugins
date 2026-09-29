@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.37.4] - 2026-09-29
+
+### Changed
+
+- `poetry.lock` records the current sibling versions (GEECS-Analysis
+  0.21.0, GEECS-Data-Utils 0.47.0, GEECS-Schemas 0.39.0, ImageAnalysis
+  2.9.0, ScanAnalysis 1.44.0). With editable path installs the code on
+  disk was already current, but a stale lock skips the siblings' console
+  scripts on `poetry install` (`geecs-wavekit-doctor` after #1019, as
+  `geecs-himg` before it) and reads as "venv ≠ pyproject" in the fleet
+  status. No runtime change.
+
 ## [0.37.3] - 2026-09-29
 
 ### Changed
