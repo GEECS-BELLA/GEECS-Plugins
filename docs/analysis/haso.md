@@ -61,7 +61,7 @@ input: {kind: camera, file_tail: .himg, format: device_hdf5}
 measure:
   kind: haso
   sensor_config: WFS_HASO4_LIFT_680_8244_gain_enabled.dat   # a file NAME under wavekit_configs_path
-  mask: {top: 125, bottom: 300, left: 10, right: 670}         # numpy slice bounds on the slopes grid
+  mask: {top: 175, bottom: 350, left: 10, right: 670}         # numpy slice bounds on the slopes grid; centre the pupil on the feature
   filters: {tilt_x: true, tilt_y: true, curvature: true, astigmatism_0: true, astigmatism_45: true, others: false}
   wavelength_nm: 800.0
   start_subpupil: [87, 64]
