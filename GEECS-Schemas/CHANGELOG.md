@@ -5,6 +5,16 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0] - 2026-09-28
+
+### Added
+
+- `AnalyzerSpecBase.scope` (`AnalyzerScope`: `"frame"` | `"scan"`) — who
+  runs a kind: an ImageAnalyzer per frame (every kind until now), or one
+  step over the device folder that ScanAnalysis dispatches itself.
+- `HimgToStackSpec` (`kind: himg_to_stack`, scope `scan`, no image
+  section): convert a HASO device's `.himg` files into its capture stack.
+
 ## [0.37.0] - 2026-09-28
 
 ### Added

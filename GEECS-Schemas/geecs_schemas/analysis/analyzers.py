@@ -27,6 +27,11 @@ from pydantic import Field, field_validator, model_validator
 from geecs_schemas._base import SchemaModel
 
 ImageKind = Optional[Literal["camera", "line"]]
+#: Who runs a kind.  ``"frame"``: an ImageAnalyzer per frame — ImageAnalysis'
+#: registry maps the kind to its class and ScanAnalysis wraps it over the
+#: scan.  ``"scan"``: one step over the device folder that ScanAnalysis
+#: dispatches itself, with no ImageAnalyzer at all (a converter).
+AnalyzerScope = Literal["frame", "scan"]
 
 
 class AnalyzerSpecBase(SchemaModel):
@@ -35,6 +40,8 @@ class AnalyzerSpecBase(SchemaModel):
     #: Which ``image:`` section this analyzer consumes: "camera", "line", or
     #: None when it loads its own file format and takes no image section.
     image_kind: ClassVar[ImageKind] = "camera"
+    #: Who runs the kind — see :data:`AnalyzerScope`.
+    scope: ClassVar[AnalyzerScope] = "frame"
     scalar_keys: ClassVar[frozenset[str]] = frozenset()
 
     def emitted_scalars(self) -> frozenset[str]:
@@ -397,6 +404,27 @@ class HasoAnalyzerSpec(AnalyzerSpecBase):
     laser_wavelength: float = Field(800.0, gt=0, description="Probe wavelength, nm.")
 
 
+class HimgToStackSpec(AnalyzerSpecBase):
+    """Convert this device's HASO ``.himg`` files into its per-scan capture stack — data management, not analysis.
+
+    Writes ``<device>/<device>.h5`` beside the ``.himg`` files (which stay)
+    in the layout every stack reader already prefers: the frames, the
+    per-frame acquisition stamps, and each file's header and SHA-256, so
+    every frame rebuilds its source byte-identically (checked after
+    writing).  One step over the scan's device folder; no per-frame
+    analysis, no scalars.  Run it once per scan; a second run verifies the
+    existing stack.  Deleting the sources is a separate, explicit step.
+    """
+
+    scalar_keys: ClassVar[frozenset[str]] = frozenset([])
+
+    image_kind: ClassVar[ImageKind] = None
+    scope: ClassVar[AnalyzerScope] = "scan"
+    kind: Literal["himg_to_stack"] = Field(
+        "himg_to_stack", description="HASO .himg folder → capture-stack converter."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Experiment-specific analyzers (shipped in the suite, used by one facility)
 # ---------------------------------------------------------------------------
@@ -505,6 +533,7 @@ AnalyzerSpec = Annotated[
         IctAnalyzerSpec,
         LineStitcherSpec,
         HasoAnalyzerSpec,
+        HimgToStackSpec,
         DownrampPhaseSpec,
         HiResMagCamSpec,
         BCaveMagOptSpec,
@@ -523,6 +552,7 @@ ANALYZER_SPECS: dict[str, type[AnalyzerSpecBase]] = {
 
 __all__ = [
     "ANALYZER_SPECS",
+    "AnalyzerScope",
     "AnalyzerSpec",
     "AnalyzerSpecBase",
     "ArrayCalibrationSpec",
@@ -535,6 +565,7 @@ __all__ = [
     "FrogSpectralPhaseSpec",
     "HasoAnalyzerSpec",
     "HiResMagCamSpec",
+    "HimgToStackSpec",
     "IctAnalyzerSpec",
     "ImageKind",
     "LineAnalyzerSpec",

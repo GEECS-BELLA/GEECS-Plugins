@@ -31,10 +31,18 @@ class TestRegistry:
         assert SCHEMA_REGISTRY["analysis_group"] is AnalysisGroup
 
     def test_every_union_member_has_a_distinct_kind(self):
-        assert len(ANALYZER_SPECS) == 14
+        assert len(ANALYZER_SPECS) == 15
         for kind, model in ANALYZER_SPECS.items():
             assert model.model_fields["kind"].default == kind
             assert model.image_kind in ("camera", "line", None)
+            assert model.scope in ("frame", "scan")
+
+    def test_scan_scoped_kinds_take_no_image_section(self):
+        """A scan-scoped kind (a converter) has no per-frame input to describe."""
+        scan_scoped = {k for k, m in ANALYZER_SPECS.items() if m.scope == "scan"}
+        assert scan_scoped == {"himg_to_stack"}
+        for kind in scan_scoped:
+            assert ANALYZER_SPECS[kind].image_kind is None
 
 
 class TestV2Shape:
@@ -49,6 +57,21 @@ class TestV2Shape:
         assert diag.scan.priority == 100 and diag.scan.mode == "per_shot"
         assert diag.effective_output_name == "Cam"
         assert diag.image_kind == "camera"
+
+    def test_himg_to_stack_document_has_no_image_section(self):
+        diag = AnalysisDiagnostic.model_validate(
+            {"name": "U_HasoLift", "analyzer": {"kind": "himg_to_stack"}}
+        )
+        assert diag.image is None and diag.analyzer.kind == "himg_to_stack"
+        assert type(diag.analyzer).scope == "scan"
+        with pytest.raises(ValidationError, match="takes no image section"):
+            AnalysisDiagnostic.model_validate(
+                {
+                    "name": "U_HasoLift",
+                    "analyzer": {"kind": "himg_to_stack"},
+                    "image": {"type": "camera"},
+                }
+            )
 
     def test_no_image_analyzer_without_image(self):
         diag = AnalysisDiagnostic.model_validate(

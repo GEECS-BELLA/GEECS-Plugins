@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.8.0] - 2026-09-28
+
+### Changed
+
+- `config.registry` covers the *frame-scoped* schema kinds (`FRAME_KINDS`:
+  every spec whose `scope` is `"frame"`) rather than all of them; a
+  scan-scoped kind such as `himg_to_stack` has no ImageAnalyzer and
+  `analyzer_class` refuses it by name. The ephemeral runner refuses a
+  scan-scoped kind before any registry lookup.
+
 ## [2.7.0] - 2026-09-26
 
 ### Added

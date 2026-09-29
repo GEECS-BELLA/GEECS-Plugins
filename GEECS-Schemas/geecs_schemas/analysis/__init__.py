@@ -13,6 +13,7 @@ dispatches on ``schema_version``.
 from geecs_schemas.analysis.canonical import canonical_document
 from geecs_schemas.analysis.analyzers import (
     ANALYZER_SPECS,
+    AnalyzerScope,
     AnalyzerSpec,
     AnalyzerSpecBase,
     ArrayCalibrationSpec,
@@ -25,6 +26,7 @@ from geecs_schemas.analysis.analyzers import (
     FrogSpectralPhaseSpec,
     HasoAnalyzerSpec,
     HiResMagCamSpec,
+    HimgToStackSpec,
     IctAnalyzerSpec,
     ImageKind,
     LineAnalyzerSpec,
@@ -105,6 +107,7 @@ from geecs_schemas.analysis.scan_runtime import (
 
 __all__ = [
     "ANALYZER_SPECS",
+    "AnalyzerScope",
     "CURRENT_RECIPE_VERSION",
     "CURRENT_SCHEMA_VERSION",
     "SUMMARY_KINDS",
@@ -141,6 +144,7 @@ __all__ = [
     "FrogSpectralPhaseSpec",
     "FromCurrentScanSpec",
     "HasoAnalyzerSpec",
+    "HimgToStackSpec",
     "HiResMagCamSpec",
     "IctAnalyzerSpec",
     "ImageGridSummary",

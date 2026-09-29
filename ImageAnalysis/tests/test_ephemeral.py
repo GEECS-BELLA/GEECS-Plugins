@@ -38,6 +38,14 @@ def _write_diagnostic(path: Path, name: str, *, kind: str = "standard") -> None:
             "analyzer": {"kind": "haso", "wavekit_config_file_path": "/wfs.dat"},
             "scan": {"priority": 100},
         }
+    elif kind == "himg_to_stack":
+        # A scan-scoped kind: no image section at all.
+        payload = {
+            "schema_version": 2,
+            "name": name,
+            "analyzer": {"kind": kind},
+            "scan": {"priority": 100},
+        }
     path.write_text(yaml.safe_dump(payload))
 
 
@@ -151,6 +159,18 @@ class TestRunDiagnosticEphemeral:
         with pytest.raises(ValueError, match="cannot run ephemerally"):
             run_diagnostic_ephemeral(
                 "U_HasoLift", [np.ones((4, 4))], config_dir=tmp_path
+            )
+
+    def test_scan_scoped_kind_is_refused_by_scope(self, tmp_path):
+        """A converter kind has no per-frame analyzer: refused before any lookup."""
+        _write_diagnostic(
+            tmp_path / "analyzers" / "HTU" / "U_HasoLift_stack.yaml",
+            "U_HasoLift",
+            kind="himg_to_stack",
+        )
+        with pytest.raises(ValueError, match="scan-scoped"):
+            run_diagnostic_ephemeral(
+                "U_HasoLift_stack", [np.ones((4, 4))], config_dir=tmp_path
             )
 
     def test_empty_frames_returns_empty_list(self, configs_tree):

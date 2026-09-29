@@ -973,6 +973,21 @@
       "title": "HiResMagCamSpec",
       "type": "object"
     },
+    "HimgToStackSpec": {
+      "additionalProperties": false,
+      "description": "Convert this device's HASO ``.himg`` files into its per-scan capture stack \u2014 data management, not analysis.\n\nWrites ``<device>/<device>.h5`` beside the ``.himg`` files (which stay)\nin the layout every stack reader already prefers: the frames, the\nper-frame acquisition stamps, and each file's header and SHA-256, so\nevery frame rebuilds its source byte-identically (checked after\nwriting).  One step over the scan's device folder; no per-frame\nanalysis, no scalars.  Run it once per scan; a second run verifies the\nexisting stack.  Deleting the sources is a separate, explicit step.",
+      "properties": {
+        "kind": {
+          "const": "himg_to_stack",
+          "default": "himg_to_stack",
+          "description": "HASO .himg folder \u2192 capture-stack converter.",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "HimgToStackSpec",
+      "type": "object"
+    },
     "IctAnalyzerSpec": {
       "additionalProperties": false,
       "description": "Integrating current transformer: charge from a scope trace by low-pass filtering and integrating.",
@@ -2466,6 +2481,7 @@
           "frog_spectral_phase": "#/$defs/FrogSpectralPhaseSpec",
           "haso": "#/$defs/HasoAnalyzerSpec",
           "hi_res_mag_cam": "#/$defs/HiResMagCamSpec",
+          "himg_to_stack": "#/$defs/HimgToStackSpec",
           "ict": "#/$defs/IctAnalyzerSpec",
           "line": "#/$defs/LineAnalyzerSpec",
           "line_stitcher": "#/$defs/LineStitcherSpec",
@@ -2506,6 +2522,9 @@
         },
         {
           "$ref": "#/$defs/HasoAnalyzerSpec"
+        },
+        {
+          "$ref": "#/$defs/HimgToStackSpec"
         },
         {
           "$ref": "#/$defs/DownrampPhaseSpec"

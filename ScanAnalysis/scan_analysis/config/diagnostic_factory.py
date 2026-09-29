@@ -1,6 +1,9 @@
 """Build a runnable scan-analyzer from either analysis document.
 
-Two routes sit behind one call. An analysis recipe (the v3
+Two routes sit behind one call (and a third for the scan-scoped kinds —
+``HimgToStackSpec.scope == "scan"`` — which have no ImageAnalyzer and go
+straight to their ScanAnalysis class in :data:`SCAN_SCOPED_CLASS_PATHS`).
+An analysis recipe (the v3
 :class:`~geecs_schemas.analysis.AnalysisRecipe`) always runs on the core; a
 v2 diagnostic the analysis core can run
 (:func:`scan_analysis.core_analyzer.core_supports`: beam/line/standard/trace
@@ -29,6 +32,7 @@ explicitly via the keyword arguments.
 
 from __future__ import annotations
 
+import importlib
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Type
 
@@ -50,7 +54,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["create_scan_analyzer"]
+__all__ = ["SCAN_SCOPED_CLASS_PATHS", "create_scan_analyzer"]
+
+#: kind → class path of the ScanAnalyzer implementing a *scan-scoped* kind
+#: (``AnalyzerSpecBase.scope == "scan"``: one step over the device folder,
+#: no ImageAnalyzer — ImageAnalysis' registry covers the frame-scoped kinds
+#: only).  ``tests/test_diagnostic_factory.py`` pins that every scan-scoped
+#: kind in the schema has an entry here.
+SCAN_SCOPED_CLASS_PATHS: Dict[str, str] = {
+    "himg_to_stack": "scan_analysis.analyzers.common.himg_to_stack.HimgToStackAnalyzer",
+}
 
 
 def create_scan_analyzer(
@@ -139,6 +152,17 @@ def create_scan_analyzer(
 
     scan_cfg: ScanRuntime = diag.scan  # typed in-document since v2
     effective_id = id if id is not None else source_id or diag.name
+    if type(diag.analyzer).scope == "scan":
+        if route == "core":
+            raise ValueError(
+                f"Analyzer kind {diag.analyzer.kind!r} is scan-scoped; it has no core route"
+            )
+        if use_injected_data:
+            raise ValueError("A scan-scoped kind has no injected-data mode")
+        logger.debug("Routing scan-scoped kind %r to ScanAnalysis", effective_id)
+        return _scan_scoped_analyzer(
+            diag, analyzer_id=effective_id, priority=effective_priority
+        )
     if route == "core" or (
         route == "auto" and not use_injected_data and core_supports(diag)
     ):
@@ -158,6 +182,31 @@ def create_scan_analyzer(
         priority=effective_priority,
         use_injected_data=use_injected_data,
     )
+
+
+def _scan_scoped_analyzer(
+    diag: AnalysisDiagnostic, *, analyzer_id: str, priority: int
+) -> "ScanAnalyzer":
+    """Build the ScanAnalyzer for a scan-scoped kind from :data:`SCAN_SCOPED_CLASS_PATHS`."""
+    kind = diag.analyzer.kind
+    try:
+        class_path = SCAN_SCOPED_CLASS_PATHS[kind]
+    except KeyError as exc:
+        raise KeyError(
+            f"Scan-scoped analyzer kind {kind!r} has no ScanAnalysis class; "
+            f"known: {sorted(SCAN_SCOPED_CLASS_PATHS)}"
+        ) from exc
+    module_path, class_name = class_path.rsplit(".", 1)
+    analyzer_class = getattr(importlib.import_module(module_path), class_name)
+    analyzer = analyzer_class(
+        spec=diag.analyzer,
+        device_name=diag.name,
+        data_device_name=diag.scan.device,
+    )
+    analyzer.id = analyzer_id
+    analyzer.priority = priority
+    analyzer.background_source = None
+    return analyzer
 
 
 def _wrap_in_scan_analyzer(

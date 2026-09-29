@@ -30,6 +30,7 @@ scan_analysis/
       array2D_scan_analysis.py         # Array2DScanAnalyzer
       array1d_scan_analysis.py         # Array1DScanAnalyzer
       scatter_plotter_analysis.py      # ScatterPlotterAnalysis + PlotParameter
+      himg_to_stack.py                 # HimgToStackAnalyzer: the scan-scoped himg_to_stack kind (HASO .himg folder → capture stack)
 ```
 
 ## Config System (YAML → Pydantic → Factory → Instances)
@@ -237,6 +238,24 @@ document, so override the document, or ask for `route="legacy"`. Tests that pin
 the wrappers' kwargs mapping use `route="legacy"`; the auto-routing tests force
 the wrapper with a schema-valid feature the core refuses (a flip, or a
 bilateral trace filter).
+
+A third, smaller route: a v2 kind whose spec declares `scope = "scan"`
+(`AnalyzerSpecBase.scope`; today only `himg_to_stack`) is a *scan-scoped*
+kind — one step over the device folder with no ImageAnalyzer, no per-frame
+results and no products under `analysis/`. `create_scan_analyzer` maps it
+through `SCAN_SCOPED_CLASS_PATHS` (kind → ScanAnalysis class) before the
+core/legacy decision; `route="core"` and `use_injected_data` are refused.
+ImageAnalysis's registry covers the frame-scoped kinds only, so adding a
+scan-scoped kind is one spec in GEECS-Schemas and one line in that table
+(`tests/test_himg_to_stack.py` pins the coverage). `HimgToStackAnalyzer`
+converts a HASO device's `.himg` files into its capture stack through
+`geecs_data_utils.io.himg_stack.convert_himg_folder` (the same function as
+`geecs-himg convert`), verified after writing; the `.himg` files stay, a
+second run verifies the existing stack, a missing or empty device folder
+is `no_data`, and the run returns one label (the stack lives in the raw
+scan folder — the one deliberate write there, adding a file beside the
+sources and never a directory). Deleting the sources is a separate,
+explicit kind (compaction), not this one.
 
 `discover_analyzers` delegates to `geecs_data_utils.analysis_configs`; group
 lookup remains here because group aliases have different rules.

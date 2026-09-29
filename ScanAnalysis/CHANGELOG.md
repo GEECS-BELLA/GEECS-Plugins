@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.43.0] - 2026-09-28
+
+### Added
+
+- Analyzer kind `himg_to_stack` (`analyzers/common/himg_to_stack.py`): a
+  *scan-scoped* kind — one step over the device folder, no ImageAnalyzer —
+  that converts a HASO device's `.himg` files into its capture stack
+  through `geecs_data_utils.io.himg_stack.convert_himg_folder`, verified
+  after writing, so the Data Portal's Analysis tab can convert a scan at a
+  click. The `.himg` files stay; a second run verifies the existing stack.
+  `create_scan_analyzer` routes a kind whose spec declares `scope = "scan"`
+  to `SCAN_SCOPED_CLASS_PATHS` before the core/legacy routes (no core route,
+  no injected-data mode).
+
 ## [1.42.0] - 2026-09-28
 
 ### Added
