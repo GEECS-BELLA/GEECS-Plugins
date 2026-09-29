@@ -5,6 +5,14 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.1] - 2026-09-29
+
+### Changed
+
+- `AnalysisRecipe.inputs` description: frames bound by name for steps
+  *or a measure that compares against one* (the `haso` reference);
+  schema reference page regenerated. No validation change.
+
 ## [0.40.0] - 2026-09-29
 
 ### Added

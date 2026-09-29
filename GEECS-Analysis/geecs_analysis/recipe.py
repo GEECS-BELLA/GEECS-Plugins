@@ -26,6 +26,7 @@ from geecs_analysis.compat.v2 import (
     V2Recipe,
     compile_v2,
 )
+from geecs_analysis.pipeline import measure_input
 from geecs_analysis.registry import (
     definition,
     definitions,
@@ -50,8 +51,9 @@ def compile_recipe(
     """Bind the recipe's vocabulary to the registry and compile it, without I/O.
 
     Unknown step or measure names, unknown parameters, steps or a measure
-    that do not process the input's frames, and frame bindings the steps do
-    not use (or use without declaring) are refused with :class:`RecipeError`.
+    that do not process the input's frames, and frame bindings the steps
+    and the measure do not use (or use without declaring) are refused with
+    :class:`RecipeError`.
     Frame inputs require a source host that loads them
     (``allow_file_backgrounds=True``); the live optimizer has none.
     """
@@ -80,14 +82,19 @@ def compile_recipe(
         for spec in analysis.steps
         if definition(spec).input_field is not None
     }
+    reference = measure_input(analysis.measure)
+    if reference is not None:
+        required.add(reference)
     declared = set(recipe.inputs)
     if required - declared:
         raise RecipeError(
-            f"steps bind frame inputs the recipe does not declare: {sorted(required - declared)}"
+            "steps or the measure bind frame inputs the recipe does not declare: "
+            f"{sorted(required - declared)}"
         )
     if declared - required:
         raise RecipeError(
-            f"recipe declares frame inputs no step uses: {sorted(declared - required)}"
+            "recipe declares frame inputs no step or measure uses: "
+            f"{sorted(declared - required)}"
         )
     if required and not allow_file_backgrounds:
         raise RecipeError("frame inputs need a source host that loads them")

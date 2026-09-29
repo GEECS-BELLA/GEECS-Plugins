@@ -40,6 +40,15 @@ still uses ScanAnalysis until its runner/sinks and acceptance tests land.
   scan host writes from 1D extras beside the shot, its `shot_store` the
   per-scan HDF5 a scan host writes every single-shot frame and extras to
   under the analysis tree (2D extras: the wavefront products).
+- A measure that compares against a frame names a **frame input** at
+  registration: `@measure(..., input_field="reference")`, an
+  `Optional[str]` field of its spec holding a binding key the recipe
+  declares in `inputs` (a `from_scan` mean, a file). `bind_inputs(...,
+  measure=)` binds it, both evaluators (`run.analyze`, `analyze_v2`) fold
+  it through the recipe's own steps (`process_measure_input` — a step
+  sharing the key still sees the loaded frame), and `apply_measure`
+  hands it over as the last argument, `None` when the field is unset.
+  One such measure: `haso`'s `reference` (the plasma imprint).
 - Register each builtin in `steps/__init__.py`; the registry constructs the
   discriminated spec union. Adding a builtin must not require a dispatcher edit.
   Runtime/plugin registration after spec construction is not supported yet.

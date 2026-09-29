@@ -11,6 +11,14 @@ and nothing else, so every call rebuilds one in a temporary directory
 from the pixels and *a header of the same sensor* (the per-shot header
 differs only in its timestamp; the scan's stack keeps them all).
 
+A reference (the ``haso`` measure's ``reference``) costs one extra worker
+per process, not per shot: its raw slopes are computed once, saved as an
+SDK ``.has`` in a private temporary directory, and every later shot's
+worker loads that file and subtracts it. The cache is keyed by the
+reference pixels and the settings that shape slopes, lives as long as the
+engine object, and never travels when the engine is pickled to a pool
+worker (each process computes its own).
+
 Facility values come from ``~/.config/geecs_python_api/config.ini``::
 
     [Paths]
@@ -27,6 +35,7 @@ the share layout, the Wine prefix and the self-tests.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -34,6 +43,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
@@ -153,6 +163,7 @@ class HasoWaveKit:
         #: at once, so a recipe naming the wrong sensor costs one worker
         #: process, not one per shot.
         self._refused: Optional[str] = None
+        self._init_reference_cache()
         for path, what in (
             (self.sdk_path / "wavekit_py", "the SDK's Python bindings (wavekit_py/)"),
             (self.sdk_path / "dlls" / "x64", "the SDK's 64-bit DLLs (dlls/x64/)"),
@@ -163,6 +174,24 @@ class HasoWaveKit:
                 raise FileNotFoundError(f"{what} not found at {path}")
         if not self.header:
             raise ValueError("HasoWaveKit needs a .himg header of the sensor")
+
+    def _init_reference_cache(self) -> None:
+        """An empty per-process cache of reference slopes (``.has`` files)."""
+        #: Reference key → saved slopes; see :meth:`_reference_slopes`.
+        self._references: dict[str, Path] = {}
+        self._reference_dir: Optional[Path] = None
+
+    def __getstate__(self) -> dict:
+        """Pickle the configuration; the reference cache stays in this process."""
+        state = dict(self.__dict__)
+        state.pop("_references", None)
+        state.pop("_reference_dir", None)
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the configuration with an empty reference cache."""
+        self.__dict__.update(state)
+        self._init_reference_cache()
 
     def share_cores(self, workers: int) -> None:
         """Give each of ``workers`` concurrent shots an equal share of the cores.
@@ -203,6 +232,7 @@ class HasoWaveKit:
         zonal_prefs: tuple[int, int, float] = (100, 500, 1e-6),
         lift: bool = True,
         denoising_strength: float = 0.0,
+        reference: Optional[NDArray[np.uint16]] = None,
     ) -> HasoWaveKitResult:
         """Reconstruct one frame's wavefront in a fresh worker process.
 
@@ -220,6 +250,11 @@ class HasoWaveKit:
             astigmatism, others.
         wavelength_nm, start_subpupil, zonal_prefs, lift, denoising_strength
             The engine settings (see the ``haso`` measure's spec).
+        reference : uint16 array, optional
+            A frame of the same sensor whose raw slopes are subtracted from
+            this frame's before the mask and the filters; the processed
+            phase, slopes and pupil then describe the difference. Computed
+            once per distinct reference and settings (see the module notes).
 
         Raises
         ------
@@ -248,46 +283,105 @@ class HasoWaveKit:
             ],
             "mask": None if mask is None else [int(v) for v in mask],
             "filters": [bool(v) for v in filters],
+            "task": "shot",
+            "reference_slopes": None,
         }
+        if reference is not None:
+            params["reference_slopes"] = str(
+                self._reference_slopes(np.asarray(reference), params)
+            )
         workdir = Path(tempfile.mkdtemp(prefix="wavekit_"))
         try:
-            (workdir / "input.himg").write_bytes(himg_bytes(self.header, frame))
-            (workdir / "params.json").write_text(json.dumps(params))
-            cmd = [
-                *self.launcher,
-                str(self.python_path),
-                str(_WORKER_SCRIPT),
-                str(workdir),
-            ]
-            env = dict(os.environ)
-            if self.threads is not None:
-                env["MKL_NUM_THREADS"] = str(self.threads)
-            logger.debug("Running WaveKit worker: %s", " ".join(cmd))
-            try:
-                run = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=self.timeout, env=env
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise WaveKitError(
-                    f"WaveKit worker timed out after {self.timeout:.0f} s"
-                ) from exc
-            result_path = workdir / "result.json"
-            report = (
-                json.loads(result_path.read_text()) if result_path.is_file() else {}
-            )
-            if run.returncode == _EXIT_SERIAL_MISMATCH:
-                self._refused = report.get("error") or run.stderr.strip()
-                raise WaveKitSensorMismatch(self._refused)
-            if run.returncode != 0:
-                raise WaveKitError(
-                    f"WaveKit worker failed (return code {run.returncode}).\n"
-                    f"stdout: {run.stdout}\nstderr: {run.stderr}"
-                )
-            for line in run.stderr.strip().splitlines():
-                logger.info("WaveKit worker: %s", line)
+            report = self._run_worker(workdir, frame, params)
             return self._read_output(workdir / "output.npz", report)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
+
+    def _reference_slopes(self, pixels: NDArray, params: dict) -> Path:
+        """The reference's raw slopes as a ``.has`` file, computed once per key.
+
+        The key hashes the pixels, their shape and every setting that shapes
+        raw slopes (the sensor file, LIFT, wavelength, start sub-pupil,
+        denoising); the mask and the filters act after the subtraction and
+        are not part of it.
+        """
+        shaping = {
+            key: params[key]
+            for key in (
+                "sensor_config",
+                "lift",
+                "wavelength_nm",
+                "start_subpupil",
+                "denoising_strength",
+            )
+        }
+        frame = np.ascontiguousarray(pixels, dtype=np.uint16)
+        digest = hashlib.sha256(json.dumps(shaping, sort_keys=True).encode())
+        digest.update(repr(frame.shape).encode())
+        digest.update(frame.tobytes())
+        key = digest.hexdigest()
+        cached = self._references.get(key)
+        if cached is not None:
+            return cached
+        if self._reference_dir is None:
+            directory = Path(tempfile.mkdtemp(prefix="wavekit_reference_"))
+            weakref.finalize(self, shutil.rmtree, directory, True)
+            self._reference_dir = directory
+        target = self._reference_dir / f"{key[:16]}.has"
+        workdir = Path(tempfile.mkdtemp(prefix="wavekit_"))
+        try:
+            self._run_worker(
+                workdir,
+                frame,
+                {**params, "task": "reference", "save_slopes": str(target)},
+            )
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+        if not target.is_file():
+            raise WaveKitError("WaveKit worker saved no reference slopes")
+        logger.info("WaveKit reference slopes computed once for this process")
+        self._references[key] = target
+        return target
+
+    def _run_worker(self, workdir: Path, frame: NDArray, params: dict) -> dict:
+        """Run one worker task in ``workdir``; its ``result.json`` report.
+
+        Raises :class:`WaveKitSensorMismatch` (remembered for the engine's
+        life) or :class:`WaveKitError` as :meth:`compute` documents.
+        """
+        (workdir / "input.himg").write_bytes(himg_bytes(self.header, frame))
+        (workdir / "params.json").write_text(json.dumps(params))
+        cmd = [
+            *self.launcher,
+            str(self.python_path),
+            str(_WORKER_SCRIPT),
+            str(workdir),
+        ]
+        env = dict(os.environ)
+        if self.threads is not None:
+            env["MKL_NUM_THREADS"] = str(self.threads)
+        logger.debug("Running WaveKit worker: %s", " ".join(cmd))
+        try:
+            run = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=self.timeout, env=env
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise WaveKitError(
+                f"WaveKit worker timed out after {self.timeout:.0f} s"
+            ) from exc
+        result_path = workdir / "result.json"
+        report = json.loads(result_path.read_text()) if result_path.is_file() else {}
+        if run.returncode == _EXIT_SERIAL_MISMATCH:
+            self._refused = report.get("error") or run.stderr.strip()
+            raise WaveKitSensorMismatch(self._refused)
+        if run.returncode != 0:
+            raise WaveKitError(
+                f"WaveKit worker failed (return code {run.returncode}).\n"
+                f"stdout: {run.stdout}\nstderr: {run.stderr}"
+            )
+        for line in run.stderr.strip().splitlines():
+            logger.info("WaveKit worker: %s", line)
+        return report
 
     @staticmethod
     def _read_output(path: Path, report: dict) -> HasoWaveKitResult:

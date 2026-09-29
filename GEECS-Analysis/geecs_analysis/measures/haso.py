@@ -10,6 +10,15 @@ processed (masked, filtered) zonal phase as the frame, the raw phase, the
 intensity, the processed slopes and the pupil as extras, and two scalars
 taken inside the pupil.
 
+With a ``reference`` the measure reports a *difference*: the reference
+frame's slopes (a probe-only scan's mean image, say) are subtracted from
+each shot's slopes by the SDK before the mask and the filters, so the
+processed phase is what changed between the two — the plasma's imprint on
+the probe. The reference is processed by the recipe's steps exactly as
+each shot is. The subtraction is linear: the difference of two processed
+phases agrees with it to the reconstruction's own precision (2e-3 um on
+26_0929 Scan015 against Scan014).
+
 The frame the measure receives is the sensor's raw pixels, after whatever
 steps the recipe lists (a background frame, say); it is rounded and
 clipped to the sensor's ``uint16`` before the SDK sees it, because the SDK
@@ -103,6 +112,14 @@ class HasoSpec(MeasureSpec):
     wavekit_configs_path``), so a recipe names the sensor and the facility
     says where the files are. The engine refuses an image whose embedded
     serial does not match the file.
+
+    ``reference`` names a frame input of the recipe (``inputs: {probe:
+    {from_scan: {scan: 14, statistic: mean}}}`` with ``reference: probe``):
+    its slopes are subtracted from every shot's before the mask and the
+    filters, so the processed phase, the slopes and the scalars describe
+    the difference; the raw phase and the intensity stay the shot's own.
+    Take the reference the same day: the probe drifts 0.03 um RMS from one
+    day to the next, about half a plasma imprint.
     """
 
     kind: Literal["haso"] = "haso"
@@ -134,6 +151,14 @@ class HasoSpec(MeasureSpec):
         description=(
             "(x, y) index of the first sub-aperture the slopes computation "
             "starts from, relative to the pupil's top-left corner."
+        ),
+    )
+    reference: Optional[str] = Field(
+        None,
+        description=(
+            "Frame input whose slopes are subtracted from every shot's before "
+            "the mask and filters (a same-day probe-only scan's mean image); "
+            "unset measures the shot's own wavefront."
         ),
     )
     zonal_prefs: tuple[int, int, float] = Field(
@@ -186,11 +211,22 @@ def sensor_pixels(frame: Frame):
     return np.clip(np.rint(frame.data), 0, PIXEL_MAX).astype(np.uint16)
 
 
-@measure(HasoSpec, ndim={2}, service=SERVICE, shot_store=SHOT_STORE)
-def haso(frame: Frame, spec: HasoSpec, wavekit: object) -> Measurement:
+@measure(
+    HasoSpec,
+    ndim={2},
+    service=SERVICE,
+    shot_store=SHOT_STORE,
+    input_field="reference",
+)
+def haso(
+    frame: Frame, spec: HasoSpec, wavekit: object, reference: Optional[Frame]
+) -> Measurement:
     """Reconstruct the wavefront from the frame's pixels with the host's engine.
 
-    ``wavekit.compute(pixels, **parameters)`` returns an object with the
+    ``reference`` is the bound, processed reference frame (``None`` without
+    one); its pixels go to the engine as ``reference=`` and the engine
+    subtracts their slopes. ``wavekit.compute(pixels, **parameters)``
+    returns an object with the
     SDK's outputs (``HasoWaveKitResult``): ``processed_phase``,
     ``raw_phase``, ``intensity``, ``slopes_x``, ``slopes_y`` (float32
     arrays on the sub-aperture grid, NaN outside the pupil) and ``pupil``
@@ -205,9 +241,15 @@ def haso(frame: Frame, spec: HasoSpec, wavekit: object) -> Measurement:
 
     if frame.data.ndim != 2:
         raise ValueError("HASO reconstruction requires a 2D frame")
+    if reference is not None and reference.data.shape != frame.data.shape:
+        raise ValueError(
+            f"The HASO reference is {reference.data.shape}, the frame "
+            f"{frame.data.shape}: both must be the sensor's full image"
+        )
     mask = spec.mask
     result = wavekit.compute(
         sensor_pixels(frame),
+        reference=None if reference is None else sensor_pixels(reference),
         sensor_config=spec.sensor_config,
         mask=None if mask is None else (mask.top, mask.bottom, mask.left, mask.right),
         filters=spec.filters.flags(),

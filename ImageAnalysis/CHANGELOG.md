@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.11.0] - 2026-09-29
+
+### Added
+
+- `HasoWaveKit.compute(reference=)`: the reference frame's raw slopes are
+  computed once per process by a `"reference"` worker task, saved as an
+  SDK `.has` in a private temporary directory (keyed by the pixels and
+  the settings that shape slopes: sensor file, LIFT, wavelength, start
+  sub-pupil, denoising — not the mask or the filters), and every shot's
+  worker loads it and subtracts it (`apply_substractor`) before the mask
+  and the filters. The cache is not pickled (each pool worker computes
+  its own) and its directory is removed with the engine. The worker's
+  pupil mask is now built from the slopes it masks (identical geometry).
+
 ## [2.10.0] - 2026-09-29
 
 ### Added

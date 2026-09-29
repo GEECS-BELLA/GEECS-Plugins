@@ -21,7 +21,12 @@ from geecs_analysis.measures.hi_res_mag_cam import HiResMagCamSpec
 from geecs_analysis.measures.ict import IctSpec
 from geecs_analysis.measures.line import LineSpec
 from geecs_analysis.measures.none import NoneSpec
-from geecs_analysis.pipeline import apply_measure, apply_step, bind_inputs
+from geecs_analysis.pipeline import (
+    apply_measure,
+    apply_step,
+    bind_inputs,
+    process_measure_input,
+)
 from geecs_analysis.registry import StepSpec
 from geecs_analysis.specs import Analysis
 from geecs_analysis.steps.background_constant import BackgroundConstantSpec
@@ -425,15 +430,24 @@ def analyze_v2(
             y_label=recipe.label,
             shot=shot,
         )
-    for spec in recipe.analysis.steps:
-        if recipe.input_kind == "camera" and isinstance(spec, RoiSpec):
-            # Legacy returns the full image for a crop wholly outside the input.
-            if any(
-                lo >= min(hi, size)
-                for (lo, hi), size in zip(spec.bounds, frame.data.shape, strict=True)
-            ):
-                continue
-        frame = apply_step(frame, spec, inputs=bound)
+
+    def process(frame: Frame) -> Frame:
+        for spec in recipe.analysis.steps:
+            if recipe.input_kind == "camera" and isinstance(spec, RoiSpec):
+                # Legacy returns the full image for a crop wholly outside the input.
+                if any(
+                    lo >= min(hi, size)
+                    for (lo, hi), size in zip(
+                        spec.bounds, frame.data.shape, strict=True
+                    )
+                ):
+                    continue
+            frame = apply_step(frame, spec, inputs=bound)
+        return frame
+
+    frame = process(frame)
+    # A measure's frame input (the haso reference) sees the shot's steps.
+    measured = process_measure_input(recipe.analysis.measure, bound, process)
     if recipe.input_kind == "line":
         # Legacy rounds coordinates AND samples before calculating statistics.
         stored = frame.as_trace().astype(recipe.storage_dtype)
@@ -457,7 +471,7 @@ def analyze_v2(
                 )
             ),
         )
-    result = apply_measure(frame, recipe.analysis.measure, inputs=bound)
+    result = apply_measure(frame, recipe.analysis.measure, inputs=measured)
     if (
         recipe.input_kind == "line"
         and recipe.storage_dtype == "float64"

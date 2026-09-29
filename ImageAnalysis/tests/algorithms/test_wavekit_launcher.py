@@ -135,6 +135,8 @@ def test_the_worker_gets_a_rebuilt_himg_and_the_parameters(tree, monkeypatch):
         "zonal_prefs": [10, 50, 1e-5],
         "mask": [1, 3, 0, 4],
         "filters": [True, False, True, False, True, False],
+        "task": "shot",
+        "reference_slopes": None,
     }
     grid = np.arange(12, dtype=np.float32).reshape(3, 4)
     np.testing.assert_array_equal(result.processed_phase, grid * 2)
@@ -247,6 +249,81 @@ def test_the_engine_pickles_for_pool_workers(tree):
     assert (copy.sdk_path, copy.python_path, copy.configs_path) == tree
     assert copy.header == header() and copy.launcher == ("wine",)
     assert copy.threads == service.threads
+
+
+def reference_aware_worker(log):
+    """Plays both worker tasks, logging each call's params and input pixels."""
+
+    def behaviour(workdir: Path, cmd, kwargs):
+        params = json.loads((workdir / "params.json").read_text())
+        log.append((params, (workdir / "input.himg").read_bytes()))
+        if params["task"] == "reference":
+            Path(params["save_slopes"]).write_bytes(b"has")
+            (workdir / "result.json").write_text(json.dumps({"image_serial": "8244"}))
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return good_worker(workdir, cmd, kwargs)
+
+    return behaviour
+
+
+def test_a_reference_is_computed_once_and_subtracted_by_every_shot(tree, monkeypatch):
+    log = []
+    _, run = fake_worker(reference_aware_worker(log))
+    monkeypatch.setattr(wavekit.subprocess, "run", run)
+    service = engine(tree)
+    reference = pixels()[::-1].copy()
+    for mask in ((0, 2, 0, 4), (1, 3, 0, 4)):  # the mask acts after the subtraction
+        service.compute(pixels(), sensor_config=SENSOR, mask=mask, reference=reference)
+    tasks = [params["task"] for params, _ in log]
+    assert tasks == ["reference", "shot", "shot"]
+    (made, made_himg), *shots = log
+    assert made_himg == header() + reference.astype("<u2").tobytes()
+    saved = Path(made["save_slopes"])
+    assert saved.is_file() and saved.suffix == ".has"
+    assert all(params["reference_slopes"] == str(saved) for params, _ in shots)
+    assert all(himg == header() + pixels().astype("<u2").tobytes() for _, himg in shots)
+
+    # Another reference, or a setting that shapes slopes, is another .has.
+    service.compute(pixels(), sensor_config=SENSOR, reference=reference + 1)
+    service.compute(
+        pixels(), sensor_config=SENSOR, reference=reference, wavelength_nm=532
+    )
+    tasks = [params["task"] for params, _ in log]
+    assert tasks.count("reference") == 3
+    # No reference: nothing is subtracted.
+    service.compute(pixels(), sensor_config=SENSOR)
+    assert log[-1][0]["reference_slopes"] is None
+
+
+def test_the_reference_cache_stays_in_its_process(tree, monkeypatch):
+    import gc
+
+    log = []
+    _, run = fake_worker(reference_aware_worker(log))
+    monkeypatch.setattr(wavekit.subprocess, "run", run)
+    service = engine(tree)
+    service.compute(pixels(), sensor_config=SENSOR, reference=pixels())
+    directory = service._reference_dir
+    assert directory.is_dir()
+    copy = pickle.loads(pickle.dumps(service))
+    assert copy._references == {} and copy._reference_dir is None
+    copy.compute(pixels(), sensor_config=SENSOR, reference=pixels())
+    assert [params["task"] for params, _ in log].count("reference") == 2
+    del service
+    gc.collect()
+    assert not directory.exists()
+
+
+def test_a_reference_task_that_saves_nothing_is_an_error(tree, monkeypatch):
+    def forgetful(workdir, cmd, kwargs):
+        (workdir / "result.json").write_text("{}")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    seen, run = fake_worker(forgetful)
+    monkeypatch.setattr(wavekit.subprocess, "run", run)
+    with pytest.raises(WaveKitError, match="no reference slopes"):
+        engine(tree).compute(pixels(), sensor_config=SENSOR, reference=pixels())
+    assert len(seen) == 1
 
 
 def test_the_worker_script_is_python_38(tmp_path):

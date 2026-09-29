@@ -13,6 +13,7 @@ from geecs_data_utils.frames import Frame
 from geecs_schemas.analysis import AnalysisRecipe
 from pydantic import ValidationError
 
+from geecs_analysis.compat.v2 import analyze_v2
 from geecs_analysis.compat.v2_run import ShotGroup, run_units
 from geecs_analysis.measures.haso import (
     EXTRAS,
@@ -24,9 +25,11 @@ from geecs_analysis.measures.haso import (
     sensor_pixels,
 )
 from geecs_analysis.recipe import compile_recipe
-from geecs_analysis.registry import measure_definition
+from geecs_analysis.registry import MeasureSpec, measure, measure_definition
 from geecs_analysis.run import analyze
 from geecs_analysis.specs import Analysis
+from geecs_analysis.steps.background_constant import BackgroundConstantSpec
+from geecs_analysis.steps.background_frame import BackgroundFrameSpec
 
 SENSOR = "WFS_HASO4_LIFT_680_8244_gain_enabled.dat"
 ROWS, COLS = 6, 8
@@ -95,10 +98,10 @@ def test_the_spec_keeps_the_legacy_defaults_and_names_the_sensor_by_file():
     assert s.wavelength_nm == 800.0
     assert s.start_subpupil == (87, 64) and s.zonal_prefs == (100, 500, 1e-6)
     assert s.filters.flags() == (True, True, True, True, True, False)
-    assert s.mask is None
+    assert s.mask is None and s.reference is None
     assert s.emitted_scalars() == frozenset(SCALARS)
     definition = measure_definition(s)
-    assert definition.service == "haso"
+    assert definition.service == "haso" and definition.input_field == "reference"
     assert definition.sidecar is None and definition.shot_store == SHOT_STORE
     assert definition.ndim == frozenset({2})
 
@@ -149,6 +152,7 @@ def test_measure_calls_the_bound_engine_and_packages_its_result():
         "wavelength_nm": 532.0,
         "start_subpupil": (87, 64),
         "zonal_prefs": (100, 500, 1e-6),
+        "reference": None,
     }
     expected = fake_result(data, (1, 5, 2, 7))
     np.testing.assert_array_equal(result.frame.data, expected.processed_phase)
@@ -230,6 +234,116 @@ def test_a_v3_recipe_binds_the_measure_with_its_parameters():
     )
     with pytest.raises(ValueError, match="does not measure line frames"):
         compile_recipe(line)
+
+
+def reference_recipe(**extra) -> AnalysisRecipe:
+    return AnalysisRecipe.model_validate(
+        {
+            "device": "U_HasoLift",
+            "input": {"kind": "camera", "file_tail": ".himg", "format": "device_hdf5"},
+            "inputs": {"probe": {"from_scan": {"scan": 14, "statistic": "mean"}}},
+            "measure": {"kind": "haso", "sensor_config": SENSOR, "reference": "probe"},
+            **extra,
+        }
+    )
+
+
+def test_a_reference_is_handed_to_the_engine_as_sensor_pixels():
+    engine = FakeEngine()
+    probe = pixels(seed=5).astype(np.float64) + 0.4
+    analyze(
+        Frame.from_array(pixels()),
+        Analysis(measure=spec(reference="probe")),
+        inputs={"haso": engine, "probe": Frame.from_array(probe)},
+    )
+    sent = engine.calls[0][1]["reference"]
+    assert sent.dtype == np.uint16
+    np.testing.assert_array_equal(sent, np.rint(probe))
+
+
+def test_a_reference_is_processed_by_the_shot_steps():
+    engine = FakeEngine()
+    probe = pixels(seed=5)
+    analyze(
+        Frame.from_array(pixels()),
+        Analysis(
+            steps=[BackgroundConstantSpec(level=7)], measure=spec(reference="probe")
+        ),
+        inputs={"haso": engine, "probe": Frame.from_array(probe)},
+    )
+    sent, parameters = engine.calls[0]
+    np.testing.assert_array_equal(sent, np.clip(pixels().astype(float) - 7, 0, None))
+    np.testing.assert_array_equal(
+        parameters["reference"], np.clip(probe.astype(float) - 7, 0, None)
+    )
+
+
+def test_a_step_sharing_the_reference_key_sees_the_raw_frame():
+    # background_frame subtracts the probe from the shot AND from the
+    # reference; the step itself must be handed the loaded probe, never the
+    # processed one (which would be all zeros after its own subtraction).
+    engine = FakeEngine()
+    shot, probe = pixels(seed=3) + 300, pixels(seed=5)
+    analyze(
+        Frame.from_array(shot),
+        Analysis(
+            steps=[BackgroundFrameSpec(source="probe")], measure=spec(reference="probe")
+        ),
+        inputs={"haso": engine, "probe": Frame.from_array(probe)},
+    )
+    sent, parameters = engine.calls[0]
+    np.testing.assert_array_equal(sent, shot.astype(float) - probe)
+    assert not parameters["reference"].any()
+
+
+def test_a_v3_recipe_declares_and_binds_the_reference():
+    compiled = compile_recipe(reference_recipe(), allow_file_backgrounds=True)
+    assert compiled.analysis.measure.reference == "probe"
+    assert [b.key for b in compiled.scan_backgrounds] == ["probe"]
+    with pytest.raises(ValueError, match="source host"):
+        compile_recipe(reference_recipe())
+    undeclared = reference_recipe(inputs={})
+    with pytest.raises(ValueError, match="does not declare"):
+        compile_recipe(undeclared, allow_file_backgrounds=True)
+    unused = reference_recipe(measure={"kind": "haso", "sensor_config": SENSOR})
+    with pytest.raises(ValueError, match="no step or measure uses"):
+        compile_recipe(unused, allow_file_backgrounds=True)
+
+
+def test_the_scan_evaluator_processes_the_reference_and_checks_its_shape():
+    recipe = compile_recipe(
+        reference_recipe(steps=[{"step": "background_constant", "level": 7}]),
+        allow_file_backgrounds=True,
+    )
+    engine = FakeEngine()
+    probe = pixels(seed=5)
+    analyze_v2(
+        pixels(),
+        recipe,
+        inputs={"haso": engine, "probe": Frame.from_array(probe.astype(np.float64))},
+    )
+    np.testing.assert_array_equal(
+        engine.calls[0][1]["reference"], np.clip(probe.astype(float) - 7, 0, None)
+    )
+    with pytest.raises(ValueError, match="Missing frame input: probe"):
+        analyze_v2(pixels(), recipe, inputs={"haso": engine})
+    with pytest.raises(ValueError, match="full image"):
+        analyze_v2(
+            pixels(),
+            recipe,
+            inputs={"haso": engine, "probe": Frame.from_array(np.zeros((4, 4)))},
+        )
+
+
+def test_a_measure_input_field_must_be_an_optional_string():
+    class Required(MeasureSpec):
+        kind: str = "required_input"
+        reference: str = "x"
+
+    with pytest.raises(ValueError, match="optional string field"):
+        measure(Required, ndim={2}, input_field="reference")
+    with pytest.raises(ValueError, match="optional string field"):
+        measure(Required, ndim={2}, input_field="absent")
 
 
 def test_a_haso_measurement_pickles_with_its_extras():

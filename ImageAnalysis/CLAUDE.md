@@ -317,7 +317,12 @@ one fresh engine — per shot, because the SDK's spot tracker carries state
 between `compute_slopes` calls. The worker file must stay Python 3.8
 syntax and import nothing from this repository (a test pins both). The
 SDK reads a real `.himg` only, so the service rebuilds one per shot with
-`geecs_data_utils.io.himg.himg_bytes(header, pixels)`. Config keys:
+`geecs_data_utils.io.himg.himg_bytes(header, pixels)`. A `reference=`
+frame (2.11.0) costs one extra worker per process: its raw slopes are
+saved once as a `.has` in a private temporary directory (keyed by the
+pixels and the slope-shaping settings, never pickled to pool workers)
+and every shot's worker subtracts them before the mask and filters.
+Config keys:
 `[Paths] wavekit_sdk_path / wavekit_python_path / wavekit_configs_path /
 wavekit_launcher`; a recipe's `sensor_config` is a file *name* under the
 configs directory. `geecs-wavekit-doctor` (`algorithms/wavekit_doctor.py`)

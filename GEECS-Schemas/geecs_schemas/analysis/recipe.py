@@ -492,7 +492,8 @@ class AnalysisRecipe(VersionedSchemaModel):
         default_factory=dict,
         description=(
             "Frames loaded before the run and bound by name for steps that "
-            "take one (a background image)."
+            "take one (a background image) or a measure that compares against "
+            "one (the haso reference)."
         ),
     )
     steps: List[StepRef] = Field(
