@@ -621,7 +621,7 @@ One device's analysis: which analyzer, how frames are cleaned up, how it runs ov
 | `output_name` | `str (optional)` | no | None | Label for everything this analyzer writes (s-file column prefix, output folder). Defaults to name; set it to run two analyzers over one device with distinct outputs. |
 | `metric_suffix` | `str (optional)` | no | None | Suffix appended to every s-file column name; affects scalars only, never files or folders. |
 | `description` | `str (optional)` | no | None | Free-text note about this diagnostic. |
-| `analyzer` | `StandardAnalyzerSpec \| TraceAnalyzerSpec \| LineAnalyzerSpec \| BeamAnalyzerSpec \| MagSpecAnalyzerSpec \| FrogRetrievalSpec \| FrogSpectralPhaseSpec \| IctAnalyzerSpec \| LineStitcherSpec \| HasoAnalyzerSpec \| DownrampPhaseSpec \| HiResMagCamSpec \| BCaveMagOptSpec \| PhaseDownrampSpec` | yes | — | Which analyzer runs and its own parameters; chosen by kind. |
+| `analyzer` | `StandardAnalyzerSpec \| TraceAnalyzerSpec \| LineAnalyzerSpec \| BeamAnalyzerSpec \| MagSpecAnalyzerSpec \| FrogRetrievalSpec \| FrogSpectralPhaseSpec \| IctAnalyzerSpec \| LineStitcherSpec \| HasoAnalyzerSpec \| HimgToStackSpec \| DownrampPhaseSpec \| HiResMagCamSpec \| BCaveMagOptSpec \| PhaseDownrampSpec` | yes | — | Which analyzer runs and its own parameters; chosen by kind. |
 | `image` | `CameraConfig \| Line1DConfig (optional)` | no | None | How raw frames (type: camera) or traces (type: line) are cleaned up before analysis. Omit for analyzers that read their own file formats (kind haso, phase_downramp). |
 | `scan` | `ScanRuntime` | no | ScanRuntime(priority=100, mode='per_shot', save=True, gdoc_slot=None, device=None, file_tail=None, data_format=None, renderer=RendererOptions(colormap_mode=None, cmap=None, vmin=None, vmax=None, duration=None, dpi=None, xlabel=None, ylabel=None, colorbar_label=None, mode=None, waterfall_sort_key=None, waterfall_sort_sigma=None, waterfall_sort_bounds=None, waterfall_even_y_spacing=None, figsize=None, figsize_inches=None), background_source=None) | How the analyzer runs over a scan: order, per shot or per bin, saving, files. |
 
@@ -806,6 +806,14 @@ Rectangular pupil mask on the HASO slopes grid, inclusive bounds; -1 means the f
 | `bottom` | `int` | no | -1 | Bottom row of the pupil (inclusive); -1 = last row. |
 | `left` | `int` | no | 1 | Left column of the pupil (inclusive). |
 | `right` | `int` | no | -1 | Right column of the pupil (inclusive); -1 = last column. |
+
+### HimgToStackSpec
+
+Convert this device's HASO ``.himg`` files into its per-scan capture stack — data management, not analysis.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'himg_to_stack'` | no | 'himg_to_stack' | HASO .himg folder → capture-stack converter. |
 
 ### DownrampPhaseSpec
 

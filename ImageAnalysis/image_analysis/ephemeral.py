@@ -154,6 +154,12 @@ def _ephemeral_analyzer_for(diag: "AnalysisDiagnostic") -> "ImageAnalyzer":
             "run it on the core"
         )
     kind = diag.analyzer.kind
+    if type(diag.analyzer).scope != "frame":
+        raise ValueError(
+            f"Analyzer kind {kind!r} is scan-scoped: it runs once over the "
+            "device folder (ScanAnalysis) and has no per-frame analyzer to "
+            "run on in-memory frames."
+        )
     if kind in EPHEMERAL_DENYLIST:
         raise ValueError(
             f"Analyzer kind {kind!r} cannot run ephemerally: its side "

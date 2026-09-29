@@ -30,7 +30,7 @@ from geecs_data_utils.io.scan_stack import (
     read_stack_timestamps,
     stack_frame_index_map,
 )
-from geecs_data_utils.tiled_schema import normalize_token
+from geecs_data_utils.tiled_schema import device_acq_timestamp_column, normalize_token
 
 logger = logging.getLogger(__name__)
 
@@ -219,20 +219,14 @@ class _ShotFileMapper:
     def _acq_timestamp_column(self) -> Optional[str]:
         """Find this device's ``acq_timestamp`` column in the auxiliary frame.
 
-        Recognises every spelling the column takes across data paths —
-        ``"<Device> acq_timestamp"`` (s-file header), ``"<Device>:acq_timestamp"``
-        (in-memory frame), ``"<device>-acq_timestamp"`` (raw event key) — by
-        normalising both the device name and the column prefix to the same
-        token. Returns ``None`` (→ legacy shot-number mapping) when absent.
+        The shared rule (:func:`~geecs_data_utils.tiled_schema.device_acq_timestamp_column`):
+        every spelling — ``"<Device> acq_timestamp"`` (s-file header),
+        ``"<Device>:acq_timestamp"`` (in-memory frame), ``"<device>-acq_timestamp"``
+        (raw event key). Returns ``None`` (→ legacy shot-number mapping) when absent.
         """
         if self.rows is None:
             return None
-        device_token = self._normalize_column_token(self.device)
-        for column in self.rows.columns:
-            token = self._normalize_column_token(column)
-            if token == f"{device_token}_acq_timestamp":
-                return str(column)
-        return None
+        return device_acq_timestamp_column(list(self.rows.columns), self.device)
 
     def _matching_valid_column(self) -> Optional[str]:
         """Find this device's ``valid`` column, if the frame carries one."""

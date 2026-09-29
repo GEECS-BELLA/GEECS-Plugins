@@ -49,6 +49,17 @@ geecs_data_utils/
                                #   lineout / waveform, from the plugin's
                                #   own wave_* declaration plus the frame
                                #   rank (see "Three kinds of stack")
+                               #   + himg.py: the SDK-free codec for the HASO
+                               #   .himg container (header bytes + uint16
+                               #   frame; rebuilds byte-identically)
+                               #   + himg_stack.py: THE one writer in io/ —
+                               #   a HASO device folder's .himg files → its
+                               #   capture stack (frames gzip+shuffle, stamps
+                               #   from native names or the scan's rows, a
+                               #   provenance group with each file's header
+                               #   and SHA-256; verified after writing;
+                               #   never creates a directory, never deletes)
+  himg_cli.py                  # geecs-himg convert | verify: the .himg backlog command
   plotting_utils.py            # Simple matplotlib helpers for binned data
   scans_database/
     database.py                # ScanDatabase: filter + load Parquet dataset
@@ -505,3 +516,27 @@ stat probes bypass stale SMB listings. `prefer_stack=True` tries capture
 frames first, while `stacks_only=True` refuses native fallback with
 `StackMappingUnavailable`. The ScanAnalysis adapter translates that into its
 `DataUnavailableWarning`; queue/status policy remains outside data-utils.
+
+## HASO `.himg` capture stacks (0.46.0)
+
+The HASO wavefront sensor saves natively (one `.himg` per shot, ~24.6 MB
+of 8-bit values in 16-bit words) and no file plugin writes a stack for it.
+`io.himg_stack.convert_himg_folder(device_dir, rows=)` writes the same
+`<device>/<device>.h5` the PVA file plugin would have — `/entry/data/data`
+`(N, H, W)` uint16 one frame per chunk, gzip + shuffle (~5.8x), the stamp
+attribute `<device>-hdf-himg-frame_acq_timestamp` in Unix s — so
+`find_stack_file`, the shot mapper's `prefer_stack`, the portal's gallery
+and the core's source read it with no HASO-specific code. Stamps come from
+the native filename, or for legacy `ScanNNN_<device>_NNN.himg` names from
+the scan's `acq_timestamp` column (`rows`; the s-file / ScanData table).
+What makes it lossless is `/entry/instrument/himg/`: each file's `header`
+bytes (everything before the pixels — `io.himg` rebuilds header + frame
+into the original bytes), `source_name`, `source_size`, `source_sha256`.
+`verify_himg_stack` rebuilds every frame and checks that hash, and
+`convert_himg_folder` runs it before renaming the `.part` file into place,
+so a stack under the reader's name is one whose every frame rebuilds its
+source. Converting adds that one file and nothing else: no directory is
+ever created, the `.himg` files are never touched (deleting them is the
+separate, verify-first compaction step). `geecs-himg convert | verify` is
+the shell form for the backlog; ScanAnalysis's `himg_to_stack` kind is the
+per-scan click in the Data Portal.

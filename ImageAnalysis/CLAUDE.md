@@ -128,7 +128,12 @@ owns the three things that need the analysis stack:
   `line_config=` / `output_name=` where the constructor declares them.
 - **`registry`** — `ANALYZER_CLASS_PATHS` (kind → class path, imported on
   demand so vendor SDKs stay unimported) and `analyzer_class(kind)`.
-  `tests/test_config_registry.py` pins it against the schema's union.
+  `tests/test_config_registry.py` pins it against the schema's union —
+  its *frame-scoped* kinds (`FRAME_KINDS`: every spec whose `scope` is
+  `"frame"`). A scan-scoped kind (`scope = "scan"`, e.g. `himg_to_stack`,
+  a converter over the device folder) has no ImageAnalyzer: ScanAnalysis
+  maps it itself, `analyzer_class` refuses it by name, and the ephemeral
+  runner refuses it before any lookup.
 
 A v2 diagnostic:
 
@@ -157,8 +162,8 @@ its `to_data1d_config`) hand it to GEECS-Data-Utils' reader as its own
 
 **Adding an analyzer** = one spec model in
 `geecs_schemas.analysis.analyzers` (joined into `AnalyzerSpec`, with
-`image_kind` = `"camera"` / `"line"` / `None`) + one line in
-`ANALYZER_CLASS_PATHS` + a constructor that takes the spec:
+`image_kind` = `"camera"` / `"line"` / `None`; `scope` stays `"frame"`) +
+one line in `ANALYZER_CLASS_PATHS` + a constructor that takes the spec:
 `def __init__(self, camera_config, *, spec: MySpec | None = None,
 output_name=None)`. Specs whose fields all have defaults may be optional
 (notebook construction without one); specs with required fields are not.

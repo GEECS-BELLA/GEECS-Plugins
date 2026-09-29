@@ -3,6 +3,37 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.46.0] - 2026-09-28
+
+### Added
+
+- `io.himg`: the SDK-free codec for the HASO `.himg` container — `parse_himg`
+  / `read_himg` split a file into its header bytes (the 17-byte lead plus
+  the opaque metadata blob) and its `(H, W)` uint16 frame; `himg_bytes` /
+  `write_himg` rebuild the file byte-identically. Layout verified on real
+  HASO4 LIFT files (4499-byte header, 3000 x 4096 pixels).
+- `io.himg_stack`: the converter that writes a HASO device's capture stack
+  (`<device>/<device>.h5`, the areaDetector layout `scan_stack` reads and
+  every stack consumer prefers) from its folder of `.himg` files: frames
+  gzip + shuffle one per chunk (~5.8x smaller), the per-frame stamp
+  attribute (`<device>-hdf-himg-frame_acq_timestamp`, Unix s — from the
+  native filename, or the scan's `acq_timestamp` column for legacy
+  shot-numbered names), and a provenance group (`/entry/instrument/himg`:
+  each file's header, name, size and SHA-256). `verify_himg_stack` rebuilds
+  every frame and checks it against that SHA-256 (or the file on disk);
+  `convert_himg_folder` writes to a `.part` file, verifies, and renames
+  into place, removing the stack if a frame fails. Never creates a
+  directory; the `.himg` files stay.
+- `geecs-himg convert | verify` (`himg_cli`): the backlog command over a
+  device folder or a whole `scans/ScanNNN` folder.
+
+### Changed
+
+- `tiled_schema.device_acq_timestamp_column` is THE device ↔ `acq_timestamp`
+  column rule for every spelling (event key, s-file header, in-memory
+  frame): whole-name normalization on both sides. The shot mapper and the
+  `.himg` converter call it instead of carrying their own loop.
+
 ## [0.45.0] - 2026-09-26
 
 ### Added
