@@ -11,11 +11,13 @@ from typing import Mapping
 import numpy as np
 import pandas as pd
 from geecs_data_utils.io.array1d import Data1DConfig, read_1d_data
+from geecs_data_utils.io.himg_stack import HIMG_SUFFIX
 from geecs_data_utils.io.images import read_imaq_image
 from geecs_data_utils.io.scan_stack import ShotRef, open_stack, read_frame, read_shot
 from geecs_data_utils.shot_files import StackMappingUnavailable, map_shot_files
 
 from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
+from scan_analysis.core_services import stack_required
 
 logger = logging.getLogger(__name__)
 
@@ -169,25 +171,34 @@ def prepare_source(
     Keep device identity separate from the optional folder/file-device override.
     Camera and line default suffixes remain .png and .csv, respectively. Stack
     preference is explicit; pva_stack traces require it and never fall back to
-    per-shot files. File mapping reads only identities, not frame arrays. Hosts
-    must wait for scan completion before resolving HDF5 stacks over SMB.
+    per-shot files, and neither do ``.himg`` frames (a HASO device): the
+    per-shot vendor files are read only through the stack ``himg_to_stack``
+    writes, so an unconverted scan is refused (``StackMappingUnavailable``)
+    with the way out named. File mapping reads only identities, not frame
+    arrays. Hosts must wait for scan completion before resolving HDF5
+    stacks over SMB.
     """
     spec = _resolved(recipe)
     device_dir = source_directory(spec, scan_folder)
     loading_json = None
     stacks_only = False
     default_tail = ".png"
+    prefer_stack = spec.prefer_stack
     if spec.line:
         loading = Data1DConfig.model_validate_json(spec.line_loading_json)
         loading_json = loading.model_dump_json()
         stacks_only = loading.data_type == "pva_stack"
         default_tail = ".csv"
+    file_tail = spec.file_tail if spec.file_tail is not None else default_tail
+    if not spec.line and file_tail == HIMG_SUFFIX:
+        stack_required(device_dir)
+        prefer_stack = stacks_only = True
     references = map_shot_files(
         device_dir,
         rows,
         device=spec.device,
-        file_tail=spec.file_tail if spec.file_tail is not None else default_tail,
-        prefer_stack=spec.prefer_stack,
+        file_tail=file_tail,
+        prefer_stack=prefer_stack,
         stacks_only=stacks_only,
         file_device=device_dir.name,
     )

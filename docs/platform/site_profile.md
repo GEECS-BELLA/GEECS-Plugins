@@ -30,6 +30,19 @@ a stale config is seen and reconciled by hand (the file is never
 overwritten — it also holds the hand-entered Tiled key). Client machines
 keep their own `config.ini` exactly as before.
 
+The vendor programs the analysis core runs out of process — Kane's
+FROG.dll and Imagine Optic's WaveKit — are configured on the **client**
+side of that table, as `[Paths] frog_*` and `[Paths] wavekit_*` keys of
+the analysis host's `config.ini` (the Data Portal's service account): the
+SDK's location on the software share, the Windows Python that runs it,
+the sensor-configuration directory, and the launcher that runs it under
+Wine (`env WINEDEBUG=-all wine`, with `WINEPREFIX=<dir>` when the host
+wants a prefix of its own). The prefix is the host's choice, named once
+in that launcher and nowhere in the repository; `geecs-wavekit-doctor`
+creates it and its engine directory. The keys
+are listed with the others in [Getting started](../tutorials/getting_started.md);
+the WaveKit install is the [HASO runbook](../analysis/haso.md).
+
 What is **not** a site value: the fleet's port numbers. The fleet map
 fixes them (CA 5064, Tiled 8000, portal 8200, MCP 8100, logbook 8400,
 queueserver 60615/60625/5568, PVA 5075/5076) and every client assumes them.

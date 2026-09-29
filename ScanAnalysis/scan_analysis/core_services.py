@@ -1,42 +1,92 @@
 """Build the collaborators a measure names as its service, from this host's config.
 
 A core measure may need something the core is not allowed to do itself: the
-``frog`` measure runs Kane's FROG.dll, an external 32-bit program. The core
-names the service; this module is the host side that builds it — from the
-client ``config.ini``, a facility value — so the core never reads a path,
-starts a process or learns whether the DLL runs natively or under Wine.
+``frog`` measure runs Kane's FROG.dll, the ``haso`` measure Imagine Optic's
+WaveKit — external programs. The core names the service; this module is the
+host side that builds it — from the client ``config.ini``, a facility value,
+and from the scan being analyzed — so the core never reads a path, starts a
+process or learns whether the program runs natively or under Wine.
 
-A service travels to every pool worker once (pickled with the prepared
-inputs), so what is built here must pickle; ``FrogDllRetrieval`` is a few
-paths and a command prefix.
+A factory takes the run's device data directory (``None`` for a context-free
+preview): the WaveKit engine needs one ``.himg`` header of the sensor, which
+it takes from that scan's capture stack. A service travels to every pool
+worker once (pickled with the prepared inputs), so what is built here must
+pickle; both services are a few paths, a command prefix and a header.
 """
 
 from __future__ import annotations
 
-from typing import Callable
+from pathlib import Path
+from typing import Callable, Optional
 
 from geecs_analysis.registry import MeasureSpec, measure_definition
+from geecs_data_utils.io.himg_stack import HIMG_SUFFIX, stack_header
+from geecs_data_utils.io.scan_stack import find_stack_file
+from geecs_data_utils.shot_files import StackMappingUnavailable
 
-__all__ = ["SERVICE_FACTORIES", "services_for"]
+__all__ = ["SERVICE_FACTORIES", "STACK_HINT", "services_for", "stack_required"]
+
+#: How the message that refuses an unconverted HASO scan names the way out.
+STACK_HINT = (
+    "convert the scan first with the himg_to_stack analyzer "
+    "(HasoLift_stack in the Data Portal's Analysis tab)"
+)
 
 
-def _frog_retriever() -> object:
+def stack_required(device_dir: Path) -> Path:
+    """The device folder's capture stack, or the refusal every ``.himg`` reader gives.
+
+    ``.himg`` frames enter the analysis core only through the device's
+    stack (``<device>/<device>.h5``, written by ``himg_to_stack``): the
+    per-shot files are never read by a run. The refusal is a
+    ``StackMappingUnavailable`` (a ``LookupError``), which the scan host
+    reports as missing data.
+    """
+    stack = find_stack_file(Path(device_dir))
+    if stack is None:
+        raise StackMappingUnavailable(
+            f"no capture stack in {device_dir}: {HIMG_SUFFIX} frames are read "
+            f"from the stack only — {STACK_HINT}"
+        )
+    return stack
+
+
+def _frog_retriever(data_dir: Optional[Path]) -> object:
     """The FROG.dll retrieval, configured by ``[Paths] frog_*`` in config.ini."""
     from image_analysis.algorithms.frog_dll_retrieval import FrogDllRetrieval
 
     return FrogDllRetrieval.from_config()
 
 
-#: Service name (a measure's registration) → the factory that builds it here.
-SERVICE_FACTORIES: dict[str, Callable[[], object]] = {"frog": _frog_retriever}
+def _haso_wavekit(data_dir: Optional[Path]) -> object:
+    """The WaveKit engine (``[Paths] wavekit_*``) with the scan's sensor header."""
+    from image_analysis.algorithms.haso_wavekit import HasoWaveKit
+
+    if data_dir is None:
+        raise LookupError(
+            "the haso service needs the scan's capture stack for the sensor's "
+            ".himg header (no scan folder given)"
+        )
+    return HasoWaveKit.from_config(stack_header(stack_required(data_dir)))
 
 
-def services_for(measure: MeasureSpec) -> dict[str, object]:
+#: Service name (a measure's registration) → the factory that builds it here,
+#: given the run's device data directory (``None`` without a scan).
+SERVICE_FACTORIES: dict[str, Callable[[Optional[Path]], object]] = {
+    "frog": _frog_retriever,
+    "haso": _haso_wavekit,
+}
+
+
+def services_for(
+    measure: MeasureSpec, *, data_dir: Optional[Path] = None
+) -> dict[str, object]:
     """The bound services ``measure`` needs, built from this host's config.
 
     Empty for a measure that names none. A service this host cannot build
     (no factory, or a factory whose configuration is missing) raises here,
-    when the run is prepared, before any shot is read.
+    when the run is prepared, before any shot is read. ``data_dir`` is the
+    run's device data directory, for a service built from the scan itself.
     """
     name = measure_definition(measure).service
     if name is None:
@@ -47,4 +97,4 @@ def services_for(measure: MeasureSpec) -> dict[str, object]:
             f"The {measure.kind!r} measure needs service {name!r}, "
             "which this host does not provide"
         )
-    return {name: factory()}
+    return {name: factory(data_dir)}

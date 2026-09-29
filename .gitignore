@@ -95,10 +95,6 @@ GEECS-PythonAPI/htu_scripts/test_scripts/credentials.json
 # Xopt-GEECS
 Xopt-GEECS/config.lnk
 
-# Vendor SDK blobs (WaveKit etc.) — never tracked; each package's
-# third_party_sdks/README.md documents what goes there
-**/third_party_sdks/**
-!**/third_party_sdks/README.md
 ImageAnalysis/image_analysis/analyzers/log_dll_load.txt
 ImageAnalysis/image_analysis/analyzers/single_shot_estimated_legendre.txt
 ImageAnalysis/image_analysis/offline_analyzers/log_dll_load.txt

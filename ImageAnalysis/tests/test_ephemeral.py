@@ -30,15 +30,7 @@ def _write_diagnostic(path: Path, name: str, *, kind: str = "standard") -> None:
         "image": {"type": "camera", "bit_depth": 16},
         "scan": {"priority": 100},
     }
-    if kind == "haso":
-        # HASO-style: no image section, the spec carries everything.
-        payload = {
-            "schema_version": 2,
-            "name": name,
-            "analyzer": {"kind": "haso", "wavekit_config_file_path": "/wfs.dat"},
-            "scan": {"priority": 100},
-        }
-    elif kind == "himg_to_stack":
+    if kind == "himg_to_stack":
         # A scan-scoped kind: no image section at all.
         payload = {
             "schema_version": 2,
@@ -141,25 +133,20 @@ class TestRunDiagnosticEphemeral:
             )
 
     def test_denylisted_analyzer_is_refused_before_import(self, tmp_path):
-        """HASO is refused by analyzer kind, not by a failed import.
+        """Grenouille is refused by analyzer kind, before its class is built.
 
-        A ``ValueError`` naming the ephemeral contract (rather than an
-        ``ImportError`` from the vendor SDK) proves the check runs
+        A ``ValueError`` naming the ephemeral contract (rather than the
+        DLL wrapper's own configuration error) proves the check runs
         before ``create_image_analyzer`` touches the class.
         """
         _write_diagnostic(
-            tmp_path / "analyzers" / "HTU" / "U_HasoLift.yaml",
-            "U_HasoLift",
-            kind="haso",
+            tmp_path / "analyzers" / "HTU" / "U_FROG.yaml",
+            "U_FROG",
+            kind="frog_retrieval",
         )
-        assert "haso" in EPHEMERAL_DENYLIST
-        assert (
-            "frog_retrieval" in EPHEMERAL_DENYLIST
-        )  # un-gated temp files + DLL subprocess
+        assert EPHEMERAL_DENYLIST == {"frog_retrieval"}  # un-gated temp files + DLL
         with pytest.raises(ValueError, match="cannot run ephemerally"):
-            run_diagnostic_ephemeral(
-                "U_HasoLift", [np.ones((4, 4))], config_dir=tmp_path
-            )
+            run_diagnostic_ephemeral("U_FROG", [np.ones((4, 4))], config_dir=tmp_path)
 
     def test_scan_scoped_kind_is_refused_by_scope(self, tmp_path):
         """A converter kind has no per-frame analyzer: refused before any lookup."""
@@ -233,13 +220,13 @@ class TestRenderedEphemeral:
                 auxiliary_data={"file_path": tmp_path / "x.png"},
             )
         _write_diagnostic(
-            tmp_path / "analyzers" / "HTU" / "U_HasoR.yaml",
-            "U_HasoR",
-            kind="haso",
+            tmp_path / "analyzers" / "HTU" / "U_FROG.yaml",
+            "U_FROG",
+            kind="frog_retrieval",
         )
         with pytest.raises(ValueError, match="cannot run ephemerally"):
             render_diagnostic_ephemeral(
-                "U_HasoR", [np.ones((4, 4))], config_dir=tmp_path
+                "U_FROG", [np.ones((4, 4))], config_dir=tmp_path
             )
 
     def test_frame_figure_is_base_render_only(self):

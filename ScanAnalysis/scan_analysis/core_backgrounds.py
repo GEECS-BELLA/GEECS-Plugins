@@ -34,6 +34,7 @@ from typing import Callable, Optional, Sequence
 
 import numpy as np
 from geecs_analysis.compat.v2 import ScanBackground
+from geecs_data_utils.io.himg_stack import HIMG_SUFFIX
 from geecs_data_utils.io.images import read_imaq_image
 from geecs_data_utils.io.scan_stack import (
     FRAMES_DATASET,
@@ -176,8 +177,18 @@ def background_cache_path(
 def _frame_loaders(
     device_dir: Path, file_tail: str, prefer_stack: bool
 ) -> list[Callable[[], np.ndarray]]:
-    """Every frame of the device folder: the stack's frames, or its files in order."""
-    stack = find_stack_file(device_dir) if prefer_stack else None
+    """Every frame of the device folder: the stack's frames, or its files in order.
+
+    ``.himg`` frames come from the stack alone (``core_services.stack_required``):
+    a dark scan of a HASO device must be converted before it can be a
+    background.
+    """
+    if file_tail == HIMG_SUFFIX:
+        from scan_analysis.core_services import stack_required
+
+        stack = stack_required(device_dir)
+    else:
+        stack = find_stack_file(device_dir) if prefer_stack else None
     if stack is not None:
         with open_stack(stack) as handle:
             count = handle[FRAMES_DATASET].shape[0]

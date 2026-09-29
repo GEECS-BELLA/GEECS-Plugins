@@ -4,7 +4,7 @@ The diagnostic document (``geecs_schemas.analysis.AnalysisDiagnostic``)
 names its analyzer by ``kind``; the class path left the YAML in format v2
 so a module refactor never breaks a config.  This module resolves a kind
 to its class — lazily, so importing the registry never imports vendor
-SDKs (HASO's WaveKit, the FROG DLL wrapper).
+SDKs (the FROG DLL wrapper).
 
 Adding an analyzer: one spec model in ``geecs_schemas.analysis.analyzers``
 (joined into ``AnalyzerSpec``) and one line in :data:`ANALYZER_CLASS_PATHS`
@@ -46,7 +46,6 @@ ANALYZER_CLASS_PATHS: dict[str, str] = {
     "frog_spectral_phase": "image_analysis.analyzers.frog_spectral_phase_analyzer.FrogSpectralPhaseAnalyzer",
     "ict": "image_analysis.analyzers.ict_1d_analyzer.ICT1DAnalyzer",
     "line_stitcher": "image_analysis.analyzers.line_stitcher.LineStitcher",
-    "haso": "image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor",
     "downramp_phase": "image_analysis.analyzers.downramp_phase_analyzer.DownrampPhaseAnalyzer",
     "hi_res_mag_cam": "image_analysis.analyzers.Undulator.hi_res_mag_cam_analyzer.HiResMagCamAnalyzer",
     "bcave_mag_opt": "image_analysis.analyzers.Undulator.BCaveMagSpecStitcherOpt.BCaveMagOpt",

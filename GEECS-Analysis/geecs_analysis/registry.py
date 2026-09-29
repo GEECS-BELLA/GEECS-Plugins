@@ -84,10 +84,14 @@ class MeasureDefinition:
     """A measurement spec, function and supported dimensions.
 
     ``service`` names a host-supplied collaborator the measure calls (the
-    FROG retrieval, which runs an external program the core may not start);
-    the host binds it in ``inputs`` under that key and the function then
-    takes ``(frame, spec, service)``. ``sidecar`` names the per-shot table a
-    scan host writes from the measurement's ``extras`` (``None``: none).
+    FROG retrieval and the HASO WaveKit engine, external programs the core
+    may not start); the host binds it in ``inputs`` under that key and the
+    function then takes ``(frame, spec, service)``. ``sidecar`` names the
+    per-shot table a scan host writes beside each shot from the
+    measurement's 1D ``extras`` (``None``: none). ``shot_store`` names the
+    per-scan store a scan host writes under the analysis tree from every
+    single-shot measurement's frame and extras (``None``: none) — the
+    ``haso`` measure's wavefront products, one HDF5 per scan.
     """
 
     spec: type[MeasureSpec]
@@ -95,6 +99,7 @@ class MeasureDefinition:
     ndim: frozenset[int]
     service: str | None = None
     sidecar: str | None = None
+    shot_store: str | None = None
 
 
 _MEASURES: dict[type[MeasureSpec], MeasureDefinition] = {}
@@ -107,15 +112,21 @@ def measure(
     ndim: set[int],
     service: str | None = None,
     sidecar: str | None = None,
+    shot_store: str | None = None,
 ) -> Callable[[Callable[..., Measurement]], Callable[..., Measurement]]:
     """Register a builtin measure before constructing the spec union.
 
     A measure with a ``service`` receives the host's bound collaborator as a
-    third argument; see :class:`MeasureDefinition`.
+    third argument; ``sidecar`` and ``shot_store`` name what a scan host
+    persists per shot; see :class:`MeasureDefinition`.
     """
     if not ndim or not ndim <= {1, 2}:
         raise ValueError("Measure dimensions must be a nonempty subset of {1, 2}")
-    for label, value in (("service", service), ("sidecar", sidecar)):
+    for label, value in (
+        ("service", service),
+        ("sidecar", sidecar),
+        ("shot_store", shot_store),
+    ):
         if value is not None and not value:
             raise ValueError(f"A measure's {label} must be a nonempty name")
 
@@ -123,7 +134,7 @@ def measure(
         if spec in _MEASURES:
             raise ValueError(f"Measure spec already registered: {spec.__name__}")
         _MEASURES[spec] = MeasureDefinition(
-            spec, function, frozenset(ndim), service, sidecar
+            spec, function, frozenset(ndim), service, sidecar, shot_store
         )
         return function
 

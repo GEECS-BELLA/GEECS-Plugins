@@ -4,10 +4,16 @@ One exception to "under the analysis tree": a measure's per-shot sidecar
 table (the FROG retrieval's lineouts) is written beside the shot's raw file,
 where the legacy analyzer wrote it and where follow-on analyzers read it
 (a recipe input's ``folder``). It never creates a directory.
+
+A measure's *shot store* (:class:`ShotStore`, the ``haso`` measure's
+wavefront products) is the per-shot product that stays under the analysis
+tree: one HDF5 per scan and recipe holding every single-shot measurement's
+frame and extras, appended as the run streams.
 """
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,6 +62,130 @@ def _destination(directory: Path, name: str) -> Path:
     if not path.resolve().is_relative_to(directory.resolve()):
         raise ValueError("Output file escapes its analysis directory")
     return path
+
+
+def product_directory(spec: ScanRecipe, scan_folder: Path) -> Path:
+    """The analyzer directory every product of ``spec`` goes under (not created).
+
+    ``analysis/ScanNNN/<output_name>/Array2DScanAnalyzer`` (``Array1D…`` for
+    a trace recipe); an empty output_name falls back to the device, as the
+    legacy wrapper did.
+    """
+    output = _component(spec.output_name or spec.device, "Output name")
+    root = analysis_directory(scan_folder)
+    target = (
+        root / output / ("Array1DScanAnalyzer" if spec.line else "Array2DScanAnalyzer")
+    )
+    if not target.resolve().is_relative_to(root.resolve()):
+        raise ValueError("Output directory escapes its scan analysis folder")
+    return target
+
+
+#: The shot store's frame dtype: the measures that fill one (WaveKit) compute
+#: in float32, and the store keeps that precision rather than doubling it.
+SHOT_STORE_DTYPE = "f4"
+
+
+class ShotStore:
+    """One HDF5 per scan and recipe of every single-shot measurement's products.
+
+    ``shots`` (int64) lists the shot numbers in the order they arrived;
+    ``frame`` is ``(N, …)`` float32, one measurement frame per row; each
+    extra is ``extras/<key>`` of the same layout (a pupil arrives as 0/1).
+    Rows are one chunk each, gzip level 4, so a follow-on recipe reads one
+    shot at a time. The file is written as ``<name>.part`` and renamed
+    into place by :meth:`close` once the run ends without a store error,
+    so a reader never finds a half-written store under the final name; a
+    run that stores nothing leaves no file. The directory is created on
+    the first shot (under the analysis tree; never under ``scans/``).
+
+    The first shot fixes every dataset's shape and the set of extras; a
+    later shot that disagrees is a ``ValueError`` (the store is then
+    discarded by the host and the run goes on without it).
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self.part = self.path.with_name(self.path.name + ".part")
+        self._handle = None
+        self.count = 0
+
+    def add(self, shot: int, measurement) -> None:
+        """Append one shot's frame and extras."""
+        if self._handle is None:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._handle = h5py.File(self.part, "w")
+            self._handle.create_dataset(
+                "shots", shape=(0,), maxshape=(None,), dtype="i8"
+            )
+            self._create("frame", measurement.frame.data)
+            for key, extra in measurement.extras.items():
+                self._create(f"extras/{key}", extra.data)
+        handle = self._handle
+        expected = set(handle["extras"]) if "extras" in handle else set()
+        if set(measurement.extras) != expected:
+            raise ValueError(
+                f"Shot {shot}: extras {sorted(measurement.extras)} differ from "
+                f"the store's {sorted(expected)}"
+            )
+        self._append("frame", shot, measurement.frame.data)
+        for key, extra in measurement.extras.items():
+            self._append(f"extras/{key}", shot, extra.data)
+        shots = handle["shots"]
+        shots.resize((self.count + 1,))
+        shots[self.count] = int(shot)
+        self.count += 1
+
+    def _create(self, name: str, data: np.ndarray) -> None:
+        self._handle.create_dataset(
+            name,
+            shape=(0, *data.shape),
+            maxshape=(None, *data.shape),
+            chunks=(1, *data.shape),
+            dtype=SHOT_STORE_DTYPE,
+            compression="gzip",
+            compression_opts=4,
+        )
+
+    def _append(self, name: str, shot: int, data: np.ndarray) -> None:
+        dataset = self._handle[name]
+        if data.shape != dataset.shape[1:]:
+            raise ValueError(
+                f"Shot {shot}: {name} shape {data.shape} differs from the "
+                f"store's {dataset.shape[1:]}"
+            )
+        dataset.resize((self.count + 1, *dataset.shape[1:]))
+        dataset[self.count] = data
+
+    def close(self, *, keep: bool = True) -> Path | None:
+        """Finish the store: rename it into place (``keep``) or discard it.
+
+        Returns the store's path when a file was kept, else ``None``.
+        """
+        handle, self._handle = self._handle, None
+        if handle is None:
+            return None
+        handle.close()
+        if keep and self.count:
+            os.replace(self.part, self.path)
+            return self.path
+        self.part.unlink(missing_ok=True)
+        return None
+
+    def __enter__(self) -> ShotStore:
+        """Use as a context: the store is discarded if the block raises."""
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        """Keep the store on a clean exit only."""
+        self.close(keep=exc_type is None)
+
+
+def shot_store_path(spec: ScanRecipe, scan_folder: Path, name: str) -> Path:
+    """Where a recipe's shot store goes: ``<device>_<name>.h5`` in its analyzer directory."""
+    device = _component(spec.device, "Diagnostic name")
+    _component(name, "Shot store name")
+    return _destination(product_directory(spec, scan_folder), f"{device}_{name}.h5")
 
 
 def draw_product(
@@ -115,13 +245,8 @@ def save_products(
     if not spec.save or not (plan.singles or plan.summary):
         return SavedProducts((), (), plan.notes)
     device = _component(spec.device, "Diagnostic name")
-    # An empty output_name falls back to the device, as the legacy wrapper did.
-    output = _component(spec.output_name or spec.device, "Output name")
     line = spec.line
-    root = analysis_directory(scan_folder)
-    target = root / output / ("Array1DScanAnalyzer" if line else "Array2DScanAnalyzer")
-    if not target.resolve().is_relative_to(root.resolve()):
-        raise ValueError("Output directory escapes its scan analysis folder")
+    target = product_directory(spec, scan_folder)
     for product in plan.singles:
         _component(str(product.identifier), "Product identifier")
     target.mkdir(parents=True, exist_ok=True)

@@ -138,7 +138,16 @@ class GeecsPathsConfig:
         #: Command prefix that runs the 32-bit Windows Python (e.g. ``wine``
         #: on a Linux host); unset runs it directly, as on Windows.
         self.frog_launcher: Optional[str] = None
-        self.wavekit_config_path: Optional[Path] = None
+        #: HASO WaveKit (optional, the ``haso`` measure): the SDK directory
+        #: (``wavekit_py/`` + ``dlls/x64/``), the 64-bit Windows Python that
+        #: runs it, the command that runs that Python on Linux (``env
+        #: WINEPREFIX=... wine``; unset runs it directly, as on Windows), and
+        #: the directory of per-sensor ``.dat`` / ``.lift`` files a recipe's
+        #: ``sensor_config`` names.
+        self.wavekit_sdk_path: Optional[Path] = None
+        self.wavekit_python_path: Optional[Path] = None
+        self.wavekit_launcher: Optional[str] = None
+        self.wavekit_configs_path: Optional[Path] = None
 
         if config_path.exists():
             try:
@@ -156,9 +165,18 @@ class GeecsPathsConfig:
                     self.frog_launcher = (
                         _config["Paths"]["frog_launcher"].strip() or None
                     )
-                if _config.has_option("Paths", "wavekit_config_path"):
-                    self.wavekit_config_path = self._validate_path(
-                        Path(_config["Paths"]["wavekit_config_path"])
+                for key in (
+                    "wavekit_sdk_path",
+                    "wavekit_python_path",
+                    "wavekit_configs_path",
+                ):
+                    if _config.has_option("Paths", key):
+                        setattr(
+                            self, key, self._validate_path(Path(_config["Paths"][key]))
+                        )
+                if _config.has_option("Paths", "wavekit_launcher"):
+                    self.wavekit_launcher = (
+                        _config["Paths"]["wavekit_launcher"].strip() or None
                     )
             except Exception as e:
                 logger.debug(f"Could not read tool paths from config: {e}")

@@ -29,8 +29,9 @@ def test_render_returns_object_api_figures():
 
 def test_denylisted_kind_is_refused_by_kind():
     diag = AnalysisDiagnostic(
-        name="U_Haso",
-        analyzer={"kind": "haso", "wavekit_config_file_path": "/wfs.dat"},
+        name="U_FROG",
+        analyzer={"kind": "frog_retrieval"},
+        image={"type": "camera"},
     )
     with pytest.raises(ValueError, match="cannot run ephemerally"):
         run_document_ephemeral(diag, [np.ones((4, 4))])

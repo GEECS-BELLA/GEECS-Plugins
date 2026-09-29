@@ -81,7 +81,7 @@ class AnalysisDiagnostic(VersionedSchemaModel):
         description=(
             "How raw frames (type: camera) or traces (type: line) are cleaned "
             "up before analysis. Omit for analyzers that read their own file "
-            "formats (kind haso, phase_downramp)."
+            "formats (kind phase_downramp)."
         ),
     )
     scan: ScanRuntime = Field(

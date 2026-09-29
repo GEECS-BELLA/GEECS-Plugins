@@ -186,7 +186,7 @@ class TestSave:
                 "analyzer",
                 "HTU",
                 "UC_A",
-                {"name": "UC_A", "analyzer": {"kind": "haso"}},
+                {"name": "UC_A", "analyzer": {"kind": "phase_downramp"}},
                 etag=loaded.etag,
             )
         assert (tree / "analyzers" / "HTU" / "UC_A.yaml").read_text() == before
