@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.22.0] - 2026-09-29
+
+### Added
+
+- The `hi_res_mag_cam` measure: the HTU HiResMagCam bow-tie analyzer on
+  the core (#1003 follow-on; the last camera kind in use). `algorithms.
+  bowtie_fit` is ImageAnalysis' `BowtieFitAlgorithm` ported unchanged (a
+  differential test holds it to the original bit for bit, including both
+  rejection paths); the measure is the legacy analyzer's composition —
+  the full beam statistics in frame coordinates, then the fit on the
+  frame floored at 10 counts — and its `emittance_proxy` keeps the
+  optimizer contract (`1e6` when the fit is rejected). New beside it:
+  `bowtie_x0` (the waist column, in sensor pixels like `x_CoM`; a waist
+  the fit places a few columns past the crop — it accepts one within ten
+  columns of data — reads past the edge, as legacy's `x0 + x_min` did,
+  never clamped to it), `bowtie_w0`, `bowtie_theta` and
+  `bowtie_r_squared`, NaN with a note whenever the fit is rejected so a
+  per-bin or per-shot mean of the waist column excludes failed fits by
+  itself. The measure calls the `beam` measure for the statistics and
+  overlays rather than copying its body. The fit's per-column weights
+  are the `bowtie_weights` overlay, drawn as the legacy lineout.
+  `compile_v2` compiles the v2 `hi_res_mag_cam` kind to it and `to_v3`
+  converts those diagnostics, noting a set `threshold_factor` as dropped
+  (the fit never read it; the measure has no such field).
+
 ## [0.21.0] - 2026-09-29
 
 ### Added

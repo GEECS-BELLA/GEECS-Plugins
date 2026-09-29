@@ -32,7 +32,10 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
 
     This analyzer extends BeamAnalyzer to add custom bowtie fitting for
     emittance estimation. It uses the standard processing pipeline from
-    the config file, then applies the bowtie fit algorithm.
+    the config file, then applies the bowtie fit algorithm. Beside the
+    emittance proxy it reports the fit's waist column ``bowtie_x0`` (sensor
+    pixels), waist size, divergence and r-squared, NaN when the fit is
+    rejected.
     """
 
     def __init__(
@@ -105,10 +108,20 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
         # Run bowtie fit algorithm
         bowtie_result = self.algo.evaluate(final_image)
 
-        # Add bowtie fit results to scalars
+        # Add bowtie fit results to scalars. The score keeps its optimizer
+        # contract (1e6 when rejected); the fit parameters are NaN then, so
+        # averaging them over shots excludes failed fits by itself. The waist
+        # column is in sensor pixels, like x_CoM.
+        accepted = np.isfinite(bowtie_result.score) and bowtie_result.score != 1e6
+        roi = self.camera_config.roi
+        x_origin = roi.x_min if roi is not None else 0
         bowtie_scalars = {
             "emittance_proxy": bowtie_result.score,
             "total_counts": np.sum(final_image),
+            "bowtie_x0": bowtie_result.x0 + x_origin if accepted else np.nan,
+            "bowtie_w0": bowtie_result.w0 if accepted else np.nan,
+            "bowtie_theta": bowtie_result.theta if accepted else np.nan,
+            "bowtie_r_squared": bowtie_result.r_squared if accepted else np.nan,
         }
 
         # Merge with existing scalars from beam analysis
