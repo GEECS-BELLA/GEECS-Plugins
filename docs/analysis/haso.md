@@ -44,7 +44,12 @@ LabVIEW device  ──.himg per shot──▶  scans/ScanNNN/U_HasoLift/
    *wavefront store*: one HDF5 per scan and recipe under the analysis
    tree, one row per shot, float32 (the SDK's precision), rows one chunk
    each so a follow-on recipe reads one shot at a time. The store is
-   written as `.part` and renamed at the end of a clean run. Nothing is
+   written as `.part` (created exclusively) and renamed at the end of a
+   clean run; a store failure costs the store, never the run's scalars.
+   A `.part` left behind by a run that died mid-way blocks the store on
+   every rerun of that recipe on that scan — the run still writes its
+   scalars and figures, and the portal's log carries an error naming
+   the file: remove it once nothing is analyzing the scan. Nothing is
    written beside the raw data: no `.has`, no TSV sidecars.
 
 ### The recipe

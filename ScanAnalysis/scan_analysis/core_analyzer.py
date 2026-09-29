@@ -311,16 +311,22 @@ class CoreScanAnalyzer(ScanAnalyzer):
         Like the sidecar, the store is per single-shot unit only (a bin's
         averaged frame has no one shot). A write or shape failure is
         logged, the partial store is discarded, and the run goes on with
-        its scalars and products.
+        its scalars and products. A store that never opened because its
+        ``.part`` already exists (a run that died mid-way, or a second run
+        on the same scan) is logged as an error naming the file: every
+        rerun is scalars-only until someone removes it.
         """
         try:
             store.add(shot, outcome.measurement)
         except (OSError, ValueError) as exc:
-            logger.warning(
-                "Shot %s: shot store not written (%s); discarding %s",
+            stale = store.count == 0 and store.part.exists()
+            (logger.error if stale else logger.warning)(
+                "Shot %s: shot store not written (%s); %s",
                 shot,
                 exc,
-                store.path.name,
+                f"remove {store.part} once nothing is analyzing this scan"
+                if stale
+                else f"discarding {store.path.name}",
             )
             self._discard_store(store)
             return None

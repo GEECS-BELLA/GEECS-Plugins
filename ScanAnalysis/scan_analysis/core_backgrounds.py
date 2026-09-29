@@ -181,7 +181,7 @@ def _frame_loaders(
 ) -> list[Callable[[], np.ndarray]]:
     """Every frame of the device folder: the stack's frames, or its files in order.
 
-    ``.himg`` frames come from the stack alone (``core_services.stack_required``):
+    ``.himg`` frames come from the stack alone (``core_source.stack_required``):
     a dark scan of a HASO device must be converted before it can be a
     background.
     """
