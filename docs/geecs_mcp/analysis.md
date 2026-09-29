@@ -37,10 +37,10 @@ poll. The tool validates *everything refusable before any side effect*:
   scan folders, never a producer (the repo-wide invariant: a missing
   folder is a refusal naming the path, never an auto-create);
 - the analyzers must actually construct **on this host** — a diagnostic
-  whose image-analyzer class needs a Windows-only SDK (the HASO
-  wavefront and Grenouille/FROG diagnostics) is refused up front with a
-  message naming the future Windows satellite server, instead of
-  half-running.
+  whose image-analyzer class cannot be imported here (a vendor SDK this
+  host lacks) is refused up front instead of half-running. The FROG and
+  HASO recipes run on the analysis core, with their vendor programs
+  under Wine on the Linux host (see [HASO](../analysis/haso.md)).
 
 The execution itself is the ScanAnalysis task queue's own machinery:
 statuses are initialized before the worker spawns (so a worker that dies

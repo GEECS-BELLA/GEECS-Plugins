@@ -226,7 +226,7 @@ def _wrap_in_scan_analyzer(
 
     Dispatch is on the type of ``diag.image``:
     :class:`Line1DConfig` → :class:`Array1DScanAnalyzer`; anything else
-    (including the ``image`` is None HASO case) → :class:`Array2DScanAnalyzer`.
+    (including the ``image`` is None phase-map case) → :class:`Array2DScanAnalyzer`.
     """
     if isinstance(diag.image, Line1DConfig):
         from scan_analysis.analyzers.common.array1d_scan_analysis import (

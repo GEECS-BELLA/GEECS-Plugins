@@ -5,6 +5,15 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0] - 2026-09-29
+
+### Removed
+
+- The v2 `haso` analyzer kind (`HasoAnalyzerSpec`, `PupilMask`): the HASO
+  wavefront analysis is the analysis core's `haso` measure on a v3 recipe
+  (GEECS-Analysis 0.21.0). The `ANALYZER_SPECS` registry has 14 kinds;
+  the schema reference and the diagnostic JSON Schema are regenerated.
+
 ## [0.38.0] - 2026-09-28
 
 ### Added

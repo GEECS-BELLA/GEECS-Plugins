@@ -17,7 +17,12 @@ from scan_analysis.base import DataUnavailableWarning, ScanAnalyzer
 from scan_analysis.core_products import ProductCollector, ProductPlan
 from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
 from scan_analysis.core_scan import PreparedScan, prepare_scan
-from scan_analysis.core_sink import save_products, write_shot_table
+from scan_analysis.core_sink import (
+    ShotStore,
+    save_products,
+    shot_store_path,
+    write_shot_table,
+)
 from scan_analysis.core_source import source_directory
 from scan_analysis.core_workers import effective_workers
 
@@ -191,9 +196,77 @@ class CoreScanAnalyzer(ScanAnalyzer):
             workers,
             "" if workers == 1 else "s",
         )
+        for service in prepared.prepared.inputs.values():
+            # A service that runs one external process per shot (WaveKit)
+            # shares the cores among the pool's concurrent shots.
+            share = getattr(service, "share_cores", None)
+            if callable(share):
+                share(workers)
         pending: list[dict] = []
+        definition = measure_definition(prepared.prepared.recipe.analysis.measure)
+        sidecar = definition.sidecar
+        store: ShotStore | None = None
+        if (
+            definition.shot_store is not None
+            and self.spec.save
+            and not prepared.average_before_analysis
+        ):
+            store = ShotStore(
+                shot_store_path(
+                    self.spec, Path(self.scan_directory), definition.shot_store
+                )
+            )
+        try:
+            fold_error = self._stream(
+                prepared, collector, workers, pending, sidecar, store
+            )
+        except BaseException:
+            if store is not None:
+                self._discard_store(store)
+            raise
+        if store is not None:
+            # The store is a product: like every product write, its final
+            # flush and rename must never cost the run its scalars.
+            try:
+                kept = store.close()
+            except OSError as exc:
+                logger.warning(
+                    "%s: shot store %s not kept (%s); the run's scalars are unaffected",
+                    self.device_name,
+                    store.path.name,
+                    exc,
+                )
+            else:
+                if kept is not None:
+                    logger.info(
+                        "%s: %d shots stored in %s", self.device_name, store.count, kept
+                    )
+        if pending:
+            updates = pd.DataFrame(pending)
+            # The legacy wrapper wrote its scalars into the in-memory rows
+            # before persisting, so a waterfall sorted by one of this run's
+            # own columns resolves even when the s-file merge is refused.
+            write_scalars_into_rows(self.auxiliary_data, pending)
+            self.write_scalar_sidecar(updates)
+            self.append_to_sfile(updates)
+        if fold_error is not None:
+            raise fold_error
+
+    def _stream(
+        self,
+        prepared: PreparedScan,
+        collector: ProductCollector,
+        workers: int,
+        pending: list[dict],
+        sidecar: str | None,
+        store: ShotStore | None,
+    ) -> ValueError | None:
+        """The per-outcome loop: fold, persist per shot, queue the scalars.
+
+        Returns the first fold error (raised by the caller once the scalars
+        are persisted), or ``None``.
+        """
         fold_error: ValueError | None = None
-        sidecar = measure_definition(prepared.prepared.recipe.analysis.measure).sidecar
         for outcome in prepared.run(workers=workers):
             for failure in outcome.load_failures:
                 logger.warning(
@@ -219,17 +292,47 @@ class CoreScanAnalyzer(ScanAnalyzer):
                     fold_error = exc
             if sidecar is not None:
                 self._write_sidecar(prepared, outcome, sidecar)
+            if store is not None and len(outcome.loaded_shots) == 1:
+                store = self._store_shot(store, outcome.loaded_shots[0], outcome)
             pending.extend(prepared.scalar_records(outcome))
-        if pending:
-            updates = pd.DataFrame(pending)
-            # The legacy wrapper wrote its scalars into the in-memory rows
-            # before persisting, so a waterfall sorted by one of this run's
-            # own columns resolves even when the s-file merge is refused.
-            write_scalars_into_rows(self.auxiliary_data, pending)
-            self.write_scalar_sidecar(updates)
-            self.append_to_sfile(updates)
-        if fold_error is not None:
-            raise fold_error
+        return fold_error
+
+    @staticmethod
+    def _discard_store(store: ShotStore) -> None:
+        """Drop a store's part file on the way out of a failed run; never raise."""
+        try:
+            store.close(keep=False)
+        except OSError as exc:
+            logger.warning("Shot store %s not discarded: %s", store.path.name, exc)
+
+    def _store_shot(self, store: ShotStore, shot: int, outcome) -> ShotStore | None:
+        """Append one shot to the store; a store failure drops the store, not the run.
+
+        Like the sidecar, the store is per single-shot unit only (a bin's
+        averaged frame has no one shot). A write or shape failure is
+        logged, the partial store is discarded, and the run goes on with
+        its scalars and products. A store that never opened because its
+        ``.part`` already exists (a run that died mid-way, or a second run
+        on the same scan) is logged as an error naming the file: every
+        rerun is scalars-only until someone removes it.
+        """
+        try:
+            store.add(shot, outcome.measurement)
+        except (OSError, ValueError) as exc:
+            # Never opened: the part belongs to another run (live or dead),
+            # and the discard below leaves it alone.
+            stale = store._handle is None and store.part.exists()
+            (logger.error if stale else logger.warning)(
+                "Shot %s: shot store not written (%s); %s",
+                shot,
+                exc,
+                f"remove {store.part} once nothing is analyzing this scan"
+                if stale
+                else f"discarding {store.path.name}",
+            )
+            self._discard_store(store)
+            return None
+        return store
 
     def _write_sidecar(self, prepared: PreparedScan, outcome, name: str) -> None:
         """Write one shot's sidecar table beside its file, as the legacy analyzer did.

@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.37.3] - 2026-09-29
+
+### Changed
+
+- Tests only: the denylisted-processing example is the `frog_retrieval`
+  kind (the v2 `haso` kind left GEECS-Schemas 0.39.0 with the HASO
+  analysis' move to the analysis core). No runtime change.
+
 ## [0.37.2] - 2026-09-28
 
 ### Fixed

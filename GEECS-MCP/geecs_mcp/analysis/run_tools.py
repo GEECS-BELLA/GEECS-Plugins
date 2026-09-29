@@ -15,11 +15,11 @@ Execution shape — submit-and-poll, never a blocking tool call:
    folder EXISTS (analysis never creates ``scans/ScanNNN/`` — the
    cross-package invariant; a missing folder is a ``not_found`` refusal,
    pinned by a nothing-created test), and the analyzer(s) actually
-   construct on this host — a diagnostic whose image-analyzer class needs
-   a Windows-only SDK (HASO WaveKit, Grenouille FROG.dll) fails right
-   here with a clear refusal instead of a half-run (those diagnostics
-   belong to the future Windows satellite server, per the domain
-   roadmap).
+   construct on this host — a diagnostic whose image-analyzer class
+   cannot be imported here (a vendor SDK this host lacks) fails right
+   here with a clear refusal instead of a half-run. (The FROG and HASO
+   recipes run on the analysis core through Wine on the Linux host
+   since 2026-09; the refusal remains for any other such kind.)
 2. It initializes the ``analysis_status/`` files server-side
    (``init_status_for_scan``, idempotent) — so a worker that dies before
    claiming leaves *visible* queued rows, never a silent nothing.

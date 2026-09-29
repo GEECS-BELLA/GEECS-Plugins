@@ -78,7 +78,7 @@ norecursedirs = [
 # Ruff settings
 # -------------------------------
 [tool.ruff]
-exclude = ["extras/**", "**/third_party_sdks/**", "**/.ipynb_checkpoints/**"]
+exclude = ["extras/**", "**/.ipynb_checkpoints/**"]
 
 [tool.ruff.lint]
 ignore = ["D100", "D104", "D401"]  # Allow missing module/package docstrings and imperative mood
@@ -86,7 +86,6 @@ extend-select = ["D"]  # Enable all pydocstyle checks
 
 [tool.ruff.lint.per-file-ignores]
 "extras/**" = ["D"]
-"**/third_party_sdks/**" = ["D"]
 "**/tests/**" = ["D"]  # Ignore all docstring rules in test files
 # Legacy tree exempt from lint debt until its proper audit/cleanup
 # (owner decision on PR #574, 2026-07-16). Only the pre-existing debt
@@ -113,7 +112,6 @@ ignore-nested-classes = true
 verbose = 2
 exclude = [
     "setup.py", "docs", "tests", "**/tests/**", "**/test_*.py", "**/*_test.py", "**/conftest.py",
-    "**/third_party_sdks/**",
     "**/extras/**"
 ]
 
@@ -123,4 +121,4 @@ exclude = [
 [tool.pydocstyle]
 convention = "numpy"
 add-ignore = ["D100", "D104"]
-match-dir = "^(?!extras/|.*third_party_sdks).*"
+match-dir = "^(?!extras/).*"

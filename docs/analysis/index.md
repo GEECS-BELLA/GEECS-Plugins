@@ -13,8 +13,9 @@ sense of what's in it, start here.
 
     Per-shot image processing: YAML-described pipelines (background,
     masking, filtering, geometric transforms, thresholding) and
-    specialised analyzers for beam profile, FROG, magspec, HASO
-    wavefront, and 1D traces.
+    specialised analyzers for beam profile, FROG, magspec and 1D
+    traces. The HASO wavefront runs on the analysis core through
+    WaveKit — see [HASO wavefront](haso.md).
 
     [:octicons-arrow-right-24: Overview](../image_analysis/overview.md) ·
     [Analyzer index](../image_analysis/analyzer_index.md)

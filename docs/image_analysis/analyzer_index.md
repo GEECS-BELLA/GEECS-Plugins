@@ -34,9 +34,7 @@ Worked example: [Grenouille Analysis notebook](examples/grenouille_analysis.ipyn
 
 ### Wavefront / phase
 
-**`HASOHimgHasProcessor`** (`analyzers/HASO_himg_has_processor.py`) — loads HASO `.himg` / `.has` files, applies masking and background subtraction, computes phase via zonal reconstruction. Saves slopes, phases, and intensity alongside the source. Requires WaveKit 4.3 (Windows-only at runtime).
-
-Worked example: [HasoLift Analysis notebook](examples/HasoLift_analysis.ipynb).
+**HASO wavefront** — no ImageAnalyzer: the `haso` *measure* of the analysis core computes the zonal phase from the sensor's raw pixels through WaveKit 4.3, which ImageAnalysis runs out of process (`algorithms/haso_wavekit.py`, natively on Windows or under 64-bit Wine on Linux). A recipe names the sensor's configuration file; every shot's processed phase, raw phase, intensity, slopes and pupil go to one HDF5 per scan. See the [HASO runbook](../analysis/haso.md).
 
 **`DownrampPhaseAnalyzer`** (`analyzers/downramp_phase_analyzer.py`) — plasma downramp shock analysis from phase data. Shock angle estimation, gradient and position detection, plateau and peak-to-plateau delta calculation. Output is a combined diagnostic figure as vector PDF.
 

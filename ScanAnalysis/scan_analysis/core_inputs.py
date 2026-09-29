@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 class ServicesNotRequested(UnsupportedRecipe):
     """The recipe's measure needs a service and this caller did not ask for one.
 
-    A measure with a service (the FROG retrieval) starts an external program
-    per frame. Scan runs and the editor's explicit previews ask for it; a
+    A measure with a service (the FROG retrieval, the WaveKit engine) starts
+    an external program per frame. Scan runs and the editor's explicit previews ask for it; a
     per-request view (the portal's shot browser) does not, and — this being
     an ``UnsupportedRecipe`` — keeps the route it had before the port, which
     refuses such a kind outright.
@@ -94,10 +94,11 @@ def prepare_v2(
     that says so) makes the failure an error. Successfully loaded malformed
     geometry raises instead of silently selecting the constant. Each distinct
     background is loaded once for this prepared run, including repeated
-    pipeline steps. A measure's service (the FROG retriever) is built here
-    from this host's config, so a host that cannot provide it fails now,
-    before any shot is read; ``services=False`` refuses such a recipe with
-    :class:`ServicesNotRequested` instead, before any file is read.
+    pipeline steps. A measure's service (the FROG retriever, the WaveKit
+    engine) is built here from this host's config — and, for WaveKit, from
+    the scan's own capture stack — so a host that cannot provide it fails
+    now, before any shot is read; ``services=False`` refuses such a recipe
+    with :class:`ServicesNotRequested` instead, before any file is read.
 
     A scan background (``scan.background_source``, a recipe's ``from_scan``
     input) is computed from its scan's frames by ``core_backgrounds`` — and
@@ -149,7 +150,7 @@ def prepare_v2(
         inputs[request.key] = Frame.from_array(
             _scan_background(document, request, data_dir, compute_scan_backgrounds)
         )
-    inputs.update(services_for(recipe.analysis.measure))
+    inputs.update(services_for(recipe.analysis.measure, data_dir=data_dir))
     return PreparedRecipe(
         recipe,
         bind_inputs(recipe.analysis.steps, inputs, measure=recipe.analysis.measure),
