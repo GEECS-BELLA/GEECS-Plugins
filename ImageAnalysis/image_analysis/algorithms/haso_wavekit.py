@@ -149,6 +149,10 @@ class HasoWaveKit:
         #: MKL threads per worker process; ``None`` leaves MKL its default
         #: (every core). A pooled scan run sets it through :meth:`share_cores`.
         self.threads: Optional[int] = None
+        #: The first sensor mismatch this engine met: every later call fails
+        #: at once, so a recipe naming the wrong sensor costs one worker
+        #: process, not one per shot.
+        self._refused: Optional[str] = None
         for path, what in (
             (self.sdk_path / "wavekit_py", "the SDK's Python bindings (wavekit_py/)"),
             (self.sdk_path / "dlls" / "x64", "the SDK's 64-bit DLLs (dlls/x64/)"),
@@ -171,7 +175,12 @@ class HasoWaveKit:
 
     def sensor_file(self, sensor_config: str) -> Path:
         """The sensor configuration ``sensor_config`` names, under ``configs_path``."""
-        if not sensor_config or sensor_config in {".", ".."} or "/" in sensor_config:
+        if (
+            not sensor_config
+            or sensor_config in {".", ".."}
+            or "/" in sensor_config
+            or "\\" in sensor_config
+        ):
             raise ValueError(
                 "sensor_config must be a file name under wavekit_configs_path"
             )
@@ -215,10 +224,14 @@ class HasoWaveKit:
         Raises
         ------
         WaveKitSensorMismatch
-            The pixels' header carries another sensor's serial.
+            The pixels' header carries another sensor's serial — on this
+            call, and on every later call of this engine without starting
+            a worker (a wrong ``sensor_config`` is a whole run's mistake).
         WaveKitError
             The worker failed or timed out.
         """
+        if self._refused is not None:
+            raise WaveKitSensorMismatch(self._refused)
         config = self.sensor_file(sensor_config)
         frame = np.asarray(pixels)
         params = {
@@ -263,7 +276,8 @@ class HasoWaveKit:
                 json.loads(result_path.read_text()) if result_path.is_file() else {}
             )
             if run.returncode == _EXIT_SERIAL_MISMATCH:
-                raise WaveKitSensorMismatch(report.get("error") or run.stderr.strip())
+                self._refused = report.get("error") or run.stderr.strip()
+                raise WaveKitSensorMismatch(self._refused)
             if run.returncode != 0:
                 raise WaveKitError(
                     f"WaveKit worker failed (return code {run.returncode}).\n"

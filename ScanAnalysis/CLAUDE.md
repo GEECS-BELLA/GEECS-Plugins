@@ -61,7 +61,7 @@ the WaveKit engine — external programs per frame) gets it from
 this host's `config.ini` when the run is prepared — a host without the DLL
 fails there, before any shot is read. The WaveKit engine is also built from
 the scan: it needs one `.himg` header of the sensor, taken from the device's
-capture stack (`core_services.stack_required` — an unconverted scan is
+capture stack (`core_source.stack_required` — an unconverted scan is
 refused as `StackMappingUnavailable`, i.e. `no_data`, naming the
 `himg_to_stack` converter). The same rule sits in `core_source.prepare_source`
 and `core_backgrounds`: `.himg` frames (`file_tail: .himg`) are read through

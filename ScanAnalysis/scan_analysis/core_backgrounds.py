@@ -43,6 +43,8 @@ from geecs_data_utils.io.scan_stack import (
     read_frame,
 )
 
+from scan_analysis.core_source import stack_required
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -184,8 +186,6 @@ def _frame_loaders(
     background.
     """
     if file_tail == HIMG_SUFFIX:
-        from scan_analysis.core_services import stack_required
-
         stack = stack_required(device_dir)
     else:
         stack = find_stack_file(device_dir) if prefer_stack else None

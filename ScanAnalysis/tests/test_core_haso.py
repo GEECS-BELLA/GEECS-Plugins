@@ -23,8 +23,7 @@ import scan_analysis.base as base
 from scan_analysis import core_services, core_workers
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.core_analyzer import CoreScanAnalyzer
-from scan_analysis.core_services import stack_required
-from scan_analysis.core_source import prepare_source
+from scan_analysis.core_source import prepare_source, stack_required
 
 TAG = ScanTag(year=2026, month=3, day=10, number=12, experiment="Test")
 DEVICE = "U_HasoLift"
@@ -68,6 +67,18 @@ HELPER = textwrap.dedent(
 
         def compute(self, pixels, **parameters):
             return Result(pixels, parameters["mask"])
+
+
+    class OddEngine(Engine):
+        """Shot 3 (pixels all 3) comes back on a smaller grid."""
+
+        def compute(self, pixels, **parameters):
+            result = Result(pixels, parameters["mask"])
+            if int(pixels.max()) == 3:
+                for key in ("processed_phase", "raw_phase", "intensity", "slopes_x", "slopes_y"):
+                    setattr(result, key, getattr(result, key)[:2])
+                result.pupil = result.pupil[:2]
+            return result
     '''
 )
 
@@ -227,6 +238,81 @@ def test_the_source_reads_himg_only_through_the_stack(tmp_path):
     source = prepare_source(plain, scan, rows)
     assert sorted(source.references) == list(range(1, SHOTS + 1))
     np.testing.assert_array_equal(source.load(3), _pixels(3))
+
+
+def _store_of(scan: Path) -> Path:
+    return (
+        scan.parent.parent
+        / "analysis"
+        / "Scan012"
+        / DEVICE
+        / "Array2DScanAnalyzer"
+        / f"{DEVICE}_wavefront.h5"
+    )
+
+
+def test_a_disagreeing_shot_discards_the_store_and_the_run_goes_on(
+    tmp_path, monkeypatch, helper, caplog
+):
+    """A store failure costs the store, never the run: scalars for every shot, no file."""
+    monkeypatch.setitem(
+        core_services.SERVICE_FACTORIES,
+        "haso",
+        lambda data_dir: helper.OddEngine(
+            core_services.stack_header(stack_required(data_dir))
+        ),
+    )
+    with caplog.at_level(logging.WARNING, logger="scan_analysis.core_analyzer"):
+        scan = run(monkeypatch, tmp_path, recipe())
+    rows = pd.read_csv(scan.parent.parent / "analysis" / "s12.txt", sep="\t")
+    assert rows[f"{DEVICE}_phase_rms"].notna().sum() == SHOTS
+    store = _store_of(scan)
+    assert not store.exists() and not store.with_name(store.name + ".part").exists()
+    assert any("shot store not written" in r.getMessage() for r in caplog.records)
+
+
+def test_a_store_that_cannot_be_renamed_keeps_the_scalars(
+    tmp_path, monkeypatch, helper, caplog
+):
+    """The final flush/rename is a product write: an OSError there loses only the store."""
+    import os
+
+    from scan_analysis import core_sink
+
+    real_replace = os.replace
+
+    def refuse(src, dst):
+        if str(dst).endswith("_wavefront.h5"):
+            raise PermissionError(f"{dst}: sharing violation")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(core_sink.os, "replace", refuse)
+    with caplog.at_level(logging.WARNING, logger="scan_analysis.core_analyzer"):
+        scan = run(monkeypatch, tmp_path, recipe())
+    rows = pd.read_csv(scan.parent.parent / "analysis" / "s12.txt", sep="\t")
+    assert rows[f"{DEVICE}_phase_rms"].notna().sum() == SHOTS
+    store = _store_of(scan)
+    assert not store.exists() and not store.with_name(store.name + ".part").exists()
+    assert any("not kept" in r.getMessage() for r in caplog.records)
+
+
+def test_a_leftover_part_file_refuses_the_store_not_the_run(
+    tmp_path, monkeypatch, helper
+):
+    scan = build_scan(tmp_path)
+    part = _store_of(scan).with_name(f"{DEVICE}_wavefront.h5.part")
+    part.parent.mkdir(parents=True)
+    part.write_bytes(b"a run died here")
+    monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=tmp_path))
+    analyzer = CoreScanAnalyzer(recipe(), id=DEVICE, priority=1)
+    try:
+        analyzer.run_analysis(TAG)
+    finally:
+        analyzer.cleanup()
+    rows = pd.read_csv(scan.parent.parent / "analysis" / "s12.txt", sep="\t")
+    assert rows[f"{DEVICE}_phase_rms"].notna().sum() == SHOTS
+    # The stale part is left for a human; nothing else was written.
+    assert part.read_bytes() == b"a run died here" and not _store_of(scan).exists()
 
 
 def test_save_false_stores_nothing_but_keeps_the_scalars(tmp_path, monkeypatch, helper):

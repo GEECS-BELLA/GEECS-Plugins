@@ -282,6 +282,26 @@ class TestShotStore:
                 raise RuntimeError("the run died")
         assert not path.exists() and not store.part.exists()
 
+    def test_a_second_writer_on_the_same_part_is_refused(self, tmp_path):
+        from scan_analysis.core_sink import ShotStore
+
+        path = (
+            tmp_path
+            / "analysis"
+            / "Scan001"
+            / "Output"
+            / "Array2DScanAnalyzer"
+            / "D_w.h5"
+        )
+        first = ShotStore(path)
+        first.add(1, self.measurement(1))
+        second = ShotStore(path)
+        with pytest.raises(OSError, match="exists"):
+            second.add(1, self.measurement(1))
+        # The refused writer discards nothing of the first's.
+        assert second.close(keep=False) is None and first.part.exists()
+        assert first.close() == path
+
     def test_the_store_name_is_one_component(self, tmp_path):
         from scan_analysis.core_sink import shot_store_path
 

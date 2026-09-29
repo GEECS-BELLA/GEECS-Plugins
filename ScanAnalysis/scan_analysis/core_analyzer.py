@@ -222,14 +222,25 @@ class CoreScanAnalyzer(ScanAnalyzer):
             )
         except BaseException:
             if store is not None:
-                store.close(keep=False)
+                self._discard_store(store)
             raise
         if store is not None:
-            kept = store.close()
-            if kept is not None:
-                logger.info(
-                    "%s: %d shots stored in %s", self.device_name, store.count, kept
+            # The store is a product: like every product write, its final
+            # flush and rename must never cost the run its scalars.
+            try:
+                kept = store.close()
+            except OSError as exc:
+                logger.warning(
+                    "%s: shot store %s not kept (%s); the run's scalars are unaffected",
+                    self.device_name,
+                    store.path.name,
+                    exc,
                 )
+            else:
+                if kept is not None:
+                    logger.info(
+                        "%s: %d shots stored in %s", self.device_name, store.count, kept
+                    )
         if pending:
             updates = pd.DataFrame(pending)
             # The legacy wrapper wrote its scalars into the in-memory rows
@@ -286,6 +297,14 @@ class CoreScanAnalyzer(ScanAnalyzer):
             pending.extend(prepared.scalar_records(outcome))
         return fold_error
 
+    @staticmethod
+    def _discard_store(store: ShotStore) -> None:
+        """Drop a store's part file on the way out of a failed run; never raise."""
+        try:
+            store.close(keep=False)
+        except OSError as exc:
+            logger.warning("Shot store %s not discarded: %s", store.path.name, exc)
+
     def _store_shot(self, store: ShotStore, shot: int, outcome) -> ShotStore | None:
         """Append one shot to the store; a store failure drops the store, not the run.
 
@@ -303,7 +322,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
                 exc,
                 store.path.name,
             )
-            store.close(keep=False)
+            self._discard_store(store)
             return None
         return store
 

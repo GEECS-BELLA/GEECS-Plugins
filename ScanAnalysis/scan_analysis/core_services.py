@@ -20,35 +20,11 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from geecs_analysis.registry import MeasureSpec, measure_definition
-from geecs_data_utils.io.himg_stack import HIMG_SUFFIX, stack_header
-from geecs_data_utils.io.scan_stack import find_stack_file
-from geecs_data_utils.shot_files import StackMappingUnavailable
+from geecs_data_utils.io.himg_stack import stack_header
 
-__all__ = ["SERVICE_FACTORIES", "STACK_HINT", "services_for", "stack_required"]
+from scan_analysis.core_source import stack_required
 
-#: How the message that refuses an unconverted HASO scan names the way out.
-STACK_HINT = (
-    "convert the scan first with the himg_to_stack analyzer "
-    "(HasoLift_stack in the Data Portal's Analysis tab)"
-)
-
-
-def stack_required(device_dir: Path) -> Path:
-    """The device folder's capture stack, or the refusal every ``.himg`` reader gives.
-
-    ``.himg`` frames enter the analysis core only through the device's
-    stack (``<device>/<device>.h5``, written by ``himg_to_stack``): the
-    per-shot files are never read by a run. The refusal is a
-    ``StackMappingUnavailable`` (a ``LookupError``), which the scan host
-    reports as missing data.
-    """
-    stack = find_stack_file(Path(device_dir))
-    if stack is None:
-        raise StackMappingUnavailable(
-            f"no capture stack in {device_dir}: {HIMG_SUFFIX} frames are read "
-            f"from the stack only — {STACK_HINT}"
-        )
-    return stack
+__all__ = ["SERVICE_FACTORIES", "services_for"]
 
 
 def _frog_retriever(data_dir: Optional[Path]) -> object:

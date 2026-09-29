@@ -93,11 +93,13 @@ class ShotStore:
     ``frame`` is ``(N, …)`` float32, one measurement frame per row; each
     extra is ``extras/<key>`` of the same layout (a pupil arrives as 0/1).
     Rows are one chunk each, gzip level 4, so a follow-on recipe reads one
-    shot at a time. The file is written as ``<name>.part`` and renamed
-    into place by :meth:`close` once the run ends without a store error,
-    so a reader never finds a half-written store under the final name; a
-    run that stores nothing leaves no file. The directory is created on
-    the first shot (under the analysis tree; never under ``scans/``).
+    shot at a time. The file is written as ``<name>.part`` — created
+    exclusively, so a second run storing the same scan refuses instead of
+    racing this one to the rename — and renamed into place by
+    :meth:`close` once the run ends without a store error, so a reader
+    never finds a half-written store under the final name; a run that
+    stores nothing leaves no file. The directory is created on the first
+    shot (under the analysis tree; never under ``scans/``).
 
     The first shot fixes every dataset's shape and the set of extras; a
     later shot that disagrees is a ``ValueError`` (the store is then
@@ -114,7 +116,12 @@ class ShotStore:
         """Append one shot's frame and extras."""
         if self._handle is None:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self._handle = h5py.File(self.part, "w")
+            if self.part.exists():
+                raise OSError(
+                    f"{self.part} exists: another run is storing this scan, or one "
+                    "died mid-run; remove it once nothing is running"
+                )
+            self._handle = h5py.File(self.part, "w-")
             self._handle.create_dataset(
                 "shots", shape=(0,), maxshape=(None,), dtype="i8"
             )
@@ -160,15 +167,25 @@ class ShotStore:
     def close(self, *, keep: bool = True) -> Path | None:
         """Finish the store: rename it into place (``keep``) or discard it.
 
-        Returns the store's path when a file was kept, else ``None``.
+        Returns the store's path when a file was kept, else ``None``. An
+        ``OSError`` from the final flush or the rename (a full or flaky
+        share) discards the part file as far as it can and propagates, so
+        the host can keep the run's other products.
         """
         handle, self._handle = self._handle, None
         if handle is None:
             return None
-        handle.close()
-        if keep and self.count:
-            os.replace(self.part, self.path)
-            return self.path
+        try:
+            handle.close()
+            if keep and self.count:
+                os.replace(self.part, self.path)
+                return self.path
+        except OSError:
+            try:
+                self.part.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
         self.part.unlink(missing_ok=True)
         return None
 

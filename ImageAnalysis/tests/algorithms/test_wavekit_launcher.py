@@ -168,10 +168,16 @@ def test_a_serial_mismatch_and_a_crash_are_distinct_errors(tree, monkeypatch):
         )
         return subprocess.CompletedProcess(cmd, 3, stdout="", stderr="")
 
-    _, run = fake_worker(mismatch)
+    seen, run = fake_worker(mismatch)
     monkeypatch.setattr(wavekit.subprocess, "run", run)
+    service = engine(tree)
     with pytest.raises(WaveKitSensorMismatch, match="7784"):
-        engine(tree).compute(pixels(), sensor_config=SENSOR)
+        service.compute(pixels(), sensor_config=SENSOR)
+    # The mismatch is the run's, not the shot's: no further worker starts.
+    with pytest.raises(WaveKitSensorMismatch, match="7784"):
+        service.compute(pixels(), sensor_config=SENSOR)
+    assert len(seen) == 1
+    assert pickle.loads(pickle.dumps(service))._refused == service._refused
 
     def crash(workdir, cmd, kwargs):
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="boom")
@@ -197,6 +203,8 @@ def test_unknown_sensor_or_wrong_frame_shape_never_starts_the_worker(tree, monke
         service.compute(pixels(), sensor_config="other.dat")
     with pytest.raises(ValueError, match="file name"):
         service.compute(pixels(), sensor_config="../x.dat")
+    with pytest.raises(ValueError, match="file name"):
+        service.compute(pixels(), sensor_config="..\\x.dat")
     with pytest.raises(Exception, match="does not match the header"):
         service.compute(np.zeros((2, 2), dtype=np.uint16), sensor_config=SENSOR)
     assert seen == []

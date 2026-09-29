@@ -13,13 +13,44 @@ import pandas as pd
 from geecs_data_utils.io.array1d import Data1DConfig, read_1d_data
 from geecs_data_utils.io.himg_stack import HIMG_SUFFIX
 from geecs_data_utils.io.images import read_imaq_image
-from geecs_data_utils.io.scan_stack import ShotRef, open_stack, read_frame, read_shot
+from geecs_data_utils.io.scan_stack import (
+    ShotRef,
+    find_stack_file,
+    open_stack,
+    read_frame,
+    read_shot,
+)
 from geecs_data_utils.shot_files import StackMappingUnavailable, map_shot_files
 
 from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
-from scan_analysis.core_services import stack_required
 
 logger = logging.getLogger(__name__)
+
+#: How the message that refuses an unconverted HASO scan names the way out.
+STACK_HINT = (
+    "convert the scan first with the himg_to_stack analyzer "
+    "(HasoLift_stack in the Data Portal's Analysis tab)"
+)
+
+
+def stack_required(device_dir: Path) -> Path:
+    """The device folder's capture stack, or the refusal every ``.himg`` reader gives.
+
+    ``.himg`` frames enter the analysis core only through the device's
+    stack (``<device>/<device>.h5``, written by ``himg_to_stack``): the
+    per-shot files are never read by a run — not by the source, not by a
+    dark scan's background loader, not by the WaveKit service that takes
+    its sensor header from the stack. The refusal is a
+    ``StackMappingUnavailable`` (a ``LookupError``), which the scan host
+    reports as missing data.
+    """
+    stack = find_stack_file(Path(device_dir))
+    if stack is None:
+        raise StackMappingUnavailable(
+            f"no capture stack in {device_dir}: {HIMG_SUFFIX} frames are read "
+            f"from the stack only — {STACK_HINT}"
+        )
+    return stack
 
 
 @dataclass(frozen=True)

@@ -62,6 +62,7 @@ measure:
   start_subpupil: [87, 64]
   zonal_prefs: [100, 500, 1.0e-6]     # weak iterations, max iterations, residual limit
 scan: {priority: 10, save: true}
+summaries: [{kind: image_grid}, {kind: average}]   # the display figures
 ```
 
 `mask` unset keeps the sensor's own pupil. The filter defaults are the

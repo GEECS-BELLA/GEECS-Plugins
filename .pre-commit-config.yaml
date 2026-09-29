@@ -58,7 +58,7 @@ repos:
         exclude: |
           (?x)^(
             extras/|
-                    .*_ui\.py$|
+            .*_ui\.py$|
             .*/tests/|
             tests/|
             .*/\.ipynb_checkpoints/|
