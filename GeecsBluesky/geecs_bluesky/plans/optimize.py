@@ -130,8 +130,15 @@ def optimize_plan(
     profiles: TriggerProfiles,
     resolver: ConfigsRepoResolver | None,
     namespace: GeecsNamespace | None,
+    *,
+    mock: bool = False,
 ) -> Callable[..., Generator]:
-    """Bind the optimize verb without importing the optional analysis/Xopt stack."""
+    """Bind the optimize verb without importing the optional analysis/Xopt stack.
+
+    *mock* connects the background telemetry's members with mock backends
+    (hermetic tests), as :func:`~geecs_bluesky.plans.registry.bind_plans`
+    passes it.
+    """
 
     def optimize(
         detectors,
@@ -143,6 +150,7 @@ def optimize_plan(
         shot_period: float | None = None,
         non_essential=None,
         native_image_save: bool | None = None,
+        background_telemetry: bool | None = None,
         md=None,
     ):
         """Optimize a configured objective through strict acquisition.
@@ -168,12 +176,19 @@ def optimize_plan(
             Whether the plugin-backed cameras also write their LabVIEW
             per-shot files; the experiment default when omitted.  The
             objective reads live PVA frames, never those files.
+        background_telemetry : bool, optional
+            Whether every other logged scalar of the experiment is read
+            into every row as well, softly (the experiment default when
+            omitted) — the same background every scan verb records.
         md : dict, optional
             Additional run metadata.
         """
         from .registry import (
+            background_snapshot,
+            background_wrapper,
             liveness_gate,
             native_image_save_wrapper,
+            resolve_background_telemetry,
             resolve_native_image_save,
         )
         from geecs_bluesky.optimization.driver import XoptDriver
@@ -271,6 +286,11 @@ def optimize_plan(
             raise GeecsConfigurationError(f"optimizer generator: {exc}") from exc
         sc = profiles.resolve(trigger_profile)
         native_files = resolve_native_image_save(native_image_save, resolver)
+        snapshot = (
+            background_snapshot(namespace, mock=mock)
+            if resolve_background_telemetry(background_telemetry, resolver)
+            else None
+        )
         metadata = dict(md or {})
         metadata.update(
             plan_name="optimize",
@@ -283,6 +303,7 @@ def optimize_plan(
             non_essential=[owner_of(d).name for d in non_essential],
             shot_period=shot_period,
             native_image_save=native_files,
+            background_telemetry=snapshot is not None,
         )
         metadata["geecs"] = {
             **metadata.get("geecs", {}),
@@ -503,6 +524,10 @@ def optimize_plan(
             yield from liveness_gate(
                 sc, [*detectors, *movables.values(), *non_essential]
             )
+            if snapshot is not None:
+                # One more device of every row, last — after the scalar
+                # pre-reads above (nothing to read before its probe).
+                detectors.append(snapshot)
             run = bpp.run_wrapper(
                 name_failed_status(bpp.finalize_wrapper(inner(), _dump_record())),
                 md=metadata,
@@ -511,6 +536,8 @@ def optimize_plan(
                 non_essential_wrapper(run, non_essential),
                 [*detectors, *movables.values()],
             )
+            if snapshot is not None:
+                staged = background_wrapper(staged, snapshot)
             staged = native_image_save_wrapper(staged, detectors, native_files)
             yield from name_failed_status(run_bracket(staged, sc, TriggerState.ARMED))
 

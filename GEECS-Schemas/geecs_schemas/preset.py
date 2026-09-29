@@ -26,6 +26,11 @@ acquisition mode as a plan keyword (``acquisition: gated`` in
 per-shot files: one value per scan, reaching only the cameras whose
 frames the PVA gateway's file plugin captures (GEECS-Plugins#738); unset
 defers to the experiment default, which the worker reads at every scan.
+``background_telemetry`` (0.39.0) is the run-level switch for the
+background columns — every logged scalar of the experiment outside the
+scan's own devices, read softly into every row, as Master Control logged
+it (GEECS-Plugins#1016, #929); unset defers to the experiment default
+the same way.
 
 Device references
 -----------------
@@ -100,7 +105,8 @@ class PlanCall(SchemaModel):
     ``count``'s ``{num: 100}`` — plus the GEECS keyword arguments the
     worker adds to every scan verb: ``shots_per_step`` (rows per position),
     ``acquisition``, ``shot_period``.  The run-level fields
-    ``trigger_profile`` and ``native_image_save`` are preset fields, never
+    ``trigger_profile``, ``native_image_save`` and ``background_telemetry``
+    are preset fields, never
     kwargs: the client refuses a copy here.
     """
 
@@ -171,6 +177,20 @@ class Preset(VersionedSchemaModel):
             "(no PVA stream, a proprietary format) always writes its native "
             "files whatever this says, and a scalars-only entry (save_images "
             "off) is unaffected."
+        ),
+    )
+    background_telemetry: Optional[bool] = Field(
+        None,
+        description=(
+            "Whether every other logged scalar of the experiment — the "
+            "variables the GEECS experiment database marks for scan logging "
+            "(expt_device_variable, get='yes') on the devices not in this "
+            "scan — is read into every row as well, softly: from the "
+            "gateway's monitor cache, never waited on; a device that does "
+            "not answer when the scan starts is left out of that scan with "
+            "a log line, and one the gateway marks INVALID reads NaN. Leave "
+            "unset for the experiment default (experiment_defaults.yaml). "
+            "Off records this scan's own devices alone."
         ),
     )
     devices: list[PresetDevice] = Field(

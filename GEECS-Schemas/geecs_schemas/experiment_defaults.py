@@ -134,15 +134,19 @@ class ExperimentDefaults(VersionedSchemaModel):
     background_telemetry: bool = Field(
         True,
         description=(
-            "Log every live experiment device that is not in a scan's save "
-            "set as best-effort snapshot columns — the variables the GEECS "
-            "experiment database marks for scan logging (MySQL table "
-            "expt_device_variable, get='yes') — read from the gateway's "
-            "always-on monitor cache. Safe by construction: read-only and "
-            "never waited on, so it cannot slow or stall a scan — a dead "
-            "device is just dropped with a log line. On by default so no "
-            "data is silently lost; individual scans can override with "
-            "their own 'background_telemetry' setting."
+            "Read every logged scalar of the experiment that is not in a "
+            "scan's device group — the variables the GEECS experiment "
+            "database marks for scan logging (MySQL table "
+            "expt_device_variable, get='yes') — into every row of the scan "
+            "as well, the way Master Control did: softly, from the "
+            "gateway's monitor cache, never waited on. A device that does "
+            "not answer when the scan starts is left out of that scan with "
+            "a log line (and named in the run's start document), one the "
+            "gateway marks INVALID reads NaN; nothing here can stall or fail "
+            "a scan. On by default so no data is silently lost; a preset can "
+            "override it with its own 'background_telemetry'. The worker "
+            "reads this at every scan, so an edit takes effect at the next "
+            "scan without reopening its environment."
         ),
     )
     description: str = Field(

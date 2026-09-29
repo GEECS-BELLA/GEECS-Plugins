@@ -110,11 +110,20 @@ def test_native_image_save_rides_as_the_plans_keyword_only_when_set() -> None:
     assert "native_image_save" not in item.kwargs["md"]  # a plan argument, not md
 
 
+def test_background_telemetry_rides_as_the_plans_keyword_only_when_set() -> None:
+    """Unset defers to the experiment default the worker reads per run (#1016)."""
+    assert "background_telemetry" not in expand_preset(_preset()).kwargs
+    item = expand_preset(_preset(background_telemetry=False))
+    assert item.kwargs["background_telemetry"] is False
+    assert "background_telemetry" not in item.kwargs["md"]
+
+
 @pytest.mark.parametrize(
     ("field", "copy", "top_levels"),
     [
         ("native_image_save", True, (False, None)),
         ("trigger_profile", "HTU-Other", ("HTU-Normal", None)),
+        ("background_telemetry", True, (False, None)),
     ],
 )
 def test_run_level_field_in_plan_kwargs_is_refused_not_merged(

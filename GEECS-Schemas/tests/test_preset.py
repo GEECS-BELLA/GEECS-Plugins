@@ -18,6 +18,7 @@ def test_minimal_preset_is_a_device_group():
     assert preset.devices[0].essential is True  # phase 2: waited on every shot
     assert preset.trigger_profile is None and preset.background is False
     assert preset.native_image_save is None  # unset: the experiment default
+    assert preset.background_telemetry is None  # unset: the experiment default
 
 
 def test_full_preset_round_trips():
@@ -28,6 +29,7 @@ def test_full_preset_round_trips():
         "trigger_profile": "HTU-Normal",
         "background": False,
         "native_image_save": False,
+        "background_telemetry": True,
         "devices": [
             {"device": "UC_ALineEBeam3", "save_images": True, "essential": True},
             {"device": "U_BCaveICT", "save_images": False, "essential": True},
@@ -59,6 +61,18 @@ def test_native_image_save_is_one_value_per_scan():
         assert preset.model_dump(mode="json")["native_image_save"] is value
     with pytest.raises(ValidationError):
         PresetDevice.model_validate({"device": "C", "native_image_save": False})
+
+
+def test_background_telemetry_is_one_value_per_scan():
+    """The run-level background switch (GEECS-Plugins#1016): unset, on, or off."""
+    for value in (None, True, False):
+        preset = Preset.model_validate(
+            {"name": "p", "background_telemetry": value, "devices": [{"device": "C"}]}
+        )
+        assert preset.background_telemetry is value
+        assert preset.model_dump(mode="json")["background_telemetry"] is value
+    with pytest.raises(ValidationError):
+        PresetDevice.model_validate({"device": "C", "background_telemetry": False})
 
 
 def test_duplicate_devices_are_refused():

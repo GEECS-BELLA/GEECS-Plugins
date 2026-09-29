@@ -18,13 +18,13 @@ submission is a translation of names, nothing more:
 - each scan-variable string in ``plan.args`` / ``plan.kwargs`` — a
   ``Device:Variable`` pair or a scan-variable catalog name — becomes the
   namespace's Movable child, ``U_S1H.current``;
-- ``trigger_profile`` and ``native_image_save`` ride as the bound plan's
-  keyword arguments — only when the preset sets them, since unset means
-  the experiment default the worker resolves itself — and a copy of either
-  in ``plan.kwargs`` is refused: the preset field is the one source of
-  truth (:data:`RUN_LEVEL_FIELDS`); ``background`` rides in the run
-  metadata; the preset name and the submission record ride in
-  ``md["geecs"]`` as provenance.
+- ``trigger_profile``, ``native_image_save`` and ``background_telemetry``
+  ride as the bound plan's keyword arguments — only when the preset sets
+  them, since unset means the experiment default the worker resolves
+  itself — and a copy of any of them in ``plan.kwargs`` is refused: the
+  preset field is the one source of truth (:data:`RUN_LEVEL_FIELDS`);
+  ``background`` rides in the run metadata; the preset name and the
+  submission record ride in ``md["geecs"]`` as provenance.
 
 The manager resolves the names against the worker namespace at submission
 but does **not** refuse an unknown one (bluesky-queueserver 0.0.25 passes
@@ -64,7 +64,11 @@ from geecs_bluesky.utils import device_reference, identifier_name
 #: Preset fields that become the bound plan's keyword of the same name.  Each
 #: is set at the preset's top level only; a copy inside ``plan.kwargs`` is
 #: refused by :func:`expand_preset`, never merged.
-RUN_LEVEL_FIELDS: tuple[str, ...] = ("trigger_profile", "native_image_save")
+RUN_LEVEL_FIELDS: tuple[str, ...] = (
+    "trigger_profile",
+    "native_image_save",
+    "background_telemetry",
+)
 
 
 #: The plans a preset may name: the scan verbs.  ``mv`` and ``run_action``
@@ -270,8 +274,8 @@ def expand_preset(
         )
     if non_essential:
         kwargs["non_essential"] = non_essential
-    # The two run-level preset fields are the one source of truth for the
-    # plan keyword of the same name: a copy in plan.kwargs used to win a
+    # The run-level preset fields are the one source of truth for the plan
+    # keyword of the same name: a copy in plan.kwargs used to win a
     # setdefault silently (Codex review of #944), so it is refused rather
     # than merged.  Unset stays absent — the worker's default applies.
     for name in RUN_LEVEL_FIELDS:

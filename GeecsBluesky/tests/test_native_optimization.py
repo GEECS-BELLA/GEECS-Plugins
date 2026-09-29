@@ -23,14 +23,18 @@ def setup(tmp_path):
     ns = GeecsNamespace(
         DeviceRoster(
             experiment="Test",
-            variables={"Motor": [row("Current", settable=True, tolerance=0.01)]},
+            variables={
+                "Motor": [row("Current", settable=True, tolerance=0.01)],
+                "Gauge": [row("Pressure")],  # not in the run: background telemetry
+            },
             types={},
-            subscribed={"Motor": ["Current"]},
+            subscribed={"Motor": ["Current"], "Gauge": ["Pressure"]},
         ),
         file_plugin_hosts=set(),
     )
     motor = ns.resolve("Motor:Current")
-    connect_mock(re, ns.resolve("Motor"))
+    connect_mock(re, ns.resolve("Motor"), ns.resolve("Gauge"))
+    set_mock_value(ns.resolve("Gauge").pressure, 2.5)
     follow_setpoint(motor)
     box = FakeBox()
     sc = ShotControl(WRITES, experiment="Test", name="box", setter_factory=box)
@@ -68,6 +72,12 @@ def test_scalar_optimization_records_and_dumps(setup):
     re(plan([ns.resolve("Motor")], optimizer_config="test"))
     assert box.fires == 6
     assert (folder / "xopt_dump.yaml").exists()
+    # The background rides in every strict row of an optimize run too (#1016):
+    # the gauge is not in the run, the motor is (its owner is left to the row).
+    start = docs.docs["start"][0]
+    assert start["background_telemetry"] is True and start["background_dropped"] == []
+    rows = docs.primary_events()
+    assert len(rows) == 6 and all(e["data"]["gauge-pressure"] == 2.5 for e in rows)
     import json
 
     assert (
