@@ -27,6 +27,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `geecs-himg convert | verify` (`himg_cli`): the backlog command over a
   device folder or a whole `scans/ScanNNN` folder.
 
+### Changed
+
+- `tiled_schema.device_acq_timestamp_column` is THE device ↔ `acq_timestamp`
+  column rule for every spelling (event key, s-file header, in-memory
+  frame): whole-name normalization on both sides. The shot mapper and the
+  `.himg` converter call it instead of carrying their own loop.
+
 ## [0.45.0] - 2026-09-26
 
 ### Added

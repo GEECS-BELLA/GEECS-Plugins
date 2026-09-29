@@ -26,7 +26,7 @@ The stack is written to ``<device>.h5.part`` and renamed into place only
 when complete and (by default) verified, so a reader never finds a
 half-written stack under the name it looks for.  The ``.himg`` files are
 never touched: converting only adds the stack (deleting the sources is a
-separate, explicit step — ``himg_compact`` — that verifies first).
+separate, explicit, verify-first step — planned, not this module).
 
 Scan-folder invariant: this module creates no directory.  The device
 folder must already exist with its ``.himg`` files; nothing is created
@@ -58,7 +58,7 @@ from geecs_data_utils.native_files import (
     filename_timestamp_regex,
     legacy_filename_regex,
 )
-from geecs_data_utils.tiled_schema import normalize_token
+from geecs_data_utils.tiled_schema import device_acq_timestamp_column, normalize_token
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -92,7 +92,7 @@ __all__ = [
     "write_himg_stack",
 ]
 
-#: The source files' suffix (matched case-insensitively).
+#: The source files' suffix, exactly as the sensor writes it.
 HIMG_SUFFIX = ".himg"
 #: The in-progress stack: renamed to ``<device>.h5`` only once complete.
 PART_SUFFIX = ".h5.part"
@@ -238,12 +238,12 @@ def stamp_attribute_name(device: str) -> str:
 
 
 def list_himg_files(device_dir: Path) -> list[Path]:
-    """The ``.himg`` files of *device_dir*, by name; empty for a missing folder."""
+    """The ``.himg`` files of *device_dir* (exact suffix, as the sensor writes it), by name; empty for a missing folder."""
     try:
         entries = sorted(Path(device_dir).iterdir())
     except OSError:
         return []
-    return [p for p in entries if p.is_file() and p.suffix.lower() == HIMG_SUFFIX]
+    return [p for p in entries if p.is_file() and p.suffix == HIMG_SUFFIX]
 
 
 def himg_sources(
@@ -318,14 +318,7 @@ def _legacy_stamps(
         )
     if "Shotnumber" not in rows.columns:
         raise HimgStampsUnavailable("the scalar rows carry no Shotnumber column")
-    # The shared device<->column rule (normalize_token on both sides), the
-    # spelling-tolerant way ScanAnalysis's shot mapper finds the column:
-    # "<Device> acq_timestamp" (s-file), "<Device>:acq_timestamp",
-    # "<device>-acq_timestamp" all collapse to "<token>_acq_timestamp".
-    wanted = f"{normalize_token(device)}_acq_timestamp"
-    column = next(
-        (str(c) for c in rows.columns if normalize_token(str(c)) == wanted), None
-    )
+    column = device_acq_timestamp_column(list(rows.columns), device)
     if column is None:
         raise HimgStampsUnavailable(
             f"the scalar rows carry no {device} acq_timestamp column"
@@ -395,7 +388,21 @@ def write_himg_stack(
     if stack.exists() and not overwrite:
         raise HimgStackExists(stack)
     part = device_dir / f"{device_dir.name}{PART_SUFFIX}"
-    part.unlink(missing_ok=True)  # a previous attempt that died mid-write
+    if overwrite:
+        part.unlink(missing_ok=True)  # a previous attempt that died mid-write
+    try:
+        # Exclusive creation: a second writer on the same folder (the backlog
+        # CLI while the portal converts the same scan) must refuse, not race
+        # this one to the rename — a stack under the reader's name is always
+        # one its own writer verified.
+        with open(part, "x"):
+            pass
+    except FileExistsError:
+        raise HimgStackError(
+            f"{part} exists: a conversion is in progress, or one died mid-write. "
+            "Remove it once nothing is converting this folder, or convert with "
+            "overwrite."
+        ) from None
 
     count = len(sources)
     names: list[str] = []
@@ -404,7 +411,7 @@ def write_himg_stack(
     source_bytes = 0
     started = time.time()
     try:
-        with h5py.File(part, "w", libver="latest", locking=False) as f:
+        with h5py.File(part, "w", locking=False) as f:
             f.attrs["device"] = device
             f.attrs["variable"] = STAMP_VARIABLE
             f.attrs["source_format"] = "himg"
@@ -578,7 +585,11 @@ def convert_himg_folder(
         compression_level=compression_level,
     )
     if verify:
-        check = verify_himg_stack(report.stack_path)
+        try:
+            check = verify_himg_stack(report.stack_path)
+        except BaseException:
+            report.stack_path.unlink(missing_ok=True)
+            raise
         report.verified = check.ok
         if not check.ok:
             report.stack_path.unlink(missing_ok=True)

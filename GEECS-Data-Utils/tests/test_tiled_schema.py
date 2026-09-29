@@ -219,6 +219,24 @@ class TestDeviceAcqTimestampColumn:
 
         assert device_acq_timestamp_column(self.COLUMNS, "nope") is None
 
+    def test_sfile_and_in_memory_spellings_match_the_same_rule(self):
+        """One finder for every path: s-file header, in-memory frame, event key."""
+        from geecs_data_utils.tiled_schema import device_acq_timestamp_column
+
+        columns = [
+            "Shotnumber",
+            "U_HasoLift acq_timestamp",
+            "UC_Cam:acq_timestamp",
+            "telemetry_u_hasolift-acq_timestamp",
+            "U_HasoLift acq_timestamp_extra",
+        ]
+        assert (
+            device_acq_timestamp_column(columns, "U_HasoLift")
+            == "U_HasoLift acq_timestamp"
+        )
+        assert device_acq_timestamp_column(columns, "uc_cam") == "UC_Cam:acq_timestamp"
+        assert device_acq_timestamp_column(columns, "telemetry") is None
+
 
 class TestTimestampColumns:
     """ts_ event-recording times + the two-epoch convention (W1e)."""

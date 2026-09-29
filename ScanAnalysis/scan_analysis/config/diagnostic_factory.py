@@ -59,8 +59,8 @@ __all__ = ["SCAN_SCOPED_CLASS_PATHS", "create_scan_analyzer"]
 #: kind → class path of the ScanAnalyzer implementing a *scan-scoped* kind
 #: (``AnalyzerSpecBase.scope == "scan"``: one step over the device folder,
 #: no ImageAnalyzer — ImageAnalysis' registry covers the frame-scoped kinds
-#: only).  ``tests/test_diagnostic_factory.py`` pins that every scan-scoped
-#: kind in the schema has an entry here.
+#: only).  ``tests/test_himg_to_stack.py`` pins that every scan-scoped kind
+#: in the schema has an entry here.
 SCAN_SCOPED_CLASS_PATHS: Dict[str, str] = {
     "himg_to_stack": "scan_analysis.analyzers.common.himg_to_stack.HimgToStackAnalyzer",
 }

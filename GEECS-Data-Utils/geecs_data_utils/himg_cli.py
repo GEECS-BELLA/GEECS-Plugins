@@ -89,10 +89,18 @@ def _device_dirs(path: Path, devices: Sequence[str] | None) -> list[Path]:
     return [p for p in children.values() if list_himg_files(p)]
 
 
+def _nothing_to_do(path: Path) -> int:
+    print(f"geecs-himg: no .himg device folders under {path}", file=sys.stderr)
+    return 1
+
+
 def _convert(args: argparse.Namespace) -> int:
     rows = _scan_rows(_scan_folder_of(args.path))
+    device_dirs = _device_dirs(args.path, args.device)
+    if not device_dirs:
+        return _nothing_to_do(args.path)
     failures = 0
-    for device_dir in _device_dirs(args.path, args.device):
+    for device_dir in device_dirs:
         try:
             report = convert_himg_folder(
                 device_dir,
@@ -114,6 +122,8 @@ def _verify(args: argparse.Namespace) -> int:
         stacks = [args.path]
     else:
         stacks = [stack_path_for(d) for d in _device_dirs(args.path, args.device)]
+        if not stacks:
+            return _nothing_to_do(args.path)
     failures = 0
     for stack in stacks:
         if not stack.is_file():

@@ -289,11 +289,18 @@ class TestRefusals:
             convert_himg_folder(device_dir)
         assert find_stack_file(device_dir) is None
 
-    def test_a_stale_part_file_is_replaced(self, tmp_path):
+    def test_a_part_file_means_another_conversion_owns_the_folder(self, tmp_path):
+        """Two writers never race to the rename: the second refuses, by name."""
         device_dir, _ = native_folder(tmp_path)
-        (device_dir / f"{DEVICE}.h5.part").write_bytes(b"died mid-write")
-        convert_himg_folder(device_dir)
-        assert not (device_dir / f"{DEVICE}.h5.part").exists()
+        part = device_dir / f"{DEVICE}.h5.part"
+        part.write_bytes(b"another writer, or one that died")
+        with pytest.raises(HimgStackError, match="in progress"):
+            convert_himg_folder(device_dir)
+        assert part.read_bytes() == b"another writer, or one that died"
+        assert find_stack_file(device_dir) is None
+        # overwrite takes the folder over: the dead part is discarded.
+        assert convert_himg_folder(device_dir, overwrite=True).verified is True
+        assert not part.exists()
 
     def test_a_stack_that_fails_verification_is_removed(self, tmp_path, monkeypatch):
         import geecs_data_utils.io.himg_stack as module
@@ -364,6 +371,12 @@ class TestCli:
         assert not (scan / "U_HasoLift2" / "U_HasoLift2.h5").exists()
         assert himg_main(["convert", str(scan), "--device", DEVICE, "--overwrite"]) == 0
         assert himg_main(["convert", str(scan), "--device", "Nope"]) == 1
+
+    def test_nothing_to_do_is_an_error_not_a_silent_success(self, tmp_path, capsys):
+        (tmp_path / "UC_Cam").mkdir()
+        assert himg_main(["convert", str(tmp_path)]) == 1
+        assert himg_main(["verify", str(tmp_path)]) == 1
+        assert capsys.readouterr().err.count("no .himg device folders") == 2
 
     def test_verify_reports_each_stack(self, scan, capsys):
         assert himg_main(["verify", str(scan)]) == 1  # no stacks yet

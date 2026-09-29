@@ -638,7 +638,12 @@ In practice:
   analyzer wrote it and follow-on analyzers read it through a recipe
   input's `folder`. It creates no directory. Moving derived artifacts
   under `analysis/` and letting inputs read from there is a separate,
-  undecided design question.
+  undecided design question. The second exception (the HASO arc brief the
+  owner approved 2026-09-28): the scan-scoped `himg_to_stack` kind writes
+  the device's capture stack `<device>/<device>.h5` beside the `.himg`
+  sources — the one place every stack reader looks, by the file-plugin
+  contract — through `geecs_data_utils.io.himg_stack` (temp file, verify,
+  rename; no directory; the sources untouched).
 
 Do not treat a missing entire scan folder as `no_data`. `no_data` means the
 scan exists but a specific device/analyzer has no usable data. If the scan
