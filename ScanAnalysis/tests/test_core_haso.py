@@ -60,12 +60,14 @@ HELPER = textwrap.dedent(
             self.header = header
             self.threads = None
             self.shared = []
+            self.references = []
 
         def share_cores(self, workers):
             self.shared.append(workers)
             self.threads = max(1, 4 // workers)
 
         def compute(self, pixels, **parameters):
+            self.references.append(parameters.get("reference"))
             return Result(pixels, parameters["mask"])
 
 
@@ -209,6 +211,27 @@ def test_scalars_persist_and_every_shot_lands_in_the_wavefront_store(
         sorted(p.suffix for p in (scan / DEVICE).iterdir())
         == [".h5"] + [".himg"] * SHOTS
     )
+
+
+def test_a_reference_scan_is_averaged_from_its_stack_and_handed_to_every_shot(
+    tmp_path, monkeypatch, helper
+):
+    # The scan is its own reference here: the mean of shots 1..5 is 3.
+    doc = recipe(
+        inputs={"probe": {"from_scan": {"scan": 12, "statistic": "mean"}}},
+        measure={
+            "kind": "haso",
+            "sensor_config": SENSOR,
+            "mask": {"top": 1, "bottom": 3, "left": 0, "right": 4},
+            "reference": "probe",
+        },
+    )
+    run(monkeypatch, tmp_path, doc)
+    (engine,) = helper.built
+    assert len(engine.references) == SHOTS
+    for reference in engine.references:
+        assert reference.dtype == np.uint16
+        np.testing.assert_array_equal(reference, np.full((HEIGHT, WIDTH), 3))
 
 
 def test_an_unconverted_scan_is_refused_naming_the_converter(

@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.24.0] - 2026-09-29
+
+### Added
+
+- Measure frame inputs: `@measure(..., input_field=)` names an
+  `Optional[str]` spec field holding a frame-binding key the recipe
+  declares in `inputs`. `bind_inputs(measure=)` binds it, both evaluators
+  process it through the recipe's own steps (`process_measure_input`; a
+  step bound to the same key still sees the loaded frame), `apply_measure`
+  hands it over as the last argument (`None` when unset), and
+  `compile_recipe` counts it when matching declared against used inputs
+  (its messages now say "steps or the measure").
+  It refuses a key bound by both a step and the measure (the reference
+  would be processed to zeros) and a `fallback_level` on the measure's
+  key (a constant cannot stand in for a comparison frame).
+- The `haso` measure's `reference`: a frame input (a same-day probe-only
+  scan's mean, `from_scan`) whose slopes the engine subtracts from every
+  shot's before the mask and filters, so the processed phase, slopes,
+  pupil and scalars describe the plasma imprint; `raw_phase` and
+  `intensity` stay the shot's own. A reference of another shape than the
+  frame is refused. Verified float32-exact against the SDK's in-memory
+  subtraction on 26_0929 Scan015/Scan014.
+
 ## [0.23.0] - 2026-09-29
 
 ### Changed

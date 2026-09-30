@@ -259,7 +259,7 @@ class TestRecipeBinding:
             (
                 {"inputs": {"bg": {"path": "{scan_dir}/bg.png"}}},
                 "inputs",
-                "no step uses",
+                "no step or measure uses",
             ),
         ],
     )

@@ -11,7 +11,11 @@ Usage::
 
 ``<workdir>`` holds ``params.json`` and ``input.himg`` (a real ``.himg``:
 the SDK reads files, never memory); the worker writes ``output.npz`` and
-``result.json`` there. Each process makes a fresh engine: the SDK's spot
+``result.json`` there. A ``"reference"`` task instead saves the image's
+raw slopes as an SDK ``.has`` file at ``save_slopes`` (and writes only
+``result.json``); a later ``"shot"`` task naming that file as
+``reference_slopes`` subtracts it from the shot's slopes before the mask
+and the filters — the SDK's own ``apply_substractor``, the legacy order. Each process makes a fresh engine: the SDK's spot
 tracker carries state between ``compute_slopes`` calls, so a shot must
 never follow a differently processed image in the same engine.
 
@@ -26,7 +30,10 @@ never follow a differently processed image in the same engine.
         "denoising_strength": 0.0,
         "zonal_prefs": [100, 500, 1e-6],
         "mask": [top, bottom, left, right] or null,      # numpy slice bounds on the slopes grid
-        "filters": [tilt_x, tilt_y, curvature, astig_0, astig_45, others]
+        "filters": [tilt_x, tilt_y, curvature, astig_0, astig_45, others],
+        "task": "shot",                                  # or "reference"; absent = "shot"
+        "reference_slopes": "/tmp/.../reference.has",    # shot task: slopes to subtract, or null
+        "save_slopes": "/tmp/.../reference.has"          # reference task: where the .has goes
     }
 
 ``output.npz``: ``raw_phase``, ``processed_phase``, ``intensity``,
@@ -131,6 +138,19 @@ def main():
     _, raw = engine.compute_slopes(image, False)
     stamp("slopes")
 
+    if params.get("task", "shot") == "reference":
+        raw.save_to_file(_windows_path(params["save_slopes"]), "", "")
+        stamp("saved")
+        _write_result(
+            workdir,
+            {
+                "image_serial": image_serial,
+                "config_serial": config_serial,
+                "timings": timings,
+            },
+        )
+        return
+
     def phase_of(slopes):
         data = wkpy.HasoData(hasoslopes=slopes)
         return np.array(wkpy.Compute.phase_zonal(phase_set, data).get_data()[0])
@@ -140,10 +160,16 @@ def main():
     stamp("raw_phase")
 
     processed = raw
+    if params.get("reference_slopes"):
+        reference = wkpy.HasoSlopes(
+            has_file_path=_windows_path(params["reference_slopes"])
+        )
+        processed = post.apply_substractor(processed, reference)
+        stamp("reference_subtracted")
     mask = params.get("mask")
     if mask is not None:
         top, bottom, left, right = (int(v) for v in mask)
-        pupil = wkpy.Pupil(hasoslopes=raw)
+        pupil = wkpy.Pupil(hasoslopes=processed)
         buffer = np.asarray(pupil.get_data(), dtype=bool)
         buffer.fill(False)
         rows, cols = buffer.shape

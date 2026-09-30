@@ -209,10 +209,10 @@ def _binding_errors(recipe: AnalysisRecipe) -> list[dict[str, str]]:
 
     The schema validates a recipe's frame; the core refuses unknown step or
     measure names, unknown parameters, a step or measure that does not
-    process the input's frames, and frame inputs no step uses. Refused here,
-    a recipe that would fail at run time is never written. Pydantic's
-    locations name the union variant (``steps.0.roi.bounds``); the variant
-    is dropped so the location matches the form's field path.
+    process the input's frames, and frame inputs no step or measure uses.
+    Refused here, a recipe that would fail at run time is never written.
+    Pydantic's locations name the union variant (``steps.0.roi.bounds``);
+    the variant is dropped so the location matches the form's field path.
     """
     try:
         compile_recipe(recipe, allow_file_backgrounds=True)

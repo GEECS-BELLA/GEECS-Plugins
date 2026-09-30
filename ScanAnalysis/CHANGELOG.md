@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.44.1] - 2026-09-29
+
+### Changed
+
+- Tests and wording for the `haso` measure's `reference`: a host run
+  averages the reference scan from its stack (`from_scan`) and hands the
+  mean to every shot; `config_store`'s docstring and the binding-error
+  test follow the core's "no step or measure uses" message.
+
 ## [1.44.0] - 2026-09-29
 
 ### Added

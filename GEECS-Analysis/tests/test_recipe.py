@@ -217,7 +217,7 @@ def recipe(**patch):
         ({"steps": [{"step": "interpolate", "count": 5}]}, "does not process camera"),
         ({"measure": {"kind": "line"}}, "does not measure camera"),
         ({"steps": [{"step": "background_frame", "source": "bg"}]}, "does not declare"),
-        ({"inputs": {"bg": {"path": "x.npy"}}}, "no step uses"),
+        ({"inputs": {"bg": {"path": "x.npy"}}}, "no step or measure uses"),
     ],
 )
 def test_binding_errors_are_recipe_errors(patch, needle):

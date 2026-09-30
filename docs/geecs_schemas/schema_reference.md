@@ -1134,7 +1134,7 @@ One device's analysis: input, ordered steps, a measure, the draw, the summaries.
 | `description` | `str (optional)` | no | None | Free-text note about this recipe. |
 | `metadata` | `dict[str, Any] (optional)` | no | None | Free-form documentary fields; nothing reads them. |
 | `input` | `CameraInput \| LineInput` | yes | — | Where the frames come from and how one is read. |
-| `inputs` | `dict[str, FrameInput]` | no | empty | Frames loaded before the run and bound by name for steps that take one (a background image). |
+| `inputs` | `dict[str, FrameInput]` | no | empty | Frames loaded before the run and bound by name for steps that take one (a background image) or a measure that compares against one (the haso reference). |
 | `steps` | `list[StepRef]` | no | empty | Processing steps in order; any order, repeats allowed. |
 | `measure` | `MeasureRef` | no | MeasureRef(kind='none') | What is measured on each processed frame. |
 | `scan` | `RecipeRuntime` | no | RecipeRuntime(priority=100, average_frames_first=False, save=True, workers=1) | How the recipe runs over a scan. |

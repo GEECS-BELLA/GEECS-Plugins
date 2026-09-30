@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, TypeVar
+from typing import TYPE_CHECKING, Callable, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -92,6 +92,13 @@ class MeasureDefinition:
     per-scan store a scan host writes under the analysis tree from every
     single-shot measurement's frame and extras (``None``: none) — the
     ``haso`` measure's wavefront products, one HDF5 per scan.
+
+    ``input_field`` names an optional string field of the spec holding a
+    frame-binding key: a comparison frame of the measured kind (the
+    ``haso`` measure's reference). The recipe declares it in ``inputs``
+    like a step's background; the evaluator processes it through the same
+    steps as the measured frame and hands it to the function as the last
+    argument — ``None`` when the field is unset.
     """
 
     spec: type[MeasureSpec]
@@ -100,6 +107,7 @@ class MeasureDefinition:
     service: str | None = None
     sidecar: str | None = None
     shot_store: str | None = None
+    input_field: str | None = None
 
 
 _MEASURES: dict[type[MeasureSpec], MeasureDefinition] = {}
@@ -113,12 +121,14 @@ def measure(
     service: str | None = None,
     sidecar: str | None = None,
     shot_store: str | None = None,
+    input_field: str | None = None,
 ) -> Callable[[Callable[..., Measurement]], Callable[..., Measurement]]:
     """Register a builtin measure before constructing the spec union.
 
     A measure with a ``service`` receives the host's bound collaborator as a
     third argument; ``sidecar`` and ``shot_store`` name what a scan host
-    persists per shot; see :class:`MeasureDefinition`.
+    persists per shot; ``input_field`` names the spec field that binds an
+    optional comparison frame; see :class:`MeasureDefinition`.
     """
     if not ndim or not ndim <= {1, 2}:
         raise ValueError("Measure dimensions must be a nonempty subset of {1, 2}")
@@ -129,12 +139,19 @@ def measure(
     ):
         if value is not None and not value:
             raise ValueError(f"A measure's {label} must be a nonempty name")
+    if input_field is not None and (
+        input_field not in spec.model_fields
+        or spec.model_fields[input_field].annotation not in (Optional[str], str | None)
+    ):
+        raise ValueError(
+            "A measure's input field must name an optional string field on its spec"
+        )
 
     def register(function: Callable[..., Measurement]):
         if spec in _MEASURES:
             raise ValueError(f"Measure spec already registered: {spec.__name__}")
         _MEASURES[spec] = MeasureDefinition(
-            spec, function, frozenset(ndim), service, sidecar, shot_store
+            spec, function, frozenset(ndim), service, sidecar, shot_store, input_field
         )
         return function
 

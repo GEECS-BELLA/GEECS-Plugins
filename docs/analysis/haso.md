@@ -38,8 +38,9 @@ LabVIEW device  ──.himg per shot──▶  scans/ScanNNN/U_HasoLift/
    of that sensor (the stack's first; the per-shot header differs only
    in its timestamp), and hands it to WaveKit in a fresh process per
    shot: image → engine (LIFT at `wavelength_nm`, `start_subpupil`) →
-   slopes → intensity and raw zonal phase → rectangular pupil `mask` →
-   `filters` → processed zonal phase, processed slopes, pupil.
+   slopes → intensity and raw zonal phase → (a `reference`'s slopes
+   subtracted) → rectangular pupil `mask` → `filters` → processed zonal
+   phase, processed slopes, pupil.
 4. **Products** are the core's standard ones plus the per-scan
    *wavefront store*: one HDF5 per scan and recipe under the analysis
    tree, one row per shot, float32 (the SDK's precision), rows one chunk
@@ -77,6 +78,49 @@ rest kept). `save: false` keeps the two scalars and writes no store.
 Scalars: `phase_rms` (the processed phase's standard deviation over the
 finite values inside the pupil) and `phase_pv` (its peak-to-valley), in
 the SDK's phase unit (µm).
+
+### A reference (the plasma imprint)
+
+A **reference** is a wavefront the measure subtracts: the plasma's
+imprint on the probe is phase(probe + plasma) − phase(probe alone). It
+is not the dark background above — that stays, on the pixels; the
+reference acts on the *slopes*. Name a frame input and point the
+measure at it:
+
+```yaml
+inputs:
+  probe: {from_scan: {scan: 14, statistic: mean}}   # a probe-only scan of the same day, converted
+measure:
+  kind: haso
+  # ...as above...
+  reference: probe
+```
+
+The reference frame goes through the recipe's steps exactly as each
+shot does (a dark background is subtracted from both), then the host
+computes its raw slopes **once per process** in a fresh engine, keeps
+them as a `.has` in a private temporary directory, and every shot's
+worker subtracts them (the SDK's `apply_substractor`) *before* the mask
+and the filters — the legacy order. The processed phase, slopes, pupil
+and the two scalars then describe the difference; `raw_phase` and
+`intensity` stay the shot's own, so the unsubtracted wavefront is still
+in the store. The subtraction is linear: SDK subtraction and the
+difference of two processed phases agree to 2e-3 µm.
+
+What to take as the reference (measured 26_0929, Scan014 probe-only vs
+Scan015 plasma, mask rows 175:350, nothing filtered):
+
+- **The same day.** Probe-only shots reconstruct 0.004 µm RMS from their
+  own mean (the method's floor); the probe drifts 0.028 µm RMS from one
+  day to the next — half an imprint (0.067 µm RMS, 0.34 µm PV).
+- **What to leave out of it decides what the map shows.** A reference
+  with the jet off leaves the neutral gas (+) *and* the plasma channel
+  (−) in the map; a reference with the **jet firing and the drive laser
+  blocked** leaves the plasma alone.
+- **Filters remove signal.** Curvature and astigmatism removal eats a
+  plasma lens and makes the map depend on the mask window; the HTU
+  recipe removes nothing, and anything removed can be removed afterwards
+  (the reconstruction is linear).
 
 ## The install
 
