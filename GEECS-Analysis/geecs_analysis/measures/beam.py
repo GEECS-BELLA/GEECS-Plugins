@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal, Mapping
 
 from pydantic import Field
 
@@ -13,10 +13,44 @@ if TYPE_CHECKING:
     from geecs_analysis.measurement import Measurement
 
 
+_PROJECTION = {
+    "CoM": "Intensity-weighted centroid of the {p}, in {u}",
+    "rms": "RMS width of the {p} about its centroid, in {u}; sensitive to halos and leftover background",
+    "fwhm": "Full width at half maximum of the {p}, in {u}; insensitive to faint halos",
+    "peak_location": "Position of the maximum of the {p}, in {u}",
+}
+_AXES = {
+    "x": (
+        "x projection (the image summed over rows)",
+        "x-axis units (pixels unless calibrated)",
+    ),
+    "y": (
+        "y projection (the image summed over columns)",
+        "y-axis units (pixels unless calibrated)",
+    ),
+    "x_45": ("NW-SE diagonal projection", "local pixel index"),
+    "y_45": ("NE-SW diagonal projection", "local pixel index"),
+}
+BEAM_SCALAR_DOCS: dict[str, str] = {
+    "image_total": "Sum of every pixel of the processed image, in counts",
+    "image_peak_value": "Brightest single pixel of the processed image, in counts",
+    **{
+        f"{axis}_{stat}": text.format(p=projection, u=units)
+        for axis, (projection, units) in _AXES.items()
+        for stat, text in _PROJECTION.items()
+    },
+    "image_com_slope_x": "Tilt: change of each column's vertical centroid per column, px per px",
+    "image_com_slope_y": "Shear: change of each row's horizontal centroid per row, px per px",
+    "image_peak_slope_x": "As image_com_slope_x, using each column's peak instead of its centroid",
+    "image_peak_slope_y": "As image_com_slope_y, using each row's peak instead of its centroid",
+}
+
+
 class BeamSpec(MeasureSpec):
     """Beam projections, optional scalar selection and local-index slopes."""
 
     kind: Literal["beam"] = "beam"
+    scalar_docs: ClassVar[Mapping[str, str]] = BEAM_SCALAR_DOCS
     enabled_stats: tuple[str, ...] | None = Field(
         None, description="Scalar names to keep (unset keeps every statistic)."
     )

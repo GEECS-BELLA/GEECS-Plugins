@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.25.0] - 2026-09-29
+
+### Added
+
+- `MeasureSpec.scalar_docs`: every measure says what each scalar it can
+  write means (one line, with units). `test_scalar_docs` pins that the
+  mapping covers exactly what `emitted_scalars()` can return for every
+  boolean option, so a new scalar cannot land undocumented.
+- `recipe_schema()` carries `x-scalars` (a measure's `scalar_docs`) on
+  every measure variant and `x-docs` (its card in the published recipe
+  reference, `RECIPE_REFERENCE_URL#step-<name>` / `#measure-<kind>` /
+  `#summary-<kind>`) on every step, measure and summary variant, for the
+  config editor's help.
+
 ## [0.24.0] - 2026-09-29
 
 ### Added
