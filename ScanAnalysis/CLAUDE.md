@@ -276,9 +276,13 @@ rebuilds the files byte-identically. For all three a missing or empty
 device folder is `no_data` and the run returns one label — files and GB
 before and after — because everything they touch lives in the raw scan
 folder. The compaction kinds are the one deliberate exception to
-"analysis only adds files" (root CLAUDE.md); the portal asks for the
-scan number before running a destructive kind and the endpoint refuses
-without it.
+"analysis only adds files" (root CLAUDE.md), and the gate is the
+factory's, not one host's: `create_scan_analyzer(...,
+allow_destructive=False)` raises `DestructiveKindRefused` for a
+`destructive` document unless the caller says it confirmed the run —
+the portal passes `True` only past its typed-scan-number check, the
+task queue's group loader (`load_analyzers_from_config`) skips such a
+kind with a logged reason, and MCP's single-analyzer path is refused.
 
 `discover_analyzers` delegates to `geecs_data_utils.analysis_configs`; group
 lookup remains here because group aliases have different rules.

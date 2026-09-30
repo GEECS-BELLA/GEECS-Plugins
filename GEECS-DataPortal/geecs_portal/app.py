@@ -1228,7 +1228,7 @@ def create_app(
         reachable; the tab collapses the inapplicable ones.
         """
         _analysis_available()
-        detail, folder, analysis_folder, _ = _analysis_context(uid, day)
+        detail, folder, analysis_folder, tag = _analysis_context(uid, day)
         devices = set(resources.image_devices(folder))
         try:
             present = {p.name for p in folder.iterdir() if p.is_dir()}
@@ -1266,6 +1266,10 @@ def create_app(
             {
                 "analyzers": analyzers,
                 "running": running.analyzer_id if running is not None else None,
+                # The number the start endpoint's confirm check compares
+                # against (parsed from the resolved folder, like the run's
+                # tag) — the page asks for this one, never a guess.
+                "scan_number": tag.number,
             },
             headers={"Cache-Control": "no-cache"},
         )
@@ -1299,8 +1303,15 @@ def create_app(
         config_dir = Path(processing_config_dir)
 
         def run(progress: analysis_runs.ProgressSink) -> Optional[list]:
+            # The opt-in reaches the factory only past the confirm check
+            # above — the one place a destructive kind gets built here.
             return analysis_runs.run_scan_analyzer(
-                factory, analyzer, config_dir, tag, progress=progress
+                factory,
+                analyzer,
+                config_dir,
+                tag,
+                progress=progress,
+                allow_destructive=info.destructive,
             )
 
         try:

@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
 from geecs_data_utils import ScanPaths, ScanTag
 from geecs_data_utils.io.himg import himg_bytes
 from geecs_data_utils.io.himg_compact import (
@@ -32,8 +33,10 @@ from scan_analysis.analyzers.common.himg_kinds import (
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.config.diagnostic_factory import (
     SCAN_SCOPED_CLASS_PATHS,
+    DestructiveKindRefused,
     create_scan_analyzer,
 )
+from scan_analysis.task_queue import load_analyzers_from_config
 from scan_analysis.core_analyzer import core_supports
 
 TAG = ScanTag(year=2026, month=3, day=10, number=12, experiment="Test")
@@ -89,7 +92,11 @@ def build_scan(base_dir: Path, *, device_files=True, device_folder=True) -> Path
 
 def run(monkeypatch, base_dir: Path, doc=None, *, progress=None):
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=base_dir))
-    analyzer = create_scan_analyzer(doc or document(), id="HasoStack", priority=1)
+    # The host role: a destructive kind is built only with the opt-in the
+    # portal passes after its typed-scan-number check.
+    analyzer = create_scan_analyzer(
+        doc or document(), id="HasoStack", priority=1, allow_destructive=True
+    )
     analyzer.progress = progress
     try:
         return analyzer, analyzer.run_analysis(TAG)
@@ -110,7 +117,8 @@ class TestFactory:
         assert analyzer.background_source is None
         assert analyzer.spec.kind == "himg_to_stack"
         assert isinstance(
-            create_scan_analyzer(document("himg_compact")), HimgCompactAnalyzer
+            create_scan_analyzer(document("himg_compact"), allow_destructive=True),
+            HimgCompactAnalyzer,
         )
         assert isinstance(
             create_scan_analyzer(document("himg_restore")), HimgRestoreAnalyzer
@@ -125,9 +133,11 @@ class TestFactory:
     def test_the_kinds_have_no_core_or_injected_route(self, kind):
         assert core_supports(document(kind)) is False
         with pytest.raises(ValueError, match="scan-scoped"):
-            create_scan_analyzer(document(kind), route="core")
+            create_scan_analyzer(document(kind), route="core", allow_destructive=True)
         with pytest.raises(ValueError, match="injected-data"):
-            create_scan_analyzer(document(kind), use_injected_data=True)
+            create_scan_analyzer(
+                document(kind), use_injected_data=True, allow_destructive=True
+            )
 
     def test_every_scan_scoped_kind_has_a_scan_analysis_class(self):
         scan_scoped = {k for k, m in ANALYZER_SPECS.items() if m.scope == "scan"}
@@ -290,3 +300,54 @@ class TestCompactAndRestore:
             with pytest.raises(DataUnavailableWarning, match="No data directory"):
                 run(monkeypatch, tmp_path, document(kind))
         assert not (scan / DEVICE).exists()
+
+
+class TestDestructiveGate:
+    """A kind that deletes data files is built only for a host that confirmed it."""
+
+    def test_the_factory_refuses_without_the_opt_in(self):
+        with pytest.raises(DestructiveKindRefused, match="deletes data files"):
+            create_scan_analyzer(document("himg_compact"))
+        assert isinstance(
+            create_scan_analyzer(document("himg_compact"), allow_destructive=True),
+            HimgCompactAnalyzer,
+        )
+        # The non-destructive kinds never needed the opt-in.
+        assert isinstance(
+            create_scan_analyzer(document("himg_restore")), HimgRestoreAnalyzer
+        )
+        assert isinstance(
+            create_scan_analyzer(document("himg_to_stack")), HimgToStackAnalyzer
+        )
+
+    def test_the_group_loader_skips_it_with_a_reason(self, tmp_path, caplog):
+        """The post-scan queue runs unasked: a group naming the compaction gets everything else."""
+        analyzers = tmp_path / "analyzers" / "HTU"
+        analyzers.mkdir(parents=True)
+        for name, kind in (
+            ("HasoLift_compact", "himg_compact"),
+            ("HasoLift_stack", "himg_to_stack"),
+        ):
+            (analyzers / f"{name}.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "schema_version": 2,
+                        "name": DEVICE,
+                        "output_name": name,
+                        "analyzer": {"kind": kind},
+                        "scan": {"priority": 5},
+                    }
+                )
+            )
+        groups = tmp_path / "groups" / "HTU"
+        groups.mkdir(parents=True)
+        (groups / "haso.yaml").write_text(
+            yaml.safe_dump(
+                {"name": "haso", "analyzers": ["HasoLift_compact", "HasoLift_stack"]}
+            )
+        )
+        caplog.set_level("WARNING")
+        loaded = load_analyzers_from_config("haso", config_dir=tmp_path)
+        assert [type(a) for a in loaded] == [HimgToStackAnalyzer]
+        assert "skipping HasoLift_compact" in caplog.text
+        assert "destructive kind" in caplog.text

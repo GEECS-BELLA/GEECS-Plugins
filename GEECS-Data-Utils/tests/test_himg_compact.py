@@ -20,15 +20,17 @@ from geecs_data_utils.io.himg_compact import (
     HimgCompactReport,
     HimgFolderActive,
     HimgRestoreReport,
+    HimgSourceChanged,
     HimgStackIncomplete,
     NoHimgStack,
     compact_himg_folder,
     manifest_path_for,
     read_manifest,
     restore_himg_folder,
-    run_closed_evidence,
 )
+from geecs_data_utils.data.sfile import run_closed_evidence, scan_data_txt_path_for
 from geecs_data_utils.io.himg_stack import (
+    HimgSourcesDeleted,
     HimgStackError,
     HimgStackExists,
     HimgVerificationFailed,
@@ -162,7 +164,7 @@ class TestCompact:
 
     def test_no_closed_run_evidence_refuses(self, tmp_path):
         device_dir = build_scan(tmp_path, closed=False)
-        assert run_closed_evidence(device_dir) is None
+        assert run_closed_evidence(device_dir.parent) is None
         before = snapshot(device_dir)
         with pytest.raises(HimgFolderActive, match="no evidence the scan closed"):
             compact_himg_folder(device_dir)
@@ -171,7 +173,7 @@ class TestCompact:
         sfile = device_dir.parents[2] / "analysis" / "s12.txt"
         sfile.parent.mkdir()
         sfile.write_text("Shotnumber\n1\n")
-        assert run_closed_evidence(device_dir) == sfile
+        assert run_closed_evidence(device_dir.parent) == sfile
         compact_himg_folder(device_dir)
         assert list_himg_files(device_dir) == []
 
@@ -198,9 +200,10 @@ class TestCompact:
         victim.write_bytes(bytes(data))
         os.utime(victim, (OLD, OLD))
         before = snapshot(device_dir)
-        with pytest.raises(HimgVerificationFailed, match="nothing was deleted") as info:
+        with pytest.raises(HimgSourceChanged, match="nothing was deleted") as info:
             compact_himg_folder(device_dir)
-        assert info.value.mismatches == (victim.name,)
+        assert info.value.changed == (victim.name,)
+        assert "the stack is intact" in str(info.value)
         assert snapshot(device_dir) == before
         assert not manifest_path_for(device_dir).exists()
 
@@ -304,7 +307,7 @@ class TestRestore:
         compact_himg_folder(device_dir)
         name = f"{DEVICE}_{STAMPS[1]:.3f}.himg"
         (device_dir / name).write_bytes(b"someone else's file")
-        with pytest.raises(HimgVerificationFailed, match="nothing overwritten"):
+        with pytest.raises(HimgSourceChanged, match="nothing overwritten"):
             restore_himg_folder(device_dir)
         assert (device_dir / name).read_bytes() == b"someone else's file"
         assert manifest_path_for(device_dir).exists()  # still compacted
@@ -463,3 +466,119 @@ def test_manifest_is_json_a_human_can_read(tmp_path):
     assert record["files"][0]["acq_timestamp"] == pytest.approx(
         STAMPS[0] - 2082844800.0
     )
+
+
+class TestCompactedFolderIsNotReconverted:
+    """The stack of a compacted folder is the only copy: overwrite refuses."""
+
+    def test_convert_overwrite_refuses_and_keeps_every_frame(self, tmp_path):
+        device_dir = build_scan(tmp_path)
+        compact_himg_folder(device_dir)
+        stack = stack_path_for(device_dir)
+        before = stack.read_bytes()
+        # A stray file lands after the compaction (a self-triggered frame).
+        late = device_dir / f"{DEVICE}_3873135605.617.himg"
+        late.write_bytes(_himg(9))
+        os.utime(late, (OLD, OLD))
+        with pytest.raises(HimgStackIncomplete, match="restore the folder first"):
+            compact_himg_folder(device_dir)
+        with pytest.raises(HimgSourcesDeleted, match="restore it") as info:
+            convert_himg_folder(device_dir, overwrite=True)
+        assert len(info.value.missing) == 3
+        assert stack.read_bytes() == before  # the three frames are still there
+        assert verify_himg_stack(stack).frames == 3
+        # The way back: restore, then reconvert with overwrite, then compact.
+        restore_himg_folder(device_dir)
+        assert convert_himg_folder(device_dir, overwrite=True).frames == 4
+        for path in list_himg_files(device_dir):  # restored files are young
+            os.utime(path, (OLD, OLD))
+        assert compact_himg_folder(device_dir).files_deleted == 4
+
+    def test_a_damaged_stack_is_told_apart_from_a_changed_file(
+        self, tmp_path, monkeypatch
+    ):
+        device_dir = build_scan(tmp_path)
+        stack = stack_path_for(device_dir)
+        real = compact_module.verify_himg_stack
+
+        def damaged(*args, **kwargs):
+            report = real(*args, **kwargs)
+            return type(report)(
+                stack_path=report.stack_path,
+                frames=report.frames,
+                mismatches=("U_HasoLift_3873135602.613.himg",),
+            )
+
+        monkeypatch.setattr(compact_module, "verify_himg_stack", damaged)
+        with pytest.raises(HimgVerificationFailed, match="did not rebuild"):
+            compact_himg_folder(device_dir)
+        assert len(list_himg_files(device_dir)) == 3
+        assert stack.read_bytes()  # untouched
+
+    def test_a_rerun_keeps_the_first_compaction_stamp(self, tmp_path):
+        device_dir = build_scan(tmp_path)
+        compact_himg_folder(device_dir)
+        first = read_manifest(device_dir)
+        assert first["updated"] is None
+        # An interrupted pass: the manifest is there, one file came back.
+        restore_himg_folder(device_dir)
+        stack = stack_path_for(device_dir)
+        compact_module._write_manifest(
+            device_dir, stack, *_provenance_of(stack), compacted=first["compacted"]
+        )
+        for path in list_himg_files(device_dir):
+            os.utime(path, (OLD, OLD))
+        time.sleep(0.01)
+        compact_himg_folder(device_dir)
+        again = read_manifest(device_dir)
+        assert again["compacted"] == first["compacted"]
+        assert again["updated"] is not None and again["updated"] > first["compacted"]
+
+
+class TestRunClosedEvidence:
+    def test_the_scan_data_table_then_the_sfile(self, tmp_path):
+        scan = (
+            tmp_path
+            / "Undulator"
+            / "Y2026"
+            / "03-Mar"
+            / "26_0310"
+            / "scans"
+            / "Scan012"
+        )
+        scan.mkdir(parents=True)
+        assert scan_data_txt_path_for(scan) == scan / "ScanDataScan012.txt"
+        assert run_closed_evidence(scan) is None
+        sfile = (
+            tmp_path
+            / "Undulator"
+            / "Y2026"
+            / "03-Mar"
+            / "26_0310"
+            / "analysis"
+            / "s12.txt"
+        )
+        sfile.parent.mkdir()
+        sfile.write_text("Shotnumber\n")
+        assert run_closed_evidence(scan) == sfile
+        (scan / "ScanDataScan012.txt").write_text("Shotnumber\n")
+        assert run_closed_evidence(scan) == scan / "ScanDataScan012.txt"
+        # A folder that is not a canonical scans/ScanNNN path has only the table.
+        odd = tmp_path / "somewhere" / "Scan012"
+        odd.mkdir(parents=True)
+        assert run_closed_evidence(odd) is None
+        (odd / "ScanDataScan012.txt").write_text("x")
+        assert run_closed_evidence(odd) == odd / "ScanDataScan012.txt"
+
+
+class TestVerifyCli:
+    def test_verify_knows_a_compacted_folder(self, tmp_path, capsys):
+        device_dir = build_scan(tmp_path)
+        compact_himg_folder(device_dir)
+        assert himg_main(["verify", str(device_dir)]) == 0
+        assert "3 frames verified" in capsys.readouterr().out
+        assert himg_main(["verify", str(device_dir.parent)]) == 0
+        assert "3 frames verified" in capsys.readouterr().out
+        # against the files: the deleted sources are reported as missing, honestly
+        assert himg_main(["verify", str(device_dir), "--against-files"]) == 1
+        assert "3 source file(s) missing" in capsys.readouterr().out

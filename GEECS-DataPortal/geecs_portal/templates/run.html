@@ -1150,6 +1150,15 @@ function refreshAnalysis(force) {
 
 let CONFIRM_ID = null;  // the destructive analyzer the open dialog is about
 
+// The number the server's confirm check accepts: the listing carries it
+// (parsed from the resolved scan folder, like the run's tag); the page's
+// own SCAN_NUMBER (from the start doc) is the fallback before the first
+// listing arrives.
+function confirmScanNumber() {
+  const listed = ANALYSIS_BODY && ANALYSIS_BODY.scan_number;
+  return "" + (listed !== null && listed !== undefined ? listed : SCAN_NUMBER);
+}
+
 function startAnalysis(id) {
   // A destructive kind never starts from the click alone: the dialog
   // asks for this scan's number, and the server refuses without it.
@@ -1162,8 +1171,8 @@ function openConfirm(a) {
   const dlg = document.getElementById("confirmdlg");
   if (!dlg || typeof dlg.showModal !== "function") {
     // No <dialog> support: the plain prompt still asks the question.
-    const typed = window.prompt(`${a.id} deletes this scan's ${a.device} data files after verifying them against the stack. Type the scan number (${SCAN_NUMBER}) to confirm.`);
-    if (typed !== null && String(typed).trim() === String(SCAN_NUMBER)) postAnalysis(a.id, typed.trim());
+    const typed = window.prompt(`${a.id} deletes this scan's ${a.device} data files after verifying them against the stack. Type the scan number (${confirmScanNumber()}) to confirm.`);
+    if (typed !== null && String(typed).trim() === confirmScanNumber()) postAnalysis(a.id, typed.trim());
     return;
   }
   CONFIRM_ID = a.id;
@@ -1186,7 +1195,7 @@ function closeConfirm() {
 function confirmDestructive(event) {
   event.preventDefault();
   const typed = document.getElementById("confirmnum").value.trim();
-  if (typed !== String(SCAN_NUMBER)) {
+  if (typed !== confirmScanNumber()) {
     document.getElementById("confirmerr").textContent = typed ? `${typed} is not this scan's number.` : "Type the scan number.";
     return false;
   }
@@ -1818,6 +1827,9 @@ function applyDisplay() {
 
 function closeModals() {
   document.querySelectorAll(".overlay").forEach(m => m.classList.remove("on"));
+  // The destructive-kind confirmation is a real <dialog>, not an
+  // .overlay; one call still closes everything.
+  if (typeof closeConfirm === "function") closeConfirm();
 }
 
 // ---------------- utilities + boot ----------------

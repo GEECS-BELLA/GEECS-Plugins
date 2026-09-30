@@ -327,7 +327,14 @@ and its run button opens a real `<dialog>` (`showModal()`: focus trap,
 that asks the user to type **this scan's number** (`const SCAN_NUMBER`);
 the POST carries it as `confirm=<number>` and the endpoint refuses a
 destructive kind without exactly that value (**400**) — the gate is
-server-side so no client, script or curl runs a delete unasked.  The
+server-side so no client, script or curl runs a delete unasked.  Past
+that check the run's factory is called with `allow_destructive=True`
+(`run_scan_analyzer(..., allow_destructive=)` → `create_scan_analyzer`,
+which refuses a destructive kind without it — the same gate the task
+queue and MCP never pass), so the confirmation and the opt-in are one
+decision.  The listing carries `scan_number`, the value the check
+compares against (from the resolved folder, like the run's tag), and
+the dialog asks for that one.  The
 job record also carries `progress` (`{done, total, phase}` — the last
 thing the analyzer reported through `ScanAnalyzer.progress`, the
 base-class hook `run_scan_analyzer` sets when the analyzer has it; most

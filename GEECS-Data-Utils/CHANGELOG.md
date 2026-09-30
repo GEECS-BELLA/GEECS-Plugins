@@ -39,11 +39,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (a whole-file read followed by `posix_fadvise(DONTNEED)`, so a 44 GB
   scan does not stay in the service cgroup's page cache).
 
+- `HimgSourcesDeleted`: `write_himg_stack` / `convert_himg_folder` with
+  `overwrite` refuse when the existing stack holds frames whose `.himg`
+  files are no longer in the folder — a compacted folder's stack is the
+  only copy of those frames, and rebuilding it from the files on disk
+  would silently drop them. The way back is restore, then reconvert.
+- `HimgVerifyReport.changed` and `HimgSourceChanged`: a file on disk that
+  differs from its intact frame (the file changed after conversion) is
+  reported apart from a frame that does not rebuild its recorded hash
+  (`mismatches`: the stack is damaged) — opposite remedies, two errors.
+  `compact_himg_folder` runs `verify_himg_stack(against_files=True)`, the
+  one audit, instead of its own loop.
+- `data.sfile.scan_data_txt_path_for(scan_folder)` and
+  `run_closed_evidence(scan_folder)`: the scanner-written table's path
+  and the "did the run close" question live with the s-file helpers;
+  `tiled_export` builds the table path through the same function.
+- The worker child asks the kernel to SIGTERM it when its parent dies
+  (`PR_SET_PDEATHSIG`, Linux), so a compaction never runs on after the
+  host that asked for it is gone.
+- A rerun that finishes an interrupted compaction keeps the first
+  `compacted` stamp and records its own time as `updated`.
+- A `.himg` that vanishes or becomes unreadable mid-run is a
+  `HimgStackError`, not a traceback; a file another compaction deleted
+  first is skipped.
+
 ### Changed
 
 - `HimgVerificationFailed` takes an `outcome=` for its message (the
   converter's "the stack was removed" stays the default).
 - The converter reads its sources through `read_source_bytes`.
+- `geecs-himg verify <scan folder>` visits every device folder holding
+  `.himg` files **or** a stack, so a compacted folder still verifies.
+- `forget_pages` and `package_version` are public in `io.himg_stack`
+  (shared with `io.himg_compact`).
 
 ## [0.47.1] - 2026-09-29
 

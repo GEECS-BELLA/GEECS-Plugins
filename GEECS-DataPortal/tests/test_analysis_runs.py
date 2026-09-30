@@ -128,9 +128,11 @@ class FakeAnalyzer:
 
 
 def _factory(behaviour: str):
-    def factory(analyzer_id: str, config_dir: Path):
+    def factory(analyzer_id: str, config_dir: Path, *, allow_destructive: bool = False):
         assert analyzer_id in ("UC_Crop", "UC_Compact")
-        return FakeAnalyzer(behaviour, factory.analysis_folder)
+        analyzer = FakeAnalyzer(behaviour, factory.analysis_folder)
+        analyzer.allow_destructive = allow_destructive  # what the host passed
+        return analyzer
 
     return factory
 
@@ -778,6 +780,42 @@ class TestDestructiveGate:
         )
         assert response.status_code == 202
         assert _wait(client, analyzer="UC_Compact")["state"] == "done"
+        # The opt-in reached the factory only for the destructive kind.
+        (analyzer,) = FakeAnalyzer.instances
+        assert analyzer.allow_destructive is True
+
+    def test_the_opt_in_never_reaches_a_non_destructive_build(
+        self, scan_folder, configs_tree
+    ):
+        pytest.importorskip("image_analysis")
+        client = _client(scan_folder, configs_tree)
+        client.post(
+            "/api/run/uid-002/analysis", params={"analyzer": "UC_Crop", "confirm": "2"}
+        )
+        assert _wait(client)["state"] == "done"
+        (analyzer,) = FakeAnalyzer.instances
+        assert analyzer.allow_destructive is False
+
+    def test_the_listing_carries_the_number_the_gate_accepts(
+        self, scan_folder, configs_tree
+    ):
+        pytest.importorskip("image_analysis")
+        client = _client(scan_folder, configs_tree)
+        body = client.get("/api/run/uid-002/analysis").json()
+        assert body["scan_number"] == 2  # from the resolved folder, like the tag
+
+    def test_the_real_factory_refuses_a_destructive_kind_without_the_opt_in(
+        self, configs_tree
+    ):
+        pytest.importorskip("scan_analysis")
+        from scan_analysis.config.diagnostic_factory import DestructiveKindRefused
+
+        with pytest.raises(DestructiveKindRefused):
+            analysis_runs.scan_analysis_factory("UC_Compact", configs_tree)
+        built = analysis_runs.scan_analysis_factory(
+            "UC_Compact", configs_tree, allow_destructive=True
+        )
+        assert type(built).__name__ == "HimgCompactAnalyzer"
 
     def test_a_non_destructive_kind_needs_no_confirmation(
         self, scan_folder, configs_tree
@@ -844,14 +882,14 @@ class TestProgress:
         bare = Bare()
         assert (
             analysis_runs.run_scan_analyzer(
-                lambda *_: bare, "X", Path("."), None, progress=sink
+                lambda *_, **__: bare, "X", Path("."), None, progress=sink
             )
             == []
         )
         assert not hasattr(bare, "progress")
         hooked = FakeAnalyzer("ok", tmp_path)
         analysis_runs.run_scan_analyzer(
-            lambda *_: hooked,
+            lambda *_, **__: hooked,
             "X",
             Path("."),
             type("Tag", (), {"number": 1})(),

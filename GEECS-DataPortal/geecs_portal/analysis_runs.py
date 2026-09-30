@@ -70,16 +70,22 @@ class ScanAnalyzerLike(Protocol):
         """Release per-scan memory (the caller's duty after every run)."""
 
 
-#: ``factory(analyzer_id, config_dir) -> analyzer`` — built INSIDE the
-#: worker thread so config/instantiation failures land in the job
-#: record as ``failed`` rather than as a request error.
-AnalyzerFactory = Callable[[str, Path], ScanAnalyzerLike]
+#: ``factory(analyzer_id, config_dir, *, allow_destructive=False) ->
+#: analyzer`` — built INSIDE the worker thread so config/instantiation
+#: failures land in the job record as ``failed`` rather than as a
+#: request error.  ``allow_destructive`` is the host's opt-in for a kind
+#: that deletes data files (the factory below hands it to
+#: ``create_scan_analyzer``, which refuses such a kind without it); the
+#: app passes ``True`` only after its typed-scan-number check.
+AnalyzerFactory = Callable[..., ScanAnalyzerLike]
 #: What a run reports into: ``(done, total, phase)`` — frames so far, of
 #: how many, in which phase (``"writing"``, ``"verifying"``, …).
 ProgressSink = Callable[[int, int, str], None]
 
 
-def scan_analysis_factory(analyzer_id: str, config_dir: Path) -> ScanAnalyzerLike:
+def scan_analysis_factory(
+    analyzer_id: str, config_dir: Path, *, allow_destructive: bool = False
+) -> ScanAnalyzerLike:
     """Build the real ScanAnalysis analyzer for one diagnostic ID.
 
     The single-analyzer path the group loader runs in a loop:
@@ -93,6 +99,9 @@ def scan_analysis_factory(analyzer_id: str, config_dir: Path) -> ScanAnalyzerLik
         Diagnostic ID (YAML stem, or ``namespace/stem`` when ambiguous).
     config_dir : Path
         The configs tree root (the parent of ``analyzers/``).
+    allow_destructive : bool
+        The host's opt-in for a kind that deletes data files; without it
+        ``create_scan_analyzer`` refuses such a kind.
 
     Returns
     -------
@@ -116,7 +125,7 @@ def scan_analysis_factory(analyzer_id: str, config_dir: Path) -> ScanAnalyzerLik
     from scan_analysis.config import create_scan_analyzer
 
     diag = load_diagnostic(analyzer_id, config_dir=config_dir)
-    return create_scan_analyzer(diag)
+    return create_scan_analyzer(diag, allow_destructive=allow_destructive)
 
 
 @dataclasses.dataclass
@@ -385,6 +394,7 @@ def run_scan_analyzer(
     scan_tag: object,
     *,
     progress: Optional[ProgressSink] = None,
+    allow_destructive: bool = False,
 ) -> Optional[list]:
     """Build, run and clean up one analyzer — the body of a job.
 
@@ -392,8 +402,10 @@ def run_scan_analyzer(
     task runner's duty in the queue path and ours here.  *progress* is
     handed to an analyzer that has a ``progress`` attribute (the
     ``ScanAnalyzer`` hook); one without it simply never reports.
+    *allow_destructive* reaches the factory: a kind that deletes data
+    files is built only when the caller confirmed it.
     """
-    analyzer = factory(analyzer_id, config_dir)
+    analyzer = factory(analyzer_id, config_dir, allow_destructive=allow_destructive)
     if progress is not None and hasattr(analyzer, "progress"):
         analyzer.progress = progress
     try:

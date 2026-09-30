@@ -54,7 +54,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["SCAN_SCOPED_CLASS_PATHS", "create_scan_analyzer"]
+__all__ = ["SCAN_SCOPED_CLASS_PATHS", "DestructiveKindRefused", "create_scan_analyzer"]
+
+
+class DestructiveKindRefused(ValueError):
+    """A kind that deletes data files was asked for without the host's opt-in.
+
+    ``AnalyzerSpecBase.destructive`` marks such a kind (the ``.himg``
+    compaction); it runs only where someone confirmed it — the data
+    portal after its typed-scan-number check, or the shell — and every
+    other host (the task queue, MCP, a script) gets this instead.
+    """
+
 
 #: kind → class path of the ScanAnalyzer implementing a *scan-scoped* kind
 #: (``AnalyzerSpecBase.scope == "scan"``: one step over the device folder,
@@ -75,6 +86,7 @@ def create_scan_analyzer(
     priority: Optional[int] = None,
     use_injected_data: bool = False,
     route: Literal["auto", "core", "legacy"] = "auto",
+    allow_destructive: bool = False,
 ) -> "ScanAnalyzer":
     """Build a ScanAnalyzer from a validated analysis document.
 
@@ -120,6 +132,12 @@ def create_scan_analyzer(
         Legacy wrappers only.
     route : {"auto", "core", "legacy"}, default="auto"
         Which implementation runs the recipe; see above.
+    allow_destructive : bool, default=False
+        The host's opt-in for a kind that deletes data files
+        (``AnalyzerSpecBase.destructive``, the ``.himg`` compaction).
+        Without it such a document raises :class:`DestructiveKindRefused`
+        before anything is built — the task queue and MCP never pass it;
+        the data portal passes it after its typed-scan-number check.
 
     Returns
     -------
@@ -141,6 +159,15 @@ def create_scan_analyzer(
     source_id = getattr(diag, "source_id", None)
     effective_priority = priority if priority is not None else diag.scan.priority
 
+    if getattr(diag, "destructive", False) and not allow_destructive:
+        # The gate every host passes through: a kind that deletes data
+        # files is built only for a caller that says it confirmed the run.
+        raise DestructiveKindRefused(
+            f"{source_id or getattr(diag, 'device', diag)}: kind "
+            f"{diag.analyzer.kind!r} deletes data files and runs only on an "
+            "explicit, confirmed request (the data portal's typed scan number, "
+            "or the shell) — never from the task queue or an unconfirmed host"
+        )
     if route not in ("auto", "core", "legacy"):
         raise ValueError(f"route must be auto, core or legacy, not {route!r}")
     if isinstance(diag, AnalysisRecipe):

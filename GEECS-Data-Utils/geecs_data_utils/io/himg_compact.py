@@ -5,12 +5,14 @@ stack, the ``.himg`` files are a second copy of the same bytes at five
 times the size (2026: 1.65 TB of them).  This module is the one place
 that removes them, and the one that puts them back:
 
-- :func:`compact_himg_folder` rebuilds every frame of the stack, checks
-  it against the SHA-256 recorded at conversion **and** against the file
-  still on disk, and only then deletes the ``.himg`` files, leaving a
-  manifest (:data:`MANIFEST_NAME`) beside the stack that says what was
-  removed and when.  The stack itself is never rewritten — its per-shot
-  header rows are what the ``haso`` measure reads its sensor header from.
+- :func:`compact_himg_folder` runs the stack's own audit
+  (:func:`~geecs_data_utils.io.himg_stack.verify_himg_stack` with
+  ``against_files``: every frame rebuilt and checked against the SHA-256
+  recorded at conversion **and** against the file still on disk), and
+  only then deletes the ``.himg`` files, leaving a manifest
+  (:data:`MANIFEST_NAME`) beside the stack that says what was removed
+  and when.  The stack itself is never rewritten — its per-shot header
+  rows are what the ``haso`` measure reads its sensor header from.
 - :func:`restore_himg_folder` rebuilds each ``.himg`` from the stack,
   byte-identical to the file the converter read (checked against the
   same SHA-256 before it is written), and removes the manifest.
@@ -20,13 +22,24 @@ the data portal and a shell command and both must refuse the same things:
 
 - **the scan may still be written** — any ``.himg`` younger than
   :data:`MIN_SOURCE_AGE_S`, or no evidence that the scanner closed the
-  run (:func:`run_closed_evidence`: the ``ScanDataScanNNN.txt`` table the
-  stop document writes, else the analysis s-file);
+  run (:func:`~geecs_data_utils.data.sfile.run_closed_evidence`: the
+  ``ScanDataScanNNN.txt`` table the stop document writes, else the
+  analysis s-file);
 - **the stack does not cover the folder** — a ``.himg`` on disk that the
   stack has no frame for (a file that landed after the conversion);
 - **another writer owns the folder** — a ``<device>.h5.part`` in progress;
-- **a mismatch anywhere** — nothing is deleted (and nothing overwritten
-  on restore) unless every frame verifies first.
+- **a disagreement anywhere** — nothing is deleted (and nothing
+  overwritten on restore) unless every frame verifies first.  A frame
+  that does not rebuild its recorded hash (:class:`HimgVerificationFailed`,
+  the stack is damaged) and a file that changed on disk after conversion
+  (:class:`HimgSourceChanged`, the stack is intact) are reported apart,
+  because they call for opposite remedies.
+
+The converter's side of the same contract: once a folder is compacted,
+``convert`` with ``overwrite`` refuses
+(:class:`~geecs_data_utils.io.himg_stack.HimgSourcesDeleted`) — the
+stack is the only copy of the deleted frames, so the way to reconvert is
+restore first.
 
 Scan-folder invariant, and its one deliberate exception: this module
 touches only the files inside the one device folder it is given — it
@@ -47,11 +60,11 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 import numpy as np
 
-from geecs_data_utils.data.sfile import sfile_path_for_scan
+from geecs_data_utils.data.sfile import run_closed_evidence
 from geecs_data_utils.io.himg import himg_bytes
 from geecs_data_utils.io.himg_stack import (
     HEADER_DATASET,
@@ -63,13 +76,14 @@ from geecs_data_utils.io.himg_stack import (
     HimgVerificationFailed,
     NoHimgFiles,
     Progress,
-    _forget_pages,
-    _package_version,
+    forget_pages,
     is_himg_stack,
     list_himg_files,
+    package_version,
     part_path_for,
     read_source_bytes,
     stack_path_for,
+    verify_himg_stack,
 )
 from geecs_data_utils.io.scan_stack import (
     FRAMES_DATASET,
@@ -86,13 +100,13 @@ __all__ = [
     "HimgCompactReport",
     "HimgFolderActive",
     "HimgRestoreReport",
+    "HimgSourceChanged",
     "HimgStackIncomplete",
     "NoHimgStack",
     "compact_himg_folder",
     "manifest_path_for",
     "read_manifest",
     "restore_himg_folder",
-    "run_closed_evidence",
 ]
 
 #: The record a compaction leaves in the device folder: what was deleted,
@@ -115,7 +129,25 @@ class HimgFolderActive(HimgStackError):
 
 
 class HimgStackIncomplete(HimgStackError):
-    """A ``.himg`` on disk has no frame in the stack — reconvert before compacting."""
+    """A ``.himg`` on disk has no frame in the stack — restore (if compacted) and reconvert first."""
+
+
+class HimgSourceChanged(HimgStackError):
+    """A ``.himg`` on disk differs from the stack's intact frame — the file changed after conversion.
+
+    The stack is fine; the two copies disagree.  Nothing is deleted or
+    overwritten: someone decides which copy is right.
+    """
+
+    def __init__(self, stack_path: Path, changed: Sequence[str], *, outcome: str):
+        shown = ", ".join(changed[:5]) + (" …" if len(changed) > 5 else "")
+        super().__init__(
+            f"{len(changed)} {HIMG_SUFFIX} file(s) on disk differ from their frame in "
+            f"{stack_path} ({shown}); the stack is intact and the file changed after "
+            f"conversion — decide which copy is right; {outcome}"
+        )
+        self.stack_path = stack_path
+        self.changed = tuple(changed)
 
 
 @dataclass
@@ -139,7 +171,7 @@ class HimgCompactReport:
 
     @property
     def files_before(self) -> int:
-        """Files in the folder that mattered before: the ``.himg`` files plus the stack."""
+        """Files in the folder that mattered before this run: the ``.himg`` files plus the stack."""
         return self.files_deleted + 1
 
     @property
@@ -216,26 +248,6 @@ def read_manifest(device_dir: Path) -> Optional[dict]:
         raise HimgStackError(f"{path}: unreadable manifest ({exc})") from exc
 
 
-def run_closed_evidence(device_dir: Path) -> Optional[Path]:
-    """A file that exists only once the scanner closed the run, or ``None``.
-
-    The native scanner writes ``ScanDataScanNNN.txt`` (and the analysis
-    tree's ``sNNN.txt``) at the stop document; the legacy scanner wrote
-    the same table at the end of every scan.  Either is the evidence
-    compaction asks for.  Read-only: nothing is written or created.
-    """
-    scan_folder = Path(device_dir).parent
-    candidates = [scan_folder / f"ScanData{scan_folder.name}.txt"]
-    try:
-        candidates.append(sfile_path_for_scan(scan_folder))
-    except ValueError:  # not a canonical scans/ScanNNN folder
-        pass
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return None
-
-
 def _open_checked(device_dir: Path) -> Path:
     """The folder's stack, once the folder, the part file and the stack itself check out."""
     device_dir = Path(device_dir)
@@ -291,8 +303,13 @@ def _write_manifest(
     stamps: list[float],
     *,
     compacted: float,
+    updated: Optional[float] = None,
 ) -> Path:
-    """Write the manifest atomically (``.part`` + rename) and return its path."""
+    """Write the manifest atomically (``.part`` + rename) and return its path.
+
+    *compacted* is the first compaction's stamp — kept by a rerun that
+    finishes an interrupted pass, which records its own time as *updated*.
+    """
     record = {
         "format": MANIFEST_FORMAT,
         "version": MANIFEST_VERSION,
@@ -300,7 +317,8 @@ def _write_manifest(
         "stack": stack.name,
         "compacted": compacted,
         "compacted_iso": datetime.fromtimestamp(compacted, timezone.utc).isoformat(),
-        "writer": f"geecs-data-utils {_package_version()}",
+        "updated": updated,
+        "writer": f"geecs-data-utils {package_version()}",
         "frames": len(names),
         "source_bytes": int(sum(sizes)),
         "stack_bytes": stack.stat().st_size,
@@ -325,12 +343,13 @@ def compact_himg_folder(
 ) -> HimgCompactReport:
     """Verify every frame of the stack against its source, then delete the sources.
 
-    Order: guards, a full verification pass (every frame rebuilt and
-    hashed; every ``.himg`` still on disk compared byte for byte), the
-    manifest, and only then the deletions.  A failure anywhere before the
-    deletions leaves the folder as found.  An interrupted deletion pass
-    leaves the manifest and the remaining files; running again verifies
-    and finishes.
+    Order: guards, the full audit (:func:`verify_himg_stack` with
+    ``against_files`` — every frame rebuilt and hashed; every ``.himg``
+    still on disk compared byte for byte), the manifest, and only then
+    the deletions.  A failure anywhere before the deletions leaves the
+    folder as found.  An interrupted deletion pass leaves the manifest
+    and the remaining files; running again verifies and finishes,
+    keeping the first compaction's stamp.
 
     Parameters
     ----------
@@ -339,9 +358,9 @@ def compact_himg_folder(
     min_age : float
         Refuse while any ``.himg`` is younger than this many seconds.
     require_closed : bool
-        Refuse without :func:`run_closed_evidence`.  The shell command's
-        escape hatch for a dead scan that never closed; the portal never
-        turns it off.
+        Refuse without :func:`~geecs_data_utils.data.sfile.run_closed_evidence`.
+        The shell command's escape hatch for a dead scan that never closed;
+        the portal never turns it off.
     progress : callable, optional
         ``(done, total, phase)`` per frame — ``"verifying"``, then ``"deleting"``.
 
@@ -356,9 +375,14 @@ def compact_himg_folder(
     HimgFolderActive
         A young ``.himg``, or no evidence the run closed.
     HimgVerificationFailed
-        A frame that does not rebuild its source; nothing was deleted.
+        A frame that does not rebuild its recorded hash (the stack is
+        damaged); nothing was deleted.
+    HimgSourceChanged
+        A file on disk that differs from its intact frame; nothing was deleted.
     HimgStackError
-        A ``.part`` file (another writer), or a missing folder.
+        A ``.part`` file (another writer), a missing folder, or a file
+        that vanished or became unreadable mid-run (another process
+        changing the folder).
     """
     started = time.time()
     device_dir = Path(device_dir)
@@ -395,56 +419,77 @@ def compact_himg_folder(
         shown = ", ".join(extra[:5]) + (" …" if len(extra) > 5 else "")
         raise HimgStackIncomplete(
             f"{len(extra)} {HIMG_SUFFIX} file(s) in {device_dir.name} have no frame "
-            f"in {stack.name} ({shown}); reconvert with overwrite before compacting"
+            f"in {stack.name} ({shown}); restore the folder first if it was "
+            "compacted (geecs-himg restore), then reconvert with overwrite, "
+            "then compact"
         )
     now = time.time()
-    youngest = min(now - p.stat().st_mtime for p in on_disk)
+    try:
+        youngest = min(now - p.stat().st_mtime for p in on_disk)
+    except OSError as exc:
+        raise HimgStackError(
+            f"{device_dir.name}: a {HIMG_SUFFIX} file vanished while checking "
+            f"({exc}); another process is changing the folder"
+        ) from exc
     if youngest < min_age:
         raise HimgFolderActive(
             f"{device_dir.name}: a {HIMG_SUFFIX} file was written {youngest:.0f} s "
             f"ago (under {min_age:.0f} s); the scan may still be running"
         )
-    if require_closed and run_closed_evidence(device_dir) is None:
+    if require_closed and run_closed_evidence(device_dir.parent) is None:
         raise HimgFolderActive(
             f"{device_dir.name}: no evidence the scan closed (no ScanData table "
             "and no s-file); refusing to delete"
         )
 
-    # --- verify everything before deleting anything -------------------------
-    present = {p.name: p for p in on_disk}
-    mismatches: list[str] = []
-    count = len(names)
-    with open_stack(stack) as f:
-        stamps = [float(s) for s in read_stack_timestamps(stack)]
-        for index in range(count):
-            rebuilt = _rebuild(f, index)
-            if hashlib.sha256(rebuilt).hexdigest() != digests[index]:
-                mismatches.append(names[index])
-            else:
-                path = present.get(names[index])
-                if path is not None and read_source_bytes(path) != rebuilt:
-                    mismatches.append(names[index])
-            if progress is not None:
-                progress(index + 1, count, "verifying")
-    if mismatches:
-        raise HimgVerificationFailed(stack, mismatches, outcome="nothing was deleted")
+    # --- the stack's own audit, before deleting anything --------------------
+    # ``missing`` sources are the ones an interrupted earlier pass already
+    # deleted: their frames verified against the recorded hash like every
+    # other, so they are fine.
+    check = verify_himg_stack(stack, against_files=True, progress=progress)
+    if check.mismatches:
+        raise HimgVerificationFailed(
+            stack, check.mismatches, outcome="nothing was deleted"
+        )
+    if check.changed:
+        raise HimgSourceChanged(stack, check.changed, outcome="nothing was deleted")
 
     # --- the record first, then the deletions --------------------------------
+    existing = read_manifest(device_dir)
+    first = existing.get("compacted") if existing else None
+    stamps = [float(s) for s in read_stack_timestamps(stack)]
     manifest = _write_manifest(
-        device_dir, stack, names, digests, sizes, stamps, compacted=time.time()
+        device_dir,
+        stack,
+        names,
+        digests,
+        sizes,
+        stamps,
+        compacted=float(first) if isinstance(first, (int, float)) else time.time(),
+        updated=time.time() if existing else None,
     )
     freed = 0
+    deleted = 0
     for done, path in enumerate(on_disk, start=1):
-        size = path.stat().st_size
-        path.unlink()
+        try:
+            size = path.stat().st_size
+            path.unlink()
+        except FileNotFoundError:
+            continue  # another compaction of the same folder got there first
+        except OSError as exc:
+            raise HimgStackError(
+                f"{path.name}: could not delete ({exc}); {deleted} of "
+                f"{len(on_disk)} deleted, the manifest is in place — run again"
+            ) from exc
         freed += size
+        deleted += 1
         if progress is not None:
             progress(done, len(on_disk), "deleting")
     report = HimgCompactReport(
         device_dir=device_dir,
         stack_path=stack,
-        frames=count,
-        files_deleted=len(on_disk),
+        frames=check.frames,
+        files_deleted=deleted,
         bytes_freed=freed,
         stack_bytes=stack_bytes,
         seconds=time.time() - started,
@@ -471,10 +516,14 @@ def restore_himg_folder(
     NoHimgStack
         No stack, or not a ``.himg`` stack.
     HimgVerificationFailed
-        A frame that does not rebuild its recorded hash, or a file on disk
-        that differs from the stack's frame; nothing is overwritten.
+        A frame that does not rebuild its recorded hash (the stack is
+        damaged); restore stopped, nothing overwritten.
+    HimgSourceChanged
+        A file on disk that differs from its intact frame; restore
+        stopped, nothing overwritten.
     HimgStackError
-        A ``.part`` file (another writer), or a missing folder.
+        A ``.part`` file (another writer), a missing folder, or a file
+        that became unreadable mid-run.
     """
     started = time.time()
     device_dir = Path(device_dir)
@@ -491,13 +540,18 @@ def restore_himg_folder(
                     stack, [name], outcome="restore stopped; nothing overwritten"
                 )
             target = device_dir / name
-            if target.exists():
-                if read_source_bytes(target) != rebuilt:
-                    raise HimgVerificationFailed(
-                        stack,
-                        [name],
-                        outcome=f"{name} on disk differs from the stack's frame; "
-                        "restore stopped, nothing overwritten",
+            try:
+                on_disk = read_source_bytes(target)
+            except FileNotFoundError:
+                on_disk = None
+            except OSError as exc:
+                raise HimgStackError(
+                    f"{name}: unreadable while restoring ({exc}); restore stopped"
+                ) from exc
+            if on_disk is not None:
+                if on_disk != rebuilt:
+                    raise HimgSourceChanged(
+                        stack, [name], outcome="restore stopped, nothing overwritten"
                     )
                 present += 1
             else:
@@ -506,7 +560,7 @@ def restore_himg_folder(
                     handle.write(rebuilt)
                     handle.flush()
                     os.fsync(handle.fileno())
-                    _forget_pages(handle.fileno())
+                    forget_pages(handle.fileno())
                 os.replace(part, target)
                 restored += 1
                 written += len(rebuilt)

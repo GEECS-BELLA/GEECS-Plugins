@@ -20,6 +20,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `ScanAnalyzer.progress` / `report_progress(done, total, phase)`: the
   base-class hook a host sets to show a run's progress (the data
   portal's run record); analyzers that can report call it.
+- `create_scan_analyzer(..., allow_destructive=False)` and
+  `DestructiveKindRefused`: a document whose kind is `destructive`
+  (`AnalyzerSpecBase.destructive`) is built only for a host that says it
+  confirmed the run — the gate every host passes, not only the portal's.
+  `load_analyzers_from_config` (the task queue's group loader) skips such
+  a kind with a logged reason, so a group naming `HasoLift_compact` runs
+  everything else and never the deletion; MCP's single-analyzer path gets
+  the refusal.
 
 ### Changed
 

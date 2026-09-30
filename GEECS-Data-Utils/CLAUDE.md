@@ -551,27 +551,39 @@ verify` is the shell form for the backlog; ScanAnalysis's `himg_to_stack`
 kind is the per-scan click in the Data Portal.
 
 **Compaction and restore (0.48.0, `io.himg_compact`)** — the one place
-this package deletes. `compact_himg_folder(device_dir)` rebuilds every
-frame of the stack, checks it against the recorded SHA-256 *and* against
-the `.himg` still on disk, and only then deletes the `.himg` files,
-leaving `himg_manifest.json` (what went, when, the stack that holds it)
-beside the stack; the stack itself — its per-shot header rows, the
-`haso` measure's sensor header — is never rewritten. The guards live in
-the function so a click and a shell command refuse the same things:
+this package deletes. `compact_himg_folder(device_dir)` runs the stack's
+own audit (`verify_himg_stack(against_files=True)`: every frame rebuilt
+and checked against the recorded SHA-256 *and* against the `.himg` still
+on disk) and only then deletes the `.himg` files, leaving
+`himg_manifest.json` (what went, when, the stack that holds it) beside
+the stack; the stack itself — its per-shot header rows, the `haso`
+measure's sensor header — is never rewritten. The guards live in the
+function so a click and a shell command refuse the same things:
 `HimgFolderActive` while any `.himg` is younger than `MIN_SOURCE_AGE_S`
-(a minute) or there is no closed-run evidence (`run_closed_evidence`: the
-`ScanDataScanNNN.txt` the stop document writes, else the analysis
-s-file; `require_closed=False` is the shell's escape hatch for a dead
-scan), `HimgStackIncomplete` for a `.himg` the stack has no frame for,
-`NoHimgStack` without a `.himg` stack, `HimgVerificationFailed` with
-nothing deleted on any mismatch, and a `.part` file refuses as another
-writer's. `restore_himg_folder` rebuilds each file (`.part` + rename,
-hash-checked first), keeps a file already there when it matches and
-stops when it does not, and removes the manifest; mtimes are not
-restored, bytes are. Both touch only the one device folder. `geecs-himg
-compact | restore` are the shell forms; ScanAnalysis's `himg_compact`
-(destructive — the portal asks for the scan number) and `himg_restore`
-kinds are the clicks. Every long loop takes a `progress(done, total,
+(a minute) or there is no closed-run evidence
+(`data.sfile.run_closed_evidence(scan_folder)`: the `ScanDataScanNNN.txt`
+the stop document writes — `scan_data_txt_path_for`, the one
+construction of that path — else the analysis s-file;
+`require_closed=False` is the shell's escape hatch for a dead scan),
+`HimgStackIncomplete` for a `.himg` the stack has no frame for,
+`NoHimgStack` without a `.himg` stack, a `.part` file as another
+writer's, and on any disagreement nothing is deleted —
+`HimgVerificationFailed` when a frame does not rebuild its hash (the
+stack is damaged), `HimgSourceChanged` when a file on disk differs from
+its intact frame (the file changed after conversion): opposite
+remedies, so two errors and two `HimgVerifyReport` lists (`mismatches`
+vs `changed`). `restore_himg_folder` rebuilds each file (`.part` +
+rename, hash-checked first), keeps a file already there when it matches
+and stops when it does not, and removes the manifest; mtimes are not
+restored, bytes are. Both touch only the one device folder. The
+converter's side of the contract: `write_himg_stack(overwrite=True)`
+refuses with `HimgSourcesDeleted` when the existing stack holds frames
+whose files are gone — a compacted folder's stack is the only copy, and
+the way to reconvert is restore first. `geecs-himg compact | restore`
+are the shell forms; ScanAnalysis's `himg_compact` (destructive — the
+portal asks for the scan number, and `create_scan_analyzer` refuses the
+kind without `allow_destructive`) and `himg_restore` kinds are the
+clicks. Every long loop takes a `progress(done, total,
 phase)` callback, and `io.himg_worker.run_himg_job` runs any of the four
 jobs in a child interpreter, relaying progress, log records, the report
 dataclass and the package's own error classes back over a JSON-lines

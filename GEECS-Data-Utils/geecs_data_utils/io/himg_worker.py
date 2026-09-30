@@ -71,13 +71,15 @@ _ERRORS: dict[str, type[HimgStackError]] = {
         himg_stack.HimgStackExists,
         himg_stack.HimgStampsUnavailable,
         himg_stack.HimgVerificationFailed,
+        himg_stack.HimgSourcesDeleted,
         himg_compact.NoHimgStack,
         himg_compact.HimgFolderActive,
         himg_compact.HimgStackIncomplete,
+        himg_compact.HimgSourceChanged,
     )
 }
 #: Exception attributes worth carrying across the process boundary.
-_ERROR_ATTRS = ("stack_path", "mismatches", "missing")
+_ERROR_ATTRS = ("stack_path", "mismatches", "missing", "changed")
 
 
 # ---------------------------------------------------------------- the jobs
@@ -183,8 +185,28 @@ def _wire_error(exc: HimgStackError) -> dict:
     }
 
 
+def _die_with_parent() -> None:
+    """Ask the kernel to SIGTERM this child when its parent dies (Linux only).
+
+    Under systemd the unit's cgroup kill covers a portal that stops; this
+    covers a parent that dies any other way, so a compaction never runs
+    on unattended after the host that asked for it is gone.
+    """
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        import ctypes
+        import signal
+
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        libc.prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
+    except (OSError, AttributeError):  # no libc, no prctl: the cgroup is the net
+        pass
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """The child: run the job in ``argv[0]`` (JSON) and stream events on stdout."""
+    _die_with_parent()
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) != 1:
         print(

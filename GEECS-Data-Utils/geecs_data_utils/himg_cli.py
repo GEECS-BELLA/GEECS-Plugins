@@ -178,7 +178,7 @@ def _compact(args: argparse.Namespace) -> int:
             failures += 1
             print(f"{device_dir.name}: FAILED — {exc}")
             continue
-        print(f"{device_dir.name}: {report.summary()}")
+        print(report.summary())  # the summary names the folder itself
     return 1 if failures else 0
 
 
@@ -194,7 +194,7 @@ def _restore(args: argparse.Namespace) -> int:
             failures += 1
             print(f"{device_dir.name}: FAILED — {exc}")
             continue
-        print(f"{device_dir.name}: {report.summary()}")
+        print(report.summary())  # the summary names the folder itself
     return 1 if failures else 0
 
 
@@ -202,7 +202,17 @@ def _verify(args: argparse.Namespace) -> int:
     if args.path.is_file():
         stacks = [args.path]
     else:
-        stacks = [stack_path_for(d) for d in _device_dirs(args.path, args.device)]
+        # Every device folder of the scan that holds .himg files (reported
+        # as "no stack" when unconverted) or a stack (a compacted folder
+        # holds only the stack).
+        stacks = [
+            stack_path_for(d)
+            for d in _device_dirs(
+                args.path,
+                args.device,
+                holds=lambda p: _holds_himg(p) or _holds_stack(p),
+            )
+        ]
         if not stacks:
             return _nothing_to_do(args.path)
     failures = 0

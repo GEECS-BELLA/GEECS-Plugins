@@ -147,7 +147,9 @@ class HimgToStackAnalyzer(_HimgFolderAnalyzer):
         if on_disk and on_disk != check.frames:
             raise RuntimeError(
                 f"{stack} holds {check.frames} frames but {device_dir.name} holds "
-                f"{on_disk} .himg files; rerun with `geecs-himg convert --overwrite`"
+                f"{on_disk} .himg files; if the folder was compacted restore it "
+                "first (himg_restore / `geecs-himg restore`), then rerun with "
+                "`geecs-himg convert --overwrite`"
             )
         label = f"{stack.name}: already converted — {check.frames} frames verified"
         logger.info(label)

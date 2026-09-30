@@ -253,19 +253,38 @@ leaves the folder as it was:
 1. no `<device>.h5.part` (another conversion owns the folder);
 2. the stack exists and is a `.himg` stack (provenance group present);
 3. every `.himg` on disk has a frame in the stack (a file that landed
-   after the conversion means *reconvert with `--overwrite`* first);
+   after the conversion means: restore the folder first if it was
+   compacted, then *reconvert with `--overwrite`*, then compact);
 4. no `.himg` younger than a minute, and the scanner closed the run
    (`ScanDataScanNNN.txt`, else the analysis s-file) — otherwise the
    scan may still be writing;
 5. every frame rebuilds to its recorded SHA-256 **and** matches the
-   file still on disk, byte for byte.
+   file still on disk, byte for byte. The two ways this can fail are
+   reported apart: a frame that does not rebuild its hash means the
+   *stack* is damaged (reconvert from the files); a file that differs
+   from an intact frame means the *file* changed after conversion
+   (decide which copy is right — never reconvert over the stack).
 
 Then it writes `himg_manifest.json` beside the stack (what was deleted,
 when, by which version, the stack that holds it) and deletes the files.
 The stack is never rewritten, so its per-shot header rows — the sensor
 header the `haso` measure hands to WaveKit — stay exactly as converted.
 The `.has` sidecars of legacy scans are not touched. An interrupted
-deletion is finished by running again (the manifest is written first).
+deletion is finished by running again (the manifest is written first
+and keeps the first run's stamp).
+
+Two more rules follow from "the stack is the only copy":
+
+- **Reconverting a compacted folder is refused.** `convert --overwrite`
+  (and the `HasoLift_stack` click) stops when the existing stack holds
+  frames whose `.himg` files are gone, because it would rebuild the stack
+  from the files on disk and drop them. Restore first.
+- **Compaction runs only where someone confirmed it.** The
+  `himg_compact` kind is `destructive`: the Portal builds it only after
+  the typed scan number, `geecs-himg compact` is a shell command you
+  typed, and every other host — the post-scan task queue (a group naming
+  `HasoLift_compact` skips it with a logged reason), MCP, a script
+  calling the factory without `allow_destructive=True` — is refused.
 
 ## Where things are
 

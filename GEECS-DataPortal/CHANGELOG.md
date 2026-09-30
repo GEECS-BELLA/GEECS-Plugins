@@ -21,10 +21,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   — the `.himg` kinds report per frame from their child process; an
   analyzer that never reports shows the bare state as before.
 
+- The listing carries `scan_number` — the value the start endpoint's
+  confirm check compares against (parsed from the resolved folder, like
+  the run's tag) — and the dialog asks for that one.
+
 ### Changed
 
 - `AnalysisRunner.start` calls `run(report)` with the job's progress
   sink (the run may ignore it).
+- The analyzer factory takes `allow_destructive` and hands it to
+  `create_scan_analyzer`, which refuses a destructive kind without it;
+  the app passes `True` only past its `confirm` check, so the opt-in and
+  the confirmation are one decision (`run_scan_analyzer(...,
+  allow_destructive=)`).
+- `closeModals()` also closes the confirmation `<dialog>`.
 
 ## [0.37.4] - 2026-09-29
 
