@@ -1,4 +1,4 @@
-"""Regenerate the example data embedded in this page's ``index.html``.
+"""Regenerate the example data embedded in the recipe reference page.
 
 Every number and processed image on the page comes from running a real
 recipe through ``geecs_analysis.run.analyze`` on a synthetic input made
@@ -6,7 +6,7 @@ here. The page stays self-contained: this script rewrites the JSON inside
 its ``<script id="data">`` element and nothing else. Run it from any env
 that has GEECS-Analysis installed (the portal's does)::
 
-    python docs/sites/analysis_docs_preview/make_examples.py
+    PYTHONPATH=GEECS-Analysis python docs/sites/analysis_recipes/make_examples.py
 
 FROG and HASO need vendor libraries (FROG.dll, WaveKit) that only the
 Linux analysis host carries, so their inputs are generated here but their
@@ -37,9 +37,10 @@ rng = np.random.default_rng(7)
 def png(a: np.ndarray, vmax: float, cmap=cm.magma) -> str:
     """Encode an image as a colormapped PNG data URI."""
     a = np.clip(np.asarray(a, float) / vmax, 0, 1)
-    rgba = (cmap(a) * 255).astype(np.uint8)
+    rgb = (cmap(a)[..., :3] * 255).astype(np.uint8)
     buf = io.BytesIO()
-    Image.fromarray(rgba).save(buf, "PNG", optimize=True)
+    # A 64-colour palette keeps the page small; colormaps survive it intact.
+    Image.fromarray(rgb).quantize(64).save(buf, "PNG", optimize=True)
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
@@ -282,47 +283,221 @@ def haso_illustration() -> dict:
     }
 
 
+def _params(defn: dict, skip: str) -> list[dict]:
+    """A variant's fields as rows: name, default (or "required"), description."""
+    return [
+        {
+            "name": name,
+            "default": json.dumps(field["default"])
+            if "default" in field
+            else "required",
+            "description": field.get("description", ""),
+        }
+        for name, field in defn.get("properties", {}).items()
+        if name != skip
+    ]
+
+
 def reference() -> dict:
-    """Each measure's parameters (from the recipe schema) and scalar names."""
+    """Every step, measure and summary as the recipe schema describes it.
+
+    Parameters, descriptions and dimensionality come from ``recipe_schema()``;
+    a measure's scalar meanings from its ``scalar_docs``. Nothing here is
+    written by hand, so the page cannot drift from the code.
+    """
     from geecs_analysis.recipe import recipe_schema
-    from geecs_analysis.registry import measure_definitions
+    from geecs_analysis.registry import (
+        definitions,
+        measure_definitions,
+        summary_definitions,
+    )
 
     defs = recipe_schema()["$defs"]
-    out = {}
-    for entry in measure_definitions():
-        spec = entry.spec
-        props = defs.get(spec.__name__, {}).get("properties", {})
-        out[spec.model_fields["kind"].default] = {
-            "params": [
-                {
-                    "name": name,
-                    "default": json.dumps(field["default"])
-                    if "default" in field
-                    else "required",
-                    "description": field.get("description", ""),
-                }
-                for name, field in props.items()
-                if name != "kind"
-            ],
-            # model_construct: a spec with required fields (haso) still lists its keys.
-            "scalars": sorted(spec.model_construct().emitted_scalars()),
-            "ndim": sorted(entry.ndim),
-            "service": entry.service,
+
+    def entry(item, field: str) -> tuple[str, dict]:
+        defn = defs[item.spec.__name__]
+        return item.spec.model_fields[field].default, {
+            "description": defn.get("description", ""),
+            "params": _params(defn, field),
+            "ndim": sorted(item.ndim),
         }
+
+    measures = {}
+    for item in measure_definitions():
+        kind, row = entry(item, "kind")
+        # model_construct: a spec with required fields (haso) still lists its keys.
+        row["scalars"] = sorted(item.spec.model_construct().emitted_scalars())
+        row["scalar_docs"] = dict(item.spec.scalar_docs)
+        row["service"] = item.service
+        measures[kind] = row
     siblings = defs["LineInput"]["properties"]["siblings"]
-    out["stitch"] = {
-        "params": [
-            {
-                "name": "input.siblings",
-                "default": "unset",
-                "description": siblings.get("description", ""),
-            }
-        ],
-        "scalars": out["line"]["scalars"],
-        "ndim": [1],
-        "service": None,
+    return {
+        "measures": measures,
+        "steps": dict(entry(item, "step") for item in definitions()),
+        "summaries": dict(entry(item, "kind") for item in summary_definitions()),
+        "siblings": {
+            "name": "input.siblings",
+            "default": "unset",
+            "description": siblings.get("description", ""),
+        },
     }
+
+
+def _small_beam() -> np.ndarray:
+    """A 120 x 160 camera frame: spot, pedestal, noise and a few hot pixels."""
+    y, x = np.mgrid[0:120, 0:160]
+    img = 1800 * np.exp(-0.5 * (((x - 88) / 14) ** 2 + ((y - 56) / 9) ** 2)) + 100
+    img = img + rng.normal(0, 30, img.shape)
+    for _ in range(12):
+        img[rng.integers(0, 120), rng.integers(0, 160)] = 3500
+    return img
+
+
+# One example per step: its parameters, and "use" (when to reach for it).
+STEP_EXAMPLES = {
+    "background_constant": ({"level": 100}, "Remove a camera's dark pedestal."),
+    "background_frame": (
+        {"source": "dark"},
+        "Subtract a recorded background image (a dark or laser-off frame) bound under inputs.",
+    ),
+    "circular_mask": (
+        {"center": [56, 88], "radius": 40},
+        "Keep a round aperture or screen; blank everything outside it.",
+    ),
+    "clip_above": (
+        {"level": 1200},
+        "Cap saturated or hot pixels before a measurement.",
+    ),
+    "clip_below": (
+        {"level": 150},
+        "Floor the noise at a level (the level stays, not zero).",
+    ),
+    "crosshair_mask": (
+        {"center": [56, 88], "width": 30, "height": 30, "thickness": 2},
+        "Blank a fiducial crosshair printed on a screen.",
+    ),
+    "gaussian": ({"sigma": 2.0}, "Smooth noise before widths or peaks are measured."),
+    "interpolate": (
+        {"count": 120, "lower": 450, "upper": 850},
+        "Resample a trace onto an even axis (e.g. before a waterfall).",
+    ),
+    "median": ({"kernel": 3}, "Remove isolated hot pixels without blurring edges."),
+    "roi": (
+        {"bounds": [[20, 95], [45, 135]], "units": "index"},
+        "Crop to the region that matters.",
+    ),
+    "rotate": ({"angle": 20}, "Straighten a tilted image before projections."),
+    "zero_below": (
+        {"level": 150},
+        "Zero pixels below a noise floor (unlike clip_below).",
+    ),
+}
+
+
+def step_examples() -> dict:
+    """Each step applied alone to a small frame: before and after."""
+    from geecs_analysis.registry import definitions
+
+    raw = _small_beam()
+    t = np.linspace(400, 900, 250)
+    trace = np.exp(-0.5 * ((t - 640) / 40) ** 2) + rng.normal(0, 0.03, t.size)
+    line = Frame.from_array(trace, axes=(Axis(values=t, unit="nm"),))
+    image = Frame.from_array(raw)
+    dark = Frame.from_array(np.full(raw.shape, 100.0) + rng.normal(0, 30, raw.shape))
+    out = {"_input": png(raw, 1900)}  # every image step starts from this frame
+    for item in definitions():
+        name = item.spec.model_fields["step"].default
+        params, use = STEP_EXAMPLES[name]
+        spec = {"step": name, **params}
+        if 2 in item.ndim:
+            after = apply_pipeline(
+                image, Pipeline.model_validate({"steps": [spec]}), inputs={"dark": dark}
+            )
+            out[name] = {
+                "spec": spec,
+                "use": use,
+                "after": png(
+                    after.data,
+                    1900
+                    if name not in {"background_constant", "background_frame"}
+                    else 1800,
+                ),
+                "shape": [list(raw.shape), list(after.data.shape)],
+            }
+        else:
+            after = apply_pipeline(line, Pipeline.model_validate({"steps": [spec]}))
+            out[name] = {
+                "spec": spec,
+                "use": use,
+                "trace": {"x": t.round(2).tolist(), "y": trace.round(4).tolist()},
+                "after_trace": {
+                    "x": np.asarray(after.axes[0].values).round(2).tolist(),
+                    "y": np.asarray(after.data).round(4).tolist(),
+                },
+            }
     return out
+
+
+def fig_png(fig) -> str:
+    """A matplotlib Figure as a PNG data URI."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=80)
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def summary_examples() -> dict:
+    """Each summary kind drawn by its registered layout on a synthetic scan."""
+    from geecs_schemas.analysis.recipe import (
+        AverageSummary,
+        ImageGridSummary,
+        WaterfallSummary,
+    )
+
+    from geecs_analysis.registry import summary_definitions
+    from geecs_analysis.render.specs import FigureSpec
+
+    layouts = {item.spec: item.function for item in summary_definitions()}
+    y, x = np.mgrid[0:90, 0:120]
+    positions = [-2.0, -1.0, 0.0, 1.0, 2.0]
+    beams = []
+    for p in positions:
+        img = 1000 * np.exp(
+            -0.5 * (((x - 60 - 12 * p) / (10 + 3 * abs(p))) ** 2 + ((y - 45) / 7) ** 2)
+        )
+        beams.append(
+            analyze(
+                Frame.from_array(img),
+                Analysis.model_validate({"steps": [], "measure": {"kind": "none"}}),
+            )
+        )
+    t = np.linspace(400, 900, 200)
+    traces = []
+    scan = np.linspace(0, 10, 11)
+    for p in scan:
+        tr = np.exp(-0.5 * ((t - 560 - 18 * p) / 30) ** 2)
+        f = Frame.from_array(tr, axes=(Axis(values=t, unit="nm"),))
+        traces.append(
+            analyze(
+                f, Analysis.model_validate({"steps": [], "measure": {"kind": "none"}})
+            )
+        )
+    style = FigureSpec(imshow={"cmap": "magma"})
+    grid = layouts[ImageGridSummary](
+        beams, positions, "quad current (A)", ImageGridSummary(), style
+    )
+    fall = layouts[WaterfallSummary](
+        traces,
+        list(scan),
+        "delay (ps)",
+        WaterfallSummary(),
+        FigureSpec(axes={"xlabel": "wavelength (nm)"}),
+    )
+    avg = layouts[AverageSummary]([beams[2]], [None], "", AverageSummary(), style)
+    return {
+        "image_grid": fig_png(grid),
+        "waterfall": fig_png(fall),
+        "average": fig_png(avg),
+    }
 
 
 def main() -> None:
@@ -337,8 +512,10 @@ def main() -> None:
         "frog": frog_illustration(),
         "haso": haso_illustration(),
     }
-    # Last, so adding it left every earlier example's random draws unchanged.
+    # Last, so adding them left every earlier example's random draws unchanged.
     data["stitch"] = stitch_example()
+    data["steps"] = step_examples()
+    data["summaries"] = summary_examples()
     blob = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
     html = PAGE.read_text()
     html, n = re.subn(
