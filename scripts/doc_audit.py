@@ -138,7 +138,11 @@ STALE_TERMS: list[tuple[str, str, tuple[str, ...] | None]] = [
     (r"\bGEECS-Scanner-GUI\b", "GeecsScanner + GeecsBluesky", None),
     (r"\bGEECS-Console\b", "GeecsScanner, the web scanner console", None),
     (r"\bPySide6\b", "nothing; no Qt surface remains", None),
-    (r"\bthe console\b", "the scanner (the PySide6 console is gone)", None),
+    (
+        r"\bthe console\b(?![ -]s(?:cript|tream))",
+        "the scanner (the PySide6 console is gone)",
+        None,
+    ),
     (r"\bLiveWatch\b", "nothing; the portal runs analysis on request", None),
     (r"\bGeecsSession\b", "GeecsNamespace / the qs_client manager", None),
     (r"\bBlueskyScanner\b", "the queueserver worker + GeecsScanner", None),
