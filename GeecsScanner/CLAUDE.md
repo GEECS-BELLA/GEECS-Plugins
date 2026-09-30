@@ -153,8 +153,7 @@ resolves a variable to a device.
 The operator registry and ownership (arc PR 5: `operators.yaml`,
 `geecs.operator` in theme-boot, the `denied` banner for a foreign running
 item) and the Caddy front door (dropped 2026-09-13 — three ports, one
-bookmark each). GEECS-Console itself is gone (PR 6, 2026-09-14; tag
-`geecs-console-v0.32.1-final`).
+bookmark each). GEECS-Console itself was deleted (#869; tag `geecs-console-v0.32.1-final`).
 
 
 ## Optimize mode

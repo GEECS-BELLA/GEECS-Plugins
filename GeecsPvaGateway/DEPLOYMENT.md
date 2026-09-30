@@ -170,7 +170,7 @@ Constraints, all by design:
 
 ## Smoke test
 
-Exercise the **service's** config chain, not the console user's — override
+Exercise the **service's** config chain, not the interactive user's — override
 `USERPROFILE` the way NSSM does:
 
 ```bat

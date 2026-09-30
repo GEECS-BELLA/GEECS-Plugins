@@ -2,8 +2,9 @@
 
 Deterministic mapping from exception type (preferred when available from
 a traceback) and message content. The map encodes the GEECS exception
-taxonomy declared in ``GEECS-Scanner-GUI/geecs_scanner/utils/exceptions.py``
-plus common Python builtins.
+taxonomy — ``geecs_core.exceptions`` and ``geecs_bluesky.exceptions`` today,
+plus the names the deleted legacy scanner (tag ``legacy-scanner-final``)
+logged, kept for old logs — and common Python builtins.
 
 Classifications drive Stage 2 routing:
 

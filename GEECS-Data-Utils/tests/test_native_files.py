@@ -2,7 +2,7 @@
 
 ``geecs_data_utils.native_files`` is the single source of truth for the
 ``{stem}_{acq_timestamp:.3f}{tail}`` convention consumed by GeecsBluesky
-(producer), ScanAnalysis (reader) and GEECS-Scanner-GUI (waiter).  These
+(producer) and ScanAnalysis (reader).  These
 tests pin the exact rendering, the millisecond canonicalization (including
 the ±1 ms rounding-boundary rationale), suffixed path construction, and the
 legacy Master Control pattern.

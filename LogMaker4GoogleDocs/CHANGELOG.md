@@ -24,5 +24,5 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `createGdocPW.py` — these scripts call the shared helpers in `docgen.py`
   and never used those names directly. No behavior changes.
 
-## [0.1.0] — current
+## [0.1.0] — 2024-12-08
 <!-- Add entries here when changes are made -->

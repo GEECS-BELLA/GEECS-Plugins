@@ -1,7 +1,8 @@
 # GEECS-LogTriage
 
 Harvest, group, and classify error/warning entries from GEECS scan execution
-logs (`scan.log` files written by `geecs_scanner.logging_setup`).
+logs (the `scan.log` written by `geecs_bluesky.scan_log`, and the legacy
+scanner's before it).
 
 The package is the **Stage 1** floor of an auto-debugger pipeline: a
 deterministic Python utility that walks a date's worth of scans, parses each

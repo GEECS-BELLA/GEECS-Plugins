@@ -51,7 +51,7 @@ record's `traceback` field.
 
 - `bug_candidate` — should likely produce a bug report and a code fix:
   `KeyError`, `AttributeError`, `TypeError`, `ValueError`, `IndexError`,
-  uncaught exceptions logged via `geecs_scanner._wrap_excepthook`,
+  uncaught exceptions the legacy scanner's excepthook wrapper logged,
   any unhandled exception originating in geecs_* modules.
 - `config_issue` — user/operator misconfig, not a bug:
   `ActionError`, `ConflictingScanElements`, validation errors.

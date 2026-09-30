@@ -25,8 +25,8 @@ collect`` verbs (``Flyable`` + ``EventCollectable`` + ``Preparable``):
   constant its files are found under; they join by stamp too.
 - **Settle.**  A member with a stamp of its own (a triggered device
   without a plugin, or its view) is not read at the tick: its stamp lands
-  after the clock's whenever its device is slower (the HASO: ~40 ms, Scan015
-  of 26_0925), and a reading taken at the tick is then the *previous*
+  after the clock's whenever its device is slower (the HASO: ~0.9 s with
+  saving on), and a reading taken at the tick is then the *previous*
   shot's.  Each such member is given :data:`SETTLE_TIMEOUT_S` for its
   cached stamp to fall within :data:`SHOT_WINDOW_S` of the clock's; then
   its scalars, its stamp and its save-path column are read.  One that does

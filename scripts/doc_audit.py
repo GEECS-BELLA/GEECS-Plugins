@@ -43,7 +43,8 @@ Across the repo, from the root files and ``docs/``:
 * ``agents-shim``: ``AGENTS.md`` points at ``CLAUDE.md`` and stays short.
 * ``nav-target``: every ``.md`` in ``mkdocs.yml``'s ``nav:`` exists.
 * ``orphan-page``: every ``.md`` under ``docs/`` is in ``nav:`` or linked
-  from a page that is (``docs/sites/`` is HTML by design and exempt).
+  from a page that is (``docs/sites/`` is HTML by design and exempt, and so
+  is a page ``mkdocs.yml`` lists under ``exclude_docs:``).
 * ``broken-link``: every relative Markdown link resolves.
 
 In docstrings, ``#:`` attribute comments and Markdown (``CHANGELOG.md``
@@ -78,8 +79,10 @@ never fail ``--strict``):
   hand-written Functions/Constants tables that mkdocstrings renders anyway.
 
 The prose checks skip the packages in ``SKIP_PROSE`` (the ones the owner
-ruled not worth tidying: legacy, experimental, or already template-style);
-``--all`` audits them anyway. The structural checks always cover every
+ruled not worth tidying: legacy, experimental, or already template-style)
+and the root directories in ``SKIP_ROOT_PROSE`` (``Planning/``, design
+scaffolding that describes code as it will be; ``apps_script/``, LogMaker's
+Google side); ``--all`` audits them anyway. The structural checks always cover every
 package, because the repository map and the changelog list are about the
 set, not about any one package.
 
@@ -125,6 +128,16 @@ README_EXEMPT = {
 #: the owner on 2026-09-30: legacy (LogMaker), an experiment (MCP), and the
 #: two analysis packages whose template-style docstrings are not worth a pass.
 SKIP_PROSE = {"LogMaker4GoogleDocs", "GEECS-MCP", "GEECS-Analysis", "ImageAnalysis"}
+
+#: Root-level directories the prose checks leave alone, with the reason.
+#: ``--all`` audits them anyway.
+SKIP_ROOT_PROSE = {
+    # Design scaffolding, deleted in the PR that lands the work it describes
+    # (Planning/README.md): it cites code as it will be, not as it is.
+    "Planning",
+    # The Google-side half of LogMaker4GoogleDocs, which SKIP_PROSE covers.
+    "apps_script",
+}
 
 #: Top-level non-package directories a backtick path may legitimately cite.
 CITABLE_DIRS = {"docs", "scripts", "deploy", ".claude", ".github", "Planning"}
@@ -234,7 +247,7 @@ VERSION_HEADING_STRICT = re.compile(
     r"^## \[\d+\.\d+\.\d+\] [-—] \d{4}-\d{2}-\d{2}(\s|$)"
 )
 MAP_ROW = re.compile(r"^\|\s*`(?P<name>[^`/]+)/`\s*\|")
-NAV_MD = re.compile(r"(?::|-)\s*([\w./-]+\.md)\s*$")
+NAV_MD = re.compile(r"(?::|-)\s*([\w./ -]+\.md)\s*$")
 MD_LINK = re.compile(r"(?<!!)\[[^\]]*\]\((?P<target>[^)\s]+)(?:\s+\"[^\"]*\")?\)")
 IMG_LINK = re.compile(r"!\[[^\]]*\]\((?P<target>[^)\s]+)\)")
 
@@ -339,7 +352,12 @@ class Repo:
         pkg = self.package_of(path)
         if self.selected:
             return pkg in self.selected
-        return self.include_skipped or pkg not in SKIP_PROSE
+        if self.include_skipped:
+            return True
+        parts = path.relative_to(self.root).parts
+        if pkg == "root" and parts and parts[0] in SKIP_ROOT_PROSE:
+            return False
+        return pkg not in SKIP_PROSE
 
     def _skip(self, path: Path) -> bool:
         return any(part in SKIP_PARTS for part in path.relative_to(self.root).parts)
@@ -381,6 +399,9 @@ class Repo:
                     mod = mod.removesuffix(".__init__")
                     dotted.add(mod)
                     bare.add(mod.rsplit(".", 1)[-1])
+                    parts = mod.split(".")
+                    for cut in range(1, len(parts)):
+                        dotted.add(".".join(parts[:cut]))  # incl. namespace packages
                     try:
                         tree = ast.parse(path.read_text(errors="replace"))
                     except SyntaxError:
@@ -740,11 +761,31 @@ def _resolve(base: Path, target: str) -> Path:
     return (base.parent / target).resolve() if target else base
 
 
+def _excluded_docs(repo: Repo) -> set[Path]:
+    """Pages listed under ``exclude_docs:`` in ``mkdocs.yml``: kept out on purpose."""
+    mkdocs = repo.root / "mkdocs.yml"
+    out: set[Path] = set()
+    if not mkdocs.is_file():
+        return out
+    in_block = False
+    for line in mkdocs.read_text().splitlines():
+        if line.startswith("exclude_docs:"):
+            in_block = True
+            continue
+        if in_block:
+            if line.startswith((" ", "\t")) and line.strip():
+                out.add((repo.root / "docs" / line.strip()).resolve())
+            elif line.strip():
+                break
+    return out
+
+
 def check_orphan_pages(repo: Repo) -> Iterator[Finding]:
     """Every docs page is in nav or linked from a page that is."""
     docs = repo.root / "docs"
     if not docs.is_dir() or (repo.selected and "docs" not in repo.selected):
         return
+    excluded = _excluded_docs(repo)
     reachable = {(docs / t).resolve() for _, t in _nav_targets(repo)}
     frontier = list(reachable)
     while frontier:
@@ -758,6 +799,8 @@ def check_orphan_pages(repo: Repo) -> Iterator[Finding]:
                 frontier.append(hit)
     for page in sorted(docs.rglob("*.md")):
         if "sites" in page.relative_to(docs).parts or page.name == "CLAUDE.md":
+            continue
+        if page.resolve() in excluded:
             continue
         if page.resolve() not in reachable:
             yield Finding(

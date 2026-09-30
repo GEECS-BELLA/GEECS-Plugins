@@ -1,12 +1,14 @@
-"""Read and parse `scan.log` files written by `geecs_scanner.logging_setup`.
+"""Read and parse the `scan.log` a scan folder carries.
 
-The per-scan log format is owned by
-``GEECS-Scanner-GUI/geecs_scanner/logging_setup.py::attach_scan_log``::
+The per-scan log format is owned by the writer,
+:class:`geecs_bluesky.scan_log.ScanLogFile`::
 
     "%(asctime)s.%(msecs)03d %(levelname)s %(name)s [%(threadName)s] "
-    "shot=%(shot_id)s - %(message)s"
+    "scan=%(scan_id)s - %(message)s"
 
-with ``datefmt="%Y-%m-%d %H:%M:%S"``. Multi-line tracebacks (or any
+with ``datefmt="%Y-%m-%d %H:%M:%S"``.  Logs from the deleted legacy scanner
+(tag ``legacy-scanner-final``) carry ``shot=<id>`` in the same position;
+:data:`HEADER_RE` accepts both. Multi-line tracebacks (or any
 continuation text) appear as additional lines that do **not** start with a
 header matching :data:`HEADER_RE`; those are aggregated into the previous
 record's ``traceback`` field.
@@ -67,7 +69,7 @@ class LogEntry(BaseModel):
     level : Severity
         Severity level.
     logger_name : str
-        Python logger name (e.g., `geecs_scanner.scan_manager`).
+        Python logger name (e.g., `geecs_bluesky.plans.strict`).
     thread_name : str
         Originating thread name.
     shot_id : str
@@ -282,7 +284,7 @@ def load_scan_log(
         Path to the scan folder. The function looks for `<scan_folder>/<filename>`.
     filename : str, optional
         Log file name within the scan folder. Defaults to ``"scan.log"`` to
-        match :func:`geecs_scanner.logging_setup.attach_scan_log`.
+        match :class:`geecs_bluesky.scan_log.ScanLogFile`.
 
     Returns
     -------

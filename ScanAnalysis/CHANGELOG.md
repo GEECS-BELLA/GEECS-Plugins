@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.44.2] - 2026-09-30
+
+### Changed
+
+- **Documentation only.** A test docstring no longer refers to the deleted
+  console; the 2026-04 baseline heading `1.1.1` below carries the date its
+  version first appeared.
+
 ## [1.44.1] - 2026-09-29
 
 ### Changed
@@ -1427,5 +1435,5 @@ loader/factory/models are deleted.
 - Round-trip tests for `config_io` save/load cycle covering `name` field
   independence from filename and survival of scientific-notation floats.
 
-## [1.1.1] — current
+## [1.1.1] — 2026-01-27
 <!-- Add entries here when changes are made -->

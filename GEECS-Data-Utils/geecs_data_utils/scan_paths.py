@@ -124,10 +124,11 @@ class ScanPaths:
             If True (the default), raise if the scan folder does not exist.
             If False, silently create the folder (including any missing parents).
 
-            ``read_mode=False`` is for *scanner-side* callers only — the GEECS
-            scanner and BlueskyScanner, which legitimately bring new scan folders
-            into existence. Analysis code (ScanAnalysis, ImageAnalysis, anything
-            that consumes existing scans) must always leave this at the default.
+            ``read_mode=False`` is for *scanner-side* callers only — the
+            queueserver worker's scan claim (``geecs_bluesky.plans.claim_scan``),
+            which legitimately brings new scan folders into existence.
+            Analysis code (ScanAnalysis, ImageAnalysis, anything that consumes
+            existing scans) must always leave this at the default.
             Silent creation from the consumer side has caused data loss: a
             transient SMB/NetApp visibility blip looks like a missing folder, and
             auto-creating it plants an empty directory over the real one.

@@ -1,6 +1,6 @@
 """The scanner is a peer client of the queueserver; it imports nothing above or beside it.
 
-Never the portal, the logbook or the console (peers), never the engine's
+Never the portal or the logbook (peers), never the engine's
 plans/devices (worker internals — the client seam is ``geecs_bluesky.qs_client``
 plus the resolver and the plan-name tuple), and no facility literal in code.
 """

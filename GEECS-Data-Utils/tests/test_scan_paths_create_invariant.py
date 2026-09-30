@@ -1,7 +1,7 @@
 """Pin the ScanPaths folder-creation invariant.
 
 ScanPaths legitimately creates a missing scan folder only on the scanner side
-(via ``build_next_scan_data`` and BlueskyScanner). For every other caller —
+(``build_next_scan_data``, called by GeecsBluesky's scan claim). For every other caller —
 including all of ScanAnalysis — the default ``read_mode=True`` must raise on
 a missing folder rather than silently materialise it. A regression here is
 how a transient SMB/NetApp visibility blip can be converted into permanent

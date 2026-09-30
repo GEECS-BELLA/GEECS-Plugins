@@ -937,4 +937,4 @@ surface area.
   `image_analysis/algorithms/lcls_tools_gauss_fit.py` (a thin wrapper that was
   never imported) has been deleted.
 
-## [1.1.0] — current
+## [1.1.0] — 2026-01-27

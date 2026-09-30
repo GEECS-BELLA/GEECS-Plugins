@@ -38,7 +38,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   from the run's own rows); the README quick start uses the strict hook
   on `bp.count` and the hardware command carries `GEECS_HW=1`;
   `tests/test_dependency_direction.py` no longer cites a deleted test
-  file.
+  file; `devices/sampler.py` gives the HASO's stamp latency as ~0.9 s
+  (its own constant's figure), not the cameras' 40 ms.
 
 ## [0.108.0] - 2026-09-29
 

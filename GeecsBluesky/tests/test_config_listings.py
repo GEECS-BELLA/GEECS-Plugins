@@ -80,9 +80,9 @@ def test_missing_experiment_is_empty(repo):
 
 
 def test_listed_yml_names_round_trip_through_resolution(repo):
-    # The listings count .yml files, so resolution must accept them too
-    # a listed name that resolve_*
-    # refuses on spelling alone is a client-facing trap.
+    # The listings count .yml files, so resolution must accept them too:
+    # a listed name that resolve_* refuses on spelling alone is a
+    # client-facing trap.
     exp = repo / "TestExp"
     (exp / ConfigsRepoResolver.PRESET_FOLDER / "YmlSet.yml").write_text(
         yaml.safe_dump(PRESET)

@@ -54,10 +54,10 @@ def _frame(event: str, payload: object, event_id: str | None = None) -> str:
 
 
 def _resume_from(request: Request, since: int, epoch: str) -> int:
-    """Where to resume the console cursor after a browser reconnect.
+    """Where to resume the event-stream cursor after a browser reconnect.
 
     ``EventSource`` reconnects by itself and sends ``Last-Event-ID`` — the
-    ``<epoch>:<seq>`` the console frames carry — so a blip resumes where it
+    ``<epoch>:<seq>`` the SSE frames carry — so a blip resumes where it
     left off. A different epoch means this process restarted and its ``seq``
     started over: replay from the start (the page clears its tail on the
     epoch change). The ``?since=`` query is the manual form of the same.

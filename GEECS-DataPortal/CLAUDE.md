@@ -348,7 +348,7 @@ on a request thread.  Known and accepted: the 2D wrapper's per-shot
 stage forks a `ProcessPoolExecutor` from this thread-rich process
 (asyncio loop, request threadpool, cache warmers) — the classic
 fork-with-threads hazard, pre-existing in every embedding of
-ScanAnalysis (LiveWatch, MCP) and not fixable portal-side; the live
+ScanAnalysis (the MCP included) and not fixable portal-side; the live
 check runs an analyzer *while* images are being browsed.  The scan tag
 handed to the analyzer is parsed from the resolved folder
 (`ScanPaths(folder=…)`), never rebuilt from the start doc (the
