@@ -55,7 +55,13 @@ ACTIVE = (QUEUED, RUNNING)
 
 
 class ScanAnalyzerLike(Protocol):
-    """The two calls a run needs — ``ScanAnalyzer``'s public run contract."""
+    """The two calls a run needs — ``ScanAnalyzer``'s public run contract.
+
+    An analyzer that can say how far along it is carries a ``progress``
+    attribute (``ScanAnalyzer.progress``, a ``(done, total, phase)``
+    sink the host sets before the run); the runner sets it when present
+    and the record shows frames done/total while the run lasts.
+    """
 
     def run_analysis(self, scan_tag: object) -> Optional[list]:
         """Run on *scan_tag*; return notable artifact paths/labels or None."""
@@ -68,6 +74,9 @@ class ScanAnalyzerLike(Protocol):
 #: worker thread so config/instantiation failures land in the job
 #: record as ``failed`` rather than as a request error.
 AnalyzerFactory = Callable[[str, Path], ScanAnalyzerLike]
+#: What a run reports into: ``(done, total, phase)`` — frames so far, of
+#: how many, in which phase (``"writing"``, ``"verifying"``, …).
+ProgressSink = Callable[[int, int, str], None]
 
 
 def scan_analysis_factory(analyzer_id: str, config_dir: Path) -> ScanAnalyzerLike:
@@ -129,6 +138,10 @@ class AnalysisJob:
     #: process's logging levels admit (the portal's ``--log-level``);
     #: the capture never changes a logger's level.
     log: list[str] = dataclasses.field(default_factory=list)
+    #: ``{"done", "total", "phase"}`` — the run's last progress report,
+    #: for the tab's status while the run lasts; ``None`` until the
+    #: analyzer reports (most never do; the ``.himg`` kinds do per frame).
+    progress: Optional[dict] = None
 
     def to_json(self) -> dict:
         """The JSON shape the ``/api/run/{uid}/analysis`` endpoints emit."""
@@ -241,7 +254,7 @@ class AnalysisRunner:
         self,
         uid: str,
         analyzer_id: str,
-        run: Callable[[], Optional[list]],
+        run: Callable[[ProgressSink], Optional[list]],
         *,
         relative_to: Optional[Path] = None,
     ) -> AnalysisJob:
@@ -256,7 +269,8 @@ class AnalysisRunner:
         run : callable
             Executes the analysis and returns the artifact list (the
             factory + ``run_analysis`` + ``cleanup`` composition is the
-            caller's — see :func:`run_scan_analyzer`).
+            caller's — see :func:`run_scan_analyzer`).  Called with the
+            job's progress sink, which the run may ignore.
         relative_to : Path, optional
             The analysis folder: artifacts under it are recorded
             relative to it so the artifact endpoint can serve them.
@@ -282,7 +296,7 @@ class AnalysisRunner:
     def _execute(
         self,
         job: AnalysisJob,
-        run: Callable[[], Optional[list]],
+        run: Callable[[ProgressSink], Optional[list]],
         relative_to: Optional[Path],
     ) -> None:
         capture = _RunLogCapture(self._max_log_lines)
@@ -290,12 +304,17 @@ class AnalysisRunner:
         root.addHandler(capture)
         job.started = time.time()
         job.state = RUNNING
+
+        def report(done: int, total: int, phase: str) -> None:
+            # One dict assignment: a poller reads a whole report or none.
+            job.progress = {"done": int(done), "total": int(total), "phase": str(phase)}
+
         # The final state is assigned LAST (after log/finished/artifacts)
         # so a poller that sees an inactive state sees a complete record.
         final = FAILED
         reraise: Optional[BaseException] = None
         try:
-            artifacts = run()
+            artifacts = run(report)
             if artifacts is None:
                 # run_analysis's "inputs missing" return (no s-file / ini /
                 # scan parameter): a skip, not a success — the worklist
@@ -360,14 +379,23 @@ def _is_no_data(exc: BaseException) -> bool:
 
 
 def run_scan_analyzer(
-    factory: AnalyzerFactory, analyzer_id: str, config_dir: Path, scan_tag: object
+    factory: AnalyzerFactory,
+    analyzer_id: str,
+    config_dir: Path,
+    scan_tag: object,
+    *,
+    progress: Optional[ProgressSink] = None,
 ) -> Optional[list]:
     """Build, run and clean up one analyzer — the body of a job.
 
     ``cleanup()`` runs whether or not ``run_analysis`` raised: it is the
-    task runner's duty in the queue path and ours here.
+    task runner's duty in the queue path and ours here.  *progress* is
+    handed to an analyzer that has a ``progress`` attribute (the
+    ``ScanAnalyzer`` hook); one without it simply never reports.
     """
     analyzer = factory(analyzer_id, config_dir)
+    if progress is not None and hasattr(analyzer, "progress"):
+        analyzer.progress = progress
     try:
         return analyzer.run_analysis(scan_tag)
     finally:

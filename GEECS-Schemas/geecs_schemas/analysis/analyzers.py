@@ -42,6 +42,11 @@ class AnalyzerSpecBase(SchemaModel):
     image_kind: ClassVar[ImageKind] = "camera"
     #: Who runs the kind — see :data:`AnalyzerScope`.
     scope: ClassVar[AnalyzerScope] = "frame"
+    #: Whether a run deletes or rewrites data files (today only the ``.himg``
+    #: compaction).  Every other kind only adds files; a host that offers
+    #: one-click runs asks for a typed confirmation before a destructive
+    #: kind and never runs it unasked.
+    destructive: ClassVar[bool] = False
     scalar_keys: ClassVar[frozenset[str]] = frozenset()
 
     def emitted_scalars(self) -> frozenset[str]:
@@ -391,6 +396,55 @@ class HimgToStackSpec(AnalyzerSpecBase):
     )
 
 
+class HimgCompactSpec(AnalyzerSpecBase):
+    """Delete this device's HASO ``.himg`` files once every frame is verified in its stack — the one destructive kind.
+
+    Compaction, the step after ``himg_to_stack``: rebuilds every frame of
+    ``<device>/<device>.h5`` and checks it against the SHA-256 recorded at
+    conversion and against the ``.himg`` file still on disk, and only when
+    every frame passes deletes the ``.himg`` files, leaving a manifest
+    (``himg_manifest.json``) beside the stack.  The stack — headers
+    included — is not rewritten.  It refuses a scan that may still be
+    writing (a ``.himg`` younger than a minute, or no closed-run table),
+    a stack that does not cover the folder, and any mismatch, in which
+    case nothing is deleted.  ``himg_restore`` rebuilds the files
+    byte-identically.  ``destructive``: a host asks for the scan number
+    before running it.  Meant to become an automatic post-scan step once
+    the post-scan services exist; until then an explicit click or
+    ``geecs-himg compact``.
+    """
+
+    scalar_keys: ClassVar[frozenset[str]] = frozenset([])
+
+    image_kind: ClassVar[ImageKind] = None
+    scope: ClassVar[AnalyzerScope] = "scan"
+    destructive: ClassVar[bool] = True
+    kind: Literal["himg_compact"] = Field(
+        "himg_compact",
+        description="HASO .himg compaction: verify every frame against the "
+        "stack, then delete the .himg files (destructive).",
+    )
+
+
+class HimgRestoreSpec(AnalyzerSpecBase):
+    """Rebuild this device's HASO ``.himg`` files from its stack, byte-identical — undo ``himg_compact``.
+
+    Each frame is rebuilt from the stack, checked against the SHA-256
+    recorded at conversion, and written under its original name; a file
+    already there is kept when it matches and stops the restore when it
+    does not.  Removes the compaction manifest.  Adds files only.
+    """
+
+    scalar_keys: ClassVar[frozenset[str]] = frozenset([])
+
+    image_kind: ClassVar[ImageKind] = None
+    scope: ClassVar[AnalyzerScope] = "scan"
+    kind: Literal["himg_restore"] = Field(
+        "himg_restore",
+        description="HASO .himg restore: rebuild the .himg files from the stack.",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Experiment-specific analyzers (shipped in the suite, used by one facility)
 # ---------------------------------------------------------------------------
@@ -509,6 +563,8 @@ AnalyzerSpec = Annotated[
         IctAnalyzerSpec,
         LineStitcherSpec,
         HimgToStackSpec,
+        HimgCompactSpec,
+        HimgRestoreSpec,
         DownrampPhaseSpec,
         HiResMagCamSpec,
         BCaveMagOptSpec,
@@ -539,6 +595,8 @@ __all__ = [
     "FrogRetrievalSpec",
     "FrogSpectralPhaseSpec",
     "HiResMagCamSpec",
+    "HimgCompactSpec",
+    "HimgRestoreSpec",
     "HimgToStackSpec",
     "IctAnalyzerSpec",
     "ImageKind",

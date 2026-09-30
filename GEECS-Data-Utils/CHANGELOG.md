@@ -3,6 +3,48 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.48.0] - 2026-09-29
+
+### Added
+
+- `io.himg_compact`: the one place this package deletes.
+  `compact_himg_folder(device_dir)` rebuilds every frame of a device's
+  `.himg` stack, checks it against the SHA-256 recorded at conversion and
+  against the `.himg` still on disk, and only then deletes the `.himg`
+  files, leaving `himg_manifest.json` beside the stack; the stack (its
+  per-shot header rows included) is never rewritten. Guards live in the
+  function: `HimgFolderActive` while any `.himg` is younger than
+  `MIN_SOURCE_AGE_S` (60 s) or there is no closed-run evidence
+  (`run_closed_evidence`: the `ScanDataScanNNN.txt` the stop document
+  writes, else the analysis s-file — `require_closed=False` is the
+  shell's escape hatch), `HimgStackIncomplete` for a `.himg` the stack has
+  no frame for, `NoHimgStack` without a `.himg` stack,
+  `HimgVerificationFailed` with nothing deleted on any mismatch, and a
+  `.part` file refuses as another writer's. `restore_himg_folder`
+  rebuilds each file byte-identically (`.part` + rename, hash-checked
+  first), keeps a matching file already there, stops on a differing one,
+  and removes the manifest. Both touch only the one device folder and
+  create no directory (pinned).
+- `io.himg_worker`: `run_himg_job(job, progress=)` runs a convert /
+  verify / compact / restore job in a child interpreter
+  (`python -m geecs_data_utils.io.himg_worker`) and relays its progress
+  events, log records (under their own logger names), the report
+  dataclass and this package's own error classes back over a JSON-lines
+  stream — how a service runs these without streaming a scan through
+  its own process.
+- `geecs-himg compact | restore` (`--min-age`, `--assume-closed`).
+- A `progress(done, total, phase)` callback on `write_himg_stack`,
+  `verify_himg_stack`, `convert_himg_folder` and the new functions;
+  `Progress`, `part_path_for`, `is_himg_stack`, `read_source_bytes`
+  (a whole-file read followed by `posix_fadvise(DONTNEED)`, so a 44 GB
+  scan does not stay in the service cgroup's page cache).
+
+### Changed
+
+- `HimgVerificationFailed` takes an `outcome=` for its message (the
+  converter's "the stack was removed" stays the default).
+- The converter reads its sources through `read_source_bytes`.
+
 ## [0.47.1] - 2026-09-29
 
 ### Fixed

@@ -336,12 +336,18 @@ class _DiagInfo:
     device: str
     #: Per-analyzer output directory under ``analysis/ScanNNN/``.
     output_name: str
+    #: A run deletes or rewrites data files (the ``.himg`` compaction):
+    #: the tab asks for the scan number first and the start endpoint
+    #: refuses without it.
+    destructive: bool = False
 
     @classmethod
     def from_diagnostic(cls, diag) -> "_DiagInfo":
         # Either format, through the names both documents carry.
         return cls(
-            device=str(diag.data_folder), output_name=str(diag.effective_output_name)
+            device=str(diag.data_folder),
+            output_name=str(diag.effective_output_name),
+            destructive=bool(getattr(diag, "destructive", False)),
         )
 
 
@@ -1247,6 +1253,7 @@ def create_app(
                     "device": info.device,
                     "applicable": info.device in devices or info.device in present,
                     "output_dir": info.output_name,
+                    "destructive": info.destructive,
                     "job": job.to_json() if job is not None else None,
                     "files": files,
                     "artifacts": analysis_runs.describe_artifacts(
@@ -1264,23 +1271,37 @@ def create_app(
         )
 
     @app.post("/api/run/{uid}/analysis", status_code=202)
-    def run_analysis_start(uid: str, analyzer: str, day: str = "") -> JSONResponse:
+    def run_analysis_start(
+        uid: str, analyzer: str, day: str = "", confirm: str = ""
+    ) -> JSONResponse:
         """Start one analyzer on this scan (202 + the fresh job record).
 
         Ladder: feature off / extra missing 404 · unknown or unloadable
-        diagnostic 404 · folder unresolvable 404 · a job already running
-        for this scan 409 (its record in the body). Build + run + cleanup
-        happen on the worker thread, so everything past this point —
-        config errors included — lands in the record as ``failed``.
+        diagnostic 404 · folder unresolvable 404 · a destructive kind
+        without ``confirm=<this scan's number>`` 400 (the tab asks for
+        it; the gate is here so no client runs a delete unasked) · a job
+        already running for this scan 409 (its record in the body).
+        Build + run + cleanup happen on the worker thread, so everything
+        past this point — config errors included — lands in the record
+        as ``failed``.
         """
         _analysis_available()
-        if analyzer not in _processing_infos():
+        info = _processing_infos().get(analyzer)
+        if info is None:
             raise HTTPException(status_code=404, detail=f"no diagnostic: {analyzer!r}")
         _, _, analysis_folder, tag = _analysis_context(uid, day)
+        if info.destructive and confirm.strip() != str(tag.number):
+            raise HTTPException(
+                status_code=400,
+                detail=f"{analyzer!r} deletes data: confirm with this scan's "
+                "number (confirm=<scan number>) to run it",
+            )
         config_dir = Path(processing_config_dir)
 
-        def run() -> Optional[list]:
-            return analysis_runs.run_scan_analyzer(factory, analyzer, config_dir, tag)
+        def run(progress: analysis_runs.ProgressSink) -> Optional[list]:
+            return analysis_runs.run_scan_analyzer(
+                factory, analyzer, config_dir, tag, progress=progress
+            )
 
         try:
             job = runner.start(uid, analyzer, run, relative_to=analysis_folder)

@@ -31,18 +31,34 @@ class TestRegistry:
         assert SCHEMA_REGISTRY["analysis_group"] is AnalysisGroup
 
     def test_every_union_member_has_a_distinct_kind(self):
-        assert len(ANALYZER_SPECS) == 14
+        assert len(ANALYZER_SPECS) == 16
         for kind, model in ANALYZER_SPECS.items():
             assert model.model_fields["kind"].default == kind
             assert model.image_kind in ("camera", "line", None)
             assert model.scope in ("frame", "scan")
+            assert isinstance(model.destructive, bool)
 
     def test_scan_scoped_kinds_take_no_image_section(self):
         """A scan-scoped kind (a converter) has no per-frame input to describe."""
         scan_scoped = {k for k, m in ANALYZER_SPECS.items() if m.scope == "scan"}
-        assert scan_scoped == {"himg_to_stack"}
+        assert scan_scoped == {"himg_to_stack", "himg_compact", "himg_restore"}
         for kind in scan_scoped:
             assert ANALYZER_SPECS[kind].image_kind is None
+
+    def test_the_one_destructive_kind_is_the_compaction(self):
+        """Every kind only adds files, except the .himg compaction — flagged so a host asks first."""
+        destructive = {k for k, m in ANALYZER_SPECS.items() if m.destructive}
+        assert destructive == {"himg_compact"}
+        diag = AnalysisDiagnostic.model_validate(
+            {"name": "U_HasoLift", "analyzer": {"kind": "himg_compact"}}
+        )
+        assert diag.destructive is True
+        assert (
+            AnalysisDiagnostic.model_validate(
+                {"name": "U_HasoLift", "analyzer": {"kind": "himg_restore"}}
+            ).destructive
+            is False
+        )
 
 
 class TestV2Shape:

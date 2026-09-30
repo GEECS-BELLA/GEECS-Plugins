@@ -13,7 +13,10 @@ LabVIEW device  ──.himg per shot──▶  scans/ScanNNN/U_HasoLift/
                               HasoLift_stack (kind himg_to_stack, a click)
                                           ▼
                                    U_HasoLift/U_HasoLift.h5      the capture stack: frames + headers
-                                          │
+                                          │         ╲
+                                          │          HasoLift_compact (kind himg_compact, a click + the scan number):
+                                          │          every frame verified against the stack, then the .himg deleted,
+                                          │          himg_manifest.json left behind — HasoLift_restore rebuilds them
                               HasoLift (the haso measure, a click)
                                           ▼
        s-file columns  U_HasoLift_phase_rms, U_HasoLift_phase_pv        per shot
@@ -221,6 +224,49 @@ its share (`MKL_NUM_THREADS`) — a 4-core box runs one shot in ~20 s.
    add a `reference/<set>/` with `reference.json` so the doctor keeps the
    pairing honest.
 
+## Compaction: deleting the `.himg` files once the stack holds them
+
+A converted scan holds every frame twice — the stack, and the `.himg`
+files at five times its size (2026 to date: 1.65 TB of them). Compaction
+is the explicit, verify-first step that removes the second copy; it is
+never automatic (that becomes a post-scan service later), and it is the
+one analysis-side action that deletes data.
+
+- **In the Portal:** `HasoLift_compact` (kind `himg_compact`) on the
+  Analysis tab. Its row says *deletes files*; the run button opens a
+  dialog that asks you to type **this scan's number** — the server
+  refuses the run without it. While it runs the badge shows frames
+  done/total (`verifying 320/1806`, then `deleting`); the finished row
+  reports files and GB before and after (`22 files / 0.57 GB -> 1 file /
+  0.08 GB (0.49 GB freed)`).
+- **From a shell** (the backlog): `geecs-himg compact <device folder or
+  scans/ScanNNN>`; `--assume-closed` for a scan known to be dead that
+  never wrote its `ScanData` table.
+- **Undo:** `HasoLift_restore` (kind `himg_restore`) or `geecs-himg
+  restore` rebuilds every `.himg` from the stack, byte for byte (each
+  checked against the SHA-256 recorded at conversion before it is
+  written). File modification times are not restored; the bytes are.
+
+What it checks before deleting anything, in order — a failure anywhere
+leaves the folder as it was:
+
+1. no `<device>.h5.part` (another conversion owns the folder);
+2. the stack exists and is a `.himg` stack (provenance group present);
+3. every `.himg` on disk has a frame in the stack (a file that landed
+   after the conversion means *reconvert with `--overwrite`* first);
+4. no `.himg` younger than a minute, and the scanner closed the run
+   (`ScanDataScanNNN.txt`, else the analysis s-file) — otherwise the
+   scan may still be writing;
+5. every frame rebuilds to its recorded SHA-256 **and** matches the
+   file still on disk, byte for byte.
+
+Then it writes `himg_manifest.json` beside the stack (what was deleted,
+when, by which version, the stack that holds it) and deletes the files.
+The stack is never rewritten, so its per-shot header rows — the sensor
+header the `haso` measure hands to WaveKit — stay exactly as converted.
+The `.has` sidecars of legacy scans are not touched. An interrupted
+deletion is finished by running again (the manifest is written first).
+
 ## Where things are
 
 | What | Where |
@@ -230,4 +276,5 @@ its share (`MKL_NUM_THREADS`) — a 4-core box runs one shot in ~20 s.
 | The doctor | `ImageAnalysis/image_analysis/algorithms/wavekit_doctor.py` (`geecs-wavekit-doctor`) |
 | The host side: service factory, stack-only source, the wavefront store | `ScanAnalysis/scan_analysis/core_services.py`, `core_source.py`, `core_sink.ShotStore` |
 | The `.himg` codec and the stack converter | `GEECS-Data-Utils/geecs_data_utils/io/himg.py`, `io/himg_stack.py` |
+| Compaction and restore, the out-of-process runner, the shell command | `io/himg_compact.py`, `io/himg_worker.py`, `himg_cli.py` (`geecs-himg`); the kinds in `ScanAnalysis/scan_analysis/analyzers/common/himg_kinds.py` |
 | Config keys | `[Paths] wavekit_*` — [Getting started](../tutorials/getting_started.md) |

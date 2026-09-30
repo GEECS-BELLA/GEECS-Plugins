@@ -52,14 +52,24 @@ geecs_data_utils/
                                #   + himg.py: the SDK-free codec for the HASO
                                #   .himg container (header bytes + uint16
                                #   frame; rebuilds byte-identically)
-                               #   + himg_stack.py: THE one writer in io/ —
+                               #   + himg_stack.py: the stack writer in io/ —
                                #   a HASO device folder's .himg files → its
                                #   capture stack (frames gzip+shuffle, stamps
                                #   from native names or the scan's rows, a
                                #   provenance group with each file's header
                                #   and SHA-256; verified after writing;
                                #   never creates a directory, never deletes)
-  himg_cli.py                  # geecs-himg convert | verify: the .himg backlog command
+                               #   + himg_compact.py: THE one deleter —
+                               #   compact (verify every frame against the
+                               #   stack AND the file, then delete the .himg,
+                               #   leave himg_manifest.json) and restore
+                               #   (rebuild them byte-identical); the guards
+                               #   live here (scan may still be writing,
+                               #   stack short of the folder, any mismatch)
+                               #   + himg_worker.py: run any of those jobs in
+                               #   a child interpreter, streaming progress,
+                               #   logs, the report and errors back as events
+  himg_cli.py                  # geecs-himg convert | verify | compact | restore: the .himg backlog command
   plotting_utils.py            # Simple matplotlib helpers for binned data
   scans_database/
     database.py                # ScanDatabase: filter + load Parquet dataset
@@ -536,7 +546,36 @@ into the original bytes), `source_name`, `source_size`, `source_sha256`.
 `convert_himg_folder` runs it before renaming the `.part` file into place,
 so a stack under the reader's name is one whose every frame rebuilds its
 source. Converting adds that one file and nothing else: no directory is
-ever created, the `.himg` files are never touched (deleting them is the
-separate, verify-first compaction step). `geecs-himg convert | verify` is
-the shell form for the backlog; ScanAnalysis's `himg_to_stack` kind is the
-per-scan click in the Data Portal.
+ever created, the `.himg` files are never touched. `geecs-himg convert |
+verify` is the shell form for the backlog; ScanAnalysis's `himg_to_stack`
+kind is the per-scan click in the Data Portal.
+
+**Compaction and restore (0.48.0, `io.himg_compact`)** — the one place
+this package deletes. `compact_himg_folder(device_dir)` rebuilds every
+frame of the stack, checks it against the recorded SHA-256 *and* against
+the `.himg` still on disk, and only then deletes the `.himg` files,
+leaving `himg_manifest.json` (what went, when, the stack that holds it)
+beside the stack; the stack itself — its per-shot header rows, the
+`haso` measure's sensor header — is never rewritten. The guards live in
+the function so a click and a shell command refuse the same things:
+`HimgFolderActive` while any `.himg` is younger than `MIN_SOURCE_AGE_S`
+(a minute) or there is no closed-run evidence (`run_closed_evidence`: the
+`ScanDataScanNNN.txt` the stop document writes, else the analysis
+s-file; `require_closed=False` is the shell's escape hatch for a dead
+scan), `HimgStackIncomplete` for a `.himg` the stack has no frame for,
+`NoHimgStack` without a `.himg` stack, `HimgVerificationFailed` with
+nothing deleted on any mismatch, and a `.part` file refuses as another
+writer's. `restore_himg_folder` rebuilds each file (`.part` + rename,
+hash-checked first), keeps a file already there when it matches and
+stops when it does not, and removes the manifest; mtimes are not
+restored, bytes are. Both touch only the one device folder. `geecs-himg
+compact | restore` are the shell forms; ScanAnalysis's `himg_compact`
+(destructive — the portal asks for the scan number) and `himg_restore`
+kinds are the clicks. Every long loop takes a `progress(done, total,
+phase)` callback, and `io.himg_worker.run_himg_job` runs any of the four
+jobs in a child interpreter, relaying progress, log records, the report
+dataclass and the package's own error classes back over a JSON-lines
+event stream — how the portal runs them out of its own process. Source
+files are read through `read_source_bytes` (`posix_fadvise DONTNEED`
+after the read) so a 44 GB scan does not sit in the service cgroup's page
+cache.

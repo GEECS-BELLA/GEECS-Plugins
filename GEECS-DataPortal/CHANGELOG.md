@@ -3,6 +3,29 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.38.0] - 2026-09-29
+
+### Added
+
+- The Analysis tab gates **destructive** kinds (the listing's new
+  `destructive` flag, from the diagnostic's `AnalyzerSpecBase.destructive`
+  — today the `.himg` compaction): the row says *deletes files*, the run
+  button opens a real `<dialog>` that asks for **this scan's number**,
+  and `POST /api/run/{uid}/analysis` refuses such a kind without
+  `confirm=<scan number>` (400) — the gate is server-side, so no client
+  runs a delete unasked.
+- Run **progress** in the job record (`progress: {done, total, phase}`,
+  what the analyzer last reported through `ScanAnalyzer.progress`, the
+  hook `run_scan_analyzer` sets when the analyzer has one) and in the
+  tab's state badge while the run lasts (`running · verifying 320/1806`)
+  — the `.himg` kinds report per frame from their child process; an
+  analyzer that never reports shows the bare state as before.
+
+### Changed
+
+- `AnalysisRunner.start` calls `run(report)` with the job's progress
+  sink (the run may ignore it).
+
 ## [0.37.4] - 2026-09-29
 
 ### Changed

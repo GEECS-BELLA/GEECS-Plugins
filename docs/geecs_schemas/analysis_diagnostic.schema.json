@@ -924,6 +924,36 @@
       "title": "HiResMagCamSpec",
       "type": "object"
     },
+    "HimgCompactSpec": {
+      "additionalProperties": false,
+      "description": "Delete this device's HASO ``.himg`` files once every frame is verified in its stack \u2014 the one destructive kind.\n\nCompaction, the step after ``himg_to_stack``: rebuilds every frame of\n``<device>/<device>.h5`` and checks it against the SHA-256 recorded at\nconversion and against the ``.himg`` file still on disk, and only when\nevery frame passes deletes the ``.himg`` files, leaving a manifest\n(``himg_manifest.json``) beside the stack.  The stack \u2014 headers\nincluded \u2014 is not rewritten.  It refuses a scan that may still be\nwriting (a ``.himg`` younger than a minute, or no closed-run table),\na stack that does not cover the folder, and any mismatch, in which\ncase nothing is deleted.  ``himg_restore`` rebuilds the files\nbyte-identically.  ``destructive``: a host asks for the scan number\nbefore running it.  Meant to become an automatic post-scan step once\nthe post-scan services exist; until then an explicit click or\n``geecs-himg compact``.",
+      "properties": {
+        "kind": {
+          "const": "himg_compact",
+          "default": "himg_compact",
+          "description": "HASO .himg compaction: verify every frame against the stack, then delete the .himg files (destructive).",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "HimgCompactSpec",
+      "type": "object"
+    },
+    "HimgRestoreSpec": {
+      "additionalProperties": false,
+      "description": "Rebuild this device's HASO ``.himg`` files from its stack, byte-identical \u2014 undo ``himg_compact``.\n\nEach frame is rebuilt from the stack, checked against the SHA-256\nrecorded at conversion, and written under its original name; a file\nalready there is kept when it matches and stops the restore when it\ndoes not.  Removes the compaction manifest.  Adds files only.",
+      "properties": {
+        "kind": {
+          "const": "himg_restore",
+          "default": "himg_restore",
+          "description": "HASO .himg restore: rebuild the .himg files from the stack.",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "HimgRestoreSpec",
+      "type": "object"
+    },
     "HimgToStackSpec": {
       "additionalProperties": false,
       "description": "Convert this device's HASO ``.himg`` files into its per-scan capture stack \u2014 data management, not analysis.\n\nWrites ``<device>/<device>.h5`` beside the ``.himg`` files (which stay)\nin the layout every stack reader already prefers: the frames, the\nper-frame acquisition stamps, and each file's header and SHA-256, so\nevery frame rebuilds its source byte-identically (checked after\nwriting).  One step over the scan's device folder; no per-frame\nanalysis, no scalars.  Run it once per scan; a second run verifies the\nexisting stack.  Deleting the sources is a separate, explicit step.",
@@ -2399,6 +2429,8 @@
           "frog_retrieval": "#/$defs/FrogRetrievalSpec",
           "frog_spectral_phase": "#/$defs/FrogSpectralPhaseSpec",
           "hi_res_mag_cam": "#/$defs/HiResMagCamSpec",
+          "himg_compact": "#/$defs/HimgCompactSpec",
+          "himg_restore": "#/$defs/HimgRestoreSpec",
           "himg_to_stack": "#/$defs/HimgToStackSpec",
           "ict": "#/$defs/IctAnalyzerSpec",
           "line": "#/$defs/LineAnalyzerSpec",
@@ -2440,6 +2472,12 @@
         },
         {
           "$ref": "#/$defs/HimgToStackSpec"
+        },
+        {
+          "$ref": "#/$defs/HimgCompactSpec"
+        },
+        {
+          "$ref": "#/$defs/HimgRestoreSpec"
         },
         {
           "$ref": "#/$defs/DownrampPhaseSpec"

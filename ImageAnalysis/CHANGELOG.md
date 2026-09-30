@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.11.1] - 2026-09-29
+
+### Changed
+
+- Tests only: the registry-coverage test names the three scan-scoped
+  kinds (`himg_to_stack`, `himg_compact`, `himg_restore`) the registry
+  leaves to ScanAnalysis — no code change.
+
 ## [2.11.0] - 2026-09-29
 
 ### Added

@@ -1,9 +1,11 @@
-"""The ``himg_to_stack`` kind: factory dispatch and the converter run."""
+"""The scan-scoped ``.himg`` kinds: factory dispatch, the converter, compaction and restore runs."""
 
 from __future__ import annotations
 
 import importlib
+import os
 import struct
+import time
 from functools import partial
 from pathlib import Path
 
@@ -12,12 +14,21 @@ import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
 from geecs_data_utils.io.himg import himg_bytes
+from geecs_data_utils.io.himg_compact import (
+    MANIFEST_NAME,
+    HimgFolderActive,
+    manifest_path_for,
+)
+from geecs_data_utils.io.himg_stack import list_himg_files, verify_himg_stack
 from geecs_data_utils.io.scan_stack import find_stack_file, read_stack_timestamps
-from geecs_data_utils.io.himg_stack import verify_himg_stack
 from geecs_schemas.analysis import ANALYZER_SPECS, AnalysisDiagnostic
 
 from scan_analysis import base
-from scan_analysis.analyzers.common.himg_to_stack import HimgToStackAnalyzer
+from scan_analysis.analyzers.common.himg_kinds import (
+    HimgCompactAnalyzer,
+    HimgRestoreAnalyzer,
+    HimgToStackAnalyzer,
+)
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.config.diagnostic_factory import (
     SCAN_SCOPED_CLASS_PATHS,
@@ -28,13 +39,14 @@ from scan_analysis.core_analyzer import core_supports
 TAG = ScanTag(year=2026, month=3, day=10, number=12, experiment="Test")
 DEVICE = "U_HasoLift"
 STAMPS = [3873135602.613, 3873135603.611, 3873135604.615]
+OLD = time.time() - 3600  # past the compaction age guard
 
 
-def document(**scan) -> AnalysisDiagnostic:
+def document(kind: str = "himg_to_stack", **scan) -> AnalysisDiagnostic:
     return AnalysisDiagnostic.model_validate(
         {
             "name": DEVICE,
-            "analyzer": {"kind": "himg_to_stack"},
+            "analyzer": {"kind": kind},
             "scan": {"priority": 5, **scan},
         }
     )
@@ -58,7 +70,9 @@ def build_scan(base_dir: Path, *, device_files=True, device_folder=True) -> Path
         device.mkdir()
     if device_files:
         for shot in range(1, 4):
-            (device / f"Scan012_{DEVICE}_{shot:03d}.himg").write_bytes(_himg(shot))
+            path = device / f"Scan012_{DEVICE}_{shot:03d}.himg"
+            path.write_bytes(_himg(shot))
+            os.utime(path, (OLD, OLD))
             (device / f"Scan012_{DEVICE}_{shot:03d}_raw.has").write_bytes(b"has")
     rows = pd.DataFrame(
         {
@@ -73,35 +87,47 @@ def build_scan(base_dir: Path, *, device_files=True, device_folder=True) -> Path
     return scan
 
 
-def run(monkeypatch, base_dir: Path, doc=None):
+def run(monkeypatch, base_dir: Path, doc=None, *, progress=None):
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=base_dir))
     analyzer = create_scan_analyzer(doc or document(), id="HasoStack", priority=1)
+    analyzer.progress = progress
     try:
         return analyzer, analyzer.run_analysis(TAG)
     finally:
         analyzer.cleanup()
 
 
+def sources(device_dir: Path) -> dict[str, bytes]:
+    return {p.name: p.read_bytes() for p in list_himg_files(device_dir)}
+
+
 class TestFactory:
-    def test_the_kind_routes_to_the_converter(self):
+    def test_the_kinds_route_to_their_classes(self):
         analyzer = create_scan_analyzer(document(), id="HasoStack")
         assert isinstance(analyzer, HimgToStackAnalyzer)
         assert analyzer.id == "HasoStack" and analyzer.priority == 5
         assert analyzer.device_name == DEVICE == analyzer.data_device_name
         assert analyzer.background_source is None
         assert analyzer.spec.kind == "himg_to_stack"
+        assert isinstance(
+            create_scan_analyzer(document("himg_compact")), HimgCompactAnalyzer
+        )
+        assert isinstance(
+            create_scan_analyzer(document("himg_restore")), HimgRestoreAnalyzer
+        )
 
     def test_scan_device_names_the_data_folder(self):
         analyzer = create_scan_analyzer(document(device="U_HasoLift-Raw"))
         assert analyzer.device_name == DEVICE
         assert analyzer.data_device_name == "U_HasoLift-Raw"
 
-    def test_the_kind_has_no_core_or_injected_route(self):
-        assert core_supports(document()) is False
+    @pytest.mark.parametrize("kind", ["himg_to_stack", "himg_compact", "himg_restore"])
+    def test_the_kinds_have_no_core_or_injected_route(self, kind):
+        assert core_supports(document(kind)) is False
         with pytest.raises(ValueError, match="scan-scoped"):
-            create_scan_analyzer(document(), route="core")
+            create_scan_analyzer(document(kind), route="core")
         with pytest.raises(ValueError, match="injected-data"):
-            create_scan_analyzer(document(), use_injected_data=True)
+            create_scan_analyzer(document(kind), use_injected_data=True)
 
     def test_every_scan_scoped_kind_has_a_scan_analysis_class(self):
         scan_scoped = {k for k, m in ANALYZER_SPECS.items() if m.scope == "scan"}
@@ -111,12 +137,20 @@ class TestFactory:
             cls = getattr(importlib.import_module(module_path), class_name)
             assert issubclass(cls, base.ScanAnalyzer)
 
+    def test_only_the_compaction_is_destructive(self):
+        assert document("himg_compact").destructive is True
+        assert document("himg_to_stack").destructive is False
+        assert document("himg_restore").destructive is False
 
-class TestRun:
+
+class TestConvert:
     def test_run_writes_the_stack_and_only_the_stack(self, tmp_path, monkeypatch):
         scan = build_scan(tmp_path)
         before = {p: p.read_bytes() for p in scan.rglob("*") if p.is_file()}
-        analyzer, labels = run(monkeypatch, tmp_path)
+        phases: list[tuple[int, int, str]] = []
+        analyzer, labels = run(
+            monkeypatch, tmp_path, progress=lambda *p: phases.append(p)
+        )
         stack = find_stack_file(scan / DEVICE)
         assert stack == scan / DEVICE / f"{DEVICE}.h5"
         assert len(labels) == 1
@@ -131,6 +165,8 @@ class TestRun:
         )
         assert verify_himg_stack(stack, against_files=True).ok
         assert analyzer.last_report is None  # cleanup() ran
+        # The child's frames done/total reached the host, phase by phase.
+        assert (3, 3, "writing") in phases and (3, 3, "verifying") in phases
 
     def test_a_second_run_verifies_instead_of_rewriting(self, tmp_path, monkeypatch):
         scan = build_scan(tmp_path)
@@ -168,3 +204,89 @@ class TestRun:
         _, result = run(monkeypatch, tmp_path)
         assert result is None
         assert find_stack_file(scan / DEVICE) is None
+
+
+class TestCompactAndRestore:
+    def test_compact_deletes_after_verifying_and_restore_brings_the_bytes_back(
+        self, tmp_path, monkeypatch
+    ):
+        scan = build_scan(tmp_path)
+        device_dir = scan / DEVICE
+        run(monkeypatch, tmp_path)  # convert
+        originals = sources(device_dir)
+        outside_before = {
+            p: p.read_bytes()
+            for p in scan.parent.parent.rglob("*")
+            if p.is_file() and device_dir not in p.parents
+        }
+        stack = device_dir / f"{DEVICE}.h5"
+        stack_bytes = stack.read_bytes()
+        phases: list[tuple[int, int, str]] = []
+
+        _, labels = run(
+            monkeypatch,
+            tmp_path,
+            document("himg_compact"),
+            progress=lambda *p: phases.append(p),
+        )
+
+        assert len(labels) == 1
+        assert "3 .himg files verified against U_HasoLift.h5 and deleted" in labels[0]
+        assert "4 files /" in labels[0] and "-> 1 file /" in labels[0]
+        assert list_himg_files(device_dir) == []
+        assert manifest_path_for(device_dir).is_file()
+        assert stack.read_bytes() == stack_bytes  # headers kept
+        assert [p[2] for p in phases] == ["verifying"] * 3 + ["deleting"] * 3
+        # The sidecars and everything outside the device folder are untouched.
+        assert sorted(p.name for p in device_dir.iterdir()) == sorted(
+            [f"{DEVICE}.h5", MANIFEST_NAME]
+            + [f"Scan012_{DEVICE}_{s:03d}_raw.has" for s in (1, 2, 3)]
+        )
+        outside_after = {
+            p: p.read_bytes()
+            for p in scan.parent.parent.rglob("*")
+            if p.is_file() and device_dir not in p.parents
+        }
+        assert outside_after == outside_before
+
+        _, labels = run(monkeypatch, tmp_path, document("himg_restore"))
+        assert "3 .himg files restored from U_HasoLift.h5, verified" in labels[0]
+        assert sources(device_dir) == originals
+        assert not manifest_path_for(device_dir).exists()
+
+    def test_compact_refuses_a_scan_that_may_still_be_running(
+        self, tmp_path, monkeypatch
+    ):
+        scan = build_scan(tmp_path)
+        run(monkeypatch, tmp_path)
+        young = list_himg_files(scan / DEVICE)[0]
+        now = time.time()
+        os.utime(young, (now, now))
+        with pytest.raises(HimgFolderActive, match="may still be running"):
+            run(monkeypatch, tmp_path, document("himg_compact"))
+        assert len(list_himg_files(scan / DEVICE)) == 3
+
+    def test_compact_without_a_stack_names_the_converter(self, tmp_path, monkeypatch):
+        scan = build_scan(tmp_path)
+        with pytest.raises(RuntimeError, match="run the himg_to_stack kind first"):
+            run(monkeypatch, tmp_path, document("himg_compact"))
+        assert len(list_himg_files(scan / DEVICE)) == 3
+
+    def test_compact_twice_is_a_label_not_an_error(self, tmp_path, monkeypatch):
+        build_scan(tmp_path)
+        run(monkeypatch, tmp_path)
+        run(monkeypatch, tmp_path, document("himg_compact"))
+        _, labels = run(monkeypatch, tmp_path, document("himg_compact"))
+        assert labels[0].startswith(f"{DEVICE}: already compacted — 3 frames")
+
+    def test_restore_without_a_stack_fails_plainly(self, tmp_path, monkeypatch):
+        build_scan(tmp_path)
+        with pytest.raises(RuntimeError, match="nothing to restore from"):
+            run(monkeypatch, tmp_path, document("himg_restore"))
+
+    def test_missing_device_folder_is_no_data_for_both(self, tmp_path, monkeypatch):
+        scan = build_scan(tmp_path, device_files=False, device_folder=False)
+        for kind in ("himg_compact", "himg_restore"):
+            with pytest.raises(DataUnavailableWarning, match="No data directory"):
+                run(monkeypatch, tmp_path, document(kind))
+        assert not (scan / DEVICE).exists()
