@@ -469,6 +469,69 @@ _LINE_RECIPE = {
 }
 
 
+def test_each_kind_links_its_reference_card_and_a_measure_lists_its_scalars():
+    """The served schema's x-docs / x-scalars reach the form as help.
+
+    Run the real recipe form under node: every step and the measure carry a
+    "reference" link to their card in the published recipe reference, and
+    the measure (and only it) folds the scalars it writes into a <details>,
+    closed until asked, with the meanings the core's ``scalar_docs`` give.
+    """
+    from geecs_web_theme.testing import node_available
+
+    if not node_available():
+        pytest.skip("node not available to run JavaScript")
+    schema = ConfigStore.schema("analyzer")
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "scan_analysis/config_editor/static/editor.js"
+    ).read_text()
+    utils = source[
+        source.index("  const esc = ") : source.index("  async function api(")
+    ]
+    classes = source[
+        source.index("  class Schema {") : source.index(
+            "  // -------------------------------------------------------------- editor"
+        )
+    ]
+    doc = dict(_BEAM_RECIPE, inputs={}, steps=_BEAM_RECIPE["steps"][1:3])
+    harness = (
+        _FAKE_DOM
+        + utils
+        + classes
+        + f"const SCHEMA = {json.dumps(schema)};\n"
+        + f"const DOC = {json.dumps(doc)};\n"
+        + """
+const s = new Schema(SCHEMA);
+const form = new Form(s, () => {}, { ndim: () => 2 });
+const r = form.object(s.resolve(s.root), DOC, [], false, {});
+const scalars = r.node.querySelectorAll("details.ce-scalars");
+console.log(JSON.stringify({
+  refs: r.node.querySelectorAll("a.ce-ref").map((a) => [a.getAttribute("href"), a.getAttribute("target"), a.getAttribute("rel")]),
+  details: scalars.map((d) => [d.querySelector("summary").textContent, d.getAttribute("open")]),
+  terms: scalars.length ? scalars[0].querySelectorAll("dt").map((t) => t.textContent) : [],
+  meanings: scalars.length ? scalars[0].querySelectorAll("dd").map((t) => t.textContent) : [],
+}));
+"""
+    )
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    out = json.loads(result.stdout)
+    beam = schema["$defs"]["BeamSpec"]
+    hrefs = [href for href, _, _ in out["refs"]]
+    # the two steps' cards and the measure each link their reference card
+    assert any(h.endswith("#step-roi") for h in hrefs), hrefs
+    assert any(h.endswith("#step-median") for h in hrefs), hrefs
+    assert beam["x-docs"] in hrefs and beam["x-docs"].endswith("#measure-beam")
+    assert all(t == "_blank" and rel == "noopener" for _, t, rel in out["refs"])
+    # only the measure lists scalars: all it can write (slopes on), folded shut
+    n = len(beam["x-scalars"])
+    assert out["details"] == [[f"Can write {n} scalars", None]]
+    assert out["terms"] == list(beam["x-scalars"])
+    assert out["meanings"] == list(beam["x-scalars"].values())
+
+
 def test_recipe_form_round_trips_and_reorders(tree):
     """Run the real recipe form under node on a fake DOM.
 

@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.45.0] - 2026-09-29
+
+### Added
+
+- Config editor: every step, measure and summary kind shows a
+  "reference ↗" link to its card in the published recipe reference (the
+  schema's `x-docs`, GEECS-Analysis 0.25.0), and a measure folds the
+  scalars it writes, with their meanings (`x-scalars`), into a closed
+  "Can write N scalars" `<details>`. The page header links the reference
+  ("Docs").
+
 ## [1.44.1] - 2026-09-29
 
 ### Changed

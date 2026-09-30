@@ -65,6 +65,27 @@
     const params = Object.entries(item).filter(([k, v]) => k !== "step" && k !== "kind" && v !== undefined);
     return clip(params.length ? `${tag} ${params.map(([k, v]) => `${k}=${fmtValue(v)}`).join(" ")}` : String(tag), 60);
   }
+  // The help under a chosen kind (a step, a measure, a summary): its
+  // description, a link to its card in the published recipe reference
+  // (x-docs), and for a measure the scalars it writes (x-scalars), folded.
+  // The lowest overlay rung: inline text and a <details>, nothing floats.
+  function variantHelp(schema) {
+    const nodes = [];
+    const docs = schema["x-docs"];
+    const text = schema.description ? String(schema.description).replace(/``([^`]*)``/g, "$1") : "";
+    if (text || docs) {
+      const line = el("div", { class: "help variant" }, text || null);
+      if (docs) line.append(el("a", { class: "ce-ref", href: docs, target: "_blank", rel: "noopener" }, "reference \u2197"));
+      nodes.push(line);
+    }
+    const scalars = Object.entries(schema["x-scalars"] || {});
+    if (scalars.length) {
+      const list = el("dl", {});
+      for (const [name, meaning] of scalars) list.append(el("dt", {}, name), el("dd", {}, meaning));
+      nodes.push(el("details", { class: "ce-scalars" }, el("summary", {}, `Can write ${scalars.length} scalar${scalars.length === 1 ? "" : "s"}`), list));
+    }
+    return nodes;
+  }
   // Where a recipe reads and what it writes, resolved from its naming
   // fields as the run resolves them (core_recipe.scan_recipe): the one
   // line that explains device / input.folder / output_name / scalar_suffix.
@@ -528,7 +549,7 @@
         }
         current = this.object(variant.schema, v, path, false, { skip: new Set([disc]) });
         holder.append(current.node.querySelector(".obj") || current.node);
-        if (variant.schema.description) holder.prepend(el("div", { class: "help variant" }, Form.plain(variant.schema.description)));
+        holder.prepend(...variantHelp(variant.schema));
         current.tag = variant.tag;
       };
       build(currentTag, value);
