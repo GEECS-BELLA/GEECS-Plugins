@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.23.0] - 2026-09-29
+## [0.24.0] - 2026-09-29
 
 ### Added
 
@@ -22,6 +22,30 @@
   `intensity` stay the shot's own. A reference of another shape than the
   frame is refused. Verified float32-exact against the SDK's in-memory
   subtraction on 26_0929 Scan015/Scan014.
+
+## [0.23.0] - 2026-09-29
+
+### Changed
+
+- A per-bin (`average_frames_first`) run streams its raw frames (#1025).
+  `compat.v2_run` used to collect a copy of every loaded frame of a group
+  and `np.mean` the list, so a noscan — one bin — held the whole scan: on
+  a 5000-shot UC_HiResMagCam scan the portal's run reached its 3.0G
+  `MemoryHigh` and stalled. Each member is now folded into a running sum
+  as it loads (`_Sum`, which gains an optional accumulator `dtype`), in
+  the intermediate dtype `np.mean` would use — float64 for integer
+  frames, float32 for float32 traces, float32 cast back for float16 —
+  so the quotient is the stacked mean bit for bit, and a bin holds one
+  native frame and one accumulator however many shots it has. Load
+  order, load failures with the bin's full membership, and the
+  incompatible-shape outcome are kept; a member that would broadcast
+  into the sum (a (1, N) frame in an (M, N) bin) is an incompatible
+  shape, as it was for the stack. A member whose dtype would change the
+  accumulator's (a float64 frame in a float32 bin, a float32 frame in an
+  integer bin) is now an explicit incompatible-dtype outcome: the stack
+  summed every member in the promoted dtype, which no fold of members
+  already rounded can reproduce. Mixed integer dtypes (all summed in
+  float64) still average, bit for bit.
 
 ## [0.22.0] - 2026-09-29
 
