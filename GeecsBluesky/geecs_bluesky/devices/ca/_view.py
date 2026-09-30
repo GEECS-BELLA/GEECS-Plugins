@@ -30,6 +30,27 @@ def owner_of(obj: Any) -> Any:
     return obj._owner if isinstance(obj, ScalarsView) else obj
 
 
+def geecs_device_name(obj: Any) -> str:
+    """The GEECS device *obj* belongs to; its ophyd name when it belongs to none.
+
+    One rule for every plan object: a device names itself, a ``.scalars``
+    view names its owner, a detector's signal or a settable child names the
+    nearest ancestor that is a GEECS device, and a plan-side object with no
+    device behind it (the bin counter) gives its own name.  The plans'
+    failure messages, the liveness gate and the background telemetry all
+    name devices with it.
+    """
+    node: Any = owner_of(obj)
+    for _ in range(8):
+        name = getattr(node, "_geecs_device_name", None)
+        if name is not None:
+            return str(name)
+        node = getattr(node, "parent", None)
+        if node is None:
+            break
+    return str(getattr(obj, "name", obj))
+
+
 class ScalarsView(Device):
     """The scalars-only view of *owner*; subclasses say what a read is."""
 

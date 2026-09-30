@@ -921,10 +921,13 @@ class GeecsNamespace:
     def telemetry(self) -> list[Any]:
         """Every subscribed scalar of the experiment, readable without a trigger.
 
-        The ``SupplementalData`` baseline list: each
+        The background telemetry's candidates
+        (:class:`~geecs_bluesky.devices.background.BackgroundSnapshot`): each
         scalar-only device whole, and each detector's scalar **signals**
-        individually — a detector itself is ``Triggerable`` and a baseline
-        read would wait for a shot that ARMED never delivers.
+        individually — a detector itself is ``Triggerable`` and a read of it
+        would wait for a shot that ARMED never delivers.  Which of them a
+        run reads is decided per run: the run's own devices are left to the
+        row.
         """
         objects: list[Any] = []
         for dev in self._devices.values():

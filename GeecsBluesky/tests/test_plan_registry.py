@@ -103,12 +103,13 @@ def test_bound_plans_keep_the_stock_signature_minus_the_hook(profiles) -> None:
         assert ("shots_per_step" in params) == (name != "count")
         assert "trigger_profile" in plan.__doc__
         # phase 2: the acquisition mode, the non-essential list, the throttle;
-        # #738: the LabVIEW-files switch
+        # #738: the LabVIEW-files switch; #1016: the background switch
         for extra in (
             "acquisition",
             "non_essential",
             "shot_period",
             "native_image_save",
+            "background_telemetry",
         ):
             assert params[extra].kind is inspect.Parameter.KEYWORD_ONLY
             assert extra in plan.__doc__
@@ -116,6 +117,7 @@ def test_bound_plans_keep_the_stock_signature_minus_the_hook(profiles) -> None:
         assert params["non_essential"].default is None
         assert params["shot_period"].default is None
         assert params["native_image_save"].default is None
+        assert params["background_telemetry"].default is None
 
 
 def test_strict_plan_refuses_a_plan_without_the_hook(profiles) -> None:
@@ -644,6 +646,7 @@ def test_optimize_signature_and_classification(profiles):
         "shot_period",
         "non_essential",
         "native_image_save",
+        "background_telemetry",
         "md",
     ]
     assert parameters["optimizer_config"].kind is inspect.Parameter.KEYWORD_ONLY

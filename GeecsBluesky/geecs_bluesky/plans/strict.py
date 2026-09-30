@@ -28,7 +28,7 @@ from bluesky.utils import FailedStatus, all_safe_rewind, separate_devices, short
 from geecs_schemas.trigger_profile import TriggerState
 from ophyd_async.core import StandardDetector
 
-from geecs_bluesky.devices.ca._view import ScalarsView
+from geecs_bluesky.devices.ca._view import ScalarsView, geecs_device_name
 from geecs_bluesky.devices.ca.liveness import read_disconnected
 from geecs_bluesky.devices.detector import STRICT_TRIGGER_INFO
 from geecs_bluesky.exceptions import (
@@ -60,11 +60,8 @@ def _confirmed_down(devices: Sequence[Any], device_name: str):
 
 
 def geecs_name(obj: Any) -> str:
-    """The GEECS device name of a plan object: its own, its owner's, else its ophyd name."""
-    name = getattr(obj, "_geecs_device_name", None)
-    if name is None:
-        name = getattr(getattr(obj, "_owner", None), "_geecs_device_name", None)
-    return str(name if name is not None else getattr(obj, "name", obj))
+    """The GEECS device name of a plan object (the one rule, :func:`geecs_device_name`)."""
+    return geecs_device_name(obj)
 
 
 def _device_named(devices: Sequence[Any], device_name: str) -> Any | None:

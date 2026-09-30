@@ -14,8 +14,8 @@ over them with the strict ``take_reading`` pre-bound
 the experiment's action library, over the same devices, no run opened).
 Every run claims a GEECS scan number and leaves
 ScanInfo, the s-file, ``scan.log`` and the detectors' native files in its
-folder; every subscribed scalar of the experiment rides in the run as the
-baseline stream (``make_run_engine``).
+folder; every logged scalar of the experiment outside the run's own devices
+rides in every row as background telemetry (:mod:`geecs_bluesky.plans.registry`).
 
 Import order is load-bearing
 -----------------------------
@@ -44,14 +44,13 @@ loud here rather than have every submitted plan fail identically later.
 or data-share reach): no namespace, no trigger profiles, no scan claim —
 the plans are registered but refuse to run.
 
-``QS_CONNECT_TIMEOUT`` bounds the one-shot telemetry connect
-(:func:`~geecs_bluesky.run_engine.install_telemetry`), in seconds; default
-20.0, the value that has always been hard-coded here.  It exists because
-that connect is paid in full whenever the gateway is unreachable — every
-member times out before being dropped from the baseline — which on a CI
-runner with no gateway at all meant four startup-profile tests each
-stalling the full 20 s for a result they never assert on.  A site whose
-gateway is slow to answer can raise it; a hermetic caller sets it low.
+``QS_CONNECT_TIMEOUT`` bounds the background telemetry's warm-up
+(:func:`~geecs_bluesky.devices.background.warm_up`: every candidate's
+first connect, once, when the environment opens), in seconds; default
+20.0.  Only a PV the gateway does not serve runs it out — concurrently, so
+the whole set costs one budget — and such a device is probed again at
+every run.  A CI runner with no gateway would otherwise stall every
+startup-profile test for the full budget; a hermetic caller sets it low.
 """
 
 from __future__ import annotations
@@ -64,6 +63,7 @@ import os
 import geecs_bluesky  # noqa: F401
 
 from geecs_bluesky.config_resolver import ConfigsRepoResolver
+from geecs_bluesky.devices.background import warm_up_on
 from geecs_bluesky.namespace import GeecsNamespace, motor_targets
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
@@ -99,7 +99,7 @@ def _resolve_experiment() -> str:
 
 
 def _connect_timeout() -> float:
-    """Seconds to bound the telemetry connect; ``QS_CONNECT_TIMEOUT`` or 20.0.
+    """Seconds to bound the warm-up connect; ``QS_CONNECT_TIMEOUT`` or 20.0.
 
     An unparseable value is a configuration mistake, not a reason to stall
     the worker for the default on every start, so it is reported and the
@@ -128,7 +128,6 @@ _hermetic = os.environ.get("QS_DEVICE_NAMESPACE", "db").strip().lower() == "off"
 # points at each run's folder.
 _path_provider = GeecsScanPathProvider()
 _DEVICE_NAMES: list[str] = []
-_telemetry: list = []
 _resolver = None
 namespace = None
 if _hermetic:
@@ -182,7 +181,6 @@ else:
     )
     namespace.add_pseudos(_catalog)
     _DEVICE_NAMES = namespace.export_into(globals())
-    _telemetry = namespace.telemetry()
     _profiles = TriggerProfiles.from_resolver(_resolver, experiment=_experiment)
 
 # The package's own INFO lines are the operational record of what happens
@@ -207,9 +205,12 @@ RE = make_run_engine(
     tiled=True,
     claim=not _hermetic,
     path_provider=_path_provider,
-    telemetry=_telemetry,
-    connect_timeout=_connect_timeout(),
 )
+if not _hermetic:
+    # The background telemetry's candidates connect once, here, so a run's
+    # probe finds them connected (its 1 s budget then covers the stage and
+    # the first reading alone).  Bounded, and never a drop for good.
+    warm_up_on(RE, namespace.telemetry(), timeout=_connect_timeout())
 
 # The plans the manager discovers (every generator function in this
 # namespace is a plan to it — profile_ops.plans_from_nspace): the stock

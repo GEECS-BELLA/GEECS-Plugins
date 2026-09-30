@@ -120,7 +120,8 @@ Two boundaries follow from the design rather than from preference:
 
 Background telemetry is on by default for the experiment
 (`ExperimentDefaults.background_telemetry`) and can be overridden per scan
-(`ScanRequest.capture.background_telemetry`). Converted legacy save elements keep
+(`Preset.background_telemetry`); its columns reach the s-file exactly as the
+required devices' do. Converted legacy save elements keep
 their exact old recording behavior — they record precisely the variable
 lists they always did; the database-first defaults apply to new configs
 only.

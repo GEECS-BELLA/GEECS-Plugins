@@ -18,8 +18,10 @@ from typing import Any
 import bluesky.plan_stubs as bps
 import bluesky.plans as bp
 import bluesky.preprocessors as bpp
+from bluesky.utils import Msg
 from geecs_schemas.trigger_profile import TriggerState
 
+from geecs_bluesky.devices.background import BackgroundSnapshot
 from geecs_bluesky.devices.ca._view import owner_of
 from geecs_bluesky.devices.ca.liveness import read_disconnected
 from geecs_bluesky.devices.detector import GeecsDetector
@@ -182,15 +184,18 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
         )
 
 
-def resolve_native_image_save(requested: bool | None, resolver: Any | None) -> bool:
-    """The run's LabVIEW-files switch: the request, else the experiment default, else on.
+def _experiment_default(
+    requested: bool | None, resolver: Any | None, field: str, *, on_failure: str
+) -> bool:
+    """*requested*, else ``ExperimentDefaults.<field>``, else on.
 
     Read at every run, not at bind time, so an edit to
     ``experiment_defaults.yaml`` reaches the next scan without the worker
     reopening its environment.  Fail-open to *on*: a resolver that cannot
     read the defaults (no configs root, bad YAML, an older resolver without
-    the method) keeps the dual-write — the state every scan had before the
-    switch existed — and says so in the journal, once per run.
+    the method) keeps the behaviour every scan had before the switch
+    existed — *on_failure* says which — and says so in the journal, once
+    per run.
     """
     if requested is not None:
         return bool(requested)
@@ -200,12 +205,97 @@ def resolve_native_image_save(requested: bool | None, resolver: Any | None) -> b
         defaults = resolver.resolve_experiment_defaults()
     except Exception as exc:  # no configs root, unreadable defaults file
         logger.warning(
-            "experiment defaults not read (%s: %s); native saving stays on",
+            "experiment defaults not read (%s: %s); %s",
             type(exc).__name__,
             exc,
+            on_failure,
         )
         return True
-    return bool(getattr(defaults, "native_image_save", True))
+    return bool(getattr(defaults, field, True))
+
+
+def resolve_native_image_save(requested: bool | None, resolver: Any | None) -> bool:
+    """The run's LabVIEW-files switch: the request, else the experiment default, else on (#738)."""
+    return _experiment_default(
+        requested, resolver, "native_image_save", on_failure="native saving stays on"
+    )
+
+
+def resolve_background_telemetry(requested: bool | None, resolver: Any | None) -> bool:
+    """The run's background-telemetry switch: the request, else the experiment default, else on.
+
+    On, every logged scalar of the experiment outside the run's own devices
+    is read into every row, softly
+    (:class:`~geecs_bluesky.devices.background.BackgroundSnapshot` — Master
+    Control parity, #1016 / #929); off, the run records its own devices
+    alone.
+    """
+    return _experiment_default(
+        requested,
+        resolver,
+        "background_telemetry",
+        on_failure="background telemetry stays on",
+    )
+
+
+def background_snapshot(
+    settables: Any, *, mock: bool = False
+) -> BackgroundSnapshot | None:
+    """The run's background telemetry over *settables* (the namespace), or ``None``.
+
+    ``None`` when *settables* carries no telemetry set (a hermetic test's
+    mapping, no namespace) or the set is empty: the run then records its
+    own devices alone and its start document says
+    ``background_telemetry: False``.
+    """
+    telemetry = getattr(settables, "telemetry", None)
+    candidates = list(telemetry()) if callable(telemetry) else []
+    return BackgroundSnapshot(candidates, mock=mock) if candidates else None
+
+
+def background_wrapper(plan: Any, snapshot: BackgroundSnapshot) -> Any:
+    """Probe the background set right before ``open_run``; record the result in the start document.
+
+    The stock plan stages its detectors (*snapshot* among them) and motors
+    before it opens the run, and the non-essential wrapper stages its
+    devices too: every ``stage`` message names a root device the run
+    reads for itself.  They are collected here and handed to
+    :meth:`~geecs_bluesky.devices.background.BackgroundSnapshot.probe`
+    — as a message the RunEngine awaits, inside the plan, so the exclusion
+    sees the sweep's resolved axes as well as the detector list — and the
+    devices the probe dropped ride in the start document as
+    ``background_dropped`` (GEECS device names); a probe that failed
+    outright (never a member's failure, which is its own drop) adds
+    ``background_probe_error``.  Before the claim, so a slow probe costs
+    the run nothing but its bounded budget.
+    """
+    staged: list[Any] = []
+    opened = False
+
+    def _proc(msg: Msg) -> tuple[Any, Any]:
+        nonlocal opened
+        if msg.command == "stage":
+            if msg.obj is not snapshot:
+                staged.append(msg.obj)
+            return None, None
+        if msg.command != "open_run" or opened:
+            return None, None
+        opened = True
+
+        def _probe_then_open():
+            yield from bps.wait_for([functools.partial(snapshot.probe, list(staged))])
+            record: dict[str, Any] = {"background_dropped": snapshot.dropped}
+            if snapshot.probe_error:
+                record["background_probe_error"] = snapshot.probe_error
+            return (
+                yield Msg(
+                    "open_run", msg.obj, *msg.args, run=msg.run, **msg.kwargs, **record
+                )
+            )
+
+        return _probe_then_open(), None
+
+    return (yield from bpp.plan_mutator(plan, _proc))
 
 
 def native_image_save_wrapper(
@@ -287,6 +377,8 @@ def strict_plan(
     profiles: TriggerProfiles,
     *,
     resolver: Any | None = None,
+    settables: Any | None = None,
+    mock: bool = False,
 ) -> Callable[..., Any]:
     """Bind the strict hook into one stock plan; keep its name and signature.
 
@@ -298,8 +390,15 @@ def strict_plan(
         The trigger profiles a ``trigger_profile`` argument resolves against.
     resolver :
         The configs-repo resolver whose ``resolve_experiment_defaults`` the
-        ``native_image_save`` default is read from at every run; ``None``
-        (or an unreadable file) leaves native saving on.
+        ``native_image_save`` and ``background_telemetry`` defaults are read
+        from at every run; ``None`` (or an unreadable file) leaves both on.
+    settables :
+        The worker namespace: its telemetry set is the run's background
+        (:func:`background_snapshot`).  A mapping without one (hermetic
+        tests) means no background.
+    mock :
+        Connect a background member that is not yet connected with a mock
+        backend (hermetic tests).
 
     Returns
     -------
@@ -321,6 +420,9 @@ def strict_plan(
         shot_period = kwargs.pop("shot_period", None)
         native_files = resolve_native_image_save(
             kwargs.pop("native_image_save", None), resolver
+        )
+        background = resolve_background_telemetry(
+            kwargs.pop("background_telemetry", None), resolver
         )
         if acquisition not in ACQUISITION_MODES:
             raise GeecsConfigurationError(
@@ -368,6 +470,8 @@ def strict_plan(
             getattr(owner_of(d), "name", str(d)) for d in non_essential
         ]
         md["native_image_save"] = native_files
+        snapshot = background_snapshot(settables, mock=mock) if background else None
+        md["background_telemetry"] = snapshot is not None
         if shot_period is not None:
             md["shot_period"] = shot_period
         if acquisition == "gated":
@@ -407,7 +511,15 @@ def strict_plan(
             )
         else:
             kwargs[hook] = geecs_per_shot(shot_control, shot_period=shot_period)
+        if snapshot is not None:
+            # One more detector of the row, last: the strict take_reading
+            # reads it per shot, the gated batch samples it at the tick.
+            bound = signature.bind_partial(*args, **kwargs)
+            bound.arguments["detectors"] = [*detectors, snapshot]
+            args, kwargs = bound.args, dict(bound.kwargs)
         inner = non_essential_wrapper(stock(*args, md=md, **kwargs), non_essential)
+        if snapshot is not None:
+            inner = background_wrapper(inner, snapshot)
         if acquisition == "strict":
             # A gated batch is a fly prepare: a plugin-backed camera's native
             # logic is left out of the context and a native-saving essential
@@ -472,6 +584,14 @@ def strict_plan(
             annotation=bool | None,
         )
     )
+    parameters.append(
+        Parameter(
+            "background_telemetry",
+            Parameter.KEYWORD_ONLY,
+            default=None,
+            annotation=bool | None,
+        )
+    )
     plan.__signature__ = signature.replace(parameters=parameters)  # type: ignore[attr-defined]
     plan.__name__ = plan.__qualname__ = stock.__name__
     plan.__doc__ = _geecs_doc(stock, hook)
@@ -527,6 +647,12 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
         "        per-shot files (PNGs) beside the plugin's stack; the experiment\n"
         "        default (experiment_defaults.yaml) when omitted.  A device\n"
         "        without a file plugin always keeps its native files.\n"
+        "    background_telemetry : bool, optional\n"
+        "        Whether every other logged scalar of the experiment (the DB's\n"
+        "        get='yes' variables of the devices not in this run) is read\n"
+        "        into every row as well, softly: a device that does not answer\n"
+        "        when the run starts is left out of it, never failing it; the\n"
+        "        experiment default (experiment_defaults.yaml) when omitted.\n"
     )
     return (
         f"GEECS {stock.__name__}: the stock plan with the trigger box driven "
@@ -548,6 +674,7 @@ def bind_plans(
     *,
     resolver: Any | None = None,
     settables: SettableFactory | None = None,
+    mock: bool = False,
 ) -> dict[str, Callable[..., Any]]:
     """Every name in :data:`GEECS_PLAN_NAMES` → the plan the worker registers.
 
@@ -555,7 +682,9 @@ def bind_plans(
     the stock stub (a manual move as a queue item, nothing strict about it)
     with its failure named (:func:`_mv_named`);
     ``run_action`` is :func:`run_action_plan` over *resolver* and
-    *settables* (the namespace).
+    *settables* (the namespace).  *settables* is also where every scan
+    verb's background telemetry comes from (:func:`background_snapshot`);
+    *mock* connects its members with mock backends (hermetic tests).
     """
     bound: dict[str, Callable[..., Any]] = {}
     for name in GEECS_PLAN_NAMES:
@@ -565,12 +694,16 @@ def bind_plans(
             from .sweep import sweep_plan
 
             bound[name] = strict_plan(
-                sweep_plan(settables), profiles, resolver=resolver
+                sweep_plan(settables),
+                profiles,
+                resolver=resolver,
+                settables=settables,
+                mock=mock,
             )
         elif name == "optimize":
             from .optimize import optimize_plan
 
-            bound[name] = optimize_plan(profiles, resolver, settables)
+            bound[name] = optimize_plan(profiles, resolver, settables, mock=mock)
         elif name == "run_action":
             bound[name] = run_action_plan(resolver, settables)
         elif name == "measure_shot_offsets":
@@ -579,16 +712,25 @@ def bind_plans(
             bound[name] = check_shot_sync_plan(profiles)
         else:
             assert name not in NON_SCAN_PLAN_NAMES
-            bound[name] = strict_plan(getattr(bp, name), profiles, resolver=resolver)
+            bound[name] = strict_plan(
+                getattr(bp, name),
+                profiles,
+                resolver=resolver,
+                settables=settables,
+                mock=mock,
+            )
     return bound
 
 
 __all__ = [
     "ACQUISITION_MODES",
     "TriggerProfiles",
+    "background_snapshot",
+    "background_wrapper",
     "bind_plans",
     "liveness_gate",
     "native_image_save_wrapper",
+    "resolve_background_telemetry",
     "resolve_native_image_save",
     "strict_plan",
 ]

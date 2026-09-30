@@ -123,27 +123,31 @@ def build_legacy_scalar_dataframe(
         else primary_df
     )
     n_rows = len(rows)
-    out = pd.DataFrame(index=range(n_rows))
+    # Collected first, allocated once: inserting column by column into an
+    # existing frame fragments it, and past ~100 columns pandas warns
+    # ("DataFrame is highly fragmented") — an HTU s-file with its background
+    # telemetry (GEECS-Plugins#1016) carries ~300.
+    columns: dict[str, Any] = {}
 
     # Row-identity columns.
     if "bin_number" in rows.columns:
-        out["Bin #"] = rows["bin_number"].to_numpy()
+        columns["Bin #"] = rows["bin_number"].to_numpy()
     else:
-        out["Bin #"] = 1
-    out["scan"] = start_doc.get("scan_number", 0)
+        columns["Bin #"] = 1
+    columns["scan"] = start_doc.get("scan_number", 0)
 
     # Device data columns: rename via the header map, preserving its order.
     # Only keys actually present in the rows are emitted; everything not
     # in the map (companion columns, row-identity columns) is dropped.
     for event_key, legacy_header in headers.items():
         if event_key in rows.columns:
-            out[legacy_header] = rows[event_key].to_numpy()
+            columns[legacy_header] = rows[event_key].to_numpy()
         else:
             logger.debug("geecs_scalar_headers key %r absent from the rows", event_key)
 
     _warn_unnamed_frame_columns(frames, headers)
-    out["Shotnumber"] = range(1, n_rows + 1)
-    return out
+    columns["Shotnumber"] = range(1, n_rows + 1)
+    return pd.DataFrame(columns, index=range(n_rows))
 
 
 def _warn_unnamed_frame_columns(

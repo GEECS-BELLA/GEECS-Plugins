@@ -18,7 +18,8 @@ Two tests, the second only with ``GEECS_HW_QSERVER`` set:
    ``ScanNNN/`` folder, the camera's native files named by the rows'
    stamps in ``ScanNNN/<device>/``, ``ScanInfoScanNNN.ini`` with the keys
    downstream parses, the s-file with ``Bin #`` per step, ``scan.log``,
-   the ``baseline`` stream, the box driven back to STANDBY after each
+   the background telemetry columns (no ``baseline`` stream), the box
+   driven back to STANDBY after each
    run (the profile device's standing state; ARMED is observed by the
    shots landing); and records the per-shot cadence (the every-other-edge
    phase-0 measurement on a motor scan is the number PR 3 measures).
@@ -135,7 +136,6 @@ def test_plan_layer_in_process_on_hardware() -> None:
         tiled=True,
         claim=True,
         path_provider=provider,
-        telemetry=namespace.telemetry(),
     )
     plans = bind_plans(profiles)
     camera = namespace[CAMERA]
@@ -203,13 +203,19 @@ def test_plan_layer_in_process_on_hardware() -> None:
     primary = docs.primary_events()
     assert len(primary) == SHOTS + NUM * SHOTS_PER_STEP
     stream_names = {d["name"] for d in docs.docs["descriptor"]}
-    assert "baseline" in stream_names
-    baseline_uids = {
-        d["uid"] for d in docs.docs["descriptor"] if d["name"] == "baseline"
-    }
-    baseline_rows = [e for e in docs.docs["event"] if e["descriptor"] in baseline_uids]
-    assert len(baseline_rows) == 4  # open + close, two runs
-    print(f"baseline stream: {len(baseline_rows[0]['data'])} columns")
+    assert "baseline" not in stream_names  # replaced by the background columns (#1016)
+    for start in starts:
+        assert start["background_telemetry"] is True
+        print(f"background dropped: {start['background_dropped']}")
+    background = [
+        k
+        for k in primary[0]["data"]
+        if not k.startswith(camera.name) and k != "bin_number"
+    ]
+    assert background, (
+        "no background columns: nothing in the namespace outside the run?"
+    )
+    print(f"background telemetry: {len(background)} columns in every row")
 
     shot_control = profiles.resolve(PROFILE)
     assert shot_control.standing_state == "STANDBY"

@@ -120,30 +120,31 @@ catalog.
 
 ### Tier 2 — background telemetry
 
-Every live experiment device with a `get='yes'` variable that is **not** in the
-save set is still recorded — as soft, read-only snapshot columns read straight
-from the gateway's always-on monitor cache. This tier is safe by construction:
+Every device with a `get='yes'` variable that is **not** in the run — not a
+required device, not a non-essential one, not the scanned axis — is still
+recorded, the way Master Control did it: every one of its logged scalars is
+read into every row, softly (`BackgroundSnapshot` in GeecsBluesky,
+GEECS-Plugins#1016). This tier is safe by construction:
 
-- it is **read-only** and **never waited on**, so it can never slow or stall a
-  shot;
-- it is **dtype-tolerant** — each column's type is inferred from its PV, so a
-  numeric variable stays numeric while an enum or string variable (a plunger
-  position, a digital-output label) is logged as its label. A telemetry column
-  set can mix float and string columns; one awkward non-numeric channel never
-  drops the device's other columns;
-- a device that is **dead at scan start is dropped with a log line** — no
-  dialog, no abort; a value that can't be read mid-scan degrades to a
-  type-appropriate null cell.
+- it is **read from the gateway's monitor cache and never waited on**, so it
+  cannot slow or stall a shot;
+- the set is decided **per run**: right before the run opens, every candidate
+  is probed once within a bounded budget (about a second for the whole set),
+  and a device that does not answer — a PV the gateway does not serve, a
+  device that went away — is left out of *that* run with a log line and named
+  in the run's start document (`background_dropped`); the next run probes it
+  again, so nothing needs a restart to come back;
+- a reading the gateway marks INVALID (a dead device's stale readbacks) reads
+  `NaN`, and every column is in every row.
 
-Background telemetry is **Tiled-only — it does not go to the s-file.** That was
-a deliberate decision: the s-file is the legacy Tier-1 scalar contract that
-downstream GEECS analysis consumes, and Tier-2 telemetry is a new, best-effort
-record that lives alongside it in Tiled rather than reshaping the legacy file.
+Background telemetry goes to **both** destinations, like Tier 1: the columns
+carry their `Device Variable` headers, so the s-file has them (as the Master
+Control s-file did) and Tiled has them in the row stream.
 
-Telemetry is on by default for the experiment
-(`ExperimentDefaults.background_telemetry`) and can be overridden per scan
-(`ScanRequest.capture.background_telemetry`). The `{device: [variables]}` actually
-selected is recorded in the run metadata.
+It is on by default for the experiment
+(`ExperimentDefaults.background_telemetry`, read by the worker at every scan)
+and a preset can override it (`Preset.background_telemetry`). The start
+document records the switch (`background_telemetry`) and the devices left out.
 
 ### The one-question test for which tier a device belongs to
 
@@ -155,14 +156,16 @@ mutually exclusive.
 ## Where the data lands
 
 - **The s-file** (`ScanDataScanNNN.txt`, copied to `analysis/sNNN.txt`) carries
-  the Tier-1 scalars. For **image / file-saving devices**, the device's
-  **`acq_timestamp`** column now appears in the s-file as well — the raw device
-  acquisition timestamp that ties each saved frame back to its scan row. It is
-  surfaced only for file-saving devices; pure-scalar devices don't get it.
-- **Tiled** holds the full per-shot event stream: Tier-1 data *and* the Tier-2
-  background-telemetry columns (keyed `telemetry_<device>-<variable>`), plus the
-  schema-v1 companion columns. The s-file is exported from the Tiled run
-  best-effort after the scan.
+  the Tier-1 scalars and the background columns. For every **triggered
+  device** the device's **`acq_timestamp`** column appears in the s-file as
+  well — the raw device acquisition timestamp that ties each saved frame back
+  to its scan row: the run's own devices' as their shot stamp, and a triggered
+  device outside the run's as its last frame's (background telemetry), so a
+  row's alignment to it is checkable. Pure-scalar devices have no stamp.
+- **Tiled** holds the full per-shot event stream: Tier-1 data *and* the
+  background-telemetry columns, under the same `<device>-<variable>` keys as
+  any other column. The worker writes the s-file from the run's own rows at
+  the stop document — no Tiled round trip.
 
 Join saved files to scan rows by a device's `acq_timestamp`, never by the
 derived `shot_id` (which counts trigger opportunities, not rows). The full

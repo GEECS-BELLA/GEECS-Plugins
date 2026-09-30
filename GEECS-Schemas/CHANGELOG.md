@@ -5,6 +5,24 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.0] - 2026-09-29
+
+### Added
+
+- `Preset.background_telemetry` (`Optional[bool]`): the run-level switch
+  for the background columns — every logged scalar of the experiment
+  outside the scan's own devices, read softly into every row, as Master
+  Control logged it (GEECS-Plugins#1016, #929).  Unset defers to
+  `ExperimentDefaults.background_telemetry`, the same way
+  `native_image_save` does.
+
+### Changed
+
+- `ExperimentDefaults.background_telemetry` is honoured again: its
+  description now says what the worker does (reads it at every scan; a
+  device that does not answer at the scan's start is left out of that
+  scan and named in the run's start document; an INVALID reading is
+  `NaN`; the columns reach the s-file).
 ## [0.40.1] - 2026-09-29
 
 ### Changed

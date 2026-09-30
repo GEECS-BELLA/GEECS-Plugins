@@ -4,7 +4,9 @@ Two device shapes: :class:`~geecs_bluesky.devices.detector.GeecsDetector`
 for anything that captures, the ``ca`` readables/movables for scalar-only
 devices and settable children, and
 :class:`~geecs_bluesky.devices.shot_control.ShotControl` for the trigger
-box.
+box — plus :class:`~geecs_bluesky.devices.background.BackgroundSnapshot`,
+the run's background telemetry (every logged scalar outside the run's own
+devices, read per shot, softly).
 """
 
 from .ca import (
@@ -14,10 +16,12 @@ from .ca import (
     CaSettable,
     CaSnapshotReadable,
 )
+from .background import BackgroundSnapshot
 from .detector import GeecsDetector
 from .shot_control import ShotControl
 
 __all__ = [
+    "BackgroundSnapshot",
     "CaConfirmSettable",
     "CaMotor",
     "CaPseudoPositioner",

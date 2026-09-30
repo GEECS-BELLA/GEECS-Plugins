@@ -6,6 +6,75 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.108.0] - 2026-09-29
+
+### Added
+
+- **Background telemetry per shot — Master Control parity (#1016, #929).**
+  Every scalar the experiment logs (`expt_device_variable` `get='yes'`)
+  whose device is not in the run is read into every row, softly:
+  `devices/background.BackgroundSnapshot`, one more detector of every
+  bound scan verb (`count`, `sweep`, `optimize`; strict and gated — the
+  strict row reads it, the gated sampler samples it at the tick).  Its
+  members are the namespace's telemetry set minus every device the run
+  stages (its detectors, a `.scalars` view's owner, the non-essential
+  devices, the scan motors — no event key twice).  Probed right before
+  `open_run` (`plans/registry.background_wrapper`), every member
+  concurrently within `PROBE_TIMEOUT_S` (1 s): one that does not answer
+  — a PV the gateway does not serve (the #1016 roster drift), a connect
+  or a describe that fails — is dropped for that run only, named once in
+  the log and in the start document's `background_dropped`, and probed
+  again at the next run, so a device that reappears after a gateway
+  restart is back without reopening the environment.  Per shot the read
+  is a monitor-cache hit; a reading the gateway marks INVALID (a dead
+  device's stale readbacks) reads `NaN`, so does a member that stops
+  answering, and every declared key is in every row.  The columns carry
+  their `Device Variable` headers into `geecs_scalar_headers`, so the
+  s-file and the offline re-export gain them with no change.  The switch
+  is `ExperimentDefaults.background_telemetry`, read at every run (on by
+  default) and overridden per preset by `Preset.background_telemetry` /
+  the bound plans' `background_telemetry` keyword; the start document
+  records it (`background_telemetry`).  ~300 extra s-file columns on a
+  full HTU experiment, accepted (owner's ruling 2026-09-28).
+
+### Changed
+
+- `bind_plans`, `strict_plan` and `optimize_plan` take `mock` (hermetic
+  tests connect background members with mock backends); `strict_plan`
+  takes `settables`, the namespace its background comes from.
+- `resolve_native_image_save` and the new `resolve_background_telemetry`
+  share one experiment-default reader (fail-open to on, per run).
+- `utils.is_connected` is the one connected-already rule (moved from
+  `preprocessors`, which re-exports it): the connect-on-demand
+  preprocessor and the background probe both use it.  A cancelled connect
+  task now reads as not connected instead of raising.
+- `devices.ca._view.geecs_device_name` is the one "which GEECS device is
+  this plan object" rule (a device, a `.scalars` view, a detector's signal,
+  a settable child); `plans.strict.geecs_name` delegates to it.
+- The background probe shields each member's connect from its own timeout
+  (a cancelled ophyd-async connect task poisoned every later probe and
+  connect of that device — found by the review of #1018), records a
+  member served but INVALID at the start in the journal, and never fails
+  the run itself: an unexpected error in the probe is logged at ERROR and
+  recorded in the start document as `background_probe_error`.
+- `qs_client.presets.RUN_LEVEL_FIELDS` gains `background_telemetry`: the
+  preset field rides as the plan keyword when set, a copy in
+  `plan.kwargs` is refused.
+
+### Removed
+
+- The open/close `baseline` stream and `install_telemetry`:
+  `make_run_engine` no longer takes `telemetry` / `connect_timeout`.  Two
+  rows per run that no reader joined, strict for every member: one
+  unserved PV failed every scan after its claim (26_0928 Scans 005–009,
+  #1016).  The background columns are the one mechanism.  The worker
+  profile still connects the candidates once at environment open —
+  `devices.background.warm_up`, bounded by `QS_CONNECT_TIMEOUT` as before,
+  but a member that does not connect is only named, never dropped for
+  good — because on HTU the first scan after an environment open paid
+  every first connect inside the probe's second and lost 62 of 118
+  devices for that scan (26_0929 Scan001).
+
 ## [0.107.0] - 2026-09-26
 
 ### Changed

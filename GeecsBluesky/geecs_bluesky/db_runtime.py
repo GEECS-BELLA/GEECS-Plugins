@@ -10,7 +10,7 @@ from (``geecs_bluesky.namespace``):
 2. **Device types** — :class:`GeecsDbDeviceTypes`.
 
 The **subscribed scalars** rule (``get='yes'`` — what every device reads
-into its rows and what the run's baseline telemetry carries) is
+into its rows and what the run's background telemetry carries) is
 :class:`geecs_core.db.scalar_policy.GeecsDbScalarPolicy` since 2026-09-12:
 the PVA gateway's file plugin writes the same list as per-frame attributes
 and depends on GEECS-Core alone, so the rule has one home there.
