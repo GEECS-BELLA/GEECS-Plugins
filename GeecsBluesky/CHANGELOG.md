@@ -6,6 +6,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.108.1] - 2026-09-30
+
+### Changed
+
+- **Documentation only — accuracy pass, no code path changed.**
+  `CLAUDE.md` rewritten top-down as the design of record: the plan roster
+  the worker actually registers (`count`, `sweep`, `optimize`, `mv`,
+  `run_action`, the two shot-offset calibration plans — the moving stock
+  verbs are not registered, `sweep` is the moving plan), the four output
+  callbacks, a complete package layout map (the ten modules it omitted:
+  `plans/gated.py`, `plans/sweep.py`, `plans/optimize.py`,
+  `plans/calibration.py`, `devices/sampler.py`, `trajectory.py`,
+  `action_steps.py`, `log_markers.py`, `optimization_events.py`,
+  `utils.py`), the optimize section under the scan path, and the "Do
+  not" list corrected (the `geecs_scanner` rule is the dependency
+  direction — the web scanner depends on this package — not a deleted
+  package).  The phase diary, the "supersedes above" contradiction, the
+  dates and the named rulings are gone; what remains is the rule and its
+  reason, with the incident record left to this changelog.  The same
+  roster correction in `README.md`, `EVENT_SCHEMA.md`,
+  `qserver/README.md`, `qserver/startup/README.md`, the root repository
+  map and the module docstrings of `run_engine.py` (two preprocessors,
+  *four* callbacks), `callbacks.py` (four, not three), `namespace.py`,
+  `qserver_ready.py`, `qserver/startup/startup.py`, `plans/__init__.py`
+  and the client seam.  The deleted PySide6 console is no longer the
+  narrator of `qs_client/`, `config_resolver.py`, `submit_preflight.py`
+  and `devices/ca/oneshot.py`; `log_markers.py` says plainly that no
+  engine code emits `FAILED_MOVE_LOG_PREFIX` today; `TILED_SETUP.md` no
+  longer claims the s-file is exported from Tiled (the engine writes it
+  from the run's own rows); the README quick start uses the strict hook
+  on `bp.count` and the hardware command carries `GEECS_HW=1`;
+  `tests/test_dependency_direction.py` no longer cites a deleted test
+  file.
+
 ## [0.108.0] - 2026-09-29
 
 ### Added

@@ -4,20 +4,20 @@ aioca caches its CA channels per asyncio event loop, so a per-call
 ``asyncio.run()`` (a fresh loop every read) re-creates the channel on
 every call and strands the previous loop's cache entries for the process
 lifetime — the aioca loop-cache leak.  Sync callers that need an
-occasional blocking read (the console health probe, the pre-submit
-preflight's liveness/staleness samples) go through this module instead:
+occasional blocking read (the pre-submit preflight's liveness probe,
+:func:`~geecs_bluesky.devices.ca.liveness.probe_disconnected`) go through
+this module instead:
 it owns **one** persistent asyncio loop in one daemon thread and serves
 every read through it, so each PV's channel is created once and reused.
 
 This is the one blessed one-shot blocking read; long-lived subscriptions
-belong on a caller-owned loop (the console device-panel pattern), and
-in-plan reads belong to ophyd-async signals — never this module.  The
-one sanctioned in-plan exception is the pre-claim liveness probe
-(:func:`~geecs_bluesky.devices.ca.liveness.probe_disconnected`, used by
-the queue-plan preamble): it runs before the devices exist, so there is
-no signal to read yet — and it must gather its reads concurrently
-(:func:`try_caget_many`) so the worst case blocks the RE loop for one
-timeout budget, never one per device.
+belong on a caller-owned loop, and in-plan reads belong to ophyd-async
+signals — never this module (a plan's liveness gate reads the
+``connected_status`` signals, :func:`~geecs_bluesky.devices.ca.liveness.read_disconnected`).
+The out-of-plan probe over device *names* runs before any device exists,
+so there is no signal to read yet — and it gathers its reads concurrently
+(:func:`try_caget_many`) so the worst case costs one timeout budget,
+never one per device.
 
 ``aioca`` is imported lazily on first use (the ``ca`` extra), so the
 module itself imports anywhere.

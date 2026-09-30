@@ -1,9 +1,8 @@
 """Pin the resolver's config-listing surface (#666).
 
 Non-GUI clients (the scan MCP, notebooks) need to enumerate the
-experiment's presets / trigger profiles / optimizer configs without
-importing console code — the listing lives beside the resolution it
-feeds, with the console-matching semantics: sorted YAML stems, and every
+experiment's presets / trigger profiles / optimizer configs — the
+listing lives beside the resolution it feeds: sorted YAML stems, and every
 missing layer (configs root, experiment folder, kind folder) reads as an
 empty list, never an exception.
 """
@@ -82,7 +81,7 @@ def test_missing_experiment_is_empty(repo):
 
 def test_listed_yml_names_round_trip_through_resolution(repo):
     # The listings count .yml files, so resolution must accept them too
-    # (console NamedConfigStore parity) — a listed name that resolve_*
+    # a listed name that resolve_*
     # refuses on spelling alone is a client-facing trap.
     exp = repo / "TestExp"
     (exp / ConfigsRepoResolver.PRESET_FOLDER / "YmlSet.yml").write_text(
@@ -154,7 +153,7 @@ def test_action_library_in_the_legacy_dialect_is_refused(repo):
 
 
 def test_action_library_absent_or_empty(repo):
-    """No file → an empty registry; an empty file → an empty library (the Console's rule)."""
+    """No file → an empty registry; an empty file → an empty library."""
     from geecs_bluesky.exceptions import GeecsConfigurationError
 
     resolver = ConfigsRepoResolver("TestExp", experiments_root=repo)

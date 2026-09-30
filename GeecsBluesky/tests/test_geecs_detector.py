@@ -1,4 +1,4 @@
-"""GeecsDetector — the GEECS acquirer as a stock StandardDetector (phase 0, #807).
+"""GeecsDetector — the GEECS acquirer as a stock StandardDetector.
 
 Device-level contracts on mock CA backends: the synchronous baseline that
 makes the shot wait exact, the timeout, the native-saving data logic's

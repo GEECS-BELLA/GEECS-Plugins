@@ -1,6 +1,6 @@
 """Gated batch acquisition as the stock ``take_reading`` hook, and the non-essential stream.
 
-Phase 2 of the native-Bluesky rebuild.  Strict single-shot
+Strict single-shot
 (:mod:`geecs_bluesky.plans.strict`) fires the box once per row and holds
 1 Hz only at short exposures; the **gated batch** lets the
 box free-run in SCAN while the plugin-backed cameras count the frames they

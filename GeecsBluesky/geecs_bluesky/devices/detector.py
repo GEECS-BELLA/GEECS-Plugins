@@ -29,7 +29,7 @@ stamp wait, so a dropped frame surfaces as the count timeout;
 plan's refire gate understands, and :meth:`GeecsDetector.discard_uncollected`
 is the late-frame guard the plan calls before the retake.
 
-In a **gated** batch (phase 2) the same
+In a **gated** batch the same
 device flies (a device with no plugin flies too, as a native-saving
 essential: one unbounded prepare at the run's first step switches
 LabVIEW's saving on for the run — :class:`LvNativeFileDataLogic` — and
@@ -110,7 +110,7 @@ ACQ_TIMESTAMP = "acq_timestamp"
 
 #: Seconds a shot may take to arrive after the fire: one trigger period (the
 #: single shot fires on the *next* edge) plus the device's exposure and
-#: drain, measured in phase 0.  One constant for every device until the calibration
+#: drain, as measured.  One constant for every device until the calibration
 #: phase makes it a per-device budget.
 DEFAULT_SHOT_TIMEOUT = 3.0
 
@@ -229,7 +229,7 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
     shot_timeout :
         Seconds to wait for the stamp after a fire.  The hardware budget is
         one trigger period (the single shot fires on the *next* external
-        edge) plus the device's exposure and drain, measured in phase 0.
+        edge) plus the device's exposure and drain, as measured.
     """
 
     _queue_maxsize: int = 128

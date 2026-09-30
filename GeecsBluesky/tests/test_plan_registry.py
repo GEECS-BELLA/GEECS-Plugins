@@ -102,7 +102,7 @@ def test_bound_plans_keep_the_stock_signature_minus_the_hook(profiles) -> None:
         assert params["trigger_profile"].kind is inspect.Parameter.KEYWORD_ONLY
         assert ("shots_per_step" in params) == (name != "count")
         assert "trigger_profile" in plan.__doc__
-        # phase 2: the acquisition mode, the non-essential list, the throttle;
+        # the acquisition mode, the non-essential list, the throttle;
         # #738: the LabVIEW-files switch; #1016: the background switch
         for extra in (
             "acquisition",

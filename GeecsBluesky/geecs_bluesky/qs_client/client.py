@@ -5,8 +5,7 @@ bluesky-queueserver RE Manager (the GEECS worker, ``GeecsBluesky/qserver/``)
 as queue items.  This module is the one place that speaks
 ``bluesky-queueserver-api``:
 
-- :class:`QueueClient` — the ONE protocol clients depend on (it absorbed
-  the console's former ``Submitter`` twin in the extraction);
+- :class:`QueueClient` — the ONE protocol clients depend on;
 - :class:`ZmqQueueClient` — the real client (0MQ control socket, lazy
   imports so the module stays import-safe offline and without the
   ``qs-client`` extra);
@@ -21,8 +20,7 @@ a short timeout.  :meth:`QueueClient.status` is cheap and bounded (one
 request, ``timeout_recv``) and safe to poll from a background thread;
 dispatch the submit/stop calls off any GUI thread.  Nothing here touches Qt.
 
-What a client submits (phase 1 PR 2 of the native-Bluesky rebuild, #807):
-a **stock plan item** — a name from
+What a client submits: a **plan item** — a name from
 :data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES` with namespace devices
 by name (:meth:`QueueClient.submit_plan`), or a saved preset expanded into
 one (:meth:`QueueClient.submit_preset`,
@@ -359,8 +357,7 @@ class SubmitResult:
 class QueueClient(Protocol):
     """What a GEECS client needs from a RE Manager (all methods block).
 
-    The one client protocol (it replaced the console's ``Submitter`` twin
-    in the extraction).  ``info_addr`` / ``doc_addr`` carry the manager's
+    The one client protocol.  ``info_addr`` / ``doc_addr`` carry the manager's
     console-output and document stream addresses (``None`` when
     unconfigured) so stream consumers build from the same configuration.
     """
@@ -380,7 +377,7 @@ class QueueClient(Protocol):
         kwargs: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
     ) -> SubmitResult:
-        """Queue the stock plan *name* with *args* / *kwargs* and start the queue.
+        """Queue the plan *name* with *args* / *kwargs* and start the queue.
 
         Devices are named (``"UC_Amp4_IR_input"``, ``"U_S1H.current"``):
         the manager resolves them against the worker namespace.  *name*
@@ -711,7 +708,7 @@ class ZmqQueueClient:
         kwargs: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
     ) -> SubmitResult:
-        """Queue one stock plan item; refuse a name the worker does not register."""
+        """Queue one plan item; refuse a name the worker does not register."""
         if name not in GEECS_PLAN_NAMES:
             return SubmitResult(
                 ok=False,
@@ -896,7 +893,7 @@ def make_queue_client(
         surfaces as the worker refusing the request's names at validation.
     user : str
         Submitted-as identity the manager records on every queue item
-        (e.g. ``"geecs-console"``, ``"osprey-htu-assistant"``).
+        (e.g. ``"geecs-scanner"``, ``"osprey-htu-assistant"``).
 
     Returns
     -------

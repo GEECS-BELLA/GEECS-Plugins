@@ -3,9 +3,9 @@
 Under the queue, submission-to-execution gaps are long — a typo must fail
 at submit, not at queue-front — and the worker cannot ask the operator
 anything (its checks run headless).  So clients run the checks *before*
-queueing and ask the questions their own way: the console renders each as
-a synchronous modal; a headless client (notebook, the OSPREY MCP) surfaces
-them programmatically.
+queueing and ask the questions their own way: the web scanner puts each
+to the operator in its submit flow; a headless client (notebook, the
+OSPREY MCP) surfaces them programmatically.
 
 This module is the pure layer: it computes findings and questions on the
 caller's thread and returns them; **rendering/answering lives in the
@@ -418,7 +418,7 @@ def build_submission_record(
         Final ``(check, result, detail)`` tuples — the report's decided
         outcomes plus one ``continued`` entry per question answered.
     client :
-        Client identity string, e.g. ``"geecs-console 0.24.0"``.
+        Client identity string, e.g. ``"geecs-scanner 0.24.0"``.
 
     Returns
     -------

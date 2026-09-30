@@ -12,7 +12,7 @@ scan-device pair and its converter were retired 2026-09, #779; the action
 libraries were regenerated once as ``ActionPlanLibrary`` documents and
 their converter deleted, GEECS-Schemas 0.22.0).
 
-The client seam expands a preset into a stock plan queue item
+The client seam expands a preset into a plan queue item
 (:mod:`geecs_bluesky.qs_client.presets`).
 """
 
@@ -152,8 +152,8 @@ class ConfigResolver(Protocol):
 
         Defaults apply where the request is silent (default trigger
         profile; default setup/closeout plans prepended); what was applied
-        is recorded for provenance (see
-        the client-side request expansion, phase 1 PR 2).
+        is recorded for provenance (see the client-side preset expansion,
+        :mod:`geecs_bluesky.qs_client.presets`).
         Resolvers without this method are tolerated (no defaults).
         """
         ...
@@ -180,8 +180,8 @@ class ConfigsRepoResolver:
     A trigger profile whose top level carries ``schema_version`` is
     loaded as the new schema; anything else goes through the legacy
     converter.  Named configs resolve from
-    either the ``.yaml`` or ``.yml`` spelling (console parity), so every
-    listed name round-trips through resolution.
+    either the ``.yaml`` or ``.yml`` spelling, so every listed name
+    round-trips through resolution.
 
     Parameters
     ----------
@@ -224,8 +224,7 @@ class ConfigsRepoResolver:
     def _named_yaml_path(self, folder: str, stem: str) -> Path:
         """The config file for *stem* in *folder*: ``.yaml``, else its ``.yml`` twin.
 
-        The console resolves both spellings (``NamedConfigStore._named_path``
-        parity) and the listings count both, so resolution must round-trip
+        The listings count both spellings, so resolution must round-trip
         every listed name.  When neither exists, the ``.yaml`` path is
         returned so the not-found error names the canonical spelling.
         """
@@ -302,9 +301,9 @@ class ConfigsRepoResolver:
     def resolve_preset(self, name: str) -> Preset:
         """Load preset *name* as a validated :class:`~geecs_schemas.Preset`.
 
-        One YAML per name under ``presets/`` — the console's PresetStore
-        writes them; the queue client's ``submit_preset`` reads them here
-        so the folder layout keeps one owner.
+        One YAML per name under ``presets/`` — :meth:`write_preset` writes
+        them; the queue client's ``submit_preset`` reads them here so the
+        folder layout keeps one owner.
 
         Raises
         ------
@@ -325,9 +324,8 @@ class ConfigsRepoResolver:
     def write_preset(self, preset: Preset, *, overwrite: bool = False) -> Path:
         """Save *preset* as ``presets/<preset.name>.yaml``; the file round-trips through :meth:`resolve_preset`.
 
-        The scanner's "Save as preset" writes here (the Qt console's
-        ``PresetStore`` was the previous writer; this keeps the folder one
-        owner).  Atomic like :meth:`write_shot_offsets`, same mode rules,
+        The scanner's "Save as preset" writes here, so the folder keeps
+        one owner.  Atomic like :meth:`write_shot_offsets`, same mode rules,
         same "the configs repo is a git checkout — committing is a human
         act" contract: the path is returned so the caller can say which
         file now differs from the tree.
@@ -509,9 +507,8 @@ class ConfigsRepoResolver:
 
         The whole :class:`~geecs_schemas.scan_variables.ScanVariables`
         document — consumers list names or branch on each spec's shape
-        (plain vs pseudo).  Promoted from the private cache method for
-        the console's movable panel; cached per resolver until the file's
-        mtime or size changes (the other kinds are re-read on every call).
+        (plain vs pseudo).  Cached per resolver until the file's mtime or
+        size changes (the other kinds are re-read on every call).
 
         Raises
         ------
@@ -542,18 +539,16 @@ class ConfigsRepoResolver:
         """Load the experiment's action-plan library — from disk on every call.
 
         Not cached: the worker holds one resolver for its lifetime and
-        ``run_action`` resolves through it, so a plan edited in
-        ``actions.yaml`` (edited by hand in the configs repo since the
-        console's editor went) must be what the next queue item runs.  One small YAML per item.
+        ``run_action`` resolves through it, so a plan edited by hand in
+        ``actions.yaml`` must be what the next queue item runs.  One small
+        YAML per item.
         """
         path = self._root / self.ACTION_FOLDER / "actions.yaml"
         document = self._load_yaml(path, "action library", "actions")
         if not document:
             # An empty file (a fresh experiment's placeholder) is an empty
-            # library, as the former console's store read it.  ``_load_yaml``
-            # maps YAML ``None`` to ``{}``, so a literal ``{}`` reads the same
-            # way here (that store rejected the literal — a file no writer
-            # produces; its ``save_library`` wrote ``plans: {}``).
+            # library.  ``_load_yaml`` maps YAML ``None`` to ``{}``, so a
+            # literal ``{}`` reads the same way here.
             return ActionPlanLibrary(plans={})
         # A legacy 'actions:' document is refused by the schema itself
         # (ActionPlanLibrary's before-validator names the regeneration).

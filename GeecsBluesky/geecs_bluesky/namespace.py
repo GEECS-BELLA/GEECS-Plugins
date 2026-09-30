@@ -1,10 +1,10 @@
 """The GEECS device namespace: every device of an experiment as a long-lived noun.
 
 Built once at queue-server ``environment open`` (or by a headless session)
-from the GEECS DB roster and exported into the worker namespace so stock
-plans can be given devices **by name** — ``count([UC_Amp4_IR_input])``,
-``scan([...], U_S1H.Current, -1, 1, 5)`` — exactly as the queue server
-expects.
+from the GEECS DB roster and exported into the worker namespace so the
+registered plans can be given devices **by name** —
+``count([UC_Amp4_IR_input], 10)``, ``mv(U_S1H.current, 0.5)``, a sweep
+axis ``U_S1H.current`` — exactly as the queue server expects.
 
 The namespace owns **no device behaviour**.  It composes the existing
 device layer:
@@ -31,9 +31,8 @@ A scan-variable catalog ``kind: pseudo`` entry becomes a noun of its own
 roster is built): a
 :class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoPositioner` over the
 settable children the roster already bound, under the catalog's friendly
-name as an identifier (``ALine_e_beam_angle_offset_x``) — so
-``scan([...], ALine_e_beam_angle_offset_x, -0.1, 0.1, 5)`` is a stock plan
-over a namespace noun like any other.
+name as an identifier (``ALine_e_beam_angle_offset_x``) — a sweep axis
+or an ``mv`` target like any other namespace noun.
 
 What each object *reads* is the DB's subscribed (``get='yes'``) list — what
 GEECS itself logs — resolved by the same

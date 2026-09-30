@@ -6,8 +6,8 @@ a real RunEngine's event loop — the compiled plans run through a real RE, so
 message semantics (set-and-wait vs fire-and-forget, sleep, read) are the
 production ones.
 
-The fidelity pins mirror the legacy ActionManager
-(``geecs_scanner.engine.action_manager``) step by step:
+The fidelity pins mirror the legacy ActionManager of the deleted
+GEECS-Scanner-GUI (tag ``legacy-scanner-final``) step by step:
 
 - ``set`` — legacy ``device.set(variable, value, sync=wait_for_execution)``.
 - ``wait`` — legacy ``time.sleep(seconds)``.

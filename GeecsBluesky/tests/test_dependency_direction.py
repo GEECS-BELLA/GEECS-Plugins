@@ -1,11 +1,8 @@
 """Dependency-direction pin: geecs_bluesky never imports geecs_scanner.
 
-The BlueskyScanner bridge and its delegation seam died with the
-queueserver migration (W5, issue #649) — the ScanRequest engine surface
-is pinned in ``tests/test_scan_request_runner.py`` — but this AST-level
-guard outlives it: the optimization loader stays injected and the
-relocated Xopt/evaluator stack must never grow a ``geecs_scanner``
-import.
+The web scanner (``GeecsScanner``) depends on this package — the queue
+client, the import-light contract modules — and the edge is one-way.
+An AST-level guard, so a docstring mentioning the name does not count.
 """
 
 from __future__ import annotations
@@ -14,10 +11,7 @@ from pathlib import Path
 
 
 def test_dependency_direction_no_geecs_scanner_import() -> None:
-    """geecs_bluesky must never import geecs_scanner (the loader stays
-    injected; the Xopt/evaluator stack lives in geecs_bluesky.optimization).
-    AST-level check so docstring usage examples don't count — only real
-    import statements."""
+    """geecs_bluesky must never import geecs_scanner — real import statements only."""
     import ast
 
     import geecs_bluesky

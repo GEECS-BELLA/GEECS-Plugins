@@ -1,6 +1,6 @@
 """The GEECS outputs of a run, as RunEngine callbacks.
 
-Three document callbacks, each best-effort — a failure is logged and never
+Four document callbacks, each best-effort — a failure is logged and never
 raised back into the RunEngine, the scan itself is the priority:
 
 - :class:`ScanInfoCallback` — ``ScanInfoScanNNN.ini`` at the start document

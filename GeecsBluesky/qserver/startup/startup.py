@@ -5,13 +5,14 @@ Loaded by ``start-re-manager --startup-dir <this directory>`` (see
 keeps alive across queue items (``--keep-re`` — see ``qserver/README.md``'s
 Troubleshooting section for the silent-bounce failure mode without it),
 exports every device of the experiment as a noun
-(:class:`~geecs_bluesky.namespace.GeecsNamespace`) and registers the stock
-``bluesky.plans`` verbs (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`)
-over them with the strict ``take_reading`` pre-bound
-(:mod:`geecs_bluesky.plans.registry`) — ``count([UC_Amp4_IR_input], 10)``,
-``scan([UC_Amp4_IR_input], U_S1H.current, -1, 1, 5, shots_per_step=10)``,
+(:class:`~geecs_bluesky.namespace.GeecsNamespace`) and registers the GEECS
+plans (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`, bound by
+:func:`~geecs_bluesky.plans.registry.bind_plans`) over them —
+``count([UC_Amp4_IR_input], 10, shots_per_step=1)``, ``sweep([...],
+sweep={...})`` (a ``geecs_schemas.Sweep`` trajectory), ``optimize(...)``,
 ``mv(U_S1H.current, 0)``, ``run_action("Amp4_DUMP_HP")`` (a named plan from
-the experiment's action library, over the same devices, no run opened).
+the experiment's action library, over the same devices, no run opened),
+and the two once-run shot-offset calibration plans.
 Every run claims a GEECS scan number and leaves
 ScanInfo, the s-file, ``scan.log`` and the detectors' native files in its
 folder; every logged scalar of the experiment outside the run's own devices

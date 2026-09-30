@@ -1,9 +1,13 @@
-"""GEECS plan-layer pieces for stock ``bluesky.plans``.
+"""The GEECS plan layer.
 
-The scan path is the stock plans themselves; what GEECS adds is the strict
-``take_reading`` (the fire between trigger and wait, :mod:`.strict`), the
-day-scoped scan-number claim (:mod:`.claim_scan`) and the ActionPlan →
-plan-stub compiler (:mod:`.action_compiler`).
+The registered plans (:mod:`.registry`) are stock ``bp.count`` and
+``scan_nd`` (behind :mod:`.sweep`) with the GEECS ``take_reading`` hooks
+bound — strict (:mod:`.strict`, the fire between trigger and wait) or
+gated (:mod:`.gated`, the box free-running while the plugin-backed
+cameras count) — plus the native :mod:`.optimize` loop, the day-scoped
+scan-number claim (:mod:`.claim_scan`), the ActionPlan → plan-stub
+compiler (:mod:`.action_compiler`) and the once-run shot-offset
+:mod:`.calibration`.
 """
 
 from geecs_bluesky.plans.claim_scan import claim_scan, claim_scan_number

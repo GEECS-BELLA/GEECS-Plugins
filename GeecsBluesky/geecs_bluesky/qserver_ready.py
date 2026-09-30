@@ -5,29 +5,29 @@ manager starts knowing no plans, and only opening the worker environment
 imports the startup profile and populates ``plans_allowed``.  Run as a
 systemd service that is the wrong contract — a manager that restarted
 unattended answers ``qserver status`` healthily and refuses every
-submission with "Plan ... is not in the list of allowed plans" (#793, live
-2026-09-04, after Phase 3 re-rendered the unit onto a fresh clone).
+submission with "Plan ... is not in the list of allowed plans" (#793).
 
 This entry point is the readiness assertion the ``geecs-qserver-ready``
 oneshot unit runs after the manager (``qserver/deploy/``): wait for the
 manager to answer, open the environment if it is closed, wait for the
 worker environment to finish initializing, then **assert the manager lists
-every plan the startup profile registers** (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`
-— the stock ``bluesky.plans`` verbs over the device namespace).
-The plan-list assertion is the point: an open that succeeded onto a partial
-import, or a permissions file that excludes a plan, is still broken, and
-only that check catches it.  The plan list is read through the same
+every plan the startup profile registers**
+(:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`).  The plan-list
+assertion is the point: an open that succeeded onto a partial import, or
+a permissions file that excludes a plan, is still broken, and only that
+check catches it.  The plan list is read through the same
 ``qs_client.readiness_from_reads`` assembly the pre-submit ``worker_ready``
 check runs (one definition of ready); after an open this run requested it
 is re-read for a short settle window, because the manager reports the
 environment up before its own plan-list download has landed.  A list that
 is still empty or incomplete after that is restored once from the worker's
-on-disk copy through the manager's ``permissions_reload(restore_plans_devices=True)``
-(#838: the manager's own download of the lists from the worker can time
-out and leave it idle, environment open, knowing no plans — the unit
-re-run, ``systemctl restart geecs-qserver-ready``, heals that without a
-manager restart), and the settle window applies again.  Exit codes:
-0 ready; 1 not ready (the message says exactly what was found); 2 usage.
+on-disk copy through the manager's
+``permissions_reload(restore_plans_devices=True)`` (#838: the manager's
+own download of the lists from the worker can time out and leave it idle,
+environment open, knowing no plans — ``systemctl restart
+geecs-qserver-ready`` heals that without a manager restart), and the
+settle window applies again.  Exit codes: 0 ready; 1 not ready (the
+message says exactly what was found); 2 usage.
 
 The address asserted is the manager on **this** host (loopback), or
 ``QS_CONTROL_ADDR`` when set — never the client-side ``[qserver]`` config.

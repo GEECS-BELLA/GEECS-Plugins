@@ -1,7 +1,7 @@
 """Expand a preset into the queue item it stands for — client-side, import-light.
 
 A :class:`geecs_schemas.Preset` is a saved scan: the device group plus the
-plan call.  The worker registers stock plans over namespace devices by
+plan call.  The worker registers its plans over namespace devices by
 **name** (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`), so
 submission is a translation of names, nothing more:
 
@@ -82,7 +82,7 @@ PRESET_PLAN_NAMES: tuple[str, ...] = tuple(
 
 @dataclass(frozen=True)
 class QueueItem:
-    """A stock plan call ready for ``QueueClient.submit_plan``.
+    """A plan call ready for ``QueueClient.submit_plan``.
 
     ``references`` are the device references the expansion created (the
     detector bindings and the resolved scan variables) — what the preflight
