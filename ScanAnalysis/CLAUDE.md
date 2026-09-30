@@ -30,7 +30,8 @@ scan_analysis/
       array2D_scan_analysis.py         # Array2DScanAnalyzer
       array1d_scan_analysis.py         # Array1DScanAnalyzer
       scatter_plotter_analysis.py      # ScatterPlotterAnalysis + PlotParameter
-      himg_to_stack.py                 # HimgToStackAnalyzer: the scan-scoped himg_to_stack kind (HASO .himg folder → capture stack)
+      himg_kinds.py                    # the scan-scoped .himg kinds, run out of process: HimgToStackAnalyzer (folder → capture stack),
+                                       #   HimgCompactAnalyzer (verify, then DELETE the .himg — destructive), HimgRestoreAnalyzer (rebuild them)
 ```
 
 ## Config System (YAML → Pydantic → Factory → Instances)
@@ -247,22 +248,41 @@ the wrapper with a schema-valid feature the core refuses (a flip, or a
 bilateral trace filter).
 
 A third, smaller route: a v2 kind whose spec declares `scope = "scan"`
-(`AnalyzerSpecBase.scope`; today only `himg_to_stack`) is a *scan-scoped*
+(`AnalyzerSpecBase.scope`; the three `.himg` kinds) is a *scan-scoped*
 kind — one step over the device folder with no ImageAnalyzer, no per-frame
 results and no products under `analysis/`. `create_scan_analyzer` maps it
 through `SCAN_SCOPED_CLASS_PATHS` (kind → ScanAnalysis class) before the
 core/legacy decision; `route="core"` and `use_injected_data` are refused.
 ImageAnalysis's registry covers the frame-scoped kinds only, so adding a
 scan-scoped kind is one spec in GEECS-Schemas and one line in that table
-(`tests/test_himg_to_stack.py` pins the coverage). `HimgToStackAnalyzer`
-converts a HASO device's `.himg` files into its capture stack through
-`geecs_data_utils.io.himg_stack.convert_himg_folder` (the same function as
+(`tests/test_himg_kinds.py` pins the coverage). The three live in
+`analyzers/common/himg_kinds.py` and run their work **out of process**
+through `geecs_data_utils.io.himg_worker.run_himg_job` (a child
+interpreter streams frames done/total back; the analyzer relays them
+through `ScanAnalyzer.report_progress`, the base-class hook a host such
+as the portal's run record sets — a 44 GB scan streamed through the
+portal's own process sat at its memory limit for half an hour with
+nothing on the page): `HimgToStackAnalyzer` (`himg_to_stack`) converts a
+HASO device's `.himg` files into its capture stack (the same function as
 `geecs-himg convert`), verified after writing; the `.himg` files stay, a
-second run verifies the existing stack, a missing or empty device folder
-is `no_data`, and the run returns one label (the stack lives in the raw
-scan folder — the one deliberate write there, adding a file beside the
-sources and never a directory). Deleting the sources is a separate,
-explicit kind (compaction), not this one.
+second run verifies the existing stack. `HimgCompactAnalyzer`
+(`himg_compact`, the one kind with `destructive = True`) verifies every
+frame against the stack and the file on disk, then deletes the `.himg`
+files and leaves `himg_manifest.json`; every guard (a `.himg` younger
+than a minute, no `ScanData` table or s-file, a file the stack lacks, a
+mismatch, another writer's `.part`) is data-utils' and comes back as a
+failed run with nothing deleted. `HimgRestoreAnalyzer` (`himg_restore`)
+rebuilds the files byte-identically. For all three a missing or empty
+device folder is `no_data` and the run returns one label — files and GB
+before and after — because everything they touch lives in the raw scan
+folder. The compaction kinds are the one deliberate exception to
+"analysis only adds files" (root CLAUDE.md), and the gate is the
+factory's, not one host's: `create_scan_analyzer(...,
+allow_destructive=False)` raises `DestructiveKindRefused` for a
+`destructive` document unless the caller says it confirmed the run —
+the portal passes `True` only past its typed-scan-number check, the
+task queue's group loader (`load_analyzers_from_config`) skips such a
+kind with a logged reason, and MCP's single-analyzer path is refused.
 
 `discover_analyzers` delegates to `geecs_data_utils.analysis_configs`; group
 lookup remains here because group aliases have different rules.
@@ -657,7 +677,13 @@ In practice:
   analyzer directory: `shots`, `frame` (N, …) float32, `extras/<key>`;
   written as `.part`, renamed at the end of a clean run, discarded on a
   store error without losing the run's scalars; honours `save`; single-shot
-  units only). Nothing is written beside the `.himg` files.
+  units only). Nothing is written beside the `.himg` files.  The
+  compaction kinds (`himg_compact` / `himg_restore`, 1.45.0) are the one
+  place analysis-side code DELETES or REWRITES files — the `.himg` sources
+  of a converted device folder, verify-first, guarded in data-utils, behind
+  the portal's typed confirmation — and they still create no directory and
+  touch nothing outside that one device folder (pinned in
+  `GEECS-Data-Utils/tests/test_himg_compact.py` and `tests/test_himg_kinds.py`).
 
 Do not treat a missing entire scan folder as `no_data`. `no_data` means the
 scan exists but a specific device/analyzer has no usable data. If the scan

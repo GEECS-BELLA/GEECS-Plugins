@@ -114,6 +114,22 @@
   .badge.done { color: var(--ok); border-color: var(--ok); }
   .badge.failed { color: var(--crit); border-color: var(--crit); }
   .badge.no_data { color: var(--warn); border-color: var(--warn); }
+  .badge.destructive { color: var(--warn); border-color: var(--warn); }
+  .badge .prog { font-family: ui-monospace, Menlo, monospace; margin-left: 0.35rem; }
+  /* The confirmation for a destructive kind: a real <dialog> (focus trap,
+     Esc, inert background), one question, the typed scan number. */
+  #confirmdlg { padding: 0; max-width: min(440px, 92vw); border: 1px solid var(--rule);
+                border-radius: 6px; background: var(--surface); color: var(--ink); }
+  #confirmdlg::backdrop { background: var(--scrim); }
+  #confirmdlg .body { padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.7rem; }
+  #confirmdlg h4 { margin: 0; font-size: 15px; font-weight: 600; }
+  #confirmdlg p { margin: 0; font-size: 13px; color: var(--muted); }
+  #confirmdlg input { background: var(--surface-2); color: var(--ink); border: 1px solid var(--rule);
+                      border-radius: 3px; padding: 0.3rem 0.5rem; font-size: 14px; width: 8rem;
+                      font-family: ui-monospace, Menlo, monospace; }
+  #confirmdlg .err:empty { display: none; }
+  #confirmdlg .btnrow { margin-top: 0.2rem; }
+  #confirmdlg .apply { background: var(--warn); }
   .arow .err { color: var(--crit); font-size: 12px; white-space: pre-wrap; margin: 0.4rem 0 0; font-family: ui-monospace, Menlo, monospace; }
   .arow details { margin-top: 0.4rem; font-size: 12px; }
   .arow details pre { max-height: 14rem; overflow: auto; background: var(--surface-2); padding: 0.5rem; border-radius: 3px; font-size: 11px; }
@@ -375,6 +391,19 @@
         <span class="right">{% if config_editor %}<a href="{{ root }}/configs/" target="_blank" title="the full editor: browse, create and edit diagnostics and groups">edit configs ↗</a> · {% endif %}<a href="#" onclick="refreshAnalysis(true);return false;">refresh</a></span>
       </div>
       <div id="analysisList"><div class="plotmsg">loading analyzers…</div></div>
+      <dialog id="confirmdlg" aria-labelledby="confirmtitle">
+        <form method="dialog" class="body" onsubmit="return confirmDestructive(event)">
+          <h4 id="confirmtitle">Delete data?</h4>
+          <p id="confirmtext"></p>
+          <p>Type this scan's number to confirm.</p>
+          <input id="confirmnum" inputmode="numeric" autocomplete="off" aria-label="scan number">
+          <p class="err" id="confirmerr" role="alert"></p>
+          <div class="btnrow">
+            <button type="button" class="act" onclick="closeConfirm()">Cancel</button>
+            <button type="submit" class="apply" id="confirmgo">Delete the files</button>
+          </div>
+        </form>
+      </dialog>
     </section>
     {% endif %}
   </div>
@@ -556,6 +585,9 @@ const ROOT = {{ root | tojson }};  // proxy mount prefix ("" at root)
 // pixels — the Images tab draws a line and has no per-bin view.
 const IS_TRACE = {{ is_trace | tojson }};
 const DAY = {{ day | tojson }};
+// This scan's number — what a destructive analyzer's confirmation asks
+// the user to type (the server checks the same value: confirm=<number>).
+const SCAN_NUMBER = {{ scan_number | tojson }};
 const SEL_DEVICE = {{ sel_device | tojson }};
 const SCAN_DEVICES = new Set({{ devices | tojson }});
 const VERSION = {{ portal_version | tojson }};
@@ -1044,13 +1076,20 @@ function renderAnalyzer(a, anyRunning) {
   const job = a.job;
   const state = job ? job.state : "";
   const active = state === "running" || state === "queued";
-  const badge = state ? `<span class="badge ${escAttr(state)}">${esc(state)}</span>` : `<span class="badge">not run</span>`;
+  // While a run lasts, the badge carries what the analyzer last reported
+  // (frames done/total in its phase) — the .himg kinds report per frame;
+  // an analyzer that never reports shows the bare state.
+  const prog = active && job.progress ? `<span class="prog">${esc(job.progress.phase)} ${esc(String(job.progress.done))}/${esc(String(job.progress.total))}</span>` : "";
+  const badge = state ? `<span class="badge ${escAttr(state)}">${esc(state)}${prog}</span>` : `<span class="badge">not run</span>`;
+  // A destructive kind (it deletes data files) says so on its row; its
+  // run button opens the confirmation instead of starting the run.
+  const danger = a.destructive ? `<span class="badge destructive" title="this analyzer deletes data files; running it asks for the scan number">deletes files</span>` : "";
   const label = job && !active ? "re-run" : "run";
   // Ids reach the handlers through data- attributes, never interpolated
   // into JS-in-attribute source (a quote in the id would end the
   // attribute — the #765 review's dead-button finding).
   const edit = CONFIG_EDITOR ? `<button class="act" data-id="${escAttr(a.id)}" onclick="openConfigEditor(this.dataset.id)" title="edit this diagnostic's YAML with a live preview on the current shot">edit</button> ` : "";
-  const button = `${edit}<button class="act" ${anyRunning ? "disabled" : ""} data-id="${escAttr(a.id)}" onclick="startAnalysis(this.dataset.id)">${label}</button>`;
+  const button = `${edit}<button class="act" ${anyRunning ? "disabled" : ""} data-id="${escAttr(a.id)}" onclick="startAnalysis(this.dataset.id)">${label}${a.destructive ? "…" : ""}</button>`;
   // the data device only when it says something the recipe id does not
   const device = a.device && a.device !== a.id ? `<span class="dim mono" title="the device whose data this recipe reads">on ${esc(a.device)}</span>` : "";
   const when = job && job.finished ? `<span class="dim" style="font-size:11px">${new Date(job.finished * 1000).toLocaleTimeString()}</span>` : "";
@@ -1061,7 +1100,7 @@ function renderAnalyzer(a, anyRunning) {
     const open = ANALYSIS_OPEN[a.id] ? " open" : "";
     body += `<details${open} data-id="${escAttr(a.id)}" ontoggle="ANALYSIS_OPEN[this.dataset.id]=this.open"><summary>log (${job.log.length} lines)</summary><pre>${esc(job.log.join("\n"))}</pre></details>`;
   }
-  return `<div class="arow" data-row="${escAttr(a.id)}"><div class="head"><span class="id">${esc(a.id)}</span>${device}${badge}${when}<span class="right">${button}</span></div>${body}</div>`;
+  return `<div class="arow" data-row="${escAttr(a.id)}"><div class="head"><span class="id">${esc(a.id)}</span>${device}${danger}${badge}${when}<span class="right">${button}</span></div>${body}</div>`;
 }
 
 let ANALYSIS_LAST = null;  // last-rendered payload — an unchanged poll leaves the DOM alone
@@ -1109,9 +1148,67 @@ function refreshAnalysis(force) {
   });
 }
 
+let CONFIRM_ID = null;  // the destructive analyzer the open dialog is about
+
+// The number the server's confirm check accepts: the listing carries it
+// (parsed from the resolved scan folder, like the run's tag); the page's
+// own SCAN_NUMBER (from the start doc) is the fallback before the first
+// listing arrives.
+function confirmScanNumber() {
+  const listed = ANALYSIS_BODY && ANALYSIS_BODY.scan_number;
+  return "" + (listed !== null && listed !== undefined ? listed : SCAN_NUMBER);
+}
+
 function startAnalysis(id) {
+  // A destructive kind never starts from the click alone: the dialog
+  // asks for this scan's number, and the server refuses without it.
+  const a = ANALYSIS_BODY && ANALYSIS_BODY.analyzers.find(x => x.id === id);
+  if (a && a.destructive) { openConfirm(a); return; }
+  postAnalysis(id, "");
+}
+
+function openConfirm(a) {
+  const dlg = document.getElementById("confirmdlg");
+  if (!dlg || typeof dlg.showModal !== "function") {
+    // No <dialog> support: the plain prompt still asks the question.
+    const typed = window.prompt(`${a.id} deletes this scan's ${a.device} data files after verifying them against the stack. Type the scan number (${confirmScanNumber()}) to confirm.`);
+    if (typed !== null && String(typed).trim() === confirmScanNumber()) postAnalysis(a.id, typed.trim());
+    return;
+  }
+  CONFIRM_ID = a.id;
+  document.getElementById("confirmtext").textContent =
+    `${a.id} deletes this scan's ${a.device} data files once every frame is verified against the stack. ` +
+    `They can be rebuilt from the stack afterwards (the restore kind), but this cannot be undone by hand.`;
+  const input = document.getElementById("confirmnum");
+  input.value = "";
+  document.getElementById("confirmerr").textContent = "";
+  dlg.showModal();
+  input.focus();  // never the destructive button
+}
+
+function closeConfirm() {
+  CONFIRM_ID = null;
+  const dlg = document.getElementById("confirmdlg");
+  if (dlg && dlg.open) dlg.close();
+}
+
+function confirmDestructive(event) {
+  event.preventDefault();
+  const typed = document.getElementById("confirmnum").value.trim();
+  if (typed !== confirmScanNumber()) {
+    document.getElementById("confirmerr").textContent = typed ? `${typed} is not this scan's number.` : "Type the scan number.";
+    return false;
+  }
+  const id = CONFIRM_ID;
+  closeConfirm();
+  if (id) postAnalysis(id, typed);
+  return false;
+}
+
+function postAnalysis(id, confirm) {
   const p = new URLSearchParams({ analyzer: id, v: {{ portal_version | tojson }} });
   if (DAY) p.set("day", DAY);
+  if (confirm) p.set("confirm", confirm);
   document.querySelectorAll("#analysisList button.act").forEach(b => { b.disabled = true; });
   fetch(`${ROOT}/api/run/${UID}/analysis?` + p.toString(), { method: "POST" })
     .then(r => r.json().then(body => ({ ok: r.ok, status: r.status, body })))
@@ -1730,6 +1827,9 @@ function applyDisplay() {
 
 function closeModals() {
   document.querySelectorAll(".overlay").forEach(m => m.classList.remove("on"));
+  // The destructive-kind confirmation is a real <dialog>, not an
+  // .overlay; one call still closes everything.
+  if (typeof closeConfirm === "function") closeConfirm();
 }
 
 // ---------------- utilities + boot ----------------

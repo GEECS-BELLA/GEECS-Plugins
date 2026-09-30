@@ -112,8 +112,11 @@ path left the document in v2: ImageAnalysis keeps kind → class in its own
 registry, so adding an analyzer means one spec model here and one registry
 line there — for a *frame-scoped* kind (`AnalyzerSpecBase.scope ==
 "frame"`, an ImageAnalyzer per frame). A spec with `scope = "scan"`
-(`himg_to_stack`: one step over the device folder, no ImageAnalyzer) is
-mapped by ScanAnalysis's factory instead.
+(`himg_to_stack`, `himg_compact`, `himg_restore`: one step over the
+device folder, no ImageAnalyzer) is mapped by ScanAnalysis's factory
+instead. `AnalyzerSpecBase.destructive` marks the one kind whose run
+deletes data files (`himg_compact`), so a host that offers one-click
+runs asks for a typed confirmation first.
 
 One non-model module: `geecs_schemas.restricted_expr` — the shared
 AST-whitelist core behind both GEECS expression eval sites (the gateway's
