@@ -3,6 +3,37 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.44.1] - 2026-09-29
+
+### Changed
+
+- Tests and wording for the `haso` measure's `reference`: a host run
+  averages the reference scan from its stack (`from_scan`) and hands the
+  mean to every shot; `config_store`'s docstring and the binding-error
+  test follow the core's "no step or measure uses" message.
+
+## [1.44.0] - 2026-09-29
+
+### Added
+
+- HASO on the core route: `core_services` builds the `haso` service
+  (`HasoWaveKit`) from `config.ini` and the scan's own capture stack (its
+  first `.himg` header); service factories now take the run's device data
+  directory. `core_sink.ShotStore` / `shot_store_path`: a measure
+  registered with `shot_store` gets one HDF5 per scan and recipe under the
+  analysis tree (`<device>_<store>.h5`: `shots`, `frame`, `extras/<key>`,
+  one chunk per shot, float32, `.part` + rename, discarded on a store
+  error), which `CoreScanAnalyzer` fills as the run streams (single-shot
+  units, `save: true`); the analyzer also tells a service the pool width
+  (`share_cores`).
+
+### Changed
+
+- `.himg` frames are read through the device's capture stack only:
+  `core_source.prepare_source` and `core_backgrounds` refuse an unconverted
+  folder (`StackMappingUnavailable`, reported as no data) naming the
+  `himg_to_stack` converter (`HasoLift_stack`).
+
 ## [1.43.0] - 2026-09-28
 
 ### Added

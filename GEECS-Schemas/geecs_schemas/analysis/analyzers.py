@@ -3,7 +3,7 @@
 Every analyzer the analysis suite ships has one *spec* model here, chosen
 by the ``kind`` field.  The spec carries exactly the analyzer's own
 parameters (a FROG retrieval's grid size, a magspec's energy calibration,
-HASO's pupil mask); the frame clean-up lives in the ``image:`` section and
+an ICT's charge polarity); the frame clean-up lives in the ``image:`` section and
 the scan-time behaviour in ``scan:``.  Because the set of kinds is closed
 and lives here, a diagnostic document validates completely with pydantic
 alone — an editor renders a form per kind from the JSON Schema, and a typo
@@ -13,7 +13,7 @@ ImageAnalysis maps each ``kind`` to the class that implements it
 (``image_analysis.config.registry``); adding an analyzer means adding a
 spec here and one registry line there.  Each spec's ``image_kind`` says
 which ``image:`` section it works on — ``"camera"``, ``"line"`` or ``None``
-for analyzers that read their own file formats (HASO, phase maps).
+for analyzers that read their own file formats (phase maps).
 """
 
 from __future__ import annotations
@@ -370,40 +370,6 @@ class LineStitcherSpec(AnalyzerSpecBase):
     )
 
 
-class PupilMask(SchemaModel):
-    """Rectangular pupil mask on the HASO slopes grid, inclusive bounds; -1 means the far edge."""
-
-    top: int = Field(1, description="Top row of the pupil (inclusive).")
-    bottom: int = Field(
-        -1, description="Bottom row of the pupil (inclusive); -1 = last row."
-    )
-    left: int = Field(1, description="Left column of the pupil (inclusive).")
-    right: int = Field(
-        -1, description="Right column of the pupil (inclusive); -1 = last column."
-    )
-
-
-class HasoAnalyzerSpec(AnalyzerSpecBase):
-    """HASO wavefront sensor: slopes to phase and Zernike terms through WaveKit (Windows, licensed)."""
-
-    scalar_keys: ClassVar[frozenset[str]] = frozenset([])
-
-    image_kind: ClassVar[ImageKind] = None
-    kind: Literal["haso"] = Field(
-        "haso", description="HASO wavefront analyzer via WaveKit."
-    )
-    wavekit_config_file_path: Path = Field(
-        ..., description="The WaveKit sensor configuration (.dat) for this HASO head."
-    )
-    mask: PupilMask = Field(
-        default_factory=PupilMask, description="Pupil mask applied to the slopes."
-    )
-    background_path: Optional[Path] = Field(
-        None, description="A .has slopes file subtracted as background."
-    )
-    laser_wavelength: float = Field(800.0, gt=0, description="Probe wavelength, nm.")
-
-
 class HimgToStackSpec(AnalyzerSpecBase):
     """Convert this device's HASO ``.himg`` files into its per-scan capture stack — data management, not analysis.
 
@@ -467,10 +433,20 @@ class HiResMagCamSpec(AnalyzerSpecBase):
     )
 
     def emitted_scalars(self) -> frozenset[str]:
-        """Return beam statistics and bow-tie metrics."""
+        """Return beam statistics and bow-tie metrics.
+
+        ``emittance_proxy`` keeps its optimizer contract (``1e6`` when the
+        fit is rejected). The waist column ``bowtie_x0`` (sensor pixels,
+        like ``x_CoM``), waist size ``bowtie_w0``, divergence
+        ``bowtie_theta`` and ``bowtie_r_squared`` are NaN on a rejected fit.
+        """
         return BeamAnalyzerSpec().emitted_scalars() | {
             "emittance_proxy",
             "total_counts",
+            "bowtie_x0",
+            "bowtie_w0",
+            "bowtie_theta",
+            "bowtie_r_squared",
         }
 
 
@@ -532,7 +508,6 @@ AnalyzerSpec = Annotated[
         FrogSpectralPhaseSpec,
         IctAnalyzerSpec,
         LineStitcherSpec,
-        HasoAnalyzerSpec,
         HimgToStackSpec,
         DownrampPhaseSpec,
         HiResMagCamSpec,
@@ -563,7 +538,6 @@ __all__ = [
     "DownrampPhaseSpec",
     "FrogRetrievalSpec",
     "FrogSpectralPhaseSpec",
-    "HasoAnalyzerSpec",
     "HiResMagCamSpec",
     "HimgToStackSpec",
     "IctAnalyzerSpec",
@@ -573,7 +547,6 @@ __all__ = [
     "MagSpecAnalyzerSpec",
     "PhaseDownrampSpec",
     "PolynomialCalibrationSpec",
-    "PupilMask",
     "StandardAnalyzerSpec",
     "TraceAnalyzerSpec",
 ]

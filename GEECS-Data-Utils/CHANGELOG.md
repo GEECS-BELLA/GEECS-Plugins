@@ -3,7 +3,7 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.46.1] - 2026-09-29
+## [0.47.1] - 2026-09-29
 
 ### Fixed
 
@@ -12,6 +12,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   telemetry columns of GEECS-Plugins#1016 (~300 on a full HTU experiment)
   the old shape tripped pandas' "DataFrame is highly fragmented"
   `PerformanceWarning` on every scan.  Same columns, same order.
+## [0.47.0] - 2026-09-29
+
+### Added
+
+- `GeecsPathsConfig` reads the WaveKit keys of the `haso` measure's host:
+  `[Paths] wavekit_sdk_path`, `wavekit_python_path`, `wavekit_configs_path`
+  (validated paths, `None` when unset or missing) and `wavekit_launcher`
+  (the command that runs the Windows Python on Linux).
+- `io.himg_stack.stack_header(stack, index=0)`: one source file's header
+  bytes from a `.himg` stack's provenance group — any header of the sensor
+  lets WaveKit read that sensor's pixels, so the `haso` measure's host
+  takes the stack's first to rebuild the temporary `.himg` per shot.
+
+### Removed
+
+- `[Paths] wavekit_config_path` (the single `.dat` of the deleted
+  `HASOHimgHasProcessor`); a recipe now names its sensor file under
+  `wavekit_configs_path`.
 
 ## [0.46.0] - 2026-09-28
 

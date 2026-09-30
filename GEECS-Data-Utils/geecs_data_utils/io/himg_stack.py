@@ -84,6 +84,7 @@ __all__ = [
     "HimgVerifyReport",
     "NoHimgFiles",
     "convert_himg_folder",
+    "stack_header",
     "himg_sources",
     "list_himg_files",
     "stack_path_for",
@@ -480,6 +481,34 @@ def write_himg_stack(
         stack_bytes=stack.stat().st_size,
         seconds=time.time() - started,
     )
+
+
+def stack_header(stack_path: Path, index: int = 0) -> bytes:
+    """One source file's header bytes from a ``.himg`` stack's provenance group.
+
+    Any header of a sensor lets WaveKit read that sensor's pixels (the
+    per-shot header differs only in its timestamp), so the ``haso`` measure's
+    host takes the stack's first header to rebuild the temporary ``.himg``
+    it hands the SDK for every frame.  Reads only that row.
+
+    Raises
+    ------
+    HimgStackError
+        The file is not a stack this module wrote (no header dataset), or
+        *index* is out of range.
+    """
+    stack_path = Path(stack_path)
+    with open_stack(stack_path) as f:
+        if HEADER_DATASET not in f:
+            raise HimgStackError(
+                f"{stack_path}: not a .himg stack (no {HEADER_DATASET})"
+            )
+        headers = f[HEADER_DATASET]
+        if not 0 <= index < headers.shape[0]:
+            raise HimgStackError(
+                f"{stack_path}: header {index} out of range ({headers.shape[0]} frames)"
+            )
+        return headers[index].tobytes()
 
 
 def verify_himg_stack(

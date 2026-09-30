@@ -74,12 +74,24 @@ def configs(tmp_path, monkeypatch):
             {
                 "schema_version": 2,
                 "name": "windows_only",
-                # The real Windows-SDK analyzer: its module hard-imports
-                # WaveKit, so the class is unimportable on this host.
-                "analyzer": {"kind": "haso", "wavekit_config_file_path": "/wfs.dat"},
+                # A legacy-route kind whose class this host cannot import
+                # (the registry entry is pointed at a module that does not
+                # exist below), standing in for a vendor-SDK analyzer.
+                "analyzer": {
+                    "kind": "phase_downramp",
+                    "pixel_scale": 1.0,
+                    "wavelength_nm": 800,
+                },
                 "scan": {},
             }
         )
+    )
+    from image_analysis.config import registry
+
+    monkeypatch.setitem(
+        registry.ANALYZER_CLASS_PATHS,
+        "phase_downramp",
+        "no.such.vendor.module.Analyzer",
     )
     group_dir = root / "groups" / "HTU"
     group_dir.mkdir(parents=True)

@@ -994,16 +994,14 @@ class TestProcessingSelector:
                 }
             )
         )
-        haso = tree / "analyzers" / "HTU" / "U_Haso.yaml"
-        haso.write_text(
+        frog = tree / "analyzers" / "HTU" / "U_FROG.yaml"
+        frog.write_text(
             yaml.safe_dump(
                 {
                     "schema_version": 2,
-                    "name": "U_Haso",
-                    "analyzer": {
-                        "kind": "haso",
-                        "wavekit_config_file_path": "/wfs.dat",
-                    },
+                    "name": "U_FROG",
+                    "analyzer": {"kind": "frog_retrieval"},
+                    "image": {"type": "camera"},
                     "scan": {"priority": 100},
                 }
             )
@@ -1130,7 +1128,7 @@ class TestProcessingSelector:
         assert unknown.status_code == 404
         denylisted = client.get(
             "/run/uid-002/image.png",
-            params={"device": "cam", "shot": 1, "processing": "U_Haso"},
+            params={"device": "cam", "shot": 1, "processing": "U_FROG"},
         )
         assert denylisted.status_code == 400
         assert "ephemerally" in denylisted.json()["detail"]

@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from geecs_data_utils.himg_cli import main as himg_main
-from geecs_data_utils.io.himg import himg_bytes
+from geecs_data_utils.io.himg import himg_bytes, parse_himg
 from geecs_data_utils.io.himg_stack import (
     HEADER_DATASET,
     SOURCE_NAME_DATASET,
@@ -28,6 +28,7 @@ from geecs_data_utils.io.himg_stack import (
     stack_path_for,
     stamp_attribute_name,
     verify_himg_stack,
+    stack_header,
     write_himg_stack,
 )
 from geecs_data_utils.io.scan_stack import (
@@ -387,3 +388,24 @@ class TestCli:
         (scan / DEVICE / "Scan012_U_HasoLift_002.himg").unlink()
         assert himg_main(["verify", str(scan / DEVICE), "--against-files"]) == 1
         assert "1 source file(s) missing" in capsys.readouterr().out
+
+
+class TestStackHeader:
+    def test_any_row_of_the_provenance_group_is_a_header(self, tmp_path):
+        device_dir, files = native_folder(tmp_path)
+        report = convert_himg_folder(device_dir)
+        first = stack_header(report.stack_path)
+        assert first == _header(0)
+        assert stack_header(report.stack_path, 2) == _header(2)
+        # Any header of the sensor rebuilds a readable file from any frame.
+        header, pixels = parse_himg(files[f"{DEVICE}_{STAMPS[1]:.3f}.himg"])
+        assert parse_himg(himg_bytes(first, pixels))[1].tolist() == pixels.tolist()
+        with pytest.raises(HimgStackError, match="out of range"):
+            stack_header(report.stack_path, 3)
+
+    def test_a_plain_stack_has_no_header(self, tmp_path):
+        stack = tmp_path / "Cam.h5"
+        with h5py.File(stack, "w") as f:
+            f.create_dataset(FRAMES_DATASET, data=np.zeros((1, 2, 2), dtype="u2"))
+        with pytest.raises(HimgStackError, match="no /entry/instrument/himg/header"):
+            stack_header(stack)

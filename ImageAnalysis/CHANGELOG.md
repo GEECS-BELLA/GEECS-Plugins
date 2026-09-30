@@ -3,6 +3,62 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.11.0] - 2026-09-29
+
+### Added
+
+- `HasoWaveKit.compute(reference=)`: the reference frame's raw slopes are
+  computed once per process by a `"reference"` worker task, saved as an
+  SDK `.has` in a private temporary directory (keyed by the pixels and
+  the settings that shape slopes: sensor file, LIFT, wavelength, start
+  sub-pupil, denoising — not the mask or the filters), and every shot's
+  worker loads it and subtracts it (`apply_substractor`) before the mask
+  and the filters. The cache is not pickled (each pool worker computes
+  its own) and its directory is removed with the engine. The worker's
+  pupil mask is now built from the slopes it masks (identical geometry).
+
+## [2.10.0] - 2026-09-29
+
+### Added
+
+- `HiResMagCamAnalyzer` reports the bow-tie fit's parameters beside the
+  emittance proxy: `bowtie_x0` (the waist column, in sensor pixels like
+  `x_CoM`), `bowtie_w0`, `bowtie_theta` and `bowtie_r_squared`. They are
+  NaN when the fit is rejected, while `emittance_proxy` keeps its `1e6`
+  sentinel for the optimizer. The same scalars come from the analysis
+  core's `hi_res_mag_cam` measure (GEECS-Analysis 0.22.0), which this
+  analyzer now serves as the differential oracle for.
+
+## [2.9.0] - 2026-09-29
+
+### Added
+
+- `algorithms/haso_wavekit.py`: `HasoWaveKit`, the `haso` measure's engine
+  as a picklable service — runs `algorithms/_wavekit_worker.py` (Python 3.8
+  syntax, numpy 1.19 API: the SDK's own Windows Python, under 64-bit Wine on
+  Linux) in a fresh process and engine per shot, rebuilding the `.himg` the
+  SDK reads from the pixels and one header of the sensor; checks the
+  image's serial against the configuration's; `share_cores(workers)` sets
+  `MKL_NUM_THREADS` for a pooled run. `from_config` reads `[Paths]
+  wavekit_sdk_path / wavekit_python_path / wavekit_configs_path /
+  wavekit_launcher`. Verified bit-identical to Windows on 26_0310 Scan012.
+- `geecs-wavekit-doctor` (`algorithms/wavekit_doctor.py`): checks the
+  config keys and the share tree, pins Wine 6.0.3 (warns on another
+  release), creates the 64-bit Wine prefix and the engine's `ProgramData`
+  directory, runs the SDK's licence-free HASO3 sample through the worker
+  and recomputes every golden reference set beside the sensor configs,
+  comparing raw phase, processed phase and intensity in float32.
+
+### Removed
+
+- `analyzers/HASO_himg_has_processor.py` (`HASOHimgHasProcessor`), its
+  integration test, the `haso` registry entry and its `EPHEMERAL_DENYLIST`
+  entry: the HASO analysis is the core's `haso` measure. No `.has` or TSV
+  sidecars are written any more.
+- `third_party_sdks/` (its README, the `.gitignore` rule and the lint
+  excludes): no vendor file lives in the repository; the SDK's one home is
+  the software share (`software/WaveKit/`).
+
 ## [2.8.0] - 2026-09-28
 
 ### Changed

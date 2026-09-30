@@ -759,7 +759,7 @@
       "additionalProperties": {
         "$ref": "#/$defs/FrameInput"
       },
-      "description": "Frames loaded before the run and bound by name for steps that take one (a background image).",
+      "description": "Frames loaded before the run and bound by name for steps that take one (a background image) or a measure that compares against one (the haso reference).",
       "title": "Inputs",
       "type": "object"
     },

@@ -51,9 +51,7 @@ image_analysis/
     line_stitcher.py               # LineStitcher
     magspec_manual_calib_analyzer.py
     grenouille_analyzer.py         # FROG / Grenouille
-    HASO_himg_has_processor.py     # HASOHimgHasProcessor
     ...
-  third_party_sdks/                # Vendor SDKs (WaveKit) — gitignored, out-of-tree install; see its README.md
 ```
 
 ## Core Abstractions
@@ -142,7 +140,7 @@ schema_version: 2
 name: UC_TopView                  # device folder under scans/ScanNNN/
 output_name: UC_TopView_left      # optional output label (defaults to name)
 analyzer: {kind: beam, compute_slopes: false}   # the analyzer + ITS parameters
-image:                            # camera | line | omitted (haso, phase_downramp)
+image:                            # camera | line | omitted (phase_downramp)
   type: camera
   bit_depth: 16
   roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
@@ -307,10 +305,38 @@ schema docgen test fails CI otherwise).
 - **Nx2 convention for 1D data** — Column 0 is always x (independent), column 1
   is always y (dependent). `read_1d_data()` enforces this.
 
+## HASO WaveKit — the `haso` measure's engine (2.9.0)
+
+The HASO wavefront reconstruction runs on the analysis core (the `haso`
+measure in GEECS-Analysis); this package supplies its *service*:
+`algorithms/haso_wavekit.py` (`HasoWaveKit`, picklable — paths, a launcher,
+one `.himg` header of the sensor) runs `algorithms/_wavekit_worker.py` in
+the SDK's own 64-bit Windows Python 3.8 + numpy 1.19 (natively, or under
+64-bit Wine through `[Paths] wavekit_launcher`), one fresh process — and
+one fresh engine — per shot, because the SDK's spot tracker carries state
+between `compute_slopes` calls. The worker file must stay Python 3.8
+syntax and import nothing from this repository (a test pins both). The
+SDK reads a real `.himg` only, so the service rebuilds one per shot with
+`geecs_data_utils.io.himg.himg_bytes(header, pixels)`. A `reference=`
+frame (2.11.0) costs one extra worker per process: its raw slopes are
+saved once as a `.has` in a private temporary directory (keyed by the
+pixels and the slope-shaping settings, never pickled to pool workers)
+and every shot's worker subtracts them before the mask and filters.
+Config keys:
+`[Paths] wavekit_sdk_path / wavekit_python_path / wavekit_configs_path /
+wavekit_launcher`; a recipe's `sensor_config` is a file *name* under the
+configs directory. `geecs-wavekit-doctor` (`algorithms/wavekit_doctor.py`)
+checks the keys and the share tree, creates the Wine prefix and the
+engine's `ProgramData` directory, and runs the two self-tests (the vendor's
+licence-free HASO3 sample; the golden reference sets, float32-exact
+against Windows). No vendor file lives in the repository: the former
+`third_party_sdks/` is gone, the SDK's one home is the software share
+(`software/WaveKit/`, its README). Runbook: `docs/analysis/haso.md`.
+
 ## Filesystem invariants for analyzers that write inside `scans/ScanNNN/`
 
 Some analyzers (`LineStitcher`, `MagSpecManualCalibAnalyzer`,
-`HASOHimgHasProcessor`, `GrenouilleAnalyzer`) save derived per-shot outputs
+`GrenouilleAnalyzer`) save derived per-shot outputs
 into a subfolder of the source scan dir — e.g. `<scan_dir>/<device>-interp/`.
 This is intentional and mirrors notebook workflows. **But analysis code never
 creates the scan folder itself.** See
@@ -384,15 +410,13 @@ The write gate is structural, and it depends on two conventions that
    too, or add it to the denylist below.
 2. **Analyzers with un-gated side effects go on `EPHEMERAL_DENYLIST`**
    (analyzer kinds, checked *before* the class is imported — which
-   also keeps vendor SDK / DLL imports off hosts that lack them). Two
-   current entries: **HASO** writes five sidecars per shot from
-   `load_image` (instance state set there is what `analyze_image`
-   packages, so the analyze-only ephemeral call would return a
-   meaningless pass-through anyway, and the module hard-imports
-   wavekit); **Grenouille**'s `analyze_image` unconditionally writes
+   also keeps vendor SDK / DLL imports off hosts that lack them). One
+   current entry: **Grenouille**'s `analyze_image` unconditionally writes
    transient temp files and spawns a ~seconds 32-bit DLL subprocess per
    frame (cleaned up afterwards, but a per-request viewer must trigger
-   neither). Remove an entry only when the analyzer gains an explicit
+   neither). (The HASO analyzer, the other entry, was deleted in 2.9.0
+   when the `haso` measure moved to the analysis core.) Remove an entry
+   only when the analyzer gains an explicit
    ephemeral mode. A `frog_retrieval` diagnostic now runs on the analysis
    core (the `frog` measure); the portal's browser stays off the DLL there
    too, because `core_preview.prepare_document` refuses service measures

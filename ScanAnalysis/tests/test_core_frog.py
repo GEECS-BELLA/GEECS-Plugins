@@ -73,7 +73,9 @@ def helper(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
     module = importlib.import_module("frog_host_helper")
-    monkeypatch.setitem(core_services.SERVICE_FACTORIES, "frog", module.Retriever)
+    monkeypatch.setitem(
+        core_services.SERVICE_FACTORIES, "frog", lambda data_dir: module.Retriever()
+    )
     yield module
     monkeypatch.delitem(importlib.sys.modules, "frog_host_helper", raising=False)
 
@@ -202,7 +204,9 @@ def test_a_pooled_frog_run_writes_what_the_serial_run_writes(
 def test_services_are_built_only_for_a_measure_that_names_one(monkeypatch):
     built = []
     monkeypatch.setitem(
-        core_services.SERVICE_FACTORIES, "frog", lambda: built.append(1) or "retriever"
+        core_services.SERVICE_FACTORIES,
+        "frog",
+        lambda data_dir: built.append(1) or "retriever",
     )
     assert core_services.services_for(BeamSpec()) == {}
     assert core_services.services_for(FrogSpec()) == {"frog": "retriever"}
@@ -213,7 +217,7 @@ def test_services_are_built_only_for_a_measure_that_names_one(monkeypatch):
 
 
 def test_a_host_without_the_dll_fails_when_the_run_is_prepared(tmp_path, monkeypatch):
-    def unconfigured():
+    def unconfigured(data_dir):
         raise FileNotFoundError("frog_dll_path not found in config.ini")
 
     monkeypatch.setitem(core_services.SERVICE_FACTORIES, "frog", unconfigured)
@@ -248,7 +252,7 @@ def test_a_per_request_view_never_starts_the_dll_but_the_explicit_preview_does(
 
     built = []
 
-    def factory():
+    def factory(data_dir):
         built.append(1)
         return helper.Retriever()
 

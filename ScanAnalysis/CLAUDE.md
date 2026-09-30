@@ -9,13 +9,13 @@ image/1D analyzers. Automatic watching and Google Docs uploads are retired.
 scan_analysis/
   base.py                          # ScanAnalyzer abstract base class
   core_inputs.py                   # v2 core compilation + loaded file-background bindings + services
-  core_services.py                 # the services a measure names (the FROG retriever), built from config.ini
+  core_services.py                 # the services a measure names (the FROG retriever, the WaveKit engine), built from config.ini + the scan's stack
   core_backgrounds.py              # scan backgrounds: exact strip-wise per-pixel statistics over a scan's frames, cached
   core_source.py                   # completed-scan native/stack input mapping and reads
   core_scan.py                     # write-free scan preparation, grouping and execution
   core_products.py                 # write-free average/bin and summary product planning (ProductCollector streams it)
   core_workers.py                  # the worker count a run gets: recipe request, host cap (config.ini), small-run floor
-  core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN; draw_product / draw_summary; per-shot sidecar tables beside the raw file
+  core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN; draw_product / draw_summary; per-shot sidecar tables beside the raw file; ShotStore (a measure's per-scan HDF5 of every shot's frame + extras)
   core_preview.py                  # the editor's previews through the run's own calls (frame; a summary's layout over a few shots)
   core_analyzer.py                 # CoreScanAnalyzer: the core route behind the ScanAnalyzer contract
   route_compare.py                 # snapshot + compare two routes' analysis trees (one equality rule)
@@ -55,10 +55,17 @@ dark scan's mean is the legacy wrapper's own file); a missing source scan
 raises, never creates. `compute_scan_backgrounds=False` (every preview)
 only reads that cache and refuses otherwise (`ScanContextRequired`, an
 `UnsupportedRecipe`): a per-request view never reads a whole scan or writes.
-A measure that names a service (`frog`: the FROG.dll retrieval, an external
-program per frame) gets it from `core_services.services_for`, built from
+A measure that names a service (`frog`: the FROG.dll retrieval; `haso`:
+the WaveKit engine — external programs per frame) gets it from
+`core_services.services_for(measure, data_dir=...)`, built from
 this host's `config.ini` when the run is prepared — a host without the DLL
-fails there, before any shot is read. `prepare_v2(services=False)` refuses
+fails there, before any shot is read. The WaveKit engine is also built from
+the scan: it needs one `.himg` header of the sensor, taken from the device's
+capture stack (`core_source.stack_required` — an unconverted scan is
+refused as `StackMappingUnavailable`, i.e. `no_data`, naming the
+`himg_to_stack` converter). The same rule sits in `core_source.prepare_source`
+and `core_backgrounds`: `.himg` frames (`file_tail: .himg`) are read through
+the stack only, never per shot. `prepare_v2(services=False)` refuses
 such a recipe with `ServicesNotRequested` (an `UnsupportedRecipe`):
 `core_preview.prepare_document` defaults to that, so the portal's shot
 browser keeps its old route (which refuses FROG) and never starts the DLL
@@ -339,9 +346,9 @@ constructor `kwargs`). ImageAnalysis maps kind → class
 ```yaml
 analyzer: {kind: beam, compute_slopes: false}
 analyzer:
-  kind: haso                                  # no image: section for this kind
-  wavekit_config_file_path: /path/to/wfs.dat
-  mask: {top: 125, bottom: 300, left: 10, right: 670}
+  kind: phase_downramp                        # no image: section for this kind
+  pixel_scale: 1.0
+  wavelength_nm: 800
 ```
 
 ### The config editor (`config_store.py` + `config_editor/`)
@@ -362,7 +369,7 @@ The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
   registry by `geecs_analysis.recipe.recipe_schema`). A recipe validates
   as its schema AND binds to the registry (`compile_recipe`): an unknown
   step or parameter, a step or measure for the wrong frame shape, a frame
-  input no step uses — reported at the form's field path, listed as
+  input no step or measure uses — reported at the form's field path, listed as
   invalid, never written. `list()` runs the same cross-checks as
   `validate()` (a group naming an unknown document lists as invalid too;
   the analyzers tree is walked once per listing). Writes touch only the configs tree — the repo's
@@ -643,7 +650,14 @@ In practice:
   the device's capture stack `<device>/<device>.h5` beside the `.himg`
   sources — the one place every stack reader looks, by the file-plugin
   contract — through `geecs_data_utils.io.himg_stack` (temp file, verify,
-  rename; no directory; the sources untouched).
+  rename; no directory; the sources untouched). The HASO measure's own
+  per-shot products take the other road: a measure registered with
+  `shot_store="wavefront"` gets one HDF5 per scan and recipe **under the
+  analysis tree** (`core_sink.ShotStore`, `<device>_wavefront.h5` in the
+  analyzer directory: `shots`, `frame` (N, …) float32, `extras/<key>`;
+  written as `.part`, renamed at the end of a clean run, discarded on a
+  store error without losing the run's scalars; honours `save`; single-shot
+  units only). Nothing is written beside the `.himg` files.
 
 Do not treat a missing entire scan folder as `no_data`. `no_data` means the
 scan exists but a specific device/analyzer has no usable data. If the scan

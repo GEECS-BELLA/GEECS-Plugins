@@ -29,11 +29,26 @@ still uses ScanAnalysis until its runner/sinks and acceptance tests land.
   keeps it; `apply_measure` hands it over as the third argument); the core
   calls it and never builds, configures or inspects it. It must pickle —
   a pooled run sends it to each worker once. ScanAnalysis builds services
-  (`core_services`), a notebook passes one by hand. `frog` is the one
-  service measure: Kane's FROG.dll via ImageAnalysis' `FrogDllRetrieval`.
+  (`core_services`), a notebook passes one by hand. Two service measures:
+  `frog` (Kane's FROG.dll via ImageAnalysis' `FrogDllRetrieval`) and `haso`
+  (Imagine Optic's WaveKit via ImageAnalysis' `HasoWaveKit`; the measure
+  rounds and clips the processed frame to the sensor's uint16 pixels and
+  packages the processed phase as the frame, raw phase / intensity /
+  slopes / pupil as extras, two pupil scalars).
   A measure's named auxiliary frames go in `Measurement.extras` (neither
   drawn nor averaged); its registered `sidecar` names the per-shot table a
-  scan host writes from them.
+  scan host writes from 1D extras beside the shot, its `shot_store` the
+  per-scan HDF5 a scan host writes every single-shot frame and extras to
+  under the analysis tree (2D extras: the wavefront products).
+- A measure that compares against a frame names a **frame input** at
+  registration: `@measure(..., input_field="reference")`, an
+  `Optional[str]` field of its spec holding a binding key the recipe
+  declares in `inputs` (a `from_scan` mean, a file). `bind_inputs(...,
+  measure=)` binds it, both evaluators (`run.analyze`, `analyze_v2`) fold
+  it through the recipe's own steps (`process_measure_input` — a step
+  sharing the key still sees the loaded frame), and `apply_measure`
+  hands it over as the last argument, `None` when the field is unset.
+  One such measure: `haso`'s `reference` (the plasma imprint).
 - Register each builtin in `steps/__init__.py`; the registry constructs the
   discriminated spec union. Adding a builtin must not require a dispatcher edit.
   Runtime/plugin registration after spec construction is not supported yet.
@@ -124,7 +139,13 @@ where legacy filtered the float32 array in float32 (~1e-7 relative, up to
 trace the algorithm cannot analyze is NaN with a note, not legacy's 0 pC.
 `line_stitcher` compiles to the `line` measure: joining the sibling
 devices' segments is the scan host's source (ScanAnalysis `core_source`),
-so the core sees one trace. The compiler's supported subset is documented
+so the core sees one trace. `hi_res_mag_cam` compiles to the measure of
+that name (`algorithms.bowtie_fit`, ported bit for bit): the beam
+statistics, then the fit on the frame floored at 10 counts as the legacy
+analyzer did; `emittance_proxy` keeps its `1e6` sentinel for the optimizer,
+the fit parameters (`bowtie_x0` in sensor pixels, `w0`, `theta`, `r²`) are
+NaN with a note on a rejected fit. The v2 `threshold_factor` is dropped
+(never read). The compiler's supported subset is documented
 in its docstring and pinned by differential tests. Never silently skip an active unported operation.
 Explicit identity transforms compile to no steps; fixed-canvas rotation is
 supported. Flips and distortion correction still raise UnsupportedRecipe.
@@ -209,7 +230,17 @@ adapter reverses crosshair centers once and retains every mask/rotation order.
 `compat.v2_run` is the streaming v2 orchestration boundary. The host supplies
 explicit groups and a loader; no path/config discovery or output writes belong
 here. Raw native arrays must be averaged before v2 axis scaling and processing,
-using mean rather than nanmean. Preserve both full bin membership (legacy
+using mean rather than nanmean — and folded into a running sum as each
+member loads (`_Sum`, in the intermediate dtype `np.mean` would use), so a
+raw-bin unit holds one native frame and one accumulator however many shots
+the bin has (#1025: a 5000-shot noscan is one bin; collecting its frames
+first wedged the portal). For a bin of one dtype and frames of more than
+one element the quotient equals the stacked `np.mean` bit for bit
+(`test_raw_bin_fold_equals_the_stacked_mean_bit_for_bit`; a stack of 1×1
+frames sums pairwise and can differ in the last bit); a member whose dtype
+would promote the accumulator is refused, since no fold reproduces the
+stack's promoted sum. `test_a_long_raw_bin_average_keeps_at_most_two_raw_frames_alive`
+pins the memory shape. Preserve both full bin membership (legacy
 scalar propagation) and actual loaded contributors. Failures are explicit
 outcomes, and raw buffers are released before yielding. Load in declared order
 for reproducible sums; sources can reuse buffers, so snapshot each returned

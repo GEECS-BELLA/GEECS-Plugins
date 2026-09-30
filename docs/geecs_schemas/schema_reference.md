@@ -622,8 +622,8 @@ One device's analysis: which analyzer, how frames are cleaned up, how it runs ov
 | `output_name` | `str (optional)` | no | None | Label for everything this analyzer writes (s-file column prefix, output folder). Defaults to name; set it to run two analyzers over one device with distinct outputs. |
 | `metric_suffix` | `str (optional)` | no | None | Suffix appended to every s-file column name; affects scalars only, never files or folders. |
 | `description` | `str (optional)` | no | None | Free-text note about this diagnostic. |
-| `analyzer` | `StandardAnalyzerSpec \| TraceAnalyzerSpec \| LineAnalyzerSpec \| BeamAnalyzerSpec \| MagSpecAnalyzerSpec \| FrogRetrievalSpec \| FrogSpectralPhaseSpec \| IctAnalyzerSpec \| LineStitcherSpec \| HasoAnalyzerSpec \| HimgToStackSpec \| DownrampPhaseSpec \| HiResMagCamSpec \| BCaveMagOptSpec \| PhaseDownrampSpec` | yes | — | Which analyzer runs and its own parameters; chosen by kind. |
-| `image` | `CameraConfig \| Line1DConfig (optional)` | no | None | How raw frames (type: camera) or traces (type: line) are cleaned up before analysis. Omit for analyzers that read their own file formats (kind haso, phase_downramp). |
+| `analyzer` | `StandardAnalyzerSpec \| TraceAnalyzerSpec \| LineAnalyzerSpec \| BeamAnalyzerSpec \| MagSpecAnalyzerSpec \| FrogRetrievalSpec \| FrogSpectralPhaseSpec \| IctAnalyzerSpec \| LineStitcherSpec \| HimgToStackSpec \| DownrampPhaseSpec \| HiResMagCamSpec \| BCaveMagOptSpec \| PhaseDownrampSpec` | yes | — | Which analyzer runs and its own parameters; chosen by kind. |
+| `image` | `CameraConfig \| Line1DConfig (optional)` | no | None | How raw frames (type: camera) or traces (type: line) are cleaned up before analysis. Omit for analyzers that read their own file formats (kind phase_downramp). |
 | `scan` | `ScanRuntime` | no | ScanRuntime(priority=100, mode='per_shot', save=True, gdoc_slot=None, device=None, file_tail=None, data_format=None, renderer=RendererOptions(colormap_mode=None, cmap=None, vmin=None, vmax=None, duration=None, dpi=None, xlabel=None, ylabel=None, colorbar_label=None, mode=None, waterfall_sort_key=None, waterfall_sort_sigma=None, waterfall_sort_bounds=None, waterfall_even_y_spacing=None, figsize=None, figsize_inches=None), background_source=None) | How the analyzer runs over a scan: order, per shot or per bin, saving, files. |
 
 Example:
@@ -784,29 +784,6 @@ Concatenate this device's trace with its sibling devices' traces into one spectr
 | `kind` | `'line_stitcher'` | no | 'line_stitcher' | Multi-device trace stitcher. |
 | `sibling_devices` | `list[str]` | yes | — | The other devices whose traces are appended to this diagnostic's device. Each must have a folder in the scan. |
 | `output_label` | `str (optional)` | no | None | Name of the folder (under the scan) and filename label the stitched traces are written to; defaults to the diagnostic's output_name. Must differ from the master device's name — the stitcher refuses to write into the raw data folder. |
-
-### HasoAnalyzerSpec
-
-HASO wavefront sensor: slopes to phase and Zernike terms through WaveKit (Windows, licensed).
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `kind` | `'haso'` | no | 'haso' | HASO wavefront analyzer via WaveKit. |
-| `wavekit_config_file_path` | `Path` | yes | — | The WaveKit sensor configuration (.dat) for this HASO head. |
-| `mask` | `PupilMask` | no | PupilMask(top=1, bottom=-1, left=1, right=-1) | Pupil mask applied to the slopes. |
-| `background_path` | `Path (optional)` | no | None | A .has slopes file subtracted as background. |
-| `laser_wavelength` | `float` | no | 800.0 | Probe wavelength, nm. |
-
-### PupilMask
-
-Rectangular pupil mask on the HASO slopes grid, inclusive bounds; -1 means the far edge.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `top` | `int` | no | 1 | Top row of the pupil (inclusive). |
-| `bottom` | `int` | no | -1 | Bottom row of the pupil (inclusive); -1 = last row. |
-| `left` | `int` | no | 1 | Left column of the pupil (inclusive). |
-| `right` | `int` | no | -1 | Right column of the pupil (inclusive); -1 = last column. |
 
 ### HimgToStackSpec
 
@@ -1158,7 +1135,7 @@ One device's analysis: input, ordered steps, a measure, the draw, the summaries.
 | `description` | `str (optional)` | no | None | Free-text note about this recipe. |
 | `metadata` | `dict[str, Any] (optional)` | no | None | Free-form documentary fields; nothing reads them. |
 | `input` | `CameraInput \| LineInput` | yes | — | Where the frames come from and how one is read. |
-| `inputs` | `dict[str, FrameInput]` | no | empty | Frames loaded before the run and bound by name for steps that take one (a background image). |
+| `inputs` | `dict[str, FrameInput]` | no | empty | Frames loaded before the run and bound by name for steps that take one (a background image) or a measure that compares against one (the haso reference). |
 | `steps` | `list[StepRef]` | no | empty | Processing steps in order; any order, repeats allowed. |
 | `measure` | `MeasureRef` | no | MeasureRef(kind='none') | What is measured on each processed frame. |
 | `scan` | `RecipeRuntime` | no | RecipeRuntime(priority=100, average_frames_first=False, save=True, workers=1) | How the recipe runs over a scan. |

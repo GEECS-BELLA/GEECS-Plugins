@@ -162,6 +162,10 @@ def to_v3(document: AnalysisDiagnostic) -> Conversion:
     else:
         if "bit_depth" in config.model_fields_set:
             notes.append("image.bit_depth dropped: the core does not use it")
+        if "threshold_factor" in document.analyzer.model_fields_set:
+            notes.append(
+                "analyzer.threshold_factor dropped: the bow-tie fit never read it"
+            )
     if scan.gdoc_slot is not None:
         notes.append("scan.gdoc_slot dropped (retired)")
 

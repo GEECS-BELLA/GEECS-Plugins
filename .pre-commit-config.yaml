@@ -1,7 +1,6 @@
 exclude: |
   (?x)^(
     extras/|
-    .*/third_party_sdks/|
     .*/tests/data/wire/|
     .*/image_analysis/algorithms/(grenouille|qwlsi)\.py$
   )
@@ -15,7 +14,7 @@ repos:
         stages: [pre-commit]
       - id: trailing-whitespace
       - id: end-of-file-fixer
-        exclude: "(^extras/|.*/third_party_sdks/|.*\\.in$)"
+        exclude: "(^extras/|.*\\.in$)"
       - id: check-ast
       - id: check-case-conflict
       - id: check-json
@@ -24,7 +23,7 @@ repos:
       - id: check-xml
       - id: check-yaml
         args: [--unsafe]
-        exclude: "(^extras/|.*/third_party_sdks/|.*_ui\\.py$|.*/tests/)"
+        exclude: "(^extras/|.*_ui\\.py$|.*/tests/)"
       - id: check-toml
       - id: check-added-large-files
         args: [--maxkb=1024]
@@ -41,10 +40,10 @@ repos:
       - id: ruff
         args: [--fix]
         types_or: [python, pyi, jupyter]
-        exclude: "(^extras/|.*/third_party_sdks/|.*_ui\\.py$)"
+        exclude: "(^extras/|.*_ui\\.py$)"
       - id: ruff-format
         types_or: [python, pyi, jupyter]
-        exclude: "(^extras/|.*/third_party_sdks/|.*_ui\\.py$)"
+        exclude: "(^extras/|.*_ui\\.py$)"
 
   - repo: https://github.com/pycqa/pydocstyle
     rev: 6.3.0
@@ -59,7 +58,6 @@ repos:
         exclude: |
           (?x)^(
             extras/|
-            .*/third_party_sdks/|
             .*_ui\.py$|
             .*/tests/|
             tests/|
@@ -95,4 +93,4 @@ repos:
         stages: [pre-commit]
         language: system
         entry: jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace
-        exclude: '(^extras/|.*/third_party_sdks/|^docs/).*\.ipynb$'
+        exclude: '(^extras/|^docs/).*\.ipynb$'

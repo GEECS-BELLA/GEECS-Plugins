@@ -207,3 +207,105 @@ def test_bad_waterfall_skips_only_summary_and_reports_reason(tmp_path):
     assert len(saved.files) == 2
     assert not saved.display_files
     assert "equal-length" in saved.notes[0]
+
+
+class TestShotStore:
+    """One HDF5 per scan of every single-shot measurement's frame and extras."""
+
+    @staticmethod
+    def measurement(shot: int, *, extras=("a", "b"), shape=(2, 3)):
+        frame = Frame.from_array(np.full(shape, shot, dtype=np.float64))
+        return Measurement(
+            {"s": shot},
+            frame,
+            extras={
+                k: Frame.from_array(np.full(shape, shot * 10 + i))
+                for i, k in enumerate(extras)
+            },
+        )
+
+    def test_shots_append_in_order_and_the_file_appears_on_close(self, tmp_path):
+        from scan_analysis.core_sink import ShotStore, shot_store_path
+
+        scan = tmp_path / "scans" / "Scan001"
+        scan.mkdir(parents=True)
+        path = shot_store_path(scan_recipe(document()), scan, "wavefront")
+        assert path == (
+            tmp_path
+            / "analysis"
+            / "Scan001"
+            / "Output"
+            / "Array2DScanAnalyzer"
+            / "Device_wavefront.h5"
+        )
+        store = ShotStore(path)
+        assert store.close() is None and not path.parent.exists()  # nothing stored
+        store = ShotStore(path)
+        for shot in (3, 1, 2):
+            store.add(shot, self.measurement(shot))
+        assert store.part.exists() and not path.exists()
+        assert store.close() == path
+        assert not store.part.exists()
+        with h5py.File(path) as f:
+            assert f["shots"][:].tolist() == [3, 1, 2]
+            assert f["frame"].dtype == np.float32 and f["frame"].shape == (3, 2, 3)
+            assert f["frame"].chunks == (1, 2, 3)
+            assert sorted(f["extras"]) == ["a", "b"]
+            np.testing.assert_array_equal(f["frame"][1], np.full((2, 3), 1))
+            np.testing.assert_array_equal(f["extras/b"][0], np.full((2, 3), 31))
+        assert not list(scan.iterdir())
+
+    def test_a_disagreeing_shot_is_refused_and_a_discarded_store_leaves_nothing(
+        self, tmp_path
+    ):
+        from scan_analysis.core_sink import ShotStore
+
+        path = (
+            tmp_path
+            / "analysis"
+            / "Scan001"
+            / "Output"
+            / "Array2DScanAnalyzer"
+            / "D_w.h5"
+        )
+        store = ShotStore(path)
+        store.add(1, self.measurement(1))
+        with pytest.raises(ValueError, match="shape"):
+            store.add(2, self.measurement(2, shape=(3, 3)))
+        with pytest.raises(ValueError, match="extras"):
+            store.add(2, self.measurement(2, extras=("a",)))
+        assert store.close(keep=False) is None
+        assert not path.exists() and not store.part.exists()
+        with pytest.raises(RuntimeError):
+            with ShotStore(path) as store:
+                store.add(1, self.measurement(1))
+                raise RuntimeError("the run died")
+        assert not path.exists() and not store.part.exists()
+
+    def test_a_second_writer_on_the_same_part_is_refused(self, tmp_path):
+        from scan_analysis.core_sink import ShotStore
+
+        path = (
+            tmp_path
+            / "analysis"
+            / "Scan001"
+            / "Output"
+            / "Array2DScanAnalyzer"
+            / "D_w.h5"
+        )
+        first = ShotStore(path)
+        first.add(1, self.measurement(1))
+        second = ShotStore(path)
+        with pytest.raises(OSError, match="exists"):
+            second.add(1, self.measurement(1))
+        # The refused writer discards nothing of the first's.
+        assert second.close(keep=False) is None and first.part.exists()
+        assert first.close() == path
+
+    def test_the_store_name_is_one_component(self, tmp_path):
+        from scan_analysis.core_sink import shot_store_path
+
+        scan = tmp_path / "scans" / "Scan001"
+        scan.mkdir(parents=True)
+        with pytest.raises(ValueError):
+            shot_store_path(scan_recipe(document()), scan, "../w")

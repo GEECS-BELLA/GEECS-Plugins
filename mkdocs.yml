@@ -57,6 +57,7 @@ nav:
 
   - Analysis:
       - analysis/index.md
+      - HASO wavefront (WaveKit): analysis/haso.md
       - Image Analysis:
           - Overview: image_analysis/overview.md
           - Analyzer Index: image_analysis/analyzer_index.md
@@ -66,7 +67,6 @@ nav:
               - Basic Offline Analysis: image_analysis/examples/basic_usage_image_analyzer.ipynb
               - Basic Usage — 1D Analyzer: image_analysis/examples/basic_usage_1D_analyzer.ipynb
               - Grenouille Analysis: image_analysis/examples/grenouille_analysis.ipynb
-              - HasoLift Analysis: image_analysis/examples/HasoLift_analysis.ipynb
       - Scan Analysis:
           - Overview: scan_analysis/overview.md
           - API Reference:

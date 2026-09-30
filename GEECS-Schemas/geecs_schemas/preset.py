@@ -26,7 +26,7 @@ acquisition mode as a plan keyword (``acquisition: gated`` in
 per-shot files: one value per scan, reaching only the cameras whose
 frames the PVA gateway's file plugin captures (GEECS-Plugins#738); unset
 defers to the experiment default, which the worker reads at every scan.
-``background_telemetry`` (0.39.0) is the run-level switch for the
+``background_telemetry`` (0.41.0) is the run-level switch for the
 background columns — every logged scalar of the experiment outside the
 scan's own devices, read softly into every row, as Master Control logged
 it (GEECS-Plugins#1016, #929); unset defers to the experiment default

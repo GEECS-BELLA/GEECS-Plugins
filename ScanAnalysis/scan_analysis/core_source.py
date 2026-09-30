@@ -11,13 +11,46 @@ from typing import Mapping
 import numpy as np
 import pandas as pd
 from geecs_data_utils.io.array1d import Data1DConfig, read_1d_data
+from geecs_data_utils.io.himg_stack import HIMG_SUFFIX
 from geecs_data_utils.io.images import read_imaq_image
-from geecs_data_utils.io.scan_stack import ShotRef, open_stack, read_frame, read_shot
+from geecs_data_utils.io.scan_stack import (
+    ShotRef,
+    find_stack_file,
+    open_stack,
+    read_frame,
+    read_shot,
+)
 from geecs_data_utils.shot_files import StackMappingUnavailable, map_shot_files
 
 from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
 
 logger = logging.getLogger(__name__)
+
+#: How the message that refuses an unconverted HASO scan names the way out.
+STACK_HINT = (
+    "convert the scan first with the himg_to_stack analyzer "
+    "(HasoLift_stack in the Data Portal's Analysis tab)"
+)
+
+
+def stack_required(device_dir: Path) -> Path:
+    """The device folder's capture stack, or the refusal every ``.himg`` reader gives.
+
+    ``.himg`` frames enter the analysis core only through the device's
+    stack (``<device>/<device>.h5``, written by ``himg_to_stack``): the
+    per-shot files are never read by a run — not by the source, not by a
+    dark scan's background loader, not by the WaveKit service that takes
+    its sensor header from the stack. The refusal is a
+    ``StackMappingUnavailable`` (a ``LookupError``), which the scan host
+    reports as missing data.
+    """
+    stack = find_stack_file(Path(device_dir))
+    if stack is None:
+        raise StackMappingUnavailable(
+            f"no capture stack in {device_dir}: {HIMG_SUFFIX} frames are read "
+            f"from the stack only — {STACK_HINT}"
+        )
+    return stack
 
 
 @dataclass(frozen=True)
@@ -169,25 +202,34 @@ def prepare_source(
     Keep device identity separate from the optional folder/file-device override.
     Camera and line default suffixes remain .png and .csv, respectively. Stack
     preference is explicit; pva_stack traces require it and never fall back to
-    per-shot files. File mapping reads only identities, not frame arrays. Hosts
-    must wait for scan completion before resolving HDF5 stacks over SMB.
+    per-shot files, and neither do ``.himg`` frames (a HASO device): the
+    per-shot vendor files are read only through the stack ``himg_to_stack``
+    writes, so an unconverted scan is refused (``StackMappingUnavailable``)
+    with the way out named. File mapping reads only identities, not frame
+    arrays. Hosts must wait for scan completion before resolving HDF5
+    stacks over SMB.
     """
     spec = _resolved(recipe)
     device_dir = source_directory(spec, scan_folder)
     loading_json = None
     stacks_only = False
     default_tail = ".png"
+    prefer_stack = spec.prefer_stack
     if spec.line:
         loading = Data1DConfig.model_validate_json(spec.line_loading_json)
         loading_json = loading.model_dump_json()
         stacks_only = loading.data_type == "pva_stack"
         default_tail = ".csv"
+    file_tail = spec.file_tail if spec.file_tail is not None else default_tail
+    if not spec.line and file_tail == HIMG_SUFFIX:
+        stack_required(device_dir)
+        prefer_stack = stacks_only = True
     references = map_shot_files(
         device_dir,
         rows,
         device=spec.device,
-        file_tail=spec.file_tail if spec.file_tail is not None else default_tail,
-        prefer_stack=spec.prefer_stack,
+        file_tail=file_tail,
+        prefer_stack=prefer_stack,
         stacks_only=stacks_only,
         file_device=device_dir.name,
     )

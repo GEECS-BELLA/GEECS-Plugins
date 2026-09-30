@@ -1,5 +1,98 @@
 # Changelog
 
+## [0.24.0] - 2026-09-29
+
+### Added
+
+- Measure frame inputs: `@measure(..., input_field=)` names an
+  `Optional[str]` spec field holding a frame-binding key the recipe
+  declares in `inputs`. `bind_inputs(measure=)` binds it, both evaluators
+  process it through the recipe's own steps (`process_measure_input`; a
+  step bound to the same key still sees the loaded frame), `apply_measure`
+  hands it over as the last argument (`None` when unset), and
+  `compile_recipe` counts it when matching declared against used inputs
+  (its messages now say "steps or the measure").
+  It refuses a key bound by both a step and the measure (the reference
+  would be processed to zeros) and a `fallback_level` on the measure's
+  key (a constant cannot stand in for a comparison frame).
+- The `haso` measure's `reference`: a frame input (a same-day probe-only
+  scan's mean, `from_scan`) whose slopes the engine subtracts from every
+  shot's before the mask and filters, so the processed phase, slopes,
+  pupil and scalars describe the plasma imprint; `raw_phase` and
+  `intensity` stay the shot's own. A reference of another shape than the
+  frame is refused. Verified float32-exact against the SDK's in-memory
+  subtraction on 26_0929 Scan015/Scan014.
+
+## [0.23.0] - 2026-09-29
+
+### Changed
+
+- A per-bin (`average_frames_first`) run streams its raw frames (#1025).
+  `compat.v2_run` used to collect a copy of every loaded frame of a group
+  and `np.mean` the list, so a noscan — one bin — held the whole scan: on
+  a 5000-shot UC_HiResMagCam scan the portal's run reached its 3.0G
+  `MemoryHigh` and stalled. Each member is now folded into a running sum
+  as it loads (`_Sum`, which gains an optional accumulator `dtype`), in
+  the intermediate dtype `np.mean` would use — float64 for integer
+  frames, float32 for float32 traces, float32 cast back for float16 —
+  so the quotient is the stacked mean bit for bit, and a bin holds one
+  native frame and one accumulator however many shots it has. Load
+  order, load failures with the bin's full membership, and the
+  incompatible-shape outcome are kept; a member that would broadcast
+  into the sum (a (1, N) frame in an (M, N) bin) is an incompatible
+  shape, as it was for the stack. A member whose dtype would change the
+  accumulator's (a float64 frame in a float32 bin, a float32 frame in an
+  integer bin) is now an explicit incompatible-dtype outcome: the stack
+  summed every member in the promoted dtype, which no fold of members
+  already rounded can reproduce. Mixed integer dtypes (all summed in
+  float64) still average, bit for bit.
+
+## [0.22.0] - 2026-09-29
+
+### Added
+
+- The `hi_res_mag_cam` measure: the HTU HiResMagCam bow-tie analyzer on
+  the core (#1003 follow-on; the last camera kind in use). `algorithms.
+  bowtie_fit` is ImageAnalysis' `BowtieFitAlgorithm` ported unchanged (a
+  differential test holds it to the original bit for bit, including both
+  rejection paths); the measure is the legacy analyzer's composition —
+  the full beam statistics in frame coordinates, then the fit on the
+  frame floored at 10 counts — and its `emittance_proxy` keeps the
+  optimizer contract (`1e6` when the fit is rejected). New beside it:
+  `bowtie_x0` (the waist column, in sensor pixels like `x_CoM`; a waist
+  the fit places a few columns past the crop — it accepts one within ten
+  columns of data — reads past the edge, as legacy's `x0 + x_min` did,
+  never clamped to it), `bowtie_w0`, `bowtie_theta` and
+  `bowtie_r_squared`, NaN with a note whenever the fit is rejected so a
+  per-bin or per-shot mean of the waist column excludes failed fits by
+  itself. The measure calls the `beam` measure for the statistics and
+  overlays rather than copying its body. The fit's per-column weights
+  are the `bowtie_weights` overlay, drawn as the legacy lineout.
+  `compile_v2` compiles the v2 `hi_res_mag_cam` kind to it and `to_v3`
+  converts those diagnostics, noting a set `threshold_factor` as dropped
+  (the fit never read it; the measure has no such field).
+
+## [0.21.0] - 2026-09-29
+
+### Added
+
+- The `haso` measure (`measures/haso.py`): HASO wavefront reconstruction
+  through a host-supplied WaveKit engine (service `haso`), a rewrite for
+  the v3 recipe of the deleted v2 `haso` analyzer keeping its function.
+  `HasoSpec`: `sensor_config` (a file name the host resolves), `mask`
+  (numpy slice bounds on the slopes grid; unset keeps the sensor's pupil),
+  `filters` (the legacy defaults: tilt x/y, curvature, astigmatism 0/45
+  removed), `wavelength_nm` 800, `start_subpupil` (87, 64), `zonal_prefs`
+  (100, 500, 1e-6). The processed frame is rounded and clipped to the
+  sensor's uint16 pixels before the engine sees it (a numpy background
+  subtraction equals the SDK's, verified); the processed zonal phase is
+  the measurement frame, raw phase / intensity / slopes x, y / pupil the
+  extras, `phase_rms` and `phase_pv` inside the pupil the scalars.
+- `@measure(shot_store=...)` / `MeasureDefinition.shot_store`: a measure
+  may name the per-scan store a scan host writes every single-shot frame
+  and extras to (the `haso` measure's `wavefront`), beside `sidecar` for
+  1D extras.
+
 ## [0.20.0] - 2026-09-28
 
 ### Added

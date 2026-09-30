@@ -581,7 +581,7 @@
     // processed, what is measured, how it is drawn, the scan-level figures,
     // how the run behaves.
     const RECIPE_SECTIONS = () => [
-      { title: "Source", keys: ["device", "output_name", "scalar_suffix", "description", "input", "inputs"], help: "The device whose folder is read, how one frame is read, and any frame loaded before the run (a background image) for a step to use by name.",
+      { title: "Source", keys: ["device", "output_name", "scalar_suffix", "description", "input", "inputs"], help: "The device whose folder is read, how one frame is read, and any frame loaded before the run for a step or the measure to use by name (a background image; a haso reference).",
         advanced: { title: "naming overrides", keys: ["output_name", "scalar_suffix"], help: "Optional. Rename what this recipe writes (a readable label, or two recipes on one device), or tag its s-file columns (a variant of the same analysis). Unset, everything is named after the device." } },
       { title: "Steps", keys: ["steps"], help: "Processing in order, top to bottom; a step may repeat. A step marked (images) or (traces) fits that input kind only." },
       { title: "Measure", keys: ["measure"], help: "What is measured on every processed frame; its scalars become s-file columns." },

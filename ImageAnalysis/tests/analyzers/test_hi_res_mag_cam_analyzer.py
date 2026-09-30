@@ -65,7 +65,14 @@ class TestHiResMagCamAnalyzerScalars:
     """Scalar presence tests on bowtie synthetic image."""
 
     BEAM_SCALARS = ["x_CoM", "y_CoM", "image_total", "image_peak_value"]
-    BOWTIE_SCALARS = ["emittance_proxy", "total_counts"]
+    BOWTIE_SCALARS = [
+        "emittance_proxy",
+        "total_counts",
+        "bowtie_x0",
+        "bowtie_w0",
+        "bowtie_theta",
+        "bowtie_r_squared",
+    ]
 
     def test_beam_scalars_present(self, analyzer, bowtie_image):
         result = analyzer.analyze_image(bowtie_image)
