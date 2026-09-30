@@ -318,6 +318,29 @@ inapplicable analyzers collapsed; it polls every 1.5 s while a run is
 active and the tab button exists only when `analysis_enabled` (feature
 configured + extra installed + folder resolvable) — a bookmarked
 `tab=analysis` otherwise falls back to Plot.
+**Destructive kinds and progress** (0.38.0): each listed analyzer
+carries `destructive` (the diagnostic's `AnalyzerSpecBase.destructive`
+— today only the `.himg` compaction, `himg_compact`; a v3 recipe is
+never destructive).  For such a kind the tab's row says *deletes files*
+and its run button opens a real `<dialog>` (`showModal()`: focus trap,
+`Esc`, inert background; focus on the input, never the delete button)
+that asks the user to type **this scan's number** (`const SCAN_NUMBER`);
+the POST carries it as `confirm=<number>` and the endpoint refuses a
+destructive kind without exactly that value (**400**) — the gate is
+server-side so no client, script or curl runs a delete unasked.  Past
+that check the run's factory is called with `allow_destructive=True`
+(`run_scan_analyzer(..., allow_destructive=)` → `create_scan_analyzer`,
+which refuses a destructive kind without it — the same gate the task
+queue and MCP never pass), so the confirmation and the opt-in are one
+decision.  The listing carries `scan_number`, the value the check
+compares against (from the resolved folder, like the run's tag), and
+the dialog asks for that one.  The
+job record also carries `progress` (`{done, total, phase}` — the last
+thing the analyzer reported through `ScanAnalyzer.progress`, the
+base-class hook `run_scan_analyzer` sets when the analyzer has it; most
+never report, the `.himg` kinds report per frame from their child
+process), and the tab shows it in the state badge while the run lasts
+(`running · verifying 320/1806`).
 **The config editor drawer** (0.21.0, `config_editor` in the page and
 `/api/run/{uid}` payload): the Analysis tab's per-analyzer **edit** button
 opens `scan_analysis.config_editor`'s form in a drawer over the page

@@ -54,6 +54,7 @@ from geecs_data_utils.shot_join import (
     row_windows,
     shot_clock_column,
 )
+from geecs_data_utils.data.sfile import scan_data_txt_path_for
 from geecs_data_utils.tiled_catalog import read_tiled_config
 
 logger = logging.getLogger(__name__)
@@ -300,7 +301,7 @@ def _resolve_output_paths(start_doc: dict[str, Any]) -> Optional[tuple[Path, Pat
         # Fall back to the trailing digits of the folder name (ScanNNN).
         scan_number = int("".join(ch for ch in folder.name if ch.isdigit()) or "0")
 
-    scan_txt = folder / f"ScanData{folder.name}.txt"
+    scan_txt = scan_data_txt_path_for(folder)
     # analysis/ is the sibling of scans/ under the day folder: replace the
     # "scans" path component with "analysis" and drop the ScanNNN leaf.
     parts = list(folder.parts)

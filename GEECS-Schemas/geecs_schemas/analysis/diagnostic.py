@@ -124,6 +124,11 @@ class AnalysisDiagnostic(VersionedSchemaModel):
         return self.scan.device or self.name
 
     @property
+    def destructive(self) -> bool:
+        """Whether a run deletes or rewrites data files — the analyzer kind's ``destructive``."""
+        return type(self.analyzer).destructive
+
+    @property
     def line_loading(self) -> Optional[Data1DLoading]:
         """How one trace file is read, for a line diagnostic; ``None`` otherwise."""
         return self.image.data_loading if isinstance(self.image, Line1DConfig) else None

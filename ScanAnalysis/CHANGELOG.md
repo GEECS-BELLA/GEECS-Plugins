@@ -3,6 +3,45 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.45.0] - 2026-09-29
+
+### Added
+
+- `analyzers/common/himg_kinds.py`: the three scan-scoped `.himg` kinds.
+  `HimgCompactAnalyzer` (`himg_compact`, the one destructive kind)
+  verifies every frame against the stack and the file on disk, then
+  deletes the `.himg` files and leaves `himg_manifest.json`; every
+  refusal (a young file, no closed-run table, a file the stack lacks, a
+  mismatch, another writer's `.part`) is data-utils' and comes back as a
+  failed run with nothing deleted; a folder without a stack fails naming
+  `himg_to_stack`. `HimgRestoreAnalyzer` (`himg_restore`) rebuilds the
+  files byte-identically. Both return one label — files and GB before
+  and after. `SCAN_SCOPED_CLASS_PATHS` maps all three.
+- `ScanAnalyzer.progress` / `report_progress(done, total, phase)`: the
+  base-class hook a host sets to show a run's progress (the data
+  portal's run record); analyzers that can report call it.
+- `create_scan_analyzer(..., allow_destructive=False)` and
+  `DestructiveKindRefused`: a document whose kind is `destructive`
+  (`AnalyzerSpecBase.destructive`) is built only for a host that says it
+  confirmed the run — the gate every host passes, not only the portal's.
+  `load_analyzers_from_config` (the task queue's group loader) skips such
+  a kind with a logged reason, so a group naming `HasoLift_compact` runs
+  everything else and never the deletion; MCP's single-analyzer path gets
+  the refusal.
+
+### Changed
+
+- The `.himg` kinds run their work **out of process** through
+  `geecs_data_utils.io.himg_worker.run_himg_job` (a child interpreter
+  streams frames done/total back, relayed through `report_progress`):
+  a 44 GB scan streamed through the portal's own process sat at its
+  memory limit for half an hour with nothing on the page. The converter
+  moved from `himg_to_stack.py` into `himg_kinds.py` (module deleted;
+  the kind, the class name and its behaviour are unchanged — a second
+  run still verifies the existing stack). The child reads the scan's
+  s-file for legacy shot-numbered names from the analyzer's
+  `auxiliary_file_path`.
+
 ## [1.44.1] - 2026-09-29
 
 ### Changed

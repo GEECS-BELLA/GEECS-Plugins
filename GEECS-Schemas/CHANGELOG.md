@@ -5,6 +5,21 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.0] - 2026-09-29
+
+### Added
+
+- `AnalyzerSpecBase.destructive` (`ClassVar[bool]`, default `False`): a
+  kind whose run deletes or rewrites data files. A host that offers
+  one-click runs asks for a typed confirmation before such a kind.
+  `AnalysisDiagnostic.destructive` reads it off the analyzer;
+  `AnalysisRecipe.destructive` is always `False`.
+- `HimgCompactSpec` (kind `himg_compact`, scan-scoped, `destructive =
+  True`): the HASO `.himg` compaction — verify every frame against the
+  stack, then delete the `.himg` files; and `HimgRestoreSpec` (kind
+  `himg_restore`, scan-scoped): rebuild them from the stack. Sixteen
+  kinds; the JSON Schema artifact and the reference regenerated.
+
 ## [0.41.0] - 2026-09-29
 
 ### Added

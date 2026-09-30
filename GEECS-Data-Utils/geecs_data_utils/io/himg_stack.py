@@ -25,8 +25,17 @@ prefers over per-shot files.  Lossless and about five times smaller:
 The stack is written to ``<device>.h5.part`` and renamed into place only
 when complete and (by default) verified, so a reader never finds a
 half-written stack under the name it looks for.  The ``.himg`` files are
-never touched: converting only adds the stack (deleting the sources is a
-separate, explicit, verify-first step — planned, not this module).
+never touched: converting only adds the stack.  Deleting the sources is
+the separate, explicit, verify-first step of
+:mod:`geecs_data_utils.io.himg_compact`, and never this module's.
+
+Every long loop here takes a ``progress`` callback — ``(done, total,
+phase)`` after each frame — so a host running the conversion out of
+process (:mod:`geecs_data_utils.io.himg_worker`) can show frames
+done/total instead of a silent wait.  Source files are read through
+:func:`read_source_bytes`, which asks the kernel to drop them from the
+page cache once read: a 44 GB scan streamed through a service's cgroup
+otherwise counts against its memory limit as cache.
 
 Scan-folder invariant: this module creates no directory.  The device
 folder must already exist with its ``.himg`` files; nothing is created
@@ -41,7 +50,7 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import h5py
 import numpy as np
@@ -76,6 +85,7 @@ __all__ = [
     "SOURCE_SIZE_DATASET",
     "STAMP_VARIABLE",
     "HimgSource",
+    "HimgSourcesDeleted",
     "HimgStackError",
     "HimgStackExists",
     "HimgStackReport",
@@ -83,15 +93,26 @@ __all__ = [
     "HimgVerificationFailed",
     "HimgVerifyReport",
     "NoHimgFiles",
+    "Progress",
     "convert_himg_folder",
+    "forget_pages",
     "stack_header",
     "himg_sources",
+    "is_himg_stack",
     "list_himg_files",
+    "package_version",
+    "part_path_for",
+    "read_source_bytes",
     "stack_path_for",
     "stamp_attribute_name",
     "verify_himg_stack",
     "write_himg_stack",
 ]
+
+#: A progress callback: ``(done, total, phase)`` after each unit of work
+#: — ``phase`` is a short verb for the host's status line (``"writing"``,
+#: ``"verifying"``, ``"deleting"``, ``"restoring"``).
+Progress = Callable[[int, int, str], None]
 
 #: The source files' suffix, exactly as the sensor writes it.
 HIMG_SUFFIX = ".himg"
@@ -140,16 +161,46 @@ class HimgStampsUnavailable(HimgStackError):
 
 
 class HimgVerificationFailed(HimgStackError):
-    """A rebuilt frame did not match its source; the stack was removed."""
+    """A rebuilt frame did not match its source (or the file on disk).
 
-    def __init__(self, stack_path: Path, mismatches: Sequence[str]):
+    The converter removes the failed stack (its default *outcome*); a
+    compaction or a restore that finds a mismatch leaves everything as it
+    was and says so.
+    """
+
+    def __init__(
+        self,
+        stack_path: Path,
+        mismatches: Sequence[str],
+        *,
+        outcome: str = "the stack was removed",
+    ):
         shown = ", ".join(mismatches[:5]) + (" …" if len(mismatches) > 5 else "")
         super().__init__(
             f"{len(mismatches)} frame(s) of {stack_path} did not rebuild "
-            f"byte-identically ({shown}); the stack was removed"
+            f"byte-identically ({shown}); {outcome}"
         )
         self.stack_path = stack_path
         self.mismatches = tuple(mismatches)
+
+
+class HimgSourcesDeleted(HimgStackError):
+    """The existing stack holds frames whose ``.himg`` files are gone (a compacted folder).
+
+    Overwriting it would rebuild the stack from the files still on disk
+    and replace the only copy of the deleted frames — refused; restore
+    the folder first.
+    """
+
+    def __init__(self, stack_path: Path, missing: Sequence[str]):
+        shown = ", ".join(missing[:5]) + (" …" if len(missing) > 5 else "")
+        super().__init__(
+            f"{stack_path} holds {len(missing)} frame(s) whose {HIMG_SUFFIX} files "
+            f"are no longer in the folder ({shown}) — the folder was compacted; "
+            "restore it (geecs-himg restore) before converting with overwrite"
+        )
+        self.stack_path = stack_path
+        self.missing = tuple(missing)
 
 
 @dataclass(frozen=True)
@@ -204,19 +255,30 @@ class HimgStackReport:
 
 @dataclass
 class HimgVerifyReport:
-    """What a verification pass found."""
+    """What a verification pass found.
+
+    Two kinds of disagreement are kept apart because they call for
+    opposite remedies: a frame that does not rebuild its recorded hash
+    means the *stack* is damaged (reconvert from the files), while a
+    file on disk that differs from an intact frame means the *file*
+    changed after conversion (decide which copy is right; never
+    reconvert over the stack).
+    """
 
     stack_path: Path
     frames: int
-    #: Source names whose rebuilt bytes did not hash (or compare) to the source.
+    #: Source names whose rebuilt bytes did not hash to the recorded SHA-256.
     mismatches: tuple[str, ...] = ()
     #: Source names absent from the folder (``against_files`` only).
     missing: tuple[str, ...] = ()
+    #: Source names whose file on disk differs from the (intact) frame
+    #: (``against_files`` only).
+    changed: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
-        """Every frame rebuilt byte-identically (and, if asked, every source was there)."""
-        return not self.mismatches and not self.missing
+        """Every frame rebuilt byte-identically (and, if asked, every source was there and equal)."""
+        return not self.mismatches and not self.missing and not self.changed
 
     def summary(self) -> str:
         """One line for a log or a task record."""
@@ -224,13 +286,63 @@ class HimgVerifyReport:
             return f"{self.stack_path.name}: {self.frames} frames verified"
         return (
             f"{self.stack_path.name}: {len(self.mismatches)} of {self.frames} frames "
-            f"mismatched, {len(self.missing)} source file(s) missing"
+            f"mismatched, {len(self.missing)} source file(s) missing, "
+            f"{len(self.changed)} changed on disk"
         )
 
 
 def stack_path_for(device_dir: Path) -> Path:
     """Where the device's stack lives: ``<device>/<device>.h5`` (the reader's rule)."""
     return device_dir / f"{device_dir.name}.h5"
+
+
+def part_path_for(device_dir: Path) -> Path:
+    """The in-progress stack a writer owns: ``<device>/<device>.h5.part``."""
+    return device_dir / f"{device_dir.name}{PART_SUFFIX}"
+
+
+def is_himg_stack(stack_path: Path) -> bool:
+    """Whether *stack_path* is a stack this module wrote (frames + provenance group)."""
+    try:
+        with open_stack(Path(stack_path)) as f:
+            return all(
+                dataset in f
+                for dataset in (
+                    FRAMES_DATASET,
+                    HEADER_DATASET,
+                    SOURCE_NAME_DATASET,
+                    SOURCE_SHA256_DATASET,
+                )
+            )
+    except OSError:
+        return False
+
+
+def read_source_bytes(path: Path) -> bytes:
+    """Read a whole file and ask the kernel to forget it.
+
+    A conversion, a verification or a compaction streams every ``.himg``
+    of a scan through the process once; left in the page cache, tens of
+    gigabytes count against the service's memory cgroup (the portal sat
+    at its ``MemoryHigh`` for the length of a 1806-shot conversion).
+    ``posix_fadvise(DONTNEED)`` after the read drops the clean pages
+    (Linux; a no-op where the call is missing or refused).
+    """
+    with open(path, "rb") as handle:
+        data = handle.read()
+        forget_pages(handle.fileno())
+    return data
+
+
+def forget_pages(fd: int) -> None:
+    """``posix_fadvise(fd, 0, 0, DONTNEED)`` where available; silent otherwise."""
+    advise = getattr(os, "posix_fadvise", None)
+    if advise is None:
+        return
+    try:
+        advise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+    except OSError:
+        pass
 
 
 def stamp_attribute_name(device: str) -> str:
@@ -333,7 +445,8 @@ def _legacy_stamps(
     return stamps
 
 
-def _package_version() -> str:
+def package_version() -> str:
+    """The installed version of this package, for the stack's and the manifest's ``writer``."""
     from importlib.metadata import PackageNotFoundError, version
 
     try:
@@ -349,6 +462,7 @@ def write_himg_stack(
     device: str | None = None,
     overwrite: bool = False,
     compression_level: int = DEFAULT_COMPRESSION_LEVEL,
+    progress: Optional[Progress] = None,
 ) -> HimgStackReport:
     """Write ``<device>/<device>.h5`` from *sources*, one frame per file.
 
@@ -368,6 +482,8 @@ def write_himg_stack(
         Replace an existing stack (atomically, at the final rename).
     compression_level : int
         gzip level for the frames.
+    progress : callable, optional
+        ``(done, total, "writing")`` after each frame.
 
     Raises
     ------
@@ -388,7 +504,17 @@ def write_himg_stack(
     stack = stack_path_for(device_dir)
     if stack.exists() and not overwrite:
         raise HimgStackExists(stack)
-    part = device_dir / f"{device_dir.name}{PART_SUFFIX}"
+    part = part_path_for(device_dir)
+    if overwrite and stack.exists() and is_himg_stack(stack):
+        # A compacted folder: the stack is the ONLY copy of frames whose
+        # .himg files were deleted. Rebuilding it from the files on disk
+        # would silently drop them — refuse, and name the way back.
+        with open_stack(stack) as f:
+            recorded = [str(n) for n in f[SOURCE_NAME_DATASET].asstr()[:]]
+        on_disk = {s.path.name for s in sources}
+        gone = [name for name in recorded if name not in on_disk]
+        if gone:
+            raise HimgSourcesDeleted(stack, gone)
     if overwrite:
         part.unlink(missing_ok=True)  # a previous attempt that died mid-write
     try:
@@ -416,7 +542,7 @@ def write_himg_stack(
             f.attrs["device"] = device
             f.attrs["variable"] = STAMP_VARIABLE
             f.attrs["source_format"] = "himg"
-            f.attrs["writer"] = f"geecs-data-utils {_package_version()}"
+            f.attrs["writer"] = f"geecs-data-utils {package_version()}"
             f.attrs["created"] = started
             stamps = f.create_dataset(
                 f"{ATTRIBUTES_GROUP}/{stamp_attribute_name(device)}",
@@ -425,7 +551,7 @@ def write_himg_stack(
             )
             frames = headers = None
             for index, source in enumerate(sources):
-                data = source.path.read_bytes()
+                data = read_source_bytes(source.path)
                 names.append(source.path.name)
                 digests.append(hashlib.sha256(data).hexdigest())
                 sizes.append(len(data))
@@ -466,6 +592,8 @@ def write_himg_stack(
                     logger.info(
                         "%s: %d/%d frames written", device_dir.name, index + 1, count
                     )
+                if progress is not None:
+                    progress(index + 1, count, "writing")
             f.create_dataset(SOURCE_NAME_DATASET, data=names, dtype=h5py.string_dtype())
             f.create_dataset(SOURCE_SHA256_DATASET, data=np.array(digests, dtype="S64"))
             f.create_dataset(SOURCE_SIZE_DATASET, data=np.array(sizes, dtype="i8"))
@@ -512,7 +640,10 @@ def stack_header(stack_path: Path, index: int = 0) -> bytes:
 
 
 def verify_himg_stack(
-    stack_path: Path, *, against_files: bool = False
+    stack_path: Path,
+    *,
+    against_files: bool = False,
+    progress: Optional[Progress] = None,
 ) -> HimgVerifyReport:
     """Rebuild every frame of a stack and check it against the manifest.
 
@@ -522,7 +653,7 @@ def verify_himg_stack(
     are the source's.  This reads only the stack.  ``against_files`` also
     compares the rebuilt bytes with the ``.himg`` still in the folder (a
     second read of every source — the audit a compaction runs before it
-    deletes).
+    deletes).  ``progress`` gets ``(done, total, "verifying")`` per frame.
 
     Raises
     ------
@@ -532,6 +663,7 @@ def verify_himg_stack(
     stack_path = Path(stack_path)
     mismatches: list[str] = []
     missing: list[str] = []
+    changed: list[str] = []
     with open_stack(stack_path) as f:
         for dataset in (FRAMES_DATASET, HEADER_DATASET, SOURCE_SHA256_DATASET):
             if dataset not in f:
@@ -549,18 +681,27 @@ def verify_himg_stack(
             rebuilt = himg_bytes(headers[index].tobytes(), np.asarray(frames[index]))
             if hashlib.sha256(rebuilt).hexdigest() != digests[index]:
                 mismatches.append(names[index])
-                continue
-            if against_files:
+            elif against_files:
                 source = stack_path.parent / names[index]
-                if not source.is_file():
+                try:
+                    on_disk = read_source_bytes(source)
+                except FileNotFoundError:
                     missing.append(names[index])
-                elif source.read_bytes() != rebuilt:
-                    mismatches.append(names[index])
+                except OSError as exc:
+                    raise HimgStackError(
+                        f"{source.name}: unreadable while verifying ({exc})"
+                    ) from exc
+                else:
+                    if on_disk != rebuilt:
+                        changed.append(names[index])
+            if progress is not None:
+                progress(index + 1, count, "verifying")
     return HimgVerifyReport(
         stack_path=stack_path,
         frames=count,
         mismatches=tuple(mismatches),
         missing=tuple(missing),
+        changed=tuple(changed),
     )
 
 
@@ -572,6 +713,7 @@ def convert_himg_folder(
     verify: bool = True,
     overwrite: bool = False,
     compression_level: int = DEFAULT_COMPRESSION_LEVEL,
+    progress: Optional[Progress] = None,
 ) -> HimgStackReport:
     """Convert one device folder: discover, write, verify.
 
@@ -594,6 +736,8 @@ def convert_himg_folder(
         Replace an existing stack.
     compression_level : int
         gzip level for the frames.
+    progress : callable, optional
+        ``(done, total, phase)`` per frame — ``"writing"``, then ``"verifying"``.
     """
     started = time.time()
     device_dir = Path(device_dir)
@@ -612,10 +756,11 @@ def convert_himg_folder(
         device=device,
         overwrite=overwrite,
         compression_level=compression_level,
+        progress=progress,
     )
     if verify:
         try:
-            check = verify_himg_stack(report.stack_path)
+            check = verify_himg_stack(report.stack_path, progress=progress)
         except BaseException:
             report.stack_path.unlink(missing_ok=True)
             raise

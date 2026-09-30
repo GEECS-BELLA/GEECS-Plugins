@@ -18,7 +18,11 @@ from image_analysis.config.registry import (
 def test_registry_covers_exactly_the_frame_scoped_schema_kinds():
     assert set(ANALYZER_CLASS_PATHS) == FRAME_KINDS
     assert FRAME_KINDS == {k for k, m in ANALYZER_SPECS.items() if m.scope == "frame"}
-    assert set(ANALYZER_SPECS) - FRAME_KINDS == {"himg_to_stack"}
+    assert set(ANALYZER_SPECS) - FRAME_KINDS == {
+        "himg_to_stack",
+        "himg_compact",
+        "himg_restore",
+    }
 
 
 def test_unknown_kind_is_a_keyerror_naming_the_known_kinds():

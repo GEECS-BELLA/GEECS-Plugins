@@ -801,10 +801,26 @@ def load_analyzers_from_config(
         Runnable :class:`ScanAnalyzer` instances in execution order.
     """
     group = load_analysis_group(group_name, config_dir=config_dir)
-    return [
-        create_scan_analyzer(r.diagnostic, id=r.id, priority=r.priority)
-        for r in group.analyzers
-    ]
+    analyzers = []
+    for r in group.analyzers:
+        if getattr(r.diagnostic, "destructive", False):
+            # A kind that deletes data files never runs from a group: the
+            # queue runs unasked, and a destructive kind runs only where
+            # someone confirmed it (the portal's typed scan number, or the
+            # shell). Skipped with a reason, never silently.
+            logger.warning(
+                "group %s: skipping %s — %r is a destructive kind and runs only "
+                "on an explicit, confirmed request (the portal or the shell), "
+                "never from the queue",
+                group_name,
+                r.id,
+                r.diagnostic.analyzer.kind,
+            )
+            continue
+        analyzers.append(
+            create_scan_analyzer(r.diagnostic, id=r.id, priority=r.priority)
+        )
+    return analyzers
 
 
 def _heartbeat_updater(
