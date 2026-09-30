@@ -1,35 +1,26 @@
 """The worker's side of the PVA gateway's file plugin (#806).
 
-Three small things, everything else is stock ophyd-async:
+Three small things; everything else is stock ophyd-async:
 
-- :class:`GeecsHdfIO` — ``NDFileHDF5IO`` plus the three GEECS PVs the plugin
-  adds (``Rewind``, ``WriteStatus``, ``WriteMessage``).  The prefix is
-  minted by :func:`geecs_core.pv_naming.hdf_plugin_prefix`, the one place
-  both sides agree on it.
-- :class:`PluginPathProvider` — the per-detector ``PathProvider`` the stock
-  ``ADHDFDataLogic`` calls.  It ignores the datakey (ophyd's lowercase name)
-  and asks the shared :class:`~geecs_bluesky.plans.claim_scan.GeecsScanPathProvider`
-  for ``ScanNNN/<GEECS device>/`` — the directory every analysis reader
-  builds — then returns the **two paths** of one folder: the Windows path
-  the plugin's ``FilePath`` receives (translated for the service that runs
-  it, ``data_paths.plugin_save_path``) and the worker's ``file://`` URI the
-  stream resource carries for Tiled.  The filename is the folder's name, so
-  the stock template ``%s%s.h5`` yields ``<device>/<device>.h5`` for a
-  device's primary stream — the file the read side
-  (``geecs_data_utils.io.scan_stack``) looks for — and a **second capture
-  stream of the same device gets its own sibling folder**,
-  ``<device>-<variable>/<device>-<variable>.h5``: the layout the
-  LabVIEW-native files already use for a device's second output
-  (``-interpSpec``, ``-Temporal``), so ``find_stack_file`` resolves it
-  unchanged.  Two plugins of one device must never share a file: each
-  gateway writer opens its path with ``h5py.File(..., "w")``, so a shared
-  path is truncated by whichever arms second (found in review of #945).
-- :func:`file_plugin_hosts` — which camera servers serve the plugin
-  (``config.ini [pva] file_plugin_addr_list``; **absent means none**, so a
-  worker whose config carries only the PVA fleet's ``addr_list`` touches no
-  plugin PV).  h5py is a bootstrap-time dependency on the camera servers,
-  so the rollout is per box, and a camera on a box not yet rolled keeps
-  LabVIEW-native saving.  The key goes when the fleet is rolled.
+- :class:`GeecsHdfIO` — ``NDFileHDF5IO`` plus the three PVs the plugin
+  adds (``Rewind``, ``WriteStatus``, ``WriteMessage``); the prefix comes
+  from :func:`geecs_core.pv_naming.hdf_plugin_prefix`.
+- :class:`PluginPathProvider` — the per-detector ``PathProvider`` the
+  stock ``ADHDFDataLogic`` calls.  It asks the shared
+  :class:`~geecs_bluesky.plans.claim_scan.GeecsScanPathProvider` for
+  ``ScanNNN/<GEECS device>/`` and returns that folder's two paths: the
+  Windows path the plugin's ``FilePath`` receives
+  (``data_paths.plugin_save_path``) and the worker's ``file://`` URI for
+  the stream resource.  The filename is the folder's name, so the primary
+  stream writes ``<device>/<device>.h5`` and a second capture stream of
+  the same device writes the sibling
+  ``<device>-<variable>/<device>-<variable>.h5``, the layout the
+  LabVIEW-native files use, so ``find_stack_file`` resolves both.  Two
+  plugins must never share a path: each writer opens it with ``"w"``.
+- :func:`file_plugin_hosts` — the camera servers that serve the plugin
+  (``config.ini [pva] file_plugin_addr_list``; absent means none).  The
+  rollout is per box; a camera on a box not yet rolled keeps
+  LabVIEW-native saving.
 """
 
 from __future__ import annotations
@@ -105,7 +96,7 @@ class PluginPathProvider(PathProvider):
         ``FilePath`` — and in a fly prepare (a gated batch, a non-essential
         stream) the LabVIEW-native saving logic, whose ``prepare_single``
         used to create it as a side effect of the dual-write, is not part
-        of the context (found on hardware, 2b acceptance A1, 2026-09-12).
+        of the context.
         """
         local = self._shared(self._stem)
         local_dir = Path(local.directory_path)

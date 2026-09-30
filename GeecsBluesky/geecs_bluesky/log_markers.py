@@ -13,11 +13,8 @@ This module may depend on nothing heavier than the standard library.
 from __future__ import annotations
 
 #: The failed-move pause reason line, ``f"{FAILED_MOVE_LOG_PREFIX}:
-#: <reason>"`` (ERROR), which stream consumers (the scanner's progress
-#: stream, the MCP's ``scan_progress``) match in the manager's
-#: console-output stream to surface the *why* of a pause.  No engine code
-#: emits it today — the plan that paused on a failed axis move went with
-#: the pre-rebuild scan path — and the clients keep matching it, so the
-#: spelling is pinned here; re-exported by ``geecs_bluesky.qs_client``
-#: (the client-facing spelling).
+#: <reason>"`` (ERROR), which stream consumers (the scanner, the MCP)
+#: match in the manager's console-output stream.  No engine code emits it
+#: today; the clients keep matching it, so the spelling is pinned here and
+#: re-exported by ``geecs_bluesky.qs_client``.
 FAILED_MOVE_LOG_PREFIX = "FAILED MOVE - pausing for operator"

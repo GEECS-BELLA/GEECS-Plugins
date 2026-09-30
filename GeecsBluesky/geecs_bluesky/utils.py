@@ -38,14 +38,12 @@ def identifier_name(geecs_name: str) -> str:
     return geecs_name if geecs_name.isidentifier() else safe_name(geecs_name)
 
 
-#: The public names of a namespace device that a settable child may not
-#: shadow — the ophyd-async ``Device`` / ``StandardDetector`` protocol
-#: surface plus ``GeecsDetector``'s own.  A GEECS variable whose
-#: :func:`safe_name` lands on one of these binds with a trailing
-#: underscore (the Amp4 camera's settable enum ``trigger`` → ``trigger_``).
+#: Public names of a namespace device that a settable child may not
+#: shadow: the ophyd-async ``Device`` / ``StandardDetector`` surface plus
+#: ``GeecsDetector``'s own.  A variable whose :func:`safe_name` lands on
+#: one binds with a trailing underscore (``trigger`` → ``trigger_``).
 #: Frozen here so the client seam can spell a reference without importing
-#: the device family; ``tests/test_namespace.py`` pins it to
-#: ``dir(GeecsDetector)``.
+#: the device family; ``tests/test_namespace.py`` pins it.
 RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
     {
         "abandon_step",

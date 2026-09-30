@@ -1,58 +1,31 @@
 """The shot-offset calibration and its preflight — the two once-run plans.
 
-Two devices stamp the *same* shot at different times: ``acq_timestamp`` is
-the trigger's arrival plus that device's own frame-drain latency, a
-per-device constant of tens of milliseconds.  The
-s-file join corrects each side by that constant before matching frames to
-rows (:mod:`geecs_data_utils.shot_join`), and until this module ran every
-constant in the field read ``0.0``.
+Two devices stamp the same shot at different times: ``acq_timestamp`` is
+the trigger's arrival plus that device's frame-drain latency, a
+per-device constant of tens of milliseconds.  The s-file join corrects
+each side by that constant (:mod:`geecs_data_utils.shot_join`).  At 1 Hz
+the join windows swallow the spread; at higher rep rates an uncalibrated
+offset costs rows, which is what makes measuring it worth a plan.
 
-At 1 Hz the join windows are ±0.5 s and swallow the spread, so nothing is
-broken today.  They narrow with the rep rate: at 5 Hz they are ±0.1 s — the
-same order as the spread itself, where an uncalibrated offset costs rows.
-Measuring these numbers is what makes faster running safe, which is why the
-gated batch exists.
-
-Why both plans are once-run, never a scan step
-----------------------------------------------
-A GEECS device emits its TCP event either on a successful acquisition or,
-failing that, when its own timeout expires — and the timeout event carries
-an **unchanged** stamp, which the CA gateway's change suppression drops
-(measured).  So nothing announces quiescence: the only way to
-know the set is quiet is to watch the stamps not move for longer than the
-longest device timeout in it.  That is the floor on both plans' cost, and
-it is why neither may sit inside a scan.
+Both plans are once-run, never a scan step: a GEECS device's timeout
+event carries an unchanged stamp, which the gateway's change suppression
+drops, so nothing announces quiescence.  The only way to know the set is
+quiet is to watch the stamps not move for longer than the longest device
+timeout, and that wait is the floor on both plans' cost.
 
 :func:`measure_shot_offsets_plan`
-    Drive the box OFF, wait the set quiet, then fire single shots and read
-    every device's stamp.  The spread across devices *is* the calibration.
+    Drive the box OFF, wait the set quiet, fire single shots and read
+    every device's stamp; the spread across devices is the calibration.
+    Several shots are averaged because each host's clock dithers by up to
+    ~10 ms around its average, and the document records each device's
+    peak-to-peak scatter beside its mean.  Only complete shots count: the
+    per-shot anchor is the mean across the devices present, so a shot
+    missing one device would bias every other offset.
 
 :func:`check_shot_sync_plan`
-    Sam's validation shortcut, and it costs no shot at all: with
-    the box OFF and the set quiet, every device still holds the stamp of
-    the **last real shot**, so correcting those stalled stamps by the
-    stored offsets and comparing the results says whether the stored
-    calibration is still true.
-
-Averaging, and why
-------------------
-A device's offset is not perfectly steady: each host's clock dithers around
-its average by up to ~10 ms (higher-end boxes hold ~1 ms) while the domain
-keeps the averages on a common target (Sam, 2026-09-13).  One shot
-therefore measures the offset only to that precision, against real spreads
-of tens to hundreds of milliseconds (0–160 ms measured on HTU, 2026-09-12).  The expensive part of this plan is the quiet wait, paid
-once; the shots after it cost a second each.  So the default is several
-shots, and the document records each device's **peak-to-peak scatter**
-beside its mean — a device whose scatter dwarfs its peers' has a
-timekeeping problem an average would hide.  The scatter is relative to the
-set (see :class:`OffsetMeasurement`), which is the quantity that matters
-because the join is relative too.
-
-Only complete shots contribute — a shot in which every requested device
-delivered.  That is not fussiness: the per-shot anchor is the mean across
-the devices present, so a shot missing one device would shift the anchor
-and bias every other device's offset by a fraction of the missing one's.
-Incomplete shots are logged and retaken instead.
+    Costs no shot: with the box OFF and the set quiet every device still
+    holds the stamp of the last real shot, so correcting those stamps by
+    the stored offsets and comparing says whether the calibration holds.
 """
 
 from __future__ import annotations
@@ -100,8 +73,8 @@ QUIET_MARGIN_S = 0.75
 
 #: The confirmation window is this many trigger periods long.  It has to
 #: exceed ONE period, or a box that never went OFF is caught only by luck:
-#: at 1 Hz a 0.5 s window contains an edge half the time (review of #861,
-#: finding 2 — a phase sweep caught a running box in 6 of 12 runs).  1.5
+#: at 1 Hz a 0.5 s window contains an edge half the time (a phase sweep
+#: caught a running box in 6 of 12 runs).  1.5
 #: periods guarantees at least one edge falls inside it.
 QUIET_CONFIRM_PERIODS = 1.5
 
@@ -121,14 +94,12 @@ _RETAKE_BUDGET = 2
 #: and the whole-shot folding in the sync check.
 DEFAULT_TRIGGER_PERIOD_S = TRIGGER_PERIOD_S
 
-#: A measured offset larger than this is refused for *writing*.  The
-#: measured HTU set spans 0–160 ms (2026-09-12), so a third of a second is
-#: already outside anything a frame drain explains and means the measurement
-#: is wrong — a device latched a different edge, or the stamp wait did not
-#: wait.  Bounded by half the trigger period as well, because a whole-period
-#: error is smaller than this cap at any rate above ~3 Hz.  Reported, never silently stored
-#: (review of #861, finding 3: a +1.964 s "drain latency" passed every
-#: validator).  Overridable for a genuinely slow device.
+#: A measured offset larger than this is refused for *writing*: a third of
+#: a second is outside anything a frame drain explains, so the measurement
+#: is wrong (a device latched a different edge, or the stamp wait did not
+#: wait).  The cap is this value alone, never tightened by the trigger
+#: period (see :func:`_refuse_implausible`).  Reported, never silently
+#: stored; overridable for a genuinely slow device.
 MAX_PLAUSIBLE_OFFSET_S = 0.3
 
 #: Likewise for the scatter: host dither runs ~1–10 ms (both ends measured
@@ -140,8 +111,8 @@ MAX_PLAUSIBLE_SCATTER_S = 0.1
 #: carries the full ~10 ms dither; warned about, not refused.
 MIN_USEFUL_SHOTS = 3
 
-#: Default tolerance for :func:`check_shot_sync_plan`.  The by-eye version
-#: Sam used quotes ~200 ms; 50 ms is well clear of the ~10 ms dither and
+#: Default tolerance for :func:`check_shot_sync_plan`.  The by-eye check
+#: quotes ~200 ms; 50 ms is well clear of the ~10 ms dither and
 #: still catches a device a whole shot out of step.
 DEFAULT_SYNC_TOLERANCE_S = 0.05
 
@@ -391,8 +362,7 @@ def sync_verdict_from_stamps(
     hosts' own dither.  A device that lands outside is
     mis-calibrated, and its rows will misjoin once the windows tighten.
 
-    Two refinements over "is the range inside the tolerance", both from the
-    review of #861 (finding 4):
+    Two refinements over "is the range inside the tolerance":
 
     - **The verdict is on the pairwise spread, and the two devices at its
       ends are named.**  What costs rows is two devices disagreeing — the
@@ -563,7 +533,7 @@ def _can_write(resolver: Any) -> bool:
     Checked **before** the shots are fired, not after: the ``ConfigResolver``
     protocol does not require the write method, so a resolver satisfying the
     protocol without it would otherwise fail with ``AttributeError`` only
-    once the whole measurement had been spent (review of #861).
+    once the whole measurement had been spent.
     """
     return resolver is not None and callable(
         getattr(resolver, "write_shot_offsets", None)
@@ -596,7 +566,7 @@ def _refuse_implausible(
     """Refuse to *store* a measurement outside the physically possible range.
 
     A drain offset is a frame-drain latency, and the measured HTU set spans
-    0 to 160 ms (2026-09-12; the un-ROI'd camera is the slow one).  A
+    0 to 160 ms (the un-ROI'd camera is the slow one).  A
     measurement far outside that is not an unusual camera — it is a device
     that latched a different edge, or a stamp wait that did not wait — and
     it would be seeded into every future run's join.  The numbers are
@@ -605,9 +575,8 @@ def _refuse_implausible(
     The cap is *max_offset* alone, deliberately **not** tightened by the
     trigger period: at 5 Hz a period is 0.2 s and the real ModeImager drain
     is 0.16 s, so a whole-period error and a genuine slow drain are the same
-    magnitude and no bound can tell them apart (review of #861, round 3: a
-    half-period bound refused the real calibration at 5 Hz, and *max_offset*
-    could not lift it).  The defence against a whole-period error is
+    magnitude and no bound can tell them apart (a half-period bound refused
+    the real calibration at 5 Hz, and *max_offset* could not lift it).  The defence against a whole-period error is
     upstream — the stamp wait that actually waits (``fly`` cleared at the
     view) and the completeness rule (a shot any device missed is retaken,
     never averaged in).
@@ -756,7 +725,7 @@ def _settle_quiet(views: Sequence[Any], quiet_time: float, confirm_time: float):
     *confirm_time* must exceed one trigger period or the check is a coin
     flip: at 1 Hz a 0.5 s window contains an edge only half the time, so a
     running box would be caught in half the runs and silently measured in
-    the others (review of #861, finding 2).  The caller sizes it from the
+    the others.  The caller sizes it from the
     period; :data:`QUIET_CONFIRM_PERIODS` is the multiple.
 
     Returns
@@ -862,21 +831,15 @@ def measure_shot_offsets_plan(
         averaged because each host's clock dithers by up to ~10 ms around
         its own average.
 
-        No run is opened: nothing is claimed, no scan number is taken and no
-        s-file is written — this is a queue item like ``run_action``, not a
-        scan.  The box is returned to STANDBY on every path that unwinds the
-        plan, including an exception and ``RE.stop()``; a ``RE.halt()``
-        skips finalizers by bluesky contract and would leave it ARMED.
+        No run is opened and nothing is claimed: a queue item like
+        ``run_action``, not a scan.  The box returns to STANDBY on every path
+        that unwinds the plan except ``RE.halt()``, which skips finalizers.
 
         The measurement is **reported** by default and stored only with
-        ``write=True``, so a re-run cannot silently replace a good
-        calibration with a worse one.  What is written is the experiment's
-        ``shot_offsets.yaml`` in the configs repo — a git working tree,
-        usually on the share: committing it is a human act, and the path is
-        logged so there is no doubt which file to review.  A stored
-        measurement reaches the worker at its **next environment open**, not
-        immediately: the offsets are seeded into each detector when the
-        namespace is built.
+        ``write=True`` (the experiment's ``shot_offsets.yaml`` in the configs
+        repo; committing it is a human act, and the path is logged).  A
+        stored measurement reaches the worker at its next environment open,
+        when the offsets are seeded into each detector.
 
         Parameters
         ----------
@@ -911,13 +874,10 @@ def measure_shot_offsets_plan(
             and cannot be used. Left unset the document records no rate,
             which is honest; setting it wrongly is worse than leaving it out.
         max_offset : float, optional
-            Largest offset accepted for *writing*, seconds (default 0.3),
-            further bounded by half the trigger period.
+            Largest offset accepted for *writing*, seconds (default 0.3).
             The measured HTU set spans 0-160 ms, so anything near this means
-            the measurement is wrong rather than the hardware unusual. Also
-            bounded by half the trigger period, since a whole-period error is
-            smaller than this cap above ~3 Hz. The measurement is still
-            reported; only the write is refused.
+            the measurement is wrong rather than the hardware unusual.  The
+            measurement is still reported; only the write is refused.
         description : str, optional
             Note recorded in the document.
 
@@ -1094,7 +1054,7 @@ def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:
     ):
         """Check the stored drain offsets still describe this device set.
 
-        Sam's shortcut, and it costs no shot: with the box OFF and the set
+        Costs no shot: with the box OFF and the set
         quiet, every device still holds the stamp of the same last real
         shot, so correcting those stalled stamps by the stored offsets
         should collapse them onto one instant.  The verdict is on the

@@ -1,66 +1,41 @@
 """CaPseudoPositioner — a scan-variable catalog pseudo as a pseudo positioner.
 
 The runtime for :class:`~geecs_schemas.scan_variables.PseudoScanVariable`:
-one scanned number, several GEECS components, a bidirectional relation
-between them.  ``set(value)`` computes every component's setting and moves
-them together **through each component's own** ``set()`` (a
-:class:`~geecs_bluesky.devices.ca.motor.CaMotor` waits for the device's
-reply under its stall rule, a
-:class:`~geecs_bluesky.devices.ca.settable.CaSettable` rides the native
-blocking set) — GEECS-Plugins#910: no put budget of this class's own.  The
-readback is **derived from the components' live readbacks** through the
-relation's inverse, so it is defined before any set, after a restart, after
-a hand move, and ``locate()`` is real (the case GEECS-Plugins#855 was filed
-about).
+one scanned number, several GEECS components, a bidirectional relation.
+``set(value)`` computes every component's setting and moves them through
+each component's own ``set()`` (no put budget of this class's own, #910).
+The readback is derived from the components' live readbacks through the
+relation's inverse, so it is defined before any set, after a restart and
+after a hand move, and ``locate()`` is real.
 
 The relation is an ophyd-async :class:`~ophyd_async.core.Transform`:
 ``derived_to_raw`` is the catalog's ``forward`` formulas, ``raw_to_derived``
-the inverse — derived by the software for an affine ``forward``
-(:func:`~geecs_bluesky.forward_expr.affine_coefficients`: the identity
-component where one exists, else the first), supplied by the physicist as
-the catalog's ``inverse`` otherwise (``R56_at_100MeV``).  A
-:class:`~ophyd_async.core.DerivedSignalFactory` over the component readback
-signals produces the readback child, and the parameters of the transform
-are the components' **user offsets** (:attr:`CaSettable.offset`).
+the inverse, derived by
+:func:`~geecs_bluesky.forward_expr.affine_coefficients` for an affine
+``forward`` and supplied as the catalog's ``inverse`` otherwise.  A
+:class:`~ophyd_async.core.DerivedSignalFactory` over the component
+readbacks produces the readback child; the transform's parameters are the
+components' user offsets (:attr:`CaSettable.offset`).
 
-Two kinds of entry, one class (the rulings are in ``GeecsBluesky/CLAUDE.md``):
+Two kinds of entry, one class (the rulings: ``GeecsBluesky/CLAUDE.md``):
 
-- a **plain pseudo positioner** (the catalog's ``mode: absolute``) reads its
-  components in the *dial* frame — the offsets are wired as zeros.  Its
-  value has absolute meaning (an R56 in mm, a compressor position);
-  components off the formula before a scan is normal (someone moved the
-  mode imager by hand): a WARNING at ``locate``, and the first step snaps
-  every component onto the formula.
-- ``mode: relative`` reads its components in the *user* frame, zeroed at
-  every ``stage()`` (:meth:`CaSettable.set_current_position`), so the value
-  is a **deviation from today's alignment** — the steering bumps.  The
-  readback is 0 by construction before the first step, ``set(0)`` puts the
-  components back (every relative ``forward`` is pinned ``f(0) = 0`` at
-  build), and ``unstage()`` restores the captured baselines — end of scan,
-  abort and halt alike (the RunEngine unstages every leftover staged
-  object on every exit path; on a ``halt`` it does not wait for the
-  status, so a restore that fails there surfaces only in the journal).
-  A restore that failed leaves the pseudo **owing** its components their
-  baselines: the next ``stage()`` refuses
-  (:class:`~geecs_bluesky.exceptions.PseudoRestorePendingError`) rather
-  than zero with the leftover bump baked in, and ``mv <pseudo> 0`` — the
-  offsets still hold the true baselines — puts them back and clears it.
+- ``mode: absolute``, a plain pseudo positioner: components read in the
+  dial frame (offsets zero).  Off-formula components before a scan warn at
+  ``locate``, and the first step snaps them onto the formula.
+- ``mode: relative``: components read in the user frame, zeroed at every
+  ``stage()``, so the value is a deviation from today's alignment.  The
+  readback is 0 before the first step (every relative ``forward`` is
+  pinned ``f(0) = 0`` at build) and ``unstage()`` restores the baselines
+  on every exit path.  A failed restore makes the next ``stage()`` refuse
+  (:class:`~geecs_bluesky.exceptions.PseudoRestorePendingError`);
+  ``mv <pseudo> 0`` puts the components back and clears it.
 
-**The disagreement check** carries the weight of the over-determined
-readback: ``forward(inverse(readbacks))`` is compared with what the
-components actually read, per component, within its tolerance **plus what
-the inverse propagates**: the components the inverse reads sit within
-their own tolerances too, and that error reaches every other component's
-prediction scaled by the relation (×2 on the S4H of an angle bump), so the
-allowance is each component's tolerance plus how far its prediction moves
-when the value shifts by the inverse's own uncertainty.  When they agree
-every inverse choice gives the same value.  When they disagree
-*after this pseudo has moved them* the scan **fails**
-(:class:`~geecs_bluesky.exceptions.PseudoComponentsDisagreeError`) — a
-component moved under the scan, and moving the others onto the formula is
-the paired-magnet incident nobody wants.  Before the first move a plain
-pseudo warns and snaps; a relative one cannot disagree (its deviations were
-just zeroed), so it fails there too.
+The **disagreement check** compares ``forward(inverse(readbacks))`` with
+the readbacks per component, within its tolerance plus what the inverse
+propagates.  Disagreement after this pseudo moved its components fails
+the scan (:class:`~geecs_bluesky.exceptions.PseudoComponentsDisagreeError`):
+moving the others onto the formula would drive a paired magnet the
+operator did not command.
 """
 
 from __future__ import annotations
@@ -567,7 +542,7 @@ async def _move_all(moves: Sequence[tuple[CaSettable, float]]) -> None:
     A bare ``gather`` raises on the first failed component while the
     others are still moving, and a restore issued on top of a move in
     progress is a second GEECS blocking set on a busy device — the
-    incident class the restore exists to prevent.
+    failure the restore exists to prevent.
     """
     results = await asyncio.gather(
         *(comp.set(target) for comp, target in moves), return_exceptions=True

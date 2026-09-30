@@ -6,11 +6,9 @@ production implementation over the real configs-repo layout
 ``schema_version`` key loads as the new schema directly; trigger profiles
 without one are converted from their legacy dialect via
 :mod:`geecs_schemas.convert`.  Presets, scan-variable catalogs and action
-libraries are new-schema only (the legacy save elements / scan presets were
-regenerated once as ``Preset`` documents, GEECS-Plugins#807; the
-scan-device pair and its converter were retired 2026-09, #779; the action
-libraries were regenerated once as ``ActionPlanLibrary`` documents and
-their converter deleted, GEECS-Schemas 0.22.0).
+libraries are new-schema only (the legacy save elements, scan presets and
+action libraries were regenerated once as ``Preset`` and
+``ActionPlanLibrary`` documents; no converter remains for them).
 
 The client seam expands a preset into a plan queue item
 (:mod:`geecs_bluesky.qs_client.presets`).

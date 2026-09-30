@@ -1,48 +1,31 @@
 """The GEECS outputs of a run, as RunEngine callbacks.
 
-Four document callbacks, each best-effort — a failure is logged and never
-raised back into the RunEngine, the scan itself is the priority:
+Four document callbacks, each best-effort: a failure is logged and never
+raised back into the RunEngine.
 
-- :class:`ScanInfoCallback` — ``ScanInfoScanNNN.ini`` at the start document
-  (the ``[Scan Info]`` keys every downstream reader parses — ScanAnalysis's
-  ``Scan Parameter``, the scans database's ``Start`` / ``End`` /
-  ``Step size`` / ``Shots per step`` / ``ScanMode`` / ``ScanStartInfo``,
-  ``ScanPaths.is_background_scan``'s ``Background``), rewritten at the stop
-  document with ``ScanEndInfo`` filled in.
-- :class:`SFileCallback` — the legacy scalar files
-  (``ScanDataScanNNN.txt`` + ``analysis/sNNN.txt``) at the stop document,
-  built from the run's own per-shot rows
-  (:func:`geecs_data_utils.write_scalar_files`) — no Tiled round trip, so
-  the files exist whether or not the catalog does.  Written for any exit
-  status that produced rows: an aborted 500-shot scan's 300 rows are
-  data, exactly as the legacy scanner left them.  The rows are the
-  ``primary`` events of a strict run and the per-shot sampler's ``shots``
-  events of a gated one, and the per-frame columns of every datum-only
-  stream (a gated run's cameras, a non-essential camera) are joined onto
-  them by offset-corrected stamp — one row per essential shot, orphan
-  frames left in the stack.
-- :class:`ScanLogCallback` — ``scan.log`` attached from the start document
-  to the stop document (:class:`geecs_bluesky.scan_log.ScanLogFile`).
-- :class:`StackCheckCallback` — at the stop document, for every image
-  stack the run's stream resources reference (the PVA gateway's file
-  plugin, #806), asserts that the frames on disk are what the documents
-  reference: for a stream with event rows (strict ``primary``) the same
-  count and the same ``acq_timestamp`` per row; for a datum-only stream (a
-  gated run's ``primary``, a non-essential ``<name>_stream``) the frame
-  count equals the datums' total width, and a *gated* stack's stamps are
-  compared with the ``shots`` rows besides (one frame per shot, none
-  orphaned — the batch trims to the quota, so anything else is a defect).
-  Synchronicity is checked per scan, never assumed; a mismatch is a
-  warning in ``scan.log``.
+- :class:`ScanInfoCallback` — ``ScanInfoScanNNN.ini`` at the start
+  document (the ``[Scan Info]`` keys downstream readers parse), rewritten
+  at the stop document with ``ScanEndInfo`` filled in.
+- :class:`SFileCallback` — ``ScanDataScanNNN.txt`` + ``analysis/sNNN.txt``
+  at the stop document, from the run's own per-shot rows
+  (:func:`geecs_data_utils.write_scalar_files`), for any exit status that
+  produced rows.  The rows are a strict run's ``primary`` events or a
+  gated run's ``shots`` events; every datum-only stream's per-frame
+  columns are joined onto them by offset-corrected stamp, one row per
+  essential shot, orphan frames left in the stack.
+- :class:`ScanLogCallback` — ``scan.log`` from start to stop
+  (:class:`geecs_bluesky.scan_log.ScanLogFile`).
+- :class:`StackCheckCallback` — at the stop document, checks every image
+  stack the run's stream resources reference against the documents (frame
+  count and per-row stamps; a gated stack's stamps against the ``shots``
+  rows).  A mismatch is a WARNING in ``scan.log``, never a failure.
 
-All four read the GEECS keys the claim preprocessor put in the start
-document (``scan_number``, ``scan_folder``, ``geecs_scalar_headers``) and
-write **into** the claimed folder only — never creating it.  The two that
-read the run's streams (the s-file and the stack check) share one piece of
-document bookkeeping, :class:`_StreamCallback`, and both do their file
-reading on a small thread that waits for the plugin to finalize — the stop
-document precedes ``unstage``, and a run callback must never block the
-RunEngine.
+All four read the claim preprocessor's start-document keys
+(``scan_number``, ``scan_folder``, ``geecs_scalar_headers``) and write
+**into** the claimed folder, never creating it.  The two that read the
+run's streams share :class:`_StreamCallback` and read files on a thread
+that waits for the plugin to finalize: the stop document precedes
+``unstage``, and a callback must never block the RunEngine.
 """
 
 from __future__ import annotations
@@ -849,7 +832,7 @@ class StackCheckCallback(_StreamCallback):
       during *k+1* and an orphan there is normal, not a defect.
 
     A gated run's **native-saving essentials** (no plugin; their LabVIEW
-    files are their record, 2026-09-25 ruling) get a files-versus-rows
+    files are their record) get a files-versus-rows
     line of their own: the sampler writes each one's
     ``-nonscalar_save_path`` column into every ``shots`` row as a run-long
     constant, and every row's own stamp (``<owner>-acq_timestamp``) is

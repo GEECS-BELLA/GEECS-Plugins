@@ -1,77 +1,49 @@
 """Gated batch acquisition as the stock ``take_reading`` hook, and the non-essential stream.
 
-Strict single-shot
-(:mod:`geecs_bluesky.plans.strict`) fires the box once per row and holds
-1 Hz only at short exposures; the **gated batch** lets the
-box free-run in SCAN while the plugin-backed cameras count the frames they
-write, and drives it OFF when every essential detector has its quota —
-exact by construction, because arming precedes the edges and the frames
-are counted by the thing that writes them.
+Strict single-shot (:mod:`geecs_bluesky.plans.strict`) fires the box once
+per row; the **gated batch** lets the box free-run in SCAN while the
+plugin-backed cameras count the frames they write, and drives it OFF when
+every essential detector has its quota.  Per step, for *D* the
+plugin-backed essentials, *N* the LabVIEW-native saving essentials
+(:func:`native_essentials`), *S* the per-shot sampler over every other
+device (:class:`~geecs_bluesky.devices.sampler.ShotSampler`) and the box
+*B*::
 
-Per step (after ``move_per_step``), for *D* = the plugin-backed essential
-detectors, *N* = the LabVIEW-native saving essentials (no plugin; their
-files are their record, exactly as in strict — :func:`native_essentials`),
-*S* = the per-shot sampler over every other device of the step, *N*
-included (:class:`~geecs_bluesky.devices.sampler.ShotSampler`), and the
-box *B*::
-
-    mv(B, OFF)                                   # the step opens quiet
+    mv(B, OFF)
     if the run's first step:
-        sleep(period + max drain + margin)       # STANDBY's in-flight frame lands
-        prepare(N, unbounded)                    # saving on, run-long (off at unstage)
-        prepare(D); wait_for(D.zero_count)       # arm, then zero the plugin's stale count
-    prepare(D, gated_trigger_info(remaining))    # capture on, count baselined
-    prepare(S, remaining)                        # the sampler: clock + columns
-    declare_stream(*D, name="primary")           # first step only
-    declare_stream(S, name="shots")              # first step only
-    kickoff(*D, S)                               # quota armed, fly mode
-    mv(B, SCAN)                                  # edges flow
+        sleep(period + max drain + margin)       # the in-flight frame lands
+        prepare(N, unbounded)                    # saving on, run-long
+        prepare(D); wait_for(D.zero_count)       # arm, zero the stale count
+    prepare(D, gated_trigger_info(remaining)); prepare(S, remaining)
+    declare_stream(*D, "primary"); declare_stream(S, "shots")   # once
+    kickoff(*D, S); mv(B, SCAN)
     complete(*D, S) in slices of PROGRESS_PERIOD_S:
-        collect(S, name="shots")                 # the rows every D holds the frame of
-        checkpoint                               # a deferred pause lands here
-    mv(B, OFF)                                   # edges stop
-    sleep(period + max drain + margin)           # the in-flight frame lands
-    wait_for(D.truncate_to_quota)                # rewind to baseline + quota
-    collect(*D, name="primary")                  # one datum per D: the batch's frames
-    collect(S, name="shots")                     # the batch's last rows
+        collect(S, "shots"); checkpoint          # rows every D holds a frame of
+    mv(B, OFF); sleep(period + max drain + margin)
+    wait_for(D.truncate_to_quota)
+    collect(*D, "primary"); collect(S, "shots")
 
-Two streams per gated run: ``primary`` carries the frames and their
-per-frame attributes (a datum stream, no events); ``shots`` carries one
-event per shot with the clock stamp, the motors' readbacks, ``bin_number``,
-every non-plugin scalar and each native-saving essential's
-``-nonscalar_save_path`` (a run-long constant; its files join by stamp, a
-dropped frame is a missing file and never a retake).  With no plugin-backed
-camera *D* is empty and the sampler alone gates the step — a native-saving
-essential clocks it as any triggered device does; a run with no essential
-triggered device at all is refused ("nothing counts shots; use strict").
+``primary`` is a datum stream (the frames and their per-frame
+attributes); ``shots`` carries one event per shot.  With no plugin-backed
+camera the sampler alone gates the step; a run with no essential
+triggered device is refused ("nothing counts shots; use strict").
 
-**Pause** (Sam, 2026-09-26 — pause means *pause now*; it replaces the
-2026-09-12 retake, which answered "fail or repeat the step?" when pausing
-in place had not been offered): a pause mid-batch, deferred (it lands at
-the batch's next checkpoint, within a progress period — the scanner's
-Pause) or immediate, drives the box OFF (``ShotControl.pause``).  The
-batch holds the box (``ShotControl.hold_for_batch``), so the pause marks
-the batch over at once — its pending statuses settle instead of timing
-out while the operator works — and the resume restores nothing.  The
-plan then keeps the shots **every** device reached: the frames past them
-leave the stacks (``truncate_to``), the rows past them are dropped (none
-went out — a row is collected only once every camera holds its frame),
-the kept ones are recorded, and the step continues with a batch of the
-remaining shots at the same position.  The shot in flight at the pause
-may be lost; nothing before it is.  The step body stays not rewindable:
-a resume replays no message.
+**Pause means pause now**: a pause mid-batch drives the box OFF
+(``ShotControl.pause``); the batch holds the box
+(``ShotControl.hold_for_batch``), so the pause ends it at once and the
+resume restores nothing.  The plan keeps the shots every device reached
+(``truncate_to``; rows past them never went out), records them, and
+continues the step with the remaining shots.  At most the in-flight shot
+is lost; the step body is not rewindable.
 
-The **non-essential stream** is the run-long job: the devices
-listed ``non_essential=[…]`` are staged, prepared unbounded, kicked off
-right after ``open_run`` (the box is quiet then, so no frame lands between
-prepare and kickoff — which would make the kickoff refuse), completed and
-collected each into its own ``<name>_stream`` before ``close_run``.  A
-plugin-backed camera flies itself (a datum stream); a triggered device
-without a plugin — a LabVIEW-native saver, a scalar device with a stamp —
-is recorded by a :class:`~geecs_bluesky.devices.sampler.StampStream`, one
-event per stamp it publishes (2026-09-26 ruling).  Nothing waits on them:
-a slow or dying non-essential device never holds a shot, never throttles
-the rep rate and never aborts a run, in either mode.
+The **non-essential stream**: the devices in ``non_essential=[…]`` are
+staged, prepared unbounded and kicked off right after ``open_run``, then
+completed and collected each into its own ``<name>_stream`` before
+``close_run``.  A plugin-backed camera flies itself; a triggered device
+without a plugin is recorded by a
+:class:`~geecs_bluesky.devices.sampler.StampStream`.  Nothing waits on
+them: a slow or dying non-essential device never holds a shot or aborts
+a run, in either mode.
 """
 
 from __future__ import annotations
@@ -176,7 +148,7 @@ def native_essentials(devices: Sequence[Any]) -> list[GeecsDetector]:
     A device without a file plugin — a LabVIEW-native camera, a DAQ or a
     wavefront sensor with its own file writer, a gated devicetype whose
     every capture channel is disabled in the DB — is an essential of a
-    gated run exactly as strict treats it (2026-09-25 ruling): its row is
+    gated run exactly as strict treats it: its row is
     the sampler's and its files follow by stamp; the plugin count is a
     convenience, not what makes a batch.  The plan prepares these **once**,
     at the run's first step, unbounded: the device's own lifecycle switches

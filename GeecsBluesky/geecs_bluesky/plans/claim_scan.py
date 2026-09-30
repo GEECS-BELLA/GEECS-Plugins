@@ -1,30 +1,25 @@
 """Claim the next day-scoped scan number and folder — the scanner-side act.
 
-Day-scoped scan numbering with a multi-writer claim protocol is one of the
-GEECS things with no native Bluesky home.  This module is
-the **only** place in GeecsBluesky allowed to bring a ``scans/ScanNNN/``
-folder into existence (the cross-package invariant in the root
-``CLAUDE.md``): every analysis-side consumer treats the folder as
-pre-existing.
-
-Three pieces, one job each:
+Day-scoped scan numbering with a multi-writer claim protocol has no
+native Bluesky home.  This module is the **only** place in GeecsBluesky
+allowed to bring a ``scans/ScanNNN/`` folder into existence (the
+cross-package invariant in the root ``CLAUDE.md``); every analysis-side
+consumer treats the folder as pre-existing.
 
 - :func:`claim_scan` — the claim itself (``geecs_data_utils.ScanPaths``).
 - :class:`GeecsScanPathProvider` — the ophyd-async ``PathProvider`` every
   native-saving detector holds: ``ScanNNN/<GEECS device>/`` for the run
   currently claimed, nothing outside a run.
-- :func:`claim_scan_preprocessor` — the RunEngine preprocessor: on
-  ``open_run`` it claims, injects ``scan_number`` / ``scan_id`` /
-  ``scan_folder`` / ``experiment`` into the run's metadata and points the
-  provider at the folder; on ``close_run`` it releases the provider.  It
-  does exactly this and must never grow a second job (it is not the #809
-  preamble).
+- :func:`claim_scan_preprocessor` — on ``open_run`` it claims, injects
+  ``scan_number`` / ``scan_id`` / ``scan_folder`` / ``experiment`` into
+  the run's metadata and points the provider at the folder; on
+  ``close_run`` it releases the provider.  It does exactly this and never
+  grows a second job.
 
-**Every run claims.**  There is no per-run opt-out: a run the RunEngine
-opens on the worker is a GEECS scan, numbered and foldered, whatever its
-detectors are (a scalar-only magnet scan still gets its s-file).  A
-RunEngine that must not claim (hermetic tests, a box without the data
-share) is built without the preprocessor (``make_run_engine(claim=False)``).
+**Every run claims.**  A run the RunEngine opens on the worker is a GEECS
+scan, numbered and foldered, whatever its detectors are.  A RunEngine
+that must not claim (hermetic tests, a box without the data share) is
+built without the preprocessor (``make_run_engine(claim=False)``).
 """
 
 from __future__ import annotations

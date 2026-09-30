@@ -22,9 +22,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-#: Third-party transport chatter kept out of scan.log below WARNING (live
-#: finding, 2026-08-20 Scan001: Tiled's per-request httpx lines and MySQL
-#: auth-plugin loads added ~15 lines of non-scan-story noise per scan).
+#: Third-party transport chatter kept out of scan.log below WARNING
+#: (Tiled's per-request httpx lines and MySQL auth-plugin loads added ~15
+#: lines of noise per scan).
 #: Their WARNING+ records still land — only INFO chatter is dropped, and
 #: only from the scan.log capture, never from the terminal.
 QUIET_LOGGER_PREFIXES = ("httpx", "mysql.connector")

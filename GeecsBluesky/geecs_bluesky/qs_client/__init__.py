@@ -1,31 +1,24 @@
 """The GEECS RE Manager client seam — for every queueserver client.
 
-A GUI is just one client of the queue: the web scanner, notebooks and the
-GEECS MCP submit the same plan items through the same verbs.  Three
-modules:
+A GUI is one client of the queue among several: the web scanner,
+notebooks and the GEECS MCP submit the same plan items through the same
+verbs.  Three modules:
 
 - :mod:`.client` — the :class:`QueueClient` protocol and its
   implementations (:class:`ZmqQueueClient` over the manager's 0MQ control
-  socket, :class:`StubQueueClient` offline), the ``[qserver]``
-  section reader of the shared ``~/.config/geecs_python_api/config.ini``,
-  and :func:`readiness_verdict` — the ONE definition of "the manager can
-  run the GEECS plans" (#793), shared by the pre-submit ``worker_ready``
-  check, the ``geecs-qserver-ready`` service-start assertion, and any
-  probe script.
-- :mod:`.presets` — :func:`expand_preset`, a saved
-  :class:`geecs_schemas.Preset` into the plan queue item it stands
-  for (device names, scan-variable references, the run metadata).
-- :mod:`.submit_preflight` — the client-side pre-submit checks (the
-  preset expands, worker readiness — environment open + the plan
-  allowed, #793 — CONNECTED liveness) and :func:`build_submission_record`,
-  which records client identity and check outcomes into the
-  ``SubmissionRecord`` submitted as run metadata
-  (``submit_preset(preset, md={"geecs": {"submission": ...}})``) for
-  provenance.
+  socket, :class:`StubQueueClient` offline), the ``[qserver]`` reader of
+  ``~/.config/geecs_python_api/config.ini``, and
+  :func:`readiness_verdict`, the one definition of "the manager can run
+  the GEECS plans" (#793).
+- :mod:`.presets` — :func:`expand_preset`: a saved
+  :class:`geecs_schemas.Preset` into the plan queue item it stands for.
+- :mod:`.submit_preflight` — the client-side pre-submit checks and
+  :func:`build_submission_record`, the ``SubmissionRecord`` submitted as
+  run metadata for provenance.
 
 Importing this package is deliberately light: ``bluesky-queueserver-api``
 (the ``qs-client`` extra) and the engine/CA internals load lazily inside
-methods, and the parent package's device re-exports are lazy too — a
+methods, and the parent package's device re-exports are lazy too, so a
 client that only submits scans never pays for aioca/ophyd-async.
 """
 

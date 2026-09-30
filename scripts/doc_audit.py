@@ -188,7 +188,7 @@ RETIREMENT_WORDS = re.compile(
 NARRATIVE = re.compile(
     r"\b\d{4}-\d{2}-\d{2}\b"
     r"|(?<![\w/])#\d{3,4}\b"
-    r"|\bSam\b|\bowner'?s\b|\bruling\b|\bphase\s*\d\b|\bM\d\b"
+    r"|\bSam\b|\bowner'?s (ruling|call|decision)\b|\bruling\b|\bphase\s*\d\b|\bM\d\b"
     r"|\b(incident|historically|used to|back when|originally|at the time)\b",
     re.I,
 )

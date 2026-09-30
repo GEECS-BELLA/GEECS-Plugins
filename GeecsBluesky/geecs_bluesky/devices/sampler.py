@@ -1,59 +1,37 @@
-"""ShotSampler — one event per shot for every device that has no plugin — and StampStream.
-
-:class:`StampStream` (at the end) is the non-essential counterpart: one
-event per stamp a single non-essential triggered device without a plugin
-publishes, in its own ``<name>_stream``, never tied to a row.
+"""ShotSampler — one event per shot for every device without a plugin — and StampStream.
 
 The gated batch has no per-shot ``create/read/save``: the box free-runs
-and the plugin-backed cameras count their own frames.  Every *other*
-device of the run — the scalar-only devices (magnets, gauges, stages at
-their own ~5 Hz cadence), the triggered scalar devices without a plugin
-(ICTs, energy meters), a camera's ``.scalars`` view, the scanned motors'
-readbacks and the ``bin_number`` counter — is recorded by this small
-software device, driven by the stock ``prepare → kickoff → complete →
-collect`` verbs (``Flyable`` + ``EventCollectable`` + ``Preparable``):
+and the plugin-backed cameras count their own frames.  Every other device
+of the run (scalar-only devices, triggered scalars without a plugin, a
+camera's ``.scalars`` view, the scanned motors' readbacks, ``bin_number``)
+is recorded by this software device through the stock
+``prepare → kickoff → complete → collect`` verbs:
 
-- **Clock.**  An essential *triggered* device's ``acq_timestamp`` — the
-  signal strict waits on.  Every advance of it past the value read at
-  ``kickoff`` is one shot; ticks after the quota are ignored.
-- **Row.**  On each tick, the latest cached reading of every member (the
-  strict row's rule: *the latest value of every subscribed non-plugin
-  signal, into a row the trigger generated*), plus the clock's own stamp
-  column so the row joins to the cameras' frames by stamp — and, for a
-  native-saving essential (a device without a plugin whose LabVIEW files
-  are its record), its ``-nonscalar_save_path`` column, the run-long
-  constant its files are found under; they join by stamp too.
-- **Settle.**  A member with a stamp of its own (a triggered device
-  without a plugin, or its view) is not read at the tick: its stamp lands
-  after the clock's whenever its device is slower (the HASO: ~0.9 s with
-  saving on), and a reading taken at the tick is then the *previous*
-  shot's.  Each such member is given :data:`SETTLE_TIMEOUT_S` for its
-  cached stamp to fall within :data:`SHOT_WINDOW_S` of the clock's; then
-  its scalars, its stamp and its save-path column are read.  One that does
-  not make it missed the shot: its numeric columns read ``NaN`` (a string
-  column, the save path, stays), the miss is counted in :attr:`missed` and
-  logged once per member per step, and its file for that row is simply
-  absent — never the previous shot's.
+- **Clock.**  An essential triggered device's ``acq_timestamp``; every
+  advance past the value read at ``kickoff`` is one shot.
+- **Row.**  On each tick, the latest cached reading of every member, plus
+  the clock's stamp column (the join key to the cameras' frames) and, for
+  a native-saving essential, its ``-nonscalar_save_path`` column.
+- **Settle.**  A member with a stamp of its own is not read at the tick,
+  since its stamp can land after the clock's; it gets
+  :data:`SETTLE_TIMEOUT_S` for its stamp to fall within
+  :data:`SHOT_WINDOW_S` of the clock's before its columns are read.  One
+  that does not make it missed the shot: numeric columns ``NaN``, the miss
+  counted in :attr:`missed`, never the previous shot's values.
 - **Quota.**  ``prepare(N)`` sets the step's shot count; ``complete`` is
-  done after *N* ticks, or fails with
+  done after *N* ticks or fails with
   :exc:`~geecs_bluesky.exceptions.GeecsTriggerTimeoutError` when the clock
-  stops for ``shot_timeout`` — the sampler *counts*, so a gated run needs at
-  least one essential triggered device even without a camera.
-- **Stream.**  ``collect`` yields the rows as events of the ``shots``
-  stream (one event per shot; at 1 Hz, no flood).  The plan collects
-  about once a second **during** the batch, so the scanner's progress
-  moves shot by shot; each ``collect`` yields only the rows not yet
-  yielded, and only those whose frame every *gate* (the step's
-  plugin-backed essentials) already holds — a row, once out, is never a
-  shot the step discards, since a pause keeps exactly the shots every
-  device reached.  ``describe_collect`` is the union of the members'
-  descriptions.
+  stops.  The sampler counts, so a gated run needs an essential triggered
+  device.
+- **Stream.**  ``collect`` yields the ``shots`` events not yet yielded,
+  and only rows whose frame every gate already holds, so a row once out
+  is never a shot the step discards.
 
-The members are read through their own ``read`` / ``describe`` (a
-``GeecsDetector`` or its ``.scalars`` view through the detector's scalar
-signals — the detector's own ``read`` needs a prepare it never gets here);
-staged by the stock plan, they read from their monitor caches.  Nothing
-here touches Channel Access directly.
+:class:`StampStream` is the non-essential counterpart: one event per stamp
+a single triggered device without a plugin publishes, in its own
+``<name>_stream``, never tied to a row.  Members are read through their
+own ``read``/``describe`` from their monitor caches; nothing here touches
+Channel Access.
 """
 
 from __future__ import annotations
@@ -80,18 +58,11 @@ _Describe = Callable[[], Awaitable[dict[str, DataKey]]]
 _Read = Callable[[], Awaitable[dict[str, Reading]]]
 
 #: How long the sampler waits, after the clock's stamp, for each other
-#: stamped member's stamp PV to arrive and be this shot's.  Measured
-#: 2026-09-25 (26_0925, the HASO as the essential): the cameras' stamp
-#: PVs reach the worker 20–40 ms after the frame's time; the HASO's
-#: 0.77 s with saving off and **0.89–0.96 s with saving on during a gated
-#: batch** (its 24.5 MB file is written first), i.e. up to ~1 s after the
-#: clock's tick arrives.  A 0.5 s budget missed every HASO shot (Scan016)
-#: and 0.9 s caught about half, jitter deciding each row (Scans 018,
-#: 019); 1.5 s clears it with margin and bounds a batch's end at two
-#: extra edges when the last shot's device stays silent.  A device that
-#: has not stamped by the budget missed the shot — its columns read NaN,
-#: never the previous shot's values (Scan015: sampling at the tick
-#: recorded every HASO row one frame late).
+#: stamped member's stamp to arrive and be this shot's.  Camera stamps
+#: reach the worker within tens of milliseconds of the frame; the HASO's
+#: lands up to ~1 s late with saving on, so 0.5 s missed every HASO shot
+#: and 1.5 s clears it with margin while bounding a batch's end at two
+#: extra edges.  A member that has not stamped by then missed the shot.
 SETTLE_TIMEOUT_S = 1.5
 #: A member's stamp is this shot's when it lies within this many seconds
 #: of the clock's stamp (the devices stamp one edge within ~0.3 s of each
@@ -480,8 +451,8 @@ class ShotSampler:
 class StampStream:
     """One event per stamp a non-essential device publishes, for the whole run.
 
-    The non-essential **stream** of a device with no file plugin (the
-    2026-09-26 ruling): a *triggered* device — a camera or a wavefront
+    The non-essential **stream** of a device with no file plugin: a
+    *triggered* device — a camera or a wavefront
     sensor saving its own LabVIEW files, a scalar device with a stamp (a
     power supply, a gauge) — listed ``non_essential`` is a nice-to-have
     diagnostic that must never hold up acquisition.  Sampling it at the

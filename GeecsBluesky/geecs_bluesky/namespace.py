@@ -1,55 +1,39 @@
 """The GEECS device namespace: every device of an experiment as a long-lived noun.
 
 Built once at queue-server ``environment open`` (or by a headless session)
-from the GEECS DB roster and exported into the worker namespace so the
-registered plans can be given devices **by name** —
-``count([UC_Amp4_IR_input], 10)``, ``mv(U_S1H.current, 0.5)``, a sweep
-axis ``U_S1H.current`` — exactly as the queue server expects.
+from the GEECS DB roster and exported into the worker namespace, so the
+registered plans take devices **by name**: ``count([UC_Amp4_IR_input],
+10)``, ``mv(U_S1H.current, 0.5)``, a sweep axis ``U_S1H.current``.
 
-The namespace owns **no device behaviour**.  It composes the existing
-device layer:
+The namespace owns no device behaviour; it composes the device layer:
 
 * a device that acquires per shot (:func:`looks_triggerable`) is a
-  :class:`~geecs_bluesky.devices.detector.GeecsDetector` — a stock
-  ``StandardDetector`` whose ``trigger()`` waits for its ``acq_timestamp``
-  to advance; ``native_save`` iff the DB lists both ``save`` and
-  ``localsavingpath`` for it (so the gateway serves their ``:SP``), in
-  which case the detector owns those two controls and a ``PathProvider``
-  given at build points its files at the run;
+  :class:`~geecs_bluesky.devices.detector.GeecsDetector`, with
+  ``native_save`` iff the DB lists both ``save`` and ``localsavingpath``
+  (the detector then owns those two controls);
 * any other device is a
   :class:`~geecs_bluesky.devices.ca.snapshot.CaSnapshotReadable`;
-* each served **settable** variable is attached to that object as a child
-  Movable — :class:`~geecs_bluesky.devices.ca.motor.CaMotor` when the DB
-  gives it a tolerance (readback convergence) **or the scan-variable
-  catalog opts it in** (a plain entry with ``kind: motor``; ``motor_targets``
-  at build), else :class:`~geecs_bluesky.devices.ca.settable.CaSettable` — so
-  ``bps.mv(U_S1H.Current, 0.5)`` moves with the GEECS semantics those
-  classes already implement.
+* each served settable variable is a child Movable:
+  :class:`~geecs_bluesky.devices.ca.motor.CaMotor` when the DB gives it a
+  tolerance or the scan-variable catalog opts it in (``kind: motor``),
+  else :class:`~geecs_bluesky.devices.ca.settable.CaSettable`;
+* a catalog ``kind: pseudo`` entry becomes a noun of its own
+  (:meth:`GeecsNamespace.add_pseudos`): a
+  :class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoPositioner` under the
+  catalog name (``ALine_e_beam_angle_offset_x``).
 
-A scan-variable catalog ``kind: pseudo`` entry becomes a noun of its own
-(:meth:`GeecsNamespace.add_pseudos`, called by the startup profile after the
-roster is built): a
-:class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoPositioner` over the
-settable children the roster already bound, under the catalog's friendly
-name as an identifier (``ALine_e_beam_angle_offset_x``) — a sweep axis
-or an ``mv`` target like any other namespace noun.
+What each object *reads* is the DB's subscribed (``get='yes'``) list
+(:class:`~geecs_core.db.scalar_policy.GeecsDbScalarPolicy`); which
+variables exist as children is the gateway's served set
+(:class:`~geecs_bluesky.db_runtime.GeecsDbServedSetProvider`); every
+variable's CA type is
+:func:`geecs_core.db.variable_types.effective_vartype`.  Nothing here
+restates a rule that has a home elsewhere.
 
-What each object *reads* is the DB's subscribed (``get='yes'``) list — what
-GEECS itself logs — resolved by the same
-:class:`~geecs_core.db.scalar_policy.GeecsDbScalarPolicy` the file plugin
-writes a camera's per-frame scalars from (one home for the rule);
-which variables *exist* as children is the gateway's served set, from the
-same :class:`~geecs_bluesky.db_runtime.GeecsDbServedSetProvider` the
-unserved-variables preflight uses; every variable's CA type is
-:func:`geecs_core.db.variable_types.effective_vartype`, the rule the gateway
-typed the PV with.  Nothing here restates a rule that has a home elsewhere.
-
-Constructing a device touches no hardware; connection happens on first use
-(:func:`geecs_bluesky.preprocessors.connect_on_demand`).  A DB failure at
-build **raises**: a worker with a silently empty roster would fail every
-plan with "unknown device", which is worse than a loud failure at
-environment open.  Tests and offline tooling build from an explicit
-:class:`DeviceRoster`.
+Constructing a device touches no hardware; connection happens on first
+use (:func:`geecs_bluesky.preprocessors.connect_on_demand`).  A DB failure
+at build raises: a silently empty roster would fail every plan with
+"unknown device".  Tests build from an explicit :class:`DeviceRoster`.
 """
 
 from __future__ import annotations
@@ -100,15 +84,12 @@ TRIGGER_SOURCE_DEVICETYPES: frozenset[str] = frozenset(
     {"dg645", "dg535", "highland t564 ddg", "tdk-lambda z bipolar"}
 )
 
-#: Devicetypes that acquire per shot with no trigger-named DB variable: they
-#: consume other triggered devices' frames and push ``acq_timestamp`` in
-#: lockstep with them.  The MagSpec stitcher builds one stitched image per
-#: shot from the three magspec cameras and stamps it with the cameras'
-#: ``acq_timestamp`` (live 2026-09-17: identical to Cam1's, every shot), yet
-#: its DB rows mention no trigger, so the name rule read it as a snapshot
-#: device and nothing drove its native saving (Scan004 of 26_0917 had no
-#: ``U_BCaveMagSpec/`` folder).  Whole devicetype, lower-cased.
-#: :func:`looks_triggerable` includes them.
+#: Devicetypes that acquire per shot with no trigger-named DB variable:
+#: they consume other triggered devices' frames and push ``acq_timestamp``
+#: in lockstep (the MagSpec stitcher stamps its stitched image with the
+#: cameras' stamp), so the name rule alone would read them as snapshot
+#: devices and nothing would drive their native saving.  Whole devicetype,
+#: lower-cased; :func:`looks_triggerable` includes them.
 TRIGGERED_DEVICETYPES: frozenset[str] = frozenset({"magspecstitcher"})
 
 #: Served scalar dtype (the gateway's vocabulary) → the Python type ophyd-async
@@ -143,7 +124,7 @@ def primary_image_variable(rows: Sequence[Mapping[str, Any]]) -> list[str]:
 
     A camera's DB rows can list several image-typed variables
     (``UC_Amp4_IR_input``: ``image``, ``bakground image``, ``processed
-    image``, found live 2026-09-11), but only the primary one is pushed on
+    image``), but only the primary one is pushed on
     every acquisition — the others exist when an operation produces them,
     so a plugin armed on one waits forever.  ``image`` when the DB lists
     it, else the first image variable.  This is the *default* behind
@@ -219,7 +200,7 @@ def looks_triggerable(rows: Sequence[Mapping[str, Any]], devicetype: str = "") -
     """Whether a device acquires per shot (so it gets a Bluesky ``trigger()``).
 
     ``acq_timestamp`` is generated inside LabVIEW and is not (yet) a DB
-    variable, so this is the agreed shortcut (Sam, 2026-09-09): a device
+    variable, so this is the agreed shortcut: a device
     whose devicetype variables mention a trigger (``trigger``,
     ``TriggerDelay``, ``EnableTrigger``, …) is a triggered acquirer —
     cameras, spectrometers, ICT scopes, DAQ pads — unless its devicetype is a

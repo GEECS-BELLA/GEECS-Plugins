@@ -6,27 +6,23 @@ registered plans (:mod:`geecs_bluesky.plans.registry`) over the
 namespace's devices; everything per-run is the plan's arguments and the
 devices' own lifecycles.
 
-What ``claim=True`` installs — the GEECS scan, as two preprocessors and
-four callbacks, each with one job:
+What ``claim=True`` installs, each with one job:
 
 - :func:`~geecs_bluesky.plans.claim_scan.claim_scan_preprocessor` — every
-  run claims a scan number, its folder rides in the start document and
+  run claims a scan number; its folder rides in the start document and
   the shared :class:`~geecs_bluesky.plans.claim_scan.GeecsScanPathProvider`
   points the native-saving detectors at it;
-- :func:`~geecs_bluesky.preprocessors.scalar_headers` — the legacy
-  ``Device Variable`` header map into the start document;
-- the ScanInfo ini, the s-file, ``scan.log`` and the stack check
+- :func:`~geecs_bluesky.preprocessors.scalar_headers` — the ``Device
+  Variable`` header map into the start document;
+- the four output callbacks
   (:func:`geecs_bluesky.callbacks.subscribe_scan_outputs`).
 
-The experiment's background telemetry is not the engine's: every bound
-scan verb reads it into its own rows
-(:class:`~geecs_bluesky.devices.background.BackgroundSnapshot`, wired by
-the registry).  There is no run-level baseline stream: an open/close
-``SupplementalData`` baseline is strict for every member, and one PV the
-gateway does not serve would fail every scan after its claim (#1016).
-
-``connect_on_demand`` goes in last, outermost, so it also sees the messages
-the other preprocessors inject.
+Background telemetry is not the engine's: every bound scan verb reads it
+into its own rows
+(:class:`~geecs_bluesky.devices.background.BackgroundSnapshot`); there is
+no run-level baseline stream (#1016).  ``connect_on_demand`` goes in
+last, outermost, so it also sees the messages the other preprocessors
+inject.
 """
 
 from __future__ import annotations

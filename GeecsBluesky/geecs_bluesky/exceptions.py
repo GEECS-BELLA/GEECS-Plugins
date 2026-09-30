@@ -50,7 +50,7 @@ def failure_cause_text(exc: BaseException) -> str:
 
     - ``is not None``, never ``or``: ``aioca.CANothing`` is *falsy* for a
       failed put, and ``exc.__cause__ or exc`` would select the useless
-      status instead (2026-09-10, GEECS-Plugins#817).
+      status instead (#817).
     - ``str``, never ``repr``: ``CANothing`` carries the PV name and the CA
       message only through ``str`` — its repr is the bare error code; and
       the notes a device attaches (PEP 678 ``add_note`` — the file plugin's
@@ -173,7 +173,7 @@ class PseudoComponentsDisagreeError(GeecsError):
     actually read by more than each component's tolerance — a component
     moved under the scan (a hand move, another plan).  Fails the scan
     rather than moving the other components onto a formula the operator
-    did not command (paired steering magnets are the incident class).
+    did not command (paired steering magnets are the case in point).
     """
 
 

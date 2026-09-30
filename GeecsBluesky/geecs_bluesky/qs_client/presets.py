@@ -1,46 +1,33 @@
 """Expand a preset into the queue item it stands for — client-side, import-light.
 
-A :class:`geecs_schemas.Preset` is a saved scan: the device group plus the
-plan call.  The worker registers its plans over namespace devices by
-**name** (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`), so
-submission is a translation of names, nothing more:
+A :class:`geecs_schemas.Preset` is a saved scan: the device group plus
+the plan call.  The worker registers its plans over namespace devices by
+name (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`), so submission
+is a translation of names:
 
-- each device of the group becomes its namespace binding —
-  ``UC_Amp4_IR_input``, or ``UC_Amp4_IR_input.scalars`` when
-  ``save_images`` is off (the scalars-only view every namespace device
-  carries: on a detector the shot wait without the files, on a
-  scalar-only device what the device reads); an ``essential: false``
-  device goes to the bound plan's ``non_essential`` list instead, under
-  the same binding (streamed for the run into its own stream, joined by
-  stamp, never waited on; ``.scalars`` records its scalars without files);
-- ``acquisition`` (``strict`` / ``gated``) and ``shot_period`` ride in
-  ``plan.kwargs`` like ``shots_per_step`` does;
-- each scan-variable string in ``plan.args`` / ``plan.kwargs`` — a
-  ``Device:Variable`` pair or a scan-variable catalog name — becomes the
-  namespace's Movable child, ``U_S1H.current``;
+- each device of the group becomes its namespace binding
+  (``UC_Amp4_IR_input``, or ``UC_Amp4_IR_input.scalars`` when
+  ``save_images`` is off); an ``essential: false`` device goes to the
+  plan's ``non_essential`` list under the same binding;
+- ``acquisition`` and ``shot_period`` ride in ``plan.kwargs`` like
+  ``shots_per_step``;
+- each scan-variable string in ``plan.args`` / ``plan.kwargs`` (a
+  ``Device:Variable`` pair or a catalog name) becomes the namespace's
+  Movable child, ``U_S1H.current``; a ``kind: pseudo`` entry is a noun of
+  its own under its catalog name;
 - ``trigger_profile``, ``native_image_save`` and ``background_telemetry``
-  ride as the bound plan's keyword arguments — only when the preset sets
-  them, since unset means the experiment default the worker resolves
-  itself — and a copy of any of them in ``plan.kwargs`` is refused: the
-  preset field is the one source of truth (:data:`RUN_LEVEL_FIELDS`);
-  ``background`` rides in the run metadata; the preset name and the
-  submission record ride in ``md["geecs"]`` as provenance.
+  ride as keyword arguments only when the preset sets them (unset means
+  the experiment default), and a copy in ``plan.kwargs`` is refused
+  (:data:`RUN_LEVEL_FIELDS`); ``background``, the preset name and the
+  submission record ride in the run metadata as provenance.
 
-The manager resolves the names against the worker namespace at submission
-but does **not** refuse an unknown one (bluesky-queueserver 0.0.25 passes
-an unresolved string through to the plan), so the expansion records every
-reference it created (:attr:`QueueItem.references`: the detectors and the
-resolved scan variables — never a literal string argument such as an enum
-value) and the pre-submit preflight checks exactly those against the
-manager's device tree
-(:func:`~geecs_bluesky.qs_client.submit_preflight.run_submit_preflight`) —
-the typo fails at preflight, not at queue-front.  A pseudo scan variable
-(``kind: pseudo``) is a namespace noun of its own under its catalog name
-(``GeecsNamespace.add_pseudos``), so it expands to that binding —
-``ALine_e_beam_angle_offset_x`` — and the preflight checks it like any
-device.  A preset whose plan is not a scan verb is refused (``mv`` and
-``run_action`` are queue items of their own — ``submit_plan("mv", …)``,
-``submit_plan("run_action", ["name"])`` — never a preset).
+The manager does not refuse an unknown device name (it passes the string
+through to the plan), so the expansion records every reference it
+created (:attr:`QueueItem.references`) and the pre-submit preflight
+checks them against the manager's device tree
+(:func:`~geecs_bluesky.qs_client.submit_preflight.run_submit_preflight`).
+A preset whose plan is not a scan verb is refused: ``mv`` and
+``run_action`` are queue items of their own (``submit_plan``).
 """
 
 from __future__ import annotations

@@ -1,42 +1,30 @@
 """``geecs-qserver-ensure-ready`` — a running ``geecs-qserver`` means *ready*.
 
-bluesky-queueserver treats ``environment open`` as an operator gesture: the
-manager starts knowing no plans, and only opening the worker environment
-imports the startup profile and populates ``plans_allowed``.  Run as a
-systemd service that is the wrong contract — a manager that restarted
-unattended answers ``qserver status`` healthily and refuses every
-submission with "Plan ... is not in the list of allowed plans" (#793).
+bluesky-queueserver treats ``environment open`` as an operator gesture:
+the manager starts knowing no plans, and only opening the worker
+environment populates ``plans_allowed``.  As a systemd service that is
+the wrong contract: a manager that restarted unattended answers
+``qserver status`` healthily and refuses every submission (#793).
 
 This entry point is the readiness assertion the ``geecs-qserver-ready``
-oneshot unit runs after the manager (``qserver/deploy/``): wait for the
-manager to answer, open the environment if it is closed, wait for the
-worker environment to finish initializing, then **assert the manager lists
-every plan the startup profile registers**
-(:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`).  The plan-list
-assertion is the point: an open that succeeded onto a partial import, or
-a permissions file that excludes a plan, is still broken, and only that
-check catches it.  The plan list is read through the same
-``qs_client.readiness_from_reads`` assembly the pre-submit ``worker_ready``
-check runs (one definition of ready); after an open this run requested it
-is re-read for a short settle window, because the manager reports the
-environment up before its own plan-list download has landed.  A list that
-is still empty or incomplete after that is restored once from the worker's
-on-disk copy through the manager's
-``permissions_reload(restore_plans_devices=True)`` (#838: the manager's
-own download of the lists from the worker can time out and leave it idle,
-environment open, knowing no plans — ``systemctl restart
-geecs-qserver-ready`` heals that without a manager restart), and the
-settle window applies again.  Exit codes: 0 ready; 1 not ready (the
-message says exactly what was found); 2 usage.
+oneshot unit runs after the manager: wait for the manager to answer, open
+the environment if closed, wait for the worker to finish initializing,
+then **assert the manager lists every plan the startup profile
+registers** (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`), through
+the same ``qs_client.readiness_from_reads`` assembly the pre-submit
+``worker_ready`` check uses.  After an open this run requested, the list
+is re-read for a settle window (the manager reports the environment up
+before its plan-list download has landed); a list still empty or
+incomplete is restored once from the worker's on-disk copy through
+``permissions_reload(restore_plans_devices=True)`` (#838), and the settle
+window applies again.  Exit codes: 0 ready; 1 not ready (the message says
+what was found); 2 usage.
 
 The address asserted is the manager on **this** host (loopback), or
-``QS_CONTROL_ADDR`` when set — never the client-side ``[qserver]`` config.
-
-Talks to the manager over its 0MQ control socket through
-``bluesky_queueserver.manager.comms.zmq_single_request`` — the ``qserver``
-extra the worker host already installs; the ``qs-client`` extra is *not*
-required.  The transport is injectable (``request=``) so the logic is
-tested without a manager.
+``QS_CONTROL_ADDR`` when set, never the client-side ``[qserver]`` config.
+It talks over the 0MQ control socket through
+``bluesky_queueserver.manager.comms.zmq_single_request`` (the ``qserver``
+extra); the transport is injectable (``request=``) for tests.
 """
 
 from __future__ import annotations
@@ -97,20 +85,14 @@ PLAN_LIST_SETTLE_POLLS = 5
 _SETTLING_STATES = ("plans_empty", "plan_missing")
 #: After the settle window a list that is still empty or incomplete is
 #: restored ONCE from disk through ``permissions_reload`` with
-#: ``restore_plans_devices=True`` (#838): the manager's own download of the
-#: lists from the worker can time out — observed while the host thrashed
-#: in swap — and then leaves the manager idle, environment open,
-#: ``plans_allowed`` empty, refusing every submission.  The worker writes
+#: ``restore_plans_devices=True`` (#838): the manager's own download of
+#: the lists from the worker can time out and leave it idle, environment
+#: open, ``plans_allowed`` empty.  The worker writes
 #: ``existing_plans_and_devices.yaml`` from its namespace at every
-#: environment open (``--update-existing-plans-devices`` default
-#: ``ENVIRONMENT_OPEN``), so that file IS the running environment's list;
-#: the reload loads it into the manager and regenerates the allowed lists
-#: unconditionally (``manager.py: _update_allowed_plans_and_devices``).
-#: ``environment_update`` was considered and rejected: it re-downloads
-#: only when the worker's regenerated descriptions DIFFER from its own
-#: stored copy (``worker.py: _load_script_into_environment``), so on an
-#: unchanged namespace it is a no-op.  The settle window applies again
-#: after the restore.
+#: environment open, so that file IS the running environment's list.
+#: ``environment_update`` is not used: it re-downloads only when the
+#: worker's descriptions differ from its stored copy, a no-op on an
+#: unchanged namespace.  The settle window applies again after the restore.
 _RESTORE_STATES = _SETTLING_STATES
 #: The restore is one manager call; the manager answers it after reading
 #: the file and pushing the permissions to the worker, which can exceed

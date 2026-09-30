@@ -39,7 +39,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   on `bp.count` and the hardware command carries `GEECS_HW=1`;
   `tests/test_dependency_direction.py` no longer cites a deleted test
   file; `devices/sampler.py` gives the HASO's stamp latency as ~0.9 s
-  (its own constant's figure), not the cameras' 40 ms.
+  (its own constant's figure), not the cameras' 40 ms.  The 26
+  essay-length module docstrings and the longest `#:` blocks are cut to
+  the contract (what the module owns, its invariants, its named
+  constants): dates, names, rulings and incident retellings are gone,
+  the record staying in this changelog.  `plans/calibration.py` no
+  longer says the write cap is tightened by half the trigger period:
+  `_refuse_implausible` uses `max_offset` alone, and the attribute
+  comment and the `max_offset` parameter doc now agree with it.
 
 ## [0.108.0] - 2026-09-29
 

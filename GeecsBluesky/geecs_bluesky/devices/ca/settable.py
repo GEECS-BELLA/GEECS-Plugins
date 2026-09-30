@@ -1,35 +1,28 @@
 """CaSettable — a writable GEECS variable driven through the CA gateway.
 
-The gateway exposes a settable GEECS variable as two PVs: a readback
-(``[experiment:]device:variable``, fed by the device stream) and a setpoint
-(``…:SP``, forwarded to the device over UDP).  This device writes the
-setpoint and reads back the real value.
+The gateway exposes a settable variable as two PVs: the readback
+(``[experiment:]device:variable``) and the setpoint (``…:SP``, forwarded
+to the device over UDP).  This device writes the setpoint and reads the
+real value back.  The ``:SP`` put rides GEECS's native blocking set,
+which completes only when the device reports convergence or failure, so
+a plain CaSettable already waits;
+:class:`~geecs_bluesky.devices.ca.motor.CaMotor` adds a readback poll on
+top, and :class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable` is
+the set-X-confirm-Y case.
 
-The ``:SP`` put is not fire-and-forget: it rides GEECS's native **blocking**
-set, which completes only when the device reports convergence (per the DB
-tolerance) or failure — a plain CaSettable already waits.
-:class:`~geecs_bluesky.devices.ca.motor.CaMotor` adds an independent
-readback-tolerance poll on top; the decoupled set-X-confirm-Y case is
-:class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`.
+A failed set is logged at ERROR by the device, naming the ``:SP`` PV and
+the cause (:meth:`CaSettable._set_logged`, shared by the subclasses),
+before the status fails: the ``FailedStatus`` the RunEngine raises carries
+only the status repr, and the engine's own traceback lands in the journal
+after ``scan.log`` has closed (#868).
 
-A set that fails is **logged at ERROR by the device**, naming the ``:SP``
-PV and the cause by ``str`` (:meth:`CaSettable._set_logged`, shared by
-the subclasses) before the status fails: the ``FailedStatus`` the
-RunEngine throws into the plan carries only the status repr, and the
-engine's own ``Run aborted`` traceback lands in the journal after the
-scan log has closed — so without this line a refused motor put left no
-PV name in the scan folder (GEECS-Plugins#868).
-
-Every settable also carries a **user offset** (:attr:`CaSettable.offset`,
-a soft signal): the EPICS motor record's user/dial split (``.OFF``,
-``user = dial + offset``) held in software, because a GEECS variable has
-no offset field — the raw GEECS value is the dial.  ``set()``, ``read()``
-and ``locate()`` stay in the dial frame; the offset is consumed by the
-pseudo positioners (:mod:`geecs_bluesky.devices.ca.pseudo`), whose
-``mode: relative`` entries zero their components' offsets at scan start
-(:meth:`CaSettable.set_current_position`, ophyd's spelling).  An
-operator-facing "set current position as zero" with persistence is the
-follow-on arc (``GeecsBluesky/CLAUDE.md``, the pseudo positioner rulings).
+Every settable carries a **user offset** (:attr:`CaSettable.offset`, a
+soft signal): the EPICS motor record's user/dial split held in software,
+since a GEECS variable has no offset field.  ``set``, ``read`` and
+``locate`` stay in the dial frame; the pseudo positioners consume the
+offset (:mod:`geecs_bluesky.devices.ca.pseudo`), zeroing their
+components' offsets at scan start through
+:meth:`CaSettable.set_current_position`.
 """
 
 from __future__ import annotations
@@ -182,9 +175,8 @@ class CaSettable(StandardReadable):
         plans and ``reset_positions_wrapper`` stash before the first move
         and restore afterwards.  Without it bluesky falls back to
         ``obj.position``, which on a :class:`CaMotor` is the readback
-        *signal*, not a number (2b acceptance, 2026-09-12: every ``rel_*``
-        plan failed with ``unsupported operand type(s) for +: 'SignalR' and
-        'float'``).  The readback stands in for the setpoint on purpose: the
+        *signal*, not a number (every ``rel_*`` plan failed with
+        ``unsupported operand type(s) for +: 'SignalR' and 'float'``).  The readback stands in for the setpoint on purpose: the
         gateway's ``:SP`` PV is the last put *through the gateway*, not
         where the device is — a stage driven from LabVIEW since would make
         a relative scan run about the wrong point.

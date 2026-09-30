@@ -1,59 +1,33 @@
-"""Client-side pre-submit preflight (#648 decision 3): checks before queueing.
+"""Client-side pre-submit preflight: the checks before queueing.
 
-Under the queue, submission-to-execution gaps are long — a typo must fail
-at submit, not at queue-front — and the worker cannot ask the operator
-anything (its checks run headless).  So clients run the checks *before*
-queueing and ask the questions their own way: the web scanner puts each
-to the operator in its submit flow; a headless client (notebook, the
-OSPREY MCP) surfaces them programmatically.
+Under the queue, submission-to-execution gaps are long and the worker
+cannot ask the operator anything, so clients run the checks *before*
+queueing and put the questions their own way.  This module is the pure
+layer: it computes findings and questions on the caller's thread and
+returns them; rendering and answering live in the client.  Outcomes go
+into a ``SubmissionRecord`` (:func:`build_submission_record`) submitted
+beside the plan call as run metadata, a provenance trail of who was
+asked what.
 
-This module is the pure layer: it computes findings and questions on the
-caller's thread and returns them; **rendering/answering lives in the
-client**.  Outcomes go into a ``SubmissionRecord`` built by
-:func:`build_submission_record` and submitted beside the plan call as run
-metadata (``submit_preset(preset, md={"geecs": {"submission": ...}})``),
-giving the run a provenance trail of who was asked what and what they
-answered.
-
-Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
+Checks, in order (the ``PreflightOutcome.check`` vocabulary):
 
 - ``validate`` — the preset expands into a queue item
-  (:func:`~geecs_bluesky.qs_client.presets.expand_preset`: it has a plan
-  call, the plan is one the worker registers).
-  A failure is a hard refusal, never a question.
-- ``worker_ready`` — is the execution surface actually ready (#793): the
-  manager answers, its worker environment is open, the plan this
-  submission will queue is in its allowed-plans list, and every device
-  reference the expansion created (``QueueItem.references``: the
-  detectors and the resolved scan variables) is in its device tree (the
-  manager itself passes an unknown name through to the plan as a string,
-  which would fail only after the trigger box was armed).  A closed
-  environment or a missing plan is a hard refusal naming the recovery
-  gesture — the manager's own answer would be the misleading "Plan ... is
-  not in the list of allowed plans"; so is an environment still being
-  opened (retry shortly).  An unreachable manager is *skipped* (fail-open:
-  the submit itself reports that failure), and so is an **unanswered plan
-  list** (``plans_unknown`` — the second round trip timing out over VPN
-  must not block a submit the manager itself would refuse precisely if the
-  list were truly empty); a client without a ``[qserver]`` config is
-  skipped too.  Reads the caller's :class:`~.client.QueueClient` when
-  given (``client=``), else builds and closes one from the shared config.
-  Two phase-2 rules read off the same device tree: every ``non_essential``
-  device must be triggered (an ``acq_timestamp`` child — plugin-backed or
-  not, since the 2026-09-26 ruling; a free-running device is deferred);
-  and a gated run needs at least one essential *triggered*
-  device (an ``acq_timestamp`` child), camera or scalar — "nothing counts
-  shots; use strict" otherwise.  An essential without a plugin is admitted
-  in a gated run (its LabVIEW files are its record, 2026-09-25 ruling).
+  (:func:`~geecs_bluesky.qs_client.presets.expand_preset`).  A failure is
+  a hard refusal, never a question.
+- ``worker_ready`` — the manager answers, its environment is open, the
+  plan is in its allowed list and every device reference the expansion
+  created is in its device tree (#793).  A closed environment or a
+  missing plan is a hard refusal naming the recovery gesture; an
+  unreachable manager, an unanswered plan list (``plans_unknown``) or a
+  client without a ``[qserver]`` config is *skipped* (fail-open).  Two
+  acquisition rules read off the same tree: every ``non_essential``
+  device must be triggered (an ``acq_timestamp`` child), and a gated run
+  needs at least one essential triggered device.
 - ``gateway_liveness`` — one CA read of the ``CONNECTED`` PV of each
-  preset device **and of each device the trigger profile writes** (the
-  preset's profile, else the experiment default — resolved through the
-  configs repo, so the question names a dead DG645 too, GEECS-Plugins#852;
-  an unresolvable profile is logged and the preset's devices are probed
-  alone); only the exact ``"Disconnected"`` reading counts as down
-  (fail-open).
+  preset device and of each device the trigger profile writes (#852);
+  only the exact ``"Disconnected"`` reading counts as down (fail-open).
 
-Every heavy dependency (``aioca``) is imported lazily inside functions —
+Every heavy dependency (``aioca``) is imported lazily inside functions;
 this module must import light and offline.
 """
 
@@ -318,8 +292,8 @@ def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
     *known* is the tree flattened to dotted names.  A plugin-backed
     detector has an ``hdf`` child; a LabVIEW-native camera has ``save``
     (and ``localsavingpath``) but no ``hdf`` — admitted as a gated
-    essential since the 2026-09-25 ruling and as a non-essential in either
-    mode since the 2026-09-26 one (its own stream, one event per stamp); a
+    essential and as a non-essential in either mode (its own stream, one
+    event per stamp); a
     triggered device has an ``acq_timestamp`` child; a scalar-only device
     has neither, and is refused as a non-essential (nothing could place
     its readings on a shot — the free-running case is deferred).
