@@ -374,6 +374,30 @@ this package and must never depend on GeecsBluesky or a GUI package).
   `scan_paths.daily_scan_folder`, the offline-first (None, never raise,
   never create) module-level companion to
   `ScanPaths.get_daily_scan_folder`.
+- **`folder_catalog`** — the same `ScanCatalog` protocol over the scan
+  **folders** on the share, for every scan Tiled never saw (LabVIEW
+  Master Control, experiments not on the Bluesky path, pre-Bluesky days).
+  `FolderScanCatalog` lists a day's `scans/ScanNNN` from the `ScanInfo`
+  inis and synthesizes the start-doc keys `tiled_schema` reads (`motors`
+  = the s-file column that records the scan parameter, alias and all;
+  `num_points`/`shots_per_step`; `scan_folder`; `time` = the first
+  shot's LabVIEW `DateTime Timestamp`, clamped to the folder's day). A
+  loaded run has **`data=None`** on purpose: its scalars are the s-file,
+  which `scan_frame` already reads for a run-less scan — one s-file
+  reader. Completion = a non-empty `ScanEndInfo`, else the analysis
+  s-file's presence (Master Control leaves `ScanEndInfo` empty always).
+  Uids are `folder:{experiment}:{YYYY-MM-DD}:{number}`, parsed back by
+  `load_run`. `MergedScanCatalog(primary, folders)` lists the primary's
+  runs plus every folder whose scan number no primary run claims, routes
+  `load_run` by uid prefix, and degrades to folders alone when the
+  primary is down (re-raising only when the folders are empty too).
+  A **finished** scan's documents are cached per catalog (bounded LRU by
+  folder) — nothing feeding them changes after the end, and the portal
+  re-lists the day on every scan page — so a finished day costs one
+  `os.scandir` and no file opens; unfinished scans are re-read each call.
+  Never key this on the ini's mtime: Master Control finishes a scan by
+  writing the analysis s-file, not by touching the ini.
+  Read-only; the tree-untouched pin is in `tests/test_folder_catalog.py`.
 - **`tiled_schema`** — event-schema column semantics, ONE module,
   version-tagged (`TARGET_SCHEMA_VERSION = 1`);
   `GeecsBluesky/EVENT_SCHEMA.md` is the contract.  Anything that
