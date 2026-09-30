@@ -3,6 +3,13 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.37.5] - 2026-09-29
+
+### Added
+
+- A **Docs** link in the page header, opening this surface's operator
+  page on the docs site (`web_services/data_portal/`) in a new tab.
+
 ## [0.37.4] - 2026-09-29
 
 ### Changed

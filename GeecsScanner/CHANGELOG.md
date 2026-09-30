@@ -5,6 +5,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.14.3] - 2026-09-29
+
+### Added
+
+- A **Docs** link in the page header, opening this surface's operator
+  page on the docs site (`web_services/scanner/`) in a new tab.
+
 ## [0.14.2] - 2026-09-26
 
 ### Fixed
