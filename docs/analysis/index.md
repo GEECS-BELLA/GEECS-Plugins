@@ -46,3 +46,9 @@ sense of what's in it, start here.
 New to the analysis side? The cross-package
 [Analysis tutorial](../tutorials/analysis.md) walks the end-to-end path:
 configure analyzers, run them over a scan, and read the results back.
+
+Rethinking how the analysis recipes are documented? The
+[analysis docs preview](../sites/analysis_docs_preview/index.html) mocks three
+directions (generated measure cards, workflow walkthroughs, and help
+inside the config editor), with a card for every supported measure
+drawn from real runs of the analysis core.

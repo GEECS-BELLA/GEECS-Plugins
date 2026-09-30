@@ -31,6 +31,7 @@ and prose second.
 | Page | Linked from | What it is |
 |---|---|---|
 | `data_flow/` | Platform landing page, Fleet Map | The platform data-flow map: devices, gateways, scan engine, storage and people, with a clickable detail panel per block (what it does, how it works, status, next steps). The block text lives in the `INFO` object at the bottom of the file; the status dots are the maintainer's read and carry a date in the caption. Versions are deliberately not stated (they rot in days); each panel links to the package CHANGELOG. When an arc lands or a status changes, update the block's `INFO` entry in the same PR. |
+| `analysis_docs_preview/` | Analysis landing page | A documentation proposal: three mocked directions for the analysis recipe docs, with a card per supported measure and the `input.siblings` stitch option. Images and numbers are real `geecs_analysis` runs on synthetic inputs (FROG and HASO, which need vendor libraries, are labeled illustrations). `make_examples.py` beside it regenerates the embedded JSON in place; it is not a build step, the committed page is complete. |
 
 ## Publishing a page as a claude.ai artifact
 
