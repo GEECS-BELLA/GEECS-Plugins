@@ -12,7 +12,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   schema's `x-docs`, GEECS-Analysis 0.25.0), and a measure folds the
   scalars it writes, with their meanings (`x-scalars`), into a closed
   "Can write N scalars" `<details>`. The page header links the reference
-  ("Docs").
+  ("Docs"), reading `geecs_analysis.recipe.RECIPE_REFERENCE_URL` so the
+  address has one copy (pinned).
 
 ## [1.45.0] - 2026-09-29
 

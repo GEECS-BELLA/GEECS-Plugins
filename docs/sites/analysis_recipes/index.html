@@ -434,14 +434,25 @@ function renderSummary(body, kind){
 /* ---------- index + routing (#measure-beam, #step-roi, #summary-waterfall, #input-siblings) ---------- */
 const ENTRIES=[];
 const MEASURE_ORDER=["beam","hi_res_mag_cam","line","ict","frog","haso","none"];
-MEASURE_ORDER.forEach(k=>ENTRIES.push({id:`measure-${k}`,label:k,group:"Measures · "+MEASURES[k].group,count:(REF.measures[k]||{}).scalars?REF.measures[k].scalars.length:""}));
+// Any measure the registry has but this page has no worked figure for still
+// gets a card, built from the schema alone (description, parameters, scalars).
+Object.keys(REF.measures).forEach(k=>{if(!MEASURES[k]){MEASURE_ORDER.push(k);MEASURES[k]={group:"Other",render(body){
+  const ref=REF.measures[k];if(ref.description)body.appendChild(h("p",{style:"white-space:pre-line"},esc(ref.description)));
+  body.appendChild(scalarTable((ref.scalars||[]).map(n=>({k:n,d:meaning(k,n)})),PLC));return null;}};}});
+MEASURE_ORDER.filter(k=>REF.measures[k]).forEach(k=>ENTRIES.push({id:`measure-${k}`,label:k,group:"Measures · "+MEASURES[k].group,count:(REF.measures[k]||{}).scalars?REF.measures[k].scalars.length:""}));
 ENTRIES.push({id:"input-siblings",label:"siblings (stitch)",group:"Input options",count:""});
 Object.keys(REF.steps).forEach(k=>ENTRIES.push({id:`step-${k}`,label:k,group:"Steps",count:""}));
 Object.keys(REF.summaries).forEach(k=>ENTRIES.push({id:`summary-${k}`,label:k,group:"Summaries",count:""}));
 
 function render(id){
-  const e=ENTRIES.find(x=>x.id===id)||ENTRIES[0];id=e.id;
   const body=document.getElementById("card");body.innerHTML="";
+  const e=ENTRIES.find(x=>x.id===id);
+  if(!e&&id){
+    document.getElementById("crumb").textContent=id;
+    body.appendChild(h("h2",{},esc(id)));
+    body.appendChild(h("p",{},"This page has no card for that name yet: it is newer than the page's embedded data. Rerun <code>make_examples.py</code> beside this page to add it. Until then, the config editor's help line and parameter descriptions come straight from the code."));
+    document.querySelectorAll("#picker button").forEach(b=>b.setAttribute("aria-current","false"));return;}
+  id=(e||ENTRIES[0]).id;
   const [role,...rest]=id.split("-");const name=rest.join("-");
   const head=h("div",{class:"card-head"});
   if(role==="measure"){

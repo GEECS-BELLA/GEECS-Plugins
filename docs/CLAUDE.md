@@ -131,7 +131,11 @@ was retired with that GUI.
   to 5 and patches missing IDs with short uuids.
 - Notebooks under `docs/` are rendered by mkdocs-jupyter even if they're
   not listed in `nav:`. Move broken-but-archived notebooks out of `docs/`
-  or fix them; don't leave them stranded.
+  or fix them; don't leave them stranded. The one exception: notebooks
+  that still work but document a superseded path (the pre-recipe analyzer
+  notebooks) may stay in place for one-off use if `mkdocs.yml`'s
+  `exclude_docs` lists them and every published link to them points at
+  the file on GitHub, never at the unpublished page.
 
 ## What `docs/` is *not* for
 

@@ -54,6 +54,10 @@ class TestPagesAndStatic:
     def test_page_and_assets(self, client):
         assert client.get("/").status_code == 200
         assert "ConfigEditor.mount" in client.get("/").text
+        # the header's Docs link is the core's one copy of the reference address
+        from geecs_analysis.recipe import RECIPE_REFERENCE_URL
+
+        assert f'href="{RECIPE_REFERENCE_URL}"' in client.get("/").text
         js = client.get("/static/editor.js")
         assert js.status_code == 200
         assert (

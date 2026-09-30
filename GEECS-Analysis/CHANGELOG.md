@@ -13,6 +13,10 @@
   reference, `RECIPE_REFERENCE_URL#step-<name>` / `#measure-<kind>` /
   `#summary-<kind>`) on every step, measure and summary variant, for the
   config editor's help.
+- `test_recipe_reference_page`: the published recipe reference
+  (`docs/sites/analysis_recipes/`) has a card for every registered step,
+  measure and summary, with the code's scalar meanings; a new kind fails
+  it until `make_examples.py` is rerun.
 
 ## [0.24.0] - 2026-09-29
 

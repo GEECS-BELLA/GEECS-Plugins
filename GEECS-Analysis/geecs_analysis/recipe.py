@@ -35,7 +35,6 @@ from geecs_analysis.registry import (
     summary_definitions,
 )
 from geecs_analysis.render.specs import FigureSpec
-
 from geecs_analysis.specs import Analysis
 from geecs_analysis.steps.roi import RoiSpec
 
