@@ -374,6 +374,38 @@ this package and must never depend on GeecsBluesky or a GUI package).
   `scan_paths.daily_scan_folder`, the offline-first (None, never raise,
   never create) module-level companion to
   `ScanPaths.get_daily_scan_folder`.
+- **`folder_catalog`** — the same `ScanCatalog` protocol over the scan
+  **folders** on the share, for every scan Tiled never saw (LabVIEW
+  Master Control, experiments not on the Bluesky path, pre-Bluesky days).
+  `FolderScanCatalog` lists a day's `scans/ScanNNN` from the `ScanInfo`
+  inis and synthesizes the start-doc keys `tiled_schema` reads (`motors`
+  = the s-file column that records the scan parameter, alias and all;
+  `num_points`/`shots_per_step`; `scan_folder`; `time` = the first
+  shot's LabVIEW `DateTime Timestamp`, else `scan.log`'s first record,
+  else the ini mtime — the logbook's ladder — every rung clamped to the
+  folder's day, `time_approximate` flagging the ini-mtime and noon
+  rungs). A loaded run has **`data=None`** on purpose: its scalars are
+  the s-file, which `scan_frame` already reads for a run-less scan — one
+  s-file reader. Status words follow the logbook's `scan_status`
+  (`success`/`fail…`/`abort…`, other text `unknown`); an empty
+  `ScanEndInfo` (always, under Master Control) falls back to the
+  `run_closed_evidence` files — `ScanDataScanNNN.txt` or the analysis
+  s-file, opened through `data/sfile.py`'s path helpers. Uids are
+  `folder:{experiment}:{YYYY-MM-DD}:{number}`. A **finished** scan's
+  documents are cached per catalog (bounded LRU by folder), so a
+  finished day costs one `os.scandir` and no file opens; unfinished
+  scans are re-read each call. The cache is keyed on the finished
+  verdict rather than the ini's mtime because Master Control ends a scan
+  by writing its s-files, not by rewriting the ini (the logbook's
+  ini-keyed cache is right for its own summary, which reads only the
+  ini). `MergedScanCatalog(primary, folders)` asks the primary first and
+  passes its scan numbers as `skip`, so claimed folders are never read
+  (a Bluesky day costs one directory listing); each side degrades to the
+  other (primary down → folders, `OSError` on the share → primary), and
+  only both failing re-raises the primary's error. The logbook's
+  `scan_reader` walks the same folders for a different product (its
+  `ScanSummary`); folding the two readers together is its own change.
+  Read-only; the tree-untouched pin is in `tests/test_folder_catalog.py`.
 - **`tiled_schema`** — event-schema column semantics, ONE module,
   version-tagged (`TARGET_SCHEMA_VERSION = 1`);
   `GeecsBluesky/EVENT_SCHEMA.md` is the contract.  Anything that

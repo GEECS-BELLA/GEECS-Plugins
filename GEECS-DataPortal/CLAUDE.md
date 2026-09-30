@@ -202,7 +202,11 @@ tests/
 ```
 
 **Canonical day view (owner ruling 2026-09-13):** this package's `/day/`
-is the Tiled catalog's list of runs; the logbook's `/day/` is the scan
+is the Tiled catalog's list of runs — plus, since 0.39.0, every scan
+folder no Tiled run claims (`geecs_data_utils.folder_catalog`'s
+`MergedScanCatalog`, wired in `__main__`), so Master Control scans and
+other experiments on the share (`?experiment=Thomson`) browse through the
+same pages, their scalars from the s-file alone; the logbook's `/day/` is the scan
 folders on the share. When they disagree, **the folders are canonical for
 now** (parity with LabVIEW Master Control) — Tiled is expected to take
 over later, and the ruling and its consequences live in

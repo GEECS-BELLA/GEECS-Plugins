@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.39.0] - 2026-09-30
+
+### Added
+
+- The day list shows every scan folder on the share that no Tiled run
+  claims, so LabVIEW Master Control scans and other experiments
+  (`/day/<day>?experiment=Thomson`) browse through the same pages — Plot,
+  Grid and Images read the s-file and the per-shot files. Tiled runs keep
+  their place; a Tiled outage degrades the day list to the folders. Needs
+  GEECS-Data-Utils 0.49.0.
+
 ## [0.38.0] - 2026-09-29
 
 ### Added
