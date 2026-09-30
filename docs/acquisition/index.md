@@ -13,24 +13,26 @@ scan folder and a structured Tiled run.
     The operator front end, in a browser: pick a preset or compose a
     scan, submit it to the Bluesky queueserver, watch it live, move a
     device, run an action plan. The same presets it submits can be
-    queued headlessly from your own scripts.
+    queued headlessly from your own scripts. Its operator page lives
+    under [Web Services](../web_services/index.md), beside the Data
+    Portal and the Logbook.
 
-    [:octicons-arrow-right-24: Overview](../geecs_scanner/overview.md) ·
-    [Running a scan](../geecs_scanner/overview.md#running-a-scan)
+    [:octicons-arrow-right-24: Scanner page](../web_services/scanner.md) ·
+    [Running a scan](../web_services/scanner.md#running-a-scan)
 
 -   :material-magnify:{ .lg .middle } **Reading it back**
 
     ---
 
-    Recorded scans are browsed in the Data Portal (day → scan →
+    Recorded scans are browsed in the [Data Portal](../web_services/data_portal.md) (day → scan →
     metadata, scalar plots, images, from any browser) and read from
     Python through the `ScanCatalog` layer in Data Utils.
 
     [:octicons-arrow-right-24: Data Utils](../geecs_data_utils/overview.md) ·
-    [Where the data lands](../geecs_scanner/overview.md#where-the-data-lands)
+    [Where the data lands](../web_services/scanner.md#where-the-data-lands)
 
 </div>
 
 Something misbehaving? Start at the scanner page's
-[health chips](../geecs_scanner/overview.md#when-something-is-wrong), then
+[health chips](../web_services/scanner.md#when-something-is-wrong), then
 the [fleet map](../platform/fleet_map.md) for the service behind the chip.
