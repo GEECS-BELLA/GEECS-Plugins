@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime
 
 import pytest
@@ -51,7 +52,7 @@ def _scan(
     shots=20,
     end_info="",
     sfile_time=None,
-    analysis_sfile=True,
+    sfile="analysis",
     experiment="Thomson",
 ):
     day_dir = _day_dir(base, experiment)
@@ -76,10 +77,10 @@ def _scan(
     stamp = sfile_time if sfile_time is not None else _labview(15, 18)
     rows = [f"{start}\t{600 + i}\t{stamp + i}\t{i + 1}\t1" for i in range(3)]
     text = "\t".join(header) + "\n" + "\n".join(rows) + "\n"
-    if analysis_sfile:
+    if sfile == "analysis":
         (day_dir / "analysis").mkdir(exist_ok=True)
         (day_dir / "analysis" / f"s{number}.txt").write_text(text)
-    else:
+    elif sfile == "raw":
         (scan_dir / f"ScanDataScan{number:03d}.txt").write_text(text)
     return scan_dir
 
@@ -116,9 +117,33 @@ class TestFolderScanCatalog:
         assert datetime.fromtimestamp(first.start_time).hour == 15
 
     def test_start_time_off_the_folder_day_falls_back_to_noon(self, tmp_path):
-        _scan(tmp_path, 1, sfile_time=_labview(9, 0, date(2020, 1, 1)))
-        (run,) = FolderScanCatalog(tmp_path).list_runs("Thomson", DAY)
+        scan_dir = _scan(tmp_path, 1, sfile_time=_labview(9, 0, date(2020, 1, 1)))
+        stale = datetime(2020, 1, 1, 9).timestamp()
+        os.utime(scan_dir / "ScanInfoScan001.ini", (stale, stale))
+        catalog = FolderScanCatalog(tmp_path)
+        (run,) = catalog.list_runs("Thomson", DAY)
         assert datetime.fromtimestamp(run.start_time) == datetime(2026, 9, 25, 12)
+        assert catalog.load_run(run.uid).start_doc["time_approximate"] is True
+
+    def test_no_sfile_dates_from_the_ini_mtime_as_approximate(self, tmp_path):
+        scan_dir = _scan(tmp_path, 1, sfile=None)
+        started = datetime(2026, 9, 25, 10, 30).timestamp()
+        os.utime(scan_dir / "ScanInfoScan001.ini", (started, started))
+        catalog = FolderScanCatalog(tmp_path)
+        (run,) = catalog.list_runs("Thomson", DAY)
+        assert run.start_time == started
+        assert catalog.load_run(run.uid).start_doc["time_approximate"] is True
+
+    def test_scan_log_outranks_the_ini_mtime(self, tmp_path):
+        scan_dir = _scan(tmp_path, 1, sfile=None)
+        (scan_dir / "scan.log").write_text(
+            "2026-09-25 08:15:00.123 INFO geecs_bluesky.scan_log "
+            "[bluesky-run-engine] scan=Scan001 - scan Scan001: starting\n"
+        )
+        (run,) = FolderScanCatalog(tmp_path).list_runs("Thomson", DAY)
+        assert datetime.fromtimestamp(run.start_time).replace(microsecond=0) == (
+            datetime(2026, 9, 25, 8, 15)
+        )
 
     def test_noscan_has_no_motor(self, tmp_path):
         _scan(tmp_path, 1, parameter="Shotnumber", start=1, end=50, step=1, shots=1)
@@ -126,15 +151,26 @@ class TestFolderScanCatalog:
         assert run.mode == "NOSCAN"
         assert run.shots == 50
 
-    def test_unfinished_scan_has_no_exit_status(self, tmp_path):
-        _scan(tmp_path, 1, analysis_sfile=False)
+    def test_scan_without_any_sfile_is_unfinished(self, tmp_path):
+        _scan(tmp_path, 1, sfile=None)
         (run,) = FolderScanCatalog(tmp_path).list_runs("Thomson", DAY)
         assert run.exit_status is None
-        # ...but the raw ScanData file still dates it.
+
+    def test_raw_scandata_alone_is_closed_and_dates_the_scan(self, tmp_path):
+        # run_closed_evidence accepts ScanDataScanNNN.txt; so does the catalog.
+        _scan(tmp_path, 1, sfile="raw")
+        (run,) = FolderScanCatalog(tmp_path).list_runs("Thomson", DAY)
+        assert run.exit_status == "success"
         assert datetime.fromtimestamp(run.start_time).hour == 15
 
     @pytest.mark.parametrize(
-        "end_info, status", [("Fail: stage", "fail"), ("aborted", "abort")]
+        "end_info, status",
+        [
+            ("Fail: stage", "fail"),
+            ("aborted", "abort"),
+            ("Success", "success"),
+            ("operator went home", "unknown"),
+        ],
     )
     def test_end_info_wins(self, tmp_path, end_info, status):
         _scan(tmp_path, 1, end_info=end_info)
@@ -201,14 +237,12 @@ class TestFinishedScanCache:
         assert len(calls) == 2
 
     def test_unfinished_scan_is_reread_until_it_finishes(self, tmp_path):
-        scan_dir = _scan(tmp_path, 1, analysis_sfile=False)
+        scan_dir = _scan(tmp_path, 1, sfile=None)
         catalog = FolderScanCatalog(tmp_path)
         (run,) = catalog.list_runs("Thomson", DAY)
         assert run.exit_status is None
-        # Master Control finishes a scan by writing the analysis s-file.
-        analysis = scan_dir.parent.parent / "analysis"
-        analysis.mkdir()
-        (analysis / "s1.txt").write_text((scan_dir / "ScanDataScan001.txt").read_text())
+        # Master Control finishes a scan by writing its s-files.
+        (scan_dir / "ScanDataScan001.txt").write_text("Shotnumber\n1\n")
         (run,) = catalog.list_runs("Thomson", DAY)
         assert run.exit_status == "success"
 
@@ -277,6 +311,39 @@ class TestMergedScanCatalog:
 
     def test_primary_outage_with_no_folders_raises(self, tmp_path):
         merged = MergedScanCatalog(_Primary(fail=True), FolderScanCatalog(tmp_path))
+        with pytest.raises(ConnectionError):
+            merged.list_runs("Thomson", DAY)
+
+    def test_claimed_folders_are_never_read(self, tmp_path, monkeypatch):
+        _scan(tmp_path, 1)
+        _scan(tmp_path, 2)
+        calls = TestFinishedScanCache._count_reads(monkeypatch)
+        primary = _Primary([_summary("uuid-1", 1, 9), _summary("uuid-2", 2, 10)])
+        runs = MergedScanCatalog(primary, FolderScanCatalog(tmp_path)).list_runs(
+            "Thomson", DAY
+        )
+        assert [r.uid for r in runs] == ["uuid-2", "uuid-1"]
+        assert calls == []
+
+    def test_share_error_degrades_to_the_primary(self, tmp_path, monkeypatch):
+        folders = FolderScanCatalog(tmp_path)
+
+        def unreadable(*args, **kwargs):
+            raise PermissionError("share blip")
+
+        monkeypatch.setattr(folders, "list_runs", unreadable)
+        primary = _Primary([_summary("uuid-1", 1, 9)])
+        runs = MergedScanCatalog(primary, folders).list_runs("Thomson", DAY)
+        assert [r.uid for r in runs] == ["uuid-1"]
+
+    def test_both_down_raises_the_primary_error(self, tmp_path, monkeypatch):
+        folders = FolderScanCatalog(tmp_path)
+
+        def unreadable(*args, **kwargs):
+            raise PermissionError("share blip")
+
+        monkeypatch.setattr(folders, "list_runs", unreadable)
+        merged = MergedScanCatalog(_Primary(fail=True), folders)
         with pytest.raises(ConnectionError):
             merged.list_runs("Thomson", DAY)
 

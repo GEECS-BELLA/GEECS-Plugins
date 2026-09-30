@@ -30,14 +30,19 @@ from __future__ import annotations
 import copy
 import logging
 import os
-import re
 import threading
 from collections import OrderedDict
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
+from geecs_data_utils.data.sfile import (
+    _SCAN_FOLDER_RE,
+    scan_data_txt_path_for,
+    sfile_path_for_scan,
+)
 from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+from geecs_data_utils.scan_log_loader import first_log_timestamp
 from geecs_data_utils.scan_paths import daily_scan_folder, read_scan_info_file
 from geecs_data_utils.tiled_catalog import (
     CatalogStatus,
@@ -51,8 +56,6 @@ logger = logging.getLogger(__name__)
 
 #: Prefix that marks a uid as a folder run (never a Bluesky uuid).
 FOLDER_UID_PREFIX = "folder:"
-
-_SCAN_DIR_RE = re.compile(r"^Scan(?P<number>\d{3,})$")
 
 #: Finished scans remembered per catalog (a year of busy days is ~10k).
 _FINISHED_CACHE_SIZE = 16384
@@ -117,55 +120,70 @@ def _float(raw: Optional[str]) -> Optional[float]:
         return None
 
 
-def _sfile_candidates(scan_dir: Path, number: int) -> list[Path]:
-    """The analysis s-file first (what the portal plots), then the raw one."""
-    return [
-        scan_dir.parent.parent / "analysis" / f"s{number}.txt",
-        scan_dir / f"ScanDataScan{number:03d}.txt",
-    ]
-
-
-def _sfile_head(scan_dir: Path, number: int) -> tuple[list[str], list[str], bool]:
+def _sfile_head(scan_dir: Path) -> tuple[list[str], list[str], bool]:
     """Read an s-file's header and first data row — two lines, never the file.
+
+    Tries the analysis s-file first (the table the portal plots), then the
+    scanner's ``ScanDataScanNNN.txt`` — the two files
+    :func:`~geecs_data_utils.data.sfile.run_closed_evidence` accepts as
+    proof the run closed, in the same helpers' paths.  Opening one *is*
+    that evidence, so the closure verdict costs no extra stat.
 
     Returns
     -------
     tuple
-        ``(header, first_row, analysis_sfile_exists)``; empty lists when no
-        s-file is readable.
+        ``(header, first_row, closed)``; empty lists and ``False`` when
+        neither file is readable.
     """
-    analysis_exists = False
-    for index, path in enumerate(_sfile_candidates(scan_dir, number)):
+    for path in (sfile_path_for_scan(scan_dir), scan_data_txt_path_for(scan_dir)):
         try:
             with open(path, encoding="utf-8", errors="replace") as handle:
                 header = handle.readline().rstrip("\r\n").split("\t")
                 first = handle.readline().rstrip("\r\n").split("\t")
         except OSError:
             continue
-        if index == 0:
-            analysis_exists = True
-        return header, first, analysis_exists
-    return [], [], analysis_exists
+        return header, first, True
+    return [], [], False
 
 
-def _start_time(header: list[str], first: list[str], day: date) -> float:
-    """The first shot's wall time, else local noon of the folder's day.
+def _on_day(epoch: Optional[float], day: date) -> bool:
+    if epoch is None:
+        return False
+    try:
+        return datetime.fromtimestamp(epoch).date() == day
+    except (OverflowError, OSError, ValueError):
+        return False
 
-    The time must fall on the folder's own day — the portal re-bases a
-    run's scan folder on it — so a timestamp that lands elsewhere (a
-    missing column, a clock oddity) is discarded rather than trusted.
+
+def _start_time(
+    scan_dir: Path, number: int, header: list[str], first: list[str], day: date
+) -> tuple[float, bool]:
+    """When the scan started, and whether that time is only approximate.
+
+    The first shot's ``DateTime Timestamp`` when the s-file has one; else
+    ``scan.log``'s first record; else the ScanInfo ini's mtime (the
+    logbook's ladder — Master Control writes the ini as a scan starts).
+    Every rung must land on the folder's own day, because the portal
+    re-bases a run's scan folder on it; local noon is the last resort and,
+    like the ini mtime, is flagged approximate.
     """
     if _DATETIME_COLUMN in header:
         index = header.index(_DATETIME_COLUMN)
         raw = _float(first[index]) if index < len(first) else None
         if raw is not None and raw > LABVIEW_EPOCH_OFFSET:
             epoch = raw - LABVIEW_EPOCH_OFFSET
-            try:
-                if datetime.fromtimestamp(epoch).date() == day:
-                    return epoch
-            except (OverflowError, OSError, ValueError):
-                pass
-    return datetime(day.year, day.month, day.day, 12).timestamp()
+            if _on_day(epoch, day):
+                return epoch, False
+    logged = first_log_timestamp(scan_dir / "scan.log")
+    if logged is not None and _on_day(logged.timestamp(), day):
+        return logged.timestamp(), False
+    try:
+        mtime = (scan_dir / f"ScanInfoScan{number:03d}.ini").stat().st_mtime
+    except OSError:
+        mtime = None
+    if _on_day(mtime, day):
+        return mtime, True
+    return datetime(day.year, day.month, day.day, 12).timestamp(), True
 
 
 def _scan_variable_column(parameter: str, header: list[str]) -> str:
@@ -183,22 +201,27 @@ def _scan_variable_column(parameter: str, header: list[str]) -> str:
     return parameter
 
 
-def _exit_status(end_info: str, analysis_sfile: bool) -> Optional[str]:
-    """``ScanEndInfo`` when it says something, else the s-file's presence.
+def _exit_status(end_info: str, closed: bool) -> Optional[str]:
+    """``ScanEndInfo`` when it says something, else the run-closed evidence.
 
-    Master Control leaves ``ScanEndInfo`` empty on every scan, finished or
-    not; it writes ``analysis/sNNN.txt`` when a scan ends, so that file is
-    the completion signal there.  Without either, the scan is taken as
-    still running (``None`` — its detail is then never cached forever).
+    The ``ScanEndInfo`` words follow the logbook's ``scan_status``
+    (``success`` / ``fail…`` / ``abort…``; any other text is ``unknown``,
+    never promoted to success).  Master Control leaves ``ScanEndInfo``
+    empty on every scan, finished or not, so there an empty value falls
+    back to the s-file evidence (:func:`_sfile_head`) — the portal needs a
+    finished verdict to cache and to serve a completed run as immutable.
+    With neither, the scan reads as still running (``None``).
     """
     text = end_info.strip().lower()
+    if text == "success":
+        return "success"
     if text.startswith("fail"):
         return "fail"
     if text.startswith("abort"):
         return "abort"
     if text:
-        return "success"
-    return "success" if analysis_sfile else None
+        return "unknown"
+    return "success" if closed else None
 
 
 def folder_start_doc(
@@ -224,11 +247,13 @@ def folder_start_doc(
         stop document is empty while the scan looks unfinished.
     """
     info = read_scan_info_file(scan_dir / f"ScanInfoScan{number:03d}.ini")
-    header, first, analysis_sfile = _sfile_head(scan_dir, number)
+    header, first, closed = _sfile_head(scan_dir)
+    started, approximate = _start_time(scan_dir, number, header, first, day)
     start_doc: dict = {
         "scan_number": number,
         "experiment": experiment,
-        "time": _start_time(header, first, day),
+        "time": started,
+        "time_approximate": approximate,
         "description": info.get("ScanStartInfo", ""),
         "scan_folder": str(scan_dir),
         "source": "folder",
@@ -244,7 +269,7 @@ def folder_start_doc(
     if None not in (start, end, step, shots_per_step) and step:
         start_doc["num_points"] = int(round(abs(end - start) / abs(step))) + 1
         start_doc["shots_per_step"] = int(shots_per_step)
-    status = _exit_status(info.get("ScanEndInfo", ""), analysis_sfile)
+    status = _exit_status(info.get("ScanEndInfo", ""), closed)
     stop_doc = {"exit_status": status} if status else {}
     return start_doc, stop_doc
 
@@ -315,7 +340,9 @@ class FolderScanCatalog:
             return CatalogStatus(ok=False, label=f"folders: {exc}")
         return CatalogStatus(ok=False, label="folders: data root unavailable")
 
-    def list_runs(self, experiment: str, day: date) -> list[RunSummary]:
+    def list_runs(
+        self, experiment: str, day: date, *, skip: frozenset[int] = frozenset()
+    ) -> list[RunSummary]:
         """Return *day*'s scan folders for *experiment*, newest first.
 
         Parameters
@@ -324,6 +351,10 @@ class FolderScanCatalog:
             The experiment directory name (config default when empty).
         day : datetime.date
             The folder day.
+        skip : frozenset of int, optional
+            Scan numbers to leave out **without reading their files** —
+            the merge passes the numbers its primary already listed, so a
+            Bluesky day costs one directory listing, not a read per scan.
 
         Returns
         -------
@@ -342,7 +373,9 @@ class FolderScanCatalog:
             folders = sorted(
                 (int(match.group("number")), Path(entry.path))
                 for entry in entries
-                if (match := _SCAN_DIR_RE.match(entry.name)) and entry.is_dir()
+                if (match := _SCAN_FOLDER_RE.match(entry.name))
+                and int(match.group("number")) not in skip
+                and entry.is_dir()
             )
         for number, scan_dir in folders:
             start_doc, stop_doc = self._documents(
@@ -420,10 +453,12 @@ class MergedScanCatalog:
     def list_runs(self, experiment: str, day: date) -> list[RunSummary]:
         """Primary runs plus every folder no primary run claims, newest first.
 
-        A primary outage degrades to the folders alone (logged) so a
-        folder-only experiment stays browsable while Tiled is down; it is
-        re-raised only when the folders have nothing either, keeping the
-        front-end's outage report for the day that truly has no answer.
+        The primary answers first, and its scan numbers are skipped in the
+        folder listing unread.  Each side degrades to the other: a primary
+        outage lists the folders alone, a share error (``OSError`` — an SMB
+        blip, a permissions glitch) lists the primary alone, both logged.
+        Only when both fail does the primary's error propagate, keeping the
+        front-end's outage report for a day that truly has no answer.
 
         Parameters
         ----------
@@ -437,23 +472,34 @@ class MergedScanCatalog:
         list of RunSummary
             The merged listing.
         """
-        folder_runs = self._folders.list_runs(experiment, day)
         try:
             primary_runs = self._primary.list_runs(experiment, day)
-        except Exception:
-            if not folder_runs:
-                raise
+        except Exception as exc:
+            primary_error: Optional[Exception] = exc
+            primary_runs = []
+        else:
+            primary_error = None
+        claimed = frozenset(
+            run.scan_number for run in primary_runs if run.scan_number is not None
+        )
+        try:
+            folder_runs = self._folders.list_runs(experiment, day, skip=claimed)
+        except OSError:
+            if primary_error is not None:
+                raise primary_error from None
             logger.warning(
-                "primary catalog unavailable — listing scan folders only",
+                "scan folders unreadable — listing the primary catalog only",
                 exc_info=True,
             )
-            return folder_runs
-        claimed = {
-            run.scan_number for run in primary_runs if run.scan_number is not None
-        }
-        merged = primary_runs + [
-            run for run in folder_runs if run.scan_number not in claimed
-        ]
+            return primary_runs
+        if primary_error is not None:
+            if not folder_runs:
+                raise primary_error
+            logger.warning(
+                "primary catalog unavailable — listing scan folders only",
+                exc_info=primary_error,
+            )
+        merged = primary_runs + folder_runs
         merged.sort(key=lambda s: s.start_time, reverse=True)
         return merged
 
