@@ -1,0 +1,13 @@
+# The Tiled host's Python environment — the server, pinned to the 0.2 line
+# the adapter override (geecs_tiled_sql.py) is written against, plus the
+# ADBC drivers Tiled reads and writes its tabular storage through.
+#
+#   pip install --user -r requirements.txt          (the host; TILED_SETUP.md)
+#   pip install -r requirements.txt pytest          (the tests' venv; CI)
+#
+# tiled[server] pins duckdb<1.4, which GEECS-Data-Utils' duckdb>=1.4.4
+# refuses — the reason this stack is NOT a group of GeecsBluesky's Poetry
+# env and its tests run in a venv of their own.
+tiled[server]>=0.2.14,<0.3
+adbc-driver-sqlite>=1.11
+adbc-driver-postgresql>=1.11

@@ -260,6 +260,17 @@ run_bluesky_suite() {
         return 1
     fi
     rm -f "$report"
+    # The Tiled host's adapter override (tiled_server/, #1020) tests in a
+    # venv of its own — tiled[server] pins duckdb<1.4, which the Poetry env's
+    # GEECS-Data-Utils refuses — built once from requirements.txt (the
+    # host's pinned install) and reused; CI builds the same.
+    if [ ! -x tiled_server/.venv/bin/pytest ]; then
+        echo "== GeecsBluesky/tiled_server — building its venv from requirements.txt"
+        python3 -m venv tiled_server/.venv \
+            && tiled_server/.venv/bin/pip install -q -r tiled_server/requirements.txt pytest \
+            || { echo "check.sh: could not build GeecsBluesky/tiled_server/.venv" >&2; return 1; }
+    fi
+    (cd tiled_server && .venv/bin/pytest --tb=short -q)
 }
 
 run_suite() {

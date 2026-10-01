@@ -209,6 +209,14 @@ jobs:
                 echo "::error::GeecsBluesky's mock-CA tests skipped: the ca extra is missing or broken on the runner (#866)"
                 exit 1
               fi
+              # The Tiled host's adapter override (tiled_server/, #1020) is
+              # tested in a venv of its own: tiled[server] pins duckdb<1.4,
+              # which GEECS-Data-Utils' duckdb>=1.4.4 refuses, so the server
+              # stack cannot join the Poetry env. requirements.txt is the
+              # host's pinned install; scripts/check.sh builds the same venv.
+              python -m venv tiled_server/.venv
+              tiled_server/.venv/bin/pip install -q -r tiled_server/requirements.txt pytest
+              (cd tiled_server && .venv/bin/pytest --tb=short -q)
               ;;
             *)
               poetry run pytest tests --tb=short -q
