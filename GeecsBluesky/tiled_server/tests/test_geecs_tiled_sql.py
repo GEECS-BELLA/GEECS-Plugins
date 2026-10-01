@@ -89,6 +89,9 @@ def sqlite_dataset(tmp_path):
 class TestSQLiteTypedRead:
     def test_the_stock_adapter_fails_on_the_1020_shape(self, sqlite_dataset):
         # The test bites: without the override this is production's failure.
+        # Also a deliberate canary: adbc-driver-sqlite is unpinned above, so
+        # a driver release that types columns from their declaration turns
+        # this red — the signal that the override can be retired.
         with pytest.raises(Exception, match="Type mismatch in column"):
             sql.SQLAdapter(*sqlite_dataset).read()
 

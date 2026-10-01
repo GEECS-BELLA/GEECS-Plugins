@@ -9,8 +9,8 @@
 # version jump needs the catalog migration — follow TILED_SETUP.md
 # § "Upgrading the server" (stop, back up, upgrade-database), never run
 # this line alone against the live service. The tests run on the newest
-# release the range allows, so the override is proven there as well as on
-# the deployed version.
+# release the range allows; the deployed version (0.2.14) was verified by
+# hand on the host, see the module docstring.
 #
 # tiled[server] pins duckdb<1.4, which GEECS-Data-Utils' duckdb>=1.4.4
 # refuses — the reason this stack is NOT a group of GeecsBluesky's Poetry

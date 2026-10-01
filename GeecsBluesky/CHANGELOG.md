@@ -37,9 +37,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   through the inference window; table, dataset, run, columns);
   `--catalog` / `--tabular` / `--batch` arguments so it runs against a
   backup too; exit status = the number of hits.
-- **`tiled_server/requirements.txt`** — the Tiled host's pinned install
-  (`tiled[server]` on the 0.2 line + the ADBC drivers), and the venv its
-  tests run in: `tiled_server/tests/test_geecs_tiled_sql.py` exercises
+- **`tiled_server/requirements.txt`** — the Tiled host's install list
+  (`tiled[server]` on the 0.2 line + the ADBC drivers; a range, so a
+  version move on the host goes through `TILED_SETUP.md` § Upgrading the
+  server), and the venv its tests run in: `tiled_server/tests/test_geecs_tiled_sql.py` exercises
   the override against a real SQLite file through the server's own
   `SQLAdapter`, the first test pinning the stock failure so the fix is
   proven to bite.  A venv of its own (CI and `scripts/check.sh` build
