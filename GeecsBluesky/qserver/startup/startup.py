@@ -1,56 +1,37 @@
 """bluesky-queueserver RE Manager startup profile for a GEECS worker.
 
-Loaded by ``start-re-manager --startup-dir <this directory>`` (see
-``launch_re_manager.sh``).  Defines the module-level ``RE`` the manager
-keeps alive across queue items (``--keep-re`` — see ``qserver/README.md``'s
-Troubleshooting section for the silent-bounce failure mode without it),
-exports every device of the experiment as a noun
-(:class:`~geecs_bluesky.namespace.GeecsNamespace`) and registers the stock
-``bluesky.plans`` verbs (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`)
-over them with the strict ``take_reading`` pre-bound
-(:mod:`geecs_bluesky.plans.registry`) — ``count([UC_Amp4_IR_input], 10)``,
-``scan([UC_Amp4_IR_input], U_S1H.current, -1, 1, 5, shots_per_step=10)``,
-``mv(U_S1H.current, 0)``, ``run_action("Amp4_DUMP_HP")`` (a named plan from
-the experiment's action library, over the same devices, no run opened).
-Every run claims a GEECS scan number and leaves
-ScanInfo, the s-file, ``scan.log`` and the detectors' native files in its
-folder; every logged scalar of the experiment outside the run's own devices
-rides in every row as background telemetry (:mod:`geecs_bluesky.plans.registry`).
+Loaded by ``start-re-manager --startup-dir <this directory>``
+(``launch_re_manager.sh``).  Defines the module-level ``RE`` the manager
+keeps alive across queue items (``--keep-re``; see ``qserver/README.md``
+Troubleshooting), exports every device of the experiment as a noun
+(:class:`~geecs_bluesky.namespace.GeecsNamespace`) and registers the
+GEECS plans (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`, bound by
+:func:`~geecs_bluesky.plans.registry.bind_plans`): ``count``, ``sweep``,
+``optimize``, ``mv``, ``run_action`` and the two shot-offset calibration
+plans.  Every run claims a GEECS scan number and leaves ScanInfo, the
+s-file, ``scan.log`` and the detectors' native files in its folder.
 
 Import order is load-bearing
 -----------------------------
-``geecs_bluesky`` is imported **first**, before anything that might pull in
-``aioca``.  Its ``__init__`` calls
+``geecs_bluesky`` is imported **first**: its ``__init__`` calls
 :func:`~geecs_bluesky.epics_env.apply_epics_address_config`, which sets
-``EPICS_CA_ADDR_LIST``/``EPICS_CA_AUTO_ADDR_LIST`` from
-``~/.config/geecs_python_api/config.ini``'s ``[epics]`` section *before* the
-device imports create libca's CA context — libca reads that env var once, at
-context creation, and never again.  A gateway address sourced from the GEECS
-database instead of the config file would need a DB round trip at import
-time (a network hazard this early) and would be circular besides (the
-database itself is one of the devices CA reaches through the gateway).
-config-file/systemd-env sourcing is deliberate, not a placeholder.
+the EPICS address variables from ``config.ini`` before any device import
+creates libca's CA context (libca reads them once, at context creation).
+Sourcing the gateway address from the GEECS database instead would need
+a DB round trip at import time and would be circular; the config-file /
+systemd-env sourcing is deliberate.
 
-Experiment resolution
-----------------------
-``QS_EXPERIMENT`` wins when set (the natural queueserver/systemd knob —
-one worker process per experiment); otherwise falls back to
-``config.ini``'s ``[Experiment] expt`` via ``GeecsPathsConfig`` (the same
-default every other headless entry point in this repo uses).  Neither
-present is a startup-time configuration error, not a runtime one: fail
-loud here rather than have every submitted plan fail identically later.
-
-``QS_DEVICE_NAMESPACE=off`` is the hermetic switch (tests, a box without DB
-or data-share reach): no namespace, no trigger profiles, no scan claim —
-the plans are registered but refuse to run.
-
-``QS_CONNECT_TIMEOUT`` bounds the background telemetry's warm-up
-(:func:`~geecs_bluesky.devices.background.warm_up`: every candidate's
-first connect, once, when the environment opens), in seconds; default
-20.0.  Only a PV the gateway does not serve runs it out — concurrently, so
-the whole set costs one budget — and such a device is probed again at
-every run.  A CI runner with no gateway would otherwise stall every
-startup-profile test for the full budget; a hermetic caller sets it low.
+Environment
+-----------
+``QS_EXPERIMENT`` wins when set (one worker process per experiment);
+otherwise ``config.ini``'s ``[Experiment] expt`` via ``GeecsPathsConfig``.
+Neither present fails loud at startup.  ``QS_DEVICE_NAMESPACE=off`` is the
+hermetic switch (tests, a box without DB or data-share reach): no
+namespace, no trigger profiles, no scan claim; the plans are registered
+but refuse to run.  ``QS_CONNECT_TIMEOUT`` (seconds, default 20) bounds
+the background telemetry's warm-up
+(:func:`~geecs_bluesky.devices.background.warm_up`); a hermetic caller
+sets it low.
 """
 
 from __future__ import annotations

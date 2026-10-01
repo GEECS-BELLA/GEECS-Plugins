@@ -1,61 +1,41 @@
 """GeecsDetector — a GEECS acquirer as a stock ophyd-async ``StandardDetector``.
 
-ophyd-async 0.19 composes a detector from three logics:
+The three ophyd-async 0.19 logics:
 
-- :class:`GeecsTriggerLogic` — external edges only.  The DG645 fires,
-  LabVIEW acquires; there is nothing to program.  Its one config signal is
-  the calibrated **drain offset**, the per-device constant between the edge
-  and the stamp, which ``get_deadtime`` returns so a plan can budget
-  the per-shot wait.
+- :class:`GeecsTriggerLogic` — external edges only; nothing to program.
+  Its one config signal is the calibrated **drain offset**, the per-device
+  constant between edge and stamp, returned by ``get_deadtime``.
 - :class:`GeecsAcquireLogic` — the GEECS shot contract: a shot **is**
   ``acq_timestamp`` advancing.  LabVIEW is always acquiring, so
-  ``start_acquiring``/``ensure_stopped`` are no-ops; what this logic owns is
-  the wait, and the synchronous baseline that makes the wait exact.
-- data logics — :class:`ScalarsDataLogic` reads the device's own scalar
-  variables into the event row; :class:`LvNativeFileDataLogic` drives
-  LabVIEW's native file saving (``localsavingpath`` / ``save``) from a
-  ``PathProvider``; and, for a camera whose host serves the PVA gateway's
-  file plugin (#806), the **stock** ``ADHDFDataLogic`` over
-  :class:`~geecs_bluesky.devices.hdf_plugin.GeecsHdfIO`
-  — one per image variable, nothing of ours in the data path.
+  ``start_acquiring``/``ensure_stopped`` are no-ops; this logic owns the
+  wait and the synchronous baseline that makes it exact.
+- data logics — :class:`ScalarsDataLogic` (the device's scalars into the
+  row), :class:`LvNativeFileDataLogic` (LabVIEW-native saving from a
+  ``PathProvider``), and, on a host serving the PVA gateway's file plugin
+  (#806), the **stock** ``ADHDFDataLogic`` over
+  :class:`~geecs_bluesky.devices.hdf_plugin.GeecsHdfIO`, one per image
+  variable.
 
-A missed shot (no frame within the timeout, the device still live) does not
-void the row: the acquire logic remembers it until the next baseline and
-the scalar columns of that device read ``NaN`` for that row — the partial
-row the strict plan records (scalars only, no frames) before taking one
-more shot for the step.  On a plugin-backed camera the count wait precedes the
-stamp wait, so a dropped frame surfaces as the count timeout;
-:meth:`GeecsDetector.trigger` translates it into the GEECS timeout the
-plan's refire gate understands, and :meth:`GeecsDetector.discard_uncollected`
-is the late-frame guard the plan calls before the retake.
+A missed shot does not void the row: the device's scalar columns read
+``NaN`` and the strict plan records the partial row (no frames) before
+taking one more shot.  On a plugin-backed camera the count wait precedes
+the stamp wait; :meth:`GeecsDetector.trigger` translates a count timeout
+into the GEECS timeout the refire gate understands, and
+:meth:`GeecsDetector.discard_uncollected` rewinds late frames before the
+retake.
 
-In a **gated** batch (phase 2) the same
-device flies (a device with no plugin flies too, as a native-saving
-essential: one unbounded prepare at the run's first step switches
-LabVIEW's saving on for the run — :class:`LvNativeFileDataLogic` — and
-the per-shot sampler records its scalars, its stamp and its save-path
-column, the plan never kicks it off): ``prepare(number_of_events=N)``
-baselines the plugin's count,
-``kickoff`` arms the quota and switches the acquire logic to *fly mode*
-(``complete`` returns when the plugin has counted the quota — the stamp
-wait is a strict-mode concept, so ``wait_for_idle`` is a no-op there;
-``trigger`` switches back), :meth:`GeecsDetector.truncate_to_quota` rewinds
-the extra in-flight frame after the box goes OFF, and
-:meth:`GeecsDetector.truncate_to` keeps the shots every device reached
-when a pause interrupts the batch (the step continues from there).  A
-gated batch the plan abandons (a pause, a stalled neighbour) is told so
-(:meth:`GeecsDetector.abandon_step`): the pending ``complete`` then settles
-quietly instead of failing into a later message.
+In a **gated** batch the same device flies: ``prepare(number_of_events=N)``
+baselines the plugin's count, ``kickoff`` arms the quota (fly mode:
+``complete`` returns when the count is reached), ``truncate_to_quota``
+rewinds the in-flight frame after the box goes OFF, ``truncate_to`` keeps
+the shots every device reached after a pause, and ``abandon_step`` settles
+a pending ``complete`` quietly.  A device without a plugin flies as a
+native-saving essential: one unbounded prepare at the run's first step
+switches saving on for the run.
 
-Every per-run fact about the device is set through its own lifecycle —
-``stage → prepare → trigger → unstage`` — never from outside it (the second
-of the package's two rules, ``GeecsBluesky/CLAUDE.md``).  A plain
-``bp.count([cam])`` is refused at prepare: a GEECS
-camera cannot self-trigger, so the fire must come from the plan
-(:mod:`geecs_bluesky.plans.strict`).  (With
-``OPHYD_ASYNC_PRESERVE_DETECTOR_STATE=YES`` ophyd-async takes
-:meth:`GeecsTriggerLogic.default_trigger_info` instead and the implicit
-prepare succeeds — the shot then times out waiting for a fire nobody sends.)
+Every per-run fact is set through the device's own lifecycle (rule 2,
+``GeecsBluesky/CLAUDE.md``).  A bare ``bp.count([cam])`` is refused at
+prepare: a GEECS camera cannot self-trigger; the fire comes from the plan.
 """
 
 from __future__ import annotations
@@ -110,7 +90,7 @@ ACQ_TIMESTAMP = "acq_timestamp"
 
 #: Seconds a shot may take to arrive after the fire: one trigger period (the
 #: single shot fires on the *next* edge) plus the device's exposure and
-#: drain, measured in phase 0.  One constant for every device until the calibration
+#: drain, as measured.  One constant for every device until the calibration
 #: phase makes it a per-device budget.
 DEFAULT_SHOT_TIMEOUT = 3.0
 
@@ -229,7 +209,7 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
     shot_timeout :
         Seconds to wait for the stamp after a fire.  The hardware budget is
         one trigger period (the single shot fires on the *next* external
-        edge) plus the device's exposure and drain, measured in phase 0.
+        edge) plus the device's exposure and drain, as measured.
     """
 
     _queue_maxsize: int = 128
@@ -250,11 +230,9 @@ class GeecsAcquireLogic(DetectorAcquireLogic):
         #: Fly mode (a gated batch or a non-essential stream): the plugin's
         #: count is the completion, so the stamp wait is skipped.  Set by
         #: ``GeecsDetector.kickoff``, cleared by ``trigger``.  ONE flag per
-        #: device, shared by the detector, its ``.scalars`` view and anything
-        #: else that triggers through this logic: a device kicked off for a
-        #: stream while something triggers it would silently lose the stamp
-        #: wait — the bound plan refuses a device in both lists for that
-        #: reason (by owner, the view included).
+        #: device, shared with its ``.scalars`` view: a device kicked off for
+        #: a stream while something triggers it would silently lose the stamp
+        #: wait, so the bound plan refuses a device in both lists.
         self.fly = False
         #: The plan abandoned the step in flight (an immediate pause, a
         #: stalled neighbour): a pending ``complete`` settles quietly.
@@ -461,7 +439,7 @@ class LvNativeFileDataLogic(DetectorDataLogic):
     (:func:`~geecs_bluesky.plans.registry.native_image_save_wrapper`).
 
     In a **gated** run a device without a file plugin is admitted as an
-    essential with this logic as its whole data path (2026-09-25 ruling):
+    essential with this logic as its whole data path:
     the plan prepares it **once**, at the run's first step, unbounded —
     saving on for the run, off at ``unstage``, never toggled per step (a
     toggle costs the device one LabVIEW loop period, ~1.5 s a camera, ~4 s
@@ -576,9 +554,9 @@ class GeecsDetectorScalars(ScalarsView):
         the detector and this view.  Without this a view triggered after a
         gated run — the run set it, and only ``trigger`` ever clears it —
         would find ``wait_for_idle`` returning at once, so every shot would
-        report complete without waiting for a stamp at all (review of #861,
-        finding 1: a calibration measuring whole trigger periods and
-        recording them as drain latencies).
+        report complete without waiting for a stamp at all (a calibration
+        would then measure whole trigger periods and record them as drain
+        latencies).
         """
         acquire = self._owner._acquire
         acquire.fly = False
@@ -870,7 +848,7 @@ class GeecsDetector(StandardDetector):
 
         The streamable logics always (the plugin's stack is the record); the
         LabVIEW-native logic only on a device **without** a plugin — a
-        native-saving essential of a gated run (2026-09-25 ruling), whose
+        native-saving essential of a gated run, whose
         files are its record exactly as in a strict run, written run-long.
         A plugin-backed camera's native logic stays out: the stack is its
         record and the #738 dual-write is a strict-mode switch.

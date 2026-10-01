@@ -1,4 +1,4 @@
-"""ShotSampler — one event per tick of the clock (phase 2b)."""
+"""ShotSampler — one event per tick of the clock."""
 
 from __future__ import annotations
 

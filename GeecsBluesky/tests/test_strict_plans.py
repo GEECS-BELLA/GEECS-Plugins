@@ -1,4 +1,4 @@
-"""Stock plans run strict GEECS scans through ``take_reading`` (phase 0, #807).
+"""Stock plans run strict GEECS scans through ``take_reading``.
 
 ``bp.count`` / ``bp.scan`` from ``bluesky.plans`` over a
 :class:`GeecsDetector` and a :class:`CaMotor`, with

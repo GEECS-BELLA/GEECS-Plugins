@@ -5,7 +5,7 @@ Two distinct concerns live here:
 1. **Dump loading** — :mod:`dump_loader` parses xopt YAML dumps into
    ``(VOCS, DataFrame)`` pairs and checks compatibility between dumps.
    Used by both :class:`XoptDriver` (production) and
-   the inspection notebooks under ``docs/geecs_scanner/examples/optimization``.
+   the post-hoc inspection notebooks.
 
 2. **Surrogate analysis** — :mod:`surfaces`, :mod:`candidates`,
    :mod:`slicing`, :mod:`hypers`, and :mod:`column_match` are the

@@ -67,7 +67,7 @@ class ScanTag(BaseModel):
 
 class ScanMode(str, Enum):
     """
-    Enumeration of available scan modes in the GEECS-Scanner-GUI.
+    Enumeration of scan modes, as recorded in ``ScanInfoScanNNN.ini``.
 
     Defines the different types of scans that can be performed,
     from standard parameter sweeps to optimization routines.

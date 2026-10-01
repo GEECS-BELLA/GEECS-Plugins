@@ -1,4 +1,4 @@
-"""ShotControl — the trigger box as a Movable + Pausable device (phase 0, #807)."""
+"""ShotControl — the trigger box as a Movable + Pausable device."""
 
 from __future__ import annotations
 

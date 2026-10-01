@@ -15,13 +15,11 @@ same rule as :mod:`geecs_bluesky.log_markers`).
 
 from __future__ import annotations
 
-#: The registered plans that are not scans: a queue item naming one runs no
-#: run and claims no scan number — so a preset cannot name them
+#: The registered plans that are not scans: a queue item naming one opens
+#: no run and claims no scan number, so a preset cannot name them
 #: (``qs_client.presets.PRESET_PLAN_NAMES``).  ``mv`` and ``run_action``
-#: take no detector list at all; the two calibration plans
-#: (:data:`CALIBRATION_PLAN_NAMES`) do take one, but they take no positions
-#: and write no data, so a preset — which describes a *scan* — still cannot
-#: express them.
+#: take no detector list; the calibration plans take one but no positions
+#: and write no data.
 NON_SCAN_PLAN_NAMES: tuple[str, ...] = (
     "mv",
     "run_action",

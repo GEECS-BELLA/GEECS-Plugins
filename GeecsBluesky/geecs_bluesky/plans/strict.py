@@ -215,7 +215,7 @@ def geecs_take_reading(
 ) -> Callable[[Sequence[Any]], Any]:
     """Return a ``take_reading`` that fires the trigger box between trigger and wait.
 
-    A missed frame does not void the row (Sam 2026-09-11): the
+    A missed frame does not void the row: the
     row is saved with every scalar the shot produced — the missing device's
     columns empty (``NaN``, stamp included) — and **one more shot** is
     taken for the step, up to *max_refires* extra shots, until a complete

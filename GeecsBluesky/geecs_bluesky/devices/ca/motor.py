@@ -1,43 +1,29 @@
 """CaMotor — position-feedback motor driven through the CA gateway.
 
-The device's reply is the verdict (GEECS-Plugins#906).  The gateway's
-``…:SP`` write rides the GEECS UDP set, which has **two** device replies:
+The device's reply is the verdict (#906).  A gateway ``:SP`` write rides
+the GEECS UDP set, which answers twice: the **command ACK** (no ACK, or an
+ACK other than ``accepted``, fails the put at once) and the **executed
+reply** once the device has run its own convergence check (``no error``
+completes the move; an error, the device's own check-values timeout
+included, fails it at once).
 
-- the **command ACK** on the command port, within GEECS-Core's 1.5 s ACK
-  window — no ACK is a device not listening, an ACK other than
-  ``accepted`` is a rejection (``is not a number``, an unknown variable);
-  the gateway fails the put at once and so does this device: a put that
-  fails is raised the moment it fails, inside the grace or not;
-- the **executed reply** on the exe socket, once the device has run its
-  own convergence check — ``no error`` completes the move; an error reply
-  (the device's own check-values timeout included: a device setting,
-  adjusted in LabVIEW, never overridden here) fails it at once.
+Nothing here budgets the executed reply, because the connector cannot
+know how long a set takes.  Three named bounds:
 
-Nothing on our side budgets the executed reply — the connector cannot know
-how long a set takes, and a 30 s cap killed a 19 mm move the device
-completed at 32 s (Scan009 of 26_0914).  The wait has three named bounds:
+1. :data:`REPLY_WAIT` — the reply is waited for outright; once in, the
+   readback is confirmed within ``tolerance`` of the target.
+2. The **stall rule** — from :data:`PROGRESS_GRACE` on, the readback is
+   polled as a stall detector: no movement beyond the tolerance for
+   :data:`STALL_TIMEOUT` while off target fails the move with
+   :class:`~geecs_bluesky.exceptions.GeecsMotorTimeoutError`.  A readback
+   sitting at the target is not a stall, only a device that has not
+   answered yet.
+3. At ``REPLY_WAIT`` with no reply: a readback within tolerance completes
+   the move (logged at WARNING; the reply was lost); one still moving keeps
+   the wait alive up to :data:`REPLY_CEILING`, the stall rule still armed.
 
-1. :data:`REPLY_WAIT` (90 s) — the reply is waited for outright; once it
-   is in, the streamed readback is confirmed within ``tolerance`` of the
-   target (belt-and-suspenders for devices whose UDP set-completion
-   semantics are ambiguous — it adds information only when the readback
-   is an independent measurement, a stage encoder, not an echo).
-2. The **readback stall rule** — from :data:`PROGRESS_GRACE` onward the
-   readback is polled beside the put purely as a stall detector: no
-   movement beyond the tolerance for :data:`STALL_TIMEOUT` while the move
-   is not at the target fails it now with
-   :class:`~geecs_bluesky.exceptions.GeecsMotorTimeoutError` (PV, target,
-   current), before ``REPLY_WAIT`` or after it.  A readback sitting at the
-   target is not a stall: it is a device that has not answered yet.
-3. At ``REPLY_WAIT`` with no reply: a readback within tolerance of the
-   target completes the move (the UDP reply was lost — logged at WARNING
-   with the PV); a readback still moving keeps the wait alive up to the
-   hard :data:`REPLY_CEILING` (300 s), the stall rule still armed;
-   anything else is the stall rule's to fail.
-
-The poll reads the readback of the *same* variable it set; the decoupled
-set-X-confirm-Y case is
-:class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`.
+The poll reads the readback of the variable it set; the set-X-confirm-Y
+case is :class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`.
 """
 
 from __future__ import annotations
@@ -83,15 +69,12 @@ REPLY_CEILING = 300.0
 #: Readback poll period (seconds) — a little faster than the ~5 Hz stream.
 _POLL_INTERVAL = 0.1
 
-#: Move-completion tolerance of a bare ``CaMotor(...)`` — tests and ad-hoc
-#: devices — **and of a catalog ``kind: motor`` opt-in whose DB tolerance is
-#: 0/NULL** (the steering magnets, GEECS-Plugins#780): ``GeecsNamespace``
-#: passes a positive DB ``tolerance`` where the DB has one, this default
-#: where the catalog asks for a motor and the DB says nothing (WARNED at
-#: build, naming the row to curate); a non-positive tolerance with no
-#: opt-in binds a plain setpoint (``CaSettable``).  5 mA on a supply, 5 µm
-#: on a stage — the pseudo positioner's agreement fallback
-#: (``pseudo.DEFAULT_AGREEMENT_TOLERANCE``) sits above it on purpose.
+#: Move-completion tolerance of a bare ``CaMotor(...)`` and of a catalog
+#: ``kind: motor`` opt-in whose DB tolerance is 0/NULL (#780): the
+#: namespace passes a positive DB ``tolerance`` where the DB has one, this
+#: default where the catalog asks for a motor and the DB says nothing
+#: (WARNED at build).  5 mA on a supply, 5 µm on a stage; the pseudo
+#: positioner's agreement fallback sits above it on purpose.
 DEFAULT_TOLERANCE = 0.005
 
 # Binary floating point puts an exactly-on-tolerance arrival a few ULPs *over*

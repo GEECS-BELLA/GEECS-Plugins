@@ -704,7 +704,7 @@ def test_a_typed_variable_resolves_the_way_a_person_types_it() -> None:
 def test_the_alias_resolves_when_it_names_one_variable() -> None:
     """The alias is what the labels show and what operators say, so typing it has to work.
 
-    An alias the DB has put on two variables names neither — the console
+    An alias the DB has put on two variables names neither — the scanner
     refuses rather than guessing which magnet was meant.
     """
     assert _settable_match("Jet X") == "U_S1H:Current"

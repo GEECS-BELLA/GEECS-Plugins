@@ -72,10 +72,11 @@ stubs over the same devices: no run is opened, nothing is claimed.
 The `qserver` CLI parses that argument as a **Python literal, not JSON**:
 `null` / `true` / `false` are rejected with an unhelpful "Error occurred
 while parsing the plan" — use `None` / `True` / `False` instead (or omit
-optional fields; the example above works because it contains neither).
-A full `ScanRequest.model_dump(mode="json")` payload contains `null`s, so
-programmatic submitters should write `repr(item)` (Python literal) for
-the CLI, or use `bluesky-queueserver-api`, which takes real dicts.
+optional fields; the examples above work because they contain neither).
+An expanded preset (`qs_client.presets.expand_preset`) can carry `None`s,
+so programmatic submitters should write `repr(item)` (Python literal) for
+the CLI, or go through `geecs_bluesky.qs_client`, which submits real dicts
+over `bluesky-queueserver-api`.
 
 `QS_EXPERIMENT` (or `config.ini`'s `[Experiment] expt`) must resolve before
 the manager starts — the profile fails loud at import time otherwise (see
@@ -114,11 +115,11 @@ correctly — only live GUI progress is lost.
 
 A manual move is a queue item of the stock `mv` plan (above): idle-only
 ordering and queue provenance for free; an action plan is a `run_action`
-item.  The `function_execute` verbs of the retired funnel
-(`geecs_move_variable`, `geecs_describe_action`, `geecs_run_action_plan`)
-are gone with it (#807 phase 1); a step preview is client-side
-(`plans.action_compiler.flatten_action_steps`); the web scanner's actions
-panel queues `run_action` items over it.
+item.  Nothing goes through `function_execute` (it needs an idle manager,
+see Troubleshooting); a step preview is client-side
+(`geecs_bluesky.action_steps.flatten_action_steps`, the same walk the
+worker's compiler executes); the web scanner's actions panel queues
+`run_action` items over it.
 
 ## Troubleshooting
 
@@ -183,15 +184,15 @@ panel queues `run_action` items over it.
   right after a camera server restart** — the PVA gateway's file plugin
   arms its session on the *first frame* after `Capture=1`, and a freshly
   restarted DG645 comes up in its external-edges default: with the laser
-  off no edge reaches the camera, so no frame ever arms the plugin (2b
-  acceptance, 2026-09-12). Fire a few shots by hand (the box in internal
+  off no edge reaches the camera, so no frame ever arms the plugin.
+  Fire a few shots by hand (the box in internal
   mode, then back) before the first scan of the day; the plugin's stale
   `NumCaptured_RBV` from the previous session is zeroed by the scan itself
   (GEECS-Plugins#853 is the plugin-side fix). The same symptom on a
   camera whose LabVIEW device was started *after* its gateway is the
   gateway's subscription gap (GEECS-Plugins#854).
-  **Any laser-off session, not only after a restart** (26_0921, #944's
-  verification): `<image>:connected` reads `Idle` and the image PV holds an
+  **Any laser-off session, not only after a restart**:
+  `<image>:connected` reads `Idle` and the image PV holds an
   epoch-zero placeholder — the gateway subscribes only while a client
   monitors, so a shot fired with nothing monitoring seeds nothing. Recipe,
   all operator verbs: keep a monitor on the camera's image (the portal's

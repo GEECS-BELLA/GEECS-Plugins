@@ -1,32 +1,24 @@
 """Compile :class:`~geecs_schemas.action_plan.ActionPlan` into Bluesky plan stubs.
 
-An action plan — set a device variable, wait, check a readback, run another
-named plan — becomes a plain Bluesky message generator, so action sequences
-inherit the RunEngine's abort, pause, and document machinery.
+An action plan (set a variable, wait, check a readback, run another named
+plan) becomes a plain Bluesky message generator, so action sequences
+inherit the RunEngine's abort, pause and document machinery.  The step
+semantics, pinned here:
 
-Legacy ``ActionManager`` semantics are pinned here (the one canonical
-statement):
-
-- ``set`` → ``bps.abs_set(signal, value, wait=wait_for_execution)``
-  (blocking set-and-wait by default, fire-and-forget otherwise).
+- ``set`` → ``bps.abs_set(signal, value, wait=wait_for_execution)``.
 - ``wait`` → ``bps.sleep(seconds)`` (RunEngine-interruptible).
 - ``check`` → :func:`values_match`: float-coerce the *actual* reading when
-  it parses, then plain ``==`` — no tolerance, no coercion of the expected
-  side.  A mismatch raises
-  :class:`~geecs_bluesky.exceptions.ActionCheckFailedError` (legacy
-  headless auto-abort; the GUI prompt is a front-end concern).
-- ``run`` → resolve by name from the registry and recurse.  A missing name
-  raises :class:`~geecs_bluesky.exceptions.ActionPlanNotFoundError`; cycles
-  raise :class:`~geecs_bluesky.exceptions.ActionPlanCycleError` (legacy had
-  no cycle guard).
+  it parses, then plain ``==``, no tolerance; a mismatch raises
+  :class:`~geecs_bluesky.exceptions.ActionCheckFailedError`.
+- ``run`` → resolve by name from the registry and recurse; a missing name
+  raises :class:`~geecs_bluesky.exceptions.ActionPlanNotFoundError`, a
+  cycle :class:`~geecs_bluesky.exceptions.ActionPlanCycleError`.
 
-Purity contract: this module never touches Channel Access, sessions, or PV
-strings — signals come from the injected :class:`SettableFactory`.
-
-:func:`run_action_plan` is the queue plan the worker registers under
-``run_action`` (:mod:`geecs_bluesky.plans.registry`): the compiler over the
-experiment's action library and the device namespace, which is the
-production :class:`SettableFactory`.
+This module never touches Channel Access or PV strings: signals come from
+the injected :class:`SettableFactory`.  :func:`run_action_plan` is the
+queue plan registered as ``run_action``: the compiler over the
+experiment's action library and the device namespace, the production
+:class:`SettableFactory`.
 """
 
 from __future__ import annotations

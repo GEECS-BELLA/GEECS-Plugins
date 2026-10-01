@@ -18,7 +18,7 @@ Resolution precedence (first hit wins):
 1. ``SCAN_ANALYSIS_CONFIG_DIR`` environment variable
 2. ``config.ini`` ``[Paths] scan_analysis_configs_path``
 3. ``IMAGE_ANALYSIS_CONFIG_DIR`` environment variable (deprecated)
-4. ``config.ini`` ``[Paths] config_root`` → ``image_analysis/cameras`` (deprecated)
+4. ``config.ini`` ``[Paths] config_root`` → ``<config_root>/image_analysis/cameras`` (deprecated)
 """
 
 from __future__ import annotations

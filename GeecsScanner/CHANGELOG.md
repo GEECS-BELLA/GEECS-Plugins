@@ -5,6 +5,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.14.4] - 2026-10-01
+
+### Changed
+
+- **Documentation only.** The package docstring, `service/streams.py`,
+  `web/events.py`, two tests and `CLAUDE.md` no longer narrate through the
+  deleted PySide6 console; the `0.3.0` heading below carries its date.
+
 ## [0.14.3] - 2026-09-29
 
 ### Added
@@ -328,7 +336,7 @@ deployed page (2026-09-13).
   extra joins the dev group for it, and `poetry.lock` is relocked against
   the merged path dependencies. No runtime change.
 
-## [0.3.0] - unreleased
+## [0.3.0] - 2026-09-13
 
 The rest of the mock — PR 4 of the web scanner arc. Opens with the
 shared-glue adoption the #871/#872 reviews asked for once

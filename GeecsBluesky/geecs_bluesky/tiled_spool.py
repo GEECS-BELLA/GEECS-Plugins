@@ -1,52 +1,36 @@
 """The per-run document spool between the RunEngine and the Tiled writer service.
 
-Registering a run in Tiled is ~500 serial HTTP calls at the stop document
-(one register + one data-source update per external dataset — 28 plugin
-streams × ~9 keys on a full HTU preset), ~25 s that used to run **on the
-engine thread**, ahead of unstage and the trigger box's standby.  The
-engine now writes every document of a run to one JSON Lines file in a
-spool directory — microseconds per document — and a separate process,
+Registering a run in Tiled is hundreds of serial HTTP calls at the stop
+document, tens of seconds that must not run on the engine thread.  The
+engine writes every document of a run to one JSON Lines file in a spool
+directory, microseconds per document, and a separate process,
 ``geecs-tiled-writer`` (:mod:`geecs_bluesky.tiled_writer`), registers the
 run from that file once its stop document is on disk.
 
-The spool is the writer's **only** source.  The live 0MQ document stream
-(``launch_re_manager.sh``'s proxy) is best-effort by design — documents
-published while a consumer is down are gone — so a writer fed from it
-would need a second, durable path anyway, and two paths for one record
-means deduplicating against Tiled's ``create_container(key=uid)`` and
-cleaning up partial registrations.  One durable path is simpler and loses
-nothing.  The cost is that a run appears in Tiled at its close plus the
-registration time, not at its open; the stock ``TiledWriter`` batched
-every table and dataset to the stop document already, so nothing that
-read a *running* run's data from Tiled ever worked.
+The spool is the writer's **only** source: the live 0MQ document stream
+is best-effort by design, and a second path would need deduplication
+against ``create_container(key=uid)`` and partial-registration cleanup.
+A run therefore appears in Tiled at its close plus the registration time.
 
-Layout (``GEECS_TILED_WRITER_STATE``, one directory both processes agree on;
-the units set it explicitly — see :func:`default_state_dir`)::
+Layout (``GEECS_TILED_WRITER_STATE``, one directory both processes agree
+on; see :func:`default_state_dir`)::
 
     <state>/spool/<start time>-<run uid>.jsonl          being written / awaiting registration
     <state>/spool/<start time>-<run uid>.jsonl.done     registered (pruned after --keep-days)
-    <state>/spool/<start time>-<run uid>.jsonl.failed   set aside (corrupt, or gave up); an operator's call
+    <state>/spool/<start time>-<run uid>.jsonl.failed   set aside (corrupt, or gave up)
     <state>/heartbeat.json                              the writer's liveness + backlog
 
-A file is *complete* when its last line is a ``stop`` document.  The engine
-flushes every line (a worker that dies mid-run leaves every document it
-emitted) and calls ``fsync`` once at the stop, so a complete file is
-durable before the run is reported finished.  While a run is open the
-engine **holds an advisory lock** on its file (``flock``): that, not
-silence, is how the writer tells a live run — paused for an hour, or a
-long count — from one whose worker died (:func:`spool_is_held`).
-
-The line format is the stock ``bluesky.callbacks.json_writer`` one,
-``{"name": ..., "doc": ...}`` per line, so any bluesky JSON Lines reader
-opens a spool file; what the stock writer lacks is the numpy-aware
-encoder, the flush-per-document, the fsync and the completeness mark.
+A file is *complete* when its last line is a ``stop`` document.  The
+engine flushes every line and ``fsync``s at the stop.  While a run is
+open the engine holds an advisory ``flock`` on its file: that, not
+silence, is how the writer tells a live run from one whose worker died
+(:func:`spool_is_held`).  The line format is the stock
+``bluesky.callbacks.json_writer`` one, plus a numpy-aware encoder.
 
 The writer's heartbeat model lives here too (:class:`WriterHeartbeat`,
-:func:`read_heartbeat`, and the one verdict over it,
-:func:`heartbeat_verdict`): the engine, the scanner and ``fleet_status.sh``
-read it, and a reader of a JSON file has no business importing the
-service loop.  **The verdict is a warning, never a gate** — nothing
-refuses a run over it (owner's ruling, 2026-09-25).
+:func:`read_heartbeat`, :func:`heartbeat_verdict`), for the engine, the
+scanner and ``fleet_status.sh`` to read without importing the service
+loop.  **The verdict is a warning, never a gate.**
 """
 
 from __future__ import annotations

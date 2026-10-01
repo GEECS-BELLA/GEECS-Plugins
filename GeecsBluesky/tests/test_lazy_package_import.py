@@ -1,7 +1,7 @@
 """Pin the light-package-import contract (PEP 562 lazy device re-exports).
 
-The console's offline-first rule and the qs_client extraction both depend
-on it: ``import geecs_bluesky`` / ``import geecs_bluesky.qs_client`` must
+Every queue client depends on it: ``import geecs_bluesky`` /
+``import geecs_bluesky.qs_client`` must
 not pull the heavy device stack (ophyd-async/aioca) or the queueserver
 api — a client that only submits scans imports light.  Runs in a
 subprocess so the assertion is immune to whatever the pytest process has

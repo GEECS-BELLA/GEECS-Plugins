@@ -94,7 +94,7 @@ def main() -> None:
     if not isinstance(ns.get("RE"), RunEngine):
         _fail(f"ns['RE'] is not a RunEngine: {ns.get('RE')!r}")
         return
-    # The stock plans are registered under their own names, bound strict —
+    # The GEECS plans are registered under their own names —
     # the manager discovers every generator function in the namespace, so
     # the discovered set must be exactly the pinned list (a stray generator
     # would become a plan).

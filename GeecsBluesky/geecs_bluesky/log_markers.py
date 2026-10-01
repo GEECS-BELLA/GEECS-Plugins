@@ -12,12 +12,9 @@ This module may depend on nothing heavier than the standard library.
 
 from __future__ import annotations
 
-#: The decision-4 failed-move pause reason line: the engine logs
-#: ``f"{FAILED_MOVE_LOG_PREFIX}: <reason>"`` (ERROR) when a queue-plan
-#: axis move fails and the scan pauses for the operator.  Stream
-#: consumers (the console's paused pill, the MCP's ``scan_progress``)
-#: match this prefix in the manager's console-output stream to surface
-#: the *why*.  Emitted by ``plans/step_scan.py``; re-exported by
-#: ``plans.pause_semantics`` (its historical home, deleted in #807 phase 1) and
-#: ``geecs_bluesky.qs_client`` (the client-facing spelling).
+#: The failed-move pause reason line, ``f"{FAILED_MOVE_LOG_PREFIX}:
+#: <reason>"`` (ERROR), which stream consumers (the scanner, the MCP)
+#: match in the manager's console-output stream.  No engine code emits it
+#: today; the clients keep matching it, so the spelling is pinned here and
+#: re-exported by ``geecs_bluesky.qs_client``.
 FAILED_MOVE_LOG_PREFIX = "FAILED MOVE - pausing for operator"

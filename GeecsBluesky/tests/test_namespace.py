@@ -1,4 +1,4 @@
-"""GeecsNamespace — the experiment's devices as nouns, composed from the ca layer (#807 phase 1).
+"""GeecsNamespace — the experiment's devices as nouns, composed from the ca layer.
 
 Built from an explicit roster (no DB); the DB path is exercised with a fake
 ``GeecsDb`` so the loud-failure contract is pinned without a database.

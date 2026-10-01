@@ -2,44 +2,30 @@
 
 The service half of :mod:`geecs_bluesky.tiled_spool`.  Every few seconds
 it sweeps the spool directory: complete files (last line a ``stop``) are
-replayed, oldest first, through the stock ``TiledWriter`` and renamed
-``.done``.  A file with no stop whose engine no longer holds it (the
-worker died mid-run; :func:`~geecs_bluesky.tiled_spool.spool_is_held`)
-is registered after ``--orphan-after`` seconds of silence with a
-synthesized ``fail`` stop; a held file is a live run, however long it
-stays quiet.  Between sweeps it writes ``heartbeat.json``: liveness,
-backlog, the last error — and once more just before each registration,
-naming the run (``registering``), since a registration is ~25 s of
-silence that a reader must not mistake for death.  **Nothing reads the heartbeat to refuse a run**
-— with the spool a dead writer loses nothing, so the heartbeat is a
-warning surface (the scanner's status, ``fleet_status.sh``), never a gate.
+replayed oldest first through the stock ``TiledWriter`` and renamed
+``.done``.  A file with no stop that no engine holds
+(:func:`~geecs_bluesky.tiled_spool.spool_is_held`) is registered after
+``--orphan-after`` seconds with a synthesized ``fail`` stop; a held file
+is a live run however long it stays quiet.  Between sweeps it writes
+``heartbeat.json`` (liveness, backlog, the last error) and once more just
+before each registration (``registering``), since a registration is tens
+of seconds of silence.  Nothing reads the heartbeat to refuse a run.
 
-Registration is the stock writer's, serial: one register plus one
-data-source update per external dataset at the stop, ~230 datasets and
-~25 s for a 23-device run (measured 2026-09-25).  A concurrent variant
-was tried on hardware and made no difference — the SQLite catalog
-commits one write at a time — and was removed rather than kept as dead
-machinery; on a catalog that takes parallel writes (Postgres) it would
-be worth bringing back (git history of #999).
+Registration is the stock writer's, serial: the SQLite catalog commits
+one write at a time, so a concurrent variant measured no gain.
 
-Two kinds of failure, treated differently.  A **corrupt file** (a
-malformed line before the last, no start document) will not heal: it is
-set aside as ``.jsonl.failed`` at once, for an operator.  Everything else
-— Tiled answering 5xx through a restart, a rotated key, full storage, a
-transient — is retried per run with **exponential backoff** (the sweep
-interval doubling per attempt, capped at ``--max-backoff``) for
-``--max-attempts`` attempts, roughly an hour and a quarter at the
-defaults, before the file is set aside and any half-registered
-container removed.  The spool is durable; giving up early gains nothing.
-
-Idempotent by construction: before a replay the run's container is
-looked up and, when present (a writer that died between registering and
-renaming, or an earlier failed attempt), deleted and registered again
-from the spool, which holds the whole record.
+Two kinds of failure: a **corrupt file** (a malformed line, no start
+document) is set aside as ``.jsonl.failed`` at once, for an operator;
+everything else (Tiled 5xx, a rotated key, full storage) is retried per
+run with exponential backoff, the sweep interval doubling per attempt up
+to ``--max-backoff``, for ``--max-attempts`` attempts before the file is
+set aside and any half-registered container removed.  Idempotent: an
+existing container for the uid is deleted and registered again from the
+spool, which holds the whole record.
 
 Run it as ``geecs-tiled-writer`` (the console script; the unit template
-lives beside the qserver's), ``python -m geecs_bluesky.tiled_writer`` on
-a checkout with no reinstall, or either with ``--once`` for one sweep.
+lives beside the qserver's), ``python -m geecs_bluesky.tiled_writer``, or
+either with ``--once`` for one sweep.
 """
 
 from __future__ import annotations

@@ -1,34 +1,9 @@
-"""
-Generator factory for optimization algorithms.
+"""Xopt generator factory: a generator name plus overrides to a generator instance.
 
-This module provides a factory interface for creating Xopt generator instances
-used in automated parameter optimization. It supports various optimization
-algorithms including random sampling, Bayesian optimization, and specialized
-generators for specific use cases.
-
-The factory pattern allows for easy configuration and instantiation of different
-optimization algorithms while maintaining a consistent interface for the
-optimization framework.
-
-Functions
----------
-build_generator_from_config(config, vocs)
-    Create generator instance from configuration dictionary.
-
-Constants
----------
-PREDEFINED_GENERATORS : dict
-    Dictionary mapping generator names to factory functions.
-
-Notes
------
-The factory supports the following predefined generators:
-- "random": Random sampling generator
-- "bayes_default": Expected improvement Bayesian optimization
-- "multipoint_bax_alignment": Multipoint BAX alignment (requires configuration overrides)
-
-New generators can be added by extending the PREDEFINED_GENERATORS dictionary
-with appropriate factory functions.
+:data:`PREDEFINED_GENERATORS` maps a name (``random``, ``bayes_default``,
+``multipoint_bax_alignment``, …) to a factory ``(vocs, overrides) ->
+generator``; :func:`build_generator_from_config` looks the config's name
+up and applies its overrides.  Add a generator by adding an entry.
 """
 
 # optimization/generator_factory.py
@@ -93,10 +68,12 @@ PREDEFINED_GENERATORS: dict[str, Callable[[VOCS, Dict[str, Any]], Any]] = {
     "multipoint_bax_alignment": lambda vocs, overrides: make_multipoint_bax_alignment(
         vocs, overrides
     ),
-    "multipoint_bax_alignment_l2": lambda vocs,
-    overrides: make_multipoint_bax_alignment_l2(vocs, overrides),
-    "multipoint_bax_alignment_simulated": lambda vocs,
-    overrides: make_multipoint_bax_alignment(vocs, overrides),
+    "multipoint_bax_alignment_l2": lambda vocs, overrides: (
+        make_multipoint_bax_alignment_l2(vocs, overrides)
+    ),
+    "multipoint_bax_alignment_simulated": lambda vocs, overrides: (
+        make_multipoint_bax_alignment(vocs, overrides)
+    ),
     # Add more explicit named generators here if needed
 }
 

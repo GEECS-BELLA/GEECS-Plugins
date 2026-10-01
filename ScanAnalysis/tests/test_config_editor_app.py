@@ -239,7 +239,7 @@ class TestSidebarCollapseState:
 
     The sidebar is page JavaScript, so these extract the real functions out
     of ``editor.js`` and execute them under node — the technique
-    ``GeecsScanner/tests/test_page.py`` uses for the console's own logic.
+    ``GeecsScanner/tests/test_page.py`` uses for the scanner's own logic.
     """
 
     @staticmethod
