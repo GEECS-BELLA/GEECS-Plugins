@@ -104,6 +104,11 @@ class _OneBatchStorage:
         return _OneBatchConnection(self._storage.connect())
 
     def __getattr__(self, name: str) -> Any:
+        # Only public attributes delegate: ``copy``/``pickle`` probe dunder
+        # and private names on a bare instance, and an unguarded delegator
+        # would recurse into itself looking for ``_storage``.
+        if name.startswith("_"):
+            raise AttributeError(name)
         return getattr(self._storage, name)
 
 

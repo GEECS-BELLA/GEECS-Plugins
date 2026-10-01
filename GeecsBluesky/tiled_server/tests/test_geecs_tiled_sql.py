@@ -9,9 +9,11 @@ override reads it.
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import math
 import pathlib
+import types
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -149,6 +151,51 @@ class TestSQLiteTypedRead:
         adapter.append_partition(1, nan_leading_table())
         assert len(adapter.read()) == 2 * (N_NAN + 1)
         assert_typed_frame(adapter.read_partition(1))
+
+    def test_the_wrapper_survives_copy_and_pickle_probes(self, mod, sqlite_dataset):
+        adapter = mod.GeecsSQLAdapter(*sqlite_dataset)
+        clone = copy.copy(adapter.storage)  # would recurse without the guard
+        assert clone.dialect == "sqlite"
+        with pytest.raises(AttributeError):
+            adapter.storage.__getstate__probe__  # noqa: B018 — a private name is not delegated
+
+    def test_from_catalog_with_ordering_and_primary_key(self, mod, tmp_path):
+        # The server's own construction path: init_storage with the ordering
+        # parameters the TiledWriter may set, then from_catalog with the
+        # data source's parameters as keyword arguments.
+        storage = storage_mod.EmbeddedSQLStorage(f"sqlite:///{tmp_path}/ordered.db")
+        storage_mod.register_storage(storage)
+        try:
+            table = nan_leading_table()
+            data_source = DataSource(
+                structure_family=StructureFamily.table,
+                structure=TableStructure.from_arrow_table(table, npartitions=1),
+                mimetype=SQL_TABLE_MIMETYPE,
+                parameters={
+                    "order_by_args": [{"column": "k", "direction": "asc"}],
+                    "primary_key": ["k"],
+                },
+                management=Management.writable,
+            )
+            data_source = sql.SQLAdapter.init_storage(storage, data_source)
+            node = types.SimpleNamespace(metadata_={"origin": "test"}, specs=[])
+            adapter = mod.GeecsSQLAdapter.from_catalog(
+                data_source, node, **data_source.parameters
+            )
+            assert isinstance(adapter, mod.GeecsSQLAdapter)
+            assert isinstance(adapter.storage, mod._OneBatchStorage)
+            assert adapter.order_by_args == [{"column": "k", "direction": "asc"}]
+            assert adapter.primary_key == ["k"]
+            assert adapter.metadata() == {"origin": "test"}
+            adapter.append_partition(0, table)
+            assert_typed_frame(adapter.read())
+            with pytest.raises(Exception, match="Type mismatch in column"):
+                sql.SQLAdapter.from_catalog(
+                    data_source, node, **data_source.parameters
+                ).read()
+        finally:
+            storage_mod.unregister_storage(storage)
+            storage.dispose()
 
     def test_the_one_batch_size_is_accepted_by_the_driver(self, mod, sqlite_dataset):
         # The constant must sit inside the driver's accepted range (a C int):
