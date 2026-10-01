@@ -34,6 +34,10 @@ declared type by Tiled's own ``data.cast(target_schema)``.  One query, no
 row count first — the driver appends rows as they come and reserves
 nothing per batch (measured: a batch size of 10^9 costs no memory or
 time), and the option must fit a C ``int`` (``INT_MAX`` is rejected).
+The option is set on every cursor of a SQLite storage by a wrapper
+installed **once, at construction**: the adapter's state never changes
+during a request, so concurrent reads through one adapter instance — if
+a Tiled version ever shared instances — cannot disturb each other.
 
 **PostgreSQL — NULL array elements.**  The ADBC PostgreSQL driver (1.11,
 1.12) writes a NULL *element* of an array column as ``0.0`` — a plausible
@@ -44,8 +48,8 @@ null elements with NaN just before the ingest restores what was written;
 NaN itself, ``inf`` and a NULL *whole* array all survive the driver.
 
 Verified against Tiled 0.2.14 and 0.2.18 with adbc-driver-sqlite /
--postgresql 1.11 and 1.12; the hooks used (``SQLAdapter.storage``,
-``.dialect``, ``.connect()``, ``_read_full_table_or_partition``,
+-postgresql 1.11 and 1.12; the hooks used (``SQLAdapter.storage`` as the
+one source of connections, ``.dialect``, ``.connect()``,
 ``append_partition``) are the 0.2.x adapter's own.
 """
 
@@ -58,6 +62,9 @@ import pandas
 import pyarrow
 import pyarrow.compute
 from tiled.adapters.sql import SQLAdapter
+from tiled.structures.core import Spec
+from tiled.structures.table import TableStructure
+from tiled.type_aliases import JSON
 
 BATCH_ROWS_OPTION = "adbc.sqlite.query.batch_rows"
 #: Larger than any dataset (a GEECS run is thousands of rows), within the
@@ -84,17 +91,20 @@ class _OneBatchConnection:
 
 
 class _OneBatchStorage:
-    """Storage proxy: the same dialect, every connection wrapped for one batch."""
+    """A SQLite storage whose every connection is wrapped for one-batch reads.
+
+    Immutable once built; everything but ``connect`` is the wrapped
+    storage's own (``dialect``, ``uri``, ``dispose``, ...).
+    """
 
     def __init__(self, storage: Any) -> None:
         self._storage = storage
 
-    @property
-    def dialect(self) -> str:
-        return self._storage.dialect
-
     def connect(self) -> _OneBatchConnection:
         return _OneBatchConnection(self._storage.connect())
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._storage, name)
 
 
 def _is_float_list(arrow_type: pyarrow.DataType) -> bool:
@@ -124,21 +134,28 @@ def fill_null_list_elements(table: pyarrow.Table) -> pyarrow.Table:
 class GeecsSQLAdapter(SQLAdapter):
     """``SQLAdapter`` with typed SQLite reads and NaN-safe PostgreSQL arrays."""
 
-    def _read_full_table_or_partition(
-        self, fields: Optional[List[str]] = None, partition: Optional[int] = None
-    ) -> pyarrow.Table:
-        if self.storage.dialect != "sqlite":
-            return super()._read_full_table_or_partition(
-                fields=fields, partition=partition
-            )
-        real_storage = self.storage
-        self.storage = _OneBatchStorage(real_storage)
-        try:
-            return super()._read_full_table_or_partition(
-                fields=fields, partition=partition
-            )
-        finally:
-            self.storage = real_storage
+    def __init__(
+        self,
+        data_uri: str,
+        structure: TableStructure,
+        table_name: str,
+        dataset_id: int,
+        *,
+        metadata: Optional[JSON] = None,
+        specs: Optional[List[Spec]] = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            data_uri,
+            structure,
+            table_name,
+            dataset_id,
+            metadata=metadata,
+            specs=specs,
+            **kwargs,
+        )
+        if self.storage.dialect == "sqlite":
+            self.storage = _OneBatchStorage(self.storage)
 
     def append_partition(
         self,

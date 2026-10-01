@@ -22,8 +22,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `GeecsSQLAdapter` reads each dataset in one ADBC batch (the statement
   option `adbc.sqlite.query.batch_rows` set above any dataset's row
   count — one query, no count first, no window between them), so every
-  column is typed from every row; wired in through the catalog tree's
-  `adapters_by_mimetype`.  No Tiled upgrade fixes this (0.2.18's
+  column is typed from every row; the option is set by a storage wrapper
+  installed once at construction, so the adapter carries no per-request
+  state and concurrent reads through one instance cannot disturb each
+  other.  Wired in through the catalog tree's `adapters_by_mimetype`.  No Tiled upgrade fixes this (0.2.18's
   read path is identical; adbc-driver-sqlite 1.12 unchanged).  Verified
   on a copy of the broken Scan032: HTTP 500 → 200 in 0.4 s, the GhostWFS
   columns typed double with their values intact; healthy runs read in the

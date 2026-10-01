@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib.util
 import math
 import pathlib
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pyarrow
@@ -86,6 +87,19 @@ def sqlite_dataset(tmp_path):
         storage.dispose()
 
 
+def assert_typed_frame(frame) -> None:
+    assert len(frame) == N_NAN + 1
+    assert str(frame["x"].dtype) == "float64"
+    assert frame["x"].iloc[-1] == 1.5 and int(frame["x"].isna().sum()) == N_NAN
+    # all-NULL stays typed by its declaration, not INT64
+    assert str(frame["allnan"].dtype) == "float64" and frame["allnan"].isna().all()
+    assert str(frame["flag"].dtype) == "bool" and bool(frame["flag"].iloc[-1]) is True
+    assert frame["name"].iloc[-1] == "b"
+    assert frame["late_text"].iloc[-1] == "late"
+    assert int(frame["late_text"].isna().sum()) == N_NAN
+    assert str(frame["k"].dtype) == "int64" and frame["k"].iloc[-1] == N_NAN
+
+
 class TestSQLiteTypedRead:
     def test_the_stock_adapter_fails_on_the_1020_shape(self, sqlite_dataset):
         # The test bites: without the override this is production's failure.
@@ -98,19 +112,43 @@ class TestSQLiteTypedRead:
     def test_the_override_reads_every_column_by_its_declared_type(
         self, mod, sqlite_dataset
     ):
-        frame = mod.GeecsSQLAdapter(*sqlite_dataset).read()
-        assert len(frame) == N_NAN + 1
-        assert str(frame["x"].dtype) == "float64"
-        assert frame["x"].iloc[-1] == 1.5 and int(frame["x"].isna().sum()) == N_NAN
-        # all-NULL stays typed by its declaration, not INT64
-        assert str(frame["allnan"].dtype) == "float64" and frame["allnan"].isna().all()
-        assert (
-            str(frame["flag"].dtype) == "bool" and bool(frame["flag"].iloc[-1]) is True
-        )
-        assert frame["name"].iloc[-1] == "b"
-        assert frame["late_text"].iloc[-1] == "late"
-        assert int(frame["late_text"].isna().sum()) == N_NAN
-        assert str(frame["k"].dtype) == "int64" and frame["k"].iloc[-1] == N_NAN
+        assert_typed_frame(mod.GeecsSQLAdapter(*sqlite_dataset).read())
+
+    def test_column_selected_and_partition_reads(self, mod, sqlite_dataset):
+        adapter = mod.GeecsSQLAdapter(*sqlite_dataset)
+        assert adapter.read(["x"])["x"].iloc[-1] == 1.5
+        assert adapter.read_partition(0, ["x", "k"])["x"].iloc[-1] == 1.5
+        assert adapter["x"].read()[-1] == 1.5
+
+    def test_the_storage_is_wrapped_once_at_construction(self, mod, sqlite_dataset):
+        adapter = mod.GeecsSQLAdapter(*sqlite_dataset)
+        real = storage_mod.get_storage(sqlite_dataset[0])
+        assert isinstance(adapter.storage, mod._OneBatchStorage)
+        # everything but connect() is the wrapped storage's own
+        assert adapter.storage.dialect == "sqlite" and adapter.storage.uri == real.uri
+        before = adapter.storage
+        adapter.read()
+        assert adapter.storage is before  # nothing swapped during a request
+
+    def test_concurrent_reads_through_one_adapter_instance(self, mod, sqlite_dataset):
+        # The scenario an external review raised: requests sharing an adapter.
+        # With the wrapper installed at construction there is no state to
+        # race on; every concurrent read must come back typed.
+        adapter = mod.GeecsSQLAdapter(*sqlite_dataset)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            frames = list(pool.map(lambda _: adapter.read(), range(16)))
+        for frame in frames:
+            assert_typed_frame(frame)
+
+    def test_the_override_also_appends_through_the_wrapped_storage(
+        self, mod, sqlite_dataset
+    ):
+        # An ingest statement carries the batch-size option too; it must be
+        # inert there.  Append a second partition and read both back.
+        adapter = mod.GeecsSQLAdapter(*sqlite_dataset)
+        adapter.append_partition(1, nan_leading_table())
+        assert len(adapter.read()) == 2 * (N_NAN + 1)
+        assert_typed_frame(adapter.read_partition(1))
 
     def test_the_one_batch_size_is_accepted_by_the_driver(self, mod, sqlite_dataset):
         # The constant must sit inside the driver's accepted range (a C int):
@@ -123,27 +161,6 @@ class TestSQLiteTypedRead:
                 assert cur.fetchone() == (1,)
         finally:
             conn.close()
-
-    def test_column_selected_and_partition_reads(self, mod, sqlite_dataset):
-        adapter = mod.GeecsSQLAdapter(*sqlite_dataset)
-        assert adapter.read(["x"])["x"].iloc[-1] == 1.5
-        assert adapter.read_partition(0, ["x", "k"])["x"].iloc[-1] == 1.5
-        assert adapter["x"].read()[-1] == 1.5
-
-    def test_sqlite_reads_go_through_the_one_batch_proxy(
-        self, mod, sqlite_dataset, monkeypatch
-    ):
-        seen = {}
-
-        def record(self, fields=None, partition=None):
-            seen["storage"] = self.storage
-            return nan_leading_table()
-
-        monkeypatch.setattr(sql.SQLAdapter, "_read_full_table_or_partition", record)
-        adapter = mod.GeecsSQLAdapter(*sqlite_dataset)
-        adapter.read()
-        assert isinstance(seen["storage"], mod._OneBatchStorage)
-        assert adapter.storage is not seen["storage"]  # restored afterwards
 
 
 class TestFillNullListElements:
@@ -202,6 +219,10 @@ def postgres_adapter(mod):
 
 
 class TestDialectRouting:
+    def test_postgres_storage_is_not_wrapped(self, mod, postgres_adapter):
+        assert isinstance(postgres_adapter.storage, storage_mod.RemoteSQLStorage)
+        assert not isinstance(postgres_adapter.storage, mod._OneBatchStorage)
+
     def test_postgres_append_fills_null_list_elements_before_the_parent(
         self, mod, postgres_adapter, monkeypatch
     ):
@@ -223,20 +244,6 @@ class TestDialectRouting:
         assert handed_over["partition"] == 3
         v = handed_over["data"]["v"].to_pylist()
         assert math.isnan(v[0][0]) and v[0][1] == 1.0 and v[1] is None
-
-    def test_postgres_reads_are_the_parents_untouched(
-        self, mod, postgres_adapter, monkeypatch
-    ):
-        seen = {}
-
-        def record(self, fields=None, partition=None):
-            seen["storage"] = self.storage
-            return pyarrow.table({"seq_num": pyarrow.array([], pyarrow.int64())})
-
-        monkeypatch.setattr(sql.SQLAdapter, "_read_full_table_or_partition", record)
-        postgres_adapter.read(["seq_num"])
-        assert seen["storage"] is postgres_adapter.storage
-        assert not isinstance(seen["storage"], mod._OneBatchStorage)
 
     def test_sqlite_append_is_the_parents_untouched(
         self, mod, sqlite_dataset, monkeypatch
