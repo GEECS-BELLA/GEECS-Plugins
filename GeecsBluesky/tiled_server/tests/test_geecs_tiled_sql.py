@@ -47,6 +47,8 @@ def nan_leading_table() -> pyarrow.Table:
             "allnan": pyarrow.array(np.full(n, np.nan)),
             "flag": pyarrow.array(np.r_[np.zeros(N_NAN, bool), True]),
             "name": pyarrow.array(["a"] * N_NAN + ["b"]),
+            # a TEXT column NULL-leading fails the stock read the same way
+            "late_text": pyarrow.array([None] * N_NAN + ["late"]),
             "k": pyarrow.array(np.arange(n, dtype="int64")),
         }
     )
@@ -103,7 +105,21 @@ class TestSQLiteTypedRead:
             str(frame["flag"].dtype) == "bool" and bool(frame["flag"].iloc[-1]) is True
         )
         assert frame["name"].iloc[-1] == "b"
+        assert frame["late_text"].iloc[-1] == "late"
+        assert int(frame["late_text"].isna().sum()) == N_NAN
         assert str(frame["k"].dtype) == "int64" and frame["k"].iloc[-1] == N_NAN
+
+    def test_the_one_batch_size_is_accepted_by_the_driver(self, mod, sqlite_dataset):
+        # The constant must sit inside the driver's accepted range (a C int):
+        # a value it refuses raises here, at set_options, before any read.
+        storage = storage_mod.get_storage(sqlite_dataset[0])
+        conn = mod._OneBatchStorage(storage).connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("select 1")
+                assert cur.fetchone() == (1,)
+        finally:
+            conn.close()
 
     def test_column_selected_and_partition_reads(self, mod, sqlite_dataset):
         adapter = mod.GeecsSQLAdapter(*sqlite_dataset)

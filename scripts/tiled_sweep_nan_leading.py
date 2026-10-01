@@ -1,10 +1,12 @@
 """Sweep Tiled's SQLite tabular storage for datasets the stock reader cannot serve.
 
 GEECS-Plugins#1020: the ADBC SQLite driver types each result column from
-its first batch of rows (1024) and ignores the declared type, so a REAL
-column that is NULL for a dataset's first 1024 rows and has a value later
-fails the whole read (``Type mismatch in column N: expected INT64 but got
-DOUBLE``).  This lists every such dataset, with the run it belongs to.
+its first batch of rows (1024) and ignores the declared type, so a REAL or
+TEXT column that is NULL for a dataset's first 1024 rows and has a value
+later fails the whole read (``Type mismatch in column N: expected INT64
+but got DOUBLE`` / ``STRING``).  This lists every such dataset, with the
+run it belongs to.  INTEGER columns are typed INT64 either way and are not
+checked.
 The fix is the server-side adapter override in
 ``GeecsBluesky/tiled_server/geecs_tiled_sql.py`` (``TILED_SETUP.md``); this
 sweep is the monitor that says whether any run depends on it.
@@ -77,7 +79,7 @@ def affected_datasets(
         cols = [
             r[1]
             for r in tabular.execute(f'pragma table_info("{tn}")')
-            if r[2].upper() == "REAL" and r[1] != "time"
+            if r[2].upper() in ("REAL", "TEXT") and r[1] != "time"
         ]
         for i in range(0, len(cols), COLUMNS_PER_QUERY):
             chunk = cols[i : i + COLUMNS_PER_QUERY]

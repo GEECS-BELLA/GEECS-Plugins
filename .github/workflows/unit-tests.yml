@@ -213,8 +213,9 @@ jobs:
               # tested in a venv of its own: tiled[server] pins duckdb<1.4,
               # which GEECS-Data-Utils' duckdb>=1.4.4 refuses, so the server
               # stack cannot join the Poetry env. requirements.txt is the
-              # host's pinned install; scripts/check.sh builds the same venv.
-              python -m venv tiled_server/.venv
+              # host's install list; scripts/check.sh builds the same venv,
+              # from the Poetry env's interpreter as here.
+              poetry run python -m venv tiled_server/.venv
               tiled_server/.venv/bin/pip install -q -r tiled_server/requirements.txt pytest
               (cd tiled_server && .venv/bin/pytest --tb=short -q)
               ;;

@@ -89,6 +89,10 @@ geecs_bluesky/
                             #   PluginPathProvider (two paths per folder), file_plugin_hosts
   optimization/             # native Xopt ask/tell, live PVA frames, measurement compiler
 qserver/                    # the worker: launcher, startup profile, permissions, deploy/
+tiled_server/               # the Tiled HOST's deploy material (not a geecs_bluesky module;
+                            #   the server has its own env): geecs_tiled_sql.py — the
+                            #   SQLAdapter override (#1020), requirements.txt — the host's
+                            #   install list, tests/ in a venv of their own (TILED_SETUP.md)
 ```
 
 ## Devices
@@ -710,7 +714,12 @@ Hermetic on ophyd-async mock backends (`tests/ca_mock_helpers.py`:
 `set_mock_value` on `acq_timestamp` is a shot; a setter factory stands in
 for the trigger box in `tests/test_strict_plans.py`).  Run one suite at a
 time, unbuffered — `poetry run python -u -m pytest tests -v`; the whole
-suite takes ~12 s.  `tests/test_phase0_hardware.py` **fires real shots**:
+suite takes ~12 s.  The Tiled host's adapter override (`tiled_server/`,
+#1020) has a suite of its own in a venv of its own — `pytest tests` never
+collects it: `scripts/check.sh` builds `tiled_server/.venv` from
+`tiled_server/requirements.txt` with the Poetry env's interpreter and runs
+it; by hand, `cd tiled_server && .venv/bin/pytest -q`.
+`tests/test_phase0_hardware.py` **fires real shots**:
 it is `hardware`-marked and gated on `GEECS_HW=1`, because an explicit `-m`
 on the command line overrides the `addopts` deselect (it fired shots from
 a laptop on the VPN once, 2026-09-10).  The startup-profile tests run with

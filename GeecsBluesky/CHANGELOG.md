@@ -20,9 +20,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the whole run unreadable (`Type mismatch in column N: expected INT64
   but got DOUBLE` — 26_0929 Scan016 and Scan032, both repaired by hand).
   `GeecsSQLAdapter` reads each dataset in one ADBC batch (the statement
-  option `adbc.sqlite.query.batch_rows` set to the dataset's row count),
-  so every column is typed from every row; wired in through the catalog
-  tree's `adapters_by_mimetype`.  No Tiled upgrade fixes this (0.2.18's
+  option `adbc.sqlite.query.batch_rows` set above any dataset's row
+  count — one query, no count first, no window between them), so every
+  column is typed from every row; wired in through the catalog tree's
+  `adapters_by_mimetype`.  No Tiled upgrade fixes this (0.2.18's
   read path is identical; adbc-driver-sqlite 1.12 unchanged).  Verified
   on a copy of the broken Scan032: HTTP 500 → 200 in 0.4 s, the GhostWFS
   columns typed double with their values intact; healthy runs read in the
@@ -32,7 +33,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   for the per-shot telemetry vector on PostgreSQL storage (the #1020
   follow-up arc).  Install: `TILED_SETUP.md` § "SQLite typed reads".
 - **`scripts/tiled_sweep_nan_leading.py`** — the read-only sweep that lists
-  every dataset the stock reader fails on (table, dataset, run, columns);
+  every dataset the stock reader fails on (REAL and TEXT columns NULL
+  through the inference window; table, dataset, run, columns);
   `--catalog` / `--tabular` / `--batch` arguments so it runs against a
   backup too; exit status = the number of hits.
 - **`tiled_server/requirements.txt`** — the Tiled host's pinned install

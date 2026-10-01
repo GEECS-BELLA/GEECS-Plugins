@@ -21,10 +21,11 @@ the raw data files.
 - OS: Ubuntu 22.04.5 LTS
 - Python: 3.10.12
 - Tiled: **0.2.14** (upgraded from 0.2.9 on 2026-07-12) installed via
-  `pip install --user 'tiled[server]'` into `~/.local` — the pinned form
-  is `pip install --user -r GeecsBluesky/tiled_server/requirements.txt`
-  (the 0.2 line + the ADBC drivers the adapter override below is tested
-  against)
+  `pip install --user 'tiled[server]'` into `~/.local`.  The install list
+  is `GeecsBluesky/tiled_server/requirements.txt` (the 0.2 line + the ADBC
+  drivers the adapter override below is tested against) — a range, so
+  installing from it may move the version: do that only inside
+  § "Upgrading the server" below (catalog migrations), never alone
 - Adapter override: `~/tiled/geecs_tiled_sql.py` + `PYTHONPATH` in the
   unit's drop-in (§ "SQLite typed reads" below)
 - Running as systemd service: `sudo systemctl status tiled`
@@ -256,8 +257,9 @@ api_key = <stable key>
   end state remains the open strategic question: does `ScanAnalysis`
   grow a Tiled reader, or keep reading exported s-files long-term?
 - **Natively saved per-shot files are not served by Tiled** — only the
-  file plugin's HDF5 stacks are (above: the stock adapter, no custom
-  adapter anywhere).  A device without a plugin writes its own per-shot
+  file plugin's HDF5 stacks are (above: the stock HDF5 adapter; the one
+  custom adapter on this server, § "SQLite typed reads", changes how the
+  SQL tables are *read*, not what is served).  A device without a plugin writes its own per-shot
   files, and the run's events record the save directory and the device's
   `acq_timestamp`, not an external data source; readers join rows to files
   on disk by stamp (`geecs_data_utils.native_files`).  Serving those over

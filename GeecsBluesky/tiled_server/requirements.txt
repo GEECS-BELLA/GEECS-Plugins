@@ -1,9 +1,16 @@
-# The Tiled host's Python environment — the server, pinned to the 0.2 line
-# the adapter override (geecs_tiled_sql.py) is written against, plus the
-# ADBC drivers Tiled reads and writes its tabular storage through.
+# The Tiled host's Python environment — the server on the 0.2 line the
+# adapter override (geecs_tiled_sql.py) is written against, plus the ADBC
+# drivers Tiled reads and writes its tabular storage through.
 #
 #   pip install --user -r requirements.txt          (the host; TILED_SETUP.md)
 #   pip install -r requirements.txt pytest          (the tests' venv; CI)
+#
+# A RANGE, not a pin: on the host it may move Tiled within 0.2.x, and a
+# version jump needs the catalog migration — follow TILED_SETUP.md
+# § "Upgrading the server" (stop, back up, upgrade-database), never run
+# this line alone against the live service. The tests run on the newest
+# release the range allows, so the override is proven there as well as on
+# the deployed version.
 #
 # tiled[server] pins duckdb<1.4, which GEECS-Data-Utils' duckdb>=1.4.4
 # refuses — the reason this stack is NOT a group of GeecsBluesky's Poetry

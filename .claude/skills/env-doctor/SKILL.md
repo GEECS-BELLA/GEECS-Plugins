@@ -62,7 +62,13 @@ diagnose the package the current task is about.
    (`ImageAnalysis`, `ScanAnalysis`, `GEECS-Data-Utils`, `GEECS-Schemas`)
    have no dev env of their own, so `pytest` inside them fails with
    "Command not found" — run them from the repo root env (the script
-   does this for you).
+   does this for you). A third env kind exists for one suite:
+   `GeecsBluesky/tiled_server/tests` runs in `GeecsBluesky/tiled_server/.venv`,
+   a plain venv `check.sh` builds from `tiled_server/requirements.txt`
+   (the Tiled *server* stack pins `duckdb<1.4`, which the Poetry env's
+   GEECS-Data-Utils refuses) using the Poetry env's interpreter — a venv
+   made from a newer system `python3` fails there with no `duckdb<1.4`
+   wheel; `rm -rf GeecsBluesky/tiled_server/.venv` and rerun `check.sh`.
 
 4. **Worktrees have their own envs.** A fresh worktree needs its own
    `poetry install` per package you touch there; envs do not follow

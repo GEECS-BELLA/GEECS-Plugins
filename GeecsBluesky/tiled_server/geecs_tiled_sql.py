@@ -23,15 +23,17 @@ infers each result column's Arrow type from the rows of its *first batch*
 (1024 by default) and ignores the declared column type.  SQLite stores a
 float NaN as NULL, so a REAL column that is all-NaN for a scan's first
 1024 shots is typed INT64, and the first real value after that fails the
-whole read::
+whole read (a TEXT column NULL for those rows fails the same way)::
 
     OSError: [SQLite] Type mismatch in column N: expected INT64 but got DOUBLE
 
-Setting the statement option ``adbc.sqlite.query.batch_rows`` to the
-dataset's row count puts every row in the inference window: a column with
-any value is typed from it, and an all-NULL column (still INT64) is cast
-to its declared type by Tiled's own ``data.cast(target_schema)``.  No
-measurable cost: the result was one Arrow table either way.
+Setting the statement option ``adbc.sqlite.query.batch_rows`` above any
+dataset's row count makes the whole result one batch, so every column is
+typed from every row, and an all-NULL column (still INT64) is cast to its
+declared type by Tiled's own ``data.cast(target_schema)``.  One query, no
+row count first — the driver appends rows as they come and reserves
+nothing per batch (measured: a batch size of 10^9 costs no memory or
+time), and the option must fit a C ``int`` (``INT_MAX`` is rejected).
 
 **PostgreSQL — NULL array elements.**  The ADBC PostgreSQL driver (1.11,
 1.12) writes a NULL *element* of an array column as ``0.0`` — a plausible
@@ -41,16 +43,15 @@ telemetry sample inside a vector column would come back as zero.  Filling
 null elements with NaN just before the ingest restores what was written;
 NaN itself, ``inf`` and a NULL *whole* array all survive the driver.
 
-Verified against Tiled 0.2.14 with adbc-driver-sqlite / -postgresql 1.11
-and 1.12; the hooks used (``SQLAdapter.storage``, ``.dialect``,
-``.connect()``, ``_read_full_table_or_partition``, ``append_partition``)
-are the 0.2.x adapter's own.
+Verified against Tiled 0.2.14 and 0.2.18 with adbc-driver-sqlite /
+-postgresql 1.11 and 1.12; the hooks used (``SQLAdapter.storage``,
+``.dialect``, ``.connect()``, ``_read_full_table_or_partition``,
+``append_partition``) are the 0.2.x adapter's own.
 """
 
 from __future__ import annotations
 
 import math
-from contextlib import closing
 from typing import Any, List, Optional, Union
 
 import pandas
@@ -59,18 +60,20 @@ import pyarrow.compute
 from tiled.adapters.sql import SQLAdapter
 
 BATCH_ROWS_OPTION = "adbc.sqlite.query.batch_rows"
+#: Larger than any dataset (a GEECS run is thousands of rows), within the
+#: driver's accepted range (a C ``int``; ``INT_MAX`` itself is refused).
+ONE_BATCH_ROWS = 10**9
 
 
 class _OneBatchConnection:
     """A connection proxy whose cursors read the whole result as one batch."""
 
-    def __init__(self, conn: Any, rows: int) -> None:
+    def __init__(self, conn: Any) -> None:
         self._conn = conn
-        self._rows = max(int(rows), 1)
 
     def cursor(self) -> Any:
         cur = self._conn.cursor()
-        cur.adbc_statement.set_options(**{BATCH_ROWS_OPTION: self._rows})
+        cur.adbc_statement.set_options(**{BATCH_ROWS_OPTION: ONE_BATCH_ROWS})
         return cur
 
     def commit(self) -> None:
@@ -83,16 +86,15 @@ class _OneBatchConnection:
 class _OneBatchStorage:
     """Storage proxy: the same dialect, every connection wrapped for one batch."""
 
-    def __init__(self, storage: Any, rows: int) -> None:
+    def __init__(self, storage: Any) -> None:
         self._storage = storage
-        self._rows = rows
 
     @property
     def dialect(self) -> str:
         return self._storage.dialect
 
     def connect(self) -> _OneBatchConnection:
-        return _OneBatchConnection(self._storage.connect(), self._rows)
+        return _OneBatchConnection(self._storage.connect())
 
 
 def _is_float_list(arrow_type: pyarrow.DataType) -> bool:
@@ -122,20 +124,6 @@ def fill_null_list_elements(table: pyarrow.Table) -> pyarrow.Table:
 class GeecsSQLAdapter(SQLAdapter):
     """``SQLAdapter`` with typed SQLite reads and NaN-safe PostgreSQL arrays."""
 
-    def _count_rows(self, partition: Optional[int]) -> int:
-        query = (
-            f'SELECT count(*) FROM "{self.table_name}" '
-            f"WHERE _dataset_id={self.dataset_id}"
-        )
-        if partition is not None:
-            query += f" AND _partition_id={int(partition)}"
-        with closing(self.storage.connect()) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(query)
-                (n,) = cursor.fetchone()
-            conn.commit()
-        return int(n)
-
     def _read_full_table_or_partition(
         self, fields: Optional[List[str]] = None, partition: Optional[int] = None
     ) -> pyarrow.Table:
@@ -144,7 +132,7 @@ class GeecsSQLAdapter(SQLAdapter):
                 fields=fields, partition=partition
             )
         real_storage = self.storage
-        self.storage = _OneBatchStorage(real_storage, self._count_rows(partition))
+        self.storage = _OneBatchStorage(real_storage)
         try:
             return super()._read_full_table_or_partition(
                 fields=fields, partition=partition
