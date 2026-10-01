@@ -74,8 +74,8 @@ class ScalarsView(Device):
 
         Read by the run's liveness gate and the strict refire gate: a
         ``.scalars`` view of a dead device must be named like the device
-        (found on hardware 2026-09-14 — a scalar-only device's view was
-        invisible to the gate while only the detector's view proxied it).
+        (a scalar-only device's view would otherwise be invisible to the
+        gate).
         """
         return getattr(self._owner, "connected_status", None)
 

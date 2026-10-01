@@ -1,39 +1,30 @@
 """Client-side EPICS environment from the shared GEECS config.
 
-The gateway host is infrastructure, like the MySQL database — clients should
-resolve it from ``~/.config/geecs_python_api/config.ini`` rather than each
-shell exporting ``EPICS_CA_ADDR_LIST``::
+The gateway host is infrastructure, like the database: clients resolve it
+from ``~/.config/geecs_python_api/config.ini`` instead of each shell
+exporting ``EPICS_CA_ADDR_LIST``::
 
     [epics]
-    ca_addr_list = 192.168.6.14
-    # ca_auto_addr_list = NO      (optional; defaults to NO when
-    #                              ca_addr_list is applied from here)
+    ca_addr_list = <gateway host>
+    # ca_auto_addr_list = NO     (default when ca_addr_list is applied here)
     [pva]
-    file_plugin_addr_list = 192.168.6.100 192.168.7.161    # the camera servers
-    # addr_list = ...              (the PVA image fleet; unioned in)
-    # pva_auto_addr_list = YES     (optional; defaults to YES — the
-    #                              directed list is added to the broadcast
-    #                              search, so a local server still resolves)
+    file_plugin_addr_list = <the camera servers serving the file plugin>
+    # addr_list = ...            (the PVA image fleet; unioned in)
+    # pva_auto_addr_list = YES   (default: the directed list is added to
+    #                             the broadcast search, so a local server
+    #                             still resolves)
 
-The PVA list is the same rule for the same reason: the camera servers sit
-on several subnets, so a PVA name search for the file plugin's PVs
-(``…:hdf1:``) needs a directed address list — the worker's own
-``[pva]`` keys already name those hosts, so nothing is exported twice
-(found on the first plugin scan through the RE Manager, 2026-09-11: the
-service environment carried the CA variables only and every plugin
-signal timed out at connect).  Unlike CA, the PVA auto list stays on by
-default: the ``[pva]`` keys are set on developer machines for the fleet
-tooling, and a directed list that silenced broadcast would hide a local
-server (a gateway against the fake GEECS server, the Mac twin).  On a
-service host the rendered ``config.ini`` carries both keys from
-``site.env`` (``GEECS_PVA_ADDR_LIST``, ``GEECS_PVA_FILE_PLUGIN_ADDR_LIST``).
+The PVA list follows the same rule: the camera servers sit on several
+subnets, so the file plugin's PVs need a directed address list, and the
+``[pva]`` keys already name those hosts.  The PVA auto list stays on by
+default so a local server (a gateway against the fake GEECS server) is
+not hidden.  On a service host the rendered ``config.ini`` carries both
+keys from ``site.env``.
 
-Import-order constraint: libca reads these variables when the CA context is
-created, which happens as soon as aioca is imported — and the device modules
-import aioca (via ophyd-async) at package import.  ``geecs_bluesky/__init__``
-therefore calls :func:`apply_epics_address_config` before importing any
-submodule.  Explicitly exported environment variables always win
-(``os.environ.setdefault`` semantics).
+Import order: libca reads these variables when the CA context is created,
+which happens as soon as aioca is imported, so ``geecs_bluesky/__init__``
+calls :func:`apply_epics_address_config` before importing any submodule.
+Explicitly exported environment variables always win (``setdefault``).
 """
 
 from __future__ import annotations

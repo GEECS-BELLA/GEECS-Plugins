@@ -13,11 +13,12 @@ tooling. Each subdirectory is an independent Python package with its own
 | `ImageAnalysis/` | Per-image analysis: pipelines, offline analyzers, config models |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
 | `GEECS-Schemas/` | Lightweight Pydantic/GEST config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) and for the analysis configs (`geecs_schemas.analysis`: the `AnalysisRecipe` v3 document — the analysis core's native shape: input, ordered steps, a measure, the per-frame `figure`, the summary kinds — beside the `AnalysisDiagnostic` v2 document with its kind-discriminated analyzer specs for the unported kinds, `AnalysisGroup`, and `load_analysis_document` dispatching on `schema_version`) + legacy-YAML converters + the docgen Markdown reference generator. Depends on Pydantic and gest-api (VOCS) — importable without Xopt or analysis |
-| `GeecsBluesky/` | Bluesky RunEngine backend, rebuilt as a native Bluesky application (#807): the queueserver worker (`qserver/` — RE Manager profile exporting the device namespace and the stock `bluesky.plans` verbs), `GeecsNamespace` (every DB device as an ophyd-async noun; acquirers are `GeecsDetector`, a stock `StandardDetector`), `ShotControl` (the trigger box as a Movable/Pausable), the strict `take_reading` (the fire between trigger and wait), the `qs_client` manager client, Tiled integration |
+| `GeecsBluesky/` | Bluesky RunEngine backend, rebuilt as a native Bluesky application (#807): the queueserver worker (`qserver/` — RE Manager profile exporting the device namespace and the registered plans: `count`, `sweep`, `optimize`, `mv`, `run_action`, the shot-offset calibration), `GeecsNamespace` (every DB device as an ophyd-async noun; acquirers are `GeecsDetector`, a stock `StandardDetector`), `ShotControl` (the trigger box as a Movable/Pausable), the strict `take_reading` (the fire between trigger and wait), the `qs_client` manager client, Tiled integration |
 | `GEECS-Core/` | The GEECS access **library**: UDP/TCP wire protocol (`transport/`), experiment DB (`db/GeecsDb`), PV naming contract, the one `GeecsError` tree, and the `FakeGeecsServer` test double — extracted from GeecsCAGateway 2026-08-20; see its `DESIGN.md` for the layering rules — plus the thin synchronous `GeecsDevice` client (`client/`), the successor to GEECS-PythonAPI's device objects |
 | `GeecsCAGateway/` | The caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async, built on GEECS-Core — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
 | `GeecsPvaGateway/` | The PVA peer of GeecsCAGateway: distributed pvAccess server on each Windows camera server, exposing that host's GEECS camera images and device array variables (lineouts, scope traces) as NTNDArray PVs (gated subscriptions, latest-wins; per-devicetype exclusions from `geecs_core.db.device_streams`; arrays at native length). Non-scalars stay off the central CA gateway by design |
 | `GEECS-MCP/` | The general GEECS MCP server for AI agents (OSPREY) — domains as modules, scans first: read tools (status/history/results/config listings/progress) + the halt family (stop/pause) + three gated go verbs (ownership-gated `resume_scan`, `clear_queue`, `run_scan_analysis`) + the analysis domain, over `geecs_bluesky.qs_client` + the resolver + Tiled. **An experiment, not an operator surface — it has no submit verb** (the write verbs were deleted in 0.9.0 when the native-Bluesky rebuild retired the client calls behind them; #727) and it never gates a client-seam change. Osprey integrates via `profile.yml` — central HTTP (the multi-machine mode) or stdio; see its `deploy/DEPLOYMENT.md` |
+| `GEECS-LogTriage/` | Scan-log triage, stage 1 of an auto-debugger pipeline: walks a day's `scan.log` files, fingerprints and classifies the errors (bug candidate / config / hardware / operator) into a `TriageReport` JSON document; deterministic, no LLM, no GitHub writes — the `/triage` skill runs it |
 | `GeecsScanner/` | The web scanner console (FastAPI, port 8300 on the worker host): submit, watch and stop scans from a browser over `geecs_bluesky.qs_client` — the third surface on the GEECS surface kit and the operator front end (it replaced the PySide6 GEECS-Console, deleted 2026-09-14). A service layer (`geecs_scanner.service`: pure Python, every answer a Pydantic model) under a JSON API + an SSE stream that reduces the worker's pickled document stream to JSON; a `--demo` manager for development (#869) |
 | `GEECS-DataPortal/` | Scan-browsing web service (FastAPI, port 8200 on the worker host), read-only except explicit ScanAnalysis runs from its Analysis tab: day → scan → metadata/scalar plots/images in any browser, over the `ScanCatalog` layer in GEECS-Data-Utils |
 | `GeecsWebTheme/` | The shared look of every GEECS web surface, in two layers. `theme.css` settles **colour**: three themes (`bella` red/black, `laser` 532 nm green, `plasma` hydrogen Balmer), each light and dark, plus the picker. `kit.css` settles **everything else** — page shell, the three containers by role, one status vocabulary (`queued/running/ok/degraded/failed/unknown` + `agent`), controls, tables, the five pane states (incl. `stale` and `denied`), and the **overlay ladder** (`details` → inspector → drawer → `<dialog>` → route; take the lowest rung that fits). `kit.html` is its reference page, static beside the stylesheets so any host mounting it serves it at `<mount>/kit.html`. No runtime dependencies. Two rules it exists to enforce: surfaces style **through tokens, never with a literal colour**, and every kit rule is scoped to `.kit` so a surface adopts page by page — both pinned by its own tests, which walk the portal's and the editor's templates too. **Read its `CLAUDE.md` before building a new web surface** |
@@ -163,6 +164,8 @@ GEECS-Core           →  (no intra-repo deps — the GEECS access library:
 GeecsCAGateway       →  GEECS-Core (the access library it serves over CA),
                         GEECS-Schemas (schema-only vocabulary for optional
                         derived-channel overlays)
+GEECS-LogTriage      →  GEECS-Data-Utils (ScanPaths and the scan_log_loader
+                        it fingerprints) — the /triage skill's engine
 GeecsPvaGateway      →  GEECS-Core (transport, DB, pv_naming, the DB
                         variable-type rule), GEECS-Data-Utils (IMAQ decode)
                         — the distributed PVA image server on the camera
@@ -341,10 +344,12 @@ cd GEECS-Core    && poetry version patch   # 0.2.0 → 0.2.1
 
 Every package has a `CHANGELOG.md` following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
-`GEECS-Data-Utils/`, `ScanAnalysis/`, `ImageAnalysis/`,
+`GEECS-Analysis/`, `GEECS-Data-Utils/`, `ScanAnalysis/`, `ImageAnalysis/`,
 `LogMaker4GoogleDocs/`, `GeecsBluesky/`, `GEECS-Core/`, `GeecsCAGateway/`,
-`GeecsPvaGateway/`, `GEECS-Schemas/`, `GeecsLogbook/`,
-`GeecsWebTheme/`, `GeecsScanner/`.
+`GeecsPvaGateway/`, `GEECS-Schemas/`, `GEECS-MCP/`, `GEECS-DataPortal/`,
+`GEECS-LogTriage/`, `GeecsLogbook/`, `GeecsWebTheme/`, `GeecsScanner/`
+(`scripts/doc_audit.py` checks this list and the repository map above
+against the packages on disk).
 
 Git tags (`geecs-scanner-v0.8.0` style) are cut at **milestones** — a state
 deployed across experiments or one we may need to reproduce (e.g. the
@@ -359,7 +364,7 @@ has caused real production incidents; the consequences aren't abstract.
 ### Analysis code is a consumer of scan folders, never a producer
 
 Only the **scanner side** (concretely `claim_scan_number`
-in GeecsBluesky's `plans/run_wrapper.py`, on every scan entry point)
+in GeecsBluesky's `plans/claim_scan.py`, on every scan entry point)
 brings new `scans/ScanNNN/` folders into existence. Everything else — all of
 ScanAnalysis, ImageAnalysis, LogMaker4GoogleDocs, every offline analyzer —
 must treat the scan folder as preexisting and refuse to auto-create it.

@@ -6,50 +6,45 @@ orchestration ecosystem via [ophyd-async](https://ophyd-async.readthedocs.io/).
 Devices are **CA-backed**: they consume the PVs served by
 [`GeecsCAGateway`](../GeecsCAGateway) (the GEECS access layer) as a standard
 EPICS IOC — stock `epics_signal_r/rw` under the hood, no bespoke transport.
-This package was rebuilt as a **native Bluesky application**
-(GEECS-Plugins#807): the scan path is the stock `bluesky.plans` verbs over
-ophyd-async devices, and the only GEECS line in it is the fire between
-trigger and wait.  It owns:
+The package is a **native Bluesky application** (GEECS-Plugins#807): a
+stock `RunEngine` running a small set of registered plans over ophyd-async
+devices, and the only GEECS line in the acquisition path is the fire
+between trigger and wait.  It owns:
 
 - `namespace.py` — `GeecsNamespace`: every device of the experiment as a
   long-lived noun built from the GEECS DB; an acquirer is a `GeecsDetector`
   (`devices/detector.py`, a stock `StandardDetector` whose shot is its
-  `acq_timestamp` advancing; LabVIEW-native saving as its data logic), a
-  scalar-only device a `CaSnapshotReadable`, every settable a Movable child
-  (`U_S1H.current`)
+  `acq_timestamp` advancing; LabVIEW-native saving or the PVA gateway's
+  file plugin as its data logic), a scalar-only device a
+  `CaSnapshotReadable`, every settable a Movable child (`U_S1H.current`)
 - `devices/shot_control.py` — `ShotControl`, the trigger box as a `Movable`
   over the trigger profile's states and `Pausable`
-- `plans/strict.py` — `geecs_take_reading`: `bps.trigger_and_read` with the
+- `plans/` — the registered plans (`plan_names.GEECS_PLAN_NAMES`): `count`
+  (stock `bp.count` bound strict), `sweep` (a `geecs_schemas.Sweep`
+  trajectory through stock `scan_nd`), `optimize` (native Xopt ask/tell),
+  plus the utilities `mv`, `run_action` and the two shot-offset
+  calibration plans.  `plans/strict.py` is the strict `take_reading` (the
   `SINGLESHOT` fire between the triggers and the wait, plus the bounded
-  refire; `geecs_per_shot` / `geecs_per_step` bind it into `bp.count` and
-  every N-d scan plan
+  refire); `plans/gated.py` the gated batch (the box free-runs while the
+  plugin-backed cameras count frames); `plans/registry.py` binds them
 - `plans/claim_scan.py` — the day-scoped scan-number claim (the one place
   a `scans/ScanNNN/` folder comes into existence)
 - `run_engine.py` — `make_run_engine`: one RunEngine with
-  `connect_on_demand` (`preprocessors.py`) installed outermost and the
-  Tiled spool / s-file callbacks subscribed (`tiled_spool.py`; the
+  `connect_on_demand` (`preprocessors.py`) installed outermost, the
+  ScanInfo / s-file / `scan.log` / stack-check callbacks (`callbacks.py`)
+  and the Tiled spool subscribed (`tiled_spool.py`; the
   `geecs-tiled-writer` service in `tiled_writer.py` registers the spooled
   runs off the engine thread)
 - `qserver/` — the **queueserver worker**: a bluesky-queueserver RE Manager
-  whose startup profile exports the namespace's devices and the stock plans
-  (`plan_names.GEECS_PLAN_NAMES`); `qs_client/` — the manager client every
-  GEECS client uses
-- `optimization/` — the Xopt/evaluator core (importable, its tests green;
-  re-glued to the native scan path in a later phase)
+  whose startup profile exports the namespace's devices and the registered
+  plans; `qs_client/` — the manager client every GEECS client uses
+  (`submit_plan`, `submit_preset`, the pre-submit preflight)
+- `optimization/` — the native Xopt ask/tell driver, live PVA frame joins
+  and the measurement compiler behind the `optimize` plan (the `optimize`
+  extra)
 
-## Where the rebuild stands
-
-Phase 0 (one camera as a `GeecsDetector`, strict shots under stock
-`bp.count` / `bp.list_scan`) is hardware-accepted
-(`tests/test_phase0_hardware.py`).  Phase 1 PR 1
-deleted the `ScanRequest` funnel, the free-run mode, `GeecsSession` and
-the funnel-only devices; PR 2 added the plan layer — the stock plans
-registered strict under their own names, every run claiming a scan
-number, the ScanInfo / s-file / `scan.log` callbacks, presets as the
-saved queue item (its open/close baseline telemetry stream was replaced
-by per-row background telemetry, #1016).  PR 3 accepted it on
-HTU (Scans 104–108 of 26_0910, in process and through a second RE
-Manager — `tests/test_phase1_hardware.py`).
+`CLAUDE.md` is the design of record; `EVENT_SCHEMA.md` lists the GEECS
+keys a run's documents carry.
 
 ## Requirements
 
@@ -83,7 +78,7 @@ import bluesky.plans as bp
 from geecs_bluesky.config_resolver import ConfigsRepoResolver
 from geecs_bluesky.devices.shot_control import ShotControl
 from geecs_bluesky.namespace import GeecsNamespace
-from geecs_bluesky.plans.strict import geecs_per_step
+from geecs_bluesky.plans.strict import geecs_per_shot
 from geecs_bluesky.run_engine import make_run_engine
 
 RE = make_run_engine(tiled=True)                      # RE + connect_on_demand + the Tiled spool
@@ -93,13 +88,16 @@ box = ShotControl.from_profile(
     experiment="Undulator", name="shot_control",
 )
 RE(bps.mv(box, "ARMED"))
-RE(bp.list_scan([ns["UC_Amp4_IR_input"]], ns["U_S1H"].current,
-                [-1, -0.5, 0, 0.5, 1], per_step=geecs_per_step(box)))
+RE(bp.count([ns["UC_Amp4_IR_input"]], 5, per_shot=geecs_per_shot(box)))
 RE(bps.mv(box, "STANDBY"))
 ```
 
-`tests/test_phase0_hardware.py` is the runnable version of this, with the
-scan-number claim and native saving into the claimed folder.
+This is the strict hook on a bare stock plan, without the scan claim.  A
+GEECS scan — the claim, ScanInfo, the s-file, `scan.log`, the native files
+in the claimed folder — is what the worker's bound plans add
+(`make_run_engine(claim=True)` + `plans.registry.bind_plans`);
+`tests/test_phase0_hardware.py` and `tests/test_phase1_hardware.py` are the
+runnable versions of both.
 
 ## Reading data back
 

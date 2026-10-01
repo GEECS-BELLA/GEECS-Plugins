@@ -29,13 +29,11 @@ from geecs_core.pv_naming import (
 #: ``ophyd_async.epics.core._signal.split_protocol_from_pv``.
 CA_TRANSPORT_PREFIX = "ca://"
 
-#: The gateway per-device status PV (``[Experiment:]Device:CONNECTED``,
-#: PV_CONTRACT.md §1) value meaning the device's TCP stream is down
-#: (enum_strings = ["Disconnected", "Connected"]; MAJOR severity while down).
-#: Liveness convention shared by every consumer in this package: ONLY this
-#: exact choice string reads as down — anything else (``"Connected"``, a mock
-#: backend's ``""`` default, or an unreadable PV) is treated as live, so a
-#: gateway without status PVs can never block a scan (fail-open).
+#: The value of the gateway's per-device ``CONNECTED`` PV (PV_CONTRACT.md
+#: §1) that means the device's TCP stream is down.  The liveness rule is
+#: fail-open: only this exact choice string reads as down; anything else
+#: (``"Connected"``, a mock backend's ``""``, an unreadable PV) reads live,
+#: so a gateway without status PVs can never block a scan.
 GATEWAY_DISCONNECTED = "Disconnected"
 
 

@@ -119,9 +119,9 @@ reference before building; each is deliberately small.
 2. **An analysis notebook.** A Jupyter notebook that loads a scan and
    plots something: `ScanData.from_date(...)` → `data_frame` → `bin` →
    `plot_binned` (GEECS-Data-Utils), optionally running an
-   ImageAnalysis analyzer on per-shot images. Start from the example
+   analysis recipe on per-shot images. Start from the example
    notebooks under `docs/geecs_data_utils/examples/` and
-   `docs/image_analysis/examples/`; run with
+   `docs/analysis/examples/analysis_without_the_portal.ipynb`; run with
    `poetry run jupyter lab` from the repo root.
 3. **A scalar scatter analyzer.** Subclass `ScatterPlotterAnalysis`;
    the reference is

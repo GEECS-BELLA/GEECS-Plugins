@@ -1,6 +1,6 @@
-"""connect_on_demand + stock plans over namespace devices (#807 phase 1).
+"""connect_on_demand + stock plans over namespace devices.
 
-The phase-1 acceptance on a mock RunEngine: ``bp.count`` and ``bp.scan``
+On a mock RunEngine: ``bp.count`` and ``bp.scan``
 from ``bluesky.plans`` run against :class:`GeecsNamespace` devices — a
 :class:`GeecsDetector` camera and a :class:`CaMotor` child — with **no
 GEECS preamble**, connected lazily by the preprocessor, shots paced by

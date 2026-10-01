@@ -1,10 +1,9 @@
 """Locate and load scanner configuration files from the configs repository.
 
-Mirrors GEECS-Scanner-GUI's ``ApplicationPaths`` resolution without importing
-it (GeecsBluesky does not depend on ``geecs_scanner``): the
-``GEECS_SCANNER_CONFIG_DIR`` env var is used as the experiments root directly,
-else config.ini ``[Paths] scanner_config_root_path`` +
-``scanner_configs/experiments``.
+The ``GEECS_SCANNER_CONFIG_DIR`` env var is used as the experiments root
+directly, else config.ini ``[Paths] scanner_config_root_path`` +
+``scanner_configs/experiments`` — the resolution every headless entry
+point in this repo shares.
 """
 
 from __future__ import annotations

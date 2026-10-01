@@ -21,6 +21,7 @@
            padding: 0.6rem 1.2rem; display: flex; gap: 1rem; align-items: baseline; }
   header .brand { font-weight: 600; color: var(--accent); }
   header .sub { color: var(--muted); font-size: 12px; }
+  header .docs { color: var(--accent); font-size: 12px; }
   main { padding: 0.8rem 1.2rem; }
   #editor { height: calc(100vh - 5rem); }
 </style>
@@ -29,7 +30,7 @@
 <header>
   <span class="brand">GEECS analysis configs</span>
   <span class="sub">{% if read_only %}read-only browser{% else %}editor — saves write the configs tree; commit them yourself{% endif %}</span>
-  <span class="spacer"></span><div data-theme-picker></div>
+  <span class="spacer"></span><a class="docs" href="{{ reference_url }}" target="_blank" rel="noopener">Docs</a><div data-theme-picker></div>
 </header>
 <main>
   <div id="editor"></div>

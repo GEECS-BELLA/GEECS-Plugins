@@ -1,40 +1,28 @@
 """ShotControl — the trigger box as an ophyd-async device.
 
-One device, the protocols Bluesky already has for it:
-
 - **Movable** over the profile's named states: ``bps.mv(shot_control,
   "ARMED")`` replays that state's ordered ``(device, variable, value)``
-  writes, each completing before the next (the TriggerProfile semantics).
-  ``"SINGLESHOT"`` is the momentary fire — a move that never becomes the
-  standing state.
-- **Pausable**, keyed on the standing state: ``ARMED`` (strict) is
-  quiescent by construction — the single-shot source cannot free-run — so
-  the RunEngine pausing simply stops the plan firing and ``pause()`` does
-  nothing.  ``SCAN`` and ``STANDBY`` both pass external edges
-  (:data:`~geecs_bluesky.models.shot_control.QUIESCE_FROM` — STANDBY is
-  the machine's idle state, not a quiet one), so a pause there drives
-  ``OFF`` and ``resume()`` restores
-  what the plan had.  The RunEngine calls both on every Pausable it has
-  seen in a message (bluesky 1.15.0 ``run_engine.py``), so being the
-  ``set`` target is enough to be paused.  Neither notification ever raises:
-  an exception out of ``pause()`` aborts the run the operator meant to
-  pause, and out of ``resume()`` lands after the RunEngine has already
-  rewound — failures are logged loudly instead.
+  writes, each completing before the next.  ``"SINGLESHOT"`` is the
+  momentary fire, never a standing state.
+- **Pausable**, keyed on the standing state: ``ARMED`` is quiescent by
+  construction, so ``pause()`` does nothing; ``SCAN`` and ``STANDBY`` pass
+  external edges (:data:`~geecs_bluesky.models.shot_control.QUIESCE_FROM`),
+  so a pause there drives ``OFF`` and ``resume()`` restores what the plan
+  had.  The RunEngine calls both on every Pausable it has seen in a
+  message, so being the ``set`` target is enough.  Neither notification
+  ever raises; failures are logged.
 
-The box's devices carry the gateway's ``CONNECTED`` liveness PV as one
-``str`` signal each (:attr:`ShotControl.liveness_signals`) — never a
-column, read once by the run's liveness gate before the first move
-(GEECS-Plugins#852): a dead DG645 is named before the box is driven,
-instead of surfacing as a bare put error.
+The box's devices carry the gateway's ``CONNECTED`` PV as one ``str``
+signal each (:attr:`ShotControl.liveness_signals`), read once by the
+run's liveness gate before the first move (#852), never a column.
 
-The writes go through one cached gateway ``:SP`` put per distinct
-``(device, variable)`` target (:class:`~geecs_bluesky.devices.ca.gateway_put.CaPutSetter` — the hardware-proven
-stringified-wire convention); each state's list replays in declared order,
-every put completing before the next (the TriggerProfile semantics: raise
-an amplitude before switching a source).  The ``state`` config signal
-mirrors the standing state so every descriptor records which state the box
-was in.  :func:`trigger_writes_from_profile` adapts the configs-repo
-``TriggerProfile`` into :class:`~geecs_bluesky.models.shot_control.ShotControlWrites`.
+Writes go through one cached gateway ``:SP`` put per ``(device,
+variable)`` target (:class:`~geecs_bluesky.devices.ca.gateway_put.CaPutSetter`,
+the stringified-wire convention), in declared order.  The ``state``
+config signal mirrors the standing state into every descriptor.
+:func:`trigger_writes_from_profile` adapts a configs-repo
+``TriggerProfile`` into
+:class:`~geecs_bluesky.models.shot_control.ShotControlWrites`.
 """
 
 from __future__ import annotations

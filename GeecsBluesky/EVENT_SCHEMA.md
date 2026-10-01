@@ -1,22 +1,22 @@
 # GEECS Bluesky documents — what a run carries
 
-The native shape (phase 1 of the rebuild, GEECS-Plugins#807): a run is
-whatever the stock `bluesky.plans` verb emits over the namespace's
-devices, and every GEECS fact rides in the places Bluesky already has for
-it.  There is no GEECS schema version any more — consumers read the
-documents as Bluesky documents.  This file lists the GEECS-specific keys
-those documents carry.
+A run is whatever the registered plan (`count`, `sweep` or `optimize` —
+`plan_names.GEECS_PLAN_NAMES`) emits over the namespace's devices, and
+every GEECS fact rides in the places Bluesky already has for it.  There
+is no GEECS schema version — consumers read the documents as Bluesky
+documents.  This file lists the GEECS-specific keys those documents
+carry.
 
-The v1 schema (funnel-era: `geecs_event_schema`, `acquisition_mode`,
-`shot_id` / `shot_offset` / `valid` companion columns, `bin_number`) was
-deleted with the funnel in phase 1 PR 1; scans before that carry it and
-`geecs_data_utils.tiled_schema` still reads them.
+Runs from before the native-Bluesky rebuild (GEECS-Plugins#807) carry the
+retired v1 schema (`geecs_event_schema`, `acquisition_mode`, `shot_id` /
+`shot_offset` / `valid` companion columns); `geecs_data_utils.tiled_schema`
+still reads them.
 
 ## Start document
 
 The stock keys (`plan_name`, `detectors`, `motors`, `num_points`,
 `plan_args`, `plan_pattern_args`, `hints`, …) come from the plan.  GEECS
-adds (phase 1 PR 2):
+adds:
 
 | Key | Emitted by | Meaning |
 |---|---|---|
@@ -67,8 +67,8 @@ A pattern may revisit its initial first-axis coordinate, so equal legacy
 Start/End values do not imply a motionless run; the Sweep payload is authoritative.
 
 Data Utils classifies multi-axis axes/product as GRID, every other moving trajectory as
-1D regardless of axis count. It retains stock `plan_pattern` and older funnel
-readers for historical runs. No existing event column changes meaning.
+1D regardless of axis count. It retains stock `plan_pattern` and the
+pre-rebuild readers for historical runs. No existing event column changes meaning.
 
 ## Descriptor: configuration
 
@@ -209,7 +209,7 @@ non-essential device, not a scan motor — rides in every row of the run's
 row stream (`primary` for a strict run, `shots` for a gated one) under the
 same `<device>-<variable>` keys a listed device would carry, read softly
 from the gateway's monitor cache by the run's `BackgroundSnapshot`
-(GEECS-Plugins#1016, #929 — what Master Control logged).  A detector
+(GEECS-Plugins#1016, #929 — what the LabVIEW Master Control logged).  A detector
 outside the run contributes its scalars and its `acq_timestamp` as its
 monitor cache holds them (the last frame's), so a row's alignment to that
 device is checkable.  A reading the gateway marks INVALID (a dead device's

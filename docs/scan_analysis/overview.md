@@ -31,8 +31,8 @@ display_files = analyzer.run_analysis(tag)
 
 The base class handles scan-folder location, s-file loading, and binning;
 the analyzer's `_run_analysis_core()` does the work that's specific to the
-diagnostic. See [Basic Usage (2D)](examples/basic_usage.ipynb) for a full
-walkthrough.
+diagnostic. For running a recipe on a scan from Python, see
+[analysis without the portal](../analysis/examples/analysis_without_the_portal.ipynb).
 
 ### From the data portal
 
@@ -169,9 +169,13 @@ the full surface area.
 
 | Notebook | What it covers |
 |---|---|
-| [Basic Usage (2D)](examples/basic_usage.ipynb) | Run an `Array2DScanAnalyzer` on a scan, interactively |
-| [Basic Usage (1D)](examples/basic_usage_1D.ipynb) | The same flow for a 1D signal |
+| [Analysis without the portal](../analysis/examples/analysis_without_the_portal.ipynb) | Run a recipe on a scan from Python: one shot, every shot, a variant |
 | [Scatter Plot Analysis](examples/scatter_plot_analysis.ipynb) | Generic two-axis scatter analyzer over multiple devices |
+
+Older notebooks on the pre-recipe analyzer path stay in the repository for
+one-off use but are not published:
+[Basic Usage (2D)](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/docs/scan_analysis/examples/basic_usage.ipynb),
+[Basic Usage (1D)](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/docs/scan_analysis/examples/basic_usage_1D.ipynb).
 
 ## See also
 

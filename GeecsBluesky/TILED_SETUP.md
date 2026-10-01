@@ -232,27 +232,27 @@ api_key = <stable key>
 - Non-scalar device events include save directory and device `acq_timestamp` ✓
 - DG645 shot control arm/disarm per step ✓
 - Catalog readable from any network-connected Python session ✓
-- GUI path complete — the operator front end (`GeecsScanner` today;
-  `GEECS-Console` when this was checked) submits to the
-  queueserver worker: shot control (trigger profiles) and
-  setup/per-step/closeout actions all flow
-  through it (the legacy `GEECS-Scanner-GUI` path was deleted with G3) ✓
-- Scalar s-file exported from Tiled best-effort after each scan ✓
+- Operator path complete — the web scanner (`GeecsScanner`) submits to
+  the queueserver worker: shot control (trigger profiles) and
+  setup/per-step/closeout actions all flow through it ✓
+- Scalar s-file written by the engine from the run's own rows at the stop
+  document (`callbacks.SFileCallback`) — no Tiled round trip ✓
 - Hardware acceptance: `tests/test_phase0_hardware.py` (gated on
-  `GEECS_HW=1`) runs stock `bp.count` / `bp.list_scan` over a real camera
+  `GEECS_HW=1`) runs the strict hook over a real camera
   against the live gateway — see its module
   docstring for invocation; run it to verify, no standing pass is
   recorded here
 
 ## Known Limitations
 
-- **No TDMS output — a decided disposition, not an oversight**
-  (2026-07-10): on-shot TDMS was a poorly-implemented Master Control
+- **No TDMS output — a decided disposition, not an oversight**:
+  on-shot TDMS was a poorly-implemented Master Control
   preservation and was not in use, so it was dropped outright.  Scalar
-  s-files are exported from Tiled best-effort after a scan (needs the Tiled
-  client extra and a readable run).  If LabVIEW tooling ever needs TDMS
-  again, the natural shape is a post-scan Tiled→TDMS exporter alongside the
-  s-file exporter — analysis-side, no scanner integration required.
+  s-files are written by the engine from the run's own rows; the offline
+  re-export from Tiled (`geecs_data_utils.write_scalar_files_from_tiled`)
+  runs the same join.  If LabVIEW tooling ever needs TDMS again, the
+  natural shape is a post-scan Tiled→TDMS exporter alongside that
+  re-export — analysis-side, no scanner integration required.
   Possible future work, not scheduled, not a gate.  The data-pipeline
   end state remains the open strategic question: does `ScanAnalysis`
   grow a Tiled reader, or keep reading exported s-files long-term?
@@ -270,8 +270,8 @@ api_key = <stable key>
   runs need a finalization/mover step for legacy filename compatibility,
   or whether direct native filenames are the canonical Bluesky path.
 - **Tiled not yet read by ScanAnalysis** — post-scan analysis continues to
-  use the file-based path (bridged by the s-file export); `ScanAnalysis`
-  itself does not read Tiled.
+  use the file-based path (the s-file); `ScanAnalysis` itself does not
+  read Tiled.
 
 ---
 

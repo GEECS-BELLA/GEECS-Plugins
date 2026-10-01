@@ -2,7 +2,7 @@
 
 !!! warning "Under construction"
     The dedicated end-to-end acquisition tutorial is a stub. The
-    **[GEECS Scanner overview](../geecs_scanner/overview.md)** covers the
+    **[GEECS Scanner overview](../web_services/scanner.md)** covers the
     ground for now: where the page runs, running a scan, moving a device,
     and where the data lands.
 

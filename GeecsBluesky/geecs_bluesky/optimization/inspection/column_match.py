@@ -8,8 +8,8 @@ GEECS save-elements rewrites VOCS-style names into the s-file's own format:
 - An optional alias is appended as ``" Alias:<alias text>"``:
     ``U_ESP_JetXYZ Position.Axis 1 Alias:Jet_X (mm)``
 
-This module provides one function, :func:`match_vocs_to_sfile_column`, which
-covers the common cases and raises a useful error otherwise.
+One function, :func:`match_vocs_to_sfile_column`, covers the common cases
+and raises a useful error otherwise.
 """
 
 from __future__ import annotations

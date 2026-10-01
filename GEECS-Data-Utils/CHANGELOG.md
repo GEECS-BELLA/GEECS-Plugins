@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.49.1] - 2026-10-01
+
+### Changed
+
+- **Documentation only.** `scan_log_loader` names
+  `geecs_bluesky.scan_log.ScanLogFile` as the writer of `scan.log` (the
+  legacy `shot=` form is still parsed); `scan_paths`, `type_defs` and two
+  test modules no longer describe the scan claim through the deleted
+  scanner packages; `config_roots` writes the deprecated camera-config
+  location under its placeholder root.  The 2026-04 baseline heading
+  `0.2.1` below carries the date its version first appeared.
+
 ## [0.49.0] - 2026-09-30
 
 ### Added
@@ -1272,5 +1284,5 @@ implementation each, consumed by ScanAnalysis and the data portal:
   with the existing `frog_dll_path` / `frog_python32_path` pattern). Returns
   `None` if the key is absent or the path does not exist.
 
-## [0.2.1] — current
+## [0.2.1] — 2026-01-27
 <!-- Add entries here when changes are made -->

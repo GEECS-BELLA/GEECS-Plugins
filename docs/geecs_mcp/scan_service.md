@@ -16,7 +16,7 @@ queueserver, exactly like the web scanner.
 
     The verbs were deleted rather than rewired: this server is an
     experiment, not an operator surface. **Scans are submitted from the
-    [web scanner](../geecs_scanner/overview.md)**, which is the operator
+    [web scanner](../web_services/scanner.md)**, which is the operator
     front end. See issue #727 if an agent-facing write path is ever
     wanted back.
 

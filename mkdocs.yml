@@ -43,6 +43,14 @@ nav:
       - Acquisition: tutorials/acquisition.md
       - Analysis: tutorials/analysis.md
 
+  # The browser surfaces, by what an operator opens: one page per web
+  # service. Package internals stay in the purpose groups below.
+  - Web Services:
+      - web_services/index.md
+      - GEECS Scanner: web_services/scanner.md
+      - Data Portal: web_services/data_portal.md
+      - Logbook: web_services/logbook.md
+
   # Purpose-grouped tabs. Each group opens on its section-index landing
   # page (navigation.indexes) and holds one section per package, so the
   # top-level nav is organised by what you're trying to do rather than
@@ -50,30 +58,23 @@ nav:
   # the group that matches its audience.
   - Acquisition:
       - acquisition/index.md
-      - GEECS Scanner:
-          - Overview: geecs_scanner/overview.md
       - Notes and Discussions:
           - Bayesian optimization for e-beam brightness: acquisition/notes/bayesian optimization for e-beam brightness.md
 
   - Analysis:
       - analysis/index.md
+      - Analysis without the portal: analysis/examples/analysis_without_the_portal.ipynb
       - HASO wavefront (WaveKit): analysis/haso.md
       - Image Analysis:
           - Overview: image_analysis/overview.md
           - Analyzer Index: image_analysis/analyzer_index.md
           - API Reference:
               - Core Modules: image_analysis/api/core_modules.md
-          - Examples:
-              - Basic Offline Analysis: image_analysis/examples/basic_usage_image_analyzer.ipynb
-              - Basic Usage — 1D Analyzer: image_analysis/examples/basic_usage_1D_analyzer.ipynb
-              - Grenouille Analysis: image_analysis/examples/grenouille_analysis.ipynb
       - Scan Analysis:
           - Overview: scan_analysis/overview.md
           - API Reference:
               - Core Modules: scan_analysis/api/base.md
           - Examples:
-              - Basic Usage (2D): scan_analysis/examples/basic_usage.ipynb
-              - Basic Usage (1D): scan_analysis/examples/basic_usage_1D.ipynb
               - Scatter Plot Analysis: scan_analysis/examples/scatter_plot_analysis.ipynb
       - Data Utils:
           - Overview: geecs_data_utils/overview.md
@@ -124,7 +125,14 @@ nav:
 exclude_docs: |
   CLAUDE.md
   sites/README.md
-  DOCSTRING_SETUP_README.md
+  sites/**/*.py
+  # Notebooks on the pre-recipe analyzer path (BeamAnalyzer, LineAnalyzer,
+  # ...). Kept in the repo for one-off analysis, off the published site:
+  # analysis/examples/analysis_without_the_portal.ipynb is the current path.
+  image_analysis/examples/
+  scan_analysis/examples/basic_usage.ipynb
+  scan_analysis/examples/basic_usage_1D.ipynb
+  scan_analysis/examples/HTT-magspec.ipynb
   development_guidelines.md
   docstring_templates.md
 

@@ -141,13 +141,12 @@ def test_gen_list_of_plans_and_devices_succeeds_on_startup_dir(
 def test_stock_plans_pass_manager_validation_over_namespace_devices(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A real ``queue add`` item for a stock plan validates against the profile.
+    """A real ``queue add`` item for a registered plan validates against the profile.
 
     The manager re-evaluates each plan's signature at submission; the
-    stock verbs' annotations are plain builtins, so ``count([cam], 3)``
-    and ``scan([cam], U_S1H.current, -1, 1, 5)`` validate with the
-    namespace devices as the allowed devices — the queue-item contract
-    the plan layer (PR 2) and the clients build on.  Uses the manager's
+    bound plans' annotations are plain builtins, so ``count([cam], 3)``
+    validates with the namespace devices as the allowed devices — the
+    queue-item contract the clients build on.  Uses the manager's
     own ``_process_plan``/``validate_plan`` pair (the exact code path
     behind ``queue add``); private queueserver API, accepted for a pin
     this specific.

@@ -1,38 +1,28 @@
 """Compile a pseudo variable's ``forward`` and ``inverse`` formulas.
 
-A :class:`~geecs_schemas.scan_variables.PseudoComponent` carries its device's
-setting as a math expression of the single scanned number (the schema writes
-the scanned value as ``composite_var``; the shorter alias ``x`` is also
-accepted).  This module turns that string into a plain ``float -> float``
-callable, safely: the expression is parsed with :mod:`ast` and validated
-against an explicit whitelist of node types, operators, functions, and names
-**before** anything is evaluated, so a config cannot smuggle attribute
-access, imports, subscripts, or arbitrary names into the engine.
+A :class:`~geecs_schemas.scan_variables.PseudoComponent` carries its
+device's setting as a math expression of the scanned number
+(``composite_var``, alias ``x``).  This module turns that string into a
+``float -> float`` callable safely: the expression is parsed with
+:mod:`ast` and validated against a whitelist of node types, operators,
+functions and names before anything is evaluated, so a config cannot
+smuggle attribute access, imports, subscripts or arbitrary names in.
 
-The whitelist covers the full legacy ``composite_variables.yaml`` corpus
-(arithmetic, parentheses, ``sqrt``) with ordinary math headroom (trig,
-``exp``/``log``, ``abs``, the constants ``pi``/``e``).  Compilation failures
-raise :class:`~geecs_bluesky.exceptions.GeecsConfigurationError` naming the
-offending construct — compile every formula fail-fast before a scan number
-is claimed, so a bad expression can never burn one.
-
-The compile-then-restricted-eval skeleton is the shared
-:mod:`geecs_schemas.restricted_expr` core (also behind the gateway's
-derived-channel ``ExpressionEvaluator``) — a hardening or semantics fix
-lands there once.  This module supplies the forward-formula whitelist
-(arithmetic incl. ``//``, ``abs``, no comparisons/bool-ops), the scanned-value
-symbols, and the engine's error contract.
+The whitelist is arithmetic (incl. ``//``), ``sqrt``, trig, ``exp`` /
+``log``, ``abs`` and the constants ``pi`` / ``e``; no comparisons or
+boolean operators.  A compilation failure raises
+:class:`~geecs_bluesky.exceptions.GeecsConfigurationError` naming the
+construct; compile every formula before a scan number is claimed.  The
+compile-then-restricted-eval core is the shared
+:mod:`geecs_schemas.restricted_expr`; this module supplies the whitelist,
+the scanned-value symbols and the error contract.
 
 Two more readers of the same AST serve the pseudo positioners
-(:mod:`geecs_bluesky.devices.ca.pseudo`):
-
-- :func:`affine_coefficients` recognises a formula that is affine in the
-  scanned value — ``a*x + b`` in any spelling — and returns ``(a, b)``
-  exactly (a symbolic walk, not a numeric fit), so the software can invert
-  it itself; 24 of the 26 corpus formulas are.
-- :func:`compile_inverse` compiles a physicist-supplied ``inverse`` — the
-  scanned value as an expression of the components' readbacks, named by
-  the symbols the caller passes — for the formulas that are not.
+(:mod:`geecs_bluesky.devices.ca.pseudo`): :func:`affine_coefficients`
+recognises ``a*x + b`` in any spelling and returns ``(a, b)`` exactly (a
+symbolic walk, not a fit), so the software can invert it itself;
+:func:`compile_inverse` compiles a catalog-supplied ``inverse`` for the
+formulas that are not affine.
 """
 
 from __future__ import annotations

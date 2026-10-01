@@ -1,41 +1,31 @@
-"""GatewaySetpointPut — the one blessed gateway ``:SP`` put primitive.
+"""GatewaySetpointPut — the one gateway ``:SP`` put primitive.
 
-Owns the ca://-vs-bare addressing rule (:func:`bare_pv` — a schemed name
-hangs raw aioca; issue #490), the wire-value conventions, the timeout policy,
-the ``AsyncStatus`` wrapping, and mock support.  Every setpoint pathway
-delegates here: ``CaSettable``/``CaMotor``'s Layer-1 signal put,
-``ShotControl``'s :class:`CaPutSetter` (below), and the action factory's wire settable.
+Owns PV addressing (:func:`bare_pv`: the ophyd ``ca://`` scheme is
+stripped for raw aioca, any other scheme is rejected), the wire-value
+conventions, the timeout policy, the ``AsyncStatus`` wrapping and mock
+support.  Every setpoint pathway delegates here: ``CaSettable`` /
+``CaMotor``'s typed-signal put, ``ShotControl``'s :class:`CaPutSetter`,
+and the action factory's wire settable.
 
 Two transports, one policy owner:
 
-- **raw CA** (``setpoint_pv=…``) — ``aioca.caput(bare_name, wire, wait=True,
-  timeout=…)``.  Names are normalized by :func:`bare_pv`: the ophyd ``ca://``
-  scheme is stripped (aioca treats a scheme as part of the PV name), any other
-  scheme is rejected.  The gateway forwards ``:SP`` puts to GEECS's blocking
-  UDP set and only completes the CA put when GEECS accepts (or rejects) it —
-  so put-completion *is* the legacy ``wait_for_execution`` semantics.
-- **ophyd signal** (``signal=…``) — puts through the connected backend of
-  a typed ``epics_signal_rw`` built from the ``ca://`` URI form (ophyd
-  parses the scheme itself; see :mod:`geecs_bluesky.devices.ca._pv`).
-  Used by ``CaSettable``/``CaMotor`` Layer 1, whose typed signal doubles
-  as the connect-time dtype check and the mock-backend seam
-  (``tests/ca_mock_helpers.follow_setpoint``).  **Not** ``signal.set()``:
-  see :func:`_backend_put` — ophyd-async 0.19's ``SignalW.set`` runs the
-  put inside a stamina/tenacity retry context whose result travels
-  through a ``concurrent.futures.Future``, and the stdlib re-raises a
-  stored exception only ``if self._exception:`` — a refused
-  ``aioca.CANothing`` is *falsy*, so a refused put came back as success
-  (found while pinning GEECS-Plugins#868, 2026-09-14).
+- **raw CA** (``setpoint_pv=…``): ``aioca.caput(bare, wire, wait=True,
+  timeout=…)``.  The gateway completes the put only when GEECS accepts or
+  rejects the set, so put-completion is the blocking-set semantics.
+- **ophyd signal** (``signal=…``): a put through the connected backend of
+  a typed ``epics_signal_rw`` (see :mod:`geecs_bluesky.devices.ca._pv`),
+  whose type doubles as the connect-time dtype check and the mock seam.
+  Never ``signal.set()``: ophyd-async 0.19's ``SignalW.set`` loses a
+  refused ``aioca.CANothing`` (it is falsy) and reports success (#868);
+  :func:`_backend_put` is the workaround.
 
-Wire-value conventions (the ``coerce`` parameter — each consumer's pinned,
-hardware-proven convention; do not "unify" them without live verification):
+Wire-value conventions (``coerce``), each a consumer's hardware-proven
+convention, not to be unified without live verification:
 
-- ``str`` — everything stringified: the shot-control convention (enum
-  labels pass through; the gateway's typed channel coerces numeric strings).
-- :func:`wire_value` — native numerics, wire string otherwise: the
-  action-plan convention (a *string* put-with-callback to a float gateway
-  channel can hang; observed live 2026-07-10, issue #490).
-- ``None`` — pass through untouched: the typed-signal (motor) convention.
+- ``str`` — everything stringified (shot control).
+- :func:`wire_value` — native numerics, strings otherwise (action plans:
+  a string put to a float channel can hang, #490).
+- ``None`` — untouched (the typed-signal motor path).
 """
 
 from __future__ import annotations
@@ -91,7 +81,7 @@ def wire_value(value: Any) -> Any:
     """Action-plan wire convention: native numerics, wire string otherwise.
 
     Numbers go natively (DBR_DOUBLE — a string put-with-callback to a float
-    gateway channel can hang; observed live 2026-07-10); strings (enum
+    gateway channel can hang, #490); strings (enum
     labels, ``'on'``/``'off'``) go as the wire string, CA-converted to the
     PV's native type server-side.
     """

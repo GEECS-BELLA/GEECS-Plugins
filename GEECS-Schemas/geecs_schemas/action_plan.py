@@ -10,8 +10,8 @@ referenced by name from a :class:`~geecs_schemas.scan_request.ScanRequest`
 
 Developer notes
 ---------------
-This is the successor of the legacy action library
-(``geecs_scanner.engine.models.actions``).  Step semantics are carried over
+This is the successor of the deleted legacy scanner's action library
+(tag ``legacy-scanner-final``).  Step semantics are carried over
 verbatim:
 
 - ``set`` — legacy ``SetStep`` (``wait_for_execution`` default ``True``).

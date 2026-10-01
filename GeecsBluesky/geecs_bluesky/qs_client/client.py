@@ -1,40 +1,29 @@
 """Queueserver manager client: any GEECS client as a peer of the RE Manager.
 
-Clients (the web scanner, notebooks, the GEECS MCP) submit scans to a
-bluesky-queueserver RE Manager (the GEECS worker, ``GeecsBluesky/qserver/``)
-as queue items.  This module is the one place that speaks
-``bluesky-queueserver-api``:
+Clients submit scans to the bluesky-queueserver RE Manager (the GEECS
+worker, ``GeecsBluesky/qserver/``) as queue items.  This module is the
+one place that speaks ``bluesky-queueserver-api``:
 
-- :class:`QueueClient` — the ONE protocol clients depend on (it absorbed
-  the console's former ``Submitter`` twin in the extraction);
-- :class:`ZmqQueueClient` — the real client (0MQ control socket, lazy
-  imports so the module stays import-safe offline and without the
-  ``qs-client`` extra);
-- :class:`StubQueueClient` — the offline/test default (disconnected
-  status, every verb refuses with a clear message);
+- :class:`QueueClient` — the one protocol clients depend on;
+- :class:`ZmqQueueClient` — the real client (0MQ control socket; lazy
+  imports keep the module import-safe offline and without the extra);
+- :class:`StubQueueClient` — the offline/test default: every verb refuses
+  with a clear message;
 - :func:`read_qserver_config` — the ``[qserver]`` section of the shared
-  ``~/.config/geecs_python_api/config.ini``;
-- :func:`make_queue_client` — the factory (stub when unconfigured).
+  ``config.ini``; :func:`make_queue_client` — the factory (stub when
+  unconfigured).
 
-Threading contract: every method here **blocks** — 0MQ request/reply with
-a short timeout.  :meth:`QueueClient.status` is cheap and bounded (one
-request, ``timeout_recv``) and safe to poll from a background thread;
-dispatch the submit/stop calls off any GUI thread.  Nothing here touches Qt.
+Every method **blocks** (0MQ request/reply with a short timeout).
+:meth:`QueueClient.status` is cheap and bounded and safe to poll from a
+background thread; dispatch submit/stop calls off any UI thread.
 
-What a client submits (phase 1 PR 2 of the native-Bluesky rebuild, #807):
-a **stock plan item** — a name from
+A client submits a **plan item**: a name from
 :data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES` with namespace devices
-by name (:meth:`QueueClient.submit_plan`), or a saved preset expanded into
-one (:meth:`QueueClient.submit_preset`,
-:mod:`geecs_bluesky.qs_client.presets`).  A manual move is
-``submit_plan("mv", args=["U_S1H.current", 0.0])``.
-
-Queue semantics this client owns (#648 item 3): on plan failure the manager
-returns the failed item to the **front** of the queue (``ignore_failures``
-default false), so a client that blindly add-and-starts re-runs the failed
-item.  The submit verbs therefore surface the queue's front items to the
-caller (``pending_items``) and only clear them when told to
-(``clear_pending=True``).
+by name (:meth:`QueueClient.submit_plan`), or a saved preset expanded
+into one (:meth:`QueueClient.submit_preset`).  On plan failure the
+manager returns the failed item to the **front** of the queue, so the
+submit verbs surface the queue's front items (``pending_items``) and
+clear them only when told to (``clear_pending=True``).
 """
 
 from __future__ import annotations
@@ -359,8 +348,7 @@ class SubmitResult:
 class QueueClient(Protocol):
     """What a GEECS client needs from a RE Manager (all methods block).
 
-    The one client protocol (it replaced the console's ``Submitter`` twin
-    in the extraction).  ``info_addr`` / ``doc_addr`` carry the manager's
+    The one client protocol.  ``info_addr`` / ``doc_addr`` carry the manager's
     console-output and document stream addresses (``None`` when
     unconfigured) so stream consumers build from the same configuration.
     """
@@ -380,7 +368,7 @@ class QueueClient(Protocol):
         kwargs: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
     ) -> SubmitResult:
-        """Queue the stock plan *name* with *args* / *kwargs* and start the queue.
+        """Queue the plan *name* with *args* / *kwargs* and start the queue.
 
         Devices are named (``"UC_Amp4_IR_input"``, ``"U_S1H.current"``):
         the manager resolves them against the worker namespace.  *name*
@@ -632,7 +620,7 @@ class ZmqQueueClient:
         """Shared add-and-start with the failed-item-at-front guard.
 
         The add and the start are separate manager calls with separate
-        failure handling (#653 review finding 2): a start failure after a
+        failure handling: a start failure after a
         successful add must never report plain "failed" while the item
         sits queued and runs later on its own — the item is best-effort
         removed, and when even that fails the message says exactly what
@@ -711,7 +699,7 @@ class ZmqQueueClient:
         kwargs: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
     ) -> SubmitResult:
-        """Queue one stock plan item; refuse a name the worker does not register."""
+        """Queue one plan item; refuse a name the worker does not register."""
         if name not in GEECS_PLAN_NAMES:
             return SubmitResult(
                 ok=False,
@@ -765,7 +753,7 @@ class ZmqQueueClient:
         """Gracefully stop the current plan, preserving partial data.
 
         From ``paused``: ``re_stop`` directly (the live-verified
-        stop-from-paused path — Scan003, 2026-08-21).  From ``running``:
+        stop-from-paused path).  From ``running``:
         the manager only accepts stop while paused, so this sequences
         deferred-pause → wait for ``paused`` → ``re_stop``.  The wait is
         bounded but long (a deferred pause waits out an in-flight blocking
@@ -896,7 +884,7 @@ def make_queue_client(
         surfaces as the worker refusing the request's names at validation.
     user : str
         Submitted-as identity the manager records on every queue item
-        (e.g. ``"geecs-console"``, ``"osprey-htu-assistant"``).
+        (e.g. ``"geecs-scanner"``, ``"osprey-htu-assistant"``).
 
     Returns
     -------

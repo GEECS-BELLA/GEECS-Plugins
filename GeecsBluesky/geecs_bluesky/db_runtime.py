@@ -11,7 +11,7 @@ from (``geecs_bluesky.namespace``):
 
 The **subscribed scalars** rule (``get='yes'`` — what every device reads
 into its rows and what the run's background telemetry carries) is
-:class:`geecs_core.db.scalar_policy.GeecsDbScalarPolicy` since 2026-09-12:
+:class:`geecs_core.db.scalar_policy.GeecsDbScalarPolicy`:
 the PVA gateway's file plugin writes the same list as per-frame attributes
 and depends on GEECS-Core alone, so the rule has one home there.
 
@@ -33,15 +33,11 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-#: Variables the gateway synthesizes for EVERY device, independent of the
-#: DB ``get`` flags: the timestamp ladder (``DeviceSpec.timestamp_vars`` in
-#: GeecsCAGateway's ``config.py`` — ``acq_timestamp`` preferred,
-#: ``systimestamp`` fallback, both always subscribed) and the per-device
-#: ``CONNECTED`` status PV (``gateway.py``). These are served even though no
-#: ``expt_device_variable`` row exists, so the unserved-variables check must
-#: treat them as always-served (field regression 2026-07-16: the optimizer's
-#: auto-provisioned ``acq_timestamp`` request drew a false "not served"
-#: dialog threatening to drop the whole device).
+#: Variables the gateway synthesizes for every device regardless of the DB
+#: ``get`` flags: the timestamp ladder (``acq_timestamp`` preferred,
+#: ``systimestamp`` fallback) and the per-device ``CONNECTED`` status PV.
+#: No ``expt_device_variable`` row exists for them, so the
+#: unserved-variables check treats them as always served.
 GATEWAY_SYNTHESIZED_VARIABLES = frozenset(
     {"acq_timestamp", "systimestamp", "CONNECTED"}
 )

@@ -7,7 +7,7 @@ consumes both, reduces them to one small picture, and the web layer hands
 that picture to the page over Server-Sent Events as JSON.  The pickled
 wire format never leaves the process.
 
-The reduction is the console's, live-verified: the start document seeds
+The reduction is live-verified: the start document seeds
 the scan number and the planned total (``num_points × shots_per_step``,
 falling back to ``max_iterations`` for adaptive plans — the Scan013
 lesson: never inherit the previous run's total), primary-stream events
@@ -15,7 +15,7 @@ advance ``shots_done``, the stop document records the exit.  A console
 line carrying :data:`~geecs_bluesky.qs_client.FAILED_MOVE_LOG_PREFIX`
 becomes the paused run's *why*.
 
-Best-effort by design, with the console's threading rules (#653): the
+Best-effort by design, under the zmq threading rules (#653): the
 consumer threads are daemons, ``stop`` does not exist — a zmq socket must
 never be touched from another thread (a cross-thread close can abort the
 process) — so the threads live for the process lifetime and emission is

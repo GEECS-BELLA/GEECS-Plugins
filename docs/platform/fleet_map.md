@@ -176,8 +176,8 @@ rendered from it, never edited by hand.
     `FLUSH HOSTS` on the server. The server sees every VPN client as the
     VPN pool's NAT address, so the counter is **shared across everyone on
     VPN**: one `nc` / `/dev/tcp` watch loop blocks the DB for all of them,
-    and the block outlives the loop (live incident 2026-09-04: the console's
-    DB health chip went DOWN for every VPN user). Successful logins reset
+    and the block outlives the loop (live incident 2026-09-04: the operator
+    console's DB health chip went DOWN for every VPN user). Successful logins reset
     the counter and a refused login is not counted; only connect-and-drop
     is. `scripts/lab_status.sh` therefore probes the DB with
     `scripts/mysql_probe.py` — a bounded, real handshake — and the shared

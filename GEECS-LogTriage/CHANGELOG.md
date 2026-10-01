@@ -5,6 +5,15 @@ All notable changes to `geecs-log-triage` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-09-30
+
+### Changed
+
+- **Documentation only.** README, `CLAUDE.md` and `classifier.py` name the
+  current `scan.log` writer (`geecs_bluesky.scan_log`) and exception homes
+  (`geecs_core.exceptions`, `geecs_bluesky.exceptions`) instead of the
+  deleted scanner's modules.
+
 ## [0.3.0] - 2026-08-22
 
 ### Added

@@ -1,65 +1,33 @@
-"""BackgroundSnapshot — every logged scalar outside the run's own devices, once per shot, softly.
+"""BackgroundSnapshot — every logged scalar outside the run's devices, in every row, softly.
 
 Master Control logged every ``get='yes'`` variable of the experiment into
-every s-file row, whether or not the device was in the scan's save
-element.  The native rebuild replaced that with an open/close ``baseline``
-stream (two rows per run) whose read was strict for every member — one PV
-the gateway did not serve failed every scan after its number was claimed
-(GEECS-Plugins#1016) — and left the ``background_telemetry`` switch dead
-(#929).  This object restores the parity, softly (owner's ruling,
-2026-09-28: background telemetry never blocks a scan; a device that gives
-nothing is skipped):
+every s-file row; this object restores that parity without ever blocking
+a scan (#1016, #929).
 
-- **Membership.**  The candidates are the namespace's telemetry set
-  (:meth:`~geecs_bluesky.namespace.GeecsNamespace.telemetry`: every
-  scalar-only device whole, every detector's scalar signals) minus every
-  member whose root device the run **stages** — its detectors, the owner
-  of a ``.scalars`` view, the non-essential devices, the scan motors — so
-  no event key is contributed twice (the RunEngine refuses colliding
-  keys).  Decided per run at :meth:`probe`, from the ``stage`` messages
-  the plan emitted
-  (:func:`~geecs_bluesky.plans.registry.background_wrapper`).
-- **Probe.**  Right before ``open_run`` every surviving member is
-  connected if it is not yet, staged (its monitor cache switched on),
-  described and read once — all concurrently, each within
-  :data:`PROBE_TIMEOUT_S`.  One that does not answer in time — a PV the
-  gateway does not serve (a DB row newer than the gateway's roster, the
-  #1016 drift), a connect or a describe that fails — is **dropped for
-  this run only**: named once in the log and in the start document's
-  ``background_dropped``.  The next run probes it again, so a device that
-  reappears (a gateway restart) is back without the environment
-  reopening.  A member served but already INVALID (the gateway's mark on
-  a device whose stream to it is down) is kept and named once: its
-  columns read ``NaN`` until it recovers.  The probe itself never fails
-  the run: an unexpected error is logged and recorded in the start
-  document (``background_probe_error``), and the run opens without
-  background columns.
-- **Warm-up.**  The worker connects every candidate once when its
-  environment opens (:func:`warm_up`, bounded by ``QS_CONNECT_TIMEOUT``),
-  so a run's probe finds them connected and its budget covers the stage
-  and the first reading only.  Without it the first scan after every
-  environment open paid ~400 first connects inside the probe's second —
-  62 of 118 devices missed it on HTU (26_0929 Scan001).  Nothing is
-  dropped for good: a candidate the warm-up could not connect (a PV the
-  gateway does not serve) is named once and probed again at every run.
-- **Read.**  One reading per shot from the members' monitor caches (the
-  probe's first read proved each cache live, so a read is a cache hit —
-  no wait).  A reading the gateway marks INVALID reads ``NaN``; so does a
-  member whose read fails or outlasts :data:`READ_TIMEOUT_S` (a backstop,
-  never the path).  Every declared key is in every row, so descriptor and
-  events always agree, and ``read`` never raises.
-- **Headers.**  ``_column_headers`` is the union of the active members' —
-  the ``scalar_headers`` preprocessor merges it into the start document's
-  ``geecs_scalar_headers`` at ``open_run`` (after the probe), so the
-  s-file writer and the offline re-export name the columns unchanged.
+- **Membership.**  The namespace's telemetry set
+  (:meth:`~geecs_bluesky.namespace.GeecsNamespace.telemetry`) minus every
+  member whose root device the run stages, so no event key is contributed
+  twice.  Decided per run at :meth:`probe` from the plan's ``stage``
+  messages (:func:`~geecs_bluesky.plans.registry.background_wrapper`).
+- **Probe.**  Right before ``open_run`` every member is connected, staged,
+  described and read once, concurrently, within :data:`PROBE_TIMEOUT_S`.
+  One that does not answer is dropped **for this run only**, named in the
+  log and in the start document (``background_dropped``); an INVALID
+  member is kept and reads ``NaN``.  A probe error is recorded
+  (``background_probe_error``) and the run opens without background
+  columns.  :func:`warm_up` connects every candidate once at environment
+  open, so the probe's budget covers only the stage and the first read.
+- **Read.**  One monitor-cache reading per shot; INVALID, a failed read or
+  one past :data:`READ_TIMEOUT_S` reads ``NaN``.  Every declared key is in
+  every row and ``read`` never raises.
+- **Headers.**  ``_column_headers`` is the active members' union; the
+  ``scalar_headers`` preprocessor merges it into ``geecs_scalar_headers``.
 
-A plain Bluesky object (``name``, ``parent``, ``read``, ``describe``,
-``stage``, ``unstage``) like the bin counter and the shot sampler: the
+A plain Bluesky readable (``read``/``describe``/``stage``/``unstage``): the
 strict ``take_reading`` reads it as one more device of the row and the
-gated batch makes it a sampler member (unstamped, read at the tick).  Not
-``Triggerable``, no ``connected_status``, not a ``GeecsDetector``: the
-fire, the liveness gate, the shot clock and the native-saving switch all
-pass it by.
+gated batch samples it at the tick.  Not ``Triggerable`` and not a
+``GeecsDetector``, so the fire, the liveness gate, the shot clock and the
+native-saving switch all pass it by.
 """
 
 from __future__ import annotations

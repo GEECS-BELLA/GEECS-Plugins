@@ -118,6 +118,8 @@ def create_editor_router(
 
     @router.get("/", response_class=HTMLResponse)
     def page(request: Request) -> HTMLResponse:
+        from geecs_analysis.recipe import RECIPE_REFERENCE_URL
+
         return _TEMPLATES.TemplateResponse(
             request,
             "editor.html",
@@ -125,6 +127,9 @@ def create_editor_router(
                 "preview": preview is not None,
                 "read_only": read_only,
                 "theme_url": theme_url.rstrip("/"),
+                # the one copy of the reference's address: the core's, whose
+                # recipe_schema() stamps the same base on every x-docs link
+                "reference_url": RECIPE_REFERENCE_URL,
             },
         )
 

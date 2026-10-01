@@ -858,7 +858,7 @@ def gated_worker(RE, tmp_path, monkeypatch, axes_namespace):
 def test_a_gated_scan_writes_its_s_file_from_the_shots_rows_and_the_stacks(
     RE, gated_worker, tmp_path, axes_namespace
 ):
-    """Phase 2c: one row per essential shot, the cameras' columns out of their stacks.
+    """One row per essential shot, the cameras' columns out of their stacks.
 
     The gated run's ``primary`` carries no events at all — the rows are the
     sampler's ``shots`` stream (the gauge, the motor's readback, the bin and
@@ -1231,7 +1231,7 @@ def test_a_strict_run_with_a_non_essential_camera_joins_its_stack(
 
 
 def test_stack_check_compares_a_gated_stack_with_the_shots_rows(tmp_path, caplog):
-    """Phase 2c: a gated stack's frames must each fall on a ``shots`` row.
+    """A gated stack's frames must each fall on a ``shots`` row.
 
     The batch trims every essential stack to the quota and the sampler ticks
     once per shot, so one frame per row with nothing orphaned is the
