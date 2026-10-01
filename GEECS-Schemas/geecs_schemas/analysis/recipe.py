@@ -541,6 +541,11 @@ class AnalysisRecipe(VersionedSchemaModel):
         return self.input.folder or self.device
 
     @property
+    def destructive(self) -> bool:
+        """A recipe only adds files — never destructive (the v2 diagnostic's analyzer flag)."""
+        return False
+
+    @property
     def line_loading(self) -> Optional[Data1DLoading]:
         """How one trace file is read, for a line recipe; ``None`` for a camera."""
         return self.input.loading if isinstance(self.input, LineInput) else None

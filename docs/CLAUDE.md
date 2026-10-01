@@ -10,17 +10,26 @@ The site is organised into top-level tabs in `mkdocs.yml`'s `nav:`. The
 canonical ordering is:
 
 ```
-Home → Tutorials → Acquisition → Analysis → Platform → Agentic Tooling
+Home → Tutorials → Web Services → Acquisition → Analysis → Platform → Agentic Tooling
 ```
 
-The middle three are **purpose groups**, not one-tab-per-package. Each
+**Web Services** is the operator's tab: one task-oriented page per
+browser surface (the GEECS Scanner, the Data Portal, the Logbook) under
+`docs/web_services/`, behind a landing page. Each surface's header links
+to its own page there (`https://geecs-plugins.readthedocs.io/en/latest/web_services/<page>/`),
+so renaming or moving one of these pages breaks a link in a running
+service — change the template in the same PR. Screenshots live in
+`docs/web_services/assets/`.
+
+The next three are **purpose groups**, not one-tab-per-package. Each
 groups the packages that serve a shared audience, and each opens on a
 short section-index landing page (`docs/<group>/index.md`, surfaced via the
 `navigation.indexes` theme feature) that orients the reader and links to the
 constituent packages:
 
-- **Acquisition** — running scans on the beamline: the GEECS Scanner (the
-  web scanner console over the Bluesky queueserver).
+- **Acquisition** — running scans on the beamline: how acquisition works
+  and design notes. The scanner's operator page (the web scanner console
+  over the Bluesky queueserver) lives under Web Services.
 - **Analysis** — turning acquired data into results: Image Analysis, Scan
   Analysis, and the Data Utils path/loading layer they build on.
 - **Platform** — the access-and-contract layer everything sits on:
@@ -122,7 +131,11 @@ was retired with that GUI.
   to 5 and patches missing IDs with short uuids.
 - Notebooks under `docs/` are rendered by mkdocs-jupyter even if they're
   not listed in `nav:`. Move broken-but-archived notebooks out of `docs/`
-  or fix them; don't leave them stranded.
+  or fix them; don't leave them stranded. The one exception: notebooks
+  that still work but document a superseded path (the pre-recipe analyzer
+  notebooks) may stay in place for one-off use if `mkdocs.yml`'s
+  `exclude_docs` lists them and every published link to them points at
+  the file on GitHub, never at the unpublished page.
 
 ## What `docs/` is *not* for
 

@@ -399,10 +399,19 @@ The rule is pinned by tests:
 - `ImageAnalysis/tests/processing/test_array1d_background.py`
 - `GEECS-Data-Utils/tests/test_scan_paths_create_invariant.py`
 - `GEECS-Data-Utils/tests/test_himg_stack.py::TestRefusals::test_a_missing_folder_is_never_created`
-  and `ScanAnalysis/tests/test_himg_to_stack.py::TestRun::test_missing_device_folder_is_no_data_and_stays_missing`
+  and `ScanAnalysis/tests/test_himg_kinds.py::TestConvert::test_missing_device_folder_is_no_data_and_stays_missing`
   — the `.himg` → capture-stack converter, the second analysis-side writer
   into an existing `scans/ScanNNN/<device>/` folder after the FROG per-shot
   sidecar (one file, no directory; ScanAnalysis's CLAUDE.md lists both)
+- `GEECS-Data-Utils/tests/test_himg_compact.py::TestCompact::test_touches_only_the_device_folder`
+  — the one deliberate exception to "analysis only adds files": the
+  `.himg` compaction kinds (`himg_compact` deletes a device's verified
+  `.himg` sources after every frame is checked against its stack;
+  `himg_restore` rewrites them byte-identically) delete and rewrite files
+  inside one existing `scans/ScanNNN/<device>/` folder, never a directory,
+  guarded in `geecs_data_utils.io.himg_compact` (refuse while the scan may
+  still be written, verify before any delete) and, in the Data Portal,
+  behind the `destructive` spec flag's typed-scan-number confirmation
 - `GeecsLogbook/tests/test_scan_reader.py::TestScanFolderCreationInvariant`
 
 Each package's CLAUDE.md restates this rule with package-specific guidance for

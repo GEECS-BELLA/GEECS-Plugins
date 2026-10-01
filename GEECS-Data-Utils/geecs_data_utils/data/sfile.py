@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard for type checkers
     import pandas as pd
@@ -55,6 +55,39 @@ def sfile_path_for_scan(scan_folder: Path) -> Path:
         raise ValueError(f"{scan_folder} is not a canonical scans/ScanNNN folder")
     number = int(match.group("number"))
     return scan_folder.parent.parent / "analysis" / f"s{number}.txt"
+
+
+def scan_data_txt_path_for(scan_folder: Path) -> Path:
+    """The scanner-written scalar table inside a scan folder: ``ScanDataScanNNN.txt``.
+
+    Pure path construction from the folder's own name (``ScanData`` +
+    ``ScanNNN`` + ``.txt``); nothing is touched on disk.  The native
+    scanner writes it at the stop document, the legacy scanner wrote it
+    at the end of every scan — either way it exists only once the run
+    closed, which is what :func:`run_closed_evidence` reads off it.
+    """
+    scan_folder = Path(scan_folder)
+    return scan_folder / f"ScanData{scan_folder.name}.txt"
+
+
+def run_closed_evidence(scan_folder: Path) -> Optional[Path]:
+    """A file that exists only once the scanner closed the run, or ``None``.
+
+    :func:`scan_data_txt_path_for` first, then the analysis tree's s-file
+    (:func:`sfile_path_for_scan`) — both are written when the run ends.
+    Read-only: nothing is written or created.  A folder that is not a
+    canonical ``scans/ScanNNN`` path has only the first candidate.
+    """
+    scan_folder = Path(scan_folder)
+    candidates = [scan_data_txt_path_for(scan_folder)]
+    try:
+        candidates.append(sfile_path_for_scan(scan_folder))
+    except ValueError:  # not a canonical scans/ScanNNN folder
+        pass
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def read_sfile(path: Path) -> "pd.DataFrame":

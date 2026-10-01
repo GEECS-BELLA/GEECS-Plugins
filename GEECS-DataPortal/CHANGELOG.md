@@ -3,6 +3,57 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.39.1] - 2026-10-01
+
+### Added
+
+- A **Docs** link in the page header, opening this surface's operator
+  page on the docs site (`web_services/data_portal/`) in a new tab.
+
+## [0.39.0] - 2026-09-30
+
+### Added
+
+- The day list shows every scan folder on the share that no Tiled run
+  claims, so LabVIEW Master Control scans and other experiments
+  (`/day/<day>?experiment=Thomson`) browse through the same pages — Plot,
+  Grid and Images read the s-file and the per-shot files. Tiled runs keep
+  their place; a Tiled outage degrades the day list to the folders. Needs
+  GEECS-Data-Utils 0.49.0.
+
+## [0.38.0] - 2026-09-29
+
+### Added
+
+- The Analysis tab gates **destructive** kinds (the listing's new
+  `destructive` flag, from the diagnostic's `AnalyzerSpecBase.destructive`
+  — today the `.himg` compaction): the row says *deletes files*, the run
+  button opens a real `<dialog>` that asks for **this scan's number**,
+  and `POST /api/run/{uid}/analysis` refuses such a kind without
+  `confirm=<scan number>` (400) — the gate is server-side, so no client
+  runs a delete unasked.
+- Run **progress** in the job record (`progress: {done, total, phase}`,
+  what the analyzer last reported through `ScanAnalyzer.progress`, the
+  hook `run_scan_analyzer` sets when the analyzer has one) and in the
+  tab's state badge while the run lasts (`running · verifying 320/1806`)
+  — the `.himg` kinds report per frame from their child process; an
+  analyzer that never reports shows the bare state as before.
+
+- The listing carries `scan_number` — the value the start endpoint's
+  confirm check compares against (parsed from the resolved folder, like
+  the run's tag) — and the dialog asks for that one.
+
+### Changed
+
+- `AnalysisRunner.start` calls `run(report)` with the job's progress
+  sink (the run may ignore it).
+- The analyzer factory takes `allow_destructive` and hands it to
+  `create_scan_analyzer`, which refuses a destructive kind without it;
+  the app passes `True` only past its `confirm` check, so the opt-in and
+  the confirmation are one decision (`run_scan_analyzer(...,
+  allow_destructive=)`).
+- `closeModals()` also closes the confirmation `<dialog>`.
+
 ## [0.37.4] - 2026-09-29
 
 ### Changed

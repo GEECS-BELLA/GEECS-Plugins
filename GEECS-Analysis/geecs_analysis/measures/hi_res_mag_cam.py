@@ -8,11 +8,11 @@ imaged-energy column once and a per-shot recipe can read the beam at it.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal, Mapping
 
 from pydantic import Field
 
-from geecs_analysis.measures.beam import BeamSpec
+from geecs_analysis.measures.beam import BEAM_SCALAR_DOCS, BeamSpec
 from geecs_analysis.registry import MeasureSpec, measure
 
 if TYPE_CHECKING:
@@ -40,6 +40,22 @@ class HiResMagCamSpec(MeasureSpec):
     """Bow-tie fit parameters; defaults and bounds are the v2 ``hi_res_mag_cam`` analyzer's."""
 
     kind: Literal["hi_res_mag_cam"] = "hi_res_mag_cam"
+    scalar_docs: ClassVar[Mapping[str, str]] = {
+        # The beam statistics it runs at their defaults: no slopes.
+        **{k: v for k, v in BEAM_SCALAR_DOCS.items() if "_slope_" not in k},
+        "emittance_proxy": (
+            "w0 times |theta|, the value the optimizer minimises; 1e6 when the "
+            "fit is rejected, NaN when it fails"
+        ),
+        "total_counts": "Sum of the pixels at or above the fit's 10-count floor",
+        "bowtie_x0": "Waist position along x, in the frame's x units; NaN when the fit is rejected",
+        "bowtie_w0": "Vertical RMS beam size at the waist, in px; NaN when the fit is rejected",
+        "bowtie_theta": (
+            "Divergence: growth of the vertical RMS size per px along x; NaN when "
+            "the fit is rejected"
+        ),
+        "bowtie_r_squared": "Fit quality, 1 is perfect; NaN when the fit is rejected",
+    }
     n_beam_size_clearance: int = Field(
         4,
         ge=0,

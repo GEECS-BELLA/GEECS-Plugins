@@ -16,7 +16,7 @@ Inherits from `StandardAnalyzer` and adds beam-specific outputs while delegating
 
 **`GrenouilleAnalyzer`** (`analyzers/grenouille_analyzer.py`) — FROG pulse retrieval via the FrogDll backend. Outputs temporal and spectral FWHM, retrieved trace, and lineout exports. The right tool for a Grenouille trace where you want a pulse duration estimate.
 
-Worked example: [Grenouille Analysis notebook](examples/grenouille_analysis.ipynb).
+Worked example (pre-recipe path, in the repository): [Grenouille Analysis notebook](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/docs/image_analysis/examples/grenouille_analysis.ipynb). The recipe-path `frog` measure is on the [recipe reference](../sites/analysis_recipes/index.html#measure-frog).
 
 **`FrogSpectralPhaseAnalyzer`** (`analyzers/frog_spectral_phase_analyzer.py`) — consumes the retrieved lineout TSV files written by `GrenouilleAnalyzer`, fits the spectral phase as a polynomial in angular-frequency detuning, and reports dispersion terms (GD, GDD, TOD).
 

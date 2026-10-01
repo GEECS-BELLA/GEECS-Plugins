@@ -52,14 +52,24 @@ geecs_data_utils/
                                #   + himg.py: the SDK-free codec for the HASO
                                #   .himg container (header bytes + uint16
                                #   frame; rebuilds byte-identically)
-                               #   + himg_stack.py: THE one writer in io/ —
+                               #   + himg_stack.py: the stack writer in io/ —
                                #   a HASO device folder's .himg files → its
                                #   capture stack (frames gzip+shuffle, stamps
                                #   from native names or the scan's rows, a
                                #   provenance group with each file's header
                                #   and SHA-256; verified after writing;
                                #   never creates a directory, never deletes)
-  himg_cli.py                  # geecs-himg convert | verify: the .himg backlog command
+                               #   + himg_compact.py: THE one deleter —
+                               #   compact (verify every frame against the
+                               #   stack AND the file, then delete the .himg,
+                               #   leave himg_manifest.json) and restore
+                               #   (rebuild them byte-identical); the guards
+                               #   live here (scan may still be writing,
+                               #   stack short of the folder, any mismatch)
+                               #   + himg_worker.py: run any of those jobs in
+                               #   a child interpreter, streaming progress,
+                               #   logs, the report and errors back as events
+  himg_cli.py                  # geecs-himg convert | verify | compact | restore: the .himg backlog command
   plotting_utils.py            # Simple matplotlib helpers for binned data
   scans_database/
     database.py                # ScanDatabase: filter + load Parquet dataset
@@ -364,6 +374,38 @@ this package and must never depend on GeecsBluesky or a GUI package).
   `scan_paths.daily_scan_folder`, the offline-first (None, never raise,
   never create) module-level companion to
   `ScanPaths.get_daily_scan_folder`.
+- **`folder_catalog`** — the same `ScanCatalog` protocol over the scan
+  **folders** on the share, for every scan Tiled never saw (LabVIEW
+  Master Control, experiments not on the Bluesky path, pre-Bluesky days).
+  `FolderScanCatalog` lists a day's `scans/ScanNNN` from the `ScanInfo`
+  inis and synthesizes the start-doc keys `tiled_schema` reads (`motors`
+  = the s-file column that records the scan parameter, alias and all;
+  `num_points`/`shots_per_step`; `scan_folder`; `time` = the first
+  shot's LabVIEW `DateTime Timestamp`, else `scan.log`'s first record,
+  else the ini mtime — the logbook's ladder — every rung clamped to the
+  folder's day, `time_approximate` flagging the ini-mtime and noon
+  rungs). A loaded run has **`data=None`** on purpose: its scalars are
+  the s-file, which `scan_frame` already reads for a run-less scan — one
+  s-file reader. Status words follow the logbook's `scan_status`
+  (`success`/`fail…`/`abort…`, other text `unknown`); an empty
+  `ScanEndInfo` (always, under Master Control) falls back to the
+  `run_closed_evidence` files — `ScanDataScanNNN.txt` or the analysis
+  s-file, opened through `data/sfile.py`'s path helpers. Uids are
+  `folder:{experiment}:{YYYY-MM-DD}:{number}`. A **finished** scan's
+  documents are cached per catalog (bounded LRU by folder), so a
+  finished day costs one `os.scandir` and no file opens; unfinished
+  scans are re-read each call. The cache is keyed on the finished
+  verdict rather than the ini's mtime because Master Control ends a scan
+  by writing its s-files, not by rewriting the ini (the logbook's
+  ini-keyed cache is right for its own summary, which reads only the
+  ini). `MergedScanCatalog(primary, folders)` asks the primary first and
+  passes its scan numbers as `skip`, so claimed folders are never read
+  (a Bluesky day costs one directory listing); each side degrades to the
+  other (primary down → folders, `OSError` on the share → primary), and
+  only both failing re-raises the primary's error. The logbook's
+  `scan_reader` walks the same folders for a different product (its
+  `ScanSummary`); folding the two readers together is its own change.
+  Read-only; the tree-untouched pin is in `tests/test_folder_catalog.py`.
 - **`tiled_schema`** — event-schema column semantics, ONE module,
   version-tagged (`TARGET_SCHEMA_VERSION = 1`);
   `GeecsBluesky/EVENT_SCHEMA.md` is the contract.  Anything that
@@ -536,7 +578,48 @@ into the original bytes), `source_name`, `source_size`, `source_sha256`.
 `convert_himg_folder` runs it before renaming the `.part` file into place,
 so a stack under the reader's name is one whose every frame rebuilds its
 source. Converting adds that one file and nothing else: no directory is
-ever created, the `.himg` files are never touched (deleting them is the
-separate, verify-first compaction step). `geecs-himg convert | verify` is
-the shell form for the backlog; ScanAnalysis's `himg_to_stack` kind is the
-per-scan click in the Data Portal.
+ever created, the `.himg` files are never touched. `geecs-himg convert |
+verify` is the shell form for the backlog; ScanAnalysis's `himg_to_stack`
+kind is the per-scan click in the Data Portal.
+
+**Compaction and restore (0.48.0, `io.himg_compact`)** — the one place
+this package deletes. `compact_himg_folder(device_dir)` runs the stack's
+own audit (`verify_himg_stack(against_files=True)`: every frame rebuilt
+and checked against the recorded SHA-256 *and* against the `.himg` still
+on disk) and only then deletes the `.himg` files, leaving
+`himg_manifest.json` (what went, when, the stack that holds it) beside
+the stack; the stack itself — its per-shot header rows, the `haso`
+measure's sensor header — is never rewritten. The guards live in the
+function so a click and a shell command refuse the same things:
+`HimgFolderActive` while any `.himg` is younger than `MIN_SOURCE_AGE_S`
+(a minute) or there is no closed-run evidence
+(`data.sfile.run_closed_evidence(scan_folder)`: the `ScanDataScanNNN.txt`
+the stop document writes — `scan_data_txt_path_for`, the one
+construction of that path — else the analysis s-file;
+`require_closed=False` is the shell's escape hatch for a dead scan),
+`HimgStackIncomplete` for a `.himg` the stack has no frame for,
+`NoHimgStack` without a `.himg` stack, a `.part` file as another
+writer's, and on any disagreement nothing is deleted —
+`HimgVerificationFailed` when a frame does not rebuild its hash (the
+stack is damaged), `HimgSourceChanged` when a file on disk differs from
+its intact frame (the file changed after conversion): opposite
+remedies, so two errors and two `HimgVerifyReport` lists (`mismatches`
+vs `changed`). `restore_himg_folder` rebuilds each file (`.part` +
+rename, hash-checked first), keeps a file already there when it matches
+and stops when it does not, and removes the manifest; mtimes are not
+restored, bytes are. Both touch only the one device folder. The
+converter's side of the contract: `write_himg_stack(overwrite=True)`
+refuses with `HimgSourcesDeleted` when the existing stack holds frames
+whose files are gone — a compacted folder's stack is the only copy, and
+the way to reconvert is restore first. `geecs-himg compact | restore`
+are the shell forms; ScanAnalysis's `himg_compact` (destructive — the
+portal asks for the scan number, and `create_scan_analyzer` refuses the
+kind without `allow_destructive`) and `himg_restore` kinds are the
+clicks. Every long loop takes a `progress(done, total,
+phase)` callback, and `io.himg_worker.run_himg_job` runs any of the four
+jobs in a child interpreter, relaying progress, log records, the report
+dataclass and the package's own error classes back over a JSON-lines
+event stream — how the portal runs them out of its own process. Source
+files are read through `read_source_bytes` (`posix_fadvise DONTNEED`
+after the read) so a 44 GB scan does not sit in the service cgroup's page
+cache.

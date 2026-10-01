@@ -3,7 +3,7 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.47.2] - 2026-09-30
+## [0.49.1] - 2026-10-01
 
 ### Changed
 
@@ -14,6 +14,90 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanner packages; `config_roots` writes the deprecated camera-config
   location under its placeholder root.  The 2026-04 baseline heading
   `0.2.1` below carries the date its version first appeared.
+
+## [0.49.0] - 2026-09-30
+
+### Added
+
+- `folder_catalog`: `FolderScanCatalog`, the `ScanCatalog` protocol over a
+  day's `scans/ScanNNN` folders (start documents synthesized from the
+  `ScanInfo` ini and the s-file header; no event table — the s-file is the
+  scalar table), and `MergedScanCatalog`, a primary catalog plus the folders
+  no primary run claims. Scans Tiled never recorded — LabVIEW Master Control,
+  other experiments, pre-Bluesky days — become browsable through any
+  `ScanCatalog` consumer.
+  A finished scan's listing row is cached, so re-listing a finished day
+  reads no files on the share (one directory listing).
+
+## [0.48.0] - 2026-09-29
+
+### Added
+
+- `io.himg_compact`: the one place this package deletes.
+  `compact_himg_folder(device_dir)` rebuilds every frame of a device's
+  `.himg` stack, checks it against the SHA-256 recorded at conversion and
+  against the `.himg` still on disk, and only then deletes the `.himg`
+  files, leaving `himg_manifest.json` beside the stack; the stack (its
+  per-shot header rows included) is never rewritten. Guards live in the
+  function: `HimgFolderActive` while any `.himg` is younger than
+  `MIN_SOURCE_AGE_S` (60 s) or there is no closed-run evidence
+  (`run_closed_evidence`: the `ScanDataScanNNN.txt` the stop document
+  writes, else the analysis s-file — `require_closed=False` is the
+  shell's escape hatch), `HimgStackIncomplete` for a `.himg` the stack has
+  no frame for, `NoHimgStack` without a `.himg` stack,
+  `HimgVerificationFailed` with nothing deleted on any mismatch, and a
+  `.part` file refuses as another writer's. `restore_himg_folder`
+  rebuilds each file byte-identically (`.part` + rename, hash-checked
+  first), keeps a matching file already there, stops on a differing one,
+  and removes the manifest. Both touch only the one device folder and
+  create no directory (pinned).
+- `io.himg_worker`: `run_himg_job(job, progress=)` runs a convert /
+  verify / compact / restore job in a child interpreter
+  (`python -m geecs_data_utils.io.himg_worker`) and relays its progress
+  events, log records (under their own logger names), the report
+  dataclass and this package's own error classes back over a JSON-lines
+  stream — how a service runs these without streaming a scan through
+  its own process.
+- `geecs-himg compact | restore` (`--min-age`, `--assume-closed`).
+- A `progress(done, total, phase)` callback on `write_himg_stack`,
+  `verify_himg_stack`, `convert_himg_folder` and the new functions;
+  `Progress`, `part_path_for`, `is_himg_stack`, `read_source_bytes`
+  (a whole-file read followed by `posix_fadvise(DONTNEED)`, so a 44 GB
+  scan does not stay in the service cgroup's page cache).
+
+- `HimgSourcesDeleted`: `write_himg_stack` / `convert_himg_folder` with
+  `overwrite` refuse when the existing stack holds frames whose `.himg`
+  files are no longer in the folder — a compacted folder's stack is the
+  only copy of those frames, and rebuilding it from the files on disk
+  would silently drop them. The way back is restore, then reconvert.
+- `HimgVerifyReport.changed` and `HimgSourceChanged`: a file on disk that
+  differs from its intact frame (the file changed after conversion) is
+  reported apart from a frame that does not rebuild its recorded hash
+  (`mismatches`: the stack is damaged) — opposite remedies, two errors.
+  `compact_himg_folder` runs `verify_himg_stack(against_files=True)`, the
+  one audit, instead of its own loop.
+- `data.sfile.scan_data_txt_path_for(scan_folder)` and
+  `run_closed_evidence(scan_folder)`: the scanner-written table's path
+  and the "did the run close" question live with the s-file helpers;
+  `tiled_export` builds the table path through the same function.
+- The worker child asks the kernel to SIGTERM it when its parent dies
+  (`PR_SET_PDEATHSIG`, Linux), so a compaction never runs on after the
+  host that asked for it is gone.
+- A rerun that finishes an interrupted compaction keeps the first
+  `compacted` stamp and records its own time as `updated`.
+- A `.himg` that vanishes or becomes unreadable mid-run is a
+  `HimgStackError`, not a traceback; a file another compaction deleted
+  first is skipped.
+
+### Changed
+
+- `HimgVerificationFailed` takes an `outcome=` for its message (the
+  converter's "the stack was removed" stays the default).
+- The converter reads its sources through `read_source_bytes`.
+- `geecs-himg verify <scan folder>` visits every device folder holding
+  `.himg` files **or** a stack, so a compacted folder still verifies.
+- `forget_pages` and `package_version` are public in `io.himg_stack`
+  (shared with `io.himg_compact`).
 
 ## [0.47.1] - 2026-09-29
 

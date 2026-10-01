@@ -157,9 +157,10 @@ metadata.
 
 | Notebook | What it covers |
 |---|---|
-| [Basic Offline Analysis](examples/basic_usage_image_analyzer.ipynb) | Load → process → analyze a single camera image end to end |
-| [Basic Usage — 1D Analyzer](examples/basic_usage_1D_analyzer.ipynb) | The same flow for a 1D signal trace |
-| [Grenouille Analysis](examples/grenouille_analysis.ipynb) | FROG pulse characterisation as a worked example |
+| [Analysis without the portal](../analysis/examples/analysis_without_the_portal.ipynb) | The current path: run a recipe on one shot or a whole scan from Python |
+| [Basic Offline Analysis](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/docs/image_analysis/examples/basic_usage_image_analyzer.ipynb) ↗ | Pre-recipe analyzer path, kept in the repo (not published): one camera image end to end |
+| [Basic Usage — 1D Analyzer](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/docs/image_analysis/examples/basic_usage_1D_analyzer.ipynb) ↗ | Pre-recipe analyzer path, kept in the repo: a 1D signal trace |
+| [Grenouille Analysis](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/docs/image_analysis/examples/grenouille_analysis.ipynb) ↗ | Pre-recipe analyzer path, kept in the repo: FROG pulse characterisation |
 
 ## See also
 

@@ -13,7 +13,7 @@ extras (written per shot as ``*_retrieved_lineouts.tsv``).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal, Mapping
 
 from pydantic import Field
 
@@ -46,6 +46,19 @@ class FrogSpec(MeasureSpec):
     """
 
     kind: Literal["frog"] = "frog"
+    scalar_docs: ClassVar[Mapping[str, str]] = {
+        "temporal_fwhm": "FWHM of the retrieved temporal intensity, in fs",
+        "spectral_fwhm": "FWHM of the retrieved spectrum, in nm",
+        "frog_error": (
+            "RMS mismatch between the measured and retrieved traces; lower is "
+            "better, below 0.01 is typically good"
+        ),
+        "frog_iterations": "Iterations the retrieval ran before it stopped",
+        "tw_per_joule": (
+            "Peak power per joule of pulse energy, in TW/J; multiply by the pulse "
+            "energy for the peak power"
+        ),
+    }
     delt: float = Field(0.85, description="Time-delay step per raw pixel, fs.")
     dellam: float = Field(
         -0.085,

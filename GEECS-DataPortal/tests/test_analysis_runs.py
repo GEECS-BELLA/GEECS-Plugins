@@ -62,6 +62,18 @@ def configs_tree(tmp_path) -> Path:
 
     diag("UC_Crop", "cam")
     diag("UC_Other", "elsewhere")
+    # The one destructive kind (the .himg compaction): scan-scoped, so no
+    # image section; on the same device as UC_Crop.
+    (analyzers / "UC_Compact.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": 2,
+                "name": "UC_Compact",
+                "analyzer": {"kind": "himg_compact"},
+                "scan": {"priority": 100, "device": "cam"},
+            }
+        )
+    )
     (analyzers / "UC_Legacy.yaml").write_text(
         yaml.safe_dump({"name": "UC_Legacy", "bit_depth": 16})
     )
@@ -79,12 +91,19 @@ class FakeAnalyzer:
         self.cleaned = False
         self.release = threading.Event()
         self.started = threading.Event()
+        self.progress = None  # the ScanAnalyzer hook the runner fills in
         FakeAnalyzer.instances.append(self)
 
     def run_analysis(self, scan_tag):
         self.scan_tag = scan_tag
         self.started.set()
         logger.info("fake analyzer running on scan %s", scan_tag.number)
+        if self.behaviour == "progress":
+            # Report like the .himg kinds do, then hold the run open.
+            self.progress(2, 21, "verifying")
+            self.release.wait(timeout=10)
+            self.progress(21, 21, "deleting")
+            return ["U_HasoLift: 21 .himg files verified and deleted"]
         if self.behaviour == "block":
             self.release.wait(timeout=10)
         if self.behaviour == "fail":
@@ -109,9 +128,11 @@ class FakeAnalyzer:
 
 
 def _factory(behaviour: str):
-    def factory(analyzer_id: str, config_dir: Path):
-        assert analyzer_id == "UC_Crop"
-        return FakeAnalyzer(behaviour, factory.analysis_folder)
+    def factory(analyzer_id: str, config_dir: Path, *, allow_destructive: bool = False):
+        assert analyzer_id in ("UC_Crop", "UC_Compact")
+        analyzer = FakeAnalyzer(behaviour, factory.analysis_folder)
+        analyzer.allow_destructive = allow_destructive  # what the host passed
+        return analyzer
 
     return factory
 
@@ -212,12 +233,12 @@ class TestRunner:
         runner = analysis_runs.AnalysisRunner()
         gate = threading.Event()
         try:
-            job = runner.start("u", "A", lambda: gate.wait(5) and [])
+            job = runner.start("u", "A", lambda _report: gate.wait(5) and [])
             with pytest.raises(analysis_runs.RunInProgress) as excinfo:
-                runner.start("u", "B", lambda: [])
+                runner.start("u", "B", lambda _report: [])
             assert excinfo.value.job is job
             # A different scan is not gated by this one.
-            other = runner.start("v", "A", lambda: [])
+            other = runner.start("v", "A", lambda _report: [])
             assert other.state in analysis_runs.ACTIVE
         finally:
             gate.set()
@@ -228,7 +249,7 @@ class TestRunner:
         runner = analysis_runs.AnalysisRunner()
         seen = threading.Event()
 
-        def run():
+        def run(_report):
             logging.getLogger("worker").warning("from the worker")
             helper = threading.Thread(
                 target=lambda: logging.getLogger("scan_analysis.pool").warning(
@@ -273,12 +294,12 @@ class TestRunner:
         runner = analysis_runs.AnalysisRunner()
         runner.shutdown()
         with pytest.raises(RuntimeError):
-            runner.start("u", "A", lambda: [])
+            runner.start("u", "A", lambda _report: [])
 
     def test_base_exception_is_recorded_not_stuck(self):
         runner = analysis_runs.AnalysisRunner()
 
-        def run():
+        def run(_report):
             raise SystemExit(3)
 
         try:
@@ -355,10 +376,16 @@ class TestListing:
         client = _client(scan_folder, configs_tree)
         body = client.get("/api/run/uid-002/analysis").json()
         by_id = {a["id"]: a for a in body["analyzers"]}
-        assert set(by_id) == {"UC_Crop", "UC_Other"}  # the legacy flat YAML is dropped
+        # the legacy flat YAML is dropped
+        assert set(by_id) == {"UC_Crop", "UC_Other", "UC_Compact"}
         assert by_id["UC_Crop"]["applicable"] is True
         assert by_id["UC_Crop"]["device"] == "cam"
         assert by_id["UC_Other"]["applicable"] is False
+        # The tab learns which rows delete data from the listing, never
+        # from the id: the compaction is flagged, the others are not.
+        assert by_id["UC_Compact"]["destructive"] is True
+        assert by_id["UC_Crop"]["destructive"] is False
+        assert by_id["UC_Other"]["destructive"] is False
         assert all(a["job"] is None and a["files"] == [] for a in body["analyzers"])
         assert body["running"] is None
 
@@ -678,6 +705,11 @@ class TestAnalysisTab:
         assert "const ANALYSIS_ENABLED = true;" in page.text
         # The URL-carried tab survives into the page state (a link IS the view).
         assert 'tab: p.get("tab") || "analysis"' in page.text
+        # The destructive-kind confirmation: a real <dialog> that asks for
+        # this scan's number, which the page knows.
+        assert '<dialog id="confirmdlg"' in page.text
+        assert "const SCAN_NUMBER = 2;" in page.text
+        assert 'id="confirmnum"' in page.text
 
     def test_tab_absent_when_feature_off(self, scan_folder):
         catalog = FakeCatalog()
@@ -717,3 +749,150 @@ class TestAnalysisTab:
         page = client.get("/run/uid-002")
         assert page.status_code == 200
         assert 'data-pane="analysis"' not in page.text
+
+
+class TestDestructiveGate:
+    """A kind that deletes data runs only with this scan's number typed back."""
+
+    @pytest.mark.parametrize("params", [{}, {"confirm": "3"}, {"confirm": " "}])
+    def test_without_the_scan_number_nothing_runs(
+        self, scan_folder, configs_tree, params
+    ):
+        pytest.importorskip("image_analysis")
+        client = _client(scan_folder, configs_tree)
+        response = client.post(
+            "/api/run/uid-002/analysis", params={"analyzer": "UC_Compact", **params}
+        )
+        assert response.status_code == 400
+        assert "deletes data" in response.json()["detail"]
+        assert FakeAnalyzer.instances == []  # nothing was even built
+        body = client.get("/api/run/uid-002/analysis").json()
+        assert (
+            next(a for a in body["analyzers"] if a["id"] == "UC_Compact")["job"] is None
+        )
+
+    def test_with_the_scan_number_it_runs(self, scan_folder, configs_tree):
+        pytest.importorskip("image_analysis")
+        client = _client(scan_folder, configs_tree)
+        response = client.post(
+            "/api/run/uid-002/analysis",
+            params={"analyzer": "UC_Compact", "confirm": "2"},
+        )
+        assert response.status_code == 202
+        assert _wait(client, analyzer="UC_Compact")["state"] == "done"
+        # The opt-in reached the factory only for the destructive kind.
+        (analyzer,) = FakeAnalyzer.instances
+        assert analyzer.allow_destructive is True
+
+    def test_the_opt_in_never_reaches_a_non_destructive_build(
+        self, scan_folder, configs_tree
+    ):
+        pytest.importorskip("image_analysis")
+        client = _client(scan_folder, configs_tree)
+        client.post(
+            "/api/run/uid-002/analysis", params={"analyzer": "UC_Crop", "confirm": "2"}
+        )
+        assert _wait(client)["state"] == "done"
+        (analyzer,) = FakeAnalyzer.instances
+        assert analyzer.allow_destructive is False
+
+    def test_the_listing_carries_the_number_the_gate_accepts(
+        self, scan_folder, configs_tree
+    ):
+        pytest.importorskip("image_analysis")
+        client = _client(scan_folder, configs_tree)
+        body = client.get("/api/run/uid-002/analysis").json()
+        assert body["scan_number"] == 2  # from the resolved folder, like the tag
+
+    def test_the_real_factory_refuses_a_destructive_kind_without_the_opt_in(
+        self, configs_tree
+    ):
+        pytest.importorskip("scan_analysis")
+        from scan_analysis.config.diagnostic_factory import DestructiveKindRefused
+
+        with pytest.raises(DestructiveKindRefused):
+            analysis_runs.scan_analysis_factory("UC_Compact", configs_tree)
+        built = analysis_runs.scan_analysis_factory(
+            "UC_Compact", configs_tree, allow_destructive=True
+        )
+        assert type(built).__name__ == "HimgCompactAnalyzer"
+
+    def test_a_non_destructive_kind_needs_no_confirmation(
+        self, scan_folder, configs_tree
+    ):
+        pytest.importorskip("image_analysis")
+        client = _client(scan_folder, configs_tree)
+        response = client.post(
+            "/api/run/uid-002/analysis", params={"analyzer": "UC_Crop"}
+        )
+        assert response.status_code == 202
+        assert _wait(client)["state"] == "done"
+
+
+class TestProgress:
+    """What an analyzer reports mid-run reaches the record the tab polls."""
+
+    def test_frames_done_of_total_show_while_running(self, scan_folder, configs_tree):
+        pytest.importorskip("image_analysis")
+        client = _client(scan_folder, configs_tree, behaviour="progress")
+        assert (
+            client.post(
+                "/api/run/uid-002/analysis", params={"analyzer": "UC_Crop"}
+            ).status_code
+            == 202
+        )
+        (analyzer,) = FakeAnalyzer.instances
+        assert analyzer.started.wait(5)
+        deadline = time.monotonic() + 5
+        job = None
+        while time.monotonic() < deadline:
+            body = client.get("/api/run/uid-002/analysis").json()
+            job = next(a["job"] for a in body["analyzers"] if a["id"] == "UC_Crop")
+            if job and job["progress"]:
+                break
+            time.sleep(0.02)
+        assert job["state"] == "running"
+        assert job["progress"] == {"done": 2, "total": 21, "phase": "verifying"}
+        analyzer.release.set()
+        job = _wait(client)
+        assert job["state"] == "done"
+        assert job["progress"] == {"done": 21, "total": 21, "phase": "deleting"}
+        assert job["artifacts"] == ["U_HasoLift: 21 .himg files verified and deleted"]
+
+    def test_an_analyzer_that_never_reports_has_no_progress(
+        self, scan_folder, configs_tree
+    ):
+        pytest.importorskip("image_analysis")
+        client = _client(scan_folder, configs_tree)
+        client.post("/api/run/uid-002/analysis", params={"analyzer": "UC_Crop"})
+        assert _wait(client)["progress"] is None
+
+    def test_run_scan_analyzer_hands_the_sink_only_to_analyzers_with_the_hook(
+        self, tmp_path
+    ):
+        class Bare:
+            def run_analysis(self, scan_tag):
+                return []
+
+            def cleanup(self):
+                pass
+
+        seen = []
+        sink = seen.append
+        bare = Bare()
+        assert (
+            analysis_runs.run_scan_analyzer(
+                lambda *_, **__: bare, "X", Path("."), None, progress=sink
+            )
+            == []
+        )
+        assert not hasattr(bare, "progress")
+        hooked = FakeAnalyzer("ok", tmp_path)
+        analysis_runs.run_scan_analyzer(
+            lambda *_, **__: hooked,
+            "X",
+            Path("."),
+            type("Tag", (), {"number": 1})(),
+            progress=sink,
+        )
+        assert hooked.progress is sink

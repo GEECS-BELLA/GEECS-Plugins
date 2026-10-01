@@ -15,8 +15,8 @@ can be submitted headlessly from a script with identical results.
 ## Where it runs
 
 The scanner is a service on the worker host (systemd unit `geecs-scanner`,
-port **8300**), beside the Data Portal (8200) and the logbook (8400) — one
-bookmark each. Nothing is installed on an operator machine: open
+port **8300**), beside the [Data Portal](data_portal.md) (8200) and the
+[logbook](logbook.md) (8400) — one bookmark each. Nothing is installed on an operator machine: open
 `http://<worker-host>:8300/` in a browser on the lab network. The host and
 the other services are on the [fleet map](../platform/fleet_map.md).
 
@@ -34,25 +34,30 @@ poetry run geecs-scanner --demo                      # an in-memory manager that
 
 ## A tour of the page
 
-The rail on the left lists the page's sections; two **health chips** in the
-header (`manager`, `doc stream`) say whether the RE Manager answers and
-whether the worker's document stream is being heard.
+![The scanner running a jet-pressure sweep: the Now panel with progress, shot counts and the scan.log tail](assets/scanner_01_running.png)
+
+The rail on the left lists the page's sections; the **health chips** in
+the header say whether the RE Manager answers (`manager`), whether the
+worker's document stream is being heard (`doc stream`), and whether the
+Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
 
 - **Now** — the running scan: state, the claimed scan number, progress
   against the planned shots, and a live tail of the scan's own `scan.log`
   (the manager's console text sits behind a toggle). **Pause**, **Resume**
   and **Stop scan…** live here and act on the running item.
-- **New scan** — the form. Start from a **preset** (a saved scan document
-  from the experiment's configs repository, in a dropdown) or compose one:
-  the shape is **No-scan** (N shots at a fixed configuration), **1D** (one
-  variable, start → stop → steps, shots per step), **Grid** (two
-  variables, outer product) or **Background** (a no-scan tagged as a
-  reference); **Optimize** is greyed out until the worker has an
-  optimization plan. Acquisition is **strict** (fire between trigger and
-  wait, one row per shot) or **gated** (the trigger box in SCAN, cameras
-  count a batch). Pick the trigger profile, then press **Start** — see
-  [Running a scan](#running-a-scan) for what Start does. The current form
-  can be saved back as a preset (**Save as preset…**).
+- **New scan** — the form. **Load preset…** fills it from a saved scan
+  document in the experiment's configs repository, or compose one. The
+  top half is common to every scan: shots per step, trigger profile,
+  whether LabVIEW saves its own files, shot period, a description, and
+  the devices table (which devices to record, whether each saves images,
+  and which are essential). The mode buttons fill the bottom half:
+  **Count** (N shots at a fixed configuration, optionally tagged as a
+  background), **Sweep** (one or more variables along a trajectory) or
+  **Optimize** (an optimizer drives the variables). Acquisition is
+  **strict** (fire between trigger and wait, one row per shot) or
+  **gated** (the trigger box in SCAN, cameras count a batch). Press
+  **Start** — see [Running a scan](#running-a-scan) for what Start does.
+  The current form can be saved back as a preset (**Save as preset…**).
 - **Queue** — the running item, what waits behind it, and recent history;
   **Clear** empties what waits. The page refuses a second waiting item
   unless you say so.
@@ -71,6 +76,8 @@ whether the worker's document stream is being heard.
   trigger profile. Idle only.
 
 ## Running a scan
+
+![New scan with the background_dark preset loaded: Count mode, one essential camera, 50 shots](assets/scanner_02_new_scan_preset.png)
 
 1. Pick a preset in **New scan**, or compose a scan and pick a trigger
    profile.
@@ -94,6 +101,8 @@ preset submitted from a notebook through `geecs_bluesky.qs_client` — or
 through the page's own JSON API, `POST /api/submit` — behaves exactly as
 one submitted from the form.
 
+![The queue, and the Devices · move, Actions and Calibration panels below it](assets/scanner_03_queue_and_tools.png)
+
 ## Where the data lands
 
 Every scan is recorded twice, deliberately: the classic GEECS scan folder
@@ -103,7 +112,7 @@ device's natively saved per-shot files), so every existing analysis tool
 keeps working; and a run in the Tiled catalog with the start/stop metadata
 and one event row per shot. Only the worker ever creates a scan folder.
 
-Read it back in the Data Portal (day → scan → metadata, scalar plots,
+Read it back in the [Data Portal](data_portal.md) (day → scan → metadata, scalar plots,
 images, from any browser) or from Python through the `ScanCatalog` layer
 and the s-file readers in [Data Utils](../geecs_data_utils/overview.md).
 The column contract is `GeecsBluesky/EVENT_SCHEMA.md` in the repository.

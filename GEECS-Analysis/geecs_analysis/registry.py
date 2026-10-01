@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Optional, TypeVar
+from typing import TYPE_CHECKING, Callable, ClassVar, Mapping, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -24,6 +24,12 @@ class StepSpec(SpecModel):
 
 class MeasureSpec(SpecModel):
     """Base of measurement declarations with numpy-free scalar discovery."""
+
+    #: What each scalar the measure can emit means, keyed by its bare name:
+    #: one plain sentence with its units. The recipe reference and the config
+    #: editor show these (via ``recipe_schema``'s ``x-scalars``); a test pins
+    #: that every key ``emitted_scalars`` can return has an entry.
+    scalar_docs: ClassVar[Mapping[str, str]] = {}
 
     def emitted_scalars(self) -> frozenset[str]:
         """Return every key this measure can emit for the configured options."""

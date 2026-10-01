@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, ClassVar, Literal, Mapping, Optional
 
 from pydantic import Field
 
@@ -20,6 +20,13 @@ class IctSpec(MeasureSpec):
     """ICT parameters; fields, defaults and bounds are the v2 ``ict`` analyzer's."""
 
     kind: Literal["ict"] = "ict"
+    scalar_docs: ClassVar[Mapping[str, str]] = {
+        "charge_pC": (
+            "Beam charge in pC: the pulse integrated between its zero crossings "
+            "after sinusoidal pickup is removed, times calibration_factor"
+        ),
+        "ICT Signal Peak_us": "Time of the pulse minimum from the start of the trace, in µs",
+    }
     butterworth_order: int = Field(
         1, ge=1, description="Order of the low-pass Butterworth filter."
     )

@@ -12,7 +12,7 @@ All analyzers must inherit from :class:`ScanAnalyzer` and implement
 
 # %% imports
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional, Union, NamedTuple
+from typing import TYPE_CHECKING, Callable, Optional, Union, NamedTuple
 
 if TYPE_CHECKING:
     from geecs_data_utils import ScanTag
@@ -160,6 +160,17 @@ class ScanAnalyzer:
         self.binned_param_values = None
 
         self.display_contents = []
+
+        #: A host's progress sink, ``(done, total, phase)`` — set by a caller
+        #: that shows a status while the run lasts (the data portal's run
+        #: record); ``None`` when nobody listens.  Analyzers that can say
+        #: how far along they are call :meth:`report_progress`.
+        self.progress: Optional[Callable[[int, int, str], None]] = None
+
+    def report_progress(self, done: int, total: int, phase: str) -> None:
+        """Tell the host how far the run is (frames done of total, in *phase*), if it listens."""
+        if self.progress is not None:
+            self.progress(done, total, phase)
 
     def run_analysis(self, scan_tag: ScanTag) -> Optional[list[Union[Path, str]]]:
         """Load inputs and dispatch to the subclass core analysis.
