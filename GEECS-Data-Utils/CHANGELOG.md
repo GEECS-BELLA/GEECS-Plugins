@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.49.0] - 2026-09-30
+
+### Added
+
+- `folder_catalog`: `FolderScanCatalog`, the `ScanCatalog` protocol over a
+  day's `scans/ScanNNN` folders (start documents synthesized from the
+  `ScanInfo` ini and the s-file header; no event table — the s-file is the
+  scalar table), and `MergedScanCatalog`, a primary catalog plus the folders
+  no primary run claims. Scans Tiled never recorded — LabVIEW Master Control,
+  other experiments, pre-Bluesky days — become browsable through any
+  `ScanCatalog` consumer.
+  A finished scan's listing row is cached, so re-listing a finished day
+  reads no files on the share (one directory listing).
+
 ## [0.48.0] - 2026-09-29
 
 ### Added

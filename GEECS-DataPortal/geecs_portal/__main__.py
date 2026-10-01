@@ -82,6 +82,7 @@ def main() -> None:
 
     import uvicorn
 
+    from geecs_data_utils.folder_catalog import FolderScanCatalog, MergedScanCatalog
     from geecs_data_utils.tiled_catalog import TiledScanCatalog
 
     from geecs_portal.app import create_app
@@ -89,7 +90,11 @@ def main() -> None:
 
     # Completed runs are immutable: cache their details so plot/image
     # requests stop re-downloading the full event table from Tiled.
-    catalog = CachingScanCatalog(TiledScanCatalog.from_config())
+    # Scan folders no Tiled run claims (Master Control scans, other
+    # experiments) list beside the runs.
+    catalog = CachingScanCatalog(
+        MergedScanCatalog(TiledScanCatalog.from_config(), FolderScanCatalog())
+    )
     app = create_app(
         catalog,
         default_experiment=args.experiment,
