@@ -30,7 +30,7 @@ numpy gives the same slopes as the SDK's own image subtraction (verified
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, ClassVar, Literal, Mapping, Optional
 
 from pydantic import Field, field_validator, model_validator
 
@@ -123,6 +123,16 @@ class HasoSpec(MeasureSpec):
     """
 
     kind: Literal["haso"] = "haso"
+    scalar_docs: ClassVar[Mapping[str, str]] = {
+        "phase_rms": (
+            "RMS of the processed phase inside the pupil, in µm (the difference "
+            "from the reference when one is set)"
+        ),
+        "phase_pv": (
+            "Peak-to-valley of the processed phase inside the pupil, in µm (the "
+            "difference from the reference when one is set)"
+        ),
+    }
     sensor_config: str = Field(
         ...,
         min_length=1,

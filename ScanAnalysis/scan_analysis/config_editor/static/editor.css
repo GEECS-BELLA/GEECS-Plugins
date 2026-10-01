@@ -131,6 +131,13 @@
 /* help lines wherever they sit: under a field, a variant's description, a list's */
 .ce-form .help { color: var(--muted); font-size: 11px; line-height: 1.3; }
 .ce-form .help.variant, .ce-form fieldset > .help { margin: 0.15rem 0 0.35rem; }
+/* a kind's link to its card in the published recipe reference, and the scalars a measure writes */
+.ce-form .help.variant .ce-ref { margin-left: 0.4rem; color: var(--accent); white-space: nowrap; }
+.ce-form details.ce-scalars { color: var(--muted); font-size: 11px; line-height: 1.3; margin: 0 0 0.35rem; }
+.ce-form details.ce-scalars > summary { cursor: pointer; }
+.ce-form details.ce-scalars dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.1rem 0.6rem; margin: 0.25rem 0 0; }
+.ce-form details.ce-scalars dt { font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--ink); }
+.ce-form details.ce-scalars dd { margin: 0; }
 /* a flat section already says what its one list is for */
 .ce-form .ce-section.ce-flat > fieldset > .help { display: none; }
 /* a light item (a bounds pair, a scalar) is a row, not a card: no header, no label */

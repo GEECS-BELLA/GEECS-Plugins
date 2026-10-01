@@ -38,6 +38,13 @@ from geecs_analysis.render.specs import FigureSpec
 from geecs_analysis.specs import Analysis
 from geecs_analysis.steps.roi import RoiSpec
 
+#: The published recipe reference: one card per step, measure and summary,
+#: addressed as ``#step-<name>``, ``#measure-<kind>`` and ``#summary-<kind>``.
+#: The project's public docs, not a facility value.
+RECIPE_REFERENCE_URL = (
+    "https://geecs-plugins.readthedocs.io/en/latest/sites/analysis_recipes/index.html"
+)
+
 AnalysisDocument = Union[AnalysisDiagnostic, AnalysisRecipe]
 
 
@@ -201,7 +208,10 @@ def recipe_schema() -> dict:
     (:class:`geecs_analysis.specs.Analysis`): one variant per registered step
     and measure, its parameters typed and described. Every step, measure and
     summary variant carries ``x-ndim``, the frame dimensionalities it
-    processes, so a form can say which fit the input. Validation is not
+    processes, so a form can say which fit the input, and ``x-docs``, its
+    card in the published reference (:data:`RECIPE_REFERENCE_URL`). Every
+    measure variant also carries ``x-scalars``, its ``scalar_docs``: what
+    each scalar it can write means. Validation is not
     changed by this: a document still validates as :class:`AnalysisRecipe`
     and then binds through :func:`compile_recipe`.
     """
@@ -212,8 +222,18 @@ def recipe_schema() -> dict:
     defs = {**schema.get("$defs", {}), **bound.get("$defs", {})}
     defs.pop("StepRef", None)
     defs.pop("MeasureRef", None)
-    for item in (*definitions(), *measure_definitions(), *summary_definitions()):
-        defs[item.spec.__name__]["x-ndim"] = sorted(item.ndim)
+    for role, field, items in (
+        ("step", "step", definitions()),
+        ("measure", "kind", measure_definitions()),
+        ("summary", "kind", summary_definitions()),
+    ):
+        for item in items:
+            variant = defs[item.spec.__name__]
+            name = item.spec.model_fields[field].default
+            variant["x-ndim"] = sorted(item.ndim)
+            variant["x-docs"] = f"{RECIPE_REFERENCE_URL}#{role}-{name}"
+    for item in measure_definitions():
+        defs[item.spec.__name__]["x-scalars"] = dict(item.spec.scalar_docs)
     properties = dict(schema["properties"])
     properties["steps"] = {
         **properties["steps"],
@@ -227,6 +247,7 @@ def recipe_schema() -> dict:
 
 
 __all__ = [
+    "RECIPE_REFERENCE_URL",
     "AnalysisDocument",
     "RecipeError",
     "compile_document",

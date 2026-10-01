@@ -26,8 +26,8 @@ follow that split; the bottom row is for navigation and troubleshooting.
     watch it live, move a device — or submit the same presets headlessly
     from your own scripts.
 
-    [:octicons-arrow-right-24: GEECS Scanner](geecs_scanner/overview.md) ·
-    [Running scans](geecs_scanner/overview.md#running-a-scan)
+    [:octicons-arrow-right-24: GEECS Scanner](web_services/scanner.md) ·
+    [Running scans](web_services/scanner.md#running-a-scan)
 
 -   :material-chart-areaspline:{ .lg .middle } **Data Analysis**
 
@@ -48,7 +48,7 @@ follow that split; the bottom row is for navigation and troubleshooting.
     suite. Pick this if you already know which piece you're working
     with.
 
-    [:octicons-arrow-right-24: GEECS Scanner](geecs_scanner/overview.md) ·
+    [:octicons-arrow-right-24: GEECS Scanner](web_services/scanner.md) ·
     [Image Analysis](image_analysis/overview.md) ·
     [Scan Analysis](scan_analysis/overview.md) ·
     [Data Utils](geecs_data_utils/overview.md) ·
@@ -61,7 +61,7 @@ follow that split; the bottom row is for navigation and troubleshooting.
     Common scan failure modes, the `/triage` skill for diagnosing
     recurring issues, and the architecture deep-dives.
 
-    [:octicons-arrow-right-24: Troubleshooting](geecs_scanner/overview.md#when-something-is-wrong) ·
+    [:octicons-arrow-right-24: Troubleshooting](web_services/scanner.md#when-something-is-wrong) ·
     [Skills](skills/overview.md)
 
 </div>
@@ -95,7 +95,7 @@ can then load the s-file via Data Utils for ad-hoc exploration.
 
 ## Packages at a glance
 
-**[GEECS Scanner](geecs_scanner/overview.md)** — the operator front end
+**[GEECS Scanner](web_services/scanner.md)** — the operator front end
 for collecting data, in a browser: pick or compose a scan, submit it to the
 Bluesky queueserver, watch it live, move devices and run action plans. The
 engine underneath (GeecsBluesky) is equally usable headlessly.

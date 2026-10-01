@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal, Mapping
 
 from geecs_analysis.registry import MeasureSpec, measure
 
@@ -15,6 +15,20 @@ class LineSpec(MeasureSpec):
     """Six legacy line statistics, with their original bare scalar names."""
 
     kind: Literal["line"] = "line"
+    scalar_docs: ClassVar[Mapping[str, str]] = {
+        "CoM": "Intensity-weighted centroid of the trace, in x units",
+        "rms": (
+            "RMS width about the centroid, in x units; assumes evenly spaced "
+            "samples (#1029)"
+        ),
+        "fwhm": (
+            "Full width at half maximum, in x units; assumes evenly spaced "
+            "samples (#1029)"
+        ),
+        "peak_location": "Position of the maximum, in x units",
+        "integrated_intensity": "Sum of the trace's samples (not an integral over x)",
+        "peak_value": "Maximum value of the trace, in y units",
+    }
 
     def emitted_scalars(self) -> frozenset[str]:
         """Expose scalar keys without importing the numerical algorithm."""

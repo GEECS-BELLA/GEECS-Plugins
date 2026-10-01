@@ -104,8 +104,14 @@ process the input's frames raise `RecipeError`. Never duplicate step or
 measure specs into the schema package; the registry is the vocabulary and
 the editor lists it from here — `recipe.recipe_schema()` is the recipe's
 JSON Schema with `steps`/`measure` replaced by the registry's discriminated
-unions, every step/measure/summary variant tagged `x-ndim`; give every spec
-field a `description=`, the form shows it as help (pinned). Both formats
+unions, every step/measure/summary variant tagged `x-ndim` and `x-docs`
+(its card in the published reference, `RECIPE_REFERENCE_URL`), every
+measure variant `x-scalars`; give every spec field a `description=`, the
+form shows it as help (pinned), and every scalar a measure can emit a
+one-line `scalar_docs` meaning (pinned both ways by `test_scalar_docs`).
+A new step, measure or summary also needs
+`docs/sites/analysis_recipes/make_examples.py` rerun (pinned by
+`test_recipe_reference_page`). Both formats
 compile to the one in-memory
 recipe (`V2Recipe`, renamed at A5) and run through `analyze_v2`; consumers
 call `compile_document` / `figure_of` / `summaries_of` / `is_line` and
