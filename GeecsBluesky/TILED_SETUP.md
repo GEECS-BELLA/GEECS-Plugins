@@ -21,7 +21,13 @@ the raw data files.
 - OS: Ubuntu 22.04.5 LTS
 - Python: 3.10.12
 - Tiled: **0.2.14** (upgraded from 0.2.9 on 2026-07-12) installed via
-  `pip install --user 'tiled[server]'` into `~/.local`
+  `pip install --user 'tiled[server]'` into `~/.local`.  The install list
+  is `GeecsBluesky/tiled_server/requirements.txt` (the 0.2 line + the ADBC
+  drivers the adapter override below is tested against) — a range, so
+  installing from it may move the version: do that only inside
+  § "Upgrading the server" below (catalog migrations), never alone
+- Adapter override: `~/tiled/geecs_tiled_sql.py` + `PYTHONPATH` in the
+  unit's drop-in (§ "SQLite typed reads" below)
 - Running as systemd service: `sudo systemctl status tiled`
   (`tiled serve config ~/tiled/config.yml`; auth + host/port + trees all
   live in that config file, not in the unit)
@@ -80,6 +86,84 @@ facts, both found by failure on the first run (Scan007 of 26_0911):
 The Tiled server is pip-installed and unit-less as far as `deploy/` is
 concerned (no rendered unit, no `site.env` key), so these two settings
 live here, not in the deployment tree.
+
+### SQLite typed reads — the adapter override (#1020; verified 2026-10-01)
+
+**Symptom:** a run page answers 503 (the portal) and Tiled answers 500 on
+`GET /api/v1/table/partition/<uid>/primary/internal?partition=0` with
+
+```
+OSError: [SQLite] Type mismatch in column N: expected INT64 but got DOUBLE
+```
+
+**Cause:** Tiled reads its SQLite tabular storage (`tabular.db`) through
+the ADBC SQLite driver, which infers each result column's Arrow type from
+the rows of its *first batch* (1024) and ignores the declared column type.
+SQLite stores a float NaN as NULL, so a scalar that is NaN for a scan's
+first 1024 shots (a diagnostic with no beam) and has a value later is
+typed INT64, and the first real value fails the whole read.  Long scans
+with intermittent-beam diagnostics are the exposed shape.  No Tiled
+release fixes it (0.2.18's read path is identical to 0.2.14's).
+
+**Fix:** `GeecsBluesky/tiled_server/geecs_tiled_sql.py`, a `SQLAdapter`
+subclass that reads each dataset in one ADBC batch, so every column is
+typed from every row; Tiled's own cast to the declared schema does the
+rest.  Install on the Tiled host — one restart:
+
+```bash
+cp <checkout>/GeecsBluesky/tiled_server/geecs_tiled_sql.py ~/tiled/
+sudo systemctl edit tiled        # add the PYTHONPATH line below
+sudo systemctl restart tiled
+```
+
+```ini
+[Service]
+Environment=HDF5_USE_FILE_LOCKING=FALSE
+Environment=PYTHONPATH=/home/<user>/tiled
+```
+
+and in `~/tiled/config.yml`, under the catalog tree's `args:` beside
+`writable_storage`:
+
+```yaml
+      adapters_by_mimetype:
+        application/x-tiled-sql-table: "geecs_tiled_sql:GeecsSQLAdapter"
+```
+
+The `PYTHONPATH` line is required: Tiled resolves the import outside the
+window in which it prepends the config directory to `sys.path`, and
+without it the service fails at start (`ValueError` from `import_object`,
+`ModuleNotFoundError` underneath).  The file and the drop-in survive a
+`pip install -U tiled`.
+
+**Check:** the sweep lists every dataset the *stock* reader fails on —
+after the override they are informational, before it each one is an
+unreadable run:
+
+```bash
+ssh <tiled-host> 'cd ~/tiled && nice -n 15 python3 -' < scripts/tiled_sweep_nan_leading.py
+```
+
+(~12 s for 220 tables; `--tabular tabular.db.bak-…` runs it against a
+backup; exit status = the number of hits).  Then read an affected run the
+portal's way (`read_primary_scalars`): the previously failing columns come
+back `float64` with their values.
+
+**Storage ceilings measured 2026-10-01** (the reason the tabular store is
+still SQLite, and the shape of the follow-up arc):
+
+| Engine | Ceiling | HTU today |
+|---|---|---|
+| PostgreSQL | a heap tuple must fit one 8 KB page and fixed-width doubles are never moved out of line: ≈1000 non-null doubles per row (900 insert, 1000 fail: `row is too big: size 8192, maximum size 8160`) | one primary table at 1294 columns, baselines at 7.5 KB — Postgres tabular storage needs the narrower per-shot row first (background telemetry as one vector column, which Postgres stores out of line at any width) |
+| SQLite (the ADBC-bundled build) | 2000 columns per table (`SQLITE_MAX_COLUMN`) | 1294; half of every table is the TiledWriter's `ts_<key>` timestamp columns |
+| DuckDB | no practical column limit | not chosen: Tiled gives it one pooled connection |
+
+The same module fills null elements of a floating-point *array* column
+with NaN before a PostgreSQL ingest: the ADBC PostgreSQL driver (1.11,
+1.12) writes a NULL element as `0.0`, and Tiled's server turns NaN into
+null on the way in (`deserialize_arrow` reads uploads through pandas), so
+a missing telemetry sample inside a vector would otherwise read as zero.
+NaN, `inf` and a NULL whole array survive the driver unchanged.
 
 ### Upgrading the server (verified 2026-07-12, 0.2.9 → 0.2.14)
 
@@ -173,8 +257,9 @@ api_key = <stable key>
   end state remains the open strategic question: does `ScanAnalysis`
   grow a Tiled reader, or keep reading exported s-files long-term?
 - **Natively saved per-shot files are not served by Tiled** — only the
-  file plugin's HDF5 stacks are (above: the stock adapter, no custom
-  adapter anywhere).  A device without a plugin writes its own per-shot
+  file plugin's HDF5 stacks are (above: the stock HDF5 adapter; the one
+  custom adapter on this server, § "SQLite typed reads", changes how the
+  SQL tables are *read*, not what is served).  A device without a plugin writes its own per-shot
   files, and the run's events record the save directory and the device's
   `acq_timestamp`, not an external data source; readers join rows to files
   on disk by stamp (`geecs_data_utils.native_files`).  Serving those over

@@ -6,6 +6,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.109.0] - 2026-10-01
+
+### Added
+
+- **Tiled server adapter override — typed SQLite reads (#1020).**
+  `tiled_server/geecs_tiled_sql.py`, deploy material for the Tiled host
+  (not a `geecs_bluesky` module: the server has its own environment).
+  Tiled 0.2.14 reads its SQLite tabular storage through the ADBC SQLite
+  driver, which types every result column from its first 1024 rows and
+  ignores the declared type; SQLite stores NaN as NULL, so a float column
+  that is NaN for a scan's first 1024 shots and has a value later made
+  the whole run unreadable (`Type mismatch in column N: expected INT64
+  but got DOUBLE` — 26_0929 Scan016 and Scan032, both repaired by hand).
+  `GeecsSQLAdapter` reads each dataset in one ADBC batch (the statement
+  option `adbc.sqlite.query.batch_rows` set above any dataset's row
+  count — one query, no count first, no window between them), so every
+  column is typed from every row; the option is set by a storage wrapper
+  installed once at construction, so the adapter carries no per-request
+  state and concurrent reads through one instance cannot disturb each
+  other.  Wired in through the catalog tree's `adapters_by_mimetype`.  No Tiled upgrade fixes this (0.2.18's
+  read path is identical; adbc-driver-sqlite 1.12 unchanged).  Verified
+  on a copy of the broken Scan032: HTTP 500 → 200 in 0.4 s, the GhostWFS
+  columns typed double with their values intact; healthy runs read in the
+  same time as before.  The same module fills null elements of a
+  floating-point array column with NaN before a PostgreSQL ingest, where
+  the ADBC driver (1.11, 1.12) otherwise writes them as `0.0` — groundwork
+  for the per-shot telemetry vector on PostgreSQL storage (the #1020
+  follow-up arc).  Install: `TILED_SETUP.md` § "SQLite typed reads".
+- **`scripts/tiled_sweep_nan_leading.py`** — the read-only sweep that lists
+  every dataset the stock reader fails on (REAL and TEXT columns NULL
+  through the inference window; table, dataset, run, columns);
+  `--catalog` / `--tabular` / `--batch` arguments so it runs against a
+  backup too; exit status = the number of hits.
+- **`tiled_server/requirements.txt`** — the Tiled host's install list
+  (`tiled[server]` on the 0.2 line + the ADBC drivers; a range, so a
+  version move on the host goes through `TILED_SETUP.md` § Upgrading the
+  server), and the venv its tests run in: `tiled_server/tests/test_geecs_tiled_sql.py` exercises
+  the override against a real SQLite file through the server's own
+  `SQLAdapter`, the first test pinning the stock failure so the fix is
+  proven to bite.  A venv of its own (CI and `scripts/check.sh` build
+  it from the requirements file) because `tiled[server]` pins
+  `duckdb<1.4` and GEECS-Data-Utils needs `>=1.4.4`; nothing in
+  `geecs_bluesky` imports the server stack and the worker never installs
+  it.
+
 ## [0.108.1] - 2026-09-30
 
 ### Changed
