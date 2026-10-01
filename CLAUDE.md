@@ -164,6 +164,8 @@ GEECS-Core           →  (no intra-repo deps — the GEECS access library:
 GeecsCAGateway       →  GEECS-Core (the access library it serves over CA),
                         GEECS-Schemas (schema-only vocabulary for optional
                         derived-channel overlays)
+GEECS-LogTriage      →  GEECS-Data-Utils (ScanPaths and the scan_log_loader
+                        it fingerprints) — the /triage skill's engine
 GeecsPvaGateway      →  GEECS-Core (transport, DB, pv_naming, the DB
                         variable-type rule), GEECS-Data-Utils (IMAQ decode)
                         — the distributed PVA image server on the camera
@@ -362,7 +364,7 @@ has caused real production incidents; the consequences aren't abstract.
 ### Analysis code is a consumer of scan folders, never a producer
 
 Only the **scanner side** (concretely `claim_scan_number`
-in GeecsBluesky's `plans/run_wrapper.py`, on every scan entry point)
+in GeecsBluesky's `plans/claim_scan.py`, on every scan entry point)
 brings new `scans/ScanNNN/` folders into existence. Everything else — all of
 ScanAnalysis, ImageAnalysis, LogMaker4GoogleDocs, every offline analyzer —
 must treat the scan folder as preexisting and refuse to auto-create it.

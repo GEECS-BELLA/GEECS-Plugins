@@ -47,18 +47,25 @@ Across the repo, from the root files and ``docs/``:
   is a page ``mkdocs.yml`` lists under ``exclude_docs:``).
 * ``broken-link``: every relative Markdown link resolves.
 
+For ``docs/`` the last three overlap what ``mkdocs build`` reports; they are
+here for the package Markdown mkdocs never sees, and do not replace that
+build.
+
 In docstrings, ``#:`` attribute comments and Markdown (``CHANGELOG.md``
 excluded: it is where history is supposed to live):
 
 * ``dangling-ref``: a Sphinx role (``:func:``, ``:class:``, ``:mod:``,
   ``:meth:``, ``:data:``, ``:attr:``, ``:exc:``) or a backticked dotted
   name rooted in a repo import package (``geecs_bluesky.plans.registry``)
-  names something the AST index cannot find. A bare role target
-  (``:meth:`probe```) passes if that name is defined anywhere.
+  names something the AST index cannot find. A member resolves when the
+  class defines or assigns it, or when the class has bases (an inherited
+  member the AST cannot see); a missing name under a module fails. A bare
+  role target (``:meth:`probe```) passes if that name is defined anywhere.
 * ``dangling-path``: a backticked file path (by extension, or ``a/b``
   rooted in a top-level directory) exists nowhere: it is resolved against
-  the citing file's directory, its package root, the repo root and every
-  package; a bare filename found anywhere in the repo is accepted. A
+  the citing file's directory, its package root, the repo root, every
+  package, and the import dirs of the citing package and of any package
+  the line names (GeecsBluesky's ``plans/claim_scan.py``); a bare filename found anywhere in the repo is accepted. A
   pytest node id is checked by its file part; placeholders (``<expt>``,
   ``NNN``) are skipped, as is the gitignored ``.claude/worktrees/``.
 * ``stale-term``: a name from ``STALE_TERMS`` (retired packages, classes
@@ -362,10 +369,13 @@ class Repo:
     def _skip(self, path: Path) -> bool:
         return any(part in SKIP_PARTS for part in path.relative_to(self.root).parts)
 
-    def markdown_files(self) -> Iterator[Path]:
-        """Every ``.md`` in packages, ``docs/`` and the root, minus vendored trees."""
+    def markdown_files(self, prose_only: bool = True) -> Iterator[Path]:
+        """Every ``.md`` in packages, ``docs/`` and the root, minus vendored trees.
+
+        ``prose_only=False`` ignores the prose skips, for the structural checks.
+        """
         for path in sorted(self.root.rglob("*.md")):
-            if not self._skip(path) and self.prose_in_scope(path):
+            if not self._skip(path) and (not prose_only or self.prose_in_scope(path)):
                 yield path
 
     def python_files(self) -> Iterator[Path]:
@@ -380,16 +390,21 @@ class Repo:
     # -- indexes ----------------------------------------------------------- #
 
     @cached_property
-    def symbol_index(self) -> tuple[set[str], set[str]]:
-        """``(dotted, bare)``: every importable dotted name, and every bare name.
+    def symbol_index(self) -> tuple[set[str], set[str], set[str]]:
+        """``(dotted, bare, derived)``: dotted names, bare names, subclasses.
 
         Built from the AST of every import package in every package, so a
         GeecsScanner docstring may cite ``geecs_bluesky.qs_client``.
         Re-exports (``from x import y`` in an ``__init__``) count as members
         of the importing module, so ``geecs_schemas.Preset`` resolves.
+        A class's members are its body's names plus the ``self.x``
+        attributes its methods assign; ``derived`` holds the classes with
+        bases, whose inherited members the AST cannot see.
         """
         dotted: set[str] = set()
         bare: set[str] = set()
+        derived: set[str] = set()
+        reexports: list[tuple[str, str]] = []  # (alias, source)
         for pkg in self._packages:
             for top in pkg.import_packages:
                 for path in top.rglob("*.py"):
@@ -406,16 +421,42 @@ class Repo:
                         tree = ast.parse(path.read_text(errors="replace"))
                     except SyntaxError:
                         continue
+                    package = (
+                        mod if path.name == "__init__.py" else mod.rpartition(".")[0]
+                    )
                     for node in tree.body:
                         for name in _names_defined(node):
                             dotted.add(f"{mod}.{name}")
                             bare.add(name)
+                        if isinstance(node, ast.ImportFrom):
+                            source = _import_source(node, package)
+                            for alias in node.names:
+                                if source and alias.name != "*":
+                                    reexports.append(
+                                        (
+                                            f"{mod}.{alias.asname or alias.name}",
+                                            f"{source}.{alias.name}",
+                                        )
+                                    )
                         if isinstance(node, ast.ClassDef):
-                            for sub in node.body:
-                                for name in _names_defined(sub):
-                                    dotted.add(f"{mod}.{node.name}.{name}")
-                                    bare.add(name)
-        return dotted, bare
+                            if node.bases:
+                                derived.add(f"{mod}.{node.name}")
+                            members = {
+                                n for sub in node.body for n in _names_defined(sub)
+                            }
+                            members |= _self_attributes(node)
+                            for name in members:
+                                dotted.add(f"{mod}.{node.name}.{name}")
+                                bare.add(name)
+        # A re-exported class carries its members: ``geecs_data_utils.ScanData.from_date``.
+        for alias, source in reexports:
+            prefix = source + "."
+            dotted.update(
+                alias + n[len(source) :] for n in dotted.copy() if n.startswith(prefix)
+            )
+            if source in derived:
+                derived.add(alias)
+        return dotted, bare, derived
 
     @cached_property
     def file_names(self) -> set[str]:
@@ -431,6 +472,49 @@ class Repo:
         for pkg in self._packages:
             heads.update(t.name for t in pkg.import_packages)
         return heads
+
+
+def _import_source(node: ast.ImportFrom, package: str) -> str | None:
+    """The absolute module a ``from ... import`` reads from."""
+    if not node.level:
+        return node.module
+    parts = package.split(".")
+    if node.level - 1 >= len(parts):
+        return None
+    base = ".".join(parts[: len(parts) - (node.level - 1)])
+    return f"{base}.{node.module}" if node.module else base
+
+
+def _self_attributes(cls: ast.ClassDef) -> set[str]:
+    """The ``self.x`` attributes a class's methods assign."""
+    return {
+        target.attr
+        for node in ast.walk(cls)
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign))
+        for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+        if isinstance(target, ast.Attribute)
+        and isinstance(target.value, ast.Name)
+        and target.value.id == "self"
+    }
+
+
+def _local_names(path: Path) -> set[str]:
+    """Names a module defines anywhere: defs, classes, parameters, assignments."""
+    try:
+        tree = ast.parse(path.read_text(errors="replace"))
+    except SyntaxError:
+        return set()
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.arg):
+            names.add(node.arg)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            names.add(node.id)
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
+            names.add(node.attr)
+        else:
+            names.update(_names_defined(node))
+    return names
 
 
 def _names_defined(node: ast.AST) -> Iterator[str]:
@@ -813,7 +897,9 @@ def check_orphan_pages(repo: Repo) -> Iterator[Finding]:
 
 def check_broken_links(repo: Repo) -> Iterator[Finding]:
     """Relative Markdown links resolve to something on disk."""
-    for page in repo.markdown_files():
+    for page in repo.markdown_files(prose_only=False):
+        if repo.selected and repo.package_of(page) not in repo.selected:
+            continue
         for lineno, target in _links_in(page):
             if target and not _resolve(page, target).exists():
                 yield Finding(
@@ -832,17 +918,13 @@ def check_broken_links(repo: Repo) -> Iterator[Finding]:
 
 def check_dangling_refs(repo: Repo) -> Iterator[Finding]:
     """Sphinx roles and dotted names resolve against the AST index."""
-    dotted, bare = repo.symbol_index
+    dotted, bare, derived = repo.symbol_index
     roots = {t.name for pkg in repo.packages for t in pkg.import_packages}
     builtin_names = set(dir(builtins))
     local_names: dict[Path, set[str]] = {}
     for doc in iter_doc_texts(repo):
         if doc.path.suffix == ".py" and doc.path not in local_names:
-            local_names[doc.path] = set(
-                re.findall(
-                    r"[A-Za-z_][A-Za-z0-9_]*", doc.path.read_text(errors="replace")
-                )
-            )
+            local_names[doc.path] = _local_names(doc.path)
         for offset, line in _prose_lines(doc.text):
             targets = [m.group("target") for m in SPHINX_ROLE.finditer(line)]
             targets += [m.group("target") for m in DOTTED_NAME.finditer(line)]
@@ -855,7 +937,7 @@ def check_dangling_refs(repo: Repo) -> Iterator[Finding]:
                     ok = target in bare or target in dotted or target in builtin_names
                     ok = ok or target in local_names.get(doc.path, set())
                 elif head in roots:
-                    ok = target in dotted or _is_member_of_known(target, dotted)
+                    ok = target in dotted or target.rsplit(".", 1)[0] in derived
                 else:
                     continue  # stdlib or third-party dotted name: not ours to check
                 if not ok:
@@ -868,19 +950,13 @@ def check_dangling_refs(repo: Repo) -> Iterator[Finding]:
                     )
 
 
-def _is_member_of_known(target: str, dotted: set[str]) -> bool:
-    """``mod.Class.attr`` where ``mod.Class`` exists: a member the AST cannot see."""
-    parent = target.rsplit(".", 1)[0]
-    return "." in parent and parent in dotted
-
-
 def check_dangling_paths(repo: Repo) -> Iterator[Finding]:
     """Backticked file paths in prose exist somewhere they could mean."""
     heads = repo.citable_heads
     pkg_roots = [p.root for p in repo.packages]
     for doc in iter_doc_texts(repo):
         pkg_root = next((r for r in pkg_roots if doc.path.is_relative_to(r)), repo.root)
-        import_dirs = [p.parent for p in pkg_root.glob("*/__init__.py")]
+        own_dirs = [p.parent for p in pkg_root.glob("*/__init__.py")]
         for offset, line in _prose_lines(doc.text):
             for token in BACKTICK.findall(line):
                 token = token.strip().rstrip(",.:;").split("::", 1)[0]
@@ -897,6 +973,10 @@ def check_dangling_paths(repo: Repo) -> Iterator[Finding]:
                 has_ext = token.endswith(PATH_EXTS)
                 if not (has_ext or head in heads):
                     continue
+                # The citing package's import dirs, and those of any package the
+                # line names: "GeecsBluesky's `plans/claim_scan.py`".
+                named = [p for p in repo.packages if p.name in line]
+                import_dirs = own_dirs + [t for p in named for t in p.import_packages]
                 bases = [doc.path.parent, pkg_root, repo.root, *pkg_roots, *import_dirs]
                 bases += [
                     repo.root / n

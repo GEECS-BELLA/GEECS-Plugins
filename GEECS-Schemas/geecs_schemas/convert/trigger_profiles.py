@@ -1,7 +1,7 @@
 """Convert legacy shot-control YAML to :class:`TriggerProfile`.
 
 Legacy dialect (one file per condition under ``shot_control_configurations/``,
-validated today by ``geecs_bluesky.models.shot_control.ShotControlConfig``)::
+once validated by the retired ``ShotControlConfig``)::
 
     device: U_DG645_ShotControl
     variables:

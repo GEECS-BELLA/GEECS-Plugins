@@ -22,9 +22,10 @@ profile.
 
 Developer notes
 ---------------
-Successor of the shot-control YAML validated today by
-``geecs_bluesky.models.shot_control.ShotControlConfig``.  Semantics are kept,
-not contradicted:
+Successor of the shot-control YAML once validated by the retired
+``ShotControlConfig`` (the engine now consumes this profile as
+``geecs_bluesky.models.shot_control.ShotControlWrites``).  Semantics are
+kept, not contradicted:
 
 - The layout pivots from one implicit device with per-variable
   ``{variable: {state: value}}`` tables to per-state **ordered write lists**
