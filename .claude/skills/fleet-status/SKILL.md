@@ -69,7 +69,11 @@ word + version), the **Tiled writer** through that same answer (its
 on the worker host, which the probe cannot read directly; a `[WARN]`
 "DEGRADED" row is a warning, never a gate — runs keep spooling; `[DOWN]`
 "FAILED" means a `.failed` file or a backlog with a failing attempt:
-`journalctl -u geecs-tiled-writer`), the CA gateway's heartbeat /
+`journalctl -u geecs-tiled-writer`), the **Archiver Appliance**'s management API (`getVersions` for the
+version, `getApplianceMetrics` for the PV and disconnected counts; a
+`[ -- ]` row when `config.ini` has no `[archiver] url` — that site runs
+no appliance; `[DOWN]` when the API does not answer:
+`journalctl -u geecs-archiver`), the CA gateway's heartbeat /
 `devices_connected` / `version` PVs (from `lab_status.sh --hardware`,
 read-only — its `role=CA gateway` record line is the contract, not the
 prose), and every PVA image gateway's `version` + `heartbeat` PVs via
@@ -158,6 +162,10 @@ this page in the same PR".
   device roster is healthy — that is `/lab-status --hardware` and the
   gateway DB audit.
 - Tiled has no checkout (pip install); its version is the whole story.
+- The archiver has no checkout either: `geecs-archiver.service` runs
+  `docker compose` from `/etc/geecs/archiver` (upstream's container); the
+  Java process that owns port 17665 is the container's, not the unit's
+  MainPID, so with the unit present the port is never an UNMANAGED row.
 - Port-owner discovery needs `ss -p` to see the pid, which it does only
   for processes owned by the ssh user (or root). A fleet port that shows
   as listening in stage 1 but has no stage-2 record was started by a

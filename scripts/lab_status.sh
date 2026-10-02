@@ -82,6 +82,19 @@ else
     bad "CA gateway  $LAB_HOST:$CA_PORT"
     NET_UP=0
 fi
+if [ -n "$ARCHIVER_HOST" ]; then
+    # The Archiver Appliance: its own management API answers the version.
+    # Down means no history (Phoebus Data Browser archives, trend queries);
+    # scans and live displays are unaffected, so this never flips NET_UP.
+    if port_open "$ARCHIVER_HOST" "$ARCHIVER_PORT"; then
+        aver="$(curl -s -m "$TCP_TIMEOUT" "http://$ARCHIVER_HOST:$ARCHIVER_PORT/mgmt/bpl/getVersions" | sed -nE 's/.*"mgmt_version":"Archiver Appliance Version ([^"]+)".*/\1/p')"
+        ok "Archiver    $ARCHIVER_HOST:$ARCHIVER_PORT (appliance ${aver:-?})"
+    else
+        warn "Archiver    $ARCHIVER_HOST:$ARCHIVER_PORT not listening — no history until geecs-archiver is back; scans unaffected"
+    fi
+else
+    skip "Archiver    (config.ini [archiver] url not set — this site runs no appliance, or the key is missing)"
+fi
 if [ -n "$DATA_ROOT" ]; then
     if [ -d "$DATA_ROOT" ]; then
         ok "Data mount  $DATA_ROOT"

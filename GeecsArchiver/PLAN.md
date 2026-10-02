@@ -305,8 +305,8 @@ Data Browser — consolidation at the viewer, never at the archive, which
 is also the gateway `DEPLOYMENT.md` §5 doctrine ("monitoring layer, not
 access layer") read for a world where the networks do not meet.
 
-**Bootstrap and render.** `bootstrap_host.sh` gains the `archiver`
-service: clone `archiver-checkout`, its poetry env, a Docker Engine
+**Bootstrap and render** (*done in the fleet-wiring PR, 2026-10-02*).
+`bootstrap_host.sh` gains the `archiver` service: clone `archiver-checkout`, its poetry env, a Docker Engine
 prerequisite check shaped like the Redis one (judge the packaged unit,
 not just a binary), the image pull, and the conf render into staging;
 the root steps gain `install -d /etc/geecs/archiver` and the conf

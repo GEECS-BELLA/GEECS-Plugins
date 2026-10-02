@@ -64,3 +64,28 @@ def test_printers_and_bounded(tmp_path: Path) -> None:
         "         e",
         "bounded-ok",
     ]
+
+
+def test_archiver_endpoint_is_optional_with_the_fleet_port_default(
+    tmp_path: Path,
+) -> None:
+    cfg = tmp_path / "config.ini"
+    cfg.write_text(
+        "[tiled]\nuri = http://lab:8000\n[archiver]\nurl = http://192.168.6.14:17665/\n"
+    )
+    assert _run(cfg, 'echo "$ARCHIVER_HOST $ARCHIVER_PORT"').split() == [
+        "192.168.6.14",
+        "17665",
+    ]
+    cfg.write_text(
+        "[tiled]\nuri = http://lab:8000\n[archiver]\nurl = http://arch.example\n"
+    )
+    assert _run(cfg, 'echo "$ARCHIVER_HOST $ARCHIVER_PORT"').split() == [
+        "arch.example",
+        "17665",
+    ]
+    cfg.write_text("[tiled]\nuri = http://lab:8000\n")
+    assert _run(cfg, 'echo "[$ARCHIVER_HOST] $ARCHIVER_PORT"').split() == [
+        "[]",
+        "17665",
+    ]

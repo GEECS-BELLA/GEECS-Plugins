@@ -32,6 +32,12 @@ TILED_PORT="$(printf '%s' "$TILED_URI" | sed -nE 's|^[a-z]+://[^:/]+:([0-9]+).*|
 TILED_PORT="${TILED_PORT:-8000}"
 WORKER_HOST="$(ini_get qserver host)"          # the queueserver worker ([qserver] host)
 DATA_ROOT="$(ini_get Paths GEECS_DATA_LOCAL_BASE_PATH)"
+# The Archiver Appliance ([archiver] url, optional — a site without one has
+# no key, and the probes print a skip row rather than a DOWN).
+ARCHIVER_URL="$(ini_get archiver url)"
+ARCHIVER_HOST="$(printf '%s' "$ARCHIVER_URL" | sed -E 's|^[a-z]+://||; s|[:/].*$||')"
+ARCHIVER_PORT="$(printf '%s' "$ARCHIVER_URL" | sed -nE 's|^[a-z]+://[^:/]+:([0-9]+).*|\1|p')"
+ARCHIVER_PORT="${ARCHIVER_PORT:-17665}"
 DB_PORT=3306
 CA_PORT=5064
 

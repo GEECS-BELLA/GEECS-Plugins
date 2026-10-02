@@ -48,7 +48,12 @@ back into this table.
     same PR; `scripts/fleet_status.sh` is how you check it still matches.
     The [Data Flow Map](../sites/data_flow/index.html) carries a per-block
     status and next-steps panel; when an arc lands or a status changes,
-    update its `INFO` entry in the same PR.
+    update its `INFO` entry in the same PR. Amended **2026-10-02** for the
+    Archiver Appliance row (GeecsArchiver 0.1.x, #1035 + the fleet wiring PR):
+    a new unit on the interim host, upstream's container, port 17665; the
+    bootstrap gained the `archiver` service and a Docker prerequisite check.
+    Its first production start is that PR's hardware step — the row below
+    is the intended picture until `/fleet-status` confirms it.
 
 ## The picture
 
@@ -79,6 +84,7 @@ flowchart TB
         scanner["GEECS Scanner<br/>:8300 (GeecsScanner — the web scanner console)"]
         spool[("Tiled spool<br/>/var/lib/geecs-tiled-writer/spool<br/>one JSONL file per run")]
         writer["geecs-tiled-writer<br/>(GeecsBluesky, no port)"]
+        archiver["Archiver Appliance<br/>:17665 (GeecsArchiver — upstream's container)"]
     end
 
     subgraph camsrv["Camera servers (DB roster: 11 hosts, 9 deployed; Windows)"]
@@ -100,6 +106,9 @@ flowchart TB
     cagw -- "CA (scalar PVs, :SP)" --> phoebus
     cagw -- "CA (readback panel)" --> scanner
     cagw -- "CA (ophyd-async devices)" --> qs
+    cagw -- "CA monitors: the archive set<br/>(geecs-archiver onboard, from the DB)" --> archiver
+    archiver -- "pbraw / HTTP: history" --> phoebus
+    archiver -- "getData.json" --> nb
     pvagw -- "pvAccess (NTNDArray)" --> phoebus
 
     scanner -- "queue API (local)" --> qs
@@ -162,6 +171,7 @@ rendered from it, never edited by hand.
 | GEECS Logbook (GeecsLogbook) — the scans book over scan folders + the ops book; its own process since 2026-09-13 (before: a router in the portal at `/log`). Entries in the unit's `StateDirectory` (`/var/lib/geecs-logbook`: `logbook.db` + `attachments/`, **the irreplaceable part — back it up**), mirrored to `<experiment>/logbook/` on the share | 192.168.6.14 (with the portal; moves with it) | `<root>/portal-checkout` (the portal's clone, own poetry env in `GeecsLogbook/` — a pull there is a deploy of both; restart both) | HTTP 8400 | systemd `geecs-logbook` | `GET /health` → `ok`, `version`, `writable` (true on a deployed host); `GET /` → 307 to today | [GeecsLogbook/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsLogbook/deploy/DEPLOYMENT.md) |
 | GEECS Scanner (GeecsScanner) — the web scanner console: submit / watch / stop scans from a browser, over `geecs_bluesky.qs_client`; runs from the **worker's** checkout so it submits against the plan surface that checkout defines | worker host (co-located with the RE Manager) | `<root>/qs-checkout` | HTTP 8300 | systemd `geecs-scanner` | `GET /health` (`readiness` must read `ready`; `tiled_writer.state` is the writer's word, below); `GET /api/status` | [GeecsScanner/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsScanner/deploy/DEPLOYMENT.md) |
 | Tiled writer (`geecs-tiled-writer`, GeecsBluesky) — registers each run from the engine's spool (`/var/lib/geecs-tiled-writer/spool`, the `StateDirectory` the queueserver unit shares) in Tiled at the run's close, off the engine thread (~25 s per run on the SQLite catalog); each stream's table is one Parquet file in the scan folder (`ScanNNN/ScanDataScanNNN-<stream>.parquet`), registered from the server's `readable_storage` like the camera stacks (GeecsBluesky 0.110.0; `--tables appendable` = the stock SQL table); the spool waits through a dead writer or a Tiled outage, so its heartbeat is a **warning, never a gate** | worker host (beside the RE Manager: the spool is a local directory) | `<root>/qs-checkout` (the worker's package and env; a pull there is a deploy of both — restart both) | — (no port) | systemd `geecs-tiled-writer` | the scanner's `GET /health` → `tiled_writer` (`state` `ok` / `degraded` / `failed`, `pending`, `failed`, `last_ok`, `stale`) and its "tiled writer" chip; on the host `cat /var/lib/geecs-tiled-writer/heartbeat.json` (`last_sweep` within ~6 s — or `registering` naming the run it is on, for its ~25 s; `pending` 0–1 between runs) and `journalctl -u geecs-tiled-writer` ("registered in X s" per run); `scripts/fleet_status.sh` reports the row from `/health` | [GeecsBluesky/qserver/deploy/DEPLOYMENT.md § The Tiled writer](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/DEPLOYMENT.md#the-tiled-writer) |
+| Archiver Appliance (GeecsArchiver) — upstream's EPICS Archiver Appliance in its official container, a CA client of the gateway archiving the experiment's monitored readbacks, `:SP` setpoints, `connected` status and derived channels (the set derived from the GEECS DB by `geecs-archiver onboard`, which reruns after a DB change — the same reflex as the gateway restart). Continuous between-scan history; Tiled stays the per-run record | interim services host (shared with the gateway; moves with the services-server consolidation) | `<root>/archiver-checkout` holds the `geecs-archiver` CLI and the conf templates only — the unit runs `docker compose` from `/etc/geecs/archiver` and never reads the clone | HTTP 17665 (`/mgmt` management UI + API, `/retrieval` data) | systemd `geecs-archiver` (Requires `docker.service`) | `geecs-archiver status`; `GET /mgmt/bpl/getVersions` + `getApplianceMetrics`; `journalctl -u geecs-archiver`; Phoebus Data Browser history behind a live PV | [GeecsArchiver/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsArchiver/DEPLOYMENT.md) |
 | PVA image gateways (GeecsPvaGateway) | each deployed camera server — the roster is the DB (endpoints hosting the experiment's image devices: 11 for Undulator on 2026-09-04), the deployed set is `config.ini [pva] addr_list` (9); the other 2 hosts are *not deployed* (cameras only nominally, no instance installed) and show as such on the screen and in `scripts/fleet_status.sh` | — (installs from the lab's shared "Active Version" clone on the data share; per host only a baked venv — **the share clone's checked-out commit is the fleet pin**) | pvAccess TCP 5075 / UDP 5076 | NSSM service `GeecsPvaGateway` (auto-start, pull-on-restart) | fleet status Phoebus screen (`deploy/fleet_status_undulator.bob`, generated per experiment by `deploy/gen_fleet_status.py`) | [GeecsPvaGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsPvaGateway/DEPLOYMENT.md) |
 | GEECS MySQL DB | 192.168.6.14 | — | 3306 | LabVIEW/GEECS infrastructure (not managed by this repo) | `scripts/lab_status.sh` (a handshake-completing probe — never a bare TCP connect, see below); any `GeecsDb` client connect | — |
 | Data share (NAS) | NAS appliance | — | SMB | storage infrastructure (not managed by this repo) | mount visible, scan folders resolvable | — |

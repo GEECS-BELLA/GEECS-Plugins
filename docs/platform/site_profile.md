@@ -76,10 +76,16 @@ Two kinds of keys, documented line by line in the example file:
   (`GEECS_PVA_ADDR_LIST`, `GEECS_PVA_FILE_PLUGIN_ADDR_LIST` → the
   rendered `[pva]` section, from which `geecs_bluesky` exports
   `EPICS_PVA_ADDR_LIST` at import), the data-share mount, the
-  configs-repo path, and the portal's memory ceiling
+  configs-repo path, the portal's memory ceiling
   (`GEECS_PORTAL_MEMORY_HIGH` / `GEECS_PORTAL_MEMORY_MAX`, rendered into
   the unit's `MemoryHigh=` / `MemoryMax=` — resource directives take no
-  variables either).  These fill the unit templates' placeholders and
+  variables either), and the archiver's address and data root
+  (`GEECS_ARCHIVER_HOST` → `appliances.xml` and the rendered `[archiver]
+  url`; `GEECS_ARCHIVER_DATA_ROOT` → the compose bind mounts; both filled
+  by `GeecsArchiver/deploy/render_conf.sh`, the package's own renderer for
+  its non-unit conf, which the bootstrap calls). `GEECS_ARCHIVER_JAVA_OPTS`
+  is a runtime key of the archiver alone: `docker compose` reads it from the
+  unit's environment at start.  These fill the unit templates' placeholders and
   the rendered `config.ini`; they are harmless in the process
   environment.
 
@@ -113,6 +119,7 @@ delivers them.
 |---|---|---|
 | `gateway-checkout` | CA gateway | control-room-critical, moves rarely |
 | `portal-checkout` | Data Portal **and** the logbook (its own unit and poetry env inside `GeecsLogbook/`) | iterates in days; the two web viewers ship together — a pull is a deploy of both, so restart both |
+| `archiver-checkout` | the Archiver Appliance's `geecs-archiver` CLI and its conf templates | the appliance itself is upstream's container: `geecs-archiver.service` runs `docker compose` from `/etc/geecs/archiver` and never reads the clone, so its uptime does not depend on a checkout; the clone is where onboarding runs and the conf is rendered from |
 | `qs-checkout` | queueserver worker **and** the Tiled writer (`geecs-tiled-writer`: the same package, `GeecsBluesky`, the same poetry env — the consumer half of the worker's document spool); also the MCP server's install source and the web scanner's (`geecs-scanner`, a client of the plan surface this checkout defines) | the MCP bakes a non-editable venv (`<root>/geecs-mcp-venv`) from it so a pull never mutates code under the running server; the writer shares the worker's env on purpose (one spool line format, one env — a pull there is a deploy of both, so restart both) |
 
 The root is the site's choice (`GEECS_CHECKOUT_ROOT`): the service
@@ -196,7 +203,13 @@ Deferred, on purpose, until something forces them:
   exactly what a compose file would consume, so nothing here is wasted.
   The CA gateway, the PVA gateways, and the queueserver stay on bare
   systemd with host networking (EPICS UDP, the GEECS wire protocol, SMB
-  mounts) — and there is nobody to run a container platform.
+  mounts) — and there is nobody to run a container platform. **The one
+  exception (2026-10-02): the Archiver Appliance** runs as upstream's
+  official image under `geecs-archiver.service` — Docker Engine and the
+  compose plugin from Ubuntu's packages (never Docker Desktop), one unit,
+  host networking, the image tag pinned in the repo; "platform" here is
+  one package and one unit, and the bootstrap checks for it. The reasons
+  are `GeecsArchiver/PLAN.md` § 3.
 - **Passwordless sudo for deploys.** A `sudoers.d` rule letting the
   service account run `systemctl {daemon-reload,restart,start,stop}
   geecs-*` would remove the owner's step from routine restarts. Worth it

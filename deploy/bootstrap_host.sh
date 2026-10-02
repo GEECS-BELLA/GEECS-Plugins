@@ -8,7 +8,7 @@
 #   deploy/bootstrap_host.sh SITE_ENV [--ref REF] [--only svc,svc] [--dry-run] [--no-install]
 #
 #   --ref REF      git ref to check out in each clone (default: master)
-#   --only LIST    comma-separated subset of: gateway,portal,logbook,qserver,tiled-writer,mcp,scanner
+#   --only LIST    comma-separated subset of: gateway,portal,logbook,qserver,tiled-writer,mcp,scanner,archiver
 #                  (re-stages only these: the staging dir's units are cleared first,
 #                  so the printed install line covers exactly this run)
 #   --no-install   clone/fetch only; skip poetry/pip installs
@@ -68,16 +68,21 @@ say() { printf '\n== %s\n' "$1"; }
 # --extras` REMOVES the optional packages of every extra it is not given, so
 # a `--only tiled-writer` run installing "tiled" alone would strip ca /
 # qserver / optimize from the env the running worker uses.
-SERVICES="gateway portal logbook qserver tiled-writer mcp scanner"
-clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal|logbook) echo "portal-checkout";; qserver|tiled-writer|mcp|scanner) echo "qs-checkout";; esac; }
-pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; logbook) echo "GeecsLogbook";; qserver|tiled-writer) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; scanner) echo "GeecsScanner";; esac; }
-extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook) echo "";; qserver|tiled-writer) echo "ca tiled qserver optimize";; mcp) echo "analysis-run";; scanner) echo "";; esac; }
+# The archiver (GeecsArchiver) is upstream's Archiver Appliance in its official
+# container under a systemd unit: its clone holds the geecs-archiver CLI and
+# the conf templates; the unit itself runs docker compose from /etc/geecs/archiver
+# and never reads the clone. Its runtime prerequisite is Docker (checked below,
+# the Redis pattern); its conf is rendered by the package's own render_conf.sh.
+SERVICES="gateway portal logbook qserver tiled-writer mcp scanner archiver"
+clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal|logbook) echo "portal-checkout";; qserver|tiled-writer|mcp|scanner) echo "qs-checkout";; archiver) echo "archiver-checkout";; esac; }
+pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; logbook) echo "GeecsLogbook";; qserver|tiled-writer) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; scanner) echo "GeecsScanner";; archiver) echo "GeecsArchiver";; esac; }
+extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook) echo "";; qserver|tiled-writer) echo "ca tiled qserver optimize";; mcp) echo "analysis-run";; scanner) echo "";; archiver) echo "";; esac; }
 # The queueserver is two units: the manager and the geecs-qserver-ready oneshot
 # that opens its worker environment and asserts the plan list after every
 # (re)start (#793) — enabled together, rendered from the same clone. The
 # Tiled writer is its own service (own unit, own restart, no ordering
 # against the manager): the spool directory is the only thing they share.
-units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; tiled-writer) echo "geecs-tiled-writer";; mcp) echo "geecs-mcp";; scanner) echo "geecs-scanner";; esac; }
+units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; tiled-writer) echo "geecs-tiled-writer";; mcp) echo "geecs-mcp";; scanner) echo "geecs-scanner";; archiver) echo "geecs-archiver";; esac; }
 wanted()     { [ -z "$ONLY" ] || case ",$ONLY," in *",$1,"*) return 0;; *) return 1;; esac; }
 # An --only name that is not a service used to select nothing and exit 0 —
 # indistinguishable from success, so a stale runbook (or a retired role)
@@ -92,6 +97,11 @@ if [ -n "$ONLY" ]; then
         esac
     done
 fi
+
+# The archiver's own site values (its reachable address, where the archive
+# lives, the JVM heap): required when the archiver is wanted — render_conf.sh
+# would refuse later, but a missing key must fail here, before anything runs.
+if wanted archiver; then require_site_keys GEECS_ARCHIVER_HOST GEECS_ARCHIVER_DATA_ROOT GEECS_ARCHIVER_JAVA_OPTS; fi
 
 say "site '${GEECS_SITE:-?}' experiment '$GEECS_EXPERIMENT' — ref $REF — root $GEECS_CHECKOUT_ROOT"
 if [ "$(id -un)" != "$GEECS_SERVICE_USER" ]; then
@@ -128,6 +138,27 @@ if wanted qserver; then
     else
         echo "  WARNING: redis-server.service is $redis_enabled — the queueserver launcher would start an UNSUPERVISED redis on 6379; the root steps below install the package"
         REDIS_ROOT_STEP="yes"
+    fi
+fi
+# The archiver runs upstream's appliance image under `docker compose`, as
+# the service account. Three things must hold before its unit can start:
+# Docker Engine with the compose plugin installed, docker.service enabled,
+# and the service account in the docker group. Judge each (the Redis
+# pattern); the root steps install what is missing. Never Docker Desktop.
+DOCKER_ROOT_STEP=""
+if wanted archiver; then
+    docker_bin="$(command -v docker || true)"
+    compose_ok="no"; [ -n "$docker_bin" ] && docker compose version >/dev/null 2>&1 && compose_ok="yes"
+    docker_enabled="$({ systemctl is-enabled docker.service 2>/dev/null || true; } | head -1)"
+    [ -n "$docker_enabled" ] || docker_enabled="absent"
+    if id -u "$GEECS_SERVICE_USER" >/dev/null 2>&1; then
+        if id -nG "$GEECS_SERVICE_USER" 2>/dev/null | tr " " "\n" | grep -qx docker; then in_group="yes"; else in_group="no"; fi
+    else in_group="unknown (no user $GEECS_SERVICE_USER on this machine)"; fi
+    if [ -n "$docker_bin" ] && [ "$compose_ok" = "yes" ] && [ "$docker_enabled" = "enabled" ] && [ "$in_group" = "yes" ]; then
+        echo "  docker ready for the archiver: $docker_bin, compose plugin, docker.service enabled, $GEECS_SERVICE_USER in the docker group"
+    else
+        echo "  WARNING: docker is not ready for the archiver (binary: ${docker_bin:-none}; compose plugin: $compose_ok; docker.service: $docker_enabled; $GEECS_SERVICE_USER in docker group: $in_group) — the root steps below install and enable it"
+        DOCKER_ROOT_STEP="yes"
     fi
 fi
 
@@ -230,6 +261,11 @@ file_plugin_addr_list = ${GEECS_PVA_FILE_PLUGIN_ADDR_LIST:-}
 host = $GEECS_QSERVER_HOST
 doc_addr = $GEECS_QS_DOC_ADDR
 EOF
+        # The appliance's address for geecs-archiver (and the fleet probes), when
+        # this site runs one. Port 17665 is a fleet constant, not a site value.
+        if [ -n "${GEECS_ARCHIVER_HOST:-}" ]; then
+            printf '\n[archiver]\nurl = http://%s:17665\n' "$GEECS_ARCHIVER_HOST"
+        fi
 }
 if [ -s "$CFG" ]; then   # -s: an empty placeholder file counts as absent
     # Never overwritten (it also holds the hand-entered Tiled api_key), but
@@ -262,7 +298,8 @@ templates_of() { case "$1" in
     qserver) echo "GeecsBluesky/qserver/deploy/geecs-qserver.service GeecsBluesky/qserver/deploy/geecs-qserver-ready.service";;
     tiled-writer) echo "GeecsBluesky/qserver/deploy/geecs-tiled-writer.service";;
     mcp) echo "GEECS-MCP/deploy/geecs-mcp.service";;
-    scanner) echo "GeecsScanner/deploy/geecs-scanner.service";; esac; }
+    scanner) echo "GeecsScanner/deploy/geecs-scanner.service";;
+    archiver) echo "GeecsArchiver/deploy/geecs-archiver.service";; esac; }
 TEMPLATE_PATHS=()
 # Services whose clone predates the templated units: no unit is rendered or
 # enabled for them (pulling that clone forward is a deploy of that service,
@@ -299,6 +336,25 @@ if [ "${#TEMPLATE_PATHS[@]}" -eq 0 ]; then echo "  nothing to render (every want
 elif [ "$DRY" -eq 1 ]; then echo "  [dry] render_units.sh $SITE_ENV $STAGE ${TEMPLATE_PATHS[*]}"
 else RENDER_QUIET=1 "$REPO_ROOT/deploy/render_units.sh" "$SITE_ENV" "$STAGE" "${TEMPLATE_PATHS[@]}" | sed 's/^/  /'; fi
 
+# The archiver's conf is not a unit: compose.yaml and appliances.xml carry
+# the same kind of install-time holes, filled by the PACKAGE's renderer
+# (render_units.sh refuses non-units by design) from the archiver's own
+# clone, into $STAGE/archiver, beside its static files. Root installs the
+# directory under /etc/geecs/archiver (the root steps below).
+ARCHIVER_CONF=""
+if wanted archiver; then
+    say "archiver conf (compose.yaml + appliances.xml from site.env, beside the static conf, to the staging dir)"
+    if skipped_clone archiver-checkout || skipped_service archiver; then
+        echo "  skipped — archiver-checkout is not usable or predates the archiver (see above)"
+    else
+        rc="$GEECS_CHECKOUT_ROOT/archiver-checkout/GeecsArchiver/deploy/render_conf.sh"
+        [ -x "$rc" ] || { echo "  clone absent — render_conf.sh from this clone ($REPO_ROOT)"; rc="$REPO_ROOT/GeecsArchiver/deploy/render_conf.sh"; }
+        if [ "$DRY" -eq 1 ]; then echo "  [dry] $rc $SITE_ENV $STAGE/archiver"
+        else RENDER_QUIET=1 "$rc" "$SITE_ENV" "$STAGE/archiver" | sed 's/^/  /'; fi
+        ARCHIVER_CONF="yes"
+    fi
+fi
+
 say "root steps (a human runs these; nothing above needed sudo)"
 if [ -n "$REDIS_ROOT_STEP" ]; then
     # First: geecs-qserver.service is ordered After= this unit, and its
@@ -308,12 +364,24 @@ if [ -n "$REDIS_ROOT_STEP" ]; then
     echo "  echo 'vm.overcommit_memory = 1' | sudo tee /etc/sysctl.d/99-redis-overcommit.conf >/dev/null && sudo sysctl --system >/dev/null"
     echo "  sudo systemctl enable --now redis-server.service"
 fi
+if [ -n "$DOCKER_ROOT_STEP" ]; then
+    # The archiver's runtime. The group line takes effect for the unit at its
+    # next start (systemd reads /etc/group then); an interactive shell needs a
+    # new login to use the docker CLI.
+    echo "  sudo apt-get update && sudo apt-get install -y docker.io docker-compose-v2   # the archiver's runtime: Engine + compose plugin (never Docker Desktop)"
+    echo "  sudo usermod -aG docker $GEECS_SERVICE_USER   # the unit runs docker compose as the service account"
+    echo "  sudo systemctl enable --now docker.service"
+fi
 echo "  sudo install -D -m 0644 \"$SITE_ENV\" \"$SITE_ENV_INSTALLED\""
 if [ "${#TEMPLATE_PATHS[@]}" -gt 0 ]; then
     echo "  sudo install -m 0644 \"$STAGE\"/*.service /etc/systemd/system/"
     echo "  sudo systemctl daemon-reload"
 else
     echo "  # nothing staged — no units to install"
+fi
+if [ -n "$ARCHIVER_CONF" ]; then
+    echo "  sudo install -d -m 0755 /etc/geecs/archiver && sudo install -m 0644 \"$STAGE/archiver\"/* /etc/geecs/archiver/   # the appliance's rendered conf (compose.yaml, appliances.xml, policies.py, ...)"
+    echo "  sudo install -d -o $GEECS_SERVICE_USER -g $GEECS_SERVICE_USER -m 0750 \"$GEECS_ARCHIVER_DATA_ROOT/sts\" \"$GEECS_ARCHIVER_DATA_ROOT/lts\"   # the archive: short-term and long-term stores"
 fi
 for s in $SERVICES; do
     wanted "$s" || continue
@@ -338,4 +406,12 @@ if [ -n "$REDIS_ROOT_STEP" ]; then
     echo "         enabling geecs-qserver, or its launcher will start an unsupervised Redis (see the qserver runbook)." >&2
     echo
 fi
+if [ -n "$DOCKER_ROOT_STEP" ]; then
+    echo "WARNING: docker is not ready on this host — run the Docker root steps above BEFORE enabling geecs-archiver" >&2
+    echo "         (the unit Requires=docker.service and runs compose as $GEECS_SERVICE_USER, who must be in the docker group)." >&2
+    echo
+fi
 echo "Then: scripts/fleet_status.sh from any client — every row should read systemd / clean / matching versions."
+if [ -n "$ARCHIVER_CONF" ]; then
+    echo "Then, for the archiver: geecs-archiver onboard --experiment $GEECS_EXPERIMENT --dry-run (from the archiver clone's poetry env, or any client with [archiver] url) — GeecsArchiver/DEPLOYMENT.md § Onboarding."
+fi

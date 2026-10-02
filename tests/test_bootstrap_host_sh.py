@@ -223,3 +223,140 @@ def test_usage_only_list_matches_the_service_table(tmp_path: Path) -> None:
         if "--only LIST" in line
     )
     assert advertised == services
+
+
+# --- the archiver (GeecsArchiver): Docker prerequisite, conf render, root steps ---
+
+DOCKER_READY_SYSTEMCTL = """\
+case "$*" in
+    "is-enabled redis-server.service") echo enabled ;;
+    "is-enabled docker.service") echo enabled ;;
+    *) exit 1 ;;
+esac
+"""
+
+
+def _run_with_docker(tmp_path: Path, *extra: str) -> subprocess.CompletedProcess[str]:
+    """Dry-run with systemctl saying docker.service is enabled, a stub docker with a
+    compose plugin, and an ``id`` that puts the example service account in the docker group."""
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    (stub_dir / "systemctl").write_text(
+        "#!/usr/bin/env bash\n" + DOCKER_READY_SYSTEMCTL
+    )
+    (stub_dir / "docker").write_text(
+        '#!/usr/bin/env bash\n[ "$1 $2" = "compose version" ] && { echo \'Docker Compose version v2.40.3\'; exit 0; }; exit 1\n'
+    )
+    (stub_dir / "id").write_text(
+        '#!/usr/bin/env bash\ncase "$*" in\n  "-u geecs") echo 1000 ;;\n  "-nG geecs") echo "geecs docker" ;;\n  *) exec /usr/bin/id "$@" ;;\nesac\n'
+    )
+    for f in ("systemctl", "docker", "id"):
+        (stub_dir / f).chmod(0o755)
+    env = dict(os.environ, PATH=f"{stub_dir}:{os.environ.get('PATH', '')}")
+    return subprocess.run(
+        ["bash", str(BOOTSTRAP), str(_site_env(tmp_path)), "--dry-run", *extra],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=REPO_ROOT,
+    )
+
+
+def test_archiver_is_a_service_family_with_its_own_clone_and_unit(
+    tmp_path: Path,
+) -> None:
+    r = _run(tmp_path, REDIS_ENABLED, "--only", "archiver")
+    assert r.returncode == 0, r.stderr
+    assert "archiver-checkout" in r.stdout
+    assert "GeecsArchiver/deploy/geecs-archiver.service" in r.stdout
+    assert "render_conf.sh" in r.stdout and "deploy-staging/archiver" in r.stdout
+    assert "sudo systemctl enable --now geecs-archiver" in r.stdout
+    # the conf and the archive directories are installed before the unit is enabled
+    assert r.stdout.index("/etc/geecs/archiver/") < r.stdout.index(
+        "enable --now geecs-archiver"
+    )
+    assert (
+        "/srv/geecs-archiver/sts" in r.stdout and "/srv/geecs-archiver/lts" in r.stdout
+    )
+    assert "geecs-archiver onboard --experiment Undulator --dry-run" in r.stdout
+
+
+def test_missing_docker_prints_the_root_steps_before_enabling_the_archiver(
+    tmp_path: Path,
+) -> None:
+    r = _run(
+        tmp_path, REDIS_ENABLED, "--only", "archiver"
+    )  # the stub systemctl knows no docker.service; no docker on PATH is not assumed
+    assert r.returncode == 0, r.stderr
+    assert "docker is not ready for the archiver" in r.stdout
+    assert "apt-get install -y docker.io docker-compose-v2" in r.stdout
+    assert "usermod -aG docker geecs" in r.stdout
+    assert r.stdout.index("enable --now docker.service") < r.stdout.index(
+        "enable --now geecs-archiver"
+    )
+    assert "run the Docker root steps above BEFORE enabling geecs-archiver" in r.stderr
+
+
+def test_ready_docker_adds_no_root_step(tmp_path: Path) -> None:
+    r = _run_with_docker(tmp_path, "--only", "archiver")
+    assert r.returncode == 0, r.stderr
+    assert "docker ready for the archiver" in r.stdout
+    assert "apt-get install -y docker.io" not in r.stdout
+    assert "Docker root steps" not in r.stderr
+
+
+def test_docker_is_skipped_when_the_archiver_is_not_wanted(tmp_path: Path) -> None:
+    r = _run(tmp_path, REDIS_ENABLED, "--only", "portal")
+    assert r.returncode == 0, r.stderr
+    for marker in (
+        "docker is not ready",
+        "apt-get install -y docker.io",
+        "docker.service",
+        "archiver-checkout",
+        "geecs-archiver",
+        "render_conf.sh",
+    ):
+        assert marker not in r.stdout, marker
+    assert "Docker root steps" not in r.stderr
+
+
+def test_archiver_keys_are_required_only_when_the_archiver_is_wanted(
+    tmp_path: Path,
+) -> None:
+    site = _site_env(tmp_path)
+    site.write_text(
+        "\n".join(
+            ln
+            for ln in site.read_text().splitlines()
+            if not ln.startswith("GEECS_ARCHIVER_")
+        )
+        + "\n"
+    )
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    (stub_dir / "systemctl").write_text("#!/usr/bin/env bash\n" + REDIS_ENABLED)
+    (stub_dir / "systemctl").chmod(0o755)
+    env = dict(os.environ, PATH=f"{stub_dir}:{os.environ.get('PATH', '')}")
+    wanted = subprocess.run(
+        ["bash", str(BOOTSTRAP), str(site), "--dry-run", "--only", "archiver"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=REPO_ROOT,
+    )
+    assert wanted.returncode == 2 and "GEECS_ARCHIVER_HOST" in wanted.stderr
+    not_wanted = subprocess.run(
+        ["bash", str(BOOTSTRAP), str(site), "--dry-run", "--only", "portal"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=REPO_ROOT,
+    )
+    assert not_wanted.returncode == 0, not_wanted.stderr
+
+
+def test_rendered_config_ini_carries_the_archiver_section(tmp_path: Path) -> None:
+    r = _run(tmp_path, REDIS_ENABLED)
+    assert r.returncode == 0, r.stderr
+    assert "[archiver]" in r.stdout
+    assert "url = http://192.168.6.14:17665" in r.stdout

@@ -441,8 +441,11 @@ consolidated recipe.**
 - The solo-maintainer investment goes into the **recipe** — this document
   plus `deploy/`, versioned in git — so standing up the second facility is
   an hour's work and both stay in lockstep.
-- Central consolidation belongs at the **monitoring layer** (a future
-  archiver pulling from both CA servers), never at the access layer. A
+- Consolidation, where anyone wants it, belongs at the **viewer** — a
+  Phoebus Data Browser listing both facilities' archiver URLs — never at
+  the access layer. The facilities' networks do not meet, so each runs its
+  own Archiver Appliance (`GeecsArchiver/PLAN.md` § 6), and the per-
+  experiment PV prefix keeps the two archives disjoint by construction. A
   central Tiled is a possible later analytics consolidation — not now
   (writes fail soft, but mixed topology means two mental models).
 
