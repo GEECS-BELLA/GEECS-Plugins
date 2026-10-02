@@ -33,8 +33,15 @@ from geecs_schemas.action_plan import (
     SetStep,
     WaitStep,
 )
-from geecs_schemas.archive_policy import ArchivePolicy, SamplingOverride
+from geecs_schemas.archive_policy import (
+    ARCHIVE_POLICY_FILENAME,
+    ARCHIVER_CONFIG_FOLDER,
+    ArchivePolicy,
+    SamplingOverride,
+)
 from geecs_schemas.derived_channels import (
+    DERIVED_CHANNELS_FILENAME,
+    GATEWAY_CONFIG_FOLDER,
     DerivedChannel,
     DerivedChannels,
     DerivedInput,
@@ -113,8 +120,12 @@ __all__ = [
     # archive_policy
     "ArchivePolicy",
     "SamplingOverride",
+    "ARCHIVER_CONFIG_FOLDER",
+    "ARCHIVE_POLICY_FILENAME",
     # derived_channels
     "DerivedChannels",
+    "GATEWAY_CONFIG_FOLDER",
+    "DERIVED_CHANNELS_FILENAME",
     "DerivedChannel",
     "DerivedInput",
     # preset

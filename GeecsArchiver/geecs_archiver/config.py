@@ -19,16 +19,17 @@ from geecs_core.configs_repo import (
     read_config_entry,
     scanner_configs_base,
 )
-from geecs_schemas import ArchivePolicy, DerivedChannels
+from geecs_schemas import (
+    ARCHIVE_POLICY_FILENAME,
+    ARCHIVER_CONFIG_FOLDER,
+    DERIVED_CHANNELS_FILENAME,
+    GATEWAY_CONFIG_FOLDER,
+    ArchivePolicy,
+    DerivedChannels,
+)
 
 DEFAULT_PORT = 17665
 
-#: Where the per-experiment overlay lives inside the configs repo, beside
-#: the gateway's ``gateway/derived_channels.yaml``.
-ARCHIVER_FOLDER = "archiver"
-POLICY_FILENAME = "archive_policy.yaml"
-GATEWAY_FOLDER = "gateway"
-DERIVED_CHANNELS_FILENAME = "derived_channels.yaml"
 
 __all__ = [
     "archiver_url",
@@ -75,14 +76,14 @@ def retrieval_url(base_url: str) -> str:
 def policy_path(experiment: str, base: Path | None = None) -> Path | None:
     """The experiment's ``archive_policy.yaml`` if it exists, else ``None``."""
     return experiment_config_path(
-        experiment, ARCHIVER_FOLDER, POLICY_FILENAME, base=base
+        experiment, ARCHIVER_CONFIG_FOLDER, ARCHIVE_POLICY_FILENAME, base=base
     )
 
 
 def derived_channels_path(experiment: str, base: Path | None = None) -> Path | None:
     """The experiment's gateway ``derived_channels.yaml`` if it exists, else ``None``."""
     return experiment_config_path(
-        experiment, GATEWAY_FOLDER, DERIVED_CHANNELS_FILENAME, base=base
+        experiment, GATEWAY_CONFIG_FOLDER, DERIVED_CHANNELS_FILENAME, base=base
     )
 
 

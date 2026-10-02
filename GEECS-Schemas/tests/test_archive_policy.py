@@ -73,3 +73,45 @@ def test_from_path_yaml_json_and_empty(tmp_path):
 
 def test_registered_as_a_config_kind():
     assert SCHEMA_REGISTRY["archive_policy"] is ArchivePolicy
+
+
+def test_include_entries_must_be_served_pv_names():
+    ArchivePolicy(include=["undulator:u_s1h:current", "undulator:u_s1h:current:SP"])
+    for bad in (
+        "Undulator:CAGateway:devices_connected",
+        "nocolon",
+        "undulator:u_s1h:current:sp",
+    ):
+        with pytest.raises(ValidationError, match="not a served PV name"):
+            ArchivePolicy(include=[bad])
+
+
+def test_from_path_without_pyyaml_explains_itself(tmp_path, monkeypatch):
+    import sys
+
+    y = tmp_path / "p.yaml"
+    y.write_text("schema_version: 1\n")
+    monkeypatch.setitem(sys.modules, "yaml", None)
+    with pytest.raises(ImportError, match="PyYAML is required"):
+        ArchivePolicy.from_path(y)
+    j = tmp_path / "p.json"
+    j.write_text("{}")
+    assert ArchivePolicy.from_path(j) == ArchivePolicy()  # JSON needs no yaml
+
+
+def test_overlay_location_constants():
+    from geecs_schemas import (
+        ARCHIVE_POLICY_FILENAME,
+        ARCHIVER_CONFIG_FOLDER,
+        DERIVED_CHANNELS_FILENAME,
+        GATEWAY_CONFIG_FOLDER,
+    )
+
+    assert (ARCHIVER_CONFIG_FOLDER, ARCHIVE_POLICY_FILENAME) == (
+        "archiver",
+        "archive_policy.yaml",
+    )
+    assert (GATEWAY_CONFIG_FOLDER, DERIVED_CHANNELS_FILENAME) == (
+        "gateway",
+        "derived_channels.yaml",
+    )

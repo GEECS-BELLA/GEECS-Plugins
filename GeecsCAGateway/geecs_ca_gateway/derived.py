@@ -7,6 +7,8 @@ import math
 from pathlib import Path
 
 from geecs_schemas import (
+    DERIVED_CHANNELS_FILENAME,
+    GATEWAY_CONFIG_FOLDER,
     DerivedChannel as DerivedChannelSpec,
     DerivedChannels,
     DerivedInput as DerivedInputSpec,
@@ -47,8 +49,6 @@ _WHITELIST = ExpressionWhitelist(
     bool_ops=(ast.And, ast.Or),
     compare_ops=(ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE),
 )
-GATEWAY_CONFIG_FOLDER = "gateway"
-DERIVED_CHANNELS_FILENAME = "derived_channels.yaml"
 
 __all__ = [
     "DerivedChannelSpec",

@@ -12,6 +12,12 @@ from pydantic import Field, model_validator
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 
+#: Where the gateway's overlay lives inside the configs repository, per
+#: experiment: ``scanner_configs/experiments/<Experiment>/gateway/derived_channels.yaml``.
+#: The gateway (serving) and the archiver (requesting) both resolve it from here.
+GATEWAY_CONFIG_FOLDER = "gateway"
+DERIVED_CHANNELS_FILENAME = "derived_channels.yaml"
+
 
 class DerivedInput(SchemaModel):
     """One source variable bound to a symbol in a derived-channel formula."""

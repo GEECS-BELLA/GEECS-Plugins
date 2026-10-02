@@ -23,11 +23,16 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 
 SamplingMethod = Literal["MONITOR", "SCAN"]
+
+#: Where this overlay lives inside the configs repository, per experiment:
+#: ``scanner_configs/experiments/<Experiment>/archiver/archive_policy.yaml``.
+ARCHIVER_CONFIG_FOLDER = "archiver"
+ARCHIVE_POLICY_FILENAME = "archive_policy.yaml"
 
 
 class SamplingOverride(SchemaModel):
@@ -85,6 +90,23 @@ class ArchivePolicy(VersionedSchemaModel):
             "to them."
         ),
     )
+
+    @field_validator("include")
+    @classmethod
+    def _include_is_spelled_as_served(cls, pvs: list[str]) -> list[str]:
+        """A served PV name is lowercase components joined by ':', optionally ':SP'."""
+        for pv in pvs:
+            body = pv[: -len(":SP")] if pv.endswith(":SP") else pv
+            mis_cased_suffix = body.lower().endswith(
+                ":sp"
+            )  # the setpoint suffix is the literal ':SP'
+            if not body or body != body.lower() or ":" not in body or mis_cased_suffix:
+                raise ValueError(
+                    f"include entry {pv!r} is not a served PV name: lowercase components "
+                    "joined by ':' (an optional ':SP' suffix), e.g. 'undulator:u_s1h:current:SP'"
+                )
+        return pvs
+
     include_setpoints: bool = Field(
         default=True,
         description=(

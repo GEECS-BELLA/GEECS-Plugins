@@ -66,15 +66,24 @@ class VersionedSchemaModel(SchemaModel):
         An empty file is the empty document (every field at its default).
         The one loader every consumer of a config kind shares — the gateway's
         derived channels, the archiver's policy — so "how a file becomes a
-        model" is spelled once.
+        model" is spelled once.  YAML needs PyYAML, which this package keeps
+        out of its runtime dependencies (serialization is not the contract);
+        the error says so, and ``.json`` needs nothing.
         """
-        import yaml
-
         file = Path(path)
         text = file.read_text(encoding="utf-8")
-        data = (
-            json.loads(text) if file.suffix.lower() == ".json" else yaml.safe_load(text)
-        )
+        if file.suffix.lower() == ".json":
+            data = json.loads(text)
+        else:
+            try:
+                import yaml
+            except ImportError as exc:
+                raise ImportError(
+                    "PyYAML is required to load YAML documents; geecs-schemas keeps it "
+                    "out of its runtime dependencies (YAML is serialization, not the "
+                    "contract). Install pyyaml, or pass a .json file."
+                ) from exc
+            data = yaml.safe_load(text)
         return cls.model_validate(data or {})
 
 

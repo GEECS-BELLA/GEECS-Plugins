@@ -145,8 +145,9 @@ def test_onboard_reports_a_stuck_request_on_every_run(appliance, monkeypatch, ca
             ArchiveCandidate("undulator:u_ghost:x", "U_Ghost", "x", "readback", "float")
         ],
     )
-    # first run (no wait): the ghost is submitted; the appliance only lists it as
-    # never-connected once its own type probe gives up, so this run is clean
+    # first run (no wait): the ghost is submitted and this run returns before the
+    # appliance's type probe can list it as never-connected (verify, or the next run,
+    # is where the alarm fires)
     assert cli.main(["onboard", "--experiment", "Undulator", "--wait", "0"]) == 0
     assert "undulator:u_ghost:x" in appliance.never_connected
     capsys.readouterr()

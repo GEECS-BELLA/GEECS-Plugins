@@ -31,16 +31,14 @@ client and reconnects on its own through gateway restarts.
 
 ## 2. Install
 
-!!! warning "Container recipe unverified until Phase 3"
-    The 2026-10-02 pilot ran the appliance from tarballs as the service
-    account. Everything container-specific below — `docker compose` as the
-    service account, Tomcat running as a non-root uid inside upstream's
-    image (its `work/`, `temp/`, `logs/` directories), the bind-mounted
-    `server.xml`/`context.xml`, JDBM2 persistence through the state
-    directory, a re-added PV picking up its existing partitions — is
-    designed from upstream's image and documentation and **has not run
-    yet**. The first production install is its test; fix the recipe there
-    and drop this box.
+> **Container recipe unverified until Phase 3.** The 2026-10-02 pilot ran the
+> appliance from tarballs as the service account. Everything container-specific
+> below — `docker compose` as the service account, Tomcat running as a non-root
+> uid inside upstream's image (its `work/`, `temp/`, `logs/` directories), the
+> bind-mounted `server.xml`/`context.xml`, JDBM2 persistence through the state
+> directory, a re-added PV picking up its existing partitions — is designed from
+> upstream's image and documentation and **has not run yet**. The first
+> production install is its test; fix the recipe there and drop this note.
 
 ### Prerequisites (root, once per host)
 

@@ -21,6 +21,7 @@ from caproto._data import CannotExceedLimits
 from geecs_core.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 
 from geecs_core.db.alarms import AlarmLimits
+from geecs_core.pv_naming import device_status_pv
 from geecs_ca_gateway.channels import _to_text
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
 from geecs_core.exceptions import GeecsCommandFailedError
@@ -933,6 +934,9 @@ def test_pvdb_has_connected_and_gateway_status_pvs() -> None:
     )
     gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
 
+    # The served name is the one geecs_core.pv_naming mints for the gateway's
+    # clients (the archiver's archive set): a rename here must fail statically.
+    assert device_status_pv("Test", "U_Dev") == "test:u_dev:connected"
     assert "test:u_dev:connected" in gw.pvdb
     assert str(gw.pvdb["test:u_dev:connected"].value) == "Disconnected"
     for suffix in ("uptime", "heartbeat", "devices_connected", "version"):
