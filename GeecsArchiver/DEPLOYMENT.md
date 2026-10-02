@@ -72,21 +72,21 @@ GEECS_ARCHIVER_DATA_ROOT=/srv/geecs-archiver
 GEECS_ARCHIVER_JAVA_OPTS=-Xmx1g
 ```
 
+Work on a copy, as the repo's recipe does (`/etc/geecs/site.env` is
+root's; the bootstrap's first root line installs the copy over it):
+
 ```bash
+cp /etc/geecs/site.env ~/site.env && $EDITOR ~/site.env      # add the three keys
 cd <root>/qs-checkout          # the bootstrap runs from one of the clones it owns
-deploy/bootstrap_host.sh /etc/geecs/site.env --only archiver
+deploy/bootstrap_host.sh ~/site.env --only archiver
 ```
 
 It is unprivileged and rerunnable. Its printed root lines are, in
-substance:
+substance (the Docker lines of § Prerequisites first, when Docker was
+not ready):
 
 ```bash
-# only when docker was not ready:
-sudo apt-get update && sudo apt-get install -y docker.io docker-compose-v2
-sudo usermod -aG docker <service account>
-sudo systemctl enable --now docker.service
-# always:
-sudo install -D -m 0644 <site.env> /etc/geecs/site.env
+sudo install -D -m 0644 ~/site.env /etc/geecs/site.env
 sudo install -m 0644 ~/deploy-staging/*.service /etc/systemd/system/ && sudo systemctl daemon-reload
 sudo install -d -m 0755 /etc/geecs/archiver && sudo install -m 0644 ~/deploy-staging/archiver/* /etc/geecs/archiver/
 sudo install -d -o <service account> -g <service account> -m 0750 "$GEECS_ARCHIVER_DATA_ROOT"/sts "$GEECS_ARCHIVER_DATA_ROOT"/lts

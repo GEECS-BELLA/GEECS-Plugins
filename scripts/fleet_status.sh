@@ -124,10 +124,11 @@ fi
 # Endpoints come from lab_env.sh (config.ini); only the experiment fallback is ours.
 [ -n "$EXPERIMENT" ] || EXPERIMENT="$(config_experiment)"
 
-# Hosts to visit over ssh: the lab server and the worker, deduplicated
-# (today they are one box; the fleet map says which services live where).
+# Hosts to visit over ssh: the lab server, the worker and the archiver's
+# host, deduplicated (today they are one box; the fleet map says which
+# services live where).
 HOSTS=""
-for h in "$LAB_HOST" "$WORKER_HOST"; do
+for h in "$LAB_HOST" "$WORKER_HOST" "$ARCHIVER_HOST"; do
     [ -n "$h" ] || continue
     case " $HOSTS " in *" $h "*) ;; *) HOSTS="$HOSTS $h" ;; esac
 done
@@ -179,7 +180,7 @@ if [ "$NET_UP" -eq 1 ]; then
     # the unit runs docker compose from /etc/geecs/archiver. A site with no
     # [archiver] url runs no appliance: a skip row, never DOWN.
     if [ -n "$ARCHIVER_HOST" ]; then
-        av="$(bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$ARCHIVER_HOST:$ARCHIVER_PORT/mgmt/bpl/getVersions" | sed -nE 's/.*"mgmt_version":"Archiver Appliance Version ([^"]+)".*/\1/p')"
+        av="$(archiver_version "$ARCHIVER_HOST" "$ARCHIVER_PORT")"
         if [ -n "$av" ]; then
             am="$(bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$ARCHIVER_HOST:$ARCHIVER_PORT/mgmt/bpl/getApplianceMetrics")"
             apv="$(printf '%s' "$am" | sed -nE 's/.*"pvCount":"([0-9]+)".*/\1/p')"
@@ -572,9 +573,11 @@ done
 # 2) whoever owns each fleet port, if not already listed via its unit
 for port in $FLEET_PORTS; do
     # The archiver listens from inside its container (host networking): the
-    # Java process owning 17665 is not the unit MainPID (docker compose), so
-    # with the unit present the port is accounted for — never an UNMANAGED row.
-    if [ "$port" = "17665" ]; then case "$SEEN_UNITS" in *" geecs-archiver.service "*) continue;; esac; fi
+    # Java process owning 17665 is not the unit MainPID (docker compose). With
+    # the unit ACTIVE the port is accounted for — no UNMANAGED row; with the
+    # unit dead or absent, whoever answers on 17665 (a hand-started pilot) is
+    # exactly what this loop exists to show.
+    if [ "$port" = "17665" ] && systemctl is-active --quiet geecs-archiver.service 2>/dev/null; then continue; fi
     pid="$(ss -ltnpH "sport = :$port" 2>/dev/null | sed -nE "s/.*pid=([0-9]+).*/\1/p" | head -1)"
     [ -n "$pid" ] || continue
     case "$SEEN" in *" $pid "*) continue;; esac

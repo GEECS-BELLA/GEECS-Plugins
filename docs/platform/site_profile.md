@@ -20,7 +20,7 @@ only as an example or a placeholder.
 
 | Side | Home | Who reads it |
 |---|---|---|
-| **Client** | `~/.config/geecs_python_api/config.ini` — `[Experiment]`, `[Paths]`, `[epics] ca_addr_list`, `[pva] addr_list` / `file_plugin_addr_list`, `[Paths] geecs_tiled_host_data_base_path` (only when the Tiled host mounts the data share elsewhere than the worker — the writer's Parquet tables are registered by the Tiled host's path), `[tiled]` (`uri`, `api_key`), `[qserver]`, `[mcp]`, `[analysis] worker_cap` (reference: [Getting started](../tutorials/getting_started.md)) | every Python client and every service process; `scripts/lab_status.sh`, `scripts/fleet_status.sh` |
+| **Client** | `~/.config/geecs_python_api/config.ini` — `[Experiment]`, `[Paths]`, `[epics] ca_addr_list`, `[pva] addr_list` / `file_plugin_addr_list`, `[Paths] geecs_tiled_host_data_base_path` (only when the Tiled host mounts the data share elsewhere than the worker — the writer's Parquet tables are registered by the Tiled host's path), `[tiled]` (`uri`, `api_key`), `[qserver]`, `[mcp]`, `[archiver] url` (only where the site runs an Archiver Appliance), `[analysis] worker_cap` (reference: [Getting started](../tutorials/getting_started.md)) | every Python client and every service process; `scripts/lab_status.sh`, `scripts/fleet_status.sh` |
 | **Host** | `/etc/geecs/site.env` — one file per service host, from [`deploy/site.env.example`](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/deploy/site.env.example) | every systemd unit (`EnvironmentFile=`), `deploy/render_units.sh`, `deploy/bootstrap_host.sh` |
 
 On a service host `site.env` is the root: the bootstrap renders the
@@ -45,9 +45,11 @@ the WaveKit install is the [HASO runbook](../analysis/haso.md).
 
 What is **not** a site value: the fleet's port numbers. The fleet map
 fixes them (CA 5064, Tiled 8000, portal 8200, MCP 8100, logbook 8400,
-queueserver 60615/60625/5568, PVA 5075/5076) and every client assumes them.
-Nor are the units' state directories (`/var/lib/geecs-logbook` for the
-entries, `/var/lib/geecs-tiled-writer` for the Tiled spool): the same
+queueserver 60615/60625/5568, PVA 5075/5076, archiver 17665) and every
+client assumes them. Nor are the units' state directories
+(`/var/lib/geecs-logbook` for the entries, `/var/lib/geecs-tiled-writer`
+for the Tiled spool, `/var/lib/geecs-archiver` for the appliance's
+configuration store): the same
 path on every host, declared by `StateDirectory=` in the units — the
 spool's is also set explicitly as `GEECS_TILED_WRITER_STATE` in the three
 units that share it (queueserver, writer, scanner), never in `site.env`.

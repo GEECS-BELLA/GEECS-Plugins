@@ -236,19 +236,30 @@ esac
 """
 
 
-def _run_with_docker(tmp_path: Path, *extra: str) -> subprocess.CompletedProcess[str]:
-    """Dry-run with systemctl saying docker.service is enabled, a stub docker with a
-    compose plugin, and an ``id`` that puts the example service account in the docker group."""
+def _run_with_docker(
+    tmp_path: Path, *extra: str, in_group: bool = True, compose: bool = True
+) -> subprocess.CompletedProcess[str]:
+    """Dry-run with systemctl saying docker.service is enabled, a stub docker (with or
+    without the compose plugin), and an ``id`` that puts the example service account in
+    the docker group or not."""
     stub_dir = tmp_path / "bin"
     stub_dir.mkdir()
     (stub_dir / "systemctl").write_text(
         "#!/usr/bin/env bash\n" + DOCKER_READY_SYSTEMCTL
     )
-    (stub_dir / "docker").write_text(
-        '#!/usr/bin/env bash\n[ "$1 $2" = "compose version" ] && { echo \'Docker Compose version v2.40.3\'; exit 0; }; exit 1\n'
+    compose_rc = (
+        "{ echo 'Docker Compose version v2.40.3'; exit 0; }" if compose else "exit 1"
     )
+    (stub_dir / "docker").write_text(
+        f'#!/usr/bin/env bash\n[ "$1 $2" = "compose version" ] && {compose_rc}; exit 1\n'
+    )
+    groups = "geecs docker" if in_group else "geecs"
     (stub_dir / "id").write_text(
-        '#!/usr/bin/env bash\ncase "$*" in\n  "-u geecs") echo 1000 ;;\n  "-nG geecs") echo "geecs docker" ;;\n  *) exec /usr/bin/id "$@" ;;\nesac\n'
+        '#!/usr/bin/env bash\ncase "$*" in\n'
+        '  "-u geecs") echo 1000 ;;\n'
+        f'  "-nG geecs") echo "{groups}" ;;\n'
+        '  *) exec /usr/bin/id "$@" ;;\n'
+        "esac\n"
     )
     for f in ("systemctl", "docker", "id"):
         (stub_dir / f).chmod(0o755)
@@ -360,3 +371,62 @@ def test_rendered_config_ini_carries_the_archiver_section(tmp_path: Path) -> Non
     assert r.returncode == 0, r.stderr
     assert "[archiver]" in r.stdout
     assert "url = http://192.168.6.14:17665" in r.stdout
+
+
+def test_service_account_outside_the_docker_group_is_not_ready(tmp_path: Path) -> None:
+    r = _run_with_docker(tmp_path, "--only", "archiver", in_group=False)
+    assert r.returncode == 0, r.stderr
+    assert (
+        "docker is not ready for the archiver" in r.stdout
+        and "in docker group: no" in r.stdout
+    )
+    assert "usermod -aG docker geecs" in r.stdout
+
+
+def test_docker_without_the_compose_plugin_is_not_ready(tmp_path: Path) -> None:
+    r = _run_with_docker(tmp_path, "--only", "archiver", compose=False)
+    assert r.returncode == 0, r.stderr
+    assert (
+        "docker is not ready for the archiver" in r.stdout
+        and "compose plugin: no" in r.stdout
+    )
+    assert "apt-get install -y docker.io docker-compose-v2" in r.stdout
+
+
+def test_a_site_without_archiver_keys_skips_the_archiver_by_default(
+    tmp_path: Path,
+) -> None:
+    """The PVA 'empty = none' precedent: no GEECS_ARCHIVER_HOST, no appliance, no Docker demand."""
+    site = _site_env(tmp_path)
+    site.write_text(
+        "\n".join(
+            ln
+            for ln in site.read_text().splitlines()
+            if not ln.startswith("GEECS_ARCHIVER_")
+        )
+        + "\n"
+    )
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    (stub_dir / "systemctl").write_text("#!/usr/bin/env bash\n" + REDIS_ENABLED)
+    (stub_dir / "systemctl").chmod(0o755)
+    env = dict(os.environ, PATH=f"{stub_dir}:{os.environ.get('PATH', '')}")
+    r = subprocess.run(
+        ["bash", str(BOOTSTRAP), str(site), "--dry-run"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=REPO_ROOT,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "archiver: not wanted" in r.stdout
+    for marker in (
+        "geecs-archiver",
+        "render_conf.sh",
+        "docker is not ready",
+        "[archiver]",
+    ):
+        assert marker not in r.stdout, marker
+    assert (
+        "sudo systemctl enable --now geecs-ca-gateway" in r.stdout
+    )  # the rest of the fleet is untouched

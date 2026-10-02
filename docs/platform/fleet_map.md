@@ -226,7 +226,7 @@ Poetry env inside it). This is deliberate, not accumulation:
   refuses to provision from one and `/fleet-status` flags it — see the
   [Site Profile](site_profile.md).
 - The clone names are fixed by the [Site Profile](site_profile.md)
-  (`gateway-checkout`, `portal-checkout`, `qs-checkout`); only the root
+  (`gateway-checkout`, `portal-checkout`, `qs-checkout`, `archiver-checkout`); only the root
   is the site's choice (`GEECS_CHECKOUT_ROOT` — the service account's
   home, or `/opt/geecs`). One clone per service family, wherever it
   lives.

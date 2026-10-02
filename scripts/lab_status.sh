@@ -87,7 +87,7 @@ if [ -n "$ARCHIVER_HOST" ]; then
     # Down means no history (Phoebus Data Browser archives, trend queries);
     # scans and live displays are unaffected, so this never flips NET_UP.
     if port_open "$ARCHIVER_HOST" "$ARCHIVER_PORT"; then
-        aver="$(curl -s -m "$TCP_TIMEOUT" "http://$ARCHIVER_HOST:$ARCHIVER_PORT/mgmt/bpl/getVersions" | sed -nE 's/.*"mgmt_version":"Archiver Appliance Version ([^"]+)".*/\1/p')"
+        aver="$(archiver_version "$ARCHIVER_HOST" "$ARCHIVER_PORT")"
         ok "Archiver    $ARCHIVER_HOST:$ARCHIVER_PORT (appliance ${aver:-?})"
     else
         warn "Archiver    $ARCHIVER_HOST:$ARCHIVER_PORT not listening — no history until geecs-archiver is back; scans unaffected"

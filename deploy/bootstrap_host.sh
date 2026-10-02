@@ -83,7 +83,18 @@ extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook
 # Tiled writer is its own service (own unit, own restart, no ordering
 # against the manager): the spool directory is the only thing they share.
 units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; tiled-writer) echo "geecs-tiled-writer";; mcp) echo "geecs-mcp";; scanner) echo "geecs-scanner";; archiver) echo "geecs-archiver";; esac; }
-wanted()     { [ -z "$ONLY" ] || case ",$ONLY," in *",$1,"*) return 0;; *) return 1;; esac; }
+# The archiver is opt-in BY SITE: with no --only it is wanted only when
+# site.env names an appliance (GEECS_ARCHIVER_HOST set — the PVA "empty =
+# none" precedent), so a host without one keeps the smaller profile and a
+# routine full rerun never demands Docker. `--only archiver` on such a site
+# fails on the missing key, loudly, below.
+wanted() {
+    if [ -z "$ONLY" ]; then
+        if [ "$1" = "archiver" ] && [ -z "${GEECS_ARCHIVER_HOST:-}" ]; then return 1; fi
+        return 0
+    fi
+    case ",$ONLY," in *",$1,"*) return 0;; *) return 1;; esac
+}
 # An --only name that is not a service used to select nothing and exit 0 —
 # indistinguishable from success, so a stale runbook (or a retired role)
 # looked like it had run. Name it instead.
@@ -104,6 +115,9 @@ fi
 if wanted archiver; then require_site_keys GEECS_ARCHIVER_HOST GEECS_ARCHIVER_DATA_ROOT GEECS_ARCHIVER_JAVA_OPTS; fi
 
 say "site '${GEECS_SITE:-?}' experiment '$GEECS_EXPERIMENT' — ref $REF — root $GEECS_CHECKOUT_ROOT"
+if [ -z "$ONLY" ] && [ -z "${GEECS_ARCHIVER_HOST:-}" ]; then
+    echo "  archiver: not wanted — site.env has no GEECS_ARCHIVER_HOST (this site runs no Archiver Appliance; set the three GEECS_ARCHIVER_* keys to deploy one)"
+fi
 if [ "$(id -un)" != "$GEECS_SERVICE_USER" ]; then
     echo "WARNING: running as $(id -un), site.env says the service account is $GEECS_SERVICE_USER;" >&2
     echo "         poetry keys venvs under the invoking user — units run as $GEECS_SERVICE_USER and will not find them." >&2
