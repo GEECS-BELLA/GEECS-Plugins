@@ -73,7 +73,14 @@ def translate_save_path_for_device_server(
 
 
 def _local_base_path() -> str | None:
-    """The data root as this host mounts it (``ScanPaths.paths_config``), or ``None``."""
+    """The data root as this host mounts it (``ScanPaths.paths_config``), or ``None``.
+
+    ``GeecsPathsConfig`` records no base path when the share is not mounted
+    at load, and ``ScanPaths`` loads it once at import — so a long-lived
+    process that started before the mount (a service ordered only on the
+    network) re-reads the config once per ask until a root appears, and
+    heals without a restart.
+    """
     try:
         from geecs_data_utils import ScanPaths
     except Exception:
@@ -81,7 +88,14 @@ def _local_base_path() -> str | None:
             "Could not import geecs_data_utils; the local data root is unknown"
         )
         return None
-    return getattr(getattr(ScanPaths, "paths_config", None), "base_path", None)
+    base = getattr(getattr(ScanPaths, "paths_config", None), "base_path", None)
+    if base is None:
+        try:
+            ScanPaths.reload_paths_config()
+        except Exception as exc:  # pragma: no cover - the loader logs its own error
+            logger.debug("paths config reload: %s", exc)
+        base = getattr(getattr(ScanPaths, "paths_config", None), "base_path", None)
+    return base
 
 
 def _translate_to(remote_base_path: str | None, save_path: str, who: str) -> str:

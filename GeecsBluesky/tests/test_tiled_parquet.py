@@ -239,6 +239,24 @@ class TestTiledHostPath:
         with pytest.raises(RuntimeError, match="refusing to register"):
             data_paths.tiled_host_path("/local/data/scans/Scan007/f.parquet")
 
+    def test_a_root_unknown_at_import_is_re_read_once_per_ask(self, monkeypatch):
+        # The share mounted after the writer started: the next ask reloads
+        # the config and finds the root, so the service heals without a restart.
+        from geecs_data_utils import ScanPaths
+
+        monkeypatch.setattr(ScanPaths, "paths_config", SimpleNamespace(base_path=None))
+        monkeypatch.setattr(
+            ScanPaths,
+            "reload_paths_config",
+            classmethod(
+                lambda cls: setattr(
+                    cls, "paths_config", SimpleNamespace(base_path="/local/data")
+                )
+            ),
+        )
+        assert data_paths._local_base_path() == "/local/data"
+        assert data_paths._local_base_path() == "/local/data"  # no second reload needed
+
     def test_set_with_a_known_local_root_translates(self, monkeypatch):
         monkeypatch.setattr(
             data_paths, "read_tiled_host_data_base_path", lambda: "/mnt/hdna2/data"
