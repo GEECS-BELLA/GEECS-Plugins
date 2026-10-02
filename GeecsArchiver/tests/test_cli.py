@@ -214,3 +214,25 @@ def test_unreachable_appliance_is_exit_3(monkeypatch, capsys):
     )
     assert cli.main(["status", "--experiment", "Undulator"]) == cli.EXIT_UNREACHABLE
     assert "getVersions" in capsys.readouterr().err
+
+
+def test_malformed_or_missing_policy_is_a_usage_exit(appliance, tmp_path, capsys):
+    bad = tmp_path / "archive_policy.yaml"
+    bad.write_text("- exclude: ['a:*']\n")  # a list root, not a document
+    assert (
+        cli.main(["list", "--experiment", "Undulator", "--policy", str(bad)])
+        == cli.EXIT_USAGE
+    )
+    assert "cannot load the configuration overlay" in capsys.readouterr().err
+    assert (
+        cli.main(
+            [
+                "list",
+                "--experiment",
+                "Undulator",
+                "--policy",
+                str(tmp_path / "absent.yaml"),
+            ]
+        )
+        == cli.EXIT_USAGE
+    )

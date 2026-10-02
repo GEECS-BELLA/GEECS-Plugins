@@ -19,6 +19,8 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from geecs_archiver import config
 from geecs_archiver.archive_set import (
     ArchiveCandidate,
@@ -336,6 +338,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return int(args.func(args))
     except UsageError as exc:
         print(f"geecs-archiver: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    except (ValidationError, FileNotFoundError) as exc:
+        # A malformed or missing policy / derived-channels file: refuse to run,
+        # as a usage error, never as a traceback with the drift exit code.
+        print(
+            f"geecs-archiver: cannot load the configuration overlay: {exc}",
+            file=sys.stderr,
+        )
         return EXIT_USAGE
     except MgmtError as exc:
         print(f"geecs-archiver: {exc}", file=sys.stderr)
