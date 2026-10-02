@@ -1,0 +1,58 @@
+# GEECS Archiver Appliance — docker compose TEMPLATE. Rendered by
+# deploy/render_conf.sh from the host's site.env into the staging dir, then
+# installed by root as /etc/geecs/archiver/compose.yaml. Never edit the
+# installed copy: re-render.
+#
+#   @PLACEHOLDER@  filled at render time (install-time site values + identity)
+#   ${VARIABLE}    read by docker compose at `up` from the unit's environment
+#                  (EnvironmentFile=/etc/geecs/site.env) — the names the
+#                  appliance itself reads, nothing re-mapped.
+#
+# The image is upstream's official single-Tomcat build (Tomcat 11, Temurin
+# JDK 21, the four WARs). The tag is a FLEET PIN, like a package version:
+# bump it here in a reviewed PR, never per host.
+services:
+  archappl:
+    image: ghcr.io/archiver-appliance/epicsarchiverap:singletomcat-2.4.1
+    container_name: geecs-archiver
+    # Host networking: the CA client talks unicast to the gateway from the
+    # host's own address, and the fleet port (17665) is exactly what the
+    # host exposes — no NAT, one address inside and out.
+    network_mode: host
+    # Tomcat runs as the service account so the archive files on the host
+    # belong to it (render_conf.sh fills the ids from GEECS_SERVICE_USER).
+    user: "@SERVICE_UID@:@SERVICE_GID@"
+    # systemd supervises (Restart=on-failure on the unit); compose must not.
+    restart: "no"
+    environment:
+      EPICS_CA_ADDR_LIST: "${EPICS_CA_ADDR_LIST}"
+      EPICS_CA_AUTO_ADDR_LIST: "${EPICS_CA_AUTO_ADDR_LIST}"
+      TZ: "${TZ}"
+      JAVA_OPTS: "${GEECS_ARCHIVER_JAVA_OPTS}"
+      # Appliance identity + conf (the bind mount below)
+      ARCHAPPL_APPLIANCES: /usr/local/tomcat/archappl_conf/appliances.xml
+      ARCHAPPL_MYIDENTITY: appliance0
+      ARCHAPPL_POLICIES: /usr/local/tomcat/archappl_conf/policies.py
+      ARCHAPPL_PROPERTIES_FILENAME: /usr/local/tomcat/archappl_conf/archappl.properties
+      # Stores: STS (hourly partitions) → LTS (yearly). No MTS (policies.py
+      # never names it); the folder is set so an upstream default can never
+      # write somewhere unexpected.
+      ARCHAPPL_SHORT_TERM_FOLDER: /usr/local/tomcat/storage/sts
+      ARCHAPPL_MEDIUM_TERM_FOLDER: /usr/local/tomcat/storage/lts
+      ARCHAPPL_LONG_TERM_FOLDER: /usr/local/tomcat/storage/lts
+      # Configuration persistence: one file (JDBM2) in the unit's state
+      # directory. The configuration OF RECORD is `geecs-archiver onboard`
+      # + the committed archive_policy.yaml; this store only has to survive
+      # restarts (GeecsArchiver/PLAN.md §4).
+      ARCHAPPL_PERSISTENCE_LAYER: org.epics.archiverappliance.config.persistence.JDBM2Persistence
+      ARCHAPPL_PERSISTENCE_LAYER_JDBM2FILENAME: /usr/local/tomcat/persistence/archappl.jdbm2
+      CATALINA_OUT: /dev/stdout
+    volumes:
+      - /etc/geecs/archiver:/usr/local/tomcat/archappl_conf:ro
+      # Our connector on 17665 (the image's listens on 8080) and a context
+      # without the image's MariaDB datasource (unused under JDBM2).
+      - /etc/geecs/archiver/server.xml:/usr/local/tomcat/conf/server.xml:ro
+      - /etc/geecs/archiver/context.xml:/usr/local/tomcat/conf/context.xml:ro
+      - "@ARCHIVER_DATA_ROOT@/sts:/usr/local/tomcat/storage/sts"
+      - "@ARCHIVER_DATA_ROOT@/lts:/usr/local/tomcat/storage/lts"
+      - /var/lib/geecs-archiver:/usr/local/tomcat/persistence

@@ -144,3 +144,24 @@ def connected_pv(experiment: str, device: str, variable: str) -> str:
         Raw GEECS names; normalized by :func:`pv_name`.
     """
     return f"{pv_name(experiment, device, variable)}{CONNECTED_SUFFIX}"
+
+
+#: The CA gateway's per-device connection-state PV component
+#: (``<experiment>:<device>:connected``, PV_CONTRACT §1): one GEECS subscription
+#: per device, so one PV per device — unlike the PVA gateway's per-variable
+#: :data:`CONNECTED_SUFFIX` above.  Minted here so the gateway's clients (the
+#: archiver's archive set, a preflight) and the gateway cannot drift.
+DEVICE_STATUS_VARIABLE = "connected"
+
+
+def device_status_pv(experiment: str | None, device: str) -> str:
+    """Return the CA gateway's connection-state PV for one device.
+
+    ``<experiment>:<device>:connected`` (the experiment drops out when falsy).
+
+    Parameters
+    ----------
+    experiment, device : str
+        Raw GEECS names; normalized by :func:`pv_name`.
+    """
+    return pv_name(experiment or "", device, DEVICE_STATUS_VARIABLE)

@@ -12,6 +12,12 @@ from pydantic import Field, model_validator
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 
+#: Where the gateway's overlay lives inside the configs repository, per
+#: experiment: ``scanner_configs/experiments/<Experiment>/gateway/derived_channels.yaml``.
+#: The gateway (serving) and the archiver (requesting) both resolve it from here.
+GATEWAY_CONFIG_FOLDER = "gateway"
+DERIVED_CHANNELS_FILENAME = "derived_channels.yaml"
+
 
 class DerivedInput(SchemaModel):
     """One source variable bound to a symbol in a derived-channel formula."""
@@ -186,6 +192,20 @@ class DerivedChannel(SchemaModel):
                 "multiple source devices"
             )
         return self
+
+    def pv_parts(self, default_experiment: str | None = None) -> tuple[str, ...]:
+        """The raw components of this channel's output PV.
+
+        ``(experiment, device, variable)`` — the experiment is this channel's
+        override or *default_experiment* (dropped when neither is set); the
+        variable component is ``pv`` when given, else ``variable``.  Pass them
+        to ``geecs_core.pv_naming.pv_name``: the gateway mints the served PV
+        and the archiver mints the archive request from these same parts, so
+        the two cannot disagree.
+        """
+        experiment = self.experiment or default_experiment
+        tail = (self.device, self.pv or self.variable)
+        return (experiment, *tail) if experiment else tail
 
 
 class DerivedChannels(VersionedSchemaModel):

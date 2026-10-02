@@ -1,0 +1,63 @@
+# GEECS Archiver Appliance — systemd unit TEMPLATE.
+#
+# Do not copy this file to /etc/systemd/system by hand. Render it from the
+# host's site.env with `deploy/render_units.sh` (or `deploy/bootstrap_host.sh`)
+# — see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
+# time (paths + identity); the facility values the appliance itself reads
+# (EPICS_CA_ADDR_LIST, EPICS_CA_AUTO_ADDR_LIST, TZ, GEECS_ARCHIVER_JAVA_OPTS)
+# reach it through EnvironmentFile= → docker compose's ${VAR} interpolation.
+#
+# The appliance runs as upstream's official container (Tomcat 11 + JDK 21 +
+# the four WARs, pinned by tag in deploy/compose.yaml.in). The rendered
+# compose file and the appliance's conf (appliances.xml, policies.py,
+# server.xml, archappl.properties, context.xml) are installed by root under
+# /etc/geecs/archiver from GeecsArchiver/deploy/render_conf.sh's staging
+# output; this unit only points docker compose at that directory.
+#
+# Upgrade: bump the image tag in compose.yaml.in (a reviewed PR), re-render,
+# reinstall the conf, then `sudo systemctl restart geecs-archiver` (compose
+# pulls the new tag on the way up).
+#
+# See DEPLOYMENT.md (package root).
+
+[Unit]
+Description=GEECS Archiver Appliance (EPICS Archiver Appliance, official container)
+# The appliance is a CA client of the gateway: it reconnects on its own, so
+# nothing here orders it after the gateway. Docker is a hard requirement.
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+# docker reads its client configuration under $HOME; systemd does not always set it.
+Environment=HOME=@SERVICE_HOME@
+# The host's site profile: the CA addressing the appliance reads directly,
+# TZ for its logs, and GEECS_ARCHIVER_JAVA_OPTS for the engine's heap.
+EnvironmentFile=@SITE_ENV@
+# The rendered conf directory (compose.yaml and the appliance's files). The
+# appliance's uptime does not depend on a checkout: the archiver's clone
+# (<root>/archiver-checkout) is for the geecs-archiver CLI and for rendering,
+# and this unit never reads it. (/fleet-status therefore reports this row
+# like Tiled's: by its own protocol, no checkout.)
+WorkingDirectory=/etc/geecs/archiver
+# compose reads the rendered compose.yaml from the conf directory and
+# interpolates ${EPICS_CA_ADDR_LIST} etc. from this process's environment
+# (EnvironmentFile= above). --abort-on-container-exit makes a dead Tomcat a
+# unit failure, so Restart= below is what relaunches it.
+ExecStart=/usr/bin/docker compose --project-directory /etc/geecs/archiver --project-name geecs-archiver up --no-color --abort-on-container-exit
+ExecStop=/usr/bin/docker compose --project-directory /etc/geecs/archiver --project-name geecs-archiver down
+# The appliance's configuration store (JDBM2 file) lives here, bind-mounted
+# into the container: systemd creates /var/lib/geecs-archiver and owns it
+# to the service user. The same path on every host, so not a site value.
+# The archive DATA lives under GEECS_ARCHIVER_DATA_ROOT (site.env).
+StateDirectory=geecs-archiver
+Restart=on-failure
+RestartSec=10
+# Tomcat's shutdown flushes the short-term store's buffers; give it time.
+TimeoutStopSec=180
+SyslogIdentifier=geecs-archiver
+
+[Install]
+WantedBy=multi-user.target

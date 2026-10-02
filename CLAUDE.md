@@ -15,6 +15,7 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GEECS-Schemas/` | Lightweight Pydantic/GEST config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) and for the analysis configs (`geecs_schemas.analysis`: the `AnalysisRecipe` v3 document — the analysis core's native shape: input, ordered steps, a measure, the per-frame `figure`, the summary kinds — beside the `AnalysisDiagnostic` v2 document with its kind-discriminated analyzer specs for the unported kinds, `AnalysisGroup`, and `load_analysis_document` dispatching on `schema_version`) + legacy-YAML converters + the docgen Markdown reference generator. Depends on Pydantic and gest-api (VOCS) — importable without Xopt or analysis |
 | `GeecsBluesky/` | Bluesky RunEngine backend, rebuilt as a native Bluesky application (#807): the queueserver worker (`qserver/` — RE Manager profile exporting the device namespace and the registered plans: `count`, `sweep`, `optimize`, `mv`, `run_action`, the shot-offset calibration), `GeecsNamespace` (every DB device as an ophyd-async noun; acquirers are `GeecsDetector`, a stock `StandardDetector`), `ShotControl` (the trigger box as a Movable/Pausable), the strict `take_reading` (the fire between trigger and wait), the `qs_client` manager client, Tiled integration |
 | `GEECS-Core/` | The GEECS access **library**: UDP/TCP wire protocol (`transport/`), experiment DB (`db/GeecsDb`), PV naming contract, the one `GeecsError` tree, and the `FakeGeecsServer` test double — extracted from GeecsCAGateway 2026-08-20; see its `DESIGN.md` for the layering rules — plus the thin synchronous `GeecsDevice` client (`client/`), the successor to GEECS-PythonAPI's device objects |
+| `GeecsArchiver/` | The EPICS Archiver Appliance for GEECS: the deploy recipe for upstream's appliance (its official container under a systemd unit; a stock CA client of the CA gateway — continuous, between-scan history, the niche Tiled's per-run record does not cover) and `geecs-archiver`, the tool that derives the archive set from the GEECS DB (monitored readbacks, `:SP` setpoints, `connected` status, derived channels; never paths or timestamps) and reconciles the appliance with it idempotently. One appliance per facility; every site value in `site.env`. `PLAN.md` is the arc's plan until `DEPLOYMENT.md` carries the record |
 | `GeecsCAGateway/` | The caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async, built on GEECS-Core — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
 | `GeecsPvaGateway/` | The PVA peer of GeecsCAGateway: distributed pvAccess server on each Windows camera server, exposing that host's GEECS camera images and device array variables (lineouts, scope traces) as NTNDArray PVs (gated subscriptions, latest-wins; per-devicetype exclusions from `geecs_core.db.device_streams`; arrays at native length). Non-scalars stay off the central CA gateway by design |
 | `GEECS-MCP/` | The general GEECS MCP server for AI agents (OSPREY) — domains as modules, scans first: read tools (status/history/results/config listings/progress) + the halt family (stop/pause) + three gated go verbs (ownership-gated `resume_scan`, `clear_queue`, `run_scan_analysis`) + the analysis domain, over `geecs_bluesky.qs_client` + the resolver + Tiled. **An experiment, not an operator surface — it has no submit verb** (the write verbs were deleted in 0.9.0 when the native-Bluesky rebuild retired the client calls behind them; #727) and it never gates a client-seam change. Osprey integrates via `profile.yml` — central HTTP (the multi-machine mode) or stdio; see its `deploy/DEPLOYMENT.md` |
@@ -161,6 +162,12 @@ ImageAnalysis        →  GEECS-Data-Utils, GEECS-Schemas (the analysis-config
                         documents and processing models it consumes)
 GEECS-Core           →  (no intra-repo deps — the GEECS access library:
                         transport, DB, PV naming, exceptions, fake server)
+GeecsArchiver        →  GEECS-Core (GeecsDb, pv_naming, the variable-type
+                        rule — the archive set is derived with the gateway's
+                        own three DB queries), GEECS-Schemas (ArchivePolicy,
+                        DerivedChannels). Never the gateway's code: the
+                        appliance is a CA client of it, and the never-
+                        connected check is the drift alarm between the two
 GeecsCAGateway       →  GEECS-Core (the access library it serves over CA),
                         GEECS-Schemas (schema-only vocabulary for optional
                         derived-channel overlays)
@@ -348,7 +355,8 @@ Every package has a `CHANGELOG.md` following
 `GEECS-Analysis/`, `GEECS-Data-Utils/`, `ScanAnalysis/`, `ImageAnalysis/`,
 `LogMaker4GoogleDocs/`, `GeecsBluesky/`, `GEECS-Core/`, `GeecsCAGateway/`,
 `GeecsPvaGateway/`, `GEECS-Schemas/`, `GEECS-MCP/`, `GEECS-DataPortal/`,
-`GEECS-LogTriage/`, `GeecsLogbook/`, `GeecsWebTheme/`, `GeecsScanner/`
+`GEECS-LogTriage/`, `GeecsLogbook/`, `GeecsWebTheme/`, `GeecsScanner/`,
+`GeecsArchiver/`
 (`scripts/doc_audit.py` checks this list and the repository map above
 against the packages on disk).
 

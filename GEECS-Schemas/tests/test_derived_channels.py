@@ -139,3 +139,22 @@ class TestDerivedChannels:
                     ]
                 }
             )
+
+
+def test_pv_parts_honour_the_experiment_and_pv_overrides():
+    """The gateway and the archiver mint the output PV from these same parts."""
+    channel = make_document().derived_channels[0]
+    assert channel.pv_parts("Undulator") == (
+        "Undulator",
+        "TargetChamberPressure",
+        "Pressure",
+    )
+    assert channel.pv_parts() == ("TargetChamberPressure", "Pressure")
+    overridden = channel.model_copy(
+        update={"experiment": "Other", "pv": "pressure_torr"}
+    )
+    assert overridden.pv_parts("Undulator") == (
+        "Other",
+        "TargetChamberPressure",
+        "pressure_torr",
+    )

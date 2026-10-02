@@ -13,7 +13,10 @@ guarantees:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
+from pathlib import Path
+from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -55,6 +58,38 @@ class VersionedSchemaModel(SchemaModel):
             "this automatically when the file format changes."
         ),
     )
+
+    @classmethod
+    def from_path(cls, path: str | Path) -> Self:
+        """Load and validate one document from a YAML (default) or ``.json`` file.
+
+        An empty file is the empty document (every field at its default); a
+        non-empty file whose root is not a mapping is a validation error.
+        The one loader every consumer of a config kind shares — the gateway's
+        derived channels, the archiver's policy — so "how a file becomes a
+        model" is spelled once.  YAML needs PyYAML, which this package keeps
+        out of its runtime dependencies (serialization is not the contract);
+        the error says so, and ``.json`` needs nothing.
+        """
+        file = Path(path)
+        text = file.read_text(encoding="utf-8")
+        if file.suffix.lower() == ".json":
+            data = json.loads(text)
+        else:
+            try:
+                import yaml
+            except ImportError as exc:
+                raise ImportError(
+                    "PyYAML is required to load YAML documents; geecs-schemas keeps it "
+                    "out of its runtime dependencies (YAML is serialization, not the "
+                    "contract). Install pyyaml, or pass a .json file."
+                ) from exc
+            data = yaml.safe_load(text)
+        # Only an EMPTY file is the empty document. A non-empty file whose root
+        # is not a mapping ([] / false / 0 / "x") must fail validation, not
+        # quietly become the defaults — for an archive policy that would widen
+        # the archive set by dropping every exclusion (#1035 review).
+        return cls.model_validate({} if data is None else data)
 
 
 def declared_schema_version(data: Mapping[str, object]) -> int | None:

@@ -4,6 +4,21 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.13.0] - 2026-10-02
+
+### Added
+
+- `geecs_core.configs_repo`: the one resolver for the GEECS-Plugins-Configs
+  repository (`scanner_configs_base`, the three-step lookup — direct env,
+  repo-root env, `config.ini [Paths] scanner_config_root_path`),
+  `experiment_config_path` for the conventional per-experiment files, and
+  the `read_config_entry` one-value `config.ini` reader. The CA gateway's
+  derived-channel resolver now delegates here and the archiver
+  (GeecsArchiver) uses it instead of a third copy (#1035 review).
+- `pv_naming.device_status_pv` / `DEVICE_STATUS_VARIABLE`: the CA gateway's
+  per-device `…:connected` PV, minted in the naming module so the gateway's
+  clients cannot spell it differently.
+
 ## [0.12.0] - 2026-09-24
 
 ### Removed
