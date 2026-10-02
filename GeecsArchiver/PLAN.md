@@ -336,7 +336,9 @@ GEECS-Core queries the gateway uses (`GeecsDb.get_experiment_devices`,
   overlay file, read at its conventional path — one declaration, two
   consumers).
 - **Exclude** `systimestamp` / `acq_timestamp` (advance every frame by
-  design — pure disk burn) and the `cagateway:*` diagnostics.
+  design — pure disk burn), the `cagateway:*` diagnostics, and the
+  `path`-typed long-string PVs (the appliance cannot type the gateway's
+  char-array channels — §12).
 - **Setpoints (`:SP`) — RULING 5.** The draft excluded them ("the
   readback reflects converged state"). Recommended now: **include**. A
   setpoint changes only when someone puts to it, so it costs nothing,
@@ -509,6 +511,52 @@ pilot is throwaway and its value is the verdict.
 4. **Where the archive-set rule lives.** In this package, with the never-connected check as the drift alarm (recommended) — vs moving the served-set rule into GEECS-Core now — vs a gateway-written manifest.
 5. **Setpoints.** Archive `:SP` (recommended) — vs the draft's exclusion.
 6. **Pilot host.** Install Docker Engine on the interim services host — vs a scratch Linux box/VM on the lab subnet.
+
+---
+
+## 12. Phase 1 results — pilot run 2026-10-02 on the interim services host
+
+Run as the service account with no sudo: Temurin JDK 21.0.12 + Tomcat
+11.0.26 + the 2.4.1 release tarball unpacked under the account's home,
+`quickstart.sh` (hostname patched to the box's address) under
+`setsid nohup`, `JAVA_OPTS=-Xmx768m`, in-memory persistence,
+`EPICS_CA_ADDR_LIST=192.168.6.14`. Up in ~40 s; all four WARs report
+2.4.1. Nine PVs submitted at 10:28 PDT, "Being archived" + connected
+within ~70 s. **Verdict: the CAJ↔caproto seam works; the bail-out is
+retired.**
+
+| Check | Result |
+|---|---|
+| Float readback (`u_s1h:current`, EGU/PREC metadata) | PASS — stored sample `10:28:24.229` equals the CA-side timestamp to the millisecond |
+| 1 Hz camera analysis scalars (`uc_alineebeam3:centroidx`, `meancounts`) | PASS — device timestamps (`.985/.986`) preserved, not receive time |
+| Gateway heartbeat (5 s cadence) | PASS |
+| Enums: `…:connected` (status), `pulsewire_dg645:inhibit` (device enum) | PASS |
+| Setpoint `u_s1h:current:SP` | PASS |
+| Plain `string` (`pulsewire_dg645:trigger_source`) | PASS — `DBR_SCALAR_STRING` |
+| **Long-string `path` (`uc_alineebeam3:localsavingpath`, char array 512)** | **FAIL** — engine `MetaGet`: "Cannot determine DBR type"; archive request aborted. The 110 `path` PVs are **excluded from the archive set** (§7) until someone cares; they change rarely and carry no physics. Upstream question, not ours to fix now |
+| **Gateway restart** (`caput …:cagateway:restart Restart`, 10:32:13) | PASS — gateway back with 109 devices in ~15 s; the appliance showed 8 disconnected PVs then 0 on its own; the archive carries the outage as `cnxlostepsecs=…334 / cnxregainedepsecs=…348` (14 s) on the first sample after, and the heartbeat series resumes from the restarted counter |
+| "Startup" samples | As designed: each PV's first stored sample carries the PV's *own* last-change timestamp (the gateway's previous start on 09-29, a DG645 change on 09-30), flagged `startup=true` — days-old dates, not a clock fault |
+| Retrieval | `getData.json` serves EGU/PREC/DESC metadata and severity/status per sample; `Never`-connected and currently-disconnected lists answer correctly |
+| NaN from a failed analysis | NOT exercised (the camera was analysing throughout) |
+| Device power-cycle | NOT exercised (no hands in the lab) — Phase 4's lab week |
+| Phoebus Data Browser | Owner's visual check pending; settings line: `org.csstudio.trends.databrowser3/urls=pbraw://192.168.6.14:17665/retrieval` |
+| Full-set event-rate measurement (3,244 readbacks) | NOT run: the list is generated on the host (`fullset_readbacks.json`, 1,866 float / 1,065 enum / 114 status / 110 path / 89 string; 2,842 `:SP`), but submitting thousands of monitors against the production gateway during the day was held back as a load decision for the owner |
+
+Footprint at 9 PVs: JVM RSS 735 MB (the heap cap, as expected — the
+appliance pre-sizes buffers), 2.7 events/s, 0.01 GB/day — two 1 Hz
+camera scalars and the heartbeat account for nearly all of it, which is
+the §5 picture in miniature.
+
+Host facts that bind Phase 3: Ubuntu 22.04, 4 cores, 15 GB RAM (~7 GB
+free), 39 GB free disk, Java 11 only, **no Docker**, no passwordless
+sudo, outbound HTTPS to GitHub and ghcr.io works. RULING 6 resolved by
+circumstance: the pilot ran from tarballs; the container runtime waits
+for the production install.
+
+The pilot is left running (in-memory, 9 PVs, heap-capped) for the
+owner's look at `http://192.168.6.14:17665/mgmt/ui/index.html`; stopping
+it is `pkill -f quickstart_tomcat` as the service account, and
+`~/archiver-pilot/` is the only residue.
 
 ---
 
