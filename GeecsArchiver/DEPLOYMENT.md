@@ -63,7 +63,7 @@ through `deploy/render_units.sh` and the appliance's conf
 (`compose.yaml`, `appliances.xml`, beside the static files) through this
 package's `deploy/render_conf.sh`, renders the service account's
 `config.ini` with the `[archiver] url`, and prints the root steps.
-`site.env` needs the archiver's three keys beside the fleet's usual ones
+`site.env` needs the archiver's three keys beside the fleet's usual ones (on a host whose `config.ini` already exists, the bootstrap appends the missing `[archiver]` section and changes nothing else)
 (`deploy/site.env.example` documents them):
 
 ```ini

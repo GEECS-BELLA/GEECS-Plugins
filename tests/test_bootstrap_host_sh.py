@@ -63,7 +63,7 @@ def _site_env(tmp_path: Path) -> Path:
     """``site.env.example`` with its host paths redirected into ``tmp_path``."""
     text = SITE_ENV.read_text()
     root = tmp_path / "checkouts"
-    root.mkdir()
+    root.mkdir(exist_ok=True)
     out = tmp_path / "site.env"
     out.write_text(
         text.replace(
@@ -430,3 +430,27 @@ def test_a_site_without_archiver_keys_skips_the_archiver_by_default(
     assert (
         "sudo systemctl enable --now geecs-ca-gateway" in r.stdout
     )  # the rest of the fleet is untouched
+
+
+def _existing_config(tmp_path: Path, text: str) -> Path:
+    cfg = tmp_path / "checkouts" / ".config" / "geecs_python_api" / "config.ini"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text(text)
+    return cfg
+
+
+def test_existing_config_without_archiver_gets_the_section_appended(
+    tmp_path: Path,
+) -> None:
+    """GPT P2 on #1036: an existing config.ini is never re-rendered, so the url must be migrated in."""
+    _existing_config(tmp_path, "[tiled]\nuri = http://x:8000\napi_key = secret\n")
+    r = _run(tmp_path, REDIS_ENABLED, "--only", "archiver")
+    assert r.returncode == 0, r.stderr
+    assert "would append [archiver] url = http://192.168.6.14:17665" in r.stdout
+
+
+def test_existing_archiver_section_is_left_alone(tmp_path: Path) -> None:
+    _existing_config(tmp_path, "[archiver]\nurl = http://other:17665\n")
+    r = _run(tmp_path, REDIS_ENABLED, "--only", "archiver")
+    assert r.returncode == 0, r.stderr
+    assert "would append [archiver]" not in r.stdout

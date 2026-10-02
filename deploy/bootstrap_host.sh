@@ -294,6 +294,14 @@ if [ -s "$CFG" ]; then   # -s: an empty placeholder file counts as absent
     if diff <(ini_norm < "$CFG") <(render_config_ini | ini_norm) | sed 's/^/      /'; then
         echo "      (none — the file matches site.env)"
     fi
+    # One additive migration: a site that gains an Archiver Appliance needs
+    # [archiver] url in the EXISTING file, or geecs-archiver and the fleet
+    # probes treat the appliance as unconfigured. Only a missing section is
+    # appended; nothing already in the file is rewritten (the api_key rule).
+    if [ -n "${GEECS_ARCHIVER_HOST:-}" ] && ! grep -qE '^[[:space:]]*\[archiver\][[:space:]]*$' "$CFG"; then
+        if [ "$DRY" -eq 1 ]; then echo "  [dry] would append [archiver] url = http://$GEECS_ARCHIVER_HOST:17665 to $CFG"
+        else printf '\n[archiver]\nurl = http://%s:17665\n' "$GEECS_ARCHIVER_HOST" >> "$CFG"; echo "  appended [archiver] url = http://$GEECS_ARCHIVER_HOST:17665 to $CFG (the only change made to an existing file)"; fi
+    fi
 elif [ "$DRY" -eq 1 ]; then echo "  [dry] would write $CFG:"; render_config_ini | sed 's/^/      /'
 else
     # 0600: the operator adds the Tiled api_key to this file by hand.
