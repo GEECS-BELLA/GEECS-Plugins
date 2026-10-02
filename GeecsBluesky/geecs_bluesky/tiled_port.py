@@ -11,7 +11,7 @@ Tiled's public API and nothing else:
 1. read the node's table as the server serves it — the #1033 override
    types every column, and Tiled casts to the registered structure — as an
    Arrow table (``export`` to Arrow IPC, never pandas, so types and nulls
-   are exactly the catalog's);
+   are exactly the catalog's), keeping the registered columns only;
 2. write it as the Parquet sibling of the s-file in the run's scan folder
    (:func:`~geecs_data_utils.data.sfile.stream_table_parquet_path_for`;
    beside its target and renamed; the folder must exist — **never
@@ -37,21 +37,30 @@ worker, ``/Volumes/hdna2/data/…`` on a Mac, ``Z:/data/…`` on Windows.
 ``--alias SRC=DST`` maps each foreign root onto this host's mount before
 the folder is looked for.  The Parquet's URI is the Tiled host's view
 (:func:`~geecs_bluesky.data_paths.tiled_host_path`, the writer's rule).
+Two items that would land on the same file are both refused
+(``skip-duplicate-target``): the second write would silently replace the
+first node's data.
 
 **What stays.**  A run whose start document names no scan folder (the
 pre-claim development runs of 2026-05..07) is skipped and reported; its
 table stays in SQL storage, which the override keeps readable.  Nothing in
 ``tabular.db`` is ever modified or deleted by this command.
 
-**Ledger and rollback.**  Every item appends one JSON line to the ledger
-(``--ledger``): run, stream, table, rows, status, and the SQL data source
-as it was.  ``--restore UID STREAM`` re-registers that SQL data source
-from the ledger (external management, the same table and dataset id), the
-rollback for one node; the Parquet file is left in place.
+**Ledger and rollback.**  The ledger (``--ledger``, JSON lines) gets an
+*intent* record — the SQL data source as it was — **before** a node is
+touched, and a result record after, so a kill between the two still leaves
+the ``table_name`` / ``dataset_id`` the rollback needs.  ``--restore UID
+STREAM`` re-registers that SQL data source from the ledger (external
+management, the same table and dataset id) — only when the node is now
+Parquet or absent; a node still on SQL is refused rather than deleted,
+because deleting it would delete its rows.  The Parquet file is left in
+place.
 
 Idempotent: a node already on Parquet is skipped.  ``--dry-run`` plans and
-reports without touching anything.  ``--limit N`` ports the first N
-portable items — the rehearsal knob.
+reports without touching anything (and writes no ledger).  ``--limit N``
+ports the first N portable items — the rehearsal knob; the rest are
+recorded as ``deferred``.  Run it under ``nohup`` or ``tmux``: a dropped
+ssh session must not kill it between a detach and a registration.
 """
 
 from __future__ import annotations
@@ -62,8 +71,9 @@ import logging
 import sys
 import tempfile
 import time
+from collections import Counter
 from dataclasses import asdict, dataclass, field
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable, Iterator
 
 import numpy as np
@@ -87,6 +97,8 @@ logger = logging.getLogger(__name__)
 SQL_TABLE_MIMETYPE = "application/x-tiled-sql-table"
 ARROW_MIMETYPE = "application/vnd.apache.arrow.file"
 TABLE_KEY = "internal"
+#: Ledger statuses whose record can be restored from.
+RESTORABLE = ("ported", "failed", "port")
 
 # ── planning ──────────────────────────────────────────────────────────────
 
@@ -96,8 +108,8 @@ def alias_scan_folder(folder: str, aliases: dict[str, str]) -> Path:
 
     *aliases* maps a recorded root (``Z:/data``, ``/Volumes/hdna2/data``)
     onto the local root; the longest matching root wins; separators are
-    normalized, so ``Z:\\data`` and ``Z:/data`` are the same root.  No
-    match means the path is already local.
+    normalized, so ``Z:\data`` and ``Z:/data`` are the same root.  No
+    match means the path is taken as already local.
     """
     posix = folder.replace("\\", "/")
     for src in sorted(aliases, key=len, reverse=True):
@@ -107,8 +119,6 @@ def alias_scan_folder(folder: str, aliases: dict[str, str]) -> Path:
             return (
                 Path(aliases[src]) / PurePosixPath(rest) if rest else Path(aliases[src])
             )
-    if PureWindowsPath(folder).drive:  # an unaliased Windows path can never exist here
-        return Path(posix)
     return Path(posix)
 
 
@@ -123,7 +133,7 @@ class PortItem:
     scan_folder: str | None  # aliased, local
     table_name: str | None
     dataset_id: int | None
-    status: str  # port | already-parquet | skip-no-folder | skip-missing-folder | other-mimetype
+    status: str  # port | already-parquet | skip-* | other-mimetype | would-port | ported | failed | deferred
     parquet: str | None = None
     rows: int | None = None
     error: str | None = None
@@ -189,6 +199,9 @@ def plan_run(run: Any, aliases: dict[str, str]) -> list[PortItem]:
         )
         if ds.mimetype == PARQUET_MIMETYPE:
             item.status = "already-parquet"
+            item.parquet = next(
+                (a.data_uri for a in ds.assets if a.parameter == "data_uris"), None
+            )
         elif ds.mimetype != SQL_TABLE_MIMETYPE:
             item.status = "other-mimetype"
         elif not recorded:
@@ -204,19 +217,53 @@ def plan_run(run: Any, aliases: dict[str, str]) -> list[PortItem]:
     return items
 
 
+def refuse_duplicate_targets(
+    items: list[PortItem], tiled_path: Callable[[str], str] = tiled_host_path
+) -> list[PortItem]:
+    """Two items headed for one file would overwrite each other: refuse both.
+
+    Compares the Tiled-side URI, so a portable item is also refused when an
+    existing Parquet node already serves the same file.
+    """
+
+    def target(item: PortItem) -> str | None:
+        if item.status == "already-parquet":
+            return item.parquet  # already a URI
+        if item.portable and item.parquet:
+            try:
+                return file_uri(tiled_path(item.parquet))
+            except Exception:  # noqa: BLE001 - refused later, by the port itself
+                return item.parquet
+        return None
+
+    counts = Counter(t for t in (target(i) for i in items) if t)
+    for item in items:
+        if item.portable and counts.get(target(item), 0) > 1:
+            item.status = "skip-duplicate-target"
+    return items
+
+
 def plan(
-    client: Any, aliases: dict[str, str], *, runs: Iterable[str] | None = None
+    client: Any,
+    aliases: dict[str, str],
+    *,
+    runs: Iterable[str] | None = None,
+    tiled_path: Callable[[str], str] = tiled_host_path,
 ) -> list[PortItem]:
     """Classify every table node of every run (or of *runs*, by uid)."""
     client = client.include_data_sources()
     items: list[PortItem] = []
     uids = list(runs) if runs is not None else list(client.keys())
     for uid in uids:
-        run = client[uid]
+        try:
+            run = client[uid]
+        except KeyError:
+            logger.error("no run %s in the catalog", uid)
+            continue
         if "start" not in run.metadata:
             continue  # not a Bluesky run
         items.extend(plan_run(run, aliases))
-    return items
+    return refuse_duplicate_targets(items, tiled_path)
 
 
 # ── the port of one table node ────────────────────────────────────────────
@@ -227,16 +274,16 @@ def read_arrow(table_node: Any) -> pyarrow.Table:
 
     The server serializes through pandas, which can add its index as a
     reserved ``__index_level_0__`` column and pandas metadata to the schema;
-    both are dropped, since Tiled refuses reserved names in a structure and
-    the Parquet should carry the catalog's columns and nothing else.
+    the table is cut down to the structure's own columns and the metadata
+    dropped, so the Parquet carries the catalog's columns and nothing else.
     """
+    columns = list(table_node.structure().columns)
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "table.arrow"
         table_node.export(str(path), format=ARROW_MIMETYPE)
         with pyarrow.ipc.open_file(path) as reader:
             table = reader.read_all()
-    keep = [name for name in table.column_names if not name.startswith("_")]
-    return table.select(keep).replace_schema_metadata(None)
+    return table.select(columns).replace_schema_metadata(None)
 
 
 def tables_equal(a: pyarrow.Table, b: pyarrow.Table) -> bool:
@@ -263,8 +310,14 @@ def port_item(
     *,
     tiled_path: Callable[[str], str] = tiled_host_path,
     dry_run: bool = False,
+    before_mutation: Callable[[PortItem], None] | None = None,
 ) -> PortItem:
-    """Port one table node; *item* comes back with ``status`` ``ported`` or ``failed``."""
+    """Port one table node; *item* comes back with ``status`` ``ported`` or ``failed``.
+
+    *before_mutation* is called with the item (its ``old_data_source`` is
+    the rollback) right before the catalog is first touched — the ledger's
+    intent record.
+    """
     if not item.portable:
         return item
     run = client[item.run_uid]
@@ -280,9 +333,11 @@ def port_item(
         return item
     write_parquet_atomically(arrow, parquet)
     data_source = parquet_data_source(arrow, uri)
-    # Tiled deletes a *writable* data source's rows from the storage database
-    # when its node goes — the SQL table is the rollback, so first make the
-    # catalog treat it as external (not Tiled's to delete), then drop only
+    if before_mutation is not None:
+        before_mutation(item)
+    # Tiled deletes a SQL data source's rows from the storage database when
+    # its node goes — the SQL table is the rollback, so first make the
+    # catalog treat it as external with no table parameters, then drop only
     # the catalog record.
     detach_sql_storage(table)
     table.delete()
@@ -296,7 +351,7 @@ def port_item(
     back = read_arrow(base[TABLE_KEY])
     if not tables_equal(arrow, back):
         item.error = "read-back differs from the SQL table; SQL data source restored"
-        base[TABLE_KEY].delete(external_only=False)
+        base[TABLE_KEY].delete()  # the Parquet node is external: its file stays
         restore_sql_table(base, item.old_data_source, metadata)
         item.status = "failed"
         return item
@@ -341,11 +396,28 @@ def detach_sql_storage(table_node: Any) -> None:
     )
 
 
+def is_live_sql_source(ds: Any) -> bool:
+    """A SQL data source that still names its table and dataset (deleting it deletes rows)."""
+    params = dict(getattr(ds, "parameters", None) or {})
+    return ds.mimetype == SQL_TABLE_MIMETYPE and bool(
+        params.get("table_name") and params.get("dataset_id") is not None
+    )
+
+
 def restore_sql_table(base: Any, old: dict[str, Any], metadata: dict[str, Any]) -> Any:
     """Register the SQL table again (external management: the same table and dataset id)."""
-    (asset,) = [a for a in old["assets"] if a.get("parameter") == "data_uri"] or old[
-        "assets"
-    ][:1]
+    if old.get("mimetype") != SQL_TABLE_MIMETYPE or not (
+        old.get("parameters", {}).get("table_name")
+        and old.get("parameters", {}).get("dataset_id") is not None
+    ):
+        raise ValueError(
+            "not a SQL data source with a table and dataset id — nothing to restore from"
+        )
+    (asset,) = [a for a in old["assets"] if a.get("parameter") == "data_uri"][:1] or [
+        None
+    ]
+    if asset is None:
+        raise ValueError("the recorded SQL data source names no storage URI")
     data_source = DataSource(
         structure_family=StructureFamily.table,
         mimetype=SQL_TABLE_MIMETYPE,
@@ -366,12 +438,47 @@ def restore_sql_table(base: Any, old: dict[str, Any], metadata: dict[str, Any]) 
     )
 
 
+def restore_from_ledger(client: Any, ledger: Path, run_uid: str, stream: str) -> str:
+    """The rollback of one node: re-register its SQL data source from the ledger.
+
+    Refuses when the node is still SQL-backed (deleting it would delete its
+    rows — there is nothing to restore), and when the ledger holds no SQL
+    record for it.  Returns a one-line account.
+    """
+    records = [
+        r
+        for r in Ledger.read(ledger)
+        if r["run_uid"] == run_uid
+        and r["stream"] == stream
+        and r.get("status") in RESTORABLE
+        and (r.get("old_data_source") or {}).get("mimetype") == SQL_TABLE_MIMETYPE
+    ]
+    if not records:
+        raise LookupError(f"no SQL record for {run_uid}/{stream} in {ledger}")
+    client = client.include_data_sources()
+    run = client[run_uid]
+    base = getattr(run[stream], "base", run[stream])
+    metadata: dict[str, Any] = {}
+    if TABLE_KEY in base:
+        node = base[TABLE_KEY]
+        (current,) = node.data_sources()
+        if is_live_sql_source(current):
+            raise RuntimeError(
+                f"{run_uid}/{stream} is still on its SQL table; nothing to restore "
+                "(deleting it would delete its rows)"
+            )
+        metadata = dict(node.metadata)
+        node.delete()  # Parquet (external) or a detached SQL record: no storage is touched
+    restore_sql_table(base, records[-1]["old_data_source"], metadata)
+    return f"{run_uid}/{stream}: SQL data source restored (the Parquet file, if any, is left in place)"
+
+
 # ── the command ───────────────────────────────────────────────────────────
 
 
 @dataclass
 class Ledger:
-    """Append-only JSON lines, one record per item."""
+    """Append-only JSON lines, one record per event."""
 
     path: Path
     records: list[dict[str, Any]] = field(default_factory=list)
@@ -399,7 +506,7 @@ def parse_aliases(values: Iterable[str]) -> dict[str, str]:
     for value in values:
         src, sep, dst = value.partition("=")
         if not sep or not src or not dst:
-            raise argparse.ArgumentTypeError(f"--alias expects SRC=DST, got {value!r}")
+            raise ValueError(f"--alias expects SRC=DST, got {value!r}")
         aliases[src] = dst
     return aliases
 
@@ -428,7 +535,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SRC=DST",
         help="a recorded scan-folder root and this host's mount of it (repeatable)",
     )
-    parser.add_argument("--ledger", type=Path, default=Path("tiled-port-ledger.jsonl"))
+    parser.add_argument(
+        "--ledger",
+        type=Path,
+        default=Path("tiled-port-ledger.jsonl"),
+        help="JSON lines, one record per event; the rollback reads it (not written by --dry-run)",
+    )
     parser.add_argument(
         "--limit", type=int, default=None, help="port at most N portable items"
     )
@@ -449,12 +561,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     """Entry point."""
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.INFO,
         stream=sys.stderr,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+    try:
+        aliases = parse_aliases(args.alias)
+    except ValueError as exc:
+        parser.error(str(exc))
     tiled_uri, api_key = args.tiled_uri, None
     if tiled_uri is None:
         from geecs_bluesky.tiled_integration import read_tiled_config
@@ -471,36 +588,20 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.restore:
         uid, stream = args.restore
-        records = [
-            r
-            for r in Ledger.read(args.ledger)
-            if r["run_uid"] == uid
-            and r["stream"] == stream
-            and r.get("old_data_source")
-        ]
-        if not records:
-            logger.error("no ledger record for %s/%s in %s", uid, stream, args.ledger)
+        try:
+            logger.info("%s", restore_from_ledger(client, args.ledger, uid, stream))
+        except (LookupError, RuntimeError, ValueError) as exc:
+            logger.error("%s", exc)
             return 2
-        base = getattr(client[uid][stream], "base", client[uid][stream])
-        metadata = dict(base[TABLE_KEY].metadata) if TABLE_KEY in base else {}
-        if TABLE_KEY in base:
-            base[TABLE_KEY].delete(external_only=False)
-        restore_sql_table(base, records[-1]["old_data_source"], metadata)
-        logger.info(
-            "%s/%s: SQL data source restored (the Parquet file is left in place)",
-            uid,
-            stream,
-        )
         return 0
 
-    aliases = parse_aliases(args.alias)
     items = plan(client, aliases, runs=args.run)
-    counts = summarize(items)
-    logger.info("plan: %s", counts)
+    logger.info("plan: %s", summarize(items))
     portable = [i for i in items if i.portable]
+    deferred: list[PortItem] = []
     if args.limit is not None:
-        portable = portable[: args.limit]
-    ledger = Ledger(args.ledger)
+        portable, deferred = portable[: args.limit], portable[args.limit :]
+    ledger = Ledger(args.ledger) if not args.dry_run else None
     failed = 0
     for n, item in enumerate(portable, 1):
         label = (
@@ -510,7 +611,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         t0 = time.time()
         try:
-            port_item(client, item, dry_run=args.dry_run)
+            port_item(
+                client,
+                item,
+                dry_run=args.dry_run,
+                before_mutation=ledger.append if ledger is not None else None,
+            )
         except Exception as exc:  # noqa: BLE001 - one item never stops the port
             item.status, item.error = "failed", repr(exc)
         if item.status == "failed":
@@ -535,10 +641,19 @@ def main(argv: list[str] | None = None) -> int:
                 item.parquet,
                 time.time() - t0,
             )
-        ledger.append(item)
-    for item in items:
-        if not item.portable:
+        if ledger is not None:
             ledger.append(item)
+    if ledger is not None:
+        for item in deferred:
+            item.status = "deferred"
+            ledger.append(item)
+        for item in items:
+            if not item.portable and item.status not in (
+                "ported",
+                "failed",
+                "deferred",
+            ):
+                ledger.append(item)
     logger.info("done: %s; %d failed", summarize(items), failed)
     return 1 if failed else 0
 

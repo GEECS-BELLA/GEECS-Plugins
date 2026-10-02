@@ -38,10 +38,12 @@ the raw data files.
   written by `geecs-tiled-writer` and registered from `readable_storage`
   like the camera stacks — so the data share must be in
   `readable_storage` (it is, for the stacks).  `~/tiled/tabular.db`
-  (SQLite) holds the runs registered before that as appendable SQL tables
-  (read through the override below) and stays in `writable_storage` for
-  the writer's `--tables appendable` option; the history port to Parquet
-  is the arc's next step.
+  (SQLite) held the runs registered before that as appendable SQL tables;
+  § "Porting the SQL-stored runs" moves them to the same Parquet files,
+  after which it holds only the pre-claim development runs that have no
+  scan folder (read through the override below) and stays in
+  `writable_storage` for them and for the writer's `--tables appendable`
+  option.
 - File storage: `~/tiled/storage/` (Tiled's own, for tables a client asks
   it to store)
 - API key: stable — `single_user_api_key` in `~/tiled/config.yml` on the
@@ -193,9 +195,15 @@ cd <root>/qs-checkout/GeecsBluesky
 cp ~/tiled/tabular.db ~/tiled/tabular.db.bak-$(date +%Y%m%d)-pre-port      # the SQL store is the rollback; keep a copy anyway
 poetry run geecs-tiled-port-tables --dry-run \
   --alias 'Z:/data=/mnt/hdna2/data' --alias '/Volumes/hdna2/data=/mnt/hdna2/data'
-poetry run geecs-tiled-port-tables --ledger ~/tiled/port-$(date +%Y%m%d).jsonl \
-  --alias 'Z:/data=/mnt/hdna2/data' --alias '/Volumes/hdna2/data=/mnt/hdna2/data'
+nohup poetry run geecs-tiled-port-tables --ledger ~/tiled/port-$(date +%Y%m%d).jsonl \
+  --alias 'Z:/data=/mnt/hdna2/data' --alias '/Volumes/hdna2/data=/mnt/hdna2/data' \
+  > ~/tiled/port-$(date +%Y%m%d).log 2>&1 &
 ```
+
+Under `nohup` (or `tmux`): a dropped ssh session must not kill it between
+a node's detach and its re-registration.  The ledger gets an *intent*
+record before each node is touched and a result record after, so even a
+hard kill leaves what the rollback needs.
 
 `--alias SRC=DST` maps the scan-folder roots other engine hosts recorded
 (a Mac's `/Volumes/…`, Windows' `Z:/…`) onto this host's mount — the HTU
