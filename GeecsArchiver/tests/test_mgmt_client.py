@@ -145,4 +145,14 @@ def test_pvstatus_parses_the_appliance_booleans_and_states():
     s = PVStatus.from_bpl(
         {"pvName": "p", "status": "Initial sampling", "connectionState": "true"}
     )
-    assert s.pending and not s.archived
+    assert s.pending and not s.archived and s.sampling_method is None
+    s = PVStatus.from_bpl(
+        {"pvName": "p", "status": "Being archived", "isMonitored": "true"}
+    )
+    assert s.sampling_method == "MONITOR"
+    assert (
+        PVStatus.from_bpl(
+            {"pvName": "p", "status": "Being archived", "isMonitored": "false"}
+        ).sampling_method
+        == "SCAN"
+    )

@@ -5,6 +5,10 @@
 ``list``      print the derived set (database only; no appliance needed)
 ``status``    the appliance's metrics and this experiment's PV counts
 ``export-config``  the appliance's own configuration snapshot as JSON
+
+Exit status: 0 ok · 1 drift (a wanted PV the gateway does not serve, or a
+request the appliance refused) · 2 usage (no experiment / URL, or a pause
+larger than the guard without ``--yes``) · 3 the appliance did not answer.
 """
 
 from __future__ import annotations
@@ -23,11 +27,21 @@ from geecs_archiver.archive_set import (
     sampling_for,
 )
 from geecs_archiver.mgmt_client import MgmtClient, MgmtError
-from geecs_archiver.onboard import apply, plan_onboarding, verify
+from geecs_archiver.onboard import apply, plan_onboarding, stuck_requests, verify
 
 EXIT_OK = 0
 EXIT_DRIFT = 1
 EXIT_USAGE = 2
+EXIT_UNREACHABLE = 3
+
+#: More pauses than this in one run need ``--yes`` — a half-empty device
+#: table (DB maintenance, flipped ``enabled`` flags) must not silently pause
+#: the experiment.
+PAUSE_GUARD = 10
+
+
+class UsageError(Exception):
+    """A missing input the caller must supply (exit 2)."""
 
 
 def _prefix(experiment: str) -> str:
@@ -39,7 +53,7 @@ def _prefix(experiment: str) -> str:
 def _resolve_experiment(args: argparse.Namespace) -> str:
     experiment = args.experiment or config.experiment_name()
     if not experiment:
-        raise SystemExit(
+        raise UsageError(
             "no experiment: pass --experiment or set config.ini [Experiment] expt"
         )
     return experiment
@@ -48,7 +62,7 @@ def _resolve_experiment(args: argparse.Namespace) -> str:
 def _resolve_url(args: argparse.Namespace) -> str:
     url = args.url or config.archiver_url()
     if not url:
-        raise SystemExit(
+        raise UsageError(
             "no appliance URL: pass --url, set GEECS_ARCHIVER_URL, or config.ini [archiver] url"
         )
     return url
@@ -87,7 +101,6 @@ def cmd_list(args: argparse.Namespace) -> int:
                     "dtype": c.dtype,
                     "samplingperiod": s.period,
                     "samplingmethod": s.method,
-                    "policy": s.policy,
                 }
                 for c, s in desired.values()
             ],
@@ -97,20 +110,18 @@ def cmd_list(args: argparse.Namespace) -> int:
         print()
     else:
         for pv, (c, s) in desired.items():
-            print(
-                f"{pv:60s} {c.kind:9s} {c.dtype:6s} {s.period:g}s {s.method}"
-                + (f" {s.policy}" if s.policy else "")
-            )
+            print(f"{pv:60s} {c.kind:9s} {c.dtype:7s} {s.period:g}s {s.method}")
         print(f"# {len(desired)} PVs", file=sys.stderr)
     return EXIT_OK
 
 
 def cmd_onboard(args: argparse.Namespace) -> int:
-    """Reconcile the appliance with the derived set; exit 1 when a PV never connects."""
+    """Reconcile the appliance with the derived set; exit 1 on drift, 2 on an unguarded mass pause."""
     experiment = _resolve_experiment(args)
     url = _resolve_url(args)
     desired = _desired(args, experiment)
     prefix = _prefix(experiment)
+    rc = EXIT_OK
     with MgmtClient(url) as client:
         archived = client.get_all_pvs()
         to_check = sorted(
@@ -129,9 +140,7 @@ def cmd_onboard(args: argparse.Namespace) -> int:
         if args.verbose or args.dry_run:
             for req in plan.to_archive:
                 print(
-                    f"  + {req['pv']}  ({req['samplingperiod']} s {req['samplingmethod']}"
-                    + (f", {req['policy']}" if "policy" in req else "")
-                    + ")"
+                    f"  + {req['pv']}  ({req['samplingperiod']} s {req['samplingmethod']})"
                 )
             for pv in plan.to_resume:
                 print(f"  > resume {pv}")
@@ -139,30 +148,50 @@ def cmd_onboard(args: argparse.Namespace) -> int:
                 print(f"  ~ retune {pv} -> {s.period:g} s {s.method}")
             for pv in plan.to_pause:
                 print(f"  - pause  {pv}")
+        # The drift alarm, on EVERY run: wanted PVs stuck in the appliance's
+        # archive-request workflow because they never answered on CA.
+        stuck = stuck_requests(client, desired)
+        for pv in stuck:
+            print(
+                f"  ! never connected: {pv}  (the rule wants it; the gateway does not serve it)"
+            )
+        if stuck:
+            rc = EXIT_DRIFT
+        if len(plan.to_pause) > PAUSE_GUARD and not args.yes:
+            print(
+                f"refusing to pause {len(plan.to_pause)} PVs (> {PAUSE_GUARD}) without --yes — "
+                "is the database complete? (nothing was sent)",
+                file=sys.stderr,
+            )
+            return EXIT_USAGE
         if args.dry_run or plan.is_noop:
-            return EXIT_OK
+            return rc
         report = apply(client, plan)
         for rejected in report.rejected:
             print(f"  ! {rejected.get('pvName')}: {rejected.get('status')}")
+            rc = EXIT_DRIFT
         new_pvs = [req["pv"] for req in plan.to_archive] + plan.to_resume
         if not new_pvs or args.wait <= 0:
-            return EXIT_OK
+            return rc
         print(
             f"waiting up to {args.wait:g} s for {len(new_pvs)} PV(s) to archive and connect …"
         )
         result = verify(client, new_pvs, wait_s=args.wait)
         print(
-            f"  archived+connected {len(result.archived)}, never connected {len(result.never_connected)}, pending {len(result.pending)}, other {len(result.other)}"
+            f"  archived+connected {len(result.archived)}, never connected {len(result.never_connected)}, "
+            f"pending {len(result.pending)}, other {len(result.other)}"
         )
         for pv in result.never_connected:
             print(
                 f"  ! never connected: {pv}  (the rule wants it; the gateway does not serve it)"
             )
         for pv in result.pending:
-            print(f"  ? still pending:   {pv}")
+            print(
+                f"  ? still pending:   {pv}  (rerun later; it stays on the appliance's request list)"
+            )
         for status in result.other:
             print(f"  ? {status.pv}: {status.status} connected={status.connected}")
-        return EXIT_OK if result.ok else EXIT_DRIFT
+        return rc if result.ok else EXIT_DRIFT
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -188,15 +217,22 @@ def cmd_status(args: argparse.Namespace) -> int:
             prefix = _prefix(experiment)
             mine = [pv for pv in client.get_all_pvs() if pv.lower().startswith(prefix)]
             disconnected = [
-                row.get("pvName")
+                str(row.get("pvName"))
                 for row in client.currently_disconnected()
                 if str(row.get("pvName", "")).lower().startswith(prefix)
             ]
+            stuck = [
+                str(row.get("pvName"))
+                for row in client.never_connected()
+                if str(row.get("pvName", "")).lower().startswith(prefix)
+            ]
             print(
-                f"  {experiment}: {len(mine)} PVs under {prefix!r}, {len(disconnected)} disconnected"
+                f"  {experiment}: {len(mine)} PVs under {prefix!r}, {len(disconnected)} disconnected, {len(stuck)} never connected"
             )
-            for pv in sorted(str(p) for p in disconnected)[:20]:
-                print(f"    disconnected: {pv}")
+            for pv in sorted(disconnected)[:20]:
+                print(f"    disconnected:    {pv}")
+            for pv in sorted(stuck)[:20]:
+                print(f"    never connected: {pv}")
     return EXIT_OK
 
 
@@ -262,6 +298,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="never pause PVs the rule no longer wants",
     )
     p.add_argument(
+        "--yes",
+        action="store_true",
+        help=f"allow pausing more than {PAUSE_GUARD} PVs in one run",
+    )
+    p.add_argument(
         "--wait",
         type=float,
         default=300.0,
@@ -293,9 +334,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return int(args.func(args))
+    except UsageError as exc:
+        print(f"geecs-archiver: {exc}", file=sys.stderr)
+        return EXIT_USAGE
     except MgmtError as exc:
         print(f"geecs-archiver: {exc}", file=sys.stderr)
-        return EXIT_DRIFT
+        return EXIT_UNREACHABLE
 
 
 if __name__ == "__main__":  # pragma: no cover

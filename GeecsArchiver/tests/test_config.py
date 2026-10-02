@@ -76,12 +76,12 @@ def test_load_policy_defaults_and_file(tmp_path):
     assert config.load_policy(None) == ArchivePolicy()
     f = tmp_path / "p.yaml"
     f.write_text(
-        "schema_version: 1\ninclude_setpoints: false\nsampling_overrides:\n  - match: 'a:*'\n    policy: Slow\n"
+        "schema_version: 1\ninclude_setpoints: false\nsampling_overrides:\n  - match: 'a:*'\n    sampling_period: 10\n"
     )
     policy = config.load_policy(f)
     assert (
         policy.include_setpoints is False
-        and policy.sampling_overrides[0].policy == "Slow"
+        and policy.sampling_overrides[0].sampling_period == 10
     )
     empty = tmp_path / "empty.yaml"
     empty.write_text("")

@@ -157,8 +157,9 @@ Specifics the pilot (§8, Phase 1) verifies:
   profile's `is_unit_template` requires `User=@SERVICE_USER@`), which
   joins the `docker` group on this box; the container runs Tomcat as that
   same uid (`user:` in compose) so archive files on the host belong to
-  the service account. The pilot checks the image's Tomcat work/temp
-  directories tolerate a non-root uid; rootless Docker is the fallback.
+  the service account. The Phase 3 install checks the image's Tomcat
+  work/temp directories tolerate a non-root uid (the pilot ran tarballs,
+  §12); rootless Docker is the fallback.
 - **Heap and memory.** `JAVA_OPTS=-Xmx2g` (generous for O(1000) PVs; the
   appliance is built for millions) and a container `mem_limit`, so the
   JVM can never squeeze Tiled or the worker.
@@ -347,10 +348,13 @@ GEECS-Core queries the gateway uses (`GeecsDb.get_experiment_devices`,
 
 **Why the rule can live here without importing the gateway (RULING 4).**
 Two packages applying one DB rule is a drift risk; the runtime truth
-check closes it: after submission, `getPVStatus` must reach "Being
-archived" *with a live connection* (2.4.1's JCA fix makes that
-distinction honest). A PV the rule wants and the gateway does not serve
-shows up as never-connected and fails the run. That check is needed
+check closes it: a PV the rule wants and the gateway does not serve
+never answers on CA, so the appliance cannot finish its archive request
+and keeps it on its **never-connected list** — which `onboard` reads on
+every run and fails on. (The pieces both sides need — the configs-repo
+lookup, the status-PV name, the derived-channel name parts — live in
+GEECS-Core and GEECS-Schemas, so the only thing left to drift is the
+get-list/settable rule itself.) That check is needed
 anyway, and it makes drift loud at the moment it happens. If it bites
 repeatedly, the upgrade path is the one GEECS-Core already took for
 `variable_types`: move the served-set rule into the shared library and
@@ -366,9 +370,10 @@ archive_policy.yaml`, validated by `geecs_schemas.archive_policy.ArchivePolicy`
 ```yaml
 schema_version: 1
 exclude: ["*:uc_*:image_size*"]            # PV globs the rule would otherwise include
+include: ["undulator:cagateway:devices_connected"]   # beyond the rule; never paused
 sampling_overrides:
   - match: "*:u_vacuumgauge:*"
-    policy: Slow                            # a policies.py entry: MONITOR, 10 s
+    sampling_period: 10                     # sent with the request: the overlay is the one table
 include_setpoints: true
 ```
 
@@ -380,11 +385,13 @@ deleted by this tool); a policy mismatch → `changeArchivalParams`.
 never-connected. Rerunning it after a DB edit becomes the same reflex as
 restarting the gateway — two commands, one change.
 
-`deploy/policies.py` is site-neutral (folders from the environment):
-`Default` = MONITOR 1.0 s → STS → LTS; `Slow` = MONITOR 10 s; and the
-`getFieldsArchivedAsPartOfStream` list trimmed to what our PVs carry
-(`DESC` and the display metadata the gateway serves — no EPICS record
-fields exist behind these PVs).
+`deploy/policies.py` is site-neutral (folders from the environment) and
+names only the stores: one policy, STS → LTS, with a 1 s MONITOR fallback
+for a request that carries no sampling. Every request from this tool does
+carry its sampling (the appliance's user-specified sampling wins over the
+policy), so the overlay is the one table. `getFieldsArchivedAsPartOfStream`
+is empty — no EPICS record fields exist behind these PVs; `.DESC` is read
+by the appliance at runtime for display where the gateway serves one.
 
 ---
 

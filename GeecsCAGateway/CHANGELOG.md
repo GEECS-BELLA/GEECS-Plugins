@@ -4,6 +4,19 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.21.4] - 2026-10-02
+
+### Changed
+
+- `derived.py` delegates the configs-repository resolution
+  (`scanner_configs_base`, `default_derived_channels_path`) to
+  `geecs_core.configs_repo`, loads the document through
+  `DerivedChannels.from_path`, and mints the derived PV name from
+  `DerivedChannel.pv_parts` + `geecs_core.pv_naming.pv_name` — the same two
+  the archiver (GeecsArchiver) uses, so a served derived PV and the archive
+  request for it cannot disagree (#1035 review). No behaviour change; the
+  public names and the pinned tests are unchanged.
+
 ## [0.21.3] - 2026-09-16
 
 ### Changed

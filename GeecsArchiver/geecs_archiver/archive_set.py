@@ -2,21 +2,22 @@
 
 The set is *derived* from the GEECS database with the same three batched
 queries the CA gateway builds its served set from — the two can only drift
-if one of them changes its rule, and the onboarding's never-connected check
-(:func:`geecs_archiver.onboard.verify`) makes that loud.  Per enabled device:
+if one of them changes its rule, and onboarding's stuck-request check
+(:func:`geecs_archiver.onboard.verify`, the appliance's never-connected
+list) makes that loud.  Per enabled device:
 
 * the **readback** PV of every monitored (``get='yes'``) scalar variable;
 * the **``:SP`` setpoint** of every settable scalar variable (they change
   only on puts and carry the operator's intent) — ``include_setpoints``;
 * the device's **``connected`` status** PV — ``include_status``;
 
-plus the gateway's **derived channels** — ``include_derived``.  Never: the
-timestamp variables (the intrinsic pair and any ``…timestamp``: pure disk
-burn), image / array variables (not
-scalar CA data) and ``path``-typed long strings (the appliance cannot type
-the gateway's char-array channels; pilot 2026-10-02).  The experiment's
-:class:`~geecs_schemas.ArchivePolicy` then removes its ``exclude`` globs and
-sets per-glob sampling.
+plus the gateway's **derived channels** — ``include_derived`` — and the
+policy's explicit ``include`` PVs.  Never: the timestamp variables (the
+intrinsic pair and any ``…timestamp``: pure disk burn), image / array
+variables (not scalar CA data) and ``path``-typed long strings (the
+appliance cannot type the gateway's char-array channels; pilot 2026-10-02).
+The experiment's :class:`~geecs_schemas.ArchivePolicy` then removes its
+``exclude`` globs and sets per-glob sampling.
 """
 
 from __future__ import annotations
@@ -27,19 +28,23 @@ from fnmatch import fnmatchcase
 from typing import Literal
 
 from geecs_core.db.variable_types import (
+    TIMESTAMP_LADDER,
     VARTYPE_TO_DTYPE,
     effective_vartype,
     is_scalar_vartype,
 )
-from geecs_core.pv_naming import pv_name, setpoint_pv
+from geecs_core.pv_naming import (
+    DEVICE_STATUS_VARIABLE,
+    device_status_pv,
+    pv_name,
+    setpoint_pv,
+)
 from geecs_schemas import ArchivePolicy, DerivedChannels
 
-Kind = Literal["readback", "setpoint", "status", "derived"]
+Kind = Literal["readback", "setpoint", "status", "derived", "include"]
 
-#: Intrinsic per-device timestamps: advance every frame by design.
-TIMESTAMP_VARIABLES: frozenset[str] = frozenset({"acq_timestamp", "systimestamp"})
-#: The per-device connection-state PV the gateway serves.
-STATUS_VARIABLE = "connected"
+#: The intrinsic per-device timestamps the gateways subscribe (GEECS-Core's ladder).
+TIMESTAMP_VARIABLES: frozenset[str] = frozenset(TIMESTAMP_LADDER)
 #: Served dtypes the appliance cannot archive from this gateway.
 UNARCHIVABLE_DTYPES: frozenset[str] = frozenset({"path"})
 
@@ -57,22 +62,23 @@ class ArchiveCandidate:
 
 @dataclass(frozen=True)
 class Sampling:
-    """How one PV is sampled: the appliance's ``samplingperiod`` / ``samplingmethod`` (+ named policy)."""
+    """How one PV is sampled: the appliance's ``samplingperiod`` / ``samplingmethod``.
+
+    Sent with every archive request as the appliance's *user-specified*
+    sampling, which takes precedence over its policy file — so the overlay is
+    the one table, and what it says is what the appliance does.
+    """
 
     period: float
     method: str
-    policy: str | None = None
 
     def request(self, pv: str) -> dict[str, str]:
         """The ``archivePV`` request body entry for *pv*."""
-        body = {
+        return {
             "pv": pv,
             "samplingperiod": f"{self.period:g}",
             "samplingmethod": self.method,
         }
-        if self.policy:
-            body["policy"] = self.policy
-        return body
 
 
 def is_timestamp_variable(name: str) -> bool:
@@ -107,18 +113,15 @@ def sampling_for(pv: str, policy: ArchivePolicy) -> Sampling:
     """The sampling for *pv*: the defaults, then every matching override in order (last wins per field)."""
     period = policy.default_sampling_period
     method = policy.default_sampling_method
-    name: str | None = None
     lowered = pv.lower()
     for override in policy.sampling_overrides:
         if not fnmatchcase(lowered, override.match.lower()):
             continue
-        if override.policy is not None:
-            name = override.policy
         if override.sampling_period is not None:
             period = override.sampling_period
         if override.sampling_method is not None:
             method = override.sampling_method
-    return Sampling(period=period, method=method, policy=name)
+    return Sampling(period=period, method=method)
 
 
 def derive_candidates(
@@ -153,7 +156,8 @@ def derive_candidates(
     Returns
     -------
     list of ArchiveCandidate
-        Sorted by PV name, after the policy's ``exclude`` globs.
+        Sorted by PV name, after the policy's ``exclude`` globs; the policy's
+        explicit ``include`` PVs are appended regardless of the globs.
     """
     out: list[ArchiveCandidate] = []
     for device in sorted(endpoints):
@@ -188,9 +192,9 @@ def derive_candidates(
         if serves_anything and policy.include_status:
             out.append(
                 ArchiveCandidate(
-                    pv_name(experiment, device, STATUS_VARIABLE),
+                    device_status_pv(experiment, device),
                     device,
-                    STATUS_VARIABLE,
+                    DEVICE_STATUS_VARIABLE,
                     "status",
                     "enum",
                 )
@@ -199,14 +203,17 @@ def derive_candidates(
         for channel in derived.derived_channels:
             out.append(
                 ArchiveCandidate(
-                    pv_name(experiment, channel.device, channel.variable),
+                    pv_name(*channel.pv_parts(experiment)),
                     channel.device,
-                    channel.variable,
+                    channel.pv or channel.variable,
                     "derived",
                     "float",
                 )
             )
-    return sorted(c for c in out if not is_excluded(c.pv, policy))
+    kept = {c.pv: c for c in out if not is_excluded(c.pv, policy)}
+    for pv in policy.include:
+        kept.setdefault(pv, ArchiveCandidate(pv, "", "", "include", "unknown"))
+    return sorted(kept.values())
 
 
 def build_archive_set(

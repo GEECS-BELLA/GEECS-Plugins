@@ -191,10 +191,12 @@ schema_version: 1
 # derived channels); this file lists the exceptions
 exclude:
   - "undulator:uc_*:image_size*"
+include:
+  - "undulator:cagateway:devices_connected"   # beyond the rule; never paused
 include_setpoints: true
 sampling_overrides:
   - match: "undulator:u_vacuumgauge:*"
-    policy: Slow                    # a policies.py entry: MONITOR, 10 s
+    sampling_period: 10             # slow-moving: one stored sample per 10 s
 """,
     "derived_channels": """\
 schema_version: 1

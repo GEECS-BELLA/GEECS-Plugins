@@ -62,3 +62,12 @@ def test_hdf_plugin_prefix_is_the_image_pv_plus_hdf1() -> None:
         hdf_plugin_prefix("Undulator", "UC_Amp4 IR.input", "processed image")
         == "undulator:uc_amp4_ir_input:processed_image:hdf1:"
     )
+
+
+def test_device_status_pv_is_the_gateway_connected_pv() -> None:
+    """One per device (PV_CONTRACT §1), unlike the PVA gateway's per-variable suffix."""
+    from geecs_core.pv_naming import DEVICE_STATUS_VARIABLE, device_status_pv
+
+    assert DEVICE_STATUS_VARIABLE == "connected"
+    assert device_status_pv("Undulator", "U_S1H") == "undulator:u_s1h:connected"
+    assert device_status_pv(None, "UC_Cam 3") == "uc_cam_3:connected"

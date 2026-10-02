@@ -5,15 +5,18 @@ experiment's monitored (``get='yes'``) readbacks, the settable variables'
 ``:SP`` setpoints, every device's ``connected`` status PV and the gateway's
 derived channels from the GEECS database, exactly as the CA gateway serves
 them.  This document is the small, optional, committed set of *exceptions*:
-PV globs to leave out, sampling overrides for the few PVs that need a rate
+PV globs to leave out, PVs to add, sampling for the few PVs that need a rate
 other than the default, and the switches for the three optional classes.
 
 It lives in the configs repository beside the gateway's own overlay::
 
     scanner_configs/experiments/<Experiment>/archiver/archive_policy.yaml
 
-An absent file means "the defaults": everything the rule derives, sampled by
-the appliance's ``Default`` policy.
+An absent file means "the defaults": everything the rule derives, sampled
+every second on change.  This file — not the appliance's own store — is the
+configuration of record together with the rule: ``onboard`` re-applies it
+idempotently, so a PV someone archives by hand from the appliance's UI is
+paused on the next run unless it is listed in ``include``.
 """
 
 from __future__ import annotations
@@ -31,22 +34,17 @@ class SamplingOverride(SchemaModel):
     """A sampling rule for the PVs matching one glob.
 
     Globs are ``fnmatch`` patterns over the full, lowercase PV name
-    (``undulator:u_vacuumgauge:*``).  The last matching override wins.  At
-    least one of ``policy``, ``sampling_period`` or ``sampling_method`` must
-    be given.
+    (``undulator:u_vacuumgauge:*``).  The last matching override wins per
+    field.  At least one of ``sampling_period`` or ``sampling_method`` must be
+    given.  The values are sent to the appliance with the archive request
+    (its "user-specified sampling"), so what this file says is what the
+    appliance does — there is no second table of named policies to agree with.
     """
 
     match: str = Field(
         ...,
         min_length=1,
         description="fnmatch glob over the full lowercase PV name.",
-    )
-    policy: str | None = Field(
-        default=None,
-        description=(
-            "Name of a policy declared in the appliance's policies.py "
-            "(e.g. 'Slow'). Selects that policy's stores and sampling."
-        ),
     )
     sampling_period: float | None = Field(
         default=None,
@@ -60,14 +58,10 @@ class SamplingOverride(SchemaModel):
 
     @model_validator(mode="after")
     def _at_least_one_setting(self) -> "SamplingOverride":
-        if (
-            self.policy is None
-            and self.sampling_period is None
-            and self.sampling_method is None
-        ):
+        if self.sampling_period is None and self.sampling_method is None:
             raise ValueError(
-                f"sampling override {self.match!r} sets nothing: give policy, "
-                "sampling_period or sampling_method"
+                f"sampling override {self.match!r} sets nothing: give sampling_period "
+                "or sampling_method"
             )
         return self
 
@@ -80,6 +74,15 @@ class ArchivePolicy(VersionedSchemaModel):
         description=(
             "fnmatch globs over full lowercase PV names that the derived rule "
             "would include but this experiment does not archive."
+        ),
+    )
+    include: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Full PV names to archive beyond what the rule derives (e.g. a "
+            "gateway diagnostic such as 'undulator:cagateway:devices_connected'). "
+            "Listed PVs are never paused by onboarding; 'exclude' does not apply "
+            "to them."
         ),
     )
     include_setpoints: bool = Field(
@@ -112,5 +115,5 @@ class ArchivePolicy(VersionedSchemaModel):
     )
     sampling_overrides: list[SamplingOverride] = Field(
         default_factory=list,
-        description="Per-glob sampling rules; the last matching entry wins.",
+        description="Per-glob sampling rules; the last matching entry wins per field.",
     )

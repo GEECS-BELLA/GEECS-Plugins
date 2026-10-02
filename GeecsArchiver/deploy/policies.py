@@ -1,17 +1,19 @@
-"""GEECS Archiver Appliance — policies.py (site-neutral).
+"""GEECS Archiver Appliance — policies.py (site-neutral, one policy).
 
-The appliance imports this file (Jython) to decide, per PV, where samples
-go and how often. Our archive set is derived by `geecs-archiver onboard`
-from the GEECS database; the request names a policy only when the
-experiment's archive_policy.yaml overrides the default. Two stores:
+The appliance imports this file (Jython) to decide, per PV, where samples go
+and how often. Our archive set is derived by `geecs-archiver onboard` from
+the GEECS database, and every request carries its own sampling period and
+method (the appliance's *user-specified sampling*, which takes precedence
+over the period below) — so the experiment's archive_policy.yaml is the one
+table and this file only names the stores:
 
   STS  short-term, hourly partitions, on the host path mounted at
        ARCHAPPL_SHORT_TERM_FOLDER (a tmpfs symlink is the upstream
        recommendation; a local SSD is fine)
   LTS  long-term, yearly partitions, on the mirrored data disk.
 
-No MTS: at this facility's volume a two-rung ladder is enough.
-Folders come from the environment so the file is the same on every host.
+No MTS: at this facility's volume a two-rung ladder is enough. Folders come
+from the environment so the file is the same on every host.
 """
 
 import os
@@ -30,20 +32,16 @@ STORES = [
 
 
 def getPolicyList():
-    """The policies the mgmt UI offers; keys are what archive_policy.yaml names."""
+    """The policies the mgmt UI offers — one; the request's own sampling sets the rate."""
     return {
-        "Default": "MONITOR, 1 s: every change, throttled to one stored sample per second",
-        "Slow": "MONITOR, 10 s: slow-moving readbacks (vacuum, temperatures)",
-        "Fast": "MONITOR, 0.1 s: the few PVs whose every 5 Hz update matters",
+        "Default": "STS (hourly) -> LTS (yearly); sampling as requested, else MONITOR 1 s"
     }
 
 
 def determinePolicy(pvInfoDict):
-    """Pick the policy for one PV from its info dict."""
-    name = pvInfoDict.get("policyName", "Default")
-    period = {"Default": 1.0, "Slow": 10.0, "Fast": 0.1}.get(name, 1.0)
+    """The one policy: the stores, and a 1 s MONITOR fallback for a request that names no sampling."""
     return {
-        "samplingPeriod": period,
+        "samplingPeriod": 1.0,
         "samplingMethod": "MONITOR",
         "dataStores": STORES,
         "archiveFields": [],

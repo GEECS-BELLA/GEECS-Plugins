@@ -46,6 +46,7 @@ class PVStatus:
     last_event: str | None
     sampling_period: float | None
     appliance: str | None
+    sampling_method: str | None = None
 
     @property
     def archived(self) -> bool:
@@ -75,6 +76,7 @@ class PVStatus:
             period_f = float(period) if period not in (None, "") else None
         except (TypeError, ValueError):
             period_f = None
+        monitored = _flag(row.get("isMonitored"))
         return cls(
             pv=str(row.get("pvName", "")),
             status=str(row.get("status", "")),
@@ -82,6 +84,9 @@ class PVStatus:
             last_event=row.get("lastEvent"),
             sampling_period=period_f,
             appliance=row.get("appliance"),
+            sampling_method=None
+            if monitored is None
+            else ("MONITOR" if monitored else "SCAN"),
         )
 
 

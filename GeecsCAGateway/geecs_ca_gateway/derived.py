@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import ast
-import configparser
-import json
 import math
-import os
 from pathlib import Path
 
 from geecs_schemas import (
@@ -21,7 +18,9 @@ from geecs_schemas.restricted_expr import (
     compile_expression,
 )
 
-from geecs_core.pv_naming import normalize_component as normalize_pv_component
+from geecs_core.configs_repo import experiment_config_path
+from geecs_core.configs_repo import scanner_configs_base as _scanner_configs_base
+from geecs_core.pv_naming import pv_name
 
 _ALLOWED_FUNCS = {
     name: getattr(math, name)
@@ -71,32 +70,21 @@ class DerivedExpressionError(ValueError):
 def derived_pv_name(
     spec: DerivedChannelSpec, default_experiment: str | None = None
 ) -> str:
-    """Return the full output PV name for a derived-channel declaration."""
-    parts: list[str] = []
-    experiment = spec.experiment or default_experiment
-    if experiment:
-        parts.append(normalize_pv_component(experiment))
-    parts.append(normalize_pv_component(spec.device))
-    parts.append(normalize_pv_component(spec.pv or spec.variable))
-    return ":".join(parts)
+    """Return the full output PV name for a derived-channel declaration.
+
+    The components come from the schema (``DerivedChannel.pv_parts``: the
+    ``experiment`` / ``pv`` overrides resolved) and the join from
+    ``geecs_core.pv_naming`` — the archiver mints its archive requests from
+    the same two, so the served and the requested name cannot differ.
+    """
+    return pv_name(*spec.pv_parts(default_experiment))
 
 
 def load_derived_channels(path: str | Path) -> list[DerivedChannelSpec]:
     """Load a YAML or JSON derived-channel document from *path*."""
     config_path = Path(path)
     try:
-        if config_path.suffix.lower() == ".json":
-            data = json.loads(config_path.read_text(encoding="utf-8"))
-        else:
-            try:
-                import yaml
-            except ImportError as exc:
-                raise ImportError(
-                    "PyYAML is required to load derived-channel YAML files. "
-                    "Install the GeecsCAGateway package dependencies."
-                ) from exc
-            data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        document = DerivedChannels.model_validate(data or {})
+        document = DerivedChannels.from_path(config_path)
     except Exception as exc:
         raise ValueError(f"failed to load derived channels from {config_path}") from exc
     return list(document.derived_channels)
@@ -105,38 +93,17 @@ def load_derived_channels(path: str | Path) -> list[DerivedChannelSpec]:
 def scanner_configs_base() -> Path | None:
     """Resolve the configs repo ``scanner_configs/experiments`` base if known.
 
-    Resolution mirrors the scanner/Bluesky production path without importing
-    either package:
-
-    1. ``GEECS_SCANNER_CONFIG_DIR`` points directly at
-       ``scanner_configs/experiments``.
-    2. ``GEECS_PLUGINS_CONFIGS`` points at the configs repo root.
-    3. ``~/.config/geecs_python_api/config.ini`` has
-       ``[Paths] scanner_config_root_path`` pointing at the configs repo root.
+    Delegates to ``geecs_core.configs_repo.scanner_configs_base`` — the one
+    resolver every consumer of the configs repository shares.
     """
-    env = os.environ.get("GEECS_SCANNER_CONFIG_DIR")
-    if env:
-        return Path(env).expanduser().resolve()
-    repo_env = os.environ.get("GEECS_PLUGINS_CONFIGS")
-    if repo_env:
-        return Path(repo_env).expanduser().resolve() / "scanner_configs" / "experiments"
-    config_ini = Path("~/.config/geecs_python_api/config.ini").expanduser()
-    if config_ini.exists():
-        parser = configparser.ConfigParser()
-        parser.read(config_ini)
-        root = parser.get("Paths", "scanner_config_root_path", fallback=None)
-        if root:
-            return Path(root).expanduser().resolve() / "scanner_configs" / "experiments"
-    return None
+    return _scanner_configs_base()
 
 
 def default_derived_channels_path(experiment: str) -> Path | None:
     """Return the conventional configs-repo derived-channel file, if present."""
-    base = scanner_configs_base()
-    if base is None:
-        return None
-    path = base / experiment / GATEWAY_CONFIG_FOLDER / DERIVED_CHANNELS_FILENAME
-    return path if path.exists() else None
+    return experiment_config_path(
+        experiment, GATEWAY_CONFIG_FOLDER, DERIVED_CHANNELS_FILENAME
+    )
 
 
 class ExpressionEvaluator:

@@ -13,7 +13,10 @@ guarantees:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
+from pathlib import Path
+from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -55,6 +58,24 @@ class VersionedSchemaModel(SchemaModel):
             "this automatically when the file format changes."
         ),
     )
+
+    @classmethod
+    def from_path(cls, path: str | Path) -> Self:
+        """Load and validate one document from a YAML (default) or ``.json`` file.
+
+        An empty file is the empty document (every field at its default).
+        The one loader every consumer of a config kind shares — the gateway's
+        derived channels, the archiver's policy — so "how a file becomes a
+        model" is spelled once.
+        """
+        import yaml
+
+        file = Path(path)
+        text = file.read_text(encoding="utf-8")
+        data = (
+            json.loads(text) if file.suffix.lower() == ".json" else yaml.safe_load(text)
+        )
+        return cls.model_validate(data or {})
 
 
 def declared_schema_version(data: Mapping[str, object]) -> int | None:

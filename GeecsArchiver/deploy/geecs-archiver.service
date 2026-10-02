@@ -31,13 +31,17 @@ Requires=docker.service
 [Service]
 Type=simple
 User=@SERVICE_USER@
-# Poetry resolves its cache/venvs under $HOME; systemd does not always set it.
+# docker reads its client configuration under $HOME; systemd does not always set it.
 Environment=HOME=@SERVICE_HOME@
 # The host's site profile: the CA addressing the appliance reads directly,
 # TZ for its logs, and GEECS_ARCHIVER_JAVA_OPTS for the engine's heap.
 EnvironmentFile=@SITE_ENV@
-# The archiver's OWN clone — never one another service runs from.
-WorkingDirectory=@CHECKOUT_ROOT@/archiver-checkout/GeecsArchiver
+# The rendered conf directory (compose.yaml and the appliance's files). The
+# appliance's uptime does not depend on a checkout: the archiver's clone
+# (<root>/archiver-checkout) is for the geecs-archiver CLI and for rendering,
+# and this unit never reads it. (/fleet-status therefore reports this row
+# like Tiled's: by its own protocol, no checkout.)
+WorkingDirectory=/etc/geecs/archiver
 # compose reads the rendered compose.yaml from the conf directory and
 # interpolates ${EPICS_CA_ADDR_LIST} etc. from this process's environment
 # (EnvironmentFile= above). --abort-on-container-exit makes a dead Tomcat a

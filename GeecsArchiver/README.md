@@ -16,7 +16,7 @@ package is the GEECS-shaped recipe around it.
 |---|---|
 | `geecs_archiver/archive_set.py` | **The rule.** From the GEECS DB, with the gateway's own queries: monitored readbacks, `:SP` setpoints, each device's `connected`, the derived channels. Never timestamps, images or path strings. Then the experiment's overlay |
 | `geecs_archiver/mgmt_client.py` | A typed client of the appliance's management API |
-| `geecs_archiver/onboard.py` | Idempotent reconciliation: archive / resume / retune / pause, then verify every new PV is *archived and connected* |
+| `geecs_archiver/onboard.py` | Idempotent reconciliation: archive / resume / retune / pause (never delete; `--yes` guards a mass pause), then verify every new PV is *archived and connected*; the appliance's never-connected list is the drift alarm, read on every run |
 | `geecs_archiver/cli.py` | `geecs-archiver list \| onboard \| status \| export-config` |
 | `deploy/` | The systemd unit template, the compose + appliance conf templates, `render_conf.sh` |
 | `DEPLOYMENT.md` | The runbook |

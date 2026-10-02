@@ -4,11 +4,11 @@ from geecs_schemas import ArchivePolicy, DerivedChannels
 
 from geecs_archiver.archive_set import (
     ArchiveCandidate,
-    is_timestamp_variable,
     Sampling,
     classify,
     derive_candidates,
     is_excluded,
+    is_timestamp_variable,
     sampling_for,
 )
 
@@ -91,6 +91,18 @@ def test_timestamps_paths_and_images_are_never_archived():
     assert not any(pv.startswith("undulator:u_img:") for pv in out)
 
 
+def test_timestamp_variable_rule():
+    assert is_timestamp_variable("acq_timestamp") and is_timestamp_variable(
+        "SysTimestamp"
+    )
+    assert is_timestamp_variable("timestamp") and is_timestamp_variable(
+        "Shot Timestamp"
+    )
+    assert not is_timestamp_variable("timestamp_offset") and not is_timestamp_variable(
+        "current"
+    )
+
+
 def test_status_pv_follows_the_gateway_rule():
     out = pvs()
     assert "undulator:u_s1h:connected" in out
@@ -129,6 +141,43 @@ def test_derived_channels_are_included_and_switchable():
     assert "undulator:targetchamberpressure:pressure" not in pvs(
         ArchivePolicy(include_derived=False), derived=derived
     )
+
+
+def test_derived_channel_names_honour_the_schema_overrides():
+    """The gateway mints the served name from the same parts (experiment / pv overrides)."""
+    derived = DerivedChannels.model_validate(
+        {
+            "derived_channels": [
+                {
+                    "device": "TargetChamberPressure",
+                    "variable": "Pressure",
+                    "pv": "pressure_torr",
+                    "experiment": "Other",
+                    "expression": "v",
+                    "inputs": [
+                        {"symbol": "v", "device": "U_S1H", "variable": "Current"}
+                    ],
+                }
+            ]
+        }
+    )
+    out = pvs(derived=derived)
+    assert "other:targetchamberpressure:pressure_torr" in out
+    assert "undulator:targetchamberpressure:pressure" not in out
+
+
+def test_include_adds_pvs_beyond_the_rule_and_ignores_exclude():
+    policy = ArchivePolicy(
+        include=["undulator:cagateway:devices_connected", "undulator:u_s1h:current"],
+        exclude=["undulator:cagateway:*"],
+    )
+    cands = derive_candidates("Undulator", ENDPOINTS, VAR_MAP, SUB_MAP, policy=policy)
+    by_pv = {c.pv: c for c in cands}
+    assert by_pv["undulator:cagateway:devices_connected"].kind == "include"
+    assert (
+        by_pv["undulator:u_s1h:current"].kind == "readback"
+    )  # already derived: the rule's record wins
+    assert [c.pv for c in cands] == sorted(c.pv for c in cands)
 
 
 def test_exclude_globs_are_case_folded_and_applied_last():
@@ -170,41 +219,24 @@ def test_sampling_defaults_and_override_precedence():
     policy = ArchivePolicy(
         default_sampling_period=2.0,
         sampling_overrides=[
-            {"match": "undulator:u_*", "policy": "Slow"},
+            {"match": "undulator:u_*", "sampling_period": 10.0},
             {"match": "undulator:u_s1h:*", "sampling_period": 0.5},
             {"match": "*:current:SP", "sampling_method": "SCAN"},
         ],
     )
     assert sampling_for("undulator:uc_cam3:centroidx", policy) == Sampling(
-        2.0, "MONITOR", None
+        2.0, "MONITOR"
     )
-    assert sampling_for("undulator:u_vac:pressure", policy) == Sampling(
-        2.0, "MONITOR", "Slow"
-    )
-    assert sampling_for("undulator:u_s1h:voltage", policy) == Sampling(
-        0.5, "MONITOR", "Slow"
-    )
-    assert sampling_for("undulator:u_s1h:current:SP", policy) == Sampling(
-        0.5, "SCAN", "Slow"
-    )
+    assert sampling_for("undulator:u_vac:pressure", policy) == Sampling(10.0, "MONITOR")
+    assert sampling_for("undulator:u_s1h:voltage", policy) == Sampling(0.5, "MONITOR")
+    assert sampling_for("undulator:u_s1h:current:SP", policy) == Sampling(0.5, "SCAN")
 
 
-def test_sampling_request_body():
+def test_sampling_request_body_always_carries_period_and_method():
+    """The appliance's user-specified sampling: what the overlay says is what it does."""
     assert Sampling(1.0, "MONITOR").request("a:b:c") == {
         "pv": "a:b:c",
         "samplingperiod": "1",
         "samplingmethod": "MONITOR",
     }
-    assert Sampling(10.0, "MONITOR", "Slow").request("a:b:c")["policy"] == "Slow"
-
-
-def test_timestamp_variable_rule():
-    assert is_timestamp_variable("acq_timestamp") and is_timestamp_variable(
-        "SysTimestamp"
-    )
-    assert is_timestamp_variable("timestamp") and is_timestamp_variable(
-        "Shot Timestamp"
-    )
-    assert not is_timestamp_variable("timestamp_offset") and not is_timestamp_variable(
-        "current"
-    )
+    assert Sampling(10.0, "SCAN").request("a:b:c")["samplingperiod"] == "10"

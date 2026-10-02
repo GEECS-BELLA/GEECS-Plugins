@@ -31,6 +31,17 @@ client and reconnects on its own through gateway restarts.
 
 ## 2. Install
 
+!!! warning "Container recipe unverified until Phase 3"
+    The 2026-10-02 pilot ran the appliance from tarballs as the service
+    account. Everything container-specific below — `docker compose` as the
+    service account, Tomcat running as a non-root uid inside upstream's
+    image (its `work/`, `temp/`, `logs/` directories), the bind-mounted
+    `server.xml`/`context.xml`, JDBM2 persistence through the state
+    directory, a re-added PV picking up its existing partitions — is
+    designed from upstream's image and documentation and **has not run
+    yet**. The first production install is its test; fix the recipe there
+    and drop this box.
+
 ### Prerequisites (root, once per host)
 
 ```bash
@@ -127,10 +138,21 @@ watch a real lab week (disk growth, engine CPU, retrieval latency in
 `status`), then widen.
 
 `onboard` never deletes: a PV the rule stops wanting is **paused**, and only
-PVs under this experiment's prefix are touched. It exits non-zero when a
-newly submitted PV is "Being archived" but **never connects** — the rule
-wants a PV the gateway does not serve. That is the drift alarm between the
-two; fix the rule or the gateway, not the appliance.
+PVs under this experiment's prefix are touched. Pausing more than ten PVs in
+one run needs `--yes` (a half-empty device table must not pause the
+experiment silently). A PV someone archived by hand from the appliance's UI
+is paused on the next run unless it is listed in the policy's `include` —
+the rule plus the committed policy is the configuration of record, so put
+the exception there, not in the appliance.
+
+**The drift alarm.** A requested PV the gateway does not serve never answers
+on CA, so the appliance cannot complete its archive request: it stays in the
+appliance's **never-connected list** (`getNeverConnectedPVs`) indefinitely.
+`onboard` reads that list on **every** run — not only after a submission —
+prints each wanted PV found there as `! never connected`, and exits 1. Fix
+the rule or the gateway, not the appliance. Exit status: 0 ok · 1 drift
+(or a refused request) · 2 usage (no experiment/URL, or an unguarded mass
+pause) · 3 the appliance did not answer.
 
 **After a GEECS database change** (a device added, a `get` flag edited):
 restart the gateway (its restart PV) and rerun `onboard`. Two commands, one
@@ -151,10 +173,10 @@ change. Rerunning when nothing changed is a no-op.
   (yearly files under `lts/`); the ETL's out-of-space default *deletes
   source streams*, so alert well before. Sizing: `PLAN.md` §5.
 - **Configuration backup.** The store under `/var/lib/geecs-archiver` is a
-  cache; the record is the rule plus the committed policy. For the
-  hand-tuned exceptions, snapshot the appliance's own view:
-  `geecs-archiver export-config --out <path>` (JSON; `importConfig`
-  restores it). A nightly systemd timer writing into
+  cache; the record is the rule plus the committed policy (its `include`
+  list is where a hand-added PV belongs). `geecs-archiver export-config
+  --out <path>` snapshots the appliance's own view (JSON; `importConfig`
+  restores it) for a like-for-like restore after a disk loss. A nightly systemd timer writing into
   `{experiment}/archiver/` on the data share is the intended shape.
 - **Upgrade.** Bump the tag in `deploy/compose.yaml.in` in a reviewed PR,
   pull the clone, re-render, reinstall `/etc/geecs/archiver`, then
@@ -186,7 +208,9 @@ change. Rerunning when nothing changed is a no-op.
 
 | Symptom | Meaning |
 |---|---|
-| `onboard` exits 1 with "never connected" PVs | The rule derives a PV the gateway does not serve. Compare with the gateway's log at startup; the served-set rule changed on one side |
+| `onboard` exits 1 with `! never connected` PVs | The rule derives a PV the gateway does not serve (the appliance's never-connected list). Compare with the gateway's log at startup; the served-set rule changed on one side |
+| `onboard` exits 2, "refusing to pause N PVs" | The derived set shrank by more than the guard — usually a database maintenance state. Check `geecs-archiver list`; rerun with `--yes` only if the shrink is real |
+| `onboard` exits 3 | The appliance did not answer (`geecs-archiver status`; the unit's journal) |
 | Engine log: `Cannot determine DBR type for pv …localsavingpath` | A `path` (char-array) PV reached the appliance. The rule excludes them; something submitted it by hand — pause it |
 | Appliance up, every PV disconnected | `EPICS_CA_ADDR_LIST` in `site.env` does not name the gateway, or the gateway is down (`caget <exp>:cagateway:heartbeat` from the host) |
 | `docker compose up` fails on `17665` in use | A hand-started pilot (`pkill -f quickstart_tomcat`) or another service on the port |

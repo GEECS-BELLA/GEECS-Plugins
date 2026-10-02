@@ -1,12 +1,15 @@
 """Idempotent onboarding: reconcile the appliance with the derived archive set.
 
-``plan`` compares what the rule wants with what the appliance has and
-produces the minimal set of management calls; ``apply`` issues them; and
+``plan_onboarding`` compares what the rule wants with what the appliance has
+and produces the minimal set of management calls; ``apply`` issues them; and
 ``verify`` waits for the new PVs to reach *Being archived with a live
-connection* — the one check that catches the rule and the gateway drifting
-apart (a PV the gateway does not serve is "never connected").  Nothing here
-deletes data: a PV the rule no longer wants is **paused**, and only PVs
-under the experiment's own prefix are ever touched.
+connection*.  A request the appliance cannot complete because the PV never
+answers on CA — the rule wants a PV the gateway does not serve — stays in
+its archive-request workflow and appears in the appliance's own
+never-connected list (``getNeverConnectedPVs``); :func:`stuck_requests`
+reads that list, on every run, so the drift cannot hide behind a no-op.
+Nothing here deletes data: a PV the rule no longer wants is **paused**, and
+only PVs under the experiment's own prefix are ever touched.
 """
 
 from __future__ import annotations
@@ -32,13 +35,13 @@ class OnboardPlan:
 
     @property
     def is_noop(self) -> bool:
-        """Nothing to send."""
+        """Nothing to send (pending requests are the appliance's to finish, not ours to resend)."""
         return not (
             self.to_archive or self.to_resume or self.to_retune or self.to_pause
         )
 
     def summary(self) -> str:
-        """One line per bucket."""
+        """One line, every bucket."""
         return (
             f"archive {len(self.to_archive)}, resume {len(self.to_resume)}, "
             f"retune {len(self.to_retune)}, pause {len(self.to_pause)}, "
@@ -58,7 +61,8 @@ def plan_onboarding(
     Parameters
     ----------
     desired : mapping
-        ``{pv: Sampling}`` from the rule and the policy.
+        ``{pv: Sampling}`` from the rule and the policy (the policy's
+        ``include`` PVs are in it, so they are never paused).
     statuses : iterable of PVStatus
         ``getPVStatus`` rows for every desired PV and for every archived PV
         under *prefix* (so paused ones are recognised).
@@ -84,10 +88,15 @@ def plan_onboarding(
         elif status.paused:
             plan.to_resume.append(pv)
         elif status.archived:
-            if (
+            period_differs = (
                 status.sampling_period is not None
                 and abs(status.sampling_period - sampling.period) > 1e-9
-            ):
+            )
+            method_differs = (
+                status.sampling_method is not None
+                and status.sampling_method != sampling.method
+            )
+            if period_differs or method_differs:
                 plan.to_retune.append((pv, sampling))
             else:
                 plan.unchanged.append(pv)
@@ -140,6 +149,18 @@ def apply(client: MgmtClient, plan: OnboardPlan, *, batch: int = 500) -> ApplyRe
     return report
 
 
+def stuck_requests(client: MgmtClient, pvs: Iterable[str]) -> list[str]:
+    """The subset of *pvs* in the appliance's never-connected list.
+
+    A requested PV that never answers on CA stays in the archive-request
+    workflow indefinitely; this is the authoritative drift signal between the
+    rule and the gateway, and it is read on every run.
+    """
+    wanted = set(pvs)
+    names = {str(row.get("pvName", "")) for row in client.never_connected()}
+    return sorted(wanted & names)
+
+
 @dataclass
 class VerifyReport:
     """Where the submitted PVs ended up after the wait."""
@@ -166,8 +187,9 @@ def verify(
 ) -> VerifyReport:
     """Poll ``getPVStatus`` until every PV is archived and connected, or *wait_s* passes.
 
-    A PV that reaches *Being archived* but never connects is the drift alarm:
-    the rule wants it and the gateway does not serve it.
+    Afterwards the appliance's never-connected list says which of the
+    leftovers are the drift case (the gateway does not serve them) and which
+    are merely still in the workflow.
     """
     deadline = clock() + wait_s
     remaining = list(pvs)
@@ -182,8 +204,9 @@ def verify(
         sleep(poll_s)
     report = VerifyReport(archived=sorted(done))
     if remaining:
+        stuck = set(stuck_requests(client, remaining))
         for status in client.get_pv_status(remaining):
-            if status.archived and status.connected is False:
+            if status.pv in stuck or (status.archived and status.connected is False):
                 report.never_connected.append(status.pv)
             elif status.pending:
                 report.pending.append(status.pv)
