@@ -316,3 +316,65 @@ def test_orphan_empty_and_corrupt_files_through_the_real_writer(
         f"{euid}.jsonl.failed",
         f"{cuid}.jsonl.failed",
     }
+
+
+def test_parquet_table_registers_from_the_scan_folder_and_reads_back(
+    tmp_path: Path, catalog
+) -> None:
+    """The default writer: the stream table is a Parquet file beside the s-file,
+    registered from ``readable_storage`` like a camera stack, and the reader
+    seam (``read_primary_scalars``) cannot tell it from the SQL table."""
+    from geecs_data_utils.tiled_catalog import read_primary_scalars
+
+    from geecs_bluesky.tiled_parquet import PARQUET_MIMETYPE, GeecsTiledWriter
+
+    scan_folder = tmp_path / "scans" / "Scan011"
+    scan_folder.mkdir(parents=True)
+    layout = SpoolLayout(tmp_path / "state")
+    RE = RunEngine()
+    RE.subscribe(SpoolCallback(layout))
+    (uid,) = RE(bp.count([_Det()], num=3), scan_number=11, scan_folder=str(scan_folder))
+    registrar = SpoolRegistrar(
+        layout,
+        "http://unused.test",
+        client_factory=lambda: catalog,
+        # batch_size=2: with 3 events the stop's second batch takes the real
+        # data-source update path (the row count grows, same asset) on a
+        # table node, not the fake the hermetic test substitutes.
+        writer_factory=lambda client: GeecsTiledWriter(
+            client, batch_size=2, tiled_path=lambda p: p
+        ),
+        reachable=lambda uri: True,
+        held=lambda path: False,
+        orphan_after_s=1800.0,
+    )
+    heartbeat = registrar.sweep()
+    assert heartbeat.done == 1 and heartbeat.failed == 0, heartbeat.last_error
+
+    parquet = scan_folder / "ScanDataScan011-primary.parquet"
+    assert parquet.exists()
+    table = catalog[uid]["primary"].base["internal"]
+    (source,) = table.data_sources()
+    assert source.mimetype == PARQUET_MIMETYPE
+    assert source.assets[0].data_uri.endswith(
+        "/scans/Scan011/ScanDataScan011-primary.parquet"
+    )
+    frame = read_primary_scalars(catalog[uid]["primary"])
+    assert len(frame) == 3
+    assert str(frame["det_n"].dtype) == "float64" and frame["det_n"].isna().all()
+    assert frame["det_str"].tolist() == ["ON"] * 3 and frame["det_i"].tolist() == [
+        7,
+        7,
+        7,
+    ]
+    assert list(frame["seq_num"]) == [1, 2, 3]
+
+    # Idempotence: a replay (the writer died before the rename) rewrites the
+    # same file and re-registers it once.
+    done = layout.done_files()[0]
+    done.rename(done.with_name(done.name[: -len(".done")]))
+    assert registrar.sweep().failed == 0
+    assert len(read_primary_scalars(catalog[uid]["primary"])) == 3
+    assert sorted(p.name for p in scan_folder.iterdir()) == [
+        "ScanDataScan011-primary.parquet"
+    ]

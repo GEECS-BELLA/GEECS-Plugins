@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import functools
 import signal
 import sys
 import threading
@@ -68,11 +69,31 @@ DEFAULT_MAX_BACKOFF_S = 600.0
 DEFAULT_ORPHAN_AFTER_S = 30 * 60.0
 
 
-def make_tiled_writer(client: Any) -> Callable[[str, dict], None]:
-    """The stock ``TiledWriter`` over *client* (imported lazily: the tiled extra)."""
-    from bluesky.callbacks.tiled_writer import TiledWriter
+#: Where a stream's table goes: ``parquet`` — one file per stream in the scan
+#: folder, registered like the camera stacks (:mod:`geecs_bluesky.tiled_parquet`);
+#: ``appendable`` — the stock writer's SQL table in Tiled's SQL storage.
+DEFAULT_TABLE_STORE = "parquet"
+TABLE_STORES = ("parquet", "appendable")
 
-    return TiledWriter(client)
+
+def make_tiled_writer(
+    client: Any, *, tables: str = DEFAULT_TABLE_STORE
+) -> Callable[[str, dict], None]:
+    """The writer over *client* (imported lazily: the tiled extra).
+
+    ``tables="parquet"`` builds :class:`~geecs_bluesky.tiled_parquet.GeecsTiledWriter`
+    (the file's URI through :func:`~geecs_bluesky.data_paths.tiled_host_path`);
+    ``"appendable"`` is the stock ``TiledWriter``.
+    """
+    if tables not in TABLE_STORES:
+        raise ValueError(f"tables must be one of {TABLE_STORES}, got {tables!r}")
+    if tables == "appendable":
+        from bluesky.callbacks.tiled_writer import TiledWriter
+
+        return TiledWriter(client)
+    from geecs_bluesky.tiled_parquet import GeecsTiledWriter
+
+    return GeecsTiledWriter(client, table_store="parquet")
 
 
 # ── the registrar ────────────────────────────────────────────────────────
@@ -112,8 +133,13 @@ class SpoolRegistrar:
     tiled_uri, api_key :
         The catalog.
     writer_factory :
-        ``client -> callback``; the default is :func:`make_tiled_writer`.
-        Tests inject a recorder.
+        ``client -> callback``; the default is :func:`make_tiled_writer`
+        with *tables*.  Tests inject a recorder.
+    tables :
+        Where a stream's table goes: ``"parquet"`` (default — one file per
+        stream in the scan folder, :mod:`geecs_bluesky.tiled_parquet`) or
+        ``"appendable"`` (the stock SQL table in Tiled's SQL storage).
+        Ignored when *writer_factory* is given.
     client_factory :
         ``() -> client``; the default is ``tiled.client.from_uri``.
     reachable :
@@ -143,11 +169,17 @@ class SpoolRegistrar:
         max_backoff_s: float = DEFAULT_MAX_BACKOFF_S,
         orphan_after_s: float = DEFAULT_ORPHAN_AFTER_S,
         clock: Callable[[], float] = time.time,
+        tables: str = DEFAULT_TABLE_STORE,
     ) -> None:
         self.layout = layout
         self.tiled_uri = tiled_uri
         self._api_key = api_key
-        self._writer_factory = writer_factory or make_tiled_writer
+        if tables not in TABLE_STORES:
+            raise ValueError(f"tables must be one of {TABLE_STORES}, got {tables!r}")
+        self.tables = tables
+        self._writer_factory = writer_factory or functools.partial(
+            make_tiled_writer, tables=tables
+        )
         self._client_factory = client_factory or self._default_client_factory
         if reachable is None:
             from geecs_bluesky.tiled_integration import tiled_server_reachable
@@ -495,6 +527,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds of silence before an unfinished run its engine no longer holds is registered as failed",
     )
     parser.add_argument(
+        "--tables",
+        choices=TABLE_STORES,
+        default=DEFAULT_TABLE_STORE,
+        help=(
+            "where a stream's table goes: parquet = one file per stream in the scan "
+            "folder, registered like the camera stacks (default); appendable = the "
+            "stock SQL table in Tiled's SQL storage"
+        ),
+    )
+    parser.add_argument(
         "--once", action="store_true", help="one sweep, then exit (0 = the sweep ran)"
     )
     return parser
@@ -531,13 +573,15 @@ def main(argv: list[str] | None = None) -> int:
         max_attempts=args.max_attempts,
         max_backoff_s=args.max_backoff,
         orphan_after_s=args.orphan_after,
+        tables=args.tables,
     )
     logger.info(
-        "geecs-tiled-writer %s: spool %s → %s (every %.1f s)",
+        "geecs-tiled-writer %s: spool %s → %s (every %.1f s; tables: %s)",
         _package_version(),
         layout.spool_dir,
         tiled_uri,
         registrar.sweep_interval,
+        registrar.tables,
     )
     if args.once:
         heartbeat = registrar.sweep()

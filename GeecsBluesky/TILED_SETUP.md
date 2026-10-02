@@ -31,9 +31,19 @@ the raw data files.
 - Running as systemd service: `sudo systemctl status tiled`
   (`tiled serve config ~/tiled/config.yml`; auth + host/port + trees all
   live in that config file, not in the unit)
-- Catalog DB: `~/tiled/catalog.db` (SQLite, metadata index)
-- Tabular storage: `~/tiled/tabular.db` (SQLite, event tables)
-- File storage: `~/tiled/storage/`
+- Catalog DB: `~/tiled/catalog.db` (SQLite, metadata index — the one
+  database Tiled needs)
+- Event tables: since GeecsBluesky 0.110.0 **one Parquet file per stream
+  in the scan folder** (`ScanNNN/ScanDataScanNNN-<stream>.parquet`),
+  written by `geecs-tiled-writer` and registered from `readable_storage`
+  like the camera stacks — so the data share must be in
+  `readable_storage` (it is, for the stacks).  `~/tiled/tabular.db`
+  (SQLite) holds the runs registered before that as appendable SQL tables
+  (read through the override below) and stays in `writable_storage` for
+  the writer's `--tables appendable` option; the history port to Parquet
+  is the arc's next step.
+- File storage: `~/tiled/storage/` (Tiled's own, for tables a client asks
+  it to store)
 - API key: stable — `single_user_api_key` in `~/tiled/config.yml` on the
   server; stored in `~/.config/geecs_python_api/config.ini` on all client
   machines
@@ -227,7 +237,9 @@ api_key = <stable key>
 - The worker spools every run's documents; `geecs-tiled-writer` registers
   each run in Tiled at its close, off the engine thread ✓
 - Run start/stop metadata written to catalog ✓
-- Event documents (motor positions, detector scalars, timestamps) written ✓
+- Event documents (motor positions, detector scalars, timestamps) written —
+  as one Parquet table per stream beside the s-file, typed, any width,
+  NaN kept as NaN (0.110.0) ✓
 - Scan number, scan folder, device list in run start metadata ✓
 - Non-scalar device events include save directory and device `acq_timestamp` ✓
 - DG645 shot control arm/disarm per step ✓

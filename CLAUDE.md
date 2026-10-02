@@ -286,6 +286,7 @@ developed analysis packages. `LogMaker4GoogleDocs` is a standalone legacy packag
   │   └── Scan{NNN}/
   │       ├── Scan{NNN}.tdms
   │       ├── ScanDataScan{NNN}.txt    (scanner-written scalar summary)
+  │       ├── ScanDataScan{NNN}-<stream>.parquet  (the Tiled writer's table per event stream, registered in Tiled)
   │       ├── ScanInfoScan{NNN}.ini    (scan metadata)
   │       ├── <device>/...             (raw per-shot data)
   │       └── analysis_status/         (ScanAnalysis task queue YAML files)

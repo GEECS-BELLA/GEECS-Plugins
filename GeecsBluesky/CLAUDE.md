@@ -107,6 +107,8 @@ geecs_bluesky/
   tiled_spool.py            # the per-run JSONL spool both sides share: layout, the RE
                             #   callback (+ the run's lock), read-back, the heartbeat model
   tiled_writer.py           # geecs-tiled-writer: the sweep that registers spooled runs
+  tiled_parquet.py          # the stream table as ScanNNN/ScanDataScanNNN-<stream>.parquet,
+                            #   registered like a camera stack (GeecsRunWriter / GeecsTiledWriter)
   models/shot_control.py    # ShotControlWrites + QUIESCE_FROM (TriggerState names)
   data_paths.py             # local ↔ device-server data path mapping
   forward_expr.py           # a pseudo's forward/inverse formulas, affine_coefficients
@@ -577,9 +579,32 @@ standby.  Now:
 - **`geecs-tiled-writer` registers** (`tiled_writer.SpoolRegistrar`, its
   own systemd unit beside the qserver's): every sweep, complete files
   (last line a `stop`) replay oldest-first through the stock
-  `TiledWriter` (serial registration — the SQLite catalog commits one
-  write at a time, so a concurrent variant measured no gain and was
-  removed), then rename `.jsonl.done` (pruned after `--keep-days`).
+  `TiledWriter` with one substitution (next bullet; serial registration
+  — the SQLite catalog commits one write at a time, so a concurrent
+  variant measured no gain and was removed), then rename `.jsonl.done`
+  (pruned after `--keep-days`).
+- **The stream table is a Parquet file in the scan folder**
+  (`tiled_parquet.GeecsRunWriter`, 0.110.0): the stock writer asks Tiled
+  for an *appendable* SQL table per stream and appends rows in batches,
+  the shape of a beamline streaming into Tiled mid-run; GEECS registers
+  after the stop, when the table is complete, so the appendable store
+  bought nothing and cost two ceilings (PostgreSQL's 8 KB tuple,
+  SQLite's 2000 columns), the #1020 inference failure and a database
+  for data that has a home.  The hand-over writes
+  `ScanNNN/ScanDataScanNNN-<stream>.parquet` — the s-file's sibling,
+  written beside its target and renamed — and registers it from
+  `readable_storage` as the camera stacks are (`application/x-parquet`,
+  Tiled's default table shape).  The scan folder is the record, Tiled
+  the index: `read_primary_scalars` cannot tell the backends apart
+  (pinned against a real in-process Tiled).  The writer **never creates
+  a scan folder**: a missing one fails the registration into the backoff.
+  The URI is the Tiled host's view — `config.ini` `[Paths] geecs_tiled_host_data_base_path`
+  names the share as the Tiled host mounts it when that is not the
+  writer's own mount (the stacks' `plugin_save_path` is the precedent).
+  Pluggable, not a removal: `--tables parquet|appendable` (default
+  `parquet`) keeps the stock path for a stream that one day must grow in
+  Tiled while a run is live; the server's SQL `writable_storage` entry
+  stays configured for it and the #1033 override keeps its reads typed.
   **Liveness is the engine's lock, not silence**: the engine holds
   `flock` on the run's file while the run is open (a paused run goes
   quiet for longer than any deadline), and only a file with no stop that
