@@ -25,6 +25,7 @@ from geecs_bluesky.tiled_port import (  # noqa: E402
     PortItem,
     alias_scan_folder,
     is_live_sql_source,
+    is_restorable_record,
     parse_aliases,
     refuse_duplicate_targets,
     restore_sql_table,
@@ -139,6 +140,23 @@ class TestPlanGuards:
         assert not is_live_sql_source(
             _DS(PARQUET_MIMETYPE, {"table_name": "t", "dataset_id": 1})
         )
+
+    def test_a_detached_record_is_not_restorable_but_the_intent_record_is(self):
+        intent = {
+            "mimetype": SQL_TABLE_MIMETYPE,
+            "parameters": {"table_name": "t", "dataset_id": 4},
+            "assets": [],
+        }
+        after_detach = {"mimetype": SQL_TABLE_MIMETYPE, "parameters": {}, "assets": []}
+        assert is_restorable_record(intent)
+        assert not is_restorable_record(after_detach)
+        assert not is_restorable_record(
+            {
+                "mimetype": PARQUET_MIMETYPE,
+                "parameters": {"table_name": "t", "dataset_id": 4},
+            }
+        )
+        assert not is_restorable_record(None)
 
     def test_restore_refuses_a_record_that_is_not_a_sql_table(self):
         with pytest.raises(ValueError, match="nothing to restore"):

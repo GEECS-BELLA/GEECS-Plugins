@@ -212,7 +212,16 @@ def plan_run(run: Any, aliases: dict[str, str]) -> list[PortItem]:
             if not folder.is_dir():
                 item.status = "skip-missing-folder"
             else:
-                item.parquet = str(stream_table_parquet_path_for(folder, stream))
+                target = stream_table_parquet_path_for(folder, stream)
+                item.parquet = str(target)
+                if target.exists():
+                    logger.warning(
+                        "%s/%s: %s already exists (an earlier attempt, or another "
+                        "run's) — the port will replace it",
+                        run.item["id"][:8],
+                        stream,
+                        target.name,
+                    )
         items.append(item)
     return items
 
@@ -404,12 +413,22 @@ def is_live_sql_source(ds: Any) -> bool:
     )
 
 
+def is_restorable_record(old: dict[str, Any] | None) -> bool:
+    """A recorded SQL data source that names its table and dataset (so it can be re-registered).
+
+    A record written after a detach has the SQL mimetype but empty
+    parameters; the intent record written before it is the one to restore
+    from, so the ledger is searched with this predicate, not the mimetype.
+    """
+    if not old or old.get("mimetype") != SQL_TABLE_MIMETYPE:
+        return False
+    params = old.get("parameters") or {}
+    return bool(params.get("table_name")) and params.get("dataset_id") is not None
+
+
 def restore_sql_table(base: Any, old: dict[str, Any], metadata: dict[str, Any]) -> Any:
     """Register the SQL table again (external management: the same table and dataset id)."""
-    if old.get("mimetype") != SQL_TABLE_MIMETYPE or not (
-        old.get("parameters", {}).get("table_name")
-        and old.get("parameters", {}).get("dataset_id") is not None
-    ):
+    if not is_restorable_record(old):
         raise ValueError(
             "not a SQL data source with a table and dataset id — nothing to restore from"
         )
@@ -451,7 +470,7 @@ def restore_from_ledger(client: Any, ledger: Path, run_uid: str, stream: str) ->
         if r["run_uid"] == run_uid
         and r["stream"] == stream
         and r.get("status") in RESTORABLE
-        and (r.get("old_data_source") or {}).get("mimetype") == SQL_TABLE_MIMETYPE
+        and is_restorable_record(r.get("old_data_source"))
     ]
     if not records:
         raise LookupError(f"no SQL record for {run_uid}/{stream} in {ledger}")
@@ -545,7 +564,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit", type=int, default=None, help="port at most N portable items"
     )
     parser.add_argument(
-        "--run", action="append", default=None, metavar="UID", help="only these runs"
+        "--run",
+        action="append",
+        default=None,
+        metavar="UID",
+        help="only these runs (the duplicate-target guard then sees only these runs)",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="plan and report, touch nothing"
