@@ -70,6 +70,22 @@ def scan_data_txt_path_for(scan_folder: Path) -> Path:
     return scan_folder / f"ScanData{scan_folder.name}.txt"
 
 
+def stream_table_parquet_path_for(scan_folder: Path, stream: str) -> Path:
+    """The Tiled writer's table for one event stream: ``ScanDataScanNNN-<stream>.parquet``.
+
+    The s-file's sibling (GeecsBluesky 0.110.0): ``geecs-tiled-writer`` writes
+    each stream's rows here at the run's close and registers the file in the
+    Tiled catalog, so the scan folder is the record and the catalog can be
+    rebuilt from it.  Pure path construction, as :func:`scan_data_txt_path_for`;
+    the stream name must be a plain name (``primary``, ``shots``, ``baseline``,
+    ``<device>_stream``) — a path separator or a hidden-file dot is refused.
+    """
+    scan_folder = Path(scan_folder)
+    if not stream or "/" in stream or "\\" in stream or stream.startswith("."):
+        raise ValueError(f"not a stream name: {stream!r}")
+    return scan_folder / f"ScanData{scan_folder.name}-{stream}.parquet"
+
+
 def run_closed_evidence(scan_folder: Path) -> Optional[Path]:
     """A file that exists only once the scanner closed the run, or ``None``.
 

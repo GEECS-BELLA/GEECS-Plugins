@@ -598,7 +598,7 @@ standby.  Now:
   the index: `read_primary_scalars` cannot tell the backends apart
   (pinned against a real in-process Tiled).  The writer **never creates
   a scan folder**: a missing one fails the registration into the backoff.
-  The URI is the Tiled host's view — `config.ini` `[tiled] data_root`
+  The URI is the Tiled host's view — `config.ini` `[Paths] geecs_tiled_host_data_base_path`
   names the share as the Tiled host mounts it when that is not the
   writer's own mount (the stacks' `plugin_save_path` is the precedent).
   Pluggable, not a removal: `--tables parquet|appendable` (default

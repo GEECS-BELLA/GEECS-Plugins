@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.50.0] - 2026-10-02
+
+### Added
+
+- **`data.sfile.stream_table_parquet_path_for(scan_folder, stream)`** — the
+  Tiled writer's table for one event stream, `ScanDataScanNNN-<stream>.parquet`,
+  the s-file's sibling in the scan folder (GeecsBluesky 0.110.0, the #1020
+  storage arc).  Beside `scan_data_txt_path_for` so the readers that will
+  locate it from the folder (the catalog rebuild, the portal, the logbook)
+  never import GeecsBluesky.  Pure path construction; a stream name with a
+  path separator or a leading dot is refused.
+
 ## [0.49.1] - 2026-10-01
 
 ### Changed

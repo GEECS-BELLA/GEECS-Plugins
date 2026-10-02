@@ -20,7 +20,7 @@ only as an example or a placeholder.
 
 | Side | Home | Who reads it |
 |---|---|---|
-| **Client** | `~/.config/geecs_python_api/config.ini` — `[Experiment]`, `[Paths]`, `[epics] ca_addr_list`, `[pva] addr_list` / `file_plugin_addr_list`, `[tiled]` (`uri`, `api_key`; `data_root` only when the Tiled host mounts the data share elsewhere than the worker — the writer's Parquet tables are registered by the Tiled host's path), `[qserver]`, `[mcp]`, `[analysis] worker_cap` (reference: [Getting started](../tutorials/getting_started.md)) | every Python client and every service process; `scripts/lab_status.sh`, `scripts/fleet_status.sh` |
+| **Client** | `~/.config/geecs_python_api/config.ini` — `[Experiment]`, `[Paths]`, `[epics] ca_addr_list`, `[pva] addr_list` / `file_plugin_addr_list`, `[Paths] geecs_tiled_host_data_base_path` (only when the Tiled host mounts the data share elsewhere than the worker — the writer's Parquet tables are registered by the Tiled host's path), `[tiled]` (`uri`, `api_key`), `[qserver]`, `[mcp]`, `[analysis] worker_cap` (reference: [Getting started](../tutorials/getting_started.md)) | every Python client and every service process; `scripts/lab_status.sh`, `scripts/fleet_status.sh` |
 | **Host** | `/etc/geecs/site.env` — one file per service host, from [`deploy/site.env.example`](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/deploy/site.env.example) | every systemd unit (`EnvironmentFile=`), `deploy/render_units.sh`, `deploy/bootstrap_host.sh` |
 
 On a service host `site.env` is the root: the bootstrap renders the

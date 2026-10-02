@@ -82,8 +82,8 @@ def make_tiled_writer(
     """The writer over *client* (imported lazily: the tiled extra).
 
     ``tables="parquet"`` builds :class:`~geecs_bluesky.tiled_parquet.GeecsTiledWriter`
-    with the Tiled host's data root from ``config.ini``; ``"appendable"`` is
-    the stock ``TiledWriter``.
+    (the file's URI through :func:`~geecs_bluesky.data_paths.tiled_host_path`);
+    ``"appendable"`` is the stock ``TiledWriter``.
     """
     if tables not in TABLE_STORES:
         raise ValueError(f"tables must be one of {TABLE_STORES}, got {tables!r}")
@@ -91,18 +91,9 @@ def make_tiled_writer(
         from bluesky.callbacks.tiled_writer import TiledWriter
 
         return TiledWriter(client)
-    from geecs_bluesky.tiled_parquet import (
-        GeecsTiledWriter,
-        local_data_root,
-        read_tiled_data_root,
-    )
+    from geecs_bluesky.tiled_parquet import GeecsTiledWriter
 
-    return GeecsTiledWriter(
-        client,
-        table_store="parquet",
-        local_root=local_data_root(),
-        tiled_root=read_tiled_data_root(),
-    )
+    return GeecsTiledWriter(client, table_store="parquet")
 
 
 # ── the registrar ────────────────────────────────────────────────────────

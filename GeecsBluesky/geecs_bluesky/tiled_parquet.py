@@ -9,7 +9,9 @@ tuple, SQLite's 2000 columns), a driver that types columns by guessing
 (GEECS-Plugins#1020) and a database service for data that already has a
 home.  Here the table is handed over as **one Parquet file per stream in
 the scan folder** — ``ScanNNN/ScanDataScanNNN-<stream>.parquet``, the
-s-file's sibling — and registered in the catalog from ``readable_storage``
+s-file's sibling (:func:`geecs_data_utils.data.sfile.stream_table_parquet_path_for`,
+beside the s-file's own helper so every reader finds it without importing
+this package) — and registered in the catalog from ``readable_storage``
 exactly as the camera stacks are (``application/x-parquet``, Tiled's
 default table shape).  The scan folder is the record; Tiled is the index
 and the server over it; a reader (``read_primary_scalars``) cannot tell
@@ -25,19 +27,21 @@ Two rules carried over from the rest of the package:
   the engine at ``open_run``; a missing one is an anomaly surfaced as a
   registration failure (the registrar's backoff), never papered over with
   ``mkdir``.
-- **The URI is the Tiled host's view.**  Today Tiled runs on the worker and
-  reads the same mount; when it moves, ``config.ini`` ``[tiled] data_root``
-  names the data share as mounted on the Tiled host, and the file URI is
-  translated onto it (the camera stacks' ``plugin_save_path`` is the
-  precedent).
+- **The URI is the Tiled host's view**
+  (:func:`geecs_bluesky.data_paths.tiled_host_path`, the camera stacks'
+  ``plugin_save_path`` pattern): today Tiled runs on the worker and reads
+  the same mount; when it moves, ``config.ini``
+  ``[Paths] geecs_tiled_host_data_base_path`` names the share as the Tiled
+  host mounts it, and a path that cannot be translated is refused rather
+  than registered wrong.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from pathlib import Path
+from typing import Any, Callable
 
 import pyarrow
 import pyarrow.parquet
@@ -47,70 +51,20 @@ from tiled.structures.core import StructureFamily
 from tiled.structures.data_source import Asset, DataSource, Management
 from tiled.structures.table import TableStructure
 
-from geecs_bluesky.data_paths import read_config_entry
+from geecs_bluesky.data_paths import tiled_host_path
+from geecs_bluesky.tiled_writer import DEFAULT_TABLE_STORE, TABLE_STORES
+from geecs_data_utils.data.sfile import stream_table_parquet_path_for
 
 logger = logging.getLogger(__name__)
 
-TableStore = Literal["parquet", "appendable"]
-TABLE_STORES: tuple[str, ...] = ("parquet", "appendable")
-DEFAULT_TABLE_STORE: TableStore = "parquet"
 PARQUET_MIMETYPE = "application/x-parquet"
 
 # ── pure helpers ──────────────────────────────────────────────────────────
 
 
-def stream_table_path(scan_folder: Path, stream: str) -> Path:
-    """``ScanNNN/ScanDataScanNNN-<stream>.parquet`` — the s-file's sibling for one stream."""
-    if not stream or "/" in stream or os.sep in stream or stream.startswith("."):
-        raise ValueError(f"not a stream name: {stream!r}")
-    return scan_folder / f"ScanData{scan_folder.name}-{stream}.parquet"
-
-
-def translate_to_tiled_host(
-    path: Path, *, local_root: str | Path | None, tiled_root: str | None
-) -> str:
-    """The POSIX path the Tiled host reads *path* at.
-
-    Without a mapping (no ``tiled_root``, or no local root to express the
-    path against) the path is the Tiled host's path too: Tiled and the
-    writer share the mount, the deployed case today.
-    """
-    if not tiled_root or not local_root:
-        return Path(path).as_posix()
-    try:
-        relative = Path(path).relative_to(Path(local_root))
-    except ValueError:
-        logger.warning(
-            "%s is not under the local data root %s; registering it by its local path",
-            path,
-            local_root,
-        )
-        return Path(path).as_posix()
-    return PurePosixPath(tiled_root, *relative.parts).as_posix()
-
-
 def file_uri(posix_path: str) -> str:
     """The ``file://localhost/...`` form Tiled stores for an asset."""
     return f"file://localhost{posix_path}"
-
-
-def read_tiled_data_root() -> str | None:
-    """``config.ini`` ``[tiled] data_root``: the data share as mounted on the Tiled host.
-
-    Absent means the Tiled host mounts it where the writer does (the same
-    box, or the same mount path).
-    """
-    return read_config_entry("tiled", "data_root")
-
-
-def local_data_root() -> Path | None:
-    """The data root as this host mounts it (``GeecsPathsConfig``), or ``None``."""
-    try:
-        from geecs_data_utils import ScanPaths
-    except Exception:  # pragma: no cover - the data layer is a hard dependency
-        return None
-    base = getattr(getattr(ScanPaths, "paths_config", None), "base_path", None)
-    return Path(base) if base else None
 
 
 def table_from_rows(rows: list[dict[str, Any]]) -> pyarrow.Table:
@@ -167,6 +121,15 @@ class GeecsRunWriter(_RunWriter):
     stream (a run longer than the batch size) rewrites the file with every
     row so far and updates the registration, so the record is always one
     file.
+
+    Parameters
+    ----------
+    table_store :
+        ``"parquet"`` (this hand-over) or ``"appendable"`` (the stock one).
+    tiled_path :
+        ``local path -> the Tiled host's path`` for the file's URI;
+        :func:`~geecs_bluesky.data_paths.tiled_host_path` by default.  Tests
+        inject a mapping.
     """
 
     def __init__(
@@ -174,9 +137,8 @@ class GeecsRunWriter(_RunWriter):
         client: Any,
         batch_size: int = BATCH_SIZE,
         *,
-        table_store: TableStore = DEFAULT_TABLE_STORE,
-        local_root: str | Path | None = None,
-        tiled_root: str | None = None,
+        table_store: str = DEFAULT_TABLE_STORE,
+        tiled_path: Callable[[str], str] = tiled_host_path,
     ) -> None:
         if table_store not in TABLE_STORES:
             raise ValueError(
@@ -184,8 +146,7 @@ class GeecsRunWriter(_RunWriter):
             )
         super().__init__(client, batch_size=batch_size)
         self.table_store = table_store
-        self._local_root = local_root
-        self._tiled_root = tiled_root
+        self._tiled_path = tiled_path
         self._scan_folder: Path | None = None
         self._parquet_rows: dict[str, list[dict[str, Any]]] = {}
         self._parquet_nodes: dict[str, Any] = {}
@@ -213,13 +174,11 @@ class GeecsRunWriter(_RunWriter):
         rows = self._parquet_rows.setdefault(stream, [])
         rows.extend(data_cache)
         table = table_from_rows(rows)
-        path = stream_table_path(self._scan_folder, stream)
-        write_parquet_atomically(table, path)
+        path = stream_table_parquet_path_for(self._scan_folder, stream)
         uri = file_uri(
-            translate_to_tiled_host(
-                path, local_root=self._local_root, tiled_root=self._tiled_root
-            )
-        )
+            self._tiled_path(str(path))
+        )  # refused before anything is written
+        write_parquet_atomically(table, path)
         data_source = parquet_data_source(table, uri)
 
         node = self._parquet_nodes.get(stream)
@@ -252,23 +211,20 @@ class GeecsTiledWriter(TiledWriter):
         self,
         client: Any,
         *,
-        table_store: TableStore = DEFAULT_TABLE_STORE,
-        local_root: str | Path | None = None,
-        tiled_root: str | None = None,
+        table_store: str = DEFAULT_TABLE_STORE,
+        tiled_path: Callable[[str], str] = tiled_host_path,
         **kwargs: Any,
     ) -> None:
         super().__init__(client, **kwargs)
         self.table_store = table_store
-        self._local_root = local_root
-        self._tiled_root = tiled_root
+        self._tiled_path = tiled_path
 
     def _factory(self, name: str, doc: dict) -> tuple[list, list]:
         cb = run_writer = GeecsRunWriter(
             self.client,
             batch_size=self._batch_size,
             table_store=self.table_store,
-            local_root=self._local_root,
-            tiled_root=self._tiled_root,
+            tiled_path=self._tiled_path,
         )
         if self._normalizer:
             cb = self._normalizer(

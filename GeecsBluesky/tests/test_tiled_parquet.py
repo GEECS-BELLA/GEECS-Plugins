@@ -4,7 +4,9 @@ Hermetic: the Tiled client is faked at the two calls the writer makes for a
 table (``desc_node.new`` and the data-source update), so what is pinned is
 the file on disk, its contents, and the registration Tiled would receive.
 The real-server round trip is the opt-in test in
-``test_tiled_writer_catalog.py``.
+``test_tiled_writer_catalog.py``.  The file's name is GEECS-Data-Utils'
+(``stream_table_parquet_path_for``, tested there); the Tiled-host path
+mapping is ``data_paths``' and is tested here beside its one consumer.
 """
 
 from __future__ import annotations
@@ -21,15 +23,13 @@ pytest.importorskip("tiled.client")
 tiled_parquet = pytest.importorskip("geecs_bluesky.tiled_parquet")
 from bluesky.callbacks.tiled_writer import TiledWriter, _RunWriter  # noqa: E402
 
-from geecs_bluesky import tiled_writer  # noqa: E402
+from geecs_bluesky import data_paths, tiled_writer  # noqa: E402
 from geecs_bluesky.tiled_parquet import (  # noqa: E402
     PARQUET_MIMETYPE,
     GeecsRunWriter,
     GeecsTiledWriter,
     file_uri,
-    stream_table_path,
     table_from_rows,
-    translate_to_tiled_host,
     write_parquet_atomically,
 )
 
@@ -161,49 +161,26 @@ def _replay(writer, docs) -> None:
 
 
 @pytest.fixture
-def scan_folder(tmp_path: Path) -> Path:
-    folder = tmp_path / "data" / "Y2026" / "10-Oct" / "26_1002" / "scans" / "Scan007"
+def data_root(tmp_path: Path) -> Path:
+    return tmp_path / "data"
+
+
+@pytest.fixture
+def scan_folder(data_root: Path) -> Path:
+    folder = data_root / "Y2026" / "10-Oct" / "26_1002" / "scans" / "Scan007"
     folder.mkdir(parents=True)
     return folder
+
+
+def _as_tiled_host(data_root: Path):
+    """A test's stand-in for ``tiled_host_path``: the share mounted at /mnt/hdna2/data over there."""
+    return lambda p: "/mnt/hdna2/data" + p[len(str(data_root)) :]
 
 
 # ── pure helpers ──────────────────────────────────────────────────────────
 
 
 class TestHelpers:
-    def test_the_table_is_the_sfiles_sibling_named_by_stream(self, scan_folder):
-        assert (
-            stream_table_path(scan_folder, "primary")
-            == scan_folder / "ScanDataScan007-primary.parquet"
-        )
-        assert (
-            stream_table_path(scan_folder, "shots").name
-            == "ScanDataScan007-shots.parquet"
-        )
-        for bad in ("", "a/b", ".hidden"):
-            with pytest.raises(ValueError):
-                stream_table_path(scan_folder, bad)
-
-    def test_the_uri_is_the_tiled_hosts_view(self, tmp_path):
-        local = tmp_path / "data" / "scans" / "Scan007" / "f.parquet"
-        same = translate_to_tiled_host(local, local_root=None, tiled_root=None)
-        assert same == local.as_posix()
-        mapped = translate_to_tiled_host(
-            local, local_root=tmp_path / "data", tiled_root="/mnt/hdna2/data"
-        )
-        assert mapped == "/mnt/hdna2/data/scans/Scan007/f.parquet"
-        assert (
-            file_uri(mapped)
-            == "file://localhost/mnt/hdna2/data/scans/Scan007/f.parquet"
-        )
-        # outside the local root: the local path, not a wrong mapping
-        assert (
-            translate_to_tiled_host(
-                Path("/elsewhere/f.parquet"), local_root=tmp_path, tiled_root="/mnt"
-            )
-            == "/elsewhere/f.parquet"
-        )
-
     def test_rows_keep_their_types_and_an_all_null_column_is_text(self):
         rows = [{"x": math.nan, "n": None}, {"x": 1.5, "n": None}]
         table = table_from_rows(rows)
@@ -211,16 +188,66 @@ class TestHelpers:
         assert str(table.schema.field("n").type) == "string"
 
     def test_the_write_is_atomic_and_never_creates_the_folder(
-        self, scan_folder, tmp_path
+        self, scan_folder, data_root
     ):
         table = table_from_rows([{"x": 1.0}])
         target = scan_folder / "t.parquet"
         write_parquet_atomically(table, target)
         assert target.exists() and not list(scan_folder.glob("*.tmp"))
-        missing = tmp_path / "data" / "scans" / "Scan099" / "t.parquet"
+        missing = data_root / "scans" / "Scan099" / "t.parquet"
         with pytest.raises(FileNotFoundError, match="never creates"):
             write_parquet_atomically(table, missing)
         assert not missing.parent.exists()
+
+    def test_file_uri_is_tileds_form(self):
+        assert (
+            file_uri("/mnt/hdna2/data/x.parquet")
+            == "file://localhost/mnt/hdna2/data/x.parquet"
+        )
+
+
+class TestTiledHostPath:
+    """``data_paths.tiled_host_path``: the stacks' translation pattern, strict."""
+
+    def test_translation_onto_the_tiled_hosts_posix_mount(self, data_root):
+        local = data_root / "scans" / "Scan007" / "f.parquet"
+        mapped = data_paths.translate_save_path_for_tiled_host(
+            local, local_base_path=data_root, tiled_host_base_path="/mnt/hdna2/data"
+        )
+        assert mapped == "/mnt/hdna2/data/scans/Scan007/f.parquet"
+        with pytest.raises(ValueError, match="not under the local data root"):
+            data_paths.translate_save_path_for_tiled_host(
+                Path("/elsewhere/f.parquet"),
+                local_base_path=data_root,
+                tiled_host_base_path="/mnt",
+            )
+
+    def test_unset_means_the_local_path_is_the_tiled_hosts(self, monkeypatch):
+        monkeypatch.setattr(data_paths, "read_tiled_host_data_base_path", lambda: None)
+        assert (
+            data_paths.tiled_host_path("/local/data/scans/Scan007/f.parquet")
+            == "/local/data/scans/Scan007/f.parquet"
+        )
+
+    def test_set_with_an_unknown_local_root_refuses_rather_than_registering_wrong(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(
+            data_paths, "read_tiled_host_data_base_path", lambda: "/mnt/hdna2/data"
+        )
+        monkeypatch.setattr(data_paths, "_local_base_path", lambda: None)
+        with pytest.raises(RuntimeError, match="refusing to register"):
+            data_paths.tiled_host_path("/local/data/scans/Scan007/f.parquet")
+
+    def test_set_with_a_known_local_root_translates(self, monkeypatch):
+        monkeypatch.setattr(
+            data_paths, "read_tiled_host_data_base_path", lambda: "/mnt/hdna2/data"
+        )
+        monkeypatch.setattr(data_paths, "_local_base_path", lambda: "/local/data")
+        assert (
+            data_paths.tiled_host_path("/local/data/scans/Scan007/f.parquet")
+            == "/mnt/hdna2/data/scans/Scan007/f.parquet"
+        )
 
 
 # ── the run writer ────────────────────────────────────────────────────────
@@ -228,12 +255,10 @@ class TestHelpers:
 
 class TestGeecsRunWriter:
     def test_a_run_lands_as_one_parquet_file_registered_as_a_table(
-        self, scan_folder, tmp_path
+        self, scan_folder, data_root
     ):
         client = _FakeClient()
-        writer = GeecsRunWriter(
-            client, local_root=tmp_path / "data", tiled_root="/mnt/hdna2/data"
-        )
+        writer = GeecsRunWriter(client, tiled_path=_as_tiled_host(data_root))
         _replay(writer, _docs("run1", scan_folder, N_NAN + 1))
 
         path = scan_folder / "ScanDataScan007-primary.parquet"
@@ -290,7 +315,7 @@ class TestGeecsRunWriter:
         self, scan_folder, monkeypatch
     ):
         client = _FakeClient()
-        writer = GeecsRunWriter(client, batch_size=3)
+        writer = GeecsRunWriter(client, batch_size=3, tiled_path=lambda p: p)
         updates: list = []
         monkeypatch.setattr(
             GeecsRunWriter,
@@ -307,15 +332,28 @@ class TestGeecsRunWriter:
         assert node is stream.children["internal"] and ds.structure.npartitions == 1
 
     def test_a_missing_scan_folder_fails_the_registration_and_creates_nothing(
-        self, tmp_path
+        self, data_root
     ):
         client = _FakeClient()
-        writer = GeecsRunWriter(client)
-        gone = tmp_path / "data" / "scans" / "Scan042"
+        writer = GeecsRunWriter(client, tiled_path=lambda p: p)
+        gone = data_root / "scans" / "Scan042"
         with pytest.raises(FileNotFoundError, match="never creates"):
             _replay(writer, _docs("run3", gone, 2))
         assert not gone.exists()
         assert client.children["run3"].children["primary"].new_calls == []
+
+    def test_a_path_the_tiled_host_cannot_read_is_refused_before_anything_is_written(
+        self, scan_folder
+    ):
+        def refuse(path: str) -> str:
+            raise RuntimeError("refusing to register")
+
+        client = _FakeClient()
+        writer = GeecsRunWriter(client, tiled_path=refuse)
+        with pytest.raises(RuntimeError, match="refusing"):
+            _replay(writer, _docs("run3b", scan_folder, 2))
+        assert not list(scan_folder.iterdir())  # no file, no tmp
+        assert client.children["run3b"].children["primary"].new_calls == []
 
     def test_without_a_scan_folder_the_stock_store_is_used_with_a_warning(
         self, caplog, monkeypatch
@@ -327,7 +365,7 @@ class TestGeecsRunWriter:
             "_write_internal_data",
             lambda self, cache, node: stock.append(len(cache)),
         )
-        writer = GeecsRunWriter(client)
+        writer = GeecsRunWriter(client, tiled_path=lambda p: p)
         with caplog.at_level("WARNING"):
             _replay(writer, _docs("run4", None, 2))
         assert stock == [2]
@@ -343,14 +381,16 @@ class TestGeecsRunWriter:
             "_write_internal_data",
             lambda self, cache, node: stock.append(len(cache)),
         )
-        writer = GeecsRunWriter(client, table_store="appendable")
+        writer = GeecsRunWriter(
+            client, table_store="appendable", tiled_path=lambda p: p
+        )
         _replay(writer, _docs("run5", scan_folder, 2))
         assert stock == [2]
         assert not list(scan_folder.glob("*.parquet"))
 
     def test_an_unknown_store_is_refused(self):
         with pytest.raises(ValueError, match="table_store"):
-            GeecsRunWriter(_FakeClient(), table_store="csv")  # type: ignore[arg-type]
+            GeecsRunWriter(_FakeClient(), table_store="csv")
 
 
 # ── the factory and the writer's wiring ──────────────────────────────────
@@ -361,15 +401,17 @@ class TestFactory:
         self, scan_folder
     ):
         client = _FakeClient()
-        writer = GeecsTiledWriter(client, local_root=None, tiled_root=None)
+        writer = GeecsTiledWriter(client, tiled_path=lambda p: p)
         _replay(writer, _docs("run6", scan_folder, 2))
         assert (scan_folder / "ScanDataScan007-primary.parquet").exists()
         (call,) = client.children["run6"].children["primary"].new_calls
         assert call["data_sources"][0].mimetype == PARQUET_MIMETYPE
 
-    def test_make_tiled_writer_picks_the_store(self, monkeypatch):
-        monkeypatch.setattr(tiled_parquet, "local_data_root", lambda: None)
-        monkeypatch.setattr(tiled_parquet, "read_tiled_data_root", lambda: None)
+    def test_the_default_tiled_path_is_the_data_paths_one(self):
+        assert GeecsRunWriter(_FakeClient())._tiled_path is data_paths.tiled_host_path
+        assert GeecsTiledWriter(_FakeClient())._tiled_path is data_paths.tiled_host_path
+
+    def test_make_tiled_writer_picks_the_store(self):
         assert isinstance(
             tiled_writer.make_tiled_writer(_FakeClient()), GeecsTiledWriter
         )
@@ -377,6 +419,14 @@ class TestFactory:
         assert type(stock) is TiledWriter
         with pytest.raises(ValueError):
             tiled_writer.make_tiled_writer(_FakeClient(), tables="csv")
+
+    def test_the_store_vocabulary_has_one_home(self):
+        assert tiled_parquet.TABLE_STORES is tiled_writer.TABLE_STORES
+        assert (
+            tiled_parquet.DEFAULT_TABLE_STORE
+            == tiled_writer.DEFAULT_TABLE_STORE
+            == "parquet"
+        )
 
     def test_the_registrar_threads_the_choice_into_its_default_factory(
         self, tmp_path, monkeypatch

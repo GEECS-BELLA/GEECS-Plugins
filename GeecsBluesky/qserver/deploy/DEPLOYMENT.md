@@ -291,8 +291,8 @@ of the stock appendable SQL table (`../../CLAUDE.md` § "Tiled: the spool
 and the writer service"; `../../TILED_SETUP.md` for the server side).  Two
 things the host needs for it: the data share in the server's
 `readable_storage` (already there for the stacks), and — only when Tiled
-does not run on the worker, or mounts the share elsewhere — `[tiled]
-data_root` in the service account's `config.ini`, the share as the Tiled
+does not run on the worker, or mounts the share elsewhere — `[Paths]
+geecs_tiled_host_data_base_path` in the service account's `config.ini`, the share as the Tiled
 host mounts it.  `--tables appendable` (an `ExecStart=` drop-in, as for
 any flag) restores the stock SQL path, which needs the server's SQL
 `writable_storage` entry.

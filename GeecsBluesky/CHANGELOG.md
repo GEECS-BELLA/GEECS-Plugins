@@ -28,9 +28,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `read_primary_scalars` reads the table unchanged (pinned against a real
   in-process Tiled), the writer never creates a scan folder (a missing one
   fails the registration into the backoff), the file is written beside its
-  target and renamed, and the URI is the Tiled host's view —
-  `config.ini` `[tiled] data_root` names the data share as mounted on the
-  Tiled host when it is not the writer's own mount.
+  target and renamed, its name is GEECS-Data-Utils'
+  `stream_table_parquet_path_for` (0.50.0, beside the s-file's helper so
+  readers never import this package), and the URI is the Tiled host's
+  view — `data_paths.tiled_host_path`, the camera stacks' translation
+  pattern made strict: `config.ini` `[Paths] geecs_tiled_host_data_base_path`
+  names the data share as mounted on the Tiled host when it is not the
+  writer's own mount, and a path that cannot be translated is refused
+  rather than registered wrong.
 - **The choice is pluggable, not a removal:** `make_tiled_writer(tables=…)`,
   `SpoolRegistrar(tables=…)` and the command line's `--tables parquet|appendable`
   (default `parquet`) keep the stock appendable path for a stream that one

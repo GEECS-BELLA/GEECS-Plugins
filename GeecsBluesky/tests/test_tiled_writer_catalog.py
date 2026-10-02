@@ -338,8 +338,10 @@ def test_parquet_table_registers_from_the_scan_folder_and_reads_back(
         layout,
         "http://unused.test",
         client_factory=lambda: catalog,
+        # batch_size=2: the second batch takes the real data-source update
+        # path (structure string→double, same asset) on a table node.
         writer_factory=lambda client: GeecsTiledWriter(
-            client, local_root=None, tiled_root=None
+            client, batch_size=2, tiled_path=lambda p: p
         ),
         reachable=lambda uri: True,
         held=lambda path: False,
