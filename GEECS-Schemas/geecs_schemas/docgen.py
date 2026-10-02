@@ -185,6 +185,17 @@ actions:
 background_telemetry: true   # soft-log every live device not in the save set
 description: "HTU standing defaults"
 """,
+    "archive_policy": """\
+schema_version: 1
+# the archive set is derived from the DB (monitored readbacks, :SP, connected,
+# derived channels); this file lists the exceptions
+exclude:
+  - "undulator:uc_*:image_size*"
+include_setpoints: true
+sampling_overrides:
+  - match: "undulator:u_vacuumgauge:*"
+    policy: Slow                    # a policies.py entry: MONITOR, 10 s
+""",
     "derived_channels": """\
 schema_version: 1
 derived_channels:

@@ -5,6 +5,20 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.0] - 2026-10-02
+
+### Added
+
+- **`ArchivePolicy`** (`geecs_schemas.archive_policy`, registry kind
+  `archive_policy`): the Archiver Appliance's per-experiment curation
+  overlay — `exclude` PV globs, `sampling_overrides` (glob → appliance
+  policy / period / method, last match wins), and the `include_setpoints`
+  / `include_status` / `include_derived` switches, with the default
+  sampling. Consumed by `geecs-archiver onboard` (GeecsArchiver); lives at
+  `scanner_configs/experiments/<Experiment>/archiver/archive_policy.yaml`
+  beside the gateway's `derived_channels.yaml`. The archive set itself is
+  derived from the database; this file is only the exceptions.
+
 ## [0.42.1] - 2026-10-01
 
 ### Changed

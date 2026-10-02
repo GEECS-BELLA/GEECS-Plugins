@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- GEECS Archiver Appliance — per-webapp context, bind-mounted over the
+     image's. Upstream's copy also declares a MariaDB JNDI datasource for
+     MySQL persistence; this deployment persists configuration in a JDBM2
+     file (compose.yaml), so the datasource is left out. The delegating
+     loader stays: the appliance's shared classes live in Tomcat's lib and
+     Hazelcast needs one classloader to see them. -->
+<Context>
+    <WatchedResource>WEB-INF/web.xml</WatchedResource>
+    <Loader delegate="true"/>
+</Context>

@@ -72,6 +72,7 @@ ROOT_LEG = "root"
 # Keep in sync with scripts/check.sh's OWN_ENV_PKGS.
 OWN_ENV_PKGS = (
     "GEECS-Core",
+    "GeecsArchiver",
     "GEECS-DataPortal",
     "GEECS-LogTriage",
     "GEECS-MCP",

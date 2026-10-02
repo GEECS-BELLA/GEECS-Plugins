@@ -7,8 +7,8 @@ data only — "what was the chiller doing last Tuesday at 03:00" has no
 answer in our stack until this lands.
 
 **Status (2026-10-02): a plan awaiting the maintainer's rulings (§11),
-not a deployment record.** It supersedes the July 2026 draft that lived
-at `GeecsCAGateway/ARCHIVER.md` (this file's git history); §1 lists what
+not a deployment record.** It supersedes the July 2026 draft (the gateway package's ARCHIVER.md,
+now this file's git history); §1 lists what
 changed and §10 what still stands. When the phases execute, the
 operational content moves into this package's `DEPLOYMENT.md` and this
 file is deleted — plans do not outlive their landing (the 2026-09
@@ -360,7 +360,7 @@ ties onboarding to the gateway's host and is not recommended.
 
 **Curation overlay** — optional, per experiment, in the configs repo
 beside the gateway's: `scanner_configs/experiments/<Experiment>/archiver/
-archive_policy.yaml`, validated by `geecs_schemas.archiver.ArchivePolicy`
+archive_policy.yaml`, validated by `geecs_schemas.archive_policy.ArchivePolicy`
 (schema_version 1 — the config vocabulary's home is GEECS-Schemas):
 
 ```yaml
@@ -447,7 +447,9 @@ CA→time-series collector sketched before the gateway existed. Expectation:
 not exercised — caproto's server already serves libca clients (aioca,
 Phoebus, the Windows control machines) daily.
 
-**Phase 2 — the package.** Everything in §2, §6 and §7 except the live
+**Phase 2 — the package.** *Built 2026-10-02 (the PR carrying this plan): the
+package, its tests, the deploy templates and the schema kind; the fleet wiring
+of §6 follows in its own PR.* Everything in §2, §6 and §7 except the live
 host steps, as one PR with docs and bookkeeping in the same change;
 tests need no hardware (the rule against DB fixtures, the mgmt client
 against a recorded BPL, the renderer against a sample `site.env`); the
@@ -466,7 +468,7 @@ maintainer's existing `get='yes'` curation in the GEECS DB remains the
 primary lever for *what* is archived; the overlay is for exceptions.
 
 **Phase 5 — consumers.** Phoebus (the settings line joins the Phoebus
-recipe in `docs/geecs_gateway/`); `geecs_archiver.retrieval` → pandas
+recipe in `docs/geecs_gateway/`); a retrieval helper in this package → pandas
 over `getData.json`; **history links** from the Data Portal's run page
 and the logbook's scan card — the device's PVs over the scan's time
 window, a deep link into the retrieval UI or a CSV (small, and the first

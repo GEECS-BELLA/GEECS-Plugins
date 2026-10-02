@@ -1,0 +1,41 @@
+[tool.poetry]
+name = "geecs-archiver"
+version = "0.1.0"
+description = "EPICS Archiver Appliance for GEECS: the deploy recipe for the appliance (a stock CA client of the GEECS CA gateway) and the tool that keeps its archive set in step with the experiment database."
+authors = ["Sam Barber <sbarber@lbl.gov>"]
+readme = "README.md"
+license = "BSD-3-Clause"
+homepage = "https://github.com/GEECS-BELLA/GEECS-Plugins"
+repository = "https://github.com/GEECS-BELLA/GEECS-Plugins"
+keywords = ["GEECS", "EPICS", "archiver", "channel access"]
+
+packages = [{ include = "geecs_archiver" }]
+
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "License :: OSI Approved :: BSD License",
+  "Operating System :: POSIX :: Linux",
+]
+
+[tool.poetry.urls]
+"Source (subdir)" = "https://github.com/GEECS-BELLA/GEECS-Plugins/tree/master/GeecsArchiver"
+"Issues" = "https://github.com/GEECS-BELLA/GEECS-Plugins/issues"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+pydantic = "^2.0"
+httpx = ">=0.27"
+pyyaml = ">=6.0"
+geecs-core = { path = "../GEECS-Core", develop = true }
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0"
+
+[tool.poetry.scripts]
+geecs-archiver = "geecs_archiver.cli:main"
+
+[build-system]
+requires = ["poetry-core>=1.8"]
+build-backend = "poetry.core.masonry.api"

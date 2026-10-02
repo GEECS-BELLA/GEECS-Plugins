@@ -44,7 +44,7 @@ cd "$REPO_ROOT"
 # breaking a dependent. So a green check.sh is not a promise that CI is
 # green, and never was.
 ROOT_ENV_PKGS="GEECS-Analysis ImageAnalysis ScanAnalysis GEECS-Data-Utils GEECS-Schemas"
-OWN_ENV_PKGS="GeecsBluesky GeecsCAGateway GeecsPvaGateway GEECS-Core GEECS-DataPortal GEECS-LogTriage GEECS-MCP GeecsLogbook GeecsScanner GeecsWebTheme"
+OWN_ENV_PKGS="GeecsBluesky GeecsCAGateway GeecsPvaGateway GEECS-Core GEECS-DataPortal GEECS-LogTriage GEECS-MCP GeecsLogbook GeecsScanner GeecsWebTheme GeecsArchiver"
 
 MODE="changed"      # changed | all | lint
 BASE=""
@@ -285,7 +285,7 @@ run_suite() {
             poetry run pytest "$1/tests" -m "not integration and not gui" --tb=short -q ;;
         GeecsBluesky)
             (cd GeecsBluesky && run_bluesky_suite) ;;
-        GeecsCAGateway|GeecsPvaGateway|GEECS-Core|GEECS-DataPortal|GEECS-LogTriage|GEECS-MCP|GeecsLogbook|GeecsScanner|GeecsWebTheme)
+        GeecsCAGateway|GeecsPvaGateway|GEECS-Core|GEECS-DataPortal|GEECS-LogTriage|GEECS-MCP|GeecsLogbook|GeecsScanner|GeecsWebTheme|GeecsArchiver)
             (cd "$1" && poetry run pytest tests --tb=short -q) ;;
         *)
             echo "check.sh: no runner for '$1'" >&2; return 1 ;;

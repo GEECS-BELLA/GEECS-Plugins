@@ -33,6 +33,7 @@ from geecs_schemas.action_plan import (
     SetStep,
     WaitStep,
 )
+from geecs_schemas.archive_policy import ArchivePolicy, SamplingOverride
 from geecs_schemas.derived_channels import (
     DerivedChannel,
     DerivedChannels,
@@ -109,6 +110,9 @@ __all__ = [
     "SubmissionRecord",
     "PreflightOutcome",
     "PreflightCheckResult",
+    # archive_policy
+    "ArchivePolicy",
+    "SamplingOverride",
     # derived_channels
     "DerivedChannels",
     "DerivedChannel",
@@ -193,6 +197,7 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "action_plan_library": ActionPlanLibrary,
     "experiment_defaults": ExperimentDefaults,
     "derived_channels": DerivedChannels,
+    "archive_policy": ArchivePolicy,
     "shot_offsets": ShotOffsets,
     "analysis_diagnostic": AnalysisDiagnostic,
     "analysis_recipe": AnalysisRecipe,
