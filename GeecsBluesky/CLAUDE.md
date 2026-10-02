@@ -109,6 +109,8 @@ geecs_bluesky/
   tiled_writer.py           # geecs-tiled-writer: the sweep that registers spooled runs
   tiled_parquet.py          # the stream table as ScanNNN/ScanDataScanNNN-<stream>.parquet,
                             #   registered like a camera stack (GeecsRunWriter / GeecsTiledWriter)
+  tiled_port.py             # geecs-tiled-port-tables: the one-time port of the SQL-stored
+                            #   runs to those files, through Tiled's API (TILED_SETUP.md)
   models/shot_control.py    # ShotControlWrites + QUIESCE_FROM (TriggerState names)
   data_paths.py             # local ↔ device-server data path mapping
   forward_expr.py           # a pseudo's forward/inverse formulas, affine_coefficients
