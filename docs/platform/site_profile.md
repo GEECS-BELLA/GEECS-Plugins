@@ -176,7 +176,9 @@ with spaces) are baked into the scripts and the example file.
 
 ## Onboarding a second facility
 
-1. Copy `deploy/site.env.example`; change every value; keep every key.
+1. Copy `deploy/site.env.example`; change every value; keep every key —
+   except the three `GEECS_ARCHIVER_*` keys, which a site without an
+   Archiver Appliance deletes (the bootstrap then skips the archiver).
 2. Give every client machine a `config.ini` per
    [Getting started](../tutorials/getting_started.md) with that
    facility's experiment, gateway address, Tiled URI, queueserver host,
