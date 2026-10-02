@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- GEECS Archiver Appliance — Tomcat server.xml, bind-mounted over the
+<!-- GEECS Archiver Appliance - Tomcat server.xml, bind-mounted over the
      image's. The one change from stock Tomcat 11: the HTTP connector on
      17665 (the appliance's conventional port; the fleet port). To serve on
      the lab interface only, add address="<ip>" to the Connector. -->

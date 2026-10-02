@@ -1,10 +1,10 @@
-"""GEECS Archiver Appliance — policies.py (site-neutral, one policy).
+"""GEECS Archiver Appliance - policies.py (site-neutral, one policy).
 
 The appliance imports this file (Jython) to decide, per PV, where samples go
 and how often. Our archive set is derived by `geecs-archiver onboard` from
 the GEECS database, and every request carries its own sampling period and
 method (the appliance's *user-specified sampling*, which takes precedence
-over the period below) — so the experiment's archive_policy.yaml is the one
+over the period below) - so the experiment's archive_policy.yaml is the one
 table and this file only names the stores:
 
   STS  short-term, hourly partitions, on the host path mounted at
@@ -32,7 +32,7 @@ STORES = [
 
 
 def getPolicyList():
-    """The policies the mgmt UI offers — one; the request's own sampling sets the rate."""
+    """The policies the mgmt UI offers - one; the request's own sampling sets the rate."""
     return {
         "Default": "STS (hourly) -> LTS (yearly); sampling as requested, else MONITOR 1 s"
     }

@@ -1,11 +1,11 @@
-# GEECS Archiver Appliance — docker compose TEMPLATE. Rendered by
+# GEECS Archiver Appliance - docker compose TEMPLATE. Rendered by
 # deploy/render_conf.sh from the host's site.env into the staging dir, then
 # installed by root as /etc/geecs/archiver/compose.yaml. Never edit the
 # installed copy: re-render.
 #
 #   @PLACEHOLDER@  filled at render time (install-time site values + identity)
 #   ${VARIABLE}    read by docker compose at `up` from the unit's environment
-#                  (EnvironmentFile=/etc/geecs/site.env) — the names the
+#                  (EnvironmentFile=/etc/geecs/site.env) - the names the
 #                  appliance itself reads, nothing re-mapped.
 #
 # The image is upstream's official single-Tomcat build (Tomcat 11, Temurin
@@ -17,7 +17,7 @@ services:
     container_name: geecs-archiver
     # Host networking: the CA client talks unicast to the gateway from the
     # host's own address, and the fleet port (17665) is exactly what the
-    # host exposes — no NAT, one address inside and out.
+    # host exposes - no NAT, one address inside and out.
     network_mode: host
     # Tomcat runs as the service account so the archive files on the host
     # belong to it (render_conf.sh fills the ids from GEECS_SERVICE_USER).
@@ -34,7 +34,7 @@ services:
       ARCHAPPL_MYIDENTITY: appliance0
       ARCHAPPL_POLICIES: /usr/local/tomcat/archappl_conf/policies.py
       ARCHAPPL_PROPERTIES_FILENAME: /usr/local/tomcat/archappl_conf/archappl.properties
-      # Stores: STS (hourly partitions) → LTS (yearly). No MTS (policies.py
+      # Stores: STS (hourly partitions) -> LTS (yearly). No MTS (policies.py
       # never names it); the folder is set so an upstream default can never
       # write somewhere unexpected.
       ARCHAPPL_SHORT_TERM_FOLDER: /usr/local/tomcat/storage/sts
@@ -43,7 +43,7 @@ services:
       # Configuration persistence: one file (JDBM2) in the unit's state
       # directory. The configuration OF RECORD is `geecs-archiver onboard`
       # + the committed archive_policy.yaml; this store only has to survive
-      # restarts (GeecsArchiver/PLAN.md §4).
+      # restarts (GeecsArchiver/PLAN.md section 4).
       ARCHAPPL_PERSISTENCE_LAYER: org.epics.archiverappliance.config.persistence.JDBM2Persistence
       ARCHAPPL_PERSISTENCE_LAYER_JDBM2FILENAME: /usr/local/tomcat/persistence/archappl.jdbm2
       CATALINA_OUT: /dev/stdout

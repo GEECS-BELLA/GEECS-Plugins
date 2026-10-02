@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# render_conf.sh — fill the archiver's conf templates from a site.env into a
+# render_conf.sh - fill the archiver's conf templates from a site.env into a
 # staging directory, beside the static conf files, ready for root to install
 # under /etc/geecs/archiver.
 #
@@ -14,7 +14,7 @@
 # Runtime values (EPICS_CA_ADDR_LIST, TZ, GEECS_ARCHIVER_JAVA_OPTS) are not
 # rendered: docker compose reads them from the unit's environment at `up`.
 #
-# Unprivileged: writes only to OUT_DIR. Installing the result needs root —
+# Unprivileged: writes only to OUT_DIR. Installing the result needs root -
 # the exact lines are printed, never run. RENDER_QUIET=1 suppresses them.
 set -euo pipefail
 
@@ -32,7 +32,7 @@ fi
 . "$REPO_ROOT/deploy/site_env_lib.sh"
 load_site_env "$SITE_ENV"
 # The install-time keys this renderer fills, and the runtime keys the
-# rendered compose file will read at `up` — an unset ${VAR} there would
+# rendered compose file will read at `up` - an unset ${VAR} there would
 # become an EMPTY value, so a missing key fails here, not on the host.
 require_site_keys GEECS_SERVICE_USER GEECS_ARCHIVER_HOST GEECS_ARCHIVER_DATA_ROOT \
     GEECS_ARCHIVER_JAVA_OPTS EPICS_CA_ADDR_LIST EPICS_CA_AUTO_ADDR_LIST TZ
@@ -44,7 +44,7 @@ if id -u "$GEECS_SERVICE_USER" >/dev/null 2>&1; then
     SERVICE_UID="$(id -u "$GEECS_SERVICE_USER")"; SERVICE_GID="$(id -g "$GEECS_SERVICE_USER")"
 else
     SERVICE_UID="$(id -u)"; SERVICE_GID="$(id -g)"
-    echo "WARNING: no user '$GEECS_SERVICE_USER' on this machine — rendered with uid:gid $SERVICE_UID:$SERVICE_GID (re-render on the service host)" >&2
+    echo "WARNING: no user '$GEECS_SERVICE_USER' on this machine - rendered with uid:gid $SERVICE_UID:$SERVICE_GID (re-render on the service host)" >&2
 fi
 
 mkdir -p "$OUT_DIR"
