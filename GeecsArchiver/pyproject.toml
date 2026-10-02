@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-archiver"
-version = "0.1.0"
+version = "0.1.1"
 description = "EPICS Archiver Appliance for GEECS: the deploy recipe for the appliance (a stock CA client of the GEECS CA gateway) and the tool that keeps its archive set in step with the experiment database."
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"

@@ -20,7 +20,7 @@ only as an example or a placeholder.
 
 | Side | Home | Who reads it |
 |---|---|---|
-| **Client** | `~/.config/geecs_python_api/config.ini` — `[Experiment]`, `[Paths]`, `[epics] ca_addr_list`, `[pva] addr_list` / `file_plugin_addr_list`, `[Paths] geecs_tiled_host_data_base_path` (only when the Tiled host mounts the data share elsewhere than the worker — the writer's Parquet tables are registered by the Tiled host's path), `[tiled]` (`uri`, `api_key`), `[qserver]`, `[mcp]`, `[analysis] worker_cap` (reference: [Getting started](../tutorials/getting_started.md)) | every Python client and every service process; `scripts/lab_status.sh`, `scripts/fleet_status.sh` |
+| **Client** | `~/.config/geecs_python_api/config.ini` — `[Experiment]`, `[Paths]`, `[epics] ca_addr_list`, `[pva] addr_list` / `file_plugin_addr_list`, `[Paths] geecs_tiled_host_data_base_path` (only when the Tiled host mounts the data share elsewhere than the worker — the writer's Parquet tables are registered by the Tiled host's path), `[tiled]` (`uri`, `api_key`), `[qserver]`, `[mcp]`, `[archiver] url` (only where the site runs an Archiver Appliance), `[analysis] worker_cap` (reference: [Getting started](../tutorials/getting_started.md)) | every Python client and every service process; `scripts/lab_status.sh`, `scripts/fleet_status.sh` |
 | **Host** | `/etc/geecs/site.env` — one file per service host, from [`deploy/site.env.example`](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/deploy/site.env.example) | every systemd unit (`EnvironmentFile=`), `deploy/render_units.sh`, `deploy/bootstrap_host.sh` |
 
 On a service host `site.env` is the root: the bootstrap renders the
@@ -45,9 +45,11 @@ the WaveKit install is the [HASO runbook](../analysis/haso.md).
 
 What is **not** a site value: the fleet's port numbers. The fleet map
 fixes them (CA 5064, Tiled 8000, portal 8200, MCP 8100, logbook 8400,
-queueserver 60615/60625/5568, PVA 5075/5076) and every client assumes them.
-Nor are the units' state directories (`/var/lib/geecs-logbook` for the
-entries, `/var/lib/geecs-tiled-writer` for the Tiled spool): the same
+queueserver 60615/60625/5568, PVA 5075/5076, archiver 17665) and every
+client assumes them. Nor are the units' state directories
+(`/var/lib/geecs-logbook` for the entries, `/var/lib/geecs-tiled-writer`
+for the Tiled spool, `/var/lib/geecs-archiver` for the appliance's
+configuration store): the same
 path on every host, declared by `StateDirectory=` in the units — the
 spool's is also set explicitly as `GEECS_TILED_WRITER_STATE` in the three
 units that share it (queueserver, writer, scanner), never in `site.env`.
@@ -76,10 +78,16 @@ Two kinds of keys, documented line by line in the example file:
   (`GEECS_PVA_ADDR_LIST`, `GEECS_PVA_FILE_PLUGIN_ADDR_LIST` → the
   rendered `[pva]` section, from which `geecs_bluesky` exports
   `EPICS_PVA_ADDR_LIST` at import), the data-share mount, the
-  configs-repo path, and the portal's memory ceiling
+  configs-repo path, the portal's memory ceiling
   (`GEECS_PORTAL_MEMORY_HIGH` / `GEECS_PORTAL_MEMORY_MAX`, rendered into
   the unit's `MemoryHigh=` / `MemoryMax=` — resource directives take no
-  variables either).  These fill the unit templates' placeholders and
+  variables either), and the archiver's address and data root
+  (`GEECS_ARCHIVER_HOST` → `appliances.xml` and the rendered `[archiver]
+  url`; `GEECS_ARCHIVER_DATA_ROOT` → the compose bind mounts; both filled
+  by `GeecsArchiver/deploy/render_conf.sh`, the package's own renderer for
+  its non-unit conf, which the bootstrap calls). `GEECS_ARCHIVER_JAVA_OPTS`
+  is a runtime key of the archiver alone: `docker compose` reads it from the
+  unit's environment at start.  These fill the unit templates' placeholders and
   the rendered `config.ini`; they are harmless in the process
   environment.
 
@@ -113,6 +121,7 @@ delivers them.
 |---|---|---|
 | `gateway-checkout` | CA gateway | control-room-critical, moves rarely |
 | `portal-checkout` | Data Portal **and** the logbook (its own unit and poetry env inside `GeecsLogbook/`) | iterates in days; the two web viewers ship together — a pull is a deploy of both, so restart both |
+| `archiver-checkout` | the Archiver Appliance's `geecs-archiver` CLI and its conf templates | the appliance itself is upstream's container: `geecs-archiver.service` runs `docker compose` from `/etc/geecs/archiver` and never reads the clone, so its uptime does not depend on a checkout; the clone is where onboarding runs and the conf is rendered from |
 | `qs-checkout` | queueserver worker **and** the Tiled writer (`geecs-tiled-writer`: the same package, `GeecsBluesky`, the same poetry env — the consumer half of the worker's document spool); also the MCP server's install source and the web scanner's (`geecs-scanner`, a client of the plan surface this checkout defines) | the MCP bakes a non-editable venv (`<root>/geecs-mcp-venv`) from it so a pull never mutates code under the running server; the writer shares the worker's env on purpose (one spool line format, one env — a pull there is a deploy of both, so restart both) |
 
 The root is the site's choice (`GEECS_CHECKOUT_ROOT`): the service
@@ -167,7 +176,9 @@ with spaces) are baked into the scripts and the example file.
 
 ## Onboarding a second facility
 
-1. Copy `deploy/site.env.example`; change every value; keep every key.
+1. Copy `deploy/site.env.example`; change every value; keep every key —
+   except the three `GEECS_ARCHIVER_*` keys, which a site without an
+   Archiver Appliance deletes (the bootstrap then skips the archiver).
 2. Give every client machine a `config.ini` per
    [Getting started](../tutorials/getting_started.md) with that
    facility's experiment, gateway address, Tiled URI, queueserver host,
@@ -196,7 +207,13 @@ Deferred, on purpose, until something forces them:
   exactly what a compose file would consume, so nothing here is wasted.
   The CA gateway, the PVA gateways, and the queueserver stay on bare
   systemd with host networking (EPICS UDP, the GEECS wire protocol, SMB
-  mounts) — and there is nobody to run a container platform.
+  mounts) — and there is nobody to run a container platform. **The one
+  exception (2026-10-02): the Archiver Appliance** runs as upstream's
+  official image under `geecs-archiver.service` — Docker Engine and the
+  compose plugin from Ubuntu's packages (never Docker Desktop), one unit,
+  host networking, the image tag pinned in the repo; "platform" here is
+  one package and one unit, and the bootstrap checks for it. The reasons
+  are `GeecsArchiver/PLAN.md` § 3.
 - **Passwordless sudo for deploys.** A `sudoers.d` rule letting the
   service account run `systemctl {daemon-reload,restart,start,stop}
   geecs-*` would remove the owner's step from routine restarts. Worth it

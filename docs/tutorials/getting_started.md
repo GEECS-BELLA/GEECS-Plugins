@@ -114,6 +114,9 @@ addr_list = 192.168.6.100 192.168.7.161 192.168.8.197
 
 [qserver]
 host = 192.168.6.14
+
+[archiver]
+url = http://192.168.6.14:17665
 ```
 
 (The lab addresses above are the HTU reference deployment's; the
@@ -137,6 +140,7 @@ What each section is for, and who reads it:
 | `[Experiment] rep_rate_hz` | Machine rep rate, for shot-count estimates | GEECS Scanner, GeecsBluesky |
 | `[tiled] uri`, `[tiled] api_key` | Tiled data-server access (optional) | GeecsBluesky, the Data Portal |
 | `[epics] ca_addr_list` | EPICS client addressing (optional, gateway clients) | GeecsBluesky and other CA clients |
+| `[archiver] url` | The Archiver Appliance's base URL (optional; `http://<host>:17665`). Absent = this site runs no appliance; the fleet probes print a skip row. On a service host it is rendered from `site.env` (`GEECS_ARCHIVER_HOST`). Phoebus takes the matching `pbraw://<host>:17665/retrieval` by hand in its settings | `geecs-archiver` (onboarding, status), `scripts/lab_status.sh` / `scripts/fleet_status.sh` |
 | `[pva] addr_list` | The camera servers running a PVA image gateway — the deployed fleet (optional). A DB roster host absent here counts as *not deployed*. Any process that imports `geecs_bluesky` exports it (with `file_plugin_addr_list`) into `EPICS_PVA_ADDR_LIST` at import, with `EPICS_PVA_AUTO_ADDR_LIST=YES` unless `[pva] pva_auto_addr_list` says otherwise (an explicit environment variable wins); Phoebus still takes the value by hand in its settings | `geecs-pva-gateway fleet` (the probe `scripts/fleet_status.sh` calls; it searches exactly these hosts), the fleet-screen generator, every GeecsBluesky-importing process's PVA search |
 | `[pva] file_plugin_addr_list` | Of the fleet, the boxes whose gateway serves the file plugin: the worker makes their cameras plugin-backed (HDF5 stacks) and searches them for the `…:hdf1:` PVs. Absent = no plugin-backed camera. On a service host it is rendered from `site.env` (`GEECS_PVA_FILE_PLUGIN_ADDR_LIST`) | GeecsBluesky (the namespace's plugin rule, the PVA address export) |
 | `[analysis] worker_cap` | The most worker processes one scan-analysis run may use on this machine (optional; default: one core fewer than the machine has). A recipe's `scan.workers` asks, this caps; small scans run serially regardless | ScanAnalysis (`CoreScanAnalyzer`, wherever it runs: the Data Portal, the task queue, GEECS-MCP) |

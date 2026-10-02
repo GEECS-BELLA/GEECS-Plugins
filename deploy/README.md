@@ -28,5 +28,7 @@ The unit templates themselves stay with their services
 `geecs-qserver-ready` readiness oneshot, rendered and enabled together, and
 `geecs-tiled-writer`, the Tiled writer over the engine's spool, its own
 service from the same clone and env —
-`GEECS-MCP/deploy/`, `GeecsScanner/deploy/`); this directory only
-knows their list.
+`GEECS-MCP/deploy/`, `GeecsScanner/deploy/`, `GeecsArchiver/deploy/` — whose
+`render_conf.sh` also fills the appliance's non-unit conf (compose.yaml,
+appliances.xml) from the same `site.env`, called by the bootstrap); this
+directory only knows their list.

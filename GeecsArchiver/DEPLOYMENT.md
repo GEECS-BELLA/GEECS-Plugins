@@ -48,53 +48,56 @@ sudo usermod -aG docker <service account>            # the unit runs compose as 
 sudo systemctl enable --now docker
 ```
 
-Log the service account out and in (or `newgrp docker`) so the group
-applies. Outbound HTTPS to `ghcr.io` is needed for the first pull and for
-upgrades.
+The bootstrap checks all three and prints these lines when any is missing.
+The group applies to the unit at its next start; an interactive shell
+needs a new login. Outbound HTTPS to `ghcr.io` is needed for the first
+pull and for upgrades.
 
-### The clone and its environment (as the service account)
+### The bootstrap does the rest (as the service account)
 
-The archiver gets its own clone, `<root>/archiver-checkout`, per the fleet
-map's one-clone-per-service rule:
-
-```bash
-git clone https://github.com/GEECS-BELLA/GEECS-Plugins.git <root>/archiver-checkout
-cd <root>/archiver-checkout/GeecsArchiver
-( . ../deploy/site_env_lib.sh; load_site_env /etc/geecs/site.env; "$GEECS_POETRY" install )
-```
-
-(`deploy/bootstrap_host.sh --only archiver` does both once the archiver is
-wired into it; until then, this is the install.)
-
-### Render the conf and the unit
-
-`site.env` needs the archiver's three keys beside the fleet's usual ones:
+`deploy/bootstrap_host.sh` owns the archiver like every other service:
+it clones `<root>/archiver-checkout`, installs the `geecs-archiver` CLI's
+environment, checks the Docker prerequisite above (and prints the root
+lines for it when it is missing), renders the unit from `site.env`
+through `deploy/render_units.sh` and the appliance's conf
+(`compose.yaml`, `appliances.xml`, beside the static files) through this
+package's `deploy/render_conf.sh`, renders the service account's
+`config.ini` with the `[archiver] url`, and prints the root steps.
+`site.env` needs the archiver's three keys beside the fleet's usual ones (on a host whose `config.ini` already exists, the bootstrap appends the missing `[archiver]` section and changes nothing else)
+(`deploy/site.env.example` documents them):
 
 ```ini
 GEECS_ARCHIVER_HOST=<the address every client reaches the appliance at>
 GEECS_ARCHIVER_DATA_ROOT=/srv/geecs-archiver
-GEECS_ARCHIVER_JAVA_OPTS=-Xmx2g
+GEECS_ARCHIVER_JAVA_OPTS=-Xmx1g
 ```
 
+Work on a copy, as the repo's recipe does (`/etc/geecs/site.env` is
+root's; the bootstrap's first root line installs the copy over it):
+
 ```bash
-cd <root>/archiver-checkout
-GeecsArchiver/deploy/render_conf.sh /etc/geecs/site.env ~/deploy-staging/archiver
-deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging GeecsArchiver/deploy/geecs-archiver.service
+cp /etc/geecs/site.env ~/site.env && $EDITOR ~/site.env      # add the three keys
+cd <root>/qs-checkout          # the bootstrap runs from one of the clones it owns
+deploy/bootstrap_host.sh ~/site.env --only archiver
 ```
 
-Both are unprivileged and print the root lines. In substance:
+It is unprivileged and rerunnable. Its printed root lines are, in
+substance (the Docker lines of § Prerequisites first, when Docker was
+not ready):
 
 ```bash
-sudo install -d -m 0755 /etc/geecs/archiver
-sudo install -m 0644 ~/deploy-staging/archiver/* /etc/geecs/archiver/
+sudo install -D -m 0644 ~/site.env /etc/geecs/site.env
+sudo install -m 0644 ~/deploy-staging/*.service /etc/systemd/system/ && sudo systemctl daemon-reload
+sudo install -d -m 0755 /etc/geecs/archiver && sudo install -m 0644 ~/deploy-staging/archiver/* /etc/geecs/archiver/
 sudo install -d -o <service account> -g <service account> -m 0750 "$GEECS_ARCHIVER_DATA_ROOT"/sts "$GEECS_ARCHIVER_DATA_ROOT"/lts
-sudo install -m 0644 ~/deploy-staging/geecs-archiver.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now geecs-archiver
+sudo systemctl enable --now geecs-archiver
 ```
 
 `render_conf.sh` fills the service account's uid/gid into the compose file
 (the container's Tomcat runs as that user) — render **on the service
-host**, not on a laptop; it warns when the account does not exist.
+host**, which the bootstrap does; it warns when the account does not exist.
+By hand, the two renders are `GeecsArchiver/deploy/render_conf.sh SITE_ENV
+OUT` and `deploy/render_units.sh SITE_ENV OUT GeecsArchiver/deploy/geecs-archiver.service`.
 
 ### First start
 

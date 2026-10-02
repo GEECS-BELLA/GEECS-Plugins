@@ -4,6 +4,15 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.21.5] - 2026-10-02
+
+### Changed
+
+- **Documentation only.** `DEPLOYMENT.md` § 5: the two-facility note no
+  longer imagines one archiver pulling from both CA servers — the networks
+  do not meet, so each facility runs its own Archiver Appliance
+  (GeecsArchiver) and any consolidation happens in the viewer.
+
 ## [0.21.4] - 2026-10-02
 
 ### Changed

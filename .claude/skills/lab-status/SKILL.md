@@ -69,6 +69,7 @@ which runs this probe first as its gate.
 | gateway UP, devices_connected ≈ 0 | CA reads of gateway PVs | expect device data — the GEECS side is likely down |
 | gateway UP, devices connected | reads, and (with user authorization) scans/puts | assume the trigger fires — verify beam state with the user first |
 | MySQL `[WARN] … BLOCKED this address (1129)` | everything that does not need the DB; Tiled/CA are unaffected | retry GeecsDb calls or probe the DB again — the block only lifts server-side (the fleet-map admonition); tell the user |
+| `[WARN] Archiver … not listening` | everything — scans, live displays and the DB are unaffected; `network:` is not flipped | read it as a network fault; it is the appliance's unit on its host (`journalctl -u geecs-archiver`), and `[ -- ] Archiver` means this site has no `[archiver] url` at all |
 | MySQL `[ -- ] … not probed` | everything else the tier-1 lines allow (`network:` is not flipped by an unprobed DB) | read it as DOWN — the probe was killed at its wall or had no interpreter; the line says which |
 
 ## Failure vocabulary → likely meaning

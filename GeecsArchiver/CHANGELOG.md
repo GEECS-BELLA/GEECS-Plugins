@@ -5,6 +5,20 @@ All notable changes to `geecs-archiver` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-10-02
+
+### Changed
+
+- **Fleet wiring (documentation in this package).** `DEPLOYMENT.md` § 2
+  installs through `deploy/bootstrap_host.sh --only archiver`, which now
+  owns the archiver: the clone, the CLI's environment, the Docker
+  prerequisite check with its root lines, the unit through
+  `render_units.sh`, the conf through this package's `render_conf.sh`,
+  the `[archiver] url` in the rendered `config.ini`, and the root steps.
+  `PLAN.md` § 6 marks the bootstrap item done. The repo-side wiring
+  (`site.env.example` keys, `/fleet-status` and `/lab-status` rows, the
+  fleet map and site profile pages) lands in the same PR.
+
 ## [0.1.0] - 2026-10-02
 
 ### Added

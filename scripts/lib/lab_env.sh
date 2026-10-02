@@ -26,12 +26,23 @@ ini_get() {  # ini_get SECTION KEY — first match, trimmed
 # --- endpoints from config.ini (never hardcode hosts in a script) ---------
 # The DB server, Tiled server, and CA gateway share one box (GeecsCAGateway/
 # DEPLOYMENT.md "one box") — the lab server host is derived from [tiled] uri.
+url_host() { printf '%s' "$1" | sed -E 's|^[a-z]+://||; s|[:/].*$||'; }            # url_host URL — the host part
+url_port() { printf '%s' "$1" | sed -nE 's|^[a-z]+://[^:/]+:([0-9]+).*|\1|p'; }    # url_port URL — the explicit port, or empty
 TILED_URI="$(ini_get tiled uri)"
-LAB_HOST="$(printf '%s' "$TILED_URI" | sed -E 's|^[a-z]+://||; s|[:/].*$||')"
-TILED_PORT="$(printf '%s' "$TILED_URI" | sed -nE 's|^[a-z]+://[^:/]+:([0-9]+).*|\1|p')"
+LAB_HOST="$(url_host "$TILED_URI")"
+TILED_PORT="$(url_port "$TILED_URI")"
 TILED_PORT="${TILED_PORT:-8000}"
 WORKER_HOST="$(ini_get qserver host)"          # the queueserver worker ([qserver] host)
 DATA_ROOT="$(ini_get Paths GEECS_DATA_LOCAL_BASE_PATH)"
+# The Archiver Appliance ([archiver] url, optional — a site without one has
+# no key, and the probes print a skip row rather than a DOWN).
+ARCHIVER_URL="$(ini_get archiver url)"
+ARCHIVER_HOST="$(url_host "$ARCHIVER_URL")"
+ARCHIVER_PORT="$(url_port "$ARCHIVER_URL")"
+ARCHIVER_PORT="${ARCHIVER_PORT:-17665}"
+archiver_version() {  # archiver_version HOST PORT — the appliance's version from its management API, or empty
+    bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$1:$2/mgmt/bpl/getVersions" | sed -nE 's/.*"mgmt_version":"Archiver Appliance Version ([^"]+)".*/\1/p'
+}
 DB_PORT=3306
 CA_PORT=5064
 

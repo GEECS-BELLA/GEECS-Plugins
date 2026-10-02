@@ -124,10 +124,11 @@ fi
 # Endpoints come from lab_env.sh (config.ini); only the experiment fallback is ours.
 [ -n "$EXPERIMENT" ] || EXPERIMENT="$(config_experiment)"
 
-# Hosts to visit over ssh: the lab server and the worker, deduplicated
-# (today they are one box; the fleet map says which services live where).
+# Hosts to visit over ssh: the lab server, the worker and the archiver's
+# host, deduplicated (today they are one box; the fleet map says which
+# services live where).
 HOSTS=""
-for h in "$LAB_HOST" "$WORKER_HOST"; do
+for h in "$LAB_HOST" "$WORKER_HOST" "$ARCHIVER_HOST"; do
     [ -n "$h" ] || continue
     case " $HOSTS " in *" $h "*) ;; *) HOSTS="$HOSTS $h" ;; esac
 done
@@ -174,6 +175,22 @@ if [ "$NET_UP" -eq 1 ]; then
     tv="$(bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$LAB_HOST:$TILED_PORT/api/v1/" | sed -nE 's/.*"library_version":"([^"]+)".*/\1/p')"
     if [ -n "$tv" ]; then ok "Tiled        $LAB_HOST:$TILED_PORT  tiled $tv"; rec "role=Tiled	state=ok	version=$tv	checkout=pip install"
     else bad "Tiled        $LAB_HOST:$TILED_PORT"; rec "role=Tiled	state=down	checkout=pip install"; fi
+    # Archiver Appliance — upstream's container under geecs-archiver; its own
+    # management API is the whole story (version, PV counts). No checkout:
+    # the unit runs docker compose from /etc/geecs/archiver. A site with no
+    # [archiver] url runs no appliance: a skip row, never DOWN.
+    if [ -n "$ARCHIVER_HOST" ]; then
+        av="$(archiver_version "$ARCHIVER_HOST" "$ARCHIVER_PORT")"
+        if [ -n "$av" ]; then
+            am="$(bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$ARCHIVER_HOST:$ARCHIVER_PORT/mgmt/bpl/getApplianceMetrics")"
+            apv="$(printf '%s' "$am" | sed -nE 's/.*"pvCount":"([0-9]+)".*/\1/p')"
+            adis="$(printf '%s' "$am" | sed -nE 's/.*"disconnectedPVCount":"([0-9]+)".*/\1/p')"
+            ok "Archiver     $ARCHIVER_HOST:$ARCHIVER_PORT  appliance $av  pvs=${apv:-?} disconnected=${adis:-?}"
+            rec "role=Archiver	state=ok	version=$av	checkout=container	info=pvs=${apv:-?};disconnected=${adis:-?}"
+        else bad "Archiver     $ARCHIVER_HOST:$ARCHIVER_PORT  management API not answering (journalctl -u geecs-archiver)"; rec "role=Archiver	state=down	checkout=container"; fi
+    else
+        skip "Archiver     not configured (config.ini [archiver] url) — this site runs no appliance"
+    fi
 
     # Data Portal — /health carries ok + catalog probe + installed version.
     PORTAL_HOST="${WORKER_HOST:-$LAB_HOST}"
@@ -382,14 +399,14 @@ command -v systemctl >/dev/null 2>&1 || { echo "nosystemd"; exit 0; }
 # fleet map ports -> role label (what a listener on that port is)
 role_for_port() { case "$1" in
     5064) echo "CA gateway";; 8000) echo "Tiled";; 8200) echo "Data Portal";; 8400) echo "Logbook";; 8100) echo "GEECS-MCP";; 8300) echo "GEECS Scanner";;
-    60615) echo "Queueserver RE Manager";; 5568) echo "Bluesky doc proxy";; *) echo "port $1";; esac; }
+    60615) echo "Queueserver RE Manager";; 5568) echo "Bluesky doc proxy";; 17665) echo "Archiver";; *) echo "port $1";; esac; }
 role_for_unit() { case "$1" in
     geecs-ca-gateway*) echo "CA gateway";; geecs-tiled-writer*|tiled-writer*) echo "Tiled writer";; tiled*) echo "Tiled";; geecs-data-portal*) echo "Data Portal";;
-    geecs-logbook*) echo "Logbook";;
+    geecs-logbook*) echo "Logbook";; geecs-archiver*) echo "Archiver";;
     geecs-mcp*) echo "GEECS-MCP";; geecs-scanner*) echo "GEECS Scanner";; geecs-qserver-ready*) echo "Queueserver readiness";;
     geecs-qserver*) echo "Queueserver RE Manager";;
     *) echo "$1";; esac; }
-FLEET_PORTS="5064 8000 8200 8400 8100 8300 60615 5568"
+FLEET_PORTS="5064 8000 8200 8400 8100 8300 60615 5568 17665"
 SEEN=" "
 SEEN_UNITS=" "
 reflog_ts() {  # unix time HEAD last moved (checkout/pull/reset), from the reflog
@@ -555,6 +572,12 @@ for scope in "" "--user"; do
 done
 # 2) whoever owns each fleet port, if not already listed via its unit
 for port in $FLEET_PORTS; do
+    # The archiver listens from inside its container (host networking): the
+    # Java process owning 17665 is not the unit MainPID (docker compose). With
+    # the unit ACTIVE the port is accounted for — no UNMANAGED row; with the
+    # unit dead or absent, whoever answers on 17665 (a hand-started pilot) is
+    # exactly what this loop exists to show.
+    if [ "$port" = "17665" ] && systemctl is-active --quiet geecs-archiver.service 2>/dev/null; then continue; fi
     pid="$(ss -ltnpH "sport = :$port" 2>/dev/null | sed -nE "s/.*pid=([0-9]+).*/\1/p" | head -1)"
     [ -n "$pid" ] || continue
     case "$SEEN" in *" $pid "*) continue;; esac
