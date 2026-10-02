@@ -115,3 +115,14 @@ def test_overlay_location_constants():
         "gateway",
         "derived_channels.yaml",
     )
+
+
+@pytest.mark.parametrize(
+    "text", ["[]\n", "false\n", "0\n", "- exclude: ['a:*']\n", "just a string\n"]
+)
+def test_from_path_rejects_a_non_mapping_root(tmp_path, text):
+    """A wrongly shaped file must not become the defaults (which would widen the archive set)."""
+    f = tmp_path / "p.yaml"
+    f.write_text(text)
+    with pytest.raises(ValidationError):
+        ArchivePolicy.from_path(f)
