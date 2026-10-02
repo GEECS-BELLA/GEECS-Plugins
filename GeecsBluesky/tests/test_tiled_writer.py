@@ -484,17 +484,29 @@ def test_empty_spool_still_writes_a_heartbeat(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_default_writer_is_the_stock_tiled_writer() -> None:
-    """No subclass over bluesky internals: the registrar replays through the stock writer."""
+def test_default_writer_hands_tables_over_as_parquet(monkeypatch) -> None:
+    """The default replays through the stock writer with ONE substitution: the
+    stream table lands as a Parquet file in the scan folder
+    (:mod:`geecs_bluesky.tiled_parquet`); ``tables="appendable"`` is the
+    stock writer untouched."""
     tiled_writer = pytest.importorskip("bluesky.callbacks.tiled_writer")
+    from geecs_bluesky import tiled_parquet
     from geecs_bluesky.tiled_writer import make_tiled_writer
+
+    monkeypatch.setattr(tiled_parquet, "local_data_root", lambda: None)
+    monkeypatch.setattr(tiled_parquet, "read_tiled_data_root", lambda: None)
 
     class _Client:
         def include_data_sources(self):
             return self
 
     writer = make_tiled_writer(_Client())
-    assert type(writer) is tiled_writer.TiledWriter
+    assert type(writer) is tiled_parquet.GeecsTiledWriter
+    assert isinstance(writer, tiled_writer.TiledWriter)
+    assert (
+        type(make_tiled_writer(_Client(), tables="appendable"))
+        is tiled_writer.TiledWriter
+    )
 
 
 # ---------------------------------------------------------------------------
