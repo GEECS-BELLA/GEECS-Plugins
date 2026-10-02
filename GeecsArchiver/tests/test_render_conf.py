@@ -69,3 +69,15 @@ def test_usage(args):
         ["bash", str(RENDER), *args], capture_output=True, text=True
     )
     assert result.returncode == 2 and "usage" in result.stderr
+
+
+def test_every_conf_file_is_ascii():
+    """The appliance reads policies.py with Jython 2 (a non-ASCII byte without an encoding
+    declaration fails every archive request: first production start, 2026-10-02) and
+    archappl.properties as ISO-8859-1. Keep the whole conf directory ASCII."""
+    offenders = {
+        p.name: [c for c in p.read_text(encoding="utf-8") if not c.isascii()][:3]
+        for p in (PKG / "deploy").iterdir()
+        if p.is_file() and not p.read_text(encoding="utf-8").isascii()
+    }
+    assert offenders == {}, offenders

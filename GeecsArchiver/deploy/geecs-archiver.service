@@ -1,11 +1,11 @@
-# GEECS Archiver Appliance — systemd unit TEMPLATE.
+# GEECS Archiver Appliance - systemd unit TEMPLATE.
 #
 # Do not copy this file to /etc/systemd/system by hand. Render it from the
 # host's site.env with `deploy/render_units.sh` (or `deploy/bootstrap_host.sh`)
-# — see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
+# - see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
 # time (paths + identity); the facility values the appliance itself reads
 # (EPICS_CA_ADDR_LIST, EPICS_CA_AUTO_ADDR_LIST, TZ, GEECS_ARCHIVER_JAVA_OPTS)
-# reach it through EnvironmentFile= → docker compose's ${VAR} interpolation.
+# reach it through EnvironmentFile= -> docker compose's ${VAR} interpolation.
 #
 # The appliance runs as upstream's official container (Tomcat 11 + JDK 21 +
 # the four WARs, pinned by tag in deploy/compose.yaml.in). The rendered

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- GEECS Archiver Appliance — appliances.xml TEMPLATE (one appliance).
+<!-- GEECS Archiver Appliance - appliances.xml TEMPLATE (one appliance).
      Rendered by deploy/render_conf.sh: @ARCHIVER_HOST@ is the address every
      client reaches the appliance at (site.env GEECS_ARCHIVER_HOST). The
      intra-appliance URLs stay on localhost (host networking). -->

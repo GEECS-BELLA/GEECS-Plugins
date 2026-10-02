@@ -5,6 +5,17 @@ All notable changes to `geecs-archiver` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-10-02
+
+### Fixed
+
+- **Every archive request failed with HTTP 500 on the first production
+  start**: the appliance reads `deploy/policies.py` with Jython (Python 2),
+  which rejects a non-ASCII character without an encoding declaration, and
+  the file's comments carried em-dashes. The whole `deploy/` conf directory
+  is now ASCII (`archappl.properties` is read as ISO-8859-1 too), pinned by
+  `test_every_conf_file_is_ascii`.
+
 ## [0.1.1] - 2026-10-02
 
 ### Changed
