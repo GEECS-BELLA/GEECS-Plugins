@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.111.0] - 2026-10-02
+
+### Added
+
+- **`geecs-tiled-port-tables` — the history port (#1020, step 2b).**
+  Every run registered before 0.110.0 has its stream tables in Tiled's SQL
+  storage; this command makes them look like the present: for each table
+  node it reads the table as the server serves it (Arrow, typed by the
+  #1033 override), writes `ScanNNN/ScanDataScanNNN-<stream>.parquet` beside
+  the s-file, deletes the node and registers it again under the same key
+  with a Parquet data source (the stream's data keys carried over), and
+  compares the read-back column by column.  Through Tiled's public API
+  only — nothing in `tabular.db` is modified or deleted, so it stays the
+  rollback; `--restore UID STREAM` re-registers one node's SQL data source
+  from the JSON-lines ledger.  `--alias SRC=DST` maps the scan-folder
+  roots other engine hosts recorded (`Z:/data`, `/Volumes/hdna2/data`)
+  onto this host's mount; a run without a scan folder (the pre-claim
+  development runs) is skipped and reported, never created.  `--dry-run`,
+  `--limit N`, `--run UID` for the rehearsal.  A data-source *update* was
+  ruled out: Tiled 0.2.14 keeps the old SQLite asset beside the new one and
+  the Parquet adapter refuses it.
+
 ## [0.110.0] - 2026-10-02
 
 ### Changed

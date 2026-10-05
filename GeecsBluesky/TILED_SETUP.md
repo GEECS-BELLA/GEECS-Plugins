@@ -38,10 +38,12 @@ the raw data files.
   written by `geecs-tiled-writer` and registered from `readable_storage`
   like the camera stacks — so the data share must be in
   `readable_storage` (it is, for the stacks).  `~/tiled/tabular.db`
-  (SQLite) holds the runs registered before that as appendable SQL tables
-  (read through the override below) and stays in `writable_storage` for
-  the writer's `--tables appendable` option; the history port to Parquet
-  is the arc's next step.
+  (SQLite) held the runs registered before that as appendable SQL tables;
+  § "Porting the SQL-stored runs" moves them to the same Parquet files,
+  after which it holds only the pre-claim development runs that have no
+  scan folder (read through the override below) and stays in
+  `writable_storage` for them and for the writer's `--tables appendable`
+  option.
 - File storage: `~/tiled/storage/` (Tiled's own, for tables a client asks
   it to store)
 - API key: stable — `single_user_api_key` in `~/tiled/config.yml` on the
@@ -174,6 +176,47 @@ with NaN before a PostgreSQL ingest: the ADBC PostgreSQL driver (1.11,
 null on the way in (`deserialize_arrow` reads uploads through pandas), so
 a missing telemetry sample inside a vector would otherwise read as zero.
 NaN, `inf` and a NULL whole array survive the driver unchanged.
+
+### Porting the SQL-stored runs to Parquet (`geecs-tiled-port-tables`, 0.111.0)
+
+Runs registered before GeecsBluesky 0.110.0 have their stream tables in
+`tabular.db`.  `geecs-tiled-port-tables` moves them to the present shape,
+one table node at a time, through Tiled's API alone: read the table as the
+server serves it, write `ScanNNN/ScanDataScanNNN-<stream>.parquet` beside
+the s-file, delete the node and register it again under the same key as a
+Parquet data source, read it back and compare.  Nothing in `tabular.db` is
+modified or deleted — it is the rollback.  Run it from the worker's
+checkout (the share is mounted there, the writer's `tiled_host_path` rule
+gives the URI), with Tiled **up** (no restart, no cutover window — new
+runs are Parquet already and never match the SQL mimetype):
+
+```bash
+cd <root>/qs-checkout/GeecsBluesky
+cp ~/tiled/tabular.db ~/tiled/tabular.db.bak-$(date +%Y%m%d)-pre-port      # the SQL store is the rollback; keep a copy anyway
+poetry run geecs-tiled-port-tables --dry-run \
+  --alias 'Z:/data=/mnt/hdna2/data' --alias '/Volumes/hdna2/data=/mnt/hdna2/data'
+nohup poetry run geecs-tiled-port-tables --ledger ~/tiled/port-$(date +%Y%m%d).jsonl \
+  --alias 'Z:/data=/mnt/hdna2/data' --alias '/Volumes/hdna2/data=/mnt/hdna2/data' \
+  > ~/tiled/port-$(date +%Y%m%d).log 2>&1 &
+```
+
+Under `nohup` (or `tmux`): a dropped ssh session must not kill it between
+a node's detach and its re-registration.  The ledger gets an *intent*
+record before each node is touched and a result record after, so even a
+hard kill leaves what the rollback needs.
+
+`--alias SRC=DST` maps the scan-folder roots other engine hosts recorded
+(a Mac's `/Volumes/…`, Windows' `Z:/…`) onto this host's mount — the HTU
+values above are the reference deployment's; a facility passes its own.
+A run whose start document names no scan folder (the pre-claim
+development runs of 2026-05..07) is skipped and reported; its table stays
+in SQL storage, which the adapter override keeps readable, so the SQL
+`writable_storage` entry stays in `config.yml` for them and for
+`--tables appendable`.  `--limit N` / `--run UID` for a rehearsal; the
+ledger (JSON lines, one record per node, the SQL data source as it was)
+is what `--restore UID STREAM` re-registers from.  Rehearsed 2026-10-02 on
+a throwaway Tiled over copies of both databases (§ "SQLite typed reads"
+has the throwaway recipe) before the live run.
 
 ### Upgrading the server (verified 2026-07-12, 0.2.9 → 0.2.14)
 
