@@ -36,8 +36,9 @@ geecs_pva_gateway/
   streams.py    # per-variable decode + shape: IMAQ for an image; the three
                 #   array wire shapes (geecs_data_utils.io.arrays, sniffed)
                 #   → float64 in physical units at native length (never
-                #   padded; the plugin fixes a stack's shape at the arm and
-                #   drops + counts a frame of another shape); a waveform's
+                #   padded; the plugin settles a stack's shape on the first
+                #   fresh frame — re-declaring the held frame's, #1023 — and
+                #   drops + counts a frame of another shape after that); a waveform's
                 #   x0/dx/samples ride as NTNDArray attributes and, on an
                 #   array variable's stack, as per-frame attributes
                 #   (wave_x0 / wave_dx / wave_samples, NaN for non-waveforms)
@@ -85,8 +86,10 @@ tests/
   test_entrypoint.py # CLI exit codes (incl. the restart code 86 contract)
   test_file_plugin.py # the PV contract pinned by the stock ophyd-async
                   #   ADHDFDataLogic over a real NDFileHDF5IO on pva://;
-                  #   session semantics (arming, dedupe, stale, rewind,
-                  #   counters, no directory creation, no empty file)
+                  #   session semantics (arming on the held frame, the
+                  #   first fresh frame's re-declare + post order, dedupe,
+                  #   stale, rewind, counters, no directory creation, no
+                  #   empty file)
   test_diff.py    # the parity tool
   test_deploy_files.py # the launcher's package list + wheel step, the pins'
                   #   consistency with pyproject (name and specifier)
@@ -132,18 +135,35 @@ tests/
   and frames only enqueue). `Capture=1` zeroes the session readbacks
   (`NumCaptured_RBV` first — the stock logic baselines on it, #853),
   retains the variable's subscription like a client and completes at
-  once on the last frame the worker decoded for the variable (that is
-  where the geometry the worker describes the stream with comes from;
-  the held frame is never written); only a never-decoded variable waits
-  for its first push, `ARM_TIMEOUT_S` at most (#894 — waiting for a push
-  on a box ARMED through a long first move failed the run's first
-  prepare; never-decoded is every camera after each gateway restart until
-  its first session gets a push — an image monitor held for one gating
+  once on the frame the worker already holds for the variable, declaring
+  its shape as the stream geometry (#894: a strict run arms with the box
+  ARMED and a gated run with it OFF, and a camera pushes nothing in
+  either state — `UC_ModeImager`, ARMED 26 s, a fresh subscription, no
+  push in 8 s — so waiting for a push at the arm failed the run's first
+  prepare; the held frame is the fallback for exactly that). The held
+  frame is as current as the variable's last subscription, which
+  `Capture=0` released, so its shape is **provisional**: the session's
+  first fresh frame re-declares the geometry (the `ArraySize*` /
+  `DataType_RBV` PVs) when its shape differs — the MagSpec lineouts'
+  energy axis changed between scans (#1023) — and the stack opens at that
+  shape; the stale replay a new subscription is greeted with is
+  stale-skipped before the shape is looked at, so only a real new frame
+  re-declares; the geometry posts before `NumCaptured_RBV` advances (a
+  reader that notices the first frame reads the current shape — the
+  Bluesky side describes the stream lazily for that reason); once the
+  stack is open its shape is fixed for the session and a frame of
+  another shape is dropped and counted. The held frame is never written.
+  A never-decoded variable waits `ARM_TIMEOUT_S` for its first push
+  (never-decoded is every camera after each gateway restart until its
+  first session gets a push — an image monitor held for one gating
   round-trip in STANDBY seeds it); frames are deduped on `acq_timestamp` and
   stale-filtered against a watermark set at `Capture=1` and moved by
   `Rewind` (the refire guard: truncate to N, drop older-stamped
-  arrivals); `NumCaptured_RBV` posts after each frame is on disk;
-  `Capture=0` stamps the reconciliation counters and closes. Beside the
+  arrivals); `NumCaptured_RBV` posts after each frame is on disk, and an
+  accepted frame clears `WriteStatus` / `WriteMessage` (they name the
+  writer's state now, not a frame it refused shots ago — a `FilePath` put
+  and `Capture=1` clear them too); `Capture=0` stamps the reconciliation
+  counters and closes. Beside the
   two frame stamps the plugin writes the device's **subscribed scalars**
   per frame (`DeviceSpec.scalar_variables`, from
   `geecs_core.db.scalar_policy.GeecsDbScalarPolicy` filtered by

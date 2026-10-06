@@ -11,8 +11,10 @@ here: how the wire payload becomes an array, and what shape it is posted in.
   physical units, and are posted at their native length — never padded.
   A variable-length array (the MagSpec lineouts, whose row count is the
   energy span over the configured ΔE) is fixed for a scan the way an image
-  is: the file plugin takes the stack shape at the arm and drops and counts
-  any frame of another shape.
+  is: the file plugin settles the stack shape on the session's first fresh
+  frame (re-declaring the geometry it took from the held frame at the arm
+  when the two differ, GEECS-Plugins#1023) and drops and counts any frame
+  of another shape after that.
 
 A waveform's axis parameters (``x0``, ``dx`` in seconds, ``samples``, the
 raw ``offset``/``gain`` and the channel ``name``) come back as the

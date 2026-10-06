@@ -73,6 +73,7 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "native_image_save",
         "parent",
         "plugin_backed",
+        "plugin_reasons",
         "prepare",
         "read",
         "read_configuration",
