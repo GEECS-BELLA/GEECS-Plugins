@@ -17,7 +17,7 @@ default table shape).  The scan folder is the record; Tiled is the index
 and the server over it; a reader (``read_primary_scalars``) cannot tell
 which store served the table.
 
-The choice stays pluggable: :func:`geecs_bluesky.tiled_writer.make_tiled_writer`
+The choice stays pluggable: :func:`geecs_bluesky.tiled.writer.make_tiled_writer`
 takes ``tables="parquet"`` (default) or ``"appendable"`` (the stock path,
 kept for a stream that one day must grow in Tiled while a run is live).
 
@@ -52,7 +52,7 @@ from tiled.structures.data_source import Asset, DataSource, Management
 from tiled.structures.table import TableStructure
 
 from geecs_bluesky.data_paths import tiled_host_path
-from geecs_bluesky.tiled_writer import DEFAULT_TABLE_STORE, TABLE_STORES
+from geecs_bluesky.tiled.writer import DEFAULT_TABLE_STORE, TABLE_STORES
 from geecs_data_utils.data.sfile import stream_table_parquet_path_for
 
 logger = logging.getLogger(__name__)

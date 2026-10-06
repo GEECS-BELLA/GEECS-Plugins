@@ -50,7 +50,7 @@ ExecStart=@POETRY@ run @CHECKOUT_ROOT@/qs-checkout/GeecsBluesky/qserver/launch_r
 # directory) registers them in Tiled off the engine thread. Both units
 # declare the SAME StateDirectory (systemd allows it; both run as the
 # service user) and both set GEECS_TILED_WRITER_STATE explicitly — the
-# engine deliberately ignores $STATE_DIRECTORY (tiled_spool.default_state_dir:
+# engine deliberately ignores $STATE_DIRECTORY (tiled.spool.default_state_dir:
 # this unit may own a state directory of its own one day, and the spool must
 # not silently move with it). Read when the worker environment opens: a
 # change here takes effect at the next `qserver environment open` after

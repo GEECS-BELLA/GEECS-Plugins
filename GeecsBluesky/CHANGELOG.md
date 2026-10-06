@@ -6,6 +6,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.114.0] - 2026-10-06
+
+### Changed
+
+- **The Tiled modules are one subpackage, `geecs_bluesky.tiled`**:
+  `tiled_integration` → `tiled.integration`, `tiled_spool` → `tiled.spool`,
+  `tiled_writer` → `tiled.writer`, `tiled_parquet` → `tiled.parquet`.
+  No behaviour change; the `geecs-tiled-writer` console script keeps its
+  name, and the by-hand form is now `python -m geecs_bluesky.tiled.writer`.
+  Importers update their paths (GeecsScanner 0.14.5 does).
+- **`TILED_SETUP.md` rewritten** as the server's current state and the
+  client recipe; the #1020 record stays in the 0.109.0–0.111.0 entries
+  below.
+
+### Removed
+
+- **`tiled_server/`** — the Tiled host's `SQLAdapter` override
+  (`geecs_tiled_sql.py`, 0.109.0), its install list and its test venv,
+  with the CI and `scripts/check.sh` legs that built it.  Since the
+  0.111.0 port, the only SQL-stored tables are development runs with no
+  scan folder, which nothing needs.  Host: drop the
+  `adapters_by_mimetype` entry from `~/tiled/config.yml` and the
+  `PYTHONPATH` line from the unit's drop-in **before** removing
+  `~/tiled/geecs_tiled_sql.py` (the service will not start with the
+  config naming a missing module), then restart `tiled`.
+- **`geecs-tiled-port-tables`** (`tiled_port.py`, 0.111.0) — the one-time
+  SQL → Parquet port, run 2026-10-05 (836 tables, 0 failed).
+- **`scripts/tiled_sweep_nan_leading.py`** — the read-only sweep for the
+  override's failure shape.
+
 ## [0.113.0] - 2026-10-06
 
 ### Changed

@@ -104,15 +104,13 @@ geecs_bluesky/
   config_resolver.py        # ConfigsRepoResolver: presets, trigger profiles, catalogs,
                             #   actions, optimizer configs, analysis diagnostics
   scanner_configs.py        # where the configs repo is (GEECS_SCANNER_CONFIG_DIR / config.ini)
-  tiled_integration.py      # subscribe_tiled_spool (the engine's whole Tiled path) +
+  tiled/integration.py      # subscribe_tiled_spool (the engine's whole Tiled path) +
                             #   the shared checks (tiled_server_reachable, SafeDocumentCallback)
-  tiled_spool.py            # the per-run JSONL spool both sides share: layout, the RE
+  tiled/spool.py            # the per-run JSONL spool both sides share: layout, the RE
                             #   callback (+ the run's lock), read-back, the heartbeat model
-  tiled_writer.py           # geecs-tiled-writer: the sweep that registers spooled runs
-  tiled_parquet.py          # the stream table as ScanNNN/ScanDataScanNNN-<stream>.parquet,
+  tiled/writer.py           # geecs-tiled-writer: the sweep that registers spooled runs
+  tiled/parquet.py          # the stream table as ScanNNN/ScanDataScanNNN-<stream>.parquet,
                             #   registered like a camera stack (GeecsRunWriter / GeecsTiledWriter)
-  tiled_port.py             # geecs-tiled-port-tables: the one-time port of the SQL-stored
-                            #   runs to those files, through Tiled's API (TILED_SETUP.md)
   models/shot_control.py    # ShotControlWrites + QUIESCE_FROM (TriggerState names)
   data_paths.py             # local ↔ device-server data path mapping
   forward_expr.py           # a pseudo's forward/inverse formulas, affine_coefficients
@@ -128,10 +126,6 @@ geecs_bluesky/
   trajectory.py             # sweep_to_cycler: the one numerical expansion of a Sweep
   utils.py                  # safe_name, identifier_name, resolve_annotations
 qserver/                    # the worker: launcher, startup profile, permissions, deploy/
-tiled_server/               # the Tiled HOST's deploy material (not a geecs_bluesky module;
-                            #   the server has its own env): geecs_tiled_sql.py — the
-                            #   SQLAdapter override (#1020), requirements.txt — the host's
-                            #   install list, tests/ in a venv of their own (TILED_SETUP.md)
 ```
 
 ## Devices
@@ -597,13 +591,13 @@ each — took ~25 s **on the engine thread** at the stop document with the
 stock `TiledWriter` subscribed to the RE, ahead of unstage and the box's
 standby.  Now:
 
-- **The engine spools** (`tiled_spool.SpoolCallback`, subscribed by
+- **The engine spools** (`tiled.spool.SpoolCallback`, subscribed by
   `subscribe_tiled_spool` when `config.ini` names a catalog): every
   document of a run to `<state>/spool/<start time>-<uid>.jsonl`,
   flushed per document, `fsync`ed at the stop.  Microseconds per
   document; nothing on the network.  Wrapped in `SafeDocumentCallback`,
   so a spool failure disables spooling for that run and never fails it.
-- **`geecs-tiled-writer` registers** (`tiled_writer.SpoolRegistrar`, its
+- **`geecs-tiled-writer` registers** (`tiled.writer.SpoolRegistrar`, its
   own systemd unit beside the qserver's): every sweep, complete files
   (last line a `stop`) replay oldest-first through the stock
   `TiledWriter` with one substitution (next bullet; serial registration
@@ -611,7 +605,7 @@ standby.  Now:
   variant measured no gain and was removed), then rename `.jsonl.done`
   (pruned after `--keep-days`).
 - **The stream table is a Parquet file in the scan folder**
-  (`tiled_parquet.GeecsRunWriter`, 0.110.0): the stock writer asks Tiled
+  (`tiled.parquet.GeecsRunWriter`, 0.110.0): the stock writer asks Tiled
   for an *appendable* SQL table per stream and appends rows in batches,
   the shape of a beamline streaming into Tiled mid-run; GEECS registers
   after the stop, when the table is complete, so the appendable store
@@ -628,10 +622,8 @@ standby.  Now:
   The URI is the Tiled host's view — `config.ini` `[Paths] geecs_tiled_host_data_base_path`
   names the share as the Tiled host mounts it when that is not the
   writer's own mount (the stacks' `plugin_save_path` is the precedent).
-  Pluggable, not a removal: `--tables parquet|appendable` (default
-  `parquet`) keeps the stock path for a stream that one day must grow in
-  Tiled while a run is live; the server's SQL `writable_storage` entry
-  stays configured for it and the #1033 override keeps its reads typed.
+  `--tables appendable` selects the stock path instead (an appendable SQL
+  table per stream, in the server's SQL `writable_storage`).
   **Liveness is the engine's lock, not silence**: the engine holds
   `flock` on the run's file while the run is open (a paused run goes
   quiet for longer than any deadline), and only a file with no stop that
@@ -666,7 +658,7 @@ standby.  Now:
   Tiled client, restarts alone) and for the shape: the worker is a
   document producer, every persister a consumer.
 - **One directory, set explicitly in both units:** `GEECS_TILED_WRITER_STATE`
-  (`tiled_spool.default_state_dir`).  The writer also honours systemd's
+  (`tiled.spool.default_state_dir`).  The writer also honours systemd's
   `$STATE_DIRECTORY`; the engine deliberately does not (the qserver unit
   may own a state directory of its own one day, and the spool must not
   silently move with it).  Not a site value: the same path on every host
@@ -797,12 +789,7 @@ worker's are in the host's `site.env`, rendered into the units.
 Hermetic on ophyd-async mock backends (`tests/ca_mock_helpers.py`:
 `set_mock_value` on `acq_timestamp` is a shot; a setter factory stands in
 for the trigger box in `tests/test_strict_plans.py`).  Run one suite at a
-time, unbuffered — `poetry run python -u -m pytest tests -v`.  The Tiled host's
-adapter override (`tiled_server/`, #1020) has a suite of its own in a
-venv of its own — `pytest tests` never collects it: `scripts/check.sh`
-builds `tiled_server/.venv` from `tiled_server/requirements.txt` with the
-Poetry env's interpreter and runs it; by hand, `cd tiled_server &&
-.venv/bin/pytest -q`.
+time, unbuffered — `poetry run python -u -m pytest tests -v`.
 `tests/test_phase0_hardware.py`, `tests/test_phase1_hardware.py` and
 `tests/test_806_hardware.py` **fire real shots**: they are
 `hardware`-marked and gated on `GEECS_HW=1`, because an explicit `-m` on

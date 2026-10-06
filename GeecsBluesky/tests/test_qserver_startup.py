@@ -43,7 +43,7 @@ def _no_tiled_subscription(monkeypatch: pytest.MonkeyPatch) -> None:
     or fake config file.
     """
     monkeypatch.setattr(
-        "geecs_bluesky.tiled_integration.subscribe_tiled_spool",
+        "geecs_bluesky.tiled.integration.subscribe_tiled_spool",
         lambda *a, **kw: None,
     )
     # No 0MQ publisher in-process: a connected-but-peerless PUB socket makes

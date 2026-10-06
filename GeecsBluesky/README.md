@@ -32,8 +32,8 @@ between trigger and wait.  It owns:
 - `run_engine.py` — `make_run_engine`: one RunEngine with
   `connect_on_demand` (`preprocessors.py`) installed outermost, the
   ScanInfo / s-file / `scan.log` / stack-check callbacks (`callbacks.py`)
-  and the Tiled spool subscribed (`tiled_spool.py`; the
-  `geecs-tiled-writer` service in `tiled_writer.py` registers the spooled
+  and the Tiled spool subscribed (`tiled/spool.py`; the
+  `geecs-tiled-writer` service in `tiled/writer.py` registers the spooled
   runs off the engine thread)
 - `qserver/` — the **queueserver worker**: a bluesky-queueserver RE Manager
   whose startup profile exports the namespace's devices and the registered

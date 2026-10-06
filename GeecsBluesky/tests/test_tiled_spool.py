@@ -16,11 +16,11 @@ from pathlib import Path
 
 import pytest
 
-from geecs_bluesky.tiled_integration import (
+from geecs_bluesky.tiled.integration import (
     SafeDocumentCallback,
     subscribe_tiled_spool,
 )
-from geecs_bluesky.tiled_spool import (
+from geecs_bluesky.tiled.spool import (
     DEFAULT_STATE_DIR,
     ENV_STATE_DIR,
     STALE_AFTER_SWEEPS,
@@ -317,7 +317,7 @@ def test_subscribe_tiled_spool_needs_a_configured_catalog(
 ) -> None:
     """No [tiled] uri → nothing subscribed, nothing created (a box with no writer)."""
     monkeypatch.setattr(
-        "geecs_bluesky.tiled_integration.read_tiled_config", lambda: (None, None)
+        "geecs_bluesky.tiled.integration.read_tiled_config", lambda: (None, None)
     )
     engine = _Engine()
     with caplog.at_level(logging.WARNING):
@@ -332,7 +332,7 @@ def test_subscribe_tiled_spool_never_opens_a_socket(
 ) -> None:
     """The engine spools; reachability is the writer's concern."""
     monkeypatch.setattr(
-        "geecs_bluesky.tiled_integration.read_tiled_config",
+        "geecs_bluesky.tiled.integration.read_tiled_config",
         lambda: ("http://192.0.2.1:8000", "key"),
     )
 
@@ -356,7 +356,7 @@ def test_subscribe_tiled_spool_warns_without_a_fresh_writer_heartbeat(
 ) -> None:
     """A headless engine spooling with no writer to drain it is told so (a warning, never a refusal)."""
     monkeypatch.setattr(
-        "geecs_bluesky.tiled_integration.read_tiled_config",
+        "geecs_bluesky.tiled.integration.read_tiled_config",
         lambda: ("http://192.0.2.1:8000", None),
     )
     layout = SpoolLayout(tmp_path / "state")
@@ -383,7 +383,7 @@ def test_subscribe_tiled_spool_reads_the_state_variable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(
-        "geecs_bluesky.tiled_integration.read_tiled_config",
+        "geecs_bluesky.tiled.integration.read_tiled_config",
         lambda: ("http://192.0.2.1:8000", None),
     )
     monkeypatch.setenv(ENV_STATE_DIR, str(tmp_path / "from-env"))
@@ -401,7 +401,7 @@ def test_make_run_engine_tiled_spools_and_never_builds_a_tiled_client(
     from geecs_bluesky.run_engine import make_run_engine
 
     monkeypatch.setattr(
-        "geecs_bluesky.tiled_integration.read_tiled_config",
+        "geecs_bluesky.tiled.integration.read_tiled_config",
         lambda: ("http://192.0.2.1:8000", None),
     )
     monkeypatch.setenv(ENV_STATE_DIR, str(tmp_path / "state"))
@@ -467,7 +467,7 @@ def test_heartbeat_reader_tolerates_absence_and_newer_fields(
 
 def test_heartbeat_verdict_is_the_one_rule(tmp_path: Path) -> None:
     """ok / degraded / failed from the heartbeat's own fields, thresholds pinned."""
-    from geecs_bluesky.tiled_spool import (
+    from geecs_bluesky.tiled.spool import (
         PENDING_BACKLOG_MIN,
         PENDING_OK_MAX,
         STALE_WHILE_REGISTERING_S,

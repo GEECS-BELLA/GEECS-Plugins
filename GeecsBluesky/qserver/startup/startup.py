@@ -176,7 +176,7 @@ logging.getLogger("geecs_bluesky").setLevel(logging.INFO)
 # The manager's --keep-re contract needs a top-level `RE` in this module's
 # namespace.  tiled=True: when config.ini names a catalog, the run's
 # documents are spooled to one file per run
-# (geecs_bluesky.tiled_integration.subscribe_tiled_spool, under
+# (geecs_bluesky.tiled.integration.subscribe_tiled_spool, under
 # GEECS_TILED_WRITER_STATE) for the geecs-tiled-writer service to register
 # off this thread — the ~25 s of dataset registration a full preset costs
 # at the stop no longer holds unstage and the box's standby.  claim=True:

@@ -1,10 +1,10 @@
 """Tiled integration for the RunEngine: the engine-side spool and the shared checks.
 
 The engine never talks to Tiled.  :func:`subscribe_tiled_spool` subscribes
-the per-run document spool (:mod:`geecs_bluesky.tiled_spool`) — the
+the per-run document spool (:mod:`geecs_bluesky.tiled.spool`) — the
 catalog location from the standard ``~/.config/geecs_python_api/config.ini``
 decides only whether spooling is on at all — and the separate
-``geecs-tiled-writer`` service (:mod:`geecs_bluesky.tiled_writer`)
+``geecs-tiled-writer`` service (:mod:`geecs_bluesky.tiled.writer`)
 registers each run from its spool file.  Failures degrade to a warning:
 scans run fine without Tiled.
 
@@ -112,7 +112,7 @@ def subscribe_tiled_spool(run_engine, state_dir: Path | None = None) -> int | No
     writer on before — and off, with a warning, otherwise: a box with no
     Tiled has no writer to drain the spool, and the files would only pile
     up.  The state directory is *state_dir*, else
-    :func:`~geecs_bluesky.tiled_spool.default_state_dir` (the
+    :func:`~geecs_bluesky.tiled.spool.default_state_dir` (the
     ``GEECS_TILED_WRITER_STATE`` variable the units set).
 
     Nothing here reaches the network: whether the catalog is *reachable*
@@ -120,7 +120,7 @@ def subscribe_tiled_spool(run_engine, state_dir: Path | None = None) -> int | No
     heartbeat under the state directory is a WARNING here, not a refusal:
     the runs still spool, and reach Tiled once a writer runs.
     """
-    from geecs_bluesky.tiled_spool import (
+    from geecs_bluesky.tiled.spool import (
         SpoolCallback,
         SpoolLayout,
         default_state_dir,
@@ -142,7 +142,7 @@ def subscribe_tiled_spool(run_engine, state_dir: Path | None = None) -> int | No
             exc_info=True,
         )
         return None
-    # The one verdict (tiled_spool.heartbeat_verdict — the scanner's chip and
+    # The one verdict (tiled.spool.heartbeat_verdict — the scanner's chip and
     # fleet_status.sh read the same); the engine cares about its liveness
     # half alone.
     verdict = heartbeat_verdict(

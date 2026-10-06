@@ -64,7 +64,7 @@ def make_run_engine(
         tests).
     tiled :
         Subscribe the Tiled document spool
-        (:func:`~geecs_bluesky.tiled_integration.subscribe_tiled_spool`):
+        (:func:`~geecs_bluesky.tiled.integration.subscribe_tiled_spool`):
         every run's documents to one file the ``geecs-tiled-writer``
         service registers off the engine thread.  On only when
         ``config.ini`` names a catalog; the engine never reaches Tiled.
@@ -84,7 +84,7 @@ def make_run_engine(
     RE = RunEngine(context_managers=[])
     RE.record_interruptions = True
     if tiled:
-        from geecs_bluesky.tiled_integration import subscribe_tiled_spool
+        from geecs_bluesky.tiled.integration import subscribe_tiled_spool
 
         subscribe_tiled_spool(RE)
     if claim:

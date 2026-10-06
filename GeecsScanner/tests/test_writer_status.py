@@ -1,10 +1,10 @@
 """The Tiled writer's heartbeat → one kit word, shown on the page and in /health.
 
 Hermetic: a heartbeat file per state is written the way ``geecs-tiled-writer``
-writes it (``geecs_bluesky.tiled_spool.write_heartbeat``), the service is
+writes it (``geecs_bluesky.tiled.spool.write_heartbeat``), the service is
 pointed at it, and the verdict is read through ``/health`` and the SSE
 status.  The chip's word per state runs the page's own ``renderWriterChip``
-under node.  The rule itself is the writer's (``tiled_spool.heartbeat_verdict``,
+under node.  The rule itself is the writer's (``tiled.spool.heartbeat_verdict``,
 pinned in GeecsBluesky); what is pinned here is the projection — the
 words reach the API per heartbeat (the measured 25–28 s per run:
 ``pending`` ≤ 1 fresh is ok, a ``.failed`` file or a backlog with a
@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from geecs_bluesky.tiled_spool import WriterHeartbeat, write_heartbeat
+from geecs_bluesky.tiled.spool import WriterHeartbeat, write_heartbeat
 from geecs_web_theme import STATES
 from geecs_web_theme.testing import node_available
 
@@ -34,7 +34,7 @@ from geecs_scanner.service.demo import (
     demo_preflight,
 )
 from geecs_scanner.service.models import SubmitIn
-from geecs_bluesky.tiled_spool import (
+from geecs_bluesky.tiled.spool import (
     PENDING_BACKLOG_MIN,
     PENDING_OK_MAX,
     STALE_WHILE_REGISTERING_S,

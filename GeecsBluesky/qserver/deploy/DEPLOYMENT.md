@@ -391,7 +391,7 @@ Read it three ways: `cat` on the host; the scanner's `GET /health` →
 `tiled_writer` and its "tiled writer" chip; `scripts/fleet_status.sh`'s
 "Tiled writer" row (read from the scanner's `/health` — the probe runs
 from an operator's machine). One rule for all three,
-`geecs_bluesky.tiled_spool.heartbeat_verdict` (the engine's environment-open
+`geecs_bluesky.tiled.spool.heartbeat_verdict` (the engine's environment-open
 warning uses its liveness half), from the measured 25–28 s per run:
 
 | Word | When | Meaning |

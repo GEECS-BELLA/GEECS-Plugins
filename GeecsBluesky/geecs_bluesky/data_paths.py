@@ -145,7 +145,7 @@ def read_tiled_host_data_base_path() -> str | None:
     """The data root as the **Tiled host** mounts it (``[Paths] geecs_tiled_host_data_base_path``).
 
     The Tiled writer registers each stream's Parquet table by the path the
-    Tiled server reads it at (``geecs_bluesky.tiled_parquet``).  Absent means
+    Tiled server reads it at (``geecs_bluesky.tiled.parquet``).  Absent means
     the Tiled host mounts the share where the writer does — the same box, or
     the same mount path — and the local path is the Tiled host's path.
     """

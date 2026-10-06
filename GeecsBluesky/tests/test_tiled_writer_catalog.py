@@ -30,13 +30,13 @@ from tiled.client.context import Context  # noqa: E402
 from tiled.config import Authentication  # noqa: E402
 from tiled.server.app import build_app  # noqa: E402
 
-from geecs_bluesky.tiled_spool import (  # noqa: E402
+from geecs_bluesky.tiled.spool import (  # noqa: E402
     SpoolCallback,
     SpoolLayout,
     encode_line,
     spool_state,
 )
-from geecs_bluesky.tiled_writer import SpoolRegistrar  # noqa: E402
+from geecs_bluesky.tiled.writer import SpoolRegistrar  # noqa: E402
 
 
 class _Det:
@@ -326,7 +326,7 @@ def test_parquet_table_registers_from_the_scan_folder_and_reads_back(
     seam (``read_primary_scalars``) cannot tell it from the SQL table."""
     from geecs_data_utils.tiled_catalog import read_primary_scalars
 
-    from geecs_bluesky.tiled_parquet import PARQUET_MIMETYPE, GeecsTiledWriter
+    from geecs_bluesky.tiled.parquet import PARQUET_MIMETYPE, GeecsTiledWriter
 
     scan_folder = tmp_path / "scans" / "Scan011"
     scan_folder.mkdir(parents=True)

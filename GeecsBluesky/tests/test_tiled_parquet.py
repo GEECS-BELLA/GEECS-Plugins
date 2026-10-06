@@ -1,4 +1,4 @@
-"""``geecs_bluesky.tiled_parquet`` — the stream table as a Parquet file beside the s-file.
+"""``geecs_bluesky.tiled.parquet`` — the stream table as a Parquet file beside the s-file.
 
 Hermetic: the Tiled client is faked at the two calls the writer makes for a
 table (``desc_node.new`` and the data-source update), so what is pinned is
@@ -20,11 +20,12 @@ import pyarrow.parquet as pq
 import pytest
 
 pytest.importorskip("tiled.client")
-tiled_parquet = pytest.importorskip("geecs_bluesky.tiled_parquet")
+tiled_parquet = pytest.importorskip("geecs_bluesky.tiled.parquet")
 from bluesky.callbacks.tiled_writer import TiledWriter, _RunWriter  # noqa: E402
 
-from geecs_bluesky import data_paths, tiled_writer  # noqa: E402
-from geecs_bluesky.tiled_parquet import (  # noqa: E402
+from geecs_bluesky import data_paths  # noqa: E402
+from geecs_bluesky.tiled import writer as tiled_writer  # noqa: E402
+from geecs_bluesky.tiled.parquet import (  # noqa: E402
     PARQUET_MIMETYPE,
     GeecsRunWriter,
     GeecsTiledWriter,
@@ -449,7 +450,7 @@ class TestFactory:
     def test_the_registrar_threads_the_choice_into_its_default_factory(
         self, tmp_path, monkeypatch
     ):
-        from geecs_bluesky.tiled_spool import SpoolLayout
+        from geecs_bluesky.tiled.spool import SpoolLayout
 
         seen: list = []
         monkeypatch.setattr(

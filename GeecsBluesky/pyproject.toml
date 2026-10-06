@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.113.0"
+version = "0.114.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -77,13 +77,10 @@ qs-client = ["bluesky-queueserver-api"]
 # The service-start readiness assertion (#793): the geecs-qserver-ready
 # oneshot unit runs it after the manager; needs only the qserver extra.
 geecs-qserver-ensure-ready = "geecs_bluesky.qserver_ready:main"
-# The one-time port of the runs Tiled stored as SQL tables to Parquet files
-# beside their s-files (the #1020 storage arc, step 2b; TILED_SETUP.md).
-geecs-tiled-port-tables = "geecs_bluesky.tiled_port:main"
 # The Tiled writer service: registers the engine's spooled runs off the
-# engine thread (tiled_writer.py; the unit template beside the qserver's).
+# engine thread (tiled/writer.py; the unit template beside the qserver's).
 # Needs the tiled extra.
-geecs-tiled-writer = "geecs_bluesky.tiled_writer:main"
+geecs-tiled-writer = "geecs_bluesky.tiled.writer:main"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"

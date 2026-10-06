@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from geecs_bluesky.tiled_spool import (
+from geecs_bluesky.tiled.spool import (
     STALE_WHILE_REGISTERING_S,
     SpoolLayout,
     SpoolState,
@@ -30,7 +30,7 @@ from geecs_bluesky.tiled_spool import (
     spool_is_held,
     spool_state,
 )
-from geecs_bluesky.tiled_writer import (
+from geecs_bluesky.tiled.writer import (
     SpoolRegistrar,
     main,
     synthesized_stop,
@@ -487,11 +487,11 @@ def test_empty_spool_still_writes_a_heartbeat(tmp_path: Path) -> None:
 def test_default_writer_hands_tables_over_as_parquet() -> None:
     """The default replays through the stock writer with ONE substitution: the
     stream table lands as a Parquet file in the scan folder
-    (:mod:`geecs_bluesky.tiled_parquet`); ``tables="appendable"`` is the
+    (:mod:`geecs_bluesky.tiled.parquet`); ``tables="appendable"`` is the
     stock writer untouched."""
     tiled_writer = pytest.importorskip("bluesky.callbacks.tiled_writer")
-    from geecs_bluesky import tiled_parquet
-    from geecs_bluesky.tiled_writer import make_tiled_writer
+    from geecs_bluesky.tiled import parquet as tiled_parquet
+    from geecs_bluesky.tiled.writer import make_tiled_writer
 
     class _Client:
         def include_data_sources(self):
@@ -530,7 +530,7 @@ def test_main_once_sweeps_and_writes_the_heartbeat(tmp_path: Path) -> None:
 
 
 def test_module_runs_as_a_script(tmp_path: Path) -> None:
-    """``python -m geecs_bluesky.tiled_writer`` is the by-hand path on a checkout with no reinstall.
+    """``python -m geecs_bluesky.tiled.writer`` is the by-hand path on a checkout with no reinstall.
 
     Found on the worker: without the ``__main__`` block the module imported
     and exited silently, no log line, no heartbeat.
@@ -543,7 +543,7 @@ def test_module_runs_as_a_script(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "geecs_bluesky.tiled_writer",
+            "geecs_bluesky.tiled.writer",
             "--once",
             "--state-dir",
             str(tmp_path),
@@ -563,7 +563,7 @@ def test_main_without_a_catalog_is_a_configuration_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(
-        "geecs_bluesky.tiled_integration.read_tiled_config", lambda: (None, None)
+        "geecs_bluesky.tiled.integration.read_tiled_config", lambda: (None, None)
     )
     assert main(["--once", "--state-dir", str(tmp_path)]) == 2
 
@@ -583,7 +583,7 @@ def test_heartbeat_names_the_run_before_its_registration_starts(
     and a reader 30 s later must not call it stale; after the sweep the
     run is no longer named.
     """
-    from geecs_bluesky.tiled_spool import heartbeat_verdict
+    from geecs_bluesky.tiled.spool import heartbeat_verdict
 
     layout = SpoolLayout(tmp_path)
     _write(layout, _docs("run-a", 1000.0, scan=12))
@@ -640,7 +640,7 @@ def test_a_failing_backlog_reads_failed_on_every_sweep_of_its_backoff(
     the backoff; one failing run alone is ``degraded`` throughout, never
     ``ok`` — and a backlog with nothing backing off is "draining".
     """
-    from geecs_bluesky.tiled_spool import heartbeat_verdict
+    from geecs_bluesky.tiled.spool import heartbeat_verdict
 
     layout = SpoolLayout(tmp_path)
     for uid, at in (("run-a", 1000.0), ("run-b", 1001.0), ("run-c", 1002.0)):

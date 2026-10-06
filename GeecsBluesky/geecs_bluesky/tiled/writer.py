@@ -1,10 +1,10 @@
 """``geecs-tiled-writer``: registers spooled runs in Tiled, off the engine.
 
-The service half of :mod:`geecs_bluesky.tiled_spool`.  Every few seconds
+The service half of :mod:`geecs_bluesky.tiled.spool`.  Every few seconds
 it sweeps the spool directory: complete files (last line a ``stop``) are
 replayed oldest first through the stock ``TiledWriter`` and renamed
 ``.done``.  A file with no stop that no engine holds
-(:func:`~geecs_bluesky.tiled_spool.spool_is_held`) is registered after
+(:func:`~geecs_bluesky.tiled.spool.spool_is_held`) is registered after
 ``--orphan-after`` seconds with a synthesized ``fail`` stop; a held file
 is a live run however long it stays quiet.  Between sweeps it writes
 ``heartbeat.json`` (liveness, backlog, the last error) and once more just
@@ -24,7 +24,7 @@ existing container for the uid is deleted and registered again from the
 spool, which holds the whole record.
 
 Run it as ``geecs-tiled-writer`` (the console script; the unit template
-lives beside the qserver's), ``python -m geecs_bluesky.tiled_writer``, or
+lives beside the qserver's), ``python -m geecs_bluesky.tiled.writer``, or
 either with ``--once`` for one sweep.
 """
 
@@ -41,7 +41,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from geecs_bluesky.tiled_spool import (
+from geecs_bluesky.tiled.spool import (
     DONE_SUFFIX,
     FAILED_SUFFIX,
     SpoolError,
@@ -70,7 +70,7 @@ DEFAULT_ORPHAN_AFTER_S = 30 * 60.0
 
 
 #: Where a stream's table goes: ``parquet`` — one file per stream in the scan
-#: folder, registered like the camera stacks (:mod:`geecs_bluesky.tiled_parquet`);
+#: folder, registered like the camera stacks (:mod:`geecs_bluesky.tiled.parquet`);
 #: ``appendable`` — the stock writer's SQL table in Tiled's SQL storage.
 DEFAULT_TABLE_STORE = "parquet"
 TABLE_STORES = ("parquet", "appendable")
@@ -81,7 +81,7 @@ def make_tiled_writer(
 ) -> Callable[[str, dict], None]:
     """The writer over *client* (imported lazily: the tiled extra).
 
-    ``tables="parquet"`` builds :class:`~geecs_bluesky.tiled_parquet.GeecsTiledWriter`
+    ``tables="parquet"`` builds :class:`~geecs_bluesky.tiled.parquet.GeecsTiledWriter`
     (the file's URI through :func:`~geecs_bluesky.data_paths.tiled_host_path`);
     ``"appendable"`` is the stock ``TiledWriter``.
     """
@@ -91,7 +91,7 @@ def make_tiled_writer(
         from bluesky.callbacks.tiled_writer import TiledWriter
 
         return TiledWriter(client)
-    from geecs_bluesky.tiled_parquet import GeecsTiledWriter
+    from geecs_bluesky.tiled.parquet import GeecsTiledWriter
 
     return GeecsTiledWriter(client, table_store="parquet")
 
@@ -137,7 +137,7 @@ class SpoolRegistrar:
         with *tables*.  Tests inject a recorder.
     tables :
         Where a stream's table goes: ``"parquet"`` (default — one file per
-        stream in the scan folder, :mod:`geecs_bluesky.tiled_parquet`) or
+        stream in the scan folder, :mod:`geecs_bluesky.tiled.parquet`) or
         ``"appendable"`` (the stock SQL table in Tiled's SQL storage).
         Ignored when *writer_factory* is given.
     client_factory :
@@ -148,7 +148,7 @@ class SpoolRegistrar:
         waits; nothing is counted as an attempt).
     held :
         ``path -> bool``; whether the engine still holds a file open
-        (:func:`~geecs_bluesky.tiled_spool.spool_is_held`).
+        (:func:`~geecs_bluesky.tiled.spool.spool_is_held`).
     clock :
         ``time.time`` unless a test says otherwise.
     """
@@ -182,7 +182,7 @@ class SpoolRegistrar:
         )
         self._client_factory = client_factory or self._default_client_factory
         if reachable is None:
-            from geecs_bluesky.tiled_integration import tiled_server_reachable
+            from geecs_bluesky.tiled.integration import tiled_server_reachable
 
             reachable = tiled_server_reachable
         self._reachable = reachable
@@ -552,7 +552,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     tiled_uri, api_key = args.tiled_uri, None
     if tiled_uri is None:
-        from geecs_bluesky.tiled_integration import read_tiled_config
+        from geecs_bluesky.tiled.integration import read_tiled_config
 
         tiled_uri, api_key = read_tiled_config()
     if not tiled_uri:
@@ -613,5 +613,5 @@ __all__ = [
 
 if (
     __name__ == "__main__"
-):  # `python -m geecs_bluesky.tiled_writer` — a checkout with no reinstall
+):  # `python -m geecs_bluesky.tiled.writer` — a checkout with no reinstall
     sys.exit(main())
