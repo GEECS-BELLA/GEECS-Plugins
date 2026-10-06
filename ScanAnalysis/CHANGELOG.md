@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.46.2] - 2026-10-06
+
+### Changed
+
+- **Tests only.** The stitcher route-parity test compares the legacy and
+  core routes with the s-file `rms`/`fwhm` columns excluded: a joined trace
+  is unevenly spaced and the core now measures those widths in x
+  (GEECS-Analysis 0.26.0, #1029) while the legacy analyzer still counts
+  samples times the spacing at the centroid. Every other file, column and
+  sample must still match exactly; CLAUDE.md notes the rule.
+
 ## [1.46.1] - 2026-10-01
 
 ### Changed

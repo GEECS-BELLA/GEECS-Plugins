@@ -20,8 +20,48 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def compute_center_of_mass(profile: np.ndarray) -> float:
-    """Compute the center of mass of a 1‑D profile."""
+#: Relative tolerance, of the axis's largest magnitude, within which an axis
+#: counts as evenly spaced. Wide enough that an axis stored in single
+#: precision still does; far below the unevenness of a stitched trace or a
+#: nonlinear calibration.
+EVEN_SPACING_RTOL = 1e-6
+
+
+def is_evenly_spaced(coordinates: np.ndarray) -> bool:
+    """Whether ``coordinates`` are affine in their sample index, to single precision.
+
+    Index-space widths times one spacing are exact only on such an axis
+    (#1029); :class:`LineBasicStats` keeps that legacy arithmetic there, bit
+    for bit, and takes its moments over the coordinates everywhere else.
+    """
+    x = np.asarray(coordinates, dtype=float)
+    if x.size < 2:
+        return True
+    step = (x[-1] - x[0]) / (x.size - 1)
+    affine = x[0] + np.arange(x.size) * step
+    return bool(np.all(np.abs(x - affine) <= EVEN_SPACING_RTOL * np.abs(x).max()))
+
+
+def _coordinates(profile: np.ndarray, coordinates: np.ndarray | None) -> np.ndarray:
+    """Sample indices, or the caller's one-per-sample coordinates."""
+    if coordinates is None:
+        return np.arange(profile.size)
+    coordinates = np.asarray(coordinates, dtype=float)
+    if coordinates.shape != profile.shape:
+        raise ValueError(
+            f"coordinates {coordinates.shape} must match the profile {profile.shape}"
+        )
+    return coordinates
+
+
+def compute_center_of_mass(
+    profile: np.ndarray, coordinates: np.ndarray | None = None
+) -> float:
+    """Compute the center of mass of a 1‑D profile.
+
+    In sample-index units, or in axis units over ``coordinates`` (one per
+    sample) when given.
+    """
     profile = np.asarray(profile, dtype=float)
     total = profile.sum()
     if total <= 0:
@@ -29,12 +69,21 @@ def compute_center_of_mass(profile: np.ndarray) -> float:
             "compute_center_of_mass: Profile has non-positive total intensity. Returning np.nan."
         )
         return np.nan
-    coords = np.arange(profile.size)
+    coords = _coordinates(profile, coordinates)
     return np.sum(coords * profile) / total
 
 
-def compute_rms(profile: np.ndarray) -> float:
-    """Compute the RMS width of a 1‑D profile."""
+def compute_rms(profile: np.ndarray, coordinates: np.ndarray | None = None) -> float:
+    """Compute the RMS width of a 1‑D profile.
+
+    The intensity-weighted second moment about the centroid, in sample-index
+    units, or in axis units over ``coordinates`` (one per sample) when given:
+    the same weights (negatives clipped, in place) and the same normalisation
+    (the unclipped total), only the positions differ. On an evenly spaced
+    axis the two agree up to rounding; on an uneven one only the coordinate
+    form is a width in axis units (#1029). Over coordinates the width is
+    signed by the axis direction, as the legacy spacing conversion was.
+    """
     profile = np.asarray(profile, dtype=float)
     total = profile.sum()
     profile[profile < 0] = 0
@@ -43,14 +92,26 @@ def compute_rms(profile: np.ndarray) -> float:
             "compute_rms: Profile has non-positive total intensity. Returning np.nan."
         )
         return np.nan
-    coords = np.arange(profile.size)
-    com = compute_center_of_mass(profile)
-    return np.sqrt(np.sum((coords - com) ** 2 * profile) / total)
+    coords = _coordinates(profile, coordinates)
+    com = compute_center_of_mass(profile, coordinates)
+    width = np.sqrt(np.sum((coords - com) ** 2 * profile) / total)
+    if coordinates is None:
+        return width
+    # Signed by the axis direction, as the legacy spacing conversion was.
+    return width if coords[-1] >= coords[0] else -width
 
 
-def compute_fwhm(profile: np.ndarray) -> float:
-    """Compute the full width at half maximum (FWHM) of a 1‑D profile."""
+def compute_fwhm(profile: np.ndarray, coordinates: np.ndarray | None = None) -> float:
+    """Compute the full width at half maximum (FWHM) of a 1‑D profile.
+
+    The distance between the outermost half-maximum crossings, each
+    interpolated linearly between the two samples it falls between — in
+    sample-index units, or in axis units over ``coordinates`` (one per
+    sample) when given (#1029). Signed by the direction of the coordinates
+    between the two crossings, as the legacy spacing conversion was.
+    """
     profile = np.asarray(profile, dtype=float)
+    coords = _coordinates(profile, coordinates)
     if profile.sum() <= 0:
         logger.warning(
             "compute_fwhm: Profile has non-positive total intensity. Returning np.nan."
@@ -75,12 +136,12 @@ def compute_fwhm(profile: np.ndarray) -> float:
     def interp_edge(i1, i2):
         y1, y2 = profile[i1], profile[i2]
         if y2 == y1:
-            return float(i1)
-        return i1 + (half_max - y1) / (y2 - y1)
+            return coords[i1]
+        return coords[i1] + (half_max - y1) / (y2 - y1) * (coords[i2] - coords[i1])
 
-    left_edge = interp_edge(left - 1, left) if left > 0 else float(left)
+    left_edge = interp_edge(left - 1, left) if left > 0 else coords[left]
     right_edge = (
-        interp_edge(right, right + 1) if right < len(profile) - 1 else float(right)
+        interp_edge(right, right + 1) if right < len(profile) - 1 else coords[right]
     )
 
     return right_edge - left_edge
@@ -107,9 +168,12 @@ class LineBasicStats(BaseModel):
     contains the corresponding y-values (intensity, counts, voltage, etc.).
 
     All spatial/spectral statistics (CoM, RMS, FWHM, peak_location) are
-    returned in x-coordinate units. The integrated_intensity is the legacy sample sum, not a quadrature.
-    Widths use the coordinate spacing at the index-space centroid.
-    These conventions are retained for numerical compatibility.
+    returned in x-coordinate units. The integrated_intensity is the legacy
+    sample sum, not a quadrature. On an evenly spaced axis the widths are the
+    legacy index-space widths times the spacing at the centroid (kept bit for
+    bit; signed on a descending axis); on any other axis — a trace stitched
+    from several cameras, a nonlinear calibration — they are the same moments
+    taken over the x coordinates themselves (#1029).
 
     Attributes
     ----------
@@ -179,11 +243,19 @@ class LineBasicStats(BaseModel):
         x = self.line_data[:, 0]
         y = self.line_data[:, 1]
 
-        # Use existing functions from basic_beam_stats (they work on 1D arrays)
-        # These return values in index space
+        # Check if x is index-based (x = [0, 1, 2, ...])
+        is_index_based = np.allclose(x, np.arange(len(x)), rtol=1e-9, atol=1e-9)
+        # Widths: index-space moments times one spacing are exact only on an
+        # evenly spaced axis, where that legacy arithmetic is kept bit for
+        # bit. Anywhere else the moments are taken over x itself (#1029).
+        evenly_spaced = is_index_based or is_evenly_spaced(x)
+        width_coordinates = None if evenly_spaced else x
+
+        # Centroid and peak in index space; widths in index space on an
+        # evenly spaced axis (converted below), else already in x units.
         com_idx = compute_center_of_mass(y)
-        rms_idx = compute_rms(y)
-        fwhm_idx = compute_fwhm(y)
+        rms = compute_rms(y, width_coordinates)
+        fwhm = compute_fwhm(y, width_coordinates)
         peak_idx = compute_peak_location(y)
 
         # Peak value - use numpy indexing which handles float indices
@@ -195,14 +267,11 @@ class LineBasicStats(BaseModel):
         # Integrated intensity is the sum of y-values
         self.integrated_intensity = y.sum()
 
-        # Check if x is index-based (x = [0, 1, 2, ...])
-        is_index_based = np.allclose(x, np.arange(len(x)), rtol=1e-9, atol=1e-9)
-
         if is_index_based:
             # No conversion needed - values are already in the same space as x
             self.CoM = com_idx
-            self.rms = rms_idx
-            self.fwhm = fwhm_idx
+            self.rms = rms
+            self.fwhm = fwhm
             self.peak_location = peak_idx
         else:
             # Map from index space to x-coordinate space
@@ -211,21 +280,18 @@ class LineBasicStats(BaseModel):
             else:
                 self.CoM = np.nan
 
-            if not np.isnan(rms_idx) and not np.isnan(com_idx):
-                # For RMS and FWHM, we need to scale by dx
-                # Use dx at the CoM location
-                idx = int(np.clip(com_idx, 0, len(x) - 2))
-                dx = x[idx + 1] - x[idx]
-                self.rms = rms_idx * dx
-            else:
+            if np.isnan(com_idx):
                 self.rms = np.nan
-
-            if not np.isnan(fwhm_idx) and not np.isnan(com_idx):
+                self.fwhm = np.nan
+            elif evenly_spaced:
+                # Legacy: index-space widths scaled by dx at the CoM location
                 idx = int(np.clip(com_idx, 0, len(x) - 2))
                 dx = x[idx + 1] - x[idx]
-                self.fwhm = fwhm_idx * dx
+                self.rms = rms * dx
+                self.fwhm = fwhm * dx
             else:
-                self.fwhm = np.nan
+                self.rms = rms
+                self.fwhm = fwhm
 
             if not np.isnan(peak_idx):
                 self.peak_location = x[int(peak_idx)]

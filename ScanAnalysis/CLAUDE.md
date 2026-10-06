@@ -102,6 +102,10 @@ same-shot trace, sorted by x with the legacy sort. A shot or folder a
 sibling lacks is stitched without it, with a warning. The stitched TSVs
 the legacy analyzer wrote into the scan folder are dropped on this route
 (owner ruling 2026-09-27); the processed trace is saved under `analysis/`.
+A joined trace is unevenly spaced, so its `rms`/`fwhm` are measured in x
+on this route (GEECS-Analysis 0.26.0, #1029) where the legacy analyzer
+counted samples times one spacing; `tests/test_core_stitch.py` compares
+the two routes with those two columns excluded and everything else exact.
 
 `core_scan.prepare_scan` snapshots config, rows, source, recipe and scalar naming
 for one explicit run. `PreparedScan.run()` streams core `UnitResult` outcomes;

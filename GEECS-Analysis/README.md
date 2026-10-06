@@ -81,12 +81,16 @@ result = analyze(Frame.from_array(image), recipe)
 Beam `enabled_stats` and `compute_slopes` preserve the v2 selection contract.
 
 Algorithms retain legacy conventions for this migration: line intensity is a
-sample sum (not quadrature); centroid and widths are computed in index space
-then converted to axis units using interpolation and local spacing. Descending
-axes therefore retain signed widths. Diagonal beam statistics and optional
-slopes stay in local index space. Scientific changes belong in a separately
-validated change. Measurement runs own their scratch arrays and never mutate
-caller input, including when legacy RMS clips negative values internally.
+sample sum (not quadrature); the centroid is computed in index space then
+interpolated to axis units. Widths are the legacy index-space widths times
+the sample spacing on an evenly spaced axis (bit for bit) and, since 0.26.0
+(#1029), the same moments taken over the x coordinates on any other axis — a
+trace stitched from several cameras, a nonlinear calibration — where one
+spacing is not a conversion. Descending axes retain signed widths either
+way. Diagonal beam statistics and optional slopes stay in local index space.
+Scientific changes belong in a separately validated change, as #1029 was.
+Measurement runs own their scratch arrays and never mutate caller input,
+including when legacy RMS clips negative values internally.
 
 ## Existing v2 documents
 

@@ -4,6 +4,30 @@ All notable changes to `geecs-analysis` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.26.0] - 2026-10-06
+
+### Changed
+
+- `line` measure (`LineBasicStats`): `rms` and `fwhm` on an unevenly spaced
+  axis are computed in axis coordinates — rms as the intensity-weighted
+  second moment over x, fwhm from the half-maximum crossings interpolated
+  in x — instead of index-space widths times the one sample spacing at the
+  centroid, which is only right on an evenly spaced axis (#1029). An evenly
+  spaced axis (to single precision, `is_evenly_spaced`) keeps the legacy
+  arithmetic bit for bit, descending-axis sign included. The `beam`
+  measure's x/y projection widths go through the same code and change the
+  same way on a nonuniform calibrated camera axis; its diagonals do not.
+- **Operator note:** the s-file `rms` and `fwhm` columns of every stitched
+  diagnostic (`input.siblings`, e.g. the BCave MagSpec stitcher) and of any
+  trace with a nonlinear axis change value from this version on — the
+  issue's three-camera synthetic trace reads fwhm 53.2 MeV instead of 59.7
+  (true 51.8). Do not compare those columns across the upgrade without
+  re-running the analysis.
+- `compute_center_of_mass`, `compute_rms` and `compute_fwhm` take an
+  optional `coordinates` argument (one per sample); `is_evenly_spaced` and
+  `EVEN_SPACING_RTOL` are new. The recipe reference's `siblings` card and
+  the README / CLAUDE.md convention paragraphs describe the new rule.
+
 ## [0.25.0] - 2026-09-29
 
 ### Added

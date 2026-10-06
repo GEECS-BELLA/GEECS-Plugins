@@ -75,11 +75,16 @@ fixtures. Run `scripts/check.sh --all` before a PR, as required by root policy.
 and must match the actual result keys and the existing optimizer contract.
 
 The algorithms are intentionally ported with their numerical conventions:
-line moments are calculated in index space, coordinates are interpolated at the
-centroid, widths use local dx (even its sign on descending axes), and integrated
-intensity is the sample sum after the RMS helper clips negatives. This refactor
-must not silently redefine these quantities. Beam diagonal metrics and slopes
-stay in local sample-index coordinates, as before.
+the line centroid is calculated in index space and interpolated to
+coordinates, integrated intensity is the sample sum after the RMS helper
+clips negatives, and on an evenly spaced axis (to single precision,
+`is_evenly_spaced`) widths are the index-space widths times local dx (even
+its sign on descending axes), bit for bit. On any other axis — a stitched
+trace, a nonlinear calibration — `rms` and `fwhm` are the same moments taken
+over the x coordinates (#1029, the one validated scientific change so far);
+one spacing is not a conversion there. This refactor must not silently
+redefine these quantities. Beam diagonal metrics and slopes stay in local
+sample-index coordinates, as before.
 
 LineBasicStats owns scratch because its RMS helper mutates samples. Measures
 never mutate the processed Frame; the old float64 LineAnalyzer result could

@@ -92,11 +92,12 @@ def test_beam_affine_coordinates_transform_centroids_and_widths():
     [
         np.arange(9),
         np.linspace(60, 160, 9),
-        np.array([2, 3, 6, 7, 10, 12, 15, 19, 20]),
         np.arange(9)[::-1],
+        # Evenly spaced to single precision only: still the legacy arithmetic.
+        np.linspace(0.1, 0.9, 9).astype(np.float32).astype(float),
     ],
 )
-def test_line_matches_legacy_coordinate_conversion(coordinates):
+def test_line_matches_legacy_on_evenly_spaced_axes(coordinates):
     from image_analysis.algorithms.basic_line_stats import LineBasicStats
 
     trace = np.column_stack((coordinates, [1, 2, 4, 8, 12, 9, 4, 2, 1]))
@@ -104,6 +105,129 @@ def test_line_matches_legacy_coordinate_conversion(coordinates):
     result = analyze(Frame.from_trace(trace, x_unit="MeV"), recipe("line"))
     assert_finite_scalars_equal(result.scalars, expected)
     assert not result.notes
+
+
+def test_line_widths_on_an_uneven_axis_are_moments_over_x():
+    """#1029: not index-space widths times the one spacing at the centroid."""
+    from image_analysis.algorithms.basic_line_stats import LineBasicStats
+
+    x = np.array([2, 3, 6, 7, 10, 12, 15, 19, 20], dtype=float)
+    y = np.array([1, 2, 4, 8, 12, 9, 4, 2, 1], dtype=float)
+    legacy = LineBasicStats(line_data=np.column_stack((x, y))).to_dict()
+    result = analyze(
+        Frame.from_trace(np.column_stack((x, y)), x_unit="MeV"), recipe("line")
+    )
+
+    centroid = np.sum(x * y) / y.sum()
+    assert result.scalars["rms"] == pytest.approx(
+        np.sqrt(np.sum(y * (x - centroid) ** 2) / y.sum()), rel=1e-12
+    )
+    # Baseline-shifted half maximum 5.5 is crossed between samples 3→7 at
+    # x 6→7 (6.625 MeV) and 8→3 at x 12→15 (13.5 MeV).
+    assert result.scalars["fwhm"] == pytest.approx(13.5 - 6.625, rel=1e-12)
+    # Legacy scaled by the 2 MeV spacing at the centroid: 2.875 × 2 = 5.75.
+    assert legacy["fwhm"] == 5.75
+    assert legacy["rms"] == pytest.approx(3.2987, abs=1e-4)
+    for key in ("CoM", "peak_location", "integrated_intensity", "peak_value"):
+        assert result.scalars[key] == legacy[key]
+    assert not result.notes
+
+
+def test_line_widths_on_a_descending_uneven_axis_keep_the_sign_convention():
+    x = np.array([2, 3, 6, 7, 10, 12, 15, 19, 20], dtype=float)
+    y = np.array([1, 2, 4, 8, 12, 9, 4, 2, 1], dtype=float)
+    ascending = analyze(Frame.from_trace(np.column_stack((x, y))), recipe("line"))
+    descending = analyze(
+        Frame.from_trace(np.column_stack((x[::-1], y[::-1]))), recipe("line")
+    )
+    # Legacy's local dx made widths negative on a descending axis; the
+    # coordinate path keeps that one convention rather than mixing two.
+    for width in ("rms", "fwhm"):
+        assert descending.scalars[width] == pytest.approx(-ascending.scalars[width])
+    assert descending.scalars["CoM"] == pytest.approx(ascending.scalars["CoM"])
+
+
+def stitched_repro():
+    """The #1029 repro: three cameras' segments joined as the scan host joins siblings."""
+    rng = np.random.default_rng(7)
+
+    def spectrum(e):
+        return np.exp(-0.5 * ((e - 128) / 22) ** 2) + 0.25 * np.exp(-(e - 40) / 25)
+
+    segments = []
+    for (lo, hi, n), gain in zip(
+        [(40, 105, 260), (100, 170, 200), (165, 260, 180)], [1.0, 0.92, 1.08]
+    ):
+        e = np.linspace(lo, hi, n)
+        segments.append(
+            np.column_stack([e, gain * spectrum(e) + rng.normal(0, 0.015, n)])
+        )
+    joined = np.concatenate(segments)
+    # scan_analysis.core_source's join: concatenate, then sort by x.
+    return joined[joined[:, 0].argsort()]
+
+
+def test_line_widths_on_a_stitched_trace_are_measured_in_x():
+    from image_analysis.algorithms.basic_line_stats import LineBasicStats
+
+    joined = stitched_repro()
+    x, y = joined[:, 0], joined[:, 1]
+    frame = Frame.from_array(y, axes=(Axis(values=x, unit="MeV"),))
+    result = analyze(frame, recipe("line"))
+    legacy = LineBasicStats(line_data=joined.copy()).to_dict()
+
+    # Measured directly in MeV on the joined trace: the span of the samples
+    # at or above half maximum brackets the interpolated crossings to within
+    # one sample spacing (≤ 0.35 MeV). The measure clips negatives first
+    # (legacy), so its baseline is the clipped minimum.
+    clipped = np.clip(y, 0, None)
+    shifted = clipped - clipped.min()
+    above = x[shifted >= shifted.max() / 2]
+    direct_fwhm = above.max() - above.min()
+    assert result.scalars["fwhm"] == pytest.approx(direct_fwhm, abs=0.5)
+    true_fwhm = 2 * np.sqrt(2 * np.log(2)) * 22  # 51.8 MeV
+    assert result.scalars["fwhm"] == pytest.approx(true_fwhm, abs=2.0)
+    # The old value (index-space width × the spacing at the centroid) read
+    # ~60 MeV here, 13 % wide.
+    assert legacy["fwhm"] > true_fwhm + 5
+    assert abs(result.scalars["fwhm"] - legacy["fwhm"]) > 5
+
+    # rms: the intensity-weighted second moment over x, with the legacy
+    # normalisation (clipped weights over the unclipped total).
+    weights = np.clip(y, 0, None)
+    centroid = np.sum(weights * x) / weights.sum()
+    expected_rms = np.sqrt(np.sum(weights * (x - centroid) ** 2) / y.sum())
+    assert result.scalars["rms"] == pytest.approx(expected_rms, rel=1e-9)
+    assert abs(result.scalars["rms"] - legacy["rms"]) > 5
+
+    for key in ("CoM", "peak_location", "integrated_intensity", "peak_value"):
+        assert result.scalars[key] == legacy[key]
+    assert not result.notes
+
+
+def test_beam_widths_on_an_uneven_camera_axis_follow_the_line_measure():
+    from image_analysis.algorithms.basic_beam_stats import (
+        beam_profile_stats,
+        flatten_beam_stats,
+    )
+
+    samples = np.random.default_rng(9).uniform(1, 10, (9, 11))
+    x = np.array([0, 1, 3, 4, 6, 9, 10, 13, 14, 18, 20], dtype=float)
+    frame = Frame.from_array(
+        samples, axes=(Axis(np.arange(9) + 4, label="y"), Axis(x, "MeV", "x"))
+    )
+    beam = analyze(frame, recipe("beam")).scalars
+    projection = analyze(
+        Frame.from_trace(np.column_stack((x, samples.sum(axis=0))), x_unit="MeV"),
+        recipe("line"),
+    ).scalars
+    for key in ("CoM", "rms", "fwhm", "peak_location"):
+        assert beam[f"x_{key}"] == projection[key]
+    # The evenly spaced y axis, the diagonals and the image totals are legacy.
+    legacy = flatten_beam_stats(beam_profile_stats(samples, roi_offset=(0, 4)))
+    for key, value in legacy.items():
+        if key.startswith(("y_", "x_45", "y_45", "image")):
+            assert beam[key] == value
 
 
 def test_negative_line_samples_preserve_legacy_scalars_without_mutating_frame():

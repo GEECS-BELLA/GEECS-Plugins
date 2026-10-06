@@ -149,9 +149,24 @@ def test_the_core_route_matches_the_legacy_stitcher(tmp_path, monkeypatch):
     old, new = snapshot(legacy), snapshot(core)
     assert sorted(old) == sorted(new)
     assert any(name.endswith(".h5") for name in new)
-    assert compare_snapshots(old, new) == []
-    columns = new["s1.txt"][1].columns
+    old_rows, new_rows = old["s1.txt"][1], new["s1.txt"][1]
+    columns = new_rows.columns
     assert any(c.startswith(f"MagSpec1{SUFFIX}_") for c in columns)
+    # The one deliberate difference: a joined trace is unevenly spaced, and
+    # the core measures its widths in MeV (GEECS-Analysis 0.26.0, #1029)
+    # where the legacy analyzer counted samples times the spacing at the
+    # centroid. Every other file, column and sample is identical — the two
+    # width columns are dropped from every table (the s-file and the
+    # per-scan copy) before the comparison.
+    widths = [c for c in columns if c.endswith(("_rms", "_fwhm"))]
+    assert len(widths) == 2
+    for column in widths:
+        assert not np.allclose(old_rows[column], new_rows[column])
+    for name, (kind, *payload) in list(new.items()):
+        if kind == "table":
+            old[name] = ("table", old[name][1].drop(columns=widths))
+            new[name] = ("table", payload[0].drop(columns=widths))
+    assert compare_snapshots(old, new) == []
 
 
 def test_the_joined_trace_is_every_segment_sorted_by_x(tmp_path):
