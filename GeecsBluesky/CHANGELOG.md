@@ -25,9 +25,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   readback, the motor's own column) from the stage the RunEngine already
   did — the snapshot never stages or unstages it — so the descriptor
   carries the device's other variables once and the readback once.  A
-  mover that does not describe within the probe budget leaves its whole
-  device to the run (WARNING: a key read twice fails the run, a missing
-  column does not).  One decision, before `open_run`, so the start
+  mover that does not describe within the probe budget leaves its device
+  out of the background for that run (WARNING; the readback stays, as the
+  motor's column — a key read twice fails the run, a missing column does
+  not).  One decision, before `open_run`, so the start
   document's `background_dropped` stays complete and no plan step changed.
   Hermetic tests pin the trimmed member, the own-reader shapes
   (`sweep([X], X.current)`, `[X.scalars]`, a camera whose settable child

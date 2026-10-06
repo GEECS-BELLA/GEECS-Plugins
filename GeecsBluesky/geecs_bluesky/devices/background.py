@@ -260,9 +260,11 @@ class BackgroundSnapshot:
             The motors the run moves (the sweep's resolved axes, the
             optimizer's movables).  A mover's device is read minus the
             keys the mover describes — from the stage the RunEngine did,
-            never staged or unstaged here.  A mover that is a whole device,
-            or one that does not describe within the budget, leaves its
-            whole device to the run.
+            never staged or unstaged here.  A mover that is a whole device
+            is the run's; one that does not describe within the budget
+            leaves its device out of the background for this run — the row
+            still carries the readback, and a missing column is the safe
+            side of a duplicate key.
         """
         self._probe_error = ""
         try:
@@ -290,10 +292,14 @@ class BackgroundSnapshot:
                     maybe_await(owner.describe()), self.probe_timeout
                 )
             except Exception as exc:  # noqa: BLE001 - never read a key twice
-                own_roots.add(id(root))
+                own_roots.add(
+                    id(root)
+                )  # out for this run: which key is the row's is unknown
                 logger.warning(
                     "background telemetry: %s (%s) did not describe (%s) — its "
-                    "whole device is left to the run this time",
+                    "device's other variables are left out of this run (the row "
+                    "carries the readback as the motor's own column; a key read "
+                    "twice would fail the run)",
                     geecs_device_name(obj),
                     getattr(obj, "name", obj),
                     _one_line(exc),

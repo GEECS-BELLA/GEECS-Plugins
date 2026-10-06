@@ -511,8 +511,10 @@ keys the mover describes (its readback, the motor's own column), from the
 stage the RunEngine already did — bluesky's `stage_wrapper` stages
 `root_ancestor`, and the snapshot never stages or unstages it — so the
 scanned device's other logged variables stay in the rows; a mover that does
-not describe within the budget leaves its whole device to the run (WARNING —
-a key read twice fails the run, a missing column does not).  The probe is bounded
+not describe within the budget leaves its device out of the background for
+that run (WARNING; the row still carries the readback — a key read twice
+fails the run, a missing column does not, and master dropped the device whole
+on every scan).  The probe is bounded
 (`PROBE_TIMEOUT_S`, 1 s, concurrent across members): one that does not
 answer — a PV the gateway does not serve, a failed connect or describe —
 is left out of **that run only**, named in the log and in the start

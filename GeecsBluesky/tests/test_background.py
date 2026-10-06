@@ -235,10 +235,10 @@ def test_a_movers_device_is_the_run_engines_to_stage_and_unstage(RE) -> None:
     assert free.unstaged == 1 and (wide.unstaged, narrow.unstaged) == (0, 0)
 
 
-def test_a_mover_that_does_not_describe_leaves_its_whole_device_to_the_run(
+def test_a_mover_that_does_not_describe_leaves_its_device_out_of_the_background(
     RE, caplog
 ) -> None:
-    """Never a key twice: a mover the probe cannot describe keeps its device out."""
+    """Never a key twice: a mover the probe cannot describe keeps its device out, and says so."""
     gauge = _gauge(RE)
     magnet = _magnet(RE)
 
@@ -266,7 +266,7 @@ def test_a_mover_that_does_not_describe_leaves_its_whole_device_to_the_run(
         assert snapshot.members == [gauge]
         assert set(run(RE, snapshot.describe)) == {"u_gauge-pressure"}
         assert "U_S1H (u_s1h-current) did not describe" in caplog.text
-        assert "whole device is left to the run this time" in caplog.text
+        assert "device's other variables are left out of this run" in caplog.text
 
 
 def test_probe_drops_what_does_not_answer_and_keeps_the_rest(RE, caplog) -> None:
