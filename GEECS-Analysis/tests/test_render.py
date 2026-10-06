@@ -217,8 +217,9 @@ def _drawn(fig):
 
 def test_colorbar_spans_the_drawn_image_not_its_layout_slot():
     # A wide fixed-aspect image leaves its slot short; the colorbar follows it.
+    # An explicit canvas is drawn as given, so the slot keeps its slack.
     wide = Measurement({}, Frame.from_array(np.ones((40, 160))), ())
-    image, cax = _drawn(single(wide))
+    image, cax = _drawn(single(wide, FigureSpec(fig={"figsize": (5.0, 4.2)})))
     assert image.height < 0.6  # the image really is shorter than its slot
     assert (cax.y0, cax.y1) == pytest.approx((image.y0, image.y1), abs=1e-6)
     assert 0 < cax.x0 - image.x1 < 0.1
@@ -228,3 +229,68 @@ def test_colorbar_placement_keywords_leave_layout_to_the_recipe():
     wide = Measurement({}, Frame.from_array(np.ones((40, 160))), ())
     image, cax = _drawn(single(wide, FigureSpec(colorbar={"shrink": 0.9})))
     assert cax.height > image.height + 0.1
+
+
+# The fitted canvas (#994). "Fills" means the drawn content (axes, labels,
+# colorbar) spans the trimmed side of the canvas up to the layout's pad
+# (3 pt each side) plus 0.02 in of rounding, where the unfitted canvas left
+# a band of inches.
+_FIT_SLACK_INCHES = 2 * 3 / 72 + 0.02
+
+
+def _content_slack(fig):
+    """Blank canvas along (width, height), in inches, after a full save."""
+    fig.savefig(io.BytesIO(), format="png")
+    content = fig.get_tightbbox(fig.canvas.get_renderer())
+    width, height = fig.get_size_inches()
+    return width - content.width, height - content.height
+
+
+def _image(shape):
+    return Measurement({}, Frame.from_array(np.random.default_rng(0).random(shape)))
+
+
+def test_tall_image_canvas_is_trimmed_to_the_drawn_width():
+    fig = single(_image((300, 100)))
+    width, height = fig.get_size_inches()
+    assert height == pytest.approx(4.2)  # the long side keeps the default
+    assert width < 3.0  # the 5 in default would leave a ~3 in band
+    slack_x, _ = _content_slack(fig)
+    assert slack_x < _FIT_SLACK_INCHES
+    image, cax = [ax.get_position(original=False) for ax in fig.axes]
+    assert (cax.y0, cax.y1) == pytest.approx((image.y0, image.y1), abs=1e-6)
+    assert 0 < cax.x0 - image.x1 < 0.1  # the colorbar still sits beside the image
+
+
+def test_wide_image_canvas_is_trimmed_to_the_drawn_height():
+    fig = single(_image((40, 160)))
+    width, height = fig.get_size_inches()
+    assert width == pytest.approx(5.0)
+    assert height < 2.0
+    _, slack_y = _content_slack(fig)
+    assert slack_y < _FIT_SLACK_INCHES
+
+
+def test_explicit_figsize_is_drawn_exactly_as_given():
+    for shape in [(300, 100), (40, 160)]:
+        fig = single(_image(shape), FigureSpec(fig={"figsize": (5.0, 4.2)}))
+        assert tuple(fig.get_size_inches()) == pytest.approx((5.0, 4.2))
+        assert max(_content_slack(fig)) > 1.0  # the band the caller asked for
+        assert fig.get_layout_engine() is not None
+
+
+def test_square_and_aspect_free_canvases_keep_the_default_layout():
+    for result, style in [
+        (_image((100, 100)), None),
+        (_image((300, 100)), FigureSpec(imshow={"aspect": "auto"})),
+    ]:
+        fig = single(result, style)
+        assert tuple(fig.get_size_inches()) == pytest.approx((5.0, 4.2))
+        assert fig.get_layout_engine() is not None
+
+
+def test_a_recipe_choosing_tight_layout_still_fits():
+    # tight layout's pads are font fractions (None by default), not inches.
+    fig = single(_image((300, 100)), FigureSpec(fig={"layout": "tight"}))
+    assert fig.get_size_inches()[0] < 3.0
+    assert _content_slack(fig)[0] < 0.2  # tight layout's own margins remain
