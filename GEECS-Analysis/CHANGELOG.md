@@ -4,6 +4,21 @@ All notable changes to `geecs-analysis` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.25.1] - 2026-10-06
+
+### Fixed
+
+- A single-figure canvas no longer leaves a blank band beside a tall
+  image or above and below a wide one (#994). After layout, `single`
+  crops the canvas along a fixed-aspect image's short side to the drawn
+  axes, labels and colorbar plus the layout's pad (the way
+  `bbox_inches="tight"` crops a saved file, on the Figure itself), and
+  freezes that layout; the long side keeps its size. It applies when the
+  style names no `figsize` (the `(5.0, 4.2)` default) and, through
+  `single_v2`, to the v2 renderer's `figsize_inches`, now the canvas's
+  long side. An explicit `(width, height)`, a square image, an
+  `aspect="auto"` image and a trace are drawn exactly as before.
+
 ## [0.25.0] - 2026-09-29
 
 ### Added

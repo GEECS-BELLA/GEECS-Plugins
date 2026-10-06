@@ -1,5 +1,7 @@
 """V2 plotting preserves waterfall samples/geometry and explicit palette choices."""
 
+import io
+
 import numpy as np
 import pytest
 from geecs_data_utils.frames import Frame
@@ -129,3 +131,41 @@ def test_single_line_retains_coordinates_samples_and_title():
     assert fig.axes[0].get_title() == "motor = 0.000"
     assert fig.axes[0].get_ylabel() == "custom"
     fig.clear()
+
+
+# figsize_inches is the long side of the canvas (#994): the drawn content
+# spans the short side up to constrained layout's pad (3 pt each side)
+# plus 0.02 in of rounding.
+_FIT_SLACK_INCHES = 2 * 3 / 72 + 0.02
+
+
+def _content_slack(fig):
+    fig.savefig(io.BytesIO(), format="png")
+    content = fig.get_tightbbox(fig.canvas.get_renderer())
+    width, height = fig.get_size_inches()
+    return width - content.width, height - content.height
+
+
+def _image(shape):
+    return Measurement({}, Frame.from_array(np.random.default_rng(0).random(shape)))
+
+
+@pytest.mark.parametrize(
+    "shape, long_side, short_side",
+    [((300, 100), 1, 0), ((40, 160), 0, 1)],
+    ids=["tall", "wide"],
+)
+def test_single_image_canvas_takes_figsize_inches_as_its_long_side(
+    shape, long_side, short_side
+):
+    fig = single_v2(_image(shape), RendererOptions(figsize_inches=5, dpi=30))
+    size = fig.get_size_inches()
+    assert size[long_side] == pytest.approx(5)
+    assert size[short_side] < 3.5
+    assert _content_slack(fig)[short_side] < _FIT_SLACK_INCHES
+
+
+def test_single_square_image_keeps_the_square_canvas():
+    fig = single_v2(_image((100, 100)), RendererOptions(dpi=30))
+    assert tuple(fig.get_size_inches()) == pytest.approx((4, 4))
+    assert fig.get_layout_engine() is not None

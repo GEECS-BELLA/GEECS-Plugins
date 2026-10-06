@@ -115,9 +115,17 @@ def summaries_v2(
 def single_v2(
     result: Measurement, options: RendererOptions, *, title: str | None = None
 ) -> Figure:
-    """Render a v2 single product with configured labels and color limits."""
+    """Render a v2 single product with configured labels and color limits.
+
+    ``figsize_inches`` is the canvas's long side: an image's canvas is
+    trimmed along its short side to the drawn axes (``single``'s
+    ``fit_canvas``), so a tall or wide frame leaves no blank band; a square
+    frame keeps the square canvas.
+    """
     line = result.frame.data.ndim == 1
-    return single(result, figure_v2(options, line=line, title=title))
+    return single(
+        result, figure_v2(options, line=line, title=title), fit_canvas=not line
+    )
 
 
 def image_grid_v2(
