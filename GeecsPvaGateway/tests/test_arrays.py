@@ -356,11 +356,18 @@ async def test_the_plugin_writes_a_1d_float_stack_and_drops_a_frame_of_another_l
         dev.push(b"1.0,2.0,3.0,4.0", t)
         dev.push(b"3.0", t + 1)  # shorter than the stack: dropped, counted
         dev.push(b"1,2,3,4,5", t + 2)  # longer than the stack: dropped, counted
+        # four received this session: the arming push and these three
+        await _wait_until(lambda: plugin.value("UniqueId_RBV") == 4)
+        assert plugin.value("NumCaptured_RBV") == 1
+        assert "stack shape" in str(plugin.value("WriteMessage"))
+        # The next accepted frame clears the refusal: the status names the
+        # writer's state now, not a frame it refused earlier (#1023 review).
         dev.push(b"4.0,5.0,6.0,7.0", t + 3)
         await _wait_until(lambda: plugin.value("NumCaptured_RBV") == 2)
-        await asyncio.sleep(0.1)
-        assert plugin.value("NumCaptured_RBV") == 2
-        assert "stack shape" in str(plugin.value("WriteMessage"))
+        assert str(await get("WriteStatus")) == "Write OK"
+        assert (
+            await get("WriteMessage") == ""
+        )  # an ntstr: str() of an empty one is its stamp
         await put("Capture", False)
         await asyncio.wait_for(dev.disconnected.wait(), 10)
 
@@ -382,15 +389,17 @@ async def test_the_plugin_writes_a_1d_float_stack_and_drops_a_frame_of_another_l
 
 
 @pytest.mark.timeout(30)
-async def test_a_first_frame_unlike_the_held_frame_is_refused_not_written(tmp_path):
-    """Armed on a held frame from before a shape change (ΔE/ROI changed while
-    nothing was subscribed) by a device that pushes nothing within the arm's
-    window — the fallback after FRESH_FRAME_WAIT_S (#1023; a device that
-    greets the subscription arms on that frame instead,
-    ``test_file_plugin.test_arm_prefers_a_fresh_push_over_the_held_frame``):
-    the descriptor declares the held shape, so a first frame of another
-    shape must not open a stack the record misdescribes — every such frame
-    is dropped, counted and named."""
+async def test_a_first_fresh_frame_unlike_the_held_frame_re_declares_the_array_geometry(
+    tmp_path,
+):
+    """The MagSpec case of GEECS-Plugins#1023.  Armed on a held frame from
+    before a ΔE change (the energy axis changed while nothing was subscribed)
+    by a device that pushes nothing at the arm — the box is ARMED (#894) —
+    the declared geometry is the held frame's 4 rows; the first fresh 3-row
+    frame re-declares it and opens the stack at 3 rows, so every frame of the
+    run records instead of being dropped as a shape error (the post order,
+    the stale greeting and the post-open refusal are pinned in
+    ``test_file_plugin``)."""
     dev = ArrayDevice("interpSpec")
     await dev.start()
     gateway, task = await _start_gateway(dev, "interpSpec")
@@ -421,21 +430,25 @@ async def test_a_first_frame_unlike_the_held_frame_is_refused_not_written(tmp_pa
         await asyncio.wait_for(dev.disconnected.wait(), 10)
         dev.disconnected.clear()
         dev.connected.clear()
-        await put(
-            "Capture", True
-        )  # nothing queued: the window passes, the held frame arms
+        started = time.monotonic()
+        await put("Capture", True)  # nothing queued: the held frame arms, at once
+        assert time.monotonic() - started < 0.5
         assert int(await get("ArraySizeY_RBV")) == 4  # declared from the held frame
         # ... then the device pushes 3-row frames (the new configuration).
         t = time.time()
         dev.push(_pairs(3), t)
         dev.push(_pairs(3), t + 1)
-        await _wait_until(lambda: plugin.value("UniqueId_RBV") == 2)
-        await asyncio.sleep(0.1)
-        assert plugin.value("NumCaptured_RBV") == 0
-        assert "declared at the arm" in str(plugin.value("WriteMessage"))
+        await _wait_until(lambda: plugin.value("NumCaptured_RBV") == 2)
+        assert int(await get("ArraySizeY_RBV")) == 3  # re-declared by the first
+        assert int(await get("ArraySizeX_RBV")) == 2
+        assert str(await get("WriteStatus")) == "Write OK"
         await put("Capture", False)
         await asyncio.wait_for(dev.disconnected.wait(), 10)
-        assert not (run_dir / "U_Spec-interpSpec.h5").exists()
+        with h5py.File(run_dir / "U_Spec-interpSpec.h5", "r") as f:
+            frames = f[file_plugin.FRAMES_DATASET]
+            assert frames.shape == (2, 3, 2)
+            assert f.attrs["frames_written"] == 2
+            assert f.attrs["shape_errors"] == 0
     finally:
         ctx.close()
         await _shutdown(task)

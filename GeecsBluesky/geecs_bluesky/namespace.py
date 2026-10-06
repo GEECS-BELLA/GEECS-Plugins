@@ -372,7 +372,7 @@ class GeecsNamespace:
     file_plugin_hosts :
         Camera-server IPs whose gateway serves the file plugin (#806): a
         triggerable device with an image-typed variable on one of them is
-        plugin-backed (stock ``ADHDFDataLogic`` over the plugin's PVs); the
+        plugin-backed (``GeecsHdfDataLogic`` over the plugin's PVs); the
         same device elsewhere keeps LabVIEW-native saving.  Defaults to
         ``config.ini [pva] file_plugin_addr_list``; absent or ``None``
         means no host (the rollout is opt-in per box).

@@ -8,25 +8,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- The file plugin arms on a **fresh push** before trusting the held frame
-  (#1023). `Capture=1` now waits `FRESH_FRAME_WAIT_S` (1.5 s) for a push of
-  a variable the gateway has already decoded and declares *that* frame's
-  shape as the stream geometry; the held frame is the fallback when
-  nothing arrives, so the #894 case — a box ARMED with no edges under a
-  subscription a watcher already holds — keeps working, 1.5 s later. The
-  held frame is only as current as the variable's last subscription,
-  which `Capture=0` releases, so a stream whose shape follows the
-  device's settings — the MagSpec `ImageInterp` / `interpSpec`, resampled
-  onto an energy axis whose length changed between scans (304 → 301 →
-  251 → 248 px on 26_0929) — was declared at the old shape and every
-  fresh frame of the run dropped as a shape error: the strict scan failed
-  `no frame from UC_BCaveMagSpecCam1, UC_BCaveMagSpecCam2` on its first
-  attempt and succeeded on the retry, whose session had refreshed the
-  held frame. This is the pre-run refresh 0.14.0 deferred. A
-  never-decoded variable still waits `ARM_TIMEOUT_S` for its first push;
-  the subscription the arm takes is greeted with the device's last frame
-  (an old stamp: never written, its shape declared), and a camera in
-  STANDBY free-runs, so the wait normally ends well inside the window.
+- **The first fresh frame of a session re-declares the stream geometry**
+  (#1023). `Capture=1` still arms at once on the frame the gateway holds
+  — the fallback for a device that pushes nothing at the arm, which is
+  every arm: a strict run arms with the trigger box ARMED and a gated run
+  with it OFF, and a camera pushes nothing in either state (#894:
+  `UC_ModeImager`, ARMED for 26 s, a fresh subscription, no push in 8 s;
+  waiting for one there failed the run's first prepare). But the held
+  frame is only as current as the variable's last subscription, which
+  `Capture=0` released, and a stream whose shape follows the device's
+  settings — the MagSpec `ImageInterp` / `interpSpec`, resampled onto an
+  energy axis whose length changed between scans (304 → 301 → 251 → 248 px
+  on 26_0929) — armed at the old shape and had every fresh frame of the
+  run dropped as a shape error: the strict scan failed `no frame from
+  UC_BCaveMagSpecCam1, UC_BCaveMagSpecCam2` on its first attempt and
+  succeeded on the retry, whose session had refreshed the held frame. Now,
+  while no stack is open, a fresh frame of another shape than the declared
+  one **re-declares the geometry** (the `ArraySize*` / `DataType_RBV` PVs
+  the Bluesky side reads) and opens the stack at that shape. Only a
+  genuinely fresh frame can: the stale replay a new subscription is
+  greeted with is stale-skipped before the shape is looked at. The
+  geometry posts before `NumCaptured_RBV` advances, so a reader that
+  notices the first frame reads the current shape; once the stack is open
+  a frame of another shape is refused and counted as before. The Bluesky
+  side reads the geometry at the first describe rather than at prepare
+  (GeecsBluesky 0.113.0), so the descriptor and the StreamResource carry
+  the settled shape. Pinned: the re-declare with every frame recorded, the
+  stale greeting skipped, the post order, the post-open refusal, the at-once
+  arm on the held frame (no window), and the MagSpec-shaped array case.
+- `WriteStatus` / `WriteMessage` are cleared by the next accepted frame,
+  not only by a `FilePath` put or `Capture=1`: one odd frame the writer
+  refused at shot 10 no longer reads as the reason for a camera's own
+  frame drop at shot 200 (#1023 review).
 
 ## [0.14.0] - 2026-09-24
 

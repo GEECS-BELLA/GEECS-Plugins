@@ -64,29 +64,33 @@ def geecs_name(obj: Any) -> str:
     return geecs_device_name(obj)
 
 
-def plugin_write_messages(devices: Sequence[Any]):
-    """Plan: one file-plugin ``WriteMessage`` string per device (``""`` without a plugin).
+def plugin_reasons(devices: Sequence[Any]):
+    """Plan: each device's file-plugin reasons, joined; ``""`` without a plugin or a message.
 
     A plugin-backed camera that yields no frame may be delivering every
-    frame to a plugin that refuses them — a frame of another shape than
-    the one declared at the arm (GEECS-Plugins#1023: the MagSpec lineouts
-    follow the energy axis), a stack that could not be opened — and the
-    refusal reaches only the plugin's ``WriteMessage``.  Read once per
-    miss, so the incomplete-shot warning and the step's failure carry the
-    plugin's reason beside the device's name instead of blaming camera
-    frame drops.  A device without plugins (``hdf_ios`` absent or empty)
-    or whose plugins report nothing contributes ``""``.  The read is the
-    stock ``rd`` of a connected PV — the same kind of read the rewind
-    guard just made of the plugin's count.
+    frame to a plugin that refuses them — a stack that could not be
+    opened, a frame of another shape than the open stack's — and the
+    refusal reaches only the plugin's ``WriteMessage``
+    (GEECS-Plugins#1023).  Read once per miss through
+    :meth:`~geecs_bluesky.devices.detector.GeecsDetector.plugin_reasons`
+    (bounded per plugin), so the incomplete-shot warning and the step's
+    failure carry the plugin's reason beside the device's name instead of
+    blaming camera frame drops.  A device without the method — a scalars
+    view, a scalar device — contributes ``""``.
     """
     reasons: list[str] = []
     for obj in devices:
-        texts: list[str] = []
-        for io in getattr(obj, "hdf_ios", ()):
-            message = yield from bps.rd(io.write_message)
-            if isinstance(message, str) and message:
-                texts.append(f"file plugin {io.name}: {message}")
-        reasons.append("; ".join(texts))
+        read = getattr(obj, "plugin_reasons", None)
+        if read is None:
+            reasons.append("")
+            continue
+        found: list[str] = []
+
+        async def collect(read: Any = read, found: list[str] = found) -> None:
+            found.extend(await read())
+
+        yield from bps.wait_for([collect])
+        reasons.append("; ".join(found))
     return reasons
 
 
@@ -394,7 +398,7 @@ def geecs_take_reading(
                 names = ", ".join(labels)
                 # A plugin that refused the frames says so only in its
                 # WriteMessage: name it beside the device (#1023).
-                reasons = yield from plugin_write_messages(missed)
+                reasons = yield from plugin_reasons(missed)
                 described = ", ".join(
                     f"{label} ({reason})" if reason else label
                     for label, reason in zip(labels, reasons, strict=True)

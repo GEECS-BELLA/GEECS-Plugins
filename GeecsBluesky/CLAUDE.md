@@ -74,7 +74,9 @@ geecs_bluesky/
   devices/background.py     # BackgroundSnapshot — the run's background telemetry (#1016),
                             #   warm_up / warm_up_on at environment open
   devices/hdf_plugin.py     # the file plugin's worker side (#806): GeecsHdfIO (+Rewind),
-                            #   PluginPathProvider (two paths per folder), file_plugin_hosts
+                            #   PluginPathProvider (two paths per folder), file_plugin_hosts,
+                            #   GeecsHdfDataLogic (the stock logic; the stream's geometry read
+                            #   at the first describe, after the first frame — #1023)
   devices/ca/               # scalar devices + settable children: CaSnapshotReadable,
                             #   CaSettable (+ the user offset), CaMotor, CaConfirmSettable,
                             #   CaPseudoPositioner, ScalarsView (_view), gateway_put,
@@ -330,12 +332,21 @@ the box free-runs in SCAN while the plugin-backed essential cameras count
 ```
 mv(box, OFF); [first step: drain wait, arm + zero_count]
 prepare(cameras, gated_trigger_info(remaining)); prepare(sampler, remaining)
-declare_stream(*cameras, "primary"); declare_stream(sampler, "shots")   # once
+declare_stream(sampler, "shots")   # once
 kickoff(*cameras, sampler); mv(box, SCAN)
 complete(*cameras, sampler), waited in ~1 s slices: collect(sampler) + checkpoint
 mv(box, OFF); drain wait
-truncate_to_quota; collect(*cameras, "primary"); collect(sampler, "shots")
+truncate_to_quota; declare_stream(*cameras, "primary")   # once, after the first frames
+collect(*cameras, "primary"); collect(sampler, "shots")
 ```
+
+`primary` is declared **after the first batch's frames**, right before
+its first collect, never before the kickoff: the plugin settles a
+stream's geometry on the session's first fresh frame (a held frame from
+before a ΔE change is re-declared then, #1023), bluesky composes the
+descriptor at `declare_stream`, and the descriptor has to read that
+shape — which `devices/hdf_plugin.GeecsHdfDataLogic` reads at the first
+describe.  The box is OFF at the arm, so no earlier frame exists.
 
 `primary` is a datum stream (one datum per camera per step, the frames and
 their per-frame scalars in the stack); `shots` carries one event per shot
@@ -684,9 +695,17 @@ touches devices **only** through the gateway's CA PVs and never imports the
 gateway (circular).
 
 **Images:** a camera whose host serves the PVA gateway's file plugin
-(#806) writes one HDF5 stack per scan through the **stock**
-`ADHDFDataLogic` over `devices/hdf_plugin.GeecsHdfIO`; the run's stream
-documents reference it and Tiled reads it with its stock adapter.  The
+(#806) writes one HDF5 stack per scan through
+`devices/hdf_plugin.GeecsHdfDataLogic` over `devices/hdf_plugin.GeecsHdfIO`
+— the stock `ADHDFDataLogic`, its stream described **lazily**: the plugin
+arms on the frame it holds and re-declares the geometry on the session's
+first fresh frame when the device's settings moved since (#1023), so the
+provider reads the main dataset's shape and dtype off the plugin's
+geometry PVs at the first describe and the first stream documents (after
+the first frame; strict composes its descriptor at the first `save`, gated
+declares `primary` after the first batch) and keeps them once a datum is
+out, where the stock logic froze them at `prepare`; the run's stream
+documents reference the stack and Tiled reads it with its stock adapter.  The
 rule is the namespace's: a served capture stream + endpoint in
 `config.ini [pva] file_plugin_addr_list` (absent = no host; never the PVA
 fleet's `addr_list`).  **Which** variables a device captures is declared
@@ -699,9 +718,10 @@ declared name that is neither is a declaration error (WARNING, skipped).
 A MagSpec camera therefore arms four plugins; its lineouts land as
 `(N, rows, 2)` float64 stacks, axis in column 0, at native length: the row
 count is the energy span over the configured ΔE, fixed for the scan like an
-image's shape (a frame of another length is dropped and counted by the
-plugin), so anything that changes it — a magnet current, a ΔE — changes
-between scans, never within one.  A devicetype with no declaration keeps
+image's shape (the plugin settles it on the session's first fresh frame and
+drops and counts a frame of another length after that), so anything that
+changes it — a magnet current, a ΔE — changes between scans, never within
+one.  A devicetype with no declaration keeps
 the one-image guess (`primary_image_variable`: `image`, else the first
 image variable) — never guess a second stream, declare it, and never
 declare a variable the device does not push on every shot (the FROG's
@@ -744,9 +764,13 @@ missing device's columns `NaN`, no frames) and the plan takes one more
 shot, rewinding every plugin to its last referenced frame first
 (`GeecsDetector.discard_uncollected`); the incomplete-shot warning and
 the step's failure name each missed plugin's `WriteMessage`
-(`plans/strict.py::plugin_write_messages` over `GeecsDetector.hdf_ios`,
-#1023), so a plugin refusing frames — a shape change since the held
-frame it armed on — does not read as a camera dropping them.  Natively saved files are named by
+(`plans/strict.py::plugin_reasons` through the bounded
+`GeecsDetector.plugin_reasons()`, which `prepare`'s failure note and the
+count timeouts of `trigger` and `complete` use too, #1023), so a plugin
+refusing frames — a stack that would not open, a frame of another shape
+than the open stack's — does not read as a camera dropping them; the
+plugin clears its message on the next frame it accepts, so the reason is
+current.  Natively saved files are named by
 the device server and read from disk by their stamp
 (`geecs_data_utils.native_files`); this package emits no Resource/Datum
 documents for them, so nothing here describes their formats.

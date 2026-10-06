@@ -11,7 +11,8 @@ contract is the
 must exist, served under ``<experiment>:<device>:<variable>:hdf1:``) plus
 three GEECS PVs: ``Rewind`` (drop the frames past a count and any later
 frame stamped before now — the late-frame guard of a refire), and
-``WriteStatus`` / ``WriteMessage`` (the last writer error).
+``WriteStatus`` / ``WriteMessage`` (the writer's state: the last error,
+until a frame is accepted).
 
 Threads: puts arrive on p4p worker threads and frames on the gateway's
 event loop; both only enqueue.  One writer thread owns every piece of
@@ -24,39 +25,45 @@ Session semantics:
 - ``Capture=1`` validates the parameters, zeroes the session readbacks
   (``NumCaptured_RBV`` first of all: the stock data logic baselines on it
   right after the arm, GEECS-Plugins#853), retains the variable's GEECS
-  subscription (the same refcount a PVA client holds), and arms on the
-  first push that follows — the subscription just taken is greeted with
-  the device's last frame, and a camera in STANDBY free-runs — declaring
-  *its* shape as the stream geometry.  When the gateway already holds a
-  decoded frame of the variable the wait is ``FRESH_FRAME_WAIT_S`` at
-  most, after which the put completes on the held frame: the geometry the
-  stream resource describes needs *a* frame of the right shape, not a
-  fresh push (GEECS-Plugins#894: a box ARMED through a long first move
-  pushes nothing, and waiting a full ``ARM_TIMEOUT_S`` for a push there
-  failed the run's first prepare).  The held frame is the fallback and
-  not the first choice because it is only as current as the variable's
-  last subscription — ``Capture=0`` releases it — and a shape that follows
-  the device's settings (a MagSpec lineout's energy axis) may have changed
-  since; a session armed on it declared the old shape and dropped every
-  fresh frame (GEECS-Plugins#1023).  A variable the gateway has never
-  decoded waits for its first push ``ARM_TIMEOUT_S`` at most; a camera
-  that pushes nothing then fails the put naming the device.  Never-decoded
-  is every camera after each gateway restart (the service restarts with
-  the camera server; nothing holds an image monitor in normal operation)
-  until its first session receives a push — a monitor on the image PV for
-  one gating round-trip in STANDBY seeds the held frame.  The held frame
-  is never written: the stale watermark is stamped at the arm.
+  subscription (the same refcount a PVA client holds), and completes the
+  put at once when the gateway already holds a decoded frame of the
+  variable, declaring that frame's shape as the stream geometry.  A push
+  is not waited for because none is coming: a strict run arms with the
+  trigger box ARMED and a gated run with it OFF, and a camera pushes
+  nothing in either state (GEECS-Plugins#894: ``UC_ModeImager``, ARMED
+  for 26 s, a fresh subscription, no push in 8 s — waiting there failed
+  the run's first prepare).  The held frame is as current as the
+  variable's last subscription, which ``Capture=0`` released, so the
+  shape it declares is provisional (next bullet).  Only a variable the
+  gateway has never decoded waits for its first push, ``ARM_TIMEOUT_S`` at
+  most; a camera that pushes nothing then fails the put naming the device.
+  Never-decoded is every camera after each gateway restart (the service
+  restarts with the camera server; nothing holds an image monitor in
+  normal operation) until its first session receives a push — a monitor
+  on the image PV for one gating round-trip in STANDBY seeds the held
+  frame.  The held frame is never written: the stale watermark is stamped
+  at the arm.
 - A frame is written iff its stamp is unseen this session (LabVIEW
   re-pushes its last frame with an unchanged stamp when idle) and not
   older than the stale watermark set at ``Capture=1`` (and moved by
   ``Rewind``).  The first accepted frame opens the file (``LazyOpen``):
-  a session that accepts nothing leaves no file.  The stack's shape is the
-  one the arm declared (the geometry the Bluesky descriptor reads): a frame
-  of any other shape — the first included, which is how a held frame from
-  before an ROI/ΔE change surfaces when nothing was pushed within the
-  arm's window — is dropped and counted as a shape error, so the file
-  never disagrees with the record.
-- ``NumCaptured_RBV`` posts after each frame is flushed to disk.
+  a session that accepts nothing leaves no file.  **The first fresh frame
+  settles the geometry**: when its shape differs from the one the arm
+  declared — the held frame predates an ROI or ΔE change; the MagSpec
+  lineouts are resampled onto an energy axis whose length changed between
+  scans (GEECS-Plugins#1023) — the geometry PVs are re-declared to it and
+  the stack opens at that shape.  Only a genuinely fresh frame can
+  re-declare: the stale replay a new subscription is greeted with is
+  stale-skipped before the shape is looked at.  The geometry posts
+  before ``NumCaptured_RBV`` advances, so a reader that notices the first
+  frame reads the current shape (the worker's data logic describes the
+  stream lazily for the same reason).  Once the stack is open its shape
+  is fixed for the session: a frame of any other shape is dropped and
+  counted as a shape error, so the file never disagrees with the record.
+- ``NumCaptured_RBV`` posts after each frame is flushed to disk.  An
+  accepted frame also clears ``WriteStatus`` / ``WriteMessage``: they
+  name the writer's state now, so one odd frame the writer refused at
+  shot 10 is not read as the reason for a camera's own drop at shot 200.
 - ``Capture=0`` stamps the reconciliation counters, closes the file and
   releases the subscription.
 
@@ -237,21 +244,10 @@ ATTRIBUTE_CHUNK = 16384
 STALE_MARGIN_S = 0.1
 #: How long ``Capture=1`` waits for the first push of a variable the gateway
 #: has never decoded before failing the put (below ophyd-async's 10 s default
-#: put timeout).  A variable with a held frame waits :data:`FRESH_FRAME_WAIT_S`
-#: instead and then arms on the held frame (#894).
+#: put timeout).  A variable with a held frame never waits (#894); the
+#: first fresh frame re-declares the geometry if the held one is stale
+#: (#1023).
 ARM_TIMEOUT_S = 8.0
-#: How long ``Capture=1`` waits for a push of a variable the gateway *has*
-#: decoded before arming on the held frame instead (#1023).  The held frame
-#: is only as current as the variable's last subscription — ``Capture=0``
-#: releases it — and a shape that follows the device's settings (a MagSpec
-#: lineout's energy axis, an ROI) may have changed since, so a session armed
-#: on it declared the old shape and dropped every fresh frame as a shape
-#: error.  A fresh subscription is greeted with the device's last frame and
-#: a camera in STANDBY free-runs at 1 Hz, so a push normally lands well
-#: inside this window and the arm completes on it; only a subscription
-#: already held (a watcher) on a box ARMED with no edges yields nothing,
-#: and there the held frame is current — the #894 case, this much later.
-FRESH_FRAME_WAIT_S = 1.5
 #: Raw blobs the writer may fall behind by before intake counts drops.
 QUEUE_DEPTH = 64
 
@@ -432,9 +428,11 @@ class _Session:
     count: int = 0
     file: Any = None  # h5py.File once opened
     shape: tuple[int, ...] | None = None
-    #: The frame shape posted as the stream geometry at the arm — what the
-    #: Bluesky descriptor and stream resource declare.  The first accepted
-    #: frame must match it, or the file would disagree with the record.
+    #: The frame shape posted as the stream geometry: the held frame's at
+    #: the arm, provisional until the first fresh frame — which re-declares
+    #: it when the device's settings moved since (#1023) — and the stack's
+    #: from the open on.  What the Bluesky descriptor and stream resource
+    #: read (lazily, after the first frame).
     declared_shape: tuple[int, ...] | None = None
     path: str = ""
 
@@ -472,10 +470,11 @@ class HdfFilePlugin:
     last_frame :
         Returns the last frame the gateway decoded for this variable (its
         latest-wins slot), or ``None`` when it has never decoded one.
-        ``Capture=1`` takes the stream geometry from it when no push lands
-        within :data:`FRESH_FRAME_WAIT_S` (#894, #1023); without it, or
-        when it returns ``None``, the arm waits ``ARM_TIMEOUT_S`` for the
-        first push.  Called on the writer thread.
+        ``Capture=1`` takes the stream geometry from it and completes at
+        once (#894; the session's first fresh frame re-declares it when the
+        device's settings moved since, #1023); without it, or when it
+        returns ``None``, the arm waits ``ARM_TIMEOUT_S`` for the first
+        push.  Called on the writer thread.
     decoder :
         Pushed value → ``(array, attributes)``, the worker's per-variable
         rule (``_DeviceWorker.decode``: IMAQ for an image, the array wire
@@ -731,32 +730,34 @@ class HdfFilePlugin:
         # read 0, never the previous session's count (#853).
         self._reset_session_readbacks()
         self._retain(self.variable)
-        # Arm on a push first: the subscription just (re)taken is greeted
-        # with the device's last frame, and a camera in STANDBY free-runs.
-        # The held frame is the fallback, not the first choice — it is as
-        # old as the variable's last subscription, and a shape that follows
-        # the device's settings may have moved since (#1023).  Without one
-        # (never decoded) a push is the only source, ARM_TIMEOUT_S at most —
-        # LabVIEW's idle re-push at best, nothing at all from a box ARMED
-        # with no edges (#894).
         held = self._last_frame()
-        armed_on = "a fresh push"
-        wait_s = ARM_TIMEOUT_S if held is None else FRESH_FRAME_WAIT_S
-        deadline = time.monotonic() + wait_s
+        if held is not None:
+            # The gateway already holds a decoded frame of this variable:
+            # that is all the geometry the arm needs, and no push is coming
+            # — a strict run arms with the box ARMED, a gated run with it
+            # OFF (#894).  The frame itself is never written (it predates
+            # the watermark) and its shape is provisional: the first fresh
+            # frame re-declares it if the device's settings moved since the
+            # variable was last subscribed (#1023, ``_on_frame``).
+            self._post_geometry(held)
+            session.declared_shape = held.shape
+            self._session = session
+            self._post("Capture_RBV", True)
+            op.done()
+            logger.info(
+                "%s %s: capturing → %s (armed on the held frame)",
+                self.device,
+                self.variable,
+                directory,
+            )
+            return
+        # Never decoded: arm on the first push — LabVIEW's idle re-push at
+        # best, nothing at all from a box ARMED with no edges (#894).
+        deadline = time.monotonic() + ARM_TIMEOUT_S
         while True:
             try:
                 item = self._queue.get(timeout=max(0.0, deadline - time.monotonic()))
             except queue.Empty:
-                if held is not None:
-                    # Nothing pushed within the window: the held frame is
-                    # all the geometry the stream resource needs (#894).
-                    # The frame itself is never written — it predates the
-                    # watermark.
-                    self._post_geometry(held)
-                    session.declared_shape = held.shape
-                    self._session = session
-                    armed_on = "the held frame"
-                    break
                 self._release(self.variable)
                 message = f"no frame from {self.device} {self.variable} within {ARM_TIMEOUT_S:.0f} s"
                 self._error(message)
@@ -806,13 +807,7 @@ class HdfFilePlugin:
             self._dispatch(item)
         self._post("Capture_RBV", True)
         op.done()
-        logger.info(
-            "%s %s: capturing → %s (armed on %s)",
-            self.device,
-            self.variable,
-            directory,
-            armed_on,
-        )
+        logger.info("%s %s: capturing → %s", self.device, self.variable, directory)
 
     def _post_geometry(self, frame: np.ndarray) -> None:
         # A 1-D array is ``ArraySizeX = n``, ``ArraySizeY = 0``: the stock
@@ -877,19 +872,26 @@ class HdfFilePlugin:
                 session.declared_shape is not None
                 and frame.shape != session.declared_shape
             ):
-                # Armed on a held frame from before a shape change (an ROI,
-                # a ΔE, a magnet current changed since this variable was last
-                # subscribed): the record declares one shape and the device
-                # pushes another.  Opening the stack at the pushed shape
-                # would write a file the descriptor misdescribes, so every
-                # such frame is dropped and named instead.
-                counters.shape_errors += 1
-                self._error(
-                    f"frame shape {frame.shape} != the shape declared at the arm "
-                    f"{session.declared_shape} (held frame from before a shape "
-                    "change); re-run the scan"
+                # The arm declared the held frame's shape — as current as
+                # the variable's last subscription, which Capture=0 released
+                # — and the device's settings moved since (an ROI, a ΔE: the
+                # MagSpec lineouts follow the energy axis, #1023).  This
+                # frame is fresh (the duplicate and stale checks above let
+                # it through) and nothing is on disk yet, so the record
+                # follows the device: re-declare the geometry, then open the
+                # stack at it.  The geometry posts here, before the count
+                # can advance below, so a reader that notices the first
+                # frame reads the current shape.
+                logger.info(
+                    "%s %s: the first fresh frame is %s, the held frame was %s "
+                    "— geometry re-declared before the stack opens",
+                    self.device,
+                    self.variable,
+                    frame.shape,
+                    session.declared_shape,
                 )
-                return
+                self._post_geometry(frame)
+                session.declared_shape = frame.shape
             try:
                 self._open_file(session, frame)
             except Exception as exc:  # noqa: BLE001 - counted; the count never advances
@@ -911,6 +913,12 @@ class HdfFilePlugin:
             return
         counters.frames_written += 1
         session.count += 1
+        if self.value("WriteStatus") != "Write OK":
+            # An accepted frame ends the last error's reign: the status
+            # names the writer's state now, so a frame refused earlier in
+            # the session is not read as the reason for a later miss.
+            self._post("WriteStatus", "Write OK")
+            self._post("WriteMessage", "")
         self._post("NumCaptured_RBV", session.count)
         self._post("ArrayCounter_RBV", session.count)
 

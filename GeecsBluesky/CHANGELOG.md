@@ -6,6 +6,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.113.0] - 2026-10-06
+
+### Changed
+
+- **The descriptor and the StreamResource follow the geometry the plugin
+  settles on** (#1023). The PVA gateway's file plugin now re-declares a
+  stream's geometry on the session's first fresh frame when the device's
+  settings moved since the frame it armed on (GeecsPvaGateway 0.15.0:
+  the MagSpec `ImageInterp` / `interpSpec` follow the energy axis). The
+  stock `ADHDFDataLogic` read the geometry at `prepare`, before any
+  frame, so the run's record would have carried the held frame's shape
+  over a stack written at another. `devices/hdf_plugin.GeecsHdfDataLogic`
+  — the stock logic, unchanged at `prepare` — returns a
+  `GeecsStreamResourceDataProvider` that re-reads the main dataset's
+  shape and dtype from the plugin's geometry PVs at every describe and
+  at the stream documents, until a stream datum is out, then keeps them.
+  A strict run composes its descriptor at the first `save`, after the
+  first shot. The **gated plan now declares the cameras' `primary` stream
+  after the first batch's frames**, right before their first collect,
+  instead of before the kickoff — bluesky emits the descriptor at
+  `declare_stream`, and before the kickoff (box OFF) there is no frame for
+  the plugin to have settled on; the `shots` stream is declared where it
+  was, so its rows go out during the batch as before. Hermetic pins: the
+  detector's describe and first StreamResource carry the shape and dtype
+  the PVs read after prepare and keep them after a datum; a gated count's
+  `primary` descriptor and StreamResource carry the shape set at the first
+  edge, the descriptor emitted after the batch's `shots` rows.
+
+### Added
+
+- `GeecsDetector.plugin_reasons()` — each file plugin's non-empty
+  `WriteMessage` as `file plugin <io.name>: <message>`, read within
+  `PLUGIN_REASON_TIMEOUT_S` (2 s) per plugin, best effort — serving
+  `prepare`'s failure note (the same text it attached before), the count
+  timeouts of `trigger` (strict) and `complete` (gated), whose
+  `GeecsTriggerTimeoutError` now ends ` — file plugin …: <message>` when
+  a plugin has one, and the strict plan's miss path
+  (`plans/strict.py::plugin_reasons`, through `bps.wait_for`): the
+  incomplete-shot warning and the step's `GeecsTriggerTimeoutError` — the
+  scan-end message — carry each missed device's reason beside its name
+  (`UC_BCaveMagSpecCam1 (file plugin uc_bcavemagspeccam1-hdf-imageinterp:
+  …)`) and stop blaming "known camera frame-drop intermittency" when a
+  plugin has a message (#1023: a plugin refusing every frame read as a
+  camera dropping them). The old wording stays when no plugin has
+  anything to say; `device_name` stays the bare names; a plugin that
+  never answers costs a failure path the budget, not a hang (pinned on
+  the detector and through the strict miss path). The name joins
+  `RESERVED_DEVICE_ATTRIBUTES` (a GEECS variable spelled `plugin_reasons`
+  would bind as `plugin_reasons_`).
+
 ## [0.112.0] - 2026-10-06
 
 ### Fixed

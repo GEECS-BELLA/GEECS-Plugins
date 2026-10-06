@@ -15,18 +15,26 @@ device (:class:`~geecs_bluesky.devices.sampler.ShotSampler`) and the box
         prepare(N, unbounded)                    # saving on, run-long
         prepare(D); wait_for(D.zero_count)       # arm, zero the stale count
     prepare(D, gated_trigger_info(remaining)); prepare(S, remaining)
-    declare_stream(*D, "primary"); declare_stream(S, "shots")   # once
+    declare_stream(S, "shots")                               # once
     kickoff(*D, S); mv(B, SCAN)
     complete(*D, S) in slices of PROGRESS_PERIOD_S:
         collect(S, "shots"); checkpoint          # rows every D holds a frame of
     mv(B, OFF); sleep(period + max drain + margin)
     wait_for(D.truncate_to_quota)
+    declare_stream(*D, "primary")                # once, after the first frames
     collect(*D, "primary"); collect(S, "shots")
 
 ``primary`` is a datum stream (the frames and their per-frame
 attributes); ``shots`` carries one event per shot.  With no plugin-backed
 camera the sampler alone gates the step; a run with no essential
 triggered device is refused ("nothing counts shots; use strict").
+``primary`` is declared **after the first batch's frames**, right before
+its first collect, never before the kickoff: the plugin settles a
+stream's geometry on the session's first fresh frame (a held frame from
+before a ΔE change is re-declared then, GEECS-Plugins#1023), and the
+descriptor — composed at ``declare_stream`` — has to read that shape,
+which the lazy data provider does (``devices/hdf_plugin``).  The box is
+OFF at the arm, so no earlier frame exists.
 
 **Pause means pause now**: a pause mid-batch drives the box OFF
 (``ShotControl.pause``); the batch holds the box
@@ -188,7 +196,12 @@ def gated_take_reading(
     shot_timeout :
         Per-frame budget for the cameras and per-tick budget for the sampler.
     """
-    state: dict[str, Any] = {"sampler": None, "declared": False, "steps": 0}
+    state: dict[str, Any] = {
+        "sampler": None,
+        "declared": False,  # the shots stream
+        "primary_declared": False,  # the cameras' stream, after the first frames
+        "steps": 0,
+    }
 
     def take_reading(devices: Sequence[Any], quota: int):
         devices = separate_devices(devices)
@@ -224,6 +237,18 @@ def gated_take_reading(
         first_step = state["steps"] == 0
         done = 0  # the step's shots already recorded (a pause keeps them)
         batches = 0
+
+        def declare_primary():
+            # Once, after the batch's first frames and before the first
+            # collect — the descriptor is composed here, and by now the
+            # plugin has settled the stream's geometry on its first
+            # fresh frame (#1023); declared before the kickoff it would
+            # carry the held frame's shape (the data provider reads the
+            # geometry at this describe, ``devices/hdf_plugin``).
+            if plugin and not state["primary_declared"]:
+                yield from bps.declare_stream(*plugin, name=name, collect=True)
+                state["primary_declared"] = True
+
         while True:
             batches += 1
             first_batch = first_step and batches == 1
@@ -266,10 +291,9 @@ def gated_take_reading(
             yield from bps.prepare(sampler, remaining, group=group, wait=False)
             yield from bps.wait(group=group)
             if not state["declared"]:
-                if plugin:
-                    yield from bps.declare_stream(*plugin, name=name, collect=True)
                 yield from bps.declare_stream(sampler, name=shots_stream, collect=True)
                 state["declared"] = True
+
             yield from bps.kickoff_all(*plugin, sampler, wait=True)
 
             def end_batch() -> None:
@@ -334,6 +358,7 @@ def gated_take_reading(
             if finished:
                 if plugin:
                     yield from bps.wait_for([d.truncate_to_quota for d in plugin])
+                    yield from declare_primary()
                     yield from bps.collect(*plugin, name=name)
                 yield from bps.collect(sampler, name=shots_stream)
                 state["steps"] += 1
@@ -365,6 +390,7 @@ def gated_take_reading(
                 try:
                     yield from bps.wait_for([settle])
                     if plugin:
+                        yield from declare_primary()
                         yield from bps.collect(*plugin, name=name)
                     yield from bps.collect(sampler, name=shots_stream)
                 except Exception:  # noqa: BLE001 - the batch's failure wins
@@ -382,6 +408,7 @@ def gated_take_reading(
                 ) from failure
             yield from bps.wait_for([settle])
             if plugin:
+                yield from declare_primary()
                 yield from bps.collect(*plugin, name=name)
             yield from bps.collect(sampler, name=shots_stream)
             done += kept["shots"]

@@ -21,17 +21,35 @@ Three small things; everything else is stock ophyd-async:
   (``config.ini [pva] file_plugin_addr_list``; absent means none).  The
   rollout is per box; a camera on a box not yet rolled keeps
   LabVIEW-native saving.
+- :class:`GeecsHdfDataLogic` — the stock ``ADHDFDataLogic`` whose
+  provider (:class:`GeecsStreamResourceDataProvider`) reads the stream's
+  geometry at the first describe rather than at ``prepare``: the plugin
+  settles a stream's shape on the session's first fresh frame
+  (GEECS-Plugins#1023), after the arm.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path, PureWindowsPath
 from typing import Annotated as A
 
-from ophyd_async.core import PathInfo, PathProvider, SignalR, SignalRW
+from bluesky.protocols import StreamAsset
+from event_model import ComposeStreamResource, DataKey
+from ophyd_async.core import (
+    PathInfo,
+    PathProvider,
+    SignalR,
+    SignalRW,
+    StreamableDataProvider,
+    StreamResourceDataProvider,
+)
 from ophyd_async.core._path_providers import generate_directory_uri
-from ophyd_async.epics.adcore import NDFileHDF5IO
+from ophyd_async.epics.adcore import ADHDFDataLogic, NDArrayDescription, NDFileHDF5IO
+
+# The stock geometry reader is not exported (the stock logic calls it at
+# prepare); the lazy provider below calls it at the first describe instead.
+from ophyd_async.epics.adcore._data_logic import get_ndarray_resource_info
 from ophyd_async.epics.core import PvSuffix
 
 from geecs_bluesky.data_paths import (
@@ -47,6 +65,114 @@ class GeecsHdfIO(NDFileHDF5IO):
     rewind: A[SignalRW[int], PvSuffix("Rewind")]
     write_status: A[SignalR[str], PvSuffix("WriteStatus")]
     write_message: A[SignalR[str], PvSuffix("WriteMessage")]
+
+
+class GeecsStreamResourceDataProvider(StreamResourceDataProvider):
+    """The stock HDF provider, its main dataset's geometry read at the first describe, not at ``prepare``.
+
+    The plugin declares a stream's geometry at the arm from the frame it
+    holds and **re-declares** it on the session's first fresh frame when
+    the device's settings moved since (GeecsPvaGateway 0.15.0,
+    GEECS-Plugins#1023: the MagSpec lineouts follow the energy axis).  The
+    stock provider froze the main dataset's shape and dtype at ``prepare``
+    — before any frame — so the descriptor and the StreamResource would
+    have carried the held frame's shape over a stack written at another.
+    This one re-reads the main dataset's ``StreamResourceInfo`` from the
+    plugin's geometry PVs at every ``make_datakeys`` / ``make_stream_docs``
+    until a stream datum is out, then keeps it: the descriptor is composed
+    after the first frame (strict: at the first ``save``; gated: the
+    cameras' stream is declared after the first batch, ``plans/gated.py``),
+    the resource document goes out with the first datum, and both read the
+    shape the plugin settled on.  The NDAttribute datasets are scalars and
+    stay as the stock logic described them.  What this relies on — the
+    plugin posts the geometry before ``NumCaptured_RBV`` advances — is the
+    plugin's contract, pinned by its own ``test_file_plugin``.
+
+    Parameters
+    ----------
+    stock :
+        The provider the stock ``ADHDFDataLogic.prepare_unbounded``
+        returned; its URI, resources and signals are taken over.
+    array_description :
+        The geometry signals the main dataset is re-read from.
+    """
+
+    def __init__(
+        self,
+        stock: StreamResourceDataProvider,
+        array_description: NDArrayDescription,
+    ) -> None:
+        # The stock provider keeps no mimetype; its first bundle's document
+        # carries the one it composed with.
+        mimetype = str(stock.bundles[0].stream_resource_doc["mimetype"])
+        super().__init__(
+            uri=stock.uri,
+            resources=stock.resources,
+            mimetype=mimetype,
+            collections_written_signal=stock.collections_written_signal,
+            flush_signal=stock.flush_signal,
+        )
+        self._array_description = array_description
+        self._mimetype = mimetype
+
+    async def refresh_geometry(self) -> bool:
+        """Re-read the main dataset's shape and dtype off the plugin, unless a datum is out.
+
+        Returns ``True`` when the description changed.
+        """
+        if self.last_emitted:
+            return False
+        main = self.resources[0]
+        fresh = await get_ndarray_resource_info(
+            self._array_description,
+            main.data_key,
+            main.parameters,
+            frames_per_chunk=main.chunk_shape[0],
+        )
+        if (fresh.shape, fresh.dtype_numpy) == (main.shape, main.dtype_numpy):
+            return False
+        self.resources[0] = fresh
+        self.bundles[0] = ComposeStreamResource()(
+            mimetype=self._mimetype,
+            uri=self.uri,
+            data_key=fresh.data_key,
+            parameters={"chunk_shape": fresh.chunk_shape, **fresh.parameters},
+            uid=None,
+            validate=True,
+        )
+        return True
+
+    async def make_datakeys(self, collections_per_event: int) -> dict[str, DataKey]:
+        """The stock data keys, the main dataset's geometry refreshed first (until a datum is out)."""
+        await self.refresh_geometry()
+        return await super().make_datakeys(collections_per_event)
+
+    async def make_stream_docs(
+        self, collections_written: int, collections_per_event: int
+    ) -> AsyncIterator[StreamAsset]:
+        """The stock stream documents, the main dataset's geometry refreshed first (until a datum is out)."""
+        await self.refresh_geometry()
+        async for doc in super().make_stream_docs(
+            collections_written, collections_per_event
+        ):
+            yield doc
+
+
+class GeecsHdfDataLogic(ADHDFDataLogic):
+    """The stock ``ADHDFDataLogic`` whose provider describes the stream lazily.
+
+    Everything the stock logic does at ``prepare`` — the writer's
+    parameters, ``Capture=1``, the NDAttribute datasets — is unchanged; the
+    provider it returns is wrapped as a
+    :class:`GeecsStreamResourceDataProvider`, so the main dataset's
+    geometry is the plugin's at the first describe, not at the arm.
+    """
+
+    async def prepare_unbounded(self, datakey_name: str) -> StreamableDataProvider:
+        """The stock prepare (parameters, ``Capture=1``, attributes); its provider wrapped lazily."""
+        stock = await super().prepare_unbounded(datakey_name)
+        assert isinstance(stock, StreamResourceDataProvider)
+        return GeecsStreamResourceDataProvider(stock, self.array_description)
 
 
 class PluginPathProvider(PathProvider):

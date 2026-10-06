@@ -604,6 +604,37 @@ def test_no_frame_from_a_plugin_camera_names_the_plugins_reason(
     )
 
 
+def test_a_plugin_that_never_answers_does_not_hang_the_miss_path(
+    RE: RunEngine,
+    box: FakeBox,
+    shot_control: ShotControl,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reason read is bounded: a hung WriteMessage costs the budget and the miss keeps its wording."""
+    from geecs_bluesky.devices import detector as detector_module
+
+    cam, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.3)
+    monkeypatch.setattr(detector_module, "PLUGIN_REASON_TIMEOUT_S", 0.2)
+
+    async def hang(*_args, **_kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(cam.hdf.write_message, "get_value", hang)
+    box.drop = {("uc_a", n) for n in range(1, 10)}
+    started = time.monotonic()
+    with pytest.raises(GeecsTriggerTimeoutError) as info:
+        RE(bp.count([cam], num=1, per_shot=geecs_per_shot(shot_control, max_refires=1)))
+    # Two dropped shots cost the stock count wait each (STRICT_TRIGGER_INFO's
+    # 3 s exposure_timeout) plus the 0.2 s reason budget; a hung read would
+    # never return at all.
+    assert time.monotonic() - started < 10.0
+    assert box.fires == 2
+    assert "no frame from UC_A (partial rows kept; known camera frame-drop" in str(
+        info.value
+    )
+
+
 def test_missed_frame_on_plugin_cameras_rewinds_the_partial_row(
     RE: RunEngine, box: FakeBox, shot_control: ShotControl, tmp_path: Path
 ) -> None:

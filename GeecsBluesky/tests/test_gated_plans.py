@@ -355,6 +355,70 @@ def test_gated_stalled_camera_fails_loudly_with_the_box_off(
     assert shot_control.standing_state == "OFF"
 
 
+def test_gated_stalled_camera_names_the_plugins_reason(
+    RE: RunEngine, box: GatedBox, shot_control: ShotControl, tmp_path: Path
+) -> None:
+    """GEECS-Plugins#1023 in a gated run: a plugin refusing every frame is its WriteMessage, beside the device."""
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.3)
+    b, _ = _plugin_camera(RE, box, "UC_B", tmp_path, shot_timeout=0.3)
+    box.stall = {"uc_b"}
+    refusal = "could not open the stack in \\\\nas\\data\\Scan001\\UC_B: share refused"
+    set_mock_value(b.hdf.write_message, refusal)
+    with pytest.raises(GeecsTriggerTimeoutError) as info:
+        RE(
+            bp.count(
+                [a, b],
+                3,
+                per_shot=gated_per_shot(shot_control, quota=3, shot_timeout=0.3),
+            )
+        )
+    assert info.value.device_name == "UC_B"
+    assert str(info.value) == (
+        "UC_B: the file plugin counted no frame for 0.3s while the box ran"
+        f" — file plugin uc_b-hdf: {refusal}"
+    )
+    assert box.states[-1] == "off"
+
+
+def test_the_primary_descriptor_follows_the_geometry_the_plugin_settles(
+    RE: RunEngine, box: GatedBox, shot_control: ShotControl, tmp_path: Path
+) -> None:
+    """GEECS-Plugins#1023: ``primary`` is declared after the first batch's frames, at the plugin's geometry.
+
+    The box is OFF at the arm, so the plugin arms on the frame it holds
+    (4 x 6 here) and re-declares the geometry on the session's first fresh
+    frame (5 x 7).  Declared before the kickoff, the descriptor carried the
+    held shape over a stack written at the new one; declared right before
+    the first collect it reads the settled geometry, as the StreamResource
+    does — and the ``shots`` rows of the batch went out before it.
+    """
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+    set_mock_value(a.hdf.array_size_x, 6)
+    set_mock_value(a.hdf.array_size_y, 4)
+    edge = box.edge
+
+    def first_fresh_frame_re_declares() -> None:
+        if box.edges == 0:
+            set_mock_value(a.hdf.array_size_x, 7)
+            set_mock_value(a.hdf.array_size_y, 5)
+        edge()
+
+    box.edge = first_fresh_frame_re_declares
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(bp.count([a], 3, per_shot=gated_per_shot(shot_control, quota=3)))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    primary = next(d for d in col.docs["descriptor"] if d["name"] == "primary")
+    assert primary["data_keys"]["uc_a"]["shape"] == [1, 5, 7]
+    resource = next(r for r in col.docs["stream_resource"] if r["data_key"] == "uc_a")
+    assert tuple(resource["parameters"]["chunk_shape"]) == (1, 5, 7)
+    assert _datums_by_key(col)["uc_a"] == [{"start": 0, "stop": 3}]
+    kinds = [(name, doc.get("name")) for name, doc in col.ordered]
+    names = [name for name, _ in col.ordered]
+    assert kinds.index(("descriptor", "primary")) > names.index("event_page")
+    assert kinds.index(("descriptor", "primary")) < names.index("stream_resource")
+
+
 def _pause_after(RE: RunEngine, box: GatedBox, edges: int, *, defer: bool) -> dict:
     """Request a pause once *edges* edges have landed; record the edge count then."""
     seen: dict[str, int] = {}

@@ -12,7 +12,8 @@ The three ophyd-async 0.19 logics:
 - data logics — :class:`ScalarsDataLogic` (the device's scalars into the
   row), :class:`LvNativeFileDataLogic` (LabVIEW-native saving from a
   ``PathProvider``), and, on a host serving the PVA gateway's file plugin
-  (#806), the **stock** ``ADHDFDataLogic`` over
+  (#806), :class:`~geecs_bluesky.devices.hdf_plugin.GeecsHdfDataLogic`
+  (the stock ``ADHDFDataLogic``, its stream described lazily) over
   :class:`~geecs_bluesky.devices.hdf_plugin.GeecsHdfIO`, one per image
   variable.
 
@@ -71,7 +72,7 @@ from ophyd_async.core import (
     wait_for_value,
 )
 from ophyd_async.core._detector import _data_logic_supported
-from ophyd_async.epics.adcore import ADHDFDataLogic, NDArrayDescription
+from ophyd_async.epics.adcore import NDArrayDescription
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 
 from geecs_core.pv_naming import hdf_plugin_prefix
@@ -79,7 +80,7 @@ from geecs_core.pv_naming import hdf_plugin_prefix
 from geecs_bluesky.data_paths import device_server_save_path
 from geecs_bluesky.devices.ca._pv import ca_pv, setpoint_pv
 from geecs_bluesky.devices.ca._view import ScalarsView
-from geecs_bluesky.devices.hdf_plugin import GeecsHdfIO
+from geecs_bluesky.devices.hdf_plugin import GeecsHdfDataLogic, GeecsHdfIO
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsTriggerTimeoutError
 from geecs_bluesky.utils import safe_name
 
@@ -93,6 +94,10 @@ ACQ_TIMESTAMP = "acq_timestamp"
 #: drain, as measured.  One constant for every device until the calibration
 #: phase makes it a per-device budget.
 DEFAULT_SHOT_TIMEOUT = 3.0
+#: Budget for reading one file plugin's ``WriteMessage`` on a failure path
+#: (:meth:`GeecsDetector.plugin_reasons`), seconds: a reason is best effort
+#: and must never outlast the failure it explains.
+PLUGIN_REASON_TIMEOUT_S = 2.0
 
 #: How a strict shot prepares a GeecsDetector: one externally edge-triggered
 #: event.  The plan fires the box; the detector waits for its stamp — and,
@@ -527,6 +532,11 @@ class LvNativeFileDataLogic(DetectorDataLogic):
         self.directory = None
 
 
+def _with_reasons(text: str, reasons: Sequence[str]) -> str:
+    """*text*, followed by the plugins' reasons when there are any (``" — a; b"``)."""
+    return f"{text} — {'; '.join(reasons)}" if reasons else text
+
+
 class GeecsDetectorScalars(ScalarsView):
     """A detector's scalars-only view: the same shot wait, no file writing.
 
@@ -614,7 +624,10 @@ class GeecsDetector(StandardDetector):
     hdf_plugins :
         ``(image variable, path provider)`` per file plugin to capture
         (#806): each becomes a :class:`GeecsHdfIO` child (``hdf``, then
-        ``hdf_<variable>``) driven by the stock ``ADHDFDataLogic``; the
+        ``hdf_<variable>``) driven by :class:`GeecsHdfDataLogic` — the
+        stock ``ADHDFDataLogic``, its stream described lazily so the
+        geometry the plugin settles on at the first fresh frame is the one
+        recorded (GEECS-Plugins#1023); the
         first writes the ``<name>`` stream key, the others
         ``<name>-<variable>``.  The namespace passes the devicetype's
         declared capture streams (``geecs_core.db.device_streams``; default
@@ -705,7 +718,7 @@ class GeecsDetector(StandardDetector):
             )
             setattr(self, "hdf" if index == 0 else f"hdf_{safe_name(variable)}", io)
             self._hdf_ios.append(io)
-            logic = ADHDFDataLogic(
+            logic = GeecsHdfDataLogic(
                 array_description=NDArrayDescription(
                     shape_signals=[
                         io.array_size_z,
@@ -753,15 +766,32 @@ class GeecsDetector(StandardDetector):
         """
         return bool(self._hdf_ios)
 
-    @property
-    def hdf_ios(self) -> tuple[GeecsHdfIO, ...]:
-        """The file-plugin IOs this detector arms, in capture order (empty without a plugin).
+    async def plugin_reasons(self) -> list[str]:
+        """Each file plugin's non-empty ``WriteMessage``, as ``file plugin <io.name>: <message>``.
 
-        What the strict plan reads a plugin's ``write_message`` off when the
-        device yields no frame (GEECS-Plugins#1023) — the same IOs
-        :meth:`prepare` reads for its failure note.
+        What explains a plugin-backed camera that counts no frame: the
+        plugin refused what the camera pushed — a stack that would not
+        open, a frame of another shape than the open stack's — and said so
+        only there, where it reads as the camera's own frame drop
+        (GEECS-Plugins#1023).  Read on every failure path that names the
+        device (:meth:`prepare`, the count timeouts of ``trigger`` and
+        ``complete``, the strict plan's miss), each plugin within
+        :data:`PLUGIN_REASON_TIMEOUT_S`; a plugin that does not answer, or
+        has nothing to say, is left out.  Empty without a plugin.  The
+        plugin clears its message on the next frame it accepts, so a reason
+        here is current, not a frame it refused shots ago.
         """
-        return tuple(self._hdf_ios)
+        reasons: list[str] = []
+        for io in self._hdf_ios:
+            try:
+                message = await asyncio.wait_for(
+                    io.write_message.get_value(), PLUGIN_REASON_TIMEOUT_S
+                )
+            except Exception:  # noqa: BLE001 - a reason is best effort
+                continue
+            if message:
+                reasons.append(f"file plugin {io.name}: {message}")
+        return reasons
 
     @property
     def native_image_save(self) -> bool:
@@ -929,13 +959,8 @@ class GeecsDetector(StandardDetector):
         try:
             await super().prepare(value)
         except Exception as exc:
-            for io in self._hdf_ios:
-                try:
-                    message = await asyncio.wait_for(io.write_message.get_value(), 2.0)
-                except Exception:  # noqa: BLE001 - the note is best effort
-                    continue
-                if message:
-                    exc.add_note(f"file plugin {io.name}: {message}")
+            for reason in await self.plugin_reasons():
+                exc.add_note(reason)
             raise
 
     def trigger(self) -> AsyncStatus:
@@ -1002,8 +1027,11 @@ class GeecsDetector(StandardDetector):
             raise GeecsTriggerTimeoutError(
                 self._geecs_device_name,
                 self._acquire.shot_timeout,
-                f"{self._geecs_device_name}: the file plugin counted no frame "
-                f"for {self._acquire.shot_timeout:.1f}s while the box ran",
+                _with_reasons(
+                    f"{self._geecs_device_name}: the file plugin counted no frame "
+                    f"for {self._acquire.shot_timeout:.1f}s while the box ran",
+                    await self.plugin_reasons(),
+                ),
             ) from exc
 
     def mark_abandoned(self) -> None:
@@ -1044,8 +1072,11 @@ class GeecsDetector(StandardDetector):
             raise GeecsTriggerTimeoutError(
                 self._geecs_device_name,
                 self._acquire.shot_timeout,
-                f"{self._geecs_device_name}: no frame counted by the file plugin "
-                f"within {self._acquire.shot_timeout:.1f}s",
+                _with_reasons(
+                    f"{self._geecs_device_name}: no frame counted by the file plugin "
+                    f"within {self._acquire.shot_timeout:.1f}s",
+                    await self.plugin_reasons(),
+                ),
             ) from exc
 
     @property
