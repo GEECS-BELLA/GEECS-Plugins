@@ -120,10 +120,10 @@ catalog.
 
 ### Tier 2 — background telemetry
 
-Every device with a `get='yes'` variable that is **not** in the run — not a
-required device, not a non-essential one, not the scanned axis — is still
-recorded, the way Master Control did it: every one of its logged scalars is
-read into every row, softly (`BackgroundSnapshot` in GeecsBluesky,
+Every `get='yes'` variable the run does not record itself — the required
+devices and the non-essential ones are the run's; of the scanned axis's
+device only the axis column is — is still recorded, the way Master Control
+did it: every such scalar is read into every row, softly (`BackgroundSnapshot` in GeecsBluesky,
 GEECS-Plugins#1016). This tier is safe by construction:
 
 - it is **read from the gateway's monitor cache and never waited on**, so it
@@ -132,8 +132,10 @@ GEECS-Plugins#1016). This tier is safe by construction:
   is probed once within a bounded budget (about a second for the whole set),
   and a device that does not answer — a PV the gateway does not serve, a
   device that went away — is left out of *that* run with a log line and named
-  in the run's start document (`background_dropped`); the next run probes it
-  again, so nothing needs a restart to come back;
+  in the run's start document (`background_dropped`; a scanned axis's device is
+  admitted at the first step instead, and one that fails then is named in the
+  log only); the next run probes it again, so nothing needs a restart to come
+  back;
 - a reading the gateway marks INVALID (a dead device's stale readbacks) reads
   `NaN`, and every column is in every row.
 

@@ -147,11 +147,16 @@ def test_probe_leaves_the_runs_own_devices_to_the_run(RE) -> None:
     other = _gauge(RE, "U_Other", 1.0)
     candidates = [gauge, *cam._scalar_signals(), magnet, other]
     snapshot = BackgroundSnapshot(candidates, probe_timeout=0.5)
-    # The plan stages roots: the camera (its signals go), the magnet whose
-    # child is scanned (parked whole until the step admits it) and a
-    # view's owner.
-    run(RE, lambda: snapshot.probe(staged=[cam, magnet, other]))
+    # The plan stages roots: the camera and the view's owner are the run's
+    # own readers (their signals go, whatever else is scanned on them); the
+    # magnet, staged only as the scanned child's root, is parked whole until
+    # the step admits it.
+    run(
+        RE,
+        lambda: snapshot.probe(staged=[cam, magnet, other], own=[cam, other.scalars]),
+    )
     assert snapshot.members == [gauge]
+    assert snapshot._parked == [magnet]
     assert snapshot.dropped == []
     keys = run(RE, snapshot.describe)
     assert set(keys) == {"u_gauge-pressure"}
@@ -176,14 +181,14 @@ def test_the_step_admits_a_scanned_devices_other_variables(RE, monkeypatch) -> N
     magnet = _magnet(RE)
     other = _gauge(RE, "U_Other", 1.0)
     snapshot = BackgroundSnapshot([gauge, magnet, other], probe_timeout=0.5)
-    run(RE, lambda: snapshot.probe(staged=[magnet, other]))
+    run(RE, lambda: snapshot.probe(staged=[magnet, other], own=[other]))
     assert snapshot.members == [gauge]
     probes: list[str] = []
     original = snapshot._probe_one
 
-    async def counted(member):
+    async def counted(member, **kw):
         probes.append(member.name)
-        return await original(member)
+        return await original(member, **kw)
 
     monkeypatch.setattr(snapshot, "_probe_one", counted)
     # The step's mover is the magnet's child: the magnet returns without
@@ -201,6 +206,53 @@ def test_the_step_admits_a_scanned_devices_other_variables(RE, monkeypatch) -> N
     # A whole device moved stays the run's: nothing comes back for it.
     run(RE, lambda: snapshot.admit([other]))
     assert snapshot.members == [gauge, magnet] and probes == ["u_s1h"]
+    # A mover whose device the run reads itself — listed whole or through
+    # its view — was never parked: the row carries that device already.
+    for own in ([magnet], [magnet.scalars]):
+        snapshot = BackgroundSnapshot([gauge, magnet], probe_timeout=0.5)
+        run(RE, lambda: snapshot.probe(staged=[magnet], own=own))
+        assert snapshot._parked == []
+        run(RE, lambda: snapshot.admit([magnet.current]))
+        assert snapshot.members == [gauge]
+
+
+def test_an_admitted_device_is_the_run_engines_to_stage_and_unstage(RE) -> None:
+    """A parked device was staged by the RunEngine: the snapshot never stages or unstages it."""
+
+    class Wide(Fake):  # two logged variables, one of them the axis
+        async def describe(self):
+            return {
+                f"{self.name}-x": {"source": "fake", "dtype": "number", "shape": []},
+                f"{self.name}-y": {"source": "fake", "dtype": "number", "shape": []},
+            }
+
+        async def read(self):
+            return {
+                f"{self.name}-x": {"value": 1.0, "timestamp": 1.0, "alarm_severity": 0},
+                f"{self.name}-y": {"value": 2.0, "timestamp": 1.0, "alarm_severity": 0},
+            }
+
+    class Axis:  # the scanned child, as the step names it
+        def __init__(self, parent, key):
+            self.parent, self.name, self._key = parent, f"{parent.name}-axis", key
+
+        async def describe(self):
+            return {self._key: {"source": "fake", "dtype": "number", "shape": []}}
+
+    wide = Wide("u_wide", geecs="U_Wide")
+    narrow = Fake("u_narrow", geecs="U_Narrow")  # its only variable is the axis
+    free = Fake("u_free", geecs="U_Free")
+    snapshot = BackgroundSnapshot([wide, narrow, free])
+    run(RE, lambda: snapshot.probe(staged=[wide, narrow]))
+    assert snapshot.members == [free] and free.staged == 1
+    run(
+        RE, lambda: snapshot.admit([Axis(wide, "u_wide-x"), Axis(narrow, "u_narrow-x")])
+    )
+    assert snapshot.members == [free, wide]
+    assert set(run(RE, snapshot.describe)) == {"u_free-x", "u_wide-y"}
+    assert (wide.staged, wide.unstaged, narrow.staged, narrow.unstaged) == (0, 0, 0, 0)
+    RE(bps.unstage(snapshot, wait=True))
+    assert free.unstaged == 1 and (wide.unstaged, narrow.unstaged) == (0, 0)
 
 
 def test_a_mover_that_does_not_describe_keeps_its_whole_device_out(RE, caplog) -> None:
@@ -457,6 +509,59 @@ def test_bound_sweep_keeps_the_scanned_devices_other_variables(
     assert col.docs["start"][0]["background_dropped"] == []
 
 
+def test_bound_sweep_leaves_a_device_the_run_reads_alone(RE, box, profiles) -> None:
+    """``sweep([X], X.current)``, ``[X.scalars]``, a camera's child: the row has the device whole, the background nothing of it."""
+    cam = _camera(RE, box, "UC_Cam")
+    cam.exposure = CaMotor("UC_Cam", "Exposure", experiment="TestExp", tolerance=0.01)
+    cam.add_readables([cam.exposure])
+    magnet = _magnet(RE)
+    connect_mock(RE, cam.exposure)
+    follow_setpoint(magnet.current)
+    follow_setpoint(cam.exposure)
+    gauge = _gauge(RE)
+    ns = Namespace(
+        {"U_S1H": magnet, "UC_Cam": cam}, [magnet, gauge, *cam._scalar_signals()]
+    )
+    sweep = bind_plans(profiles, settables=ns)["sweep"]
+    cases = [
+        (
+            [cam.scalars, magnet],
+            payload(),
+            "u_s1h-current-position",
+            ("u_s1h", "uc_cam"),
+        ),
+        (
+            [cam.scalars, magnet.scalars],
+            payload(),
+            "u_s1h-current-position",
+            ("u_s1h", "uc_cam"),
+        ),
+        (
+            [cam.scalars],
+            payload("UC_Cam.exposure", 1, 3, 3),
+            "uc_cam-exposure-position",
+            ("uc_cam",),
+        ),
+    ]
+    for detectors, trajectory, axis_key, own in cases:
+        col = DocCollector()
+        token = RE.subscribe(col)
+        RE(sweep(detectors, sweep=trajectory))
+        RE.unsubscribe(token)
+        assert col.docs["stop"][-1]["exit_status"] == "success"
+        events = col.primary_events()
+        assert len(events) == 3
+        data = events[0]["data"]
+        assert (
+            axis_key in data and "u_s1h-voltage" in data and "uc_cam-meancounts" in data
+        )
+        background = col.docs["descriptor"][0]["object_keys"]["background"]
+        assert "u_gauge-pressure" in background
+        assert not [k for k in background if k.split("-")[0] in own]
+    # The third case: the magnet is nobody's, so its voltage came from the background.
+    assert "u_s1h-voltage" in background
+
+
 def test_gated_rows_carry_the_background(RE, monkeypatch, tmp_path) -> None:
     """Gated: a sampler member, read at the tick."""
     from geecs_bluesky.plans import gated
@@ -520,6 +625,17 @@ def test_gated_sweep_keeps_the_scanned_devices_other_variables(
         [-1.0, 0.0, 1.0]
     )  # the readback once, the motor's own
     assert col.docs["start"][0]["background_dropped"] == []
+    # The magnet listed as a detector and scanned: the row carries it whole,
+    # the step brings nothing back, the batch still runs.
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(sweep([a, magnet], sweep=payload(), acquisition="gated"))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    rows = _events_from_pages(col, "shots")
+    assert len(rows) == 3 and "u_s1h-voltage" in rows[0]["data"]
+    assert [r["data"]["u_s1h-current-position"] for r in rows] == pytest.approx(
+        [-1.0, 0.0, 1.0]
+    )
 
 
 def test_the_switch_reads_the_defaults_per_run_and_the_item_wins(
@@ -661,7 +777,7 @@ def test_a_failed_probe_is_recorded_and_the_run_still_opens(
     gauge = _gauge(RE)
     ns = Namespace({"UC_Cam": cam}, [gauge])
 
-    async def broken(self, staged):
+    async def broken(self, staged, own=()):
         raise RuntimeError("an unexpected staged object")
 
     monkeypatch.setattr(BackgroundSnapshot, "_probe", broken)

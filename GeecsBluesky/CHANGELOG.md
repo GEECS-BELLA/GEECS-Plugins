@@ -21,14 +21,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   movers to `BackgroundSnapshot.admit`: each mover's device returns as a
   member minus the keys the mover describes (its readback, the motor's own
   column), so the descriptor carries the device's other variables once
-  and the readback once.  A detector, a non-essential device or a
-  `.scalars` view's owner is never a mover, so its candidates stay parked
-  as before; a mover that does not describe within the probe budget keeps
-  its whole device out for the run (WARNING: a key read twice fails the
-  run, a missing column does not); `admit` is idempotent and never raises.
-  Hermetic tests pin the parked-then-admitted member, the refusal, the
-  strict sweep and the gated sweep (the readback once as the motor's
-  column, the voltage from the background in every row).
+  and the readback once.  The run's **own readers** (its detectors and
+  non-essential devices; a `.scalars` view counts as its owner) are handed
+  to the probe by the bound plan and excluded outright, so a device the
+  row already carries whole — `sweep([X], X.current)`, `[X.scalars]`, a
+  camera whose settable child is the axis — brings nothing back (review
+  round 1 found it did, and the strict row failed on duplicate keys); a
+  parked device was staged by the RunEngine and the snapshot never stages
+  or unstages it (round 1: an admitted one-variable device had its cache
+  closed mid-run); a mover that does not describe within the probe budget
+  keeps its whole device out for the run (WARNING: a key read twice fails
+  the run, a missing column does not); `admit` is idempotent and never
+  raises.  An admit-time drop is logged only — the start document's
+  `background_dropped` has gone out by then.  Hermetic tests pin the
+  parked-then-admitted member, the refusal, the own-reader cases (strict,
+  three shapes, by the descriptor's `object_keys`; gated), the stage and
+  unstage ownership, the strict sweep and the gated sweep (the readback
+  once as the motor's column, the voltage from the background in every
+  row).
 
 ## [0.111.0] - 2026-10-02
 

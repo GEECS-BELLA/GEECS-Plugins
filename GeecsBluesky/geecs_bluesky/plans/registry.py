@@ -9,9 +9,10 @@ verbs remain implementation details, never public queue entries.
 from __future__ import annotations
 
 import functools
+from collections.abc import Sequence
 import inspect
 import logging
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping
 from inspect import Parameter
 from typing import Any
 
@@ -253,7 +254,9 @@ def background_snapshot(
     return BackgroundSnapshot(candidates, mock=mock) if candidates else None
 
 
-def background_wrapper(plan: Any, snapshot: BackgroundSnapshot) -> Any:
+def background_wrapper(
+    plan: Any, snapshot: BackgroundSnapshot, own: Sequence[Any] = ()
+) -> Any:
     """Probe the background set right before ``open_run``; record the result in the start document.
 
     The stock plan stages its detectors (*snapshot* among them) and motors
@@ -267,10 +270,13 @@ def background_wrapper(plan: Any, snapshot: BackgroundSnapshot) -> Any:
     ``background_dropped`` (GEECS device names); a probe that failed
     outright (never a member's failure, which is its own drop) adds
     ``background_probe_error``.  Before the claim, so a slow probe costs
-    the run nothing but its bounded budget.  The ``stage`` messages name
-    root devices, so a scanned child's device is only *parked* here; the
-    per-step hook (:func:`~geecs_bluesky.plans.strict.admit_background`)
-    admits it back minus the child's own column.
+    the run nothing but its bounded budget.  *own* is the run's own reader
+    list (its detectors and non-essential devices): everything rooted at
+    one of them is excluded outright.  The ``stage`` messages name root
+    devices, so a scanned child's device — staged, but not an own reader —
+    is only *parked* here; the per-step hook
+    (:func:`~geecs_bluesky.plans.strict.admit_background`) admits it back
+    minus the child's own column.
     """
     staged: list[Any] = []
     opened = False
@@ -286,7 +292,9 @@ def background_wrapper(plan: Any, snapshot: BackgroundSnapshot) -> Any:
         opened = True
 
         def _probe_then_open():
-            yield from bps.wait_for([functools.partial(snapshot.probe, list(staged))])
+            yield from bps.wait_for(
+                [functools.partial(snapshot.probe, list(staged), own=list(own))]
+            )
             record: dict[str, Any] = {"background_dropped": snapshot.dropped}
             if snapshot.probe_error:
                 record["background_probe_error"] = snapshot.probe_error
@@ -522,7 +530,9 @@ def strict_plan(
             args, kwargs = bound.args, dict(bound.kwargs)
         inner = non_essential_wrapper(stock(*args, md=md, **kwargs), non_essential)
         if snapshot is not None:
-            inner = background_wrapper(inner, snapshot)
+            inner = background_wrapper(
+                inner, snapshot, own=[*detectors, *non_essential]
+            )
         if acquisition == "strict":
             # A gated batch is a fly prepare: a plugin-backed camera's native
             # logic is left out of the context and a native-saving essential
