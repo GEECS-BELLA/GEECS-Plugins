@@ -84,16 +84,25 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     devices = args.devices.split(",") if args.devices else None
-
-    def resolve_roster() -> list:
-        """The served set as the DB sees it now — the startup call, verbatim (#943)."""
-        return PvaGatewayConfig.from_geecs_experiment(
-            args.experiment, host=args.host, devices=devices
-        ).devices
-
     config = PvaGatewayConfig.from_geecs_experiment(
         args.experiment, host=args.host, devices=devices
     )
+
+    def resolve_roster() -> list:
+        """The served set as the DB sees it now — the startup call, verbatim (#943).
+
+        ``strict_scope``: a box that cannot see its own addresses — or no
+        longer the one this instance is named after — fails the read
+        instead of answering "nothing", so an adapter blink never tears
+        the served set down.
+        """
+        return PvaGatewayConfig.from_geecs_experiment(
+            args.experiment,
+            host=args.host,
+            devices=devices,
+            strict_scope=config.host or True,
+        ).devices
+
     if not config.devices:
         # Not an error: the instance serves its identity PVs (version,
         # heartbeat, restart, devices) so the fleet screen sees it, and

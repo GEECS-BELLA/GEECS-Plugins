@@ -180,29 +180,6 @@ cmd /c "set USERPROFILE=C:\geecs\pva-gateway\profile&& C:\geecs\pva-gateway\venv
 prints the host's served PV names (DB-scoped: this box's cameras only). After
 `Start-Service GeecsPvaGateway`, the `version`/`heartbeat` PVs answering is the end-to-end check.
 
-## Enabling or disabling a device in the DB
-
-Needs no restart (0.15.0, #943). Every instance re-reads its served set
-from the DB every 60 s (`--roster-interval SECONDS`; the launcher passes
-nothing, so the default applies fleet-wide) and reconciles: a device
-enabled on the box gains its PVs and file plugin within a minute, a
-disabled one loses them — `roster: +UC_X, -UC_Y (serving N devices: …)`
-in the service log. Three cases to know when reading that log:
-
-- **A device with a capture session open is never torn down** — its
-  removal waits for the session to close (`removal deferred to the next
-  tick`, each tick until then).
-- **A DB that stops answering never shrinks the set** — the instance keeps
-  serving its last roster (`roster re-read failed … keeping the last good
-  set`, once per outage; `recovered after N failed ticks` when it ends).
-- **A host whose devices are all disabled serves only its identity PVs** —
-  `geecs-pva-gateway fleet` shows it `serving 0 of 0 stream devices`, not
-  `[DOWN]`, and it heals on the next enable. `--list` still shows what a
-  fresh start would serve, but an empty answer no longer predicts an
-  outage.
-
-The `:devices` instance PV carries the served set; the fleet probe diffs
-it against the DB roster (**Fleet probe** below).
 From any machine with p4p (over VPN, set the address list per **Client
 access** below so name search unicasts):
 
@@ -223,6 +200,40 @@ that is the unwatched-variables-are-free trade (gating is per stream
 variable; an unwatched camera holds zero connections). A bare `get` returns
 the cached value immediately and never waits for the round-trip — hold a
 monitor instead, as above.
+
+## Enabling or disabling a device in the DB
+
+Needs no restart (0.15.0, #943). Every instance re-reads its served set
+from the DB every 60 s (`--roster-interval SECONDS`; the launcher passes
+nothing, so the default applies fleet-wide) and reconciles: a device
+enabled on the box gains its PVs and file plugin within a minute, a
+disabled one loses them — `roster: +UC_X, -UC_Y (serving N devices: …)`
+in the service log. Three cases to know when reading that log:
+
+- **A device with a capture session open is never torn down** — its
+  removal waits for the session to close (`removal deferred to the next
+  tick`, each tick until then).
+- **A DB that stops answering never shrinks the set** — the instance keeps
+  serving its last roster (`roster re-read failed … keeping the last good
+  set`, once per outage; `recovered after N failed ticks` when it ends).
+  The same holds for a box that cannot see its own addresses (or has lost
+  the adapter its devices sit on): a scoping failure is a failure, not an
+  empty answer. A query that never returns is abandoned after ten ticks
+  (`roster re-read hung for 10 ticks; abandoning it`) so the re-read
+  resumes. One cost to know: each tick opens a few DB connections, so a
+  DB that *accepts* connections but cannot complete them can count the
+  box toward MySQL's `max_connect_errors` — a `1129` in the log means the
+  host is blocked, not a network fault (`docs/platform/fleet_map.md`, the
+  GEECS DB entry: `FLUSH HOSTS` on the server), and the next restart would
+  fail at its startup read until it is lifted.
+- **A host whose devices are all disabled serves only its identity PVs** —
+  `geecs-pva-gateway fleet` shows it `serving 0 of 0 stream devices`, not
+  `[DOWN]`, and it heals on the next enable. `--list` still shows what a
+  fresh start would serve, but an empty answer no longer predicts an
+  outage.
+
+The `:devices` instance PV carries the served set; the fleet probe diffs
+it against the DB roster (**Fleet probe** below).
 
 ## Client access
 
@@ -289,8 +300,11 @@ heartbeat and `serving N of M stream devices` (N = what the instance
 serves, M = the DB roster; `DB roster differs: not served …` when they
 disagree — expected for up to one roster interval after a DB edit, a
 finding beyond that: a removal deferred by an open capture, a refused
-PV-name collision, or an instance holding its last set because its DB
-route is dead; a pre-0.15.0 instance shows the roster count alone),
+PV-name collision, an instance holding its last set because its DB
+route is dead, or an instance scoped differently from the per-IP roster
+by construction — launched with `--devices`, or a multi-IP box whose
+devices sit on more than one address; a pre-0.15.0 instance shows the
+roster count alone),
 `[DOWN]` with the error, `[ -- ] not deployed` for DB hosts absent from
 `addr_list`, and a `[WARN]` when versions are mixed (a rollout is
 incomplete). The last

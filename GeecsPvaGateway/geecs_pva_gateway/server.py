@@ -66,6 +66,11 @@ ROSTER_INTERVAL_S = 60.0
 #: read that outlives the budget is left to finish (never a second one in
 #: flight) and its answer, if any, is taken at the next tick.
 _ROSTER_RESOLVE_TIMEOUT_S = 30.0
+#: Ticks a read may outlive its budget before it is abandoned and a fresh
+#: one started: GeecsDb bounds the connect, not the query, so a DB host
+#: reset mid-query leaves the thread blocked in ``recv`` for good — abandoning
+#: it (one thread left behind, logged) is what keeps the re-read alive.
+_ROSTER_ABANDON_TICKS = 10
 
 #: The ``:connected`` states, in enum index order.  ``Idle``: the subscription
 #: is gated off (no watcher; nothing is known).  ``Disconnected``: a watcher
@@ -696,22 +701,36 @@ class GeecsPvaGateway:
         """
         assert self._roster_resolver is not None
         pending: asyncio.Future | None = None
+        overdue = 0  # ticks the pending read has outlived its budget
         while True:
             await asyncio.sleep(self._roster_interval_s)
             if pending is None:
                 pending = asyncio.ensure_future(
                     asyncio.to_thread(self._roster_resolver)
                 )
+                overdue = 0
             try:
                 resolved = await asyncio.wait_for(
                     asyncio.shield(pending), _ROSTER_RESOLVE_TIMEOUT_S
                 )
             except TimeoutError:
+                overdue += 1
                 self._roster_failed(
                     f"no answer within {_ROSTER_RESOLVE_TIMEOUT_S:.0f} s; "
                     "the read is still running"
                 )
-                continue  # `pending` stays: never a second read in flight
+                if overdue >= _ROSTER_ABANDON_TICKS:
+                    # A query that never returns (DB host reset mid-query:
+                    # the connect is bounded, the recv is not).  Let it go
+                    # — its thread finishes whenever the socket does — so
+                    # the next tick starts afresh instead of waiting forever.
+                    logger.warning(
+                        "roster re-read hung for %d ticks; abandoning it (its "
+                        "thread is left to finish) and starting afresh",
+                        overdue,
+                    )
+                    pending = None
+                continue  # else `pending` stays: never a second read in flight
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - DB down: keep the last set
@@ -770,10 +789,30 @@ class GeecsPvaGateway:
                     ", ".join(busy),
                 )
                 continue
-            await self._remove_worker(worker)
+            try:
+                await self._remove_worker(worker)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - one device must not gate the rest
+                logger.exception(
+                    "roster: removing %s failed; retried next tick", worker.device
+                )
+                continue
             removed.append(worker.device)
+        if removed:
+            # A departed device may have freed the name a newcomer collided on.
+            self._refused.clear()
         for device in sorted(wanted):
-            if device not in serving and await self._add_worker(wanted[device]):
+            if device in serving or device in self._refused:
+                continue  # a refused device is not rebuilt tick after tick
+            try:
+                admitted = await self._add_worker(wanted[device])
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - one device must not gate the rest
+                logger.exception("roster: adding %s failed; retried next tick", device)
+                continue
+            if admitted:
                 added.append(device)
         self._refused &= set(wanted)  # a refused device that leaves is forgotten
         self._drifted &= set(wanted)
@@ -789,16 +828,24 @@ class GeecsPvaGateway:
             )
 
     async def _add_worker(self, spec: DeviceSpec) -> bool:
-        """Serve *spec* as startup would; ``False`` (logged once) on a name collision."""
+        """Serve *spec* as startup would; ``False`` (logged once) when it is refused.
+
+        Refused: its PV names collide with a served device's, or it cannot
+        be built from its DB rows (a plugin attribute-name collision).  A
+        refused device is skipped until it leaves the set or a removal
+        frees a name — never rebuilt and torn down tick after tick.
+        """
         assert self._loop is not None and self._provider is not None
-        worker = _DeviceWorker(spec, self._loop, self._endpoint_resolver)
+        try:
+            worker = _DeviceWorker(spec, self._loop, self._endpoint_resolver)
+        except Exception as exc:  # noqa: BLE001 - a bad row refuses one device
+            self._refuse(spec.device, f"{type(exc).__name__}: {exc}")
+            return False
         try:
             entries = self._claim(worker)
         except ValueError as exc:
             await worker.stop()  # its plugin writer threads
-            if spec.device not in self._refused:
-                self._refused.add(spec.device)
-                logger.error("roster: refusing %s: %s", spec.device, exc)
+            self._refuse(spec.device, str(exc))
             return False
         self._workers.append(worker)
         for name, pv in entries:
@@ -817,17 +864,33 @@ class GeecsPvaGateway:
             logger.debug("no longer serving %s", name)
         self._workers.remove(worker)
 
+    def _refuse(self, device: str, reason: str) -> None:
+        """Mark *device* refused; log it once while the refusal holds."""
+        if device not in self._refused:
+            self._refused.add(device)
+            logger.error("roster: refusing %s: %s", device, reason)
+
     def _note_drift(self, worker: _DeviceWorker, spec: DeviceSpec) -> None:
-        """Log once when a served device's stream variables changed in the DB."""
-        was, now = set(worker.spec.stream_variables), set(spec.stream_variables)
+        """Log once when a served device's shape (stream variables, scalars) changed in the DB.
+
+        The scalars matter for a device admitted on a tick where the
+        scalar-policy query degraded to empty: its stacks carry no
+        per-frame scalars until a restart, and this is the one line that
+        says so.
+        """
+        was = (set(worker.spec.stream_variables), set(worker.spec.scalar_variables))
+        now = (set(spec.stream_variables), set(spec.scalar_variables))
         if was == now:
             self._drifted.discard(worker.device)
         elif worker.device not in self._drifted:
             self._drifted.add(worker.device)
             logger.warning(
-                "roster: %s's stream variables changed in the DB (%s -> %s); "
-                "serving the old set until a restart re-shapes it",
+                "roster: %s's served shape changed in the DB (stream %s -> %s; "
+                "scalars %s -> %s); serving the old shape until a restart "
+                "re-shapes it",
                 worker.device,
-                sorted(was),
-                sorted(now),
+                sorted(was[0]),
+                sorted(now[0]),
+                sorted(was[1]),
+                sorted(now[1]),
             )

@@ -56,7 +56,7 @@ class FleetHost(BaseModel):
     deployed: bool = True
 
     def instance_pv(self, experiment: str, name: str) -> str:
-        """Full name of one instance PV (``version``, ``heartbeat``, ``restart``)."""
+        """Full name of one instance PV (``version``, ``heartbeat``, ``restart``, ``devices``)."""
         return f"{instance_pv_prefix(experiment, self.ip)}:{name}"
 
 
@@ -175,7 +175,7 @@ class HostProbe(BaseModel):
 
     @property
     def up(self) -> bool:
-        """True when both instance PVs answered."""
+        """True when ``version`` and ``heartbeat`` answered (``devices`` is optional)."""
         return self.version is not None
 
     @property

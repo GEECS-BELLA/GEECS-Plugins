@@ -115,6 +115,9 @@ def test_main_wires_the_roster_re_read_with_the_startup_scoping(monkeypatch):
     assert cli.main([*argv, "--roster-interval", "5"]) == 0
     assert built["roster_interval_s"] == 5.0
     assert built["roster_resolver"]() == _fake_config("testexp").devices
-    assert calls == [{"host": "10.0.0.1", "devices": ["UC_Cam"]}] * 2  # verbatim
+    startup = {"host": "10.0.0.1", "devices": ["UC_Cam"]}
+    # Verbatim, plus the re-read's strict scope anchored on the identity
+    # host (True when the startup config has none, as _fake_config's).
+    assert calls == [startup, {**startup, "strict_scope": True}]
     assert cli.main(argv) == 0
     assert built["roster_interval_s"] == ROSTER_INTERVAL_S == 60.0

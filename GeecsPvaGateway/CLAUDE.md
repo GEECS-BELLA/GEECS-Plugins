@@ -193,16 +193,24 @@ tests/
   `ROSTER_INTERVAL_S` (60 s; `--roster-interval`, 0 = startup only) and
   the instance reconciled by device name: a newcomer gets a worker and
   its PVs are `add`ed to the one `StaticProvider` the server keeps (the
-  startup collision guard applies — a colliding newcomer is refused,
-  logged once); a departed device has its worker stopped (subscriptions
+  startup collision guard applies — a colliding newcomer, or one whose
+  rows cannot build a worker, is refused: logged once and skipped until
+  it leaves the set or a removal frees a name, never rebuilt tick after
+  tick); a departed device has its worker stopped (subscriptions
   released, writer threads joined), its PVs `remove`d then
   `close(destroy=True)`d — unless a plugin session is open on it
-  (`capturing_variables`), when the removal is deferred tick by tick. A
-  device in both sets keeps its worker (endpoint moves are #854's; a
-  changed variable set is logged once, never churned). A read that
-  raises or outlives `_ROSTER_RESOLVE_TIMEOUT_S` keeps the last good set
-  and is logged once per streak; a slow read is never overlapped (one
-  executor thread at most). The `:devices` PV posts every change.
+  (`capturing_variables`), when the removal is deferred tick by tick;
+  one device's failure never gates the rest of a tick. A device in both
+  sets keeps its worker (endpoint moves are #854's; a changed shape —
+  stream variables or scalars — is logged once, never churned). A read
+  that raises or outlives `_ROSTER_RESOLVE_TIMEOUT_S` keeps the last
+  good set and is logged once per streak; a slow read is never
+  overlapped (one executor thread at most), and one that never returns
+  is abandoned after `_ROSTER_ABANDON_TICKS` so the re-read resumes. The
+  read is `strict_scope`d: a box whose addresses are unknown, or no
+  longer include the one its instance is named after, has *failed* the
+  read (`LookupError`), never answered "nothing" — startup alone scopes
+  to nothing and idles. The `:devices` PV posts every change.
 - **Identity/control PVs**: `{experiment}:pvagateway:{host_token}:version|
   heartbeat|restart|devices` per instance — the fleet screen reads the
   first two (version skew, liveness), the fleet probe all but `restart`

@@ -20,7 +20,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   down — its removal waits for the session to close, said so in the log
   each tick. A read that raises or outlives its 30 s budget **never
   shrinks the set**: the last good roster stands, the failure is logged
-  once per streak (recovery once too), and a slow read is never doubled.
+  once per streak (recovery once too), and a slow read is never doubled
+  (a query that never returns is abandoned after ten ticks so the re-read
+  resumes). A box that cannot see its own addresses — or no longer the
+  one its instance is named after — has *failed* the read, not answered
+  "nothing" (`from_geecs_experiment(strict_scope=...)`, the re-read's
+  contract; startup still idles).
   An answer that is empty is honoured: the instance serves nothing and
   idles on its identity PVs, as 0.12.0 established — and heals when a
   device is re-enabled, with no restart anywhere. The log line is

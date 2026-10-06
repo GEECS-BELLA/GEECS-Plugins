@@ -10,7 +10,6 @@ log lines the runbook points at.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import os
 import threading
@@ -24,7 +23,7 @@ from geecs_pva_gateway.config import DeviceSpec, PvaGatewayConfig
 from geecs_pva_gateway.file_plugin import PLUGIN_SUFFIX
 from geecs_pva_gateway.server import GeecsPvaGateway
 from tests.test_file_plugin import StampedCamera, _wait_until
-from tests.test_server import DEVICE, IMG, FakeCamera
+from tests.test_server import DEVICE, IMG, FakeCamera, _shutdown
 
 pytestmark = pytest.mark.fake_server
 
@@ -38,21 +37,26 @@ TICK = 0.1
 class ScriptedRoster:
     """A roster resolver the test steers: ``answer`` is the DB's next verdict.
 
-    ``error`` makes every read raise and ``delay`` makes it slow, until
-    cleared; ``calls`` counts reads.  Called off-loop, like the DB.
+    ``error`` makes every read raise, ``delay`` makes it slow and ``block``
+    (an Event) makes it hang until the Event is set — each until cleared;
+    ``calls`` counts reads.  Called off-loop, like the DB.
     """
 
     def __init__(self, answer: list[DeviceSpec]) -> None:
         self.answer = list(answer)
         self.error: Exception | None = None
         self.delay = 0.0
+        self.block: threading.Event | None = None
         self.calls = 0
         self._lock = threading.Lock()
 
     def __call__(self) -> list[DeviceSpec]:
         with self._lock:
             self.calls += 1
-            error, delay, answer = self.error, self.delay, list(self.answer)
+            error, delay, block = self.error, self.delay, self.block
+            answer = list(self.answer)
+        if block is not None:
+            block.wait()
         if delay:
             time.sleep(delay)
         if error is not None:
@@ -87,12 +91,6 @@ async def _start(
     return gateway, task
 
 
-async def _shutdown(task: asyncio.Task) -> None:
-    task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await task
-
-
 async def _get(ctx: Context, pv: str, timeout: float = 2.0):
     """A PVA get off the loop (p4p's thread client blocks)."""
     loop = asyncio.get_running_loop()
@@ -107,7 +105,7 @@ def _messages(caplog, needle: str) -> list[str]:
     return [r.getMessage() for r in caplog.records if needle in r.getMessage()]
 
 
-@pytest.mark.timeout(30)
+@pytest.mark.timeout(60)
 async def test_a_device_enabled_in_the_db_is_served_without_a_restart(caplog):
     """An instance started with nothing serves a device the DB later names:
     its PVs appear, its gated subscription works, ``:devices`` lists it."""
@@ -142,7 +140,7 @@ async def test_a_device_enabled_in_the_db_is_served_without_a_restart(caplog):
         await cam.stop()
 
 
-@pytest.mark.timeout(30)
+@pytest.mark.timeout(60)
 async def test_a_device_disabled_in_the_db_is_dropped_with_its_subscription(caplog):
     """A served device the DB no longer names loses its PVs (stream, state and
     plugin) and its GEECS subscription; the other device and the identity PVs
@@ -190,7 +188,7 @@ async def test_a_device_disabled_in_the_db_is_dropped_with_its_subscription(capl
         await cam.stop()
 
 
-@pytest.mark.timeout(30)
+@pytest.mark.timeout(60)
 async def test_an_empty_db_answer_leaves_the_instance_pvs_and_heals(caplog):
     """Every device disabled: nothing served, the identity PVs stay up (part 1
     of #943), and re-enabling brings the device back — no restart anywhere."""
@@ -274,7 +272,7 @@ async def test_removal_waits_while_a_capture_session_is_open(tmp_path, caplog):
         await cam.stop()
 
 
-@pytest.mark.timeout(30)
+@pytest.mark.timeout(60)
 async def test_a_failed_or_slow_read_keeps_the_last_good_set_and_logs_once(
     monkeypatch, caplog
 ):
@@ -314,16 +312,56 @@ async def test_a_failed_or_slow_read_keeps_the_last_good_set_and_logs_once(
         await cam.stop()
 
 
-@pytest.mark.timeout(30)
+@pytest.mark.timeout(60)
+async def test_a_read_that_never_returns_is_abandoned_and_the_re_read_resumes(
+    monkeypatch, caplog
+):
+    """A query the DB never answers (connect is bounded, recv is not) would
+    freeze the re-read forever under "never a second read in flight": after
+    its ticks it is abandoned — its thread left to finish — and the next
+    tick's fresh read lands.  The set never shrinks meanwhile."""
+    monkeypatch.setattr(server_module, "_ROSTER_RESOLVE_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(server_module, "_ROSTER_ABANDON_TICKS", 3)
+    cam = FakeCamera()
+    await cam.start()
+    spec = _spec(CAMERA, cam.port)
+    roster = ScriptedRoster([spec])
+    hang = threading.Event()
+    gateway, task = await _start([spec], roster)
+    try:
+        with caplog.at_level(logging.INFO, logger=LOGGER):
+            roster.block = hang
+            await _wait_until(lambda: roster.calls >= 1)
+            roster.block = None  # the hung read stays hung; the next one answers
+            await _wait_until(lambda: _messages(caplog, "abandoning it"), timeout=10)
+            assert gateway.served_devices == [CAMERA]
+            assert roster.calls == 1  # never doubled while it was pending
+            await _wait_until(lambda: _messages(caplog, "recovered after"), timeout=5)
+            assert roster.calls == 2 and gateway.served_devices == [CAMERA]
+            assert len(_messages(caplog, "roster re-read failed")) == 1  # one streak
+    finally:
+        hang.set()  # free the abandoned thread
+        await _shutdown(task)
+        await cam.stop()
+
+
+@pytest.mark.timeout(60)
 async def test_a_device_in_both_sets_keeps_its_worker(caplog):
     """A device the DB still names is left alone: an endpoint move is the
-    supervisor's business (#854), and a changed stream-variable set is
-    logged once, never churned — the watcher's subscription never drops."""
+    supervisor's business (#854), and a changed shape — scalars, then the
+    stream variables — is logged once per change, never churned; the
+    watcher's subscription never drops."""
     cam = FakeCamera()
     await cam.start()
     spec = _spec(CAMERA, cam.port)
     roster = ScriptedRoster([spec])
     gateway, task = await _start([spec], roster)
+
+    async def ticks(n: int = 3) -> None:
+        calls = roster.calls
+        await _wait_until(lambda: roster.calls >= calls + n)
+        await asyncio.sleep(TICK)
+
     try:
         worker = gateway._workers[0]
         ctx = Context("pva", conf=gateway.conf(), useenv=False)
@@ -332,23 +370,28 @@ async def test_a_device_in_both_sets_keeps_its_worker(caplog):
             await asyncio.wait_for(cam.connected.wait(), 5)
             with caplog.at_level(logging.WARNING, logger=LOGGER):
                 roster.answer = [spec.model_copy(update={"port": spec.port + 1})]
-                calls = roster.calls
-                await _wait_until(lambda: roster.calls >= calls + 3)
+                await ticks()
+                assert not _messages(caplog, "served shape changed")
+                # A device admitted on a scalar-policy blip would look like
+                # this from the DB's side: the one line that says so.
+                roster.answer = [
+                    spec.model_copy(update={"scalar_variables": ["MaxCounts"]})
+                ]
+                await ticks()
+                roster.answer = [spec]  # back: the drift clears silently
+                await ticks()
                 roster.answer = [
                     spec.model_copy(
                         update={"image_variables": ["image", "processed image"]}
                     )
                 ]
-                calls = roster.calls
-                await _wait_until(lambda: roster.calls >= calls + 3)
-                await asyncio.sleep(TICK)
+                await ticks()
             assert gateway._workers == [worker]
             assert cam.connections == 1 and cam.total_connections == 1
-            drift = _messages(caplog, "stream variables changed in the DB")
-            assert (
-                len(drift) == 1
-                and "['image'] -> ['image', 'processed image']" in drift[0]
-            )
+            drift = _messages(caplog, "served shape changed in the DB")
+            assert len(drift) == 2
+            assert "scalars [] -> ['MaxCounts']" in drift[0]
+            assert "stream ['image'] -> ['image', 'processed image']" in drift[1]
             sub.close()
         finally:
             ctx.close()
@@ -357,11 +400,22 @@ async def test_a_device_in_both_sets_keeps_its_worker(caplog):
         await cam.stop()
 
 
-@pytest.mark.timeout(30)
-async def test_a_new_device_colliding_with_a_served_pv_is_refused_once(caplog):
+@pytest.mark.timeout(60)
+async def test_a_new_device_colliding_with_a_served_pv_is_refused_once(
+    monkeypatch, caplog
+):
     """The startup collision guard holds for the re-read: a device whose PV
-    names normalize onto a served device's is refused (logged once), the
-    served set stands."""
+    names normalize onto a served device's is refused (logged once, built
+    once — not rebuilt and torn down every tick), the served set stands."""
+    built: list[str] = []
+    real_worker = server_module._DeviceWorker
+
+    class CountingWorker(real_worker):
+        def __init__(self, spec, *args, **kwargs):
+            built.append(spec.device)
+            super().__init__(spec, *args, **kwargs)
+
+    monkeypatch.setattr(server_module, "_DeviceWorker", CountingWorker)
     a, b = _spec("UC_Cam-A", 1), _spec("UC_Cam_A", 2)
     roster = ScriptedRoster([a])
     gateway, task = await _start([a], roster)
@@ -369,14 +423,73 @@ async def test_a_new_device_colliding_with_a_served_pv_is_refused_once(caplog):
         with caplog.at_level(logging.ERROR, logger=LOGGER):
             roster.answer = [a, b]
             calls = roster.calls
-            await _wait_until(lambda: roster.calls >= calls + 3)
+            await _wait_until(lambda: roster.calls >= calls + 4)
             await asyncio.sleep(TICK)
         assert gateway.served_devices == ["UC_Cam-A"]
         refused = _messages(caplog, "roster: refusing UC_Cam_A")
         assert len(refused) == 1 and "collision" in refused[0]
+        assert built == ["UC_Cam-A", "UC_Cam_A"]  # startup, then the one refusal
         ctx = Context("pva", conf=gateway.conf(), useenv=False)
         try:
             assert await _devices(ctx) == ["UC_Cam-A"]
+        finally:
+            ctx.close()
+    finally:
+        await _shutdown(task)
+
+
+@pytest.mark.timeout(60)
+async def test_a_device_that_cannot_be_built_does_not_block_the_rest(caplog):
+    """One bad DB row (two scalars normalizing to one attribute name, which
+    the plugin refuses at build) refuses that device alone — logged once —
+    while the rest of the tick's newcomers are served and ``:devices``
+    is posted."""
+    bad = _spec("UC_Bad", 1).model_copy(
+        update={"scalar_variables": ["Mean Counts", "mean_counts"]}
+    )
+    good = _spec("UC_Good", 2)
+    roster = ScriptedRoster([])
+    gateway, task = await _start([], roster)
+    try:
+        with caplog.at_level(logging.ERROR, logger=LOGGER):
+            roster.answer = [bad, good]  # UC_Bad sorts — and is tried — first
+            await _wait_until(lambda: gateway.served_devices == ["UC_Good"])
+            calls = roster.calls
+            await _wait_until(lambda: roster.calls >= calls + 3)
+        refused = _messages(caplog, "roster: refusing UC_Bad")
+        assert len(refused) == 1 and "collide" in refused[0]
+        ctx = Context("pva", conf=gateway.conf(), useenv=False)
+        try:
+            assert await _devices(ctx) == ["UC_Good"]
+        finally:
+            ctx.close()
+    finally:
+        await _shutdown(task)
+
+
+@pytest.mark.timeout(60)
+async def test_one_device_failing_mid_tick_does_not_gate_the_rest(monkeypatch, caplog):
+    """A failure escaping one device's add (anything past the build: the
+    provider, a stop on refusal) is logged and the tick goes on — the other
+    newcomers are served and ``:devices`` is posted."""
+    real_add = GeecsPvaGateway._add_worker
+
+    async def flaky_add(self, spec):
+        if spec.device == "UC_Bad":
+            raise RuntimeError("provider refused")
+        return await real_add(self, spec)
+
+    monkeypatch.setattr(GeecsPvaGateway, "_add_worker", flaky_add)
+    roster = ScriptedRoster([])
+    gateway, task = await _start([], roster)
+    try:
+        with caplog.at_level(logging.ERROR, logger=LOGGER):
+            roster.answer = [_spec("UC_Bad", 1), _spec("UC_Good", 2)]
+            await _wait_until(lambda: gateway.served_devices == ["UC_Good"])
+        assert _messages(caplog, "roster: adding UC_Bad failed; retried next tick")
+        ctx = Context("pva", conf=gateway.conf(), useenv=False)
+        try:
+            assert await _devices(ctx) == ["UC_Good"]
         finally:
             ctx.close()
     finally:

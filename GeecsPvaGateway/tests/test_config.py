@@ -108,6 +108,44 @@ def test_identity_host_is_the_served_endpoint_not_the_route_probe(fake_db, monke
     assert idle.devices == [] and idle.host == "192.168.7.5"
 
 
+def test_strict_scope_fails_instead_of_answering_nothing(fake_db, monkeypatch):
+    """The re-read's contract (#943): a box that cannot see its own addresses,
+    or no longer the one its instance is named after, fails the read — the
+    caller keeps its set — while the default (startup) scopes to nothing."""
+    from geecs_pva_gateway import config as config_module
+
+    monkeypatch.setattr(
+        config_module, "local_ip_addresses", lambda probe_target=None: set()
+    )
+    monkeypatch.setattr(config_module, "detect_local_ip", lambda target: "")
+    assert PvaGatewayConfig.from_geecs_experiment("Undulator").devices == []
+    with pytest.raises(LookupError, match="unknown"):
+        PvaGatewayConfig.from_geecs_experiment("Undulator", strict_scope=True)
+    # The camera-facing adapter is gone; the other NIC still answers.
+    monkeypatch.setattr(
+        config_module, "local_ip_addresses", lambda probe_target=None: {"192.168.7.5"}
+    )
+    with pytest.raises(LookupError, match="not including the instance's 192.168.6.100"):
+        PvaGatewayConfig.from_geecs_experiment(
+            "Undulator", strict_scope="192.168.6.100"
+        )
+    # The anchor present: scoping proceeds as at startup.
+    monkeypatch.setattr(
+        config_module,
+        "local_ip_addresses",
+        lambda probe_target=None: {"192.168.6.100", "192.168.7.5"},
+    )
+    cfg = PvaGatewayConfig.from_geecs_experiment(
+        "Undulator", strict_scope="192.168.6.100"
+    )
+    assert [c.device for c in cfg.devices] == ["UC_CamA", "UC_CamB"]
+    # An explicit --host never consults the machine's addresses.
+    cfg = PvaGatewayConfig.from_geecs_experiment(
+        "Undulator", host="192.168.6.101", strict_scope="192.168.6.100"
+    )
+    assert [c.device for c in cfg.devices] == ["UC_OtherHostCam"]
+
+
 def test_host_scoping_selects_image_devices_only(fake_db, caplog):
     """Host filter keeps that host's cameras; non-cameras drop out."""
     cfg = PvaGatewayConfig.from_geecs_experiment("Undulator", host="192.168.6.100")
