@@ -14,11 +14,10 @@ from geecs_bluesky.trajectory import axis_positions, sweep_to_cycler
 from .strict import name_failed_status
 
 
-def sweep_plan(namespace: Mapping[str, Any]) -> Callable:
-    """Bind expanded axis names to the worker's existing namespace objects.
+def axis_resolver(namespace: Mapping[str, Any]) -> Callable[[str], Movable]:
+    """The one lookup of an expanded axis name (``U_S1H.current``) in *namespace*.
 
     ``namespace`` may be a GeecsNamespace or a mapping in hermetic tests.
-    Device protocols and heterogeneous RunEngine metadata require Any here.
     """
 
     def resolve(name: str) -> Movable:
@@ -36,6 +35,33 @@ def sweep_plan(namespace: Mapping[str, Any]) -> Callable:
                 f"Sweep axis {name!r} is not movable/readable"
             )
         return obj
+
+    return resolve
+
+
+def sweep_movers(payload: Any, namespace: Mapping[str, Any]) -> list[Movable]:
+    """The motors a Sweep payload moves, resolved in *namespace* — the plan's own lookup.
+
+    For the background probe, which decides the run's membership before
+    the run opens.  Nothing is raised: a payload the plan would refuse
+    resolves to no movers here, and the plan refuses it when it runs, so
+    that error keeps its place.
+    """
+    try:
+        resolve = axis_resolver(namespace)
+        refs = Sweep.model_validate(payload).axis_references()
+        return [resolve(ref.axis) for ref in refs]
+    except Exception:  # noqa: BLE001 - the plan's own validation names it
+        return []
+
+
+def sweep_plan(namespace: Mapping[str, Any]) -> Callable:
+    """Bind expanded axis names to the worker's existing namespace objects.
+
+    ``namespace`` may be a GeecsNamespace or a mapping in hermetic tests.
+    Device protocols and heterogeneous RunEngine metadata require Any here.
+    """
+    resolve = axis_resolver(namespace)
 
     # Deliberately not a generator function: validation and expansion run when
     # the acquisition binder constructs the plan, BEFORE its first box move.
