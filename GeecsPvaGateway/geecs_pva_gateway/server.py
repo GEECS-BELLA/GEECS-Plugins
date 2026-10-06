@@ -882,21 +882,59 @@ class GeecsPvaGateway:
             await worker.stop()  # its plugin writer threads
             self._refuse(spec, str(exc))
             return False
+        # Transactional: the worker joins the served set only once every PV
+        # is on the air.  A registration that fails partway is rolled back
+        # whole — the PVs already added, the claims, the worker's threads —
+        # so the next tick sees the device as not served and retries it
+        # (nothing of the attempt survives to make that unsafe), one ERROR
+        # line per attempt.
+        added: list[tuple[str, SharedPV]] = []
+        try:
+            for name, pv in entries:
+                logger.debug("serving %s", name)  # the device-level line is INFO
+                self._provider.add(name, pv)
+                added.append((name, pv))
+        except Exception as exc:  # noqa: BLE001 - rolled back, never half-served
+            failed_at = entries[len(added)][0]
+            await self._unregister(worker, added)
+            for name, _pv in entries:
+                self._owners.pop(name, None)
+            logger.error(
+                "roster: %s: PV registration failed at %r (%s: %s); rolled back, "
+                "retried next tick",
+                spec.device,
+                failed_at,
+                type(exc).__name__,
+                exc,
+            )
+            return False
         self._workers.append(worker)
-        for name, pv in entries:
-            logger.debug("serving %s", name)  # the device-level line is INFO
-            self._provider.add(name, pv)
         return True
+
+    async def _unregister(
+        self, worker: _DeviceWorker, entries: list[tuple[str, SharedPV]]
+    ) -> None:
+        """Stop *worker*, then take *entries* off the air and release their claims.
+
+        Provider first (no new client can find a name), then the PV (the
+        attached clients are let go).  Each step is idempotent and
+        shielded, so a retried removal — or a rollback — always completes.
+        """
+        assert self._provider is not None
+        await worker.stop()
+        for name, pv in entries:
+            self._owners.pop(name, None)
+            with contextlib.suppress(Exception):
+                self._provider.remove(name)
+            with contextlib.suppress(Exception):
+                pv.close(destroy=True)
+            logger.debug("no longer serving %s", name)
 
     async def _remove_worker(self, worker: _DeviceWorker) -> None:
         """Release the worker's subscriptions, then take its PVs off the air."""
-        assert self._provider is not None
-        await worker.stop()
-        for name, _var, pv in worker.provider_entries():
-            self._owners.pop(name, None)
-            self._provider.remove(name)  # first: no new client can find it
-            pv.close(destroy=True)  # then: the attached ones are let go
-            logger.debug("no longer serving %s", name)
+        await self._unregister(
+            worker, [(name, pv) for name, _var, pv in worker.provider_entries()]
+        )
         self._workers.remove(worker)
 
     def _refuse(self, spec: DeviceSpec, reason: str) -> None:

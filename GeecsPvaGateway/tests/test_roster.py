@@ -545,3 +545,72 @@ def test_a_worker_that_fails_mid_build_leaks_no_writer_thread(monkeypatch):
         assert not built[0]._thread.is_alive()  # stopped, not parked for good
     finally:
         loop.close()
+
+
+@pytest.mark.timeout(60)
+async def test_a_newcomer_whose_registration_fails_partway_is_rolled_back(
+    monkeypatch, caplog
+):
+    """The Nth ``StaticProvider.add`` of a newcomer raises after N-1 succeeded:
+    nothing of the attempt survives — no worker, no name claims, no PV on
+    the air, writer threads joined, one ERROR line — so the next tick sees
+    the device as not served and rebuilds it cleanly."""
+    from p4p.server import StaticProvider
+
+    built: list = []
+    real_worker = server_module._DeviceWorker
+
+    class RecordingWorker(real_worker):
+        def __init__(self, spec, *args, **kwargs):
+            built.append(self)
+            super().__init__(spec, *args, **kwargs)
+
+    monkeypatch.setattr(server_module, "_DeviceWorker", RecordingWorker)
+    cam = FakeCamera()
+    await cam.start()
+    roster = ScriptedRoster([])
+    hang = threading.Event()
+    failing = f"{IMAGE_PV}:connected"  # registered after the image PV itself
+    failures = {"left": 1}
+    real_add = StaticProvider.add
+
+    def flaky_add(self, name, pv):
+        if name == failing and failures["left"]:
+            failures["left"] -= 1
+            roster.block = hang  # hold the next read: inspect the rollback first
+            raise RuntimeError("simulated registration failure")
+        return real_add(self, name, pv)
+
+    monkeypatch.setattr(StaticProvider, "add", flaky_add)
+    gateway, task = await _start([], roster)
+    try:
+        with caplog.at_level(logging.ERROR, logger=LOGGER):
+            roster.answer = [_spec(CAMERA, cam.port)]
+            await _wait_until(lambda: failures["left"] == 0)
+            # The rollback is complete once the attempt's writer threads are joined.
+            await _wait_until(
+                lambda: built
+                and not any(p._thread.is_alive() for p in built[0].plugins.values())
+            )
+            await asyncio.sleep(TICK)
+        assert gateway.served_devices == [] and built[0] not in gateway._workers
+        assert not any(n.startswith(IMAGE_PV) for n in gateway._owners)  # claims gone
+        ctx = Context("pva", conf=gateway.conf(), useenv=False)
+        try:
+            with pytest.raises(TimeoutError):  # the image PV added before the failure
+                await _get(ctx, IMAGE_PV, timeout=0.5)
+            assert await _devices(ctx) == []
+            failed = _messages(caplog, f"PV registration failed at {failing!r}")
+            assert len(failed) == 1 and "rolled back" in failed[0]
+            roster.block = None
+            hang.set()  # the held read returns: the next tick retries
+            await _wait_until(lambda: gateway.served_devices == [CAMERA])
+            assert len(built) == 2 and gateway._workers == [built[1]]
+            assert str(await _get(ctx, f"{IMAGE_PV}:connected")) == "Idle"
+            assert await _devices(ctx) == [CAMERA]
+        finally:
+            ctx.close()
+    finally:
+        hang.set()
+        await _shutdown(task)
+        await cam.stop()

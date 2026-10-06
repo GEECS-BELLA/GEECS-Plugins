@@ -45,7 +45,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (devices join and leave it) instead of a dict snapshot; the startup
   collision guard is the same check, now also applied to each device the
   re-read adds (a colliding newcomer is refused and logged once, the
-  served set stands). A device present before and after a read keeps its
+  served set stands). A newcomer joins the served set only once every
+  one of its PVs is registered: a registration that fails partway is
+  rolled back whole (PVs already added, name claims, writer threads) and
+  retried next tick, never left half-served. A device present before and after a read keeps its
   worker: an endpoint move stays the supervisor's business (#854), and a
   changed stream-variable set is logged once, not churned.
 - The #854 log line for an endpoint that moved off this host no longer

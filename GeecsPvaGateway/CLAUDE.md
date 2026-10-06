@@ -197,7 +197,10 @@ tests/
   rows cannot build a worker, is refused: logged once and skipped until
   its rows change, it leaves the set, or a removal frees a name — never
   rebuilt tick after tick, and a build that fails midway stops the
-  plugins it already started); a departed device has its worker stopped
+  plugins it already started; a newcomer joins `_workers` only once
+  every PV is on the air — a registration that fails partway is rolled
+  back whole through `_unregister`, the removal path, and retried next
+  tick); a departed device has its worker stopped
   (subscriptions released, writer threads joined), its PVs `remove`d
   then `close(destroy=True)`d — unless a plugin session is open on it
   (`capturing_variables`), when the removal is deferred tick by tick;
