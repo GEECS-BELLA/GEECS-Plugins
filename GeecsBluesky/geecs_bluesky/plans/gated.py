@@ -88,7 +88,7 @@ from geecs_bluesky.exceptions import (
     GeecsTriggerTimeoutError,
     failure_cause_text,
 )
-from geecs_bluesky.plans.strict import BinCounter, name_failed_status
+from geecs_bluesky.plans.strict import BinCounter, admit_background, name_failed_status
 
 logger = logging.getLogger(__name__)
 
@@ -445,6 +445,7 @@ def gated_per_step(
 
     def one_step(detectors: Sequence[Any], step: Any, pos_cache: Any):
         motors = list(step.keys())
+        yield from admit_background(detectors, motors)
         yield from bps.move_per_step(step, pos_cache)
         bins.value += 1
         body = take_reading([*detectors, *motors, bins], shots_per_step)

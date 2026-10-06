@@ -16,6 +16,7 @@ records run metadata exactly as it does for any other detector.
 
 from __future__ import annotations
 
+import functools
 import logging
 import time
 from collections.abc import Sequence
@@ -28,6 +29,7 @@ from bluesky.utils import FailedStatus, all_safe_rewind, separate_devices, short
 from geecs_schemas.trigger_profile import TriggerState
 from ophyd_async.core import StandardDetector
 
+from geecs_bluesky.devices.background import BackgroundSnapshot
 from geecs_bluesky.devices.ca._view import ScalarsView, geecs_device_name
 from geecs_bluesky.devices.ca.liveness import read_disconnected
 from geecs_bluesky.devices.detector import STRICT_TRIGGER_INFO
@@ -418,6 +420,25 @@ class BinCounter:
         }
 
 
+def admit_background(detectors: Sequence[Any], movers: Sequence[Any]) -> Any:
+    """Let the step's movers' devices back into the background, minus their own columns.
+
+    The plan stages root devices (bluesky's ``stage_wrapper`` stages
+    ``root_ancestor``), so the background probe before ``open_run`` sees a
+    scanned ``U_S1H.current`` as ``U_S1H`` whole and parks every candidate
+    under it.  The step knows the movers: they go to
+    :meth:`~geecs_bluesky.devices.background.BackgroundSnapshot.admit`
+    before anything is read, so the descriptor — built at the first
+    ``save``, or at the gated ``declare_stream`` — carries the device's
+    other variables once and the readback once, as the motor's own column.
+    A no-op without a snapshot among *detectors*, and after the first step.
+    """
+    for det in detectors:
+        if isinstance(det, BackgroundSnapshot):
+            yield from bps.wait_for([functools.partial(det.admit, list(movers))])
+            return
+
+
 def geecs_per_shot(shot_control: Any, **kwargs: Any) -> Callable[..., Any]:
     """``bp.count(..., per_shot=geecs_per_shot(shot_control))``.
 
@@ -459,6 +480,7 @@ def geecs_per_step(
 
     def one_step(detectors: Sequence[Any], step: Any, pos_cache: Any):
         motors = list(step.keys())
+        yield from admit_background(detectors, motors)
         yield from bps.move_per_step(step, pos_cache)
         bins.value += 1
         for _ in range(shots_per_step):

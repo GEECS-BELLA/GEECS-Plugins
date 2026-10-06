@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.112.0] - 2026-10-06
+
+### Fixed
+
+- **Background telemetry: scanning one variable no longer silences the
+  device's other variables.**  The probe excluded every candidate rooted
+  at a staged device, and bluesky's `stage_wrapper` stages root devices,
+  so a sweep over `U_S1H.current` dropped all of `U_S1H`'s logged
+  readbacks from the rows for that scan — the device being varied was the
+  one least recorded.  The probe now **parks** those candidates instead,
+  and the first step's hook (`plans/strict.admit_background`, in the
+  strict and gated per-step before anything is read) hands the step's
+  movers to `BackgroundSnapshot.admit`: each mover's device returns as a
+  member minus the keys the mover describes (its readback, the motor's own
+  column), so the descriptor carries the device's other variables once
+  and the readback once.  A detector, a non-essential device or a
+  `.scalars` view's owner is never a mover, so its candidates stay parked
+  as before; a mover that does not describe within the probe budget keeps
+  its whole device out for the run (WARNING: a key read twice fails the
+  run, a missing column does not); `admit` is idempotent and never raises.
+  Hermetic tests pin the parked-then-admitted member, the refusal, the
+  strict sweep and the gated sweep (the readback once as the motor's
+  column, the voltage from the background in every row).
+
 ## [0.111.0] - 2026-10-02
 
 ### Added

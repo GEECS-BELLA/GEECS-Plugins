@@ -499,10 +499,20 @@ is read into every row as well, softly —
 `devices/background.BackgroundSnapshot`, one more detector the registry
 appends to every bound scan verb (strict: read per shot; gated: a sampler
 member, read at the tick; `optimize` too).  Members = `namespace.telemetry()`
-minus every root device the run stages (its detectors, a `.scalars` view's
-owner, the non-essential devices, the scan motors — no event key twice;
-`background_wrapper` collects the `stage` messages and probes right before
-`open_run`, so the sweep's resolved axes count).  The probe is bounded
+minus what the run records itself — no event key twice — decided in two
+steps: the probe (`background_wrapper` collects the `stage` messages and
+probes right before `open_run`, so the sweep's resolved axes count) **parks**
+every candidate rooted at a staged device — bluesky's `stage_wrapper` stages
+`root_ancestor`, so a scanned `U_S1H.current` looks like `U_S1H` whole there
+— and the first step's hook (`plans/strict.admit_background`, called by the
+strict and gated per-step before anything is read) hands the movers to
+`BackgroundSnapshot.admit`, which lets each mover's device back in minus
+the keys the mover describes (its readback, the motor's own column), so the
+scanned device's other logged variables stay in the rows.  A detector, a
+non-essential device or a `.scalars` view's owner is never a mover, so its
+candidates stay parked; a mover that does not describe within the budget
+keeps its whole device out for the run (WARNING — a key read twice fails the
+run, a missing column does not).  The probe is bounded
 (`PROBE_TIMEOUT_S`, 1 s, concurrent across members): one that does not
 answer — a PV the gateway does not serve, a failed connect or describe —
 is left out of **that run only**, named in the log and in the start

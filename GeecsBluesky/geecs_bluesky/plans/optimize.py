@@ -28,7 +28,12 @@ from .gated import (
     refuse_free_running_non_essentials,
     run_bracket,
 )
-from .strict import BinCounter, geecs_take_reading, name_failed_status
+from .strict import (
+    BinCounter,
+    admit_background,
+    geecs_take_reading,
+    name_failed_status,
+)
 
 if TYPE_CHECKING:
     from geecs_bluesky.config_resolver import ConfigsRepoResolver
@@ -367,6 +372,9 @@ def optimize_plan(
                 key, value = next(iter(reading.items()))
                 reading_keys[name] = key
                 initial[name] = float(value["value"])
+            # The movables' devices back into the background, minus the
+            # movables' own columns — before the first row is read.
+            yield from admit_background(detectors, list(movables.values()))
             yield from bps.declare_stream(record, name="optimization")
             for iteration in range(1, iterations + 1):
                 yield from bps.checkpoint()

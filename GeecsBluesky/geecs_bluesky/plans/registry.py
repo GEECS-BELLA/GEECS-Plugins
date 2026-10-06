@@ -267,7 +267,10 @@ def background_wrapper(plan: Any, snapshot: BackgroundSnapshot) -> Any:
     ``background_dropped`` (GEECS device names); a probe that failed
     outright (never a member's failure, which is its own drop) adds
     ``background_probe_error``.  Before the claim, so a slow probe costs
-    the run nothing but its bounded budget.
+    the run nothing but its bounded budget.  The ``stage`` messages name
+    root devices, so a scanned child's device is only *parked* here; the
+    per-step hook (:func:`~geecs_bluesky.plans.strict.admit_background`)
+    admits it back minus the child's own column.
     """
     staged: list[Any] = []
     opened = False
