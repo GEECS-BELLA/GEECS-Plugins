@@ -86,13 +86,20 @@ What you read:
 - Phoebus's image widget shows a `(rows, 2)` lineout as a two-pixel-wide
   strip; use an XY plot on the two columns, or a 1-D plot for a trace.
 
-Each gateway instance also serves three **instance PVs** for fleet health:
+Each gateway instance also serves four **instance PVs** for fleet health:
 
 ```
 [experiment:]pvagateway:<host_token>:version     installed package version
 [experiment:]pvagateway:<host_token>:heartbeat   counter, +1 per 5 s
 [experiment:]pvagateway:<host_token>:restart     write 1 → clean relaunch
+[experiment:]pvagateway:<host_token>:devices     the devices served right now (string array)
 ```
+
+The served set follows the GEECS DB while the instance runs (GeecsPvaGateway
+0.15.0): it is re-read every 60 s, so a device enabled or disabled in the DB
+gains or loses its PVs within a minute with no restart, and `:devices` is
+posted on every change. `geecs-pva-gateway fleet` shows it against the DB
+roster.
 
 `<host_token>` is the server's IP with dots as underscores
 (`192.168.6.100` → `192_168_6_100`). A Phoebus fleet screen reading these

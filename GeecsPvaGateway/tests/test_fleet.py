@@ -217,6 +217,7 @@ def test_probe_lines_and_record_split_findings_from_facts():
     answers = {
         "undulator:pvagateway:192_168_6_100:version": "0.5.0",
         "undulator:pvagateway:192_168_6_100:heartbeat": 42,
+        "undulator:pvagateway:192_168_6_100:devices": ["UC_A", "UC_B"],
     }
     result = probe_fleet("Undulator", _hosts(), getter=_getter(answers))
     lines = result.lines()
@@ -224,6 +225,7 @@ def test_probe_lines_and_record_split_findings_from_facts():
         lines[0].startswith("  [ OK ] PVA gateway  192.168.6.100")
         and "0.5.0" in lines[0]
     )
+    assert lines[0].endswith("serving 2 of 2 stream devices")
     assert (
         lines[1].startswith("  [DOWN] PVA gateway  192.168.7.161")
         and "TimeoutError" in lines[1]
@@ -255,6 +257,30 @@ def test_probe_flags_mixed_versions_and_all_down():
 
     result = probe_fleet("Undulator", _hosts(), getter=_getter({}))
     assert "state=down" in result.record().split("\t")
+
+
+def test_probe_diffs_the_served_set_against_the_db_roster():
+    """The ``:devices`` PV (the set the instance serves, #943) is shown against
+    the DB roster: agreement is a fact, a difference is a finding (note=), and
+    an instance without the PV (pre-0.15.0) reads as before."""
+    answers = {
+        "undulator:pvagateway:192_168_6_100:version": "0.15.0",
+        "undulator:pvagateway:192_168_6_100:heartbeat": 42,
+        "undulator:pvagateway:192_168_6_100:devices": ["UC_A", "UC_Z"],
+        "undulator:pvagateway:192_168_7_161:version": "0.14.0",
+        "undulator:pvagateway:192_168_7_161:heartbeat": 7,
+    }
+    result = probe_fleet("Undulator", _hosts(), getter=_getter(answers))
+    assert result.probes[0].drift == (["UC_B"], ["UC_Z"])
+    assert result.probes[1].devices is None and result.probes[1].drift == ([], [])
+    lines = result.lines()
+    assert lines[0].endswith(
+        "serving 2 of 2 stream devices (DB roster differs: not served UC_B; extra UC_Z)"
+    )
+    assert lines[1].endswith("1 stream devices")  # the old format, nothing claimed
+    fields = result.record().split("\t")
+    assert "note=served set differs from the DB roster on 192.168.6.100" in fields
+    assert not any(f.startswith("note=") and "unreachable" in f for f in fields)
 
 
 def test_fleet_subcommand_dispatch(monkeypatch, capsys, tmp_path):

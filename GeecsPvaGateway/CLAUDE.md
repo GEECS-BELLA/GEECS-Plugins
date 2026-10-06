@@ -26,7 +26,8 @@ instance-PV semantics — as a contract.
 
 ```
 geecs_pva_gateway/
-  __main__.py   # geecs-pva-gateway --experiment NAME [--host IP] [--devices A,B] [--list]
+  __main__.py   # geecs-pva-gateway --experiment NAME [--host IP] [--devices A,B]
+                #   [--roster-interval S] [--list]
                 #   + `geecs-pva-gateway fleet` (read-only fleet probe, fleet.py)
   config.py     # DeviceSpec / PvaGatewayConfig; DB-scoped served set
                 #   (enabled devices on this host's IP with a stream variable:
@@ -50,8 +51,10 @@ geecs_pva_gateway/
                 #   subscription (+ :connected state per variable, DB endpoint
                 #   re-resolve at the backoff ceiling, #854), decode off-loop,
                 #   latest-wins posting (the last decoded frame is kept for
-                #   the plugin's arm, #894), version/heartbeat/restart
-                #   instance PVs (restart -> exit 86)
+                #   the plugin's arm, #894), the served-set re-read on a
+                #   timer over one live StaticProvider (#943),
+                #   version/heartbeat/restart/devices instance PVs
+                #   (restart -> exit 86)
   file_plugin.py # HdfFilePlugin (#806): one per stream variable, the
                 #   areaDetector NDFileHDF5 PV set (+ Rewind, WriteStatus,
                 #   WriteMessage) over a single writer thread; lossless
@@ -82,7 +85,12 @@ tests/
                   #   record and the `fleet` dispatch (fake DB/getter, no network)
   test_server.py  # end-to-end over a binary wire-format fake camera +
                   #   isolate=True PVA server
-  test_entrypoint.py # CLI exit codes (incl. the restart code 86 contract)
+  test_entrypoint.py # CLI exit codes (incl. the restart code 86 contract),
+                  #   the roster re-read's CLI wiring
+  test_roster.py  # the served-set re-read (#943) over a scripted resolver:
+                  #   add, remove, deferred removal mid-capture, last-good
+                  #   set on a failed/slow read, the empty set, a device in
+                  #   both sets kept, a colliding newcomer refused
   test_file_plugin.py # the PV contract pinned by the stock ophyd-async
                   #   ADHDFDataLogic over a real NDFileHDF5IO on pva://;
                   #   session semantics (arming, dedupe, stale, rewind,
@@ -180,10 +188,27 @@ tests/
   creates a directory (`CreateDirectory` is ignored); never HDF5 SWMR
   across SMB (`SWMRMode` accepted and ignored; flush per frame, file
   locking off). Served only where `h5py` imports (`file_plugin.available`).
+- **Served-set re-read** (#943): the roster resolver (the CLI's
+  `from_geecs_experiment` call, verbatim) is re-run off-loop every
+  `ROSTER_INTERVAL_S` (60 s; `--roster-interval`, 0 = startup only) and
+  the instance reconciled by device name: a newcomer gets a worker and
+  its PVs are `add`ed to the one `StaticProvider` the server keeps (the
+  startup collision guard applies — a colliding newcomer is refused,
+  logged once); a departed device has its worker stopped (subscriptions
+  released, writer threads joined), its PVs `remove`d then
+  `close(destroy=True)`d — unless a plugin session is open on it
+  (`capturing_variables`), when the removal is deferred tick by tick. A
+  device in both sets keeps its worker (endpoint moves are #854's; a
+  changed variable set is logged once, never churned). A read that
+  raises or outlives `_ROSTER_RESOLVE_TIMEOUT_S` keeps the last good set
+  and is logged once per streak; a slow read is never overlapped (one
+  executor thread at most). The `:devices` PV posts every change.
 - **Identity/control PVs**: `{experiment}:pvagateway:{host_token}:version|
-  heartbeat|restart` per instance — the fleet screen reads the first two
-  (version skew, liveness); writing `:restart` exits 86 for the service
-  manager to relaunch (rollout mechanism, `deploy/`).
+  heartbeat|restart|devices` per instance — the fleet screen reads the
+  first two (version skew, liveness), the fleet probe all but `restart`
+  (`devices`, the served set, diffed against the DB roster); writing
+  `:restart` exits 86 for the service manager to relaunch (rollout
+  mechanism, `deploy/`). The four never move with the roster.
 
 ## Ground rules
 
@@ -198,7 +223,8 @@ tests/
 - **Which arrays are served is the DB minus GEECS-Core's exclusions**
   (`geecs_core.db.device_streams`): never a per-host list, never an image.
   An instance whose host has no stream device idles on its identity PVs
-  rather than exiting.
+  rather than exiting, and the set follows the DB on a timer — a DB edit
+  never needs a restart to take effect (#943).
 - **Text variables**: image and array variables must always be subscribed
   as `text_variables` — numeric coercion destroys binary payloads (and would
   turn a CSV lineout into its first number).

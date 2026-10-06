@@ -17,6 +17,14 @@ geecs-pva-gateway --experiment Undulator --list   # show what would be served
 - Served set is **DB-scoped**: enabled devices whose GEECS endpoint IP is this
   machine and that expose a stream variable: image-typed, or `1darray`-typed
   and not excluded by `geecs_core.db.device_streams`. No per-host config file.
+- The served set **follows the DB while the process runs** (#943): it is
+  re-read every 60 s (`--roster-interval`; `0` = startup only) and the
+  instance reconciled — a device enabled or disabled in the DB gains or
+  loses its PVs within a minute, no restart. A device mid-capture through
+  the file plugin is left alone until its session closes; a DB that stops
+  answering never shrinks the set (the last good roster stands). The
+  `:devices` instance PV says what is served; `geecs-pva-gateway fleet`
+  shows it against the DB roster.
 - PV names follow the shared contract (`geecs_core.pv_naming`):
   `undulator:uc_amp2_ir_input:image`.
 - Subscriptions are **gated per variable**: each stream variable's GEECS TCP
