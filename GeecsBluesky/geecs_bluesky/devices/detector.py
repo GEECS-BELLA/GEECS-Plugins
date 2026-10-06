@@ -775,23 +775,26 @@ class GeecsDetector(StandardDetector):
         only there, where it reads as the camera's own frame drop
         (GEECS-Plugins#1023).  Read on every failure path that names the
         device (:meth:`prepare`, the count timeouts of ``trigger`` and
-        ``complete``, the strict plan's miss), each plugin within
-        :data:`PLUGIN_REASON_TIMEOUT_S`; a plugin that does not answer, or
-        has nothing to say, is left out.  Empty without a plugin.  The
-        plugin clears its message on the next frame it accepts, so a reason
-        here is current, not a frame it refused shots ago.
+        ``complete``, the strict plan's miss), the plugins together, each
+        within :data:`PLUGIN_REASON_TIMEOUT_S` — so the call is bounded by
+        that budget whatever the plugin count (a MagSpec camera arms four);
+        a plugin that does not answer, or has nothing to say, is left out.
+        Empty without a plugin.  The plugin clears its message on the next
+        frame it accepts, so a reason here is current, not a frame it
+        refused shots ago.
         """
-        reasons: list[str] = []
-        for io in self._hdf_ios:
+
+        async def read(io: GeecsHdfIO) -> str:
             try:
                 message = await asyncio.wait_for(
                     io.write_message.get_value(), PLUGIN_REASON_TIMEOUT_S
                 )
             except Exception:  # noqa: BLE001 - a reason is best effort
-                continue
-            if message:
-                reasons.append(f"file plugin {io.name}: {message}")
-        return reasons
+                return ""
+            return f"file plugin {io.name}: {message}" if message else ""
+
+        texts = await asyncio.gather(*(read(io) for io in self._hdf_ios))
+        return [text for text in texts if text]
 
     @property
     def native_image_save(self) -> bool:

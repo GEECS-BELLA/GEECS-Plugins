@@ -365,16 +365,17 @@ def test_count_timeouts_name_the_plugins_reason(RE: RunEngine, tmp_path: Path) -
 def test_plugin_reasons_is_bounded(
     RE: RunEngine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A plugin that never answers costs a failure path the budget, never a hang."""
+    """Plugins that never answer cost a failure path one budget — not one per plugin, never a hang."""
     from geecs_bluesky.devices import detector as detector_module
 
-    cam = _camera(RE, tmp_path)
+    cam = _two_stream_camera(RE, tmp_path)  # two plugins, both silent
     monkeypatch.setattr(detector_module, "PLUGIN_REASON_TIMEOUT_S", 0.2)
 
     async def hang(*_args, **_kwargs):
         await asyncio.Event().wait()
 
-    monkeypatch.setattr(cam.hdf.write_message, "get_value", hang)
+    for io in (cam.hdf, cam.hdf_imageinterp):
+        monkeypatch.setattr(io.write_message, "get_value", hang)
 
     async def timed() -> tuple[list[str], float]:
         started = time.monotonic()
@@ -383,7 +384,7 @@ def test_plugin_reasons_is_bounded(
 
     reasons, elapsed = _run(RE, lambda: timed())
     assert reasons == []
-    assert 0.2 <= elapsed < 1.0
+    assert 0.2 <= elapsed < 0.4  # one budget for the device (read together)
     # Without a plugin there is nothing to read.
     plain = GeecsDetector("UC_Plain", [], name="plain")
     connect_mock(RE, plain)

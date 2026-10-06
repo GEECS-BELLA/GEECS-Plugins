@@ -28,17 +28,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   instead of before the kickoff — bluesky emits the descriptor at
   `declare_stream`, and before the kickoff (box OFF) there is no frame for
   the plugin to have settled on; the `shots` stream is declared where it
-  was, so its rows go out during the batch as before. Hermetic pins: the
+  was, so its rows go out during the batch as before. The non-essential
+  wrapper likewise declares a plugin-backed non-essential's `<name>_stream`
+  at the run's close, right before its collect (the stamp streams keep
+  their declare at the open), and a gated batch paused or failed before
+  its first frame declares nothing — nothing to collect; the step's next
+  batch declares — both from the rebuild's review. Hermetic pins: the
   detector's describe and first StreamResource carry the shape and dtype
   the PVs read after prepare and keep them after a datum; a gated count's
   `primary` descriptor and StreamResource carry the shape set at the first
-  edge, the descriptor emitted after the batch's `shots` rows.
+  edge, the descriptor emitted after the batch's `shots` rows; a
+  plugin-backed non-essential's descriptor and StreamResource agree at the
+  settled shape in both modes; a batch paused before its first edge leaves
+  the run's one `primary` descriptor to its next batch, at the settled
+  shape.
 
 ### Added
 
 - `GeecsDetector.plugin_reasons()` — each file plugin's non-empty
-  `WriteMessage` as `file plugin <io.name>: <message>`, read within
-  `PLUGIN_REASON_TIMEOUT_S` (2 s) per plugin, best effort — serving
+  `WriteMessage` as `file plugin <io.name>: <message>`, the plugins read
+  together, each within `PLUGIN_REASON_TIMEOUT_S` (2 s — the bound of the
+  whole call whatever the plugin count), best effort — serving
   `prepare`'s failure note (the same text it attached before), the count
   timeouts of `trigger` (strict) and `complete` (gated), whose
   `GeecsTriggerTimeoutError` now ends ` — file plugin …: <message>` when

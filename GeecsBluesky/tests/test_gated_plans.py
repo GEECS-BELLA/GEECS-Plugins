@@ -419,6 +419,56 @@ def test_the_primary_descriptor_follows_the_geometry_the_plugin_settles(
     assert kinds.index(("descriptor", "primary")) < names.index("stream_resource")
 
 
+def test_a_pause_before_the_first_edge_declares_primary_at_the_next_batch(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """GEECS-Plugins#1023 (the rebuild's review): a batch that kept nothing declares nothing.
+
+    An immediate pause lands in the first batch before its first edge: no
+    frame, no row.  A ``primary`` descriptor composed at that settle would
+    read the held frame's shape (4 x 6); the step's next batch lands the
+    first fresh frame (5 x 7, the plugin re-declares) and declares at its
+    collect, so the run's one descriptor carries the settled shape.
+    """
+    box = GatedBox(interval=0.5, late_edge=False)  # the first edge 0.5 s into SCAN
+    shot_control = ShotControl(
+        GATED_WRITES, experiment="TestExp", name="shot_control", setter_factory=box
+    )
+    connect_mock(RE, shot_control)
+    cam, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+    set_mock_value(cam.hdf.array_size_x, 6)
+    set_mock_value(cam.hdf.array_size_y, 4)
+    edge = box.edge
+
+    def first_fresh_frame_re_declares() -> None:
+        if box.edges == 0:
+            set_mock_value(cam.hdf.array_size_x, 7)
+            set_mock_value(cam.hdf.array_size_y, 5)
+        edge()
+
+    box.edge = first_fresh_frame_re_declares
+
+    def pause_on_scan() -> None:
+        while "scan" not in box.states:
+            time.sleep(0.005)
+        RE.request_pause(defer=False)
+
+    threading.Thread(target=pause_on_scan, daemon=True).start()
+    col = DocCollector()
+    RE.subscribe(col)
+    with pytest.raises(RunEngineInterrupted):
+        RE(bp.count([cam], 3, per_shot=gated_per_shot(shot_control, quota=3)))
+    assert RE.state == "paused"
+    assert box.edges == 0  # paused before the first edge: nothing kept
+    RE.resume()
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    primaries = [d for d in col.docs["descriptor"] if d["name"] == "primary"]
+    assert len(primaries) == 1
+    assert primaries[0]["data_keys"]["uc_a"]["shape"] == [1, 5, 7]
+    assert _assert_contiguous(_datums_by_key(col)["uc_a"], 3)
+    assert box.scan_runs == 2
+
+
 def _pause_after(RE: RunEngine, box: GatedBox, edges: int, *, defer: bool) -> dict:
     """Request a pause once *edges* edges have landed; record the edge count then."""
     seen: dict[str, int] = {}

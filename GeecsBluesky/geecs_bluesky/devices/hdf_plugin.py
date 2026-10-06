@@ -81,9 +81,10 @@ class GeecsStreamResourceDataProvider(StreamResourceDataProvider):
     plugin's geometry PVs at every ``make_datakeys`` / ``make_stream_docs``
     until a stream datum is out, then keeps it: the descriptor is composed
     after the first frame (strict: at the first ``save``; gated: the
-    cameras' stream is declared after the first batch, ``plans/gated.py``),
-    the resource document goes out with the first datum, and both read the
-    shape the plugin settled on.  The NDAttribute datasets are scalars and
+    cameras' stream is declared after the first batch; a non-essential
+    plugin stream: declared at the run's close, right before its collect —
+    both in ``plans/gated.py``), the resource document goes out with the
+    first datum, and both read the shape the plugin settled on.  The NDAttribute datasets are scalars and
     stay as the stock logic described them.  What this relies on — the
     plugin posts the geometry before ``NumCaptured_RBV`` advances — is the
     plugin's contract, pinned by its own ``test_file_plugin``.

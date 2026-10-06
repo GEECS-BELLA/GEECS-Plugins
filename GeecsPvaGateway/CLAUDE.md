@@ -36,8 +36,9 @@ geecs_pva_gateway/
   streams.py    # per-variable decode + shape: IMAQ for an image; the three
                 #   array wire shapes (geecs_data_utils.io.arrays, sniffed)
                 #   → float64 in physical units at native length (never
-                #   padded; the plugin fixes a stack's shape at the arm and
-                #   drops + counts a frame of another shape); a waveform's
+                #   padded; the plugin settles a stack's shape on the first
+                #   fresh frame — re-declaring the held frame's, #1023 — and
+                #   drops + counts a frame of another shape after that); a waveform's
                 #   x0/dx/samples ride as NTNDArray attributes and, on an
                 #   array variable's stack, as per-frame attributes
                 #   (wave_x0 / wave_dx / wave_samples, NaN for non-waveforms)

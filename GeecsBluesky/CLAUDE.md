@@ -393,7 +393,9 @@ listed devices are staged, prepared unbounded, kicked off right after
 lacks, per plan, never RunEngine-level `SupplementalData.flyers`; nothing
 waits on them, and from the close on every step of theirs is a
 contingency that never fails the run.  A plugin-backed camera flies itself
-(a datum stream).  A **triggered device without a plugin** — one saving
+(a datum stream, declared at the close right before its collect so the
+descriptor reads the geometry the plugin settled on, #1023).  A
+**triggered device without a plugin** — one saving
 its own LabVIEW files (the HASO, a camera on a host without the PVA
 gateway) or one with scalars only and a stamp (a power supply, a gauge),
 or any detector's `.scalars` view — is a nice-to-have diagnostic that
@@ -703,8 +705,10 @@ first fresh frame when the device's settings moved since (#1023), so the
 provider reads the main dataset's shape and dtype off the plugin's
 geometry PVs at the first describe and the first stream documents (after
 the first frame; strict composes its descriptor at the first `save`, gated
-declares `primary` after the first batch) and keeps them once a datum is
-out, where the stock logic froze them at `prepare`; the run's stream
+declares `primary` after the first batch, and a non-essential plugin
+stream is declared at the run's close right before its collect) and keeps
+them once a datum is out, where the stock logic froze them at `prepare`;
+the run's stream
 documents reference the stack and Tiled reads it with its stock adapter.  The
 rule is the namespace's: a served capture stream + endpoint in
 `config.ini [pva] file_plugin_addr_list` (absent = no host; never the PVA
