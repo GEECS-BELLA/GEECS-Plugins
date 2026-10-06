@@ -63,6 +63,7 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "frames_this_batch",
         "get_index",
         "get_trigger_deadtime",
+        "hdf_ios",
         "hints",
         "kickoff",
         "last_acq_timestamp",

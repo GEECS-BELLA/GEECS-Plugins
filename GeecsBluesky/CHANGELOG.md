@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.112.0] - 2026-10-06
+
+### Changed
+
+- A no-frame miss on a plugin-backed device names the plugin's reason
+  (#1023). The incomplete-shot warning and the step's
+  `GeecsTriggerTimeoutError` — the scan-end message — carry each missed
+  device's file-plugin `WriteMessage` beside its name
+  (`UC_BCaveMagSpecCam1 (file plugin uc_bcavemagspeccam1-hdf-imageinterp:
+  frame shape (301, 2) != the shape declared at the arm (304, 2) …)`),
+  read at the miss by `plans/strict.py::plugin_write_messages` over the
+  new `GeecsDetector.hdf_ios` (the plugin IOs in capture order; the name
+  joins `RESERVED_DEVICE_ATTRIBUTES`, so a GEECS variable spelled
+  `hdf_ios` would bind as `hdf_ios_`), and the
+  failure stops blaming "known camera frame-drop intermittency" when a
+  plugin has a message: a plugin refusing every frame (a shape change
+  since the held frame it armed on, a stack that would not open) read as
+  a camera dropping frames. A device without a plugin, or whose plugins
+  report nothing, keeps the old wording. The gateway-side fix is
+  GeecsPvaGateway 0.15.0.
+
 ## [0.111.0] - 2026-10-02
 
 ### Added

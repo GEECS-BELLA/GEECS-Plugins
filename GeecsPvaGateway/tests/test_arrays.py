@@ -384,9 +384,13 @@ async def test_the_plugin_writes_a_1d_float_stack_and_drops_a_frame_of_another_l
 @pytest.mark.timeout(30)
 async def test_a_first_frame_unlike_the_held_frame_is_refused_not_written(tmp_path):
     """Armed on a held frame from before a shape change (ΔE/ROI changed while
-    nothing was subscribed): the descriptor declares the held shape, so a
-    first frame of another shape must not open a stack the record
-    misdescribes — every such frame is dropped, counted and named."""
+    nothing was subscribed) by a device that pushes nothing within the arm's
+    window — the fallback after FRESH_FRAME_WAIT_S (#1023; a device that
+    greets the subscription arms on that frame instead,
+    ``test_file_plugin.test_arm_prefers_a_fresh_push_over_the_held_frame``):
+    the descriptor declares the held shape, so a first frame of another
+    shape must not open a stack the record misdescribes — every such frame
+    is dropped, counted and named."""
     dev = ArrayDevice("interpSpec")
     await dev.start()
     gateway, task = await _start_gateway(dev, "interpSpec")
@@ -417,7 +421,9 @@ async def test_a_first_frame_unlike_the_held_frame_is_refused_not_written(tmp_pa
         await asyncio.wait_for(dev.disconnected.wait(), 10)
         dev.disconnected.clear()
         dev.connected.clear()
-        await put("Capture", True)
+        await put(
+            "Capture", True
+        )  # nothing queued: the window passes, the held frame arms
         assert int(await get("ArraySizeY_RBV")) == 4  # declared from the held frame
         # ... then the device pushes 3-row frames (the new configuration).
         t = time.time()

@@ -131,15 +131,24 @@ tests/
   one writer thread owning all session state and the file handle (puts
   and frames only enqueue). `Capture=1` zeroes the session readbacks
   (`NumCaptured_RBV` first — the stock logic baselines on it, #853),
-  retains the variable's subscription like a client and completes at
-  once on the last frame the worker decoded for the variable (that is
-  where the geometry the worker describes the stream with comes from;
-  the held frame is never written); only a never-decoded variable waits
-  for its first push, `ARM_TIMEOUT_S` at most (#894 — waiting for a push
-  on a box ARMED through a long first move failed the run's first
-  prepare; never-decoded is every camera after each gateway restart until
-  its first session gets a push — an image monitor held for one gating
-  round-trip in STANDBY seeds it); frames are deduped on `acq_timestamp` and
+  retains the variable's subscription like a client and arms on the
+  first push that follows (the subscription just taken is greeted with
+  the device's last frame; a camera in STANDBY free-runs), declaring
+  *its* shape as the stream geometry — `FRESH_FRAME_WAIT_S` (1.5 s) at
+  most when the worker already holds a decoded frame of the variable,
+  after which it completes on that held frame instead (#894 — a box
+  ARMED with no edges under a subscription a watcher already holds
+  pushes nothing, and waiting a full `ARM_TIMEOUT_S` there failed the
+  run's first prepare). The held frame is the fallback and not the first
+  choice because it is only as current as the variable's last
+  subscription, which `Capture=0` releases: a stream whose shape follows
+  the device's settings (the MagSpec lineouts' energy axis) armed on it
+  declared the old shape and dropped every fresh frame of the run
+  (#1023). The held frame is never written. A never-decoded variable
+  waits `ARM_TIMEOUT_S` for its first push (never-decoded is every
+  camera after each gateway restart until its first session gets a push
+  — an image monitor held for one gating round-trip in STANDBY seeds
+  it); frames are deduped on `acq_timestamp` and
   stale-filtered against a watermark set at `Capture=1` and moved by
   `Rewind` (the refire guard: truncate to N, drop older-stamped
   arrivals); `NumCaptured_RBV` posts after each frame is on disk;

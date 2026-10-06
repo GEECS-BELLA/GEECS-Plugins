@@ -754,6 +754,16 @@ class GeecsDetector(StandardDetector):
         return bool(self._hdf_ios)
 
     @property
+    def hdf_ios(self) -> tuple[GeecsHdfIO, ...]:
+        """The file-plugin IOs this detector arms, in capture order (empty without a plugin).
+
+        What the strict plan reads a plugin's ``write_message`` off when the
+        device yields no frame (GEECS-Plugins#1023) — the same IOs
+        :meth:`prepare` reads for its failure note.
+        """
+        return tuple(self._hdf_ios)
+
+    @property
     def native_image_save(self) -> bool:
         """Whether a strict prepare switches LabVIEW's per-shot saving on.
 

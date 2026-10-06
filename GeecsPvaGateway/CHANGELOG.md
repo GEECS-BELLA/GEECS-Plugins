@@ -4,6 +4,30 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.15.0] - 2026-10-06
+
+### Fixed
+
+- The file plugin arms on a **fresh push** before trusting the held frame
+  (#1023). `Capture=1` now waits `FRESH_FRAME_WAIT_S` (1.5 s) for a push of
+  a variable the gateway has already decoded and declares *that* frame's
+  shape as the stream geometry; the held frame is the fallback when
+  nothing arrives, so the #894 case — a box ARMED with no edges under a
+  subscription a watcher already holds — keeps working, 1.5 s later. The
+  held frame is only as current as the variable's last subscription,
+  which `Capture=0` releases, so a stream whose shape follows the
+  device's settings — the MagSpec `ImageInterp` / `interpSpec`, resampled
+  onto an energy axis whose length changed between scans (304 → 301 →
+  251 → 248 px on 26_0929) — was declared at the old shape and every
+  fresh frame of the run dropped as a shape error: the strict scan failed
+  `no frame from UC_BCaveMagSpecCam1, UC_BCaveMagSpecCam2` on its first
+  attempt and succeeded on the retry, whose session had refreshed the
+  held frame. This is the pre-run refresh 0.14.0 deferred. A
+  never-decoded variable still waits `ARM_TIMEOUT_S` for its first push;
+  the subscription the arm takes is greeted with the device's last frame
+  (an old stamp: never written, its shape declared), and a camera in
+  STANDBY free-runs, so the wait normally ends well inside the window.
+
 ## [0.14.0] - 2026-09-24
 
 ### Removed

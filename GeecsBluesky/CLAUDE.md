@@ -730,7 +730,11 @@ proprietary devices keep it for good, whatever the switch says.  Live
 frames are the NTNDArray PVs.  A missed shot keeps its row (scalars, the
 missing device's columns `NaN`, no frames) and the plan takes one more
 shot, rewinding every plugin to its last referenced frame first
-(`GeecsDetector.discard_uncollected`).  Natively saved files are named by
+(`GeecsDetector.discard_uncollected`); the incomplete-shot warning and
+the step's failure name each missed plugin's `WriteMessage`
+(`plans/strict.py::plugin_write_messages` over `GeecsDetector.hdf_ios`,
+#1023), so a plugin refusing frames — a shape change since the held
+frame it armed on — does not read as a camera dropping them.  Natively saved files are named by
 the device server and read from disk by their stamp
 (`geecs_data_utils.native_files`); this package emits no Resource/Datum
 documents for them, so nothing here describes their formats.

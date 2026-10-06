@@ -329,7 +329,7 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
 
 # ---------------------------------------------------------------- session
 @pytest.mark.timeout(60)
-async def test_session_semantics_over_raw_pva(tmp_path):
+async def test_session_semantics_over_raw_pva(tmp_path, monkeypatch):
     """Directory checks, rewind, counters and the no-file case, via plain puts."""
     cam = StampedCamera()
     await cam.start()
@@ -411,10 +411,13 @@ async def test_session_semantics_over_raw_pva(tmp_path):
 
         # The #894 shape: a watcher holds the subscription, the camera pushes
         # nothing (a box ARMED through a long first move), and the last frame
-        # it did push has a new geometry.  Capture=1 completes at once on the
-        # held frame, with its geometry — and the readbacks of the last
-        # session (3 frames) read 0 before Capture_RBV flips (#853).
+        # it did push has a new geometry.  Capture=1 waits FRESH_FRAME_WAIT_S
+        # for a push (#1023: the held frame may predate a shape change), gets
+        # none, and completes on the held frame, with its geometry — well
+        # inside ARM_TIMEOUT_S — and the readbacks of the last session (3
+        # frames) read 0 before Capture_RBV flips (#853).
         assert int(await get("NumCaptured_RBV")) == 3
+        monkeypatch.setattr(file_plugin, "FRESH_FRAME_WAIT_S", 0.5)
         bigger = (np.arange(5 * 7) % 100).astype("<u2").reshape(5, 7)
         got_bigger = threading.Event()
         # Its own Context: p4p caches channels per Context, so the watcher's
@@ -445,7 +448,10 @@ async def test_session_semantics_over_raw_pva(tmp_path):
                 await put("Capture", True)
             finally:
                 plugin._post = real_post
-            assert time.monotonic() - started < 2.0  # no ARM_TIMEOUT_S wait
+            elapsed = time.monotonic() - started
+            assert (
+                0.45 <= elapsed < 2.0
+            )  # the window, then the held frame; never ARM_TIMEOUT_S
             assert bool(await get("Capture_RBV")) is True
             assert int(await get("ArraySizeX_RBV")) == 7
             assert int(await get("ArraySizeY_RBV")) == 5
@@ -497,17 +503,98 @@ async def test_session_semantics_over_raw_pva(tmp_path):
         assert cam.connections == 0
         assert list(broken.iterdir()) == []
 
-        # A session that accepts nothing leaves no file.
+        # A session that accepts nothing leaves no file.  The stale greeting
+        # still declares the geometry (IMG's 4 x 6, not the held 5 x 7).
         empty = tmp_path / "Scan003" / "UC_TestCam"
         empty.mkdir(parents=True)
         await put("FilePath", str(empty) + os.sep)
         cam.push(IMG, time.time() - 5.0)
         await put("Capture", True)
+        assert int(await get("ArraySizeX_RBV")) == IMG.shape[1]
+        assert int(await get("ArraySizeY_RBV")) == IMG.shape[0]
         await asyncio.sleep(0.3)
         await put("Capture", False)
         assert list(empty.iterdir()) == []
         await asyncio.wait_for(cam.disconnected.wait(), 10)
 
+    finally:
+        ctx.close()
+        await _shutdown(task)
+        await cam.stop()
+
+
+@pytest.mark.timeout(60)
+async def test_arm_prefers_a_fresh_push_over_the_held_frame(tmp_path):
+    """GEECS-Plugins#1023: a push within the arm's window declares the shape; the held frame is only the fallback.
+
+    The MagSpec shape: ``interpSpec`` is resampled onto the energy axis,
+    whose length follows the device's settings.  Session 1 records one
+    width; ``Capture=0`` releases the subscription, so the held frame
+    freezes at that width while the settings change; the subscription the
+    next ``Capture=1`` takes is greeted by the device's last frame at the
+    new width (LabVIEW's idle re-push, an old stamp).  Armed on the held
+    frame, every fresh frame of that run was a shape error and the strict
+    scan failed "no frame from" the camera; armed on the greeting, the
+    run records.
+    """
+    cam = StampedCamera()
+    await cam.start()
+    gateway, task = await _start_gateway(cam)
+    plugin = _plugin(gateway)
+    ctx = Context("pva", conf=gateway.conf(), useenv=False)
+    loop = asyncio.get_running_loop()
+
+    async def put(suffix: str, value) -> None:
+        await loop.run_in_executor(None, lambda: ctx.put(PREFIX + suffix, value))
+
+    async def get(suffix: str):
+        return await loop.run_in_executor(None, lambda: ctx.get(PREFIX + suffix))
+
+    try:
+        # Session 1 at the old width leaves the held frame at IMG's shape.
+        run1 = tmp_path / "Scan001" / "UC_TestCam"
+        run1.mkdir(parents=True)
+        await put("FilePath", str(run1) + os.sep)
+        await put("FileName", "UC_TestCam")
+        cam.push(IMG, time.time() - 5.0)  # the greeting of a never-decoded arm
+        await put("Capture", True)
+        cam.push(IMG + 1, time.time())
+        await _wait_until(lambda: plugin.value("NumCaptured_RBV") == 1)
+        await put("Capture", False)
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
+        assert cam.connections == 0  # released: the held frame freezes here
+
+        # The settings changed: the device now produces 5 x 7, and its last
+        # frame greets the subscription the next Capture=1 takes.
+        bigger = (np.arange(5 * 7) % 100).astype("<u2").reshape(5, 7)
+        cam.push(bigger, time.time() - 5.0)
+        run2 = tmp_path / "Scan002" / "UC_TestCam"
+        run2.mkdir(parents=True)
+        await put("FilePath", str(run2) + os.sep)
+        started = time.monotonic()
+        await put("Capture", True)
+        # (a) Armed on the push as it landed — not on the held frame after
+        # the window — and the geometry is the push's.
+        assert time.monotonic() - started < file_plugin.FRESH_FRAME_WAIT_S
+        assert bool(await get("Capture_RBV")) is True
+        assert int(await get("ArraySizeY_RBV")) == 5
+        assert int(await get("ArraySizeX_RBV")) == 7
+        assert cam.connections == 1
+        assert int(await get("NumCaptured_RBV")) == 0  # the greeting is stale
+        # (c) The run's shots at the new width are recorded, not dropped.
+        t = time.time()
+        for i in range(3):
+            cam.push(bigger + i, t + i)
+        await _wait_until(lambda: plugin.value("NumCaptured_RBV") == 3)
+        assert str(await get("WriteStatus")) == "Write OK"
+        await put("Capture", False)
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
+        with h5py.File(run2 / "UC_TestCam.h5", "r") as f:
+            assert f[FRAMES_DATASET].shape == (3, 5, 7)
+            np.testing.assert_array_equal(f[FRAMES_DATASET][2], bigger + 2)
+            assert f.attrs["frames_written"] == 3
+            assert f.attrs["shape_errors"] == 0
+            assert f.attrs["stale_skipped"] == 1  # the greeting
     finally:
         ctx.close()
         await _shutdown(task)
