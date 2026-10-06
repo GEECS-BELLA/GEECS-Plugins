@@ -23,6 +23,7 @@ from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET as _LABVIEW_EPOCH_
 import contextlib
 import logging
 import socket
+import threading
 import time
 from collections.abc import Callable
 
@@ -212,24 +213,28 @@ class _DeviceWorker:
         # The file plugin (#806): one per stream variable, a second consumer
         # of the push frame that holds the subscription like a client does.
         # Served only where its writer library is installed (file_plugin.available).
-        self._plugins: dict[str, HdfFilePlugin] = (
-            {
-                var: HdfFilePlugin(
-                    device=spec.device,
-                    variable=var,
-                    experiment=spec.experiment,
-                    retain=self.retain,
-                    release=self.release,
-                    scalar_variables=spec.scalar_variables,
-                    last_frame=lambda v=var: self._last_frame.get(v),
-                    decoder=lambda blob, v=var: self.decode(v, blob),
-                    is_array=spec.is_array(var),
-                )
-                for var in spec.stream_variables
-            }
-            if file_plugin.available()
-            else {}
-        )
+        self._plugins: dict[str, HdfFilePlugin] = {}
+        if file_plugin.available():
+            for var in spec.stream_variables:
+                try:
+                    self._plugins[var] = HdfFilePlugin(
+                        device=spec.device,
+                        variable=var,
+                        experiment=spec.experiment,
+                        retain=self.retain,
+                        release=self.release,
+                        scalar_variables=spec.scalar_variables,
+                        last_frame=lambda v=var: self._last_frame.get(v),
+                        decoder=lambda blob, v=var: self.decode(v, blob),
+                        is_array=spec.is_array(var),
+                    )
+                except Exception:
+                    # A plugin that refuses its rows: the ones built before
+                    # it have writer threads running — stop them, so a
+                    # refused device (the roster re-read's retry) leaks none.
+                    for plugin in self._plugins.values():
+                        plugin.stop()
+                    raise
         self._supervisors: dict[str, asyncio.Task] = {}
         self._latest: dict[str, tuple[str, float]] = {}
         self._publishing: set[str] = set()
@@ -561,7 +566,7 @@ class GeecsPvaGateway:
         # refused for a PV-name collision and those whose stream variables
         # drifted from the served shape (each logged once while it holds).
         self._roster_failures = 0
-        self._refused: set[str] = set()
+        self._refused: dict[str, DeviceSpec] = {}  # device -> the rows refused
         self._drifted: set[str] = set()
 
     def conf(self) -> dict:
@@ -705,9 +710,7 @@ class GeecsPvaGateway:
         while True:
             await asyncio.sleep(self._roster_interval_s)
             if pending is None:
-                pending = asyncio.ensure_future(
-                    asyncio.to_thread(self._roster_resolver)
-                )
+                pending = self._read_roster()
                 overdue = 0
             try:
                 resolved = await asyncio.wait_for(
@@ -750,6 +753,37 @@ class GeecsPvaGateway:
                 raise
             except Exception:  # noqa: BLE001 - a reconcile bug must not end the loop
                 logger.exception("roster reconcile failed; the served set stands")
+
+    def _read_roster(self) -> asyncio.Future:
+        """Run the roster resolver on its own daemon thread, bridged to a loop future.
+
+        Not the default executor: a query the DB never answers would park
+        one of its threads for good — a pool shared with the frame decode,
+        and one ``asyncio.run`` joins without timeout at exit, so a
+        ``:restart`` would log its exit code and never exit.  A daemon
+        thread costs an abandoned read nothing and never blocks exit.
+        """
+        assert self._loop is not None and self._roster_resolver is not None
+        loop, resolver = self._loop, self._roster_resolver
+        future: asyncio.Future = loop.create_future()
+        # An abandoned read's eventual outcome is nobody's business: consume
+        # it, or asyncio logs "exception was never retrieved" at GC.
+        future.add_done_callback(lambda f: f.cancelled() or f.exception())
+
+        def deliver(setter: Callable, value: object) -> None:
+            if not future.done():
+                setter(value)
+
+        def work() -> None:
+            try:
+                outcome = (future.set_result, resolver())
+            except Exception as exc:  # noqa: BLE001 - delivered to the loop as-is
+                outcome = (future.set_exception, exc)
+            with contextlib.suppress(RuntimeError):  # the loop closed: exiting
+                loop.call_soon_threadsafe(deliver, *outcome)
+
+        threading.Thread(target=work, name="roster-read", daemon=True).start()
+        return future
 
     def _roster_failed(self, reason: str) -> None:
         """Count a failed tick; log the first of a streak only."""
@@ -803,8 +837,8 @@ class GeecsPvaGateway:
             # A departed device may have freed the name a newcomer collided on.
             self._refused.clear()
         for device in sorted(wanted):
-            if device in serving or device in self._refused:
-                continue  # a refused device is not rebuilt tick after tick
+            if device in serving or self._refused.get(device) == wanted[device]:
+                continue  # refused: retried when its rows change, not every tick
             try:
                 admitted = await self._add_worker(wanted[device])
             except asyncio.CancelledError:
@@ -814,7 +848,8 @@ class GeecsPvaGateway:
                 continue
             if admitted:
                 added.append(device)
-        self._refused &= set(wanted)  # a refused device that leaves is forgotten
+        # A refused device that leaves the set is forgotten.
+        self._refused = {d: s for d, s in self._refused.items() if d in wanted}
         self._drifted &= set(wanted)
         if added or removed:
             names = self.served_devices
@@ -839,13 +874,13 @@ class GeecsPvaGateway:
         try:
             worker = _DeviceWorker(spec, self._loop, self._endpoint_resolver)
         except Exception as exc:  # noqa: BLE001 - a bad row refuses one device
-            self._refuse(spec.device, f"{type(exc).__name__}: {exc}")
+            self._refuse(spec, f"{type(exc).__name__}: {exc}")
             return False
         try:
             entries = self._claim(worker)
         except ValueError as exc:
             await worker.stop()  # its plugin writer threads
-            self._refuse(spec.device, str(exc))
+            self._refuse(spec, str(exc))
             return False
         self._workers.append(worker)
         for name, pv in entries:
@@ -864,11 +899,11 @@ class GeecsPvaGateway:
             logger.debug("no longer serving %s", name)
         self._workers.remove(worker)
 
-    def _refuse(self, device: str, reason: str) -> None:
-        """Mark *device* refused; log it once while the refusal holds."""
-        if device not in self._refused:
-            self._refused.add(device)
-            logger.error("roster: refusing %s: %s", device, reason)
+    def _refuse(self, spec: DeviceSpec, reason: str) -> None:
+        """Mark *spec* refused; log once while those rows stand (edited rows are retried)."""
+        if self._refused.get(spec.device) != spec:
+            self._refused[spec.device] = spec
+            logger.error("roster: refusing %s: %s", spec.device, reason)
 
     def _note_drift(self, worker: _DeviceWorker, spec: DeviceSpec) -> None:
         """Log once when a served device's shape (stream variables, scalars) changed in the DB.
@@ -880,7 +915,11 @@ class GeecsPvaGateway:
         """
         was = (set(worker.spec.stream_variables), set(worker.spec.scalar_variables))
         now = (set(spec.stream_variables), set(spec.scalar_variables))
-        if was == now:
+        # An empty scalar answer is as often the scalar-policy query degrading
+        # on a blip (every device at once) as a real change: ambiguous, so not
+        # logged — a non-empty answer is the DB's word.
+        changed = was[0] != now[0] or (bool(now[1]) and was[1] != now[1])
+        if not changed:
             self._drifted.discard(worker.device)
         elif worker.device not in self._drifted:
             self._drifted.add(worker.device)

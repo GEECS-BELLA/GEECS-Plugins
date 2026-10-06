@@ -332,6 +332,11 @@ async def test_a_read_that_never_returns_is_abandoned_and_the_re_read_resumes(
         with caplog.at_level(logging.INFO, logger=LOGGER):
             roster.block = hang
             await _wait_until(lambda: roster.calls >= 1)
+            # Its own daemon thread, never the default executor: an abandoned
+            # read must not block `asyncio.run` (a :restart that never exits)
+            # nor take a slot from the frame decode.
+            reader = next(t for t in threading.enumerate() if t.name == "roster-read")
+            assert reader.daemon
             roster.block = None  # the hung read stays hung; the next one answers
             await _wait_until(lambda: _messages(caplog, "abandoning it"), timeout=10)
             assert gateway.served_devices == [CAMERA]
@@ -353,7 +358,9 @@ async def test_a_device_in_both_sets_keeps_its_worker(caplog):
     watcher's subscription never drops."""
     cam = FakeCamera()
     await cam.start()
-    spec = _spec(CAMERA, cam.port)
+    spec = _spec(CAMERA, cam.port).model_copy(
+        update={"scalar_variables": ["MaxCounts"]}
+    )
     roster = ScriptedRoster([spec])
     gateway, task = await _start([spec], roster)
 
@@ -372,10 +379,18 @@ async def test_a_device_in_both_sets_keeps_its_worker(caplog):
                 roster.answer = [spec.model_copy(update={"port": spec.port + 1})]
                 await ticks()
                 assert not _messages(caplog, "served shape changed")
-                # A device admitted on a scalar-policy blip would look like
-                # this from the DB's side: the one line that says so.
+                # The scalar-policy query degrading to empty on a blip looks
+                # like every device losing its scalars at once: ambiguous,
+                # not logged.
+                roster.answer = [spec.model_copy(update={"scalar_variables": []})]
+                await ticks()
+                assert not _messages(caplog, "served shape changed")
+                # A real scalar change (the shape a device admitted on a
+                # blip shows at the next healthy tick): the one line.
                 roster.answer = [
-                    spec.model_copy(update={"scalar_variables": ["MaxCounts"]})
+                    spec.model_copy(
+                        update={"scalar_variables": ["MaxCounts", "exposure"]}
+                    )
                 ]
                 await ticks()
                 roster.answer = [spec]  # back: the drift clears silently
@@ -390,7 +405,7 @@ async def test_a_device_in_both_sets_keeps_its_worker(caplog):
             assert cam.connections == 1 and cam.total_connections == 1
             drift = _messages(caplog, "served shape changed in the DB")
             assert len(drift) == 2
-            assert "scalars [] -> ['MaxCounts']" in drift[0]
+            assert "scalars ['MaxCounts'] -> ['MaxCounts', 'exposure']" in drift[0]
             assert "stream ['image'] -> ['image', 'processed image']" in drift[1]
             sub.close()
         finally:
@@ -461,6 +476,14 @@ async def test_a_device_that_cannot_be_built_does_not_block_the_rest(caplog):
         ctx = Context("pva", conf=gateway.conf(), useenv=False)
         try:
             assert await _devices(ctx) == ["UC_Good"]
+            # The operator fixes the rows: the device is retried on that
+            # change alone — no restart, no disable/enable dance.
+            roster.answer = [
+                bad.model_copy(update={"scalar_variables": ["Mean Counts"]}),
+                good,
+            ]
+            await _wait_until(lambda: gateway.served_devices == ["UC_Bad", "UC_Good"])
+            assert await _devices(ctx) == ["UC_Bad", "UC_Good"]
         finally:
             ctx.close()
     finally:
@@ -494,3 +517,31 @@ async def test_one_device_failing_mid_tick_does_not_gate_the_rest(monkeypatch, c
             ctx.close()
     finally:
         await _shutdown(task)
+
+
+def test_a_worker_that_fails_mid_build_leaks_no_writer_thread(monkeypatch):
+    """The plugins built before the one that refuses its rows have writer
+    threads running: a refused device (retried on changed rows) stops them
+    instead of leaking one per attempt."""
+    from geecs_pva_gateway.file_plugin import HdfFilePlugin
+
+    built: list[HdfFilePlugin] = []
+    real_init = HdfFilePlugin.__init__
+
+    def init(self, *, variable, **kwargs):
+        if variable == "processed image":
+            raise ValueError("attribute names collide (simulated)")
+        real_init(self, variable=variable, **kwargs)
+        built.append(self)
+
+    monkeypatch.setattr(HdfFilePlugin, "__init__", init)
+    loop = asyncio.new_event_loop()
+    try:
+        with pytest.raises(ValueError, match="collide"):
+            server_module._DeviceWorker(
+                _spec(CAMERA, 1, "image", "processed image"), loop
+            )
+        assert len(built) == 1
+        assert not built[0]._thread.is_alive()  # stopped, not parked for good
+    finally:
+        loop.close()

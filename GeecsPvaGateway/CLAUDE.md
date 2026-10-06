@@ -195,22 +195,29 @@ tests/
   its PVs are `add`ed to the one `StaticProvider` the server keeps (the
   startup collision guard applies — a colliding newcomer, or one whose
   rows cannot build a worker, is refused: logged once and skipped until
-  it leaves the set or a removal frees a name, never rebuilt tick after
-  tick); a departed device has its worker stopped (subscriptions
-  released, writer threads joined), its PVs `remove`d then
-  `close(destroy=True)`d — unless a plugin session is open on it
+  its rows change, it leaves the set, or a removal frees a name — never
+  rebuilt tick after tick, and a build that fails midway stops the
+  plugins it already started); a departed device has its worker stopped
+  (subscriptions released, writer threads joined), its PVs `remove`d
+  then `close(destroy=True)`d — unless a plugin session is open on it
   (`capturing_variables`), when the removal is deferred tick by tick;
   one device's failure never gates the rest of a tick. A device in both
   sets keeps its worker (endpoint moves are #854's; a changed shape —
-  stream variables or scalars — is logged once, never churned). A read
-  that raises or outlives `_ROSTER_RESOLVE_TIMEOUT_S` keeps the last
-  good set and is logged once per streak; a slow read is never
-  overlapped (one executor thread at most), and one that never returns
-  is abandoned after `_ROSTER_ABANDON_TICKS` so the re-read resumes. The
-  read is `strict_scope`d: a box whose addresses are unknown, or no
-  longer include the one its instance is named after, has *failed* the
-  read (`LookupError`), never answered "nothing" — startup alone scopes
-  to nothing and idles. The `:devices` PV posts every change.
+  stream variables, or a non-empty scalar set that differs — is logged
+  once, never churned; an empty scalar answer is the policy query
+  degrading on a blip as often as a change, so it is not logged). The
+  read runs on its own daemon thread (`_read_roster`), never the default
+  executor: a query the DB never answers would park a pool thread the
+  frame decode shares and that `asyncio.run` joins at exit — a
+  `:restart` that never exits. A read that raises or outlives
+  `_ROSTER_RESOLVE_TIMEOUT_S` keeps the last good set and is logged once
+  per streak; a slow read is never overlapped, and one that never
+  returns is abandoned after `_ROSTER_ABANDON_TICKS` (its thread left
+  to die with the socket) so the re-read resumes. The read is
+  `strict_scope`d: a box whose addresses are unknown, or no longer
+  include the one its instance is named after, has *failed* the read
+  (`LookupError`), never answered "nothing" — startup alone scopes to
+  nothing and idles. The `:devices` PV posts every change.
 - **Identity/control PVs**: `{experiment}:pvagateway:{host_token}:version|
   heartbeat|restart|devices` per instance — the fleet screen reads the
   first two (version skew, liveness), the fleet probe all but `restart`

@@ -21,8 +21,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   each tick. A read that raises or outlives its 30 s budget **never
   shrinks the set**: the last good roster stands, the failure is logged
   once per streak (recovery once too), and a slow read is never doubled
-  (a query that never returns is abandoned after ten ticks so the re-read
-  resumes). A box that cannot see its own addresses — or no longer the
+  (the read runs on its own daemon thread, so a query that never returns
+  is abandoned after ten ticks and the re-read resumes — and it can never
+  block the process exit a `:restart` asks for). A box that cannot see its own addresses — or no longer the
   one its instance is named after — has *failed* the read, not answered
   "nothing" (`from_geecs_experiment(strict_scope=...)`, the re-read's
   contract; startup still idles).
