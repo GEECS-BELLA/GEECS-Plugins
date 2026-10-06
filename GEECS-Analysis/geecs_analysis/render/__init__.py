@@ -179,20 +179,22 @@ def draw_overlays(
                 )
 
 
+#: Blank canvas (inches) below which the canvas is left as it is.
+_FIT_TOLERANCE_INCHES = 0.01
 #: The trimmed side's margin when the layout engine names no pad of its own
 #: (constrained layout's default, 3 pt).
 _FIT_PAD_INCHES = 3 / 72
 
 
 def _fit_canvas(fig: Figure, ax: Axes, canvas) -> None:
-    """Crop the canvas along a fixed-aspect image's short side to what was drawn.
+    """Crop the canvas along the side a fixed-aspect image leaves blank.
 
     An equal-aspect image shrinks inside its layout slot, and the slack
     becomes a blank band on the canvas: beside a tall image, above and
     below a wide one. After the layout has run, this trims that side of the
     canvas to the drawn content (axes, tick and axis labels, colorbar) plus
     the layout's own pad, the way ``savefig(bbox_inches="tight")`` crops a
-    file, but on the Figure itself; the long side keeps the given size.
+    file, but on the Figure itself; the other side keeps the given size.
 
     The layout is frozen first: every axes keeps the position it was drawn
     at, in inches, and the layout engine is removed. Re-running constrained
@@ -201,24 +203,39 @@ def _fit_canvas(fig: Figure, ax: Axes, canvas) -> None:
     layout — so the drawn result is kept rather than recomputed. A figure
     resized later therefore does not re-lay itself out.
 
+    The trimmed side is the one the image actually left slack in (drawn
+    axes against their layout slot), not a guess from the frame's shape: a
+    slightly tall frame on a slot taller than square is width-limited.
     A square image, an aspect-free axes (``aspect="auto"``) or one that
     already fills its slot is left untouched, layout engine and all.
     """
+    from matplotlib.layout_engine import ConstrainedLayoutEngine
     from matplotlib.transforms import Bbox
 
-    ratio = ax.get_data_ratio()
-    if ax.get_aspect() == "auto" or ratio == 1:
+    if ax.get_aspect() == "auto" or ax.get_data_ratio() == 1:
         return
-    short = 0 if ratio > 1 else 1  # the canvas dimension the image leaves slack in
+    ax.apply_aspect()
+    slot = ax.get_position(original=True)
+    shown = ax.get_position(original=False)
     size = fig.get_size_inches()
+    slack = (
+        (slot.width - shown.width) * size[0],
+        (slot.height - shown.height) * size[1],
+    )
+    if max(slack) < _FIT_TOLERANCE_INCHES:
+        return
+    short = 0 if slack[0] >= slack[1] else 1  # the dimension holding the band
     engine = fig.get_layout_engine()
-    pads = engine.get() if engine is not None else {}
-    pad = pads.get("w_pad" if short == 0 else "h_pad", _FIT_PAD_INCHES)
+    # Only constrained layout states its pads in inches (tight layout's are
+    # fractions of the font size, and may be None).
+    pad = _FIT_PAD_INCHES
+    if isinstance(engine, ConstrainedLayoutEngine):
+        pad = engine.get()["w_pad" if short == 0 else "h_pad"]
     content = fig.get_tightbbox(canvas.get_renderer())
     lo = (content.x0, content.y0)[short] - pad
     hi = (content.x1, content.y1)[short] + pad
     lo, hi = max(lo, 0.0), min(hi, size[short])
-    if size[short] - (hi - lo) < 0.01:
+    if size[short] - (hi - lo) < _FIT_TOLERANCE_INCHES:
         return
     drawn = [Bbox(a.get_position(original=False).get_points() * size) for a in fig.axes]
     fig.set_layout_engine("none")
@@ -233,25 +250,20 @@ def _fit_canvas(fig: Figure, ax: Axes, canvas) -> None:
     canvas.draw()
 
 
-def single(
-    result: Measurement,
-    style: FigureSpec | None = None,
-    *,
-    fit_canvas: bool | None = None,
-) -> Figure:
+def single(result: Measurement, style: FigureSpec | None = None) -> Figure:
     """Render one measurement in a fresh Figure; caller decides if/where to save.
 
-    ``fit_canvas`` trims the canvas along a fixed-aspect image's short side
-    so no blank band sits beside a tall image or above a wide one; the long
-    side keeps the given size. By default the canvas is fitted only when
-    ``style.fig`` names no ``figsize``: an explicit ``(width, height)`` is
-    drawn exactly as given. A caller whose figsize is a side length rather
-    than a chosen shape (the v2 renderer's ``figsize_inches``) passes True.
+    A fixed-aspect image's canvas is trimmed along the side it leaves blank
+    (beside a tall image, above and below a wide one) when
+    ``style.fit_canvas`` says so, by default when ``style.fig`` names no
+    ``figsize``; the other side keeps its size, and an explicit
+    ``(width, height)`` is drawn exactly as given.
     """
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg
 
     style = style or FigureSpec()
+    fit_canvas = style.fit_canvas
     if fit_canvas is None:
         fit_canvas = "figsize" not in style.fig
     try:

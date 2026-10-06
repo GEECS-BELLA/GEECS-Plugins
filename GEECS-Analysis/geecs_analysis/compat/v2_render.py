@@ -81,6 +81,9 @@ def figure_v2(
         axes={**_axes(options), **({"title": title} if title else {})},
         colorbar=colorbar,
         fig={"figsize": (8, 6) if line else (side, side), "dpi": options.dpi or 150},
+        # figsize_inches is the canvas's long side, not a chosen square: an
+        # image's canvas is trimmed to what was drawn (``single``).
+        fit_canvas=not line,
     )
 
 
@@ -115,17 +118,9 @@ def summaries_v2(
 def single_v2(
     result: Measurement, options: RendererOptions, *, title: str | None = None
 ) -> Figure:
-    """Render a v2 single product with configured labels and color limits.
-
-    ``figsize_inches`` is the canvas's long side: an image's canvas is
-    trimmed along its short side to the drawn axes (``single``'s
-    ``fit_canvas``), so a tall or wide frame leaves no blank band; a square
-    frame keeps the square canvas.
-    """
+    """Render a v2 single product with configured labels and color limits."""
     line = result.frame.data.ndim == 1
-    return single(
-        result, figure_v2(options, line=line, title=title), fit_canvas=not line
-    )
+    return single(result, figure_v2(options, line=line, title=title))
 
 
 def image_grid_v2(

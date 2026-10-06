@@ -287,3 +287,10 @@ def test_square_and_aspect_free_canvases_keep_the_default_layout():
         fig = single(result, style)
         assert tuple(fig.get_size_inches()) == pytest.approx((5.0, 4.2))
         assert fig.get_layout_engine() is not None
+
+
+def test_a_recipe_choosing_tight_layout_still_fits():
+    # tight layout's pads are font fractions (None by default), not inches.
+    fig = single(_image((300, 100)), FigureSpec(fig={"layout": "tight"}))
+    assert fig.get_size_inches()[0] < 3.0
+    assert _content_slack(fig)[0] < 0.2  # tight layout's own margins remain
