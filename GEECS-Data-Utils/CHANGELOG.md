@@ -11,7 +11,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   device's own `valid` companion column with the same normalized-name
   rule as `device_acq_timestamp_column`, now shared by both. The Data
   Portal uses it to refuse frames for shots the device marked invalid
-  (#990).
+  (#990). `shot_files`' private copy of the `valid` match
+  (`_matching_valid_column` and its `_normalize_column_token` wrapper)
+  now delegates to it, so the scan-run mapper and the portal skip the
+  same rows through one matcher.
 
 ## [0.50.0] - 2026-10-02
 
