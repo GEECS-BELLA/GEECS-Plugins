@@ -20,32 +20,36 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-#: Relative tolerance, of the axis's largest magnitude, within which an axis
-#: counts as evenly spaced. Wide enough that an axis stored in single
-#: precision still does; far below the unevenness of a stitched trace or a
-#: nonlinear calibration.
-EVEN_SPACING_RTOL = 1e-6
+#: Relative tolerance, of the median step, within which every step of an axis
+#: must fall for the axis to count as evenly spaced. Measured against the
+#: step, not the axis's magnitude, so an offset cannot hide a gap. Wide
+#: enough for an axis stored in single precision (a 4096-sample float32
+#: axis's steps scatter by ~2e-4 of the step); far below the unevenness of a
+#: stitched trace (tens of percent between cameras) or a nonlinear
+#: calibration. An axis within it keeps the legacy width arithmetic, which
+#: then differs from the moments over x by at most that fraction.
+EVEN_SPACING_RTOL = 1e-3
 
 
 def is_evenly_spaced(coordinates: np.ndarray) -> bool:
-    """Whether ``coordinates`` are affine in their sample index, to single precision.
+    """Whether every step of ``coordinates`` is within ``EVEN_SPACING_RTOL`` of the median step.
 
     Index-space widths times one spacing are exact only on such an axis
     (#1029); :class:`LineBasicStats` keeps that legacy arithmetic there, bit
     for bit, and takes its moments over the coordinates everywhere else.
     """
     x = np.asarray(coordinates, dtype=float)
-    if x.size < 2:
+    if x.size < 3:
         return True
-    step = (x[-1] - x[0]) / (x.size - 1)
-    affine = x[0] + np.arange(x.size) * step
-    return bool(np.all(np.abs(x - affine) <= EVEN_SPACING_RTOL * np.abs(x).max()))
+    steps = np.diff(x)
+    step = np.median(steps)
+    if step == 0:
+        return bool(np.all(steps == 0))
+    return bool(np.all(np.abs(steps - step) <= EVEN_SPACING_RTOL * abs(step)))
 
 
-def _coordinates(profile: np.ndarray, coordinates: np.ndarray | None) -> np.ndarray:
-    """Sample indices, or the caller's one-per-sample coordinates."""
-    if coordinates is None:
-        return np.arange(profile.size)
+def _coordinates(profile: np.ndarray, coordinates: np.ndarray) -> np.ndarray:
+    """The caller's one-per-sample coordinates, validated against the profile."""
     coordinates = np.asarray(coordinates, dtype=float)
     if coordinates.shape != profile.shape:
         raise ValueError(
@@ -54,49 +58,103 @@ def _coordinates(profile: np.ndarray, coordinates: np.ndarray | None) -> np.ndar
     return coordinates
 
 
+def _interval_weights(x: np.ndarray) -> np.ndarray:
+    """Trapezoid weights over sorted ``x``: ``sum(w * f)`` is the integral of ``f``.
+
+    Each sample owns half the interval to each neighbour, the ends half of
+    their one interval; on an evenly spaced axis every interior weight is
+    the step. Two cameras' samples interleaved over an overlap share its
+    length instead of counting it twice.
+    """
+    if x.size < 2:
+        return np.ones_like(x)
+    w = np.empty_like(x)
+    w[1:-1] = (x[2:] - x[:-2]) / 2
+    w[0] = (x[1] - x[0]) / 2
+    w[-1] = (x[-1] - x[-2]) / 2
+    return w
+
+
+def _over_x(coords: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``(order, x, w)``: the sample order that sorts ``coords``, the sorted coordinates, their weights.
+
+    Sorted so the weights are non-negative whatever the trace's direction;
+    the caller signs its result by that direction.
+    """
+    order = np.argsort(coords, kind="stable")
+    x = coords[order]
+    return order, x, _interval_weights(x)
+
+
 def compute_center_of_mass(
     profile: np.ndarray, coordinates: np.ndarray | None = None
 ) -> float:
     """Compute the center of mass of a 1‑D profile.
 
-    In sample-index units, or in axis units over ``coordinates`` (one per
-    sample) when given.
+    In sample-index units — the intensity-weighted mean index — or, over
+    ``coordinates`` (one per sample), in axis units as the Δx-weighted first
+    moment: the integral of ``x · profile`` over x divided by the integral
+    of ``profile`` (trapezoid weights), which does not depend on how densely
+    the trace is sampled (#1029).
     """
     profile = np.asarray(profile, dtype=float)
-    total = profile.sum()
+    if coordinates is None:
+        total = profile.sum()
+        if total <= 0:
+            logger.warning(
+                "compute_center_of_mass: Profile has non-positive total intensity. Returning np.nan."
+            )
+            return np.nan
+        return np.sum(np.arange(profile.size) * profile) / total
+    order, x, w = _over_x(_coordinates(profile, coordinates))
+    weighted = w * profile[order]
+    total = weighted.sum()
     if total <= 0:
         logger.warning(
-            "compute_center_of_mass: Profile has non-positive total intensity. Returning np.nan."
+            "compute_center_of_mass: Profile has non-positive integral over x. Returning np.nan."
         )
         return np.nan
-    coords = _coordinates(profile, coordinates)
-    return np.sum(coords * profile) / total
+    return np.sum(weighted * x) / total
 
 
 def compute_rms(profile: np.ndarray, coordinates: np.ndarray | None = None) -> float:
     """Compute the RMS width of a 1‑D profile.
 
-    The intensity-weighted second moment about the centroid, in sample-index
-    units, or in axis units over ``coordinates`` (one per sample) when given:
-    the same weights (negatives clipped, in place) and the same normalisation
-    (the unclipped total), only the positions differ. On an evenly spaced
-    axis the two agree up to rounding; on an uneven one only the coordinate
-    form is a width in axis units (#1029). Over coordinates the width is
-    signed by the axis direction, as the legacy spacing conversion was.
+    The intensity-weighted second moment about the centroid. In sample-index
+    units it is the legacy per-sample mean: negatives clipped (in place),
+    divided by the unclipped total. Over ``coordinates`` (one per sample) it
+    is, in axis units, the Δx-weighted moment — the integral over x of
+    ``(x - centroid)² · profile`` with negatives clipped, divided by the
+    integral of the unclipped profile, trapezoid weights — so it does not
+    depend on how densely the trace is sampled or on how many samples the
+    overlaps of a stitched trace contribute (#1029). On an evenly spaced
+    axis the two agree to rounding; on an uneven one only the coordinate
+    form is a width in axis units. Over coordinates the width is signed by
+    the axis direction, as the legacy spacing conversion was.
     """
     profile = np.asarray(profile, dtype=float)
     total = profile.sum()
+    coords = None if coordinates is None else _coordinates(profile, coordinates)
+    if coords is not None:
+        order, x, w = _over_x(coords)
+        # The unclipped trace's integral over x: legacy's unclipped total.
+        total_x = np.sum(w * profile[order])
     profile[profile < 0] = 0
     if total <= 0:
         logger.warning(
             "compute_rms: Profile has non-positive total intensity. Returning np.nan."
         )
         return np.nan
-    coords = _coordinates(profile, coordinates)
-    com = compute_center_of_mass(profile, coordinates)
-    width = np.sqrt(np.sum((coords - com) ** 2 * profile) / total)
-    if coordinates is None:
-        return width
+    if coords is None:
+        com = compute_center_of_mass(profile)
+        return np.sqrt(np.sum((np.arange(profile.size) - com) ** 2 * profile) / total)
+    if total_x <= 0:
+        logger.warning(
+            "compute_rms: Profile has non-positive integral over x. Returning np.nan."
+        )
+        return np.nan
+    com = compute_center_of_mass(profile, coords)
+    width = np.sqrt(np.sum(w * profile[order] * (x - com) ** 2) / total_x)
     # Signed by the axis direction, as the legacy spacing conversion was.
     return width if coords[-1] >= coords[0] else -width
 
@@ -111,7 +169,11 @@ def compute_fwhm(profile: np.ndarray, coordinates: np.ndarray | None = None) -> 
     between the two crossings, as the legacy spacing conversion was.
     """
     profile = np.asarray(profile, dtype=float)
-    coords = _coordinates(profile, coordinates)
+    coords = (
+        np.arange(profile.size)
+        if coordinates is None
+        else _coordinates(profile, coordinates)
+    )
     if profile.sum() <= 0:
         logger.warning(
             "compute_fwhm: Profile has non-positive total intensity. Returning np.nan."
@@ -172,8 +234,11 @@ class LineBasicStats(BaseModel):
     sample sum, not a quadrature. On an evenly spaced axis the widths are the
     legacy index-space widths times the spacing at the centroid (kept bit for
     bit; signed on a descending axis); on any other axis — a trace stitched
-    from several cameras, a nonlinear calibration — they are the same moments
-    taken over the x coordinates themselves (#1029).
+    from several cameras, a nonlinear calibration — they are measured over
+    the x coordinates themselves: ``rms`` as the Δx-weighted (trapezoid)
+    moment, an integral over x that does not depend on the sampling
+    density, ``fwhm`` from the half-maximum crossings interpolated in x
+    (#1029).
 
     Attributes
     ----------
@@ -247,7 +312,8 @@ class LineBasicStats(BaseModel):
         is_index_based = np.allclose(x, np.arange(len(x)), rtol=1e-9, atol=1e-9)
         # Widths: index-space moments times one spacing are exact only on an
         # evenly spaced axis, where that legacy arithmetic is kept bit for
-        # bit. Anywhere else the moments are taken over x itself (#1029).
+        # bit. Anywhere else the moments are taken over x itself, Δx-weighted
+        # (#1029).
         evenly_spaced = is_index_based or is_evenly_spaced(x)
         width_coordinates = None if evenly_spaced else x
 

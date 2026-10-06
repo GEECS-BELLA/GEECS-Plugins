@@ -84,9 +84,11 @@ Algorithms retain legacy conventions for this migration: line intensity is a
 sample sum (not quadrature); the centroid is computed in index space then
 interpolated to axis units. Widths are the legacy index-space widths times
 the sample spacing on an evenly spaced axis (bit for bit) and, since 0.26.0
-(#1029), the same moments taken over the x coordinates on any other axis — a
-trace stitched from several cameras, a nonlinear calibration — where one
-spacing is not a conversion. Descending axes retain signed widths either
+(#1029), measured over the x coordinates on any other axis — a trace
+stitched from several cameras, a nonlinear calibration — where one spacing
+is not a conversion: the rms as the Δx-weighted moment (an integral over x,
+independent of the sampling density), the fwhm from the half-maximum
+crossings interpolated in x. Descending axes retain signed widths either
 way. Diagonal beam statistics and optional slopes stay in local index space.
 Scientific changes belong in a separately validated change, as #1029 was.
 Measurement runs own their scratch arrays and never mutate caller input,

@@ -77,12 +77,16 @@ and must match the actual result keys and the existing optimizer contract.
 The algorithms are intentionally ported with their numerical conventions:
 the line centroid is calculated in index space and interpolated to
 coordinates, integrated intensity is the sample sum after the RMS helper
-clips negatives, and on an evenly spaced axis (to single precision,
-`is_evenly_spaced`) widths are the index-space widths times local dx (even
-its sign on descending axes), bit for bit. On any other axis — a stitched
-trace, a nonlinear calibration — `rms` and `fwhm` are the same moments taken
-over the x coordinates (#1029, the one validated scientific change so far);
-one spacing is not a conversion there. This refactor must not silently
+clips negatives, and on an evenly spaced axis (every step within
+`EVEN_SPACING_RTOL` of the median step, `is_evenly_spaced` — wide enough
+for single precision, measured against the step so an offset cannot hide
+a gap) widths are the index-space widths times local dx (even its sign on
+descending axes), bit for bit. On any other axis — a stitched trace, a
+nonlinear calibration — `rms` is the Δx-weighted (trapezoid) moment over
+the x coordinates, an integral over x that does not depend on the
+sampling density, and `fwhm` the half-maximum crossings interpolated in x
+(#1029, the one validated scientific change so far); one spacing is not a
+conversion there. This refactor must not silently
 redefine these quantities. Beam diagonal metrics and slopes stay in local
 sample-index coordinates, as before.
 

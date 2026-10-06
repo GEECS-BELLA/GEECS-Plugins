@@ -19,7 +19,8 @@ class LineSpec(MeasureSpec):
         "CoM": "Intensity-weighted centroid of the trace, in x units",
         "rms": (
             "RMS width about the centroid, in x units: the intensity-weighted "
-            "second moment over x"
+            "second moment over x, Δx-weighted (an integral over x) on an "
+            "unevenly spaced axis"
         ),
         "fwhm": (
             "Full width at half maximum, in x units, from the half-maximum "

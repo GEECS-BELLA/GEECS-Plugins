@@ -22,7 +22,11 @@ from scan_analysis.analyzers.common.single_device_scan_analyzer import (
 from scan_analysis.config import create_scan_analyzer
 from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
 from scan_analysis.core_source import prepare_source
-from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
+from scan_analysis.route_compare import (
+    WIDTH_COLUMN_SUFFIXES,
+    compare_snapshots,
+    snapshot_analysis_tree,
+)
 
 TAG = ScanTag(year=2026, month=1, day=1, number=1, experiment="Test")
 SHOTS = 6
@@ -153,20 +157,19 @@ def test_the_core_route_matches_the_legacy_stitcher(tmp_path, monkeypatch):
     columns = new_rows.columns
     assert any(c.startswith(f"MagSpec1{SUFFIX}_") for c in columns)
     # The one deliberate difference: a joined trace is unevenly spaced, and
-    # the core measures its widths in MeV (GEECS-Analysis 0.26.0, #1029)
+    # the core measures its widths over MeV (GEECS-Analysis 0.26.0, #1029)
     # where the legacy analyzer counted samples times the spacing at the
-    # centroid. Every other file, column and sample is identical — the two
-    # width columns are dropped from every table (the s-file and the
-    # per-scan copy) before the comparison.
-    widths = [c for c in columns if c.endswith(("_rms", "_fwhm"))]
+    # centroid. route_compare's nonuniform-axis allowance (the harness's
+    # --nonuniform-axis) excludes the two width columns; every other file,
+    # column and sample is identical, and without the allowance the widths
+    # are all that differs.
+    widths = [c for c in columns if c.endswith(WIDTH_COLUMN_SUFFIXES)]
     assert len(widths) == 2
     for column in widths:
         assert not np.allclose(old_rows[column], new_rows[column])
-    for name, (kind, *payload) in list(new.items()):
-        if kind == "table":
-            old[name] = ("table", old[name][1].drop(columns=widths))
-            new[name] = ("table", payload[0].drop(columns=widths))
-    assert compare_snapshots(old, new) == []
+    strict = compare_snapshots(old, new)
+    assert strict and all(".txt:" in problem for problem in strict)
+    assert compare_snapshots(old, new, nonuniform_axis=True) == []
 
 
 def test_the_joined_trace_is_every_segment_sorted_by_x(tmp_path):

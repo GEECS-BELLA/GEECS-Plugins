@@ -118,10 +118,17 @@ def test_line_widths_on_an_uneven_axis_are_moments_over_x():
         Frame.from_trace(np.column_stack((x, y)), x_unit="MeV"), recipe("line")
     )
 
-    centroid = np.sum(x * y) / y.sum()
+    # rms is the Δx-weighted moment over x — the trapezoid integral, with
+    # weights by hand: each sample owns half the interval to each neighbour
+    # (the one at 6 owns (6−3)/2 + (7−6)/2 = 2), the ends half of their one.
+    w = np.array([0.5, 2, 2, 2, 2.5, 2.5, 3.5, 2.5, 0.5])
+    centroid = np.sum(w * y * x) / np.sum(w * y)
     assert result.scalars["rms"] == pytest.approx(
-        np.sqrt(np.sum(y * (x - centroid) ** 2) / y.sum()), rel=1e-12
+        np.sqrt(np.sum(w * y * (x - centroid) ** 2) / np.sum(w * y)), rel=1e-12
     )
+    # Not a per-sample mean over x (4.02), which would weigh a densely
+    # sampled stretch more than a sparse one.
+    assert result.scalars["rms"] == pytest.approx(3.6882, abs=1e-4)
     # Baseline-shifted half maximum 5.5 is crossed between samples 3→7 at
     # x 6→7 (6.625 MeV) and 8→3 at x 12→15 (13.5 MeV).
     assert result.scalars["fwhm"] == pytest.approx(13.5 - 6.625, rel=1e-12)
@@ -147,7 +154,7 @@ def test_line_widths_on_a_descending_uneven_axis_keep_the_sign_convention():
     assert descending.scalars["CoM"] == pytest.approx(ascending.scalars["CoM"])
 
 
-def stitched_repro():
+def stitched_repro(samples=(260, 200, 180), gains=(1.0, 0.92, 1.08), noise=0.015):
     """The #1029 repro: three cameras' segments joined as the scan host joins siblings."""
     rng = np.random.default_rng(7)
 
@@ -155,16 +162,20 @@ def stitched_repro():
         return np.exp(-0.5 * ((e - 128) / 22) ** 2) + 0.25 * np.exp(-(e - 40) / 25)
 
     segments = []
-    for (lo, hi, n), gain in zip(
-        [(40, 105, 260), (100, 170, 200), (165, 260, 180)], [1.0, 0.92, 1.08]
-    ):
+    for (lo, hi), n, gain in zip([(40, 105), (100, 170), (165, 260)], samples, gains):
         e = np.linspace(lo, hi, n)
-        segments.append(
-            np.column_stack([e, gain * spectrum(e) + rng.normal(0, 0.015, n)])
-        )
+        y = gain * spectrum(e) + (rng.normal(0, noise, n) if noise else 0.0)
+        segments.append(np.column_stack([e, y]))
     joined = np.concatenate(segments)
     # scan_analysis.core_source's join: concatenate, then sort by x.
     return joined[joined[:, 0].argsort()]
+
+
+def interval_weights(x):
+    """Trapezoid weights: half the interval to each neighbour, the ends half of one."""
+    return np.concatenate(
+        [[(x[1] - x[0]) / 2], (x[2:] - x[:-2]) / 2, [(x[-1] - x[-2]) / 2]]
+    )
 
 
 def test_line_widths_on_a_stitched_trace_are_measured_in_x():
@@ -192,17 +203,54 @@ def test_line_widths_on_a_stitched_trace_are_measured_in_x():
     assert legacy["fwhm"] > true_fwhm + 5
     assert abs(result.scalars["fwhm"] - legacy["fwhm"]) > 5
 
-    # rms: the intensity-weighted second moment over x, with the legacy
-    # normalisation (clipped weights over the unclipped total).
-    weights = np.clip(y, 0, None)
-    centroid = np.sum(weights * x) / weights.sum()
-    expected_rms = np.sqrt(np.sum(weights * (x - centroid) ** 2) / y.sum())
+    # rms: the Δx-weighted second moment over x — the trapezoid integral,
+    # with the legacy normalisation (clipped weights over the unclipped
+    # total, here the unclipped trace's integral).
+    w = interval_weights(x)
+    clipped = np.clip(y, 0, None)
+    centroid = np.sum(w * clipped * x) / np.sum(w * clipped)
+    expected_rms = np.sqrt(np.sum(w * clipped * (x - centroid) ** 2) / np.sum(w * y))
     assert result.scalars["rms"] == pytest.approx(expected_rms, rel=1e-9)
     assert abs(result.scalars["rms"] - legacy["rms"]) > 5
 
     for key in ("CoM", "peak_location", "integrated_intensity", "peak_value"):
         assert result.scalars[key] == legacy[key]
     assert not result.notes
+
+
+@pytest.mark.parametrize("samples", [(260, 200, 720), (1040, 200, 180)])
+def test_line_rms_on_a_stitched_trace_does_not_depend_on_sampling_density(samples):
+    """#1044 review: a per-sample mean over x read 8 % apart between these samplings."""
+
+    def widths(samples):
+        joined = stitched_repro(samples, gains=(1.0, 1.0, 1.0), noise=0.0)
+        frame = Frame.from_array(joined[:, 1], axes=(Axis(joined[:, 0], unit="MeV"),))
+        return analyze(frame, recipe("line")).scalars
+
+    reference, other = widths((260, 200, 180)), widths(samples)
+    # The same analytic spectrum, one camera sampled four times as densely:
+    # the Δx-weighted moment is the integral over x either way.
+    assert other["rms"] == pytest.approx(reference["rms"], rel=1e-4)
+    assert reference["rms"] == pytest.approx(29.34, abs=0.01)
+    assert other["fwhm"] == pytest.approx(reference["fwhm"], abs=0.05)
+
+
+def test_even_spacing_is_judged_against_the_step():
+    """#1044 review: an offset must not hide a gap or jitter; single precision must pass."""
+    from geecs_analysis.algorithms.basic_line_stats import is_evenly_spaced
+
+    assert is_evenly_spaced(np.linspace(0.1, 0.9, 9).astype(np.float32).astype(float))
+    assert is_evenly_spaced(
+        np.linspace(1000, 5096, 4096).astype(np.float32).astype(float)
+    )
+    assert is_evenly_spaced(np.arange(9)[::-1])
+    # A Unix-time axis with a gap: a tolerance of max|x| was 1760 s wide.
+    assert not is_evenly_spaced(1.76e9 + np.array([0, 1, 2, 3, 4, 5, 6, 7, 1000.0]))
+    # Jitter of 30 % of the step at an offset of 400 000 steps.
+    i = np.arange(50)
+    jitter = np.random.default_rng(1).uniform(-0.3, 0.3, i.size)
+    assert not is_evenly_spaced(799 + 0.002 * (i + jitter))
+    assert not is_evenly_spaced(stitched_repro()[:, 0])
 
 
 def test_beam_widths_on_an_uneven_camera_axis_follow_the_line_measure():
@@ -223,6 +271,17 @@ def test_beam_widths_on_an_uneven_camera_axis_follow_the_line_measure():
     ).scalars
     for key in ("CoM", "rms", "fwhm", "peak_location"):
         assert beam[f"x_{key}"] == projection[key]
+    # And those widths are measured over the uneven axis: x_rms is the
+    # Δx-weighted moment of the projection (weights by hand: half of each
+    # neighbouring interval), not a per-sample mean (6.47) and not the
+    # legacy index width times the one spacing at the centroid.
+    w = np.array([0.5, 1.5, 1.5, 1.5, 2.5, 2, 2, 2, 2.5, 3, 1])
+    p = samples.sum(axis=0)
+    centroid = np.sum(w * p * x) / np.sum(w * p)
+    assert beam["x_rms"] == pytest.approx(
+        np.sqrt(np.sum(w * p * (x - centroid) ** 2) / np.sum(w * p)), rel=1e-12
+    )
+    assert beam["x_rms"] == pytest.approx(5.8563, abs=1e-4)
     # The evenly spaced y axis, the diagonals and the image totals are legacy.
     legacy = flatten_beam_stats(beam_profile_stats(samples, roi_offset=(0, 4)))
     for key, value in legacy.items():
