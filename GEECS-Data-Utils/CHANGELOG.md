@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.51.0] - 2026-10-06
+
+### Added
+
+- **`tiled_schema.device_valid_column(columns, device)`**: finds a
+  device's own `valid` companion column with the same normalized-name
+  rule as `device_acq_timestamp_column`, now shared by both. The Data
+  Portal uses it to refuse frames for shots the device marked invalid
+  (#990).
+
 ## [0.50.0] - 2026-10-02
 
 ### Added
