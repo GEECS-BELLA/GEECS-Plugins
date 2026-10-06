@@ -51,7 +51,7 @@ from geecs_bluesky.plans.strict import (
     geecs_per_step,
     name_failed_status,
 )
-from geecs_bluesky.plans.sweep import sweep_movers
+from geecs_bluesky.plans.sweep import sweep_movers, sweep_plan
 from geecs_bluesky.utils import safe_name
 
 logger = logging.getLogger(__name__)
@@ -389,7 +389,13 @@ def strict_plan(
     Parameters
     ----------
     stock :
-        A ``bluesky.plans`` verb exposing ``per_step`` or ``per_shot``.
+        A ``bluesky.plans`` verb exposing ``per_step`` or ``per_shot``.  The
+        background's movers come from the ``sweep`` payload (optimize's
+        binder passes its movables): a moving stock verb (``scan``,
+        ``grid_scan``) bound here with a background set would read the
+        motor's device whole beside the row's own motor read and fail on
+        the duplicate key — the roster never registers one (``plan_names``),
+        and this is one more reason why.
     profiles :
         The trigger profiles a ``trigger_profile`` argument resolves against.
     resolver :
@@ -703,8 +709,6 @@ def bind_plans(
         if name == "mv":
             bound[name] = _mv_named
         elif name == "sweep":
-            from .sweep import sweep_plan
-
             bound[name] = strict_plan(
                 sweep_plan(settables),
                 profiles,

@@ -571,7 +571,7 @@ def test_gated_rows_carry_the_background(RE, monkeypatch, tmp_path) -> None:
 def test_gated_sweep_keeps_the_scanned_devices_other_variables(
     RE, monkeypatch, tmp_path
 ) -> None:
-    """Gated: the step admits the axis's device before the ``shots`` stream is declared."""
+    """Gated: the axis's device is on every ``shots`` row, minus the readback the row owns."""
     from geecs_bluesky.plans import gated
     from tests.test_gated_plans import GATED_WRITES, GatedBox, _events_from_pages
     from tests.test_strict_plans import _plugin_camera
