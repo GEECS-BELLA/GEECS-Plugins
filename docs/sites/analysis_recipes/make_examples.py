@@ -145,7 +145,8 @@ def stitch_example() -> dict:
     res = analyze(
         f, Analysis.model_validate({"steps": [], "measure": {"kind": "line"}})
     )
-    # FWHM measured directly in MeV, to compare with the index-space value.
+    # FWHM measured directly in MeV (the span of the samples at or above half
+    # maximum), to compare with the measure's interpolated crossings.
     y = combined[:, 1]
     above = combined[y >= y.max() / 2, 0]
     return {

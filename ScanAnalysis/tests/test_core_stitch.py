@@ -22,7 +22,11 @@ from scan_analysis.analyzers.common.single_device_scan_analyzer import (
 from scan_analysis.config import create_scan_analyzer
 from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
 from scan_analysis.core_source import prepare_source
-from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
+from scan_analysis.route_compare import (
+    WIDTH_COLUMN_SUFFIXES,
+    compare_snapshots,
+    snapshot_analysis_tree,
+)
 
 TAG = ScanTag(year=2026, month=1, day=1, number=1, experiment="Test")
 SHOTS = 6
@@ -149,9 +153,23 @@ def test_the_core_route_matches_the_legacy_stitcher(tmp_path, monkeypatch):
     old, new = snapshot(legacy), snapshot(core)
     assert sorted(old) == sorted(new)
     assert any(name.endswith(".h5") for name in new)
-    assert compare_snapshots(old, new) == []
-    columns = new["s1.txt"][1].columns
+    old_rows, new_rows = old["s1.txt"][1], new["s1.txt"][1]
+    columns = new_rows.columns
     assert any(c.startswith(f"MagSpec1{SUFFIX}_") for c in columns)
+    # The one deliberate difference: a joined trace is unevenly spaced, and
+    # the core measures its widths over MeV (GEECS-Analysis 0.26.0, #1029)
+    # where the legacy analyzer counted samples times the spacing at the
+    # centroid. route_compare's nonuniform-axis allowance (the harness's
+    # --nonuniform-axis) excludes the two width columns; every other file,
+    # column and sample is identical, and without the allowance the widths
+    # are all that differs.
+    widths = [c for c in columns if c.endswith(WIDTH_COLUMN_SUFFIXES)]
+    assert len(widths) == 2
+    for column in widths:
+        assert not np.allclose(old_rows[column], new_rows[column])
+    strict = compare_snapshots(old, new)
+    assert strict and all(".txt:" in problem for problem in strict)
+    assert compare_snapshots(old, new, nonuniform_axis=True) == []
 
 
 def test_the_joined_trace_is_every_segment_sorted_by_x(tmp_path):

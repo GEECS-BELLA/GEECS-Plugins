@@ -18,6 +18,10 @@ import pandas as pd
 #: Noscan averages carry this marker in their file name; see ``compare_snapshots``.
 AVERAGE_MARKER = "_average_processed"
 
+#: The scalar columns the ``line`` and ``beam`` measures' widths land in; see
+#: ``compare_snapshots(nonuniform_axis=True)``.
+WIDTH_COLUMN_SUFFIXES = ("_rms", "_fwhm")
+
 
 def snapshot_analysis_tree(analysis: Path) -> dict[str, tuple]:
     """Decode every file under an ``analysis/`` folder, keyed by relative path.
@@ -42,16 +46,27 @@ def snapshot_analysis_tree(analysis: Path) -> dict[str, tuple]:
 
 
 def compare_snapshots(
-    legacy: dict[str, tuple], core: dict[str, tuple], *, average_ulps: int = 4
+    legacy: dict[str, tuple],
+    core: dict[str, tuple],
+    *,
+    average_ulps: int = 4,
+    nonuniform_axis: bool = False,
 ) -> list[str]:
     """Return one line per difference; an empty list means the trees match.
 
-    Arrays and tables must match exactly, with one explicit exception: noscan
-    average arrays (``AVERAGE_MARKER`` in the name). The legacy wrapper sums
-    shots in directory-listing order, whatever the filesystem returns, while
-    the core sums in scalar-row order; same per-shot inputs and formula, so
-    they differ only by summation rounding, bounded here by ``average_ulps``
-    of the stored dtype. Other files are compared by presence only.
+    Arrays and tables must match exactly, with two explicit exceptions.
+    Noscan average arrays (``AVERAGE_MARKER`` in the name): the legacy
+    wrapper sums shots in directory-listing order, whatever the filesystem
+    returns, while the core sums in scalar-row order; same per-shot inputs
+    and formula, so they differ only by summation rounding, bounded here by
+    ``average_ulps`` of the stored dtype. And, when the caller declares the
+    diagnostic's trace axis nonuniform (``nonuniform_axis``: a trace
+    stitched from sibling cameras, a nonlinear calibration), the tables'
+    ``*_rms`` / ``*_fwhm`` columns (``WIDTH_COLUMN_SUFFIXES``) are compared
+    by presence only: the core measures those widths over x (GEECS-Analysis
+    0.26.0, #1029) where the legacy analyzer scaled index-space widths by
+    the one spacing at the centroid, so they differ by design. Other files
+    are compared by presence only.
     """
     problems = []
     for name in sorted(set(legacy) - set(core)):
@@ -79,8 +94,24 @@ def compare_snapshots(
                 gap = np.nanmax(np.abs(data.astype(float) - data2.astype(float)))
                 problems.append(f"{name}: arrays differ (max |delta| = {gap:.3g})")
         elif expected[0] == "table":
+            old_table, new_table = expected[1], actual[1]
+            if nonuniform_axis:
+                old_widths = _width_columns(old_table)
+                new_widths = _width_columns(new_table)
+                if old_widths != new_widths:
+                    problems.append(
+                        f"{name}: width columns {old_widths} vs {new_widths}"
+                    )
+                    continue
+                old_table = old_table.drop(columns=old_widths)
+                new_table = new_table.drop(columns=new_widths)
             try:
-                pd.testing.assert_frame_equal(expected[1], actual[1], check_exact=True)
+                pd.testing.assert_frame_equal(old_table, new_table, check_exact=True)
             except AssertionError as exc:
                 problems.append(f"{name}: {str(exc).splitlines()[0]}")
     return problems
+
+
+def _width_columns(table: pd.DataFrame) -> list[str]:
+    """The table's ``*_rms`` / ``*_fwhm`` columns, in table order."""
+    return [c for c in table.columns if str(c).endswith(WIDTH_COLUMN_SUFFIXES)]

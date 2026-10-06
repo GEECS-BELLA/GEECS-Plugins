@@ -4,6 +4,38 @@ All notable changes to `geecs-analysis` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.26.0] - 2026-10-06
+
+### Changed
+
+- `line` measure (`LineBasicStats`): `rms` and `fwhm` on an unevenly spaced
+  axis are computed in axis coordinates — rms as the Δx-weighted
+  intensity moment over x (trapezoid weights: an integral over x, so it
+  does not depend on how densely each camera samples or on how many
+  samples the overlaps of a stitched trace contribute), fwhm from the
+  half-maximum crossings interpolated in x — instead of index-space widths
+  times the one sample spacing at the centroid, which is only right on an
+  evenly spaced axis (#1029). Judgment call: rms on an uneven axis is the
+  Δx-weighted moment, not a per-sample mean over x, which read 8 % apart
+  between two samplings of the same spectrum (#1044 review). An evenly
+  spaced axis (every step within `EVEN_SPACING_RTOL` = 0.1 % of the median
+  step, `is_evenly_spaced` — wide enough for an axis stored in single
+  precision, measured against the step so an offset cannot hide a gap)
+  keeps the legacy arithmetic bit for bit, descending-axis sign included.
+  The `beam` measure's x/y projection widths go through the same code and
+  change the same way on a nonuniform calibrated camera axis; its
+  diagonals do not.
+- **Operator note:** the s-file `rms` and `fwhm` columns of every stitched
+  diagnostic (`input.siblings`, e.g. the BCave MagSpec stitcher) and of any
+  trace with a nonlinear axis change value from this version on — the
+  issue's three-camera synthetic trace reads fwhm 53.2 MeV instead of 59.7
+  (true 51.8) and rms 30.8 instead of 38.7. Do not compare those columns
+  across the upgrade without re-running the analysis.
+- `compute_center_of_mass`, `compute_rms` and `compute_fwhm` take an
+  optional `coordinates` argument (one per sample); `is_evenly_spaced` and
+  `EVEN_SPACING_RTOL` are new. The recipe reference's `siblings` card and
+  the README / CLAUDE.md convention paragraphs describe the new rule.
+
 ## [0.25.0] - 2026-09-29
 
 ### Added
