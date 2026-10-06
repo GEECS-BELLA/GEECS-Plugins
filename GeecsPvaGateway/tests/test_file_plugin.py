@@ -409,11 +409,13 @@ async def test_session_semantics_over_raw_pva(tmp_path):
         # From here on the gateway holds a decoded frame of the variable (the
         # session above decoded every push), so Capture=1 arms on it (#894).
 
-        # The #894 shape: a watcher holds the subscription, the camera pushes
-        # nothing (a box ARMED through a long first move), and the last frame
-        # it did push has a new geometry.  Capture=1 completes at once on the
-        # held frame, with its geometry — and the readbacks of the last
-        # session (3 frames) read 0 before Capture_RBV flips (#853).
+        # The #894 shape: the camera pushes nothing (a box ARMED through a
+        # long first move — here a watcher holds the subscription, so not
+        # even a greeting comes), and the last frame it did push has a new
+        # geometry.  Capture=1 completes at once on the held frame — no
+        # window: nothing is coming (#1023's fix re-declares on the first
+        # fresh frame instead) — with its geometry, and the readbacks of
+        # the last session (3 frames) read 0 before Capture_RBV flips (#853).
         assert int(await get("NumCaptured_RBV")) == 3
         bigger = (np.arange(5 * 7) % 100).astype("<u2").reshape(5, 7)
         got_bigger = threading.Event()
@@ -445,7 +447,8 @@ async def test_session_semantics_over_raw_pva(tmp_path):
                 await put("Capture", True)
             finally:
                 plugin._post = real_post
-            assert time.monotonic() - started < 2.0  # no ARM_TIMEOUT_S wait
+            elapsed = time.monotonic() - started
+            assert elapsed < 0.5  # at once: no window, never ARM_TIMEOUT_S
             assert bool(await get("Capture_RBV")) is True
             assert int(await get("ArraySizeX_RBV")) == 7
             assert int(await get("ArraySizeY_RBV")) == 5
@@ -497,17 +500,148 @@ async def test_session_semantics_over_raw_pva(tmp_path):
         assert cam.connections == 0
         assert list(broken.iterdir()) == []
 
-        # A session that accepts nothing leaves no file.
+        # A session that accepts nothing leaves no file.  The stale greeting
+        # (IMG, 4 x 6) is skipped before its shape is looked at: the
+        # geometry stays the held frame's 5 x 7 — only a fresh frame
+        # re-declares it (#1023).
         empty = tmp_path / "Scan003" / "UC_TestCam"
         empty.mkdir(parents=True)
         await put("FilePath", str(empty) + os.sep)
         cam.push(IMG, time.time() - 5.0)
         await put("Capture", True)
-        await asyncio.sleep(0.3)
+        await _wait_until(lambda: plugin.value("UniqueId_RBV") == 1)  # it landed
+        assert plugin.value("NumCaptured_RBV") == 0
+        assert int(await get("ArraySizeX_RBV")) == 7
+        assert int(await get("ArraySizeY_RBV")) == 5
         await put("Capture", False)
         assert list(empty.iterdir()) == []
         await asyncio.wait_for(cam.disconnected.wait(), 10)
 
+    finally:
+        ctx.close()
+        await _shutdown(task)
+        await cam.stop()
+
+
+@pytest.mark.timeout(60)
+async def test_the_first_fresh_frame_re_declares_the_geometry_before_the_stack_opens(
+    tmp_path,
+):
+    """GEECS-Plugins#1023: the held frame's shape is provisional; the first fresh frame settles it.
+
+    The MagSpec shape: ``interpSpec`` is resampled onto the energy axis,
+    whose length follows the device's settings.  Session 1 records one
+    width; ``Capture=0`` releases the subscription, so the held frame
+    freezes at that width while the settings change.  The next
+    ``Capture=1`` still arms at once on the held frame (no push is coming:
+    the box is ARMED, #894) and is greeted by the device's stale replay at
+    the new width — stale-skipped, never a re-declaration.  The first
+    *fresh* frame at the new width re-declares the geometry and opens the
+    stack at it, with the geometry posted before the count advances; from
+    the open on another shape is refused as before, and the next accepted
+    frame clears that refusal from ``WriteStatus`` / ``WriteMessage``.
+    """
+    cam = StampedCamera()
+    await cam.start()
+    gateway, task = await _start_gateway(cam)
+    plugin = _plugin(gateway)
+    ctx = Context("pva", conf=gateway.conf(), useenv=False)
+    loop = asyncio.get_running_loop()
+
+    async def put(suffix: str, value) -> None:
+        await loop.run_in_executor(None, lambda: ctx.put(PREFIX + suffix, value))
+
+    async def get(suffix: str):
+        return await loop.run_in_executor(None, lambda: ctx.get(PREFIX + suffix))
+
+    async def geometry() -> tuple[int, int]:
+        return int(await get("ArraySizeY_RBV")), int(await get("ArraySizeX_RBV"))
+
+    try:
+        # Session 1 at the old width leaves the held frame at IMG's shape.
+        run1 = tmp_path / "Scan001" / "UC_TestCam"
+        run1.mkdir(parents=True)
+        await put("FilePath", str(run1) + os.sep)
+        await put("FileName", "UC_TestCam")
+        cam.push(IMG, time.time() - 5.0)  # the greeting of a never-decoded arm
+        await put("Capture", True)
+        cam.push(IMG + 1, time.time())
+        await _wait_until(lambda: plugin.value("NumCaptured_RBV") == 1)
+        await put("Capture", False)
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
+        assert cam.connections == 0  # released: the held frame freezes here
+
+        # The settings changed: the device now produces 5 x 7, and its stale
+        # replay greets the subscription the next Capture=1 takes.
+        bigger = (np.arange(5 * 7) % 100).astype("<u2").reshape(5, 7)
+        cam.push(bigger, time.time() - 5.0)
+        run2 = tmp_path / "Scan002" / "UC_TestCam"
+        run2.mkdir(parents=True)
+        await put("FilePath", str(run2) + os.sep)
+        posts: list[tuple[str, object]] = []
+        real_post = plugin._post
+
+        def spy(suffix, value):
+            posts.append((suffix, value))
+            real_post(suffix, value)
+
+        plugin._post = spy
+        try:
+            started = time.monotonic()
+            await put("Capture", True)
+            # (b) Armed at once on the held frame — no window (#894) — whose
+            # shape is the declared geometry, provisionally.
+            assert time.monotonic() - started < 0.5
+            assert bool(await get("Capture_RBV")) is True
+            assert await geometry() == IMG.shape
+            # The stale greeting lands and is skipped: no re-declaration.
+            await _wait_until(lambda: plugin.value("UniqueId_RBV") == 1)
+            assert plugin.value("NumCaptured_RBV") == 0
+            assert await geometry() == IMG.shape
+            # (a) The first fresh frame at the new width re-declares the
+            # geometry and opens the stack at it: every shot records.
+            t = time.time()
+            for i in range(3):
+                cam.push(bigger + i, t + i)
+            await _wait_until(lambda: plugin.value("NumCaptured_RBV") == 3)
+            assert await geometry() == (5, 7)
+            assert str(await get("WriteStatus")) == "Write OK"
+            # (d) The geometry posted before the count advanced: a reader
+            # that notices the first frame reads the current shape.
+            first_count = posts.index(("NumCaptured_RBV", 1))
+            re_declared = max(
+                i
+                for i, post in enumerate(posts)
+                if post in (("ArraySizeY_RBV", 5), ("ArraySizeX_RBV", 7))
+            )
+            assert re_declared < first_count
+            # (c) From the open on, another shape is refused as before ...
+            cam.push(IMG + 2, t + 3)
+            await _wait_until(lambda: plugin.value("WriteStatus") == "Write Error")
+            assert "stack shape" in str(await get("WriteMessage"))
+            assert plugin.value("NumCaptured_RBV") == 3
+            # (e) ... and the next accepted frame clears the refusal, before
+            # its count posts.
+            cam.push(bigger + 3, t + 4)
+            await _wait_until(lambda: plugin.value("NumCaptured_RBV") == 4)
+            assert str(await get("WriteStatus")) == "Write OK"
+            assert (
+                await get("WriteMessage") == ""
+            )  # an ntstr: str() of an empty one is its stamp
+            refused = posts.index(("WriteStatus", "Write Error"))
+            assert posts.index(("WriteStatus", "Write OK"), refused) < posts.index(
+                ("NumCaptured_RBV", 4)
+            )
+        finally:
+            plugin._post = real_post
+        await put("Capture", False)
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
+        with h5py.File(run2 / "UC_TestCam.h5", "r") as f:
+            assert f[FRAMES_DATASET].shape == (4, 5, 7)
+            np.testing.assert_array_equal(f[FRAMES_DATASET][3], bigger + 3)
+            assert f.attrs["frames_written"] == 4
+            assert f.attrs["shape_errors"] == 1  # the post-open refusal
+            assert f.attrs["stale_skipped"] == 1  # the greeting
     finally:
         ctx.close()
         await _shutdown(task)

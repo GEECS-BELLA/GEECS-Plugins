@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.39.2] - 2026-10-06
+
+### Fixed
+
+- A shot whose device row says `<device>-valid = False` is now refused
+  like a missed shot (#990). The Images tab's shot image, the trace
+  endpoint and the config editor's image preview answer 404, and the bin
+  average leaves the shot out. Before, the portal joined the frame by
+  `acq_timestamp` alone and showed a frame that belongs to another
+  physical shot, one a scan run maps no file for. Needs
+  GEECS-Data-Utils 0.51.0 (`tiled_schema.device_valid_column`).
+
 ## [0.39.1] - 2026-10-01
 
 ### Added

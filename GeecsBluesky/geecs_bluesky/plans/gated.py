@@ -15,18 +15,26 @@ device (:class:`~geecs_bluesky.devices.sampler.ShotSampler`) and the box
         prepare(N, unbounded)                    # saving on, run-long
         prepare(D); wait_for(D.zero_count)       # arm, zero the stale count
     prepare(D, gated_trigger_info(remaining)); prepare(S, remaining)
-    declare_stream(*D, "primary"); declare_stream(S, "shots")   # once
+    declare_stream(S, "shots")                               # once
     kickoff(*D, S); mv(B, SCAN)
     complete(*D, S) in slices of PROGRESS_PERIOD_S:
         collect(S, "shots"); checkpoint          # rows every D holds a frame of
     mv(B, OFF); sleep(period + max drain + margin)
     wait_for(D.truncate_to_quota)
+    declare_stream(*D, "primary")                # once, after the first frames
     collect(*D, "primary"); collect(S, "shots")
 
 ``primary`` is a datum stream (the frames and their per-frame
 attributes); ``shots`` carries one event per shot.  With no plugin-backed
 camera the sampler alone gates the step; a run with no essential
 triggered device is refused ("nothing counts shots; use strict").
+``primary`` is declared **after the first batch's frames**, right before
+its first collect, never before the kickoff: the plugin settles a
+stream's geometry on the session's first fresh frame (a held frame from
+before a ΔE change is re-declared then, GEECS-Plugins#1023), and the
+descriptor — composed at ``declare_stream`` — has to read that shape,
+which the lazy data provider does (``devices/hdf_plugin``).  The box is
+OFF at the arm, so no earlier frame exists.
 
 **Pause means pause now**: a pause mid-batch drives the box OFF
 (``ShotControl.pause``); the batch holds the box
@@ -188,7 +196,12 @@ def gated_take_reading(
     shot_timeout :
         Per-frame budget for the cameras and per-tick budget for the sampler.
     """
-    state: dict[str, Any] = {"sampler": None, "declared": False, "steps": 0}
+    state: dict[str, Any] = {
+        "sampler": None,
+        "declared": False,  # the shots stream
+        "primary_declared": False,  # the cameras' stream, after the first frames
+        "steps": 0,
+    }
 
     def take_reading(devices: Sequence[Any], quota: int):
         devices = separate_devices(devices)
@@ -224,6 +237,18 @@ def gated_take_reading(
         first_step = state["steps"] == 0
         done = 0  # the step's shots already recorded (a pause keeps them)
         batches = 0
+
+        def declare_primary():
+            # Once, after the batch's first frames and before the first
+            # collect — the descriptor is composed here, and by now the
+            # plugin has settled the stream's geometry on its first
+            # fresh frame (#1023); declared before the kickoff it would
+            # carry the held frame's shape (the data provider reads the
+            # geometry at this describe, ``devices/hdf_plugin``).
+            if plugin and not state["primary_declared"]:
+                yield from bps.declare_stream(*plugin, name=name, collect=True)
+                state["primary_declared"] = True
+
         while True:
             batches += 1
             first_batch = first_step and batches == 1
@@ -266,10 +291,9 @@ def gated_take_reading(
             yield from bps.prepare(sampler, remaining, group=group, wait=False)
             yield from bps.wait(group=group)
             if not state["declared"]:
-                if plugin:
-                    yield from bps.declare_stream(*plugin, name=name, collect=True)
                 yield from bps.declare_stream(sampler, name=shots_stream, collect=True)
                 state["declared"] = True
+
             yield from bps.kickoff_all(*plugin, sampler, wait=True)
 
             def end_batch() -> None:
@@ -334,6 +358,7 @@ def gated_take_reading(
             if finished:
                 if plugin:
                     yield from bps.wait_for([d.truncate_to_quota for d in plugin])
+                    yield from declare_primary()
                     yield from bps.collect(*plugin, name=name)
                 yield from bps.collect(sampler, name=shots_stream)
                 state["steps"] += 1
@@ -364,7 +389,8 @@ def gated_take_reading(
                 # timeout on the camera that caused it.
                 try:
                     yield from bps.wait_for([settle])
-                    if plugin:
+                    if plugin and kept["shots"]:
+                        yield from declare_primary()
                         yield from bps.collect(*plugin, name=name)
                     yield from bps.collect(sampler, name=shots_stream)
                 except Exception:  # noqa: BLE001 - the batch's failure wins
@@ -381,7 +407,12 @@ def gated_take_reading(
                     f"gated batch failed: {failure_cause_text(failure)}",
                 ) from failure
             yield from bps.wait_for([settle])
-            if plugin:
+            if plugin and kept["shots"]:
+                # Nothing kept means nothing to collect — and no declare: a
+                # descriptor composed before the batch's first frame would
+                # carry the held frame's shape (#1023); the step's next
+                # batch declares at its collect.
+                yield from declare_primary()
                 yield from bps.collect(*plugin, name=name)
             yield from bps.collect(sampler, name=shots_stream)
             done += kept["shots"]
@@ -507,8 +538,12 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
     and ``complete`` + ``collect`` before ``close_run`` but neither stages
     nor prepares; this one does both — stage (a device dead at stage time
     fails loudly, as it should), then, right after ``open_run``, the
-    unbounded prepares and the stream declarations that route the collects,
-    then the kickoffs while the box is still quiet.  Each stream is
+    unbounded prepares and the stamp streams' declarations, then the
+    kickoffs while the box is still quiet.  A plugin stream is declared at
+    the close, right before its collect: by then the plugin has settled the
+    stream's geometry on its first fresh frame (GEECS-Plugins#1023), where
+    a descriptor composed at the open would carry the held frame's shape
+    over a stack written at another.  Each stream is
     collected alone (one object: no index, the datum covers everything it
     wrote), in its own stream — a joint stream would cut every device at
     the slowest one.  From the run's close on, nothing of a non-essential
@@ -570,7 +605,9 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
                     flyer, UNBOUNDED_TRIGGER_INFO, group=group, wait=False
                 )
             yield from bps.wait(group=group)
-        for stream in streams:
+        # The stamp streams are declared here; a plugin stream at the close,
+        # right before its collect (#1023, ``before_close``).
+        for stream in stamped:
             yield from bps.declare_stream(
                 stream, name=non_essential_stream(stream.name), collect=True
             )
@@ -582,16 +619,29 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
         # stream's complete + collect is its own contingency, logged and
         # skipped.
         for stream in streams:
-            # complete and collect are SEPARATE contingencies: a complete
-            # that fails (a stalled or dead plugin) must not cost the
-            # datums for the frames it did write.
-            for verb, plan_factory in (
-                ("complete", lambda f=stream: bps.complete(f, wait=True)),
+            # complete, declare and collect are SEPARATE contingencies: a
+            # complete that fails (a stalled or dead plugin) must not cost
+            # the datums for the frames it did write.  A plugin stream is
+            # declared here and not at the open: its descriptor then reads
+            # the geometry the plugin settled on at its first fresh frame
+            # (#1023); the stamp streams were declared at the open.
+            verbs = [("complete", lambda f=stream: bps.complete(f, wait=True))]
+            if stream in plugin:
+                verbs.append(
+                    (
+                        "declare_stream",
+                        lambda f=stream: bps.declare_stream(
+                            f, name=non_essential_stream(f.name), collect=True
+                        ),
+                    )
+                )
+            verbs.append(
                 (
                     "collect",
                     lambda f=stream: bps.collect(f, name=non_essential_stream(f.name)),
-                ),
-            ):
+                )
+            )
+            for verb, plan_factory in verbs:
 
                 def skip(exc, flyer=stream, verb=verb):
                     logger.warning(

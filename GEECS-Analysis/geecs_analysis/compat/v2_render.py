@@ -81,6 +81,9 @@ def figure_v2(
         axes={**_axes(options), **({"title": title} if title else {})},
         colorbar=colorbar,
         fig={"figsize": (8, 6) if line else (side, side), "dpi": options.dpi or 150},
+        # figsize_inches is the canvas's long side, not a chosen square: an
+        # image's canvas is trimmed to what was drawn (``single``).
+        fit_canvas=not line,
     )
 
 

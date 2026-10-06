@@ -5,10 +5,20 @@ every s-file row; this object restores that parity without ever blocking
 a scan (#1016, #929).
 
 - **Membership.**  The namespace's telemetry set
-  (:meth:`~geecs_bluesky.namespace.GeecsNamespace.telemetry`) minus every
-  member whose root device the run stages, so no event key is contributed
-  twice.  Decided per run at :meth:`probe` from the plan's ``stage``
-  messages (:func:`~geecs_bluesky.plans.registry.background_wrapper`).
+  (:meth:`~geecs_bluesky.namespace.GeecsNamespace.telemetry`) minus what
+  the run records itself, so no event key is contributed twice.  Decided
+  in one place, at :meth:`probe` right before ``open_run``, from what the
+  bound plan knows before the run: its **own readers** (its detectors and
+  non-essential devices, a ``.scalars`` view standing for its owner) and
+  its **movers** (the sweep resolves its axes when the plan is built,
+  optimize holds its movables).  Every candidate rooted at an own reader
+  is the run's and excluded, whatever else is scanned on that device.  A
+  mover's device is read minus the keys the mover describes (its
+  readback, the motor's own column), so the scanned device's other logged
+  variables stay in the rows — Master Control logged them, and they
+  matter most on the device being varied; the RunEngine staged that
+  device (bluesky's ``stage_wrapper`` stages ``root_ancestor``), so the
+  snapshot reads from its stage and never stages or unstages it.
 - **Probe.**  Right before ``open_run`` every member is connected, staged,
   described and read once, concurrently, within :data:`PROBE_TIMEOUT_S`.
   One that does not answer is dropped **for this run only**, named in the
@@ -151,6 +161,7 @@ class BackgroundSnapshot:
         self.read_timeout = float(read_timeout)
         self._active: list[Any] = []
         self._datakeys: dict[int, dict[str, DataKey]] = {}
+        self._staged_by_me: set[int] = set()
         self._dropped: list[str] = []
         self._probe_error = ""
         self._warned: set[int] = set()
@@ -206,6 +217,7 @@ class BackgroundSnapshot:
         async def do() -> None:
             self._active = []
             self._datakeys = {}
+            self._staged_by_me = set()
             self._dropped = []
             self._probe_error = ""
             self._warned = set()
@@ -213,16 +225,24 @@ class BackgroundSnapshot:
         return AsyncStatus(do())
 
     def unstage(self) -> AsyncStatus:
-        """Release the active members' monitor caches (each one's own ``unstage``)."""
+        """Release the monitor caches the probe staged (each member's own ``unstage``).
+
+        A mover's device was staged by the RunEngine and is left to it.
+        """
 
         async def do() -> None:
             members, self._active = self._active, []
-            await asyncio.gather(*(self._unstage_one(m) for m in members))
+            mine, self._staged_by_me = self._staged_by_me, set()
+            await asyncio.gather(
+                *(self._unstage_one(m) for m in members if id(m) in mine)
+            )
 
         return AsyncStatus(do())
 
-    async def probe(self, staged: Sequence[Any] = ()) -> None:
-        """Decide this run's members: drop the run's own devices, probe the rest.
+    async def probe(
+        self, *, own: Sequence[Any] = (), movers: Sequence[Any] = ()
+    ) -> None:
+        """Decide this run's members: the run's own devices out, the rest probed.
 
         Never raises: an error in the probe itself (not in a member — a
         member's failure is its own drop) leaves the run without background
@@ -231,17 +251,24 @@ class BackgroundSnapshot:
 
         Parameters
         ----------
-        staged :
-            Every object the plan staged before ``open_run`` (its
-            detectors, non-essential devices and motors, as roots).  A
-            candidate whose root device is among them — or the owner of
-            a ``.scalars`` view among them — is the run's own and is left
-            to the run.  The rest are probed concurrently; the ones that
-            answer within the budget are this run's members.
+        own :
+            The run's own readers as the plan lists them: its detectors
+            and non-essential devices (a ``.scalars`` view counts as its
+            owner).  Every candidate rooted at one is the run's and is
+            left to it.
+        movers :
+            The motors the run moves (the sweep's resolved axes, the
+            optimizer's movables).  A mover's device is read minus the
+            keys the mover describes — from the stage the RunEngine did,
+            never staged or unstaged here.  A mover that is a whole device
+            is the run's; one that does not describe within the budget
+            leaves its device out of the background for this run — the row
+            still carries the readback, and a missing column is the safe
+            side of a duplicate key.
         """
         self._probe_error = ""
         try:
-            await self._probe(staged)
+            await self._probe(own, movers)
         except Exception as exc:  # noqa: BLE001 - the run opens regardless
             self._active, self._datakeys = [], {}
             self._probe_error = _one_line(exc)
@@ -250,35 +277,80 @@ class BackgroundSnapshot:
                 "this run"
             )
 
-    async def _probe(self, staged: Sequence[Any]) -> None:
-        excluded = {id(root_ancestor(owner_of(obj))) for obj in staged}
-        members = [
-            m
-            for m in self._candidates
-            if id(root_ancestor(owner_of(m))) not in excluded
-        ]
-        results = await asyncio.gather(*(self._probe_one(m) for m in members))
-        self._active = [m for m, (keys, _) in zip(members, results) if keys is not None]
-        self._datakeys = {
-            id(m): keys for m, (keys, _) in zip(members, results) if keys is not None
-        }
+    async def _probe(self, own: Sequence[Any], movers: Sequence[Any]) -> None:
+        own_roots = {id(root_ancestor(owner_of(obj))) for obj in own}
+        taken: set[str] = set()  # the movers' own columns
+        moved: set[int] = set()  # roots the RunEngine staged for a mover
+        for obj in movers:
+            owner = owner_of(obj)
+            root = root_ancestor(owner)
+            if root is owner or id(root) in own_roots:
+                own_roots.add(id(root))  # a whole device moved is the run's
+                continue
+            try:
+                keys = await asyncio.wait_for(
+                    maybe_await(owner.describe()), self.probe_timeout
+                )
+            except Exception as exc:  # noqa: BLE001 - never read a key twice
+                own_roots.add(
+                    id(root)
+                )  # out for this run: which key is the row's is unknown
+                logger.warning(
+                    "background telemetry: %s (%s) did not describe (%s) — its "
+                    "device's other variables are left out of this run (the row "
+                    "carries the readback as the motor's own column; a key read "
+                    "twice would fail the run)",
+                    geecs_device_name(obj),
+                    getattr(obj, "name", obj),
+                    _one_line(exc),
+                )
+                continue
+            taken.update(keys)
+            moved.add(id(root))
+        members: list[Any] = []
+        staged: set[int] = set()  # members the RunEngine staged (a mover's device)
+        for m in self._candidates:
+            root = id(root_ancestor(owner_of(m)))
+            if root in own_roots:
+                continue
+            members.append(m)
+            if root in moved:
+                staged.add(id(m))
+        self._active, self._datakeys, self._staged_by_me = [], {}, set()
+        results = await asyncio.gather(
+            *(self._probe_one(m, stage=id(m) not in staged) for m in members)
+        )
+        recorded: list[Any] = []  # answered, but every key of it is the run's own
         reasons: dict[str, str] = {}  # dropped device → why, the first reason seen
         stale: list[str] = []  # kept, but every reading INVALID
         for m, (keys, note) in zip(members, results):
             name = geecs_device_name(m)
             if keys is None:
                 reasons.setdefault(name, note)
-            elif note and name not in stale:
+                continue
+            mine = {key: datakey for key, datakey in keys.items() if key not in taken}
+            if not mine:
+                recorded.append(m)
+                continue
+            self._active.append(m)
+            self._datakeys[id(m)] = mine
+            if id(m) not in staged:
+                self._staged_by_me.add(id(m))
+            if note and name not in stale:
                 stale.append(name)
+        # A member the run records whole: a stage of ours is released.
+        await asyncio.gather(
+            *(self._unstage_one(m) for m in recorded if id(m) not in staged)
+        )
         self._dropped = list(reasons)
-        own = {geecs_device_name(m) for m in self._candidates} - {
+        own_names = {geecs_device_name(m) for m in self._candidates} - {
             geecs_device_name(m) for m in members
         }
         logger.info(
             "background telemetry: %d device(s) read per shot (%d in the run "
             "already, %d dropped)",
             len({geecs_device_name(m) for m in self._active}),
-            len(own),
+            len(own_names | {geecs_device_name(m) for m in recorded}),
             len(reasons),
         )
         if reasons:
@@ -294,8 +366,10 @@ class BackgroundSnapshot:
                 ", ".join(f"{name} ({_STALE})" for name in stale),
             )
 
-    async def _probe_one(self, member: Any) -> tuple[dict[str, DataKey] | None, str]:
-        """Connect, stage, describe and read *member* once, within the budget.
+    async def _probe_one(
+        self, member: Any, *, stage: bool = True
+    ) -> tuple[dict[str, DataKey] | None, str]:
+        """Connect, stage (unless the RunEngine did), describe and read *member* once, within the budget.
 
         Returns ``(data keys, note)``: the keys and ``""`` for a member that
         answered, the keys and :data:`_STALE` for one whose every reading is
@@ -315,7 +389,8 @@ class BackgroundSnapshot:
                 )
                 task.add_done_callback(_retrieved)
                 await asyncio.shield(task)
-            await _call(member, "stage")
+            if stage:
+                await _call(member, "stage")
             keys = dict(await maybe_await(member.describe()))
             readings = await maybe_await(member.read())  # the first cached value
             stale = bool(readings) and all(_invalid(r) for r in readings.values())
@@ -333,7 +408,8 @@ class BackgroundSnapshot:
             getattr(member, "name", member),
             reason,
         )
-        await self._unstage_one(member)  # a half-staged cache is released
+        if stage:
+            await self._unstage_one(member)  # a half-staged cache is released
         return None, reason
 
     async def _unstage_one(self, member: Any) -> None:

@@ -262,9 +262,9 @@ def test_probe_flags_mixed_versions_and_all_down():
 def test_probe_diffs_the_served_set_against_the_db_roster():
     """The ``:devices`` PV (the set the instance serves, #943) is shown against
     the DB roster: agreement is a fact, a difference is a finding (note=), and
-    an instance without the PV (pre-0.15.0) reads as before."""
+    an instance without the PV (pre-0.16.0) reads as before."""
     answers = {
-        "undulator:pvagateway:192_168_6_100:version": "0.15.0",
+        "undulator:pvagateway:192_168_6_100:version": "0.16.0",
         "undulator:pvagateway:192_168_6_100:heartbeat": 42,
         "undulator:pvagateway:192_168_6_100:devices": ["UC_A", "UC_Z"],
         "undulator:pvagateway:192_168_7_161:version": "0.14.0",

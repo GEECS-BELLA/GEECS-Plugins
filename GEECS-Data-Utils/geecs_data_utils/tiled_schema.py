@@ -188,7 +188,39 @@ def device_acq_timestamp_column(columns: Sequence[str], device: str) -> Optional
         The matching ``<dev>-acq_timestamp`` column name, or ``None``
         when the run has no timestamp column for this device.
     """
-    wanted = f"{_normalize_token(device)}_acq_timestamp"
+    return _device_companion_column(columns, device, "acq_timestamp")
+
+
+def device_valid_column(columns: Sequence[str], device: str) -> Optional[str]:
+    """Find *device*'s own ``valid`` companion column, or ``None``.
+
+    The same normalized-name rule as :func:`device_acq_timestamp_column`
+    (``"<dev>-valid"`` / ``"<Device> valid"`` / ``"<Device>:valid"``).  A
+    row where this column is false is a shot whose frame belongs to a
+    different physical shot: every shot→file join must treat it as
+    missed.  Never re-derive the match in a consumer.
+
+    Parameters
+    ----------
+    columns : sequence of str
+        All event-stream column names.
+    device : str
+        Device name or on-disk device folder stem.
+
+    Returns
+    -------
+    str or None
+        The matching ``<dev>-valid`` column name, or ``None`` when the
+        run carries no validity column for this device.
+    """
+    return _device_companion_column(columns, device, "valid")
+
+
+def _device_companion_column(
+    columns: Sequence[str], device: str, companion: str
+) -> Optional[str]:
+    """The column whose normalized name is ``<device token>_<companion>``."""
+    wanted = f"{_normalize_token(device)}_{companion}"
     for column in columns:
         if _normalize_token(str(column)) == wanted:
             return str(column)

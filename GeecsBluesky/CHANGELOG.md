@@ -6,6 +6,97 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.113.0] - 2026-10-06
+
+### Changed
+
+- **The descriptor and the StreamResource follow the geometry the plugin
+  settles on** (#1023). The PVA gateway's file plugin now re-declares a
+  stream's geometry on the session's first fresh frame when the device's
+  settings moved since the frame it armed on (GeecsPvaGateway 0.15.0:
+  the MagSpec `ImageInterp` / `interpSpec` follow the energy axis). The
+  stock `ADHDFDataLogic` read the geometry at `prepare`, before any
+  frame, so the run's record would have carried the held frame's shape
+  over a stack written at another. `devices/hdf_plugin.GeecsHdfDataLogic`
+  — the stock logic, unchanged at `prepare` — returns a
+  `GeecsStreamResourceDataProvider` that re-reads the main dataset's
+  shape and dtype from the plugin's geometry PVs at every describe and
+  at the stream documents, until a stream datum is out, then keeps them.
+  A strict run composes its descriptor at the first `save`, after the
+  first shot. The **gated plan now declares the cameras' `primary` stream
+  after the first batch's frames**, right before their first collect,
+  instead of before the kickoff — bluesky emits the descriptor at
+  `declare_stream`, and before the kickoff (box OFF) there is no frame for
+  the plugin to have settled on; the `shots` stream is declared where it
+  was, so its rows go out during the batch as before. The non-essential
+  wrapper likewise declares a plugin-backed non-essential's `<name>_stream`
+  at the run's close, right before its collect (the stamp streams keep
+  their declare at the open), and a gated batch paused or failed before
+  its first frame declares nothing — nothing to collect; the step's next
+  batch declares — both from the rebuild's review. Hermetic pins: the
+  detector's describe and first StreamResource carry the shape and dtype
+  the PVs read after prepare and keep them after a datum; a gated count's
+  `primary` descriptor and StreamResource carry the shape set at the first
+  edge, the descriptor emitted after the batch's `shots` rows; a
+  plugin-backed non-essential's descriptor and StreamResource agree at the
+  settled shape in both modes; a batch paused before its first edge leaves
+  the run's one `primary` descriptor to its next batch, at the settled
+  shape.
+
+### Added
+
+- `GeecsDetector.plugin_reasons()` — each file plugin's non-empty
+  `WriteMessage` as `file plugin <io.name>: <message>`, the plugins read
+  together, each within `PLUGIN_REASON_TIMEOUT_S` (2 s — the bound of the
+  whole call whatever the plugin count), best effort — serving
+  `prepare`'s failure note (the same text it attached before), the count
+  timeouts of `trigger` (strict) and `complete` (gated), whose
+  `GeecsTriggerTimeoutError` now ends ` — file plugin …: <message>` when
+  a plugin has one, and the strict plan's miss path
+  (`plans/strict.py::plugin_reasons`, through `bps.wait_for`): the
+  incomplete-shot warning and the step's `GeecsTriggerTimeoutError` — the
+  scan-end message — carry each missed device's reason beside its name
+  (`UC_BCaveMagSpecCam1 (file plugin uc_bcavemagspeccam1-hdf-imageinterp:
+  …)`) and stop blaming "known camera frame-drop intermittency" when a
+  plugin has a message (#1023: a plugin refusing every frame read as a
+  camera dropping them). The old wording stays when no plugin has
+  anything to say; `device_name` stays the bare names; a plugin that
+  never answers costs a failure path the budget, not a hang (pinned on
+  the detector and through the strict miss path). The name joins
+  `RESERVED_DEVICE_ATTRIBUTES` (a GEECS variable spelled `plugin_reasons`
+  would bind as `plugin_reasons_`).
+
+## [0.112.0] - 2026-10-06
+
+### Fixed
+
+- **Background telemetry: scanning one variable no longer silences the
+  device's other variables.**  The probe excluded every candidate rooted
+  at a staged device, and bluesky's `stage_wrapper` stages root devices,
+  so a sweep over `U_S1H.current` dropped all of `U_S1H`'s logged
+  readbacks from the rows for that scan — the device being varied was the
+  one least recorded.  The bound plans now hand the probe what they know
+  before the run: the run's **own readers** (its detectors and
+  non-essential devices; a `.scalars` view counts as its owner) and its
+  **movers** (`plans/sweep.sweep_movers`, the sweep's own axis lookup
+  lifted into a helper; the optimizer's movables).  Every candidate rooted
+  at an own reader is excluded as before, whatever else is scanned on that
+  device; a mover's device is read minus the keys the mover describes (its
+  readback, the motor's own column) from the stage the RunEngine already
+  did — the snapshot never stages or unstages it — so the descriptor
+  carries the device's other variables once and the readback once.  A
+  mover that does not describe within the probe budget leaves its device
+  out of the background for that run (WARNING; the readback stays, as the
+  motor's column — a key read twice fails the run, a missing column does
+  not).  One decision, before `open_run`, so the start
+  document's `background_dropped` stays complete and no plan step changed.
+  Hermetic tests pin the trimmed member, the own-reader shapes
+  (`sweep([X], X.current)`, `[X.scalars]`, a camera whose settable child
+  is the axis — strict by the descriptor's `object_keys`, and gated), the
+  stage/unstage ownership, the refusal, and the strict and gated sweeps
+  (the readback once as the motor's column, the voltage from the
+  background in every row).
+
 ## [0.111.0] - 2026-10-02
 
 ### Added

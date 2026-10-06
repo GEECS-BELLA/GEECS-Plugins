@@ -537,7 +537,12 @@ def optimize_plan(
                 [*detectors, *movables.values()],
             )
             if snapshot is not None:
-                staged = background_wrapper(staged, snapshot)
+                staged = background_wrapper(
+                    staged,
+                    snapshot,
+                    own=[*detectors, *non_essential],
+                    movers=list(movables.values()),
+                )
             staged = native_image_save_wrapper(staged, detectors, native_files)
             yield from name_failed_status(run_bracket(staged, sc, TriggerState.ARMED))
 

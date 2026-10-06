@@ -203,7 +203,7 @@ monitor instead, as above.
 
 ## Enabling or disabling a device in the DB
 
-Needs no restart (0.15.0, #943). Every instance re-reads its served set
+Needs no restart (0.16.0, #943). Every instance re-reads its served set
 from the DB every 60 s (`--roster-interval SECONDS`; the launcher passes
 nothing, so the default applies fleet-wide) and reconciles: a device
 enabled on the box gains its PVs and file plugin within a minute, a
@@ -303,7 +303,7 @@ finding beyond that: a removal deferred by an open capture, a refused
 PV-name collision, an instance holding its last set because its DB
 route is dead, or an instance scoped differently from the per-IP roster
 by construction — launched with `--devices`, or a multi-IP box whose
-devices sit on more than one address; a pre-0.15.0 instance shows the
+devices sit on more than one address; a pre-0.16.0 instance shows the
 roster count alone),
 `[DOWN]` with the error, `[ -- ] not deployed` for DB hosts absent from
 `addr_list`, and a `[WARN]` when versions are mixed (a rollout is

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 from pathlib import Path, PureWindowsPath
 
 import pytest
@@ -38,6 +39,7 @@ from geecs_bluesky.devices.detector import (  # noqa: E402
 )
 from geecs_bluesky.devices.hdf_plugin import (  # noqa: E402
     GeecsHdfIO,
+    GeecsStreamResourceDataProvider,
     PluginPathProvider,
     file_plugin_hosts,
 )
@@ -258,6 +260,135 @@ def test_prepare_failure_carries_the_plugins_reason(
     assert any(
         "never creates it" in note for note in getattr(info.value, "__notes__", [])
     )
+
+
+def test_describe_and_the_stream_resource_follow_the_geometry_the_plugin_settles(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """GEECS-Plugins#1023: the stream's geometry is read at the first describe, not frozen at prepare.
+
+    The plugin arms on the frame it holds and re-declares the geometry on
+    the session's first fresh frame when the device's settings moved
+    since.  The descriptor is composed after that frame (strict: at the
+    first save; gated: the cameras' stream is declared after the first
+    batch) and the StreamResource goes out with the first datum: both read
+    the shape — and dtype — the plugin settled on, and once a datum is out
+    the description is kept whatever the PVs say later.
+    """
+    cam = _camera(RE, tmp_path)  # 4 x 6 UInt16 at the arm
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert cam._prepare_ctx is not None
+    provider = cam._prepare_ctx.streamable_data_providers[0]
+    assert isinstance(provider, GeecsStreamResourceDataProvider)
+    # The first fresh frame re-declared the geometry (and, here, the dtype).
+    set_mock_value(cam.hdf.array_size_x, 7)
+    set_mock_value(cam.hdf.array_size_y, 5)
+    set_mock_value(cam.hdf.data_type, "Float64")
+    described = _run(RE, lambda: cam.describe())
+    assert described["uc_testcam"]["shape"] == [1, 5, 7]
+    assert described["uc_testcam"]["dtype_numpy"] == "<f8"
+
+    async def shot():
+        status = cam.trigger()
+        await asyncio.sleep(0.05)
+        set_mock_value(cam.hdf.num_captured, 1)
+        set_mock_value(cam.acq_timestamp, 1001.0)
+        await status
+        return [doc async for doc in cam.collect_asset_docs()]
+
+    docs = _run(RE, lambda: shot())
+    resource = next(
+        doc
+        for name, doc in docs
+        if name == "stream_resource" and doc["data_key"] == "uc_testcam"
+    )
+    assert tuple(resource["parameters"]["chunk_shape"]) == (1, 5, 7)
+    assert resource["parameters"]["dataset"] == "/entry/data/data"
+    assert resource["uri"].endswith("Scan001/UC_TestCam/UC_TestCam.h5")
+    datums = [doc for name, doc in docs if name == "stream_datum"]
+    assert resource["uid"] in {d["stream_resource"] for d in datums}
+    # A datum is out: the description is fixed for the run.
+    set_mock_value(cam.hdf.array_size_x, 9)
+    set_mock_value(cam.hdf.array_size_y, 8)
+    assert _run(RE, lambda: cam.describe())["uc_testcam"]["shape"] == [1, 5, 7]
+    _run(RE, lambda: cam.unstage())
+
+
+def test_count_timeouts_name_the_plugins_reason(RE: RunEngine, tmp_path: Path) -> None:
+    """A strict trigger's and a gated complete's count timeout carry the plugin's reason (#1023).
+
+    Both translate the stock wait's bare ``TimeoutError``; both now append
+    ``file plugin <io.name>: <WriteMessage>`` when the plugin has one, and
+    keep the old wording when it has nothing to say.
+    """
+    from geecs_bluesky.devices.detector import gated_trigger_info
+
+    cam = _camera(RE, tmp_path)
+    refusal = (
+        "could not open the stack in \\\\nas\\data\\Scan001\\UC_TestCam: share refused"
+    )
+    set_mock_value(cam.hdf.write_message, refusal)
+    quick = TriggerInfo(
+        trigger=DetectorTrigger.EXTERNAL_EDGE, number_of_events=1, exposure_timeout=0.2
+    )
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(quick))
+
+    async def strict() -> tuple[str, str]:
+        with pytest.raises(GeecsTriggerTimeoutError) as info:
+            await cam.trigger()
+        return str(info.value), info.value.device_name
+
+    text, device = _run(RE, lambda: strict())
+    assert device == "UC_TestCam"  # the name stays a name
+    assert "UC_TestCam: no frame counted by the file plugin within" in text
+    assert text.endswith(f" — file plugin uc_testcam-hdf: {refusal}")
+
+    async def batch() -> str:
+        await cam.kickoff()
+        with pytest.raises(GeecsTriggerTimeoutError) as info:
+            await cam.complete()
+        return str(info.value)
+
+    _run(RE, lambda: cam.prepare(gated_trigger_info(2, exposure_timeout=0.2)))
+    text = _run(RE, lambda: batch())
+    assert "UC_TestCam: the file plugin counted no frame for" in text
+    assert text.endswith(f" — file plugin uc_testcam-hdf: {refusal}")
+    # Nothing to say: the old wording, unchanged.
+    set_mock_value(cam.hdf.write_message, "")
+    _run(RE, lambda: cam.prepare(gated_trigger_info(2, exposure_timeout=0.2)))
+    assert _run(RE, lambda: batch()).endswith("while the box ran")
+    _run(RE, lambda: cam.unstage())
+
+
+def test_plugin_reasons_is_bounded(
+    RE: RunEngine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Plugins that never answer cost a failure path one budget — not one per plugin, never a hang."""
+    from geecs_bluesky.devices import detector as detector_module
+
+    cam = _two_stream_camera(RE, tmp_path)  # two plugins, both silent
+    monkeypatch.setattr(detector_module, "PLUGIN_REASON_TIMEOUT_S", 0.2)
+
+    async def hang(*_args, **_kwargs):
+        await asyncio.Event().wait()
+
+    for io in (cam.hdf, cam.hdf_imageinterp):
+        monkeypatch.setattr(io.write_message, "get_value", hang)
+
+    async def timed() -> tuple[list[str], float]:
+        started = time.monotonic()
+        reasons = await cam.plugin_reasons()
+        return reasons, time.monotonic() - started
+
+    reasons, elapsed = _run(RE, lambda: timed())
+    assert reasons == []
+    assert 0.2 <= elapsed < 0.4  # one budget for the device (read together)
+    # Without a plugin there is nothing to read.
+    plain = GeecsDetector("UC_Plain", [], name="plain")
+    connect_mock(RE, plain)
+    assert _run(RE, lambda: plain.plugin_reasons()) == []
 
 
 def _two_stream_camera(RE: RunEngine, tmp_path: Path) -> GeecsDetector:

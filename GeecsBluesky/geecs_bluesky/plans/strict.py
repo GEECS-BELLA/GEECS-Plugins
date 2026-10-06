@@ -64,6 +64,36 @@ def geecs_name(obj: Any) -> str:
     return geecs_device_name(obj)
 
 
+def plugin_reasons(devices: Sequence[Any]):
+    """Plan: each device's file-plugin reasons, joined; ``""`` without a plugin or a message.
+
+    A plugin-backed camera that yields no frame may be delivering every
+    frame to a plugin that refuses them — a stack that could not be
+    opened, a frame of another shape than the open stack's — and the
+    refusal reaches only the plugin's ``WriteMessage``
+    (GEECS-Plugins#1023).  Read once per miss through
+    :meth:`~geecs_bluesky.devices.detector.GeecsDetector.plugin_reasons`
+    (bounded per plugin), so the incomplete-shot warning and the step's
+    failure carry the plugin's reason beside the device's name instead of
+    blaming camera frame drops.  A device without the method — a scalars
+    view, a scalar device — contributes ``""``.
+    """
+    reasons: list[str] = []
+    for obj in devices:
+        read = getattr(obj, "plugin_reasons", None)
+        if read is None:
+            reasons.append("")
+            continue
+        found: list[str] = []
+
+        async def collect(read: Any = read, found: list[str] = found) -> None:
+            found.extend(await read())
+
+        yield from bps.wait_for([collect])
+        reasons.append("; ".join(found))
+    return reasons
+
+
 def _device_named(devices: Sequence[Any], device_name: str) -> Any | None:
     return next(
         (
@@ -362,24 +392,36 @@ def geecs_take_reading(
                 ret = yield from record_row()
                 if not missed:
                     return ret
-                names = ", ".join(
+                labels = [
                     getattr(d, "_geecs_device_name", None) or d.name for d in missed
+                ]
+                names = ", ".join(labels)
+                # A plugin that refused the frames says so only in its
+                # WriteMessage: name it beside the device (#1023).
+                reasons = yield from plugin_reasons(missed)
+                described = ", ".join(
+                    f"{label} ({reason})" if reason else label
+                    for label, reason in zip(labels, reasons, strict=True)
                 )
                 if attempt == attempts:
+                    cause = (
+                        "a file plugin refused what its camera pushed — see its message"
+                        if any(reasons)
+                        else "known camera frame-drop intermittency, ~1% observed "
+                        "— or a device that stopped acquiring"
+                    )
                     raise GeecsTriggerTimeoutError(
                         names,
                         STRICT_TRIGGER_INFO.exposure_timeout,
                         f"no complete row after {attempts} shot(s): no frame from "
-                        f"{names} (partial rows kept; known camera frame-drop "
-                        "intermittency, ~1% observed — or a device that stopped "
-                        "acquiring)",
+                        f"{described} (partial rows kept; {cause})",
                     )
                 logger.warning(
                     "shot %d of %d incomplete: no frame from %s — row kept with "
                     "empty columns and no frames, taking another shot",
                     attempt,
                     attempts,
-                    names,
+                    described,
                 )
             return None  # pragma: no cover - the loop returns or raises
 

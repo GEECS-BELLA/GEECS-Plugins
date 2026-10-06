@@ -40,7 +40,7 @@ from tests.test_gated_plans import (  # noqa: E402
     _events_from_pages,
     _saves,
 )
-from tests.test_strict_plans import _camera  # noqa: E402
+from tests.test_strict_plans import _camera, _plugin_camera  # noqa: E402
 
 MODES = ("strict", "gated")
 
@@ -283,3 +283,51 @@ def test_a_free_running_non_essential_is_refused_before_anything_moves(
             RE(count([a], 2, acquisition=mode, non_essential=[gauge]))
     assert box.states == [] and box.fires == 0
     assert not col.docs["start"]
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_a_plugin_backed_non_essentials_descriptor_follows_the_geometry_the_plugin_settles(
+    RE: RunEngine, tmp_path: Path, mode: str
+) -> None:
+    """GEECS-Plugins#1023 (the rebuild's review): a non-essential plugin stream is declared at the close.
+
+    Declared right after ``open_run`` — the box quiet, no frame yet — the
+    descriptor carried the held frame's shape (4 x 6) while the
+    StreamResource, emitted at the close's collect, carried the shape the
+    plugin settled on at its first fresh frame (5 x 7): Tiled would have
+    registered the stack at the wrong shape.  Declared at the close, right
+    before the collect, descriptor and resource agree — in both modes.
+    """
+    box = GatedBox()
+    count = _count(RE, box)
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+    b, _ = _plugin_camera(RE, box, "UC_B", tmp_path)
+    set_mock_value(b.hdf.array_size_x, 6)
+    set_mock_value(b.hdf.array_size_y, 4)
+    edge = box.edge
+
+    def first_edge_re_declares() -> None:
+        if box.edges == 0:
+            set_mock_value(b.hdf.array_size_x, 7)
+            set_mock_value(b.hdf.array_size_y, 5)
+        edge()
+
+    box.edge = first_edge_re_declares
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(count([a], 3, acquisition=mode, non_essential=[b]))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    descriptor = _descriptor(col, "uc_b_stream")
+    assert descriptor["data_keys"]["uc_b"]["shape"] == [1, 5, 7]
+    resource = next(r for r in col.docs["stream_resource"] if r["data_key"] == "uc_b")
+    assert tuple(resource["parameters"]["chunk_shape"]) == (1, 5, 7)
+    datums = [
+        d["indices"]
+        for d in col.docs["stream_datum"]
+        if d["stream_resource"] == resource["uid"]
+    ]
+    assert datums and datums[0]["start"] == 0 and datums[-1]["stop"] >= 3
+    kinds = [(name, doc.get("name")) for name, doc in col.ordered]
+    names = [name for name, _ in col.ordered]
+    first_row = min(i for i, n in enumerate(names) if n in ("event", "event_page"))
+    assert kinds.index(("descriptor", "uc_b_stream")) > first_row  # after the frames

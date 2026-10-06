@@ -133,9 +133,12 @@ def beam_profile_stats(
 ) -> BeamStats:
     """Compute legacy beam statistics with explicit `(y, x)` coordinates.
 
-    Coordinates replace the implicit ROI offset. Diagonal projections remain
-    in local index space. Numerical conventions, including index-space moments
-    followed by coordinate conversion, are preserved from ImageAnalysis.
+    Coordinates replace the implicit ROI offset. The x/y projections go
+    through :class:`LineBasicStats` with the frame's calibrated axes: on an
+    evenly spaced axis the ImageAnalysis conventions — index-space moments
+    followed by coordinate conversion — are preserved bit for bit; on an
+    uneven one the widths are measured over the coordinates (#1029).
+    Diagonal projections remain in local index space.
     """
     img = np.asarray(img, dtype=float)
     total_counts = img.sum()

@@ -18,12 +18,13 @@ class LineSpec(MeasureSpec):
     scalar_docs: ClassVar[Mapping[str, str]] = {
         "CoM": "Intensity-weighted centroid of the trace, in x units",
         "rms": (
-            "RMS width about the centroid, in x units; assumes evenly spaced "
-            "samples (#1029)"
+            "RMS width about the centroid, in x units: the intensity-weighted "
+            "second moment over x, Δx-weighted (an integral over x) on an "
+            "unevenly spaced axis"
         ),
         "fwhm": (
-            "Full width at half maximum, in x units; assumes evenly spaced "
-            "samples (#1029)"
+            "Full width at half maximum, in x units, from the half-maximum "
+            "crossings interpolated in x"
         ),
         "peak_location": "Position of the maximum, in x units",
         "integrated_intensity": "Sum of the trace's samples (not an integral over x)",

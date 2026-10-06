@@ -96,7 +96,7 @@ Each gateway instance also serves four **instance PVs** for fleet health:
 ```
 
 The served set follows the GEECS DB while the instance runs (GeecsPvaGateway
-0.15.0): it is re-read every 60 s, so a device enabled or disabled in the DB
+0.16.0): it is re-read every 60 s, so a device enabled or disabled in the DB
 gains or loses its PVs within a minute with no restart, and `:devices` is
 posted on every change. `geecs-pva-gateway fleet` shows it against the DB
 roster.

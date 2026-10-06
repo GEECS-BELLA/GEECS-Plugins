@@ -30,7 +30,10 @@ from geecs_data_utils.io.scan_stack import (
     read_stack_timestamps,
     stack_frame_index_map,
 )
-from geecs_data_utils.tiled_schema import device_acq_timestamp_column, normalize_token
+from geecs_data_utils.tiled_schema import (
+    device_acq_timestamp_column,
+    device_valid_column,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -211,11 +214,6 @@ class _ShotFileMapper:
             else:
                 logger.debug(f"Filename {file.name} does not match expected pattern.")
 
-    @staticmethod
-    def _normalize_column_token(name: str) -> str:
-        """Collapse a name to a matching token — the shared schema rule."""
-        return normalize_token(name)
-
     def _acq_timestamp_column(self) -> Optional[str]:
         """Find this device's ``acq_timestamp`` column in the auxiliary frame.
 
@@ -229,12 +227,11 @@ class _ShotFileMapper:
         return device_acq_timestamp_column(list(self.rows.columns), self.device)
 
     def _matching_valid_column(self) -> Optional[str]:
-        """Find this device's ``valid`` column, if the frame carries one."""
-        device_token = self._normalize_column_token(self.device)
-        for column in self.rows.columns:
-            if self._normalize_column_token(column) == f"{device_token}_valid":
-                return str(column)
-        return None
+        """Find this device's ``valid`` column, if the frame carries one.
+
+        The shared rule (:func:`~geecs_data_utils.tiled_schema.device_valid_column`).
+        """
+        return device_valid_column(list(self.rows.columns), self.device)
 
     def _map_files_by_acq_timestamp(self, ts_column: str) -> None:
         """Join shots to files via this device's own per-shot ``acq_timestamp``.

@@ -169,7 +169,7 @@ class HostProbe(BaseModel):
     heartbeat: int | None = None
     #: The set the instance serves, as its ``:devices`` PV reports it (the
     #: served set follows the DB on a timer, #943); ``None`` when the PV did
-    #: not answer — an instance from before 0.15.0.
+    #: not answer — an instance from before 0.16.0.
     devices: list[str] | None = None
     error: str | None = None
 
@@ -323,7 +323,7 @@ def probe_fleet(
     """Read every deployed host's ``version`` + ``heartbeat`` (+ ``devices``) PVs (read-only).
 
     *getter* is injectable (tests); the default opens a p4p context.  The
-    ``devices`` PV (0.15.0) is read on its own: an older instance without
+    ``devices`` PV (0.16.0) is read on its own: an older instance without
     it still counts as up, with the served set unknown.
     """
     deployed = [h for h in hosts if h.deployed]
@@ -349,7 +349,7 @@ def probe_fleet(
                 devices: list[str] | None = [
                     str(d) for d in get(host.instance_pv(experiment, "devices"))
                 ]
-            except Exception:  # noqa: BLE001 — pre-0.15.0: no such PV, set unknown
+            except Exception:  # noqa: BLE001 — pre-0.16.0: no such PV, set unknown
                 devices = None
             result.probes.append(
                 HostProbe(host=host, version=version, heartbeat=beats, devices=devices)

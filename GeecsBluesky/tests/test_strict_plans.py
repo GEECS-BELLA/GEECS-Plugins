@@ -283,10 +283,16 @@ def test_extra_shots_are_bounded(
     box.drop = {("uc_a", n) for n in range(1, 10)}
     col = DocCollector()
     RE.subscribe(col)
-    with pytest.raises(GeecsTriggerTimeoutError, match="no complete row after 2"):
+    with pytest.raises(
+        GeecsTriggerTimeoutError, match="no complete row after 2"
+    ) as info:
         RE(bp.count([cam], num=1, per_shot=geecs_per_shot(shot_control, max_refires=1)))
     assert box.fires == 2
     assert len(col.primary_events()) == 2  # both partial rows are data
+    # No plugin to ask: the camera itself is the suspect.
+    assert "no frame from UC_A (partial rows kept; known camera frame-drop" in str(
+        info.value
+    )
 
 
 def test_a_dead_device_is_not_refired(
@@ -550,6 +556,83 @@ def test_first_strict_shot_zeroes_a_plugins_stale_count(
     assert (
         cam.count_zeroed is False
     )  # cleared by the unstage: the next run zeroes again
+
+
+def test_no_frame_from_a_plugin_camera_names_the_plugins_reason(
+    RE: RunEngine,
+    box: FakeBox,
+    shot_control: ShotControl,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """GEECS-Plugins#1023: a plugin refusing every frame is its WriteMessage, not frame-drop intermittency.
+
+    The camera pushes every shot; the plugin drops each as a frame of
+    another shape than the one it declared at the arm, so the count never
+    advances and the device yields no frame.  The reason reaches only the
+    plugin's ``WriteMessage``: the incomplete-shot warning and the step's
+    failure (the scan-end message) carry it beside the device's name, and
+    the failure stops blaming the camera.
+    """
+    cam, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.3)
+    refusal = (
+        "frame shape (301, 2) != the shape declared at the arm (304, 2) "
+        "(held frame from before a shape change); re-run the scan"
+    )
+    set_mock_value(cam.hdf.write_message, refusal)
+    box.drop = {("uc_a", n) for n in range(1, 10)}
+    with (
+        caplog.at_level(logging.WARNING, logger="geecs_bluesky.plans.strict"),
+        pytest.raises(GeecsTriggerTimeoutError) as info,
+    ):
+        RE(bp.count([cam], num=1, per_shot=geecs_per_shot(shot_control, max_refires=1)))
+    assert box.fires == 2
+    assert info.value.device_name == "UC_A"  # the name stays a name
+    text = str(info.value)
+    assert (
+        f"no frame from UC_A (file plugin uc_a-hdf: {refusal}) (partial rows kept; a file plugin refused"
+        in text
+    )
+    assert "frame-drop intermittency" not in text
+    incomplete = [
+        r.getMessage() for r in caplog.records if "incomplete" in r.getMessage()
+    ]
+    assert len(incomplete) == 1
+    assert (
+        f"shot 1 of 2 incomplete: no frame from UC_A (file plugin uc_a-hdf: {refusal})"
+        in incomplete[0]
+    )
+
+
+def test_a_plugin_that_never_answers_does_not_hang_the_miss_path(
+    RE: RunEngine,
+    box: FakeBox,
+    shot_control: ShotControl,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reason read is bounded: a hung WriteMessage costs the budget and the miss keeps its wording."""
+    from geecs_bluesky.devices import detector as detector_module
+
+    cam, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.3)
+    monkeypatch.setattr(detector_module, "PLUGIN_REASON_TIMEOUT_S", 0.2)
+
+    async def hang(*_args, **_kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(cam.hdf.write_message, "get_value", hang)
+    box.drop = {("uc_a", n) for n in range(1, 10)}
+    started = time.monotonic()
+    with pytest.raises(GeecsTriggerTimeoutError) as info:
+        RE(bp.count([cam], num=1, per_shot=geecs_per_shot(shot_control, max_refires=1)))
+    # Two dropped shots cost the stock count wait each (STRICT_TRIGGER_INFO's
+    # 3 s exposure_timeout) plus the 0.2 s reason budget; a hung read would
+    # never return at all.
+    assert time.monotonic() - started < 10.0
+    assert box.fires == 2
+    assert "no frame from UC_A (partial rows kept; known camera frame-drop" in str(
+        info.value
+    )
 
 
 def test_missed_frame_on_plugin_cameras_rewinds_the_partial_row(
