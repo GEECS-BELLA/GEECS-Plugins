@@ -15,30 +15,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   at a staged device, and bluesky's `stage_wrapper` stages root devices,
   so a sweep over `U_S1H.current` dropped all of `U_S1H`'s logged
   readbacks from the rows for that scan — the device being varied was the
-  one least recorded.  The probe now **parks** those candidates instead,
-  and the first step's hook (`plans/strict.admit_background`, in the
-  strict and gated per-step before anything is read) hands the step's
-  movers to `BackgroundSnapshot.admit`: each mover's device returns as a
-  member minus the keys the mover describes (its readback, the motor's own
-  column), so the descriptor carries the device's other variables once
-  and the readback once.  The run's **own readers** (its detectors and
-  non-essential devices; a `.scalars` view counts as its owner) are handed
-  to the probe by the bound plan and excluded outright, so a device the
-  row already carries whole — `sweep([X], X.current)`, `[X.scalars]`, a
-  camera whose settable child is the axis — brings nothing back (review
-  round 1 found it did, and the strict row failed on duplicate keys); a
-  parked device was staged by the RunEngine and the snapshot never stages
-  or unstages it (round 1: an admitted one-variable device had its cache
-  closed mid-run); a mover that does not describe within the probe budget
-  keeps its whole device out for the run (WARNING: a key read twice fails
-  the run, a missing column does not); `admit` is idempotent and never
-  raises.  An admit-time drop is logged only — the start document's
-  `background_dropped` has gone out by then.  Hermetic tests pin the
-  parked-then-admitted member, the refusal, the own-reader cases (strict,
-  three shapes, by the descriptor's `object_keys`; gated), the stage and
-  unstage ownership, the strict sweep and the gated sweep (the readback
-  once as the motor's column, the voltage from the background in every
-  row).
+  one least recorded.  The bound plans now hand the probe what they know
+  before the run: the run's **own readers** (its detectors and
+  non-essential devices; a `.scalars` view counts as its owner) and its
+  **movers** (`plans/sweep.sweep_movers`, the sweep's own axis lookup
+  lifted into a helper; the optimizer's movables).  Every candidate rooted
+  at an own reader is excluded as before, whatever else is scanned on that
+  device; a mover's device is read minus the keys the mover describes (its
+  readback, the motor's own column) from the stage the RunEngine already
+  did — the snapshot never stages or unstages it — so the descriptor
+  carries the device's other variables once and the readback once.  A
+  mover that does not describe within the probe budget leaves its whole
+  device to the run (WARNING: a key read twice fails the run, a missing
+  column does not).  One decision, before `open_run`, so the start
+  document's `background_dropped` stays complete and no plan step changed.
+  Hermetic tests pin the trimmed member, the own-reader shapes
+  (`sweep([X], X.current)`, `[X.scalars]`, a camera whose settable child
+  is the axis — strict by the descriptor's `object_keys`, and gated), the
+  stage/unstage ownership, the refusal, and the strict and gated sweeps
+  (the readback once as the motor's column, the voltage from the
+  background in every row).
 
 ## [0.111.0] - 2026-10-02
 

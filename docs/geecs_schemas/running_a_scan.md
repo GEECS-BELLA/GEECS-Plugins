@@ -132,10 +132,8 @@ GEECS-Plugins#1016). This tier is safe by construction:
   is probed once within a bounded budget (about a second for the whole set),
   and a device that does not answer — a PV the gateway does not serve, a
   device that went away — is left out of *that* run with a log line and named
-  in the run's start document (`background_dropped`; a scanned axis's device is
-  admitted at the first step instead, and one that fails then is named in the
-  log only); the next run probes it again, so nothing needs a restart to come
-  back;
+  in the run's start document (`background_dropped`); the next run probes it
+  again, so nothing needs a restart to come back;
 - a reading the gateway marks INVALID (a dead device's stale readbacks) reads
   `NaN`, and every column is in every row.
 

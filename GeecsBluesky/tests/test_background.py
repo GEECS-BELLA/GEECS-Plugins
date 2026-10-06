@@ -140,30 +140,30 @@ def RE() -> RunEngine:
 
 # ------------------------------------------------------------- the object
 def test_probe_leaves_the_runs_own_devices_to_the_run(RE) -> None:
-    """Exclusion is by root device: a detector's signals, a scalar device, a motor's owner."""
+    """The run's own readers go whole; a mover's device stays, minus the mover's column."""
     gauge = _gauge(RE)
     cam = _cam(RE)
     magnet = _magnet(RE)
     other = _gauge(RE, "U_Other", 1.0)
     candidates = [gauge, *cam._scalar_signals(), magnet, other]
     snapshot = BackgroundSnapshot(candidates, probe_timeout=0.5)
-    # The plan stages roots: the camera and the view's owner are the run's
-    # own readers (their signals go, whatever else is scanned on them); the
-    # magnet, staged only as the scanned child's root, is parked whole until
-    # the step admits it.
-    run(
-        RE,
-        lambda: snapshot.probe(staged=[cam, magnet, other], own=[cam, other.scalars]),
-    )
-    assert snapshot.members == [gauge]
-    assert snapshot._parked == [magnet]
+    # The camera and the view's owner are the run's own readers (their
+    # signals go, whatever else is scanned on them); the magnet's child is
+    # the axis: the magnet is read without the readback the row carries as
+    # the motor's own column.
+    run(RE, lambda: snapshot.probe(own=[cam, other.scalars], movers=[magnet.current]))
+    assert snapshot.members == [gauge, magnet]
     assert snapshot.dropped == []
     keys = run(RE, snapshot.describe)
-    assert set(keys) == {"u_gauge-pressure"}
-    assert snapshot._column_headers == {"u_gauge-pressure": "U_Gauge Pressure"}
-    # Nothing staged: everything is background, the detector's signals
+    assert set(keys) == {"u_gauge-pressure", "u_s1h-voltage"}
+    assert snapshot._column_headers["u_gauge-pressure"] == "U_Gauge Pressure"
+    assert snapshot._column_headers["u_s1h-voltage"] == "U_S1H Voltage"
+    assert "u_s1h-current-position" not in snapshot._column_headers
+    # The read follows the trimmed keys: the axis column is never emitted here.
+    assert set(run(RE, snapshot.read)) == {"u_gauge-pressure", "u_s1h-voltage"}
+    # Nothing in the run: everything is background, the detector's signals
     # included (read from its monitor cache: the last frame's scalars).
-    run(RE, lambda: snapshot.probe(staged=[]))
+    run(RE, lambda: snapshot.probe())
     assert set(run(RE, snapshot.describe)) == {
         "u_gauge-pressure",
         "uc_cam-meancounts",
@@ -175,49 +175,27 @@ def test_probe_leaves_the_runs_own_devices_to_the_run(RE) -> None:
     assert snapshot._column_headers["uc_cam-meancounts"] == "UC_Cam MeanCounts"
 
 
-def test_the_step_admits_a_scanned_devices_other_variables(RE, monkeypatch) -> None:
-    """A scanned child's device comes back minus the child's own column; once."""
+def test_a_movers_device_the_run_reads_itself_stays_the_runs(RE) -> None:
+    """``sweep([X], X.current)`` or ``[X.scalars]``: the row carries X whole, nothing of it here."""
     gauge = _gauge(RE)
     magnet = _magnet(RE)
     other = _gauge(RE, "U_Other", 1.0)
-    snapshot = BackgroundSnapshot([gauge, magnet, other], probe_timeout=0.5)
-    run(RE, lambda: snapshot.probe(staged=[magnet, other], own=[other]))
-    assert snapshot.members == [gauge]
-    probes: list[str] = []
-    original = snapshot._probe_one
-
-    async def counted(member, **kw):
-        probes.append(member.name)
-        return await original(member, **kw)
-
-    monkeypatch.setattr(snapshot, "_probe_one", counted)
-    # The step's mover is the magnet's child: the magnet returns without
-    # the readback the row carries as the motor's own column.
-    run(RE, lambda: snapshot.admit([magnet.current]))
-    assert snapshot.members == [gauge, magnet]
-    assert set(run(RE, snapshot.describe)) == {"u_gauge-pressure", "u_s1h-voltage"}
-    assert snapshot._column_headers["u_s1h-voltage"] == "U_S1H Voltage"
-    assert "u_s1h-current-position" not in snapshot._column_headers
-    assert set(run(RE, snapshot.read)) == {"u_gauge-pressure", "u_s1h-voltage"}
-    assert probes == ["u_s1h"]
-    # Later steps: nothing left to decide, nothing probed again.
-    run(RE, lambda: snapshot.admit([magnet.current]))
-    assert probes == ["u_s1h"] and snapshot.members == [gauge, magnet]
-    # A whole device moved stays the run's: nothing comes back for it.
-    run(RE, lambda: snapshot.admit([other]))
-    assert snapshot.members == [gauge, magnet] and probes == ["u_s1h"]
-    # A mover whose device the run reads itself — listed whole or through
-    # its view — was never parked: the row carries that device already.
     for own in ([magnet], [magnet.scalars]):
-        snapshot = BackgroundSnapshot([gauge, magnet], probe_timeout=0.5)
-        run(RE, lambda: snapshot.probe(staged=[magnet], own=own))
-        assert snapshot._parked == []
-        run(RE, lambda: snapshot.admit([magnet.current]))
-        assert snapshot.members == [gauge]
+        snapshot = BackgroundSnapshot([gauge, magnet, other], probe_timeout=0.5)
+        run(RE, lambda: snapshot.probe(own=own, movers=[magnet.current]))
+        assert snapshot.members == [gauge, other]
+        assert set(run(RE, snapshot.describe)) == {
+            "u_gauge-pressure",
+            "u_other-pressure",
+        }
+    # A whole device moved is the run's too: nothing of it is read here.
+    snapshot = BackgroundSnapshot([gauge, magnet, other], probe_timeout=0.5)
+    run(RE, lambda: snapshot.probe(movers=[other]))
+    assert snapshot.members == [gauge, magnet]
 
 
-def test_an_admitted_device_is_the_run_engines_to_stage_and_unstage(RE) -> None:
-    """A parked device was staged by the RunEngine: the snapshot never stages or unstages it."""
+def test_a_movers_device_is_the_run_engines_to_stage_and_unstage(RE) -> None:
+    """The RunEngine staged a mover's device: the snapshot never stages or unstages it."""
 
     class Wide(Fake):  # two logged variables, one of them the axis
         async def describe(self):
@@ -232,7 +210,7 @@ def test_an_admitted_device_is_the_run_engines_to_stage_and_unstage(RE) -> None:
                 f"{self.name}-y": {"value": 2.0, "timestamp": 1.0, "alarm_severity": 0},
             }
 
-    class Axis:  # the scanned child, as the step names it
+    class Axis:  # the scanned child, as the plan resolves it
         def __init__(self, parent, key):
             self.parent, self.name, self._key = parent, f"{parent.name}-axis", key
 
@@ -243,20 +221,24 @@ def test_an_admitted_device_is_the_run_engines_to_stage_and_unstage(RE) -> None:
     narrow = Fake("u_narrow", geecs="U_Narrow")  # its only variable is the axis
     free = Fake("u_free", geecs="U_Free")
     snapshot = BackgroundSnapshot([wide, narrow, free])
-    run(RE, lambda: snapshot.probe(staged=[wide, narrow]))
-    assert snapshot.members == [free] and free.staged == 1
     run(
-        RE, lambda: snapshot.admit([Axis(wide, "u_wide-x"), Axis(narrow, "u_narrow-x")])
+        RE,
+        lambda: snapshot.probe(
+            movers=[Axis(wide, "u_wide-x"), Axis(narrow, "u_narrow-x")]
+        ),
     )
-    assert snapshot.members == [free, wide]
-    assert set(run(RE, snapshot.describe)) == {"u_free-x", "u_wide-y"}
+    assert snapshot.members == [wide, free]
+    assert set(run(RE, snapshot.describe)) == {"u_wide-y", "u_free-x"}
     assert (wide.staged, wide.unstaged, narrow.staged, narrow.unstaged) == (0, 0, 0, 0)
+    assert free.staged == 1
     RE(bps.unstage(snapshot, wait=True))
     assert free.unstaged == 1 and (wide.unstaged, narrow.unstaged) == (0, 0)
 
 
-def test_a_mover_that_does_not_describe_keeps_its_whole_device_out(RE, caplog) -> None:
-    """Never a key twice: a mover the step cannot describe leaves its device parked."""
+def test_a_mover_that_does_not_describe_leaves_its_whole_device_to_the_run(
+    RE, caplog
+) -> None:
+    """Never a key twice: a mover the probe cannot describe keeps its device out."""
     gauge = _gauge(RE)
     magnet = _magnet(RE)
 
@@ -276,20 +258,15 @@ def test_a_mover_that_does_not_describe_keeps_its_whole_device_out(RE, caplog) -
 
     for mover in (Mute(), Broken()):
         snapshot = BackgroundSnapshot([gauge, magnet], probe_timeout=0.3)
-        run(RE, lambda: snapshot.probe(staged=[magnet]))
         caplog.clear()
         with caplog.at_level(
             logging.WARNING, logger="geecs_bluesky.devices.background"
         ):
-            run(RE, lambda: snapshot.admit([mover]))
+            run(RE, lambda: snapshot.probe(movers=[mover]))
         assert snapshot.members == [gauge]
         assert set(run(RE, snapshot.describe)) == {"u_gauge-pressure"}
         assert "U_S1H (u_s1h-current) did not describe" in caplog.text
-        assert "whole device stays the run's this time" in caplog.text
-        # Decided for the run: a later step does not ask again.
-        caplog.clear()
-        run(RE, lambda: snapshot.admit([mover]))
-        assert snapshot.members == [gauge] and "did not describe" not in caplog.text
+        assert "whole device is left to the run this time" in caplog.text
 
 
 def test_probe_drops_what_does_not_answer_and_keeps_the_rest(RE, caplog) -> None:
@@ -299,7 +276,7 @@ def test_probe_drops_what_does_not_answer_and_keeps_the_rest(RE, caplog) -> None
     slow = Fake("u_slow", geecs="U_Slow", hang=True)
     snapshot = BackgroundSnapshot([dead, gauge, slow], probe_timeout=0.2)
     with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.background"):
-        run(RE, lambda: snapshot.probe(staged=[]))
+        run(RE, lambda: snapshot.probe())
     assert snapshot.members == [gauge]
     assert snapshot.dropped == ["U_Dead", "U_Slow"]
     assert "left out of this run" in caplog.text
@@ -310,7 +287,7 @@ def test_probe_drops_what_does_not_answer_and_keeps_the_rest(RE, caplog) -> None
     # Probed again at the next run: the device is back.
     dead.connectable = False
     slow.hang = False
-    run(RE, lambda: snapshot.probe(staged=[]))
+    run(RE, lambda: snapshot.probe())
     assert snapshot.members == [gauge, slow] and snapshot.dropped == ["U_Dead"]
 
 
@@ -318,9 +295,9 @@ def test_probe_connects_a_member_only_once(RE) -> None:
     """A member connected already is not reconnected (a mock's callbacks would be lost)."""
     member = Fake("u_fake")
     snapshot = BackgroundSnapshot([member], probe_timeout=0.5)
-    run(RE, lambda: snapshot.probe(staged=[]))
+    run(RE, lambda: snapshot.probe())
     token = member._mock
-    run(RE, lambda: snapshot.probe(staged=[]))
+    run(RE, lambda: snapshot.probe())
     assert member._mock is token and member.staged == 2
 
 
@@ -330,7 +307,7 @@ def test_read_fills_every_declared_key_and_nans_the_dead(RE, caplog) -> None:
     major = Fake("u_major", geecs="U_Major", value=4.0, severity=2)
     live = Fake("u_live", geecs="U_Live", value=5.0)
     snapshot = BackgroundSnapshot([invalid, major, live], read_timeout=0.2)
-    run(RE, lambda: snapshot.probe(staged=[]))
+    run(RE, lambda: snapshot.probe())
     row = run(RE, snapshot.read)
     assert math.isnan(row["u_invalid-x"]["value"])
     assert row["u_major-x"]["value"] == 4.0 and row["u_live-x"]["value"] == 5.0
@@ -352,7 +329,7 @@ def test_read_outlasting_its_budget_is_nan_not_a_wait(RE) -> None:
 
     hanging = Hanging("u_hang", geecs="U_Hang")
     snapshot = BackgroundSnapshot([hanging], probe_timeout=0.2, read_timeout=0.2)
-    run(RE, lambda: snapshot.probe(staged=[]))
+    run(RE, lambda: snapshot.probe())
     assert snapshot.members == []  # the probe's first read did not land either
     snapshot._active = [hanging]  # as if it had: the per-shot backstop
     snapshot._datakeys = {id(hanging): {"u_hang-x": {"dtype": "number"}}}
@@ -374,7 +351,7 @@ def test_blank_and_invalid_rules() -> None:
 def test_stage_resets_and_unstage_releases_the_members(RE) -> None:
     member = Fake("u_fake")
     snapshot = BackgroundSnapshot([member])
-    run(RE, lambda: snapshot.probe(staged=[]))
+    run(RE, lambda: snapshot.probe())
     assert snapshot.members == [member] and member.staged == 1
     RE(bps.unstage(snapshot, wait=True))
     assert member.unstaged == 1 and snapshot.members == []
@@ -392,7 +369,7 @@ def test_a_run_reads_the_snapshot_per_row(RE) -> None:
 
     def plan():
         yield from bps.stage(snapshot, wait=True)
-        yield from bps.wait_for([partial(snapshot.probe, [])])
+        yield from bps.wait_for([partial(snapshot.probe)])
         yield from bps.open_run(md={"background_dropped": snapshot.dropped})
         for value in (2.5, 3.5):
             set_mock_value(gauge.pressure, value)
@@ -737,11 +714,11 @@ def test_a_connect_outlasting_the_budget_never_poisons_the_next_probe(RE) -> Non
     gauge = _gauge(RE)
     slow = UnservedDevice("u_slow", delay=0.5, served=False)
     snapshot = BackgroundSnapshot([slow, gauge], probe_timeout=0.2)
-    run(RE, lambda: snapshot.probe(staged=[]))
+    run(RE, lambda: snapshot.probe())
     assert snapshot.members == [gauge] and snapshot.dropped == ["U_SLOW"]
     assert snapshot.probe_error == ""
     # At once, while the shielded connect is still pending: the same verdict.
-    run(RE, lambda: snapshot.probe(staged=[]))
+    run(RE, lambda: snapshot.probe())
     assert snapshot.members == [gauge] and snapshot.dropped == ["U_SLOW"]
     # The connect ended on its own (its own timeout): a verdict, not a cancel.
     run(RE, lambda: asyncio.sleep(0.6))
@@ -749,7 +726,7 @@ def test_a_connect_outlasting_the_budget_never_poisons_the_next_probe(RE) -> Non
     assert run(RE, lambda: asyncio.sleep(0, result=is_connected(slow))) is False
     # The PV is served now (a gateway restart): the next probe has it.
     slow.scripted.served, slow.scripted.delay = True, 0.0
-    run(RE, lambda: snapshot.probe(staged=[]))
+    run(RE, lambda: snapshot.probe())
     assert snapshot.members == [slow, gauge] and snapshot.dropped == []
 
 
@@ -777,7 +754,7 @@ def test_a_failed_probe_is_recorded_and_the_run_still_opens(
     gauge = _gauge(RE)
     ns = Namespace({"UC_Cam": cam}, [gauge])
 
-    async def broken(self, staged, own=()):
+    async def broken(self, own=(), movers=()):
         raise RuntimeError("an unexpected staged object")
 
     monkeypatch.setattr(BackgroundSnapshot, "_probe", broken)
@@ -801,7 +778,7 @@ def test_a_member_invalid_at_the_start_is_kept_and_named(RE, caplog) -> None:
     live = Fake("u_live", geecs="U_Live", value=5.0)
     snapshot = BackgroundSnapshot([stale, live])
     with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.background"):
-        run(RE, lambda: snapshot.probe(staged=[]))
+        run(RE, lambda: snapshot.probe())
     assert snapshot.members == [stale, live] and snapshot.dropped == []
     assert "U_Stale (served but INVALID at the start)" in caplog.text
     row = run(RE, snapshot.read)
@@ -832,5 +809,5 @@ def test_warm_up_connects_the_unconnected_and_names_the_rest(RE, caplog) -> None
     # The warm-up never poisons a later probe either: the slow one is a
     # verdict in the cache, the fresh one is a member at once.
     snapshot = BackgroundSnapshot([fresh, dead, slow], probe_timeout=0.2)
-    run(RE, lambda: snapshot.probe(staged=[]))
+    run(RE, lambda: snapshot.probe())
     assert snapshot.members == [fresh] and snapshot.dropped == ["U_Dead", "U_SLOW"]

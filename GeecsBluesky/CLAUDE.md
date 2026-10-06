@@ -499,32 +499,26 @@ is read into every row as well, softly —
 `devices/background.BackgroundSnapshot`, one more detector the registry
 appends to every bound scan verb (strict: read per shot; gated: a sampler
 member, read at the tick; `optimize` too).  Members = `namespace.telemetry()`
-minus what the run records itself — no event key twice — decided in two
-steps.  The probe (`background_wrapper` collects the `stage` messages and
-probes right before `open_run`, so the sweep's resolved axes count) is also
-handed the run's **own readers** (its detectors and non-essential devices; a
-`.scalars` view counts as its owner): every candidate rooted at one is
-excluded outright, whatever else is scanned on that device, and every
-candidate rooted at any *other* staged device is **parked** — bluesky's
-`stage_wrapper` stages `root_ancestor`, so a scanned `U_S1H.current` looks
-like `U_S1H` whole there.  The first step's hook
-(`plans/strict.admit_background`, called by the strict, gated and optimize
-steps before anything is read) hands the movers to
-`BackgroundSnapshot.admit`, which lets each parked device back in minus the
-keys its mover describes (the readback, the motor's own column), so the
-scanned device's other logged variables stay in the rows; a mover whose
-device the row already carries brings nothing back.  A parked device was
-staged by the RunEngine and the snapshot never stages or unstages it; a
-mover that does not describe within the budget keeps its whole device out
-for the run (WARNING — a key read twice fails the run, a missing column does
-not).  The probe is bounded
+minus what the run records itself — no event key twice — decided in one
+place: `background_wrapper` probes right before `open_run` with the run's
+**own readers** (its detectors and non-essential devices; a `.scalars` view
+counts as its owner) and its **movers** (the sweep resolves its axes when
+the plan is built — `plans/sweep.sweep_movers`, the plan's own lookup —
+and optimize holds its movables), both known to the bound plan before the
+run.  Every candidate rooted at an own reader is the run's and excluded,
+whatever else is scanned on that device; a mover's device is read minus the
+keys the mover describes (its readback, the motor's own column), from the
+stage the RunEngine already did — bluesky's `stage_wrapper` stages
+`root_ancestor`, and the snapshot never stages or unstages it — so the
+scanned device's other logged variables stay in the rows; a mover that does
+not describe within the budget leaves its whole device to the run (WARNING —
+a key read twice fails the run, a missing column does not).  The probe is bounded
 (`PROBE_TIMEOUT_S`, 1 s, concurrent across members): one that does not
 answer — a PV the gateway does not serve, a failed connect or describe —
 is left out of **that run only**, named in the log and in the start
-document's `background_dropped` (the probe's drops; a parked device the first
-step admits that then fails to answer is logged only — the start document
-has gone out), and probed again at the next run (a device back after a
-gateway restart returns without an environment reopen).  The profile connects the candidates once at environment open
+document's `background_dropped`, and probed again at the next run (a
+device back after a gateway restart returns without an environment
+reopen).  The profile connects the candidates once at environment open
 (`devices/background.warm_up`, bounded by `QS_CONNECT_TIMEOUT`, nothing
 dropped for good), so a run's probe finds them connected — without it the
 first scan after every environment open lost most of the set to the

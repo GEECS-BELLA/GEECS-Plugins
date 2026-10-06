@@ -9,10 +9,9 @@ verbs remain implementation details, never public queue entries.
 from __future__ import annotations
 
 import functools
-from collections.abc import Sequence
 import inspect
 import logging
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from inspect import Parameter
 from typing import Any
 
@@ -52,6 +51,7 @@ from geecs_bluesky.plans.strict import (
     geecs_per_step,
     name_failed_status,
 )
+from geecs_bluesky.plans.sweep import sweep_movers
 from geecs_bluesky.utils import safe_name
 
 logger = logging.getLogger(__name__)
@@ -255,45 +255,38 @@ def background_snapshot(
 
 
 def background_wrapper(
-    plan: Any, snapshot: BackgroundSnapshot, own: Sequence[Any] = ()
+    plan: Any,
+    snapshot: BackgroundSnapshot,
+    *,
+    own: Sequence[Any] = (),
+    movers: Sequence[Any] = (),
 ) -> Any:
     """Probe the background set right before ``open_run``; record the result in the start document.
 
-    The stock plan stages its detectors (*snapshot* among them) and motors
-    before it opens the run, and the non-essential wrapper stages its
-    devices too: every ``stage`` message names a root device the run
-    reads for itself.  They are collected here and handed to
+    *own* is the run's own reader list (its detectors and non-essential
+    devices) and *movers* the motors it moves — the bound plan knows both
+    before the run (the sweep resolves its axes when it is built, optimize
+    holds its movables), so
     :meth:`~geecs_bluesky.devices.background.BackgroundSnapshot.probe`
-    — as a message the RunEngine awaits, inside the plan, so the exclusion
-    sees the sweep's resolved axes as well as the detector list — and the
-    devices the probe dropped ride in the start document as
-    ``background_dropped`` (GEECS device names); a probe that failed
-    outright (never a member's failure, which is its own drop) adds
-    ``background_probe_error``.  Before the claim, so a slow probe costs
-    the run nothing but its bounded budget.  *own* is the run's own reader
-    list (its detectors and non-essential devices): everything rooted at
-    one of them is excluded outright.  The ``stage`` messages name root
-    devices, so a scanned child's device — staged, but not an own reader —
-    is only *parked* here; the per-step hook
-    (:func:`~geecs_bluesky.plans.strict.admit_background`) admits it back
-    minus the child's own column.
+    decides the membership in one place.  As a message the RunEngine
+    awaits, inside the plan: after the plan staged its devices (a mover's
+    device is read from the RunEngine's stage) and before the claim, so a
+    slow probe costs the run nothing but its bounded budget.  The devices
+    the probe dropped ride in the start document as ``background_dropped``
+    (GEECS device names); a probe that failed outright (never a member's
+    failure, which is its own drop) adds ``background_probe_error``.
     """
-    staged: list[Any] = []
     opened = False
 
     def _proc(msg: Msg) -> tuple[Any, Any]:
         nonlocal opened
-        if msg.command == "stage":
-            if msg.obj is not snapshot:
-                staged.append(msg.obj)
-            return None, None
         if msg.command != "open_run" or opened:
             return None, None
         opened = True
 
         def _probe_then_open():
             yield from bps.wait_for(
-                [functools.partial(snapshot.probe, list(staged), own=list(own))]
+                [functools.partial(snapshot.probe, own=list(own), movers=list(movers))]
             )
             record: dict[str, Any] = {"background_dropped": snapshot.dropped}
             if snapshot.probe_error:
@@ -530,8 +523,14 @@ def strict_plan(
             args, kwargs = bound.args, dict(bound.kwargs)
         inner = non_essential_wrapper(stock(*args, md=md, **kwargs), non_essential)
         if snapshot is not None:
+            payload = bound_args.get("sweep")
+            movers = (
+                sweep_movers(payload, settables)
+                if payload is not None and settables is not None
+                else []
+            )
             inner = background_wrapper(
-                inner, snapshot, own=[*detectors, *non_essential]
+                inner, snapshot, own=[*detectors, *non_essential], movers=movers
             )
         if acquisition == "strict":
             # A gated batch is a fly prepare: a plugin-backed camera's native
