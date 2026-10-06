@@ -16,7 +16,10 @@ in-suite differential test uses: file lists, HDF5 dataset names/dtypes/payloads,
 the s-file and sidecar tables, PNG presence. Comparison is exact except for
 noscan average arrays, where the legacy wrapper sums shots in directory-listing
 order; ``--average-ulps`` bounds that difference (default 4 ulps of the stored
-dtype). Recipes with ``scan.background_source`` are refused before anything is
+dtype) — and, with ``--nonuniform-axis``, for the ``*_rms``/``*_fwhm`` columns,
+which the core measures over x on a nonuniform trace axis (GEECS-Analysis
+0.26.0, #1029) where the legacy analyzer scaled index-space widths by one
+spacing. Recipes with ``scan.background_source`` are refused before anything is
 copied: the legacy wrapper would resolve the reference scan through the real
 share and cache a background beside it, and the core does not run them.
 """
@@ -120,6 +123,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="override a scan: field, e.g. scan.data_format=per_shot_files",
     )
     parser.add_argument("--average-ulps", type=int, default=4)
+    parser.add_argument(
+        "--nonuniform-axis",
+        action="store_true",
+        help="the trace axis is nonuniform (stitched siblings, a nonlinear "
+        "calibration): the core measures rms/fwhm over x (GEECS-Analysis 0.26.0, "
+        "#1029) where legacy scaled index widths, so those columns are excluded",
+    )
     args = parser.parse_args(argv)
     if args.output.exists() and any(args.output.iterdir()):
         raise SystemExit(f"--output must be empty: {args.output}")
@@ -151,7 +161,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{route:7s} {seconds:7.1f} s  {len(results[route][0])} files  display: {[Path(p).name for p in display]}"
         )
     problems = compare_snapshots(
-        results["legacy"][0], results["core"][0], average_ulps=args.average_ulps
+        results["legacy"][0],
+        results["core"][0],
+        average_ulps=args.average_ulps,
+        nonuniform_axis=args.nonuniform_axis,
     )
     legacy_display = [
         Path(p).relative_to(args.output / "legacy").as_posix()

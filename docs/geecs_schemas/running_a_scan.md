@@ -120,10 +120,10 @@ catalog.
 
 ### Tier 2 — background telemetry
 
-Every device with a `get='yes'` variable that is **not** in the run — not a
-required device, not a non-essential one, not the scanned axis — is still
-recorded, the way Master Control did it: every one of its logged scalars is
-read into every row, softly (`BackgroundSnapshot` in GeecsBluesky,
+Every `get='yes'` variable the run does not record itself — the required
+devices and the non-essential ones are the run's; of the scanned axis's
+device only the axis column is — is still recorded, the way Master Control
+did it: every such scalar is read into every row, softly (`BackgroundSnapshot` in GeecsBluesky,
 GEECS-Plugins#1016). This tier is safe by construction:
 
 - it is **read from the gateway's monitor cache and never waited on**, so it

@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.112.0] - 2026-10-06
+
+### Fixed
+
+- **Background telemetry: scanning one variable no longer silences the
+  device's other variables.**  The probe excluded every candidate rooted
+  at a staged device, and bluesky's `stage_wrapper` stages root devices,
+  so a sweep over `U_S1H.current` dropped all of `U_S1H`'s logged
+  readbacks from the rows for that scan — the device being varied was the
+  one least recorded.  The bound plans now hand the probe what they know
+  before the run: the run's **own readers** (its detectors and
+  non-essential devices; a `.scalars` view counts as its owner) and its
+  **movers** (`plans/sweep.sweep_movers`, the sweep's own axis lookup
+  lifted into a helper; the optimizer's movables).  Every candidate rooted
+  at an own reader is excluded as before, whatever else is scanned on that
+  device; a mover's device is read minus the keys the mover describes (its
+  readback, the motor's own column) from the stage the RunEngine already
+  did — the snapshot never stages or unstages it — so the descriptor
+  carries the device's other variables once and the readback once.  A
+  mover that does not describe within the probe budget leaves its device
+  out of the background for that run (WARNING; the readback stays, as the
+  motor's column — a key read twice fails the run, a missing column does
+  not).  One decision, before `open_run`, so the start
+  document's `background_dropped` stays complete and no plan step changed.
+  Hermetic tests pin the trimmed member, the own-reader shapes
+  (`sweep([X], X.current)`, `[X.scalars]`, a camera whose settable child
+  is the axis — strict by the descriptor's `object_keys`, and gated), the
+  stage/unstage ownership, the refusal, and the strict and gated sweeps
+  (the readback once as the motor's column, the voltage from the
+  background in every row).
+
 ## [0.111.0] - 2026-10-02
 
 ### Added

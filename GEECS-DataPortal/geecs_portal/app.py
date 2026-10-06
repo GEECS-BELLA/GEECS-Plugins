@@ -243,8 +243,12 @@ def _acq_timestamp(detail, device: str, shot: int) -> tuple[Optional[float], boo
         ``(value, column_present)``.  No column → ``(None, False)`` and
         the resource layer may fall back to ordinal file order; column
         present but the row invalid (NaN / non-positive: the device
-        missed this shot) → ``(None, True)`` — the caller must refuse
-        rather than serve a neighbouring shot's image.
+        missed this shot; or the device's ``valid`` companion false: its
+        frame belongs to a different physical shot, the row a scan run
+        maps no file for) → ``(None, True)`` — the caller must refuse
+        rather than serve a neighbouring shot's image.  The ``valid``
+        column is matched by
+        :func:`geecs_data_utils.tiled_schema.device_valid_column`.
     """
     import math
 
@@ -256,6 +260,13 @@ def _acq_timestamp(detail, device: str, shot: int) -> tuple[Optional[float], boo
     )
     if column is None:
         return (None, False)
+    valid = schema_map.device_valid_column([str(c) for c in frame.columns], device)
+    if valid is not None:
+        try:
+            if not bool(frame[valid].iloc[shot - 1]):
+                return (None, True)
+        except (TypeError, ValueError):  # pd.NA: unknown, not false
+            pass
     try:
         value = float(frame[column].iloc[shot - 1])
     except (TypeError, ValueError):

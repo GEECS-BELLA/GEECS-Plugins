@@ -3,6 +3,21 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.46.2] - 2026-10-06
+
+### Changed
+
+- `route_compare.compare_snapshots(nonuniform_axis=True)` — the one
+  definition of equal route outputs gains a documented allowance: on a
+  nonuniform trace axis (a joined trace, a nonlinear calibration) the
+  tables' `*_rms`/`*_fwhm` columns (`WIDTH_COLUMN_SUFFIXES`) are compared
+  by presence only, because the core measures those widths over x
+  (GEECS-Analysis 0.26.0, #1029) while the legacy analyzer still counts
+  samples times the spacing at the centroid. Every other file, column and
+  sample must still match exactly. `scripts/analysis_scan_compare.py
+  --nonuniform-axis` passes it through; the stitcher route-parity test
+  uses it and asserts the widths are all that differs without it.
+
 ## [1.46.1] - 2026-10-01
 
 ### Changed

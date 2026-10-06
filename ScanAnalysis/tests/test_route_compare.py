@@ -61,6 +61,27 @@ def test_compare_reports_every_kind_of_difference():
     assert compare_snapshots(legacy, legacy) == []
 
 
+def test_nonuniform_axis_allowance_excludes_only_the_width_columns():
+    """#1029: rms/fwhm may differ between routes on a nonuniform axis; nothing else may."""
+    frame = pd.DataFrame(
+        {
+            "Shotnumber": [1, 2],
+            "D_rms": [1.0, 2.0],
+            "D_fwhm": [3.0, 4.0],
+            "D_CoM": [5.0, 6.0],
+        }
+    )
+    legacy = {"s7.txt": ("table", frame)}
+    widths = {"s7.txt": ("table", frame.assign(D_rms=[1.5, 2.5], D_fwhm=[3.5, 4.5]))}
+    assert compare_snapshots(legacy, widths) != []
+    assert compare_snapshots(legacy, widths, nonuniform_axis=True) == []
+    centroid = {"s7.txt": ("table", frame.assign(D_CoM=[5.5, 6.5]))}
+    assert compare_snapshots(legacy, centroid, nonuniform_axis=True) != []
+    missing = {"s7.txt": ("table", frame.drop(columns=["D_fwhm"]))}
+    problems = compare_snapshots(legacy, missing, nonuniform_axis=True)
+    assert problems == ["s7.txt: width columns ['D_rms', 'D_fwhm'] vs ['D_rms']"]
+
+
 def test_average_tolerance_is_a_few_ulps_of_the_stored_dtype():
     base = np.full((3, 3), 5.0, dtype=np.float32)
     one_ulp = np.nextafter(base, np.float32(6.0))

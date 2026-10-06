@@ -238,6 +238,26 @@ class TestDeviceAcqTimestampColumn:
         assert device_acq_timestamp_column(columns, "telemetry") is None
 
 
+class TestDeviceValidColumn:
+    """The ``valid`` companion goes through the same normalized-name rule."""
+
+    def test_every_spelling_matches_and_neighbours_never_do(self):
+        from geecs_data_utils.tiled_schema import device_valid_column
+
+        columns = [
+            "uc_cam-acq_timestamp",
+            "uc_cam-valid",
+            "telemetry_uc_cam-valid",
+            "U_HasoLift valid",
+            "U_BCaveMagSpec:valid",
+        ]
+        assert device_valid_column(columns, "UC_Cam") == "uc_cam-valid"
+        assert device_valid_column(columns, "U_HasoLift") == "U_HasoLift valid"
+        assert device_valid_column(columns, "u_bcavemagspec") == "U_BCaveMagSpec:valid"
+        assert device_valid_column(columns, "telemetry") is None
+        assert device_valid_column(columns, "nope") is None
+
+
 class TestTimestampColumns:
     """ts_ event-recording times + the two-epoch convention (W1e)."""
 

@@ -346,6 +346,23 @@ class TestGalleryRoutes:
         assert response.status_code == 404
         assert "missed" in response.json()["detail"]
 
+    def test_a_shot_the_device_marked_invalid_404s(self, scan_folder):
+        # #990: a positive timestamp on a valid=False row is a frame that
+        # belongs to another physical shot — refused like a missed shot,
+        # while its neighbours still serve.
+        catalog = FakeCatalog()
+        detail = _detail(2)
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        detail.data["cam-valid"] = [True, False, True]
+        catalog.details["uid-002"] = detail
+        client = TestClient(create_app(catalog))
+        for shot in (1, 3):
+            response = client.get(f"/run/uid-002/image.png?device=cam&shot={shot}")
+            assert response.status_code == 200
+        response = client.get("/run/uid-002/image.png?device=cam&shot=2")
+        assert response.status_code == 404
+        assert "missed" in response.json()["detail"]
+
     def test_image_endpoint_serves_native_and_stack(self, scan_folder):
         client = _gallery_client(scan_folder)
         for device in ("UC_TestCam", "UC_StackCam"):
@@ -490,6 +507,23 @@ class TestArrayStacks:
             assert (
                 client.get("/api/run/uid-002/trace", params=params).status_code == 404
             )
+
+    def test_the_trace_endpoint_refuses_a_shot_marked_invalid(self, scan_folder):
+        """#990: the trace endpoint shares the image endpoint's refusal."""
+        catalog = FakeCatalog()
+        detail = _detail(2)
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        detail.data["U_ICT-acq_timestamp"] = [_LV + 1.0, _LV + 2.0, _LV + 3.0]
+        detail.data["U_ICT-valid"] = [True, False, True]
+        catalog.details["uid-002"] = detail
+        client = TestClient(create_app(catalog))
+        codes = {
+            shot: client.get(
+                "/api/run/uid-002/trace", params={"device": "U_ICT", "shot": shot}
+            ).status_code
+            for shot in (1, 2, 3)
+        }
+        assert codes == {1: 200, 2: 404, 3: 200}
 
     def test_the_images_tab_draws_a_line_for_a_trace_device(self, scan_folder):
         client = _gallery_client(scan_folder)
@@ -707,11 +741,13 @@ class TestBinImages:
         '[{"column":"cam-MaxCounts","low":10.5,"high":13.0}]}]}'
     )
 
-    def _client(self, scan_folder, bins=(1, 1, 2)):
+    def _client(self, scan_folder, bins=(1, 1, 2), cam_valid=None):
         catalog = FakeCatalog()
         detail = _detail(2)
         detail.start_doc["scan_folder"] = str(scan_folder)
         detail.data["Bin #"] = list(bins)  # the default bincfg bin column
+        if cam_valid is not None:
+            detail.data["cam-valid"] = list(cam_valid)
         # Companion column so the stack device joins by TIMESTAMP (the
         # leading pre-scan extra frame must not shift the average).
         detail.data["UC_StackCam-acq_timestamp"] = [_LV + 1.0, _LV + 2.0, _LV + 3.0]
@@ -745,6 +781,20 @@ class TestBinImages:
         assert decoded[0, 1] == decoded[0, 2] == 255
         rest = decoded.copy()
         rest[0, 1] = rest[0, 2] = 0
+        assert not rest.any()
+
+    def test_bin_average_excludes_a_shot_marked_invalid(self, scan_folder):
+        # #990: bin 0 holds shots 1+2; shot 2 is valid=False, so the
+        # average is shot 1 alone — only its marker lights up.
+        client = self._client(scan_folder, cam_valid=(True, False, True))
+        response = client.get(
+            "/run/uid-002/bin-image.png", params={"device": "cam", "bin": 0}
+        )
+        assert response.status_code == 200
+        decoded = np.array(Image.open(io.BytesIO(response.content)))
+        assert decoded[0, 1] == 255
+        rest = decoded.copy()
+        rest[0, 1] = 0
         assert not rest.any()
 
     def test_single_shot_bin_renders_that_shot(self, scan_folder):
