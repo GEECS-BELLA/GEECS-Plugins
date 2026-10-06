@@ -37,7 +37,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `serving N of M stream devices` against the DB roster; a difference is
   a finding (`DB roster differs: not served …` on the line, `note=served
   set differs from the DB roster on <ip>` in the record). An instance
-  without the PV (pre-0.15.0) reads as before.
+  without the PV (pre-0.16.0) reads as before.
 
 ### Changed
 
