@@ -4,6 +4,56 @@ All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [0.16.0] - 2026-10-06
+
+### Added
+
+- **The served set follows the GEECS DB while the process runs** (#943,
+  part 2). The roster is re-read every 60 s (`--roster-interval SECONDS`;
+  `0` = read once at start, the old behaviour) with the startup call —
+  same `--host` / `--devices` scoping, same rule: enabled device, endpoint
+  on this host, a stream variable — and the running instance reconciled to
+  it: a device that entered the set gets its PVs, `:connected` state, file
+  plugin and gated subscription exactly as at start; one that left loses
+  them (subscription released, PVs taken off the air, writer threads
+  joined). A device with a file-plugin capture session open is never torn
+  down — its removal waits for the session to close, said so in the log
+  each tick. A read that raises or outlives its 30 s budget **never
+  shrinks the set**: the last good roster stands, the failure is logged
+  once per streak (recovery once too), and a slow read is never doubled
+  (the read runs on its own daemon thread, so a query that never returns
+  is abandoned after ten ticks and the re-read resumes — and it can never
+  block the process exit a `:restart` asks for). A box that cannot see its own addresses — or no longer the
+  one its instance is named after — has *failed* the read, not answered
+  "nothing" (`from_geecs_experiment(strict_scope=...)`, the re-read's
+  contract; startup still idles).
+  An answer that is empty is honoured: the instance serves nothing and
+  idles on its identity PVs, as 0.12.0 established — and heals when a
+  device is re-enabled, with no restart anywhere. The log line is
+  `roster: +UC_X, -UC_Y (serving N devices: ...)`.
+- **A fourth instance PV, `{experiment}:pvagateway:<host_token>:devices`**
+  (string array): the devices the instance serves right now, posted on
+  every roster change. `geecs-pva-gateway fleet` reads it and prints
+  `serving N of M stream devices` against the DB roster; a difference is
+  a finding (`DB roster differs: not served …` on the line, `note=served
+  set differs from the DB roster on <ip>` in the record). An instance
+  without the PV (pre-0.16.0) reads as before.
+
+### Changed
+
+- The PVs live on one `StaticProvider` the server keeps for its lifetime
+  (devices join and leave it) instead of a dict snapshot; the startup
+  collision guard is the same check, now also applied to each device the
+  re-read adds (a colliding newcomer is refused and logged once, the
+  served set stands). A newcomer joins the served set only once every
+  one of its PVs is registered: a registration that fails partway is
+  rolled back whole (PVs already added, name claims, writer threads) and
+  retried next tick, never left half-served. A device present before and after a read keeps its
+  worker: an endpoint move stays the supervisor's business (#854), and a
+  changed stream-variable set is logged once, not churned.
+- The #854 log line for an endpoint that moved off this host no longer
+  says the set is re-scoped by a restart.
+
 ## [0.15.0] - 2026-10-06
 
 ### Fixed

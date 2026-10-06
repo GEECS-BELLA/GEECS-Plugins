@@ -15,7 +15,12 @@ import logging
 import sys
 
 from geecs_pva_gateway.config import PvaGatewayConfig
-from geecs_pva_gateway.server import RESTART_EXIT_CODE, GeecsPvaGateway, __version__
+from geecs_pva_gateway.server import (
+    RESTART_EXIT_CODE,
+    ROSTER_INTERVAL_S,
+    GeecsPvaGateway,
+    __version__,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -57,6 +62,17 @@ def main(argv: list[str] | None = None) -> int:
         help="print the served devices and PV names, then exit",
     )
     parser.add_argument(
+        "--roster-interval",
+        type=float,
+        default=ROSTER_INTERVAL_S,
+        metavar="SECONDS",
+        help=(
+            "seconds between re-reads of the served set from the GEECS DB: a "
+            "device enabled or disabled there is served or dropped within one "
+            "interval, no restart (default %(default)s; 0 = read once at start)"
+        ),
+    )
+    parser.add_argument(
         "--log-level", default="INFO", help="logging level (default INFO)"
     )
     parser.add_argument("--version", action="version", version=__version__)
@@ -71,10 +87,26 @@ def main(argv: list[str] | None = None) -> int:
     config = PvaGatewayConfig.from_geecs_experiment(
         args.experiment, host=args.host, devices=devices
     )
+
+    def resolve_roster() -> list:
+        """The served set as the DB sees it now — the startup call, verbatim (#943).
+
+        ``strict_scope``: a box that cannot see its own addresses — or no
+        longer the one this instance is named after — fails the read
+        instead of answering "nothing", so an adapter blink never tears
+        the served set down.
+        """
+        return PvaGatewayConfig.from_geecs_experiment(
+            args.experiment,
+            host=args.host,
+            devices=devices,
+            strict_scope=config.host or True,
+        ).devices
+
     if not config.devices:
         # Not an error: the instance serves its identity PVs (version,
-        # heartbeat, restart) so the fleet screen sees it, and picks up the
-        # host's devices on the next restart (the roster is read at start).
+        # heartbeat, restart, devices) so the fleet screen sees it, and
+        # picks up the host's devices at the next roster re-read (#943).
         # Exiting here made a freshly bootstrapped array-only host crash-loop
         # under NSSM until array support landed.
         logging.getLogger(__name__).warning(
@@ -87,7 +119,12 @@ def main(argv: list[str] | None = None) -> int:
     # already imported by the config build above.
     from geecs_core.db.geecs_db import GeecsDb
 
-    gateway = GeecsPvaGateway(config, endpoint_resolver=GeecsDb.find_device)
+    gateway = GeecsPvaGateway(
+        config,
+        endpoint_resolver=GeecsDb.find_device,
+        roster_resolver=resolve_roster,
+        roster_interval_s=args.roster_interval,
+    )
     if args.list:
         for name in gateway.pv_names:
             print(name)

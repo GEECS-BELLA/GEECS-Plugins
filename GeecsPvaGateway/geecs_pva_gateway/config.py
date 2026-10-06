@@ -44,7 +44,7 @@ def local_ip_addresses(probe_target: str | None = None) -> set[str]:
 
 
 def instance_pv_prefix(experiment: str, host: str) -> str:
-    """Prefix of one instance's identity PVs (``version``/``heartbeat``/``restart``).
+    """Prefix of one instance's identity PVs (``version``/``heartbeat``/``restart``/``devices``).
 
     The identity component is the served host (an IP, dots normalised to
     underscores — PV_CONTRACT). The one composition shared by the server
@@ -107,7 +107,7 @@ class PvaGatewayConfig(BaseModel):
 
     experiment: str
     #: The served host's address — what the instance's identity PVs
-    #: (``version`` / ``heartbeat`` / ``restart``) are named after, so the
+    #: (``version`` / ``heartbeat`` / ``restart`` / ``devices``) are named after, so the
     #: fleet probe and the Phoebus screen (which ask by ``[pva] addr_list``
     #: IP) find the instance even while it has no device to serve.  The
     #: ``--host`` argument, else the DB endpoint of the served devices, else
@@ -123,6 +123,7 @@ class PvaGatewayConfig(BaseModel):
         host: str | None = None,
         devices: list[str] | None = None,
         enabled_only: bool = True,
+        strict_scope: str | bool = False,
     ) -> "PvaGatewayConfig":
         """Build the served set from the GEECS database (two batched queries).
 
@@ -136,6 +137,18 @@ class PvaGatewayConfig(BaseModel):
             Restrict to these device names (after host scoping).
         enabled_only : bool
             Skip devices not enabled in the experiment (default true).
+        strict_scope : str or bool
+            With *host* unset: raise ``LookupError`` instead of scoping to
+            nothing when this machine's addresses cannot be determined
+            (``True``), or when they no longer include the given address —
+            the one the instance is named after (its ``host`` at startup).
+            The served-set re-read's contract (#943): a box that cannot
+            see itself, or has lost the adapter its devices sit on, has
+            **failed** to answer, so the caller keeps the last good set
+            rather than tearing it down for an adapter blink.  Off at
+            startup (the default), where an unscoped box idles on its
+            identity PVs rather than crash-looping under the service
+            manager.
         """
         from geecs_core.db.geecs_db import GeecsDb
 
@@ -163,6 +176,19 @@ class PvaGatewayConfig(BaseModel):
             # address is included even when hostname lookup misses it.
             any_ip = next(iter(endpoints.values()), ("", 0))[0]
             hosts = local_ip_addresses(probe_target=any_ip or None)
+            if strict_scope and (
+                not hosts
+                or (isinstance(strict_scope, str) and strict_scope not in hosts)
+            ):
+                raise LookupError(
+                    "cannot scope the served set: this machine's addresses are "
+                    f"{sorted(hosts) or 'unknown'}"
+                    + (
+                        f", not including the instance's {strict_scope}"
+                        if hosts and isinstance(strict_scope, str)
+                        else ""
+                    )
+                )
             probe_host = (detect_local_ip(any_ip) or None) if any_ip else None
 
         served: list[DeviceSpec] = []

@@ -56,7 +56,7 @@ class FleetHost(BaseModel):
     deployed: bool = True
 
     def instance_pv(self, experiment: str, name: str) -> str:
-        """Full name of one instance PV (``version``, ``heartbeat``, ``restart``)."""
+        """Full name of one instance PV (``version``, ``heartbeat``, ``restart``, ``devices``)."""
         return f"{instance_pv_prefix(experiment, self.ip)}:{name}"
 
 
@@ -162,17 +162,35 @@ FLEET_ROLE = "PVA image gateways"
 
 
 class HostProbe(BaseModel):
-    """One deployed host's answer to the version/heartbeat gets."""
+    """One deployed host's answer to the version/heartbeat/devices gets."""
 
     host: FleetHost
     version: str | None = None
     heartbeat: int | None = None
+    #: The set the instance serves, as its ``:devices`` PV reports it (the
+    #: served set follows the DB on a timer, #943); ``None`` when the PV did
+    #: not answer — an instance from before 0.16.0.
+    devices: list[str] | None = None
     error: str | None = None
 
     @property
     def up(self) -> bool:
-        """True when both instance PVs answered."""
+        """True when ``version`` and ``heartbeat`` answered (``devices`` is optional)."""
         return self.version is not None
+
+    @property
+    def drift(self) -> tuple[list[str], list[str]]:
+        """``(in the DB roster but not served, served but not in the roster)``.
+
+        Empty pairs when the sets agree or the instance does not report
+        one.  A difference that outlives a roster interval is a finding: a
+        removal deferred by an open capture, a PV-name collision refused,
+        or an instance whose DB route is dead and holds its last set.
+        """
+        if self.devices is None:
+            return [], []
+        wanted, served = set(self.host.devices), set(self.devices)
+        return sorted(wanted - served), sorted(served - wanted)
 
 
 class FleetProbe(BaseModel):
@@ -196,15 +214,32 @@ class FleetProbe(BaseModel):
         """Deployed hosts that did not answer."""
         return [p for p in self.probes if not p.up]
 
+    @property
+    def drifted(self) -> list[HostProbe]:
+        """Hosts up whose served set differs from the DB roster."""
+        return [p for p in self.probes if p.up and any(p.drift)]
+
     def lines(self) -> list[str]:
         """Human lines in the fleet_status.sh style (``[ OK ]``/``[DOWN]``/``[ -- ]``/``[WARN]``)."""
         out = []
         for p in self.probes:
             n = len(p.host.devices)
             if p.up:
+                if p.devices is None:
+                    served = f"{n} stream devices"
+                else:
+                    served = f"serving {len(p.devices)} of {n} stream devices"
+                    missing, extra = p.drift
+                    if missing or extra:
+                        parts = []
+                        if missing:
+                            parts.append(f"not served {', '.join(missing)}")
+                        if extra:
+                            parts.append(f"extra {', '.join(extra)}")
+                        served += f" (DB roster differs: {'; '.join(parts)})"
                 out.append(
                     f"  [ OK ] PVA gateway  {p.host.ip:<15}  geecs-pva-gateway {p.version}"
-                    f"  heartbeat={p.heartbeat}  {n} stream devices"
+                    f"  heartbeat={p.heartbeat}  {served}"
                 )
             else:
                 out.append(
@@ -249,6 +284,11 @@ class FleetProbe(BaseModel):
             fields.append(
                 f"note={len(self.down)} unreachable: {' '.join(p.host.ip for p in self.down)}"
             )
+        if self.drifted:
+            fields.append(
+                "note=served set differs from the DB roster on "
+                f"{' '.join(p.host.ip for p in self.drifted)}"
+            )
         if len(versions) > 1:
             fields.append("note=MIXED versions")
         return "\t".join(fields)
@@ -280,9 +320,11 @@ def probe_fleet(
     timeout: float = 2.0,
     getter: Callable[[str], object] | None = None,
 ) -> FleetProbe:
-    """Read every deployed host's ``version`` + ``heartbeat`` instance PVs (read-only).
+    """Read every deployed host's ``version`` + ``heartbeat`` (+ ``devices``) PVs (read-only).
 
-    *getter* is injectable (tests); the default opens a p4p context.
+    *getter* is injectable (tests); the default opens a p4p context.  The
+    ``devices`` PV (0.16.0) is read on its own: an older instance without
+    it still counts as up, with the served set unknown.
     """
     deployed = [h for h in hosts if h.deployed]
     result = FleetProbe(
@@ -303,7 +345,15 @@ def probe_fleet(
             except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
                 result.probes.append(HostProbe(host=host, error=type(exc).__name__))
                 continue
-            result.probes.append(HostProbe(host=host, version=version, heartbeat=beats))
+            try:
+                devices: list[str] | None = [
+                    str(d) for d in get(host.instance_pv(experiment, "devices"))
+                ]
+            except Exception:  # noqa: BLE001 — pre-0.16.0: no such PV, set unknown
+                devices = None
+            result.probes.append(
+                HostProbe(host=host, version=version, heartbeat=beats, devices=devices)
+            )
     return result
 
 

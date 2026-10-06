@@ -6,7 +6,11 @@ import asyncio
 
 from geecs_pva_gateway import __main__ as cli
 from geecs_pva_gateway.config import DeviceSpec, PvaGatewayConfig
-from geecs_pva_gateway.server import RESTART_EXIT_CODE, GeecsPvaGateway
+from geecs_pva_gateway.server import (
+    RESTART_EXIT_CODE,
+    ROSTER_INTERVAL_S,
+    GeecsPvaGateway,
+)
 
 
 def _fake_config(experiment: str) -> PvaGatewayConfig:
@@ -80,3 +84,40 @@ def test_main_list_prints_pvs_and_exits_zero(monkeypatch, capsys):
     _patch_config(monkeypatch)
     assert cli.main(["--experiment", "testexp", "--list"]) == 0
     assert "testexp:uc_cam:image" in capsys.readouterr().out
+
+
+def test_main_wires_the_roster_re_read_with_the_startup_scoping(monkeypatch):
+    """The served set is re-read with the startup call — same --host and
+    --devices scoping — at --roster-interval (default ROSTER_INTERVAL_S)."""
+    calls: list[dict] = []
+
+    def recording_build(cls, experiment: str, **kw) -> PvaGatewayConfig:
+        calls.append(kw)
+        return _fake_config(experiment)
+
+    monkeypatch.setattr(
+        PvaGatewayConfig, "from_geecs_experiment", classmethod(recording_build)
+    )
+    built: dict = {}
+    original_init = GeecsPvaGateway.__init__
+
+    def recording_init(self, config, **kw):
+        built.update(kw)
+        original_init(self, config, **kw)
+
+    monkeypatch.setattr(GeecsPvaGateway, "__init__", recording_init)
+
+    async def fake_run(self, *, isolate: bool = False) -> None:
+        self._restart_event = asyncio.Event()
+
+    monkeypatch.setattr(GeecsPvaGateway, "run", fake_run)
+    argv = ["--experiment", "testexp", "--host", "10.0.0.1", "--devices", "UC_Cam"]
+    assert cli.main([*argv, "--roster-interval", "5"]) == 0
+    assert built["roster_interval_s"] == 5.0
+    assert built["roster_resolver"]() == _fake_config("testexp").devices
+    startup = {"host": "10.0.0.1", "devices": ["UC_Cam"]}
+    # Verbatim, plus the re-read's strict scope anchored on the identity
+    # host (True when the startup config has none, as _fake_config's).
+    assert calls == [startup, {**startup, "strict_scope": True}]
+    assert cli.main(argv) == 0
+    assert built["roster_interval_s"] == ROSTER_INTERVAL_S == 60.0
