@@ -756,9 +756,12 @@ gateway (circular).
 
 ## Configuration
 
-`~/.config/geecs_python_api/config.ini`, read through
-`geecs_core.configs_repo` (`read_config_entry`, `scanner_configs_base`):
-`[epics] ca_addr_list`, `[pva] addr_list` + `file_plugin_addr_list` (both
+`~/.config/geecs_python_api/config.ini`.  `[epics]`, `[pva]`, `[Paths]` and
+the configs-repo root are read through `geecs_core.configs_repo`
+(`read_config_entry`, `scanner_configs_base`); `[tiled]` through
+`geecs_data_utils.tiled_catalog`, `[Experiment]` through `GeecsPathsConfig`,
+`[Database]` by `GeecsDb`, and `[qserver]` by `qs_client`'s own tolerant
+reader.  The keys: `[epics] ca_addr_list`, `[pva] addr_list` + `file_plugin_addr_list` (both
 exported into `EPICS_PVA_ADDR_LIST` at import, `epics_env`; the second is
 also the namespace's plugin rule — the camera servers whose gateway serves
 the file plugin), `[tiled] uri / api_key`, `[Paths]` (data root and the

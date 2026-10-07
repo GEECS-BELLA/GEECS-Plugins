@@ -481,7 +481,7 @@ Validate diagnostics on the worker before an operator day. The resolver lists on
 schema-valid native configs; the scanner disables Optimize when that list is
 empty. An unmigrated legacy corpus therefore offers no broken choices.
 
-**Hardware acceptance:** run TopViewMax with
+**OWED hardware acceptance:** run TopViewMax with
 beam, 5 shots × 10 iterations; require five valid frames per iteration,
 compare the objective with saved PNGs after the run, and record RSS before
 and after. Finally submit TopViewMax from the scanner, observe live iteration

@@ -216,7 +216,7 @@ def _experiment_default(
 
 
 def resolve_native_image_save(requested: bool | None, resolver: Any | None) -> bool:
-    """The run's LabVIEW-files switch: the request, else the experiment default, else on."""
+    """The run's LabVIEW-files switch: request, else experiment default, else on."""
     return _experiment_default(
         requested, resolver, "native_image_save", on_failure="native saving stays on"
     )
@@ -682,7 +682,11 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
 
 @functools.wraps(bps.mv)
 def _mv_named(*args: Any, **kwargs: Any):
-    """The stock ``mv`` stub with a failure's name: the manager's report of a refused manual move reads its cause, not ``<AsyncStatus …>``."""
+    """The stock ``mv`` stub, with a refused move's cause in the failure.
+
+    The manager's report of a refused manual move then names the cause,
+    not ``<AsyncStatus …>``.
+    """
     return (yield from name_failed_status(bps.mv(*args, **kwargs)))
 
 

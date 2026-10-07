@@ -1,14 +1,12 @@
 """The stream table as a Parquet file beside the s-file.
 
-GEECS registers every run from the spool after its stop, when the table
-is known in full, so instead of the stock writer's appendable SQL table
-each event stream is written as **one Parquet file in the scan folder** —
-``ScanNNN/ScanDataScanNNN-<stream>.parquet``, the s-file's sibling
-(:func:`geecs_data_utils.data.sfile.stream_table_parquet_path_for`) — and
-registered from ``readable_storage`` exactly as the camera stacks are
-(``application/x-parquet``).  The scan folder is the record; Tiled is the
-index; a reader (``read_primary_scalars``) cannot tell which store served
-the table.  :func:`geecs_bluesky.tiled.writer.make_tiled_writer` takes
+Each event stream is written, after the run stops, as **one Parquet file
+in the scan folder** (``ScanDataScanNNN-<stream>.parquet``) and registered
+from ``readable_storage`` like the camera stacks.  The path helper,
+:func:`geecs_data_utils.data.sfile.stream_table_parquet_path_for`, sits
+beside the s-file's so readers need not import this package.  The scan
+folder is the record and Tiled the index; ``read_primary_scalars`` cannot
+tell which store served the table.  ``make_tiled_writer`` takes
 ``tables="parquet"`` (default) or ``"appendable"`` (the stock path).
 
 Two rules:

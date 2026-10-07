@@ -754,17 +754,17 @@ class GeecsDetector(StandardDetector):
         """Each file plugin's non-empty ``WriteMessage``, as ``file plugin <io.name>: <message>``.
 
         What explains a plugin-backed camera that counts no frame: the
-        plugin refused what the camera pushed — a stack that would not
-        open, a frame of another shape than the open stack's — and said so
-        only there, where it reads as the camera's own frame drop.  Read on every failure path that names the
-        device (:meth:`prepare`, the count timeouts of ``trigger`` and
-        ``complete``, the strict plan's miss), the plugins together, each
-        within :data:`PLUGIN_REASON_TIMEOUT_S` — so the call is bounded by
-        that budget whatever the plugin count (a MagSpec camera arms four);
-        a plugin that does not answer, or has nothing to say, is left out.
-        Empty without a plugin.  The plugin clears its message on the next
-        frame it accepts, so a reason here is current, not a frame it
-        refused shots ago.
+        plugin refused what the camera pushed — a stack that would not open,
+        a frame of another shape than the open stack's — and said so only
+        there, where it reads as the camera's own frame drop.  Read on every
+        failure path that names the device (:meth:`prepare`, the count
+        timeouts of ``trigger`` and ``complete``, the strict plan's miss),
+        the plugins together, each within :data:`PLUGIN_REASON_TIMEOUT_S` —
+        so the call is bounded by that budget whatever the plugin count (a
+        MagSpec camera arms four); a plugin that does not answer, or has
+        nothing to say, is left out. Empty without a plugin.  The plugin
+        clears its message on the next frame it accepts, so a reason here is
+        current, not a frame it refused shots ago.
         """
 
         async def read(io: GeecsHdfIO) -> str:
@@ -784,15 +784,15 @@ class GeecsDetector(StandardDetector):
         """Whether a strict prepare switches LabVIEW's per-shot saving on.
 
         ``False`` for a scalars-only device, for a camera whose frames are
-        not wanted (``native_save`` without a path provider) and for one
-        the run switched off — the bound plans' ``native_image_save``
-        argument, applied to plugin-backed cameras of a strict run only
-        (:func:`~geecs_bluesky.plans.registry.native_image_save_wrapper`;
-        a gated run's plugin-backed cameras never save natively, and a
-        device without a plugin saves in either mode).  Setting it flips the
-        data logic's switch and nothing else: the controls stay owned, so a
-        stale ``save=on`` is still cleared at ``stage``.  A device without the controls refuses
-        the set — there is nothing to switch.
+        not wanted (``native_save`` without a path provider) and for one the
+        run switched off — the bound plans' ``native_image_save`` argument,
+        applied to plugin-backed cameras of a strict run only
+        (:func:`~geecs_bluesky.plans.registry.native_image_save_wrapper`; a
+        gated run's plugin-backed cameras never save natively, and a device
+        without a plugin saves in either mode).  Setting it flips the data
+        logic's switch and nothing else: the controls stay owned, so a stale
+        ``save=on`` is still cleared at ``stage``.  A device without the
+        controls refuses the set — there is nothing to switch.
         """
         logic = self._native_logic
         return logic is not None and logic.wanted
