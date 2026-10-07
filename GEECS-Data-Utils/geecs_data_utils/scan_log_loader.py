@@ -1,7 +1,7 @@
 """Read and parse the `scan.log` a scan folder carries.
 
 The per-scan log format is owned by the writer,
-:class:`geecs_bluesky.scan_log.ScanLogFile`::
+:class:`geecs_bluesky.callbacks.scan_log.ScanLogFile`::
 
     "%(asctime)s.%(msecs)03d %(levelname)s %(name)s [%(threadName)s] "
     "scan=%(scan_id)s - %(message)s"
@@ -110,7 +110,7 @@ class LogEntry(BaseModel):
 #   thread- thread name (within square brackets)
 #   shot  - context token (no whitespace; literal "-" if unset).  The legacy
 #           engine wrote ``shot=<n>``; the Bluesky stack writes
-#           ``scan=ScanNNN`` (``geecs_bluesky/scan_log.py``) — both are
+#           ``scan=ScanNNN`` (``geecs_bluesky/callbacks/scan_log.py``) — both are
 #           accepted, and the capture keeps its historical name ``shot``
 #           so downstream consumers are unaffected.
 #   msg   - rest of the line
@@ -284,7 +284,7 @@ def load_scan_log(
         Path to the scan folder. The function looks for `<scan_folder>/<filename>`.
     filename : str, optional
         Log file name within the scan folder. Defaults to ``"scan.log"`` to
-        match :class:`geecs_bluesky.scan_log.ScanLogFile`.
+        match :class:`geecs_bluesky.callbacks.scan_log.ScanLogFile`.
 
     Returns
     -------

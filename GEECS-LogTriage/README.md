@@ -1,7 +1,7 @@
 # GEECS-LogTriage
 
 Harvest, group, and classify error/warning entries from GEECS scan execution
-logs (the `scan.log` written by `geecs_bluesky.scan_log`, and the legacy
+logs (the `scan.log` written by `geecs_bluesky.callbacks.scan_log`, and the legacy
 scanner's before it).
 
 The package is the **Stage 1** floor of an auto-debugger pipeline: a

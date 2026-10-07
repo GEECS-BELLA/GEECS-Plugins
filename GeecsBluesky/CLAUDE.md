@@ -98,8 +98,10 @@ geecs_bluesky/
   plans/action_compiler.py  # ActionPlan → plan stubs; the namespace is its SettableFactory
   run_engine.py             # make_run_engine: RE + claim + headers + callbacks (+ the spool)
   preprocessors.py          # connect_on_demand (installed outermost), scalar_headers
-  callbacks.py              # ScanInfo ini, the s-file, scan.log, the stack check — per run
-  scan_log.py               # ScanLogFile: the root-logger handler one run holds
+  callbacks/                # the run's GEECS outputs, per run: scan_info.py (ScanInfo ini),
+                            #   sfile.py (the s-file), scan_log.py (scan.log: ScanLogFile, the
+                            #   root-logger handler one run holds), stack_check.py,
+                            #   outputs.py (subscribe_scan_outputs), _base.py (stream bookkeeping)
   qserver_ready.py          # geecs-qserver-ensure-ready (#793)
   qs_client/                # the RE Manager client every GEECS client uses: client.py
                             #   (QueueClient, readiness_verdict), presets.py (expand_preset),

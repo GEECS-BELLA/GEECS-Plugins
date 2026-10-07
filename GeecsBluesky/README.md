@@ -31,7 +31,7 @@ between trigger and wait.  It owns:
   a `scans/ScanNNN/` folder comes into existence)
 - `run_engine.py` — `make_run_engine`: one RunEngine with
   `connect_on_demand` (`preprocessors.py`) installed outermost, the
-  ScanInfo / s-file / `scan.log` / stack-check callbacks (`callbacks.py`)
+  ScanInfo / s-file / `scan.log` / stack-check callbacks (`callbacks/`)
   and the Tiled spool subscribed (`tiled/spool.py`; the
   `geecs-tiled-writer` service in `tiled/writer.py` registers the spooled
   runs off the engine thread)

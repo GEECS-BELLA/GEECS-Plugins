@@ -49,7 +49,7 @@ from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plans.gated import TRIGGER_PERIOD_S, run_bracket
 from geecs_bluesky.plans.strict import fire_and_await_shot
-from geecs_bluesky.scan_log import plan_report_sink
+from geecs_bluesky.callbacks.scan_log import plan_report_sink
 from geecs_bluesky.utils import resolve_annotations
 
 logger = logging.getLogger(__name__)

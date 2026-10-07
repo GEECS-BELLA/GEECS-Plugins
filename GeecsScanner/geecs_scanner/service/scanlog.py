@@ -1,7 +1,7 @@
 """The scan.log tail: read what the worker appended to the run's ``scan.log``.
 
 The worker writes ``<scan_folder>/scan.log`` for the span of a run
-(``geecs_bluesky.scan_log.ScanLogFile``, attached at the start document);
+(``geecs_bluesky.callbacks.scan_log.ScanLogFile``, attached at the start document);
 the start document names the folder (``scan_folder``, claimed worker-side),
 so this module needs no date arithmetic and no ``ScanPaths``.  It **reads
 only**: a missing folder or file is reported, never created — the

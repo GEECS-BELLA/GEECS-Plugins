@@ -36,7 +36,7 @@ or to match it — so every consumer is a reader joining rows to files:
   millisecond key, the dual-write evidence behind PNG retirement (#738).
 - ``geecs_data_utils.io.scan_stack`` — the same key, in this package, to
   find a stack frame by a row's stamp.
-- ``geecs_bluesky.callbacks`` (GeecsBluesky) — the *close-out* side: the
+- ``geecs_bluesky.callbacks.stack_check`` (GeecsBluesky) — the *close-out* side: the
   stack check's files-versus-rows line for a gated run's native-saving
   essential, matching the ``shots`` rows' stamps against the directory's
   listing (:func:`native_file_keys`) — the tail is the device's to choose,

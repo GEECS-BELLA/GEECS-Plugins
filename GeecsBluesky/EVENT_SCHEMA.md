@@ -226,7 +226,7 @@ Every device carries `_column_headers` — event data-key → the GEECS
 `Device Variable` header (`UC_Wavemeter Wavelength (nm)`); the
 `scalar_headers` preprocessor merges the staged devices' maps into the
 start document's `geecs_scalar_headers`, which the s-file callback
-(`callbacks.py`, from the run's own rows at the stop document) and the
+(`callbacks/sfile.py`, from the run's own rows at the stop document) and the
 offline re-export (`geecs_data_utils.write_scalar_files_from_tiled`) read.
 Both take their rows from `primary` when it has events and from `shots`
 otherwise, and both run the same join, so a re-export checks the live path
