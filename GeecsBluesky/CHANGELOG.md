@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.115.2] - 2026-10-07
+
+### Changed
+
+- Documentation only: module and function docstrings and the package Markdown are cut to what the code does and how to use it; history stays in this changelog.  No code path changed.
+
 ## [0.115.1] - 2026-10-07
 
 ### Changed
