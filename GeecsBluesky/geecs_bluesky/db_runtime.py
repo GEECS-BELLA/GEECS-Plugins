@@ -19,8 +19,7 @@ The **set-side** (DB scan start/end writes) is intentionally disabled: the
 boundary writes would race the shot controller / TriggerProfile on the DG645,
 so the reserved schema fields stay inert.  Everything here is a pure function
 except the failure-tolerant ``GeecsDb`` touchpoints — a scan must never
-abort because the DB blipped.  Design rationale: ``GeecsBluesky/CLAUDE.md``
-(M3c).
+abort because the DB blipped.
 """
 
 from __future__ import annotations
@@ -139,7 +138,7 @@ class GeecsDbDeviceTypes:
     to the trigger-variable name rule when it has no devicetype, so both of
     its devicetype lists stop applying — a trigger *source* (DG645) can
     register as an acquirer, and a frame consumer with no trigger variable
-    of its own (``magspecstitcher``, GEECS-Plugins#934) stops being
+    of its own (``magspecstitcher``) stops being
     triggered, which switches its native saving off.  And
     :func:`~geecs_bluesky.namespace.capture_streams` falls back to the
     one-image guess, so a device whose declared streams differ from it

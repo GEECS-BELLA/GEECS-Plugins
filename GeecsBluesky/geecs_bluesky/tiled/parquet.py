@@ -1,27 +1,17 @@
 """The stream table as a Parquet file beside the s-file.
 
-The stock ``TiledWriter`` asks Tiled for an *appendable* SQL table per event
-stream and appends rows in batches — the right shape for a beamline that
-streams events into Tiled while a run is live.  GEECS registers every run
-from the spool after its stop, when the table is known in full, so the
-appendable store bought nothing and cost two ceilings (PostgreSQL's 8 KB
-tuple, SQLite's 2000 columns), a driver that types columns by guessing
-(GEECS-Plugins#1020) and a database service for data that already has a
-home.  Here the table is handed over as **one Parquet file per stream in
-the scan folder** — ``ScanNNN/ScanDataScanNNN-<stream>.parquet``, the
-s-file's sibling (:func:`geecs_data_utils.data.sfile.stream_table_parquet_path_for`,
-beside the s-file's own helper so every reader finds it without importing
-this package) — and registered in the catalog from ``readable_storage``
-exactly as the camera stacks are (``application/x-parquet``, Tiled's
-default table shape).  The scan folder is the record; Tiled is the index
-and the server over it; a reader (``read_primary_scalars``) cannot tell
-which store served the table.
+GEECS registers every run from the spool after its stop, when the table
+is known in full, so instead of the stock writer's appendable SQL table
+each event stream is written as **one Parquet file in the scan folder** —
+``ScanNNN/ScanDataScanNNN-<stream>.parquet``, the s-file's sibling
+(:func:`geecs_data_utils.data.sfile.stream_table_parquet_path_for`) — and
+registered from ``readable_storage`` exactly as the camera stacks are
+(``application/x-parquet``).  The scan folder is the record; Tiled is the
+index; a reader (``read_primary_scalars``) cannot tell which store served
+the table.  :func:`geecs_bluesky.tiled.writer.make_tiled_writer` takes
+``tables="parquet"`` (default) or ``"appendable"`` (the stock path).
 
-The choice stays pluggable: :func:`geecs_bluesky.tiled.writer.make_tiled_writer`
-takes ``tables="parquet"`` (default) or ``"appendable"`` (the stock path,
-kept for a stream that one day must grow in Tiled while a run is live).
-
-Two rules carried over from the rest of the package:
+Two rules:
 
 - **The writer never creates a scan folder.**  The folder was claimed by
   the engine at ``open_run``; a missing one is an anomaly surfaced as a
@@ -29,8 +19,7 @@ Two rules carried over from the rest of the package:
   ``mkdir``.
 - **The URI is the Tiled host's view**
   (:func:`geecs_bluesky.data_paths.tiled_host_path`, the camera stacks'
-  ``plugin_save_path`` pattern): today Tiled runs on the worker and reads
-  the same mount; when it moves, ``config.ini``
+  ``plugin_save_path`` pattern): ``config.ini``
   ``[Paths] geecs_tiled_host_data_base_path`` names the share as the Tiled
   host mounts it, and a path that cannot be translated is refused rather
   than registered wrong.

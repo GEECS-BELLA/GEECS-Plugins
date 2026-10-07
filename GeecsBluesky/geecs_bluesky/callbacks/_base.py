@@ -150,8 +150,8 @@ class _RunStreams:
     rows :
         Stream name → the stream's event rows **in arrival order**, each as
         ``(sequence number, data)``.  Both orders matter: the s-file takes
-        the rows as they arrived (what the pre-2c writer did, and a partial
-        row is data — ``EVENT_SCHEMA.md``), while the stack check maps a
+        the rows as they arrived (a partial row is data —
+        ``EVENT_SCHEMA.md``), while the stack check maps a
         datum's sequence numbers onto rows and so needs them keyed.
     stacks :
         Data key → the stack it references.

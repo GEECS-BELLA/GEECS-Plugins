@@ -1,36 +1,28 @@
 """The per-run document spool between the RunEngine and the Tiled writer service.
 
-Registering a run in Tiled is hundreds of serial HTTP calls at the stop
-document, tens of seconds that must not run on the engine thread.  The
-engine writes every document of a run to one JSON Lines file in a spool
-directory, microseconds per document, and a separate process,
-``geecs-tiled-writer`` (:mod:`geecs_bluesky.tiled.writer`), registers the
-run from that file once its stop document is on disk.
+Registering a run in Tiled is too slow for the engine thread, so the
+engine writes every document of a run to one JSON Lines file and a
+separate process, ``geecs-tiled-writer`` (:mod:`geecs_bluesky.tiled.writer`),
+registers the run once its stop document is on disk.  The spool is the
+writer's **only** source (the live 0MQ stream is best-effort), so a run
+appears in Tiled at its close plus the registration time.
 
-The spool is the writer's **only** source: the live 0MQ document stream
-is best-effort by design, and a second path would need deduplication
-against ``create_container(key=uid)`` and partial-registration cleanup.
-A run therefore appears in Tiled at its close plus the registration time.
-
-Layout (``GEECS_TILED_WRITER_STATE``, one directory both processes agree
-on; see :func:`default_state_dir`)::
+Layout (``GEECS_TILED_WRITER_STATE``; see :func:`default_state_dir`)::
 
     <state>/spool/<start time>-<run uid>.jsonl          being written / awaiting registration
     <state>/spool/<start time>-<run uid>.jsonl.done     registered (pruned after --keep-days)
     <state>/spool/<start time>-<run uid>.jsonl.failed   set aside (corrupt, or gave up)
     <state>/heartbeat.json                              the writer's liveness + backlog
 
-A file is *complete* when its last line is a ``stop`` document.  The
-engine flushes every line and ``fsync``s at the stop.  While a run is
-open the engine holds an advisory ``flock`` on its file: that, not
-silence, is how the writer tells a live run from one whose worker died
-(:func:`spool_is_held`).  The line format is the stock
-``bluesky.callbacks.json_writer`` one, plus a numpy-aware encoder.
+A file is *complete* when its last line is a ``stop`` document (flushed
+per line, ``fsync`` at the stop).  While a run is open the engine holds an
+advisory ``flock`` on its file: that, not silence, tells a live run from
+one whose worker died (:func:`spool_is_held`).  Lines use the stock
+``bluesky.callbacks.json_writer`` format with a numpy-aware encoder.
 
-The writer's heartbeat model lives here too (:class:`WriterHeartbeat`,
-:func:`read_heartbeat`, :func:`heartbeat_verdict`), for the engine, the
-scanner and ``fleet_status.sh`` to read without importing the service
-loop.  **The verdict is a warning, never a gate.**
+The heartbeat model (:class:`WriterHeartbeat`, :func:`read_heartbeat`,
+:func:`heartbeat_verdict`) lives here so readers need not import the
+service loop.  **The verdict is a warning, never a gate.**
 """
 
 from __future__ import annotations

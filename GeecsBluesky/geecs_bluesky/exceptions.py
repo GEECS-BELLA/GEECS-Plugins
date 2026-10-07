@@ -45,16 +45,15 @@ def failure_cause_text(exc: BaseException) -> str:
     The one rendering of a failure for the scan log and the stop document.
     A ``bluesky.utils.FailedStatus``'s own text is the status repr, so what
     failed lives on the cause alone; a bare exception (a device logging
-    its own refused put) is its own cause.  Two rules, both caught on
-    hardware:
+    its own refused put) is its own cause.  Two rules:
 
     - ``is not None``, never ``or``: ``aioca.CANothing`` is *falsy* for a
       failed put, and ``exc.__cause__ or exc`` would select the useless
-      status instead (#817).
+      status instead.
     - ``str``, never ``repr``: ``CANothing`` carries the PV name and the CA
       message only through ``str`` — its repr is the bare error code; and
       the notes a device attaches (PEP 678 ``add_note`` — the file plugin's
-      ``WriteMessage`` on a failed prepare, GEECS-Plugins#894) are not part
+      ``WriteMessage`` on a failed prepare) are not part
       of either.
     """
     cause = exc.__cause__ if exc.__cause__ is not None else exc
@@ -85,7 +84,7 @@ class GeecsTriggerTimeoutError(GeecsError):
 
 
 class GeecsMotorTimeoutError(GeecsError):
-    """The readback stalled while the move was pending — the stall rule (#906).
+    """The readback stalled while the move was pending (the stall rule).
 
     Raised by :class:`~geecs_bluesky.devices.ca.motor.CaMotor` when the
     streamed position has not moved by more than the tolerance for

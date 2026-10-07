@@ -1,39 +1,28 @@
 """The GEECS device namespace: every device of an experiment as a long-lived noun.
 
 Built once at queue-server ``environment open`` (or by a headless session)
-from the GEECS DB roster and exported into the worker namespace, so the
-registered plans take devices **by name**: ``count([UC_Amp4_IR_input],
-10)``, ``mv(U_S1H.current, 0.5)``, a sweep axis ``U_S1H.current``.
+from the GEECS DB roster and exported into the worker namespace, so plans
+take devices by name: ``count([UC_Amp4_IR_input], 10)``,
+``mv(U_S1H.current, 0.5)``, a sweep axis ``U_S1H.current``.
 
-The namespace owns no device behaviour; it composes the device layer:
-
-* a device that acquires per shot (:func:`looks_triggerable`) is a
+* a per-shot acquirer (:func:`looks_triggerable`) is a
   :class:`~geecs_bluesky.devices.detector.GeecsDetector`, with
-  ``native_save`` iff the DB lists both ``save`` and ``localsavingpath``
-  (the detector then owns those two controls);
+  ``native_save`` iff the DB lists both ``save`` and ``localsavingpath``;
 * any other device is a
   :class:`~geecs_bluesky.devices.ca.snapshot.CaSnapshotReadable`;
 * each served settable variable is a child Movable:
   :class:`~geecs_bluesky.devices.ca.motor.CaMotor` when the DB gives it a
-  tolerance or the scan-variable catalog opts it in (``kind: motor``),
-  else :class:`~geecs_bluesky.devices.ca.settable.CaSettable`;
-* a catalog ``kind: pseudo`` entry becomes a noun of its own
-  (:meth:`GeecsNamespace.add_pseudos`): a
+  tolerance or the catalog says ``kind: motor``, else
+  :class:`~geecs_bluesky.devices.ca.settable.CaSettable`;
+* a catalog ``kind: pseudo`` entry becomes a
   :class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoPositioner` under the
-  catalog name (``ALine_e_beam_angle_offset_x``).
+  catalog name (:meth:`GeecsNamespace.add_pseudos`).
 
-What each object *reads* is the DB's subscribed (``get='yes'``) list
-(:class:`~geecs_core.db.scalar_policy.GeecsDbScalarPolicy`); which
-variables exist as children is the gateway's served set
-(:class:`~geecs_bluesky.db_runtime.GeecsDbServedSetProvider`); every
-variable's CA type is
-:func:`geecs_core.db.variable_types.effective_vartype`.  Nothing here
-restates a rule that has a home elsewhere.
-
-Constructing a device touches no hardware; connection happens on first
-use (:func:`geecs_bluesky.preprocessors.connect_on_demand`).  A DB failure
-at build raises: a silently empty roster would fail every plan with
-"unknown device".  Tests build from an explicit :class:`DeviceRoster`.
+Reads follow :class:`~geecs_core.db.scalar_policy.GeecsDbScalarPolicy`;
+children follow :class:`~geecs_bluesky.db_runtime.GeecsDbServedSetProvider`.
+Construction touches no hardware (connection is
+:func:`geecs_bluesky.preprocessors.connect_on_demand`).  A DB failure at
+build raises: an empty roster would fail every plan with "unknown device".
 """
 
 from __future__ import annotations
@@ -259,7 +248,7 @@ class DeviceRoster:
     ``None`` means "compute it from the rows" (subscribed ∪ settable, the
     provider's rule).  ``triggered``: explicit per-device overrides of
     :func:`looks_triggerable`.  ``endpoints``: device → the GEECS endpoint
-    IP (the camera server that would serve its file plugin, #806).
+    IP (the camera server that would serve its file plugin).
     """
 
     experiment: str
@@ -370,26 +359,25 @@ class GeecsNamespace:
         The run-scoped provider every file-writing detector shares (the
         claim preprocessor points it at each run's folder).
     file_plugin_hosts :
-        Camera-server IPs whose gateway serves the file plugin (#806): a
+        Camera-server IPs whose gateway serves the file plugin: a
         triggerable device with an image-typed variable on one of them is
         plugin-backed (``GeecsHdfDataLogic`` over the plugin's PVs); the
         same device elsewhere keeps LabVIEW-native saving.  Defaults to
         ``config.ini [pva] file_plugin_addr_list``; absent or ``None``
-        means no host (the rollout is opt-in per box).
+        means no host (opt-in per box).
     drain_offsets :
         Ophyd object name → that device's measured edge-to-stamp latency in
         seconds (the experiment's ``shot_offsets.yaml``, written by the
         ``measure_shot_offsets`` plan).  Seeded into each
         detector's ``drain_offset`` config signal at construction, so it
         rides in every descriptor and the s-file join corrects by it.  A
-        device the mapping does not name keeps ``0.0`` — what every device
-        carried before the calibration existed.  Read once at build: a
+        device the mapping does not name keeps ``0.0``.  Read once at build: a
         re-measurement reaches the worker when its environment is reopened.
     motor_targets :
         ``"Device:Variable"`` targets the scan-variable catalog declares
         ``kind: motor`` (:func:`motor_targets`): each binds a ``CaMotor``
         even where the DB tolerance is ``0``/NULL — with the class default
-        tolerance and a WARNING naming the DB row to curate (#780).  The
+        tolerance and a WARNING naming the DB row to curate.  The
         catalog never *downgrades*: a DB tolerance still binds a motor.
     """
 
@@ -601,9 +589,8 @@ class GeecsNamespace:
         if triggered:
             # Plugin-backed iff the devicetype's capture streams include a
             # served (image) variable and the device's camera server serves
-            # the file plugin (#806).  The LabVIEW-native path stays on
-            # beside it — PNG dual-write until PNG retirement (#738), the
-            # parity evidence of the rollout.
+            # the file plugin.  The LabVIEW-native path stays on beside it
+            # (PNG dual-write).
             plugin_vars = (
                 capture_streams(rows, devicetype, device)
                 if self._path_provider is not None
@@ -701,7 +688,7 @@ class GeecsNamespace:
             )
         if py is float and f"{device}:{var}".lower() in self._motor_targets:
             # The catalog says this is a real positioner but the DB carries
-            # no tolerance to confirm with (#780): confirm within the class
+            # no tolerance to confirm with: confirm within the class
             # default and say which row to curate.
             logger.warning(
                 "device namespace: %s:%s is a catalog 'kind: motor' but its DB "

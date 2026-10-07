@@ -42,9 +42,7 @@ def subscribe_scan_outputs(run_engine: Any) -> ScanOutputs:
     Returns
     -------
     ScanOutputs
-        The four callbacks and their subscription tokens.  Iterating it is
-        not the same as the pre-0.85 four-tuple of tokens — read
-        ``.tokens`` for those.
+        The four callbacks and their subscription tokens (``.tokens``).
     """
     stack_check = StackCheckCallback()
     scan_log = ScanLogCallback()

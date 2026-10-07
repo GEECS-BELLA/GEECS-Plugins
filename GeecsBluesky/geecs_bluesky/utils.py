@@ -130,8 +130,8 @@ def resolve_annotations(
     namespace**.  A plan defined in a module using ``from __future__ import
     annotations`` hands it strings instead of objects, and anything that is
     not a plain builtin then fails with "`Model` is not fully defined; you
-    should define `Sequence`" — at ``queue add``, on hardware, with every
-    unit test green (GEECS-Plugins#861).  The stock ``bluesky.plans`` verbs
+    should define `Sequence`" at ``queue add``, even with every unit test
+    green.  The stock ``bluesky.plans`` verbs
     are immune only because that module does not postpone its annotations.
 
     So every GEECS-defined registered plan passes through here with a

@@ -169,9 +169,7 @@ class ConfigsRepoResolver:
       device group + the plan call; new schema only)
     - ``shot_control_configurations/<name>.yaml`` — trigger profiles
     - ``scan_devices/scan_variables.yaml`` — the scan-variable catalog
-      (new schema only; the legacy ``scan_devices.yaml`` +
-      ``composite_variables.yaml`` pair and its converter were retired
-      2026-09, GEECS-Plugins#779)
+      (new schema only)
     - ``action_library/actions.yaml`` — the action-plan library (new
       schema only; the legacy ``actions:`` dialect is refused)
     - ``optimizer_configs/<name>.yaml`` — validated native ``OptimizerConfig``
@@ -399,7 +397,7 @@ class ConfigsRepoResolver:
         return root
 
     def optimizer_config_path(self, name: str) -> Path:
-        """Path used to resolve an optimizer and its relative seed dumps."""
+        """Return the optimizer config path; its seed dumps resolve relative to it."""
         stem = self._strip_yaml_suffix(name)
         if not stem or stem in (".", "..") or any(c in stem for c in ("/", "\\")):
             raise GeecsConfigurationError("optimizer config must be a file stem")

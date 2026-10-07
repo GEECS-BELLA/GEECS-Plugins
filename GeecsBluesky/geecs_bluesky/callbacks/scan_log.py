@@ -188,9 +188,8 @@ def plan_report_sink(logger_name: str, *, stream: Any = None) -> Iterator[None]:
     no return value a queueserver client can retrieve.
 
     That is fine for a plan whose product is a side effect on the machine
-    (``mv``).  It is not fine for one whose product is *a report for a human*:
-    the shot-offset calibration measured ten shots on hardware and its table
-    vanished entirely (GEECS-Plugins#861, found on the first real run).
+    (``mv``).  It is not fine for one whose product is *a report for a human*
+    (the shot-offset calibration table).
 
     This attaches a stdout handler scoped to *logger_name* and lifts just that
     logger to INFO, restoring both afterwards — so the plan's own narrative

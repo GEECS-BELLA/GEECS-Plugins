@@ -20,7 +20,7 @@ What ``claim=True`` installs, each with one job:
 Background telemetry is not the engine's: every bound scan verb reads it
 into its own rows
 (:class:`~geecs_bluesky.devices.background.BackgroundSnapshot`); there is
-no run-level baseline stream (#1016).  ``connect_on_demand`` goes in
+no run-level baseline stream.  ``connect_on_demand`` goes in
 last, outermost, so it also sees the messages the other preprocessors
 inject.
 """
