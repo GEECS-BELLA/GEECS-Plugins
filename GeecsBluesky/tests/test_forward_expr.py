@@ -14,7 +14,7 @@ import math
 import pytest
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.forward_expr import (
+from geecs_bluesky.devices.ca.forward_expr import (
     _CONSTANTS,
     _FUNCTIONS,
     SCAN_VALUE_NAMES,
@@ -124,7 +124,7 @@ def test_result_is_float() -> None:
 # affine_coefficients / compile_inverse — the pseudo positioners' two readers
 # ---------------------------------------------------------------------------
 
-from geecs_bluesky.forward_expr import affine_coefficients, compile_inverse  # noqa: E402
+from geecs_bluesky.devices.ca.forward_expr import affine_coefficients, compile_inverse  # noqa: E402
 
 # The Undulator corpus: every forward except R56's square root is affine, and
 # the coefficients are exact (a symbolic walk, not a fit).

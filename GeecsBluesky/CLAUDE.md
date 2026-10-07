@@ -81,7 +81,9 @@ geecs_bluesky/
   devices/ca/               # scalar devices + settable children: CaSnapshotReadable,
                             #   CaSettable (+ the user offset), CaMotor, CaConfirmSettable,
                             #   CaPseudoPositioner, ScalarsView (_view), gateway_put,
-                            #   oneshot, liveness, _pv (the explicit ca:// source)
+                            #   oneshot, liveness, _pv (the explicit ca:// source),
+                            #   forward_expr (a pseudo's forward/inverse formulas,
+                            #   affine_coefficients)
   plans/strict.py           # geecs_take_reading (the fire between trigger and wait),
                             #   geecs_per_step / geecs_per_shot, name_failed_status
   plans/gated.py            # gated_take_reading, the run bracket, the non-essential
@@ -112,7 +114,6 @@ geecs_bluesky/
   tiled/parquet.py          # the stream table as ScanNNN/ScanDataScanNNN-<stream>.parquet,
                             #   registered like a camera stack (GeecsRunWriter / GeecsTiledWriter)
   data_paths.py             # local ↔ device-server data path mapping
-  forward_expr.py           # a pseudo's forward/inverse formulas, affine_coefficients
   exceptions.py             # the scan-level exception tree, failure_cause_text
   optimization/             # native Xopt ask/tell (driver), live PVA frames, the
                             #   measurement compiler, simulations, generators/ (BAX),
