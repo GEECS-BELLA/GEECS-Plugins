@@ -92,7 +92,9 @@ repos:
       # wrapper puts every package directory on sys.path, so no package
       # environment is needed and the hook venv holds import-linter only.
       # Whole-tree, under a second; runs whenever a Python file or the
-      # contracts change (a deleted module counts: it shows in the diff).
+      # contracts are in the change set (a pure deletion is not staged for
+      # a local commit, but a deletion cannot add an edge; CI's from-ref
+      # run lists it anyway).
       - id: import-contracts
         name: import contracts (.importlinter)
         language: python

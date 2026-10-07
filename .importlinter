@@ -9,7 +9,13 @@
 #
 # An `ignore_imports` line is a baselined violation — debt the owner has
 # seen, with the follow-up it waits for in the comment beside it. Never add
-# one to make a new import pass; fix the import or change the rule.
+# one to make a new import pass; fix the import or change the rule. Paying
+# a debt must delete its line in the same PR: an ignore whose import no
+# longer exists is a hard error ("No matches for ignored import"), which
+# the next unrelated commit would otherwise inherit.
+#
+# tests/test_import_contracts.py pins `root_packages` and the layers table
+# to the packages on disk, so a new package cannot slip in unlisted.
 
 [importlinter]
 root_packages =
@@ -50,8 +56,10 @@ layers =
     geecs_analysis | image_analysis
     geecs_core | geecs_data_utils | geecs_schemas | geecs_web_theme | logmaker_4_googledocs
 
+# That the foundations never import each other is the layers contract's
+# rule (a forbidden contract cannot name a module as both source and target).
 [importlinter:contract:foundations]
-name = GEECS-Core, GEECS-Data-Utils, GEECS-Schemas, GeecsWebTheme and LogMaker import nothing in the repo
+name = GEECS-Core, GEECS-Data-Utils, GEECS-Schemas, GeecsWebTheme and LogMaker import nothing above them, even indirectly
 type = forbidden
 source_modules =
     geecs_core
@@ -342,10 +350,15 @@ forbidden_modules =
     geecs_bluesky.optimization.inspection
     geecs_bluesky.optimization.vocs_utils
     geecs_bluesky.tiled.writer
+    geecs_bluesky.tiled.parquet
     geecs_bluesky.tiled.integration
-# Direct imports only: what the client-side modules themselves pull in is
-# pinned by `bluesky-client-side-is-light` below.
-allow_indirect_imports = True
+ignore_imports =
+    # Function-local (lazy) imports inside the preflight, the device-side
+    # checks it runs on the worker's behalf: static analysis cannot tell
+    # lazy from eager; the runtime pin is
+    # GeecsBluesky/tests/test_lazy_package_import.py.
+    geecs_bluesky.qs_client.submit_preflight -> geecs_bluesky.devices.shot_control
+    geecs_bluesky.qs_client.submit_preflight -> geecs_bluesky.devices.ca.liveness
 
 [importlinter:contract:scanner-ships-no-optimization-stack]
 name = GeecsScanner never reaches the optimization stack (xopt), even indirectly: GeecsBluesky's optimize extra installs worker-side only
@@ -360,8 +373,11 @@ forbidden_modules =
 # Inside GeecsBluesky
 # ---------------------------------------------------------------------------
 
+# `trajectory` is not listed although GeecsBluesky/CLAUDE.md calls it
+# import-light: it imports bluesky.plan_patterns. Fix that sentence (or the
+# module) in a GeecsBluesky PR, then add it here.
 [importlinter:contract:bluesky-client-side-is-light]
-name = GeecsBluesky's client-side modules (qs_client, actions.steps, optimization.events, plan_names, log_markers) never import bluesky, ophyd-async, aioca or xopt
+name = GeecsBluesky's client-side modules (qs_client, actions.steps, optimization.events, plan_names, log_markers, utils) never import bluesky, ophyd-async, aioca or xopt
 type = forbidden
 source_modules =
     geecs_bluesky.qs_client
@@ -369,6 +385,7 @@ source_modules =
     geecs_bluesky.optimization.events
     geecs_bluesky.plan_names
     geecs_bluesky.log_markers
+    geecs_bluesky.utils
 forbidden_modules =
     bluesky
     ophyd_async

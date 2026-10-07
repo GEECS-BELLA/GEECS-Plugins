@@ -128,7 +128,7 @@ own nested worktrees under `.claude/worktrees/`.
   against it from sources alone, and runs as the `import-contracts`
   pre-commit hook)
 - **Pre-commit hooks:** ruff, ruff-format, pydocstyle, check-yaml, check-json,
-  check-ast — run automatically on commit. The auto-fixing hooks rewrite files
+  check-ast, import-contracts — run automatically on commit. The auto-fixing hooks rewrite files
   during the commit, which aborts that commit ("files were modified by this
   hook") so you re-stage and retry — and on *merge* commits triggers a
   stash/restore conflict that can silently abort. Use **`scripts/commit.sh -m
