@@ -70,8 +70,7 @@ def plugin_reasons(devices: Sequence[Any]):
     A plugin-backed camera that yields no frame may be delivering every
     frame to a plugin that refuses them — a stack that could not be
     opened, a frame of another shape than the open stack's — and the
-    refusal reaches only the plugin's ``WriteMessage``
-    (GEECS-Plugins#1023).  Read once per miss through
+    refusal reaches only the plugin's ``WriteMessage``.  Read once per miss through
     :meth:`~geecs_bluesky.devices.detector.GeecsDetector.plugin_reasons`
     (bounded per plugin), so the incomplete-shot warning and the step's
     failure carry the plugin's reason beside the device's name instead of
@@ -112,9 +111,8 @@ def name_failed_status(plan: Any):
     The stock ``run_wrapper`` writes ``str(exc)`` into the stop document's
     ``reason`` as the exception passes it, and a ``FailedStatus``'s own text
     is the status repr — which for a *falsy* cause (a refused
-    ``aioca.CANothing``) is not even ``errored: …`` but ``done``.  So a
-    refused put or a failed prepare reached the portal as ``<AsyncStatus …>``
-    (GEECS-Plugins#868, #894).  The exception's text is replaced with the
+    ``aioca.CANothing``) is not even ``errored: …`` but ``done``.  The
+    exception's text is replaced with the
     shared rendering (:func:`~geecs_bluesky.exceptions.failure_cause_text`:
     the cause by ``str`` plus its notes) as it passes; type, cause and
     traceback are untouched, so every ``except FailedStatus`` upstream still
@@ -134,7 +132,7 @@ def _log_non_frame_failure(exc: FailedStatus) -> None:
     """ERROR-log a failed status that is *not* a missing frame, naming its cause.
 
     This line is the scan log's record of what failed at the fire: the
-    ``FailedStatus`` propagates unwrapped (#817), rendered by the shared
+    ``FailedStatus`` propagates unwrapped, rendered by the shared
     :func:`~geecs_bluesky.exceptions.failure_cause_text`.
     """
     logger.error(
@@ -158,8 +156,8 @@ def fire_and_await_shot(devices: Sequence[Any], fire: Callable):
     Disconnected went down mid-scan, so
     :exc:`~geecs_bluesky.exceptions.GeecsDeviceDownError` is raised instead —
     another shot cannot help.  Any other failed status (a refused
-    SINGLESHOT put, an unexpected error) propagates untouched (Codex review
-    of #811): re-firing on it could issue extra physical shots.
+    SINGLESHOT put, an unexpected error) propagates untouched: re-firing on
+    it could issue extra physical shots.
 
     The RunEngine delivers a failed status by *throwing* it into the plan
     at the next message, and a second failure landing meanwhile replaces
@@ -198,8 +196,7 @@ def fire_and_await_shot(devices: Sequence[Any], fire: Callable):
         # right here, before any wait — name it, then propagate untouched.
         # A detector's own no-frame timeout can also be thrown in here (its
         # wait budget started at trigger; a stalled put outlives it): that
-        # is not this line's fault class, so it propagates unlabelled, as
-        # it did before (review of #867).
+        # is not this line's fault class, so it propagates unlabelled.
         if not isinstance(exc.__cause__, GeecsTriggerTimeoutError):
             _log_non_frame_failure(exc)
         raise
@@ -293,8 +290,7 @@ def geecs_take_reading(
         The sleep must precede ``trigger``: an armed detector's count /
         stamp wait runs on its own budget (``exposure_timeout``), and a
         sleep between the triggers and the fire longer than that budget
-        times the shot out before it is fired (found on hardware, 2b
-        acceptance A8: a 4 s period against the 3 s count wait).
+        times the shot out before it is fired.
         """
         if shot_period is not None and last_fire["at"] is not None:
             remaining = shot_period - (time.monotonic() - last_fire["at"])
@@ -353,13 +349,12 @@ def geecs_take_reading(
             if detectors:
                 yield from bps.wait(group=group)
             # The run's first arm of a plugin camera: the plugin's count PV
-            # still reads the previous session's total until a frame lands
-            # (GEECS-Plugins#853), so a shot that baselined on it would wait
-            # for N+1 while the frame posts 1 — zero it inside the fresh
-            # session and prepare again on 0 (found on hardware, 2b A8).
-            # Keyed to the plugin session (``count_zeroed`` is cleared by
-            # stage/unstage), not to this closure: a reused hook zeroes again
-            # on its next run (reviewer of #850, post-acceptance).
+            # still reads the previous session's total until a frame lands,
+            # so a shot that baselined on it would wait for N+1 while the
+            # frame posts 1 — zero it inside the fresh session and prepare
+            # again on 0.  Keyed to the plugin session (``count_zeroed`` is
+            # cleared by stage/unstage), not to this closure: a reused hook
+            # zeroes again on its next run.
             fresh = [
                 d
                 for d in detectors
@@ -397,7 +392,7 @@ def geecs_take_reading(
                 ]
                 names = ", ".join(labels)
                 # A plugin that refused the frames says so only in its
-                # WriteMessage: name it beside the device (#1023).
+                # WriteMessage: name it beside the device.
                 reasons = yield from plugin_reasons(missed)
                 described = ", ".join(
                     f"{label} ({reason})" if reason else label
@@ -506,8 +501,7 @@ def geecs_per_step(
         for _ in range(shots_per_step):
             # A checkpoint per shot, as the stock count has: the scanner's
             # Pause (a deferred pause) lands after the shot in progress,
-            # not at the end of the step (Sam 2026-09-26: pause means pause
-            # in every mode).
+            # not at the end of the step: pause means pause in every mode.
             yield from bps.checkpoint()
             yield from take_reading([*detectors, *motors, bins])
 

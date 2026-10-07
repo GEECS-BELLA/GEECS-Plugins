@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
 
-# The one config reader (issue #527): re-exported here so existing callers
+# The one config reader, re-exported here so existing callers
 # (and test monkeypatches of this module's attribute) keep working.
 from geecs_data_utils.tiled_catalog import read_tiled_config
 

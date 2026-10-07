@@ -9,9 +9,8 @@ one place that speaks ``bluesky-queueserver-api``:
   imports keep the module import-safe offline and without the extra);
 - :class:`StubQueueClient` — the offline/test default: every verb refuses
   with a clear message;
-- :func:`read_qserver_config` — the ``[qserver]`` section of the shared
-  ``config.ini``; :func:`make_queue_client` — the factory (stub when
-  unconfigured).
+- :func:`read_qserver_config` / :func:`make_queue_client` — the
+  ``[qserver]`` config section and the factory (stub when unconfigured).
 
 Every method **blocks** (0MQ request/reply with a short timeout).
 :meth:`QueueClient.status` is cheap and bounded and safe to poll from a
@@ -158,7 +157,7 @@ def queue_status_from_manager(raw: Mapping[str, Any]) -> QueueStatus:
 
 @dataclass(frozen=True)
 class ReadinessVerdict:
-    """Whether the manager can run the GEECS plans — the ONE definition (#793).
+    """Whether the manager can run the GEECS plans — the ONE definition.
 
     ``state`` is one of ``ready``, ``unreachable``, ``environment_opening``,
     ``environment_closed``, ``plans_unknown``, ``plans_empty``,
@@ -179,7 +178,7 @@ class ReadinessVerdict:
 _OPENING_MANAGER_STATE = "creating_environment"
 #: The manager with its queue started — taking the first item or running
 #: one: ``queue_start`` answers busy, an added item waits behind and runs
-#: on its own (#905).
+#: on its own.
 _QUEUE_STARTED_MANAGER_STATES = ("starting_queue", "executing_queue")
 _OPENING_ENV_STATE = "initializing"
 
@@ -333,8 +332,8 @@ class SubmitResult:
     """Outcome of a queue submission attempt.
 
     ``ok=False`` with non-empty ``pending_items`` means the queue already
-    held items (typically a failed item returned to the front — the #648
-    item-3 trap) and nothing was submitted: the caller surfaces them and
+    held items (typically a failed item returned to the front) and
+    nothing was submitted: the caller surfaces them and
     retries with ``clear_pending=True`` once the operator agrees.
     """
 
@@ -436,7 +435,7 @@ class QueueClient(Protocol):
         """Return the plan names the manager will accept from this client.
 
         Empty while the worker environment is closed (the manager knows
-        no plans until it opens — #793); raises on failure.
+        no plans until it opens); raises on failure.
         """
         ...
 
@@ -570,8 +569,7 @@ class ZmqQueueClient:
         self._api: Any = None
         # A status poller's first call and an early worker-thread verb can
         # race the lazy init; without the lock the loser's REManagerAPI (and
-        # its zmq receive thread) would leak for the process lifetime (#653
-        # review finding 5).
+        # its zmq receive thread) would leak for the process lifetime.
         self._api_lock = threading.Lock()
 
     @property
@@ -627,7 +625,7 @@ class ZmqQueueClient:
         remains queued.  The one start refusal that is not a failure: the
         manager's queue is already started (``starting_queue`` or
         ``executing_queue``), so the item waits behind the running one and
-        the add is the success (#905).
+        the add is the success.
         """
         from bluesky_queueserver_api import BPlan
 
@@ -657,7 +655,7 @@ class ZmqQueueClient:
         except Exception as exc:
             # A started queue answers "RE Manager is busy": the item waits
             # behind the running one — the queued-next the caller asked for,
-            # not a refusal (#905).  Only a queue that is genuinely stopped
+            # not a refusal.  Only a queue that is genuinely stopped
             # gets the item removed again.  The state is a second request: a
             # plan that ends in between lands on the removal path below,
             # whose messages still say what remains queued.
@@ -821,8 +819,8 @@ class ZmqQueueClient:
 
         The manager serves the list from the worker environment: closed
         environment → empty list, and every ``queue add`` then fails with
-        "Plan ... is not in the list of allowed plans" whatever the name
-        (#793).  ``submit_preflight``'s ``worker_ready`` check reads this
+        "Plan ... is not in the list of allowed plans" whatever the name.
+        ``submit_preflight``'s ``worker_ready`` check reads this
         so that failure is named before queueing.
         """
         api = self._manager()

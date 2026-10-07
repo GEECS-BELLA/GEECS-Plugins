@@ -216,7 +216,7 @@ def _experiment_default(
 
 
 def resolve_native_image_save(requested: bool | None, resolver: Any | None) -> bool:
-    """The run's LabVIEW-files switch: the request, else the experiment default, else on (#738)."""
+    """The run's LabVIEW-files switch: request, else experiment default, else on."""
     return _experiment_default(
         requested, resolver, "native_image_save", on_failure="native saving stays on"
     )
@@ -227,9 +227,8 @@ def resolve_background_telemetry(requested: bool | None, resolver: Any | None) -
 
     On, every logged scalar of the experiment outside the run's own devices
     is read into every row, softly
-    (:class:`~geecs_bluesky.devices.background.BackgroundSnapshot` — Master
-    Control parity, #1016 / #929); off, the run records its own devices
-    alone.
+    (:class:`~geecs_bluesky.devices.background.BackgroundSnapshot`); off,
+    the run records its own devices alone.
     """
     return _experiment_default(
         requested,
@@ -307,7 +306,7 @@ def native_image_save_wrapper(
 ) -> Any:
     """Set the strict plugin-backed cameras' LabVIEW saving for this run; restore after.
 
-    The run-level switch of PNG retirement (#738).  It reaches the run's
+    The run-level native-image-save switch.  It reaches the run's
     **strict full detectors** that are plugin-backed and nothing else:
 
     - a device without a file plugin — a LabVIEW-native camera, a
@@ -545,7 +544,7 @@ def strict_plan(
             # to switch (nor to log).
             inner = native_image_save_wrapper(inner, detectors, native_files)
         opening = TriggerState.OFF if acquisition == "gated" else TriggerState.ARMED
-        # Before the first move, before the claim (#852).
+        # Before the first move, before the claim.
         yield from liveness_gate(shot_control, [*detectors, *non_essential])
         # A failure outside the stock plan's run_wrapper (the bracket's own
         # move, a non-essential prepare) is named here; one inside it is
@@ -683,7 +682,11 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
 
 @functools.wraps(bps.mv)
 def _mv_named(*args: Any, **kwargs: Any):
-    """The stock ``mv`` stub with a failure's name (#868): the manager's report of a refused manual move reads its cause, not ``<AsyncStatus …>``."""
+    """The stock ``mv`` stub, with a refused move's cause in the failure.
+
+    The manager's report of a refused manual move then names the cause,
+    not ``<AsyncStatus …>``.
+    """
     return (yield from name_failed_status(bps.mv(*args, **kwargs)))
 
 

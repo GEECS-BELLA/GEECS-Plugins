@@ -1,31 +1,27 @@
 """GatewaySetpointPut — the one gateway ``:SP`` put primitive.
 
-Owns PV addressing (:func:`bare_pv`: the ophyd ``ca://`` scheme is
-stripped for raw aioca, any other scheme is rejected), the wire-value
-conventions, the timeout policy, the ``AsyncStatus`` wrapping and mock
-support.  Every setpoint pathway delegates here: ``CaSettable`` /
-``CaMotor``'s typed-signal put, ``ShotControl``'s :class:`CaPutSetter`,
-and the action factory's wire settable.
+Owns PV addressing (:func:`bare_pv`), the wire-value conventions, the
+timeout policy, the ``AsyncStatus`` wrapping and mock support.  Every
+setpoint pathway delegates here: ``CaSettable``/``CaMotor``,
+``ShotControl``'s :class:`CaPutSetter`, and the action factory.
 
-Two transports, one policy owner:
+Two transports:
 
 - **raw CA** (``setpoint_pv=…``): ``aioca.caput(bare, wire, wait=True,
   timeout=…)``.  The gateway completes the put only when GEECS accepts or
   rejects the set, so put-completion is the blocking-set semantics.
 - **ophyd signal** (``signal=…``): a put through the connected backend of
   a typed ``epics_signal_rw`` (see :mod:`geecs_bluesky.devices.ca._pv`),
-  whose type doubles as the connect-time dtype check and the mock seam.
-  Never ``signal.set()``: ophyd-async 0.19's ``SignalW.set`` loses a
-  refused ``aioca.CANothing`` (it is falsy) and reports success (#868);
-  :func:`_backend_put` is the workaround.
+  whose type is the connect-time dtype check and the mock seam.  Never
+  ``signal.set()``: ophyd-async 0.19 reports a refused put as success
+  (see :func:`_backend_put`).
 
-Wire-value conventions (``coerce``), each a consumer's hardware-proven
-convention, not to be unified without live verification:
+Wire-value conventions (``coerce``), each hardware-proven; do not unify
+them without live verification:
 
 - ``str`` — everything stringified (shot control).
-- :func:`wire_value` — native numerics, strings otherwise (action plans:
-  a string put to a float channel can hang, #490).
-- ``None`` — untouched (the typed-signal motor path).
+- :func:`wire_value` — native numerics, strings otherwise (action plans);
+  ``None`` — untouched (the typed-signal motor path).
 """
 
 from __future__ import annotations
@@ -49,7 +45,7 @@ def bare_pv(pv: str) -> str:
     ophyd strips the ``ca://`` scheme before its backend stores the PV; raw
     aioca does **not** — it treats the scheme as part of the name, so a
     schemed put CA-searches for a PV nothing serves and hangs for the full
-    timeout (issue #490).  This is the one place that rule lives.
+    timeout.  This is the one place that rule lives.
 
     Parameters
     ----------
@@ -81,9 +77,8 @@ def wire_value(value: Any) -> Any:
     """Action-plan wire convention: native numerics, wire string otherwise.
 
     Numbers go natively (DBR_DOUBLE — a string put-with-callback to a float
-    gateway channel can hang, #490); strings (enum
-    labels, ``'on'``/``'off'``) go as the wire string, CA-converted to the
-    PV's native type server-side.
+    gateway channel can hang); strings (enum labels, ``'on'``/``'off'``) go
+    as the wire string, CA-converted to the PV's native type server-side.
     """
     return value if isinstance(value, (int, float)) else str(value)
 
@@ -91,17 +86,11 @@ def wire_value(value: Any) -> Any:
 async def _backend_put(signal: Any, value: Any, timeout: float | None) -> None:
     """Put *value* through *signal*'s connected backend, bounded by *timeout*.
 
-    The signal's own ``set()`` (ophyd-async 0.19.3) wraps the backend put
-    in ``stamina.retry_context`` — tenacity underneath, which parks each
-    attempt's outcome in a ``concurrent.futures.Future`` and re-raises it
-    through the stdlib's ``if self._exception:``.  A failed
-    ``aioca.CANothing`` defines ``__bool__`` as ``ok`` — **falsy** — so the
-    stored refusal is never raised and ``set()`` returns as if the put
-    succeeded: a refused motor put then surfaced only as the readback
-    timeout, a refused plain setpoint not at all.  The backend's put is
-    the same coroutine ``set()`` awaits, with the same bounded wait (the
-    mock backend included, so the mock seam is unchanged) and ophyd's
-    default budget when *timeout* is ``None``.
+    The signal's own ``set()`` (ophyd-async 0.19.3) re-raises a stored
+    failure only if it is truthy, and a failed ``aioca.CANothing`` is
+    **falsy**, so ``set()`` reports a refused put as success.  The backend's
+    put is the coroutine ``set()`` awaits, with the same bounded wait (mock
+    backend included) and ophyd's default budget when *timeout* is ``None``.
 
     Parameters
     ----------

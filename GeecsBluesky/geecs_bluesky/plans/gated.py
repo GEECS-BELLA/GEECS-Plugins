@@ -1,57 +1,28 @@
 """Gated batch acquisition as the stock ``take_reading`` hook, and the non-essential stream.
 
-Strict single-shot (:mod:`geecs_bluesky.plans.strict`) fires the box once
-per row; the **gated batch** lets the box free-run in SCAN while the
-plugin-backed cameras count the frames they write, and drives it OFF when
-every essential detector has its quota.  Per step, for *D* the
-plugin-backed essentials, *N* the LabVIEW-native saving essentials
-(:func:`native_essentials`), *S* the per-shot sampler over every other
-device (:class:`~geecs_bluesky.devices.sampler.ShotSampler`) and the box
-*B*::
+The box *B* free-runs in SCAN while the plugin-backed essentials *D* count
+the frames they write, and goes OFF once every one has its quota.  *N* are
+the native-saving essentials (:func:`native_essentials`), *S* the per-shot
+:class:`~geecs_bluesky.devices.sampler.ShotSampler`.  Per step::
 
-    mv(B, OFF)
-    if the run's first step:
-        sleep(period + max drain + margin)       # the in-flight frame lands
-        prepare(N, unbounded)                    # saving on, run-long
-        prepare(D); wait_for(D.zero_count)       # arm, zero the stale count
+    mv(B, OFF)    # first step: drain, prepare(N, unbounded), arm D, zero count
     prepare(D, gated_trigger_info(remaining)); prepare(S, remaining)
-    declare_stream(S, "shots")                               # once
     kickoff(*D, S); mv(B, SCAN)
-    complete(*D, S) in slices of PROGRESS_PERIOD_S:
-        collect(S, "shots"); checkpoint          # rows every D holds a frame of
-    mv(B, OFF); sleep(period + max drain + margin)
-    wait_for(D.truncate_to_quota)
-    declare_stream(*D, "primary")                # once, after the first frames
+    complete(*D, S), collecting S into "shots" every PROGRESS_PERIOD_S
+    mv(B, OFF); drain; wait_for(D.truncate_to_quota)
     collect(*D, "primary"); collect(S, "shots")
 
-``primary`` is a datum stream (the frames and their per-frame
-attributes); ``shots`` carries one event per shot.  With no plugin-backed
-camera the sampler alone gates the step; a run with no essential
-triggered device is refused ("nothing counts shots; use strict").
-``primary`` is declared **after the first batch's frames**, right before
-its first collect, never before the kickoff: the plugin settles a
-stream's geometry on the session's first fresh frame (a held frame from
-before a ΔE change is re-declared then, GEECS-Plugins#1023), and the
-descriptor — composed at ``declare_stream`` — has to read that shape,
-which the lazy data provider does (``devices/hdf_plugin``).  The box is
-OFF at the arm, so no earlier frame exists.
-
-**Pause means pause now**: a pause mid-batch drives the box OFF
-(``ShotControl.pause``); the batch holds the box
-(``ShotControl.hold_for_batch``), so the pause ends it at once and the
-resume restores nothing.  The plan keeps the shots every device reached
-(``truncate_to``; rows past them never went out), records them, and
-continues the step with the remaining shots.  At most the in-flight shot
-is lost; the step body is not rewindable.
-
-The **non-essential stream**: the devices in ``non_essential=[…]`` are
-staged, prepared unbounded and kicked off right after ``open_run``, then
-completed and collected each into its own ``<name>_stream`` before
-``close_run``.  A plugin-backed camera flies itself; a triggered device
-without a plugin is recorded by a
-:class:`~geecs_bluesky.devices.sampler.StampStream`.  Nothing waits on
-them: a slow or dying non-essential device never holds a shot or aborts
-a run, in either mode.
+``primary`` is a datum stream (frames and per-frame attributes), declared
+right before its first collect, after the first batch's frames, so its
+descriptor reads the geometry the plugin settled (GEECS-Plugins#1023).
+``shots`` carries one event per shot.  A run with no essential triggered
+device is refused.  **Pause means pause now**: the batch holds the box
+(``ShotControl.hold_for_batch``), a pause drives it OFF, the plan keeps the
+shots every device reached and continues the step; at most the in-flight
+shot is lost.  Non-essential devices are kicked off after ``open_run`` and
+collected each into ``<name>_stream`` before ``close_run`` (a triggered
+device without a plugin through a :class:`~geecs_bluesky.devices.sampler.StampStream`);
+nothing waits on them, so they never hold a shot or abort a run.
 """
 
 from __future__ import annotations
@@ -242,7 +213,7 @@ def gated_take_reading(
             # Once, after the batch's first frames and before the first
             # collect — the descriptor is composed here, and by now the
             # plugin has settled the stream's geometry on its first
-            # fresh frame (#1023); declared before the kickoff it would
+            # fresh frame; declared before the kickoff it would
             # carry the held frame's shape (the data provider reads the
             # geometry at this describe, ``devices/hdf_plugin``).
             if plugin and not state["primary_declared"]:
@@ -277,9 +248,9 @@ def gated_take_reading(
             info = gated_trigger_info(remaining, exposure_timeout=shot_timeout)
             if plugin and first_batch:
                 # The run's first arm: the plugin's NumCaptured_RBV still
-                # reads the previous session's count until a frame lands
-                # (found on hardware, A2), so arm, zero the count inside the
-                # fresh session, and let the prepare below baseline on 0.
+                # reads the previous session's count until a frame lands,
+                # so arm, zero the count inside the fresh session, and let
+                # the prepare below baseline on 0.
                 group = short_uid("gated-arm")
                 for d in plugin:
                     yield from bps.prepare(d, info, group=group, wait=False)
@@ -410,7 +381,7 @@ def gated_take_reading(
             if plugin and kept["shots"]:
                 # Nothing kept means nothing to collect — and no declare: a
                 # descriptor composed before the batch's first frame would
-                # carry the held frame's shape (#1023); the step's next
+                # carry the held frame's shape; the step's next
                 # batch declares at its collect.
                 yield from declare_primary()
                 yield from bps.collect(*plugin, name=name)
@@ -531,7 +502,7 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
       stamp it publishes, carrying the stamp, its scalars and — a native
       saver listed itself — its ``-nonscalar_save_path``.  A native saver is
       prepared unbounded, so its own lifecycle switches LabVIEW's saving on
-      here and off at its ``unstage`` (rule 2; 2a's fly path); a
+      here and off at its ``unstage`` (rule 2); a
       ``.scalars`` view is never prepared and writes no files.
 
     The stock ``fly_during_wrapper`` inserts ``kickoff`` after ``open_run``
@@ -541,7 +512,7 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
     unbounded prepares and the stamp streams' declarations, then the
     kickoffs while the box is still quiet.  A plugin stream is declared at
     the close, right before its collect: by then the plugin has settled the
-    stream's geometry on its first fresh frame (GEECS-Plugins#1023), where
+    stream's geometry on its first fresh frame, where
     a descriptor composed at the open would carry the held frame's shape
     over a stack written at another.  Each stream is
     collected alone (one object: no index, the datum covers everything it
@@ -594,9 +565,9 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
             )
         yield from bps.wait(group=group)
         # The plugin's count PV still reads the previous session's total at
-        # the arm (GEECS-Plugins#853): zero it inside the fresh session and
-        # prepare again, or the kickoff baselines above what the run will
-        # write and the close's count wait never returns (2b A4).
+        # the arm: zero it inside the fresh session and prepare again, or
+        # the kickoff baselines above what the run will write and the
+        # close's count wait never returns.
         if plugin:
             yield from bps.wait_for([f.zero_count for f in plugin])
             group = short_uid("non-essential-prepare-zeroed")
@@ -606,7 +577,7 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
                 )
             yield from bps.wait(group=group)
         # The stamp streams are declared here; a plugin stream at the close,
-        # right before its collect (#1023, ``before_close``).
+        # right before its collect (``before_close``).
         for stream in stamped:
             yield from bps.declare_stream(
                 stream, name=non_essential_stream(stream.name), collect=True
@@ -623,8 +594,8 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
             # complete that fails (a stalled or dead plugin) must not cost
             # the datums for the frames it did write.  A plugin stream is
             # declared here and not at the open: its descriptor then reads
-            # the geometry the plugin settled on at its first fresh frame
-            # (#1023); the stamp streams were declared at the open.
+            # the geometry the plugin settled on at its first fresh frame;
+            # the stamp streams were declared at the open.
             verbs = [("complete", lambda f=stream: bps.complete(f, wait=True))]
             if stream in plugin:
                 verbs.append(

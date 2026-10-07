@@ -26,9 +26,9 @@ __all__ = ["is_maximize", "variable_bounds", "bounds_of"]
 def is_maximize(vocs: VOCS, objective_name: str) -> bool:
     """Return True if the named objective is a maximize objective.
 
-    Replaces the pre-3.x ``str(vocs.objectives[name]).upper() == "MAXIMIZE"``
-    idiom, which silently breaks under typed objectives (``str()`` of a
-    ``MaximizeObjective`` no longer contains ``"MAXIMIZE"``).
+    Use this rather than ``str(vocs.objectives[name]).upper() == "MAXIMIZE"``,
+    which silently breaks under typed objectives (``str()`` of a
+    ``MaximizeObjective`` does not contain ``"MAXIMIZE"``).
     """
     return isinstance(vocs.objectives[objective_name], MaximizeObjective)
 
@@ -39,7 +39,7 @@ def variable_bounds(vocs: VOCS) -> Dict[str, Tuple[float, float]]:
     Thin pass-through to :func:`xopt.vocs.get_variable_bounds`, which handles
     both continuous (``.domain``) and discrete (min/max of ``.values``)
     variables.  Use this instead of unpacking ``vocs.variables[name]`` as a
-    ``[lo, hi]`` list, which no longer works in Xopt 3.x.
+    ``[lo, hi]`` list, which does not work in Xopt 3.x.
     """
     return get_variable_bounds(vocs)
 

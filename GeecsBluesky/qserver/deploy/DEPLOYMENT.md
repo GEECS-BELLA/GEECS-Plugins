@@ -109,9 +109,8 @@ A missing key does not fail the service at startup — the worker loads and
 the plan list populates, with only a warning in the journal (e.g. "Could
 not determine base data path", "No Tiled URI configured — Tiled storage
 disabled"). Grep the journal for `WARNING`/`ERROR` after the first
-`environment open` rather than trusting a clean-looking `qserver status`
-(2026-08-21 live-checkpoint lesson: three keys were discovered missing
-one failed scan at a time).
+`environment open` rather than trusting a clean-looking `qserver status`;
+otherwise a missing key surfaces one failed scan at a time.
 
 The unit takes `EPICS_CA_ADDR_LIST` (+ `EPICS_CA_AUTO_ADDR_LIST=NO`) from
 `/etc/geecs/site.env` via `EnvironmentFile=`. To see the active Channel
@@ -155,14 +154,13 @@ The queueserver is **two units** from the same template directory
 treats `environment open` as an operator gesture — a freshly restarted
 manager knows *no* plans until something opens its worker environment, and
 until then every submission is refused with "Plan ... is not in the list of
-allowed plans" while `qserver status` looks healthy (live 2026-09-04,
-GEECS-Plugins#793). For GEECS a running service means ready, so the
+allowed plans" while `qserver status` looks healthy. For GEECS a running service means ready, so the
 readiness unit runs `geecs-qserver-ensure-ready`: wait for the manager,
 open the environment if closed, wait for idle, then **assert
 `plans_allowed` lists every GEECS plan** (`geecs_bluesky.plan_names`) —
 restoring the lists once from the worker's on-disk copy when they read
-empty or incomplete with the environment up (a timed-out list download,
-GEECS-Plugins#838) — exiting non-zero with a precise message otherwise. A
+empty or incomplete with the environment up (a timed-out list download)
+— exiting non-zero with a precise message otherwise. A
 separate unit on
 purpose: the manager's start is never blocked by the optimize-stack import
 warm-up, a failed open shows as one failed unit rather than a crash-looping
@@ -190,8 +188,7 @@ journalctl -u geecs-qserver-ready.service -n 20 --no-pager   # "ready: N allowed
 
 The unit intentionally carries a commented-out
 `Environment=QSERVER_ZMQ_PRIVATE_KEY_FOR_SERVER=` line. CurveZMQ control-plane
-key management is still open; the design item is tracked in GEECS-Plugins
-issue #660.
+key management is an open design item (#660).
 
 ### Document stream (no extra unit)
 
@@ -227,7 +224,7 @@ though the proxy binds all interfaces; firewall it with the rest.
 
 The document-stream out port (**5568**) is the supported subscription
 point for clients beyond the web scanner — the contract OSPREY's bridge and
-any future live-progress client build on (#727 item 3). What "supported"
+any future live-progress client build on. What "supported"
 means:
 
 - **Where.** Subscribe to `<worker-host>:5568` from any host that can
@@ -257,10 +254,9 @@ means:
   the control socket (60615): no encryption, no client auth. A client
   that fronts this stream for users beyond the worker host should say so
   explicitly (a visible plaintext setting, not a silent default) — the
-  treatment OSPREY's bridge gives the control socket (als-apg/osprey#817).
+  treatment OSPREY's bridge gives the control socket.
   CurveZMQ on the document stream is decided together with the
-  control-plane keys, which is issue #660's question, not this
-  document's.
+  control-plane keys, not in this document.
 - **Stability.** Document shape follows `../../EVENT_SCHEMA.md`; the
   `geecs_event_schema` start-document key carries the version. The stream
   carries *every* RunEngine document — `resource`/`datum` when non-scalar
@@ -272,19 +268,18 @@ means:
 
 ## The Tiled writer
 
-Since GeecsBluesky 0.103.0 the engine **never talks to Tiled**: it spools
+The engine **never talks to Tiled**: it spools
 every document of a run to one JSON Lines file, and a separate process,
 `geecs-tiled-writer`, registers each complete file in the catalog at the
 run's close, off the engine thread (`../../CLAUDE.md` § "Tiled: the
-spool and the writer service" has the design; the numbers: ~25–28 s per
-run on the SQLite catalog, which used to hold the engine at the stop
-document). The writer is its own unit, `geecs-tiled-writer.service`, a
+spool and the writer service" has the design; a registration takes
+~25–28 s per run on the SQLite catalog). The writer is its own unit, `geecs-tiled-writer.service`, a
 template beside this one, rendered and installed through the same path.
-A worker on 0.103.0 **with no writer running registers nothing**: the
+A worker **with no writer running registers nothing**: the
 spool files pile up (nothing is lost — the first writer to run catches up
 the whole backlog, oldest first) and no new run appears in Tiled.
 
-Since 0.110.0 the writer hands each stream's table to Tiled as **one
+The writer hands each stream's table to Tiled as **one
 Parquet file in the scan folder** (`ScanNNN/ScanDataScanNNN-<stream>.parquet`),
 registered from the server's `readable_storage` like a camera stack, instead
 of the stock appendable SQL table (`../../CLAUDE.md` § "Tiled: the spool
@@ -313,7 +308,7 @@ never strips the worker's env):
 sudo install -m 0644 ~/deploy-staging/geecs-tiled-writer.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now geecs-tiled-writer.service
-journalctl -u geecs-tiled-writer -n 5 --no-pager    # "geecs-tiled-writer 0.103.x: spool /var/lib/geecs-tiled-writer/spool → http://…"
+journalctl -u geecs-tiled-writer -n 5 --no-pager    # "geecs-tiled-writer <version>: spool /var/lib/geecs-tiled-writer/spool → http://…"
 ```
 
 Three units share one directory. `StateDirectory=geecs-tiled-writer` is
@@ -329,10 +324,10 @@ account's `config.ini`, as for every other Tiled client.
 
 ### Switching from a by-hand writer to the unit
 
-The 0.103.0 hardware verification left the worker with a writer started
-by hand — a transient user unit (`systemd-run --user --unit
-tiled-writer-manual …`) spooling under the developer default,
-`~/.local/state/geecs-tiled-writer`. **Two writers on one spool directory
+A writer started by hand — a transient user unit (`systemd-run --user
+--unit tiled-writer-manual …`) spooling under the developer default,
+`~/.local/state/geecs-tiled-writer` — is replaced by the unit as follows.
+**Two writers on one spool directory
 race on the same files**, and the engine reads `GEECS_TILED_WRITER_STATE`
 only when its worker environment opens, so the switch is an ordered
 hand-over, in a window with no scan running:
@@ -384,7 +379,7 @@ in a retry cycle after a failed registration), `in_progress` (runs still
 open, or unfinished files not yet past `--orphan-after`), `failed` (files
 set aside as `.jsonl.failed`), `done` (registered since this process
 started), `registered` (the last 20 uids). **A warning surface, never a gate**: no
-preflight and no plan refuses a run over it (owner's ruling, 2026-09-25) —
+preflight and no plan refuses a run over it —
 with the spool a dead writer loses nothing.
 
 Read it three ways: `cat` on the host; the scanner's `GET /health` →
@@ -392,7 +387,7 @@ Read it three ways: `cat` on the host; the scanner's `GET /health` →
 "Tiled writer" row (read from the scanner's `/health` — the probe runs
 from an operator's machine). One rule for all three,
 `geecs_bluesky.tiled.spool.heartbeat_verdict` (the engine's environment-open
-warning uses its liveness half), from the measured 25–28 s per run:
+warning uses its liveness half), sized for a registration of ~25–28 s:
 
 | Word | When | Meaning |
 |---|---|---|
@@ -404,8 +399,7 @@ warning uses its liveness half), from the measured 25–28 s per run:
 (a sweep that never returns — a Tiled call with no timeout): `sudo
 systemctl restart geecs-tiled-writer`. Mid-registration is safe: the
 next start finds the half-registered container and registers the run
-again from the spool, exactly once (verified live 2026-09-25 with
-`kill -9`).
+again from the spool, exactly once.
 
 **`.jsonl.failed` files** are an operator's call. A corrupt file (a
 malformed line, no start document) is set aside at once and will not heal;
@@ -483,17 +477,9 @@ Copy the six v1 keeper documents from GEECS-Schemas' optimizer fixtures to
 the configs repository only after the schema change lands. Keep the two
 HiResMagCam legacy documents with a `# LEGACY` header until their diagnostic
 exists; remove ebeam_source_opt, hexapod_alignment and multi_device_example.
-Validate diagnostics on the worker before an operator day. No deployed
-configs were changed by the implementation branch. The resolver lists only
+Validate diagnostics on the worker before an operator day. The resolver lists only
 schema-valid native configs; the scanner disables Optimize when that list is
 empty. An unmigrated legacy corpus therefore offers no broken choices.
-
-**Beam-free smoke test passed:** Scan010 of 26_0915 ran
-`bax_alignment_simulation`, 3 iterations × 2 HTU-NoGas shots, and restored both
-original magnet setpoints. Scalar files and Xopt dump passed. The resulting
-Tiled column-encoding fix passed a hardware-free replay; the original live
-Tiled entry is partial. Evidence and remaining limits are in the #880 /
-#920 PR history.
 
 **OWED hardware acceptance:** run TopViewMax with
 beam, 5 shots × 10 iterations; require five valid frames per iteration,

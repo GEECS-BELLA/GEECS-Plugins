@@ -1,11 +1,9 @@
 """The shot-offset calibration and its preflight — the two once-run plans.
 
-Two devices stamp the same shot at different times: ``acq_timestamp`` is
-the trigger's arrival plus that device's frame-drain latency, a
-per-device constant of tens of milliseconds.  The s-file join corrects
-each side by that constant (:mod:`geecs_data_utils.shot_join`).  At 1 Hz
-the join windows swallow the spread; at higher rep rates an uncalibrated
-offset costs rows, which is what makes measuring it worth a plan.
+A device's ``acq_timestamp`` is the trigger's arrival plus its frame-drain
+latency, a per-device constant of tens of milliseconds that the s-file join
+corrects (:mod:`geecs_data_utils.shot_join`).  Above 1 Hz an uncalibrated
+offset costs rows.
 
 Both plans are once-run, never a scan step: a GEECS device's timeout
 event carries an unchanged stamp, which the gateway's change suppression
@@ -15,12 +13,11 @@ timeout, and that wait is the floor on both plans' cost.
 
 :func:`measure_shot_offsets_plan`
     Drive the box OFF, wait the set quiet, fire single shots and read
-    every device's stamp; the spread across devices is the calibration.
-    Several shots are averaged because each host's clock dithers by up to
-    ~10 ms around its average, and the document records each device's
-    peak-to-peak scatter beside its mean.  Only complete shots count: the
-    per-shot anchor is the mean across the devices present, so a shot
-    missing one device would bias every other offset.
+    every device's stamp; the spread across devices, averaged over shots
+    against ~10 ms host clock dither, is the calibration, with each
+    device's peak-to-peak scatter beside its mean.  Only complete shots
+    count: the per-shot anchor is the mean across the devices present, so
+    a shot missing one device would bias every other offset.
 
 :func:`check_shot_sync_plan`
     Costs no shot: with the box OFF and the set quiet every device still
@@ -102,9 +99,8 @@ DEFAULT_TRIGGER_PERIOD_S = TRIGGER_PERIOD_S
 #: stored; overridable for a genuinely slow device.
 MAX_PLAUSIBLE_OFFSET_S = 0.3
 
-#: Likewise for the scatter: host dither runs ~1–10 ms (both ends measured
-#: on HTU), so an order of magnitude past it means the shots were not all
-#: the same shot.
+#: Likewise for the scatter: host dither runs ~1–10 ms, so an order of
+#: magnitude past it means the shots were not all the same shot.
 MAX_PLAUSIBLE_SCATTER_S = 0.1
 
 #: Below this many shots the scatter column is not meaningful and the mean
@@ -449,7 +445,7 @@ def sync_verdict_from_stamps(
     # from it and `round(±0.5)` is 0 (banker's rounding) — nothing folds, the
     # verdict reads a full period of disagreement and the plan raises on the
     # very case it documents as routine, while a two-period gap folds to a
-    # fabricated "one ahead, one behind". Both reproduced in review.
+    # fabricated "one ahead, one behind".
     # The latest corrected stamp is an instant some device actually reported,
     # so every other device is a whole number of periods behind it or is
     # genuinely mis-calibrated.
@@ -612,7 +608,7 @@ def _refuse_implausible(
             )
         )
     # Branched advice: max_offset can lift an offset refusal, never a
-    # scatter one (review of #861, round 2 finding 10).
+    # scatter one.
     advice = []
     if wild:
         advice.append(
@@ -760,8 +756,7 @@ def _settle_quiet(views: Sequence[Any], quiet_time: float, confirm_time: float):
     # Count only devices that held a usable stamp in BOTH reads. A `None`
     # (unreadable) or a 0.0 (never acquired since boot) cannot advance, so
     # counting one in the denominator would disable this backstop for as
-    # long as that device sits there (review of #861, round 3: a camera
-    # holding 0.0 let the two others advance across the wait unrefused).
+    # long as that device sits there.
     comparable = [
         name
         for name, value in settled.items()
@@ -826,10 +821,8 @@ def measure_shot_offsets_plan(
         """Measure each device's edge-to-stamp latency; optionally store it.
 
         Drives the trigger box OFF, waits the device set quiet, then fires
-        single shots and reads every device's ``acq_timestamp``.  The spread
-        across devices for one shot is the calibration; several shots are
-        averaged because each host's clock dithers by up to ~10 ms around
-        its own average.
+        single shots and reads every device's ``acq_timestamp``; the spread
+        across devices, averaged over the shots, is the calibration.
 
         No run is opened and nothing is claimed: a queue item like
         ``run_action``, not a scan.  The box returns to STANDBY on every path
@@ -837,9 +830,8 @@ def measure_shot_offsets_plan(
 
         The measurement is **reported** by default and stored only with
         ``write=True`` (the experiment's ``shot_offsets.yaml`` in the configs
-        repo; committing it is a human act, and the path is logged).  A
-        stored measurement reaches the worker at its next environment open,
-        when the offsets are seeded into each detector.
+        repo; committing it is a human act, and the path is logged).  The
+        worker seeds a stored measurement at its next environment open.
 
         Parameters
         ----------
@@ -928,8 +920,7 @@ def measure_shot_offsets_plan(
         # Every state the plan drives, before any wait or shot: run_bracket
         # opens with OFF and its finalizer restores STANDBY, so a profile
         # missing STANDBY would spend the quiet wait and the shots and then
-        # fail in the finalizer, leaving the box in the calibration state
-        # (Codex review of #861).
+        # fail in the finalizer, leaving the box in the calibration state.
         for state in (
             TriggerState.OFF,
             TriggerState.STANDBY,
@@ -998,7 +989,7 @@ def measure_shot_offsets_plan(
         # per logging statement left everything between the blocks discarded
         # — including the resolver's own "shot offsets written to <path>",
         # which is the line telling the operator there is an uncommitted
-        # change to review (review of #861, finding 11).
+        # change to review.
         with plan_report_sink(REPORT_LOGGER):
             complete = yield from run_bracket(inner(), shot_control, TriggerState.OFF)
             measurement = offsets_from_shots(complete)
@@ -1125,7 +1116,7 @@ def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:
         views = _stamp_views(detectors)
         shot_control = profiles.resolve(trigger_profile)
         # The bracket drives OFF and restores STANDBY; refuse a profile that
-        # cannot, before the quiet wait is spent (Codex review of #861).
+        # cannot, before the quiet wait is spent.
         _refuse_profile_without(shot_control, TriggerState.OFF)
         _refuse_profile_without(shot_control, TriggerState.STANDBY)
         confirm_time = max(

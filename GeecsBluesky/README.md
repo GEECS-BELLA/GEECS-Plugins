@@ -6,7 +6,7 @@ orchestration ecosystem via [ophyd-async](https://ophyd-async.readthedocs.io/).
 Devices are **CA-backed**: they consume the PVs served by
 [`GeecsCAGateway`](../GeecsCAGateway) (the GEECS access layer) as a standard
 EPICS IOC — stock `epics_signal_r/rw` under the hood, no bespoke transport.
-The package is a **native Bluesky application** (GEECS-Plugins#807): a
+The package is a **native Bluesky application**: a
 stock `RunEngine` running a small set of registered plans over ophyd-async
 devices, and the only GEECS line in the acquisition path is the fire
 between trigger and wait.  It owns:

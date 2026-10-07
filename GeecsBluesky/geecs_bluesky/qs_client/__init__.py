@@ -9,7 +9,7 @@ verbs.  Three modules:
   socket, :class:`StubQueueClient` offline), the ``[qserver]`` reader of
   ``~/.config/geecs_python_api/config.ini``, and
   :func:`readiness_verdict`, the one definition of "the manager can run
-  the GEECS plans" (#793).
+  the GEECS plans".
 - :mod:`.presets` — :func:`expand_preset`: a saved
   :class:`geecs_schemas.Preset` into the plan queue item it stands for.
 - :mod:`.submit_preflight` — the client-side pre-submit checks and

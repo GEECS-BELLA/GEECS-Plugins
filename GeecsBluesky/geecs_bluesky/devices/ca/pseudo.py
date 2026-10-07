@@ -2,40 +2,26 @@
 
 The runtime for :class:`~geecs_schemas.scan_variables.PseudoScanVariable`:
 one scanned number, several GEECS components, a bidirectional relation.
-``set(value)`` computes every component's setting and moves them through
-each component's own ``set()`` (no put budget of this class's own, #910).
-The readback is derived from the components' live readbacks through the
-relation's inverse, so it is defined before any set, after a restart and
-after a hand move, and ``locate()`` is real.
+``set(value)`` moves every component through its own ``set()`` (no put
+budget of its own).  The readback is the inverse of the components' live
+readbacks, so it is defined before any set and after a hand move.
 
 The relation is an ophyd-async :class:`~ophyd_async.core.Transform`:
-``derived_to_raw`` is the catalog's ``forward`` formulas, ``raw_to_derived``
-the inverse, derived by
-:func:`~geecs_bluesky.devices.ca.forward_expr.affine_coefficients` for an affine
-``forward`` and supplied as the catalog's ``inverse`` otherwise.  A
-:class:`~ophyd_async.core.DerivedSignalFactory` over the component
-readbacks produces the readback child; the transform's parameters are the
-components' user offsets (:attr:`CaSettable.offset`).
+``derived_to_raw`` is the catalog's ``forward``, ``raw_to_derived`` the
+inverse (:func:`~geecs_bluesky.devices.ca.forward_expr.affine_coefficients`
+for an affine ``forward``, else the catalog's ``inverse``); its parameters
+are the components' user offsets (:attr:`CaSettable.offset`).
 
-Two kinds of entry, one class (the rulings: ``GeecsBluesky/CLAUDE.md``):
-
-- ``mode: absolute``, a plain pseudo positioner: components read in the
-  dial frame (offsets zero).  Off-formula components before a scan warn at
-  ``locate``, and the first step snaps them onto the formula.
+- ``mode: absolute``: components read in the dial frame.  Off-formula
+  components warn at ``locate``; the first step snaps them onto the formula.
 - ``mode: relative``: components read in the user frame, zeroed at every
-  ``stage()``, so the value is a deviation from today's alignment.  The
-  readback is 0 before the first step (every relative ``forward`` is
-  pinned ``f(0) = 0`` at build) and ``unstage()`` restores the baselines
-  on every exit path.  A failed restore makes the next ``stage()`` refuse
-  (:class:`~geecs_bluesky.exceptions.PseudoRestorePendingError`);
+  ``stage()``; the readback is 0 before the first step and ``unstage()``
+  restores the baselines.  A failed restore makes the next ``stage()``
+  refuse (:class:`~geecs_bluesky.exceptions.PseudoRestorePendingError`);
   ``mv <pseudo> 0`` puts the components back and clears it.
 
-The **disagreement check** compares ``forward(inverse(readbacks))`` with
-the readbacks per component, within its tolerance plus what the inverse
-propagates.  Disagreement after this pseudo moved its components fails
-the scan (:class:`~geecs_bluesky.exceptions.PseudoComponentsDisagreeError`):
-moving the others onto the formula would drive a paired magnet the
-operator did not command.
+Components disagreeing with the formula after this pseudo moved them fail
+the scan (:class:`~geecs_bluesky.exceptions.PseudoComponentsDisagreeError`).
 """
 
 from __future__ import annotations
@@ -75,7 +61,7 @@ from geecs_bluesky.utils import safe_name
 logger = logging.getLogger(__name__)
 
 #: Agreement tolerance for a component whose DB tolerance is unset or 0
-#: (the steering magnets, GEECS-Plugins#780) — in the component's own
+#: (e.g. the steering magnets) — in the component's own
 #: units.  Well above the ~0.5 mA readback scatter of a magnet supply,
 #: well below any step a scan takes; a DB tolerance replaces it.
 DEFAULT_AGREEMENT_TOLERANCE = 0.01
@@ -532,7 +518,7 @@ class CaPseudoPositioner(StandardReadable):
         if restoring:
             # Back at the baselines: nothing is owed any more.  Only the
             # unstaged recovery move clears this — a staged scan point at 0
-            # still owes its restore at unstage (review of #918).
+            # still owes its restore at unstage.
             self._restore_pending = False
 
 

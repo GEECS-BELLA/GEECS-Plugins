@@ -9,23 +9,20 @@ raised back into the RunEngine.
 - :class:`SFileCallback` — ``ScanDataScanNNN.txt`` + ``analysis/sNNN.txt``
   at the stop document, from the run's own per-shot rows
   (:func:`geecs_data_utils.write_scalar_files`), for any exit status that
-  produced rows.  The rows are a strict run's ``primary`` events or a
-  gated run's ``shots`` events; every datum-only stream's per-frame
-  columns are joined onto them by offset-corrected stamp, one row per
-  essential shot, orphan frames left in the stack.
+  produced rows: a strict run's ``primary`` or a gated run's ``shots``
+  events, with datum-only streams joined by offset-corrected stamp.
 - :class:`ScanLogCallback` — ``scan.log`` from start to stop
   (:class:`geecs_bluesky.callbacks.scan_log.ScanLogFile`).
-- :class:`StackCheckCallback` — at the stop document, checks every image
-  stack the run's stream resources reference against the documents (frame
-  count and per-row stamps; a gated stack's stamps against the ``shots``
-  rows).  A mismatch is a WARNING in ``scan.log``, never a failure.
+- :class:`StackCheckCallback` — at the stop document, checks each image
+  stack's frame count and per-row stamps against the documents.  A
+  mismatch is a WARNING in ``scan.log``, never a failure.
 
 All four read the claim preprocessor's start-document keys
 (``scan_number``, ``scan_folder``, ``geecs_scalar_headers``) and write
-**into** the claimed folder, never creating it.  The two that read the
-run's streams share :class:`_StreamCallback` and read files on a thread
-that waits for the plugin to finalize: the stop document precedes
-``unstage``, and a callback must never block the RunEngine.
+**into** the claimed folder, never creating it.  The two stream readers
+share :class:`_StreamCallback` and read files on a thread that waits for
+the plugin to finalize (the stop document precedes ``unstage``), so the
+RunEngine is never blocked.
 """
 
 from geecs_bluesky.callbacks._base import (

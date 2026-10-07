@@ -9,10 +9,8 @@ replayed oldest first through the stock ``TiledWriter`` and renamed
 is a live run however long it stays quiet.  Between sweeps it writes
 ``heartbeat.json`` (liveness, backlog, the last error) and once more just
 before each registration (``registering``), since a registration is tens
-of seconds of silence.  Nothing reads the heartbeat to refuse a run.
-
-Registration is the stock writer's, serial: the SQLite catalog commits
-one write at a time, so a concurrent variant measured no gain.
+of seconds of silence.  Nothing reads the heartbeat to refuse a run.  Registration
+is serial (the SQLite catalog commits one write at a time).
 
 Two kinds of failure: a **corrupt file** (a malformed line, no start
 document) is set aside as ``.jsonl.failed`` at once, for an operator;
@@ -23,9 +21,8 @@ set aside and any half-registered container removed.  Idempotent: an
 existing container for the uid is deleted and registered again from the
 spool, which holds the whole record.
 
-Run it as ``geecs-tiled-writer`` (the console script; the unit template
-lives beside the qserver's), ``python -m geecs_bluesky.tiled.writer``, or
-either with ``--once`` for one sweep.
+Run it as ``geecs-tiled-writer``, ``python -m geecs_bluesky.tiled.writer``,
+or either with ``--once`` for one sweep.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""RunEngine preprocessors — the native hooks GEECS occupies (issue #807).
+"""RunEngine preprocessors — the native hooks GEECS occupies.
 
 Each function here has the ``bluesky.preprocessors`` shape (``plan → plan``)
 so it can be installed once on the RunEngine (``RE.preprocessors.append``)

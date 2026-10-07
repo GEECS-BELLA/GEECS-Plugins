@@ -134,7 +134,7 @@ worker's compiler executes); the web scanner's actions panel queues
   its own. Fix: `systemctl restart geecs-qserver-ready` (or
   `geecs-qserver-ensure-ready` / `qserver environment open` by hand); the
   scanner's `worker_ready` preflight names this state instead of relaying
-  the manager string (GEECS-Plugins#793). The same state without any unit
+  the manager string. The same state without any unit
   failing: the RE worker *child* died while the manager survived — no
   systemd event fires, `geecs-qserver-ready` stays `active (exited)` from
   its last successful run, and only the scanner/MCP preflight refusal
@@ -145,8 +145,8 @@ worker's compiler executes); the web scanner's actions panel queues
   "not in the list of allowed plans", `geecs-qserver-ready` still
   `active (exited)`) — the manager's own **download of the plan list
   from the worker timed out** (journal: `Failed to download the list of
-  existing plans and devices from the worker process: Timeout`), seen
-  while the host thrashed in swap (GEECS-Plugins#838). It is not a closed
+  existing plans and devices from the worker process: Timeout`), e.g.
+  while the host thrashes in swap. It is not a closed
   environment and needs no restart: `systemctl restart
   geecs-qserver-ready` — `geecs-qserver-ensure-ready` asks the manager to
   restore the lists from the worker's on-disk copy when the list is empty
@@ -187,10 +187,9 @@ worker's compiler executes); the web scanner's actions panel queues
   off no edge reaches the camera, so no frame ever arms the plugin.
   Fire a few shots by hand (the box in internal
   mode, then back) before the first scan of the day; the plugin's stale
-  `NumCaptured_RBV` from the previous session is zeroed by the scan itself
-  (GEECS-Plugins#853 is the plugin-side fix). The same symptom on a
-  camera whose LabVIEW device was started *after* its gateway is the
-  gateway's subscription gap (GEECS-Plugins#854).
+  `NumCaptured_RBV` from the previous session is zeroed by the scan itself.
+  The same symptom on a camera whose LabVIEW device was started *after*
+  its gateway is the gateway's subscription gap.
   **Any laser-off session, not only after a restart**:
   `<image>:connected` reads `Idle` and the image PV holds an
   epoch-zero placeholder — the gateway subscribes only while a client

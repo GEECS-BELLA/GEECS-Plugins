@@ -108,7 +108,7 @@ class StackCheckCallback(_StreamCallback):
             # column are keys of the SAME object.  Stripping a `-<suffix>`
             # instead would be a guess, and a device whose NAME contains
             # hyphens could be resolved to a different device's stamps —
-            # wrong data, silently (Codex review of #952).
+            # wrong data, silently.
             # The key is the object's own `<name>-acq_timestamp` — ophyd-async
             # names a child `<parent>-<attr>` — and it must belong to THIS
             # object, not merely exist.  Searching the object's keys for one

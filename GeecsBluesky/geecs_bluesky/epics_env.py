@@ -14,12 +14,10 @@ exporting ``EPICS_CA_ADDR_LIST``::
     #                             the broadcast search, so a local server
     #                             still resolves)
 
-The PVA list follows the same rule: the camera servers sit on several
-subnets, so the file plugin's PVs need a directed address list, and the
-``[pva]`` keys already name those hosts.  The PVA auto list stays on by
-default so a local server (a gateway against the fake GEECS server) is
-not hidden.  On a service host the rendered ``config.ini`` carries both
-keys from ``site.env``.
+The camera servers sit on several subnets, so the file plugin's PVs need
+the directed ``[pva]`` list; the PVA auto list stays on so a local server
+is still found.  On a service host ``config.ini`` is rendered from
+``site.env``.
 
 Import order: libca reads these variables when the CA context is created,
 which happens as soon as aioca is imported, so ``geecs_bluesky/__init__``
