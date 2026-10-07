@@ -4,6 +4,12 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.13.1] - 2026-10-07
+
+### Changed
+
+- Documentation only. `configs_repo` module docstring names the config resolver as a current consumer (GeecsBluesky 0.115.0 deleted its own `scanner_configs` copy).
+
 ## [0.13.0] - 2026-10-02
 
 ### Added
