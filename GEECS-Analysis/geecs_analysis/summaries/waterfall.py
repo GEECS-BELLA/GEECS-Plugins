@@ -6,6 +6,13 @@ the general renderer's same-grid ``waterfall``: repeated or nonmonotonic
 scan values keep their cells, and sorting by a key spaces rows evenly with
 the physical values as tick labels. No interpolation or sorting happens
 here; the product planner orders and filters the rows.
+
+The figure is a picture, not a measurement: a trace longer than
+:data:`MAX_COLUMNS` samples is drawn from :func:`display_trace`, the mean
+of each of that many contiguous blocks. A figure some 1500 pixels wide
+cannot show more, and a scope trace of millions of samples, one row per
+shot, would otherwise hold the whole scan in memory to draw it.
+Shorter traces are drawn exactly as recorded.
 """
 
 from __future__ import annotations
@@ -19,9 +26,45 @@ from geecs_analysis.render import RenderError
 
 if TYPE_CHECKING:
     import numpy as np
+    from geecs_data_utils.frames import Frame
     from matplotlib.figure import Figure
     from geecs_analysis.measurement import Measurement
     from geecs_analysis.render.specs import FigureSpec
+
+
+#: The most columns a waterfall row keeps; a longer trace is block-averaged.
+MAX_COLUMNS = 4096
+
+
+def display_trace(frame: Frame, columns: int = MAX_COLUMNS) -> Frame:
+    """The trace a waterfall row draws: as recorded, or block means when longer.
+
+    A trace of more than ``columns`` samples is split into ``columns``
+    contiguous blocks of near-equal size; each column is its block's mean
+    coordinate and its block's mean over the samples that are not NaN (a
+    block with none is NaN). Equal-length traces get the same blocks, so
+    rows still share one grid. Anything else is returned unchanged — the
+    same object.
+    """
+    import numpy as np
+    from geecs_data_utils.frames import Axis
+
+    size = frame.data.shape[0]
+    if frame.data.ndim != 1 or size <= columns:
+        return frame
+    starts = np.arange(columns) * size // columns
+    widths = np.diff(np.append(starts, size))
+    axis = frame.axes[0]
+    data = np.asarray(frame.data, dtype=np.float64)
+    present = ~np.isnan(data)
+    totals = np.add.reduceat(np.where(present, data, 0.0), starts)
+    counts = np.add.reduceat(present.astype(np.intp), starts)
+    with np.errstate(invalid="ignore"):
+        means = totals / counts
+    centers = np.add.reduceat(np.asarray(axis.values, dtype=np.float64), starts)
+    return frame.replace(
+        data=means, axes=(Axis(centers / widths, axis.unit, axis.label),)
+    )
 
 
 def palette(
@@ -105,6 +148,7 @@ def waterfall(
     frames = [r.frame for r in results]
     if any(f.data.ndim != 1 or f.data.shape != frames[0].data.shape for f in frames):
         raise RenderError("Waterfall requires equal-length traces")
+    frames = [display_trace(f) for f in frames]
     if any(
         f.unit != frames[0].unit or f.axes[0].unit != frames[0].axes[0].unit
         for f in frames

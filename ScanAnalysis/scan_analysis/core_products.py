@@ -2,7 +2,8 @@
 
 :class:`ProductCollector` folds the outcomes as a run streams them, so a
 camera scan holds one running frame per product (the noscan average, or one
-per bin) however many shots it has; :func:`plan_products` is the same
+per bin) however many shots it has, and a line scan's averages hold one
+trace each; :func:`plan_products` is the same
 planning over a sequence of outcomes already in hand, built on it.
 """
 
@@ -17,6 +18,7 @@ from geecs_analysis.compat.v2 import V2Recipe
 from geecs_analysis.compat.v2_average import RunningAverage
 from geecs_analysis.compat.v2_run import UnitResult
 from geecs_analysis.measurement import Measurement
+from geecs_analysis.summaries.waterfall import MAX_COLUMNS, display_trace
 
 from scan_analysis.core_scan import group_shots
 
@@ -80,8 +82,12 @@ class ProductCollector:
     keeps one running average per bin (membership from the rows, known
     before any load); a scanned raw-bin run keeps each bin's own
     measurement. A camera frame is folded and dropped, so memory is the
-    number of products, not the number of shots; line traces are retained,
-    the waterfall needs every one. :meth:`plan` then chooses the products
+    number of products, not the number of shots. An unbinned line run's
+    waterfall needs a row per unit, so each unit's trace is kept as the
+    waterfall draws it
+    (:func:`~geecs_analysis.summaries.waterfall.display_trace`: block means
+    once a trace is longer than the figure can show), never the whole
+    recording. :meth:`plan` then chooses the products
     exactly as the old sequence planner did (see :func:`plan_products`).
     """
 
@@ -100,9 +106,13 @@ class ProductCollector:
         self.noscan = noscan
         self.sort_requested = sort_requested
         self.successful = 0
+        self._planned = False
         self._keys: set[int] = set()
         self._whole: RunningAverage | None = None
         self._units: dict[int, Measurement] = {}
+        # Every unit trace's recorded length: kept rows may be block means,
+        # and the waterfall's equal-length rule is about the recording.
+        self._lengths: dict[int, int] = {}
         self._bin_of: dict[int, int] = {}
         self._bins: dict[int, RunningAverage] = {}
         self._raw_bins: dict[int, Measurement] = {}
@@ -129,7 +139,13 @@ class ProductCollector:
         if self.unbinned:
             self._whole.add(measurement)
             if self.line:
-                self._units[key] = measurement
+                frame = measurement.frame
+                self._lengths[key] = frame.data.shape[0]
+                shown = display_trace(frame)
+                # The rows feed only the waterfall, which reads the frame.
+                self._units[key] = (
+                    measurement if shown is frame else Measurement({}, shown)
+                )
         elif self.average_before_analysis:
             self._raw_bins[key] = measurement
         else:
@@ -155,8 +171,12 @@ class ProductCollector:
         ``rows`` are the scalar rows as they stand now — a sort column that
         is one of this run's own outputs resolves against them, so they are
         read here rather than at construction. The legacy gate requires more
-        than two successful execution units before producing figures.
+        than two successful execution units before producing figures. A
+        scanned run's bin accumulators are consumed, so plan once.
         """
+        if self._planned:
+            raise RuntimeError("A product collector plans once")
+        self._planned = True
         if self.successful <= MIN_SUCCESSFUL_UNITS:
             return ProductPlan(
                 notes=("Legacy summaries require more than two successful units",)
@@ -202,6 +222,13 @@ class ProductCollector:
                 panels.sort(key=lambda p: p.position)
             if len(panels) != count:
                 notes.append(f"Waterfall sort excluded {count - len(panels)} units")
+        lengths = {self._lengths[p.identifier] for p in panels}
+        if len(lengths) > 1 and max(lengths) > MAX_COLUMNS:
+            # Block means of unequal recordings can share a length; the
+            # waterfall would then stack rows it refuses as recorded. Only
+            # the rows the sort kept count, as they did before reduction.
+            notes.append("Skipped waterfall: traces of different lengths")
+            return ProductPlan(singles=singles, notes=tuple(notes))
         return ProductPlan(
             singles,
             tuple(panels),
@@ -223,8 +250,10 @@ class ProductCollector:
         if self.average_before_analysis:
             measurements = dict(self._raw_bins)
         else:
+            # Each bin's accumulator is released as its average is made, so
+            # the plan never holds every bin's sum beside every bin's mean.
             measurements = {
-                key: running.result() for key, running in self._bins.items()
+                key: self._bins.pop(key).result() for key in list(self._bins)
             }
         panels = []
         notes = []

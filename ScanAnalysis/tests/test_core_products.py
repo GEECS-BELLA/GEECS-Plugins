@@ -297,3 +297,116 @@ def test_bins_fold_in_row_order_whatever_order_the_outcomes_arrive():
         shuffled.singles[0].measurement.frame.data,
         ordered.singles[0].measurement.frame.data,
     )
+
+
+def long_outcome(key, size, value=1.0):
+    x = np.arange(size, dtype=float)
+    frame = Frame.from_trace(np.column_stack([x, x * 0 + value + key]))
+    return UnitResult(ShotGroup(key, (key,)), (key,), Measurement({"s": key}, frame))
+
+
+def test_noscan_waterfall_rows_keep_display_resolution_and_the_average_full():
+    from geecs_analysis.summaries.waterfall import MAX_COLUMNS
+
+    size = MAX_COLUMNS * 4
+    outcomes = [long_outcome(n, size) for n in (1, 2, 3)]
+    plan = plan_products(
+        recipe(True), outcomes, rows(), average_before_analysis=False, noscan=True
+    )
+    assert [p.measurement.frame.data.shape for p in plan.summary] == [
+        (MAX_COLUMNS,)
+    ] * 3
+    np.testing.assert_array_equal(plan.summary[1].measurement.frame.data, 3.0)
+    average = plan.singles[0].measurement.frame
+    assert average.data.shape == (size,)
+    np.testing.assert_array_equal(average.data, 3.0)
+
+
+def test_short_noscan_waterfall_rows_are_the_measurements_themselves():
+    outcomes = [outcome(n, n, line=True) for n in (1, 2, 3)]
+    plan = plan_products(
+        recipe(True), outcomes, rows(), average_before_analysis=False, noscan=True
+    )
+    by_key = {o.group.key: o.measurement for o in outcomes}
+    assert all(p.measurement is by_key[p.identifier] for p in plan.summary)
+
+
+def test_unequal_long_recordings_skip_the_waterfall_rows():
+    """Block means of 5000- and 6000-sample traces share a length; stay refused."""
+    from geecs_analysis.summaries.waterfall import MAX_COLUMNS
+
+    outcomes = [
+        long_outcome(1, MAX_COLUMNS + 900),
+        long_outcome(2, MAX_COLUMNS + 900),
+        long_outcome(3, MAX_COLUMNS + 1900),
+    ]
+    plan = plan_products(
+        recipe(True), outcomes, rows(), average_before_analysis=False, noscan=True
+    )
+    assert not plan.summary
+    assert "Skipped waterfall: traces of different lengths" in plan.notes
+
+
+def test_a_long_line_noscan_holds_display_rows_not_recordings():
+    """300 traces of 50k float64 samples were 240 MB held; rows are ~10 MB."""
+    import gc
+    import tracemalloc
+
+    from scan_analysis.core_products import ProductCollector
+
+    collector = ProductCollector(
+        recipe(True),
+        pd.DataFrame({"Shotnumber": range(1, 301), "Bin #": 1}),
+        average_before_analysis=False,
+        noscan=True,
+    )
+    gc.collect()
+    tracemalloc.start()
+    try:
+        before = tracemalloc.get_traced_memory()[0]
+        for key in range(1, 301):
+            collector.add(long_outcome(key, 50_000))
+        gc.collect()
+        held = tracemalloc.get_traced_memory()[0] - before
+    finally:
+        tracemalloc.stop()
+    assert held < 25e6, f"{held / 1e6:.1f} MB held after 300 traces"
+    plan = collector.plan(pd.DataFrame({"Shotnumber": range(1, 301), "Bin #": 1}))
+    assert len(plan.summary) == 300
+
+
+def test_scanned_plan_consumes_the_bin_accumulators_once():
+    from scan_analysis.core_products import ProductCollector
+
+    collector = ProductCollector(
+        recipe(True), rows(), average_before_analysis=False, noscan=False
+    )
+    for n in range(1, 7):
+        collector.add(outcome(n, n, line=True))
+    plan = collector.plan(rows(), parameter_column="motor")
+    assert [p.identifier for p in plan.singles] == [1, 2, 3]
+    assert not collector._bins  # every accumulator released into its average
+    with pytest.raises(RuntimeError, match="plans once"):
+        collector.plan(rows(), parameter_column="motor")
+
+
+def test_an_odd_length_unit_the_sort_drops_does_not_skip_the_waterfall():
+    """Only the rows the sort keeps must agree in recorded length."""
+    from geecs_analysis.summaries.waterfall import MAX_COLUMNS
+
+    size = MAX_COLUMNS + 904
+    outcomes = [long_outcome(n, size) for n in range(1, 5)]
+    outcomes.append(long_outcome(5, size + 50))
+    frame = rows().assign(charge=[1, 2, 3, 4, np.nan, 6])
+    plan = plan_products(
+        recipe(True),
+        outcomes,
+        frame,
+        average_before_analysis=False,
+        noscan=True,
+        sort_requested=True,
+        sort_column="charge",
+        sort_sigma=None,
+    )
+    assert [p.identifier for p in plan.summary] == [1, 2, 3, 4]
+    assert "Skipped waterfall: traces of different lengths" not in plan.notes

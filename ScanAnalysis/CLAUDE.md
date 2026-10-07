@@ -136,14 +136,21 @@ notes; the sink owns logging and file naming.
 from what is known then (noscan or scanned, raw-bin or per-shot, a line
 sort request, the shot→bin membership from the rows): a noscan (or a sorted
 line waterfall) keeps one `RunningAverage` over every unit plus, for a line
-recipe, every unit's measurement for the panels; a scanned per-shot run
+recipe, every unit's trace for the waterfall rows **as the waterfall draws
+it** (`geecs_analysis.summaries.waterfall.display_trace`: block means above
+4096 samples, so a scope recording is never kept per row; rows of unequal
+recorded length with any one reduced skip the waterfall with a note); a scanned per-shot run
 keeps one `RunningAverage` per bin, folded in row order — the order the old
 `group_shots`/`average_results` pair reduced in, so the numbers are
 identical; a raw-bin run keeps each bin's measurement. A camera frame is
 folded and dropped, so a camera scan holds one running frame per product
-however long it is (memory target: bins × one frame + the in-flight
-window; `test_core_streaming.py` tracks the frames a 300-shot run keeps
-alive). `plan(rows, ...)` runs after the scalar merge because a waterfall
+however long it is (memory target: bins × one frame or trace + the
+waterfall's display rows + the in-flight window; `test_core_streaming.py`
+tracks the frames a 300-shot run keeps alive,
+`test_a_long_line_noscan_holds_display_rows_not_recordings` the rows).
+Still unbounded in bins: a scanned run holds one full-resolution average
+per bin (saved data, never reduced) until `save_products`; `plan` releases
+each bin's accumulator as it makes that bin's average, so it plans once. `plan(rows, ...)` runs after the scalar merge because a waterfall
 sort column may be one of this run's own outputs. The figure gate
 (`MIN_SUCCESSFUL_UNITS`) is a counter. Anything that must see every
 outcome again does not belong in the analyzer — it belongs in the
