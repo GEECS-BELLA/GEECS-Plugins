@@ -2,7 +2,7 @@
 
 Two GEECS eval sites compile small operator-authored math expressions —
 the gateway's derived channels (``geecs_ca_gateway.derived``) and the
-engine's pseudo-variable forward formulas (``geecs_bluesky.forward_expr``).
+engine's pseudo-variable forward formulas (``geecs_bluesky.devices.ca.forward_expr``).
 Both follow the same security-sensitive skeleton: parse with :mod:`ast`,
 validate every node against an explicit whitelist **before** anything is
 evaluated (so a config cannot smuggle attribute access, imports,

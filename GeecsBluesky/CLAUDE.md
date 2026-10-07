@@ -45,7 +45,7 @@ registered: `sweep` is the one moving plan, and it uses `scan_nd`
 internally.  A preset can name only the three scan plans
 (`qs_client.presets.PRESET_PLAN_NAMES`); the utilities take no detector
 list or no positions.  `run_action` is compiled from
-`geecs_bluesky.action_steps` (the same walk the scanner previews with).
+`geecs_bluesky.actions.steps` (the same walk the scanner previews with).
 
 Every bound scan verb takes, keyword-only, `trigger_profile`,
 `shots_per_step`, `acquisition` (`strict` default, or `gated`),
@@ -69,6 +69,7 @@ geecs_bluesky/
   devices/detector.py       # GeecsDetector — the acquirer as a stock StandardDetector
   devices/shot_control.py   # ShotControl — the trigger box: Movable over the profile's
                             #   states, Pausable; CaPutSetter + the writes
+                            #   (ShotControlWrites, QUIESCE_FROM)
   devices/sampler.py        # ShotSampler (the gated run's per-shot record) + StampStream
                             #   (a non-essential device without a plugin)
   devices/background.py     # BackgroundSnapshot — the run's background telemetry (#1016),
@@ -80,7 +81,9 @@ geecs_bluesky/
   devices/ca/               # scalar devices + settable children: CaSnapshotReadable,
                             #   CaSettable (+ the user offset), CaMotor, CaConfirmSettable,
                             #   CaPseudoPositioner, ScalarsView (_view), gateway_put,
-                            #   oneshot, liveness, _pv (the explicit ca:// source)
+                            #   oneshot, liveness, _pv (the explicit ca:// source),
+                            #   forward_expr (a pseudo's forward/inverse formulas,
+                            #   affine_coefficients)
   plans/strict.py           # geecs_take_reading (the fire between trigger and wait),
                             #   geecs_per_step / geecs_per_shot, name_failed_status
   plans/gated.py            # gated_take_reading, the run bracket, the non-essential
@@ -92,18 +95,20 @@ geecs_bluesky/
                             #   binder), liveness_gate, TriggerProfiles, background_wrapper
   plans/claim_scan.py       # the day-scoped claim (the ONE folder creator), the
                             #   claim_scan preprocessor, GeecsScanPathProvider
-  plans/action_compiler.py  # ActionPlan → plan stubs; the namespace is its SettableFactory
+  actions/compiler.py       # ActionPlan → plan stubs; the namespace is its SettableFactory
   run_engine.py             # make_run_engine: RE + claim + headers + callbacks (+ the spool)
   preprocessors.py          # connect_on_demand (installed outermost), scalar_headers
-  callbacks.py              # ScanInfo ini, the s-file, scan.log, the stack check — per run
-  scan_log.py               # ScanLogFile: the root-logger handler one run holds
-  qserver_ready.py          # geecs-qserver-ensure-ready (#793)
+  callbacks/                # the run's GEECS outputs, per run: scan_info.py (ScanInfo ini),
+                            #   sfile.py (the s-file), scan_log.py (scan.log: ScanLogFile, the
+                            #   root-logger handler one run holds), stack_check.py,
+                            #   outputs.py (subscribe_scan_outputs), _base.py (stream bookkeeping)
   qs_client/                # the RE Manager client every GEECS client uses: client.py
                             #   (QueueClient, readiness_verdict), presets.py (expand_preset),
-                            #   submit_preflight.py (the pre-submit checks, SubmissionRecord)
+                            #   submit_preflight.py (the pre-submit checks, SubmissionRecord),
+                            #   ready.py (geecs-qserver-ensure-ready, #793; not imported by
+                            #   the package)
   config_resolver.py        # ConfigsRepoResolver: presets, trigger profiles, catalogs,
                             #   actions, optimizer configs, analysis diagnostics
-  scanner_configs.py        # where the configs repo is (GEECS_SCANNER_CONFIG_DIR / config.ini)
   tiled/integration.py      # subscribe_tiled_spool (the engine's whole Tiled path) +
                             #   the shared checks (tiled_server_reachable, SafeDocumentCallback)
   tiled/spool.py            # the per-run JSONL spool both sides share: layout, the RE
@@ -111,18 +116,17 @@ geecs_bluesky/
   tiled/writer.py           # geecs-tiled-writer: the sweep that registers spooled runs
   tiled/parquet.py          # the stream table as ScanNNN/ScanDataScanNNN-<stream>.parquet,
                             #   registered like a camera stack (GeecsRunWriter / GeecsTiledWriter)
-  models/shot_control.py    # ShotControlWrites + QUIESCE_FROM (TriggerState names)
   data_paths.py             # local ↔ device-server data path mapping
-  forward_expr.py           # a pseudo's forward/inverse formulas, affine_coefficients
   exceptions.py             # the scan-level exception tree, failure_cause_text
   optimization/             # native Xopt ask/tell (driver), live PVA frames, the
                             #   measurement compiler, simulations, generators/ (BAX),
-                            #   inspection/ (dump loading, surrogate analysis)
-  # import-light contract modules (the scanner imports them; stdlib only):
+                            #   inspection/ (dump loading, surrogate analysis), events.py
+                            #   (the optimization stream's column codec, OptimizationRole;
+                            #   import-light, the scanner imports it)
+  # import-light modules the scanner imports (no bluesky, ophyd-async or aioca):
   plan_names.py             # GEECS_PLAN_NAMES and the roster's subsets, ACQUISITION_MODES
   log_markers.py            # log-line strings clients parse from the manager's text stream
-  action_steps.py           # flatten_action_steps: the one walk of an action plan
-  optimization_events.py    # the optimization stream's column codec (OptimizationRole)
+  actions/steps.py          # flatten_action_steps: the one walk of an action plan
   trajectory.py             # sweep_to_cycler: the one numerical expansion of a Sweep
   utils.py                  # safe_name, identifier_name, resolve_annotations
 qserver/                    # the worker: launcher, startup profile, permissions, deploy/

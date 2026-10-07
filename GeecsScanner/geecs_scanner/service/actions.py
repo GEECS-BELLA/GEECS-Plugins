@@ -2,7 +2,7 @@
 
 A manual move is a stock ``mv`` queue item and *a preview is client-side
 resolver work*.  The walk itself is
-:func:`geecs_bluesky.action_steps.flatten_action_steps` — import-light, the
+:func:`geecs_bluesky.actions.steps.flatten_action_steps` — import-light, the
 same function the worker's compiler executes, so the preview and the run
 cannot drift; this module only turns each flattened step into the words
 the page shows.  Unknown nested names and cycles are refused before
@@ -50,7 +50,7 @@ def describe_step(step: Any, origin: str | None) -> ActionStepOut:
 def flatten(name: str, plan: Any, registry: Mapping[str, Any]) -> list[ActionStepOut]:
     """Every concrete step of *plan*, nested ``run`` steps inlined, in execution order.
 
-    The walk is the worker's own (:func:`geecs_bluesky.action_steps.flatten_action_steps`),
+    The walk is the worker's own (:func:`geecs_bluesky.actions.steps.flatten_action_steps`),
     so the preview promises the order the compiler executes.
 
     Raises
@@ -59,7 +59,7 @@ def flatten(name: str, plan: Any, registry: Mapping[str, Any]) -> list[ActionSte
         ``invalid_request`` for a ``run`` step naming a plan the library
         does not hold, or a chain of ``run`` steps that loops.
     """
-    from geecs_bluesky.action_steps import flatten_action_steps
+    from geecs_bluesky.actions.steps import flatten_action_steps
     from geecs_bluesky.exceptions import ActionPlanCycleError, ActionPlanNotFoundError
 
     try:

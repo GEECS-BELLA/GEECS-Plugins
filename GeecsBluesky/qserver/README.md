@@ -117,7 +117,7 @@ A manual move is a queue item of the stock `mv` plan (above): idle-only
 ordering and queue provenance for free; an action plan is a `run_action`
 item.  Nothing goes through `function_execute` (it needs an idle manager,
 see Troubleshooting); a step preview is client-side
-(`geecs_bluesky.action_steps.flatten_action_steps`, the same walk the
+(`geecs_bluesky.actions.steps.flatten_action_steps`, the same walk the
 worker's compiler executes); the web scanner's actions panel queues
 `run_action` items over it.
 

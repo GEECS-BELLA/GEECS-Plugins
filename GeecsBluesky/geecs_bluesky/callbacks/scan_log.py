@@ -3,7 +3,7 @@
 Every legacy scan folder carries a ``scan.log``; the Bluesky stack matches
 that with a scoped ``logging.FileHandler`` attached to the **root logger**
 from a run's start document to its stop document
-(:class:`geecs_bluesky.callbacks.ScanLogCallback`), so ``scan.log`` records
+(:class:`ScanLogCallback`), so ``scan.log`` records
 the same story the worker's journal shows — ``bluesky`` RunEngine state
 changes, ``ophyd_async`` connect failures, ``geecs_data_utils`` folder and
 export lines — not just this package's namespaces.  Once the engine runs
@@ -19,6 +19,8 @@ from contextlib import contextmanager
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+
+from geecs_bluesky.callbacks._base import Document, _RunCallback
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +149,33 @@ class ScanLogFile:
         self.path = None
 
 
+class ScanLogCallback(_RunCallback):
+    """Attach ``scan.log`` in the claimed folder for the span of each run."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._log = ScanLogFile()
+
+    def on_start(self, start: dict[str, Any]) -> None:
+        """Open the file (a missing folder is a warning, never a mkdir)."""
+        number = start.get("scan_number")
+        folder = start.get("scan_folder")
+        if number is None or not folder:
+            logger.warning(
+                "run %s has no scan number/folder; no scan.log", start.get("uid")
+            )
+            return
+        self._log.open(int(number), str(folder))
+
+    def on_stop(self, start: dict[str, Any], stop: Document) -> None:
+        """Close the file with the run's outcome — and its reason, when it has one."""
+        note = f"finished ({stop.get('exit_status', '?')})"
+        reason = str(stop.get("reason") or "")
+        if reason:
+            note += f": {reason}"
+        self._log.close(note=note)
+
+
 @contextmanager
 def plan_report_sink(logger_name: str, *, stream: Any = None) -> Iterator[None]:
     """Make one logger's INFO records visible for the duration of a *non-scan* plan.
@@ -199,6 +228,7 @@ def plan_report_sink(logger_name: str, *, stream: Any = None) -> Iterator[None]:
 
 __all__ = [
     "QUIET_LOGGER_PREFIXES",
+    "ScanLogCallback",
     "ScanLogContextFilter",
     "ScanLogFile",
     "plan_report_sink",

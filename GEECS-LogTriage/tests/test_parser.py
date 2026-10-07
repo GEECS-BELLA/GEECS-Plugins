@@ -170,7 +170,7 @@ def test_severity_level_no_ordering():
 
 
 # ---------------------------------------------------------------------------
-# Bluesky scan.log format (geecs_bluesky/scan_log.py: `scan=ScanNNN` token)
+# Bluesky scan.log format (geecs_bluesky/callbacks/scan_log.py: `scan=ScanNNN` token)
 # ---------------------------------------------------------------------------
 
 BLUESKY_LINE = (

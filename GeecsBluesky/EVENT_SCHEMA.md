@@ -226,7 +226,7 @@ Every device carries `_column_headers` — event data-key → the GEECS
 `Device Variable` header (`UC_Wavemeter Wavelength (nm)`); the
 `scalar_headers` preprocessor merges the staged devices' maps into the
 start document's `geecs_scalar_headers`, which the s-file callback
-(`callbacks.py`, from the run's own rows at the stop document) and the
+(`callbacks/sfile.py`, from the run's own rows at the stop document) and the
 offline re-export (`geecs_data_utils.write_scalar_files_from_tiled`) read.
 Both take their rows from `primary` when it has events and from `shots`
 otherwise, and both run the same join, so a re-export checks the live path
@@ -243,7 +243,7 @@ rather than re-implementing it.
 Bluesky forbids dots and slashes in document keys at any depth; event name
 components use URI escaping with `~` as the escape marker (Tiled SQL forbids
 `%`): `.`, `/`, `%`, `~`, `-` become `~2E`, `~2F`, `~25`, `~7E`, `~2D`.
-Colons and underscores remain literal. The shared `optimization_events` codec
+Colons and underscores remain literal. The shared `optimization.events` codec
 serves the worker and scanner. Columns must fit 60 characters after escaping
 (Tiled adds `ts_` timestamp columns with a 63-character SQL limit) and be distinct
 ignoring case; violations refuse before scan claim. The complete config retains

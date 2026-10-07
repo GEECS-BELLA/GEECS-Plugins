@@ -6,8 +6,8 @@ bound — strict (:mod:`.strict`, the fire between trigger and wait) or
 gated (:mod:`.gated`, the box free-running while the plugin-backed
 cameras count) — plus the native :mod:`.optimize` loop, the day-scoped
 scan-number claim (:mod:`.claim_scan`), the ActionPlan → plan-stub
-compiler (:mod:`.action_compiler`) and the once-run shot-offset
-:mod:`.calibration`.
+compiler (:mod:`geecs_bluesky.actions.compiler`) and the once-run
+shot-offset :mod:`.calibration`.
 """
 
 from geecs_bluesky.plans.claim_scan import claim_scan, claim_scan_number

@@ -17,7 +17,7 @@ from bluesky.protocols import Movable
 from bluesky.utils import Msg
 from geecs_bluesky.devices.ca._view import owner_of
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.optimization_events import (
+from geecs_bluesky.optimization.events import (
     OptimizationRole,
     optimization_column as _column,
 )

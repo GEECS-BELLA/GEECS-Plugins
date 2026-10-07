@@ -5,6 +5,12 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.1] - 2026-10-07
+
+### Changed
+
+- Documentation only. Docstrings name GeecsBluesky's moved modules (`devices.shot_control`, `devices.ca.forward_expr`; GeecsBluesky 0.115.0 layout).
+
 ## [0.43.0] - 2026-10-02
 
 ### Added

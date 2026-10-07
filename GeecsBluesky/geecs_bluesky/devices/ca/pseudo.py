@@ -11,7 +11,7 @@ after a hand move, and ``locate()`` is real.
 The relation is an ophyd-async :class:`~ophyd_async.core.Transform`:
 ``derived_to_raw`` is the catalog's ``forward`` formulas, ``raw_to_derived``
 the inverse, derived by
-:func:`~geecs_bluesky.forward_expr.affine_coefficients` for an affine
+:func:`~geecs_bluesky.devices.ca.forward_expr.affine_coefficients` for an affine
 ``forward`` and supplied as the catalog's ``inverse`` otherwise.  A
 :class:`~ophyd_async.core.DerivedSignalFactory` over the component
 readbacks produces the readback child; the transform's parameters are the
@@ -63,7 +63,7 @@ from geecs_bluesky.exceptions import (
     PseudoComponentsDisagreeError,
     PseudoRestorePendingError,
 )
-from geecs_bluesky.forward_expr import (
+from geecs_bluesky.devices.ca.forward_expr import (
     CompiledForward,
     CompiledInverse,
     affine_coefficients,

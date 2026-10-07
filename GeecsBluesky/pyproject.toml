@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.114.0"
+version = "0.115.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -76,7 +76,7 @@ qs-client = ["bluesky-queueserver-api"]
 [tool.poetry.scripts]
 # The service-start readiness assertion (#793): the geecs-qserver-ready
 # oneshot unit runs it after the manager; needs only the qserver extra.
-geecs-qserver-ensure-ready = "geecs_bluesky.qserver_ready:main"
+geecs-qserver-ensure-ready = "geecs_bluesky.qs_client.ready:main"
 # The Tiled writer service: registers the engine's spooled runs off the
 # engine thread (tiled/writer.py; the unit template beside the qserver's).
 # Needs the tiled extra.

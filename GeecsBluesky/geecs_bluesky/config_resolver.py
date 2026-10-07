@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from geecs_schemas.analysis import AnalysisDocument
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.scanner_configs import SHOT_CONTROL_FOLDER, scanner_configs_base
+from geecs_core.configs_repo import scanner_configs_base
 from geecs_schemas import (
     ActionPlan,
     ActionPlanLibrary,
@@ -45,6 +45,8 @@ from geecs_schemas import (
 from geecs_schemas.convert import convert_shot_control
 
 logger = logging.getLogger(__name__)
+
+SHOT_CONTROL_FOLDER = "shot_control_configurations"
 
 #: A preset file stem: a plain name, no path separators, no leading dot.
 _PRESET_STEM = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
@@ -161,7 +163,7 @@ class ConfigsRepoResolver:
     """Resolver over the real configs-repo layout, converter-backed.
 
     Reads ``scanner_configs/experiments/<experiment>/`` (the same resolution
-    roots as :func:`geecs_bluesky.scanner_configs.scanner_configs_base`):
+    roots as :func:`geecs_core.configs_repo.scanner_configs_base`):
 
     - ``presets/<name>.yaml`` — presets (``geecs_schemas.Preset``: the
       device group + the plan call; new schema only)
@@ -187,8 +189,8 @@ class ConfigsRepoResolver:
         Experiment folder name under ``scanner_configs/experiments``.
     experiments_root :
         Override for the experiments root (tests); defaults to the
-        production resolution (``GEECS_SCANNER_CONFIG_DIR`` env var or
-        config.ini), resolved lazily on first use.
+        production resolution (:func:`geecs_core.configs_repo.scanner_configs_base`),
+        resolved lazily on first use.
     """
 
     TRIGGER_FOLDER = SHOT_CONTROL_FOLDER
@@ -210,6 +212,11 @@ class ConfigsRepoResolver:
     @property
     def _root(self) -> Path:
         root = self._experiments_root or scanner_configs_base()
+        if root is None:
+            raise RuntimeError(
+                "Cannot resolve the scanner configs base. Set GEECS_SCANNER_CONFIG_DIR, or "
+                "config.ini [Paths] scanner_config_root_path pointing at GEECS-Plugins-Configs."
+            )
         return root / self._experiment
 
     @staticmethod

@@ -32,7 +32,7 @@ from geecs_bluesky.plan_names import (
     GEECS_PLAN_NAMES,
     NON_SCAN_PLAN_NAMES,
 )
-from geecs_bluesky.plans.action_compiler import SettableFactory, run_action_plan
+from geecs_bluesky.actions.compiler import SettableFactory, run_action_plan
 from geecs_bluesky.plans.calibration import (
     check_shot_sync_plan,
     measure_shot_offsets_plan,

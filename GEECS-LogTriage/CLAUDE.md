@@ -30,7 +30,7 @@ the context token is captured as `shot` either way):
   %(asctime)s.%(msecs)03d %(levelname)s %(name)s [%(threadName)s] shot=%(shot_id)s - %(message)s
   ```
 
-- Bluesky stack (`GeecsBluesky/geecs_bluesky/scan_log.py::scan_log`):
+- Bluesky stack (`GeecsBluesky/geecs_bluesky/callbacks/scan_log.py::ScanLogFile`):
 
   ```
   %(asctime)s.%(msecs)03d %(levelname)s %(name)s [%(threadName)s] scan=%(scan_id)s - %(message)s

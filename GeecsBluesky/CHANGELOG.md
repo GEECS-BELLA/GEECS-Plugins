@@ -6,6 +6,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.115.0] - 2026-10-07
+
+### Changed
+
+- **Package layout reorganized; no logic change.**  Two visible side effects
+  follow (logger names; one extra configs lookup).  Modules moved, with
+  no shims left at the old paths (importers update their paths; GeecsScanner
+  0.14.6 does):
+  - `models/shot_control.py` (`ShotControlWrites`, `QUIESCE_FROM`) →
+    `devices/shot_control.py`; the `models/` subpackage is deleted.
+  - `forward_expr.py` → `devices/ca/forward_expr.py`.
+  - `callbacks.py` → the `callbacks/` package (`_base.py`, `scan_info.py`,
+    `sfile.py`, `scan_log.py`, `stack_check.py`, `outputs.py`);
+    `callbacks/__init__.py` re-exports the old `__all__`, so
+    `from geecs_bluesky.callbacks import ...` is unchanged.
+  - `scan_log.py` → `callbacks/scan_log.py` (beside `ScanLogCallback`).
+  - `action_steps.py` → `actions/steps.py`; `plans/action_compiler.py` →
+    `actions/compiler.py`.
+  - `qserver_ready.py` → `qs_client/ready.py` (the
+    `geecs-qserver-ensure-ready` console script keeps its name and the unit
+    file is unchanged, but the installed wrapper names the old module: run
+    `poetry install --extras "ca tiled qserver optimize"` in the worker
+    checkout before restarting `geecs-qserver`).
+  - `optimization_events.py` → `optimization/events.py`.
+- **Logger names follow the modules.**  `scan.log` lines from the log
+  handler now carry `geecs_bluesky.callbacks.scan_log` (was
+  `geecs_bluesky.scan_log`), and the callbacks' records carry
+  `geecs_bluesky.callbacks.<module>` (was `geecs_bluesky.callbacks`, now
+  their parent logger).  The `scan.log` parsers accept any logger name;
+  GEECS-LogTriage fingerprints include it, so a recurring callback warning
+  groups under a new fingerprint from this release on.
+
+### Removed
+
+- **`scanner_configs.py`.**  `config_resolver` resolves the configs
+  repository with `geecs_core.configs_repo.scanner_configs_base` and raises
+  the same `RuntimeError` when it resolves nothing.  The one difference:
+  the shared lookup also honours `GEECS_PLUGINS_CONFIGS` (the configs
+  repository root) between `GEECS_SCANNER_CONFIG_DIR` and `config.ini`,
+  which the old copy skipped.
+
 ## [0.114.0] - 2026-10-06
 
 ### Changed

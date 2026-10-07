@@ -5,6 +5,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.14.6] - 2026-10-07
+
+### Changed
+
+- The service layer imports `geecs_bluesky.optimization.events` and
+  `geecs_bluesky.actions.steps` (GeecsBluesky 0.115.0 reorganized its
+  layout), and the `scanlog.py` docstring names
+  `geecs_bluesky.callbacks.scan_log`.  No behaviour change.
+
 ## [0.14.5] - 2026-10-06
 
 ### Changed

@@ -1,7 +1,7 @@
 """Flatten an action plan into its concrete steps — import-light on purpose.
 
 The one walk both sides of the queue share: the worker's compiler
-(:mod:`geecs_bluesky.plans.action_compiler`) executes exactly this order,
+(:mod:`geecs_bluesky.actions.compiler`) executes exactly this order,
 and a client's preview (the web scanner's Actions panel) promises it.  It
 depends on the schema models and this package's exceptions alone — no
 bluesky, no hardware — so a client that must never import
@@ -34,7 +34,7 @@ def flatten_action_steps(
     """Flatten *plan* into its concrete steps, resolving nested ``run`` steps.
 
     The dry-run / validation counterpart of
-    :func:`~geecs_bluesky.plans.action_compiler.compile_action_plan`: it
+    :func:`~geecs_bluesky.actions.compiler.compile_action_plan`: it
     walks the exact same step order the compiler executes — nested plans
     inlined where their ``run`` step sits — but touches no signals and needs
     no factory, so it is safe to call with zero hardware.  Every nested

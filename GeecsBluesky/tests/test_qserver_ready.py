@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import pytest
 
-from geecs_bluesky import qserver_ready
+from geecs_bluesky.qs_client import ready
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
-from geecs_bluesky.qserver_ready import NotReady, ensure_ready
+from geecs_bluesky.qs_client.ready import NotReady, ensure_ready
 
 
 def _plans(names):
@@ -79,7 +79,7 @@ class _Manager:
 
 @pytest.fixture(autouse=True)
 def _no_sleep(monkeypatch):
-    monkeypatch.setattr(qserver_ready.time, "sleep", lambda s: None)
+    monkeypatch.setattr(ready.time, "sleep", lambda s: None)
 
 
 def test_closed_environment_is_opened_then_plans_asserted() -> None:
@@ -134,13 +134,8 @@ def test_empty_plan_list_after_open_is_not_ready() -> None:
         ensure_ready(manager, timeout_s=30, log=log.append)
     methods = [m for m, _ in manager.calls]
     assert methods.count("permissions_reload") == 1
-    assert methods.count("plans_allowed") == 2 * (
-        qserver_ready.PLAN_LIST_SETTLE_POLLS + 1
-    )
-    assert (
-        sum("re-reading" in line for line in log)
-        == 2 * qserver_ready.PLAN_LIST_SETTLE_POLLS
-    )
+    assert methods.count("plans_allowed") == 2 * (ready.PLAN_LIST_SETTLE_POLLS + 1)
+    assert sum("re-reading" in line for line in log) == 2 * ready.PLAN_LIST_SETTLE_POLLS
 
 
 def test_plan_list_landing_after_the_open_is_ready() -> None:
@@ -173,7 +168,7 @@ def test_no_settle_window_without_our_open() -> None:
     methods = [m for m, _ in manager.calls]
     assert methods.index("permissions_reload") == methods.index("plans_allowed") + 1
     assert methods.count("permissions_reload") == 1
-    assert methods.count("plans_allowed") == qserver_ready.PLAN_LIST_SETTLE_POLLS + 2
+    assert methods.count("plans_allowed") == ready.PLAN_LIST_SETTLE_POLLS + 2
 
 
 def test_empty_list_with_the_environment_up_is_healed_by_a_restore_from_disk() -> None:
@@ -242,11 +237,11 @@ def test_restore_call_gets_the_longer_transport_budget(monkeypatch) -> None:
         "bluesky_queueserver.manager.comms",
         types.SimpleNamespace(zmq_single_request=fake_zmq),
     )
-    request = qserver_ready._zmq_request("tcp://localhost:1")
+    request = ready._zmq_request("tcp://localhost:1")
     request("status", None)
     request("permissions_reload", {"restore_plans_devices": True})
-    assert seen["status"] == int(qserver_ready.POLL_S * 1000)
-    assert seen["permissions_reload"] == int(qserver_ready.RESTORE_TIMEOUT_S * 1000)
+    assert seen["status"] == int(ready.POLL_S * 1000)
+    assert seen["permissions_reload"] == int(ready.RESTORE_TIMEOUT_S * 1000)
 
 
 def test_unanswered_plan_list_after_open_is_not_retried() -> None:
@@ -291,7 +286,7 @@ def test_verdict_is_the_shared_one() -> None:
 
 def test_manager_never_answering_is_not_ready(monkeypatch) -> None:
     ticks = iter(range(0, 100000, 5))
-    monkeypatch.setattr(qserver_ready.time, "monotonic", lambda: float(next(ticks)))
+    monkeypatch.setattr(ready.time, "monotonic", lambda: float(next(ticks)))
     manager = _Manager([], answer=False)
     with pytest.raises(NotReady, match="did not answer 'status'"):
         ensure_ready(manager, timeout_s=20, log=lambda s: None)
@@ -330,7 +325,7 @@ def test_manager_executing_a_plan_is_ready_too() -> None:
 
 def test_environment_never_up_before_deadline_is_not_ready(monkeypatch) -> None:
     ticks = iter(range(0, 100000, 5))
-    monkeypatch.setattr(qserver_ready.time, "monotonic", lambda: float(next(ticks)))
+    monkeypatch.setattr(ready.time, "monotonic", lambda: float(next(ticks)))
     manager = _Manager(
         [
             _status(exists=False),
@@ -369,7 +364,7 @@ def test_busy_manager_without_environment_waits_until_the_deadline(
     monkeypatch,
 ) -> None:
     ticks = iter(range(0, 100000, 5))
-    monkeypatch.setattr(qserver_ready.time, "monotonic", lambda: float(next(ticks)))
+    monkeypatch.setattr(ready.time, "monotonic", lambda: float(next(ticks)))
     manager = _Manager([_status(exists=False, manager="closing_environment")])
     with pytest.raises(NotReady, match="not up before the deadline"):
         ensure_ready(manager, timeout_s=20, log=lambda s: None)
@@ -385,23 +380,21 @@ class TestMain:
                 raise NotReady("nope")
             return []
 
-        monkeypatch.setattr(qserver_ready, "_zmq_request", lambda addr: object())
-        monkeypatch.setattr(qserver_ready, "ensure_ready", fake_ensure)
-        assert qserver_ready.main([]) == 1
+        monkeypatch.setattr(ready, "_zmq_request", lambda addr: object())
+        monkeypatch.setattr(ready, "ensure_ready", fake_ensure)
+        assert ready.main([]) == 1
         outcomes["ready"] = True
-        assert (
-            qserver_ready.main(["--control-addr", "tcp://x:1", "--timeout", "5"]) == 0
-        )
+        assert ready.main(["--control-addr", "tcp://x:1", "--timeout", "5"]) == 0
         with pytest.raises(SystemExit) as excinfo:
-            qserver_ready.main(["--timeout", "0"])
+            ready.main(["--timeout", "0"])
         assert excinfo.value.code == 2
 
     def test_missing_queueserver_is_exit_2(self, monkeypatch) -> None:
         def no_zmq(addr):
             raise ImportError("no bluesky_queueserver")
 
-        monkeypatch.setattr(qserver_ready, "_zmq_request", no_zmq)
-        assert qserver_ready.main([]) == 2
+        monkeypatch.setattr(ready, "_zmq_request", no_zmq)
+        assert ready.main([]) == 2
 
     def test_control_addr_precedence(self, monkeypatch) -> None:
         """flag > QS_CONTROL_ADDR > loopback — the client-side config is ignored.
@@ -415,9 +408,9 @@ class TestMain:
 
         seen = {}
         monkeypatch.setattr(
-            qserver_ready, "_zmq_request", lambda addr: seen.__setitem__("addr", addr)
+            ready, "_zmq_request", lambda addr: seen.__setitem__("addr", addr)
         )
-        monkeypatch.setattr(qserver_ready, "ensure_ready", lambda *a, **k: [])
+        monkeypatch.setattr(ready, "ensure_ready", lambda *a, **k: [])
         monkeypatch.delenv("QS_CONTROL_ADDR", raising=False)
         monkeypatch.setattr(
             qs_client,
@@ -425,18 +418,18 @@ class TestMain:
             lambda: QserverConfig("tcp://other-box:60615", "tcp://h:60625", "h:5568"),
         )
 
-        assert qserver_ready.main([]) == 0
-        assert seen["addr"] == qserver_ready.DEFAULT_CONTROL_ADDR
+        assert ready.main([]) == 0
+        assert seen["addr"] == ready.DEFAULT_CONTROL_ADDR
         assert seen["addr"].startswith("tcp://localhost:")
 
         monkeypatch.setenv("QS_CONTROL_ADDR", "tcp://worker:60615")
-        assert qserver_ready.main([]) == 0
+        assert ready.main([]) == 0
         assert seen["addr"] == "tcp://worker:60615"
 
-        assert qserver_ready.main(["--control-addr", "tcp://flag:1"]) == 0
+        assert ready.main(["--control-addr", "tcp://flag:1"]) == 0
         assert seen["addr"] == "tcp://flag:1"
 
     def test_default_addr_port_is_the_client_modules(self) -> None:
         from geecs_bluesky.qs_client.client import _CONTROL_PORT
 
-        assert qserver_ready.DEFAULT_CONTROL_ADDR.endswith(f":{_CONTROL_PORT}")
+        assert ready.DEFAULT_CONTROL_ADDR.endswith(f":{_CONTROL_PORT}")

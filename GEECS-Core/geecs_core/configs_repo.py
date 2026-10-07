@@ -1,10 +1,8 @@
 """Where the GEECS-Plugins-Configs repository is, and the per-experiment files it holds.
 
 One resolver for the consumers of the configs repository — the CA gateway's
-derived channels and the archiver's policy today; GeecsBluesky's
-``scanner_configs`` still carries its own (it raises rather than returning
-``None`` and skips step 2) and moves here in its own PR — so the three-step
-lookup cannot keep drifting between packages:
+derived channels, the archiver's policy and GeecsBluesky's config resolver —
+so the three-step lookup cannot drift between packages:
 
 1. ``GEECS_SCANNER_CONFIG_DIR`` points directly at ``scanner_configs/experiments``.
 2. ``GEECS_PLUGINS_CONFIGS`` points at the configs repository root.

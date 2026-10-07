@@ -3,6 +3,12 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.51.1] - 2026-10-07
+
+### Changed
+
+- Documentation only. Docstrings name GeecsBluesky's moved modules: `geecs_bluesky.callbacks` package and `geecs_bluesky.callbacks.scan_log` (GeecsBluesky 0.115.0 layout).
+
 ## [0.51.0] - 2026-10-06
 
 ### Added

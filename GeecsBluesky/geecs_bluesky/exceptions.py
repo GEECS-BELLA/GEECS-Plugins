@@ -208,7 +208,7 @@ class GeecsDeviceDownError(GeecsError):
 
 
 # ---------------------------------------------------------------------------
-# Action-plan errors — compiled ActionPlan execution (plans/action_compiler)
+# Action-plan errors — compiled ActionPlan execution (actions/compiler)
 # ---------------------------------------------------------------------------
 
 
@@ -216,7 +216,7 @@ class ActionCheckFailedError(GeecsError):
     """A ``check`` step read a value that did not match what the plan expected.
 
     Raised by the compiled action plan (see
-    :func:`~geecs_bluesky.plans.action_compiler.compile_action_plan`) when a
+    :func:`~geecs_bluesky.actions.compiler.compile_action_plan`) when a
     ``check`` step's readback differs from its ``expected`` value.  The plan
     always stops here — a mismatch is never papered over.  The message is
     operator-facing.

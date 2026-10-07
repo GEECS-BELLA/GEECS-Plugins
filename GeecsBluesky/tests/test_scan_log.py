@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from geecs_bluesky.scan_log import ScanLogFile
+from geecs_bluesky.callbacks.scan_log import ScanLogFile
 
 
 def _folder(tmp_path):
