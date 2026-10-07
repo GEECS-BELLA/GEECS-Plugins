@@ -1,33 +1,28 @@
 """Expand a preset into the queue item it stands for — client-side, import-light.
 
-A :class:`geecs_schemas.Preset` is a saved scan: the device group plus
-the plan call.  The worker registers its plans over namespace devices by
-name (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`), so submission
-is a translation of names:
+A :class:`geecs_schemas.Preset` is a saved scan (device group plus plan
+call); submission translates its names into the namespace bindings the
+worker's plans (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`) take:
 
-- each device of the group becomes its namespace binding
-  (``UC_Amp4_IR_input``, or ``UC_Amp4_IR_input.scalars`` when
-  ``save_images`` is off); an ``essential: false`` device goes to the
-  plan's ``non_essential`` list under the same binding;
-- ``acquisition`` and ``shot_period`` ride in ``plan.kwargs`` like
-  ``shots_per_step``;
+- each device becomes its namespace binding (``UC_Amp4_IR_input``, or
+  ``UC_Amp4_IR_input.scalars`` when ``save_images`` is off); an
+  ``essential: false`` device goes to ``non_essential`` instead;
+- ``acquisition`` and ``shot_period`` ride in ``plan.kwargs``;
 - each scan-variable string in ``plan.args`` / ``plan.kwargs`` (a
   ``Device:Variable`` pair or a catalog name) becomes the namespace's
   Movable child, ``U_S1H.current``; a ``kind: pseudo`` entry is a noun of
   its own under its catalog name;
 - ``trigger_profile``, ``native_image_save`` and ``background_telemetry``
-  ride as keyword arguments only when the preset sets them (unset means
-  the experiment default), and a copy in ``plan.kwargs`` is refused
-  (:data:`RUN_LEVEL_FIELDS`); ``background``, the preset name and the
-  submission record ride in the run metadata as provenance.
+  ride as keywords only when set (unset = the experiment default; a copy
+  in ``plan.kwargs`` is refused, :data:`RUN_LEVEL_FIELDS`); ``background``,
+  the preset name and the submission record ride in the run metadata.
 
-The manager does not refuse an unknown device name (it passes the string
-through to the plan), so the expansion records every reference it
-created (:attr:`QueueItem.references`) and the pre-submit preflight
-checks them against the manager's device tree
+The manager passes an unknown device name through to the plan, so the
+expansion records every reference (:attr:`QueueItem.references`) for the
+preflight to check against the manager's device tree
 (:func:`~geecs_bluesky.qs_client.submit_preflight.run_submit_preflight`).
-A preset whose plan is not a scan verb is refused: ``mv`` and
-``run_action`` are queue items of their own (``submit_plan``).
+A preset must name a scan verb; ``mv`` and ``run_action`` go through
+``submit_plan``.
 """
 
 from __future__ import annotations
@@ -223,7 +218,7 @@ def expand_preset(
         if getattr(d, "essential", True):
             detectors.append(reference)
         else:
-            # Non-essential, either way (2026-09-26 ruling): its own stream,
+            # Non-essential, either way: its own stream,
             # joined by stamp; ``.scalars`` records its scalars without files.
             non_essential.append(reference)
     references: list[str] = [*detectors, *non_essential]
@@ -262,8 +257,7 @@ def expand_preset(
     if non_essential:
         kwargs["non_essential"] = non_essential
     # The run-level preset fields are the one source of truth for the plan
-    # keyword of the same name: a copy in plan.kwargs used to win a
-    # setdefault silently (Codex review of #944), so it is refused rather
+    # keyword of the same name: a copy in plan.kwargs is refused rather
     # than merged.  Unset stays absent — the worker's default applies.
     for name in RUN_LEVEL_FIELDS:
         if name in kwargs:

@@ -1,10 +1,8 @@
 """``geecs-qserver-ensure-ready`` — a running ``geecs-qserver`` means *ready*.
 
-bluesky-queueserver treats ``environment open`` as an operator gesture:
-the manager starts knowing no plans, and only opening the worker
-environment populates ``plans_allowed``.  As a systemd service that is
-the wrong contract: a manager that restarted unattended answers
-``qserver status`` healthily and refuses every submission (#793).
+The manager starts knowing no plans; only opening the worker environment
+populates ``plans_allowed``, so a manager that restarted unattended
+answers ``qserver status`` healthily and refuses every submission.
 
 This entry point is the readiness assertion the ``geecs-qserver-ready``
 oneshot unit runs after the manager: wait for the manager to answer, open
@@ -16,7 +14,7 @@ the same ``qs_client.readiness_from_reads`` assembly the pre-submit
 is re-read for a settle window (the manager reports the environment up
 before its plan-list download has landed); a list still empty or
 incomplete is restored once from the worker's on-disk copy through
-``permissions_reload(restore_plans_devices=True)`` (#838), and the settle
+``permissions_reload(restore_plans_devices=True)``, and the settle
 window applies again.  Exit codes: 0 ready; 1 not ready (the message says
 what was found); 2 usage.
 
@@ -83,20 +81,16 @@ PLAN_LIST_SETTLE_POLLS = 5
 #: The verdict states the post-open settle re-reads (never ``plans_unknown``
 #: — an unanswered list is not ready, full stop).
 _SETTLING_STATES = ("plans_empty", "plan_missing")
-#: After the settle window a list that is still empty or incomplete is
-#: restored ONCE from disk through ``permissions_reload`` with
-#: ``restore_plans_devices=True`` (#838): the manager's own download of
-#: the lists from the worker can time out and leave it idle, environment
-#: open, ``plans_allowed`` empty.  The worker writes
-#: ``existing_plans_and_devices.yaml`` from its namespace at every
-#: environment open, so that file IS the running environment's list.
-#: ``environment_update`` is not used: it re-downloads only when the
-#: worker's descriptions differ from its stored copy, a no-op on an
+#: A list still empty or incomplete after the settle window (the manager's
+#: download from the worker timed out) is restored ONCE through
+#: ``permissions_reload(restore_plans_devices=True)`` from
+#: ``existing_plans_and_devices.yaml``, which the worker writes at every
+#: environment open.  Not ``environment_update``: it is a no-op on an
 #: unchanged namespace.  The settle window applies again after the restore.
 _RESTORE_STATES = _SETTLING_STATES
 #: The restore is one manager call; the manager answers it after reading
 #: the file and pushing the permissions to the worker, which can exceed
-#: the 2 s status-poll transport budget on a host in the #838 state.
+#: the 2 s status-poll transport budget.
 RESTORE_TIMEOUT_S = 10.0
 
 #: ``request(method, params) -> (msg, err_msg)``: the manager transport.
@@ -287,7 +281,7 @@ def ensure_ready(
     # with the pre-submit worker_ready check: an unanswered plan list is
     # not ready.  After OUR open the manager's plan-list download may still
     # be in flight when the environment first reads up, so an empty or
-    # incomplete list is re-read for a short settle window (F1, #795).
+    # incomplete list is re-read for a short settle window.
     settle_polls = PLAN_LIST_SETTLE_POLLS if opened else 0
     restored = False
     while True:
@@ -315,7 +309,7 @@ def ensure_ready(
         ):
             # The list is still empty / incomplete with the environment up:
             # the manager's download of it from the worker may have timed
-            # out (#838).  Restore it from the worker's on-disk copy, then
+            # out.  Restore it from the worker's on-disk copy, then
             # settle-read anew.
             restored = True
             log(

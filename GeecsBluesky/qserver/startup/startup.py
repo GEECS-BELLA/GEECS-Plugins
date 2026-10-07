@@ -2,36 +2,26 @@
 
 Loaded by ``start-re-manager --startup-dir <this directory>``
 (``launch_re_manager.sh``).  Defines the module-level ``RE`` the manager
-keeps alive across queue items (``--keep-re``; see ``qserver/README.md``
+keeps across queue items (``--keep-re``; ``qserver/README.md``
 Troubleshooting), exports every device of the experiment as a noun
-(:class:`~geecs_bluesky.namespace.GeecsNamespace`) and registers the
-GEECS plans (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`, bound by
-:func:`~geecs_bluesky.plans.registry.bind_plans`): ``count``, ``sweep``,
-``optimize``, ``mv``, ``run_action`` and the two shot-offset calibration
-plans.  Every run claims a GEECS scan number and leaves ScanInfo, the
-s-file, ``scan.log`` and the detectors' native files in its folder.
+(:class:`~geecs_bluesky.namespace.GeecsNamespace`) and registers the GEECS
+plans (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`, bound by
+:func:`~geecs_bluesky.plans.registry.bind_plans`).  Every run claims a GEECS
+scan number and leaves ScanInfo, the s-file, ``scan.log`` and the
+detectors' native files in its folder.
 
-Import order is load-bearing
------------------------------
-``geecs_bluesky`` is imported **first**: its ``__init__`` calls
-:func:`~geecs_bluesky.epics_env.apply_epics_address_config`, which sets
-the EPICS address variables from ``config.ini`` before any device import
-creates libca's CA context (libca reads them once, at context creation).
-Sourcing the gateway address from the GEECS database instead would need
-a DB round trip at import time and would be circular; the config-file /
-systemd-env sourcing is deliberate.
+**Import order is load-bearing**: ``geecs_bluesky`` is imported first; its
+``__init__`` (:func:`~geecs_bluesky.epics_env.apply_epics_address_config`)
+sets the EPICS address variables from ``config.ini`` before any device
+import creates libca's CA context, which reads them once.  They come from
+the config file, never the GEECS DB (an import-time round trip, circular).
 
-Environment
------------
-``QS_EXPERIMENT`` wins when set (one worker process per experiment);
-otherwise ``config.ini``'s ``[Experiment] expt`` via ``GeecsPathsConfig``.
-Neither present fails loud at startup.  ``QS_DEVICE_NAMESPACE=off`` is the
-hermetic switch (tests, a box without DB or data-share reach): no
-namespace, no trigger profiles, no scan claim; the plans are registered
-but refuse to run.  ``QS_CONNECT_TIMEOUT`` (seconds, default 20) bounds
-the background telemetry's warm-up
-(:func:`~geecs_bluesky.devices.background.warm_up`); a hermetic caller
-sets it low.
+**Environment**: ``QS_EXPERIMENT`` wins when set (one worker per
+experiment), else ``config.ini``'s ``[Experiment] expt`` via
+``GeecsPathsConfig``; neither fails loud.  ``QS_DEVICE_NAMESPACE=off`` is
+the hermetic switch (no namespace, trigger profiles or scan claim; the
+plans register but refuse to run).  ``QS_CONNECT_TIMEOUT`` (seconds,
+default 20) bounds :func:`~geecs_bluesky.devices.background.warm_up`.
 """
 
 from __future__ import annotations
@@ -101,7 +91,7 @@ def _connect_timeout() -> float:
 _experiment = _resolve_experiment()
 _hermetic = os.environ.get("QS_DEVICE_NAMESPACE", "db").strip().lower() == "off"
 
-# ── Device namespace (GEECS-Plugins#807) ──────────────────────────────────
+# ── Device namespace ──────────────────────────────────────────────────────
 # Every enabled device of the experiment as a long-lived ophyd-async noun —
 # built from the GEECS DB (loud on failure), connected on first use by the
 # connect_on_demand preprocessor make_run_engine installs outermost.  The
@@ -137,8 +127,8 @@ else:
         _offsets = None
     # The scan-variable catalog, read once for two things: which plain
     # targets it declares `kind: motor` (bound as CaMotor even where the DB
-    # tolerance is 0) and its pseudo entries as nouns of their own (the
-    # pseudo arc, #904).  Best-effort like the shot offsets: an unreadable
+    # tolerance is 0) and its pseudo entries as nouns of their own.
+    # Best-effort like the shot offsets: an unreadable
     # catalog costs the opt-ins and the pseudos, not the worker.
     try:
         _catalog = _resolver.scan_variable_catalog().variables
@@ -168,7 +158,7 @@ else:
 # *outside* a run — a pseudo positioner's baselines captured at stage and
 # restored at unstage, a manual mv's moves — and the worker's root logger
 # sits at WARNING there (the scan log lowers it to INFO only for the run's
-# duration, #915).  A level is checked once, at the emitting logger, so
+# duration).  A level is checked once, at the emitting logger, so
 # this reaches the journal whatever the root's level is.  Process policy,
 # so it lives here, not in make_run_engine.
 logging.getLogger("geecs_bluesky").setLevel(logging.INFO)
@@ -201,7 +191,7 @@ if not _hermetic:
 # this module.
 globals().update(bind_plans(_profiles, resolver=_resolver, settables=namespace))
 
-# ZMQ document publisher — the GUI progress stream (#648). bluesky documents
+# ZMQ document publisher — the GUI progress stream. bluesky documents
 # go to a bluesky-0MQ-proxy (started by launch_re_manager.sh alongside
 # Redis); clients (GeecsScanner, GEECS-MCP) consume them with
 # bluesky.callbacks.zmq.RemoteDispatcher on the proxy's out port. NOTE the
@@ -210,8 +200,7 @@ globals().update(bind_plans(_profiles, resolver=_resolver, settables=namespace))
 # as Tiled: a worker without the stream still runs scans correctly — only
 # live GUI progress is lost. A zmq PUB connect always "succeeds" (it is
 # asynchronous and simply drops while unconnected), so an absent proxy is
-# probed explicitly below — that TCP check is what makes the warning real
-# (#652 review finding 2).
+# probed explicitly below — that TCP check is what makes the warning real.
 _doc_publish_addr = os.environ.get("QS_DOC_PUBLISH_ADDR", "localhost:5567")
 if _doc_publish_addr.upper() != "OFF":
     try:
@@ -246,7 +235,7 @@ __all__ = ["RE", *GEECS_PLAN_NAMES, *_DEVICE_NAMES]
 
 
 # Import on the profile thread before readiness; concurrent numerical imports
-# can deadlock Python's module locks (the #778 incident).
+# can deadlock Python's module locks.
 def _warm_optimizer():
     try:
         import xopt  # noqa: F401

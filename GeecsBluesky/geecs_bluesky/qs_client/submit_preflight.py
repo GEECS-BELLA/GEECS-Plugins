@@ -1,34 +1,28 @@
 """Client-side pre-submit preflight: the checks before queueing.
 
-Under the queue, submission-to-execution gaps are long and the worker
-cannot ask the operator anything, so clients run the checks *before*
-queueing and put the questions their own way.  This module is the pure
-layer: it computes findings and questions on the caller's thread and
-returns them; rendering and answering live in the client.  Outcomes go
-into a ``SubmissionRecord`` (:func:`build_submission_record`) submitted
-beside the plan call as run metadata, a provenance trail of who was
-asked what.
+The worker cannot ask the operator anything, so clients run these checks
+*before* queueing.  This module is the pure layer: it returns findings and
+questions on the caller's thread; rendering and answering live in the
+client, and the outcomes go into a ``SubmissionRecord``
+(:func:`build_submission_record`) submitted as run metadata.
 
 Checks, in order (the ``PreflightOutcome.check`` vocabulary):
 
-- ``validate`` — the preset expands into a queue item
-  (:func:`~geecs_bluesky.qs_client.presets.expand_preset`).  A failure is
-  a hard refusal, never a question.
-- ``worker_ready`` — the manager answers, its environment is open, the
-  plan is in its allowed list and every device reference the expansion
-  created is in its device tree (#793).  A closed environment or a
-  missing plan is a hard refusal naming the recovery gesture; an
-  unreachable manager, an unanswered plan list (``plans_unknown``) or a
-  client without a ``[qserver]`` config is *skipped* (fail-open).  Two
-  acquisition rules read off the same tree: every ``non_essential``
-  device must be triggered (an ``acq_timestamp`` child), and a gated run
-  needs at least one essential triggered device.
-- ``gateway_liveness`` — one CA read of the ``CONNECTED`` PV of each
-  preset device and of each device the trigger profile writes (#852);
-  only the exact ``"Disconnected"`` reading counts as down (fail-open).
+- ``validate`` — :func:`~geecs_bluesky.qs_client.presets.expand_preset`
+  succeeds; a failure is a hard refusal, never a question.
+- ``worker_ready`` — the manager answers, its environment is open, and
+  it knows the plan and every device reference the expansion created.
+  A closed environment or a missing plan is a hard refusal naming the
+  recovery gesture; an unreachable manager, an unanswered plan list or no
+  ``[qserver]`` config is *skipped* (fail-open).  Off the same tree: every
+  ``non_essential`` device must be triggered (an ``acq_timestamp`` child),
+  and a gated run needs an essential triggered device.
+- ``gateway_liveness`` — each preset and trigger-profile device's
+  ``CONNECTED`` PV, read once; only the exact ``"Disconnected"`` counts
+  as down (fail-open).
 
-Every heavy dependency (``aioca``) is imported lazily inside functions;
-this module must import light and offline.
+Heavy dependencies (``aioca``) import lazily: this module must import
+light and offline.
 """
 
 from __future__ import annotations
@@ -215,7 +209,7 @@ _FAIL_OPEN_READINESS_STATES = frozenset({"unreachable", "plans_unknown"})
 def _check_worker_ready(
     report: PreflightReport, client: Any | None, experiment: str, item: Any
 ) -> None:
-    """Refuse when the manager cannot run the plan about to be queued (#793).
+    """Refuse when the manager cannot run the plan about to be queued.
 
     The verdict is the shared
     :func:`~geecs_bluesky.qs_client.client.readiness_from_reads` — the
