@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.115.3] - 2026-10-07
+
+### Changed
+
+- `tests/test_dependency_direction.py` now checks only `if TYPE_CHECKING:`
+  imports of `geecs_scanner`. The `.importlinter` bluesky-edges contract
+  covers every other import of it, but excludes type-checking imports.
+- `CLAUDE.md` no longer lists `trajectory.py` among the import-light
+  modules. It imports `bluesky.plan_patterns`, and the scanner imports it
+  lazily. The stale note about it in `.importlinter` is gone.
+
 ## [0.115.2] - 2026-10-07
 
 ### Changed

@@ -116,6 +116,7 @@ geecs_bluesky/
                             #   registered like a camera stack (GeecsRunWriter / GeecsTiledWriter)
   data_paths.py             # local ↔ device-server data path mapping
   exceptions.py             # the scan-level exception tree, failure_cause_text
+  trajectory.py             # sweep_to_cycler: the one numerical expansion of a Sweep
   optimization/             # native Xopt ask/tell (driver), live PVA frames, the
                             #   measurement compiler, simulations, generators/ (BAX),
                             #   inspection/ (dump loading, surrogate analysis), events.py
@@ -125,7 +126,6 @@ geecs_bluesky/
   plan_names.py             # GEECS_PLAN_NAMES and the roster's subsets, ACQUISITION_MODES
   log_markers.py            # log-line strings clients parse from the manager's text stream
   actions/steps.py          # flatten_action_steps: the one walk of an action plan
-  trajectory.py             # sweep_to_cycler: the one numerical expansion of a Sweep
   utils.py                  # safe_name, identifier_name, resolve_annotations
 qserver/                    # the worker: launcher, startup profile, permissions, deploy/
 ```
@@ -819,6 +819,6 @@ with no dependency edge between them.
   (`LvNativeFileDataLogic`) and the HDF plugin's signals (`GeecsHdfIO`,
   the stock `ADHDFDataLogic` puts) — a refused one reads as success there.
 - Import anything from `geecs_scanner` (the web scanner depends on this
-  package; the edge is one-way, pinned by
+  package; the edge is one-way, pinned by `.importlinter` and
   `tests/test_dependency_direction.py`), the portal, the logbook or the
   gateway's code.
