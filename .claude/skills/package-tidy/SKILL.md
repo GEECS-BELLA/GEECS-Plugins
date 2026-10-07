@@ -27,7 +27,14 @@ references. Out: splitting large functions or modules (a 200-line plan
 generator, a 2,000-line FastAPI `app.py`). A split changes control flow,
 so "no test assertion changed" is no longer a sufficient gate; that work
 is its own arc with hardware verification of the scan paths. List such
-modules in the survey as candidates for that arc and move on.
+modules in the survey as candidates for that arc and move on. Also out:
+dead-code hunting by tool — a periodic repo-wide vulture sweep (every
+package's source dir plus every `tests/` dir as one input,
+`--min-confidence 80`,
+`--ignore-names cls,model_config,pytestmark,pytest_*,connection_made,connection_lost,datagram_received,error_received,__getattr__`,
+`--ignore-decorators '@model_validator,@field_validator,@*.validator,@*.route,@*.get,@*.post,@*.put,@*.delete,@*.websocket,@*.fixture'`)
+is a cleanup-day activity outside this skill, and its findings are
+always questions for Sam, never verdicts.
 
 ## 0. Inputs — ask Sam first (one question round)
 
@@ -140,12 +147,14 @@ Follow `/land`. Spawn the reviewer with the Agent tool, not inside a
 Workflow, so the same reviewer confirms each fix commit. Add this fourth
 lens to the `/land` brief, verbatim:
 
-> 4. **Dead code** — in a scratch venv (`python -m venv`, `pip install
->    vulture`) run `vulture <Package>/<import_name>` and report every
->    unused symbol as a finding phrased as a question for the owner
->    ("unused today — planned?"), never as a verdict to delete: features
->    with zero callers today are planned (actions). Give vulture's
->    confidence and whether the symbol is public.
+> 4. **Dead code, by reading the diff** — symbols whose last caller this
+>    PR removed, re-exports nothing imports any more, shims or old paths
+>    left behind, tests that now pin nothing. Report each as a finding
+>    phrased as a question for the owner ("unused today — planned?"),
+>    never as a verdict to delete: features with zero callers today are
+>    planned (actions). Do not run vulture on the diff: per package it
+>    is ~2% signal (a sibling package's use of the public API and
+>    framework callbacks read as "unused").
 
 Post findings and dispositions as a PR comment. Master merges are
 Sam's. Stacked work bases on master and says "merge #N first".
