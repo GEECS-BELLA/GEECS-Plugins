@@ -773,6 +773,7 @@ gateway (circular).
 - `[Database]`: `GeecsDb`.
 - `[qserver]`: `qs_client`'s own reader, which falls back rather than raising
   on a malformed file (the client seam's manager addresses).
+
 Facility values have one home (root `CLAUDE.md`); the worker's are in the
 host's `site.env`, rendered into the units.
 
