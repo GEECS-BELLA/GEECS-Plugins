@@ -226,7 +226,7 @@ NARRATIVE = re.compile(
             r"\bSam\b|\bowner'?s (ruling|call|decision)\b|\bruling\b|\bphase\s*\d\b",
             r"\bM\d\b(?=\s+(?:cutover|merge|milestone|arc|era|line|history)\b)",
             r"\b(incident|historically|used to be|back when|originally)\b",
-            r"\bat the time\b(?!\s+of\b)",
+            r"\bat the time\b(?=\s*[.,;:)]|\s*$)",
         )
     ),
     re.I,

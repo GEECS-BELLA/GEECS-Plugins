@@ -115,7 +115,9 @@ def test_strict_prose_names_packages_on_disk() -> None:
         # Present-tense phrases and quoted examples are not history.
         ('"""The lock used to serialize puts; M3 is a mirror."""\n', []),
         ('"""Readback at the time of the trigger, as ISO ``2026-09-24``."""\n', []),
+        ('"""A snapshot at the time a shot lands."""\n', []),
         ('"""It used to be a list, back when M6 cutover ran."""\n', ["used to be"]),
+        ('"""The defaults file in force at the time."""\n', ["at the time"]),
     ],
 )
 def test_narrative_rule_of_thumb(tmp_path: Path, doc: str, hits: list[str]) -> None:
