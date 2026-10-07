@@ -9,28 +9,12 @@ helpers translate scanner-owned save paths into the form devices need for
 
 from __future__ import annotations
 
-import configparser
 import logging
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+from geecs_core.configs_repo import read_config_entry
+
 logger = logging.getLogger(__name__)
-
-
-CONFIG_PATH = Path.home() / ".config" / "geecs_python_api" / "config.ini"
-
-
-def read_config_entry(
-    section: str, key: str, config_path: Path | None = None
-) -> str | None:
-    """One ``config.ini`` value (``None`` when the file, section or key is absent)."""
-    path = config_path or CONFIG_PATH
-    if not path.exists():
-        return None
-    cfg = configparser.ConfigParser()
-    cfg.read(path)
-    if section not in cfg:
-        return None
-    return cfg[section].get(key) or None
 
 
 def pva_addr_tokens(raw: str | None) -> list[str]:

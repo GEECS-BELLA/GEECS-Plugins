@@ -34,7 +34,9 @@ import os
 from pathlib import Path
 from typing import MutableMapping, Optional
 
-from geecs_bluesky.data_paths import CONFIG_PATH, pva_addr_tokens, read_config_entry
+from geecs_core.configs_repo import CONFIG_PATH, read_config_entry
+
+from geecs_bluesky.data_paths import pva_addr_tokens
 
 logger = logging.getLogger(__name__)
 

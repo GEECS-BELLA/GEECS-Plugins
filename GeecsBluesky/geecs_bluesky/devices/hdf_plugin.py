@@ -52,10 +52,11 @@ from ophyd_async.epics.adcore import ADHDFDataLogic, NDArrayDescription, NDFileH
 from ophyd_async.epics.adcore._data_logic import get_ndarray_resource_info
 from ophyd_async.epics.core import PvSuffix
 
+from geecs_core.configs_repo import read_config_entry
+
 from geecs_bluesky.data_paths import (
     plugin_save_path,
     pva_addr_tokens,
-    read_config_entry,
 )
 
 
