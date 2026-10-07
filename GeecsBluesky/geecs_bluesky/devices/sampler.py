@@ -1,37 +1,27 @@
 """ShotSampler — one event per shot for every device without a plugin — and StampStream.
 
-The gated batch has no per-shot ``create/read/save``: the box free-runs
-and the plugin-backed cameras count their own frames.  Every other device
-of the run (scalar-only devices, triggered scalars without a plugin, a
-camera's ``.scalars`` view, the scanned motors' readbacks, ``bin_number``)
-is recorded by this software device through the stock
-``prepare → kickoff → complete → collect`` verbs:
+In a gated batch plugin-backed cameras count their own frames; every other
+device of the run (scalar devices, a camera's ``.scalars`` view, motor
+readbacks, ``bin_number``) is recorded by this software device:
 
 - **Clock.**  An essential triggered device's ``acq_timestamp``; every
   advance past the value read at ``kickoff`` is one shot.
-- **Row.**  On each tick, the latest cached reading of every member, plus
-  the clock's stamp column (the join key to the cameras' frames) and, for
-  a native-saving essential, its ``-nonscalar_save_path`` column.
-- **Settle.**  A member with a stamp of its own is not read at the tick,
-  since its stamp can land after the clock's; it gets
-  :data:`SETTLE_TIMEOUT_S` for its stamp to fall within
-  :data:`SHOT_WINDOW_S` of the clock's before its columns are read.  One
-  that does not make it missed the shot: numeric columns ``NaN``, the miss
-  counted in :attr:`missed`, never the previous shot's values.
-- **Quota.**  ``prepare(N)`` sets the step's shot count; ``complete`` is
-  done after *N* ticks or fails with
+- **Row.**  On each tick, every member's latest cached reading, the clock's
+  stamp column (the join key to the frames) and, for a native-saving
+  essential, its ``-nonscalar_save_path`` column.
+- **Settle.**  A member with its own stamp gets :data:`SETTLE_TIMEOUT_S` for
+  that stamp to fall within :data:`SHOT_WINDOW_S` of the clock's; one that
+  misses reads ``NaN``, counted in :attr:`missed`, never the previous shot.
+- **Quota.**  ``prepare(N)`` sets the step's shot count; ``complete`` is done
+  after *N* ticks or fails with
   :exc:`~geecs_bluesky.exceptions.GeecsTriggerTimeoutError` when the clock
-  stops.  The sampler counts, so a gated run needs an essential triggered
-  device.
-- **Stream.**  ``collect`` yields the ``shots`` events not yet yielded,
-  and only rows whose frame every gate already holds, so a row once out
-  is never a shot the step discards.
+  stops.  A gated run needs an essential triggered device.
+- **Stream.**  ``collect`` yields only ``shots`` rows whose frame every gate
+  already holds, so a row once out is never discarded.
 
 :class:`StampStream` is the non-essential counterpart: one event per stamp
-a single triggered device without a plugin publishes, in its own
-``<name>_stream``, never tied to a row.  Members are read through their
-own ``read``/``describe`` from their monitor caches; nothing here touches
-Channel Access.
+of a triggered device without a plugin, in its own ``<name>_stream``.
+Members are read from monitor caches; nothing here touches Channel Access.
 """
 
 from __future__ import annotations
@@ -456,10 +446,8 @@ class StampStream:
     sensor saving its own LabVIEW files, a scalar device with a stamp (a
     power supply, a gauge) — listed ``non_essential`` is a nice-to-have
     diagnostic that must never hold up acquisition.  Sampling it at the
-    row would either wait for it (its write time back in the rep rate: the
-    HASO's stamp PV reaches the worker ~0.9 s after its frame, a strict
-    row is read ~0.5 s after the fire) or record the previous shot (the
-    Scan015 defect).  So it gets its own event stream instead, the shape a
+    row would either wait for it (its write time back in the rep rate) or
+    record the previous shot.  So it gets its own event stream instead, the shape a
     non-essential plugin camera's ``<name>_stream`` already has: this
     small software device (``Flyable`` + ``EventCollectable``) subscribes
     to the device's ``acq_timestamp`` at ``kickoff`` and, **the moment**

@@ -1,26 +1,24 @@
 """CaMotor — position-feedback motor driven through the CA gateway.
 
-The device's reply is the verdict (#906).  A gateway ``:SP`` write rides
-the GEECS UDP set, which answers twice: the **command ACK** (no ACK, or an
-ACK other than ``accepted``, fails the put at once) and the **executed
-reply** once the device has run its own convergence check (``no error``
-completes the move; an error, the device's own check-values timeout
-included, fails it at once).
+The device's reply is the verdict.  A gateway ``:SP`` write rides the GEECS
+UDP set, which answers twice: the **command ACK** (none, or other than
+``accepted``, fails the put at once) and the **executed reply** once the
+device has run its own convergence check (``no error`` completes the move;
+an error, including the device's check-values timeout, fails it at once).
 
-Nothing here budgets the executed reply, because the connector cannot
-know how long a set takes.  Three named bounds:
+The connector cannot know how long a set takes, so the executed reply has
+no budget of its own.  Three named bounds:
 
 1. :data:`REPLY_WAIT` — the reply is waited for outright; once in, the
    readback is confirmed within ``tolerance`` of the target.
-2. The **stall rule** — from :data:`PROGRESS_GRACE` on, the readback is
-   polled as a stall detector: no movement beyond the tolerance for
-   :data:`STALL_TIMEOUT` while off target fails the move with
+2. The **stall rule** — from :data:`PROGRESS_GRACE` on, no readback
+   movement beyond the tolerance for :data:`STALL_TIMEOUT` while off target
+   fails the move with
    :class:`~geecs_bluesky.exceptions.GeecsMotorTimeoutError`.  A readback
-   sitting at the target is not a stall, only a device that has not
-   answered yet.
+   at the target is not a stall.
 3. At ``REPLY_WAIT`` with no reply: a readback within tolerance completes
-   the move (logged at WARNING; the reply was lost); one still moving keeps
-   the wait alive up to :data:`REPLY_CEILING`, the stall rule still armed.
+   the move (WARNING: the reply was lost); one still moving keeps the wait
+   alive up to :data:`REPLY_CEILING`, the stall rule still armed.
 
 The poll reads the readback of the variable it set; the set-X-confirm-Y
 case is :class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`.
@@ -70,23 +68,15 @@ REPLY_CEILING = 300.0
 _POLL_INTERVAL = 0.1
 
 #: Move-completion tolerance of a bare ``CaMotor(...)`` and of a catalog
-#: ``kind: motor`` opt-in whose DB tolerance is 0/NULL (#780): the
-#: namespace passes a positive DB ``tolerance`` where the DB has one, this
-#: default where the catalog asks for a motor and the DB says nothing
-#: (WARNED at build).  5 mA on a supply, 5 µm on a stage; the pseudo
-#: positioner's agreement fallback sits above it on purpose.
+#: ``kind: motor`` opt-in whose DB tolerance is 0/NULL (WARNED at build); a
+#: positive DB ``tolerance`` replaces it.  5 mA on a supply, 5 µm on a
+#: stage; the pseudo positioner's agreement fallback sits above it on purpose.
 DEFAULT_TOLERANCE = 0.005
 
 # Binary floating point puts an exactly-on-tolerance arrival a few ULPs *over*
-# the limit: |-10.505 - -10.5| evaluates to 0.005000000000000782, not 0.005.
-# A stage that landed exactly on tolerance therefore polled for the full
-# move timeout and paused the scan for an operator (U_ModeImagerESP, Scan034).
-#
-# The error in |current - value| scales with the *operands*, not the tolerance
-# (~ULP(|position|) = |x| * 2.2e-16), so the slack must too: a tolerance-relative
-# epsilon under-covers exactly the large-coordinate axes (U_CompAeroTech reads
-# ~4e4). Four ULPs of the larger operand covers the subtraction plus the
-# comparison with room to spare, and stays far below any real tolerance.
+# the limit (|-10.505 - -10.5| evaluates to 0.005000000000000782). The error
+# scales with the *operands*, not the tolerance, so the slack must too: four
+# ULPs of the larger operand, far below any real tolerance.
 ULP_SLACK = 4 * sys.float_info.epsilon
 
 

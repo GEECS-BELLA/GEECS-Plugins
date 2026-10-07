@@ -1,42 +1,27 @@
 """GeecsDetector — a GEECS acquirer as a stock ophyd-async ``StandardDetector``.
 
-The three ophyd-async 0.19 logics:
+- :class:`GeecsTriggerLogic` — external edges only; its config signal, the
+  calibrated edge-to-stamp **drain offset**, is ``get_deadtime``.
+- :class:`GeecsAcquireLogic` — a shot **is** ``acq_timestamp`` advancing.
+  LabVIEW always acquires, so ``start_acquiring``/``ensure_stopped`` are
+  no-ops; this logic owns the wait and its synchronous baseline.
+- data logics — :class:`ScalarsDataLogic` (scalars into the row),
+  :class:`LvNativeFileDataLogic` (LabVIEW-native saving) and, on a host
+  serving the PVA file plugin,
+  :class:`~geecs_bluesky.devices.hdf_plugin.GeecsHdfDataLogic` over
+  :class:`~geecs_bluesky.devices.hdf_plugin.GeecsHdfIO`, one per image variable.
 
-- :class:`GeecsTriggerLogic` — external edges only; nothing to program.
-  Its one config signal is the calibrated **drain offset**, the per-device
-  constant between edge and stamp, returned by ``get_deadtime``.
-- :class:`GeecsAcquireLogic` — the GEECS shot contract: a shot **is**
-  ``acq_timestamp`` advancing.  LabVIEW is always acquiring, so
-  ``start_acquiring``/``ensure_stopped`` are no-ops; this logic owns the
-  wait and the synchronous baseline that makes it exact.
-- data logics — :class:`ScalarsDataLogic` (the device's scalars into the
-  row), :class:`LvNativeFileDataLogic` (LabVIEW-native saving from a
-  ``PathProvider``), and, on a host serving the PVA gateway's file plugin
-  (#806), :class:`~geecs_bluesky.devices.hdf_plugin.GeecsHdfDataLogic`
-  (the stock ``ADHDFDataLogic``, its stream described lazily) over
-  :class:`~geecs_bluesky.devices.hdf_plugin.GeecsHdfIO`, one per image
-  variable.
+A missed shot does not void the row: scalar columns read ``NaN`` and the
+strict plan records the partial row before taking one more shot.
+:meth:`GeecsDetector.trigger` turns a plugin count timeout into the GEECS
+timeout the refire gate understands; :meth:`GeecsDetector.discard_uncollected`
+rewinds late frames before the retake.  In a **gated** batch the device
+flies (``prepare(number_of_events=N)``, ``kickoff``, ``truncate_to_quota``,
+``truncate_to``, ``abandon_step``); a device without a plugin flies as a
+native-saving essential.
 
-A missed shot does not void the row: the device's scalar columns read
-``NaN`` and the strict plan records the partial row (no frames) before
-taking one more shot.  On a plugin-backed camera the count wait precedes
-the stamp wait; :meth:`GeecsDetector.trigger` translates a count timeout
-into the GEECS timeout the refire gate understands, and
-:meth:`GeecsDetector.discard_uncollected` rewinds late frames before the
-retake.
-
-In a **gated** batch the same device flies: ``prepare(number_of_events=N)``
-baselines the plugin's count, ``kickoff`` arms the quota (fly mode:
-``complete`` returns when the count is reached), ``truncate_to_quota``
-rewinds the in-flight frame after the box goes OFF, ``truncate_to`` keeps
-the shots every device reached after a pause, and ``abandon_step`` settles
-a pending ``complete`` quietly.  A device without a plugin flies as a
-native-saving essential: one unbounded prepare at the run's first step
-switches saving on for the run.
-
-Every per-run fact is set through the device's own lifecycle (rule 2,
-``GeecsBluesky/CLAUDE.md``).  A bare ``bp.count([cam])`` is refused at
-prepare: a GEECS camera cannot self-trigger; the fire comes from the plan.
+A bare ``bp.count([cam])`` is refused at prepare: a GEECS camera cannot
+self-trigger; the fire comes from the plan.
 """
 
 from __future__ import annotations
@@ -433,10 +418,10 @@ class LvNativeFileDataLogic(DetectorDataLogic):
     A camera whose frames are **not** wanted this run still carries the
     logic (``native_save=True`` on the detector, no path provider): a
     ``save=on`` left by a crash would otherwise write today's shots into
-    yesterday's folder (found live 26_0828) — so ``stage`` always clears it.
+    yesterday's folder — so ``stage`` always clears it.
 
     ``enabled`` is the run-level switch behind the bound plans'
-    ``native_image_save`` argument (PNG retirement, #738): ``False`` keeps
+    ``native_image_save`` argument: ``False`` keeps
     the controls owned — ``stop`` still clears a stale ``save=on`` at
     ``stage`` — but ``prepare_single`` never switches saving on and adds no
     column, exactly as with no path provider.  The plans set it per run on
@@ -622,19 +607,18 @@ class GeecsDetector(StandardDetector):
         ``stage`` (see :class:`LvNativeFileDataLogic`).  Without either the
         detector records scalars only.
     hdf_plugins :
-        ``(image variable, path provider)`` per file plugin to capture
-        (#806): each becomes a :class:`GeecsHdfIO` child (``hdf``, then
-        ``hdf_<variable>``) driven by :class:`GeecsHdfDataLogic` — the
-        stock ``ADHDFDataLogic``, its stream described lazily so the
-        geometry the plugin settles on at the first fresh frame is the one
-        recorded (GEECS-Plugins#1023); the
-        first writes the ``<name>`` stream key, the others
-        ``<name>-<variable>``.  The namespace passes the devicetype's
-        declared capture streams (``geecs_core.db.device_streams``; default
-        the one primary image variable — a variable the device pushes only
-        when an operation produces it would never arm).  With a *path_provider* as well the
-        camera also writes its native files (dual-write, until PNG
-        retirement #738); without one a stale ``save=on`` is still cleared.
+        ``(image variable, path provider)`` per file plugin to capture:
+        each becomes a :class:`GeecsHdfIO` child (``hdf``, then
+        ``hdf_<variable>``) driven by :class:`GeecsHdfDataLogic`, its stream
+        described lazily so the geometry the plugin settles on at the first
+        fresh frame is the one recorded; the first writes the ``<name>``
+        stream key, the others ``<name>-<variable>``.  The namespace passes
+        the devicetype's declared capture streams
+        (``geecs_core.db.device_streams``; default the one primary image
+        variable — a variable the device pushes only when an operation
+        produces it would never arm).  With a *path_provider* as well the
+        camera also writes its native files (dual-write); without one a
+        stale ``save=on`` is still cleared.
     shot_timeout :
         Seconds to wait for the stamp after a fire.
     drain_offset :
@@ -772,8 +756,7 @@ class GeecsDetector(StandardDetector):
         What explains a plugin-backed camera that counts no frame: the
         plugin refused what the camera pushed — a stack that would not
         open, a frame of another shape than the open stack's — and said so
-        only there, where it reads as the camera's own frame drop
-        (GEECS-Plugins#1023).  Read on every failure path that names the
+        only there, where it reads as the camera's own frame drop.  Read on every failure path that names the
         device (:meth:`prepare`, the count timeouts of ``trigger`` and
         ``complete``, the strict plan's miss), the plugins together, each
         within :data:`PLUGIN_REASON_TIMEOUT_S` — so the call is bounded by
@@ -804,12 +787,11 @@ class GeecsDetector(StandardDetector):
         not wanted (``native_save`` without a path provider) and for one
         the run switched off — the bound plans' ``native_image_save``
         argument, applied to plugin-backed cameras of a strict run only
-        (:func:`~geecs_bluesky.plans.registry.native_image_save_wrapper`,
-        PNG retirement #738; a gated run's plugin-backed cameras never
-        save natively, and a device without a plugin saves in either mode).
-        Setting it flips the data logic's switch and
-        nothing else: the controls stay owned, so a stale ``save=on`` is
-        still cleared at ``stage``.  A device without the controls refuses
+        (:func:`~geecs_bluesky.plans.registry.native_image_save_wrapper`;
+        a gated run's plugin-backed cameras never save natively, and a
+        device without a plugin saves in either mode).  Setting it flips the
+        data logic's switch and nothing else: the controls stay owned, so a
+        stale ``save=on`` is still cleared at ``stage``.  A device without the controls refuses
         the set — there is nothing to switch.
         """
         logic = self._native_logic
@@ -891,10 +873,10 @@ class GeecsDetector(StandardDetector):
 
         The streamable logics always (the plugin's stack is the record); the
         LabVIEW-native logic only on a device **without** a plugin — a
-        native-saving essential of a gated run, whose
-        files are its record exactly as in a strict run, written run-long.
-        A plugin-backed camera's native logic stays out: the stack is its
-        record and the #738 dual-write is a strict-mode switch.
+        native-saving essential of a gated run, whose files are its record
+        exactly as in a strict run, written run-long.  A plugin-backed
+        camera's native logic stays out: the stack is its record and the
+        dual-write is a strict-mode switch.
         """
         if _data_logic_supported(logic.prepare_unbounded):
             return True
@@ -1137,12 +1119,10 @@ class GeecsDetector(StandardDetector):
         frame (or rewinds) — never a zero at ``Capture=1`` — so after a
         session closed at *N* the PV still reads *N* at the next arm until
         the first frame lands, and a prepare that baselines on it counts
-        from *N* (found on hardware, 2b acceptance A2: the first batch
-        trimmed to 5 + 3).  A rewind to zero inside the fresh session posts
+        from *N*.  A rewind to zero inside the fresh session posts
         the 0 (and drops an arming frame that was written); the plan
-        prepares again afterwards so the context baselines on it.  The
-        plugin-side fix (post the 0 at ``Capture=1``) is GEECS-Plugins#853;
-        this guard stays for the gateways deployed before it lands.
+        prepares again afterwards so the context baselines on it.  This
+        guard stays until the plugin posts the 0 at ``Capture=1``.
         ``count_zeroed`` records it for the session (cleared by ``stage`` /
         ``unstage``).
         """

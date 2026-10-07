@@ -14,7 +14,7 @@ A failed set is logged at ERROR by the device, naming the ``:SP`` PV and
 the cause (:meth:`CaSettable._set_logged`, shared by the subclasses),
 before the status fails: the ``FailedStatus`` the RunEngine raises carries
 only the status repr, and the engine's own traceback lands in the journal
-after ``scan.log`` has closed (#868).
+after ``scan.log`` has closed.
 
 Every settable carries a **user offset** (:attr:`CaSettable.offset`, a
 soft signal): the EPICS motor record's user/dial split held in software,
@@ -128,8 +128,8 @@ class CaSettable(StandardReadable):
     async def _set_logged(self, value: float) -> None:
         """Run :meth:`_set_and_wait`; on failure, ERROR-log the PV and the cause first.
 
-        The one place a failed set is named for the scan log
-        (GEECS-Plugins#868): the cause by ``str`` through the shared
+        The one place a failed set is named for the scan log: the cause by
+        ``str`` through the shared
         :func:`~geecs_bluesky.exceptions.failure_cause_text` — a refused
         ``aioca.CANothing`` is falsy and carries the CA message only
         through ``str``.  The exception then propagates untouched into

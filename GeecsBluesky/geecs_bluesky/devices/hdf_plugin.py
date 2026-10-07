@@ -1,31 +1,24 @@
-"""The worker's side of the PVA gateway's file plugin (#806).
+"""The worker's side of the PVA gateway's file plugin.
 
-Three small things; everything else is stock ophyd-async:
-
-- :class:`GeecsHdfIO` — ``NDFileHDF5IO`` plus the three PVs the plugin
-  adds (``Rewind``, ``WriteStatus``, ``WriteMessage``); the prefix comes
-  from :func:`geecs_core.pv_naming.hdf_plugin_prefix`.
-- :class:`PluginPathProvider` — the per-detector ``PathProvider`` the
-  stock ``ADHDFDataLogic`` calls.  It asks the shared
+- :class:`GeecsHdfIO` — ``NDFileHDF5IO`` plus the plugin's ``Rewind``,
+  ``WriteStatus`` and ``WriteMessage`` PVs; the prefix comes from
+  :func:`geecs_core.pv_naming.hdf_plugin_prefix`.
+- :class:`PluginPathProvider` — the per-detector ``PathProvider`` for the
+  stock ``ADHDFDataLogic``.  It asks the shared
   :class:`~geecs_bluesky.plans.claim_scan.GeecsScanPathProvider` for
-  ``ScanNNN/<GEECS device>/`` and returns that folder's two paths: the
-  Windows path the plugin's ``FilePath`` receives
-  (``data_paths.plugin_save_path``) and the worker's ``file://`` URI for
-  the stream resource.  The filename is the folder's name, so the primary
-  stream writes ``<device>/<device>.h5`` and a second capture stream of
-  the same device writes the sibling
-  ``<device>-<variable>/<device>-<variable>.h5``, the layout the
-  LabVIEW-native files use, so ``find_stack_file`` resolves both.  Two
-  plugins must never share a path: each writer opens it with ``"w"``.
-- :func:`file_plugin_hosts` — the camera servers that serve the plugin
-  (``config.ini [pva] file_plugin_addr_list``; absent means none).  The
-  rollout is per box; a camera on a box not yet rolled keeps
-  LabVIEW-native saving.
-- :class:`GeecsHdfDataLogic` — the stock ``ADHDFDataLogic`` whose
-  provider (:class:`GeecsStreamResourceDataProvider`) reads the stream's
-  geometry at the first describe rather than at ``prepare``: the plugin
-  settles a stream's shape on the session's first fresh frame
-  (GEECS-Plugins#1023), after the arm.
+  ``ScanNNN/<GEECS device>/`` and returns the Windows path for the plugin's
+  ``FilePath`` (``data_paths.plugin_save_path``) and the worker's ``file://``
+  URI.  The primary stream writes ``<device>/<device>.h5``, a second capture
+  stream ``<device>-<variable>/<device>-<variable>.h5`` (the LabVIEW-native
+  layout, so ``find_stack_file`` resolves both).  Two plugins must never
+  share a path: each writer opens it with ``"w"``.
+- :func:`file_plugin_hosts` — the camera servers serving the plugin
+  (``config.ini [pva] file_plugin_addr_list``; absent means none).  A camera
+  on another box keeps LabVIEW-native saving.
+- :class:`GeecsHdfDataLogic` — the stock ``ADHDFDataLogic`` whose provider
+  (:class:`GeecsStreamResourceDataProvider`) reads the stream's geometry at
+  the first describe rather than at ``prepare``: the plugin settles a
+  stream's shape on the session's first fresh frame, after the arm.
 """
 
 from __future__ import annotations
@@ -73,11 +66,9 @@ class GeecsStreamResourceDataProvider(StreamResourceDataProvider):
 
     The plugin declares a stream's geometry at the arm from the frame it
     holds and **re-declares** it on the session's first fresh frame when
-    the device's settings moved since (GeecsPvaGateway 0.15.0,
-    GEECS-Plugins#1023: the MagSpec lineouts follow the energy axis).  The
-    stock provider froze the main dataset's shape and dtype at ``prepare``
-    — before any frame — so the descriptor and the StreamResource would
-    have carried the held frame's shape over a stack written at another.
+    the device's settings moved since (GeecsPvaGateway 0.15.0; e.g. the
+    MagSpec lineouts follow the energy axis).  The stock provider freezes
+    the main dataset's shape and dtype at ``prepare``, before any frame.
     This one re-reads the main dataset's ``StreamResourceInfo`` from the
     plugin's geometry PVs at every ``make_datakeys`` / ``make_stream_docs``
     until a stream datum is out, then keeps it: the descriptor is composed
@@ -85,8 +76,9 @@ class GeecsStreamResourceDataProvider(StreamResourceDataProvider):
     cameras' stream is declared after the first batch; a non-essential
     plugin stream: declared at the run's close, right before its collect —
     both in ``plans/gated.py``), the resource document goes out with the
-    first datum, and both read the shape the plugin settled on.  The NDAttribute datasets are scalars and
-    stay as the stock logic described them.  What this relies on — the
+    first datum, and both read the shape the plugin settled on.  The
+    NDAttribute datasets are scalars and stay as the stock logic described
+    them.  What this relies on — the
     plugin posts the geometry before ``NumCaptured_RBV`` advances — is the
     plugin's contract, pinned by its own ``test_file_plugin``.
 
@@ -222,9 +214,7 @@ class PluginPathProvider(PathProvider):
         missing scan folder is an error, the root ``CLAUDE.md`` invariant).
         The plugin never creates it — it refuses to arm on a missing
         ``FilePath`` — and in a fly prepare (a gated batch, a non-essential
-        stream) the LabVIEW-native saving logic, whose ``prepare_single``
-        used to create it as a side effect of the dual-write, is not part
-        of the context.
+        stream) the LabVIEW-native saving logic is not part of the context.
         """
         local = self._shared(self._stem)
         local_dir = Path(local.directory_path)

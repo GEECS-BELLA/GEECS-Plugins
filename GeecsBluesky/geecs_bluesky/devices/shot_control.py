@@ -13,7 +13,7 @@
 
 The box's devices carry the gateway's ``CONNECTED`` PV as one ``str``
 signal each (:attr:`ShotControl.liveness_signals`), read once by the
-run's liveness gate before the first move (#852), never a column.
+run's liveness gate before the first move, never a column.
 
 Writes go, in declared order, through one cached gateway ``:SP`` put per
 target (:class:`~geecs_bluesky.devices.ca.gateway_put.CaPutSetter`).  The

@@ -69,7 +69,7 @@ class CaSnapshotReadable(StandardReadable):
                     ),
                 )
         # The gateway's per-device liveness PV: never an event column, read
-        # once by the run's liveness gate (GEECS-Plugins#852) — a scalar-only
+        # once by the run's liveness gate — a scalar-only
         # device's readbacks are served stale whether or not it is up.
         self.connected_status = epics_signal_r(
             str, ca_pv(experiment, device, "CONNECTED")

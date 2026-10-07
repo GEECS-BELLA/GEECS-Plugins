@@ -1,43 +1,27 @@
 """BackgroundSnapshot — every logged scalar outside the run's devices, in every row, softly.
 
-Master Control logged every ``get='yes'`` variable of the experiment into
-every s-file row; this object restores that parity without ever blocking
-a scan (#1016, #929).
+Records every ``get='yes'`` variable in every row; never blocks a scan.
 
 - **Membership.**  The namespace's telemetry set
-  (:meth:`~geecs_bluesky.namespace.GeecsNamespace.telemetry`) minus what
-  the run records itself, so no event key is contributed twice.  Decided
-  in one place, at :meth:`probe` right before ``open_run``, from what the
-  bound plan knows before the run: its **own readers** (its detectors and
-  non-essential devices, a ``.scalars`` view standing for its owner) and
-  its **movers** (the sweep resolves its axes when the plan is built,
-  optimize holds its movables).  Every candidate rooted at an own reader
-  is the run's and excluded, whatever else is scanned on that device.  A
-  mover's device is read minus the keys the mover describes (its
-  readback, the motor's own column), so the scanned device's other logged
-  variables stay in the rows — Master Control logged them, and they
-  matter most on the device being varied; the RunEngine staged that
-  device (bluesky's ``stage_wrapper`` stages ``root_ancestor``), so the
-  snapshot reads from its stage and never stages or unstages it.
+  (:meth:`~geecs_bluesky.namespace.GeecsNamespace.telemetry`) minus what the
+  run records itself, decided at :meth:`probe` from the bound plan's **own
+  readers** (excluded whole) and its **movers** (their device is read minus
+  the keys the mover describes).  The RunEngine stages a mover's device, so
+  the snapshot never stages or unstages it.
 - **Probe.**  Right before ``open_run`` every member is connected, staged,
   described and read once, concurrently, within :data:`PROBE_TIMEOUT_S`.
-  One that does not answer is dropped **for this run only**, named in the
-  log and in the start document (``background_dropped``); an INVALID
-  member is kept and reads ``NaN``.  A probe error is recorded
-  (``background_probe_error``) and the run opens without background
-  columns.  :func:`warm_up` connects every candidate once at environment
-  open, so the probe's budget covers only the stage and the first read.
+  One that does not answer is dropped for this run only, named in the log
+  and in ``background_dropped``; an INVALID member is kept and reads
+  ``NaN``.  A probe error (``background_probe_error``) opens the run without
+  background columns.  :func:`warm_up` connects every candidate early.
 - **Read.**  One monitor-cache reading per shot; INVALID, a failed read or
   one past :data:`READ_TIMEOUT_S` reads ``NaN``.  Every declared key is in
   every row and ``read`` never raises.
-- **Headers.**  ``_column_headers`` is the active members' union; the
-  ``scalar_headers`` preprocessor merges it into ``geecs_scalar_headers``.
+- **Headers.**  ``_column_headers`` (the active members' union) is merged
+  into ``geecs_scalar_headers``.
 
-A plain Bluesky readable (``read``/``describe``/``stage``/``unstage``): the
-strict ``take_reading`` reads it as one more device of the row and the
-gated batch samples it at the tick.  Not ``Triggerable`` and not a
-``GeecsDetector``, so the fire, the liveness gate, the shot clock and the
-native-saving switch all pass it by.
+A plain Bluesky readable, not ``Triggerable`` and not a ``GeecsDetector``:
+the fire, the liveness gate, the shot clock and native saving pass it by.
 """
 
 from __future__ import annotations
@@ -381,7 +365,7 @@ class BackgroundSnapshot:
                 # Shielded: the probe's timeout must not cancel the connect
                 # itself.  ophyd-async caches the connect as a task on the
                 # device, and a cancelled one poisons every later connect
-                # and connected-check (review of #1018).  The connect keeps
+                # and connected-check.  The connect keeps
                 # its own timeout, so it ends on its own and the cache holds
                 # a proper verdict for the next run's probe.
                 task = asyncio.ensure_future(
