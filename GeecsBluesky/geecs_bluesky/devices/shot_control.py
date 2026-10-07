@@ -6,7 +6,7 @@
   momentary fire, never a standing state.
 - **Pausable**, keyed on the standing state: ``ARMED`` is quiescent by
   construction, so ``pause()`` does nothing; ``SCAN`` and ``STANDBY`` pass
-  external edges (:data:`~geecs_bluesky.models.shot_control.QUIESCE_FROM`),
+  external edges (:data:`QUIESCE_FROM`),
   so a pause there drives ``OFF`` and ``resume()`` restores what the plan
   had.  The RunEngine calls both on every Pausable it has seen in a
   message, so being the ``set`` target is enough.  Neither notification
@@ -21,8 +21,12 @@ variable)`` target (:class:`~geecs_bluesky.devices.ca.gateway_put.CaPutSetter`,
 the stringified-wire convention), in declared order.  The ``state``
 config signal mirrors the standing state into every descriptor.
 :func:`trigger_writes_from_profile` adapts a configs-repo
-``TriggerProfile`` into
-:class:`~geecs_bluesky.models.shot_control.ShotControlWrites`.
+``TriggerProfile`` into :class:`ShotControlWrites`, the engine-side shape:
+a state transition is an ordered list of ``(device, variable, value)``
+writes, applied top to bottom (order is schema-documented — e.g. raise an
+amplitude before switching a trigger source), possibly spanning several
+devices.  Values are verbatim wire strings; a state with no writes is "not
+defined" for this box.
 """
 
 from __future__ import annotations
@@ -40,15 +44,64 @@ from ophyd_async.core import (
     soft_signal_r_and_setter,
 )
 from ophyd_async.epics.core import epics_signal_r
+from pydantic import BaseModel, ConfigDict, Field
 
 from geecs_bluesky.devices.ca._pv import ca_pv
 from geecs_bluesky.devices.ca.gateway_put import CaPutSetter
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.models.shot_control import QUIESCE_FROM, ShotControlWrites
 from geecs_bluesky.utils import safe_name
 from geecs_core.pv_naming import pv_name, setpoint_pv
 
 logger = logging.getLogger(__name__)
+
+
+#: Standing states in which external edges reach the devices, so a RunEngine
+#: pause must drive OFF (SCAN and STANDBY both pass edges — STANDBY is the
+#: machine's idle state, not a quiet one).  ARMED/OFF are quiescent by
+#: construction.  Consumed by the ShotControl device's ``pause()``.
+QUIESCE_FROM: frozenset[str] = frozenset(
+    {TriggerState.SCAN.value, TriggerState.STANDBY.value}
+)
+
+
+class ShotControlWrites(BaseModel):
+    """Per-state **ordered** multi-device write lists.
+
+    Parameters
+    ----------
+    name:
+        Profile name, used in log/error messages (e.g. ``"HTU-NoGas"``).
+    states:
+        ``{state_name: [(device, variable, value), ...]}`` — the ordered
+        writes per state.  Empty-string values are not expected here (the
+        TriggerProfile schema rejects them; omission is the no-op).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = ""
+    states: dict[str, list[tuple[str, str, str]]] = Field(default_factory=dict)
+
+    @staticmethod
+    def _state_name(state: TriggerState | str) -> str:
+        return state.value if isinstance(state, TriggerState) else str(state)
+
+    @property
+    def devices(self) -> list[str]:
+        """Every device written, in order of first appearance."""
+        seen: dict[str, None] = {}
+        for writes in self.states.values():
+            for device, _variable, _value in writes:
+                seen.setdefault(device)
+        return list(seen)
+
+    def defines_state(self, state: TriggerState | str) -> bool:
+        """Whether driving to *state* would write anything at all."""
+        return bool(self.states.get(self._state_name(state)))
+
+    def writes_for_state(self, state: TriggerState | str) -> list[tuple[str, str, str]]:
+        """Return the ordered ``(device, variable, value)`` writes for *state*."""
+        return list(self.states.get(self._state_name(state), []))
 
 
 def _state_write_triples(

@@ -31,9 +31,8 @@ from bluesky import RunEngine  # noqa: E402
 from ophyd_async.core import set_mock_value  # noqa: E402
 
 from geecs_bluesky.devices.detector import GeecsDetector  # noqa: E402
-from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
+from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites  # noqa: E402
 from geecs_bluesky.exceptions import GeecsConfigurationError  # noqa: E402
-from geecs_bluesky.models.shot_control import ShotControlWrites  # noqa: E402
 from geecs_bluesky.plans.calibration import (  # noqa: E402
     DEFAULT_SYNC_TOLERANCE_S,
     check_shot_sync_plan,
@@ -760,7 +759,7 @@ def test_the_whole_set_advancing_across_the_quiet_wait_is_refused(
 
 def test_measure_refuses_a_profile_that_cannot_fire(RE: RunEngine) -> None:
     """Learned up front, not after several seconds of quiet wait."""
-    from geecs_bluesky.models.shot_control import ShotControlWrites
+    from geecs_bluesky.devices.shot_control import ShotControlWrites
 
     box = _box({"amp3": 0.0, "amp4": 0.036})
     partial_writes = ShotControlWrites(
@@ -791,7 +790,7 @@ def test_measure_refuses_a_profile_that_cannot_bracket(
     shots, then fail in the finalizer and leave the box in the calibration
     state (Codex review of #861).
     """
-    from geecs_bluesky.models.shot_control import ShotControlWrites
+    from geecs_bluesky.devices.shot_control import ShotControlWrites
 
     box = _box({"amp3": 0.0, "amp4": 0.036})
     states = {k: list(v) for k, v in WRITES.states.items() if k != missing}
@@ -817,7 +816,7 @@ def test_check_shot_sync_refuses_a_profile_that_cannot_bracket(
     RE: RunEngine, missing: str
 ) -> None:
     """The sync check brackets the box too, and preflights the same way."""
-    from geecs_bluesky.models.shot_control import ShotControlWrites
+    from geecs_bluesky.devices.shot_control import ShotControlWrites
 
     box = _box({"amp3": 0.0, "amp4": 0.036})
     states = {k: list(v) for k, v in WRITES.states.items() if k != missing}

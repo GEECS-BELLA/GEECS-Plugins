@@ -15,9 +15,8 @@ from bluesky.plan_stubs import mv  # noqa: E402
 from geecs_schemas.trigger_profile import TriggerState  # noqa: E402
 
 from geecs_bluesky.devices.ca._pv import ca_pv  # noqa: E402
-from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
+from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites  # noqa: E402
 from geecs_bluesky.exceptions import GeecsConfigurationError  # noqa: E402
-from geecs_bluesky.models.shot_control import ShotControlWrites  # noqa: E402
 from tests.ca_mock_helpers import connect_mock  # noqa: E402
 
 WRITES = ShotControlWrites(

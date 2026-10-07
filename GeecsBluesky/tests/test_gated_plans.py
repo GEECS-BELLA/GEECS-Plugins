@@ -29,12 +29,11 @@ from ophyd_async.core import set_mock_value  # noqa: E402
 from geecs_bluesky.devices.ca import CaMotor  # noqa: E402
 from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable  # noqa: E402
 from geecs_bluesky.devices.detector import GeecsDetector  # noqa: E402
-from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
+from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites  # noqa: E402
 from geecs_bluesky.exceptions import (  # noqa: E402
     GeecsConfigurationError,
     GeecsTriggerTimeoutError,
 )
-from geecs_bluesky.models.shot_control import ShotControlWrites  # noqa: E402
 from geecs_bluesky.plans import gated  # noqa: E402
 from geecs_bluesky.plans.gated import gated_per_shot, gated_per_step  # noqa: E402
 from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans  # noqa: E402

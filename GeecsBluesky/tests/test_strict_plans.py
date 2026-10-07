@@ -33,12 +33,11 @@ from ophyd_async.core import (  # noqa: E402
 
 from geecs_bluesky.devices.ca import CaMotor  # noqa: E402
 from geecs_bluesky.devices.detector import GeecsDetector  # noqa: E402
-from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
+from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites  # noqa: E402
 from geecs_bluesky.exceptions import (  # noqa: E402
     GeecsDeviceDownError,
     GeecsTriggerTimeoutError,
 )
-from geecs_bluesky.models.shot_control import ShotControlWrites  # noqa: E402
 from geecs_bluesky.plans.strict import geecs_per_shot, geecs_per_step  # noqa: E402
 from tests.ca_mock_helpers import DocCollector, connect_mock, follow_setpoint  # noqa: E402
 

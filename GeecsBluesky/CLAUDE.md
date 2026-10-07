@@ -69,6 +69,7 @@ geecs_bluesky/
   devices/detector.py       # GeecsDetector — the acquirer as a stock StandardDetector
   devices/shot_control.py   # ShotControl — the trigger box: Movable over the profile's
                             #   states, Pausable; CaPutSetter + the writes
+                            #   (ShotControlWrites, QUIESCE_FROM)
   devices/sampler.py        # ShotSampler (the gated run's per-shot record) + StampStream
                             #   (a non-essential device without a plugin)
   devices/background.py     # BackgroundSnapshot — the run's background telemetry (#1016),
@@ -111,7 +112,6 @@ geecs_bluesky/
   tiled/writer.py           # geecs-tiled-writer: the sweep that registers spooled runs
   tiled/parquet.py          # the stream table as ScanNNN/ScanDataScanNNN-<stream>.parquet,
                             #   registered like a camera stack (GeecsRunWriter / GeecsTiledWriter)
-  models/shot_control.py    # ShotControlWrites + QUIESCE_FROM (TriggerState names)
   data_paths.py             # local ↔ device-server data path mapping
   forward_expr.py           # a pseudo's forward/inverse formulas, affine_coefficients
   exceptions.py             # the scan-level exception tree, failure_cause_text

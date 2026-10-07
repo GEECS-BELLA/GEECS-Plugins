@@ -24,7 +24,7 @@ Developer notes
 ---------------
 Successor of the shot-control YAML once validated by the retired
 ``ShotControlConfig`` (the engine now consumes this profile as
-``geecs_bluesky.models.shot_control.ShotControlWrites``).  Semantics are
+``geecs_bluesky.devices.shot_control.ShotControlWrites``).  Semantics are
 kept, not contradicted:
 
 - The layout pivots from one implicit device with per-variable
