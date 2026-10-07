@@ -209,6 +209,32 @@ select_lint_runner() {
     fi
 }
 
+# The documentation drift audit, the way CI runs it (.github/workflows/
+# doc-audit.yml). Always the whole tree, never just the changed files: a
+# rename or deletion in one package can orphan a docstring citation in
+# another, so it runs whenever anything changed — deletions included.
+# Stdlib-only, but Python >= 3.11 (tomllib): prefer the root env's python
+# over whatever `python3` is on PATH (macOS ships 3.9). Quiet on success;
+# the full report on failure.
+run_doc_audit() {
+    local py=python3 root_env="" report
+    if command -v poetry >/dev/null 2>&1; then
+        root_env="$(poetry env info --path 2>/dev/null || true)"
+    fi
+    if [ -n "$root_env" ] && [ -x "$root_env/bin/python" ]; then
+        py="$root_env/bin/python"
+    fi
+    report="$(mktemp)"
+    if "$py" scripts/doc_audit.py --strict > "$report"; then
+        echo "   doc audit: $(grep -o '^\*\*.*\*\*' "$report" | tr -d '*')"
+        rm -f "$report"
+        return 0
+    fi
+    cat "$report"
+    rm -f "$report"
+    return 1
+}
+
 LINT_OK=1
 echo "== lint"
 if [ -n "$EXPLICIT_PKGS" ]; then
@@ -216,6 +242,7 @@ if [ -n "$EXPLICIT_PKGS" ]; then
 elif [ "$MODE" = "all" ]; then
     select_lint_runner
     "${PC[@]}" run --all-files || LINT_OK=0
+    run_doc_audit || LINT_OK=0
 elif [ "${#CHANGED[@]}" -gt 0 ]; then
     # Only lint files that still exist (deletions have nothing to lint).
     lint_files=()
@@ -230,6 +257,7 @@ elif [ "${#CHANGED[@]}" -gt 0 ]; then
     else
         echo "   (nothing to lint)"
     fi
+    run_doc_audit || LINT_OK=0
 else
     echo "   (nothing to lint)"
 fi
