@@ -3,7 +3,7 @@
 One spelling of every name the worker's startup profile exports, shared by
 the two sides that must agree with it and never with each other's heavy
 imports: the client (``qs_client``) and the service-start readiness check
-(``qserver_ready``, which asserts the manager lists :data:`GEECS_PLAN_NAMES`
+(``qs_client.ready``, which asserts the manager lists :data:`GEECS_PLAN_NAMES`
 after the environment opens — the invariant #793 found violated).
 
 The scan choices are count, sweep and optimize. Utilities do not open runs.

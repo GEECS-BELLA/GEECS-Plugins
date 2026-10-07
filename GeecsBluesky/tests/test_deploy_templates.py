@@ -63,5 +63,5 @@ def test_readiness_unit_is_a_oneshot_bound_to_the_manager() -> None:
 def test_entry_point_is_declared() -> None:
     pyproject = (PACKAGE / "pyproject.toml").read_text()
     assert (
-        'geecs-qserver-ensure-ready = "geecs_bluesky.qserver_ready:main"' in pyproject
+        'geecs-qserver-ensure-ready = "geecs_bluesky.qs_client.ready:main"' in pyproject
     )

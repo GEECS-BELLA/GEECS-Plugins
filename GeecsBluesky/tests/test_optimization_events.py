@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from geecs_bluesky.optimization_events import optimization_column, optimization_name
+from geecs_bluesky.optimization.events import optimization_column, optimization_name
 
 
 @pytest.mark.parametrize(

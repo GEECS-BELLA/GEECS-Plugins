@@ -102,10 +102,11 @@ geecs_bluesky/
                             #   sfile.py (the s-file), scan_log.py (scan.log: ScanLogFile, the
                             #   root-logger handler one run holds), stack_check.py,
                             #   outputs.py (subscribe_scan_outputs), _base.py (stream bookkeeping)
-  qserver_ready.py          # geecs-qserver-ensure-ready (#793)
   qs_client/                # the RE Manager client every GEECS client uses: client.py
                             #   (QueueClient, readiness_verdict), presets.py (expand_preset),
-                            #   submit_preflight.py (the pre-submit checks, SubmissionRecord)
+                            #   submit_preflight.py (the pre-submit checks, SubmissionRecord),
+                            #   ready.py (geecs-qserver-ensure-ready, #793; not imported by
+                            #   the package)
   config_resolver.py        # ConfigsRepoResolver: presets, trigger profiles, catalogs,
                             #   actions, optimizer configs, analysis diagnostics
   tiled/integration.py      # subscribe_tiled_spool (the engine's whole Tiled path) +
@@ -119,12 +120,13 @@ geecs_bluesky/
   exceptions.py             # the scan-level exception tree, failure_cause_text
   optimization/             # native Xopt ask/tell (driver), live PVA frames, the
                             #   measurement compiler, simulations, generators/ (BAX),
-                            #   inspection/ (dump loading, surrogate analysis)
+                            #   inspection/ (dump loading, surrogate analysis), events.py
+                            #   (the optimization stream's column codec, OptimizationRole;
+                            #   import-light, the scanner imports it)
   # import-light contract modules (the scanner imports them; stdlib only):
   plan_names.py             # GEECS_PLAN_NAMES and the roster's subsets, ACQUISITION_MODES
   log_markers.py            # log-line strings clients parse from the manager's text stream
   actions/steps.py          # flatten_action_steps: the one walk of an action plan
-  optimization_events.py    # the optimization stream's column codec (OptimizationRole)
   trajectory.py             # sweep_to_cycler: the one numerical expansion of a Sweep
   utils.py                  # safe_name, identifier_name, resolve_annotations
 qserver/                    # the worker: launcher, startup profile, permissions, deploy/

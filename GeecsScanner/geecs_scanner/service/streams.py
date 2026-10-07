@@ -29,7 +29,7 @@ import logging
 import math
 import threading
 import time
-from geecs_bluesky.optimization_events import OptimizationRole, optimization_name
+from geecs_bluesky.optimization.events import OptimizationRole, optimization_name
 from collections import deque
 from collections.abc import Callable
 from typing import Any, Optional
