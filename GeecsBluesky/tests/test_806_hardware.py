@@ -60,7 +60,7 @@ def _tiled_read(start: dict, key: str) -> str:
     try:
         from tiled.client import from_uri
 
-        from geecs_bluesky.data_paths import read_config_entry
+        from geecs_core.configs_repo import read_config_entry
 
         uri = read_config_entry("tiled", "uri")
         api_key = read_config_entry("tiled", "api_key")

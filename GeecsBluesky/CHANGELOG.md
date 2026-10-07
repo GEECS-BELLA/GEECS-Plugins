@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.115.1] - 2026-10-07
+
+### Changed
+
+- `config.ini` is read through `geecs_core.configs_repo` (`CONFIG_PATH`, `read_config_entry`); the duplicate reader in `data_paths` is deleted.  Values are now whitespace-stripped (configparser already strips single-line values, so only a multi-line value differs).
+
 ## [0.115.0] - 2026-10-07
 
 ### Changed
