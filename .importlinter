@@ -1,0 +1,393 @@
+# Import contracts for the monorepo: the root CLAUDE.md "Package Dependency
+# Graph" as rules import-linter checks on every commit and every PR.
+#
+# Run with `python scripts/lint_imports.py` (the pre-commit hook of the same
+# name runs it): the wrapper puts every package directory on sys.path, so the
+# graph is built from THIS checkout's sources alone and no package has to be
+# installed. Each contract is named after the sentence in the root CLAUDE.md
+# it enforces; change the sentence and the contract together.
+#
+# An `ignore_imports` line is a baselined violation — debt the owner has
+# seen, with the follow-up it waits for in the comment beside it. Never add
+# one to make a new import pass; fix the import or change the rule.
+
+[importlinter]
+root_packages =
+    geecs_core
+    geecs_data_utils
+    geecs_schemas
+    geecs_web_theme
+    logmaker_4_googledocs
+    geecs_analysis
+    image_analysis
+    scan_analysis
+    geecs_bluesky
+    geecs_ca_gateway
+    geecs_pva_gateway
+    geecs_archiver
+    geecs_log_triage
+    geecs_scanner
+    geecs_portal
+    geecs_logbook
+    geecs_mcp
+include_external_packages = True
+exclude_type_checking_imports = True
+
+
+# ---------------------------------------------------------------------------
+# The shape of the graph
+# ---------------------------------------------------------------------------
+
+# Every edge points down this table and packages on one row never import
+# each other, directly or through another package. A new edge in either
+# direction is a graph change: update the root CLAUDE.md first.
+[importlinter:contract:package-layers]
+name = Package layers: edges point down the dependency graph; packages on one layer never import each other
+type = layers
+layers =
+    geecs_scanner | geecs_mcp | geecs_portal | geecs_logbook
+    geecs_bluesky | scan_analysis | geecs_ca_gateway | geecs_pva_gateway | geecs_archiver | geecs_log_triage
+    geecs_analysis | image_analysis
+    geecs_core | geecs_data_utils | geecs_schemas | geecs_web_theme | logmaker_4_googledocs
+
+[importlinter:contract:foundations]
+name = GEECS-Core, GEECS-Data-Utils, GEECS-Schemas, GeecsWebTheme and LogMaker import nothing in the repo
+type = forbidden
+source_modules =
+    geecs_core
+    geecs_data_utils
+    geecs_schemas
+    geecs_web_theme
+    logmaker_4_googledocs
+forbidden_modules =
+    geecs_analysis
+    image_analysis
+    scan_analysis
+    geecs_bluesky
+    geecs_ca_gateway
+    geecs_pva_gateway
+    geecs_archiver
+    geecs_log_triage
+    geecs_scanner
+    geecs_portal
+    geecs_logbook
+    geecs_mcp
+
+[importlinter:contract:gateways-are-services]
+name = Nothing imports a gateway's code: the gateways are consumed as services (the PVs), never as libraries
+type = forbidden
+source_modules =
+    geecs_core
+    geecs_data_utils
+    geecs_schemas
+    geecs_web_theme
+    logmaker_4_googledocs
+    geecs_analysis
+    image_analysis
+    scan_analysis
+    geecs_bluesky
+    geecs_archiver
+    geecs_log_triage
+    geecs_scanner
+    geecs_portal
+    geecs_logbook
+    geecs_mcp
+forbidden_modules =
+    geecs_ca_gateway
+    geecs_pva_gateway
+
+[importlinter:contract:logmaker-retired]
+name = Nothing imports LogMaker4GoogleDocs: it is being replaced, and analysis no longer depends on it
+type = forbidden
+source_modules =
+    geecs_core
+    geecs_data_utils
+    geecs_schemas
+    geecs_web_theme
+    geecs_analysis
+    image_analysis
+    scan_analysis
+    geecs_bluesky
+    geecs_ca_gateway
+    geecs_pva_gateway
+    geecs_archiver
+    geecs_log_triage
+    geecs_scanner
+    geecs_portal
+    geecs_logbook
+    geecs_mcp
+forbidden_modules =
+    logmaker_4_googledocs
+
+
+# ---------------------------------------------------------------------------
+# Per-package edges, as the graph lists them
+# ---------------------------------------------------------------------------
+
+[importlinter:contract:analysis-side]
+name = GEECS-Analysis, ImageAnalysis and ScanAnalysis never import the DAQ side (Core, Bluesky, the EPICS packages) or a surface
+type = forbidden
+source_modules =
+    geecs_analysis
+    image_analysis
+    scan_analysis
+forbidden_modules =
+    geecs_core
+    geecs_bluesky
+    geecs_archiver
+    geecs_log_triage
+    geecs_scanner
+    geecs_portal
+    geecs_logbook
+    geecs_mcp
+
+[importlinter:contract:analysis-cores]
+name = GEECS-Analysis and ImageAnalysis import only GEECS-Data-Utils and GEECS-Schemas: never ScanAnalysis or the web theme
+type = forbidden
+source_modules =
+    geecs_analysis
+    image_analysis
+forbidden_modules =
+    scan_analysis
+    geecs_web_theme
+
+[importlinter:contract:bluesky-edges]
+name = GeecsBluesky imports the foundations and GEECS-Analysis only: never a surface, the analysis wrappers, the web theme or the EPICS packages
+type = forbidden
+source_modules =
+    geecs_bluesky
+forbidden_modules =
+    image_analysis
+    scan_analysis
+    geecs_web_theme
+    geecs_archiver
+    geecs_log_triage
+    geecs_scanner
+    geecs_portal
+    geecs_logbook
+    geecs_mcp
+
+[importlinter:contract:epics-side]
+name = The gateways, the archiver and log triage never import Bluesky, the analysis packages, the web theme or a surface
+type = forbidden
+source_modules =
+    geecs_ca_gateway
+    geecs_pva_gateway
+    geecs_archiver
+    geecs_log_triage
+forbidden_modules =
+    geecs_bluesky
+    geecs_analysis
+    image_analysis
+    scan_analysis
+    geecs_web_theme
+    geecs_scanner
+    geecs_portal
+    geecs_logbook
+    geecs_mcp
+
+[importlinter:contract:core-schemas-only]
+name = GeecsCAGateway and GeecsArchiver import GEECS-Core and GEECS-Schemas only, never GEECS-Data-Utils
+type = forbidden
+source_modules =
+    geecs_ca_gateway
+    geecs_archiver
+forbidden_modules =
+    geecs_data_utils
+
+[importlinter:contract:no-schemas]
+name = GeecsPvaGateway and GEECS-LogTriage never import GEECS-Schemas
+type = forbidden
+source_modules =
+    geecs_pva_gateway
+    geecs_log_triage
+forbidden_modules =
+    geecs_schemas
+
+[importlinter:contract:log-triage-no-core]
+name = GEECS-LogTriage imports GEECS-Data-Utils only, never GEECS-Core
+type = forbidden
+source_modules =
+    geecs_log_triage
+forbidden_modules =
+    geecs_core
+
+
+# ---------------------------------------------------------------------------
+# The surfaces
+# ---------------------------------------------------------------------------
+# Direct imports only (`allow_indirect_imports = True`): a surface's allowed
+# dependencies legitimately reach the packages forbidden to it (ScanAnalysis
+# imports GEECS-Schemas, the queue client imports GEECS-Core), and the graph
+# is about what each package imports itself.
+
+[importlinter:contract:portal-edges]
+name = GEECS-DataPortal imports GEECS-Data-Utils, the analysis packages and the web theme: never the scanner, the logbook, MCP, Bluesky, Core or the EPICS side
+type = forbidden
+source_modules =
+    geecs_portal
+forbidden_modules =
+    geecs_scanner
+    geecs_logbook
+    geecs_mcp
+    geecs_bluesky
+    geecs_core
+    geecs_archiver
+    geecs_log_triage
+    geecs_schemas
+ignore_imports =
+    # DEBT: the portal reads analysis documents through geecs_schemas, which
+    # neither the graph nor the portal's pyproject declares; it rides on the
+    # `analysis` extra transitively. Follow-up PR: declare geecs-schemas in
+    # the portal's analysis extra, add the edge to the graph, delete these.
+    geecs_portal.app -> geecs_schemas.analysis
+    geecs_portal.processing -> geecs_schemas.analysis
+allow_indirect_imports = True
+
+[importlinter:contract:portal-tiled]
+name = GEECS-DataPortal never imports tiled directly: it goes through the ScanCatalog layer in GEECS-Data-Utils
+type = forbidden
+source_modules =
+    geecs_portal
+forbidden_modules =
+    tiled
+allow_indirect_imports = True
+
+[importlinter:contract:logbook-edges]
+name = GeecsLogbook imports GEECS-Data-Utils, GEECS-Schemas and the web theme: never the portal, ScanAnalysis, or anything Bluesky
+type = forbidden
+source_modules =
+    geecs_logbook
+forbidden_modules =
+    geecs_portal
+    scan_analysis
+    geecs_bluesky
+    geecs_core
+    geecs_analysis
+    image_analysis
+    geecs_archiver
+    geecs_log_triage
+    geecs_scanner
+    geecs_mcp
+    bluesky
+    ophyd
+    ophyd_async
+    bluesky_queueserver
+    bluesky_queueserver_api
+    tiled
+allow_indirect_imports = True
+
+[importlinter:contract:scanner-edges]
+name = GeecsScanner imports GeecsBluesky's client side, GEECS-Schemas, GEECS-Core and the web theme: never the portal, the logbook, MCP, the analysis packages, GEECS-Data-Utils or the EPICS side
+type = forbidden
+source_modules =
+    geecs_scanner
+forbidden_modules =
+    geecs_portal
+    geecs_logbook
+    geecs_mcp
+    geecs_analysis
+    image_analysis
+    scan_analysis
+    geecs_data_utils
+    geecs_archiver
+    geecs_log_triage
+allow_indirect_imports = True
+
+[importlinter:contract:mcp-edges]
+name = GEECS-MCP imports GeecsBluesky's client side, GEECS-Data-Utils and ScanAnalysis: never the scanner, the portal, the logbook, Core, Schemas (test-only), GEECS-Analysis, ImageAnalysis, the web theme or the EPICS side
+type = forbidden
+source_modules =
+    geecs_mcp
+forbidden_modules =
+    geecs_scanner
+    geecs_portal
+    geecs_logbook
+    geecs_core
+    geecs_schemas
+    geecs_analysis
+    image_analysis
+    geecs_web_theme
+    geecs_archiver
+    geecs_log_triage
+ignore_imports =
+    # DEBT: the analysis run worker loads a diagnostic through image_analysis,
+    # which neither the graph nor MCP's pyproject declares (it rides on the
+    # analysis-run extra transitively). Follow-up PR: declare imageanalysis
+    # in MCP's analysis-run extra, add the edge to the graph, delete this.
+    geecs_mcp.analysis.run_worker -> image_analysis.config
+allow_indirect_imports = True
+
+[importlinter:contract:no-engine-internals]
+name = GeecsScanner and GEECS-MCP never import the worker's engine internals: only qs_client and the import-light client modules
+type = forbidden
+source_modules =
+    geecs_scanner
+    geecs_mcp
+forbidden_modules =
+    geecs_bluesky.plans
+    geecs_bluesky.devices
+    geecs_bluesky.run_engine
+    geecs_bluesky.namespace
+    geecs_bluesky.callbacks
+    geecs_bluesky.preprocessors
+    geecs_bluesky.db_runtime
+    geecs_bluesky.epics_env
+    geecs_bluesky.actions.compiler
+    geecs_bluesky.optimization.driver
+    geecs_bluesky.optimization.generators
+    geecs_bluesky.optimization.measurements
+    geecs_bluesky.optimization.simulations
+    geecs_bluesky.optimization.live_frames
+    geecs_bluesky.optimization.inspection
+    geecs_bluesky.optimization.vocs_utils
+    geecs_bluesky.tiled.writer
+    geecs_bluesky.tiled.integration
+# Direct imports only: what the client-side modules themselves pull in is
+# pinned by `bluesky-client-side-is-light` below.
+allow_indirect_imports = True
+
+[importlinter:contract:scanner-ships-no-optimization-stack]
+name = GeecsScanner never reaches the optimization stack (xopt), even indirectly: GeecsBluesky's optimize extra installs worker-side only
+type = forbidden
+source_modules =
+    geecs_scanner
+forbidden_modules =
+    xopt
+
+
+# ---------------------------------------------------------------------------
+# Inside GeecsBluesky
+# ---------------------------------------------------------------------------
+
+[importlinter:contract:bluesky-client-side-is-light]
+name = GeecsBluesky's client-side modules (qs_client, actions.steps, optimization.events, plan_names, log_markers) never import bluesky, ophyd-async, aioca or xopt
+type = forbidden
+source_modules =
+    geecs_bluesky.qs_client
+    geecs_bluesky.actions.steps
+    geecs_bluesky.optimization.events
+    geecs_bluesky.plan_names
+    geecs_bluesky.log_markers
+forbidden_modules =
+    bluesky
+    ophyd_async
+    aioca
+    xopt
+ignore_imports =
+    # Same two function-local imports as above; runtime pin:
+    # GeecsBluesky/tests/test_lazy_package_import.py.
+    geecs_bluesky.qs_client.submit_preflight -> geecs_bluesky.devices.shot_control
+    geecs_bluesky.qs_client.submit_preflight -> geecs_bluesky.devices.ca.liveness
+
+[importlinter:contract:bluesky-internal-layering]
+name = GeecsBluesky's devices, callbacks and tiled never import plans, qs_client or optimization
+type = forbidden
+source_modules =
+    geecs_bluesky.devices
+    geecs_bluesky.callbacks
+    geecs_bluesky.tiled
+forbidden_modules =
+    geecs_bluesky.plans
+    geecs_bluesky.qs_client
+    geecs_bluesky.optimization

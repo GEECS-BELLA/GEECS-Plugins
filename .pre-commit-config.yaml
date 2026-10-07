@@ -87,6 +87,19 @@ repos:
         language: pygrep
         entry: '\.claude/worktrees/|file:///Users/|file:///home/'
         files: poetry\.lock$
+      # The root CLAUDE.md package dependency graph as contracts
+      # (.importlinter), checked by import-linter from sources alone: the
+      # wrapper puts every package directory on sys.path, so no package
+      # environment is needed and the hook venv holds import-linter only.
+      # Whole-tree, under a second; runs whenever a Python file or the
+      # contracts change (a deleted module counts: it shows in the diff).
+      - id: import-contracts
+        name: import contracts (.importlinter)
+        language: python
+        additional_dependencies: [import-linter==2.15]
+        entry: python scripts/lint_imports.py
+        pass_filenames: false
+        files: (\.py|^\.importlinter)$
       - id: jupyter-notebook-clear-output
         name: jupyter-notebook-jupyter-clear
         files: \.ipynb$

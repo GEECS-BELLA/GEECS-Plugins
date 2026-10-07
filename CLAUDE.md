@@ -123,6 +123,10 @@ own nested worktrees under `.claude/worktrees/`.
 - **Package manager:** Poetry — `poetry install` at the repo root installs the
   main dev environment. Each subpackage can also be installed standalone.
 - **Linting:** `ruff` (replaces flake8/isort) + `pydocstyle` (numpy convention)
+  + `import-linter` (`.importlinter` holds the dependency graph below as
+  contracts; `python scripts/lint_imports.py` checks every package's imports
+  against it from sources alone, and runs as the `import-contracts`
+  pre-commit hook)
 - **Pre-commit hooks:** ruff, ruff-format, pydocstyle, check-yaml, check-json,
   check-ast — run automatically on commit. The auto-fixing hooks rewrite files
   during the commit, which aborts that commit ("files were modified by this
@@ -234,7 +238,10 @@ GEECS-MCP            →  GeecsBluesky (qs-client + ca extras — the queue
                         GEECS-Data-Utils (tiled extra — results lookup),
                         GEECS-Schemas (TEST-ONLY since 0.9.0 — the
                         listing tools duck-type catalog rows; nothing
-                        under geecs_mcp/ imports it) — reads the
+                        under geecs_mcp/ imports it)
+                        (+ ScanAnalysis, optional via the `analysis-run`
+                        extra — the analysis domain's run tools and
+                        worker) — reads the
                         queueserver, halts it (stop/pause), and has
                         three gated go verbs (resume_scan, clear_queue,
                         run_scan_analysis); no submit path since 0.9.0,
@@ -244,7 +251,10 @@ GEECS-MCP            →  GeecsBluesky (qs-client + ca extras — the queue
 GeecsScanner         →  GeecsBluesky (qs-client + ca extras — the queue
                         client, expand_preset, the preflight, the configs
                         resolver, plan_names), GEECS-Schemas (Preset,
-                        ScanVariables, SubmissionRecord), GeecsWebTheme
+                        ScanVariables, SubmissionRecord), GEECS-Core
+                        (GeecsDb for the settables list, pv_naming for
+                        the readback PV — declared directly, not ridden
+                        as a transitive of GeecsBluesky), GeecsWebTheme
                         (the kit, served at /theme by this process) — a
                         peer CLIENT of the queueserver, same standing as
                         the console it replaced; never imports the portal,

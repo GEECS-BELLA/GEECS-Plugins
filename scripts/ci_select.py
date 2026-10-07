@@ -118,7 +118,11 @@ ROOT_TESTED_SUFFIXES = (".service",)
 # Documentation, planning and agent context: no suite can observe these.
 IGNORED_PREFIXES = ("docs/", "Planning/", ".claude/", "extras/")
 IGNORED_SUFFIXES = (".md",)
-IGNORED_FILES = frozenset({".gitignore", "LICENSE", "AGENTS.md", "mkdocs.yml"})
+# .importlinter: no unit suite observes the import contracts; the
+# import-contracts pre-commit hook checks them on every PR regardless.
+IGNORED_FILES = frozenset(
+    {".gitignore", "LICENSE", "AGENTS.md", "mkdocs.yml", ".importlinter"}
+)
 
 # Undeclared coupling the pyproject graph cannot express: GeecsWebTheme's
 # tests walk the OTHER packages' templates and stylesheets to enforce the
