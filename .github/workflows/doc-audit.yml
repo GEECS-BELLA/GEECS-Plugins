@@ -1,0 +1,30 @@
+name: doc-audit
+
+# The documentation drift audit (scripts/doc_audit.py --strict) on every
+# pull request and every push to master. It reads the whole tree — a
+# rename in one package can orphan a docstring citation in another — so
+# it is never narrowed the way scripts/ci_select.py narrows the unit-test
+# legs. It needs no package environment (stdlib-only, Python >= 3.11 for
+# tomllib) and finishes in well under a minute. scripts/check.sh runs the
+# same command in its lint phase.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: doc-audit-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  doc-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Audit the documentation
+        run: python scripts/doc_audit.py --strict

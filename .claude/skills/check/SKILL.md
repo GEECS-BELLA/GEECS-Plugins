@@ -20,7 +20,7 @@ hand, and update the script (not prose) when CI changes.
 
 | When | Command | What runs |
 |---|---|---|
-| Before every commit | `./scripts/check.sh --lint` | pre-commit on changed files (~seconds) |
+| Before every commit | `./scripts/check.sh --lint` | pre-commit on changed files + the whole-tree doc audit (~20 s) |
 | Before push / while iterating | `./scripts/check.sh` | lint + the suites of changed packages |
 | Before opening a PR | `./scripts/check.sh --all` | lint everything + every locally runnable suite |
 
@@ -37,6 +37,10 @@ is passed straight through (package names, `--base <ref>`, `--dry-run`).
 - A whole layer collecting as `1 skipped`, `Command not found: pytest`,
   or "Current Python version … is not allowed" is an environment
   problem, not a code problem → `/env-doctor`.
+- A `[dangling-ref]`, `[stale-term]`, `[long-doc]` or `[narrative]` line
+  under `== lint` is the doc audit (`scripts/doc_audit.py --strict`, the
+  same gate as CI's `doc-audit` workflow): a prose problem in a docstring
+  or Markdown file, not an environment one — fix the text it cites.
 - Root `tests/` selecting nothing is normal (all integration-marked);
   the script tolerates pytest exit 5 there, same as CI.
 - `integration`-marked tests are always deselected — they need the lab
