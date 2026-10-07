@@ -4,6 +4,23 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.4] - 2026-10-07
+
+### Fixed
+
+- `geecs_mcp.__version__` comes from the installed package metadata
+  instead of a hardcoded `"0.4.0"`, so the client identity the server
+  presents to the queueserver names the real version.
+- `imageanalysis` is declared in the `analysis-run` extra: the run worker
+  imports `image_analysis.config` directly. The import-linter baseline
+  for this edge is gone.
+
+### Changed
+
+- `geecs-schemas` moved from the main dependencies to the dev group:
+  nothing under `geecs_mcp/` imports it, only the tests do. At run time
+  the resolver's models still arrive through `geecs-bluesky`.
+
 ## [0.9.3] - 2026-09-29
 
 ### Changed

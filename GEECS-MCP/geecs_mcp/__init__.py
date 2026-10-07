@@ -6,4 +6,11 @@ v1 control verbs — submit/stop/clear/progress) today; future domains
 ``CLAUDE.md`` for the domain roadmap and the safety doctrine.
 """
 
-__version__ = "0.4.0"
+from __future__ import annotations
+
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("geecs-mcp")
+except PackageNotFoundError:  # pragma: no cover — source checkout, not installed
+    __version__ = "0.0.0+source"

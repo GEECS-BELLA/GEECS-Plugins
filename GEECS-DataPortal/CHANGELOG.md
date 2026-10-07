@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.39.3] - 2026-10-07
+
+### Fixed
+
+- `geecs-schemas` is declared in the `analysis` extra. `processing.py`
+  and `app.py` import `geecs_schemas.analysis` directly; it had only
+  arrived transitively through the analysis packages. The import-linter
+  baseline for this edge is gone.
+
 ## [0.39.2] - 2026-10-06
 
 ### Fixed

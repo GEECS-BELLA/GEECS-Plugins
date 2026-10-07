@@ -193,7 +193,8 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         seam + the shared browser helpers; the scan
                         browser of the suite — never imports the scanner
                         or tiled directly)
-                        (+ GEECS-Analysis + ImageAnalysis + ScanAnalysis, optional via
+                        (+ GEECS-Analysis + ImageAnalysis + ScanAnalysis +
+                        GEECS-Schemas, optional via
                         the `analysis` extra — core processing/preview for supported
                         v2 recipes with legacy ephemeral fallback, and the
                         Analysis tab's direct ScanAnalyzer runs)
@@ -240,9 +241,9 @@ GEECS-MCP            →  GeecsBluesky (qs-client + ca extras — the queue
                         GEECS-Schemas (TEST-ONLY since 0.9.0 — the
                         listing tools duck-type catalog rows; nothing
                         under geecs_mcp/ imports it)
-                        (+ ScanAnalysis, optional via the `analysis-run`
-                        extra — the analysis domain's run tools and
-                        worker) — reads the
+                        (+ ScanAnalysis + ImageAnalysis, optional via the
+                        `analysis-run` extra — the analysis domain's run
+                        tools and worker) — reads the
                         queueserver, halts it (stop/pause), and has
                         three gated go verbs (resume_scan, clear_queue,
                         run_scan_analysis); no submit path since 0.9.0,

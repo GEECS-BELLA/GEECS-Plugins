@@ -235,7 +235,7 @@ forbidden_modules =
 # is about what each package imports itself.
 
 [importlinter:contract:portal-edges]
-name = GEECS-DataPortal imports GEECS-Data-Utils, the analysis packages and the web theme: never the scanner, the logbook, MCP, Bluesky, Core or the EPICS side
+name = GEECS-DataPortal imports GEECS-Data-Utils, GEECS-Schemas, the analysis packages and the web theme: never the scanner, the logbook, MCP, Bluesky, Core or the EPICS side
 type = forbidden
 source_modules =
     geecs_portal
@@ -247,14 +247,6 @@ forbidden_modules =
     geecs_core
     geecs_archiver
     geecs_log_triage
-    geecs_schemas
-ignore_imports =
-    # DEBT: the portal reads analysis documents through geecs_schemas, which
-    # neither the graph nor the portal's pyproject declares; it rides on the
-    # `analysis` extra transitively. Follow-up PR: declare geecs-schemas in
-    # the portal's analysis extra, add the edge to the graph, delete these.
-    geecs_portal.app -> geecs_schemas.analysis
-    geecs_portal.processing -> geecs_schemas.analysis
 allow_indirect_imports = True
 
 [importlinter:contract:portal-tiled]
@@ -308,7 +300,7 @@ forbidden_modules =
 allow_indirect_imports = True
 
 [importlinter:contract:mcp-edges]
-name = GEECS-MCP imports GeecsBluesky's client side, GEECS-Data-Utils and ScanAnalysis: never the scanner, the portal, the logbook, Core, Schemas (test-only), GEECS-Analysis, ImageAnalysis, the web theme or the EPICS side
+name = GEECS-MCP imports GeecsBluesky's client side, GEECS-Data-Utils, ScanAnalysis and ImageAnalysis: never the scanner, the portal, the logbook, Core, Schemas (test-only), GEECS-Analysis, the web theme or the EPICS side
 type = forbidden
 source_modules =
     geecs_mcp
@@ -319,16 +311,9 @@ forbidden_modules =
     geecs_core
     geecs_schemas
     geecs_analysis
-    image_analysis
     geecs_web_theme
     geecs_archiver
     geecs_log_triage
-ignore_imports =
-    # DEBT: the analysis run worker loads a diagnostic through image_analysis,
-    # which neither the graph nor MCP's pyproject declares (it rides on the
-    # analysis-run extra transitively). Follow-up PR: declare imageanalysis
-    # in MCP's analysis-run extra, add the edge to the graph, delete this.
-    geecs_mcp.analysis.run_worker -> image_analysis.config
 allow_indirect_imports = True
 
 [importlinter:contract:no-engine-internals]
