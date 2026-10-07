@@ -48,9 +48,10 @@ always questions for Sam, never verdicts.
 
 A one-package audit cannot see a duplicate: both pilot fixes
 (`scanner_configs` → `geecs_core.configs_repo`; the `config.ini` reader)
-were visible only repo-wide. Open findings live as GitHub issues, one
-per finding, titled `Cross-package: <what> in <N> places`. Read them
-first:
+were visible only repo-wide. Findings live in ONE tracking issue with
+a checklist (#1061), titled with the `Cross-package:` prefix; add new
+findings to it as checklist items, and tick the item a tidy PR resolves.
+Read it first:
 
     gh issue list --state open --search 'in:title "Cross-package:"'
 
@@ -66,7 +67,8 @@ If the list is empty, this run produces the map (main session, read-only):
    schema knowledge; FastAPI glue (forwarded-prefix middleware, templates
    factory, theme mount). grep the other packages for the same helper;
    read docstrings that announce a planned move.
-3. Show Sam the map; file one issue per finding he keeps, each naming
+3. Show Sam the map; add each finding he keeps as a checklist item in
+   the tracking issue (or open one if none exists), each naming
    the places (`file:line`), the candidate home, and whether failure
    semantics differ between the copies (diff them before merging them).
 
