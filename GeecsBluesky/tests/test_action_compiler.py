@@ -38,7 +38,7 @@ from geecs_bluesky.exceptions import (
     ActionPlanCycleError,
     ActionPlanNotFoundError,
 )
-from geecs_bluesky.plans.action_compiler import (
+from geecs_bluesky.actions.compiler import (
     SettableFactory,
     compile_action_plan,
     values_match,

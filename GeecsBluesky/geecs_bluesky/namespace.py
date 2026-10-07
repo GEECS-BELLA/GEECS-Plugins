@@ -866,7 +866,7 @@ class GeecsNamespace:
         device, sep, variable = target.partition(":")
         return self.variable(device, variable) if sep else self[device]
 
-    # The action compiler's SettableFactory (plans/action_compiler.py): an
+    # The action compiler's SettableFactory (actions/compiler.py): an
     # action plan's (device, variable) is the child the namespace already
     # built — the Movable for a settable, the readback signal otherwise.
     def get_settable(self, device: str, variable: str) -> Movable:

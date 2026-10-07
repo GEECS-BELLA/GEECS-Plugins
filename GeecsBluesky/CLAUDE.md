@@ -45,7 +45,7 @@ registered: `sweep` is the one moving plan, and it uses `scan_nd`
 internally.  A preset can name only the three scan plans
 (`qs_client.presets.PRESET_PLAN_NAMES`); the utilities take no detector
 list or no positions.  `run_action` is compiled from
-`geecs_bluesky.action_steps` (the same walk the scanner previews with).
+`geecs_bluesky.actions.steps` (the same walk the scanner previews with).
 
 Every bound scan verb takes, keyword-only, `trigger_profile`,
 `shots_per_step`, `acquisition` (`strict` default, or `gated`),
@@ -95,7 +95,7 @@ geecs_bluesky/
                             #   binder), liveness_gate, TriggerProfiles, background_wrapper
   plans/claim_scan.py       # the day-scoped claim (the ONE folder creator), the
                             #   claim_scan preprocessor, GeecsScanPathProvider
-  plans/action_compiler.py  # ActionPlan → plan stubs; the namespace is its SettableFactory
+  actions/compiler.py       # ActionPlan → plan stubs; the namespace is its SettableFactory
   run_engine.py             # make_run_engine: RE + claim + headers + callbacks (+ the spool)
   preprocessors.py          # connect_on_demand (installed outermost), scalar_headers
   callbacks/                # the run's GEECS outputs, per run: scan_info.py (ScanInfo ini),
@@ -123,7 +123,7 @@ geecs_bluesky/
   # import-light contract modules (the scanner imports them; stdlib only):
   plan_names.py             # GEECS_PLAN_NAMES and the roster's subsets, ACQUISITION_MODES
   log_markers.py            # log-line strings clients parse from the manager's text stream
-  action_steps.py           # flatten_action_steps: the one walk of an action plan
+  actions/steps.py          # flatten_action_steps: the one walk of an action plan
   optimization_events.py    # the optimization stream's column codec (OptimizationRole)
   trajectory.py             # sweep_to_cycler: the one numerical expansion of a Sweep
   utils.py                  # safe_name, identifier_name, resolve_annotations

@@ -38,7 +38,7 @@ from geecs_schemas.action_plan import (
     WaitStep,
 )
 
-from geecs_bluesky.action_steps import flatten_action_steps
+from geecs_bluesky.actions.steps import flatten_action_steps
 from geecs_bluesky.utils import resolve_annotations
 from geecs_bluesky.exceptions import (
     ActionCheckFailedError,

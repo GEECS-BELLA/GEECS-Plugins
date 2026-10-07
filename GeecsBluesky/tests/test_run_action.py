@@ -27,7 +27,7 @@ from geecs_bluesky.exceptions import (  # noqa: E402
 )
 from geecs_bluesky.namespace import DeviceRoster, GeecsNamespace  # noqa: E402
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES  # noqa: E402
-from geecs_bluesky.plans.action_compiler import (  # noqa: E402
+from geecs_bluesky.actions.compiler import (  # noqa: E402
     SettableFactory,
     run_action_plan,
 )
