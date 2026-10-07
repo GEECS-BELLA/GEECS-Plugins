@@ -119,9 +119,9 @@ config-driven feature with zero callers. Sam picks; nothing moves before.
   worktree never shares the main checkout's; `poetry -C <main checkout>
   run` imports the MAIN checkout, whose `__pycache__`-only namespace
   dirs can hide CI failures). Per move, `./scripts/check.sh <Package>`;
-  the fast shortcut is the env's python with the worktree packages first
-  on `PYTHONPATH` — print `<import_name>.__file__` first and confirm it
-  is inside the worktree.
+  the fast shortcut is the main env's python with the worktree packages
+  first on `PYTHONPATH` — print `<import_name>.__file__` first and
+  confirm it is inside the worktree.
 - Gates per move: targeted tests pass; `scripts/doc_audit.py --strict
   --only dangling-ref,dangling-path` adds nothing; `git grep` for the old
   dotted name AND the old file path is empty outside `CHANGELOG.md`, and
