@@ -138,8 +138,8 @@ df = read_primary_scalars(run["primary"])   # the per-shot table only
 `.base`.  **Never `run["primary"].read()`**: it downloads every camera stack
 and per-frame attribute array and outer-joins their dimensions, enough to
 exhaust the worker host's memory.  `run["primary"]["data"]` does not exist
-under the composite-container layout; use `.base` for raw node access.  `geecs_data_utils.tiled_catalog` / `tiled_export` are the
-reference readers.
+under the composite-container layout; use `.base` for raw node access.
+`geecs_data_utils.tiled_catalog` / `tiled_export` are the reference readers.
 
 ### The web UI
 

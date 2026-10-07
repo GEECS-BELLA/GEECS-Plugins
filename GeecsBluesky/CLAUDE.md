@@ -756,18 +756,23 @@ gateway (circular).
 
 ## Configuration
 
-`~/.config/geecs_python_api/config.ini`.  `[epics]`, `[pva]`, `[Paths]` and
-the configs-repo root are read through `geecs_core.configs_repo`
-(`read_config_entry`, `scanner_configs_base`); `[tiled]` through
-`geecs_data_utils.tiled_catalog`, `[Experiment]` through `GeecsPathsConfig`,
-`[Database]` by `GeecsDb`, and `[qserver]` by `qs_client`'s own tolerant
-reader.  The keys: `[epics] ca_addr_list`, `[pva] addr_list` + `file_plugin_addr_list` (both
-exported into `EPICS_PVA_ADDR_LIST` at import, `epics_env`; the second is
-also the namespace's plugin rule — the camera servers whose gateway serves
-the file plugin), `[tiled] uri / api_key`, `[Paths]` (data root and the
-configs repo; `geecs_pva_plugin_data_base_path` = the data root as the
-camera servers' file-plugin *service* sees it, UNC), `[Database]`,
-`[Experiment] expt`, `[qserver]` (the client seam's manager addresses).
+`~/.config/geecs_python_api/config.ini`, section by section, with its reader:
+
+- `[epics] ca_addr_list`, `[pva] addr_list` + `file_plugin_addr_list`:
+  `geecs_core.configs_repo.read_config_entry`, exported into the EPICS
+  environment at import (`epics_env`).  `file_plugin_addr_list` is also the
+  namespace's plugin rule: the camera servers whose gateway serves the file
+  plugin.
+- `[Paths]`: the data root through `GeecsPathsConfig` (`ScanPaths`); the
+  device-server, file-plugin (`geecs_pva_plugin_data_base_path`, UNC, as
+  the camera servers' plugin service sees it) and Tiled-host roots through
+  `read_config_entry` (`data_paths`); the configs-repo root through
+  `geecs_core.configs_repo.scanner_configs_base`.
+- `[tiled] uri / api_key`: `geecs_data_utils.tiled_catalog`.
+- `[Experiment] expt`: `GeecsPathsConfig`.
+- `[Database]`: `GeecsDb`.
+- `[qserver]`: `qs_client`'s own reader, which falls back rather than raising
+  on a malformed file (the client seam's manager addresses).
 Facility values have one home (root `CLAUDE.md`); the worker's are in the
 host's `site.env`, rendered into the units.
 
