@@ -112,7 +112,7 @@ class ProductCollector:
         self._units: dict[int, Measurement] = {}
         # Every unit trace's recorded length: kept rows may be block means,
         # and the waterfall's equal-length rule is about the recording.
-        self._lengths: set[int] = set()
+        self._lengths: dict[int, int] = {}
         self._bin_of: dict[int, int] = {}
         self._bins: dict[int, RunningAverage] = {}
         self._raw_bins: dict[int, Measurement] = {}
@@ -140,7 +140,7 @@ class ProductCollector:
             self._whole.add(measurement)
             if self.line:
                 frame = measurement.frame
-                self._lengths.add(frame.data.shape[0])
+                self._lengths[key] = frame.data.shape[0]
                 shown = display_trace(frame)
                 # The rows feed only the waterfall, which reads the frame.
                 self._units[key] = (
@@ -201,11 +201,6 @@ class ProductCollector:
         )
         if not self.line:
             return ProductPlan(singles=singles, notes=tuple(notes))
-        if len(self._lengths) > 1 and max(self._lengths) > MAX_COLUMNS:
-            # Block means of unequal recordings can share a length; the
-            # waterfall would then stack rows it refuses as recorded.
-            notes.append("Skipped waterfall: traces of different lengths")
-            return ProductPlan(singles=singles, notes=tuple(notes))
         panels = []
         for key in sorted(self._units):
             position = float(key)
@@ -227,6 +222,13 @@ class ProductCollector:
                 panels.sort(key=lambda p: p.position)
             if len(panels) != count:
                 notes.append(f"Waterfall sort excluded {count - len(panels)} units")
+        lengths = {self._lengths[p.identifier] for p in panels}
+        if len(lengths) > 1 and max(lengths) > MAX_COLUMNS:
+            # Block means of unequal recordings can share a length; the
+            # waterfall would then stack rows it refuses as recorded. Only
+            # the rows the sort kept count, as they did before reduction.
+            notes.append("Skipped waterfall: traces of different lengths")
+            return ProductPlan(singles=singles, notes=tuple(notes))
         return ProductPlan(
             singles,
             tuple(panels),

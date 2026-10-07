@@ -388,3 +388,25 @@ def test_scanned_plan_consumes_the_bin_accumulators_once():
     assert not collector._bins  # every accumulator released into its average
     with pytest.raises(RuntimeError, match="plans once"):
         collector.plan(rows(), parameter_column="motor")
+
+
+def test_an_odd_length_unit_the_sort_drops_does_not_skip_the_waterfall():
+    """Only the rows the sort keeps must agree in recorded length."""
+    from geecs_analysis.summaries.waterfall import MAX_COLUMNS
+
+    size = MAX_COLUMNS + 904
+    outcomes = [long_outcome(n, size) for n in range(1, 5)]
+    outcomes.append(long_outcome(5, size + 50))
+    frame = rows().assign(charge=[1, 2, 3, 4, np.nan, 6])
+    plan = plan_products(
+        recipe(True),
+        outcomes,
+        frame,
+        average_before_analysis=False,
+        noscan=True,
+        sort_requested=True,
+        sort_column="charge",
+        sort_sigma=None,
+    )
+    assert [p.identifier for p in plan.summary] == [1, 2, 3, 4]
+    assert "Skipped waterfall: traces of different lengths" not in plan.notes

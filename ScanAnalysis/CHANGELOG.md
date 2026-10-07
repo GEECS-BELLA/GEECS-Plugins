@@ -13,8 +13,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   once a trace is longer than 4096 samples (GEECS-Analysis 0.27.0
   `display_trace`) — and the trace averages now fold as they stream, so a
   run's memory is its products, not its shots: one trace per bin average
-  plus 4096 columns per waterfall row. Rows of different recorded lengths
-  where any is longer than 4096 samples skip the waterfall with a note,
+  plus 4096 columns per waterfall row. When the rows the waterfall would
+  draw (after any sort filter) differ in recorded length and any is longer
+  than 4096 samples, the waterfall is skipped with a note,
   since their block means could share a length the waterfall would
   otherwise refuse. Every product of a run whose traces are 4096 samples
   or shorter is unchanged. A scanned run still holds one full-resolution
