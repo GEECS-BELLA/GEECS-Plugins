@@ -32,6 +32,11 @@ class _Sum:
     the accumulator's (float64 unless a caller matches another reduction's
     intermediate, as the raw-bin mean does for float32 samples).
 
+    The per-element count exists only once a NaN has been seen: until
+    then every element's count is :attr:`count`, and an array the size of
+    the sum would double a NaN-free accumulator for nothing (a scope
+    trace of a million samples, one accumulator per bin).
+
     ``compat.v2_run`` folds raw-bin members with it (``skip_nan=False``)
     and holds that mean to the stacked ``np.mean`` bit for bit, so a change
     here changes raw-bin results too (``tests/test_v2_run.py`` pins them).
@@ -49,10 +54,12 @@ class _Sum:
         self.skip_nan = skip_nan
         self.total = np.array(first, dtype=dtype or np.float64, copy=True)
         self.count = 1
+        self.counts: np.ndarray | None = None
         if skip_nan:
             missing = np.isnan(self.total)
-            self.total[missing] = 0.0
-            self.counts = np.asarray(~missing, dtype=np.float64)
+            if missing.any():
+                self.total[missing] = 0.0
+                self.counts = np.asarray(~missing, dtype=np.float64)
 
     def add(self, data: np.ndarray) -> None:
         """Fold one more array of the shape the first one had."""
@@ -63,6 +70,13 @@ class _Sum:
             self.total += data
             return
         missing = np.isnan(data)
+        if not missing.any():
+            self.total += data
+            if self.counts is not None:
+                self.counts += 1
+            return
+        if self.counts is None:
+            self.counts = np.full(self.total.shape, self.count - 1, np.float64)
         self.total += np.where(missing, 0.0, data)
         self.counts += ~missing
 
@@ -70,7 +84,7 @@ class _Sum:
         """The mean so far; an all-NaN element is NaN, as ``nanmean`` gives."""
         import numpy as np
 
-        if not self.skip_nan:
+        if not self.skip_nan or self.counts is None:
             return self.total / self.count
         with np.errstate(divide="ignore", invalid="ignore"):
             return self.total / self.counts
@@ -160,12 +174,14 @@ class RunningAverage:
     and the sequential fold is numpy's own order for reducing a stack along
     its first axis: the quotient equals ``np.mean`` / ``np.nanmean`` over the
     stack bit for bit for any frame of more than one element (numpy reduces a
-    stack of 1×1 frames along a contiguous axis, pairwise). Scalars are a few
-    floats per result and are kept and
+    stack of 1×1 frames along a contiguous axis, pairwise). Trace results
+    (rank 1) fold the same way, coordinates and samples together, in an
+    accumulator of the recipe's storage dtype — the dtype the stacked
+    reduction used — so a float32 trace still accumulates in float32 and the
+    quotient is still bit for bit; a scan's average holds one trace however
+    many it folds. Scalars are a few floats per result and are kept and
     reduced at the end, because numpy's pairwise sum over a 1-D vector is
-    not a running sum. Trace results (rank 1) are kept and reduced at the
-    storage dtype at the end, exactly as before; a scan keeps every trace
-    for its waterfall anyway.
+    not a running sum.
 
     :meth:`add` refuses a result whose rank, units or camera axes disagree
     with the first one. A result of another shape marks the average mixed:
@@ -184,7 +200,6 @@ class RunningAverage:
         self.count = 0
         self.mixed = False
         self._first: Frame | None = None
-        self._traces: list[np.ndarray] = []
         self._sum: _Sum | None = None
         # Scalar values by key in first-seen order; the first result's
         # emptiness and the first nonempty map's keys decide which are kept.
@@ -220,11 +235,16 @@ class RunningAverage:
                 raise ValueError("Averaged camera results must have matching axes")
         if not self.mixed:
             if self.rank == 1:
-                self._traces.append(frame.as_trace().astype(self.recipe.storage_dtype))
-            elif self._sum is None:
-                self._sum = _Sum(frame.data, skip_nan=self.mode == "bin")
+                # Coordinates and samples, at the storage dtype the stacked
+                # reduction accumulated in.
+                data = frame.as_trace().astype(self.recipe.storage_dtype)
+                dtype = self.recipe.storage_dtype
             else:
-                self._sum.add(frame.data)
+                data, dtype = frame.data, None
+            if self._sum is None:
+                self._sum = _Sum(data, skip_nan=self.mode == "bin", dtype=dtype)
+            else:
+                self._sum.add(data)
         if result.scalars:
             if self._bin_keys is None:
                 self._bin_keys = tuple(result.scalars)
@@ -253,8 +273,10 @@ class RunningAverage:
             return None
         reduce = np.mean if self.mode == "noscan" else np.nanmean
         if self.rank == 1:
+            # Back to the storage dtype, as numpy's own mean casts its
+            # quotient (a bin-mode count array promotes the division).
             frame = Frame.from_trace(
-                reduce(self._traces, axis=0),
+                self._sum.mean().astype(self.recipe.storage_dtype, copy=False),
                 x_unit=first.axes[0].unit,
                 x_label=first.axes[0].label,
                 y_unit=first.unit,

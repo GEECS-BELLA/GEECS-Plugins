@@ -3,6 +3,26 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.46.3] - 2026-10-07
+
+### Fixed
+
+- A long line run no longer holds every recording until the end.
+  `ProductCollector` keeps an unbinned line run's waterfall rows (a
+  noscan, or a sorted waterfall) as the waterfall draws them — block means
+  once a trace is longer than 4096 samples (GEECS-Analysis 0.27.0
+  `display_trace`) — and the trace averages now fold as they stream, so a
+  run's memory is its products, not its shots: one trace per bin average
+  plus 4096 columns per waterfall row. Rows of different recorded lengths
+  where any is longer than 4096 samples skip the waterfall with a note,
+  since their block means could share a length the waterfall would
+  otherwise refuse. Every product of a run whose traces are 4096 samples
+  or shorter is unchanged. A scanned run still holds one full-resolution
+  average per bin until its products are written — those are saved data —
+  and `ProductCollector.plan` now releases each bin's accumulator as it
+  makes that bin's average instead of holding every sum beside every mean;
+  a collector plans once (a second `plan` raises).
+
 ## [1.46.2] - 2026-10-06
 
 ### Changed

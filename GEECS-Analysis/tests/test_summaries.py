@@ -103,3 +103,53 @@ def test_kinds_are_registered_by_the_recipe_module_alone():
         [sys.executable, "-c", script], check=True, capture_output=True, text=True
     )
     assert out.stdout.strip() == "['average_processed_visual', 'averaged_image_grid']"
+
+
+def test_display_trace_keeps_a_short_trace_as_recorded():
+    from geecs_analysis.summaries.waterfall import MAX_COLUMNS, display_trace
+
+    frame = Frame.from_trace(
+        np.column_stack([np.arange(MAX_COLUMNS), np.ones(MAX_COLUMNS)])
+    )
+    assert display_trace(frame) is frame
+
+
+def test_display_trace_block_averages_a_long_trace():
+    from geecs_analysis.summaries.waterfall import MAX_COLUMNS, display_trace
+
+    size = MAX_COLUMNS * 3
+    x = np.linspace(-5.0, 5.0, size)
+    y = np.sin(x) * 7 + 1
+    y[4] = np.nan  # one missing sample in block 1: the others still count
+    y[9:12] = np.nan  # a block with no samples: NaN
+    frame = Frame.from_trace(np.column_stack([x, y]), x_unit="eV", y_unit="V")
+    shown = display_trace(frame)
+    assert shown.data.shape == (MAX_COLUMNS,)
+    np.testing.assert_allclose(shown.axes[0].values, x.reshape(-1, 3).mean(axis=1))
+    with np.errstate(all="ignore"), pytest.warns(RuntimeWarning):
+        expected = np.nanmean(y.reshape(-1, 3), axis=1)
+    np.testing.assert_allclose(shown.data, expected)
+    assert np.isnan(shown.data[3]) and np.isfinite(shown.data[1])
+    assert (shown.unit, shown.axes[0].unit) == ("V", "eV")
+    # uneven division: every sample lands in exactly one block
+    odd = display_trace(Frame.from_trace(np.column_stack([x[:-1], np.ones(size - 1)])))
+    assert odd.data.shape == (MAX_COLUMNS,)
+    np.testing.assert_array_equal(odd.data, 1.0)
+
+
+def test_waterfall_draws_long_traces_at_display_resolution():
+    from geecs_analysis.summaries.waterfall import MAX_COLUMNS
+
+    stack = WaterfallSummary()
+    draw = summary_definition(stack).function
+    size = MAX_COLUMNS * 10 + 7
+    x = np.arange(size, dtype=float)
+    rows = [
+        Measurement({}, Frame.from_trace(np.column_stack([x, x * k]))) for k in (1, 2)
+    ]
+    fig = draw(rows, [1.0, 2.0], "k", stack, FigureSpec(fig={"dpi": 20}))
+    assert fig.axes[0].collections[0].get_array().shape == (2, MAX_COLUMNS)
+    # the equal-length rule still applies to the recordings, not the rows
+    short = Measurement({}, Frame.from_trace(np.column_stack([x[:-1], x[:-1]])))
+    with pytest.raises(RenderError, match="equal-length"):
+        draw([rows[0], short], [1.0, 2.0], "k", stack, FigureSpec(fig={"dpi": 20}))

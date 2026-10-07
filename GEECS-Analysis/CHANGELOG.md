@@ -4,6 +4,35 @@ All notable changes to `geecs-analysis` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.27.0] - 2026-10-07
+
+### Changed
+
+- The `waterfall` summary draws a trace longer than `MAX_COLUMNS` (4096)
+  samples from `display_trace`: the mean of each of 4096 contiguous
+  blocks, coordinates and samples alike (NaN samples left out; a block
+  with none is NaN). The figure is about 1500 pixels wide, so it could
+  never show more; the reduction keeps a scope scan of millions of
+  samples per shot from stacking every recording in memory to draw it.
+  Traces of 4096 samples or fewer are drawn exactly as before, and the
+  equal-length rule still applies to the recordings, not the reduced rows.
+
+### Fixed
+
+- `RunningAverage` folds traces as it goes instead of keeping every one
+  and reducing at the end: coordinates and samples accumulate at the
+  recipe's storage dtype, the dtype the stacked reduction used, so a scan's
+  trace average holds one trace however many shots it has and equals the
+  old `np.mean`/`np.nanmean` over the stack bit for bit (pinned for
+  float32 and float64 storage, both modes). A 101-bin pulsed-wire scope
+  scan (~32 MB per shot) wedged the Data Portal at its memory limit on
+  2026-10-07 holding every trace.
+- A bin-mode running sum (camera frames, projections, traces) builds its
+  per-element count only once a NaN appears; until then every count is
+  the number folded. A NaN-free accumulator is half the size it was, and
+  the quotient is unchanged bit for bit (pinned NaN-free, NaN throughout,
+  and NaN first seen late).
+
 ## [0.26.1] - 2026-10-06
 
 ### Fixed

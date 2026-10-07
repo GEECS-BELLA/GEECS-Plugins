@@ -1,6 +1,7 @@
 """Saved averages retain legacy dtype, NaN and post-analysis semantics."""
 
 import contextlib
+import warnings
 
 import numpy as np
 import pytest
@@ -226,3 +227,86 @@ def test_running_fold_marks_mixed_shapes_but_keeps_counting():
     assert running.result() is None
     with pytest.raises(ValueError, match="rank"):
         running.add(Measurement({}, Frame.from_array([1, 2])))
+
+
+@pytest.mark.parametrize("storage", ["float32", "float64"])
+@pytest.mark.parametrize("mode", ["noscan", "bin"])
+@pytest.mark.parametrize("length", [2, 3, 2001])
+@pytest.mark.parametrize("nans", ["throughout", "none", "late"])
+def test_trace_fold_equals_the_stacked_reduction_bit_for_bit(
+    storage, mode, length, nans
+):
+    """Traces fold at the storage dtype and still match the stack mean exactly.
+
+    ``none`` and ``late`` exercise the count array's two lazy paths: never
+    built, and built at the first NaN after many NaN-free traces.
+    """
+    _, compiled = recipe("line", storage)
+    rng = np.random.default_rng(11)
+    shots = 250
+    x = np.linspace(-3.0, 40.0, length)
+    traces = []
+    for _ in range(shots):
+        samples = rng.normal(0.0, 1e3, length)
+        if nans == "throughout":
+            samples[rng.uniform(size=length) < 0.03] = np.nan
+        traces.append(np.column_stack((x + rng.uniform(0, 1e-3), samples)))
+    if nans == "throughout":
+        traces[0][0, 1] = np.nan  # an element NaN in every mode's first shot
+        for trace in traces:
+            trace[-1, 1] = np.nan  # an all-NaN sample column
+    elif nans == "late":
+        traces[200][0, 1] = np.nan
+        traces[230][-1, 1] = np.nan
+    running = RunningAverage(compiled, mode=mode)
+    for trace in traces:
+        running.add(Measurement({}, Frame.from_trace(trace)))
+    stack = np.asarray([t.astype(storage) for t in traces])
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        expected = (np.mean if mode == "noscan" else np.nanmean)(stack, axis=0)
+    assert expected.dtype == np.dtype(storage)
+    np.testing.assert_array_equal(running.result().frame.as_trace(), expected)
+
+
+def test_trace_fold_holds_one_trace_not_every_trace():
+    """250 traces of 20k float32 points were ~40 MB held; the fold keeps ~one."""
+    import gc
+    import tracemalloc
+
+    _, compiled = recipe("line", "float32")
+    x = np.linspace(0.0, 1.0, 20_000)
+    rng = np.random.default_rng(3)
+    running = RunningAverage(compiled, mode="bin")
+    gc.collect()
+    tracemalloc.start()
+    try:
+        before = tracemalloc.get_traced_memory()[0]
+        for _ in range(250):
+            trace = np.column_stack((x, rng.normal(size=x.size)))
+            running.add(Measurement({}, Frame.from_trace(trace)))
+            del trace
+        gc.collect()
+        held = tracemalloc.get_traced_memory()[0] - before
+    finally:
+        tracemalloc.stop()
+    one_trace = x.size * 2 * 4
+    assert held < 8 * one_trace, f"{held / 1e6:.1f} MB held after 250 traces"
+    assert running.result() is not None
+
+
+@pytest.mark.parametrize("late", [None, 150])
+def test_camera_bin_fold_without_nans_matches_nanmean_and_builds_no_count(late):
+    """A NaN-free bin keeps no per-pixel count; a late NaN builds it exactly."""
+    _, compiled = recipe()
+    rng = np.random.default_rng(5)
+    frames = rng.uniform(0, 4000, (200, 9, 11))
+    if late is not None:
+        frames[late, 2, 3] = np.nan
+    running = RunningAverage(compiled, mode="bin")
+    for frame in frames:
+        running.add(Measurement({}, Frame.from_array(frame)))
+    assert (running._sum.counts is None) == (late is None)
+    np.testing.assert_array_equal(
+        running.result().frame.data, np.nanmean(frames, axis=0)
+    )

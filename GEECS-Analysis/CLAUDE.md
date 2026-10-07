@@ -207,7 +207,12 @@ by the document; adding a kind is one file here plus its option model in
 GEECS-Schemas, no sink or dispatcher edit. The waterfall kind deliberately
 keeps legacy geometry (index-wise stack on the first trace's x grid, midpoint
 cell edges, a sort key implying even row spacing unless overridden) rather
-than weakening the general renderer's same-grid rule.
+than weakening the general renderer's same-grid rule. It draws a trace
+longer than `MAX_COLUMNS` (4096) from `display_trace` — block means of
+coordinates and samples — because the figure cannot show more and a
+scope recording per row would hold the whole scan; the equal-length
+check runs on the recordings first. Shorter traces are drawn as recorded.
+The summary is a picture; never reduce a measurement or a saved average.
 
 `compat.v2_render` translates v2 `RendererOptions` into a `FigureSpec`
 (`figure_v2`: the image palette rule as static keywords, a centred norm for
@@ -312,8 +317,12 @@ over the stack **bit for bit** for frames of more than one element (a stack
 of 1×1 frames reduces along a contiguous axis, pairwise) — pinned against
 the stack and by the
 unchanged differential tests against the legacy `ImageAnalyzerResult.average`.
-Scalars are a few floats per unit and are kept and reduced at the end,
-because numpy's pairwise 1-D sum is *not* a running sum; traces are kept
-and reduced at storage dtype as before (a scan keeps every trace for its
-waterfall anyway). A mixed shape marks the average and `result()` is
-`None`; later results still fold for their scalars.
+Traces fold the same way, coordinates and samples together, in an
+accumulator of the recipe's storage dtype (the dtype the stacked reduction
+used, so float32 accumulation is preserved) — bit for bit, pinned by
+`test_trace_fold_equals_the_stacked_reduction_bit_for_bit`. A bin-mode sum
+builds its per-element count only at the first NaN (a NaN-free count is the
+number folded), so a NaN-free accumulator is one array. Scalars are a
+few floats per unit and are kept and reduced at the end, because numpy's
+pairwise 1-D sum is *not* a running sum. A mixed shape marks the average
+and `result()` is `None`; later results still fold for their scalars.
