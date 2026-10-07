@@ -56,10 +56,10 @@ layers =
     geecs_analysis | image_analysis
     geecs_core | geecs_data_utils | geecs_schemas | geecs_web_theme | logmaker_4_googledocs
 
-# That the foundations never import each other is the layers contract's
-# rule (a forbidden contract cannot name a module as both source and target).
+# A foundation is listed on both sides: self-imports are not counted, so a
+# foundation importing another foundation breaks this contract too.
 [importlinter:contract:foundations]
-name = GEECS-Core, GEECS-Data-Utils, GEECS-Schemas, GeecsWebTheme and LogMaker import nothing above them, even indirectly
+name = GEECS-Core, GEECS-Data-Utils, GEECS-Schemas, GeecsWebTheme and LogMaker import nothing in the repo, even indirectly
 type = forbidden
 source_modules =
     geecs_core
@@ -68,6 +68,11 @@ source_modules =
     geecs_web_theme
     logmaker_4_googledocs
 forbidden_modules =
+    geecs_core
+    geecs_data_utils
+    geecs_schemas
+    geecs_web_theme
+    logmaker_4_googledocs
     geecs_analysis
     image_analysis
     scan_analysis
