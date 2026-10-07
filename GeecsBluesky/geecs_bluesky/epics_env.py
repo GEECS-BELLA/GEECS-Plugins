@@ -79,14 +79,12 @@ def apply_epics_address_config(
     try:
         if not path.exists():
             return applied
-        addr = (read_config_entry("epics", "ca_addr_list", path) or "").strip()
+        addr = read_config_entry("epics", "ca_addr_list", path)
         if addr and "EPICS_CA_ADDR_LIST" not in env:
             env["EPICS_CA_ADDR_LIST"] = addr
             applied["EPICS_CA_ADDR_LIST"] = addr
-            auto = (
-                read_config_entry("epics", "ca_auto_addr_list", path) or "NO"
-            ).strip()
-            if auto and "EPICS_CA_AUTO_ADDR_LIST" not in env:
+            auto = read_config_entry("epics", "ca_auto_addr_list", path) or "NO"
+            if "EPICS_CA_AUTO_ADDR_LIST" not in env:
                 env["EPICS_CA_AUTO_ADDR_LIST"] = auto
                 applied["EPICS_CA_AUTO_ADDR_LIST"] = auto
         pva_hosts = pva_addr_tokens(
@@ -98,10 +96,8 @@ def apply_epics_address_config(
         if pva_hosts and "EPICS_PVA_ADDR_LIST" not in env:
             env["EPICS_PVA_ADDR_LIST"] = " ".join(pva_hosts)
             applied["EPICS_PVA_ADDR_LIST"] = env["EPICS_PVA_ADDR_LIST"]
-            auto = (
-                read_config_entry("pva", "pva_auto_addr_list", path) or "YES"
-            ).strip()
-            if auto and "EPICS_PVA_AUTO_ADDR_LIST" not in env:
+            auto = read_config_entry("pva", "pva_auto_addr_list", path) or "YES"
+            if "EPICS_PVA_AUTO_ADDR_LIST" not in env:
                 env["EPICS_PVA_AUTO_ADDR_LIST"] = auto
                 applied["EPICS_PVA_AUTO_ADDR_LIST"] = auto
         if applied:
