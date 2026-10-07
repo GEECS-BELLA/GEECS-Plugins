@@ -7,10 +7,9 @@ is no GEECS schema version — consumers read the documents as Bluesky
 documents.  This file lists the GEECS-specific keys those documents
 carry.
 
-Runs from before the native-Bluesky rebuild (GEECS-Plugins#807) carry the
-retired v1 schema (`geecs_event_schema`, `acquisition_mode`, `shot_id` /
-`shot_offset` / `valid` companion columns); `geecs_data_utils.tiled_schema`
-still reads them.
+Older runs carry the v1 schema (`geecs_event_schema`, `acquisition_mode`,
+`shot_id` / `shot_offset` / `valid` companion columns);
+`geecs_data_utils.tiled_schema` reads them.
 
 ## Start document
 
@@ -27,7 +26,7 @@ adds:
 | `geecs_scalar_headers` | `scalar_headers` preprocessor | Event key → legacy `Device Variable` header for every staged device (the s-file and the browser's display names) |
 | `shot_clock` / `shot_clock_column` | the bound plan (gated) | The device whose `acq_timestamp` is the shot id, and the row column carrying it — what the s-file's join keys on |
 | `trigger_profile` | the bound plan | The trigger profile that drove the shots |
-| `native_image_save` | the bound plan | The run's LabVIEW-files **switch** — the preset's value, else the experiment default (#738) — not a record of what was written. It reaches a plugin-backed camera only as a strict full detector (a `.scalars` view, a non-essential stream and a gated batch's plugin-backed cameras write no native files whatever it says; a device without a file plugin always writes them, as a strict detector, a gated essential or a non-essential). Whether a device wrote is the presence of its `<det>-nonscalar_save_path` column, in `primary` (strict), `shots` (gated) or its own `<det>_stream` (a non-essential) |
+| `native_image_save` | the bound plan | The run's LabVIEW-files **switch** — the preset's value, else the experiment default — not a record of what was written. It reaches a plugin-backed camera only as a strict full detector (a `.scalars` view, a non-essential stream and a gated batch's plugin-backed cameras write no native files whatever it says; a device without a file plugin always writes them, as a strict detector, a gated essential or a non-essential). Whether a device wrote is the presence of its `<det>-nonscalar_save_path` column, in `primary` (strict), `shots` (gated) or its own `<det>_stream` (a non-essential) |
 | `background_telemetry` | the bound plan | Whether the run read the background telemetry into its rows: the preset's value, else the experiment default; `False` also when the namespace carries no telemetry set at all (a run whose every candidate is its own device still says `True`, with nothing dropped and no extra column) |
 | `background_dropped` | the bound plan (`background_wrapper`) | GEECS device names the background probe dropped for this run — no answer within its budget (a PV the gateway does not serve, a failed connect or describe); absent when the run read no background |
 | `background_probe_error` | the bound plan (`background_wrapper`) | Present only when the probe itself failed (an unexpected error, logged at ERROR — never a member's failure, which is its own drop): `Type: message`, and the run opened with no background columns |
@@ -83,7 +82,7 @@ trigger state (`shot_control-state`) when it is read.
 |---|---|
 | `<det>-<variable>` | The detector's DB-subscribed scalars, one column each (`safe_name`-mangled: `uc_amp4_ir_input-meancounts`) |
 | `<det>-acq_timestamp` | The shot stamp: the join key for that detector's files and for cross-device alignment after the drain offset |
-| `<det>` | A plugin-backed camera's frames (#806): an external `STREAM:` key — the row's frame is the stream datum's index into `ScanNNN/<device>/<device>.h5` (`/entry/data/data`); `<det>-<variable>` for a second image variable. Absent from a partial row (see below) |
+| `<det>` | A plugin-backed camera's frames: an external `STREAM:` key — the row's frame is the stream datum's index into `ScanNNN/<device>/<device>.h5` (`/entry/data/data`); `<det>-<variable>` for a second image variable. Absent from a partial row (see below) |
 | `<det>-nonscalar_save_path` | The directory the detector's native files landed in this run — present only when the detector saved natively (`geecs_data_utils.tiled_schema.COMPANION_SUFFIXES` names the suffix) |
 | `<device>-<variable>` | A scalar-only device's subscribed readbacks (`CaSnapshotReadable`) |
 | `<device>-<settable>-position` / `-readback` | A settable child's readback when the DB subscribes it (`CaMotor` / `CaSettable`), and the scan motor's column |
@@ -130,12 +129,12 @@ save path below) is a run-long constant and stays.
 
 | Column | Meaning |
 |---|---|
-| `<det>-nonscalar_save_path` | A **native-saving essential**'s save directory (a device without a file plugin — a LabVIEW-native camera, a DAQ or wavefront sensor with its own file writer, a scope with every capture channel disabled; admitted as a gated essential 2026-09-25): the same companion column a strict row carries, here a **run-long constant** — LabVIEW's saving is switched on at the run's first prepare and off at `unstage`, never per step. Its scalars and its own `<det>-acq_timestamp` ride in the row like any non-plugin device's (it may be the clock). Its files are named by that stamp and join by it (`geecs_data_utils.native_files`); a shot on which it dropped a frame is a row with no file — **no retake**, as the LabVIEW scanner had it. The stack check matches every row's stamp to a file in that directory at the stop (`geecs_data_utils.native_files.native_file_keys`) and appends a `native files check` line to `scan.log` — rows without a file and file stamps without a row counted apart (WARNING on either, never a failure). Absent for a plugin-backed camera (its stack is its record) and for a `.scalars` view |
+| `<det>-nonscalar_save_path` | A **native-saving essential**'s save directory (a device without a file plugin — a LabVIEW-native camera, a DAQ or wavefront sensor with its own file writer, a scope with every capture channel disabled): the same companion column a strict row carries, here a **run-long constant** — LabVIEW's saving is switched on at the run's first prepare and off at `unstage`, never per step. Its scalars and its own `<det>-acq_timestamp` ride in the row like any non-plugin device's (it may be the clock). Its files are named by that stamp and join by it (`geecs_data_utils.native_files`); a shot on which it dropped a frame is a row with no file — **no retake**. The stack check matches every row's stamp to a file in that directory at the stop (`geecs_data_utils.native_files.native_file_keys`) and appends a `native files check` line to `scan.log` — rows without a file and file stamps without a row counted apart (WARNING on either, never a failure). Absent for a plugin-backed camera (its stack is its record) and for a `.scalars` view |
 
 An additive column convention, not a schema change: a reader that never
 looked for the column in `shots` sees the rows it saw before.
 
-**When the rows arrive** (GeecsBluesky 0.107.0): the plan collects the
+**When the rows arrive**: the plan collects the
 sampler about once a second **during** a batch, so `shots` pages arrive
 mid-batch rather than one page at its end — a row goes out once every
 plugin-backed camera of the step holds that shot's frame, and a row once
@@ -168,7 +167,7 @@ never waited on and never failing the run.  Two shapes:
 
 - a **plugin-backed** camera: a datum stream (its stack, as `primary` is
   in a gated run), no events;
-- a **triggered device without a plugin** (2026-09-26 — a LabVIEW-native
+- a **triggered device without a plugin** (a LabVIEW-native
   saver, a scalar device with a stamp, or a detector's `.scalars` view):
   **one event per stamp the device published** while the run was open,
   recorded the moment the stamp arrived, at the device's own rate:
@@ -208,8 +207,7 @@ run — not a detector, not the owner of a listed `.scalars` view, not a
 non-essential device, not a scan motor — rides in every row of the run's
 row stream (`primary` for a strict run, `shots` for a gated one) under the
 same `<device>-<variable>` keys a listed device would carry, read softly
-from the gateway's monitor cache by the run's `BackgroundSnapshot`
-(GEECS-Plugins#1016, #929 — what the LabVIEW Master Control logged).  A detector
+from the gateway's monitor cache by the run's `BackgroundSnapshot`.  A detector
 outside the run contributes its scalars and its `acq_timestamp` as its
 monitor cache holds them (the last frame's), so a row's alignment to that
 device is checkable.  A reading the gateway marks INVALID (a dead device's
