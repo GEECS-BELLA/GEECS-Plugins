@@ -209,6 +209,75 @@ def test_bad_waterfall_skips_only_summary_and_reports_reason(tmp_path):
     assert "equal-length" in saved.notes[0]
 
 
+def fit_recipe(*summaries):
+    from geecs_schemas.analysis import AnalysisRecipe
+
+    return AnalysisRecipe.model_validate(
+        {
+            "device": "Device",
+            "output_name": "Output",
+            "input": {"kind": "camera"},
+            "figure": {"fig": {"dpi": 30}},
+            "summaries": list(summaries),
+        }
+    )
+
+
+def test_scalar_fit_writes_its_png_and_a_json_sidecar(tmp_path):
+    import json
+
+    scan = tmp_path / "scans" / "Scan001"
+    scan.mkdir(parents=True)
+    doc = fit_recipe(
+        {"kind": "image_grid"},
+        {"kind": "scalar_fit", "scalars": ["kick_1", "kick_2"]},
+    )
+    image = Frame.from_array(np.ones((3, 3)))
+    panels = tuple(
+        Product(i, Measurement({"kick_1": 2.0 * p - 1.0}, image), p)
+        for i, p in enumerate([0.0, 1.0, 2.0], start=1)
+    )
+    plan = ProductPlan(summary=panels, position_label="hexapod x")
+    saved = save_products(plan, scan_recipe(doc), scan)
+    names = [p.name for p in saved.files]
+    assert names == [
+        "Device_averaged_image_grid.png",
+        "Device_summary_scalar_fit.png",
+        "Device_summary_scalar_fit.json",
+    ]
+    assert saved.files[1].read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    # the sidecar is data, not a display figure
+    assert saved.display_files == saved.files[:2]
+    text = saved.files[2].read_text()
+    assert "NaN" not in text and "Infinity" not in text
+    sidecar = json.loads(text)
+    assert sidecar["kind"] == "scalar_fit"
+    assert sidecar["position_label"] == "hexapod x"
+    scalars = sidecar["scalars"]
+    assert scalars["kick_1_slope"] == pytest.approx(2.0)
+    assert scalars["kick_1_zero_crossing"] == pytest.approx(0.5)
+    assert scalars["kick_1_points"] == 3
+    # an absent key: every number null, the reason in the notes
+    assert scalars["kick_2_slope"] is None and scalars["kick_2_points"] == 0
+    assert "kick_2: missing from 3 of 3 results" in sidecar["notes"]
+    assert any("kick_2: missing" in n for n in saved.notes)
+    assert all(parse_output_filename(name) == ("summary", None) for name in names[1:])
+    assert not list(scan.iterdir())
+
+
+def test_figure_only_kinds_write_no_sidecar(tmp_path):
+    scan = tmp_path / "scans" / "Scan001"
+    scan.mkdir(parents=True)
+    doc = fit_recipe({"kind": "image_grid"})
+    panels = tuple(Product(i, product().measurement, float(i)) for i in [1, 2])
+    saved = save_products(ProductPlan(summary=panels), scan_recipe(doc), scan)
+    assert [p.name for p in saved.files] == ["Device_averaged_image_grid.png"]
+    target = saved.files[0].parent
+    assert sorted(p.name for p in target.iterdir()) == [
+        "Device_averaged_image_grid.png"
+    ]
+
+
 class TestShotStore:
     """One HDF5 per scan of every single-shot measurement's frame and extras."""
 

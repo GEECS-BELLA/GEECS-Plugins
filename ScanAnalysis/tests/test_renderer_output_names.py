@@ -18,6 +18,9 @@ from scan_analysis.analyzers.renderers.config import parse_output_filename
         ("UC_TestCam_average_processed.h5", ("summary", None)),
         ("UC_TestCam_averaged_image_grid.png", ("summary", None)),
         ("UC_Line_summary_waterfall.png", ("summary", None)),
+        ("UC_Wire_summary_scalar_fit.png", ("summary", None)),
+        # the scalar_fit JSON sidecar classifies with its figure (never a bin)
+        ("UC_Wire_summary_scalar_fit.json", ("summary", None)),
         ("noscan.gif", ("summary", None)),
         ("some/dir/UC_TestCam_3_processed_visual.png", ("bin", 3)),
         ("UC_TestCam_dynamic_background.npy", ("other", None)),

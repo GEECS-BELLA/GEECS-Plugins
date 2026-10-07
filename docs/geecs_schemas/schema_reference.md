@@ -1200,7 +1200,7 @@ One device's analysis: input, ordered steps, a measure, the draw, the summaries.
 | `measure` | `MeasureRef` | no | MeasureRef(kind='none') | What is measured on each processed frame. |
 | `scan` | `RecipeRuntime` | no | RecipeRuntime(priority=100, average_frames_first=False, save=True, workers=1) | How the recipe runs over a scan. |
 | `figure` | `FigureStyle` | no | FigureStyle(imshow={}, pcolormesh={}, plot={}, colorbar={}, axes={}, fig={}, overlays={}) | The per-frame draw, reused by every summary kind. |
-| `summaries` | `list[ImageGridSummary \| WaterfallSummary \| AverageSummary]` | no | empty | Scan-level figures, each a frozen kind with its own options; an empty list draws no summary. |
+| `summaries` | `list[ImageGridSummary \| WaterfallSummary \| AverageSummary \| ScalarFitSummary]` | no | empty | Scan-level figures, each a frozen kind with its own options; an empty list draws no summary. |
 
 Example:
 
@@ -1352,6 +1352,16 @@ The scan's averaged frame (a noscan or count scan), drawn with ``figure``.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'average'` | no | 'average' | The scan's averaged frame. |
+
+### ScalarFitSummary
+
+A straight-line fit of measured scalars against the scan position.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'scalar_fit'` | no | 'scalar_fit' | Fit measured scalars against the scan position. |
+| `scalars` | `list[str]` | yes | — | Scalar keys to fit, bare as the measure emits them (e.g. kick_1); one fitted line each. |
+| `model` | `'linear'` | no | 'linear' | The fitted model: 'linear' (slope and intercept). |
 
 ## `analysis_group`
 

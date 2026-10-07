@@ -480,6 +480,40 @@
       "title": "RecipeRuntime",
       "type": "object"
     },
+    "ScalarFitSummary": {
+      "additionalProperties": false,
+      "description": "A straight-line fit of measured scalars against the scan position.\n\nFor each named scalar the points are (bin position, the bin's value);\nthe fit's slope, intercept, zero crossing, their standard errors, r\u00b2\nand point count are scan-level numbers, written beside the figure.",
+      "properties": {
+        "kind": {
+          "const": "scalar_fit",
+          "default": "scalar_fit",
+          "description": "Fit measured scalars against the scan position.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "scalars": {
+          "description": "Scalar keys to fit, bare as the measure emits them (e.g. kick_1); one fitted line each.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Scalars",
+          "type": "array"
+        },
+        "model": {
+          "const": "linear",
+          "default": "linear",
+          "description": "The fitted model: 'linear' (slope and intercept).",
+          "title": "Model",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scalars"
+      ],
+      "title": "ScalarFitSummary",
+      "type": "object"
+    },
     "ScanStatistic": {
       "additionalProperties": false,
       "description": "A frame computed from a scan's own frames of this device, before the run.\n\n``scan`` unset means the scan being analyzed; a number means that scan of\nthe same day (a dark scan).  The statistic is taken per pixel across every\nframe, exactly (no subsampling); the scan host caches the result in the\nanalysis tree beside that scan's other outputs.",
@@ -789,6 +823,7 @@
           "mapping": {
             "average": "#/$defs/AverageSummary",
             "image_grid": "#/$defs/ImageGridSummary",
+            "scalar_fit": "#/$defs/ScalarFitSummary",
             "waterfall": "#/$defs/WaterfallSummary"
           },
           "propertyName": "kind"
@@ -802,6 +837,9 @@
           },
           {
             "$ref": "#/$defs/AverageSummary"
+          },
+          {
+            "$ref": "#/$defs/ScalarFitSummary"
           }
         ]
       },

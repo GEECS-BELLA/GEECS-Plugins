@@ -187,7 +187,8 @@ def test_sink_resolves_every_kind_in_a_fresh_process():
         [sys.executable, "-c", script], check=True, capture_output=True, text=True
     )
     assert out.stdout.strip() == (
-        "['average_processed_visual', 'averaged_image_grid', 'summary_waterfall']"
+        "['average_processed_visual', 'averaged_image_grid', 'summary_scalar_fit', "
+        "'summary_waterfall']"
     )
 
 

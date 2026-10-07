@@ -6,7 +6,12 @@ import sys
 import numpy as np
 import pytest
 from geecs_data_utils.frames import Frame
-from geecs_schemas.analysis import AverageSummary, ImageGridSummary, WaterfallSummary
+from geecs_schemas.analysis import (
+    AverageSummary,
+    ImageGridSummary,
+    ScalarFitSummary,
+    WaterfallSummary,
+)
 
 from geecs_analysis.measurement import Measurement
 from geecs_analysis.registry import summary_definition, summary_definitions
@@ -25,9 +30,17 @@ def trace(y):
     )
 
 
-def test_registry_lists_the_three_kinds_with_their_contracts():
+def test_registry_lists_the_four_kinds_with_their_contracts():
     definitions = {d.spec: d for d in summary_definitions()}
-    assert set(definitions) == {ImageGridSummary, WaterfallSummary, AverageSummary}
+    assert set(definitions) == {
+        ImageGridSummary,
+        WaterfallSummary,
+        AverageSummary,
+        ScalarFitSummary,
+    }
+    assert definitions[ScalarFitSummary].consumes == "panels"
+    assert definitions[ScalarFitSummary].filename == "summary_scalar_fit"
+    assert definitions[ScalarFitSummary].ndim == {1, 2}
     assert definitions[ImageGridSummary].consumes == "panels"
     assert definitions[ImageGridSummary].filename == "averaged_image_grid"
     assert definitions[ImageGridSummary].ndim == {2}

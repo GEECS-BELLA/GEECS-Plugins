@@ -112,7 +112,8 @@ def preview_summary(
     positions (a noscan's ``core_products.NOSCAN_POSITION_LABEL``). Raises
     ``LookupError`` when the document has no summary at *index*,
     ``RenderError`` when the frames cannot be summarised (mixed shapes; a
-    kind's own refusal).
+    kind's own refusal). Only the figure is returned: a kind's scan-level
+    scalars are the sink's JSON sidecar, not part of the preview.
     """
     summaries = summaries_of(document)
     if not 0 <= index < len(summaries):
@@ -130,5 +131,5 @@ def preview_summary(
         averaged = average_results(results, prepared.recipe, mode="noscan")
         if averaged is None:
             raise RenderError("the frames do not average: their shapes differ")
-        return draw_summary(options, [averaged], [None], label, figure)
-    return draw_summary(options, results, positions, label, figure)
+        return draw_summary(options, [averaged], [None], label, figure).figure
+    return draw_summary(options, results, positions, label, figure).figure

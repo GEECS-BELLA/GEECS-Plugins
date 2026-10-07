@@ -377,10 +377,18 @@ STEP_EXAMPLES = {
         {"center": [56, 88], "width": 30, "height": 30, "thickness": 2},
         "Blank a fiducial crosshair printed on a screen.",
     ),
+    "derivative": (
+        {},
+        "Differentiate a trace along its axis (e.g. a field integral into the field).",
+    ),
     "gaussian": ({"sigma": 2.0}, "Smooth noise before widths or peaks are measured."),
     "interpolate": (
         {"count": 120, "lower": 450, "upper": 850},
         "Resample a trace onto an even axis (e.g. before a waterfall).",
+    ),
+    "lowpass": (
+        {"order": 2, "critical_frequency": 0.1},
+        "Zero-phase Butterworth smoothing of a trace (cutoff as a fraction of Nyquist).",
     ),
     "median": ({"kernel": 3}, "Remove isolated hot pixels without blurring edges."),
     "roi": (
@@ -451,9 +459,11 @@ def summary_examples() -> dict:
     from geecs_schemas.analysis.recipe import (
         AverageSummary,
         ImageGridSummary,
+        ScalarFitSummary,
         WaterfallSummary,
     )
 
+    from geecs_analysis.measurement import Measurement
     from geecs_analysis.registry import summary_definitions
     from geecs_analysis.render.specs import FigureSpec
 
@@ -494,10 +504,33 @@ def summary_examples() -> dict:
         FigureSpec(axes={"xlabel": "wavelength (nm)"}),
     )
     avg = layouts[AverageSummary]([beams[2]], [None], "", AverageSummary(), style)
+    # Two magnets' kicks across a transverse scan: each is linear in the
+    # position, its zero crossing the magnet's centre. Seeded noise, drawn
+    # last so the earlier examples keep their draws.
+    rng = np.random.default_rng(7)
+    hexapod = np.linspace(-1.0, 1.0, 9)
+    kicks = [
+        Measurement(
+            {
+                "kick_1": 2.0 * (p - 0.15) + rng.normal(0, 0.05),
+                "kick_2": -1.4 * (p + 0.3) + rng.normal(0, 0.05),
+            },
+            Frame.from_array(np.zeros(4)),
+        )
+        for p in hexapod
+    ]
+    fit = layouts[ScalarFitSummary](
+        kicks,
+        list(hexapod),
+        "hexapod x (mm)",
+        ScalarFitSummary(scalars=["kick_1", "kick_2"]),
+        FigureSpec(),
+    )
     return {
         "image_grid": fig_png(grid),
         "waterfall": fig_png(fall),
         "average": fig_png(avg),
+        "scalar_fit": fig_png(fit.figure),
     }
 
 

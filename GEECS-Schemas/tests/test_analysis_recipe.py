@@ -18,6 +18,7 @@ from geecs_schemas.analysis import (
     CameraInput,
     ImageGridSummary,
     LineInput,
+    ScalarFitSummary,
     WaterfallSummary,
     canonical_document,
     load_analysis_document,
@@ -62,16 +63,47 @@ class TestRegistry:
         assert SCHEMA_REGISTRY["analysis_recipe"] is AnalysisRecipe
         assert EXPORTED_SCHEMAS["analysis_recipe"] is AnalysisRecipe
 
-    def test_summary_kinds_are_the_frozen_three(self):
+    def test_summary_kinds_are_the_frozen_four(self):
         assert SUMMARY_KINDS == {
             "image_grid": ImageGridSummary,
             "waterfall": WaterfallSummary,
             "average": AverageSummary,
+            "scalar_fit": ScalarFitSummary,
         }
         assert ImageGridSummary.frame_ndim == {2}
         assert WaterfallSummary.frame_ndim == {1}
         assert AverageSummary.frame_ndim == {1, 2}
+        assert ScalarFitSummary.frame_ndim == {1, 2}
         assert CameraInput.ndim == 2 and LineInput.ndim == 1
+
+
+class TestScalarFitSummary:
+    def test_round_trips_in_a_recipe_on_either_input(self):
+        entry = {"kind": "scalar_fit", "scalars": ["kick_1", "kick_2"]}
+        for base in (CAMERA, LINE):
+            recipe = AnalysisRecipe.model_validate({**base, "summaries": [entry]})
+            (fit,) = recipe.summaries
+            assert isinstance(fit, ScalarFitSummary)
+            assert fit.scalars == ["kick_1", "kick_2"] and fit.model == "linear"
+            written = canonical_document(recipe)
+            assert written["summaries"] == [entry]
+            again = AnalysisRecipe.model_validate(
+                yaml.safe_load(yaml.safe_dump(written))
+            )
+            assert again == recipe
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            {"kind": "scalar_fit", "scalars": []},
+            {"kind": "scalar_fit"},
+            {"kind": "scalar_fit", "scalars": ["k"], "model": "quadratic"},
+            {"kind": "scalar_fit", "scalars": ["k"], "degree": 2},
+        ],
+    )
+    def test_refuses_an_empty_list_and_unknown_options(self, entry):
+        with pytest.raises(ValidationError):
+            AnalysisRecipe.model_validate({**CAMERA, "summaries": [entry]})
 
 
 class TestShape:

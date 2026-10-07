@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Callable, ClassVar, Mapping, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     from geecs_data_utils.frames import Frame
+    from matplotlib.figure import Figure
     from geecs_analysis.measurement import Measurement
 
 
@@ -175,10 +177,45 @@ def measure_definition(spec: MeasureSpec) -> MeasureDefinition:
 
 
 @dataclass(frozen=True)
+class SummaryOutput:
+    """What a summary layout produced: its figure plus scan-level numbers.
+
+    ``scalars`` are numbers computed across the whole scan (a fit's zero
+    crossing), keyed by name; nonfinite values stay as they are, explained
+    by ``notes``. A layout with no numbers returns a bare ``Figure``;
+    :func:`summary_output` turns either shape into this one.
+    """
+
+    figure: Figure
+    scalars: Mapping[str, float] = field(default_factory=dict)
+    notes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Own the numbers: a read-only copy of floats, notes as a tuple."""
+        scalars = {str(k): float(v) for k, v in self.scalars.items()}
+        object.__setattr__(self, "scalars", MappingProxyType(scalars))
+        object.__setattr__(self, "notes", tuple(self.notes))
+
+
+def summary_output(value: object) -> SummaryOutput:
+    """Normalise a summary layout's return value to a :class:`SummaryOutput`.
+
+    A layout returns either a matplotlib ``Figure`` (every picture-only
+    kind) or a ``SummaryOutput``; consumers call this once instead of
+    asking which.
+    """
+    if isinstance(value, SummaryOutput):
+        return value
+    return SummaryOutput(figure=value)
+
+
+@dataclass(frozen=True)
 class SummaryDefinition:
     """A summary kind: its option model, layout function, inputs and file marker.
 
-    ``consumes`` names the scan product the layout draws: ``"panels"`` (one
+    The layout returns a ``Figure`` or a :class:`SummaryOutput` (a figure
+    plus scan-level scalars the sink writes as a JSON sidecar); consumers
+    normalise through :func:`summary_output`. ``consumes`` names the scan product the layout draws: ``"panels"`` (one
     measurement per bin, or per shot on a noscan waterfall) or
     ``"average"`` (the scan's one averaged measurement). ``filename`` is the
     marker the sink appends to the device name; the portal's filename

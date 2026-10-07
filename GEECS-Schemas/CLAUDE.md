@@ -21,10 +21,10 @@ not ported). `load_analysis_document` dispatches on `schema_version`;
 every loader goes through it. The recipe types the document's frame —
 naming, `input`, `inputs`, `scan`, `figure` (`FigureStyle`, the per-frame
 draw) and the summary kinds' option models (`image_grid`, `waterfall`,
-`average`, each declaring the frame dimensionality it draws, which the
-document checks against the input) — and carries `steps` / `measure` as
-registry references (`StepRef` / `MeasureRef`, extra keys allowed on
-purpose): the numerical vocabulary is GEECS-Analysis' registry and is
+`average`, `scalar_fit`, each declaring the frame dimensionality it draws,
+which the document checks against the input) — and carries `steps` /
+`measure` as registry references (`StepRef` / `MeasureRef`, extra keys
+allowed on purpose): the numerical vocabulary is GEECS-Analysis' registry and is
 never duplicated here. Add a summary kind's option model here and its
 layout in GEECS-Analysis; add a step or measure in GEECS-Analysis alone.
 

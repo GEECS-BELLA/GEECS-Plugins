@@ -390,8 +390,36 @@ class AverageSummary(_SummaryBase):
     )
 
 
+class ScalarFitSummary(_SummaryBase):
+    """A straight-line fit of measured scalars against the scan position.
+
+    For each named scalar the points are (bin position, the bin's value);
+    the fit's slope, intercept, zero crossing, their standard errors, r²
+    and point count are scan-level numbers, written beside the figure.
+    """
+
+    frame_ndim: ClassVar[frozenset[int]] = frozenset({1, 2})
+
+    kind: Literal["scalar_fit"] = Field(
+        "scalar_fit",
+        description="Fit measured scalars against the scan position.",
+    )
+    scalars: List[str] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Scalar keys to fit, bare as the measure emits them (e.g. kick_1); "
+            "one fitted line each."
+        ),
+    )
+    model: Literal["linear"] = Field(
+        "linear",
+        description="The fitted model: 'linear' (slope and intercept).",
+    )
+
+
 Summary = Annotated[
-    Union[ImageGridSummary, WaterfallSummary, AverageSummary],
+    Union[ImageGridSummary, WaterfallSummary, AverageSummary, ScalarFitSummary],
     Field(discriminator="kind"),
 ]
 
@@ -400,6 +428,7 @@ SUMMARY_KINDS: Dict[str, type[_SummaryBase]] = {
     "image_grid": ImageGridSummary,
     "waterfall": WaterfallSummary,
     "average": AverageSummary,
+    "scalar_fit": ScalarFitSummary,
 }
 
 
@@ -624,6 +653,7 @@ __all__ = [
     "MeasureRef",
     "RecipeInput",
     "RecipeRuntime",
+    "ScalarFitSummary",
     "StepRef",
     "Summary",
     "WaterfallSummary",
