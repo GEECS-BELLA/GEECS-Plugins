@@ -189,8 +189,8 @@ class ConfigsRepoResolver:
         Experiment folder name under ``scanner_configs/experiments``.
     experiments_root :
         Override for the experiments root (tests); defaults to the
-        production resolution (``GEECS_SCANNER_CONFIG_DIR`` env var or
-        config.ini), resolved lazily on first use.
+        production resolution (:func:`geecs_core.configs_repo.scanner_configs_base`),
+        resolved lazily on first use.
     """
 
     TRIGGER_FOLDER = SHOT_CONTROL_FOLDER

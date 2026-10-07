@@ -123,7 +123,7 @@ geecs_bluesky/
                             #   inspection/ (dump loading, surrogate analysis), events.py
                             #   (the optimization stream's column codec, OptimizationRole;
                             #   import-light, the scanner imports it)
-  # import-light contract modules (the scanner imports them; stdlib only):
+  # import-light modules the scanner imports (no bluesky, ophyd-async or aioca):
   plan_names.py             # GEECS_PLAN_NAMES and the roster's subsets, ACQUISITION_MODES
   log_markers.py            # log-line strings clients parse from the manager's text stream
   actions/steps.py          # flatten_action_steps: the one walk of an action plan

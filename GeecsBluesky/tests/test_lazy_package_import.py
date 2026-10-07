@@ -35,6 +35,13 @@ assert FAILED_MOVE_LOG_PREFIX.startswith("FAILED MOVE")
 for heavy in ("aioca", "ophyd_async", "bluesky_queueserver_api", "bluesky"):
     assert heavy not in sys.modules, f"qs_client import pulled {heavy}"
 
+# The scanner's other light imports go through package __init__s.
+import geecs_bluesky.actions.steps  # noqa: F401
+import geecs_bluesky.optimization.events  # noqa: F401
+
+for heavy in ("aioca", "ophyd_async", "bluesky", "xopt"):
+    assert heavy not in sys.modules, f"scanner light imports pulled {heavy}"
+
 # The lazy re-exports still resolve (this leg MAY pull the device stack).
 from geecs_bluesky import CaMotor
 

@@ -6,27 +6,22 @@
   momentary fire, never a standing state.
 - **Pausable**, keyed on the standing state: ``ARMED`` is quiescent by
   construction, so ``pause()`` does nothing; ``SCAN`` and ``STANDBY`` pass
-  external edges (:data:`QUIESCE_FROM`),
-  so a pause there drives ``OFF`` and ``resume()`` restores what the plan
-  had.  The RunEngine calls both on every Pausable it has seen in a
-  message, so being the ``set`` target is enough.  Neither notification
-  ever raises; failures are logged.
+  external edges (:data:`QUIESCE_FROM`), so a pause there drives ``OFF``
+  and ``resume()`` restores what the plan had.  The RunEngine calls both
+  on every Pausable it has seen in a message, so being the ``set`` target
+  is enough.  Neither notification ever raises; failures are logged.
 
 The box's devices carry the gateway's ``CONNECTED`` PV as one ``str``
 signal each (:attr:`ShotControl.liveness_signals`), read once by the
 run's liveness gate before the first move (#852), never a column.
 
-Writes go through one cached gateway ``:SP`` put per ``(device,
-variable)`` target (:class:`~geecs_bluesky.devices.ca.gateway_put.CaPutSetter`,
-the stringified-wire convention), in declared order.  The ``state``
-config signal mirrors the standing state into every descriptor.
+Writes go, in declared order, through one cached gateway ``:SP`` put per
+target (:class:`~geecs_bluesky.devices.ca.gateway_put.CaPutSetter`).  The
+``state`` config signal mirrors the standing state into every descriptor.
 :func:`trigger_writes_from_profile` adapts a configs-repo
-``TriggerProfile`` into :class:`ShotControlWrites`, the engine-side shape:
-a state transition is an ordered list of ``(device, variable, value)``
-writes, applied top to bottom (order is schema-documented — e.g. raise an
-amplitude before switching a trigger source), possibly spanning several
-devices.  Values are verbatim wire strings; a state with no writes is "not
-defined" for this box.
+``TriggerProfile`` into :class:`ShotControlWrites`: per state, the ordered
+``(device, variable, value)`` writes as verbatim wire strings; a state with
+no writes is "not defined" for this box.
 """
 
 from __future__ import annotations
