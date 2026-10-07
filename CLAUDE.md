@@ -49,7 +49,8 @@ Recurring workflows are encoded as repo-checked skills under
 (scan-log error triage), `/scan-audit` (scan timing/cadence analysis),
 `/env-doctor` (per-package Poetry env fixups), `/lab-status` (bounded
 reachability probes), `/fleet-status` (observed deployed-fleet picture:
-host → service → checkout/branch/commit/version). Each skill's frontmatter
+host → service → checkout/branch/commit/version), `/package-tidy` (tidy
+one package's layout and prose, behaviour unchanged). Each skill's frontmatter
 `description` carries its trigger symptoms so sessions pull the skill in
 on their own — keep those descriptions current when a skill changes.
 Prefer invoking/updating a skill over re-deriving its workflow in a

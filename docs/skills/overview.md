@@ -33,9 +33,10 @@ codified procedure itself rather than a wrapped tool.
 | `/scan-audit` | Scan timing and cadence audit for the Bluesky path: "why was the scan slow", "did every shot land", per-shot cadence analysis of a scan folder |
 | `/triage` | Generate a structured error report from scan logs, then analyze bug candidates against the codebase and draft GitHub issues |
 | `/get-started` | Onboard a new developer in guide mode: environment check, orientation, a small first win, with the repo's guardrails applied on the user's behalf |
+| `/package-tidy` | Tidy one package without changing behaviour: read the repo-wide cross-package duplication map, then layout moves, duplicate removal and a prose trim as reviewed PRs |
 
-`/land`, `/check`, `/env-doctor`, and `/get-started` are development
-workflow skills — they operate on the repository itself. `/lab-status`,
+`/land`, `/check`, `/env-doctor`, `/get-started`, and `/package-tidy` are
+development workflow skills — they operate on the repository itself. `/lab-status`,
 `/fleet-status`, `/scan-audit`, and `/triage` are lab operations skills —
 they operate on the experiment: the network, the deployed services, the
 hardware, and the data a scan left behind. `/triage` is the reference implementation of the CLI-backed
