@@ -178,6 +178,14 @@ def test_docs_only_change_selects_nothing() -> None:
     assert legs == set()
 
 
+def test_import_contracts_select_nothing() -> None:
+    """No unit suite observes .importlinter; the pre-commit hook checks it."""
+    graph = ci_select.discover_graph()
+    legs, _ = ci_select.classify([".importlinter"], graph)
+
+    assert legs == set()
+
+
 # --- paths that look ignorable but are pinned by root tests/ -----------------
 
 
