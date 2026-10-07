@@ -32,7 +32,9 @@ enforces it on the run side.
 
 from __future__ import annotations
 
+import ctypes
 import dataclasses
+import gc
 import logging
 import threading
 import time
@@ -216,6 +218,25 @@ def _relativize(artifact: object, relative_to: Optional[Path]) -> str:
         return str(artifact)
 
 
+def release_memory() -> bool:
+    """Hand the memory a finished run freed back to the operating system.
+
+    Python frees a run's arrays, but glibc's allocator keeps the freed heap
+    mapped for reuse: measured on the worker host (2026-10-07), a
+    ``pulsed_wire`` run of 101 bins left 2.8 GB resident after every object
+    was gone, and ``malloc_trim`` took the process back to 112 MB. The
+    portal is a long-lived process with a memory ceiling, so a run's peak
+    must not stay charged to it between runs. Returns whether anything was
+    released; ``False`` where there is no glibc (macOS, Windows).
+    """
+    gc.collect()
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+    except OSError:
+        return False
+    return bool(libc.malloc_trim(0))
+
+
 class AnalysisRunner:
     """One worker thread; one job per scan at a time; records kept in memory.
 
@@ -350,6 +371,12 @@ class AnalysisRunner:
                 job.error,
             )
         finally:
+            # Before the state flips: a run reported finished has given its
+            # memory back. Never let the release cost the record.
+            try:
+                release_memory()
+            except Exception:  # noqa: BLE001
+                logger.exception("releasing memory after %s failed", job.analyzer_id)
             root.removeHandler(capture)
             job.log = list(capture.lines)
             job.finished = time.time()

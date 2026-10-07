@@ -290,6 +290,56 @@ class TestRunner:
         finally:
             runner.shutdown()
 
+    @pytest.mark.parametrize("outcome", ["done", "failed"])
+    def test_memory_is_released_before_the_run_reads_finished(
+        self, monkeypatch, outcome
+    ):
+        """Every run, failed ones too, frees its memory before it reports done."""
+        runner = analysis_runs.AnalysisRunner()
+        states: list[str] = []
+        monkeypatch.setattr(
+            analysis_runs,
+            "release_memory",
+            lambda: states.append(runner.job("u", "A").state),
+        )
+
+        def run(_report):
+            if outcome == "failed":
+                raise RuntimeError("analyzer blew up")
+            return []
+
+        try:
+            job = runner.start("u", "A", run)
+            deadline = time.monotonic() + 5
+            while job.state in analysis_runs.ACTIVE and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert job.state == (
+                analysis_runs.DONE if outcome == "done" else analysis_runs.FAILED
+            )
+            assert states == [analysis_runs.RUNNING]
+        finally:
+            runner.shutdown()
+
+    def test_a_failing_release_never_costs_the_record(self, monkeypatch):
+        runner = analysis_runs.AnalysisRunner()
+
+        def broken():
+            raise OSError("no allocator here")
+
+        monkeypatch.setattr(analysis_runs, "release_memory", broken)
+        try:
+            job = runner.start("u", "A", lambda _report: ["out.png"])
+            deadline = time.monotonic() + 5
+            while job.state in analysis_runs.ACTIVE and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert job.state == analysis_runs.DONE
+            assert job.artifacts == ["out.png"]
+        finally:
+            runner.shutdown()
+
+    def test_release_memory_is_safe_on_any_platform(self):
+        assert isinstance(analysis_runs.release_memory(), bool)
+
     def test_shutdown_refuses_new_jobs(self):
         runner = analysis_runs.AnalysisRunner()
         runner.shutdown()

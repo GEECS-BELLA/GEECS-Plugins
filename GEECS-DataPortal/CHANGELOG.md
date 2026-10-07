@@ -3,6 +3,19 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.39.3] - 2026-10-07
+
+### Fixed
+
+- An analysis run gives its memory back when it ends. glibc keeps a
+  run's freed heap mapped for reuse, so after a 101-bin `pulsed_wire`
+  run the portal held ~2.8 GB it no longer used, charged against its
+  `MemoryHigh` until the next run. `AnalysisRunner` now calls
+  `release_memory()` (a garbage collection, then `malloc_trim(0)`; a no-op
+  without glibc) at the end of every run, failed ones included, before the
+  job reads finished. Measured on the worker host: 2,823 MB resident after
+  the run's objects were gone, 112 MB after the trim.
+
 ## [0.39.2] - 2026-10-06
 
 ### Fixed

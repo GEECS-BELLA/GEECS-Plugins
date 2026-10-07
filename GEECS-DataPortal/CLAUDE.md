@@ -361,7 +361,10 @@ in `ScanAnalysis/CLAUDE.md`.
 the resolved path must stay inside the scan's own analysis folder
 (`analysis_runs.contained_artifact`; symlinks resolved), else 404.
 Build + run + `cleanup()` all happen on the worker thread, so config
-and analyzer failures become `failed` records, never 500s;
+and analyzer failures become `failed` records, never 500s; every run ends
+with `release_memory()` (gc + glibc `malloc_trim`) before its record flips
+to finished, because the allocator otherwise keeps a run's peak resident
+in this long-lived, memory-capped process (2.8 GB after one scope scan);
 `run_analysis` returning `None` and `DataUnavailableWarning` map to
 `no_data` (the worklist runner's own mapping).  The factory seam
 (`create_app(analysis_factory=…)`) is how the tests drive the whole
