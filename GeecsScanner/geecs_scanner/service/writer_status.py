@@ -4,7 +4,7 @@ The engine spools every run's documents to a local file and the
 ``geecs-tiled-writer`` service registers them in Tiled off the engine
 thread (GeecsBluesky 0.103.0).  The writer says how it is doing in
 ``<GEECS_TILED_WRITER_STATE>/heartbeat.json``.  **The rule is the
-writer's**, not this module's: ``geecs_bluesky.tiled_spool.heartbeat_verdict``
+writer's**, not this module's: ``geecs_bluesky.tiled.spool.heartbeat_verdict``
 (the shared side of the spool, beside the heartbeat model — never the
 service loop) reduces the file to ``ok`` / ``degraded`` / ``failed`` and a
 reason, and this module only projects that onto the API model the page's
@@ -31,7 +31,7 @@ def writer_verdict(
     The level is a kit word already (``ok`` / ``degraded`` / ``failed``);
     the counts are the heartbeat's own, zero when there is none.
     """
-    from geecs_bluesky.tiled_spool import heartbeat_verdict
+    from geecs_bluesky.tiled.spool import heartbeat_verdict
 
     verdict = heartbeat_verdict(heartbeat, now, path=path)
     if heartbeat is None:
@@ -50,14 +50,14 @@ def writer_verdict(
 
 def default_heartbeat_path() -> Path:
     """Where the writer's heartbeat is on this host (``GEECS_TILED_WRITER_STATE``)."""
-    from geecs_bluesky.tiled_spool import SpoolLayout, default_state_dir
+    from geecs_bluesky.tiled.spool import SpoolLayout, default_state_dir
 
     return SpoolLayout(default_state_dir()).heartbeat_path
 
 
 def read_writer_status(path: Path, now: Optional[float] = None) -> TiledWriterOut:
     """The verdict over the heartbeat file at *path* (missing or unreadable → ``degraded``)."""
-    from geecs_bluesky.tiled_spool import read_heartbeat
+    from geecs_bluesky.tiled.spool import read_heartbeat
 
     return writer_verdict(read_heartbeat(path), path, now)
 

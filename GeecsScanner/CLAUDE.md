@@ -33,7 +33,7 @@ geecs_scanner/
     settables.py  the movable panel's list: GEECS-Core's numeric_settables over GeecsDb rows, cached per process
     readback.py   one aioca caget of the gateway's readback PV (geecs_core.pv_naming) — the service's one async path
     trajectory.py isolated hardware-free preview over shared Bluesky expansion
-    writer_status.py the Tiled writer's heartbeat verdict (geecs_bluesky.tiled_spool's rule) projected onto the API model (the "tiled writer" chip, /health); shown, never a gate
+    writer_status.py the Tiled writer's heartbeat verdict (geecs_bluesky.tiled.spool's rule) projected onto the API model (the "tiled writer" chip, /health); shown, never a gate
   web/
     app.py        create_app (the process) and create_scanner_router (the same as a router)
     pages.py      GET / — the page (make_templates from geecs_web_theme.web: `root` in every context)
@@ -84,7 +84,7 @@ deploy/           the unit template + DEPLOYMENT.md
   `geecs_core.db` (the settables list), `geecs_core.pv_naming` + `aioca`
   (the readback — the scanner reads gateway PVs directly, like the
   preflight does through the client seam), and
-  `geecs_bluesky.tiled_spool` (the writer's heartbeat model and reader —
+  `geecs_bluesky.tiled.spool` (the writer's heartbeat model and reader —
   the shared side of the spool, never `tiled_writer`, the service loop).
   Never the
   portal, the logbook, GEECS-MCP, or the engine's
@@ -117,7 +117,7 @@ deploy/           the unit template + DEPLOYMENT.md
 - **The Tiled writer's word is shown, never enforced.** `service/writer_status.py`
   reads `heartbeat.json` under `GEECS_TILED_WRITER_STATE` (the unit sets
   it; `/var/lib/geecs-tiled-writer`, the same on every host) and projects
-  the writer's own verdict (`geecs_bluesky.tiled_spool.heartbeat_verdict`
+  the writer's own verdict (`geecs_bluesky.tiled.spool.heartbeat_verdict`
   — the one rule; never restate its thresholds here) onto `TiledWriterOut`
   for the "tiled writer" chip and `/health`'s `tiled_writer`
   (`scripts/fleet_status.sh` reads it there). With the spool a dead writer

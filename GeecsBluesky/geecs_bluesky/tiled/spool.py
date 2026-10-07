@@ -4,7 +4,7 @@ Registering a run in Tiled is hundreds of serial HTTP calls at the stop
 document, tens of seconds that must not run on the engine thread.  The
 engine writes every document of a run to one JSON Lines file in a spool
 directory, microseconds per document, and a separate process,
-``geecs-tiled-writer`` (:mod:`geecs_bluesky.tiled_writer`), registers the
+``geecs-tiled-writer`` (:mod:`geecs_bluesky.tiled.writer`), registers the
 run from that file once its stop document is on disk.
 
 The spool is the writer's **only** source: the live 0MQ document stream
@@ -252,7 +252,7 @@ class SpoolCallback:
     never nest runs, and a second ``start`` while a file is open is an
     error rather than a silent second file.
 
-    Subscribed through :class:`~geecs_bluesky.tiled_integration.SafeDocumentCallback`,
+    Subscribed through :class:`~geecs_bluesky.tiled.integration.SafeDocumentCallback`,
     so a spool failure (disk full, a document the encoder refuses) is
     logged, disables spooling for the rest of that run, and never fails
     the run itself.

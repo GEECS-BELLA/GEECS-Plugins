@@ -298,7 +298,7 @@ if [ "$NET_UP" -eq 1 ]; then
     # worker host, and the scanner's /health reads it (tiled_writer: the
     # kit word the scanner's chip shows, plus the heartbeat's counts). This
     # probe runs from an operator's machine, so the scanner is the reader.
-    # The word is geecs_bluesky.tiled_spool.heartbeat_verdict's (the one
+    # The word is geecs_bluesky.tiled.spool.heartbeat_verdict's (the one
     # rule; its thresholds are documented there and in the qserver
     # runbook). A warning surface, never a gate: nothing refuses a run
     # over it, and the spool waits through a dead writer.

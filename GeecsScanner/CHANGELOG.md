@@ -5,6 +5,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.14.5] - 2026-10-06
+
+### Changed
+
+- The writer-status reader imports `geecs_bluesky.tiled.spool` (GeecsBluesky
+  0.114.0 moved the Tiled modules into one subpackage).  No behaviour change.
+
 ## [0.14.4] - 2026-10-01
 
 ### Changed

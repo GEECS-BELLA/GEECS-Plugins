@@ -22,7 +22,7 @@ import time
 
 import pytest
 
-from geecs_bluesky.tiled_integration import (
+from geecs_bluesky.tiled.integration import (
     SafeDocumentCallback,
     tiled_server_reachable,
 )
@@ -140,7 +140,7 @@ def test_tiled_server_reachable_parses_default_ports(
         ("tiled.lab", 443),
     ]
     # Every attempt is bounded by the module constant, not the HTTP timeout.
-    from geecs_bluesky.tiled_integration import TILED_REACHABILITY_TIMEOUT_S
+    from geecs_bluesky.tiled.integration import TILED_REACHABILITY_TIMEOUT_S
 
     assert all(timeout == TILED_REACHABILITY_TIMEOUT_S for _addr, timeout in attempts)
 
@@ -159,6 +159,6 @@ def test_read_tiled_config_is_the_canonical_data_utils_reader() -> None:
     """
     from geecs_data_utils.tiled_catalog import read_tiled_config as canonical
 
-    from geecs_bluesky import tiled_integration
+    from geecs_bluesky.tiled import integration as tiled_integration
 
     assert tiled_integration.read_tiled_config is canonical
