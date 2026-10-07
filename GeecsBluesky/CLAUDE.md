@@ -104,7 +104,6 @@ geecs_bluesky/
                             #   submit_preflight.py (the pre-submit checks, SubmissionRecord)
   config_resolver.py        # ConfigsRepoResolver: presets, trigger profiles, catalogs,
                             #   actions, optimizer configs, analysis diagnostics
-  scanner_configs.py        # where the configs repo is (GEECS_SCANNER_CONFIG_DIR / config.ini)
   tiled/integration.py      # subscribe_tiled_spool (the engine's whole Tiled path) +
                             #   the shared checks (tiled_server_reachable, SafeDocumentCallback)
   tiled/spool.py            # the per-run JSONL spool both sides share: layout, the RE
