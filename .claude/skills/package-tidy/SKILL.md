@@ -58,8 +58,9 @@ If the list is empty, this run produces the map (main session, read-only):
 
 1. Importer map, repo-wide, per top-level module of every package —
    code, tests, docs, skills, scripts, units, CI:
-   `git grep -nP "<import_name>[./]<mod>(?![a-z_])|from \.+<mod>\b"`.
-   Prove the grep hits one importer you already know before trusting it.
+   `git grep -nP "<import_name>[./]<mod>(?![a-z_])|from \.+<mod>\b|from (<import_name>|\.+) import .*\b<mod>\b"`
+   (the dotted form, `from .mod`, and `from pkg import mod`). Prove the
+   grep hits one importer you already know before trusting it.
 2. Duplication sweep by category: `config.ini` readers; DB query unions
    and the gateway served set; path translation; exception trees;
    schema knowledge; FastAPI glue (forwarded-prefix middleware, templates
@@ -71,10 +72,11 @@ If the list is empty, this run produces the map (main session, read-only):
 
 Known open examples at the time of writing — verify, not a fixed list:
 the CA served set (`get='yes'` ∪ settables of enabled devices) computed
-in GeecsCAGateway `config.py` and `audit.py`, GeecsArchiver
-`archive_set.py` and GeecsBluesky `db_runtime.py` (candidate
-`geecs_core.db.served_set`; Bluesky reads a DB failure as "unknown", the
-others do not); further `config.ini` readers in GEECS-Data-Utils
+in GeecsCAGateway `config.py`, GeecsArchiver `archive_set.py` and
+GeecsBluesky `db_runtime.py` (candidate `geecs_core.db.served_set`;
+GeecsCAGateway `audit.py` shares the two DB queries, not the union rule;
+Bluesky reads a DB failure as "unknown", the others do not); further
+`config.ini` readers in GEECS-Data-Utils
 `config_roots.py` and `scripts/qserver_probe.py` (the latter overlaps
 `qs_client.read_qserver_config`).
 
@@ -113,14 +115,18 @@ config-driven feature with zero callers. Sam picks; nothing moves before.
   `origin/master`. One mover (an agent, or you): one commit per move;
   delete the old path — no shims or re-exports; update every reference
   repo-wide; rewrite paths in existing docs only.
-- Testing from a worktree: never `poetry -C <main checkout> run`, it
-  imports the MAIN checkout. Run the env's python directly with the
-  worktree packages first on `PYTHONPATH`; print `<import_name>.__file__`
-  first and confirm it is inside the worktree. The main checkout may hold
-  `__pycache__`-only namespace dirs that hide CI failures.
+- Testing from the worktree: install its envs per `/env-doctor` (a
+  worktree never shares the main checkout's; `poetry -C <main checkout>
+  run` imports the MAIN checkout, whose `__pycache__`-only namespace
+  dirs can hide CI failures). Per move, `./scripts/check.sh <Package>`;
+  the fast shortcut is the env's python with the worktree packages first
+  on `PYTHONPATH` — print `<import_name>.__file__` first and confirm it
+  is inside the worktree.
 - Gates per move: targeted tests pass; `scripts/doc_audit.py --strict
   --only dangling-ref,dangling-path` adds nothing; `git grep` for the old
-  dotted name AND the old file path is empty outside `CHANGELOG.md`.
+  dotted name AND the old file path is empty outside `CHANGELOG.md`, and
+  every hit on the bare `\b<mod>\b` is triaged (`from pkg import mod`
+  carries neither).
 - Version once at the end, per `/land`: minor for the package (its import
   paths changed); patch for packages whose imports or docs changed. One
   CHANGELOG entry: old → new paths, every visible side effect (logger
@@ -157,14 +163,13 @@ lens to the `/land` brief, verbatim:
 >    framework callbacks read as "unused").
 
 Post findings and dispositions as a PR comment. Master merges are
-Sam's. Stacked work bases on master and says "merge #N first".
+Sam's; stacked PRs follow `/land` step 9.
 
 ## 7. Deploy
 
-`/lab-status` first. For every service whose env contains the package:
-pull, then `poetry install` with its extras, BEFORE Sam restarts —
-console-script wrappers name their module at install time. Then read
-back readiness and journals; `/fleet-status` is the acceptance test; a
+`/lab-status` first; the ritual is `docs/platform/fleet_map.md`'s. The
+tidy-specific step: `poetry install` every service env that contains
+the package BEFORE the restart (see Traps). Then `/fleet-status`, and a
 hardware check if scan paths or devices were touched.
 
 ## Agent shape
@@ -187,7 +192,8 @@ the whole 859-test suite in a worktree of their own.
   shift; note it in the CHANGELOG.
 - Moving a console-script target breaks the installed wrapper until
   reinstall.
-- Merging two docstrings pushes over doc_audit's 25-line long-doc limit.
+- Merging two docstrings pushes a module docstring over doc_audit's
+  25-line long-doc limit.
 - Parallel branches collide on version and CHANGELOG → bump once at
   integration.
 - Cherry-picked or rebased branches never show as merged: before
