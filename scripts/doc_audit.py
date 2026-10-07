@@ -76,11 +76,13 @@ excluded: it is where history is supposed to live):
 never fail ``--strict`` — except in a ``STRICT_PROSE`` package, below):
 
 * ``narrative``: a date, a ``#NNN`` issue reference, a person's name, a
-  "ruling", a phase number or a history word in a docstring, ``#:``
-  comment or ``CLAUDE.md``. The repo's rule of thumb is encoded: one bare
-  issue number per docstring (or ``#:`` block, or ``CLAUDE.md``) may pin
-  a non-obvious rule and is not flagged; a second one is, and so are
-  dates, names and stories, which belong in the changelog.
+  "ruling", a phase number or a history phrase ("used to be", "back
+  when", an ``M6``-style milestone) in a docstring, ``#:`` comment or
+  ``CLAUDE.md``; inline code (a date or a name in backticks, as an
+  example) is not prose. The repo's rule of thumb is encoded: one issue
+  number per docstring (or ``#:`` block, or ``CLAUDE.md``), repeated or
+  not, may pin a non-obvious rule and is not flagged; a second issue is,
+  and so are dates, names and stories, which belong in the changelog.
 * ``long-doc``: a module docstring over 25 lines, a def/class docstring
   over 60, or a ``#:`` comment block over 6.
 * ``boilerplate``: template openings ("This module provides ...") and
@@ -208,14 +210,23 @@ RETIREMENT_WORDS = re.compile(
 #: A bare ``#NNN`` issue reference; one per docstring may pin a rule.
 ISSUE_REF = re.compile(r"(?<![\w/])#\d{3,4}\b")
 
+#: Inline code (``x`` or `x`): a literal value, never prose, so a date
+#: or a device name quoted as an example is not narrative.
+CODE_SPAN = re.compile(r"``[^`]+``|`[^`]+`")
+
 #: Narrative markers: things that belong in a changelog, not a docstring.
+#: Each pattern is kept narrow enough that present-tense use passes ("used
+#: to dedup", "at the time of the trigger", a mirror named M3): in a
+#: STRICT_PROSE package a hit blocks a merge, so precision beats recall.
 NARRATIVE = re.compile(
     "|".join(
         (
             r"\b\d{4}-\d{2}-\d{2}\b",
             ISSUE_REF.pattern,
-            r"\bSam\b|\bowner'?s (ruling|call|decision)\b|\bruling\b|\bphase\s*\d\b|\bM\d\b",
-            r"\b(incident|historically|used to|back when|originally|at the time)\b",
+            r"\bSam\b|\bowner'?s (ruling|call|decision)\b|\bruling\b|\bphase\s*\d\b",
+            r"\bM\d\b(?=\s+(?:cutover|merge|milestone|arc|era|line|history)\b)",
+            r"\b(incident|historically|used to be|back when|originally)\b",
+            r"\bat the time\b(?!\s+of\b)",
         )
     ),
     re.I,
@@ -1046,21 +1057,25 @@ def check_stale_terms(repo: Repo) -> Iterator[Finding]:
 def check_narrative(repo: Repo) -> Iterator[Finding]:
     """Dates, issue numbers, names and rulings in docstrings and CLAUDE.md.
 
-    One bare ``#NNN`` per doc text is allowed (it may pin a rule); a doc
-    text with two or more has every one flagged. One finding per line.
+    One distinct ``#NNN`` per doc text is allowed, however often it is
+    repeated (it may pin a rule); a doc text naming two or more issues has
+    every reference flagged. Inline code is not prose. One finding per line.
     """
     for doc in iter_doc_texts(repo):
         if doc.kind == "markdown" and doc.path.name != "CLAUDE.md":
             continue  # READMEs and docs pages may tell a story; CLAUDE.md is doctrine
-        lines = list(_prose_lines(doc.text))
-        issue_refs = sum(len(ISSUE_REF.findall(line)) for _, line in lines)
+        lines = [
+            (offset, CODE_SPAN.sub(" ", line))
+            for offset, line in _prose_lines(doc.text)
+        ]
+        issues = {ref for _, line in lines for ref in ISSUE_REF.findall(line)}
         for offset, line in lines:
             for m in NARRATIVE.finditer(line):
                 hit = m.group(0)
-                if issue_refs == 1 and ISSUE_REF.fullmatch(hit):
+                if len(issues) == 1 and ISSUE_REF.fullmatch(hit):
                     continue  # the one issue number the rule of thumb allows
                 if ISSUE_REF.fullmatch(hit):
-                    why = f"one of {issue_refs} issue references (one may pin a rule)"
+                    why = f"one of {len(issues)} issues cited (one may pin a rule)"
                 else:
                     why = "history belongs in the changelog"
                 yield Finding(

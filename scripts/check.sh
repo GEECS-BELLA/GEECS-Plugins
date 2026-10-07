@@ -224,6 +224,10 @@ run_doc_audit() {
     if [ -n "$root_env" ] && [ -x "$root_env/bin/python" ]; then
         py="$root_env/bin/python"
     fi
+    if ! "$py" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
+        echo "check.sh: the doc audit needs Python >= 3.11 ($py is older) — run 'poetry install' at the repo root (see /env-doctor)" >&2
+        return 1
+    fi
     report="$(mktemp)"
     if "$py" scripts/doc_audit.py --strict > "$report"; then
         echo "   doc audit: $(grep -o '^\*\*.*\*\*' "$report" | tr -d '*')"

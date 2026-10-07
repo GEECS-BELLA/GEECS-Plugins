@@ -109,13 +109,17 @@ def test_strict_prose_names_packages_on_disk() -> None:
     ("doc", "hits"),
     [
         ('"""Pins the rule from #123."""\n', []),
+        ('"""Pins #123.\n\nRestates #123 later."""\n', []),  # one issue, twice
         ('"""See #123.\n\nAnd #456 too."""\n', ["#123", "#456"]),
         ('"""Ruled on 2026-01-02, see #123."""\n', ["2026-01-02"]),
+        # Present-tense phrases and quoted examples are not history.
+        ('"""The lock used to serialize puts; M3 is a mirror."""\n', []),
+        ('"""Readback at the time of the trigger, as ISO ``2026-09-24``."""\n', []),
+        ('"""It used to be a list, back when M6 cutover ran."""\n', ["used to be"]),
     ],
 )
-def test_narrative_allows_one_issue_reference(
-    tmp_path: Path, doc: str, hits: list[str]
-) -> None:
+def test_narrative_rule_of_thumb(tmp_path: Path, doc: str, hits: list[str]) -> None:
+    """One issue may pin a rule; stories are flagged; present tense is not."""
     _package(tmp_path, "Pkg", doc)
     findings = doc_audit.run(doc_audit.Repo(tmp_path), {"narrative"})
     assert [f.message.split(":")[0].strip("`") for f in findings] == hits
