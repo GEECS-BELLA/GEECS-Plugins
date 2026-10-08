@@ -89,7 +89,11 @@ def fit_line(
         notes.append(f"{key}: 2 points; the line is exact and has no standard errors")
     residual = ys - (slope * xs + intercept)
     ssr = float(residual @ residual)
-    sst = float(((ys - ys.mean()) ** 2).sum())
+    # Flatness is tested on the values themselves: a constant series whose
+    # float mean is inexact leaves a ~1e-34 sum of squares and a ~1e-18 slope,
+    # and either would otherwise pass as "varying" and yield an absurd crossing.
+    flat = bool(np.ptp(ys) == 0)
+    sst = 0.0 if flat else float(((ys - ys.mean()) ** 2).sum())
     out.update(
         slope=float(slope),
         intercept=float(intercept),
@@ -97,9 +101,12 @@ def fit_line(
         intercept_stderr=float(np.sqrt(cov[1, 1])),
         r2=1.0 - ssr / sst if sst > 0 else nan,
     )
-    if sst <= 0:
-        notes.append(f"{key}: the values do not vary; r2 is undefined")
-    if sst <= 0 or slope == 0 or not np.isfinite(slope):
+    if flat:
+        notes.append(
+            f"{key}: the values do not vary; r2 and the zero crossing are undefined"
+        )
+        return out, notes
+    if slope == 0 or not np.isfinite(slope):
         notes.append(f"{key}: the slope is {float(slope):.3g}; no zero crossing")
         return out, notes
     gradient = np.array([intercept / slope**2, -1.0 / slope])

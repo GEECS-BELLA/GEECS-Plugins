@@ -123,9 +123,12 @@ def test_fewer_than_two_finite_points_are_all_nan_with_a_note(y):
     assert notes and "no line" in notes[0]
 
 
-def test_a_flat_line_has_no_zero_crossing_and_says_so():
-    fit, notes = fit_line([0.0, 1.0, 2.0], [4.0, 4.0, 4.0], "k")
-    assert abs(fit["slope"]) < 1e-12 and fit["intercept"] == pytest.approx(4.0)
+@pytest.mark.parametrize("value, n", [(4.0, 3), (0.1, 3), (0.1, 7), (1 / 3, 5)])
+def test_a_flat_line_has_no_zero_crossing_and_says_so(value, n):
+    """Also for constants whose float mean is inexact (0.1): the residual sum
+    about that mean is ~1e-34 and polyfit's slope ~1e-18, neither exactly 0."""
+    fit, notes = fit_line(list(range(n)), [value] * n, "k")
+    assert abs(fit["slope"]) < 1e-12 and fit["intercept"] == pytest.approx(value)
     assert math.isnan(fit["zero_crossing"]) and math.isnan(fit["zero_crossing_stderr"])
     assert math.isnan(fit["r2"])
     assert any("zero crossing" in n for n in notes)
