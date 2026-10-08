@@ -36,7 +36,7 @@ class QWLSIAnalysisTestCase(unittest.TestCase):
             y=-2 * (Y - y0) / (2 * y_sig**2) * wavefront,
         )
 
-        interferogram = sum(
+        return sum(
             [
                 np.cos(
                     2 * np.pi * (dsc.nu_x * X + dsc.nu_y * Y)
@@ -48,8 +48,6 @@ class QWLSIAnalysisTestCase(unittest.TestCase):
                 for dsc in self.qia.diffraction_spot_centers
             ]
         ).m
-
-        return interferogram
 
     def assertMaxWavefrontMinusBackgroundWithinRange(self):
         self.assertAlmostEqual(

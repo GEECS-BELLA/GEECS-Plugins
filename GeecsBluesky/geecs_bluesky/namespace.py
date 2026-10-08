@@ -525,7 +525,7 @@ class GeecsNamespace:
         )
 
     # ------------------------------------------------------------------ build
-    def _build(
+    def _build(  # noqa: C901, PLR0912
         self, device: str, rows: Sequence[Mapping[str, Any]], roster: DeviceRoster
     ) -> tuple[str, Any] | None:
         served = roster.served_for(device)
@@ -763,7 +763,7 @@ class GeecsNamespace:
             except (GeecsConfigurationError, TypeError, ValueError) as exc:
                 # TypeError/ValueError: the derived-signal factory refusing a
                 # non-float component (an enum settable in a pseudo).
-                logger.error(
+                logger.error(  # noqa: TRY400 — expected refusal, short
                     "device namespace: pseudo scan variable %r not registered: %s",
                     friendly,
                     exc,

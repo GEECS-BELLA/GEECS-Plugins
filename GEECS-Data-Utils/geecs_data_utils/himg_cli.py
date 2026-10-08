@@ -35,6 +35,7 @@ Examples
 from __future__ import annotations
 
 import argparse
+import contextlib
 import logging
 import sys
 from pathlib import Path
@@ -88,10 +89,8 @@ def _scan_rows(scan_folder: Path | None):
     if scan_folder is None:
         return None
     candidates = [scan_folder / f"ScanData{scan_folder.name}.txt"]
-    try:
+    with contextlib.suppress(ValueError):
         candidates.append(sfile_path_for_scan(scan_folder))
-    except ValueError:
-        pass
     for candidate in candidates:
         if candidate.is_file():
             return read_sfile(candidate)

@@ -174,7 +174,7 @@ class CaMotor(CaSettable):
         )
         return AsyncStatus(self._set_logged(value))
 
-    async def _set_and_wait(self, value: float) -> None:
+    async def _set_and_wait(self, value: float) -> None:  # noqa: C901, PLR0912, PLR0915
         """Put the setpoint; wait for the device's reply under the stall rule; confirm.
 
         The put (the wait for the GEECS UDP reply through the gateway) runs

@@ -36,7 +36,7 @@ from ...utils import ensure_float64_processing
 logger = logging.getLogger(__name__)
 
 
-def apply_camera_processing_pipeline(
+def apply_camera_processing_pipeline(  # noqa: C901, PLR0912
     image: Array2D,
     camera_config: CameraConfig,
     background_cache: Optional[Dict[str, Array2D]] = None,

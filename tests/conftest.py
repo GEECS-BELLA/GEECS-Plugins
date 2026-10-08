@@ -38,7 +38,7 @@ def _resolve_data_root() -> Path | None:
         path = Path(cfg.get_base_path("Undulator")).parent
         if path.exists():
             return path
-    except Exception:
+    except Exception:  # noqa: BLE001 — configs optional offline
         pass
 
     # Fallback: check common mount points directly
@@ -90,7 +90,7 @@ def _init_image_analysis_config():
         config_path = ScanPaths.paths_config.image_analysis_configs_path
         if config_path and Path(config_path).exists():
             image_analysis_config.set_base_dir(config_path)
-    except Exception:
+    except Exception:  # noqa: BLE001 — configs optional offline
         pass  # CI / offline: no configs repo; integration tests are already skipped
 
 

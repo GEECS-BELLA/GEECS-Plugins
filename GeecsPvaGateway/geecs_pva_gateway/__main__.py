@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import sys
 
@@ -130,10 +131,8 @@ def main(argv: list[str] | None = None) -> int:
             print(name)
         return 0
 
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(gateway.run())
-    except KeyboardInterrupt:
-        pass
     if gateway.restart_requested:
         return RESTART_EXIT_CODE
     return 0

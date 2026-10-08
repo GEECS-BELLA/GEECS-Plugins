@@ -44,7 +44,7 @@ from geecs_data_utils.data.columns import (
 # BinningConfig and its aliases moved to the pure binning module
 # (analysis-tabs W1c); re-exported here so existing imports
 # (`from geecs_data_utils.scan_data import BinningConfig`) keep working.
-from geecs_data_utils.data.binning import (  # noqa: E402
+from geecs_data_utils.data.binning import (
     BinningConfig,
     bin_frame,
     compute_bin_key,

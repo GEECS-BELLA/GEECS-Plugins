@@ -27,7 +27,7 @@ class Appliance:
         self.requests = []
         self.paused = []
 
-    def handler(self, request: httpx.Request) -> httpx.Response:
+    def handler(self, request: httpx.Request) -> httpx.Response:  # noqa: C901, PLR0912
         path = request.url.path
         if path.endswith("/getAllPVs"):
             return httpx.Response(200, json=sorted(self.archived))

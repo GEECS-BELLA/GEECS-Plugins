@@ -30,6 +30,7 @@ worker into a temporary directory.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import platform
@@ -180,7 +181,7 @@ def _check_config(report: Report) -> Optional[dict]:
     return {"sdk": sdk, "python": python, "configs": configs, "launcher": launcher}
 
 
-def _check_wine(report: Report, launcher: Sequence[str], *, create: bool) -> None:
+def _check_wine(report: Report, launcher: Sequence[str], *, create: bool) -> None:  # noqa: C901, PLR0912
     prefix = wine_prefix(launcher)
     if prefix is None:
         return
@@ -224,7 +225,7 @@ def _check_wine(report: Report, launcher: Sequence[str], *, create: bool) -> Non
     else:
         report.ok(f"Wine prefix {prefix}")
     arch = ""
-    try:
+    with contextlib.suppress(OSError):
         arch = next(
             (
                 line
@@ -233,8 +234,6 @@ def _check_wine(report: Report, launcher: Sequence[str], *, create: bool) -> Non
             ),
             "",
         )
-    except OSError:
-        pass
     if arch and "win64" not in arch:
         report.fail(
             f"{prefix} is not a 64-bit prefix ({arch.strip()}): WaveKit's DLLs are x64"

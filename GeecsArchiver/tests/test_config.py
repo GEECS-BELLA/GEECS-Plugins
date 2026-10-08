@@ -88,7 +88,7 @@ def test_load_policy_defaults_and_file(tmp_path):
     assert config.load_policy(empty) == ArchivePolicy()
     bad = tmp_path / "bad.yaml"
     bad.write_text("unknown_key: 1\n")
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 — asserts any failure
         config.load_policy(bad)
 
 

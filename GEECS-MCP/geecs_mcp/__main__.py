@@ -37,7 +37,7 @@ def warm_progress_stream() -> None:
         from geecs_mcp.scans import progress_stream
 
         progress_stream.start_for_client(runtime.get_queue_client())
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — warm-up is optional
         logger.warning(
             "progress stream not warmed at startup (%s) — scan_progress "
             "will start it lazily on first call",

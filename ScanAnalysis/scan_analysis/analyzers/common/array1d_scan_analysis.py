@@ -201,14 +201,15 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         # Create config from renderer_kwargs
         try:
             return Line1DRendererConfig(**self.renderer_kwargs)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — bad kwargs use defaults
             logger.warning(
-                f"Error creating Line1DRendererConfig from {self.renderer_kwargs}: {e}. "
-                f"Using defaults."
+                "Error creating Line1DRendererConfig from %s: %s. Using defaults.",
+                self.renderer_kwargs,
+                e,
             )
             return Line1DRendererConfig()
 
-    def _postprocess_noscan(self) -> None:
+    def _postprocess_noscan(self) -> None:  # noqa: C901, PLR0912, PLR0915
         """
         Post-process noscan 1D data: create average with std dev + waterfall plot.
 
@@ -320,13 +321,14 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
                 n_invalid = n_before - len(contexts)
                 if n_invalid:
                     logger.warning(
-                        f"Waterfall sort: dropped {n_invalid} shot(s) with "
-                        f"non-finite {sort_column!r} values."
+                        "Waterfall sort: dropped %s shot(s) with non-finite %r values.",
+                        n_invalid,
+                        sort_column,
                     )
                 if not contexts:
                     logger.warning(
-                        f"Waterfall sort: no shots have a valid {sort_column!r} "
-                        "value; skipping summary figure."
+                        "Waterfall sort: no shots have a valid %r value; skipping summary figure.",
+                        sort_column,
                     )
                     return
 
@@ -346,8 +348,9 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
                 n_dropped = n_before - len(contexts)
                 if n_dropped:
                     logger.warning(
-                        f"Waterfall sort filtering dropped {n_dropped} shot(s) "
-                        f"outside bounds (kept {len(contexts)})."
+                        "Waterfall sort filtering dropped %s shot(s) outside bounds (kept %s).",
+                        n_dropped,
+                        len(contexts),
                     )
 
                 contexts.sort(key=lambda c: c.parameter_value)
@@ -366,7 +369,7 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
                 contexts, waterfall_config, self.path_dict["save"]
             )
 
-    def _postprocess_scan(self) -> None:
+    def _postprocess_scan(self) -> None:  # noqa: C901
         """
         Post-process scanned 1D data: create waterfall plot from binned data.
 
@@ -450,7 +453,7 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
                                 bin_key = int(parts[-2])
                                 self.saved_avg_data_paths[bin_key] = paths[0]
                     except Exception as e:
-                        logger.error(f"Error rendering bin data: {e}")
+                        logger.exception("Error rendering bin data: %s", e)
 
         # Create waterfall summary figure if multiple bins exist
         if len(contexts) > 1 and self.flag_save_data:
@@ -459,8 +462,8 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
                     contexts, waterfall_config, self.path_dict["save"]
                 )
                 if summary_path:
-                    logger.info(f"Created waterfall summary at {summary_path}")
+                    logger.info("Created waterfall summary at %s", summary_path)
             except Exception as e:
-                logger.error(f"Error creating waterfall summary: {e}")
+                logger.exception("Error creating waterfall summary: %s", e)
 
         self.binned_data = binned_data

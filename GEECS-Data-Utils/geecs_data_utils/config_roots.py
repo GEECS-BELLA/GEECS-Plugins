@@ -52,7 +52,7 @@ def _read_paths_option(option: str) -> str | None:
         config = configparser.ConfigParser()
         config.read(config_path)
         return config.get("Paths", option, fallback=None)
-    except Exception as exc:  # pragma: no cover - log only
+    except Exception as exc:  # pragma: no cover  # noqa: BLE001 — log only
         logger.warning("Error reading config from %s: %s", config_path, exc)
         return None
 

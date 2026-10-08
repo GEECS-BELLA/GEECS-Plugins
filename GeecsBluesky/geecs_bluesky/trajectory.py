@@ -72,7 +72,7 @@ def axis_positions(axis: Axis) -> list[float]:
     return points.tolist()
 
 
-def sweep_to_cycler(
+def sweep_to_cycler(  # noqa: C901, PLR0912
     sweep: Sweep, resolve: Callable[[str], AxisKey]
 ) -> Cycler[AxisKey, float]:
     """Build the same ordered trajectory for a preview or a stock scan_nd.

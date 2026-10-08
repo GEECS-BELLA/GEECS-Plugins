@@ -24,7 +24,7 @@ def _type_checking_imports_of_scanner(tree: ast.AST) -> bool:
                 if isinstance(node, ast.Import):
                     if any(a.name.split(".")[0] == "geecs_scanner" for a in node.names):
                         return True
-                elif isinstance(node, ast.ImportFrom):
+                elif isinstance(node, ast.ImportFrom):  # noqa: SIM102 — reads clearer nested
                     if (node.module or "").split(".")[0] == "geecs_scanner":
                         return True
     return False

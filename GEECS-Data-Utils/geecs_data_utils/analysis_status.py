@@ -188,7 +188,7 @@ def read_analysis_status(path: Path) -> AnalysisStatus:
             last_heartbeat=parse_status_timestamp(document.get("last_heartbeat")),
             display_files=_as_file_list(document.get("display_files")),
         )
-    except Exception as exc:  # a torn write mid-heartbeat is not our error
+    except Exception as exc:  # a torn write mid-heartbeat is not our error  # noqa: BLE001 — torn write reads unreadable
         return AnalysisStatus(task_id=task_id, unreadable=str(exc))
 
 

@@ -124,7 +124,7 @@ def sampling_for(pv: str, policy: ArchivePolicy) -> Sampling:
     return Sampling(period=period, method=method)
 
 
-def derive_candidates(
+def derive_candidates(  # noqa: C901
     experiment: str,
     endpoints: Mapping[str, object],
     var_map: Mapping[str, Sequence[Mapping[str, object]]],
@@ -201,7 +201,7 @@ def derive_candidates(
             )
     if derived is not None and policy.include_derived:
         for channel in derived.derived_channels:
-            out.append(
+            out.append(  # noqa: PERF401 — clearer as a loop
                 ArchiveCandidate(
                     pv_name(*channel.pv_parts(experiment)),
                     channel.device,

@@ -58,7 +58,7 @@ class FakeLogbook:
         self.drop_body_md = False
         self.null_body_md = False
 
-    def handler(self, request: httpx.Request) -> httpx.Response:
+    def handler(self, request: httpx.Request) -> httpx.Response:  # noqa: C901
         path = request.url.path
         if request.method == "POST" and path == "/api/entries":
             body = json.loads(request.content)

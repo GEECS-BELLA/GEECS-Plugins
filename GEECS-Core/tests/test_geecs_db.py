@@ -393,7 +393,7 @@ def test_instance_description_flows_through(monkeypatch) -> None:
     Instance rows carry a 10th column (after the link id); type rows do not.
     """
     type_rows = [
-        # id, name, units, min, max, set, variabletype, choices, tol, NULL(desc)
+        # id, name, units, min, max, set, variabletype, choices, tol, NULL(desc)  # noqa: ERA001 — column legend, not code
         (11, "Current", "A", "-5", "5", "yes", "numeric", None, "0.05", None),
     ]
     instance_rows = [

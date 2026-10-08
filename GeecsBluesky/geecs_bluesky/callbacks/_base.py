@@ -43,7 +43,7 @@ class _RunCallback:
     def __init__(self) -> None:
         self._starts: dict[str, dict[str, Any]] = {}
 
-    def __call__(self, name: str, doc: Document) -> None:
+    def __call__(self, name: str, doc: Document) -> None:  # noqa: C901
         """Dispatch one document; every failure is logged, never raised."""
         try:
             if name == "start":
@@ -68,7 +68,7 @@ class _RunCallback:
                 start = self._starts.pop(str(doc.get("run_start")), None)
                 if start is not None:
                     self.on_stop(start, doc)
-        except Exception:
+        except Exception:  # noqa: BLE001 — callback never kills RunEngine
             logger.warning(
                 "%s failed on a %s document", type(self).__name__, name, exc_info=True
             )
@@ -377,7 +377,7 @@ class _StreamCallback(_RunCallback):
         def guarded() -> None:
             try:
                 target(*args)
-            except Exception:
+            except Exception:  # noqa: BLE001 — callback never kills RunEngine
                 logger.warning("%s failed", name, exc_info=True)
 
         self._threads = [t for t in self._threads if t.is_alive()]

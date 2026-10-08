@@ -79,7 +79,7 @@ SCAN_SCOPED_CLASS_PATHS: Dict[str, str] = {
 }
 
 
-def create_scan_analyzer(
+def create_scan_analyzer(  # noqa: C901
     diag: AnalysisDocument,
     *,
     id: Optional[str] = None,

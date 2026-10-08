@@ -248,10 +248,7 @@ def _physical_dispersion_scalars(
         4: "fod_fs4",
     }
     for order, value in coefficients.items():
-        if order == 0:
-            converted = value
-        else:
-            converted = math.factorial(order) * value
+        converted = value if order == 0 else math.factorial(order) * value
         name = names.get(order, f"order{order}_fs{order}")
         scalars[name] = float(converted)
     return scalars

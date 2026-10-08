@@ -62,9 +62,7 @@ def objective(spectrum, E0=100.0, sigma_gate=5.0):
     spread_penalty = E_mad / (E0 + 1e-12)
 
     # --- final objective ---
-    J = f_spectral / (1 + spread_penalty)
-
-    return J
+    return f_spectral / (1 + spread_penalty)
 
 
 class BCaveMagOpt(Standard1DAnalyzer):
@@ -121,11 +119,9 @@ class BCaveMagOpt(Standard1DAnalyzer):
         scalars = {"objective": obj}
 
         # Build result with line-specific data
-        result = ImageAnalyzerResult(
+        return ImageAnalyzerResult(
             data_type="1d",
             line_data=processed_line_data,
             scalars=scalars,
             metadata=initial_result.metadata,
         )
-
-        return result

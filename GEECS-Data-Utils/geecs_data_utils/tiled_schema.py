@@ -419,10 +419,7 @@ def display_name(
     if telemetry:
         name = name[len(TELEMETRY_PREFIX) :]
     device, dash, variable = name.partition("-")
-    if dash:
-        pretty = f"{device} : {variable}"
-    else:
-        pretty = name
+    pretty = f"{device} : {variable}" if dash else name
     return f"{pretty} [t]" if telemetry else pretty
 
 
@@ -542,10 +539,11 @@ def scan_variable_columns(
     motors = scan_motors(start_doc)
     if not motors:
         return []
-    matches: list[str] = []
-    for column in data_columns(columns):
-        if column in motors or any(column.startswith(f"{m}-") for m in motors):
-            matches.append(column)
+    matches: list[str] = [
+        column
+        for column in data_columns(columns)
+        if column in motors or any(column.startswith(f"{m}-") for m in motors)
+    ]
     return matches
 
 

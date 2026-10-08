@@ -108,7 +108,7 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
                 calibration_factor=self.analysis_config.calibration_factor,
             )
         except Exception as e:
-            logger.error("ICT analysis failed: %s", e)
+            logger.exception("ICT analysis failed: %s", e)
             charge_pC = 0.0
             peak_time_us = 0.0
 

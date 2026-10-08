@@ -6,10 +6,10 @@ import pytest
 
 pytest.importorskip("aioca")
 
-from bluesky.preprocessors import SupplementalData  # noqa: E402
+from bluesky.preprocessors import SupplementalData
 
-from geecs_bluesky.preprocessors import connect_on_demand  # noqa: E402
-from geecs_bluesky.run_engine import make_run_engine  # noqa: E402
+from geecs_bluesky.preprocessors import connect_on_demand
+from geecs_bluesky.run_engine import make_run_engine
 
 
 def test_connect_on_demand_is_outermost_and_no_baseline_is_installed() -> None:

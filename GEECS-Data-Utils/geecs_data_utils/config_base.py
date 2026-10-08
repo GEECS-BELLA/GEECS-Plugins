@@ -109,7 +109,7 @@ class ConfigDirManager:
                     "Loaded %s dir from %s: %s", self.name, self.env_var, env_dir
                 )
                 env_ok = True
-            except Exception as exc:  # pragma: no cover - log only
+            except Exception as exc:  # pragma: no cover - log only  # noqa: BLE001 — config read fails soft
                 self.logger.warning("%s invalid: %s", self.env_var, exc)
 
         if env_ok:
@@ -125,7 +125,7 @@ class ConfigDirManager:
                         self.fallback_name,
                         fallback_dir,
                     )
-            except Exception as exc:  # pragma: no cover - log only
+            except Exception as exc:  # pragma: no cover - log only  # noqa: BLE001 — config read fails soft
                 self.logger.warning("%s invalid: %s", self.fallback_name, exc)
 
     def find_config(

@@ -13,11 +13,11 @@ import pytest
 
 pytest.importorskip("aioca")
 
-from bluesky import RunEngine  # noqa: E402
-from bluesky.utils import FailedStatus  # noqa: E402
-from ophyd_async.core import callback_on_mock_put, set_mock_value  # noqa: E402
+from bluesky import RunEngine
+from bluesky.utils import FailedStatus
+from ophyd_async.core import callback_on_mock_put, set_mock_value
 
-from geecs_bluesky.callbacks import (  # noqa: E402
+from geecs_bluesky.callbacks import (
     SFileCallback,
     ScanInfoCallback,
     ScanLogCallback,
@@ -27,27 +27,27 @@ from geecs_bluesky.callbacks import (  # noqa: E402
     shots_per_step,
     subscribe_scan_outputs,
 )
-from geecs_bluesky.plans.claim_scan import (  # noqa: E402
+from geecs_bluesky.plans.claim_scan import (
     GeecsScanPathProvider,
     claim_scan_preprocessor,
 )
-from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans  # noqa: E402
-from geecs_bluesky.preprocessors import scalar_headers  # noqa: E402
-from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
-from tests.ca_mock_helpers import (  # noqa: E402
+from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans
+from geecs_bluesky.preprocessors import scalar_headers
+from geecs_bluesky.devices.shot_control import ShotControl
+from tests.ca_mock_helpers import (
     DocCollector,
     connect_mock,
     follow_setpoint,
     read_scan_info,
 )
-from tests.test_claim_scan import FakeClaim  # noqa: E402
-from tests.test_plan_registry import Magnet  # noqa: E402
-from tests.test_gated_plans import (  # noqa: E402
+from tests.test_claim_scan import FakeClaim
+from tests.test_plan_registry import Magnet
+from tests.test_gated_plans import (
     _events_from_pages,
     _magnet,
     _stream_events,
 )
-from tests.test_strict_plans import (  # noqa: E402
+from tests.test_strict_plans import (
     WRITES,
     FakeBox,
     _attributes_xml,
@@ -944,7 +944,7 @@ def test_a_gated_scan_writes_its_s_file_from_the_shots_rows_and_the_stacks(
     assert not any(c.startswith("uc_") for c in table.columns)
 
 
-def test_a_gated_run_with_a_native_essential_gets_its_s_file_and_a_files_line(
+def test_a_gated_run_with_a_native_essential_gets_its_s_file_and_a_files_line(  # noqa: PLR0915
     RE, gated_worker, tmp_path, caplog
 ):
     """The 2026-09-25 ruling end to end: a native-saving essential in a gated run.

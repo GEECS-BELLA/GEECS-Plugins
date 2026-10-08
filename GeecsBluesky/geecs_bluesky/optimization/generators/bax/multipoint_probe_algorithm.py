@@ -34,9 +34,10 @@ def _ls_slope(x: Tensor, y: Tensor) -> Tensor:
 
 def slope_virtual_objective(grid_v: Tensor, samples: Tensor) -> Tensor:
     """Return absolute slope magnitudes per observable."""
-    slopes = []
-    for obs_idx in range(samples.shape[-1]):
-        slopes.append(torch.abs(_ls_slope(grid_v, samples[..., obs_idx])))
+    slopes = [
+        torch.abs(_ls_slope(grid_v, samples[..., obs_idx]))
+        for obs_idx in range(samples.shape[-1])
+    ]
     return torch.stack(slopes, dim=-1)
 
 
@@ -284,10 +285,7 @@ class MultipointProbeAlgorithm(GridOptimize):
             Virtual objective samples with shape
             ``[n_samples, n_points, k]`` where ``k`` is determined by the objective.
         """
-        if isinstance(model, ModelListGP):
-            models = model.models
-        else:
-            models = [model]
+        models = model.models if isinstance(model, ModelListGP) else [model]
 
         if len(models) != len(self.observable_names_ordered):
             raise ValueError(

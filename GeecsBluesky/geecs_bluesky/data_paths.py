@@ -67,7 +67,7 @@ def _local_base_path() -> str | None:
     """
     try:
         from geecs_data_utils import ScanPaths
-    except Exception:
+    except Exception:  # noqa: BLE001 — optional, fail soft
         logger.warning(
             "Could not import geecs_data_utils; the local data root is unknown"
         )
@@ -76,7 +76,7 @@ def _local_base_path() -> str | None:
     if base is None:
         try:
             ScanPaths.reload_paths_config()
-        except Exception as exc:  # pragma: no cover - the loader logs its own error
+        except Exception as exc:  # pragma: no cover - the loader logs its own error  # noqa: BLE001 — optional, fail soft
             logger.debug("paths config reload: %s", exc)
         base = getattr(getattr(ScanPaths, "paths_config", None), "base_path", None)
     return base

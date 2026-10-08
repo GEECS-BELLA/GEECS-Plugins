@@ -119,7 +119,7 @@ def logbook_root(
     )
     try:
         scans = ScanPaths.get_daily_scan_folder(tag=tag, base_directory=base_directory)
-    except Exception as exc:  # noqa: BLE001 — no share config, unmounted drive …
+    except Exception as exc:
         raise MirrorUnavailable(f"cannot resolve the data share: {exc}") from exc
     day_dir = scans.parent
     month_dir = day_dir.parent
@@ -228,8 +228,9 @@ def render(entry: LogEntry) -> str:
         )
     if entry.attachments:
         lines.append("attachments:")
-        for a in entry.attachments:
-            lines.append(f"  - {attachment_link(entry, a.filename)}")
+        lines.extend(
+            f"  - {attachment_link(entry, a.filename)}" for a in entry.attachments
+        )
     lines.append("---")
     lines.append("")
     body = entry.body_md.rstrip("\n")

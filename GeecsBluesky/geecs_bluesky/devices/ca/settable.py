@@ -138,7 +138,7 @@ class CaSettable(StandardReadable):
         try:
             await self._set_and_wait(value)
         except Exception as exc:
-            logger.error(
+            logger.error(  # noqa: TRY400 — re-raised, caller logs
                 "%s: set %s → %s failed (%s): %s",
                 self.name,
                 self._variable,

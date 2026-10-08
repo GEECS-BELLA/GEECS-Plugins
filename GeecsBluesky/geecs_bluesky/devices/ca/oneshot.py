@@ -103,7 +103,7 @@ def try_caget_once(pv: str, *, timeout: float, datatype: Any = None) -> Any:
     """
     try:
         return caget_once(pv, timeout=timeout, datatype=datatype)
-    except Exception:
+    except Exception:  # noqa: BLE001 — probe answers None on failure
         return None
 
 
@@ -122,7 +122,7 @@ def try_caget_many(
     """
     try:
         from aioca import caget
-    except Exception:
+    except Exception:  # noqa: BLE001 — probe answers None on failure
         return [None] * len(pvs)
 
     async def _one(pv: str) -> Any:
@@ -130,7 +130,7 @@ def try_caget_many(
             if datatype is None:
                 return await caget(pv, timeout=timeout)
             return await caget(pv, datatype=datatype, timeout=timeout)
-        except Exception:
+        except Exception:  # noqa: BLE001 — probe answers None on failure
             return None
 
     async def _all() -> list[Any]:
@@ -139,6 +139,6 @@ def try_caget_many(
     future = asyncio.run_coroutine_threadsafe(_all(), _shared_loop())
     try:
         return future.result(timeout=timeout + _RESULT_GRACE_S)
-    except BaseException:
+    except BaseException:  # noqa: BLE001 — probe answers None on failure
         future.cancel()
         return [None] * len(pvs)

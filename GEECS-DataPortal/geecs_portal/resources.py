@@ -275,7 +275,7 @@ def _stack_shot_from_memory(
     return ShotArray(kind="stack", array=frames[index], path=path)
 
 
-def load_shot_array(
+def load_shot_array(  # noqa: C901, PLR0912
     scan_folder: Path,
     device: str,
     shot: int,

@@ -245,7 +245,7 @@ _HEX_LENGTHS = frozenset({3, 4, 6, 8})
 _HEX = re.compile(r"^[0-9a-fA-F]+$")
 
 
-def css_rules(css: str) -> list[tuple[str, list[tuple[str, list[Any]]]]]:
+def css_rules(css: str) -> list[tuple[str, list[tuple[str, list[Any]]]]]:  # noqa: C901
     """Return every qualified rule as ``(selector, declarations)``, flattened.
 
     ``@media`` and other conditional at-rules are descended into at any
@@ -363,7 +363,7 @@ def _is_root_selector(selector: str) -> bool:
     return True
 
 
-def _colour_tokens(
+def _colour_tokens(  # noqa: C901, PLR0912
     tokens: Iterable[Any], *, in_var_fallback: bool = False
 ) -> list[str]:
     """Return the colour literals among *tokens*, descending into functions.
@@ -493,8 +493,7 @@ def colour_literals(css: str, *, allowed: Iterable[str] = ()) -> list[str]:
         for name, value in decls:
             if root and name.startswith("--"):
                 continue
-            for lit in _colour_tokens(value):
-                out.append(f"{selector}: {name}: {lit}")
+            out.extend(f"{selector}: {name}: {lit}" for lit in _colour_tokens(value))
     return out
 
 
@@ -592,7 +591,7 @@ _TOKEN_REF_TEXT = re.compile(r'getPropertyValue\(\s*["\'`](--[\w-]+)|\$tok:(--[\
 _TOKEN_REF_JS_VAR = re.compile(r"var\(\s*(--[\w-]+)")
 
 
-def referenced_tokens(source: Union[Path, str], *, css: bool = True) -> set[str]:
+def referenced_tokens(source: Union[Path, str], *, css: bool = True) -> set[str]:  # noqa: C901
     """Return every ``--token`` a file references.
 
     In CSS that is every ``var(--x)`` (found through the parser, at any
@@ -748,13 +747,15 @@ def attribute_selector_values(
                     and inner[0].type == "ident"
                     and inner[0].value == attribute
                     and inner[-1].type in ("string", "ident")
-                ):
-                    if on_class is None or (
+                ) and (
+                    on_class is None
+                    or (
                         prev is not None
                         and prev.type == "ident"
                         and prev.value == on_class
-                    ):
-                        out.add(inner[-1].value)
+                    )
+                ):
+                    out.add(inner[-1].value)
             prev = tok
     return out
 

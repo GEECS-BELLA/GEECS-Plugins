@@ -71,10 +71,9 @@ def _get_center_and_err(
             return y, yerr
         # no fallback guessing when schema is frozen
         raise KeyError(f"'{col}' has no 'center' subcolumn in binned_scalars.")
-    else:
-        if col in binned.columns:
-            return binned[col].to_numpy(), None
-        raise KeyError(f"Column '{col}' not found in binned_scalars.")
+    if col in binned.columns:
+        return binned[col].to_numpy(), None
+    raise KeyError(f"Column '{col}' not found in binned_scalars.")
 
 
 def _index_to_numeric(idx: pd.Index) -> np.ndarray:
@@ -99,7 +98,7 @@ def _index_to_numeric(idx: pd.Index) -> np.ndarray:
         return ((idx.left.astype(float) + idx.right.astype(float)) / 2.0).to_numpy()
     try:
         return idx.to_numpy(dtype=float, copy=False)
-    except Exception:
+    except Exception:  # noqa: BLE001 — non-numeric index falls back
         return np.arange(len(idx), dtype=float)
 
 
@@ -157,7 +156,7 @@ def plot_binned(
     KeyError
         If requested columns are not found in the schema.
     """
-    # y (required)
+    # y (required)  # noqa: ERA001 — section label, not code
     y, yerr = _get_center_and_err(binned, y_col)
 
     # x

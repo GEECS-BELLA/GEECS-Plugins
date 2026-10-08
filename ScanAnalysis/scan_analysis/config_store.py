@@ -26,6 +26,7 @@ Rules the store enforces:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import subprocess
@@ -524,10 +525,8 @@ class ConfigStore:
                 handle.write(text)
             os.replace(tmp, target)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise
 
     # ------------------------------------------------------------ git status

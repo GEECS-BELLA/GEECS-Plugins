@@ -22,6 +22,7 @@ Requirements:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import shlex
@@ -393,18 +394,16 @@ class FrogDllRetrieval:
             # Read output binary
             return self._read_output(output_path)
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as err:
             raise RuntimeError(
                 f"FROG DLL retrieval timed out after {timeout} seconds. "
                 "Try increasing the timeout or reducing max_iterations."
-            )
+            ) from err
         finally:
             # Clean up temp files
             for path in [input_path, output_path, params_path]:
-                try:
+                with contextlib.suppress(OSError):
                     Path(path).unlink(missing_ok=True)
-                except OSError:
-                    pass
 
     @staticmethod
     def _read_output(output_path: str) -> FrogRetrievalResult:
@@ -543,12 +542,12 @@ class FrogDllRetrieval:
                         )
                     python32_path = cfg_py32
 
-            except ImportError:
+            except ImportError as err:
                 raise FileNotFoundError(
                     "geecs_data_utils not available and no explicit paths provided. "
                     "Install geecs_data_utils or provide dll_path and python32_path "
                     "directly."
-                )
+                ) from err
 
         return cls(
             dll_path=dll_path, python32_path=python32_path, launcher=launcher or ()

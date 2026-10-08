@@ -375,7 +375,7 @@ class AnalysisRunner:
             # memory back. Never let the release cost the record.
             try:
                 release_memory()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.exception("releasing memory after %s failed", job.analyzer_id)
             root.removeHandler(capture)
             job.log = list(capture.lines)

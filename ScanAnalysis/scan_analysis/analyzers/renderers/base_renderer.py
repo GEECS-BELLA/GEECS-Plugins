@@ -126,4 +126,4 @@ class BaseRenderer(ABC):
         release additional cached state (e.g. large arrays held across calls).
         """
         self.display_contents = []
-        logger.debug(f"[{self.__class__.__name__}] cleanup() complete.")
+        logger.debug("[%s] cleanup() complete.", self.__class__.__name__)

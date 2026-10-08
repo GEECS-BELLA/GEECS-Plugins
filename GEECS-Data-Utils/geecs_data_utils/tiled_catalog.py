@@ -603,7 +603,7 @@ def fmt_time_of_day(epoch: float) -> str:
         return ""
 
 
-def metadata_rows(detail: RunDetail) -> list[tuple[str, str]]:
+def metadata_rows(detail: RunDetail) -> list[tuple[str, str]]:  # noqa: C901, PLR0912, PLR0915
     """Compose display field/value rows from a loaded run's metadata.
 
     Pure — reads only the already-loaded :class:`RunDetail` (summary +

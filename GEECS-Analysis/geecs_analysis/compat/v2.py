@@ -98,7 +98,7 @@ class V2Recipe:
     scan_backgrounds: tuple[ScanBackground, ...] = ()
 
 
-def compile_v2(
+def compile_v2(  # noqa: C901, PLR0912
     document: AnalysisDiagnostic, *, allow_file_backgrounds: bool = False
 ) -> V2Recipe:
     """Translate supported beam/line/standard/trace/frog_retrieval recipes, without file access.
@@ -265,7 +265,7 @@ def _scan_background(
     raise UnsupportedRecipe("Scan background not ported: autodetect")
 
 
-def _camera_steps(
+def _camera_steps(  # noqa: C901, PLR0912
     name: str,
     config: CameraConfig,
     *,
@@ -362,7 +362,7 @@ def _camera_steps(
     raise UnsupportedRecipe(f"Camera processing step not ported: {name}")
 
 
-def _line_steps(name: str, config: Line1DConfig) -> list[StepSpec]:
+def _line_steps(name: str, config: Line1DConfig) -> list[StepSpec]:  # noqa: C901
     section = getattr(config, name)
     if name == "background":
         if section.method == "none":
@@ -395,7 +395,7 @@ def _line_steps(name: str, config: Line1DConfig) -> list[StepSpec]:
     )
 
 
-def analyze_v2(
+def analyze_v2(  # noqa: C901
     data: np.ndarray,
     recipe: V2Recipe,
     *,
@@ -433,7 +433,7 @@ def analyze_v2(
 
     def process(frame: Frame) -> Frame:
         for spec in recipe.analysis.steps:
-            if recipe.input_kind == "camera" and isinstance(spec, RoiSpec):
+            if recipe.input_kind == "camera" and isinstance(spec, RoiSpec):  # noqa: SIM102 — reads clearer nested
                 # Legacy returns the full image for a crop wholly outside the input.
                 if any(
                     lo >= min(hi, size)

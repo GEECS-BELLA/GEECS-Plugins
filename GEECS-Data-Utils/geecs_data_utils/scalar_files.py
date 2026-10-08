@@ -115,7 +115,7 @@ def merge_sfile(
         if path.exists():
             try:
                 current = pd.read_csv(path, sep="\t")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — unreadable s-file skipped
                 logger.warning("Failed reading s-file %s: %s", path, exc)
                 return None
             if key not in current:

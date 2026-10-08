@@ -124,7 +124,7 @@ class ProgressCache:
             self._detail = detail
             self._version += 1
 
-    def on_document(self, name: str, doc: dict) -> None:
+    def on_document(self, name: str, doc: dict) -> None:  # noqa: C901, PLR0912, PLR0915
         """Reduce one bluesky document into the picture."""
         with self._lock:
             now = self._clock()

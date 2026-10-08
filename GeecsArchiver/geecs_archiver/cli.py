@@ -117,7 +117,7 @@ def cmd_list(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def cmd_onboard(args: argparse.Namespace) -> int:
+def cmd_onboard(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912
     """Reconcile the appliance with the derived set; exit 1 on drift, 2 on an unguarded mass pause."""
     experiment = _resolve_experiment(args)
     url = _resolve_url(args)

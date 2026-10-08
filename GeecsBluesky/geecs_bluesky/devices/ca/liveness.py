@@ -73,7 +73,7 @@ def read_disconnected(
     for device, signal in signals.items():
         try:
             value = yield from bps.rd(signal)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — liveness read fails open
             logger.log(
                 unreadable_level,
                 "CONNECTED read failed for %s (%s: %s); assuming live (fail-open)",

@@ -16,33 +16,33 @@ import pytest
 
 pytest.importorskip("aioca")
 
-import bluesky.plan_stubs as bps  # noqa: E402
-from bluesky import RunEngine  # noqa: E402
-from ophyd_async.core import (  # noqa: E402
+import bluesky.plan_stubs as bps
+from bluesky import RunEngine
+from ophyd_async.core import (
     Device,
     DeviceConnector,
     NotConnectedError,
     set_mock_value,
 )
 
-from geecs_bluesky.devices.background import (  # noqa: E402
+from geecs_bluesky.devices.background import (
     BackgroundSnapshot,
     _blank,
     _invalid,
 )
-from geecs_bluesky.devices.ca import CaMotor, CaSnapshotReadable  # noqa: E402
-from geecs_bluesky.devices.detector import GeecsDetector  # noqa: E402
-from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
-from geecs_bluesky.plans.registry import (  # noqa: E402
+from geecs_bluesky.devices.ca import CaMotor, CaSnapshotReadable
+from geecs_bluesky.devices.detector import GeecsDetector
+from geecs_bluesky.devices.shot_control import ShotControl
+from geecs_bluesky.plans.registry import (
     TriggerProfiles,
     bind_plans,
     resolve_background_telemetry,
 )
-from geecs_bluesky.preprocessors import scalar_headers  # noqa: E402
-from geecs_bluesky.utils import is_connected  # noqa: E402
-from tests.ca_mock_helpers import DocCollector, connect_mock, follow_setpoint  # noqa: E402
-from tests.test_plan_registry import payload  # noqa: E402
-from tests.test_strict_plans import WRITES, FakeBox, _camera  # noqa: E402
+from geecs_bluesky.preprocessors import scalar_headers
+from geecs_bluesky.utils import is_connected
+from tests.ca_mock_helpers import DocCollector, connect_mock, follow_setpoint
+from tests.test_plan_registry import payload
+from tests.test_strict_plans import WRITES, FakeBox, _camera
 
 
 class Fake:
@@ -182,7 +182,7 @@ def test_a_movers_device_the_run_reads_itself_stays_the_runs(RE) -> None:
     other = _gauge(RE, "U_Other", 1.0)
     for own in ([magnet], [magnet.scalars]):
         snapshot = BackgroundSnapshot([gauge, magnet, other], probe_timeout=0.5)
-        run(RE, lambda: snapshot.probe(own=own, movers=[magnet.current]))
+        run(RE, lambda: snapshot.probe(own=own, movers=[magnet.current]))  # noqa: B023 — closure runs this iteration
         assert snapshot.members == [gauge, other]
         assert set(run(RE, snapshot.describe)) == {
             "u_gauge-pressure",
@@ -262,7 +262,7 @@ def test_a_mover_that_does_not_describe_leaves_its_device_out_of_the_background(
         with caplog.at_level(
             logging.WARNING, logger="geecs_bluesky.devices.background"
         ):
-            run(RE, lambda: snapshot.probe(movers=[mover]))
+            run(RE, lambda: snapshot.probe(movers=[mover]))  # noqa: B023 — closure runs this iteration
         assert snapshot.members == [gauge]
         assert set(run(RE, snapshot.describe)) == {"u_gauge-pressure"}
         assert "U_S1H (u_s1h-current) did not describe" in caplog.text

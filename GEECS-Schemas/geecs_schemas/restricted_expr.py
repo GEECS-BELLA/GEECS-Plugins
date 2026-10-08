@@ -92,7 +92,7 @@ class _DottedSymbols(ast.NodeTransformer):
         )
 
 
-def _validate(
+def _validate(  # noqa: C901, PLR0912
     node: ast.AST, symbols: AbstractSet[str], whitelist: ExpressionWhitelist
 ) -> None:
     """Recursively whitelist-check one AST node (raises on anything else)."""
@@ -174,9 +174,7 @@ class CompiledExpression:
                 if name in values
             }
         )
-        return eval(  # noqa: S307 — AST-whitelisted at compile time
-            self._code, {"__builtins__": {}}, namespace
-        )
+        return eval(self._code, {"__builtins__": {}}, namespace)
 
 
 def compile_expression(

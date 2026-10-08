@@ -148,7 +148,7 @@ def run_image(
             (processed,) = portal.apply_processing([resolved.array], processing)
             try:
                 png = resources.to_display_png(processed, **render)
-            except Exception as exc:  # noqa: BLE001 — must not 500
+            except Exception as exc:
                 raise HTTPException(
                     status_code=404, detail=f"render failed: {exc}"
                 ) from exc
@@ -180,7 +180,7 @@ def run_image(
 
 
 @router.get("/run/{uid}/bin-image.png")
-def run_bin_image(
+def run_bin_image(  # noqa: C901
     uid: str,
     device: str,
     bin_index: int = Query(default=0, alias="bin"),
@@ -255,7 +255,7 @@ def run_bin_image(
     else:
         try:
             png = resources.to_display_png(averaged, **render)
-        except Exception as exc:  # noqa: BLE001 — unrenderable shape must not 500
+        except Exception as exc:
             raise HTTPException(
                 status_code=404, detail=f"render failed: {exc}"
             ) from exc

@@ -185,7 +185,7 @@ def test_pv_table_covers_every_ndfilehdf5io_suffix():
 
 # --------------------------------------------------------------- contract
 @pytest.mark.timeout(60)
-async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
+async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):  # noqa: PLR0915
     """The worker's exact sequence: stock ADHDFDataLogic over pva:// NDFileHDF5IO."""
     from ophyd_async.core import StaticPathProvider, init_devices
     from ophyd_async.epics.adcore import (
@@ -329,7 +329,7 @@ async def test_stock_adhdf_data_logic_drives_the_plugin(tmp_path, monkeypatch):
 
 # ---------------------------------------------------------------- session
 @pytest.mark.timeout(60)
-async def test_session_semantics_over_raw_pva(tmp_path):
+async def test_session_semantics_over_raw_pva(tmp_path):  # noqa: PLR0915
     """Directory checks, rewind, counters and the no-file case, via plain puts."""
     cam = StampedCamera()
     await cam.start()
@@ -524,7 +524,7 @@ async def test_session_semantics_over_raw_pva(tmp_path):
 
 
 @pytest.mark.timeout(60)
-async def test_the_first_fresh_frame_re_declares_the_geometry_before_the_stack_opens(
+async def test_the_first_fresh_frame_re_declares_the_geometry_before_the_stack_opens(  # noqa: PLR0915
     tmp_path,
 ):
     """GEECS-Plugins#1023: the held frame's shape is provisional; the first fresh frame settles it.

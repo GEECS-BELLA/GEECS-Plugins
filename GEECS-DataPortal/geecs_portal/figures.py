@@ -418,7 +418,7 @@ MARKER_SIZE_DEFAULT = 5.0
 
 def _marker_size(display: Optional[Mapping]) -> float:
     size = (display or {}).get("msize")
-    if isinstance(size, (int, float)) and not isinstance(size, bool):
+    if isinstance(size, (int, float)) and not isinstance(size, bool):  # noqa: SIM102 — reads clearer nested
         if math.isfinite(size) and size > 0:
             return float(size)
     return MARKER_SIZE_DEFAULT

@@ -54,7 +54,7 @@ def _find_scan_analysis_configs() -> Optional[Path]:
             base = Path(configured)
             if (base / "analyzers").is_dir():
                 return base
-    except Exception:
+    except Exception:  # noqa: BLE001 — configs optional offline
         pass
 
     # 2. Sibling-of-plugins fallback (local dev convenience)

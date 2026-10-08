@@ -63,11 +63,11 @@ def apply_thresholding(data: np.ndarray, config: LineThresholdingConfig) -> np.n
     if config.clip_below:
         # Clip values below threshold (set to threshold)
         result[:, 1] = np.maximum(data[:, 1], threshold)
-        logger.debug(f"Clipped values below threshold={threshold}")
+        logger.debug("Clipped values below threshold=%s", threshold)
     else:
         # Clip values above threshold (set to threshold)
         result[:, 1] = np.minimum(data[:, 1], threshold)
-        logger.debug(f"Clipped values above threshold={threshold}")
+        logger.debug("Clipped values above threshold=%s", threshold)
 
     return result
 
@@ -124,6 +124,6 @@ def find_threshold_crossings(
         crossings = np.where(np.diff(above.astype(int)) != 0)[0] + 1
 
     logger.debug(
-        f"Found {len(crossings)} {direction} crossings at threshold={threshold}"
+        "Found %s %s crossings at threshold=%s", len(crossings), direction, threshold
     )
     return crossings

@@ -90,7 +90,7 @@ def _event_shot_key(frame: "pd.DataFrame") -> "pd.Series":
     return pd.Series(range(1, len(frame) + 1), index=frame.index, dtype="Int64")
 
 
-def scan_frame(
+def scan_frame(  # noqa: C901, PLR0912
     detail: "Optional[RunDetail]" = None,
     scan_folder: Optional[Path] = None,
     *,

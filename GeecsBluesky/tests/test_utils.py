@@ -8,8 +8,8 @@ from geecs_bluesky.utils import safe_name
 
 pytest.importorskip("aioca")  # devices are CA-backed
 
-from geecs_bluesky.devices.ca import CaMotor, CaSnapshotReadable  # noqa: E402
-from geecs_bluesky.devices.detector import GeecsDetector  # noqa: E402
+from geecs_bluesky.devices.ca import CaMotor, CaSnapshotReadable
+from geecs_bluesky.devices.detector import GeecsDetector
 
 
 def test_safe_name_mangles_and_lowercases() -> None:

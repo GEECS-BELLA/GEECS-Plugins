@@ -250,18 +250,18 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
             save_path.parent.mkdir(parents=True, exist_ok=True)
             plt.savefig(save_path, bbox_inches="tight", pad_inches=0)
             if self.flag_logging:
-                logging.info(f"Image saved at {save_path}")
+                logging.info("Image saved at %s", save_path)
             self.display_contents.append(str(save_path))
 
             # Closeout the plot and return list of images saved
             self.close_or_show_plot()
             return self.display_contents
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — per-scan isolation
             if PRINT_TRACEBACK:
                 print(traceback.format_exc())
             if self.flag_logging:
-                logging.warning(f"Warning: Image analysis failed due to: {e}")
+                logging.warning("Warning: Image analysis failed due to: %s", e)
             return None
 
     @staticmethod
@@ -286,10 +286,7 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         if plot_number < 2:
             return
 
-        if plot_number % 2 == 0:
-            side = "left"
-        else:
-            side = "right"
+        side = "left" if plot_number % 2 == 0 else "right"
         outward_pixels = int(plot_number / 2) * 50
 
         axis.spines[side].set_position(("outward", outward_pixels))
@@ -320,13 +317,10 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
 
         counter = 0
         for param in self.parameters:
-            if counter > 0:
-                new_ax = ax1.twinx()
-            else:
-                new_ax = ax1
+            new_ax = ax1.twinx() if counter > 0 else ax1
             self._generate_noscan_plot(axis=new_ax, plot_parameter=param, x_data=x_data)
             self._shift_axis_spine(axis=new_ax, plot_number=counter)
-            counter += 1
+            counter += 1  # noqa: SIM113 — counter reads clearer
 
         ax1.set_xlabel(x_label)
 
@@ -354,10 +348,7 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
 
         average = np.average(data_array)
         sigma = np.std(data_array)
-        if self.stat_type == "median":
-            center = np.median(data_array)
-        else:
-            center = average
+        center = np.median(data_array) if self.stat_type == "median" else average
 
         c = plot_parameter.color
         axis.scatter(x_data, data_array, c=c, label=plot_parameter.legend_label)
@@ -414,15 +405,12 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
 
         counter = 0
         for param in self.parameters:
-            if counter > 0:
-                new_ax = ax1.twinx()
-            else:
-                new_ax = ax1
+            new_ax = ax1.twinx() if counter > 0 else ax1
             self._generate_scan_plot(
                 axis=new_ax, plot_parameter=param, x_values=x_values
             )
             self._shift_axis_spine(axis=new_ax, plot_number=counter)
-            counter += 1
+            counter += 1  # noqa: SIM113 — counter reads clearer
 
         ax1.set_xlabel(x_label)
 
@@ -500,7 +488,7 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         # Identify unique parameter bins
         unique_bins = np.unique(self.bins)
         if self.flag_logging:
-            logging.info(f"unique_bins: {unique_bins}")
+            logging.info("unique_bins: %s", unique_bins)
 
         # Preallocate storage
         bins = np.zeros(len(unique_bins))
@@ -527,9 +515,9 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
             median[bin_ind] = np.median(data_in_bin)
 
             if self.flag_logging:
-                logging.info(f"Bin Index: {bin_ind}")
-                logging.info(f"Bin Value: {self.binned_param_values[bin_ind]}")
-                logging.info(f"Shots: {shots_in_bin[0]} - {shots_in_bin[-1]}")
+                logging.info("Bin Index: %s", bin_ind)
+                logging.info("Bin Value: %s", self.binned_param_values[bin_ind])
+                logging.info("Shots: %s - %s", shots_in_bin[0], shots_in_bin[-1])
 
         return {"bin": bins, "average": average, "sigma": sigma, "median": median}
 

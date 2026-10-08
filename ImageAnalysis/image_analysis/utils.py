@@ -160,11 +160,11 @@ class ROI:
                     raise ValueError(
                         f"{low_index} should be less than {high_index} ((0, 0) is at the top left corner)"
                     )
-                elif bad_index_order == "invert":
+                if bad_index_order == "invert":
                     low_index, high_index = high_index, low_index
                 elif bad_index_order == "invert_warn":
                     low_index, high_index = high_index, low_index
-                    warn(f"Inverting {low_index} and {high_index}.")
+                    warn(f"Inverting {low_index} and {high_index}.", stacklevel=1)
                 else:
                     raise ValueError(
                         f"Unknown action for bad_index_order: {bad_index_order}"

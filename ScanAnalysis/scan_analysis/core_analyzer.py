@@ -180,7 +180,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
         self.display_contents = [str(path) for path in saved.display_files]
         return list(self.display_contents)
 
-    def _execute(self, prepared: PreparedScan, collector: ProductCollector) -> None:
+    def _execute(self, prepared: PreparedScan, collector: ProductCollector) -> None:  # noqa: C901
         """Stream the units into the collector; log failures; persist scalars.
 
         Nothing per unit outlives its iteration but its scalar records and

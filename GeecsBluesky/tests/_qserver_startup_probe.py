@@ -33,7 +33,7 @@ def _fail(reason: str) -> None:
     sys.exit(1)
 
 
-def main() -> None:
+def main() -> None:  # noqa: C901, PLR0912, PLR0915
     if len(sys.argv) != 2:
         _fail(f"usage: {sys.argv[0]} <startup_path>")
         return
@@ -57,13 +57,13 @@ def main() -> None:
                     epics_addr_at_aioca_import["EPICS_CA_ADDR_LIST"] = os.environ.get(
                         "EPICS_CA_ADDR_LIST"
                     )
-            return None
+            return
 
     sys.meta_path.insert(0, _RecordingFinder())
 
     try:
         ns = runpy.run_path(startup_path, run_name="__not_main__")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — probe reports any failure
         _fail(f"startup.py raised {exc!r}")
         return
 

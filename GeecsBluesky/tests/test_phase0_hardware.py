@@ -65,7 +65,7 @@ def _sweep_points(start: float, end: float, step: float) -> list[float]:
 
 
 @pytest.mark.hardware
-def test_one_camera_as_a_standard_detector_on_hardware() -> None:
+def test_one_camera_as_a_standard_detector_on_hardware() -> None:  # noqa: C901, PLR0915
     """GeecsDetector + ShotControl under stock count/list_scan; strict shots; native files."""
     import bluesky.plan_stubs as bps
     import bluesky.plans as bp

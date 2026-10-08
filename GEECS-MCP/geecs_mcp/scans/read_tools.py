@@ -78,7 +78,7 @@ def _scan_status_impl() -> str:
                 }
                 for item in client.queue_items()
             ]
-        except Exception as exc:  # queue read is best-effort beside status
+        except Exception as exc:  # queue read is best-effort beside status  # noqa: BLE001 — tool boundary, error reply
             logger.debug("queue read failed: %s", exc)
     return errors.make_ok(
         connected=status.connected,
@@ -114,7 +114,7 @@ def _scan_history_impl(limit: int) -> str:
     client = runtime.get_queue_client()
     try:
         items = client.history_items()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — tool boundary, error reply
         return errors.make_error("manager_unreachable", str(exc))
     tail = items[-max(1, int(limit)) :]
     rows = []
@@ -206,7 +206,7 @@ def _get_scan_result_impl(
             detail = catalog.load_run(match.uid)
     except KeyError as exc:  # the catalog's unknown-uid contract
         return errors.make_error("not_found", f"no run with uid {exc}")
-    except Exception as exc:  # network / unconfigured catalog
+    except Exception as exc:  # network / unconfigured catalog  # noqa: BLE001 — tool boundary, error reply
         return errors.make_error("tiled_unreachable", str(exc))
     summary = detail.summary
     start = detail.start_doc or {}
@@ -296,7 +296,7 @@ def _list_scan_configs_impl(kind: str) -> str:
             names = sorted(resolver.action_plan_registry())
         else:
             names = getattr(resolver, f"list_{kind}")()
-    except Exception as exc:  # resolver failures read as empty-with-message
+    except Exception as exc:  # resolver failures read as empty-with-message  # noqa: BLE001 — tool boundary, error reply
         return errors.make_error("not_found", f"listing {kind} failed: {exc}")
     return errors.make_ok(kind=kind, names=names, experiment=runtime.get_experiment())
 

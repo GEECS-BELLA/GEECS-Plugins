@@ -135,7 +135,7 @@ class _NotAffine(Exception):
     """Internal: the walk met a construct that is not affine in the scanned value."""
 
 
-def _affine(node: ast.AST) -> tuple[float, float]:
+def _affine(node: ast.AST) -> tuple[float, float]:  # noqa: C901, PLR0912
     """``(a, b)`` such that *node* == ``a*x + b`` for every x; else :class:`_NotAffine`.
 
     A symbolic walk over the whitelisted AST: constants and ``x``-free

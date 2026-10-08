@@ -20,6 +20,7 @@ Framing: 4-byte big-endian signed int length prefix + ASCII payload.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import errno
 import logging
 import struct
@@ -39,7 +40,7 @@ async def _close_writer(writer: asyncio.StreamWriter, timeout: float = 1.0) -> N
     writer.close()
     try:
         await asyncio.wait_for(writer.wait_closed(), timeout=timeout)
-    except Exception:
+    except Exception:  # noqa: BLE001 — teardown is best effort
         transport = getattr(writer, "transport", None) or getattr(
             writer, "_transport", None
         )
@@ -237,10 +238,8 @@ class _TcpSubscriptionHandler:
                     break
                 await asyncio.sleep(_PUSH_INTERVAL)
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 await _close_writer(self._writer)
-            except Exception:
-                pass
 
 
 # ---------------------------------------------------------------------------

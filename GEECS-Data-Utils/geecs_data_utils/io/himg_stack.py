@@ -44,6 +44,7 @@ above it, beside it, or in its absence.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import os
@@ -339,10 +340,8 @@ def forget_pages(fd: int) -> None:
     advise = getattr(os, "posix_fadvise", None)
     if advise is None:
         return
-    try:
+    with contextlib.suppress(OSError):
         advise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
-    except OSError:
-        pass
 
 
 def stamp_attribute_name(device: str) -> str:
@@ -455,7 +454,7 @@ def package_version() -> str:
         return "unknown"
 
 
-def write_himg_stack(
+def write_himg_stack(  # noqa: C901, PLR0912, PLR0915
     device_dir: Path,
     sources: Sequence[HimgSource],
     *,
@@ -639,7 +638,7 @@ def stack_header(stack_path: Path, index: int = 0) -> bytes:
         return headers[index].tobytes()
 
 
-def verify_himg_stack(
+def verify_himg_stack(  # noqa: C901
     stack_path: Path,
     *,
     against_files: bool = False,

@@ -69,7 +69,7 @@ def _default_png_reader(path: Path):
     return read_imaq_image(path)
 
 
-def diff_device_dir(
+def diff_device_dir(  # noqa: C901, PLR0912
     device_dir: Path, *, png_reader: PngReader | None = None
 ) -> DeviceDiff | None:
     """Diff one scan device folder; ``None`` when there is nothing to say.
@@ -191,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
             except OSError as exc:
                 # Operational failure (missing path, unmounted share) is NOT
                 # a mismatch — distinct exit code, sweep continues.
-                logger.error("%s: unreadable (%s)", scan, exc)
+                logger.error("%s: unreadable (%s)", scan, exc)  # noqa: TRY400 — expected I/O, short
                 op_error = True
                 continue
             for result in results:

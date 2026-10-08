@@ -168,7 +168,7 @@ def _numeric(frame: pd.DataFrame, column: str) -> pd.Series:
     return pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan)
 
 
-def grid_scan(
+def grid_scan(  # noqa: C901, PLR0912, PLR0915
     frame: pd.DataFrame,
     start: Mapping,
     config: GridConfig,

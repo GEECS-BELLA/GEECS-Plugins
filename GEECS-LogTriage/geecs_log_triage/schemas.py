@@ -23,7 +23,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 # Re-export the shared loader types so triage consumers only need one import.
-from geecs_data_utils import LogEntry, Severity  # noqa: F401  (re-export)
+from geecs_data_utils import LogEntry, Severity
 
 
 class Classification(str, Enum):

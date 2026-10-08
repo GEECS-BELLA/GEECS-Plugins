@@ -258,7 +258,7 @@ class GeecsUdpClient:
             try:
                 cmd_proto = _Oneshot()
                 cmd_transport, _ = await loop.create_datagram_endpoint(
-                    lambda: cmd_proto,
+                    lambda: cmd_proto,  # noqa: B023 — closure runs this iteration
                     local_addr=(self._local_host, 0),
                     family=socket.AF_INET,
                 )
@@ -267,7 +267,7 @@ class GeecsUdpClient:
                 # exe socket binds to cmd_port + 1 — may fail if that port is taken.
                 exe_proto = _Oneshot()
                 exe_transport, _ = await loop.create_datagram_endpoint(
-                    lambda: exe_proto,
+                    lambda: exe_proto,  # noqa: B023 — closure runs this iteration
                     local_addr=(self._local_host, cmd_port + 1),
                     family=socket.AF_INET,
                 )

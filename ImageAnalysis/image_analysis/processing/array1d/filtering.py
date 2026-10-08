@@ -65,11 +65,14 @@ def apply_butterworth_filter(
         filtered_data = signal.filtfilt(b, a, data)
 
         logger.debug(
-            f"Applied Butterworth filter: order={order}, crit_f={crit_f}, type={filt_type}"
+            "Applied Butterworth filter: order=%s, crit_f=%s, type=%s",
+            order,
+            crit_f,
+            filt_type,
         )
         return filtered_data
     except Exception as e:
-        logger.error(f"Butterworth filter failed: {e}")
+        logger.error("Butterworth filter failed: %s", e)  # noqa: TRY400 — re-raised, caller logs
         raise ValueError(f"Butterworth filter failed: {e}") from e
 
 
@@ -99,7 +102,7 @@ def apply_gaussian_filter(data: np.ndarray, sigma: float = 1.0) -> np.ndarray:
     result = data.copy()
     result[:, 1] = ndimage.gaussian_filter1d(data[:, 1], sigma=sigma)
 
-    logger.debug(f"Applied Gaussian filter with sigma={sigma}")
+    logger.debug("Applied Gaussian filter with sigma=%s", sigma)
     return result
 
 
@@ -132,7 +135,7 @@ def apply_median_filter(data: np.ndarray, kernel_size: int = 3) -> np.ndarray:
     result = data.copy()
     result[:, 1] = ndimage.median_filter(data[:, 1], size=kernel_size)
 
-    logger.debug(f"Applied median filter with kernel_size={kernel_size}")
+    logger.debug("Applied median filter with kernel_size=%s", kernel_size)
     return result
 
 
@@ -214,8 +217,9 @@ def apply_bilateral_filter(
     result[:, 1] = filtered
 
     logger.debug(
-        f"Applied bilateral filter with sigma_spatial={sigma_spatial}, "
-        f"sigma_range={sigma_range}"
+        "Applied bilateral filter with sigma_spatial=%s, sigma_range=%s",
+        sigma_spatial,
+        sigma_range,
     )
     return result
 
@@ -249,12 +253,11 @@ def apply_filtering(data: np.ndarray, config: LineFilteringConfig) -> np.ndarray
     if config.method == LineFilterMethod.GAUSSIAN:
         return apply_gaussian_filter(data, sigma=config.sigma)
 
-    elif config.method == LineFilterMethod.MEDIAN:
+    if config.method == LineFilterMethod.MEDIAN:
         return apply_median_filter(data, kernel_size=config.kernel_size)
 
-    elif config.method == LineFilterMethod.BILATERAL:
+    if config.method == LineFilterMethod.BILATERAL:
         # For bilateral, use sigma as spatial sigma
         return apply_bilateral_filter(data, sigma_spatial=config.sigma)
 
-    else:
-        raise ValueError(f"Unsupported filter method: {config.method}")
+    raise ValueError(f"Unsupported filter method: {config.method}")

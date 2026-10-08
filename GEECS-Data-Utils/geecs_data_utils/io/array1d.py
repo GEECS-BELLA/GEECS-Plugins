@@ -187,9 +187,8 @@ def _parse_column_header(header: str) -> tuple[str, Optional[str]]:
         label = match.group(1).strip()
         units = match.group(2).strip()
         return label, units
-    else:
-        # No units found, return header as label
-        return header.strip(), None
+    # No units found, return header as label
+    return header.strip(), None
 
 
 def _read_tek_scope_hdf5(
@@ -199,11 +198,11 @@ def _read_tek_scope_hdf5(
     _raise_if_auxiliary_columns_requested(config, "tek_scope_hdf5")
     try:
         import h5py
-    except ImportError:
+    except ImportError as err:
         raise ImportError(
             "h5py package is required to read HDF5 files. "
             "Install it with: pip install h5py"
-        )
+        ) from err
 
     with h5py.File(file_path, "r") as f:
         axes = list(f["/wfm_group0/axes"].keys())
@@ -246,7 +245,7 @@ def _read_tek_scope_hdf5(
         return data, metadata, {}
 
 
-def _read_tdms_scope(
+def _read_tdms_scope(  # noqa: C901, PLR0912
     file_path: Path, config: Data1DConfig
 ) -> tuple[np.ndarray, dict, dict[str, np.ndarray]]:
     """Read TDMS oscilloscope file, extracting x and y data from channels or waveform properties.
@@ -271,11 +270,11 @@ def _read_tdms_scope(
     _raise_if_auxiliary_columns_requested(config, "tdms_scope")
     try:
         from nptdms import TdmsFile
-    except ImportError:
+    except ImportError as err:
         raise ImportError(
             "nptdms package is required to read TDMS files. "
             "Install it with: pip install npTDMS"
-        )
+        ) from err
 
     # Read TDMS file
     tdms_file = TdmsFile.read(file_path)
@@ -391,7 +390,7 @@ def _read_csv(
                     y_label, y_units = _parse_column_header(headers[config.y_column])
                     metadata["y_label"] = y_label
                     metadata["y_units"] = y_units
-    except Exception:
+    except Exception:  # noqa: BLE001 — header parse is optional
         # If header parsing fails, just continue with None metadata
         pass
 
@@ -541,7 +540,7 @@ def _trim_padding(frame: np.ndarray, source: str) -> np.ndarray:
     return frame[:kept]
 
 
-def _read_pva_stack(
+def _read_pva_stack(  # noqa: C901, PLR0912
     file_path: Path, config: Data1DConfig
 ) -> tuple[np.ndarray, dict, dict[str, np.ndarray]]:
     """Read one shot of a PVA capture stack as x-vs-y, at its true length.

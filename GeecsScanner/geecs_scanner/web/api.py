@@ -50,7 +50,7 @@ from geecs_scanner.service.trajectory import MAX_INPUT_BYTES, TrajectoryOut
 _NO_CACHE = {"Cache-Control": "no-cache"}
 
 
-def register(router: APIRouter, service: ScannerService) -> None:
+def register(router: APIRouter, service: ScannerService) -> None:  # noqa: C901, PLR0915
     """Attach the API routes to *router*."""
 
     @router.get("/health", response_model=HealthOut)
@@ -59,7 +59,7 @@ def register(router: APIRouter, service: ScannerService) -> None:
         return service.health()
 
     @router.post("/api/trajectory", response_model=TrajectoryOut)
-    async def trajectory(request: Request) -> TrajectoryOut:
+    async def trajectory(request: Request) -> TrajectoryOut:  # noqa: C901
         """Bound the raw body before JSON parsing or Sweep validation."""
         too_large = "Trajectory input exceeds the 256 KiB preview budget."
         length = request.headers.get("content-length")

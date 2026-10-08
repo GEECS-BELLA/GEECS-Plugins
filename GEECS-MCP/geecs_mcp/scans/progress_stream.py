@@ -118,7 +118,7 @@ class ProgressCache:
                 self._available = True
                 self._detail = ""
             dispatcher.start()  # blocks for the thread's lifetime
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — stream thread must survive
             logger.warning("document stream unavailable: %s", exc)
             with self._lock:
                 self._available = False
@@ -143,7 +143,7 @@ class ProgressCache:
             while True:
                 try:
                     msg = monitor.next_msg(timeout=5.0)
-                except Exception:  # timeout — nothing to read
+                except Exception:  # timeout — nothing to read  # noqa: BLE001 — stream thread must survive
                     continue
                 # One message can carry several lines (the console's own
                 # parsing rule) — match per line so the reason never
@@ -155,12 +155,12 @@ class ProgressCache:
                     reason = reason.lstrip(" :-").strip()
                     with self._lock:
                         self._state["paused_reason"] = reason or FAILED_MOVE_LOG_PREFIX
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — stream thread must survive
             logger.warning("console-text stream unavailable: %s", exc)
 
     # -- document handling --------------------------------------------------
 
-    def _on_document(self, name: str, doc: dict) -> None:
+    def _on_document(self, name: str, doc: dict) -> None:  # noqa: C901
         try:
             with self._lock:
                 if name == "start":
@@ -198,7 +198,7 @@ class ProgressCache:
                 elif name == "stop":
                     if doc.get("run_start") == self._state.get("run_uid"):
                         self._state["exit_status"] = doc.get("exit_status")
-        except Exception:  # a malformed document must never kill the stream
+        except Exception:  # a malformed document must never kill the stream  # noqa: BLE001 — stream thread must survive
             logger.debug("progress document ignored", exc_info=True)
 
 

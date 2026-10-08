@@ -14,12 +14,12 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from fastapi import FastAPI, Request  # noqa: E402
-from fastapi.responses import HTMLResponse, PlainTextResponse  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.testclient import TestClient
 
-from geecs_web_theme import STATES  # noqa: E402
-from geecs_web_theme.web import (  # noqa: E402
+from geecs_web_theme import STATES
+from geecs_web_theme.web import (
     ForwardedPrefixMiddleware,
     clean_prefix,
     make_templates,

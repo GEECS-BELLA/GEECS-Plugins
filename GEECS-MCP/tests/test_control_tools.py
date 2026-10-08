@@ -164,7 +164,7 @@ def test_scan_progress_shapes(wired):
 
 
 # ---------------------------------------------------------------------------
-# pause_scan / resume_scan (v2)
+# pause_scan / resume_scan (v2)  # noqa: ERA001 — section header, not code
 # ---------------------------------------------------------------------------
 
 

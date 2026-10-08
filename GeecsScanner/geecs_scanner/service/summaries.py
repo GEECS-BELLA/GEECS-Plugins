@@ -84,7 +84,7 @@ def _axis(motor: Any, start: Any, stop: Any) -> str:
     return f"{motor} {_fmt(start)} → {_fmt(stop)}"
 
 
-def summarize_item(item: dict) -> ItemSummary:
+def summarize_item(item: dict) -> ItemSummary:  # noqa: C901, PLR0912, PLR0915
     """Read one manager queue/history item back into an :class:`ItemSummary`.
 
     Parameters
@@ -157,8 +157,10 @@ def summarize_item(item: dict) -> ItemSummary:
             body = rest
             if num is None and len(rest) % 3 == 1:
                 num, body = _int(rest[-1]), rest[:-1]
-            for i in range(0, len(body) - 2, 3):
-                axes.append(_axis(body[i], body[i + 1], body[i + 2]))
+            axes.extend(
+                _axis(body[i], body[i + 1], body[i + 2])
+                for i in range(0, len(body) - 2, 3)
+            )
             steps = num
         elif name in _QUAD_VERBS:
             counts: list[int] = []

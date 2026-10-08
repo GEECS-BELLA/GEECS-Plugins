@@ -25,7 +25,7 @@ from .thresholding import apply_thresholding
 logger = logging.getLogger(__name__)
 
 
-def apply_line_processing_pipeline(
+def apply_line_processing_pipeline(  # noqa: C901, PLR0912
     data: np.ndarray,
     config: Line1DConfig,
     return_intermediate: bool = False,
@@ -75,7 +75,7 @@ def apply_line_processing_pipeline(
     # Get pipeline steps
     steps = list(config.pipeline)
 
-    logger.info(f"Processing 1D data with pipeline steps: {[s.value for s in steps]}")
+    logger.info("Processing 1D data with pipeline steps: %s", [s.value for s in steps])
 
     # Execute pipeline steps in order
     for step in steps:
@@ -118,7 +118,7 @@ def apply_line_processing_pipeline(
                 logger.debug("Applied interpolation")
 
         else:
-            logger.warning(f"Unknown pipeline step: {step}")
+            logger.warning("Unknown pipeline step: %s", step)
 
     # Convert to storage dtype for final result
     final = processed.astype(config.storage_dtype)
@@ -126,8 +126,7 @@ def apply_line_processing_pipeline(
     if return_intermediate:
         intermediate["final"] = final
         return intermediate
-    else:
-        return final
+    return final
 
 
 def validate_pipeline_config(config: Line1DConfig) -> list[str]:
@@ -184,7 +183,7 @@ def validate_pipeline_config(config: Line1DConfig) -> list[str]:
                 f"Storage dtype ({config.storage_dtype}) has less precision than "
                 f"processing dtype ({config.processing_dtype}). This may lead to data loss."
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — invalid dtype becomes warning
         warnings.append(f"Invalid dtype specification: {e}")
 
     return warnings

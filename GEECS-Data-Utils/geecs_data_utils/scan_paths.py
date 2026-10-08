@@ -177,7 +177,7 @@ class ScanPaths:
                     image_analysis_configs_path=image_analysis_configs_path,
                 )
         except ConfigurationError as e:
-            logger.error(f"Configuration Error in ScanData: {e}")
+            logger.error("Configuration Error in ScanData: %s", e)  # noqa: TRY400 — expected config state
             cls.paths_config = None
 
     def _initialize_folders(self, folder: Path, read_mode: bool):
@@ -208,18 +208,17 @@ class ScanPaths:
                 scans_literal,
                 scan_folder_name,
             ) = folder.parts[-6:]
-        except ValueError:
+        except ValueError as err:
             raise ValueError(
                 f"Folder path {folder} does not contain the expected structure."
-            )
+            ) from err
 
         # Validate folder existence and create if necessary
         if not folder.exists():
             if read_mode:
                 raise ValueError(f"Folder {folder} does not exist.")
-            else:
-                folder.mkdir(parents=True, exist_ok=True)
-                logger.info(f"Created folder: {folder}")
+            folder.mkdir(parents=True, exist_ok=True)
+            logger.info("Created folder: %s", folder)
 
         # Validate folder naming conventions
         if (
@@ -339,9 +338,7 @@ class ScanPaths:
             folder / f"Y{tag.year}" / f"{tag.month:02d}-{cal.month_name[tag.month][:3]}"
         )
         folder /= f"{str(tag.year)[-2:]}_{tag.month:02d}{tag.day:02d}"
-        folder = folder / "scans"
-
-        return folder
+        return folder / "scans"
 
     @staticmethod
     def get_scan_analysis_folder_path(
@@ -393,12 +390,11 @@ class ScanPaths:
         extension = (
             "." + file_extension if "." not in file_extension else file_extension
         )
-        file = (
+        return (
             scan_path
             / f"{device_name}"
             / f"Scan{tag.number:03d}_{device_name}_{shot_number:03d}{extension}"
         )
-        return file
 
     @staticmethod
     def get_latest_scan_tag(
@@ -679,7 +675,7 @@ class ScanPaths:
 
         device_folder = base_path / device
         if not device_folder.exists():
-            logger.warning(f"Device folder missing: {device_folder}")
+            logger.warning("Device folder missing: %s", device_folder)
             return {}
 
         stem = device_file_stem if device_file_stem is not None else device
@@ -770,7 +766,7 @@ class ScanPaths:
         """Return device subfolder names from this scan folder."""
         try:
             return self.get_folders_and_files().get("devices", [])
-        except Exception:
+        except Exception:  # noqa: BLE001 — falls back to listing
             root = self.get_folder()
             return (
                 [p.name for p in root.iterdir() if p.is_dir()]

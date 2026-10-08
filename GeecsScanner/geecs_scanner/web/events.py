@@ -71,16 +71,16 @@ def _resume_from(request: Request, since: int, epoch: str) -> int:
     return since
 
 
-def register(router: APIRouter, service: ScannerService) -> None:
+def register(router: APIRouter, service: ScannerService) -> None:  # noqa: C901
     """Attach the events route to *router*."""
 
     @router.get("/api/events")
-    async def events(
+    async def events(  # noqa: C901
         request: Request, since: int = 0, once: int = 0
     ) -> StreamingResponse:
         """Status, progress and console lines as Server-Sent Events."""
 
-        async def gen() -> AsyncIterator[str]:
+        async def gen() -> AsyncIterator[str]:  # noqa: C901
             last_progress: str | None = None
             last_optimization: str | None = None
             epoch = service.streams.epoch

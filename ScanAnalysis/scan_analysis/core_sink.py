@@ -13,6 +13,7 @@ frame and extras, appended as the run streams.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import os
@@ -183,10 +184,8 @@ class ShotStore:
                 os.replace(self.part, self.path)
                 return self.path
         except OSError:
-            try:
+            with contextlib.suppress(OSError):
                 self.part.unlink(missing_ok=True)
-            except OSError:
-                pass
             raise
         self.part.unlink(missing_ok=True)
         return None
@@ -268,7 +267,7 @@ def _save_figure(fig, path: Path) -> None:
         fig.clear()
 
 
-def save_products(
+def save_products(  # noqa: C901, PLR0912, PLR0915
     plan: ProductPlan, spec: ScanRecipe, scan_folder: Path
 ) -> SavedProducts:
     """Write the HDF5/PNG products; disabled saves perform no writes.

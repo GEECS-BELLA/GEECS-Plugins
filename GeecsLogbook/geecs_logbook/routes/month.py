@@ -66,7 +66,7 @@ class MonthMarks(BaseModel):
     )
 
 
-def register(router: APIRouter, ctx: Context) -> None:
+def register(router: APIRouter, ctx: Context) -> None:  # noqa: C901
     """Add the month routes to ``router``."""
 
     def month_entries(first: date, last: date) -> list[LogEntry]:
@@ -190,7 +190,7 @@ def register(router: APIRouter, ctx: Context) -> None:
         )
         try:
             folders = days_with_folders(first, ctx.experiment, ctx.base_directory)
-        except Exception as exc:  # noqa: BLE001 — the same honesty as load_day
+        except Exception as exc:
             logger.exception("listing the month folder for %s failed", month)
             raise HTTPException(
                 status_code=503, detail=f"data share unavailable: {exc}"

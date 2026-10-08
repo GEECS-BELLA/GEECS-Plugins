@@ -115,14 +115,14 @@ def run_submit_preflight(
         resolver = resolver or _make_default_resolver(experiment)
         item = expand_preset(preset, catalog=catalog, resolver=resolver)
         report.outcomes.append(("validate", "passed", ""))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — refusal carries the error
         report.refusal = str(exc)
         return report
 
     # -- worker ready (hard gate; fail-open when the manager is unreachable)
     try:
         _check_worker_ready(report, client, experiment, item)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — preflight fails open
         logger.warning("worker-ready preflight failed: %s", exc)
         report.outcomes.append(("worker_ready", "skipped", str(exc)))
     if report.refusal is not None:
@@ -136,7 +136,7 @@ def run_submit_preflight(
     if devices:
         try:
             _check_liveness(report, devices, experiment)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — preflight fails open
             logger.warning("liveness preflight failed: %s", exc)
             report.outcomes.append(("gateway_liveness", "skipped", str(exc)))
 
@@ -174,7 +174,7 @@ def _trigger_profile_devices(preset: Any, experiment: str, resolver: Any) -> lis
 
         profile = resolver.resolve_trigger_profile(name)
         return list(trigger_writes_from_profile(profile).devices)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — preflight fails open
         logger.warning(
             "liveness preflight: trigger profile devices not resolved (%s: %s); "
             "probing the preset's devices only",

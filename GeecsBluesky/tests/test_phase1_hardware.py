@@ -112,7 +112,7 @@ def _assert_scan_outputs(
 
 
 @pytest.mark.hardware
-def test_plan_layer_in_process_on_hardware() -> None:
+def test_plan_layer_in_process_on_hardware() -> None:  # noqa: PLR0915
     """The worker's wiring runs a strict count and a strict scan and leaves every file."""
     import bluesky.plan_stubs as bps
     from geecs_core.pv_naming import pv_name, setpoint_pv
@@ -265,7 +265,7 @@ def test_plan_layer_in_process_on_hardware() -> None:
 
 
 @pytest.mark.hardware
-def test_preset_through_the_manager_on_hardware() -> None:
+def test_preset_through_the_manager_on_hardware() -> None:  # noqa: PLR0915
     """A preset expanded by the client seam runs on a second RE Manager and leaves the files."""
     control = os.environ.get("GEECS_HW_QSERVER")
     if not control:

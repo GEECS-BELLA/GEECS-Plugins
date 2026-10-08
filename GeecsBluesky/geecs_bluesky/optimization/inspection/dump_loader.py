@@ -47,10 +47,10 @@ def load_xopt_dump(path: Path) -> Tuple[VOCS, pd.DataFrame]:
 
     try:
         vocs_block = dump["generator"]["vocs"]
-    except (KeyError, TypeError):
+    except (KeyError, TypeError) as err:
         raise KeyError(
             f"Dump file has no 'generator.vocs' block (Xopt 3.x format): {path}"
-        )
+        ) from err
     if "data" not in dump:
         raise KeyError(f"Dump file has no 'data' block: {path}")
 
@@ -63,7 +63,7 @@ def load_xopt_dump(path: Path) -> Tuple[VOCS, pd.DataFrame]:
     return vocs, df
 
 
-def check_vocs_compatible(target: VOCS, source: VOCS, source_path: Path) -> None:
+def check_vocs_compatible(target: VOCS, source: VOCS, source_path: Path) -> None:  # noqa: C901
     """Assert that *source* VOCS is compatible with *target* for seeding.
 
     Variable names and objective names/directions must match exactly (hard

@@ -105,11 +105,9 @@ class LineAnalyzer(Standard1DAnalyzer):
         scalars = line_stats.to_dict()
 
         # Build result with line-specific data
-        result = ImageAnalyzerResult(
+        return ImageAnalyzerResult(
             data_type="1d",
             line_data=processed_line_data,
             scalars=scalars,
             metadata=initial_result.metadata,
         )
-
-        return result

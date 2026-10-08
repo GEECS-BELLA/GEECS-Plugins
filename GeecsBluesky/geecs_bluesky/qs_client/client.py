@@ -321,7 +321,7 @@ def readiness_from_reads(
     if status.connected and status.worker_exists:
         try:
             plans = read_plans()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — manager call, error reply
             logger.warning("plans_allowed read failed: %s", exc)
             plans = None
     return readiness_verdict(status, plans, expected_plans)
@@ -603,7 +603,7 @@ class ZmqQueueClient:
         """Return the manager snapshot; a failed request reads as disconnected."""
         try:
             raw = self._manager().status()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — manager call, error reply
             return QueueStatus(connected=False, detail=str(exc))
         return queue_status_from_manager(raw)
 
@@ -648,11 +648,11 @@ class ZmqQueueClient:
             item = BPlan(plan_name, *args, **(kwargs or {}))
             response = api.item_add(item, user=self._user)
             item_uid = (response.get("item") or {}).get("item_uid")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — manager call, error reply
             return SubmitResult(ok=False, message=str(exc))
         try:
             api.queue_start()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — manager call, error reply
             # A started queue answers "RE Manager is busy": the item waits
             # behind the running one — the queued-next the caller asked for,
             # not a refusal.  Only a queue that is genuinely stopped
@@ -667,7 +667,7 @@ class ZmqQueueClient:
                 if item_uid:
                     api.item_remove(uid=item_uid)
                 removed = bool(item_uid)
-            except Exception:
+            except Exception:  # noqa: BLE001 — manager call, error reply
                 removed = False
             if removed:
                 return SubmitResult(
@@ -736,7 +736,7 @@ class ZmqQueueClient:
         try:
             self._manager().re_pause(option="deferred")
             return True, "pause requested"
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — manager call, error reply
             return False, str(exc)
 
     def request_resume(self) -> tuple[bool, str]:
@@ -744,7 +744,7 @@ class ZmqQueueClient:
         try:
             self._manager().re_resume()
             return True, "resumed"
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — manager call, error reply
             return False, str(exc)
 
     def stop_scan(self) -> tuple[bool, str]:
@@ -760,7 +760,7 @@ class ZmqQueueClient:
         api = self._manager()
         try:
             api.queue_stop()
-        except Exception:  # queue may be empty/stopped already — irrelevant
+        except Exception:  # queue may be empty/stopped already — irrelevant  # noqa: BLE001 — manager call, error reply
             logger.debug("queue_stop refused (ignored)", exc_info=True)
         try:
             state = self.status()
@@ -786,7 +786,7 @@ class ZmqQueueClient:
                 "pause did not land within "
                 f"{_STOP_PAUSE_TIMEOUT_S:.0f} s — scan still running"
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — manager call, error reply
             return False, str(exc)
 
     def queue_items(self) -> list[dict]:
@@ -811,7 +811,7 @@ class ZmqQueueClient:
         try:
             self._manager().queue_clear()
             return True, "queue cleared"
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — manager call, error reply
             return False, str(exc)
 
     def allowed_plan_names(self) -> list[str]:
@@ -853,7 +853,7 @@ class ZmqQueueClient:
         if api is not None:
             try:
                 api.close()
-            except Exception as exc:  # best-effort release
+            except Exception as exc:  # noqa: BLE001 — best-effort release
                 logger.debug("REManagerAPI close failed: %s", exc)
 
 

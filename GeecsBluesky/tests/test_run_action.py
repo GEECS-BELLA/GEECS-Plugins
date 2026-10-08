@@ -18,23 +18,23 @@ import pytest
 
 pytest.importorskip("aioca")
 
-from geecs_schemas.action_plan import ActionPlan, ActionPlanLibrary  # noqa: E402
-from ophyd_async.core import set_mock_value  # noqa: E402
+from geecs_schemas.action_plan import ActionPlan, ActionPlanLibrary
+from ophyd_async.core import set_mock_value
 
-from geecs_bluesky.exceptions import (  # noqa: E402
+from geecs_bluesky.exceptions import (
     ActionCheckFailedError,
     GeecsConfigurationError,
 )
-from geecs_bluesky.namespace import DeviceRoster, GeecsNamespace  # noqa: E402
-from geecs_bluesky.plan_names import GEECS_PLAN_NAMES  # noqa: E402
-from geecs_bluesky.actions.compiler import (  # noqa: E402
+from geecs_bluesky.namespace import DeviceRoster, GeecsNamespace
+from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
+from geecs_bluesky.actions.compiler import (
     SettableFactory,
     run_action_plan,
 )
-from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans  # noqa: E402
-from geecs_bluesky.run_engine import make_run_engine  # noqa: E402
-from tests.ca_mock_helpers import connect_mock  # noqa: E402
-from tests.test_namespace import row  # noqa: E402
+from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans
+from geecs_bluesky.run_engine import make_run_engine
+from tests.ca_mock_helpers import connect_mock
+from tests.test_namespace import row
 
 LIBRARY = ActionPlanLibrary.model_validate(
     {

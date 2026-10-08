@@ -142,7 +142,7 @@ def _log_non_frame_failure(exc: FailedStatus) -> None:
     )
 
 
-def fire_and_await_shot(devices: Sequence[Any], fire: Callable):
+def fire_and_await_shot(devices: Sequence[Any], fire: Callable):  # noqa: C901
     """Arm the waiters, fire one shot, await every device; return the ones that missed.
 
     The one GEECS line in the scan path: the fire sits *between* the
@@ -201,7 +201,7 @@ def fire_and_await_shot(devices: Sequence[Any], fire: Callable):
             _log_non_frame_failure(exc)
         raise
     fire_done = time.monotonic()
-    for obj, group in groups.items():
+    for group in groups.values():
         for _ in range(2 * len(groups) + 2):
             try:
                 yield from bps.wait(group=group)
@@ -233,7 +233,7 @@ def fire_and_await_shot(devices: Sequence[Any], fire: Callable):
     return missed
 
 
-def geecs_take_reading(
+def geecs_take_reading(  # noqa: C901, PLR0915
     shot_control: Any,
     *,
     max_refires: int = 2,
@@ -301,7 +301,7 @@ def geecs_take_reading(
         last_fire["at"] = time.monotonic()
         yield from bps.mv(shot_control, TriggerState.SINGLESHOT.value)
 
-    def take_reading(devices: Sequence[Any]):
+    def take_reading(devices: Sequence[Any]):  # noqa: C901
         devices = separate_devices(devices)
         # A scalars view (``X.scalars``) beside the owner's own scanned child
         # (``X.current``): siblings to separate_devices, but the view already

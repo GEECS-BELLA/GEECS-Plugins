@@ -258,7 +258,7 @@ class SeedTemplates:
     def _refresh(self) -> None:
         try:
             fresh = load_templates(self.directory)  # type: ignore[arg-type]
-        except Exception:  # noqa: BLE001 — keep the last set; the share may be down
+        except Exception:
             logger.exception("logbook templates: refresh of %s failed", self.directory)
         else:
             with self._lock:

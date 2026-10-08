@@ -132,10 +132,10 @@ class _Gate:
         self._worker = worker
         self._var = var
 
-    def onFirstConnect(self, pv: SharedPV) -> None:  # noqa: N802 (p4p API)
+    def onFirstConnect(self, pv: SharedPV) -> None:
         self._worker.retain(self._var)
 
-    def onLastDisconnect(self, pv: SharedPV) -> None:  # noqa: N802 (p4p API)
+    def onLastDisconnect(self, pv: SharedPV) -> None:
         self._worker.release(self._var)
 
 
@@ -418,7 +418,7 @@ class _DeviceWorker:
                 except asyncio.CancelledError:
                     await subscriber.close()
                     raise
-                except Exception:
+                except Exception:  # noqa: BLE001 — retry loop must survive
                     logger.warning(
                         "connect/subscribe to %s %s (%s:%s) failed; retry in %.1fs",
                         self._spec.device,
@@ -504,7 +504,7 @@ class _DeviceWorker:
                         self._pvs[var].post(image, timestamp=ts, attrib=attrib)
                     else:
                         self._pvs[var].post(image, timestamp=ts)
-                except Exception:
+                except Exception:  # noqa: BLE001 — retry loop must survive
                     logger.warning(
                         "decode/post failed for %s %s (%d bytes)",
                         self._spec.device,
@@ -751,7 +751,7 @@ class GeecsPvaGateway:
                 await self._reconcile(list(resolved))
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 - a reconcile bug must not end the loop
+            except Exception:
                 logger.exception("roster reconcile failed; the served set stands")
 
     def _read_roster(self) -> asyncio.Future:
@@ -796,7 +796,7 @@ class GeecsPvaGateway:
                 len(self._workers),
             )
 
-    async def _reconcile(self, resolved: list[DeviceSpec]) -> None:
+    async def _reconcile(self, resolved: list[DeviceSpec]) -> None:  # noqa: C901
         """Bring the served set to *resolved*: drop the departed, add the new.
 
         Devices are keyed by name.  A device in both sets keeps its worker
@@ -827,7 +827,7 @@ class GeecsPvaGateway:
                 await self._remove_worker(worker)
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 - one device must not gate the rest
+            except Exception:
                 logger.exception(
                     "roster: removing %s failed; retried next tick", worker.device
                 )
@@ -843,7 +843,7 @@ class GeecsPvaGateway:
                 admitted = await self._add_worker(wanted[device])
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 - one device must not gate the rest
+            except Exception:
                 logger.exception("roster: adding %s failed; retried next tick", device)
                 continue
             if admitted:
@@ -899,7 +899,7 @@ class GeecsPvaGateway:
             await self._unregister(worker, added)
             for name, _pv in entries:
                 self._owners.pop(name, None)
-            logger.error(
+            logger.error(  # noqa: TRY400 — retried every tick
                 "roster: %s: PV registration failed at %r (%s: %s); rolled back, "
                 "retried next tick",
                 spec.device,

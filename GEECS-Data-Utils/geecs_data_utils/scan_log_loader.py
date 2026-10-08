@@ -104,7 +104,7 @@ class LogEntry(BaseModel):
 # --------------------------------------------------------------------------
 #
 # Captures:
-#   ts    - "YYYY-MM-DD HH:MM:SS.mmm"
+#   ts    - "YYYY-MM-DD HH:MM:SS.mmm"  # noqa: ERA001 — format doc, not code
 #   level - DEBUG / INFO / WARNING / ERROR / CRITICAL
 #   name  - logger name (no whitespace, dots allowed)
 #   thread- thread name (within square brackets)

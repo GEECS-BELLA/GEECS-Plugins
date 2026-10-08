@@ -184,6 +184,7 @@ class GeecsRunWriter(_RunWriter):
         else:
             self._update_data_source_for_node(node, data_source)
         logger.debug("stream %s: %d rows → %s", stream, table.num_rows, path.name)
+        return None
 
 
 class GeecsTiledWriter(TiledWriter):

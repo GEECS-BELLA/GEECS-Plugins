@@ -782,7 +782,7 @@ class GeecsDb:
             )
         except ImportError:
             raise
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — optional table, fail open
             if _is_missing_table_error(exc):
                 logger.info(
                     "ca_alarm_limits table is absent; starting without "

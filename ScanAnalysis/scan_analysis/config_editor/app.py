@@ -74,7 +74,7 @@ def _plural(kind: str) -> str:
     return kind + "s"
 
 
-def create_editor_router(
+def create_editor_router(  # noqa: C901, PLR0915
     store: ConfigStore,
     *,
     preview: Optional[PreviewFn] = None,
@@ -237,7 +237,7 @@ def create_editor_router(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001 — an analyzer failure is a 400, never a 500
+        except Exception as exc:
             raise HTTPException(
                 status_code=400, detail=f"preview failed: {exc}"
             ) from exc

@@ -61,9 +61,8 @@ logger = logging.getLogger(__name__)
 def _read_tab_delimited_rows(file_path: str) -> List[Dict[str, str]]:
     """Read a tab-delimited text file with a header row into a list of dicts."""
     resolved = Path(file_path)
-    if not resolved.is_absolute():
-        if not resolved.exists():
-            resolved = Path(__file__).parent.parent / resolved
+    if not resolved.is_absolute() and not resolved.exists():
+        resolved = Path(__file__).parent.parent / resolved
     with resolved.open(newline="") as f:
         return list(csv.DictReader(f, delimiter="\t"))
 
@@ -186,7 +185,7 @@ class DnnAxisCalibration(EnergyCalibration, BaseModel):
     _traj_momentum: np.ndarray = np.empty(0)
     _charge_factor: Optional[float] = None
 
-    def model_post_init(self, __context: Any) -> None:
+    def model_post_init(self, __context: Any) -> None:  # noqa: C901
         """Load calibration data from text files after Pydantic validation."""
         cam_rows = _read_tab_delimited_rows(self.camera_calibration_file)
         trj_rows = _read_tab_delimited_rows(self.trajectory_calibration_file)
@@ -482,7 +481,7 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
         if file_path is not None:
             try:
                 self._save_calibrated_outputs(result, Path(file_path))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — save failure is non-fatal
                 logger.warning(
                     "Failed to save calibrated outputs for %s: %s", file_path, e
                 )

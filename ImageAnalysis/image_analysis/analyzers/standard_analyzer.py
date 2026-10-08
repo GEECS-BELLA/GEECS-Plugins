@@ -134,11 +134,9 @@ class StandardAnalyzer(ImageAnalyzer):
         logger.info("Applying camera processing pipeline")
 
         # Use the unified processing pipeline
-        processed_image = apply_camera_processing_pipeline(
+        return apply_camera_processing_pipeline(
             image, self.camera_config, background_cache=self._bg_cache
         )
-
-        return processed_image
 
     def _build_input_parameters(self) -> Dict[str, Any]:
         """Build the input parameters dictionary with camera configuration info."""
@@ -229,7 +227,7 @@ class StandardAnalyzer(ImageAnalyzer):
         for section_name, value in section_updates.items():
             # Validate section name
             if not hasattr(self.camera_config, section_name):
-                logger.warning(f"Unknown configuration section: {section_name}")
+                logger.warning("Unknown configuration section: %s", section_name)
                 continue
 
             # Track if background changed
@@ -250,8 +248,9 @@ class StandardAnalyzer(ImageAnalyzer):
                     cfg_dict[section_name] = value
             else:
                 logger.warning(
-                    f"Section '{section_name}' must be a Pydantic model or dict, "
-                    f"got {type(value).__name__}"
+                    "Section '%s' must be a Pydantic model or dict, got %s",
+                    section_name,
+                    type(value).__name__,
                 )
                 continue
 
@@ -306,14 +305,12 @@ class StandardAnalyzer(ImageAnalyzer):
         scalars: Dict[str, Any] = {}
 
         # Build and return result
-        result = ImageAnalyzerResult(
+        return ImageAnalyzerResult(
             data_type="2d",
             processed_image=final_image,
             scalars=scalars,  # No scalars by default, subclasses can add them
             metadata=input_params,
         )
-
-        return result
 
     # ------------------------------------------------------------------
     # Visualization helpers (override in subclasses for custom overlays)

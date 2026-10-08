@@ -174,7 +174,7 @@ class DeviceSpec(BaseModel):
         seen: set[str] = set()
         for meta in variables_metadata:
             var_name = meta["name"]
-            if include is not None and var_name not in include:
+            if include is not None and var_name not in include:  # noqa: SIM102 — reads clearer nested
                 if not (include_settable and bool(meta.get("settable", False))):
                     continue
             if var_name in seen:  # DB can list a variable more than once
@@ -387,7 +387,7 @@ class GatewayConfig(BaseModel):
                     include_settable=include_settable and include is not None,
                     experiment=experiment,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — skip an unbuildable device
                 logger.warning(
                     "from_geecs_experiment: skipping %s (could not build spec)",
                     name,

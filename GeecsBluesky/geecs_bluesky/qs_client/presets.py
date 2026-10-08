@@ -156,7 +156,7 @@ def prepare_optimizer_preset(preset: Preset, resolver: ConfigsRepoResolver) -> P
     )
 
 
-def expand_preset(
+def expand_preset(  # noqa: C901, PLR0912, PLR0915
     preset: Any,
     *,
     catalog: Mapping[str, Any] | None = None,

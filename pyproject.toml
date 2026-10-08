@@ -82,16 +82,35 @@ norecursedirs = [
 exclude = ["extras/**", "**/.ipynb_checkpoints/**"]
 
 [tool.ruff.lint]
-ignore = ["D100", "D104", "D401"]  # Allow missing module/package docstrings and imperative mood
-extend-select = ["D"]  # Enable all pydocstyle checks
+ignore = [
+    "D100", "D104", "D401",  # Allow missing module/package docstrings and imperative mood
+    "B008",  # FastAPI's Query()/Depends() defaults are the idiom, not a bug
+    "SIM300",  # reads UPPER_CASE constants as literals: `CONST == x` is not yoda
+    "PERF203",  # try/except is zero-cost on Python 3.11; per-item isolation is the idiom
+]
+extend-select = [
+    "D",  # Enable all pydocstyle checks
+    "B", "BLE", "RUF100", "G004", "TRY400", "SIM", "RET", "PERF", "ERA",
+    # Ratchet: existing offenders carry a per-line noqa (ruff --add-noqa); new code must comply.
+    "C901", "PLR0912", "PLR0915",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "extras/**" = ["D"]
-"**/tests/**" = ["D"]  # Ignore all docstring rules in test files
+"**/tests/**" = ["D", "SIM117"]  # No docstring rules in tests; nested `with` reads as setup, then assert
+"**/*.ipynb" = ["ERA001", "B018"]  # Example notebooks show commented alternatives and display a bare last expression
 # Legacy tree exempt from lint debt until its proper audit/cleanup
 # (owner decision on PR #574, 2026-07-16). Only the pre-existing debt
-# categories are exempted; syntax/undefined-name checks stay active.
-"LogMaker4GoogleDocs/**" = ["D", "E711", "E712", "E722"]
+# categories (and the 2026-10 ratchet families: the tree is frozen until it is
+# deleted) are exempted; syntax/undefined-name checks stay active.
+"LogMaker4GoogleDocs/**" = [
+    "D", "E711", "E712", "E722",
+    "B", "BLE", "RUF100", "G004", "TRY400", "SIM", "RET", "PERF", "ERA",
+    "C901", "PLR0912", "PLR0915",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"

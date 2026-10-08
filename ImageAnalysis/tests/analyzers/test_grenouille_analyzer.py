@@ -44,7 +44,7 @@ try:
         / CAMERA_NAME
         / "Scan015_U_FROG_Grenouille_010.png"
     )
-except Exception:
+except Exception:  # noqa: BLE001 — data or env absent: skip
     DATA_FILE = Path("__data_not_available__")
 
 EXPECTED_SCALARS = [
@@ -89,7 +89,7 @@ def grenouille_result():
 
     try:
         analyzer = GrenouilleAnalyzer(camera_config=_make_config(), spec=_make_spec())
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — data or env absent: skip
         pytest.skip(f"Could not initialise GrenouilleAnalyzer: {exc}")
 
     return analyzer.analyze_image_file(

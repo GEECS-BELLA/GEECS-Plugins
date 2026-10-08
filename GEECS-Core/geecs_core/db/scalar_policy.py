@@ -94,7 +94,7 @@ class GeecsDbScalarPolicy:
                 self._subscribed = self._geecs_db().get_subscribed_variables(
                     self.experiment, enabled_only=self.enabled_only
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — DB read fails open
                 logger.warning(
                     "Could not read get='yes' variables for experiment %r; "
                     "db_scalars and background telemetry will use no DB rows",
@@ -110,7 +110,7 @@ class GeecsDbScalarPolicy:
                 self._all = self._geecs_db().get_all_experiment_variables(
                     self.experiment, enabled_only=self.enabled_only
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — DB read fails open
                 logger.warning(
                     "Could not read all variables for experiment %r; "
                     "all_scalars entries will fall back to get='yes'/explicit",

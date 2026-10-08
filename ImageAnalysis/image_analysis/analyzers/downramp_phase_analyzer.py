@@ -89,10 +89,9 @@ def apply_gaussian_mask(
 
     if not binarize:
         return masked_image
-    else:
-        threshold = threshold_factor * np.nanmax(masked_image)
-        binary_mask = (masked_image > threshold).astype(np.float32)
-        return binary_mask * image
+    threshold = threshold_factor * np.nanmax(masked_image)
+    binary_mask = (masked_image > threshold).astype(np.float32)
+    return binary_mask * image
 
 
 class DownrampPhaseAnalyzer(StandardAnalyzer):
@@ -268,8 +267,7 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
             "Plasma downramp peak to plateau (phase)": delta,
         }
 
-        merged = {**results, **slopes}
-        return merged
+        return {**results, **slopes}
 
     def get_shock_angle(
         self, image: np.ndarray, ax: Axes, window_size: int = 20

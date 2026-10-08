@@ -122,7 +122,7 @@ def apply_transform_config(image: Array2D, config: TransformConfig) -> Array2D:
     # Apply rotation if specified
     if config.rotation_angle != 0.0:
         transformed_image = apply_rotation(transformed_image, config.rotation_angle)
-        logger.debug(f"Applied rotation: {config.rotation_angle} degrees")
+        logger.debug("Applied rotation: %s degrees", config.rotation_angle)
 
     # Apply horizontal flip if specified
     if config.flip_horizontal:
@@ -161,16 +161,15 @@ def create_rotation_matrix(angle: float, center: Optional[tuple] = None) -> np.n
     if center is None:
         # Simple rotation about origin
         return np.array([[cos_a, -sin_a, 0], [sin_a, cos_a, 0], [0, 0, 1]])
-    else:
-        # Rotation about specified center
-        cx, cy = center
-        return np.array(
-            [
-                [cos_a, -sin_a, cx - cx * cos_a + cy * sin_a],
-                [sin_a, cos_a, cy - cx * sin_a - cy * cos_a],
-                [0, 0, 1],
-            ]
-        )
+    # Rotation about specified center
+    cx, cy = center
+    return np.array(
+        [
+            [cos_a, -sin_a, cx - cx * cos_a + cy * sin_a],
+            [sin_a, cos_a, cy - cx * sin_a - cy * cos_a],
+            [0, 0, 1],
+        ]
+    )
 
 
 def create_translation_matrix(tx: float, ty: float) -> np.ndarray:

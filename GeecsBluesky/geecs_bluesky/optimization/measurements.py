@@ -84,7 +84,7 @@ class CompiledMeasurements:
                 ].await_frames(stamps, timeout)
         return frames
 
-    def evaluate_bin(
+    def evaluate_bin(  # noqa: C901, PLR0912
         self,
         rows: Sequence[Mapping[str, float]],
         frames: Mapping[str, Mapping[float, NDArray]],
@@ -133,7 +133,7 @@ class CompiledMeasurements:
                         if not all(math.isfinite(v) for v in value.values()):
                             raise ValueError("non-finite analyzer output")
                         values.append(value)
-                    except Exception:
+                    except Exception:  # noqa: BLE001 — failed analysis reads NaN
                         logger.warning(
                             "measurement %s: analysis failed", m.name, exc_info=True
                         )
@@ -157,13 +157,13 @@ class CompiledMeasurements:
         for name, evaluate in self.derived.items():
             try:
                 outputs[name] = float(evaluate(dict(outputs)))
-            except Exception:
+            except Exception:  # noqa: BLE001 — failed analysis reads NaN
                 logger.warning("derived %s failed", name, exc_info=True)
                 outputs[name] = math.nan
         return BinResult(outputs, counts)
 
 
-def compile_measurements(
+def compile_measurements(  # noqa: C901, PLR0912
     cfg: OptimizerConfig,
     *,
     namespace: GeecsNamespace,

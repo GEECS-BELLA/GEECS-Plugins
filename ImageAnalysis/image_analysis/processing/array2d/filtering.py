@@ -76,9 +76,7 @@ def apply_median_filter(image: Array2D, kernel_size: int) -> Array2D:
         raise ValueError("Median kernel size must be odd")
 
     # Apply median filter
-    filtered_image = median_filter(image, size=kernel_size)
-
-    return filtered_image
+    return median_filter(image, size=kernel_size)
 
 
 def apply_filtering_config(image: Array2D, config: FilteringConfig) -> Array2D:
@@ -108,13 +106,13 @@ def apply_filtering_config(image: Array2D, config: FilteringConfig) -> Array2D:
     # Apply Gaussian filter if specified
     if config.gaussian_sigma is not None:
         filtered_image = apply_gaussian_filter(filtered_image, config.gaussian_sigma)
-        logger.debug(f"Applied Gaussian filter with sigma={config.gaussian_sigma}")
+        logger.debug("Applied Gaussian filter with sigma=%s", config.gaussian_sigma)
 
     # Apply median filter if specified
     if config.median_kernel_size is not None:
         filtered_image = apply_median_filter(filtered_image, config.median_kernel_size)
         logger.debug(
-            f"Applied median filter with kernel_size={config.median_kernel_size}"
+            "Applied median filter with kernel_size=%s", config.median_kernel_size
         )
 
     return filtered_image

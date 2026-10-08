@@ -100,7 +100,7 @@ class ChangeFeed(BaseModel):
     )
 
 
-def register(router: APIRouter, ctx: Context) -> None:
+def register(router: APIRouter, ctx: Context) -> None:  # noqa: C901, PLR0915
     """Add the entry routes to ``router``. Requires a store."""
     store = ctx.store
     assert store is not None

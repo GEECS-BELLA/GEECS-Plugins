@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from geecs_core.db.device_streams import served_array_variables
 from geecs_core.db.scalar_policy import GeecsDbScalarPolicy
-from geecs_core.db.variable_types import (  # noqa: F401 - image_variables re-exported
+from geecs_core.db.variable_types import (
     image_variables,
     scalar_attribute_variables,
 )

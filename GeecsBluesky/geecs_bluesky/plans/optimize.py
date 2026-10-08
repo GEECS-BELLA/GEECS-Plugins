@@ -126,7 +126,7 @@ def _on_thread(pool, function, *args):
     return future.result()
 
 
-def optimize_plan(
+def optimize_plan(  # noqa: C901, PLR0915
     profiles: TriggerProfiles,
     resolver: ConfigsRepoResolver | None,
     namespace: GeecsNamespace | None,
@@ -140,7 +140,7 @@ def optimize_plan(
     passes it.
     """
 
-    def optimize(
+    def optimize(  # noqa: C901, PLR0912, PLR0915
         detectors,
         *,
         optimizer_config: str,
@@ -353,7 +353,7 @@ def optimize_plan(
         take = geecs_take_reading(sc, shot_period=shot_period)
         bins = BinCounter()
 
-        def inner():
+        def inner():  # noqa: C901
             if records.folder is not None:
                 driver.bind_folder(records.folder)
             initial = {}
@@ -484,7 +484,7 @@ def optimize_plan(
                 driver.dump(records.folder / "xopt_dump.yaml")
             yield from bps.null()
 
-        def prepared():
+        def prepared():  # noqa: C901
             # Read only scalar surfaces before claim. These messages also invoke
             # connect_on_demand; a camera's full describe requires prepare first.
             keys = set()

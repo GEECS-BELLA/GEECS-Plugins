@@ -86,7 +86,7 @@ def _tiled_read(start: dict, key: str) -> str:
 
 
 @pytest.mark.hardware
-def test_plugin_camera_count_on_hardware() -> None:
+def test_plugin_camera_count_on_hardware() -> None:  # noqa: PLR0915
     """A strict count on a plugin-backed camera leaves an exact stack beside its PNGs."""
     from geecs_bluesky.config_resolver import ConfigsRepoResolver
     from geecs_bluesky.namespace import GeecsNamespace

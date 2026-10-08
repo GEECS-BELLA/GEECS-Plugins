@@ -66,7 +66,7 @@ def _reduce(block: np.ndarray, statistic: str, percentile: Optional[float]):
     return np.percentile(values, percentile, axis=0)
 
 
-def scan_statistic(
+def scan_statistic(  # noqa: C901
     loaders: Sequence[Callable[[], np.ndarray]],
     statistic: str,
     percentile: Optional[float] = None,
