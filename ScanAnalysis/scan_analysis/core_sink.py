@@ -13,6 +13,8 @@ frame and extras, appended as the run streams.
 
 from __future__ import annotations
 
+import json
+import math
 import os
 import re
 from dataclasses import dataclass
@@ -22,7 +24,7 @@ import h5py
 import numpy as np
 import pandas as pd
 from geecs_data_utils.io.scan_stack import ShotRef
-from geecs_analysis.registry import summary_definition
+from geecs_analysis.registry import SummaryOutput, summary_definition, summary_output
 from geecs_analysis.render import RenderError, single
 
 from scan_analysis.core_products import ProductPlan
@@ -221,17 +223,42 @@ def draw_product(
     return single(measurement, style)
 
 
-def draw_summary(options, measurements, positions, label: str, figure):
+def draw_summary(options, measurements, positions, label: str, figure) -> SummaryOutput:
     """The summary draw: the registered kind's layout over the products it consumes.
 
     ``options`` is one of the recipe's summary entries; the kind's own
     function draws ``measurements`` at ``positions`` under ``label``. The
-    sink and the editor's summary preview (``core_preview.preview_summary``)
-    make this same call.
+    result is normalised to a ``SummaryOutput`` (the figure, plus any
+    scan-level scalars and notes the kind computed). The sink and the
+    editor's summary preview (``core_preview.preview_summary``) make this
+    same call.
     """
-    return summary_definition(options).function(
-        list(measurements), list(positions), label, options, figure
+    return summary_output(
+        summary_definition(options).function(
+            list(measurements), list(positions), label, options, figure
+        )
     )
+
+
+def summary_scalars_document(
+    kind: str, position_label: str, output: SummaryOutput
+) -> str:
+    """The JSON sidecar of a summary's scan-level scalars.
+
+    ``{"kind", "position_label", "scalars", "notes"}``; a nonfinite value is
+    written as ``null`` (strict JSON has no NaN), its reason in ``notes``.
+    """
+    scalars = {
+        key: value if math.isfinite(value) else None
+        for key, value in output.scalars.items()
+    }
+    document = {
+        "kind": kind,
+        "position_label": position_label,
+        "scalars": scalars,
+        "notes": list(output.notes),
+    }
+    return json.dumps(document, indent=2, allow_nan=False) + "\n"
 
 
 def _save_figure(fig, path: Path) -> None:
@@ -253,7 +280,9 @@ def save_products(
     skipped without a note when this run produced none of those. Summary
     figures are the display files, except a trace's averaged figure: the
     legacy line wrapper never listed it, and the route comparison holds the
-    core to that. The logical device names files;
+    core to that. A kind that computes scan-level scalars (``scalar_fit``)
+    also gets ``<stem>.json`` beside its PNG (:func:`summary_scalars_document`;
+    not a display file), and its notes join the returned notes. The logical device names files;
     output_name selects the analyzer directory. HDF5 retains the legacy
     dataset name, dtype and gzip level. Rendering errors omit only their
     figure and are returned as notes; data/write errors propagate. Scalar
@@ -312,7 +341,7 @@ def save_products(
                 continue
             panels = plan.summary
         try:
-            fig = draw_summary(
+            output = draw_summary(
                 options,
                 [p.measurement for p in panels],
                 [p.position for p in panels],
@@ -322,11 +351,19 @@ def save_products(
         except RenderError as exc:
             notes.append(f"Skipped {definition.filename}: {exc}")
             continue
-        path = _destination(target, f"{device}_{definition.filename}.png")
-        _save_figure(fig, path)
+        stem = f"{device}_{definition.filename}"
+        path = _destination(target, f"{stem}.png")
+        _save_figure(output.figure, path)
         files.append(path)
         if not (line and definition.consumes == "average"):
             display.append(path)
+        if output.scalars:
+            sidecar = _destination(target, f"{stem}.json")
+            sidecar.write_text(
+                summary_scalars_document(options.kind, plan.position_label, output)
+            )
+            files.append(sidecar)
+        notes.extend(f"{definition.filename}: {note}" for note in output.notes)
     return SavedProducts(tuple(files), tuple(display), tuple(notes))
 
 

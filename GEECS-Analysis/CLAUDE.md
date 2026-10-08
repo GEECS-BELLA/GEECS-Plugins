@@ -198,7 +198,11 @@ panel reuses. Keep the field list in the schema; add behaviour here.
 
 `summaries/` holds the frozen summary kinds, one file each, registered with
 `registry.summary(spec, consumes=..., filename=...)`: the schema option model,
-the layout function `(results, positions, label, options, figure) -> Figure`,
+the layout function `(results, positions, label, options, figure)` returning a
+`Figure` or a `registry.SummaryOutput` (the figure plus scan-level `scalars`
+and `notes`, e.g. `scalar_fit`'s zero crossings; the ScanAnalysis sink writes
+them as a `<stem>.json` sidecar beside the PNG, nonfinite as null) —
+consumers normalise either through `registry.summary_output`, never isinstance,
 whether it consumes the ordered panels or the noscan average, and the file
 marker the sink appends to the device name (the portal's filename parser and
 MCP's display-file contract read those markers — never change one). The

@@ -398,7 +398,9 @@ def test_complete_recipe_schema_and_discovery_have_no_numerical_imports():
             """
 import sys
 from geecs_analysis.specs import Analysis
-for kind, count in (("beam", 18), ("hi_res_mag_cam", 24), ("line", 6), ("none", 0)):
+for kind, count in (
+    ("beam", 18), ("hi_res_mag_cam", 24), ("line", 6), ("none", 0), ("pulsed_wire", 10)
+):
     recipe = Analysis.model_validate({"measure": {"kind": kind}})
     assert len(recipe.measure.emitted_scalars()) == count
 Analysis.model_json_schema()

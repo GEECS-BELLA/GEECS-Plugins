@@ -289,6 +289,7 @@ def test_recipe_schema_binds_the_registry_vocabulary():
         "ict",
         "line",
         "none",
+        "pulsed_wire",
     }
     assert schema["$defs"]["RoiSpec"]["x-ndim"] == [1, 2]
     assert schema["$defs"]["BeamSpec"]["x-ndim"] == [2]

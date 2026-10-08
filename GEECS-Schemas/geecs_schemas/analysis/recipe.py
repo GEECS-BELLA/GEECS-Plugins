@@ -390,8 +390,39 @@ class AverageSummary(_SummaryBase):
     )
 
 
+class ScalarFitSummary(_SummaryBase):
+    """A straight-line fit of measured scalars against the scan position.
+
+    For each named scalar the points are (bin position, the bin's value);
+    the fit's slope, intercept, zero crossing, their standard errors, r²
+    and point count are scan-level numbers, written beside the figure.
+
+    Provisional: scan-level results may get a recipe section of their own
+    before 1.0, so this kind may move or be renamed.
+    """
+
+    frame_ndim: ClassVar[frozenset[int]] = frozenset({1, 2})
+
+    kind: Literal["scalar_fit"] = Field(
+        "scalar_fit",
+        description="Fit measured scalars against the scan position.",
+    )
+    scalars: List[str] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Scalar keys to fit, bare as the measure emits them (e.g. kick_1); "
+            "one fitted line each."
+        ),
+    )
+    model: Literal["linear"] = Field(
+        "linear",
+        description="The fitted model: 'linear' (slope and intercept).",
+    )
+
+
 Summary = Annotated[
-    Union[ImageGridSummary, WaterfallSummary, AverageSummary],
+    Union[ImageGridSummary, WaterfallSummary, AverageSummary, ScalarFitSummary],
     Field(discriminator="kind"),
 ]
 
@@ -400,6 +431,7 @@ SUMMARY_KINDS: Dict[str, type[_SummaryBase]] = {
     "image_grid": ImageGridSummary,
     "waterfall": WaterfallSummary,
     "average": AverageSummary,
+    "scalar_fit": ScalarFitSummary,
 }
 
 
@@ -609,6 +641,26 @@ class AnalysisRecipe(VersionedSchemaModel):
                 )
         return self
 
+    @model_validator(mode="after")
+    def _summary_kinds_are_distinct(self) -> "AnalysisRecipe":
+        """Each summary kind appears at most once: its products share one name."""
+        seen: set = set()
+        for summary in self.summaries:
+            if summary.kind in seen:
+                hint = (
+                    "; one scalar_fit entry fits several scalars (list them all "
+                    "under its scalars:)"
+                    if summary.kind == "scalar_fit"
+                    else ""
+                )
+                raise ValueError(
+                    f"summaries lists kind {summary.kind!r} twice; each kind "
+                    f"writes one file per device, so a second entry would "
+                    f"overwrite the first{hint}"
+                )
+            seen.add(summary.kind)
+        return self
+
 
 __all__ = [
     "CURRENT_RECIPE_VERSION",
@@ -624,6 +676,7 @@ __all__ = [
     "MeasureRef",
     "RecipeInput",
     "RecipeRuntime",
+    "ScalarFitSummary",
     "StepRef",
     "Summary",
     "WaterfallSummary",

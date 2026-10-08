@@ -162,7 +162,10 @@ directory from an existing raw scan folder, refuses path components and
 symlinks that escape it, and never creates `scans/ScanNNN/`. File names keep
 the legacy shapes (`{device}_{id}_processed.h5`, `_processed_visual.png`,
 `_averaged_image_grid.png`, `_summary_waterfall.png`) so `parse_output_filename`
-and MCP's display-file contract are unchanged. HDF5 retains the legacy dataset
+and MCP's display-file contract are unchanged. A summary kind that computes
+scan-level numbers (`scalar_fit`) also gets `<stem>.json` beside its PNG
+(nonfinite as `null`; never a display file; classified `summary` by the
+`_summary_` marker). HDF5 retains the legacy dataset
 name, storage dtype and gzip level. `scan.save: false` writes nothing. A
 rendering failure omits only its figure and is returned as a note; data and
 write errors propagate. Scalar persistence is independent of this sink.

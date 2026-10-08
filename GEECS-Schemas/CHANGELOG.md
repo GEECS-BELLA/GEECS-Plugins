@@ -5,6 +5,28 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.0] - 2026-10-07
+
+### Added
+
+- `ScalarFitSummary` (`kind: scalar_fit`), a summary kind in the
+  `AnalysisRecipe` `Summary` union and `SUMMARY_KINDS`. It fits the named
+  `scalars` (at least one, bare keys such as `kick_1`) against the scan
+  position with `model: linear`, on 1D or 2D frames. Its numbers are
+  scan-level: the ScanAnalysis sink writes them to a JSON file beside the
+  summary PNG. The published `analysis_recipe.schema.json` and the schema
+  reference are regenerated. Provisional: scan-level results may get a
+  recipe section of their own before 1.0; this kind may move or be renamed.
+
+### Changed
+
+- An `AnalysisRecipe` refuses a `summaries` list that names the same kind
+  twice. The ScanAnalysis sink names a summary's files by kind
+  (`<device>_summary_<kind>.png` / `.json`), so a second entry silently
+  replaced the first; one `scalar_fit` entry fits several scalars, and the
+  error says so. No format-3 document in the analysis configs corpus repeats
+  a kind.
+
 ## [0.43.1] - 2026-10-07
 
 ### Changed

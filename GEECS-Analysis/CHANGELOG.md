@@ -4,6 +4,57 @@ All notable changes to `geecs-analysis` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.28.0] - 2026-10-07
+
+### Added
+
+- Step `derivative`: `numpy.gradient` along the trace's own coordinates
+  (second-order central differences in the interior, one-sided at the ends;
+  uneven and descending axes come out right). The unit becomes
+  `<unit>/<axis unit>` when both are set, otherwise it is cleared. A trace
+  with fewer than two samples is refused.
+- Step `lowpass`: zero-phase Butterworth filter (`butter` in SOS form, then
+  `sosfiltfilt`) with `order` (default 2) and `critical_frequency` (a
+  fraction of the sample-spacing Nyquist, between 0 and 1, default 0.1). It
+  filters on sample indices and never resamples. A trace no longer than
+  `sosfiltfilt`'s default edge padding is refused with a ValueError naming
+  the minimum length (10 samples for order 2, 16 for order 4), since the
+  edge transient would be the whole output. A nonfinite sample makes the
+  whole filtered trace nonfinite, which the measure sees.
+- Measure `pulsed_wire`: drift-plateau `windows` (closed intervals in axis
+  units, ordered and strictly separated, at least two) and the `elements`
+  between them (`name`, optional `length`). It emits `plateau_i` (the mean
+  of the finite samples in window i), `kick_i` (`plateau_i - plateau_{i-1}`)
+  and `kick_per_length_i` for each element given a length. A window with
+  no finite sample gives a NaN plateau and NaN kicks on both sides of it,
+  with a note naming the window. The arithmetic is in
+  `algorithms/pulsed_wire.py`.
+- Summary kind `scalar_fit` (`summaries/scalar_fit.py`, file marker
+  `summary_scalar_fit`): a least-squares line through each named scalar
+  against the scan position. It emits `{key}_slope`, `_intercept`,
+  `_zero_crossing` (each with `_stderr`), `_r2` and `_points`; undefined
+  numbers stay NaN, with a note saying why. The figure shows the points,
+  the fitted lines and a dashed line at each zero crossing. The fit is
+  numpy's `polyfit` with its covariance, inside the summary module; there
+  is no fit module of its own. Provisional: scan-level results may get a
+  recipe section of their own before 1.0, so this kind, `SummaryOutput`
+  and the sidecar may move or be renamed.
+- The summary-scalars contract: a summary layout may return
+  `registry.SummaryOutput(figure, scalars, notes)` instead of a bare
+  `Figure`, and consumers normalise either shape with
+  `registry.summary_output`. `registry` still imports without numpy or
+  matplotlib.
+
+### Changed
+- `compat.v2.analyze_v2`: the line path's storage-dtype rebuild keeps the
+  processed frame's unit instead of the recipe's input unit, so a step that
+  changes the unit (`derivative`: V -> V/s) reaches the products and the
+  waterfall colorbar. Every earlier step kept the input unit, so nothing
+  else changes.
+- `scalar_fit` draws a zero-crossing marker only inside the scanned
+  position range; a crossing far outside it (a skew plane's) stays in the
+  legend and the JSON but no longer stretches the x axis.
+
 ## [0.27.0] - 2026-10-07
 
 ### Changed
