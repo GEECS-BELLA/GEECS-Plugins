@@ -55,6 +55,18 @@ class ScalarPolicyProvider(Protocol):
         ...
 
 
+class _VariableQueries(Protocol):
+    """The two whole-experiment ``GeecsDb`` queries the policy caches."""
+
+    def get_subscribed_variables(
+        self, experiment: str, *, enabled_only: bool = True
+    ) -> dict[str, list[str]]: ...
+
+    def get_all_experiment_variables(
+        self, experiment: str, *, enabled_only: bool = True
+    ) -> dict[str, list[str]]: ...
+
+
 @dataclass
 class GeecsDbScalarPolicy:
     """DB-backed :class:`ScalarPolicyProvider`, one batched query per kind.
@@ -75,11 +87,11 @@ class GeecsDbScalarPolicy:
 
     experiment: str
     enabled_only: bool = True
-    db: object | None = None
+    db: _VariableQueries | None = None
     _subscribed: Optional[dict[str, list[str]]] = field(default=None, init=False)
     _all: Optional[dict[str, list[str]]] = field(default=None, init=False)
 
-    def _geecs_db(self) -> object:
+    def _geecs_db(self) -> _VariableQueries:
         if self.db is not None:
             return self.db
         from geecs_core.db.geecs_db import GeecsDb

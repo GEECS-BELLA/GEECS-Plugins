@@ -26,7 +26,7 @@ from collections.abc import Callable, Mapping
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from types import CodeType
-from typing import Any
+from typing import Any, cast
 
 
 class ExpressionWhitelistError(ValueError):
@@ -88,7 +88,8 @@ class _DottedSymbols(ast.NodeTransformer):
 
     def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
         return ast.copy_location(
-            ast.Name(id=self.names[_dotted_name(node)], ctx=ast.Load()), node
+            ast.Name(id=self.names[cast(str, _dotted_name(node))], ctx=ast.Load()),
+            node,
         )
 
 

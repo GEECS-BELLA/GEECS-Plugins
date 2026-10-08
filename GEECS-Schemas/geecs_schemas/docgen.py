@@ -24,7 +24,7 @@ import types
 import typing
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterator, Mapping, Optional
+from typing import Any, Callable, Iterator, Mapping, Optional, cast
 
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
@@ -372,7 +372,7 @@ def _default_repr(field: FieldInfo) -> str:
     if field.is_required():
         return "—"
     if field.default_factory is not None:
-        produced = field.default_factory()
+        produced = cast(Callable[[], Any], field.default_factory)()
         return "empty" if produced in ({}, [], "") else repr(produced)
     if field.default is PydanticUndefined:
         return "—"

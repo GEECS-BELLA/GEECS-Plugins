@@ -28,7 +28,7 @@ class RendererOptions(SchemaModel):
 
     colormap_mode: Optional[Literal["auto", "sequential", "diverging", "custom"]] = (
         Field(
-            None,
+            default=None,
             description=(
                 "'sequential' runs 0 to max; 'diverging' is symmetric about zero; "
                 "'auto' picks diverging when the data crosses zero; 'custom' uses "
@@ -37,59 +37,62 @@ class RendererOptions(SchemaModel):
         )
     )
     cmap: Optional[str] = Field(
-        None, description="Matplotlib colormap name (e.g. 'plasma', 'RdBu_r')."
+        default=None, description="Matplotlib colormap name (e.g. 'plasma', 'RdBu_r')."
     )
-    vmin: Optional[float] = Field(None, description="Colour scale minimum.")
+    vmin: Optional[float] = Field(default=None, description="Colour scale minimum.")
     vmax: Optional[float] = Field(
-        None, description="Colour scale maximum (2D: the old plot_scale)."
+        default=None, description="Colour scale maximum (2D: the old plot_scale)."
     )
     duration: Optional[float] = Field(
-        None, gt=0, description="Animation frame duration, ms."
+        default=None, gt=0, description="Animation frame duration, ms."
     )
     dpi: Optional[int] = Field(
-        None, gt=0, description="Figure resolution, dots per inch."
+        default=None, gt=0, description="Figure resolution, dots per inch."
     )
-    xlabel: Optional[str] = Field(None, description="X-axis label.")
-    ylabel: Optional[str] = Field(None, description="Y-axis label.")
-    colorbar_label: Optional[str] = Field(None, description="Colour bar label.")
+    xlabel: Optional[str] = Field(default=None, description="X-axis label.")
+    ylabel: Optional[str] = Field(default=None, description="Y-axis label.")
+    colorbar_label: Optional[str] = Field(default=None, description="Colour bar label.")
 
     # ---- trace (1D) figures only ----
     mode: Optional[Literal["waterfall", "overlay", "grid"]] = Field(
-        None,
+        default=None,
         description=(
             "Trace summary layout: 'waterfall' heat map (x vs scan parameter), "
             "'overlay' of all bins, or a 'grid' of one plot per bin. 1D only."
         ),
     )
     waterfall_sort_key: Optional[str] = Field(
-        None,
+        default=None,
         description=(
             "For a noscan waterfall, order rows by this s-file column instead "
             "of shot number ('Device:Var' or a substring). 1D only."
         ),
     )
     waterfall_sort_sigma: Optional[float] = Field(
-        None,
+        default=None,
         description=(
             "Drop shots whose sort-key value lies outside mean ± this many "
             "standard deviations. 1D only."
         ),
     )
     waterfall_sort_bounds: Optional[Tuple[float, float]] = Field(
-        None,
+        default=None,
         description="Explicit (low, high) bounds on the sort key; overrides the sigma cut. 1D only.",
     )
     waterfall_even_y_spacing: Optional[bool] = Field(
-        None,
+        default=None,
         description="Draw waterfall rows at equal height regardless of sort-key spacing. 1D only.",
     )
 
     # ---- camera (2D) figures only ----
     figsize: Optional[Tuple[float, float]] = Field(
-        None, description="Panel (width, height) in inches for grid montages. 2D only."
+        default=None,
+        description="Panel (width, height) in inches for grid montages. 2D only.",
     )
     figsize_inches: Optional[float] = Field(
-        None, gt=0, description="Side of the square animation frames, inches. 2D only."
+        default=None,
+        gt=0,
+        description="Side of the square animation frames, inches. 2D only.",
     )
 
     LINE_ONLY: ClassVar[frozenset[str]] = frozenset(

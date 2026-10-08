@@ -35,6 +35,7 @@ import logging
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, nullcontext
+from typing import Any, cast
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -295,7 +296,7 @@ class FleetProbe(BaseModel):
 
 
 @contextmanager
-def _p4p_context(hosts: list[str], timeout: float) -> Iterator[Callable[[str], object]]:
+def _p4p_context(hosts: list[str], timeout: float) -> Iterator[Callable[[str], Any]]:
     """Yield a ``get(pv) -> value`` over a p4p context searching *hosts* by unicast.
 
     UDP broadcast does not cross a VPN, so the address list is the deployed
@@ -310,7 +311,7 @@ def _p4p_context(hosts: list[str], timeout: float) -> Iterator[Callable[[str], o
     # and the probe would search more than the deployed hosts.
     # unwrap=False: raw Values (str(NT wrapper) would carry a timestamp).
     with Context("pva", conf=conf, useenv=False, unwrap=False) as ctx:
-        yield lambda pv: ctx.get(pv, timeout=timeout)["value"]
+        yield lambda pv: cast(Any, ctx.get(pv, timeout=timeout))["value"]
 
 
 def probe_fleet(
@@ -318,7 +319,7 @@ def probe_fleet(
     hosts: list[FleetHost],
     *,
     timeout: float = 2.0,
-    getter: Callable[[str], object] | None = None,
+    getter: Callable[[str], Any] | None = None,  # p4p Values are duck-typed
 ) -> FleetProbe:
     """Read every deployed host's ``version`` + ``heartbeat`` (+ ``devices``) PVs (read-only).
 

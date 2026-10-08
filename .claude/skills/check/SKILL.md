@@ -20,7 +20,7 @@ hand, and update the script (not prose) when CI changes.
 
 | When | Command | What runs |
 |---|---|---|
-| Before every commit | `./scripts/check.sh --lint` | pre-commit on changed files + the whole-tree doc audit (~20 s) |
+| Before every commit | `./scripts/check.sh --lint` | pre-commit on changed files + the whole-tree doc audit + pyright on the leaf packages (~30 s) |
 | Before push / while iterating | `./scripts/check.sh` | lint + the suites of changed packages |
 | Before opening a PR | `./scripts/check.sh --all` | lint everything + every locally runnable suite |
 

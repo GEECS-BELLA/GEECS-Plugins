@@ -28,6 +28,7 @@ import json
 import logging
 import sys
 import time
+from typing import cast
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -167,7 +168,7 @@ def diff_scan(
 
 def main(argv: list[str] | None = None) -> int:
     """CLI: diff scan folder(s); append the evidence log; exit 1 on mismatch."""
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(description=cast(str, __doc__).splitlines()[0])
     ap.add_argument("scans", nargs="+", help="scan folder path(s) (ScanNNN dirs)")
     ap.add_argument(
         "--log", default=None, help="JSONL evidence log to append verdicts to"

@@ -26,6 +26,7 @@ import socket
 import threading
 import time
 from collections.abc import Callable
+from typing import cast
 
 import numpy as np
 from p4p.nt import NTEnum, NTNDArray, NTScalar
@@ -651,7 +652,9 @@ class GeecsPvaGateway:
         providers[f"{prefix}:heartbeat"] = heartbeat_pv
         providers[f"{prefix}:restart"] = SharedPV(
             handler=_RestartHandler(
-                lambda: loop.call_soon_threadsafe(self._restart_event.set)
+                lambda: loop.call_soon_threadsafe(
+                    cast(asyncio.Event, self._restart_event).set
+                )
             ),
             nt=NTScalar("i"),
             initial=0,

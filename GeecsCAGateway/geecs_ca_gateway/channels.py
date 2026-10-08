@@ -17,7 +17,7 @@ string (:func:`enum_geecs_value`).
 from __future__ import annotations
 
 import logging
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, TypeVar, cast
 
 from caproto import (
     AccessRights,
@@ -38,7 +38,8 @@ from caproto import (
 # the private module may move under the uncapped caproto pin — the fallback
 # subclasses the same public base, so client-observable failure is unchanged.
 try:
-    from caproto._data import CannotExceedLimits
+    # pyright sees the fallback class below as the declared type
+    from caproto._data import CannotExceedLimits  # pyright: ignore[reportAssignmentType]
 except ImportError:  # pragma: no cover — future caproto moved the private module
     from caproto import CaprotoValueError
 
@@ -212,9 +213,10 @@ def enum_geecs_value(choices: list[str], value: Any) -> str:  # noqa: C901
 
 
 _READONLY_CACHE: dict[type, type] = {}
+_ChannelT = TypeVar("_ChannelT", bound=ChannelData)
 
 
-def read_only(channel_cls: type[ChannelData]) -> type[ChannelData]:
+def read_only(channel_cls: type[_ChannelT]) -> type[_ChannelT]:
     """Return a subclass of *channel_cls* that denies CA client writes.
 
     Readback PVs mirror GEECS state; only the gateway may write them (it calls
@@ -381,7 +383,7 @@ async def _forward_set(channel: ChannelData, setter: Setter, geecs_value: Any) -
     try:
         await setter(geecs_value)
     except Exception:
-        alarm = channel.alarm
+        alarm = cast(ChannelAlarm, channel.alarm)  # every ChannelData carries one
         if (alarm.severity, alarm.status) != (
             AlarmSeverity.INVALID_ALARM,
             AlarmStatus.WRITE,
@@ -395,7 +397,7 @@ async def _forward_set(channel: ChannelData, setter: Setter, geecs_value: Any) -
                 # the real set error, never a publish-side one.
                 logger.debug("failed to publish set-failure alarm", exc_info=True)
         raise
-    alarm = channel.alarm
+    alarm = cast(ChannelAlarm, channel.alarm)
     if (alarm.severity, alarm.status) != (
         AlarmSeverity.NO_ALARM,
         AlarmStatus.NO_ALARM,
@@ -452,7 +454,7 @@ def make_setpoint_channel(spec: VariableSpec, setter: Setter) -> ChannelData:
         )
 
     base = _SCALAR_BASE[spec.dtype]
-    dtype = spec.dtype
+    dtype: DType = spec.dtype
 
     class _GeecsSetpoint(base):  # type: ignore[valid-type,misc]
         """Scalar channel whose CA puts are forwarded to a GEECS device."""
@@ -469,7 +471,8 @@ def make_setpoint_channel(spec: VariableSpec, setter: Setter) -> ChannelData:
             """
             geecs_value = cast_value(dtype, value)
             if dtype in ("float", "int"):
-                lo, hi = self.lower_ctrl_limit, self.upper_ctrl_limit
+                # the numeric caproto base supplies the limits (dynamic base)
+                lo, hi = self.lower_ctrl_limit, self.upper_ctrl_limit  # pyright: ignore[reportAttributeAccessIssue]
                 if lo != hi and not lo <= geecs_value <= hi:
                     # Pre-forward rejection: a client error, not a device
                     # outcome — no UDP, no :SP alarm, no LAST_SET_ERROR.

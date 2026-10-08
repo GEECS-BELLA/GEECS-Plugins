@@ -52,7 +52,7 @@ class VersionedSchemaModel(SchemaModel):
     """
 
     schema_version: int = Field(
-        1,
+        default=1,
         description=(
             "Format version of this config file. Leave at 1 — tools update "
             "this automatically when the file format changes."
