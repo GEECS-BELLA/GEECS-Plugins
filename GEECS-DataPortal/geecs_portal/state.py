@@ -126,7 +126,7 @@ class PortalState:
             raise HTTPException(
                 status_code=404, detail=f"run not found: {exc}"
             ) from exc
-        except Exception as exc:  # noqa: BLE001 — surface, don't 500
+        except Exception as exc:
             logger.warning("catalog load_run failed: %s", exc)
             raise HTTPException(
                 status_code=503, detail=f"catalog unavailable: {exc}"
@@ -186,7 +186,7 @@ class PortalState:
             ) from exc
         except ValueError as exc:  # denylisted, or invalid config
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001 — analyzer failure, never a 500
+        except Exception as exc:
             raise HTTPException(
                 status_code=400, detail=f"processing failed: {exc}"
             ) from exc
@@ -198,7 +198,7 @@ class PortalState:
             return resources.figure_png(
                 ephemeral.render_frame_figure(array, **_figure_kwargs(render))
             )
-        except Exception as exc:  # noqa: BLE001 — never a 500
+        except Exception as exc:
             raise HTTPException(
                 status_code=404, detail=f"render failed: {exc}"
             ) from exc
@@ -222,7 +222,7 @@ class PortalState:
             ) from exc
         except ValueError as exc:  # denylisted, or invalid config
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001 — analyzer failure must not 500
+        except Exception as exc:
             raise HTTPException(
                 status_code=400, detail=f"processing failed: {exc}"
             ) from exc

@@ -224,7 +224,7 @@ def api_frame(
 
 
 @router.get("/api/run/{uid}/binned")
-def api_binned(
+def api_binned(  # noqa: C901
     uid: str,
     cols: list[str] = Query(default=[]),
     x: str = "",
