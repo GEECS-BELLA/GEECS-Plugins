@@ -114,6 +114,7 @@ def scalar_fit(
     absent is a NaN point. From ``figure`` this layout takes ``fig`` (dpi
     and the rest, not figsize), as the waterfall does. Returns the figure
     with ``{key}_{suffix}`` numbers for every :data:`FIT_SUFFIXES` entry.
+    A zero crossing is drawn as a dashed line only inside the scanned range.
     """
     import numpy as np
     from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -160,7 +161,11 @@ def scalar_fit(
                     "-",
                     color=points.get_color(),
                 )
-            if np.isfinite(fit["zero_crossing"]):
+            # A crossing outside the scanned range is reported in the legend
+            # and the numbers, but not drawn: a marker there would stretch the
+            # x axis until the measured points collapse (a skew plane's
+            # crossings lie tens of mm away).
+            if span.size and span[0] <= fit["zero_crossing"] <= span[-1]:
                 ax.axvline(
                     fit["zero_crossing"],
                     linestyle="--",

@@ -450,11 +450,13 @@ def analyze_v2(
     measured = process_measure_input(recipe.analysis.measure, bound, process)
     if recipe.input_kind == "line":
         # Legacy rounds coordinates AND samples before calculating statistics.
+        # The steps own the signal unit (a derivative makes it V/s), so the
+        # rebuilt frame keeps the processed frame's unit, not the input's.
         stored = frame.as_trace().astype(recipe.storage_dtype)
         frame = Frame.from_trace(
             stored,
             x_unit=recipe.x_unit,
-            y_unit=recipe.y_unit,
+            y_unit=frame.unit,
             y_label=recipe.label,
             shot=shot,
         )

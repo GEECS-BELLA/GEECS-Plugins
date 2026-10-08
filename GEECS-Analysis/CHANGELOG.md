@@ -39,6 +39,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `registry.summary_output`. `registry` still imports without numpy or
   matplotlib.
 
+### Changed
+- `compat.v2.analyze_v2`: the line path's storage-dtype rebuild keeps the
+  processed frame's unit instead of the recipe's input unit, so a step that
+  changes the unit (`derivative`: V -> V/s) reaches the products and the
+  waterfall colorbar. Every earlier step kept the input unit, so nothing
+  else changes.
+- `scalar_fit` draws a zero-crossing marker only inside the scanned
+  position range; a crossing far outside it (a skew plane's) stays in the
+  legend and the JSON but no longer stretches the x axis.
+
 ## [0.27.0] - 2026-10-07
 
 ### Changed

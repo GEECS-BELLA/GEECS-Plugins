@@ -71,6 +71,21 @@ def test_an_exact_line_recovers_slope_intercept_and_zero_crossing():
     assert len(verticals) == 2
 
 
+def test_a_crossing_outside_the_scan_is_reported_but_not_drawn():
+    """A skew plane's far crossing must not stretch the axis over the points."""
+    positions = [-6.0, -4.0, -2.0, 0.0]
+    results = [shot(kick_1=-0.01 * p + 0.2) for p in positions]
+    out = draw(results, positions, ["kick_1"])
+    assert out.scalars["kick_1_zero_crossing"] == pytest.approx(20.0)
+    ax = out.figure.axes[0]
+    assert not [
+        line
+        for line in ax.lines
+        if len(line.get_xdata()) == 2 and np.allclose(line.get_xdata(), 20.0)
+    ]
+    assert ax.get_xlim()[1] < 1.0
+
+
 def test_standard_errors_match_ordinary_least_squares():
     x = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
     y = np.array([1.1, 2.9, 5.2, 6.8, 9.1])
