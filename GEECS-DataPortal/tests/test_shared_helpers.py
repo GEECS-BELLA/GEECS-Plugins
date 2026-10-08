@@ -25,3 +25,10 @@ def test_metadata_rows_is_the_shared_data_utils_implementation() -> None:
     from geecs_portal.routes import pages as portal_app
 
     assert portal_app.metadata_rows is tiled_catalog.metadata_rows
+
+
+def test_the_browsing_api_uses_the_shared_metadata_rows() -> None:
+    """The JSON twin of the run page renders the same table."""
+    from geecs_portal.routes import browse
+
+    assert browse.metadata_rows is tiled_catalog.metadata_rows
