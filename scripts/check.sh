@@ -248,11 +248,15 @@ run_pyright() {
     if command -v poetry >/dev/null 2>&1; then
         root_env="$(poetry env info --path 2>/dev/null || true)"
     fi
-    if [ -z "$root_env" ] || [ ! -x "$root_env/bin/pyright" ]; then
-        echo "check.sh: pyright is not in the root env — run 'poetry install' at the repo root (see /env-doctor)" >&2
-        return 1
+    if [ -n "$root_env" ] && [ -x "$root_env/bin/pyright" ]; then
+        "$root_env/bin/pyright" --pythonpath "$root_env/bin/python"
+    elif command -v pyright >/dev/null 2>&1; then
+        pyright
+    else
+        # Same stance as the jupyter hook: skip loudly, CI's pyright job
+        # still enforces it. No root env is common in a fresh worktree.
+        echo "   note : no pyright (root env or PATH) — skipping the type check (CI's pyright job still runs it; 'poetry install' at the repo root adds it)"
     fi
-    "$root_env/bin/pyright" --pythonpath "$root_env/bin/python"
 }
 
 LINT_OK=1
