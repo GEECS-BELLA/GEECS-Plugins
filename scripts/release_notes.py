@@ -4,9 +4,7 @@
 A package is bumped when it is deployed or tagged, not per PR (root
 ``CLAUDE.md`` § "Release & Versioning"). This prints the draft block for
 that bump: every merged PR that touched ``<Package>/`` since the date the
-``version =`` line last changed, one bullet per PR title. Edit it, then
-paste it under the new version heading.
-
+``version =`` line last changed, one bullet per PR title. Edit, then paste:
     scripts/release_notes.py GEECS-Core [--since 2026-10-01] [--version 0.14.0]
 """
 
@@ -22,50 +20,26 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _run(*cmd: str) -> str:
+    """Run a command at the repo root and return its stdout."""
+    return subprocess.run(
+        cmd, cwd=REPO_ROOT, capture_output=True, text=True, check=True
+    ).stdout
+
+
 def last_bump_date(package: str) -> str:
     """Return the date (YYYY-MM-DD) the package's ``version =`` line last changed."""
-    out = subprocess.run(
-        [
-            "git",
-            "log",
-            "-G^version = ",
-            "--format=%cs",
-            "-1",
-            "--",
-            f"{package}/pyproject.toml",
-        ],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    if not out:
-        raise SystemExit(f"no version history for {package}/pyproject.toml")
-    return out
+    pyproject = f"{package}/pyproject.toml"
+    out = _run("git", "log", "-G^version = ", "--format=%cs", "-1", "--", pyproject)
+    if not out.strip():
+        raise SystemExit(f"no version history for {pyproject}")
+    return out.strip()
 
 
 def merged_prs(since: str) -> list[dict]:
     """Return merged PRs since ``since`` as gh JSON rows (number, title, files)."""
-    out = subprocess.run(
-        [
-            "gh",
-            "pr",
-            "list",
-            "--state",
-            "merged",
-            "--search",
-            f"merged:>={since}",
-            "--json",
-            "number,title,files",
-            "--limit",
-            "1000",
-        ],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    return json.loads(out)
+    args = "pr list --state merged --json number,title,files --limit 1000".split()
+    return json.loads(_run("gh", *args, "--search", f"merged:>={since}"))
 
 
 def draft(package: str, prs: list[dict], version: str, today: str) -> str:
@@ -80,9 +54,8 @@ def draft(package: str, prs: list[dict], version: str, today: str) -> str:
         key=lambda pr: pr["number"],
     )
     lines = [f"## [{version}] - {today}", "", "### Changed", ""]
-    lines += [f"- {pr['title']} (#{pr['number']})" for pr in hits] or [
-        "- (no merged PRs touched this package)"
-    ]
+    bullets = [f"- {pr['title']} (#{pr['number']})" for pr in hits]
+    lines += bullets or ["- (no merged PRs touched this package)"]
     return "\n".join(lines) + "\n"
 
 
@@ -97,15 +70,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"not a package directory: {args.package}", file=sys.stderr)
         return 2
     since = args.since or last_bump_date(args.package)
-    print(
-        draft(
-            args.package,
-            merged_prs(since),
-            args.version,
-            datetime.date.today().isoformat(),
-        ),
-        end="",
-    )
+    today = datetime.date.today().isoformat()
+    print(draft(args.package, merged_prs(since), args.version, today), end="")
     return 0
 
 
