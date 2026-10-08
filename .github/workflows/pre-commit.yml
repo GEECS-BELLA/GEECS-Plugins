@@ -40,6 +40,11 @@ jobs:
         run: pip install pre-commit nbconvert
 
       - name: Run pre-commit on changed files
+        env:
+          # no-commit-to-branch guards LOCAL commits on master; in CI the
+          # checkout IS master on every merge, so the hook failed every
+          # master run and the backstop read red. CI never commits: skip it.
+          SKIP: no-commit-to-branch
         run: |
           FROM_REF="${{ github.event.pull_request.base.sha }}"
           if [ -z "$FROM_REF" ]; then
