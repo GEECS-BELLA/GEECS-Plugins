@@ -26,92 +26,48 @@ Architecture rules (see this package's ``CLAUDE.md``):
 from __future__ import annotations
 
 import contextlib
-import dataclasses
-import importlib
 import logging
 import re
-
-import numpy as np
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode
 
+import numpy as np
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import (
-    FileResponse,
-    HTMLResponse,
-    JSONResponse,
-    RedirectResponse,
-    Response,
-)
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from matplotlib.figure import Figure
 from pydantic import BaseModel, Field
 from starlette.requests import Request
 from starlette.staticfiles import StaticFiles
 
 from geecs_data_utils import tiled_schema as schema_map
-from geecs_data_utils.data.binning import bin_frame, compute_bin_key
-from geecs_data_utils.data.row_filters import filter_mask
-from geecs_data_utils.io.images import average_frames
-from geecs_data_utils.scan_frame import PROVENANCE_RUN, scan_frame
-from geecs_data_utils.scan_grid import grid_axes, grid_scan
-from geecs_data_utils.tiled_catalog import (
-    RunDetail,
-    RunSummary,
-    ScanCatalog,
-    fmt_time_of_day,
-    metadata_rows,
-    resolve_scan_folder,
-)
-
-from geecs_data_utils.scan_paths import ScanPaths
+from geecs_data_utils.tiled_catalog import ScanCatalog, fmt_time_of_day, metadata_rows
 
 from geecs_portal import analysis, analysis_runs, figures, logbook_send, resources
 from geecs_portal.cache import ShotDataCache
+from geecs_portal.routes import images, plot_api
+from geecs_portal.routes.common import (
+    _LISTING_HEADERS,
+    _acq_timestamp,
+    _image_folder,
+    _jump_target,
+    _parse_day,
+    _parse_iso_day,
+    _portal_version,
+    _resolved_folder,
+    _root,
+    _run_day,
+    _scan_label,
+    _sticky_query,
+    _summary_json,
+)
+from geecs_portal.state import PortalState
 
 logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _STATIC_DIR = Path(__file__).parent / "static"
-
-
-def _portal_version() -> str:
-    """The installed package version — the /api cache-bust key.
-
-    The page keys every /api fetch and bin-image card by this version.
-    Union-frame responses are ``no-cache`` now (``_UNION_HEADERS``), so
-    for them the key is only insurance against intermediaries; it still
-    matters for a payload-shape change behind any cached response.
-    """
-    from importlib.metadata import PackageNotFoundError, version
-
-    try:
-        return version("geecs-data-portal")
-    except PackageNotFoundError:  # source tree without install metadata
-        return "dev"
-
-
-#: Cap on rows fed to a plot (quick-look, not a data browser).
-_PLOT_MAX_ROWS = 100_000
-
-#: Headers for every response computed over the union frame (columns,
-#: frame, binned, bin-images, bin-image.png). The event table is frozen
-#: once the run stops, but the s-file half of the union is NOT: ScanAnalysis
-#: appends its columns to ``analysis/sN.txt`` after the scan — hours later
-#: when it is re-run by hand — so a completed run's column list can grow.
-#: An immutable response would pin a browser to the pre-analysis shape
-#: for a year (the 7-vs-30-columns incident, 2026-09-01). No validator
-#: is emitted, so ``no-cache`` means a re-fetch, not a 304 — an ETag
-#: over the s-file's stat is the follow-up if revisits feel slow.
-_UNION_HEADERS = {"Cache-Control": "no-cache"}
-
-#: Headers for the JSON browsing surface (day listing, run detail, device
-#: probe, jump). A day gains scans while it is being taken, a running
-#: run gains its stop document, and a device folder fills in as the run
-#: writes — always re-fetch, never pin.
-_LISTING_HEADERS = {"Cache-Control": "no-cache"}
 
 #: Requests carrying a proxy mount prefix — the Grafana/JupyterHub
 #: convention every reverse proxy speaks.
@@ -174,192 +130,6 @@ class _ForwardedPrefixMiddleware:
                         scope["path"] = prefix + scope["path"]
                     break
         await self.app(scope, receive, send)
-
-
-def _root(request: Request) -> str:
-    """The request's URL prefix (``""`` at root) — prepend to every path."""
-    return request.scope.get("root_path", "").rstrip("/")
-
-
-#: Multi-Y ceiling on the Plot tab (mockup ruling: up to 4).
-_MAX_Y_COLUMNS = 4
-
-
-def _parse_day(day: str) -> date:
-    """Parse an ISO day query param, falling back to today."""
-    try:
-        return date.fromisoformat(day) if day else date.today()
-    except ValueError:
-        return date.today()
-
-
-def _run_day(detail, day: str) -> Optional[date]:
-    """The day used to re-base a run's scan folder — the run's OWN day.
-
-    The start document's time is authoritative: trusting the caller's
-    ``day`` (or defaulting to today) would let a bookmarked link resolve
-    a *different* scan's same-numbered folder, since GEECS scan numbers
-    restart daily.  A run with no usable start time therefore resolves
-    only through an explicit ``day`` param — never today's folder.
-    """
-    start_time = detail.summary.start_time or 0.0
-    if start_time > 0:
-        try:
-            return datetime.fromtimestamp(start_time).date()
-        except (OverflowError, OSError, ValueError):
-            pass
-    if day:
-        try:
-            return date.fromisoformat(day)
-        except ValueError:
-            return None
-    return None
-
-
-def _sticky_query(state: dict, **overrides) -> str:
-    """One query string carrying the page's sticky params.
-
-    Template links/forms build their hrefs through this (empty values
-    dropped) so navigating one control never silently resets another —
-    the plot selection survives shot stepping, the day filter survives
-    run round-trips.  The one deliberate exception is the day page's
-    "clear" link, whose whole job is dropping the filter.
-    """
-    merged = {**state, **overrides}
-    kept = {k: v for k, v in merged.items() if v not in ("", None, [], ())}
-    return urlencode(kept, doseq=True)
-
-
-def _acq_timestamp(detail, device: str, shot: int) -> tuple[Optional[float], bool]:
-    """The event row's ``acq_timestamp`` for *device* at 1-based *shot*.
-
-    Column matching goes through
-    :func:`geecs_data_utils.tiled_schema.device_acq_timestamp_column`
-    (schema-safe normalization — never re-derived here).
-
-    Returns
-    -------
-    tuple of (float or None, bool)
-        ``(value, column_present)``.  No column → ``(None, False)`` and
-        the resource layer may fall back to ordinal file order; column
-        present but the row invalid (NaN / non-positive: the device
-        missed this shot; or the device's ``valid`` companion false: its
-        frame belongs to a different physical shot, the row a scan run
-        maps no file for) → ``(None, True)`` — the caller must refuse
-        rather than serve a neighbouring shot's image.  The ``valid``
-        column is matched by
-        :func:`geecs_data_utils.tiled_schema.device_valid_column`.
-    """
-    import math
-
-    frame = detail.data
-    if frame is None or shot < 1 or shot > len(frame):
-        return (None, False)
-    column = schema_map.device_acq_timestamp_column(
-        [str(c) for c in frame.columns], device
-    )
-    if column is None:
-        return (None, False)
-    valid = schema_map.device_valid_column([str(c) for c in frame.columns], device)
-    if valid is not None:
-        try:
-            if not bool(frame[valid].iloc[shot - 1]):
-                return (None, True)
-        except (TypeError, ValueError):  # pd.NA: unknown, not false
-            pass
-    try:
-        value = float(frame[column].iloc[shot - 1])
-    except (TypeError, ValueError):
-        return (None, True)
-    if not math.isfinite(value) or value <= 0:
-        return (None, True)
-    return (value, True)
-
-
-def _default_x(detail, columns: list[str]) -> str:
-    """The console-parity default X: the scan variable on stepped scans."""
-    if not schema_map.is_stepped_scan(detail.start_doc):
-        return ""
-    scan_vars = schema_map.scan_variable_columns(columns, detail.start_doc)
-    return scan_vars[0] if scan_vars else ""
-
-
-def _scan_label(summary: RunSummary) -> str:
-    """The listing's scan cell: ``Scan 002``, else the uid's first 8 chars."""
-    if summary.scan_number is not None:
-        return f"Scan {summary.scan_number:03d}"
-    return summary.uid[:8]
-
-
-def _summary_json(summary: RunSummary) -> dict:
-    """One run's listing row, as the day page's table shows it.
-
-    The JSON twin of a ``day.html`` row (scan cell, HH:MM, mode,
-    description, shots, status) plus the fields the page keeps in
-    attributes or omits (uid, epoch start, experiment, save sets).
-    """
-    started = None
-    if summary.start_time > 0:
-        started = analysis.jsonable_datetimes([summary.start_time], "unix")[0]
-    return {
-        "uid": summary.uid,
-        "scan": _scan_label(summary),
-        "scan_number": summary.scan_number,
-        "start_time": summary.start_time,
-        "started": started,
-        "time": fmt_time_of_day(summary.start_time),
-        "mode": summary.mode,
-        "description": summary.description,
-        "shots": summary.shots,
-        "exit_status": summary.exit_status,
-        "running": not summary.exit_status,
-        "experiment": summary.experiment,
-        "save_sets": list(summary.save_sets),
-    }
-
-
-def _parse_iso_day(day: str) -> date:
-    """An ISO day path segment, or the routes' shared 404."""
-    try:
-        return date.fromisoformat(day)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail="bad date") from exc
-
-
-def _jump_target(runs: list[RunSummary], prefer: int) -> Optional[RunSummary]:
-    """The day steppers' rule — the run numbered ``prefer``, else the newest.
-
-    ONE implementation for the HTML redirect and the JSON twin, so the
-    two cannot drift (``None`` only for a day with no runs).
-    """
-    return next(
-        (run for run in runs if prefer and run.scan_number == prefer),
-        runs[0] if runs else None,
-    )
-
-
-@dataclasses.dataclass(frozen=True)
-class _DiagInfo:
-    """A loadable diagnostic's run-side facts (the selector cache's value)."""
-
-    #: The data device the wrapper reads: ``scan.device``, else the name
-    #: (``data_device_name or device_name`` in ScanAnalysis's wrapper).
-    device: str
-    #: Per-analyzer output directory under ``analysis/ScanNNN/``.
-    output_name: str
-    #: A run deletes or rewrites data files (the ``.himg`` compaction):
-    #: the tab asks for the scan number first and the start endpoint
-    #: refuses without it.
-    destructive: bool = False
-
-    @classmethod
-    def from_diagnostic(cls, diag) -> "_DiagInfo":
-        # Either format, through the names both documents carry.
-        return cls(
-            device=str(diag.data_folder),
-            output_name=str(diag.effective_output_name),
-            destructive=bool(getattr(diag, "destructive", False)),
-        )
 
 
 class PlotToLogbook(BaseModel):
@@ -482,752 +252,34 @@ def create_app(
     # within-scan navigation never re-reads the share (owner doctrine,
     # 2026-08-29 — lazy stays the rule ACROSS scans only).
     data_cache = ShotDataCache()
-    config_editor_enabled = False  # set when the editor router mounts (below)
     logbook_base = logbook_url.rstrip("/")
-
-    def _logbook_url(
-        request: Request, detail: RunDetail, run_day: Optional[date]
-    ) -> str:
-        """The run's entry in the scan logbook, or "" when there is none to link.
-
-        The logbook's day page anchors each scan card by its folder name
-        (``#Scan012``); the portal knows the logbook's base URL and the
-        day, so the link is built here without importing the logbook — a
-        peer view layer in its own process, reached by URL like any other
-        page. A path-shaped base (``/log``) is same-origin and takes this
-        app's own prefix; an absolute one is used verbatim. The logbook
-        serves the default experiment alone, and scan numbers restart
-        daily per experiment, so a run from another experiment gets no
-        link rather than a wrong one.
-        """
-        summary = detail.summary
-        if not (logbook_base and run_day and summary.scan_number):
-            return ""
-        if summary.experiment != default_experiment:
-            return ""
-        base = (
-            _root(request) + logbook_base
-            if logbook_base.startswith("/")
-            else logbook_base
-        )
-        return f"{base}/day/{run_day.isoformat()}#Scan{summary.scan_number:03d}"
-
-    #: Sending needs an address the PORTAL can reach, not one the browser
-    #: can: the call is server-to-server (``geecs_portal.logbook_send``),
-    #: which is what keeps it working on a plain-HTTP page and keeps CORS
-    #: out of the logbook.  A path-shaped ``--logbook-url`` is a fact about
-    #: the browser's front door and names no host this process can dial, so
-    #: it links but does not send, and the page hides the button.
-    logbook_send_base = (
-        logbook_base if logbook_base.startswith(("http://", "https://")) else ""
+    portal = PortalState(
+        catalog=catalog,
+        templates=templates,
+        runner=runner,
+        data_cache=data_cache,
+        factory=analysis_factory or analysis_runs.scan_analysis_factory,
+        default_experiment=default_experiment,
+        processing_config_dir=processing_config_dir,
+        analysis_factory=analysis_factory,
+        logbook_base=logbook_base,
+        logbook_send_base=(
+            logbook_base if logbook_base.startswith(("http://", "https://")) else ""
+        ),
     )
-
-    def _logbook_sendable(detail, run_day) -> bool:
-        """Whether this run can receive a plot — the link's rule, plus an address."""
-        summary = detail.summary
-        return bool(
-            logbook_send_base
-            and run_day
-            and summary.scan_number
-            and summary.experiment == default_experiment
-        )
-
-    def _load_run(uid: str):
-        """Load one run, mapping failures to honest HTTP status codes.
-
-        ``KeyError`` is the fakes' and the Tiled client's unknown-uid
-        signal → 404.  Anything else (connection errors, unconfigured
-        URI) means the catalog itself is unavailable → 503, so an outage
-        never reads as "run not found" for runs that exist.
-        """
-        try:
-            return catalog.load_run(uid)
-        except KeyError as exc:
-            raise HTTPException(
-                status_code=404, detail=f"run not found: {exc}"
-            ) from exc
-        except Exception as exc:  # noqa: BLE001 — surface, don't 500
-            logger.warning("catalog load_run failed: %s", exc)
-            raise HTTPException(
-                status_code=503, detail=f"catalog unavailable: {exc}"
-            ) from exc
-
-    def _png_headers(detail) -> dict:
-        """Caching headers for responses over the event table ALONE.
-
-        A completed run (stop doc present) never changes, so its plot
-        and per-shot images are cacheable indefinitely; a still-running
-        run must revalidate. Anything touching the union frame (and so
-        the mutable s-file) uses ``_UNION_HEADERS`` instead.
-        """
-        if detail.summary.exit_status:
-            return {"Cache-Control": "public, max-age=31536000, immutable"}
-        return {"Cache-Control": "no-cache"}
-
-    def _union(detail, day: str):
-        """The union frame + the run's resolved day (ISO or None).
-
-        One-liner over :func:`geecs_data_utils.scan_frame.scan_frame`;
-        the s-file is re-read per request (one small text file — the
-        catalog detail behind it is already cached for completed runs).
-        """
-        run_day = _run_day(detail, day)
-        folder = resolve_scan_folder(detail, run_day) if run_day else None
-        pf = scan_frame(detail, folder)
-        return pf, (run_day.isoformat() if run_day else None)
-
-    def _masked(pf, filters_raw: str):
-        """Parse the filters param and mask the union frame (400 on bad)."""
-        try:
-            filters = analysis.parse_filters(filters_raw)
-            mask = filter_mask(pf.frame, filters)
-        except (analysis.BadParam, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return filters, mask
-
-    def _y_columns(cols: list[str]) -> list[str]:
-        requested = list(dict.fromkeys(c for c in cols if c))
-        if len(requested) > _MAX_Y_COLUMNS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"at most {_MAX_Y_COLUMNS} y columns",
-            )
-        return requested
-
-    def _display(display_raw: str) -> dict:
-        """Parse the display param (400 on bad)."""
-        try:
-            return analysis.parse_display(display_raw)
-        except analysis.BadParam as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    def _render_opts(disp: dict) -> dict:
-        """The image-rendering slice of the display state (value-degrade)."""
-        return {
-            "cmap": disp.get("cmap"),
-            "plo": disp.get("plo"),
-            "phi": disp.get("phi"),
-        }
-
-    def _rendered(disp: dict) -> bool:
-        """``display.mode == "rendered"`` — the analyzer-figure view."""
-        return disp.get("mode") == "rendered"
-
-    def _figure_kwargs(render: dict) -> dict:
-        """The display slice as the ephemeral renderers' kwargs (value-degrade).
-
-        The colormap defaults to ``gray`` — the pixel view's palette when
-        ``cmap`` is absent or unknown — so the rendered checkbox changes
-        only what it claims to (the base renderer's own default is
-        plasma).
-        """
-        return {
-            "cmap": resources.safe_cmap(render.get("cmap")) or "gray",
-            "window": resources.window_percentiles(
-                render.get("plo"), render.get("phi")
-            ),
-        }
-
-    def _ephemeral_module():
-        """The portal's backend router, or the feature's 404 ladder.
-
-        The one place the "configured? installed?" preamble lives for
-        the processing selector and the rendered view alike.
-        """
-        if processing_config_dir is None:
-            raise HTTPException(
-                status_code=404,
-                detail="processing is not configured on this portal "
-                "(start it with --processing-configs)",
-            )
-        try:
-            # Check the optional runtime even when the router is cached.
-            importlib.import_module("geecs_analysis.compat.v2")
-            ephemeral = importlib.import_module("geecs_portal.processing")
-        except ImportError as exc:
-            raise HTTPException(
-                status_code=404,
-                detail="processing needs the portal's 'analysis' extra "
-                "(pip install geecs-data-portal[analysis])",
-            ) from exc
-        return ephemeral
-
-    def _render_processing_figure(array, processing: str, render: dict) -> bytes:
-        """The rendered view of ONE shot: the analyzer draws its own result.
-
-        Same write-free router as ``_apply_processing``: supported recipes
-        use core measurements and object-API figures; unported recipes keep
-        the legacy ephemeral renderer. Same status ladder as the
-        pixel path: unknown diagnostic 404, denylisted / invalid config
-        400, analyzer failure 400, and "ran but cannot be drawn"
-        (``RenderError``) 404 — the pixel path's "render failed" /
-        "produces no processed image" code.
-        """
-        ephemeral = _ephemeral_module()
-        try:
-            (fig,) = ephemeral.render_diagnostic_ephemeral(
-                processing,
-                [array],
-                config_dir=processing_config_dir,
-                **_figure_kwargs(render),
-            )
-            return resources.figure_png(fig)
-        except (KeyError, FileNotFoundError) as exc:
-            raise HTTPException(
-                status_code=404, detail=f"no diagnostic: {exc}"
-            ) from exc
-        except ephemeral.RenderError as exc:
-            raise HTTPException(
-                status_code=404, detail=f"render failed: {exc}"
-            ) from exc
-        except ValueError as exc:  # denylisted, or invalid config
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001 — analyzer failure, never a 500
-            raise HTTPException(
-                status_code=400, detail=f"processing failed: {exc}"
-            ) from exc
-
-    def _render_frame_figure(array, render: dict) -> bytes:
-        """The rendered view of an averaged image: base renderer, no overlays."""
-        ephemeral = _ephemeral_module()
-        try:
-            return resources.figure_png(
-                ephemeral.render_frame_figure(array, **_figure_kwargs(render))
-            )
-        except Exception as exc:  # noqa: BLE001 — never a 500
-            raise HTTPException(
-                status_code=404, detail=f"render failed: {exc}"
-            ) from exc
-
-    def _pretty_names(detail, pf, columns: list[str]) -> dict:
-        """Figure titles/legend names, by the columns endpoint's rule.
-
-        Run-provenance columns prettify; s-file names are already human.
-        """
-        scalar_headers = (detail.start_doc or {}).get("geecs_scalar_headers")
-        return {
-            column: (
-                schema_map.display_name(column, scalar_headers)
-                if pf.provenance.get(column, PROVENANCE_RUN) == PROVENANCE_RUN
-                else column
-            )
-            for column in columns
-        }
-
-    def _list_day(experiment: str, day: date, filter_text: str) -> tuple[list, str]:
-        """The day's runs (newest first), filtered — ONE implementation.
-
-        Shared by the day page, the JSON day listing and both jump
-        routes so the surfaces cannot drift.  A catalog failure is
-        returned, not raised (``(runs, error)``): the page renders it
-        inline, the API maps it to 503, the jump degrades to the day.
-        """
-        try:
-            runs = list(catalog.list_runs(experiment, day))
-        except Exception as exc:  # noqa: BLE001 — surface, don't 500
-            logger.warning("day listing failed: %s", exc)
-            return [], str(exc)
-        needle = filter_text.strip().lower()
-        if needle:
-            runs = [run for run in runs if needle in run.filter_text()]
-        return runs, ""
-
-    def _neighbours(uid: str, experiment: str, run_day: Optional[date]):
-        """The scan steppers: ``(prev_uid, next_uid, day_runs)``.
-
-        The day's listing (newest first) feeds both the rail's scan
-        dropdown and the stepper neighbours — previous = older, next =
-        newer.  A listing failure (or a uid missing from its own day)
-        just hides them: ``("", "", [])`` — never sinks the page.
-        """
-        if run_day is None:
-            return "", "", []
-        try:
-            day_runs = list(catalog.list_runs(experiment, run_day))
-            day_uids = [run.uid for run in day_runs]
-            position = day_uids.index(uid)
-        except Exception as exc:  # noqa: BLE001 — stepper is optional
-            logger.warning("neighbour listing failed: %s", exc)
-            return "", "", []
-        next_uid = day_uids[position - 1] if position > 0 else ""
-        prev_uid = day_uids[position + 1] if position + 1 < len(day_uids) else ""
-        return prev_uid, next_uid, day_runs
-
-    def _resolved_folder(detail, day: str):
-        """``(run_day, folder)``: the run's own day and its existing scan folder."""
-        run_day = _run_day(detail, day)
-        folder = resolve_scan_folder(detail, run_day) if run_day else None
-        return run_day, folder
+    app.state.portal = portal
 
     @app.get("/health")
     def health() -> dict:
         """Liveness + catalog probe (the fleet-map health check) + version."""
-        status = catalog.probe()
+        status = portal.catalog.probe()
         return {
             "ok": status.ok,
             "catalog": status.label,
             "version": _portal_version(),
         }
 
-    # ------------------------- analysis JSON API -------------------------
-    # One-liners over the data-utils primitives: every
-    # response is reproducible in a notebook by the snippet it carries.
-
-    @app.get("/api/run/{uid}/columns")
-    def api_columns(uid: str, day: str = "") -> JSONResponse:
-        """The union pick list: every plottable column with provenance."""
-        detail = _load_run(uid)
-        pf, _ = _union(detail, day)
-        scalar_headers = (detail.start_doc or {}).get("geecs_scalar_headers")
-        columns = [
-            {
-                "name": column,
-                "provenance": pf.provenance.get(column, PROVENANCE_RUN),
-                "pretty": (
-                    schema_map.display_name(column, scalar_headers)
-                    if pf.provenance.get(column, PROVENANCE_RUN) == PROVENANCE_RUN
-                    else column
-                ),
-                # Drives the picker's off-by-default "timestamps" toggle
-                # (ts_ event-recording times ONLY — acq_timestamp picks
-                # stay always visible as legitimate X choices; the frame
-                # endpoint's `kinds` map is the datetime-rendering
-                # verdict and is deliberately broader).
-                "timestamp": schema_map.is_key_timestamp_column(column),
-            }
-            for column in schema_map.plottable_columns(pf.frame)
-        ]
-        payload = {
-            "columns": columns,
-            "default_x": _default_x(detail, [c["name"] for c in columns]),
-            "grid_axes": grid_axes(list(pf.frame.columns), detail.start_doc),
-            "total": len(pf.frame),
-        }
-        return JSONResponse(payload, headers=_UNION_HEADERS)
-
-    @app.get("/api/run/{uid}/grid")
-    def api_grid(
-        uid: str, gridcfg: str = "", filters: str = "", day: str = ""
-    ) -> JSONResponse:
-        """Two-axis geometry, filtered scalar statistics and paired figures."""
-        detail = _load_run(uid)
-        pf, run_day = _union(detail, day)
-        try:
-            cfg = analysis.parse_gridcfg(gridcfg)
-            flt = analysis.parse_filters(filters)
-            result = grid_scan(pf.frame, detail.start_doc, cfg, flt)
-        except KeyError as exc:
-            raise HTTPException(
-                status_code=404, detail=f"no grid column: {exc}"
-            ) from exc
-        except (ValueError, TypeError, IndexError, OverflowError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        pretty = _pretty_names(
-            detail, pf, [result.config.x, result.config.y, cfg.value]
-        )
-        payload = {
-            "cells": result.cells.to_dict("records"),
-            "config": result.config.model_dump(),
-            "kind": result.kind,
-            "x_values": result.x_values,
-            "y_values": result.y_values,
-            "visits": result.visits,
-            "pass": result.passing,
-            "total": result.total,
-            "bin_column": result.bin_column,
-            "notes": result.notes,
-            "error_label": figures.grid_error_label(result),
-            "pretty": pretty,
-            "figures": {
-                name: figures.page_figure(fig)
-                for name, fig in figures.grid_figures(
-                    result, pretty=pretty, palette=figures.THEMED_PALETTE
-                ).items()
-            },
-            "code": analysis.grid_code(uid, run_day, result.config, flt, pretty),
-        }
-        return JSONResponse(analysis.jsonable_document(payload), headers=_UNION_HEADERS)
-
-    @app.get("/api/run/{uid}/frame")
-    def api_frame(
-        uid: str,
-        cols: list[str] = Query(default=[]),
-        x: str = "",
-        filters: str = "",
-        display: str = "",
-        day: str = "",
-    ) -> JSONResponse:
-        """Per-shot series + the ready figure for the selection."""
-        detail = _load_run(uid)
-        pf, run_day = _union(detail, day)
-        flt, mask = _masked(pf, filters)
-        disp = _display(display)
-        requested = _y_columns(cols)
-        series = {}
-        kinds = {}
-        for column in dict.fromkeys([*requested, *([x] if x else [])]):
-            # Coerce on the FULL frame: a filter that empties the frame
-            # must not turn a valid column into a 404.
-            full = schema_map.numeric_series(pf.frame, column)
-            if full is None:
-                raise HTTPException(
-                    status_code=404, detail=f"no plottable column {column!r}"
-                )
-            epoch = schema_map.timestamp_epoch(column)
-            if epoch:
-                # Timestamps plot as real local datetimes, never raw
-                # seconds (ts_ = Unix epoch; acq_timestamp = LabVIEW).
-                series[column] = analysis.jsonable_datetimes(full[mask], epoch)
-                kinds[column] = "datetime"
-            else:
-                series[column] = analysis.jsonable_values(full[mask])
-        # The shot-axis rule (scan_event_index, NA-coalesced from the
-        # s-file's Shotnumber) lives in tiled_schema.shot_axis_for_frame —
-        # ONE implementation, shared with the notebook snippet's path.
-        shot_values = analysis.jsonable_values(
-            figures.shot_axis_for_frame(pf.frame)[mask]
-        )
-        # An unservable x already 404'd in the coercion loop above;
-        # empty means "no X picked" — the shot axis, and the snippet
-        # omits the x argument.
-        x_name = x or None
-        payload = {
-            "series": series,
-            "kinds": kinds,
-            "shot": shot_values,
-            "pass": int(mask.sum()),
-            "total": len(pf.frame),
-            "code": analysis.frame_code(
-                uid,
-                run_day,
-                requested,
-                flt,
-                {column: schema_map.timestamp_epoch(column) for column in kinds},
-                x=x_name,
-                display=disp,
-            ),
-        }
-        if requested:
-            payload["figure"] = figures.page_figure(
-                figures.shots_figure(
-                    series,
-                    requested,
-                    palette=figures.THEMED_PALETTE,
-                    x=x_name,
-                    shot=shot_values,
-                    kinds=kinds,
-                    pretty=_pretty_names(
-                        detail, pf, [*requested, *([x_name] if x_name else [])]
-                    ),
-                    display=disp,
-                )
-            )
-        return JSONResponse(payload, headers=_UNION_HEADERS)
-
-    @app.get("/api/run/{uid}/binned")
-    def api_binned(
-        uid: str,
-        cols: list[str] = Query(default=[]),
-        x: str = "",
-        filters: str = "",
-        bincfg: str = "",
-        display: str = "",
-        day: str = "",
-    ) -> JSONResponse:
-        """Per-bin centers + error bands + the ready binned figure.
-
-        Bins GROUP the data (``bincfg.bin_col``); the selected ``x``
-        PLACES it — each bin plots at the per-bin mean of the X column
-        (the owner's ruling: real scan-parameter positions now, x error
-        bars maybe later).  No ``x`` keeps the bin labels as the axis.
-        """
-        detail = _load_run(uid)
-        pf, run_day = _union(detail, day)
-        flt, mask = _masked(pf, filters)
-        disp = _display(display)
-        requested = _y_columns(cols)
-        if x and schema_map.numeric_series(pf.frame, x) is None:
-            raise HTTPException(status_code=404, detail=f"no plottable column {x!r}")
-        try:
-            cfg = analysis.parse_bincfg(bincfg)
-        except analysis.BadParam as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        for column in requested:
-            if schema_map.numeric_series(pf.frame, column) is None:
-                raise HTTPException(
-                    status_code=404, detail=f"no plottable column {column!r}"
-                )
-        cfg = dataclasses.replace(cfg, value_cols=tuple(requested))
-        try:
-            result = bin_frame(pf.frame[mask], cfg)
-        except KeyError as exc:
-            raise HTTPException(
-                status_code=404, detail=f"no bin column: {exc}"
-            ) from exc
-        except ValueError as exc:  # e.g. degenerate percentile bounds
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except TypeError as exc:
-            # A coercible-string column (dtype-tolerant telemetry) plots
-            # in per-shot view but bin_frame aggregates the RAW dtype —
-            # refuse honestly, never 500 (package doctrine).
-            raise HTTPException(
-                status_code=400,
-                detail=f"binned view needs numeric columns: {exc}",
-            ) from exc
-        x_centers = None
-        if x:
-            # Same primitive, mean-aggregated — the snippet mirrors this
-            # exactly.  The x call's dropna/min_count runs over x ALONE,
-            # so its surviving bins can differ from the y call's:
-            # reindex onto the y bins, or points silently plot at the
-            # wrong bin's x (a missing x center degrades to a null →
-            # Plotly skips that point instead of mis-placing it).
-            try:
-                x_result = bin_frame(
-                    pf.frame[mask],
-                    dataclasses.replace(cfg, value_cols=(x,), agg="mean"),
-                )
-            except (TypeError, ValueError) as exc:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"binned view needs a numeric x: {exc}",
-                ) from exc
-            if (x, "center") in x_result.frame.columns:
-                x_centers = analysis.jsonable_values(
-                    x_result.frame[(x, "center")].reindex(result.frame.index)
-                )
-        bin_labels = analysis.jsonable_labels(result.frame.index)
-        binned_series = {
-            column: {
-                sub: analysis.jsonable_values(result.frame[(column, sub)])
-                for sub in ("center", "err_low", "err_high")
-            }
-            for column in requested
-            if (column, "center") in result.frame.columns
-        }
-        x_name = x or None
-        pretty = _pretty_names(detail, pf, [*requested, *([x_name] if x_name else [])])
-        payload = {
-            "bins": bin_labels,
-            "counts": [int(count) for count in result.counts],
-            "series": binned_series,
-            "pass": int(mask.sum()),
-            "total": len(pf.frame),
-            "code": analysis.binned_code(
-                uid, run_day, requested, flt, cfg, x=x_name, display=disp
-            ),
-        }
-        if x_centers is not None:
-            payload["x_centers"] = x_centers
-        if requested:
-            payload["figure"] = figures.page_figure(
-                figures.binned_figure(
-                    bin_labels,
-                    binned_series,
-                    requested,
-                    palette=figures.THEMED_PALETTE,
-                    bin_col=cfg.bin_col,
-                    x_values=x_centers,
-                    x_label=pretty.get(x_name) if x_name else None,
-                    pretty=pretty,
-                    display=disp,
-                )
-            )
-        return JSONResponse(payload, headers=_UNION_HEADERS)
-
-    @app.get("/api/run/{uid}/filter-count")
-    def api_filter_count(uid: str, filters: str = "", day: str = "") -> JSONResponse:
-        """Live pass count for the filters popup: ``{pass, total}``."""
-        detail = _load_run(uid)
-        pf, _ = _union(detail, day)
-        _, mask = _masked(pf, filters)
-        payload = {"pass": int(mask.sum()), "total": len(pf.frame)}
-        return JSONResponse(payload, headers=_UNION_HEADERS)
-
-    def _bin_groups(pf, mask, bincfg_raw: str):
-        """Per-bin shot membership over the filtered union frame.
-
-        Same primitives and grouping semantics as ``/binned``
-        (``compute_bin_key`` + ``groupby(dropna=False, observed=True,
-        sort)``, ``min_count`` applied to per-bin ROW counts exactly as
-        ``bin_frame`` does), so the two tabs' bins agree under one
-        shared ``bincfg`` — and the same code path serves both
-        bin-images endpoints, so a ``bin`` INDEX is stable between the
-        JSON listing and the PNG renders regardless of how labels
-        serialize.
-
-        Returns
-        -------
-        tuple of (BinningConfig, list of (label, list of int))
-            The parsed config and, per bin in group order, the label
-            and the sorted 1-based shot numbers (rows with no shot
-            identity are dropped — no shot number, no image).
-        """
-        try:
-            cfg = analysis.parse_bincfg(bincfg_raw)
-        except analysis.BadParam as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        frame = pf.frame[mask]
-        try:
-            labels, _ = compute_bin_key(frame, cfg)
-        except KeyError as exc:
-            raise HTTPException(
-                status_code=404, detail=f"no bin column: {exc}"
-            ) from exc
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        shots = figures.shot_axis_for_frame(frame)
-        groups = [
-            (label, sorted({int(s) for s in group.dropna()}))
-            for label, group in shots.groupby(labels, dropna=False, observed=True)
-            # min_count mirrors bin_frame (row counts, not shot counts):
-            # the binset popup's "min shots / bin" must govern this grid
-            # exactly as it governs the Plot tab's binned view.
-            if cfg.min_count <= 1 or len(group) >= cfg.min_count
-        ]
-        return cfg, groups
-
-    def _image_folder(detail, day: str, device: str):
-        """Resolve + validate the (folder, device) pair for image endpoints."""
-        run_day = _run_day(detail, day)
-        folder = resolve_scan_folder(detail, run_day) if run_day else None
-        if folder is None:
-            raise HTTPException(status_code=404, detail="scan folder not resolvable")
-        if device not in resources.image_devices(folder):
-            raise HTTPException(status_code=404, detail=f"unknown device {device!r}")
-        return folder, (run_day.isoformat() if run_day else None)
-
-    # (fingerprint → valid names): re-validated only when the tree
-    # changes — discovery lists every YAML stem, but legacy flat camera
-    # configs in the same tree don't LOAD as diagnostics, and offering
-    # one puts an unfixable broken image in front of the operator
-    # (found live: UNCLASSIFIED/UC_Amp4_IR_input.yaml, 2026-09-01).
-    processing_cache: dict = {}
-
-    def _processing_names() -> list[str]:
-        """LOADABLE diagnostic IDs for the processing selector (``[]`` = hidden)."""
-        return list(_processing_infos())
-
-    def _processing_infos() -> dict[str, _DiagInfo]:
-        """LOADABLE diagnostics → their run-side facts (``{}`` = hidden).
-
-        Explicit-opt-in: no configured tree, no feature (never the
-        global fallback). Degrades to empty — never errors a page —
-        when the ``analysis`` extra is not installed or the tree
-        cannot be listed. Each discovered stem is validated with a
-        real ``load_diagnostic`` (cached against the tree's YAML
-        mtimes); invalid ones are dropped with an INFO log naming the
-        file, so a legacy config is a log line, not a broken image.
-        """
-        if processing_config_dir is None:
-            return []
-        try:
-            processing_api = _ephemeral_module()
-            list_diagnostics = processing_api.list_diagnostics
-            load_diagnostic = processing_api.load_diagnostic
-        except HTTPException:
-            return []
-        # Fingerprint BEFORE listing: a YAML landing between the two
-        # scans then costs one harmless revalidation, instead of a
-        # cache entry permanently missing it. mtime+size so same-second
-        # edits are caught even on coarse-mtime SMB-mounted trees.
-        tree = Path(processing_config_dir) / "analyzers"
-        try:
-            fingerprint = frozenset(
-                (str(path), stat.st_mtime, stat.st_size)
-                for pattern in ("*.yaml", "*.yml")
-                for path in tree.rglob(pattern)
-                for stat in (path.stat(),)  # one syscall, untearable tuple
-            )
-        except OSError:
-            fingerprint = None
-        if fingerprint is not None:
-            cached = processing_cache.get(fingerprint)  # .get: a racing
-            if cached is not None:  # clear() must degrade to revalidate
-                return cached
-        try:
-            names = list_diagnostics(config_dir=processing_config_dir)
-        except Exception as exc:  # noqa: BLE001 — unlistable tree = no selector
-            logger.debug("processing configs unavailable: %s", exc)
-            return []
-        valid: dict[str, _DiagInfo] = {}
-        for name in names:
-            try:
-                diag = load_diagnostic(name, config_dir=processing_config_dir)
-                valid[name] = _DiagInfo.from_diagnostic(diag)
-            except Exception as exc:  # noqa: BLE001 — one bad YAML must not hide the rest
-                logger.info(
-                    "processing selector: skipping %r — not a loadable "
-                    "unified diagnostic (%s)",
-                    name,
-                    exc,
-                )
-        if fingerprint is not None:
-            processing_cache.clear()  # one entry: the current tree state
-            processing_cache[fingerprint] = valid
-        return valid
-
-    # ---- analysis runs (direct ScanAnalysis execution) ----
-    factory = analysis_factory or analysis_runs.scan_analysis_factory
-
-    def _analysis_enabled() -> bool:
-        """Whether the scan page should offer the Analysis tab at all."""
-        try:
-            _analysis_available()
-        except HTTPException:
-            return False
-        return True
-
-    def _analysis_enabled_for(folder: Optional[Path]) -> bool:
-        """The Analysis tab's gate: the feature on AND a resolvable scan folder.
-
-        Runs and the artifact listing are per scan folder — the page and
-        ``/api/run`` read the same answer.
-        """
-        return folder is not None and _analysis_enabled()
-
-    def _analysis_available() -> None:
-        """404 unless the run feature is configured AND installed."""
-        if processing_config_dir is None:
-            raise HTTPException(
-                status_code=404,
-                detail="analysis runs are not configured on this portal "
-                "(start it with --processing-configs)",
-            )
-        if analysis_factory is None:
-            try:
-                import scan_analysis  # noqa: F401 — the real factory's need
-            except ImportError as exc:
-                raise HTTPException(
-                    status_code=404,
-                    detail="analysis runs need the portal's 'analysis' extra "
-                    "(pip install geecs-data-portal[analysis])",
-                ) from exc
-
-    def _analysis_context(uid: str, day: str):
-        """(detail, scan folder, analysis folder, ScanTag) or 404.
-
-        The tag is parsed FROM THE RESOLVED FOLDER (``ScanPaths(folder=…)``,
-        read-only), never rebuilt from the start doc: the folder's day
-        is the claim-time day, the start doc's ``time`` is stamped later
-        — a scan claimed at 23:59:58 and opened at 00:00:01 would
-        otherwise run the analyzer on the NEXT day's same-numbered scan
-        (and TZ / experiment-spelling drift would do the same).
-        """
-        detail = _load_run(uid)
-        _, folder = _resolved_folder(detail, day)
-        if folder is None:
-            raise HTTPException(status_code=404, detail="scan folder not resolvable")
-        try:
-            tag = ScanPaths(folder=folder, read_mode=True).get_tag()
-        except (ValueError, OSError) as exc:
-            raise HTTPException(
-                status_code=404,
-                detail=f"scan folder is not a canonical scans/ScanNNN path: {exc}",
-            ) from exc
-        if tag is None:
-            raise HTTPException(status_code=404, detail="scan folder has no tag")
-        return detail, folder, analysis_runs.analysis_folder_for(folder), tag
+    app.include_router(plot_api.router)
 
     @app.get("/api/run/{uid}/analysis")
     def run_analysis_list(uid: str, day: str = "") -> JSONResponse:
@@ -1238,16 +290,16 @@ def create_app(
         diagnostic is listed regardless, so a device-less one is still
         reachable; the tab collapses the inapplicable ones.
         """
-        _analysis_available()
-        detail, folder, analysis_folder, tag = _analysis_context(uid, day)
+        portal.analysis_available()
+        detail, folder, analysis_folder, tag = portal.analysis_context(uid, day)
         devices = set(resources.image_devices(folder))
         try:
             present = {p.name for p in folder.iterdir() if p.is_dir()}
         except OSError:
             present = set()
-        jobs = runner.jobs_for(uid)
+        jobs = portal.runner.jobs_for(uid)
         analyzers = []
-        for name, info in _processing_infos().items():
+        for name, info in portal.processing_infos().items():
             job = jobs.get(name)
             # What the tab shows: everything on disk under the output dir
             # (summaries + per-bin visuals, classified server-side) plus
@@ -1272,7 +324,7 @@ def create_app(
                     ),
                 }
             )
-        running = runner.running_for(uid)
+        running = portal.runner.running_for(uid)
         return JSONResponse(
             {
                 "analyzers": analyzers,
@@ -1300,24 +352,24 @@ def create_app(
         past this point — config errors included — lands in the record
         as ``failed``.
         """
-        _analysis_available()
-        info = _processing_infos().get(analyzer)
+        portal.analysis_available()
+        info = portal.processing_infos().get(analyzer)
         if info is None:
             raise HTTPException(status_code=404, detail=f"no diagnostic: {analyzer!r}")
-        _, _, analysis_folder, tag = _analysis_context(uid, day)
+        _, _, analysis_folder, tag = portal.analysis_context(uid, day)
         if info.destructive and confirm.strip() != str(tag.number):
             raise HTTPException(
                 status_code=400,
                 detail=f"{analyzer!r} deletes data: confirm with this scan's "
                 "number (confirm=<scan number>) to run it",
             )
-        config_dir = Path(processing_config_dir)
+        config_dir = Path(portal.processing_config_dir)
 
         def run(progress: analysis_runs.ProgressSink) -> Optional[list]:
             # The opt-in reaches the factory only past the confirm check
             # above — the one place a destructive kind gets built here.
             return analysis_runs.run_scan_analyzer(
-                factory,
+                portal.factory,
                 analyzer,
                 config_dir,
                 tag,
@@ -1326,7 +378,7 @@ def create_app(
             )
 
         try:
-            job = runner.start(uid, analyzer, run, relative_to=analysis_folder)
+            job = portal.runner.start(uid, analyzer, run, relative_to=analysis_folder)
         except analysis_runs.RunInProgress as exc:
             return JSONResponse(
                 {
@@ -1357,12 +409,12 @@ def create_app(
         logbook refusing → its own status for the verdicts that are about
         this payload (409/413/415), else 502.
         """
-        detail = _load_run(uid)
+        detail = portal.load_run(uid)
         # _run_day, not _resolved_folder: the folder is not wanted, and
         # resolving one stats the SMB share.  A logbook write touches the
         # scans mount not at all.
         run_day = _run_day(detail, day)
-        if not _logbook_sendable(detail, run_day):
+        if not portal.logbook_sendable(detail, run_day):
             raise HTTPException(
                 status_code=404, detail="no logbook entry this scan could join"
             )
@@ -1373,7 +425,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         try:
             result = logbook_send.send_plot(
-                base_url=logbook_send_base,
+                base_url=portal.logbook_send_base,
                 day=run_day.isoformat(),
                 scan=scan,
                 author=payload.author.strip(),
@@ -1397,7 +449,7 @@ def create_app(
             {
                 "entry_id": result.entry_id,
                 "appended": result.appended,
-                "url": f"{logbook_send_base}/entry/{result.entry_id}",
+                "url": f"{portal.logbook_send_base}/entry/{result.entry_id}",
             },
             status_code=201,
         )
@@ -1415,8 +467,8 @@ def create_app(
         portal's (or, behind the OSPREY proxy, OSPREY's) origin.
         ``no-cache``: re-runs overwrite by name.
         """
-        _analysis_available()
-        _, _, analysis_folder, _ = _analysis_context(uid, day)
+        portal.analysis_available()
+        _, _, analysis_folder, _ = portal.analysis_context(uid, day)
         file = analysis_runs.contained_artifact(analysis_folder, path)
         if file is None:
             raise HTTPException(status_code=404, detail="no such artifact")
@@ -1428,79 +480,6 @@ def create_app(
             content_disposition_type="inline" if inline else "attachment",
             filename=file.name,
         )
-
-    def _apply_processing(arrays: list, processing: str) -> list:
-        """Ephemeral-process *arrays* → the analyzers' processed images.
-
-        One compiled recipe for the batch, or the retained legacy ephemeral
-        route for an unsupported recipe. Refusals map onto the
-        endpoint ladder: unknown diagnostic → 404, denylisted/miswired
-        → 400, analyzer failure → 400 honestly — never a 500.
-        """
-        ephemeral = _ephemeral_module()
-        try:
-            processed = ephemeral.process_images(
-                processing, arrays, config_dir=processing_config_dir
-            )
-        except (KeyError, FileNotFoundError) as exc:
-            raise HTTPException(
-                status_code=404, detail=f"no diagnostic: {exc}"
-            ) from exc
-        except ValueError as exc:  # denylisted, or invalid config
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001 — analyzer failure must not 500
-            raise HTTPException(
-                status_code=400, detail=f"processing failed: {exc}"
-            ) from exc
-        if any(image is None for image in processed):
-            raise HTTPException(
-                status_code=404,
-                detail=f"diagnostic {processing!r} produces no processed image",
-            )
-        return processed
-
-    if processing_config_dir is not None and not _processing_names():
-        # The flag is explicit operator intent — a typo'd path, a tree
-        # without analyzers/, or a missing 'analysis' extra must not
-        # no-op silently into a hidden selector.
-        logger.warning(
-            "processing_config_dir %s yielded no diagnostics (missing/"
-            "unlistable tree, or the 'analysis' extra is not installed) "
-            "— the processing selector is disabled",
-            processing_config_dir,
-        )
-
-    @app.get("/api/run/{uid}/bin-images")
-    def api_bin_images(
-        uid: str, device: str = "", filters: str = "", bincfg: str = "", day: str = ""
-    ) -> JSONResponse:
-        """Per-bin membership for the Images tab's averaged grid.
-
-        The JSON carries the numbers (bins, counts, member shots — all
-        notebook-reproducible via the snippet); the pixels are served
-        by ``/run/{uid}/bin-image.png?bin=<index>`` per bin, so the
-        grid lazy-loads exactly like the per-shot gallery.
-        """
-        detail = _load_run(uid)
-        if not device:
-            raise HTTPException(status_code=400, detail="device is required")
-        folder, run_day = _image_folder(detail, day, device)
-        pf = scan_frame(detail, folder)
-        flt, mask = _masked(pf, filters)
-        cfg, groups = _bin_groups(pf, mask, bincfg)
-        bin_labels = analysis.jsonable_labels([label for label, _ in groups])
-        payload = {
-            "device": device,
-            "bin_col": cfg.bin_col,
-            "bins": [
-                {"bin": label, "count": len(shots), "shots": shots}
-                for label, (_, shots) in zip(bin_labels, groups)
-            ],
-            "pass": int(mask.sum()),
-            "total": len(pf.frame),
-            "code": analysis.bin_images_code(uid, run_day, device, flt, cfg),
-        }
-        return JSONResponse(payload, headers=_UNION_HEADERS)
 
     # ------------------------- browsing JSON API -------------------------
     # The page-shaped reads (day list, run overview, device probe, the
@@ -1514,8 +493,8 @@ def create_app(
     ) -> JSONResponse:
         """The day page as JSON: its runs (newest first), filtered."""
         selected = _parse_iso_day(day)
-        exp = experiment or default_experiment
-        runs, error = _list_day(exp, selected, filter)
+        exp = experiment or portal.default_experiment
+        runs, error = portal.list_day(exp, selected, filter)
         if error:
             raise HTTPException(status_code=503, detail=f"catalog unavailable: {error}")
         payload = {
@@ -1535,8 +514,8 @@ def create_app(
     ) -> JSONResponse:
         """The day steppers' target as JSON (see :func:`run_jump`)."""
         selected = _parse_iso_day(day)
-        exp = experiment or default_experiment
-        runs, error = _list_day(exp, selected, "")
+        exp = experiment or portal.default_experiment
+        runs, error = portal.list_day(exp, selected, "")
         if error:
             raise HTTPException(status_code=503, detail=f"catalog unavailable: {error}")
         target = _jump_target(runs, prefer)
@@ -1570,10 +549,10 @@ def create_app(
         ``analysis_enabled`` says whether the page offers the Analysis
         tab (same gate as the template).
         """
-        detail = _load_run(uid)
+        detail = portal.load_run(uid)
         run_day, folder = _resolved_folder(detail, day)
-        exp = experiment or default_experiment
-        prev_uid, next_uid, day_runs = _neighbours(uid, exp, run_day)
+        exp = experiment or portal.default_experiment
+        prev_uid, next_uid, day_runs = portal.neighbours(uid, exp, run_day)
         payload = {
             "uid": uid,
             "run_day": run_day.isoformat() if run_day else None,
@@ -1589,11 +568,11 @@ def create_app(
             "day_runs": [_summary_json(run) for run in day_runs],
             "prev_day": (run_day - timedelta(days=1)).isoformat() if run_day else None,
             "next_day": (run_day + timedelta(days=1)).isoformat() if run_day else None,
-            "processing_options": _processing_names(),
-            "analysis_enabled": _analysis_enabled_for(folder),
-            "config_editor": config_editor_enabled,
-            "logbook": _logbook_url(request, detail, run_day) or None,
-            "logbook_send": _logbook_sendable(detail, run_day),
+            "processing_options": portal.processing_names(),
+            "analysis_enabled": portal.analysis_enabled_for(folder),
+            "config_editor": portal.config_editor_enabled,
+            "logbook": portal.logbook_url(request, detail, run_day) or None,
+            "logbook_send": portal.logbook_sendable(detail, run_day),
             "page": f"{_root(request)}/run/{uid}",
             "portal_version": _portal_version(),
         }
@@ -1607,7 +586,7 @@ def create_app(
         no pixel reads), so the JSON and the Images tab can never
         disagree about whether a device renders.
         """
-        detail = _load_run(uid)
+        detail = portal.load_run(uid)
         if not device:
             raise HTTPException(status_code=400, detail="device is required")
         run_day, folder = _resolved_folder(detail, day)
@@ -1627,7 +606,7 @@ def create_app(
             "ext": probe.ext,
             "event_rows": None if detail.data is None else len(detail.data),
             "planned_shots": detail.summary.shots,
-            "processing_options": _processing_names() if renderable else [],
+            "processing_options": portal.processing_names() if renderable else [],
         }
         return JSONResponse(payload, headers=_LISTING_HEADERS)
 
@@ -1653,12 +632,12 @@ def create_app(
     ) -> HTMLResponse:
         """The run list for one day (newest first, as the catalog lists)."""
         selected = _parse_iso_day(day)
-        exp = experiment or default_experiment
-        runs, error = _list_day(exp, selected, filter)
+        exp = experiment or portal.default_experiment
+        runs, error = portal.list_day(exp, selected, filter)
         if error:
             error = f"catalog error: {error}"
         day_state = {"experiment": exp, "filter": filter}
-        return templates.TemplateResponse(
+        return portal.templates.TemplateResponse(
             request,
             "day.html",
             {
@@ -1690,8 +669,10 @@ def create_app(
             for key, value in request.query_params.multi_items()
             if key != "prefer"
         ]
-        experiment = request.query_params.get("experiment", "") or default_experiment
-        runs, _ = _list_day(experiment, selected, "")  # failure → the day page
+        experiment = (
+            request.query_params.get("experiment", "") or portal.default_experiment
+        )
+        runs, _ = portal.list_day(experiment, selected, "")  # failure → the day page
         carried = [(k, v) for (k, v) in carried if k != "day"]
         carried.append(("day", selected.isoformat()))
         query = urlencode(carried, doseq=True)
@@ -1739,7 +720,7 @@ def create_app(
         server only threads them through the sticky query so steppers
         keep the whole setup.
         """
-        detail = _load_run(uid)
+        detail = portal.load_run(uid)
         run_day, folder = _resolved_folder(detail, day)
         devices = resources.image_devices(folder) if folder else []
         sel_device = device if device in devices else ""
@@ -1756,7 +737,7 @@ def create_app(
             content_kind = "image"
         n_rows = None if detail.data is None else len(detail.data)
         shot = max(1, min(shot, n_rows) if n_rows else shot)
-        analysis_enabled = _analysis_enabled_for(folder)
+        analysis_enabled = portal.analysis_enabled_for(folder)
         if (
             kind == "native"
             and folder is not None
@@ -1783,19 +764,19 @@ def create_app(
                     warm_device,
                     s,
                     acq_timestamp=acq_s,
-                    data_cache=data_cache,
+                    data_cache=portal.data_cache,
                     cache_key=warm_key,
                 )
 
-            data_cache.warm_native(
+            portal.data_cache.warm_native(
                 warm_key, _warm_one, list(range(1, min(n_rows, 2000) + 1))
             )
-        prev_uid, next_uid, day_runs = _neighbours(
-            uid, experiment or default_experiment, run_day
+        prev_uid, next_uid, day_runs = portal.neighbours(
+            uid, experiment or portal.default_experiment, run_day
         )
         state = {
             "day": day,
-            "experiment": experiment or default_experiment,
+            "experiment": experiment or portal.default_experiment,
             # The analysis-tab state (URL-carried; the page JS owns it):
             "tab": tab,
             "y": [c for c in y if c],
@@ -1812,14 +793,14 @@ def create_app(
             "shot": shot if sel_device else "",
             "filter": filter,  # the day list's filter, carried for the back link
         }
-        return templates.TemplateResponse(
+        return portal.templates.TemplateResponse(
             request,
             "run.html",
             {
                 "uid": uid,
                 "day": day,
                 "run_day": run_day.isoformat() if run_day else "",
-                "experiment": experiment or default_experiment,
+                "experiment": experiment or portal.default_experiment,
                 "summary": detail.summary,
                 "rows": metadata_rows(detail),
                 "start_time_of_day": fmt_time_of_day(detail.summary.start_time),
@@ -1827,8 +808,8 @@ def create_app(
                 "next_uid": next_uid,
                 "day_runs": day_runs,
                 "scan_number": detail.summary.scan_number or 0,
-                "logbook_url": _logbook_url(request, detail, run_day),
-                "logbook_send": _logbook_sendable(detail, run_day),
+                "logbook_url": portal.logbook_url(request, detail, run_day),
+                "logbook_send": portal.logbook_sendable(detail, run_day),
                 "prev_day": (
                     (run_day - timedelta(days=1)).isoformat() if run_day else ""
                 ),
@@ -1842,7 +823,7 @@ def create_app(
                     else "plot"
                 ),
                 "analysis_enabled": analysis_enabled,
-                "config_editor": config_editor_enabled and analysis_enabled,
+                "config_editor": portal.config_editor_enabled and analysis_enabled,
                 "devices": devices,
                 "sel_device": sel_device,
                 "kind": kind,
@@ -1854,7 +835,7 @@ def create_app(
                 "total_shots": detail.summary.shots,
                 "processing": processing,
                 "processing_options": (
-                    _processing_names()
+                    portal.processing_names()
                     if sel_device and content_kind == "image"
                     else []
                 ),
@@ -1869,275 +850,17 @@ def create_app(
             },
         )
 
-    @app.get("/api/run/{uid}/trace")
-    def api_run_trace(
-        uid: str,
-        device: str,
-        shot: int = 1,
-        day: str = "",
-    ) -> JSONResponse:
-        """One shot of an ARRAY capture stack as a server-authored figure.
+    app.include_router(images.router)
 
-        The line twin of ``/run/{uid}/image.png``.  A camera shot is
-        served as a rendered PNG because a 2048² frame as JSON is
-        absurd; a scope trace is a few thousand numbers and wants the
-        hover readout, so it travels as figure JSON like every other
-        plot here.  Same refusals as the image endpoint: a shot beyond
-        the recorded events, and a device that missed the shot, both
-        404 rather than serving a neighbour's trace.
-        """
-        detail = _load_run(uid)
-        folder, _ = _image_folder(detail, day, device)
-        if detail.data is not None and shot > len(detail.data):
-            raise HTTPException(
-                status_code=404, detail="shot beyond the run's recorded events"
-            )
-        acq, column_present = _acq_timestamp(detail, device, shot)
-        if column_present and acq is None:
-            raise HTTPException(
-                status_code=404, detail="device missed this shot (no timestamp)"
-            )
-        resolved = resources.load_shot_trace(folder, device, shot, acq_timestamp=acq)
-        if resolved.result is None:
-            raise HTTPException(
-                status_code=404, detail=resolved.reason or resolved.kind
-            )
-        trace = resolved.result
-        x_title = trace.x_label or ""
-        if x_title and trace.x_units:
-            x_title = f"{x_title} ({trace.x_units})"
-        figure = figures.trace_figure(
-            trace.data[:, 0],
-            trace.data[:, 1],
-            name=device,
-            x_title=x_title,
-            # The stack names the VARIABLE it captured but not its units
-            # (those ride in the analyzer config), so the axis is titled
-            # with the quantity and claims no unit it was not told.
-            y_title=trace.y_label or "",
-            palette=figures.THEMED_PALETTE,
-        )
-        # A running scan's stack grows, so a trace is as mutable as the
-        # union frame — the same no-cache headers every other /api
-        # response here carries.
-        return JSONResponse(
-            {
-                "figure": figures.page_figure(figure),
-                "content": resolved.content,
-                "points": int(trace.data.shape[0]),
-            },
-            headers=_UNION_HEADERS,
-        )
-
-    @app.get("/run/{uid}/image.png")
-    def run_image(
-        uid: str,
-        device: str,
-        shot: int = 1,
-        day: str = "",
-        processing: str = "",
-        display: str = "",
-    ) -> Response:
-        """One device shot rendered for display (stack or native file).
-
-        ``processing`` names a diagnostic to run ephemerally on the
-        loaded pixels first (its ``processed_image`` renders instead of
-        the raw frame) — the write-free seam; raw serving is untouched
-        when the param is absent. ``display`` carries the image
-        cosmetics (``cmap`` + ``plo``/``phi`` window — types 400,
-        values degrade, per the display doctrine).
-        """
-        detail = _load_run(uid)
-        disp = _display(display)
-        render = _render_opts(disp)
-        folder, _ = _image_folder(detail, day, device)
-        # A shot beyond the recorded event rows must refuse outright:
-        # falling through to the ordinal join would serve an orphan
-        # frame (pre/post-scan extras) labeled as a shot that never
-        # happened — the never-serve-a-neighbour doctrine.
-        if detail.data is not None and shot > len(detail.data):
-            raise HTTPException(
-                status_code=404, detail="shot beyond the run's recorded events"
-            )
-        acq, column_present = _acq_timestamp(detail, device, shot)
-        if column_present and acq is None:
-            raise HTTPException(
-                status_code=404, detail="device missed this shot (no timestamp)"
-            )
-        complete = bool(detail.summary.exit_status)
-        if processing:
-            resolved = resources.load_shot_array(
-                folder,
-                device,
-                shot,
-                acq_timestamp=acq,
-                data_cache=data_cache if complete else None,
-                cache_key=(uid, device) if complete else None,
-            )
-            if resolved.array is None:
-                raise HTTPException(
-                    status_code=404, detail=resolved.reason or resolved.kind
-                )
-            if _rendered(disp):
-                # The analyzer's own figure (overlays + axes + colorbar)
-                # instead of the windowed processed pixels.
-                png = _render_processing_figure(resolved.array, processing, render)
-            else:
-                (processed,) = _apply_processing([resolved.array], processing)
-                try:
-                    png = resources.to_display_png(processed, **render)
-                except Exception as exc:  # noqa: BLE001 — must not 500
-                    raise HTTPException(
-                        status_code=404, detail=f"render failed: {exc}"
-                    ) from exc
-            # A processed response is a function of (pixels, diagnostic
-            # YAML, ImageAnalysis version); the URL keys only the first,
-            # and the configs tree is local and MUTABLE — iterating on
-            # it is the selector's purpose. Never immutable-cache what
-            # a config edit must be able to change.
-            return Response(
-                content=png,
-                media_type="image/png",
-                headers={"Cache-Control": "no-cache"},
-            )
-        result = resources.load_shot_image(
-            folder,
-            device,
-            shot,
-            acq_timestamp=acq,
-            data_cache=data_cache if complete else None,
-            cache_key=(uid, device) if complete else None,
-            **render,
-        )
-        if result.png is None:
-            raise HTTPException(status_code=404, detail=result.reason or result.kind)
-        headers = (
-            _png_headers(detail) if result.cacheable else {"Cache-Control": "no-cache"}
-        )
-        return Response(content=result.png, media_type="image/png", headers=headers)
-
-    @app.get("/run/{uid}/bin-image.png")
-    def run_bin_image(
-        uid: str,
-        device: str,
-        bin_index: int = Query(default=0, alias="bin"),
-        filters: str = "",
-        bincfg: str = "",
-        day: str = "",
-        processing: str = "",
-        display: str = "",
-    ) -> Response:
-        """One bin's ``nanmean``-averaged device image, display-rendered.
-
-        ``bin`` is the bin's INDEX in ``/api/.../bin-images`` order
-        (same ``_bin_groups`` call, so the two always agree). Member
-        shots that resolve to pixels are averaged (``average_frames``)
-        and windowed once; shots the device missed (no timestamp) or
-        that fail to load are skipped — the JSON's ``count`` is the
-        membership, the pixels are what actually loaded. With
-        ``processing``, each member is ephemeral-processed FIRST and
-        the processed images average (process-then-average — the
-        correct order for nonlinear pipeline steps like thresholding).
-        """
-        detail = _load_run(uid)
-        disp = _display(display)
-        render = _render_opts(disp)
-        folder, _ = _image_folder(detail, day, device)
-        pf = scan_frame(detail, folder)
-        _, mask = _masked(pf, filters)
-        _, groups = _bin_groups(pf, mask, bincfg)
-        if not 0 <= bin_index < len(groups):
-            raise HTTPException(
-                status_code=404, detail=f"bin index {bin_index} of {len(groups)}"
-            )
-        _, shots = groups[bin_index]
-        complete = bool(detail.summary.exit_status)
-        n_rows = None if detail.data is None else len(detail.data)
-        arrays: list = []
-        for shot in shots:
-            # Same refusals as the per-shot endpoint: never fall through
-            # to an ordinal join beyond the recorded events (orphan
-            # frames), never average a neighbour's image in.
-            if n_rows is not None and shot > n_rows:
-                continue
-            acq, column_present = _acq_timestamp(detail, device, shot)
-            if column_present and acq is None:
-                continue  # device missed this shot
-            resolved = resources.load_shot_array(
-                folder,
-                device,
-                shot,
-                acq_timestamp=acq,
-                data_cache=data_cache if complete else None,
-                cache_key=(uid, device) if complete else None,
-            )
-            if resolved.array is None:
-                if resolved.kind in ("vendor", "unrenderable"):
-                    # Device-level refusal — identical for every shot.
-                    raise HTTPException(
-                        status_code=404, detail=resolved.reason or resolved.kind
-                    )
-                continue
-            arrays.append(resolved.array)
-        if processing and arrays:
-            arrays = _apply_processing(arrays, processing)
-        averaged = average_frames(arrays, label=f"{device} bin {bin_index}")
-        if averaged is None:
-            raise HTTPException(
-                status_code=404, detail="no renderable frames in this bin"
-            )
-        if processing and _rendered(disp):
-            # An average of several results is not one result: the base
-            # renderer (axes + colorbar), per-shot overlays dropped.
-            png = _render_frame_figure(averaged, render)
-        else:
-            try:
-                png = resources.to_display_png(averaged, **render)
-            except Exception as exc:  # noqa: BLE001 — unrenderable shape must not 500
-                raise HTTPException(
-                    status_code=404, detail=f"render failed: {exc}"
-                ) from exc
-        # Never immutable: bin membership comes off the union frame
-        # (mutable s-file), and the diagnostic YAML behind ``processing``
-        # is likewise a mutable input the URL does not key (see run_image).
-        return Response(content=png, media_type="image/png", headers=_UNION_HEADERS)
-
-    @app.get("/run/{uid}/plot.png")
-    def run_plot(uid: str, y: str, x: str = "") -> Response:
-        """Server-rendered scalar plot: *y* column vs *x* (default row index).
-
-        Uses the matplotlib object API (``Figure``, never pyplot) — no
-        global figure registry, safe on FastAPI's threadpool.
-        """
-        detail = _load_run(uid)
-        if detail.data is None:
-            raise HTTPException(status_code=404, detail="run has no event rows")
-        frame = detail.data.head(_PLOT_MAX_ROWS)
-        y_series = schema_map.numeric_series(frame, y)
-        if y_series is None:
-            raise HTTPException(status_code=404, detail=f"no plottable column {y!r}")
-        x_series = None
-        if x:
-            x_series = schema_map.numeric_series(frame, x)
-            if x_series is None:
-                raise HTTPException(
-                    status_code=404, detail=f"no plottable column {x!r}"
-                )
-        fig = Figure(figsize=(7.5, 4.0), dpi=110)
-        ax = fig.subplots()
-        if x_series is not None:
-            ax.plot(x_series, y_series, ".", markersize=4)
-            ax.set_xlabel(x, parse_math=False)
-        else:
-            ax.plot(y_series.to_numpy(), ".", markersize=4)
-            ax.set_xlabel("row")
-        ax.set_ylabel(y, parse_math=False)
-        ax.grid(True, alpha=0.3)
-        fig.tight_layout()
-        return Response(
-            content=resources.figure_png(fig),
-            media_type="image/png",
-            headers=_png_headers(detail),
+    if processing_config_dir is not None and not portal.processing_names():
+        # The flag is explicit operator intent — a typo'd path, a tree
+        # without analyzers/, or a missing 'analysis' extra must not
+        # no-op silently into a hidden selector.
+        logger.warning(
+            "processing_config_dir %s yielded no diagnostics (missing/"
+            "unlistable tree, or the 'analysis' extra is not installed) "
+            "— the processing selector is disabled",
+            processing_config_dir,
         )
 
     # ---- the analysis config editor (deferred to its own arc) ----
@@ -2149,7 +872,7 @@ def create_app(
     def _preview_scan(uid: str, device: str, day: str):
         """The run + its scan folder for a preview, with the editor's error ladder."""
         try:
-            detail = _load_run(uid)
+            detail = portal.load_run(uid)
             folder, _ = _image_folder(detail, day, device)
         except HTTPException as exc:
             kind = LookupError if exc.status_code == 404 else ValueError
@@ -2223,7 +946,7 @@ def create_app(
                 device,
                 shot,
                 acq_timestamp=acq,
-                data_cache=data_cache if complete else None,
+                data_cache=portal.data_cache if complete else None,
                 cache_key=(uid, device) if complete else None,
             )
         except HTTPException as exc:
@@ -2235,7 +958,7 @@ def create_app(
 
     def _line_preview(diag, uid: str, device: str, day: str, shot: int) -> bytes:
         """A LINE document's preview: the shot's trace drawn as the run draws it."""
-        ephemeral = _ephemeral_module()
+        ephemeral = portal.ephemeral_module()
         detail, folder = _preview_scan(uid, device, day)
         data, aux = _line_trace(diag, detail, folder, device, shot)
         figures = ephemeral.render_document_as_run(
@@ -2267,7 +990,7 @@ def create_app(
         from geecs_analysis.recipe import is_line
         from geecs_schemas.analysis import load_analysis_document
 
-        ephemeral = _ephemeral_module()
+        ephemeral = portal.ephemeral_module()
         uid = str(params.get("uid") or "")
         day = str(params.get("day") or "")
         raw_shots = params.get("shots")
@@ -2314,7 +1037,7 @@ def create_app(
         tight like the sink's PNGs, so the pane shows the product file the
         run would write, not a portal rendering of it.
         """
-        ephemeral = _ephemeral_module()
+        ephemeral = portal.ephemeral_module()
         from geecs_analysis.recipe import is_line
         from geecs_schemas.analysis import load_analysis_document
 
@@ -2340,7 +1063,7 @@ def create_app(
             raise ValueError("this analyzer draws no figure for a single frame")
         return resources.figure_png(figures[0], tight=True)
 
-    if config_editor and processing_config_dir is not None:
+    if config_editor and portal.processing_config_dir is not None:
         try:
             from scan_analysis.config_editor import create_editor_router
             from scan_analysis.config_store import ConfigStore
@@ -2349,7 +1072,7 @@ def create_app(
         else:
             app.include_router(
                 create_editor_router(
-                    ConfigStore(Path(processing_config_dir)),
+                    ConfigStore(Path(portal.processing_config_dir)),
                     preview=_config_editor_preview,
                     summary_preview=_config_editor_summary_preview,
                     summary_shots_max=_SUMMARY_SHOTS_MAX,
@@ -2357,6 +1080,6 @@ def create_app(
                 ),
                 prefix="/configs",
             )
-            config_editor_enabled = True
+            portal.config_editor_enabled = True
 
     return app

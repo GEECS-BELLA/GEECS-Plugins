@@ -174,7 +174,13 @@ extending this package.
 
 ```
 geecs_portal/
-  app.py         # create_app(catalog, default_experiment=…) — all routes
+  app.py         # create_app(catalog, default_experiment=…): builds the
+                 #   PortalState, mounts, and the routes not yet in routes/
+  state.py       # PortalState on app.state (catalog, caches, config, the
+                 #   helpers that need them); get_state = the one Depends
+  routes/        # one APIRouter per family: plot_api (Plot/Grid JSON +
+                 #   bin membership), images (shot/bin images, traces,
+                 #   plot.png); common = stateless request helpers
   analysis.py    # /api boundary chores: filters/bincfg/display parsing,
                  #   JSON shaping (NaN→null), "show the code" snippets
   processing.py  # core compilation/execution and legacy fallback for unported recipes
@@ -257,8 +263,8 @@ the logbook service or null — only with `--logbook-url` and for a run of
 the portal's experiment) · `/api/run/{uid}/device?device=`
 (one device's tier/path via the same `device_kind` probe as the page) ·
 `/api/run/jump/{iso}?prefer=` (the day steppers' target as data).
-The page and JSON routes share `_list_day` / `_neighbours` /
-`_resolved_folder` — add a page-visible fact to BOTH surfaces through
+The page and JSON routes share `PortalState.list_day` / `.neighbours` /
+`routes.common._resolved_folder` — add a page-visible fact to BOTH surfaces through
 those helpers, never to one template.  `/openapi.json` stays on (the
 docs UI is off) so a client can discover the deployed routes; the OSPREY
 deployment's `skills/geecs-data-portal` reference (htu-assistant repo)
@@ -400,7 +406,7 @@ list — a new tab should be exactly these steps:
 1. **Primitive** — the numerics live in GEECS-Data-Utils (or
    ImageAnalysis), pure and hermetically tested there.  If the tab
    needs new math, that PR comes first.
-2. **Endpoint** — one `/api/run/{uid}/…` route in `app.py`: parse
+2. **Endpoint** — one `/api/run/{uid}/…` route in `routes/plot_api.py`: parse
    params via `analysis.py` (`BadParam` → 400 — and that means full
    type/arity validation of every field, not just enum membership:
    plain-dataclass configs validate nothing themselves, so a

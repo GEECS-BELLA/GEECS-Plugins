@@ -3,6 +3,19 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.40.0] - 2026-10-07
+
+### Changed
+
+- `create_app` starts splitting into routers over one shared state object.
+  No behaviour change: the same paths, methods, route names, response
+  models, status codes and OpenAPI document.
+  - `geecs_portal/state.py`: `PortalState` on `app.state`, reached through `get_state`.
+  - `geecs_portal/routes/common.py`: the stateless request helpers the routers share.
+  - `geecs_portal/routes/plot_api.py`: the Plot and Grid tabs' JSON API and bin membership.
+  - `geecs_portal/routes/images.py`: shot and bin images, traces and `plot.png`.
+- Log records from the moved code carry their new module's logger name.
+
 ## [0.39.3] - 2026-10-07
 
 ### Fixed

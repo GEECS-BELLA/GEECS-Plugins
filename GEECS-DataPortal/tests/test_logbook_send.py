@@ -589,7 +589,7 @@ class TestTheSendTouchesNoShare:
     def test_no_scan_folder_is_resolved(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """``resolve_scan_folder`` does is_dir() probes over SMB."""
         monkeypatch.setattr(logbook_send, "send_plot", _StubSend())
-        import geecs_portal.app as app_module
+        import geecs_portal.routes.common as app_module
 
         calls: list = []
         real = app_module.resolve_scan_folder
