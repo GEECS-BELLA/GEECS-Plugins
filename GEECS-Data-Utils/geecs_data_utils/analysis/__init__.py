@@ -1,4 +1,4 @@
-"""Exploratory helpers that sit beside modeling packages without importing ``sklearn``.
+"""Exploratory tabular helpers over scan scalar frames.
 
 Currently exposes correlation ranking; extend here as more scan/QC summaries arrive.
 """

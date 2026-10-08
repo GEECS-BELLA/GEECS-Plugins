@@ -18,7 +18,7 @@ geecs_data_utils/
                                #   ScanAnalysis's suite, #682)
   shot_files.py                # completed-scan shot rows → native Path / stack ShotRef
   scalar_files.py              # shared s-file lock/merge and generated-scalar writes
-  type_defs.py                 # ScanTag, ScanMode, ScanConfig, ECSDump Pydantic models
+  type_defs.py                 # ScanTag, ScanMode, ECSDump Pydantic models
   geecs_paths_config.py        # GeecsPathsConfig: base path + experiment resolution
   config_base.py               # ConfigDirManager: generic config directory management
   config_roots.py              # Singleton instances for image/scan analysis config dirs
@@ -71,12 +71,6 @@ geecs_data_utils/
                                #   logs, the report and errors back as events
   himg_cli.py                  # geecs-himg convert | verify | compact | restore: the .himg backlog command
   plotting_utils.py            # Simple matplotlib helpers for binned data
-  scans_database/
-    database.py                # ScanDatabase: filter + load Parquet dataset
-    builder.py                 # ScanDatabaseBuilder: create/update Parquet dataset
-    entries.py                 # ScanEntry, ScanMetadata: Pydantic models for Parquet rows
-    filter_models.py           # FilterSpec, FilterArgs
-    filters/                   # YAML filter preset files
 ```
 
 ## Core Abstractions
@@ -216,50 +210,6 @@ is excluded from the default value columns, the bin key is excluded
 from the dropna row policy (NA-bin-labelled rows aggregate into their
 own row), and all-NaN columns never cause drops.
 
-## Parquet Scan Database
-
-A Hive-partitioned Parquet dataset indexing all historical scans. Not used in
-live analysis — primarily for offline search and meta-analysis.
-
-### Schema
-
-Partitioned by `year` and `month`:
-```
-parquet_root/year=2024/month=1/0.parquet
-```
-
-Each row is a `ScanEntry`: date, number, experiment, file paths, non-scalar
-device list, scan metadata (parsed from scan_info.ini), ECS dump (JSON),
-analysis presence flag, notes.
-
-### Querying
-
-```python
-from geecs_data_utils.scans_database import ScanDatabase
-from datetime import date
-
-db = ScanDatabase("/data/Undulator/scan_database_parquet")
-df = (db
-      .with_date_range(date(2024, 1, 1), date(2024, 12, 31))
-      .with_experiment("Undulator")
-      .with_named_filter("my_filter", date(2024, 6, 15))  # YAML preset
-      .load())
-```
-
-### Building / Updating
-
-```python
-from geecs_data_utils.scans_database import ScanDatabaseBuilder
-
-ScanDatabaseBuilder.stream_to_parquet(
-    data_root="/data",
-    experiment="Undulator",
-    output_path="/data/Undulator/scan_db",
-    date_range=(date(2024, 1, 1), date.today()),
-    mode="append",      # or "overwrite"
-)
-```
-
 ## Config Directory Management
 
 `analysis_configs` owns read-only discovery of unique diagnostic stems under
@@ -292,8 +242,6 @@ cfg_path = scan_analysis_config.find_config(
 ## Key Type Definitions
 
 - **`ScanMode`** (Enum) — `STANDARD`, `NOSCAN`, `OPTIMIZATION`, `BACKGROUND`
-- **`ScanConfig`** — dataclass: scan_mode, device_var, start, end, step,
-  wait_time, shots_per_step, additional_description
 - **`ECSDump`** / **`DeviceDump`** — Pydantic models for ECS live dump files
 
 ## Useful Utilities
@@ -315,9 +263,8 @@ from geecs_data_utils.plotting_utils import plot_binned, plot_binned_multi
 - **ScanAnalysis** — `ScanData` for binning scalar data in summary plots;
   `ScanPaths` as the base for scan folder resolution
 - **GeecsBluesky / GeecsScanner** — `ScanPaths` for scan folder
-  resolution and post-scan file organization (`ScanConfig` / `ScanMode`
-  remain here as legacy vocabulary; their engine consumer was deleted
-  2026-08-20)
+  resolution and post-scan file organization (`ScanMode` remains here as
+  the `ScanInfoScanNNN.ini` vocabulary)
 
 ## `analysis_status/` reader (`analysis_status`)
 
@@ -524,7 +471,6 @@ read back from Linux.  Three rules hold on this side, and the writer's half
 
 - `nptdms` — TDMS binary file reading
 - `pyarrow` — Parquet I/O
-- `duckdb` — available for ad-hoc Parquet queries but minimal use
 - `pydantic >= 2.0` — all data models
 - `tiled[client]` — optional `tiled` extra (`tiled_export`, `tiled_catalog`)
 

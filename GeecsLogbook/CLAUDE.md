@@ -423,7 +423,7 @@ accident, and so the ones with a due date actually get done.
 ### `scan_reader` stays in this package
 
 An adversarial review argued it is pure logic that belongs in
-`geecs_data_utils`, next to `ScanPaths`, `scans_database/` and
+`geecs_data_utils`, next to `ScanPaths` and
 `scan_log_loader`. The argument is good and the owner agreed with its
 *direction* — but not its conclusion, for a specific reason:
 
@@ -448,12 +448,11 @@ is where that is tracked.
 
 | Item | Why |
 |---|---|
-| `ScanSummary` vs `scans_database.entries.ScanMetadata` overlap | Same reasoning: consolidating means adopting the model layer under review. Revisit with the ScanPaths issue above. |
 | Two day views — the portal's `/day/` (Tiled runs) and the logbook's `/day/` (scan folders) — can disagree | A scan Tiled never received appears in one; a folder predating the catalog appears in the other. **Owner ruling (2026-09-13): the scan folders are canonical for now** — that matches the LabVIEW Master Control implementation the lab runs today. The folders are not downstream of Tiled: the s-file, `ScanInfo` and the per-device files are written from the same RunEngine document stream Tiled records (and by the device servers), which is exactly why the two views can differ. Tiled is expected to become canonical later; when it does, this row is where the logbook's reader changes. Until then a disagreement is resolved in the folders' favour, never by writing one. |
 | Package name vs `geecs_data_utils.scan_log_loader` and `GEECS-LogTriage`, which read `scan.log` | This package is about the *logbook*, not `scan.log`, and `scan_reader` now imports `scan_log_loader`. Renaming costs one commit today and more later. |
 | Separating "running" from "aborted" from churn, for folders with no ScanInfo | Open, not impossible — `scan.log` is in every such folder. Add a `running` status when it is done. |
 | Off-site reading | The mirror tree is one folder, so a text-only `git push` of it to a private repository is cheap whenever wanted; the Google Doc exporter (blocked on credential rotation) is the route that carries images. Neither is needed for a functional logbook. |
-| The scan index | A month-partitioned redevelopment of `geecs_data_utils.scans_database` with an `update(day)` entry point, the portal as its writer. Parked by the owner (2026-09-11) until the two books are live. |
+| The scan index | A month-partitioned scan index (Data-Utils' early Parquet scan catalog was deleted in 0.52.0, superseded by Tiled) with an `update(day)` entry point, the portal as its writer. Parked by the owner (2026-09-11) until the two books are live. |
 | `EntryCreate` (the write shape) lives in `routes/entries.py`, `LogEntry` (the stored shape) in `geecs_schemas` | An agent posts the create shape, so it belongs beside `LogEntry` for GEECS-MCP to validate. Moves with the agent-verbs phase, which is its first second consumer. |
 | A third private atomic-write helper (`_fs.replace_with`; `scan_analysis.config_store` and `task_queue` have their own) and `logbook_root` re-deriving the daily folder | Fold into the `ScanPaths`/`ScanData` review, #839 — same home, same issue. |
 | One home for the entry-id alphabet | The store mints `uuid4().hex[:12]`; `render._ENTRY_REF` and `editor.js`'s `ENTRY_ID` each re-declare it, and `LogEntry.entry_id` carries no `pattern` (unlike `day`). A pattern in `geecs_schemas` is the real home, but it is a cross-package change for a UX fix. Until then `tests/test_crosslinks.py::TestTheIdAlphabetHasNotDrifted` ties both matchers to a freshly minted id, so a change to the minting fails loudly instead of silently breaking paste-recognition and reference-marking. Raised in the review of #890. |

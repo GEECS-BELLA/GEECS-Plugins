@@ -29,7 +29,6 @@ folder = get_scan_folder(experiment="Undulator", scan_tag=tag)
 | Notebook | What it covers |
 |---|---|
 | [Basic Usage](examples/basic_usage.ipynb) | Loading scan data, resolving paths, reading s-files |
-| [Scan Database Utils](examples/scans_database_utils.ipynb) | Querying and navigating the scan database |
 
 ---
 

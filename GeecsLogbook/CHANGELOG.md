@@ -5,6 +5,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.12.2] - 2026-10-07
+
+### Changed
+
+- Documentation only. `CLAUDE.md` no longer points at Data-Utils' scan
+  database module, deleted in geecs-data-utils 0.52.0.
+  Lock refreshed for that release's smaller dependency set.
+
+
 ## [0.12.1] - 2026-09-29
 
 ### Added

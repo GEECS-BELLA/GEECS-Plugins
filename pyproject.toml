@@ -29,7 +29,7 @@ griffe = "<2.0"
 geecs-bluesky = { path = "GeecsBluesky", develop = true }
 geecs-analysis = { path = "GEECS-Analysis", develop = true }
 imageanalysis = { path = "ImageAnalysis", develop = true }
-geecs_data_utils = { path = "GEECS-Data-Utils", develop = true, extras = ["ml"] }
+geecs_data_utils = { path = "GEECS-Data-Utils", develop = true }
 geecs-schemas = { path = "GEECS-Schemas", develop = true }
 scananalysis = {path = "ScanAnalysis", develop = true, extras = ["editor"]}
 geecs-web-theme = {path = "GeecsWebTheme", develop = true}

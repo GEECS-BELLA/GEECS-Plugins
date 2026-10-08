@@ -37,7 +37,7 @@ from geecs_data_utils.native_files import (
     timestamp_key,
     timestamp_key_candidates,
 )
-from geecs_data_utils.type_defs import ScanMode, ScanConfig, ScanTag
+from geecs_data_utils.type_defs import ScanMode, ScanTag
 from geecs_data_utils.config_base import ConfigDirManager
 from geecs_data_utils.config_roots import (
     image_analysis_config,
@@ -91,7 +91,6 @@ __all__ = [
     "filename_timestamp_regex",
     "legacy_filename_regex",
     "ScanMode",
-    "ScanConfig",
     "ConfigDirManager",
     "image_analysis_config",
     "scan_analysis_config",

@@ -11,7 +11,7 @@ configuration parameters.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Union, Dict, Any, List
+from typing import Optional, Dict, List
 from enum import Enum
 from configparser import ConfigParser
 from datetime import date
@@ -90,54 +90,6 @@ class ScanMode(str, Enum):
     NOSCAN = "noscan"
     OPTIMIZATION = "optimization"
     BACKGROUND = "background"
-
-
-class ScanConfig(BaseModel):
-    """
-    Pydantic model for GEECS scan parameters.
-
-    Describes a scan completely enough to write ``ScanInfo{scan}.ini`` and
-    to be parsed back by analysis tools.  All fields have defaults so that
-    partial construction (e.g. noscan with only ``wait_time``) is valid.
-
-    Attributes
-    ----------
-    scan_mode : ScanMode
-        Type of scan to perform.
-    device_var : str, optional
-        ``"device_name:variable_name"`` for the scanned variable.
-    start : int or float
-        Starting value for a parameter sweep.
-    end : int or float
-        Ending value for a parameter sweep.
-    step : int or float
-        Step size for a parameter sweep.
-    wait_time : float
-        Acquisition time per step in seconds.
-    additional_description : str, optional
-        Free-text appended to ``ScanStartInfo`` in the scan_info file.
-    background : bool
-        Flags this scan as a background measurement.
-    optimizer_config_path : str or Path, optional
-        Path to the Xopt optimizer configuration YAML.
-    optimizer_overrides : dict
-        Per-run overrides applied on top of the optimizer config.
-    evaluator_kwargs : dict
-        Extra keyword arguments forwarded to the evaluator constructor.
-    """
-
-    scan_mode: ScanMode = ScanMode.NOSCAN
-    device_var: Optional[str] = None
-    start: Union[int, float] = 0
-    end: Union[int, float] = 1
-    step: Union[int, float] = 1
-    wait_time: float = 1.0
-    additional_description: Optional[str] = None
-    background: bool = False
-    optimizer_config_path: Optional[Union[str, Path]] = None
-    optimizer_overrides: Optional[Dict[str, Any]] = Field(default_factory=dict)
-    evaluator_kwargs: Optional[Dict[str, Any]] = Field(default_factory=dict)
-
     model_config = {"arbitrary_types_allowed": True}
 
 
