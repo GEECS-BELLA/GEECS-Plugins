@@ -23,7 +23,7 @@ from geecs_analysis.registry import (
 )
 from geecs_analysis.render import RenderError
 from geecs_analysis.render.specs import FigureSpec
-from geecs_analysis.algorithms.linear_fit import FIT_SUFFIXES, linear_fit
+from geecs_analysis.summaries.scalar_fit import FIT_SUFFIXES, fit_line
 
 FIGURE = FigureSpec(fig={"dpi": 30})
 
@@ -89,7 +89,7 @@ def test_a_crossing_outside_the_scan_is_reported_but_not_drawn():
 def test_standard_errors_match_ordinary_least_squares():
     x = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
     y = np.array([1.1, 2.9, 5.2, 6.8, 9.1])
-    fit, notes = linear_fit(x, y, "k")
+    fit, notes = fit_line(x, y, "k")
     n = len(x)
     design = np.column_stack([x, np.ones(n)])
     beta, ssr, *_ = np.linalg.lstsq(design, y, rcond=None)
@@ -106,8 +106,10 @@ def test_standard_errors_match_ordinary_least_squares():
 
 
 def test_two_points_give_the_line_with_nan_errors_and_a_note():
-    fit, notes = linear_fit([1.0, 3.0], [2.0, 6.0], "k")
-    assert (fit["slope"], fit["intercept"], fit["zero_crossing"]) == (2.0, 0.0, 0.0)
+    fit, notes = fit_line([1.0, 3.0], [2.0, 6.0], "k")
+    assert fit["slope"] == pytest.approx(2.0, abs=1e-12)
+    assert fit["intercept"] == pytest.approx(0.0, abs=1e-12)
+    assert fit["zero_crossing"] == pytest.approx(0.0, abs=1e-12)
     for key in ("slope_stderr", "intercept_stderr", "zero_crossing_stderr"):
         assert math.isnan(fit[key])
     assert fit["points"] == 2 and len(notes) == 1 and "k" in notes[0]
@@ -115,22 +117,22 @@ def test_two_points_give_the_line_with_nan_errors_and_a_note():
 
 @pytest.mark.parametrize("y", [[], [1.0], [1.0, float("nan")]])
 def test_fewer_than_two_finite_points_are_all_nan_with_a_note(y):
-    fit, notes = linear_fit([0.0, 1.0][: len(y)], y, "k")
+    fit, notes = fit_line([0.0, 1.0][: len(y)], y, "k")
     assert all(math.isnan(fit[s]) for s in FIT_SUFFIXES if s != "points")
     assert fit["points"] == sum(math.isfinite(v) for v in y)
     assert notes and "no line" in notes[0]
 
 
 def test_a_flat_line_has_no_zero_crossing_and_says_so():
-    fit, notes = linear_fit([0.0, 1.0, 2.0], [4.0, 4.0, 4.0], "k")
-    assert fit["slope"] == 0.0 and fit["intercept"] == pytest.approx(4.0)
+    fit, notes = fit_line([0.0, 1.0, 2.0], [4.0, 4.0, 4.0], "k")
+    assert abs(fit["slope"]) < 1e-12 and fit["intercept"] == pytest.approx(4.0)
     assert math.isnan(fit["zero_crossing"]) and math.isnan(fit["zero_crossing_stderr"])
     assert math.isnan(fit["r2"])
     assert any("zero crossing" in n for n in notes)
 
 
 def test_positions_that_do_not_vary_fit_nothing():
-    fit, notes = linear_fit([1.0, 1.0, 1.0], [0.0, 1.0, 2.0], "k")
+    fit, notes = fit_line([1.0, 1.0, 1.0], [0.0, 1.0, 2.0], "k")
     assert math.isnan(fit["slope"]) and fit["points"] == 3
     assert notes and "do not vary" in notes[0]
 

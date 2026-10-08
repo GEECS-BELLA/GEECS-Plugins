@@ -15,7 +15,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   as `null`. It is never a display file, `parse_output_filename`
   classifies it as a summary, and the kind's notes join the run's notes.
   Picture-only kinds write exactly the files they wrote before.
-  `core_preview.preview_summary` still returns only the figure.
+  `core_preview.preview_summary` still returns only the figure. The sidecar
+  format is provisional until scan-level results are designed for 1.0.
 - `tests/test_pulsed_wire_scan.py`: an end-to-end pulsed-wire scan on the
   core route. It writes TDMS scope traces with a waveform time axis and
   runs `lowpass` then the `pulsed_wire` measure, with `waterfall` and

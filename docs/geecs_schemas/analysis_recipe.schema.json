@@ -482,7 +482,7 @@
     },
     "ScalarFitSummary": {
       "additionalProperties": false,
-      "description": "A straight-line fit of measured scalars against the scan position.\n\nFor each named scalar the points are (bin position, the bin's value);\nthe fit's slope, intercept, zero crossing, their standard errors, r\u00b2\nand point count are scan-level numbers, written beside the figure.",
+      "description": "A straight-line fit of measured scalars against the scan position.\n\nFor each named scalar the points are (bin position, the bin's value);\nthe fit's slope, intercept, zero crossing, their standard errors, r\u00b2\nand point count are scan-level numbers, written beside the figure.\n\nProvisional: scan-level results may get a recipe section of their own\nbefore 1.0, so this kind may move or be renamed.",
       "properties": {
         "kind": {
           "const": "scalar_fit",

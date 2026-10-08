@@ -34,8 +34,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   against the scan position. It emits `{key}_slope`, `_intercept`,
   `_zero_crossing` (each with `_stderr`), `_r2` and `_points`; undefined
   numbers stay NaN, with a note saying why. The figure shows the points,
-  the fitted lines and a dashed line at each zero crossing. The fit itself
-  (`linear_fit`, `FIT_SUFFIXES`) is in `algorithms/linear_fit.py`.
+  the fitted lines and a dashed line at each zero crossing. The fit is
+  numpy's `polyfit` with its covariance, inside the summary module; there
+  is no fit module of its own. Provisional: scan-level results may get a
+  recipe section of their own before 1.0, so this kind, `SummaryOutput`
+  and the sidecar may move or be renamed.
 - The summary-scalars contract: a summary layout may return
   `registry.SummaryOutput(figure, scalars, notes)` instead of a bare
   `Figure`, and consumers normalise either shape with

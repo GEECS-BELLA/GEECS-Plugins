@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   position with `model: linear`, on 1D or 2D frames. Its numbers are
   scan-level: the ScanAnalysis sink writes them to a JSON file beside the
   summary PNG. The published `analysis_recipe.schema.json` and the schema
-  reference are regenerated.
+  reference are regenerated. Provisional: scan-level results may get a
+  recipe section of their own before 1.0; this kind may move or be renamed.
 
 ### Changed
 

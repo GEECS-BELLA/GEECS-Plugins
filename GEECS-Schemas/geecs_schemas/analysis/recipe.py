@@ -396,6 +396,9 @@ class ScalarFitSummary(_SummaryBase):
     For each named scalar the points are (bin position, the bin's value);
     the fit's slope, intercept, zero crossing, their standard errors, r²
     and point count are scan-level numbers, written beside the figure.
+
+    Provisional: scan-level results may get a recipe section of their own
+    before 1.0, so this kind may move or be renamed.
     """
 
     frame_ndim: ClassVar[frozenset[int]] = frozenset({1, 2})
