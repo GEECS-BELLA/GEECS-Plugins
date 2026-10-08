@@ -272,7 +272,7 @@ tests/
   the latin-1 byte↔str convention comes from the gateway transport (0.16.1).
   Do not re-derive any of them here.
 - Repo-wide conventions apply (root `CLAUDE.md`): Pydantic v2, NumPy
-  docstrings, `poetry version` + `CHANGELOG.md` on every code-changing PR.
+  docstrings, `poetry version` + `CHANGELOG.md` at deploy/tag time, not per PR.
 
 ## Testing
 

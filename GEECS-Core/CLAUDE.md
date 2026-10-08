@@ -38,4 +38,4 @@ the device, `test_geecs_db` fakes the MySQL connector, `asyncio_mode = "auto"`,
 `integration`-marked tests (real lab DB) are deselected by default.
 
 Repo-wide conventions apply (root `CLAUDE.md`): Pydantic v2, NumPy docstrings,
-type hints, `poetry version` + `CHANGELOG.md` on every code-changing PR.
+type hints, `poetry version` + `CHANGELOG.md` at deploy/tag time, not per PR.

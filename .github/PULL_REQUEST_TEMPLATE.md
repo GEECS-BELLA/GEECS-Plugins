@@ -5,8 +5,8 @@
 
 ## Checklist
 
-- [ ] `poetry version patch|minor` run for every package whose code changed
-- [ ] `CHANGELOG.md` entry added under the new version (Keep a Changelog)
+- [ ] No version bump / CHANGELOG entry unless this PR deploys or tags a release (then `scripts/release_notes.py` drafts it)
+- [ ] Title reads as a changelog bullet (`Package: what changed`)
 - [ ] Tests: exact counts reported below (not "tests pass")
 - [ ] Base branch is `master` (or your `users/<name>`) — see
       CONTRIBUTING.md § "Branch topology"; master merges are
