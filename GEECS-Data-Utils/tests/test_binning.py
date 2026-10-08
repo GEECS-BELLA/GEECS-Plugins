@@ -47,7 +47,7 @@ class TestCentersAndCounts:
     def test_counts_are_a_separate_series_not_a_pseudo_column(self):
         result = bin_frame(_frame(), BinningConfig())
         assert "count" not in result.frame.columns.get_level_values(0)
-        assert result.counts.name is not None or True  # named by bin col
+        assert result.counts.name is not None or True  # noqa: SIM222 # named by bin col
         assert result.counts.index.name == "Bin #"
 
 

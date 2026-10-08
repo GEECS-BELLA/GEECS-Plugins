@@ -246,7 +246,7 @@ class FleetProbe(BaseModel):
                     f"  [DOWN] PVA gateway  {p.host.ip:<15}  ({p.error}; {n} stream devices)"
                 )
         for h in self.not_deployed:
-            out.append(
+            out.append(  # noqa: PERF401 — clearer as a loop
                 f"  [ -- ] PVA gateway  {h.ip:<15}  not deployed ({len(h.devices)} stream devices in the DB: "
                 f"{', '.join(h.devices)}) — add to config.ini [pva] addr_list once installed"
             )

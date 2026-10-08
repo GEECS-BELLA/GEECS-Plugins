@@ -153,6 +153,4 @@ class ImageAnalyzer:
         if isinstance(file_path, ShotRef):
             return read_shot(file_path)
 
-        image = read_imaq_image(file_path)
-
-        return image
+        return read_imaq_image(file_path)

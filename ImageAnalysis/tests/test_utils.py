@@ -40,4 +40,4 @@ def test_unknown_attribute_still_raises():
     with warnings.catch_warnings():
         warnings.simplefilter("error")  # any spurious warning would fail here
         with pytest.raises(AttributeError):
-            utils.does_not_exist
+            utils.does_not_exist  # noqa: B018 — attribute access is the test

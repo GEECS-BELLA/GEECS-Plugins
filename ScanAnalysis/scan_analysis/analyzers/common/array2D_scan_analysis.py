@@ -172,10 +172,11 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
         # Create config from kwargs
         try:
             return Image2DRendererConfig(**renderer_kwargs)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — bad kwargs use defaults
             logger.warning(
-                f"Error creating Image2DRendererConfig from {renderer_kwargs}: {e}. "
-                f"Using defaults."
+                "Error creating Image2DRendererConfig from %s: %s. Using defaults.",
+                renderer_kwargs,
+                e,
             )
             return Image2DRendererConfig()
 
@@ -315,7 +316,7 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
                                 bin_key = int(parts[-2])
                                 self.saved_avg_data_paths[bin_key] = paths[0]
                     except Exception as e:
-                        logger.error(f"Error rendering bin data: {e}")
+                        logger.exception("Error rendering bin data: %s", e)
 
         # Create summary figure (grid montage) if multiple bins exist
         if len(contexts) > 1 and self.flag_save_data:
@@ -324,8 +325,8 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
                     contexts, config, self.path_dict["save"]
                 )
                 if summary_path:
-                    logger.info(f"Created summary figure at {summary_path}")
+                    logger.info("Created summary figure at %s", summary_path)
             except Exception as e:
-                logger.error(f"Error creating summary figure: {e}")
+                logger.exception("Error creating summary figure: %s", e)
 
         self.binned_data = binned_data

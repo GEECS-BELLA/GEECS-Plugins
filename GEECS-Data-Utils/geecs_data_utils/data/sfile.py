@@ -96,7 +96,7 @@ def run_closed_evidence(scan_folder: Path) -> Optional[Path]:
     """
     scan_folder = Path(scan_folder)
     candidates = [scan_data_txt_path_for(scan_folder)]
-    try:
+    try:  # noqa: SIM105 — keeps the except comment
         candidates.append(sfile_path_for_scan(scan_folder))
     except ValueError:  # not a canonical scans/ScanNNN folder
         pass

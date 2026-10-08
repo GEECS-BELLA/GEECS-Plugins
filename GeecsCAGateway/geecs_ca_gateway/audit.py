@@ -197,7 +197,7 @@ def build_delete_sql(experiment: str, result: AuditResult) -> list[str]:
 
     statements: list[str] = []
     for finding in result.findings:
-        statements.append(
+        statements.append(  # noqa: PERF401 — clearer as a loop
             "DELETE edv FROM expt_device_variable edv "
             "JOIN expt_device ed ON ed.id = edv.expt_device_id "
             f"WHERE ed.expt = '{esc(experiment)}' "
@@ -250,7 +250,7 @@ def format_report(result: AuditResult, *, full: bool = False) -> str:
         lines.append("")
         lines.append("  Flagged variables:")
         for finding in result.findings:
-            lines.append(
+            lines.append(  # noqa: PERF401 — clearer as a loop
                 f"    [{finding.reason:<12}] {finding.device} :: {finding.variable}"
             )
 
@@ -261,7 +261,7 @@ def format_report(result: AuditResult, *, full: bool = False) -> str:
             f"{result.orphans.count}):"
         )
         for row in result.orphans.sample:
-            lines.append(
+            lines.append(  # noqa: PERF401 — clearer as a loop
                 f"    id={row.get('id')} "
                 f"expt_device_id={row.get('expt_device_id')} "
                 f"variablename={row.get('variablename')!r}"

@@ -78,15 +78,19 @@ def apply_interpolation(
         result = np.column_stack([uniform_x, interpolated_y])
 
         logger.debug(
-            f"Interpolated data from {len(data)} to {config.num_points} points "
-            f"over range [{x_min:.3e}, {x_max:.3e}]"
+            "Interpolated data from %s to %s points over range [%.3e, %.3e]",
+            len(data),
+            config.num_points,
+            x_min,
+            x_max,
         )
 
         return result
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — falls back to input
         logger.warning(
-            f"Interpolation failed: {e}. Returning original data.",
+            "Interpolation failed: %s. Returning original data.",
+            e,
             exc_info=True,
         )
         return data.copy()

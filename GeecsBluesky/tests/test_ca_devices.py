@@ -16,29 +16,29 @@ import pytest
 
 pytest.importorskip("aioca")  # CA backend needs the `ca` extra
 
-from ophyd_async.core import (  # noqa: E402
+from ophyd_async.core import (
     callback_on_mock_put,
     get_mock_put,
     set_mock_put_proceeds,
     set_mock_value,
 )
 
-from geecs_bluesky.devices.ca import (  # noqa: E402
+from geecs_bluesky.devices.ca import (
     CaConfirmSettable,
     CaMotor,
     CaSettable,
     CaSnapshotReadable,
 )
-from geecs_bluesky.devices.ca._pv import ca_pv  # noqa: E402
-from geecs_bluesky.devices.detector import (  # noqa: E402
+from geecs_bluesky.devices.ca._pv import ca_pv
+from geecs_bluesky.devices.detector import (
     STRICT_TRIGGER_INFO,
     GeecsDetector,
 )
-from geecs_bluesky.exceptions import (  # noqa: E402
+from geecs_bluesky.exceptions import (
     GeecsConfirmTimeoutError,
     GeecsMotorTimeoutError,
 )
-from geecs_core.pv_naming import normalize_component, pv_name  # noqa: E402
+from geecs_core.pv_naming import normalize_component, pv_name
 
 
 # --------------------------------------------------------------------------

@@ -20,26 +20,26 @@ import pytest
 
 pytest.importorskip("aioca")
 
-import bluesky.plan_stubs as bps  # noqa: E402
-import bluesky.plans as bp  # noqa: E402
-import bluesky.preprocessors as bpp  # noqa: E402
-from bluesky import RunEngine  # noqa: E402
-from bluesky.utils import FailedStatus  # noqa: E402
-from geecs_schemas.scan_variables import ScanVariables  # noqa: E402
-from ophyd_async.core import callback_on_mock_put, set_mock_value  # noqa: E402
+import bluesky.plan_stubs as bps
+import bluesky.plans as bp
+import bluesky.preprocessors as bpp
+from bluesky import RunEngine
+from bluesky.utils import FailedStatus
+from geecs_schemas.scan_variables import ScanVariables
+from ophyd_async.core import callback_on_mock_put, set_mock_value
 
-from geecs_bluesky.devices.ca import CaMotor, CaPseudoPositioner, CaSettable  # noqa: E402
-from geecs_bluesky.devices.ca.pseudo import (  # noqa: E402
+from geecs_bluesky.devices.ca import CaMotor, CaPseudoPositioner, CaSettable
+from geecs_bluesky.devices.ca.pseudo import (
     DEFAULT_AGREEMENT_TOLERANCE,
     build_pseudo,
     inverse_symbols,
 )
-from geecs_bluesky.preprocessors import scalar_headers  # noqa: E402
-from geecs_bluesky.exceptions import (  # noqa: E402
+from geecs_bluesky.preprocessors import scalar_headers
+from geecs_bluesky.exceptions import (
     GeecsConfigurationError,
     PseudoComponentsDisagreeError,
 )
-from tests.ca_mock_helpers import DocCollector, connect_mock  # noqa: E402
+from tests.ca_mock_helpers import DocCollector, connect_mock
 
 R56_FORWARD = "sqrt(100 ** 2 * composite_var / 560968.636)"
 R56_INVERSE = "560968.636 * U_ChicaneInner**2 / 100**2"
@@ -147,7 +147,7 @@ def bench() -> Bench:
     return Bench(RunEngine())
 
 
-# ----------------------------------------------------------- relative (bump)
+# ----------------------------------------------------------- relative (bump)  # noqa: ERA001 — section header, not code
 
 
 def test_relative_zeroes_at_stage_reads_zero_and_moves_about_the_baselines(bench):

@@ -70,9 +70,8 @@ def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:
 
     if significant_bits is None:
         return image
-    else:
-        significant_bits = ord(significant_bits)
-        return np.right_shift(image, bitdepth - significant_bits)
+    significant_bits = ord(significant_bits)
+    return np.right_shift(image, bitdepth - significant_bits)
 
 
 def read_tsv_file(file_path: Union[str, Path]) -> np.ndarray:
@@ -93,7 +92,7 @@ def read_tsv_file(file_path: Union[str, Path]) -> np.ndarray:
     try:
         data = np.genfromtxt(file_path, delimiter="\t")
     except Exception as e:
-        raise RuntimeError(f"Failed to load .tsv file {file_path}: {e}")
+        raise RuntimeError(f"Failed to load .tsv file {file_path}: {e}") from e
 
     return data.astype(np.float64)
 
@@ -116,14 +115,13 @@ def read_imaq_image(file_path: Union[Path, str]) -> np.ndarray:
 
     if file_path.suffix.lower() == ".png":
         return read_imaq_png_image(file_path)
-    elif file_path.suffix.lower() == ".npy":
+    if file_path.suffix.lower() == ".npy":
         return np.load(file_path)
-    elif file_path.suffix.lower() == ".tsv":
+    if file_path.suffix.lower() == ".tsv":
         return read_tsv_file(file_path)
-    elif file_path.suffix.lower() == ".h5":
+    if file_path.suffix.lower() == ".h5":
         return load_image_from_h5(h5_path=file_path)
-    else:
-        return imread(file_path)
+    return imread(file_path)
 
 
 def load_image_from_h5(h5_path: Path | str) -> np.ndarray:
@@ -141,8 +139,7 @@ def load_image_from_h5(h5_path: Path | str) -> np.ndarray:
         The image data extracted from the HDF5 file.
     """
     with h5py.File(h5_path, "r") as f:
-        image = f["image"][()]  # Load the dataset into a NumPy array
-    return image
+        return f["image"][()]  # Load the dataset into a NumPy array
 
 
 def _flatten_string_to_bytes(blob: Union[str, bytes]) -> bytes:

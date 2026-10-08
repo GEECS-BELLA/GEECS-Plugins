@@ -21,8 +21,8 @@ import pytest
 pytest.importorskip("aioca")
 pytest.importorskip("p4p")
 
-from bluesky import RunEngine  # noqa: E402
-from ophyd_async.core import (  # noqa: E402
+from bluesky import RunEngine
+from ophyd_async.core import (
     DetectorTrigger,
     StaticFilenameProvider,
     StaticPathProvider,
@@ -31,21 +31,21 @@ from ophyd_async.core import (  # noqa: E402
     set_mock_value,
 )
 
-from geecs_bluesky.devices.detector import (  # noqa: E402
+from geecs_bluesky.devices.detector import (
     DEFAULT_SHOT_TIMEOUT,
     STRICT_TRIGGER_INFO,
     GeecsDetector,
     mask_missed_shot,
 )
-from geecs_bluesky.devices.hdf_plugin import (  # noqa: E402
+from geecs_bluesky.devices.hdf_plugin import (
     GeecsHdfIO,
     GeecsStreamResourceDataProvider,
     PluginPathProvider,
     file_plugin_hosts,
 )
-from geecs_bluesky.exceptions import GeecsTriggerTimeoutError  # noqa: E402
-from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider  # noqa: E402
-from tests.ca_mock_helpers import connect_mock  # noqa: E402
+from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
+from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
+from tests.ca_mock_helpers import connect_mock
 
 
 def _run(RE: RunEngine, make_awaitable):
@@ -680,8 +680,7 @@ def test_fly_mode_counts_and_skips_the_stamp_wait(
         await status  # no stamp advanced: the count is the completion
         set_mock_value(cam.hdf.num_captured, 4)  # the in-flight frame
         await cam.truncate_to_quota()
-        docs = [doc async for doc in cam.collect_asset_docs()]
-        return docs
+        return [doc async for doc in cam.collect_asset_docs()]
 
     docs = _run(RE, lambda: batch())
     assert rewinds == [3]
@@ -767,7 +766,7 @@ def test_batch_count_timeout_is_the_geecs_error(RE: RunEngine, tmp_path: Path) -
     _run(RE, lambda: cam.unstage())
 
 
-def test_fly_prepare_without_a_plugin_is_run_long_native_saving_or_refused(
+def test_fly_prepare_without_a_plugin_is_run_long_native_saving_or_refused(  # noqa: PLR0915
     RE: RunEngine, tmp_path: Path
 ) -> None:
     """No plugin: an unbounded fly prepare switches LabVIEW saving on, run-long.

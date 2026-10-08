@@ -29,7 +29,7 @@ _SECTION_LABEL = {
 }
 
 
-def render_markdown(report: TriageReport) -> str:
+def render_markdown(report: TriageReport) -> str:  # noqa: PLR0915
     """Render a `TriageReport` as a Markdown string.
 
     Parameters

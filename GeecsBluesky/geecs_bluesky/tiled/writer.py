@@ -101,7 +101,7 @@ def _package_version() -> str:
         from importlib.metadata import version
 
         return version("geecs-bluesky")
-    except Exception:  # pragma: no cover - not installed as a distribution
+    except Exception:  # pragma: no cover - not installed as a distribution  # noqa: BLE001 — version lookup is optional
         return "unknown"
 
 
@@ -324,7 +324,7 @@ class SpoolRegistrar:
         try:
             write_heartbeat(self.layout.heartbeat_path, heartbeat)
         except OSError as exc:
-            logger.error(
+            logger.error(  # noqa: TRY400 — expected I/O, short
                 "heartbeat not written to %s: %s", self.layout.heartbeat_path, exc
             )
         return heartbeat
@@ -373,7 +373,7 @@ class SpoolRegistrar:
             # The file itself is the problem; a retry reads the same bytes.
             self._set_aside(path, run_uid, label, exc, attempts=None)
             return
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — retry with a fresh client
             self._client = None  # a fresh client next time: the old one may be wedged
             attempts = self._attempts.get(run_uid, 0) + 1
             self._attempts[run_uid] = attempts

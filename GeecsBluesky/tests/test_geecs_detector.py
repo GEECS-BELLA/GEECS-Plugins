@@ -15,9 +15,9 @@ import pytest
 
 pytest.importorskip("aioca")  # CA backend needs the `ca` extra
 
-from bluesky import RunEngine  # noqa: E402
-from bluesky.utils import FailedStatus  # noqa: E402
-from ophyd_async.core import (  # noqa: E402
+from bluesky import RunEngine
+from bluesky.utils import FailedStatus
+from ophyd_async.core import (
     DetectorTrigger,
     StaticFilenameProvider,
     StaticPathProvider,
@@ -25,12 +25,12 @@ from ophyd_async.core import (  # noqa: E402
     set_mock_value,
 )
 
-from geecs_bluesky.devices.detector import (  # noqa: E402
+from geecs_bluesky.devices.detector import (
     STRICT_TRIGGER_INFO,
     GeecsDetector,
 )
-from geecs_bluesky.exceptions import GeecsTriggerTimeoutError  # noqa: E402
-from tests.ca_mock_helpers import connect_mock  # noqa: E402
+from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
+from tests.ca_mock_helpers import connect_mock
 
 
 async def _watch(signal, sink: list) -> None:

@@ -169,8 +169,9 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             # Mark that we cannot send the image analyzer through multiprocessing
             self.image_analyzer.run_analyze_image_asynchronously = True
             logger.warning(
-                f"[{self.__class__.__name__}] ImageAnalyzer instance is not pickleable "
-                f"(reason: {e}). Falling back to threaded analysis."
+                "[%s] ImageAnalyzer instance is not pickleable (reason: %s). Falling back to threaded analysis.",
+                self.__class__.__name__,
+                e,
             )
 
     def _establish_additional_paths(self):
@@ -358,7 +359,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         if bg_config.file_path and "{scan_dir}" in str(bg_config.file_path):
             resolved = str(bg_config.file_path).replace("{scan_dir}", str(scan_dir))
             bg_config.file_path = Path(resolved)
-            logger.info(f"Resolved background file_path: {resolved}")
+            logger.info("Resolved background file_path: %s", resolved)
 
         directive = getattr(self, "background_source", None)
         if directive is not None:
@@ -614,7 +615,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                     self._log_result_warnings(shot_num, result)
                     self._consume_result(shot_num, [shot_num], result)
                 except Exception as e:
-                    logger.error(f"Analysis failed for shot {shot_num}: {e}")
+                    logger.exception("Analysis failed for shot %s: %s", shot_num, e)
 
     def _analyze_per_bin_streaming(self) -> None:
         """Streaming per-bin pipeline: load → average → analyze, bin by bin.
@@ -653,7 +654,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                         img = fut.result()
                         if img is not None:
                             images.append(img)
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 — per-shot isolation
                         logger.warning(
                             "Skipping %s in bin %s (load failed: %s)",
                             path,
@@ -675,7 +676,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                     self._log_result_warnings(bin_key, result)
                     self._consume_result(bin_key, bin_shots, result)
                 except Exception as e:
-                    logger.error(f"Analysis failed for bin {bin_key}: {e}")
+                    logger.exception("Analysis failed for bin %s: %s", bin_key, e)
 
     def _consume_result(
         self,
@@ -797,8 +798,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         # Create config from kwargs
         try:
             return BaseRendererConfig(**renderer_kwargs)
-        except Exception as e:
-            logger.warning(f"Error creating renderer config: {e}. Using defaults.")
+        except Exception as e:  # noqa: BLE001 — bad kwargs use defaults
+            logger.warning("Error creating renderer config: %s. Using defaults.", e)
             return BaseRendererConfig()
 
     def get_binned_data(self) -> dict[int, BinDataEntry]:
@@ -816,9 +817,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         if self.analysis_mode == "per_bin":
             # Results are already binned, just reformat
             return self._convert_per_bin_results_to_binned_format()
-        else:
-            # Results are per-shot, need to bin them
-            return self.bin_data_from_results()
+        # Results are per-shot, need to bin them
+        return self.bin_data_from_results()
 
     def _convert_per_bin_results_to_binned_format(self) -> dict[int, BinDataEntry]:
         """
@@ -870,7 +870,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         from image_analysis.types import ImageAnalyzerResult
 
         unique_bins = [int(b) for b in np.unique(self.auxiliary_data["Bin #"].values)]
-        logger.info(f"Unique bins from auxiliary data: {unique_bins}")
+        logger.info("Unique bins from auxiliary data: %s", unique_bins)
 
         binned_data: dict[int, BinDataEntry] = {}
 
@@ -888,7 +888,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             ]
 
             if not valid_shots:
-                logger.warning(f"No data found for bin {bin_val}.")
+                logger.warning("No data found for bin %s.", bin_val)
                 continue
 
             # Simply average the ImageAnalyzerResult objects!
@@ -926,7 +926,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         self.renderer.cleanup()
 
-        logger.debug(f"[{self.__class__.__name__}] cleanup() complete.")
+        logger.debug("[%s] cleanup() complete.", self.__class__.__name__)
 
     @staticmethod
     def average_data(data_list: list[np.ndarray]) -> Optional[np.ndarray]:

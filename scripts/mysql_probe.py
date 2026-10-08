@@ -213,7 +213,7 @@ def probe(
         return classify_error(exc, target, who)
     except OSError as exc:
         return 1, f"down {target} — {type(exc).__name__}: {exc}"
-    try:
+    try:  # noqa: SIM105 — keeps the except comment
         conn.close()  # sends COM_QUIT: a clean close, not an aborted connect
     except Exception:  # noqa: BLE001 — the login already proved reachability
         pass

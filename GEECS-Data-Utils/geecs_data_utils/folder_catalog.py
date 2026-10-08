@@ -474,7 +474,7 @@ class MergedScanCatalog:
         """
         try:
             primary_runs = self._primary.list_runs(experiment, day)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — primary catalog fails over
             primary_error: Optional[Exception] = exc
             primary_runs = []
         else:

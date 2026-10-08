@@ -122,10 +122,10 @@ class Line1DRenderer(BaseRenderer):
         elif config.mode == "grid":
             self._create_grid_plot(contexts, config, summary_path, scan_param)
         else:
-            logger.error(f"Unknown mode: {config.mode}")
+            logger.error("Unknown mode: %s", config.mode)
             return None
 
-        logger.info(f"Saved summary figure to {summary_path}")
+        logger.info("Saved summary figure to %s", summary_path)
         self.display_contents.append(str(summary_path))
         return summary_path
 
@@ -180,7 +180,7 @@ class Line1DRenderer(BaseRenderer):
         with h5py.File(save_path, "w") as f:
             f.create_dataset("data", data=data, compression="gzip", compression_opts=4)
 
-        logger.info(f"Saved 1D data to {save_path}")
+        logger.info("Saved 1D data to %s", save_path)
         return save_path
 
     def _save_visualization_file(
@@ -229,11 +229,11 @@ class Line1DRenderer(BaseRenderer):
 
                 fig.savefig(save_path, dpi=config.dpi, bbox_inches="tight")
                 plt.close(fig)
-                logger.info(f"Saved visualization to {save_path} (using render_image)")
+                logger.info("Saved visualization to %s (using render_image)", save_path)
                 return save_path
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — falls back to default render
                 logger.warning(
-                    f"Failed to use render_function, falling back to default: {e}"
+                    "Failed to use render_function, falling back to default: %s", e
                 )
 
         # Fallback: Create plot manually
@@ -272,7 +272,7 @@ class Line1DRenderer(BaseRenderer):
         fig.savefig(save_path, dpi=config.dpi, bbox_inches="tight")
         plt.close(fig)
 
-        logger.info(f"Saved visualization to {save_path}")
+        logger.info("Saved visualization to %s", save_path)
         return save_path
 
     def _get_colormap_params_1d(
@@ -337,7 +337,7 @@ class Line1DRenderer(BaseRenderer):
                     vmax,
                 )
             else:
-                if data_min < 0.0:
+                if data_min < 0.0:  # noqa: SIM108 — keeps the branch comments
                     vmin = data_min  # all-negative
                 else:
                     vmin = 0.0  # all-non-negative; preserve legacy floor
@@ -355,7 +355,7 @@ class Line1DRenderer(BaseRenderer):
             vmin = -vmax
             cmap = config.cmap or "RdBu_r"
             logger.info(
-                f"Using diverging colormap with vmin={vmin:.2e}, vmax={vmax:.2e}"
+                "Using diverging colormap with vmin=%.2e, vmax=%.2e", vmin, vmax
             )
         elif config.colormap_mode == "sequential":
             # Standard: 0 to max (legacy default behavior)
@@ -363,18 +363,18 @@ class Line1DRenderer(BaseRenderer):
             vmax = config.vmax if config.vmax is not None else data.max()
             cmap = config.cmap or "plasma"
             logger.info(
-                f"Using sequential colormap with vmin={vmin:.2e}, vmax={vmax:.2e}"
+                "Using sequential colormap with vmin=%.2e, vmax=%.2e", vmin, vmax
             )
         else:  # "custom"
             # User-defined limits
             vmin = config.vmin if config.vmin is not None else data.min()
             vmax = config.vmax if config.vmax is not None else data.max()
             cmap = config.cmap or "plasma"
-            logger.info(f"Using custom colormap with vmin={vmin:.2e}, vmax={vmax:.2e}")
+            logger.info("Using custom colormap with vmin=%.2e, vmax=%.2e", vmin, vmax)
 
         return float(vmin), float(vmax), cmap, norm
 
-    def _create_waterfall_plot(
+    def _create_waterfall_plot(  # noqa: PLR0912, PLR0915
         self,
         contexts: List[RenderContext],
         config: Line1DRendererConfig,
@@ -643,10 +643,7 @@ class Line1DRenderer(BaseRenderer):
         )
 
         # Flatten axes array for easier iteration
-        if n_plots == 1:
-            axes = [axes]
-        else:
-            axes = axes.flatten()
+        axes = [axes] if n_plots == 1 else axes.flatten()
 
         # Plot each context
         for idx, ctx in enumerate(contexts):

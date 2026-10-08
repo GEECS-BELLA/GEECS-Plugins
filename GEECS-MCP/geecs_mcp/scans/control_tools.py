@@ -54,7 +54,7 @@ def _stop_scan_impl(force: bool) -> str:
     running = None
     try:
         running = client.running_item()
-    except Exception:  # fail-open: an unreadable item never blocks a halt
+    except Exception:  # fail-open: an unreadable item never blocks a halt  # noqa: BLE001 — tool boundary, error reply
         logger.debug("running-item read failed before stop", exc_info=True)
     owner = (running or {}).get("user")
     foreign = bool(owner and owner != runtime.client_identity())
@@ -95,7 +95,7 @@ def _clear_queue_impl() -> str:
     client = runtime.get_queue_client()
     try:
         pending = client.queue_items()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — tool boundary, error reply
         return errors.make_error("manager_unreachable", str(exc))
     if not pending:
         return errors.make_ok(cleared=[], message="queue already empty")
@@ -142,7 +142,7 @@ def _running_scan_owner(client) -> tuple[str | None, bool]:
     """
     try:
         running = client.running_item()
-    except Exception:
+    except Exception:  # noqa: BLE001 — tool boundary, error reply
         logger.debug("running-item read failed before pause/resume", exc_info=True)
         return None, False
     return (running or {}).get("user") or None, True
@@ -276,7 +276,7 @@ def _scan_progress_impl() -> str:
                 "plan": raw.get("name"),
                 "user": raw.get("user"),
             }
-    except Exception:
+    except Exception:  # noqa: BLE001 — tool boundary, error reply
         logger.debug("running-item read failed in progress poll", exc_info=True)
     last = None
     try:
@@ -290,11 +290,11 @@ def _scan_progress_impl() -> str:
                 "exit_status": result.get("exit_status"),
                 "scan_ids": result.get("scan_ids"),
             }
-    except Exception:
+    except Exception:  # noqa: BLE001 — tool boundary, error reply
         logger.debug("history read failed in progress poll", exc_info=True)
     try:
         stream = _stream_snapshot(client, status.re_state)
-    except Exception:  # the poll answer must never die on the stream extra
+    except Exception:  # the poll answer must never die on the stream extra  # noqa: BLE001 — tool boundary, error reply
         logger.debug("stream snapshot failed in progress poll", exc_info=True)
         stream = {"available": False, "detail": "stream snapshot failed"}
     return errors.make_ok(

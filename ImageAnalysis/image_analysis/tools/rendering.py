@@ -385,7 +385,7 @@ def _draw(
     fig, ax = new_figure(figsize, dpi)
     try:
         draw(ax)
-    except Exception as exc:  # noqa: BLE001 — typed so callers can map it
+    except Exception as exc:
         raise RenderError(f"{type(exc).__name__}: {exc}") from exc
     if ax.images:
         # base_render_image only adds a colorbar when IT created the axes.

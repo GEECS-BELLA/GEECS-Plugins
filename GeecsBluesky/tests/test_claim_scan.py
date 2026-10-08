@@ -9,20 +9,20 @@ import pytest
 
 pytest.importorskip("aioca")
 
-import bluesky.plan_stubs as bps  # noqa: E402
-import bluesky.plans as bp  # noqa: E402
-import bluesky.preprocessors as bpp  # noqa: E402
-from bluesky import RunEngine  # noqa: E402
-from functools import partial  # noqa: E402
+import bluesky.plan_stubs as bps
+import bluesky.plans as bp
+import bluesky.preprocessors as bpp
+from bluesky import RunEngine
+from functools import partial
 
-from geecs_bluesky.devices.ca import CaSnapshotReadable  # noqa: E402
-from geecs_bluesky.exceptions import GeecsConfigurationError  # noqa: E402
-from geecs_bluesky.plans.claim_scan import (  # noqa: E402
+from geecs_bluesky.devices.ca import CaSnapshotReadable
+from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.plans.claim_scan import (
     GeecsScanPathProvider,
     claim_scan_preprocessor,
 )
-from geecs_bluesky.preprocessors import scalar_headers  # noqa: E402
-from tests.ca_mock_helpers import DocCollector, connect_mock  # noqa: E402
+from geecs_bluesky.preprocessors import scalar_headers
+from tests.ca_mock_helpers import DocCollector, connect_mock
 
 
 class FakeClaim:

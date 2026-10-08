@@ -95,7 +95,7 @@ def _opened(load: Loader) -> Iterator[Loader]:
         yield load
 
 
-def _run_group(
+def _run_group(  # noqa: C901, PLR0912, PLR0915
     recipe: V2Recipe,
     group: ShotGroup,
     load: Loader,
@@ -122,7 +122,7 @@ def _run_group(
             data = load(shot)
             if not isinstance(data, np.ndarray):
                 raise TypeError("Source must return a native ndarray")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — per-shot isolation
             failures.append(LoadFailure(shot, str(exc)))
             continue
         loaded.append(shot)
@@ -172,7 +172,7 @@ def _run_group(
                 number = group.shots[0]
                 shot = metadata.get(number, ShotMeta(recipe.device, number))
             measurement = analyze_v2(raw, recipe, shot=shot, inputs=bound)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — per-shot isolation
             error = str(exc)
     # Release native arrays before the outcome travels. Only the owned
     # Measurement and lightweight outcome survive while the sink handles it.
@@ -289,7 +289,7 @@ def _run_serial(
 class _ForwardToLoggers(logging.Handler):
     """Hand a worker's record to this process's logger of the same name."""
 
-    def emit(self, record: logging.LogRecord) -> None:  # noqa: D102 - Handler API
+    def emit(self, record: logging.LogRecord) -> None:
         logger = logging.getLogger(record.name)
         if logger.isEnabledFor(record.levelno):
             logger.handle(record)
@@ -345,7 +345,7 @@ def _worker_init(
     # Imported before the forwarding handler exists: the records those
     # modules emit at import time are start-up lines the parent already
     # logged once, and would otherwise reach the host log once per worker.
-    import geecs_analysis.measures  # noqa: F401
+    import geecs_analysis.measures
     import geecs_analysis.steps  # noqa: F401
 
     root = logging.getLogger()

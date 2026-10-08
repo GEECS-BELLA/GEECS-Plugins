@@ -78,15 +78,17 @@ def interpolate_image_axis(
     # Clip to calibration range and warn if clipping occurred
     if physical_min < calib_min:
         logger.warning(
-            f"Requested physical_min ({physical_min:.3f}) below calibration range "
-            f"({calib_min:.3f}). Clipping to calibration minimum."
+            "Requested physical_min (%.3f) below calibration range (%.3f). Clipping to calibration minimum.",
+            physical_min,
+            calib_min,
         )
         physical_min = calib_min
 
     if physical_max > calib_max:
         logger.warning(
-            f"Requested physical_max ({physical_max:.3f}) above calibration range "
-            f"({calib_max:.3f}). Clipping to calibration maximum."
+            "Requested physical_max (%.3f) above calibration range (%.3f). Clipping to calibration maximum.",
+            physical_max,
+            calib_max,
         )
         physical_max = calib_max
 
@@ -104,7 +106,10 @@ def interpolate_image_axis(
             density_interp = np.interp(uniform_axis, pixel_to_physical, density)
             output[i] = density_interp
         logger.debug(
-            f"Interpolated {image.shape[0]} rows from {image.shape[1]} to {num_points} points"
+            "Interpolated %s rows from %s to %s points",
+            image.shape[0],
+            image.shape[1],
+            num_points,
         )
     else:  # axis == 0, Vertical
         # Interpolate each column
@@ -112,7 +117,10 @@ def interpolate_image_axis(
         for j in range(image.shape[1]):
             output[:, j] = np.interp(uniform_axis, pixel_to_physical, image[:, j])
         logger.debug(
-            f"Interpolated {image.shape[1]} columns from {image.shape[0]} to {num_points} points"
+            "Interpolated %s columns from %s to %s points",
+            image.shape[1],
+            image.shape[0],
+            num_points,
         )
 
     return output, uniform_axis

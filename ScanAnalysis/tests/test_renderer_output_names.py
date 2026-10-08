@@ -38,7 +38,7 @@ def test_round_trips_get_filename_shape():
         ("processed", "h5", ("bin", 7)),
         ("processed_visual", "png", ("bin", 7)),
     ):
-        # RenderContext.get_filename: f"{device_name}_{identifier}_{suffix}.{extension}"
+        # RenderContext.get_filename: f"{device_name}_{identifier}_{suffix}.{extension}"  # noqa: ERA001 — format doc, not code
         assert parse_output_filename(f"{device}_{identifier}_{suffix}.{ext}") == kind
     assert parse_output_filename(f"{device}_average_processed_visual.png") == (
         "summary",

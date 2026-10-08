@@ -68,15 +68,14 @@ def identify_primary_valley(data: np.ndarray) -> np.ndarray:
             valley_max = len(data)
 
         # Return array of indices corresponding to signal region
-        valley_ind = np.arange(valley_min, valley_max)
+        return np.arange(valley_min, valley_max)
 
-        return valley_ind
     except Exception as e:
-        logger.error(f"Valley identification failed: {e}")
+        logger.error("Valley identification failed: %s", e)  # noqa: TRY400 — re-raised, caller logs
         raise
 
 
-def get_sinusoidal_noise(
+def get_sinusoidal_noise(  # noqa: C901, PLR0912
     data: np.ndarray, signal_region: Tuple[Optional[int], Optional[int]]
 ) -> np.ndarray:
     """Fit and return sinusoidal background noise.
@@ -169,11 +168,10 @@ def get_sinusoidal_noise(
             return np.zeros_like(data)
 
         # Generate sinusoidal fit for full data range
-        background_model = sin_model(x_axis, *params)
+        return sin_model(x_axis, *params)
 
-        return background_model
     except Exception as e:
-        logger.error(f"Sinusoidal noise fitting failed: {e}")
+        logger.exception("Sinusoidal noise fitting failed: %s", e)
         return np.zeros_like(data)
 
 
@@ -237,8 +235,10 @@ def apply_ict_analysis(
         signal_region = (first_interval_end, second_interval_start)
 
         logger.debug(
-            f"Signal location: {signal_location}, "
-            f"Signal region for sinusoid fitting: ({first_interval_end}, {second_interval_start})"
+            "Signal location: %s, Signal region for sinusoid fitting: (%s, %s)",
+            signal_location,
+            first_interval_end,
+            second_interval_start,
         )
 
         # Step 3-4: Fit and subtract sinusoidal background (pass 1)
@@ -262,12 +262,14 @@ def apply_ict_analysis(
         peak_time_us = signal_location * dt * 1e6
 
         logger.debug(
-            f"ICT Analysis: integrated_signal={integrated_signal:.6e}, "
-            f"charge={charge_pC:.2f} pC, peak_time={peak_time_us:.3f} µs"
+            "ICT Analysis: integrated_signal=%.6e, charge=%.2f pC, peak_time=%.3f µs",
+            integrated_signal,
+            charge_pC,
+            peak_time_us,
         )
 
         return float(charge_pC), float(peak_time_us)
 
     except Exception as e:
-        logger.error(f"ICT analysis failed: {e}")
+        logger.error("ICT analysis failed: %s", e)  # noqa: TRY400 — re-raised, caller logs
         raise ValueError(f"ICT analysis pipeline failed: {e}") from e

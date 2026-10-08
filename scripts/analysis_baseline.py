@@ -53,7 +53,7 @@ class Snapshot:
     results: tuple[Result, ...]
 
 
-def capture(
+def capture(  # noqa: C901, PLR0912
     config: Path,
     inputs: Sequence[Path],
     mode: str = "per_shot",
@@ -195,18 +195,19 @@ def load(path: Path) -> Snapshot:
         )
 
 
-def compare(
+def compare(  # noqa: C901
     reference: Snapshot, candidate: Snapshot, *, rtol: float = 0, atol: float = 0
 ) -> list[str]:
     """Return actionable differences, refusing mismatched workloads and NaN parity."""
     if any(not math.isfinite(value) or value < 0 for value in (rtol, atol)):
         raise ValueError("Tolerances must be finite and nonnegative")
-    differences = []
     if not reference.results or not candidate.results:
         return ["empty baseline cannot establish parity"]
-    for field in ("recipe", "inputs", "mode"):
-        if getattr(reference, field) != getattr(candidate, field):
-            differences.append(f"workload {field} differs")
+    differences = [
+        f"workload {field} differs"
+        for field in ("recipe", "inputs", "mode")
+        if getattr(reference, field) != getattr(candidate, field)
+    ]
     if len(reference.results) != len(candidate.results):
         differences.append("result count differs")
     if differences:

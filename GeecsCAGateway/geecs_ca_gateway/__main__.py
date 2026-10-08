@@ -40,7 +40,7 @@ class _QuietMissingVariables(logging.Filter):
     stay ``INVALID`` until data flows. Pass ``--show-missing`` to keep them.
     """
 
-    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003
+    def filter(self, record: logging.LogRecord) -> bool:
         return "missing variable(s)" not in record.getMessage()
 
 

@@ -40,7 +40,7 @@ class GeecsPathsConfig:
         path to directory containing scan analysis configs
     """
 
-    def __init__(
+    def __init__(  # noqa: C901, PLR0912, PLR0915
         self,
         config_path: Path = Path("~/.config/geecs_python_api/config.ini").expanduser(),
         default_experiment: Optional[str] = None,
@@ -113,10 +113,10 @@ class GeecsPathsConfig:
                         )
 
                 except Exception as e:
-                    logger.error(f"Error reading config file {config_path}: {e}")
+                    logger.exception("Error reading config file %s: %s", config_path, e)
             else:
                 logger.warning(
-                    f"Config file {config_path} not found. Using default paths."
+                    "Config file %s not found. Using default paths.", config_path
                 )
 
         # Experiment is optional — base_path alone is sufficient for path-only usage.
@@ -178,8 +178,8 @@ class GeecsPathsConfig:
                     self.wavekit_launcher = (
                         _config["Paths"]["wavekit_launcher"].strip() or None
                     )
-            except Exception as e:
-                logger.debug(f"Could not read tool paths from config: {e}")
+            except Exception as e:  # noqa: BLE001 — config read fails soft
+                logger.debug("Could not read tool paths from config: %s", e)
 
     @staticmethod
     def _validate_path(input_path) -> Optional[Path]:
@@ -198,8 +198,7 @@ class GeecsPathsConfig:
         """
         if input_path is not None and input_path.exists():
             return input_path
-        else:
-            logger.warning("%s path was not found", input_path)
+        logger.warning("%s path was not found", input_path)
         return None
 
     @classmethod

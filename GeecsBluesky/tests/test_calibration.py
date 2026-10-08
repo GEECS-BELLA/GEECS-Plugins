@@ -26,22 +26,22 @@ import pytest
 
 pytest.importorskip("aioca")
 
-import bluesky.plan_stubs as bps  # noqa: E402
-from bluesky import RunEngine  # noqa: E402
-from ophyd_async.core import set_mock_value  # noqa: E402
+import bluesky.plan_stubs as bps
+from bluesky import RunEngine
+from ophyd_async.core import set_mock_value
 
-from geecs_bluesky.devices.detector import GeecsDetector  # noqa: E402
-from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites  # noqa: E402
-from geecs_bluesky.exceptions import GeecsConfigurationError  # noqa: E402
-from geecs_bluesky.plans.calibration import (  # noqa: E402
+from geecs_bluesky.devices.detector import GeecsDetector
+from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites
+from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.plans.calibration import (
     DEFAULT_SYNC_TOLERANCE_S,
     check_shot_sync_plan,
     measure_shot_offsets_plan,
     offsets_from_shots,
     sync_verdict_from_stamps,
 )
-from geecs_bluesky.plans.registry import TriggerProfiles  # noqa: E402
-from tests.ca_mock_helpers import connect_mock, start_pacer  # noqa: E402
+from geecs_bluesky.plans.registry import TriggerProfiles
+from tests.ca_mock_helpers import connect_mock, start_pacer
 
 WRITES = ShotControlWrites(
     name="test",

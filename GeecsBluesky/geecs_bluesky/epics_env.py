@@ -104,7 +104,7 @@ def apply_epics_address_config(
                 path,
                 ", ".join(f"{k}={v}" for k, v in applied.items()),
             )
-    except Exception:
+    except Exception:  # noqa: BLE001 — env config is optional
         logger.warning(
             "Could not apply [epics]/[pva] config from %s", path, exc_info=True
         )

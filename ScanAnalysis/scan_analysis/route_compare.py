@@ -45,7 +45,7 @@ def snapshot_analysis_tree(analysis: Path) -> dict[str, tuple]:
     return files
 
 
-def compare_snapshots(
+def compare_snapshots(  # noqa: C901, PLR0912
     legacy: dict[str, tuple],
     core: dict[str, tuple],
     *,
@@ -70,9 +70,9 @@ def compare_snapshots(
     """
     problems = []
     for name in sorted(set(legacy) - set(core)):
-        problems.append(f"only legacy wrote {name}")
+        problems.append(f"only legacy wrote {name}")  # noqa: PERF401 — clearer as a loop
     for name in sorted(set(core) - set(legacy)):
-        problems.append(f"only core wrote {name}")
+        problems.append(f"only core wrote {name}")  # noqa: PERF401 — clearer as a loop
     for name in sorted(set(legacy) & set(core)):
         expected, actual = legacy[name], core[name]
         if expected[0] != actual[0]:

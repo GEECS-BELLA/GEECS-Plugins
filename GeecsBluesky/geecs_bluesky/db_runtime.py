@@ -106,7 +106,7 @@ class GeecsDbServedSetProvider:
                 metadata = db.get_experiment_device_variables(
                     self.experiment, enabled_only=self.enabled_only
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — DB read fails open
                 logger.warning(
                     "Could not read the gateway served set for experiment %r; "
                     "the unserved-variables pre-flight check will be skipped",
@@ -178,7 +178,7 @@ class GeecsDbDeviceTypes:
                 self._types = self._geecs_db().get_experiment_device_types(
                     self.experiment, enabled_only=self.enabled_only
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — DB read fails open
                 logger.warning(
                     "Could not read devicetypes for experiment %r; every "
                     "device falls back to the trigger-variable name rule, "

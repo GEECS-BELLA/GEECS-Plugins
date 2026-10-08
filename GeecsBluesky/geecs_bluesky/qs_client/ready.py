@@ -381,10 +381,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             timeout_s=args.timeout,
         )
     except NotReady as exc:
-        logger.error("NOT READY: %s", exc)
+        logger.error("NOT READY: %s", exc)  # noqa: TRY400 — CLI verdict, short
         return 1
     except ImportError as exc:
-        logger.error(
+        logger.error(  # noqa: TRY400 — CLI verdict, short
             "bluesky-queueserver is not installed in this environment: %s", exc
         )
         return 2

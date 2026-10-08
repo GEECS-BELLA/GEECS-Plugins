@@ -75,14 +75,17 @@ def apply_constant_threshold(
 
     # Apply inversion if requested
     if invert:
-        if mode == ThresholdMode.BINARY:
+        if mode == ThresholdMode.BINARY:  # noqa: SIM108 — keeps the branch comments
             result = max_val - result
         else:
             # For non-binary modes, invert by subtracting from max
             result = max_val - result
 
     logger.debug(
-        f"Applied constant threshold {threshold_value} with mode '{mode}', invert={invert}"
+        "Applied constant threshold %s with mode '%s', invert=%s",
+        threshold_value,
+        mode,
+        invert,
     )
 
     return result
@@ -128,7 +131,10 @@ def apply_percentage_threshold(
     threshold_value = (percentage / 100.0) * max_value
 
     logger.debug(
-        f"Calculated threshold {threshold_value} from {percentage}% of max value {max_value}"
+        "Calculated threshold %s from %s%% of max value %s",
+        threshold_value,
+        percentage,
+        max_value,
     )
 
     return apply_constant_threshold(image, threshold_value, mode, invert)
@@ -175,11 +181,10 @@ def apply_threshold(
     if method == "constant":
         return apply_constant_threshold(image, value, mode, invert)
 
-    elif method == "percentage_max":
+    if method == "percentage_max":
         return apply_percentage_threshold(image, value, mode, invert)
 
-    else:
-        raise ValueError(f"Unknown threshold method: {method}")
+    raise ValueError(f"Unknown threshold method: {method}")
 
 
 def get_threshold_value(image: Array2D, method: ThresholdMethod, value: float) -> float:
@@ -210,14 +215,13 @@ def get_threshold_value(image: Array2D, method: ThresholdMethod, value: float) -
     if method == ThresholdMethod.CONSTANT:
         return float(value)
 
-    elif method == ThresholdMethod.PERCENTAGE_MAX:
+    if method == ThresholdMethod.PERCENTAGE_MAX:
         if not 0 <= value <= 100:
             raise ValueError(f"Percentage must be between 0 and 100, got {value}")
         max_value = np.max(image)
         return (value / 100.0) * max_value
 
-    else:
-        raise ValueError(f"Unknown threshold method: {method}")
+    raise ValueError(f"Unknown threshold method: {method}")
 
 
 def validate_threshold_parameters(
@@ -244,17 +248,19 @@ def validate_threshold_parameters(
     try:
         if isinstance(method, str):
             ThresholdMethod(method)
-    except ValueError:
+    except ValueError as err:
         valid_methods = [m.value for m in ThresholdMethod]
-        raise ValueError(f"Method must be one of {valid_methods}, got '{method}'")
+        raise ValueError(
+            f"Method must be one of {valid_methods}, got '{method}'"
+        ) from err
 
     # Validate mode is a valid ThresholdMode enum
     try:
         if isinstance(mode, str):
             ThresholdMode(mode)
-    except ValueError:
+    except ValueError as err:
         valid_modes = [m.value for m in ThresholdMode]
-        raise ValueError(f"Mode must be one of {valid_modes}, got '{mode}'")
+        raise ValueError(f"Mode must be one of {valid_modes}, got '{mode}'") from err
 
     if method == ThresholdMethod.PERCENTAGE_MAX or (
         isinstance(method, str) and method == "percentage_max"
@@ -262,10 +268,8 @@ def validate_threshold_parameters(
         if not 0 <= value <= 100:
             raise ValueError(f"Percentage value must be between 0 and 100, got {value}")
 
-    elif method == ThresholdMethod.CONSTANT or (
-        isinstance(method, str) and method == "constant"
-    ):
-        if value < 0:
-            raise ValueError(
-                f"Constant threshold value must be non-negative, got {value}"
-            )
+    elif (
+        method == ThresholdMethod.CONSTANT
+        or (isinstance(method, str) and method == "constant")
+    ) and value < 0:
+        raise ValueError(f"Constant threshold value must be non-negative, got {value}")

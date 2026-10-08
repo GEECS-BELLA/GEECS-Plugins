@@ -16,6 +16,7 @@ serves the PVs so you can poke them with real CA tools::
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 
 from geecs_core.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
@@ -85,7 +86,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(main())
-    except KeyboardInterrupt:
-        pass

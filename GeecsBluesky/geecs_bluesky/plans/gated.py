@@ -141,7 +141,7 @@ def native_essentials(devices: Sequence[Any]) -> list[GeecsDetector]:
     ]
 
 
-def gated_take_reading(
+def gated_take_reading(  # noqa: C901, PLR0915
     shot_control: Any,
     *,
     name: str = "primary",
@@ -174,7 +174,7 @@ def gated_take_reading(
         "steps": 0,
     }
 
-    def take_reading(devices: Sequence[Any], quota: int):
+    def take_reading(devices: Sequence[Any], quota: int):  # noqa: C901, PLR0912, PLR0915
         devices = separate_devices(devices)
         views = [d for d in devices if isinstance(d, ScalarsView)]
         devices = [d for d in devices if not any(v.covers(d) for v in views)]
@@ -203,7 +203,7 @@ def gated_take_reading(
         if plugin:
             offsets = []
             for d in plugin:
-                offsets.append(float((yield from bps.rd(d.drain_offset)) or 0.0))
+                offsets.append(float((yield from bps.rd(d.drain_offset)) or 0.0))  # noqa: PERF401 — yield from: no comprehension
             drain += max(offsets)
         first_step = state["steps"] == 0
         done = 0  # the step's shots already recorded (a pause keeps them)
@@ -352,7 +352,7 @@ def gated_take_reading(
                     shots = min(shots, *frames)
                 await asyncio.gather(*(d.truncate_to(shots) for d in plugin))
                 sampler.keep(shots)
-                kept["shots"] = shots
+                kept["shots"] = shots  # noqa: B023 — closure runs this iteration
 
             if failure is not None:
                 # Record what the batch kept, best effort — the batch's own
@@ -487,7 +487,7 @@ def refuse_free_running_non_essentials(devices: Sequence[Any]) -> None:
         )
 
 
-def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
+def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:  # noqa: C901, PLR0915
     """Stream the non-essential devices for the run, each into its own ``<name>_stream``.
 
     Two kinds, one contract — recorded by stamp, joined to the rows by it

@@ -9,15 +9,15 @@ import pytest
 
 pytest.importorskip("aioca")
 
-from bluesky import RunEngine  # noqa: E402
-from ophyd_async.core import set_mock_value, soft_signal_rw  # noqa: E402
+from bluesky import RunEngine
+from ophyd_async.core import set_mock_value, soft_signal_rw
 
-from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable  # noqa: E402
-from geecs_bluesky.devices.detector import GeecsDetector  # noqa: E402
-from geecs_bluesky.devices.sampler import ShotSampler  # noqa: E402
-from geecs_bluesky.exceptions import GeecsTriggerTimeoutError  # noqa: E402
-from geecs_bluesky.plans.strict import BinCounter  # noqa: E402
-from tests.ca_mock_helpers import connect_mock  # noqa: E402
+from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
+from geecs_bluesky.devices.detector import GeecsDetector
+from geecs_bluesky.devices.sampler import ShotSampler
+from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
+from geecs_bluesky.plans.strict import BinCounter
+from tests.ca_mock_helpers import connect_mock
 
 
 @pytest.fixture

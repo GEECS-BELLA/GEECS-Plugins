@@ -68,8 +68,7 @@ def month_to_int(month: Union[str, int]) -> int:
 
     if isinstance(month, str):
         return dateparse(month).month
-    else:
-        raise ValueError(f"'{month}' is not a valid month")
+    raise ValueError(f"'{month}' is not a valid month")
 
 
 def timestamp_from_string(string: str) -> float:

@@ -76,7 +76,7 @@ def test_idle_only_items_refuse_while_a_plan_runs_or_waits(
     while manager.status().re_state == "running":
         manager.step()
     assert client.get("/api/status").json()["re_state"] == "idle"
-    manager._queue.append(  # noqa: SLF001 — the failed-item-at-front trap, arranged
+    manager._queue.append(
         {
             "name": "count",
             "args": [],

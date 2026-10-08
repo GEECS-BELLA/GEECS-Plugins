@@ -9,15 +9,15 @@ import pytest
 
 pytest.importorskip("aioca")
 
-import bluesky.plan_stubs as bps  # noqa: E402
-import bluesky.plans as bp  # noqa: E402
-from bluesky import RunEngine  # noqa: E402
-from bluesky.utils import FailedStatus, is_plan  # noqa: E402
-from ophyd_async.core import Device, callback_on_mock_put, set_mock_value  # noqa: E402
+import bluesky.plan_stubs as bps
+import bluesky.plans as bp
+from bluesky import RunEngine
+from bluesky.utils import FailedStatus, is_plan
+from ophyd_async.core import Device, callback_on_mock_put, set_mock_value
 
-from geecs_bluesky.devices.ca import CaMotor  # noqa: E402
-from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
-from geecs_bluesky.exceptions import (  # noqa: E402
+from geecs_bluesky.devices.ca import CaMotor
+from geecs_bluesky.devices.shot_control import ShotControl
+from geecs_bluesky.exceptions import (
     GeecsConfigurationError,
     GeecsDeviceDownError,
     failure_cause_text,
@@ -26,14 +26,14 @@ from geecs_bluesky.plan_names import (
     GEECS_PLAN_NAMES,
     NON_SCAN_PLAN_NAMES,
     NATIVE_SCAN_PLAN_NAMES,
-)  # noqa: E402
-from geecs_bluesky.plans.registry import (  # noqa: E402
+)
+from geecs_bluesky.plans.registry import (
     TriggerProfiles,
     bind_plans,
     strict_plan,
 )
-from tests.ca_mock_helpers import DocCollector, connect_mock, follow_setpoint  # noqa: E402
-from tests.test_strict_plans import (  # noqa: E402
+from tests.ca_mock_helpers import DocCollector, connect_mock, follow_setpoint
+from tests.test_strict_plans import (
     WRITES,
     FakeBox,
     _RefusedPut,
@@ -365,7 +365,7 @@ def test_scalars_view_of_a_scalar_only_device_reads_the_device(RE, box, profiles
     assert [e["data"]["u_gauge-pressure"] for e in events] == [1.5e-6, 1.5e-6]
     assert col.docs["start"][0]["detectors"] == ["uc_cam", "u_gauge-scalars"]
     assert (
-        col.docs["start"][0]["geecs_scalar_headers"]
+        col.docs["start"][0]["geecs_scalar_headers"]  # noqa: SIM401
         if "geecs_scalar_headers" in col.docs["start"][0]
         else True
     )

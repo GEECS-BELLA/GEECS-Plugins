@@ -77,7 +77,7 @@ def _write_result(workdir, payload):
         json.dump(payload, f)
 
 
-def main():
+def main():  # noqa: PLR0915
     """Compute one shot's wavefront from the work directory's inputs."""
     if len(sys.argv) != 2:
         print("Usage: python.exe _wavekit_worker.py <workdir>", file=sys.stderr)

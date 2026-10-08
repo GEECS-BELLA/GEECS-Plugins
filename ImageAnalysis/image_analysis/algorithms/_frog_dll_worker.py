@@ -52,7 +52,7 @@ def _write_array(f, arr, n):
         f.write(struct.pack("<d", arr[i]))
 
 
-def main():
+def main():  # noqa: PLR0915
     """Run FROG DLL retrieval via command-line binary file interface."""
     if len(sys.argv) != 4:
         print(
@@ -128,7 +128,7 @@ def main():
         seed = int(time.time()) & 0xFFFFFFFF
         msvcrt.srand(ctypes.c_uint(seed))
         print("Seeded RNG: srand({0})".format(seed), file=sys.stderr)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — RNG seeding is optional
         print("Warning: could not seed RNG: {0}".format(e), file=sys.stderr)
 
     # ----------------------------------------------------------------

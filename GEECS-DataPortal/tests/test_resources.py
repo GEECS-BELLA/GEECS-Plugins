@@ -604,7 +604,7 @@ class TestRunDayResolution:
 
         def recorder(experiment="", base_path=None, day=None):
             seen["day"] = day
-            return None
+            return
 
         monkeypatch.setattr(scan_paths_mod, "daily_scan_folder", recorder)
         return TestClient(create_app(FakeCatalog())), seen

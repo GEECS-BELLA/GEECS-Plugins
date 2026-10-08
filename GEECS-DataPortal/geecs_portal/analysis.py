@@ -120,7 +120,7 @@ def _bin_number(key: str, value: object, kind: type) -> object:
     return as_float
 
 
-def parse_bincfg(raw: str) -> BinningConfig:
+def parse_bincfg(raw: str) -> BinningConfig:  # noqa: C901, PLR0912
     """Deserialize the ``bincfg`` query param (empty → defaults).
 
     ``BinningConfig`` is a plain dataclass, so validation is explicit
@@ -234,7 +234,7 @@ _DISPLAY_FIELDS = {
 }
 
 
-def parse_display(raw: str) -> dict:
+def parse_display(raw: str) -> dict:  # noqa: C901, PLR0912
     """Deserialize the ``display`` query param (empty → no cosmetics).
 
     Types are the contract and 400 here (the ``bincfg`` precedent: a

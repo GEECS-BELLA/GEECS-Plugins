@@ -18,5 +18,5 @@ def _init_analysis_config():
         scan_analysis_config.set_base_dir(
             ScanPaths.paths_config.scan_analysis_configs_path
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — configs optional offline
         pass

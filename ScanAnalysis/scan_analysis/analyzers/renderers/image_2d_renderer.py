@@ -117,7 +117,7 @@ class Image2DRenderer(BaseRenderer):
 
         self._create_image_grid(contexts, config, summary_path, scan_param)
 
-        logger.info(f"Saved summary figure to {summary_path}")
+        logger.info("Saved summary figure to %s", summary_path)
         self.display_contents.append(str(summary_path))
         return summary_path
 
@@ -192,7 +192,7 @@ class Image2DRenderer(BaseRenderer):
             str(output_file), gif_images, duration=config.duration / 1000.0, loop=0
         )
 
-        logger.info(f"Saved animation to {output_file}")
+        logger.info("Saved animation to %s", output_file)
         self.display_contents.append(str(output_file))
         return output_file
 
@@ -223,7 +223,7 @@ class Image2DRenderer(BaseRenderer):
                 compression_opts=4,
             )
 
-        logger.info(f"Saved HDF5 image to {save_path}")
+        logger.info("Saved HDF5 image to %s", save_path)
         return save_path
 
     def _save_visualization_file(
@@ -272,11 +272,11 @@ class Image2DRenderer(BaseRenderer):
         fig.savefig(save_path, bbox_inches="tight", pad_inches=0, dpi=config.dpi)
         plt.close(fig)
 
-        logger.info(f"Saved image visualization to {save_path}")
+        logger.info("Saved image visualization to %s", save_path)
 
         return save_path
 
-    def _create_image_grid(
+    def _create_image_grid(  # noqa: C901
         self,
         contexts: List[RenderContext],
         config: Image2DRendererConfig,
@@ -316,7 +316,8 @@ class Image2DRenderer(BaseRenderer):
         shapes = {img.shape[:2] for img in images}
         if len(shapes) > 1:
             logger.warning(
-                f"Images have varying shapes: {shapes}; layout will use the first shape."
+                "Images have varying shapes: %s; layout will use the first shape.",
+                shapes,
             )
         h0, w0 = images[0].shape[:2]
 
@@ -349,7 +350,7 @@ class Image2DRenderer(BaseRenderer):
 
         # Plot panels
         first_im_artist = None
-        for ax, ctx, img, title in zip(axes, contexts, images, titles):
+        for ax, ctx, _img, title in zip(axes, contexts, images, titles):
             # Use the complete result from context (preserves render_data, etc.)
             render_func = ctx.result.render_function or base_render_image
             render_func(
@@ -422,7 +423,7 @@ class Image2DRenderer(BaseRenderer):
             vmin = -vmax
             cmap = config.cmap or "RdBu_r"
             logger.info(
-                f"Using diverging colormap with vmin={vmin:.2e}, vmax={vmax:.2e}"
+                "Using diverging colormap with vmin=%.2e, vmax=%.2e", vmin, vmax
             )
         elif config.colormap_mode == "sequential":
             # Standard: 0 to max (default behavior)
@@ -430,14 +431,14 @@ class Image2DRenderer(BaseRenderer):
             vmax = config.vmax if config.vmax is not None else data.max()
             cmap = config.cmap or "plasma"
             logger.info(
-                f"Using sequential colormap with vmin={vmin:.2e}, vmax={vmax:.2e}"
+                "Using sequential colormap with vmin=%.2e, vmax=%.2e", vmin, vmax
             )
         else:  # "custom"
             # User-defined limits
             vmin = config.vmin if config.vmin is not None else data.min()
             vmax = config.vmax if config.vmax is not None else data.max()
             cmap = config.cmap or "plasma"
-            logger.info(f"Using custom colormap with vmin={vmin:.2e}, vmax={vmax:.2e}")
+            logger.info("Using custom colormap with vmin=%.2e, vmax=%.2e", vmin, vmax)
 
         return float(vmin), float(vmax), cmap
 

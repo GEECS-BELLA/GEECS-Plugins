@@ -15,7 +15,7 @@ import pytest
 
 pytest.importorskip("bluesky_queueserver_api")
 
-from geecs_bluesky.qs_client import (  # noqa: E402
+from geecs_bluesky.qs_client import (
     QserverConfig,
     QueueClient,
     QueueStatus,

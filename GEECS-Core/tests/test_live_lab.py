@@ -42,7 +42,7 @@ def _find_device_or_skip(name: str) -> tuple[str, int]:
         return GeecsDb.find_device(name)
     except _LAB_UNAVAILABLE as exc:
         pytest.skip(f"lab DB unavailable or {name} unknown: {exc!r}")
-    except Exception as exc:  # mysql.connector errors (lazy import, no base)
+    except Exception as exc:  # mysql.connector errors (lazy import, no base)  # noqa: BLE001 — lab DB unreachable: skip
         pytest.skip(f"lab DB unreachable: {exc!r}")
 
 

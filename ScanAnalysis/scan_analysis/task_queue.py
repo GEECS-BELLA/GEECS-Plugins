@@ -15,6 +15,7 @@ States: queued -> claimed -> done/failed/no_data.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
@@ -127,7 +128,7 @@ def _parse_ts(value: Optional[str]) -> Optional[datetime]:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt
-    except Exception:
+    except Exception:  # noqa: BLE001 — unparseable timestamp reads None
         return None
 
 
@@ -250,10 +251,8 @@ def _break_stale_lock(lock: Path) -> bool:
             sentinel.rename(tomb)
         except OSError:
             return False  # lost the cleanup race — back off
-        try:
+        with contextlib.suppress(OSError):
             tomb.unlink()
-        except OSError:
-            pass
     try:
         fd = os.open(str(sentinel), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except OSError:
@@ -274,10 +273,8 @@ def _break_stale_lock(lock: Path) -> bool:
             return False
         return True
     finally:
-        try:
+        with contextlib.suppress(OSError):
             sentinel.unlink()
-        except OSError:
-            pass
 
 
 def try_acquire_claim(scan_folder: Path, analyzer_id: str, owner: str) -> bool:
@@ -386,10 +383,8 @@ def _write_atomic(path: Path, content: str) -> None:
             f.write(content)
         os.replace(tmp, path)
     except Exception:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp)
-        except OSError:
-            pass
         raise
 
 
@@ -434,7 +429,7 @@ def read_statuses(scan_folder: Path) -> List[TaskStatus]:
     for f in status_dir.glob("*.yaml"):
         try:
             statuses.append(TaskStatus.from_file(f))
-        except Exception as exc:  # pragma: no cover - log and skip
+        except Exception as exc:  # pragma: no cover - log and skip  # noqa: BLE001 — per-file isolation
             logger.warning("Failed to read status %s: %s", f, exc)
     return statuses
 
@@ -469,7 +464,7 @@ def read_day_statuses(
             tag=date_tag, base_directory=base_directory
         )
         scan_root = daily_scans.parent / "analysis"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — unresolvable root reads empty
         logger.warning("read_day_statuses: could not resolve scan root: %s", exc)
         return scan_map
 
@@ -495,7 +490,7 @@ def read_day_statuses(
                 tag=tag, base_directory=base_directory
             )
             statuses = read_statuses(scan_folder)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — per-file isolation
             logger.warning(
                 "read_day_statuses: could not read statuses for scan %d: %s", num, exc
             )

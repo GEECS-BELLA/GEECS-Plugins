@@ -121,7 +121,7 @@ class BowtieFitAlgorithm:
                 maxfev=2000,
             )
             return abs(popt[2])
-        except Exception:
+        except Exception:  # noqa: BLE001 — failed fit scores NaN
             return np.nan
 
     def _default_beam_size_func(self, y: np.ndarray) -> Callable[[np.ndarray], float]:
@@ -185,7 +185,7 @@ class BowtieFitAlgorithm:
                     y_center + self.n_beam_size_clearance * spread,
                 )
                 is_valid = (ymin >= 0) and (ymax < h) and np.isfinite(spread)
-            except Exception:
+            except Exception:  # noqa: BLE001 — failed fit scores NaN
                 spread = np.nan
                 is_valid = False
 
@@ -275,7 +275,10 @@ class BowtieFitAlgorithm:
 
                 if total_weight_waist < 0.004 * total_weight_all:
                     logger.warning(
-                        f"⚠️ Insufficient weight near waist: x0={x0:.1f}, waist weight = {total_weight_waist:.1f}, total = {total_weight_all:.1f}"
+                        "⚠️ Insufficient weight near waist: x0=%.1f, waist weight = %.1f, total = %.1f",
+                        x0,
+                        total_weight_waist,
+                        total_weight_all,
                     )
                     return BowtieFitResult(
                         score=1e6,
@@ -299,8 +302,8 @@ class BowtieFitAlgorithm:
                 weights=weights,
             )
 
-        except Exception as e:
-            logger.warning(f"[EXCEPTION] Fit failed: {e}")
+        except Exception as e:  # noqa: BLE001 — failed fit scores NaN
+            logger.warning("[EXCEPTION] Fit failed: %s", e)
             return BowtieFitResult(
                 score=np.nan,
                 w0=np.nan,

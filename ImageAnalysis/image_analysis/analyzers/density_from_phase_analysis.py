@@ -126,8 +126,7 @@ class PhasePreprocessor:
         """
         bkg_subtracted = phase_data - background
         bkg_subtracted = -(bkg_subtracted - np.nanmin(bkg_subtracted))
-        bkg_subtracted = abs(bkg_subtracted - np.nanmin(bkg_subtracted))
-        return bkg_subtracted
+        return abs(bkg_subtracted - np.nanmin(bkg_subtracted))
 
     @staticmethod
     def crop(
@@ -388,10 +387,9 @@ class PhasePreprocessor:
 
         if not binarize:
             return masked_image
-        else:
-            threshold = threshold_factor * np.nanmax(masked_image)
-            binary_mask = (masked_image > threshold).astype(np.float32)
-            return binary_mask * image
+        threshold = threshold_factor * np.nanmax(masked_image)
+        binary_mask = (masked_image > threshold).astype(np.float32)
+        return binary_mask * image
 
 
 class PhaseDownrampProcessor(ImageAnalyzer):
@@ -517,9 +515,9 @@ class PhaseDownrampProcessor(ImageAnalyzer):
         )
         try:
             processed_phase = self.process_phase(image)
-            logging.info(f"processed {self.file_path}")
+            logging.info("processed %s", self.file_path)
         except Exception:
-            logging.warning(f"could not process {self.file_path}")
+            logging.warning("could not process %s", self.file_path)
             raise
 
         scalar_results_dict = self.compile_shock_analysis(processed_phase)
@@ -530,14 +528,12 @@ class PhaseDownrampProcessor(ImageAnalyzer):
         phase_converted = phase_converted.astype(np.uint16)
 
         # Create ImageAnalyzerResult
-        result = ImageAnalyzerResult(
+        return ImageAnalyzerResult(
             data_type="2d",
             processed_image=phase_converted,
             scalars=scalar_results_dict,
             metadata=auxiliary_data if auxiliary_data else {},
         )
-
-        return result
 
     def compile_shock_analysis(
         self, phase_array: NDArray, window_size: int = 20
@@ -657,7 +653,7 @@ class PhaseDownrampProcessor(ImageAnalyzer):
                 "Weighted fit (rotated): slope = %f, intercept = %f", slope, intercept
             )
         except Exception as e:
-            logging.error("Error during weighted fit: %s", e)
+            logging.exception("Error during weighted fit: %s", e)
             slope, intercept = 0, 0
 
         W = rotated.shape[0]
@@ -837,7 +833,3 @@ if __name__ == "__main__":
     image_analyzer = PhaseDownrampProcessor(spec=PhaseDownrampSpec(**asdict(config)))
     image_analyzer.use_interactive = True
     image_analyzer.analyze_image_file(phase_file_path)
-
-    # # --- Using the PyAbel inversion technique ---
-    # pyabel_lineout, pyabel_density = image_analyzer.get_density(technique='pyabel')
-    # image_analyzer.plot_density(pyabel_density, pyabel_lineout)

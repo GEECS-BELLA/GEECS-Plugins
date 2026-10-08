@@ -43,7 +43,7 @@ def apply_crosshair_masking(image: Array2D, config: CrosshairMaskingConfig) -> A
     masked_image = image.copy()
 
     # Apply sophisticated crosshair masking with rotation support
-    logger.debug(f"Applying crosshair masking for {len(config.crosshairs)} crosshairs")
+    logger.debug("Applying crosshair masking for %s crosshairs", len(config.crosshairs))
     for crosshair in config.crosshairs:
         cross_mask = create_cross_mask(
             image.shape,

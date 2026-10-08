@@ -62,14 +62,14 @@ def test_every_url_for_takes_the_path(template: Path) -> None:
     assert not bare, f"{template.name}: url_for without .path — {bare[:3]}"
 
 
-def test_every_literal_data_state_is_a_kit_state() -> None:
+def test_every_literal_data_state_is_a_kit_state() -> None:  # noqa: C901
     from geecs_web_theme import PANE_STATES, STATES
 
     allowed = (*STATES, *PANE_STATES)
     problems = []
     for template in _TEMPLATES:
         for value in unknown_data_states(template, allowed):
-            problems.append(f"{template.name}: {value}")
+            problems.append(f"{template.name}: {value}")  # noqa: PERF401 — clearer as a loop
     # the script writes states too: every word lives in its K table, pinned
     # here, and no setChip call may pass a literal instead
     for script in _SCRIPTS:
@@ -80,16 +80,16 @@ def test_every_literal_data_state_is_a_kit_state() -> None:
         assert k, f"{script.name}: no K table of kit words"
         for m in re.finditer(r'"([a-z_]+)"', k.group(1)):
             if m.group(1) not in STATES:
-                problems.append(f"{script.name} K: {m.group(1)}")
+                problems.append(f"{script.name} K: {m.group(1)}")  # noqa: PERF401 — clearer as a loop
         keys = set(re.findall(r"([a-z_]+):\s*\"", k.group(1)))
         for m in re.finditer(r"\bK\.([A-Za-z_]+)", text):
             if m.group(1) not in keys:
-                problems.append(f"{script.name}: K.{m.group(1)} is not in the K table")
+                problems.append(f"{script.name}: K.{m.group(1)} is not in the K table")  # noqa: PERF401 — clearer as a loop
         for m in re.finditer(r"setChip\(([^;]*?)\);", text, re.S):
             if re.search(r'^\s*[^,]+,\s*"', m.group(1)) or re.search(
                 r'\?\s*"[a-z_]+"\s*:', m.group(1)
             ):
-                problems.append(
+                problems.append(  # noqa: PERF401 — clearer as a loop
                     f"{script.name}: literal state in setChip({m.group(1)[:60]}…)"
                 )
     assert not problems, f"data-state values the kit does not colour: {problems}"

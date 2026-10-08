@@ -164,8 +164,9 @@ def _path_deps(data: dict) -> set[str]:
     """Collect sibling-directory names from every dependency table."""
     poetry = data.get("tool", {}).get("poetry", {})
     tables: list[dict] = [poetry.get("dependencies", {})]
-    for group in poetry.get("group", {}).values():
-        tables.append(group.get("dependencies", {}))
+    tables.extend(
+        group.get("dependencies", {}) for group in poetry.get("group", {}).values()
+    )
 
     found: set[str] = set()
     for table in tables:
@@ -208,7 +209,7 @@ def legs_for_packages(packages: set[str]) -> set[str]:
     return legs
 
 
-def classify(
+def classify(  # noqa: C901
     changed: list[str], graph: dict[str, set[str]]
 ) -> tuple[set[str], list[str]]:
     """Turn changed paths into the legs CI must run, plus the reasons why."""

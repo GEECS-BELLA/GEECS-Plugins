@@ -48,7 +48,7 @@ def _spec_mapping(spec, tag: str) -> dict:
     }
 
 
-def _figure_v2(options: RendererOptions, *, line: bool, notes: list[str]) -> dict:
+def _figure_v2(options: RendererOptions, *, line: bool, notes: list[str]) -> dict:  # noqa: C901
     """Only what the v2 document set, plus the image palette's zero floor."""
     figure: dict = {}
     if not line:
@@ -117,7 +117,7 @@ def _summaries_v2(options: RendererOptions, *, line: bool) -> list[dict]:
     return [grid, {"kind": "average"}]
 
 
-def to_v3(document: AnalysisDiagnostic) -> Conversion:
+def to_v3(document: AnalysisDiagnostic) -> Conversion:  # noqa: C901, PLR0912, PLR0915
     """Convert one v2 diagnostic the core serves; ``UnsupportedRecipe`` otherwise.
 
     Raises
@@ -150,7 +150,7 @@ def to_v3(document: AnalysisDiagnostic) -> Conversion:
             ("storage_dtype", compiled.storage_dtype, "float32"),
         ):
             if value != default:
-                source[key] = value
+                source[key] = value  # noqa: PERF403 — conditional, clearer as loop
         if document.sibling_folders:
             source["siblings"] = list(document.sibling_folders)
             if getattr(document.analyzer, "output_label", None) is not None:

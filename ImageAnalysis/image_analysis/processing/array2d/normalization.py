@@ -35,11 +35,10 @@ def apply_image_total_normalization(image: Array2D) -> Array2D:
     """
     total = image.sum()
     if total > 0:
-        logger.debug(f"Normalizing by total intensity: {total:.6e}")
+        logger.debug("Normalizing by total intensity: %.6e", total)
         return image / total
-    else:
-        logger.warning("Image has zero total intensity, skipping normalization")
-        return image
+    logger.warning("Image has zero total intensity, skipping normalization")
+    return image
 
 
 def apply_image_max_normalization(image: Array2D) -> Array2D:
@@ -62,11 +61,10 @@ def apply_image_max_normalization(image: Array2D) -> Array2D:
     """
     peak = image.max()
     if peak > 0:
-        logger.debug(f"Normalizing by peak value: {peak:.6e}")
+        logger.debug("Normalizing by peak value: %.6e", peak)
         return image / peak
-    else:
-        logger.warning("Image has zero peak value, skipping normalization")
-        return image
+    logger.warning("Image has zero peak value, skipping normalization")
+    return image
 
 
 def apply_constant_normalization(image: Array2D, constant_value: float) -> Array2D:
@@ -92,7 +90,7 @@ def apply_constant_normalization(image: Array2D, constant_value: float) -> Array
     if constant_value == 0:
         logger.warning("Constant normalization requires non-zero value, skipping")
         return image
-    logger.debug(f"Normalizing by constant: {constant_value}")
+    logger.debug("Normalizing by constant: %s", constant_value)
     return image / constant_value
 
 
@@ -130,7 +128,7 @@ def apply_distribute_value_normalization(
         )
         return image
     logger.debug(
-        f"Normalizing by total intensity and distributing value: {constant_value}"
+        "Normalizing by total intensity and distributing value: %s", constant_value
     )
     return (image / total) * constant_value
 
@@ -165,15 +163,14 @@ def apply_normalization(image: Array2D, config: NormalizationConfig) -> Array2D:
     if config.method == NormalizationMethod.IMAGE_TOTAL:
         return apply_image_total_normalization(image)
 
-    elif config.method == NormalizationMethod.IMAGE_MAX:
+    if config.method == NormalizationMethod.IMAGE_MAX:
         return apply_image_max_normalization(image)
 
-    elif config.method == NormalizationMethod.CONSTANT:
+    if config.method == NormalizationMethod.CONSTANT:
         return apply_constant_normalization(image, config.constant_value)
 
-    elif config.method == NormalizationMethod.DISTRIBUTE_VALUE:
+    if config.method == NormalizationMethod.DISTRIBUTE_VALUE:
         return apply_distribute_value_normalization(image, config.constant_value)
 
-    else:
-        logger.warning(f"Unknown normalization method: {config.method}")
-        return image
+    logger.warning("Unknown normalization method: %s", config.method)
+    return image

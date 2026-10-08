@@ -258,7 +258,8 @@ def test_held_file_is_a_live_run_however_long_it_is_quiet(tmp_path: Path) -> Non
     clock = _Clock()
     old = clock.now - 7200.0
     os.utime(path, (old, old))
-    engine = open(path, "a")  # the engine's handle, lock held for the run
+    # the engine's handle, lock held for the run
+    engine = open(path, "a")  # noqa: SIM115 — handle outlives the block
     fcntl.flock(engine.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     recorder = _Recorder()
     registrar = _registrar(
@@ -711,8 +712,8 @@ def test_pending_mid_registration_counts_backing_off_files_wherever_they_sort(
 
                 def callback(name: str, doc: dict) -> None:
                     if name == "start":
-                        hb = read_heartbeat(layout.heartbeat_path)
-                        seen.append((hb.registering, hb.pending))
+                        hb = read_heartbeat(layout.heartbeat_path)  # noqa: B023 — closure runs this iteration
+                        seen.append((hb.registering, hb.pending))  # noqa: B023 — closure runs this iteration
                     inner(name, doc)
 
                 return callback

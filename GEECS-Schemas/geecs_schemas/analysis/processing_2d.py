@@ -299,7 +299,7 @@ class VignetteConfig(SchemaModel):
         """Validate required fields for the selected vignette method."""
         if self.method == VignetteMethod.MAP_FILE and self.map_file_path is None:
             raise ValueError("map_file_path required when method is 'map_file'")
-        if self.method == VignetteMethod.RADIAL_POLYNOMIAL:
+        if self.method == VignetteMethod.RADIAL_POLYNOMIAL:  # noqa: SIM102 — reads clearer nested
             if self.full_width is None or self.full_height is None:
                 raise ValueError(
                     "full_width/full_height required when method is 'radial_polynomial'"
@@ -392,12 +392,11 @@ class NormalizationConfig(SchemaModel):
         if method in (
             NormalizationMethod.CONSTANT,
             NormalizationMethod.DISTRIBUTE_VALUE,
-        ):
-            if v is None or v == 0:
-                raise ValueError(
-                    "constant_value must be non-zero when method is 'constant' "
-                    "or 'distribute_value'"
-                )
+        ) and (v is None or v == 0):
+            raise ValueError(
+                "constant_value must be non-zero when method is 'constant' "
+                "or 'distribute_value'"
+            )
         return v
 
 

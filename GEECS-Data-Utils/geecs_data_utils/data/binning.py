@@ -205,7 +205,7 @@ def _select_value_cols(frame: "pd.DataFrame", cfg: BinningConfig) -> "list[str]"
     return [str(c) for c in numeric if str(c) != "Shotnumber"]
 
 
-def bin_frame(frame: "pd.DataFrame", cfg: BinningConfig) -> BinnedFrame:
+def bin_frame(frame: "pd.DataFrame", cfg: BinningConfig) -> BinnedFrame:  # noqa: PLR0915
     """Aggregate *frame* into bins — pure, stateless, vectorized.
 
     Parameters

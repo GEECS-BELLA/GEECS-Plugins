@@ -12,15 +12,15 @@ import pytest
 
 pytest.importorskip("aioca")  # the raw transport needs the `ca` extra
 
-import aioca  # noqa: E402
+import aioca
 
-from ophyd_async.core import (  # noqa: E402
+from ophyd_async.core import (
     callback_on_mock_put,
     get_mock_put,
     set_mock_put_proceeds,
 )
 
-from geecs_bluesky.devices.ca.gateway_put import (  # noqa: E402
+from geecs_bluesky.devices.ca.gateway_put import (
     CaPutSetter,
     GatewaySetpointPut,
     bare_pv,

@@ -329,7 +329,7 @@ def waterfall(
     return single(Measurement({}, frame), style)
 
 
-def image_grid(
+def image_grid(  # noqa: C901, PLR0912, PLR0915
     results: Sequence[Measurement],
     *,
     titles: Sequence[str] | None = None,

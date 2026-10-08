@@ -224,10 +224,10 @@ class ImageAnalyzerResult(BaseModel):
         """
         if self.data_type == "2d":
             return self.processed_image
-        elif self.data_type == "1d":
+        if self.data_type == "1d":
             return self.line_data
-        else:  # scalars_only
-            return None
+        # scalars_only
+        return None
 
     def has_image_data(self) -> bool:
         """Check if this result has renderable image/line data.
@@ -296,7 +296,7 @@ class ImageAnalyzerResult(BaseModel):
         }
 
     @classmethod
-    def average(cls, results: List["ImageAnalyzerResult"]) -> "ImageAnalyzerResult":
+    def average(cls, results: List["ImageAnalyzerResult"]) -> "ImageAnalyzerResult":  # noqa: C901, PLR0912, PLR0915
         """Average multiple ImageAnalyzerResult objects.
 
         Averages all numerical data using nanmean to handle NaN values.
@@ -361,7 +361,7 @@ class ImageAnalyzerResult(BaseModel):
         all_scalars = [r.scalars for r in results if r.scalars]
         avg_scalars = {}
         if all_scalars:
-            for key in all_scalars[0].keys():
+            for key in all_scalars[0]:
                 values = [s[key] for s in all_scalars if key in s]
                 if not values:
                     # Key missing from all results - skip it
@@ -380,9 +380,9 @@ class ImageAnalyzerResult(BaseModel):
         if inconsistent:
             all_unique_keys = set().union(*all_keys_sets)
             logger.warning(
-                f"Inconsistent render_data keys across results. "
-                f"Expected {expected_keys}, found union of {all_unique_keys}. "
-                f"This may indicate a poorly implemented analyzer."
+                "Inconsistent render_data keys across results. Expected %s, found union of %s. This may indicate a poorly implemented analyzer.",
+                expected_keys,
+                all_unique_keys,
             )
 
         # Average render_data using union of all keys

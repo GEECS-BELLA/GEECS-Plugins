@@ -218,7 +218,7 @@ def test_an_invalid_shot_offsets_document_is_loud(repo):
     resolver = ConfigsRepoResolver("TestExp", repo)
     broken = dict(OFFSETS, reference="a_device_it_does_not_list")
     resolver.shot_offsets_path.write_text(yaml.safe_dump(broken))
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 — asserts any failure
         resolver.resolve_shot_offsets()
 
 

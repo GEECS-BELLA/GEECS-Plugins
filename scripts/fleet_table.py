@@ -36,7 +36,7 @@ def _add_note(rec: dict[str, str], text: str, key: str = "notes") -> None:
     rec[key] = (rec.get(key, "") + "|" + text).strip("|")
 
 
-def parse(lines: list[str]) -> dict[str, dict[str, str]]:
+def parse(lines: list[str]) -> dict[str, dict[str, str]]:  # noqa: C901, PLR0912, PLR0915
     """Merge records by role.
 
     Stage-1/3 records (no ``svc=``) describe the role and merge first-wins.
@@ -169,7 +169,7 @@ def version(rec: dict[str, str]) -> str:
     return ver
 
 
-def notes(rec: dict[str, str]) -> list[str]:
+def notes(rec: dict[str, str]) -> list[str]:  # noqa: C901
     """Everything that makes this row need attention, short form.
 
     Facts that need no action (a baked venv, a clone behind master, device
@@ -282,8 +282,7 @@ def render(merged: dict[str, dict[str, str]], width: int) -> str:
 
     out = [line("┌", "┬", "┐"), fmt(HEADERS), line("├", "┼", "┤")]
     for i, row in enumerate(rows):
-        for sub in wrap_row(row):
-            out.append(fmt(sub))
+        out.extend(fmt(sub) for sub in wrap_row(row))
         out.append(line("├", "┼", "┤") if i < len(rows) - 1 else line("└", "┴", "┘"))
     return "\n".join(out)
 

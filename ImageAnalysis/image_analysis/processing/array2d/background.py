@@ -59,7 +59,7 @@ def apply_background(
                 bg = load_background_from_file(config.file_path).astype(np.float64)
                 if cache is not None:
                     cache[path_str] = bg
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — falls back to constant
                 logger.warning(
                     "Failed to load background from %s: %s. Falling back to "
                     "constant_level=%s.",
@@ -155,17 +155,15 @@ def _compute_percentile_background(images: List[Array2D], percentile: float) -> 
     """
     if len(images) < 3:
         logger.warning(
-            f"Percentile background with {len(images)} images may be unreliable. "
-            f"Consider using at least 3 images."
+            "Percentile background with %s images may be unreliable. Consider using at least 3 images.",
+            len(images),
         )
 
     # Stack images along new axis for percentile computation
     image_stack = np.stack([img.astype(np.float64) for img in images], axis=0)
 
     # Compute percentile along the image stack axis
-    background = np.percentile(image_stack, percentile, axis=0)
-
-    return background
+    return np.percentile(image_stack, percentile, axis=0)
 
 
 def _compute_median_background(images: List[Array2D]) -> Array2D:
@@ -184,17 +182,15 @@ def _compute_median_background(images: List[Array2D]) -> Array2D:
     """
     if len(images) < 3:
         logger.warning(
-            f"Temporal median background with {len(images)} images may be unreliable. "
-            f"Consider using at least 3 images."
+            "Temporal median background with %s images may be unreliable. Consider using at least 3 images.",
+            len(images),
         )
 
     # Stack images along new axis for median computation
     image_stack = np.stack([img.astype(np.float64) for img in images], axis=0)
 
     # Compute median along the image stack axis
-    background = np.median(image_stack, axis=0)
-
-    return background
+    return np.median(image_stack, axis=0)
 
 
 def load_background_from_file(file_path: Union[str, Path]) -> Array2D:
@@ -224,7 +220,7 @@ def load_background_from_file(file_path: Union[str, Path]) -> Array2D:
     if not file_path.exists():
         raise FileNotFoundError(f"Background file not found: {file_path}")
 
-    logger.info(f"Loading background from file: {file_path}")
+    logger.info("Loading background from file: %s", file_path)
     try:
         background = read_imaq_image(file_path)
 
@@ -232,13 +228,15 @@ def load_background_from_file(file_path: Union[str, Path]) -> Array2D:
         background = background.astype(np.float64)
 
         logger.info(
-            f"Loaded background with shape {background.shape} and dtype {background.dtype}"
+            "Loaded background with shape %s and dtype %s",
+            background.shape,
+            background.dtype,
         )
 
         return background
 
     except Exception as e:
-        raise ValueError(f"Failed to load background from {file_path}: {e}")
+        raise ValueError(f"Failed to load background from {file_path}: {e}") from e
 
 
 def save_background_to_file(
@@ -263,7 +261,7 @@ def save_background_to_file(
     """
     file_path = Path(file_path)
 
-    logger.info(f"Saving background to file: {file_path}")
+    logger.info("Saving background to file: %s", file_path)
 
     # Prepare data for saving
     if preserve_dtype:
@@ -294,18 +292,18 @@ def save_background_to_file(
                     import imageio
 
                     imageio.imwrite(file_path, save_data)
-                except ImportError:
+                except ImportError as err:
                     raise ValueError(
                         "PIL/Pillow or imageio required for image file saving"
-                    )
+                    ) from err
 
         else:
             raise ValueError(f"Unsupported background file format: {file_path.suffix}")
 
-        logger.info(f"Successfully saved background to {file_path}")
+        logger.info("Successfully saved background to %s", file_path)
 
     except Exception as e:
-        raise ValueError(f"Failed to save background to {file_path}: {e}")
+        raise ValueError(f"Failed to save background to {file_path}: {e}") from e
 
 
 def compute_and_cache_scan_background(
@@ -377,7 +375,7 @@ def compute_and_cache_scan_background(
     for f in image_files:
         try:
             images.append(image_loader(f))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — skip unreadable source
             logger.warning("Skipping background source %s: %s", f, exc)
 
     if not images:

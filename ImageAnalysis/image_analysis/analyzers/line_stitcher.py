@@ -221,7 +221,7 @@ class LineStitcher(LineAnalyzer):
         if file_path is not None:
             try:
                 self._save_stitched_output(result, Path(file_path))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — save failure is non-fatal
                 logger.warning(
                     "Failed to save stitched output for %s: %s", file_path, e
                 )

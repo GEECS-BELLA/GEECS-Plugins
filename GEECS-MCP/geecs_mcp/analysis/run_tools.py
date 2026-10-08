@@ -122,7 +122,7 @@ def _spawn_worker(payload: dict) -> int:
     unwaited child is reaped by the stdlib's internal bookkeeping on a
     later spawn — acceptable for the verb's low call rate.
     """
-    proc = subprocess.Popen(  # noqa: S603 — fixed argv, our own module
+    proc = subprocess.Popen(
         [sys.executable, "-m", "geecs_mcp.analysis.run_worker", json.dumps(payload)],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -213,7 +213,7 @@ async def list_analysis_groups() -> str:
 # ---------------------------------------------------------------------------
 
 
-def _run_scan_analysis_impl(
+def _run_scan_analysis_impl(  # noqa: C901, PLR0912, PLR0915
     scan_number: int,
     day: Optional[str],
     analyzer: Optional[str],
@@ -269,7 +269,7 @@ def _run_scan_analysis_impl(
             "Windows-only SDK analyzers need the future Windows satellite "
             "server, not this one",
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — tool boundary, error reply
         return errors.make_error(
             "invalid_request", f"could not build the analyzer(s): {exc}"
         )

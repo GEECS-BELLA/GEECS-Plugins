@@ -23,6 +23,7 @@ experiment's action library and the device namespace, the production
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
@@ -100,10 +101,8 @@ def values_match(expected: object, actual: object) -> bool:
         True when the values match under the legacy comparison rules.
     """
     if isinstance(actual, str):
-        try:
+        with contextlib.suppress(ValueError):
             actual = float(actual)
-        except ValueError:
-            pass
     return bool(actual == expected)
 
 

@@ -573,7 +573,7 @@ class ScanRequest(VersionedSchemaModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _lift_v1_layout(cls, data: object) -> object:
+    def _lift_v1_layout(cls, data: object) -> object:  # noqa: C901
         """Lift older document layouts into the current (v3) shape.
 
         Applied mechanically at validation: the v1 capture fields found at

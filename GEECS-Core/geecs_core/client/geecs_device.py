@@ -29,6 +29,7 @@ loop thread** — keep them fast and hand heavy work to your own queue/thread.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import threading
 from typing import Any, Callable
@@ -325,7 +326,7 @@ class GeecsDevice:
                         )
                     except asyncio.CancelledError:
                         raise
-                    except Exception:
+                    except Exception:  # noqa: BLE001 — supervisor must never die
                         # Broad on purpose (gateway-supervisor parity): any
                         # narrower filter lets an unexpected error kill the
                         # supervisor silently, freezing state["connected"].
@@ -356,10 +357,8 @@ class GeecsDevice:
         task, self._sub_task = self._sub_task, None
         if task is not None and not task.done():
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
         sub, self._sub = self._sub, None
         if sub is not None:
             await sub.close()

@@ -51,7 +51,7 @@ class TestPolynomialCalibration:
             assert cal.build_axis(image_width=width).shape == (width,)
 
     def test_empty_coeffs_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 — asserts any failure
             PolynomialCalibration(coeffs=[])
 
     def test_kind_is_polynomial(self):
@@ -79,7 +79,7 @@ class TestArrayCalibration:
             cal.build_axis(image_width=10)
 
     def test_no_source_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 — asserts any failure
             ArrayCalibration()
 
     def test_kind_is_array(self):
@@ -104,14 +104,14 @@ class TestMagSpecAnalyzerConfig:
         assert cfg.energy_range == (20.0, 200.0)
 
     def test_energy_range_max_less_than_min_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 — asserts any failure
             MagSpecAnalyzerConfig(
                 calibration={"kind": "polynomial", "coeffs": [1.0]},
                 energy_range=(200.0, 20.0),
             )
 
     def test_energy_range_equal_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 — asserts any failure
             MagSpecAnalyzerConfig(
                 calibration={"kind": "polynomial", "coeffs": [1.0]},
                 energy_range=(100.0, 100.0),

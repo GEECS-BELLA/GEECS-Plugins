@@ -171,7 +171,7 @@ def enum_index(choices: list[str], value: Any) -> int | None:
     return i if 0 <= i < len(choices) else None
 
 
-def enum_geecs_value(choices: list[str], value: Any) -> str:
+def enum_geecs_value(choices: list[str], value: Any) -> str:  # noqa: C901
     """Map a CA put (option index or label) to the GEECS option string.
 
     A genuine numeric put (``int``/``float``/``bool``) is a CA enum *index* —
@@ -390,7 +390,7 @@ async def _forward_set(channel: ChannelData, setter: Setter, geecs_value: Any) -
                 await alarm.write(
                     status=AlarmStatus.WRITE, severity=AlarmSeverity.INVALID_ALARM
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — bookkeeping never masks errors
                 # Alarm bookkeeping is best-effort — the caput must fail with
                 # the real set error, never a publish-side one.
                 logger.debug("failed to publish set-failure alarm", exc_info=True)

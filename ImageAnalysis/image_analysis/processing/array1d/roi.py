@@ -19,11 +19,11 @@ def build_roi_mask_1d(x_data: NDArray, roi_config: LineROIConfig) -> NDArray:
 
     if roi_config.x_min is not None:
         mask &= x_data >= roi_config.x_min
-        logger.debug(f"Applied x_min={roi_config.x_min}, {mask.sum()} points remain")
+        logger.debug("Applied x_min=%s, %s points remain", roi_config.x_min, mask.sum())
 
     if roi_config.x_max is not None:
         mask &= x_data <= roi_config.x_max
-        logger.debug(f"Applied x_max={roi_config.x_max}, {mask.sum()} points remain")
+        logger.debug("Applied x_max=%s, %s points remain", roi_config.x_max, mask.sum())
 
     return mask
 
@@ -83,14 +83,19 @@ def apply_roi_1d(data: NDArray, roi_config: LineROIConfig) -> NDArray:
     n_filtered = len(filtered_data)
     if n_filtered == 0:
         logger.warning(
-            f"ROI filtering removed all {n_original} points. "
-            f"ROI range: [{roi_config.x_min}, {roi_config.x_max}], "
-            f"Data x-range: [{x_data.min():.3e}, {x_data.max():.3e}]"
+            "ROI filtering removed all %s points. ROI range: [%s, %s], Data x-range: [%.3e, %.3e]",
+            n_original,
+            roi_config.x_min,
+            roi_config.x_max,
+            x_data.min(),
+            x_data.max(),
         )
     else:
         logger.info(
-            f"ROI filtering: kept {n_filtered}/{n_original} points "
-            f"({100 * n_filtered / n_original:.1f}%)"
+            "ROI filtering: kept %s/%s points (%.1f%%)",
+            n_filtered,
+            n_original,
+            100 * n_filtered / n_original,
         )
 
     return filtered_data

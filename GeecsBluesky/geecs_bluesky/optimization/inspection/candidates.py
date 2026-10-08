@@ -17,7 +17,7 @@ def next_candidate(generator) -> Optional[dict]:
         if not cands:
             return None
         return cands[0]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — inspection tool reports failure
         print(f"  next-candidate generation failed: {exc}")
         return None
 

@@ -422,7 +422,7 @@ class Repo:
     # -- indexes ----------------------------------------------------------- #
 
     @cached_property
-    def symbol_index(self) -> tuple[set[str], set[str], set[str]]:
+    def symbol_index(self) -> tuple[set[str], set[str], set[str]]:  # noqa: C901, PLR0912
         """``(dotted, bare, derived)``: dotted names, bare names, subclasses.
 
         Built from the AST of every import package in every package, so a
@@ -464,7 +464,7 @@ class Repo:
                             source = _import_source(node, package)
                             for alias in node.names:
                                 if source and alias.name != "*":
-                                    reexports.append(
+                                    reexports.append(  # noqa: PERF401 — clearer as a loop
                                         (
                                             f"{mod}.{alias.asname or alias.name}",
                                             f"{source}.{alias.name}",
@@ -549,7 +549,7 @@ def _local_names(path: Path) -> set[str]:
     return names
 
 
-def _names_defined(node: ast.AST) -> Iterator[str]:
+def _names_defined(node: ast.AST) -> Iterator[str]:  # noqa: C901
     """Names a statement defines: defs, classes, assignments, imports."""
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
         yield node.name
@@ -573,7 +573,7 @@ def _names_defined(node: ast.AST) -> Iterator[str]:
 # --------------------------------------------------------------------------- #
 
 
-def iter_doc_texts(repo: Repo) -> Iterator[DocText]:
+def iter_doc_texts(repo: Repo) -> Iterator[DocText]:  # noqa: C901, PLR0912
     """Every docstring, ``#:`` block and Markdown file the prose checks read."""
     for path in repo.markdown_files():
         if path.name == "CHANGELOG.md":
@@ -621,9 +621,8 @@ def _docstring_node(node: ast.AST) -> ast.Expr | None:
         body
         and isinstance(body[0], ast.Expr)
         and isinstance(body[0].value, ast.Constant)
-    ):
-        if isinstance(body[0].value.value, str):
-            return body[0]
+    ) and isinstance(body[0].value.value, str):
+        return body[0]
     return None
 
 
@@ -724,7 +723,7 @@ def _root_claude(repo: Repo) -> str | None:
     return path.read_text() if path.is_file() else None
 
 
-def check_repo_map(repo: Repo) -> Iterator[Finding]:
+def check_repo_map(repo: Repo) -> Iterator[Finding]:  # noqa: C901
     """The repository-map table and the packages on disk agree."""
     text = _root_claude(repo)
     if text is None:

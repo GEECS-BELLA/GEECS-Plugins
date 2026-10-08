@@ -275,3 +275,4 @@ def __getattr__(name):
             stacklevel=2,
         )
         return getattr(basic_line_stats, name)
+    return None

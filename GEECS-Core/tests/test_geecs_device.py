@@ -200,7 +200,7 @@ class TestLifecycle:
         leak in an error-only test).
         """
         srv, _ = served_device
-        for i in range(5):
+        for _i in range(5):
             dev = GeecsDevice("U_TestDevice", host=srv.host, port=srv.port)
             try:
                 assert dev.get("Position (mm)") is not None

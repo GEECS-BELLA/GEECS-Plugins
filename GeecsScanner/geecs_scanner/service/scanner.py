@@ -263,7 +263,7 @@ class ScannerService:
             running = self.client.running_item()
             waiting = self.client.queue_items()
             history = self.client.history_items()
-        except Exception as exc:  # noqa: BLE001 — the client raises on failure
+        except Exception as exc:
             raise ScannerError(
                 "manager_unreachable", f"queue unavailable: {exc}"
             ) from exc
@@ -296,7 +296,7 @@ class ScannerService:
                     experiment=self.experiment,
                 )
             result = getattr(self.resolver, method)()
-        except Exception as exc:  # noqa: BLE001 — a missing tree is an honest answer
+        except Exception as exc:
             raise ScannerError(
                 "internal_error", f"listing {kind} failed: {exc}"
             ) from exc
@@ -332,14 +332,14 @@ class ScannerService:
         """One preset document, as JSON."""
         try:
             return self.resolver.resolve_preset(name).model_dump(mode="json")
-        except Exception as exc:  # noqa: BLE001 — resolver errors are operator-facing
+        except Exception as exc:
             raise ScannerError("not_found", f"preset {name!r}: {exc}") from exc
 
     def devices(self) -> list[str]:
         """Every device reference the manager resolves (the add-device list)."""
         try:
             return sorted(self.client.allowed_device_names())
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise ScannerError(
                 "manager_unreachable", f"device list unavailable: {exc}"
             ) from exc
@@ -560,7 +560,7 @@ class ScannerService:
             raise ScannerError("invalid_request", f"value {body.value!r} is not finite")
         try:
             reference = scan_variable_reference(name, self._catalog())
-        except Exception as exc:  # noqa: BLE001 — a GeecsConfigurationError, operator-facing
+        except Exception as exc:
             raise ScannerError("invalid_request", str(exc)) from exc
         out = self._queue_item("mv", [reference, body.value], {}, what="a move")
         out.reference = reference
@@ -716,7 +716,7 @@ class ScannerService:
             )
         try:
             path = self.resolver.write_preset(preset, overwrite=body.overwrite)
-        except Exception as exc:  # noqa: BLE001 — GeecsConfigurationError, operator-facing
+        except Exception as exc:
             raise ScannerError("invalid_request", str(exc)) from exc
         return SavePresetOut(
             name=path.stem,
@@ -805,7 +805,7 @@ class ScannerService:
 
         try:
             return expand_preset(preset, catalog=catalog, resolver=self.resolver)
-        except Exception as exc:  # noqa: BLE001 — a GeecsConfigurationError, operator-facing
+        except Exception as exc:
             raise ScannerError("invalid_request", str(exc)) from exc
 
     def _queue_item(
@@ -856,7 +856,7 @@ class ScannerService:
     def _action_registry(self) -> dict[str, Any]:
         try:
             return dict(self.resolver.action_plan_registry())
-        except Exception as exc:  # noqa: BLE001 — a legacy-dialect file must be seen, not hidden
+        except Exception as exc:
             raise ScannerError(
                 "internal_error", f"the action library could not be read: {exc}"
             ) from exc
@@ -874,7 +874,7 @@ class ScannerService:
             )
         try:
             return [scan_variable_reference(n) for n in names]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise ScannerError("invalid_request", str(exc)) from exc
 
 

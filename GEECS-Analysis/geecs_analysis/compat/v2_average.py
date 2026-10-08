@@ -208,7 +208,7 @@ class RunningAverage:
         self._bin_keys: tuple[str, ...] | None = None
         self._overlays: dict[str, _ProjectionAverage | _MarkerAverage] = {}
 
-    def add(self, result: Measurement) -> None:
+    def add(self, result: Measurement) -> None:  # noqa: C901, PLR0912
         """Fold one more processed result."""
         import numpy as np
         from geecs_analysis.measurement import Projection

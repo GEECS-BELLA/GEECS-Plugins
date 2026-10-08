@@ -73,7 +73,7 @@ class _BusyManagerAPI:
 
 def _service_over(api: _BusyManagerAPI) -> ScannerService:
     client = ZmqQueueClient(QserverConfig("tcp://x:1", "tcp://x:2", "x:3"), user="t")
-    client._api = api  # noqa: SLF001 — the client's injection point, as its own tests use it
+    client._api = api
     return ScannerService(
         client,
         DemoResolver(),

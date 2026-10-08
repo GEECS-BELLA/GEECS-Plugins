@@ -439,7 +439,7 @@ def join_frames_to_shots(
         low = int(np.searchsorted(sorted_frames, shots[row] - half[row], "left"))
         high = int(np.searchsorted(sorted_frames, shots[row] + half[row], "right"))
         for position in range(low, high):
-            candidates.append(
+            candidates.append(  # noqa: PERF401 — clearer as a loop
                 (
                     abs(float(sorted_frames[position]) - float(shots[row])),
                     row,

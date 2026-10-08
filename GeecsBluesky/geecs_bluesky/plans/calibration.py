@@ -343,7 +343,7 @@ class SyncVerdict:
     detail: str
 
 
-def sync_verdict_from_stamps(
+def sync_verdict_from_stamps(  # noqa: C901
     stamps: Mapping[str, float | None],
     offsets: Mapping[str, float],
     *,
@@ -699,7 +699,7 @@ def _read_stamps(views: Sequence[Any]):
             # `.result()` is also what re-raises a failed get here instead of
             # leaving it as a silently-retrieved exception.
             value = task.result()
-        except Exception:
+        except Exception:  # noqa: BLE001 — unreadable stamp is logged
             logger.warning(
                 "%s: acq_timestamp could not be read", owner.name, exc_info=True
             )
@@ -791,7 +791,7 @@ def _settle_quiet(views: Sequence[Any], quiet_time: float, confirm_time: float):
 # ------------------------------------------------------------------- plans
 
 
-def measure_shot_offsets_plan(
+def measure_shot_offsets_plan(  # noqa: C901, PLR0915
     profiles: Any, resolver: Any | None
 ) -> Callable[..., Any]:
     """Build the ``measure_shot_offsets`` queue plan.
@@ -806,7 +806,7 @@ def measure_shot_offsets_plan(
         hermetic worker).
     """
 
-    def measure_shot_offsets(
+    def measure_shot_offsets(  # noqa: C901, PLR0915
         detectors: Sequence[Any],
         *,
         trigger_profile: str | None = None,
@@ -1026,7 +1026,7 @@ def measure_shot_offsets_plan(
     return resolve_annotations(measure_shot_offsets, _PLAN_ANNOTATIONS)
 
 
-def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:
+def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:  # noqa: C901
     """Build the ``check_shot_sync`` queue plan — the calibration's preflight.
 
     Parameters
@@ -1035,7 +1035,7 @@ def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:
         The experiment's :class:`~geecs_bluesky.plans.registry.TriggerProfiles`.
     """
 
-    def check_shot_sync(
+    def check_shot_sync(  # noqa: C901
         detectors: Sequence[Any],
         *,
         trigger_profile: str | None = None,

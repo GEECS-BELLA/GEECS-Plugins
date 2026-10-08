@@ -18,8 +18,8 @@ import yaml
 
 pytest.importorskip("scan_analysis")
 
-from geecs_mcp import runtime  # noqa: E402
-from geecs_mcp.analysis import read_tools, run_tools  # noqa: E402
+from geecs_mcp import runtime
+from geecs_mcp.analysis import read_tools, run_tools
 
 _BEAM = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
 

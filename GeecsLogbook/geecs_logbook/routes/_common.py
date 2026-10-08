@@ -96,7 +96,7 @@ class Context:
             return read_day(day, self.experiment, base_directory=self.base_directory)
         except HTTPException:
             raise
-        except Exception as exc:  # noqa: BLE001 — surface, don't 500 blankly
+        except Exception as exc:
             logger.exception("reading %s failed", day)
             raise HTTPException(
                 status_code=503, detail=f"data share unavailable: {exc}"
@@ -116,7 +116,7 @@ class Context:
             )
             if written or deferred:
                 logger.info("mirror sync: %d written, %d deferred", written, deferred)
-        except Exception:  # noqa: BLE001 — a sync must never take down a view
+        except Exception:
             logger.exception("mirror sync failed")
 
     def rendered(
@@ -154,7 +154,7 @@ class Context:
         except mirror.MirrorUnavailable as exc:
             logger.info("mirror deferred for %s: %s", entry_id, exc)
             self.store.mark_deferred(entry_id)
-        except Exception:  # noqa: BLE001 — the row is saved; a 500 here would lie
+        except Exception:
             logger.exception("mirror failed for %s; deferred", entry_id)
             self.store.mark_deferred(entry_id)
 

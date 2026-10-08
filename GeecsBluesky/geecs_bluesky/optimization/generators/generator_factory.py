@@ -133,8 +133,10 @@ def build_generator_from_config(config: Dict[str, Any], vocs: VOCS):
     overrides.pop("name", None)
     try:
         return PREDEFINED_GENERATORS[generator_name](vocs, overrides)
-    except KeyError:
-        raise ValueError(f"Unsupported or undefined generator name: '{generator_name}'")
+    except KeyError as err:
+        raise ValueError(
+            f"Unsupported or undefined generator name: '{generator_name}'"
+        ) from err
 
 
 def _make_bayes_turbo(

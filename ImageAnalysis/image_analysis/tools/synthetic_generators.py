@@ -50,10 +50,7 @@ def gaussian_beam_2d(
     np.ndarray
         Synthetic image, dtype ``uint16``.
     """
-    if seed is not None:
-        rng = np.random.default_rng(seed)
-    else:
-        rng = np.random.default_rng()
+    rng = np.random.default_rng(seed) if seed is not None else np.random.default_rng()
 
     h, w = shape
     cy, cx = center
@@ -108,10 +105,7 @@ def gaussian_peak_1d(
     np.ndarray
         1D array of y-values, dtype ``float64``.
     """
-    if seed is not None:
-        rng = np.random.default_rng(seed)
-    else:
-        rng = np.random.default_rng()
+    rng = np.random.default_rng(seed) if seed is not None else np.random.default_rng()
 
     y = amplitude * np.exp(-0.5 * ((x - center) / sigma) ** 2) + background_level
 

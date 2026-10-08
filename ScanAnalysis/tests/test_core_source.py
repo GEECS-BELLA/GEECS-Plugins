@@ -127,7 +127,7 @@ def test_camera_stack_preference_can_fall_back_to_native_default_suffix(tmp_path
     source = prepare_source(doc, tmp_path, pd.DataFrame({"Shotnumber": [1]}))
     assert source.references == {1: path}
     # Mapping does not load or silently discard a corrupt file.
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 — asserts any failure
         source.load(1)
 
 

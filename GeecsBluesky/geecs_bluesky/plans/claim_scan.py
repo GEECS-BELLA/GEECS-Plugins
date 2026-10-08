@@ -54,7 +54,7 @@ def claim_scan(experiment: str = "") -> tuple[Any | None, str | None]:
     """
     try:
         from geecs_data_utils import ScanPaths
-    except Exception:
+    except Exception:  # noqa: BLE001 — claim failure is non-fatal
         logger.debug("geecs_data_utils not available; scan numbering disabled")
         return None, None
 
@@ -66,7 +66,7 @@ def claim_scan(experiment: str = "") -> tuple[Any | None, str | None]:
         folder = scan_data.get_folder()
         logger.info("Claimed scan number %d -> %s", tag.number, folder)
         return tag, str(folder) if folder else None
-    except Exception:
+    except Exception:  # noqa: BLE001 — claim failure is non-fatal
         logger.warning("Could not claim scan number", exc_info=True)
         return None, None
 

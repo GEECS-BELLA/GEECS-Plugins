@@ -225,13 +225,13 @@ class ScanAnalyzer:
         self.auxiliary_file_path: Path = (
             self.scan_path.parent / f"s{self.scan_tag.number}.txt"
         )
-        logger.info(f"analysis path is : {self.scan_path}")
+        logger.info("analysis path is : %s", self.scan_path)
 
         try:
             # Extract the scan parameter
             self.scan_parameter = self.extract_scan_parameter_from_ini()
 
-            logger.info(f"Scan parameter is: {self.scan_parameter}.")
+            logger.info("Scan parameter is: %s.", self.scan_parameter)
             s_param = self.scan_parameter.lower()
 
             if s_param == "noscan" or s_param == "shotnumber":
@@ -255,7 +255,9 @@ class ScanAnalyzer:
 
         except FileNotFoundError as e:
             logger.warning(
-                f"{e}. Could not find auxiliary or .ini file in {self.scan_directory}. Skipping analysis."
+                "%s. Could not find auxiliary or .ini file in %s. Skipping analysis.",
+                e,
+                self.scan_directory,
             )
             return
 
@@ -323,7 +325,8 @@ class ScanAnalyzer:
 
             except (KeyError, FileNotFoundError) as e:
                 logger.warning(
-                    f"{e}. Scan parameter not found in auxiliary data. Possible aborted scan. Skipping"
+                    "%s. Scan parameter not found in auxiliary data. Possible aborted scan. Skipping",
+                    e,
                 )
 
     def close_or_show_plot(self):
@@ -446,10 +449,9 @@ class ScanAnalyzer:
         if self.total_shots <= max_labels:
             # If the number of shots is less than or equal to max_labels, return the full range
             return np.arange(1, self.total_shots + 1)
-        else:
-            # Otherwise, return a spaced-out array with at most max_labels
-            step = self.total_shots // max_labels
-            return np.arange(1, self.total_shots + 1, step)
+        # Otherwise, return a spaced-out array with at most max_labels
+        step = self.total_shots // max_labels
+        return np.arange(1, self.total_shots + 1, step)
 
     def find_scan_param_column(self) -> tuple[Optional[str], Optional[str]]:
         """Locate the column in the auxiliary DataFrame that corresponds to the scan parameter.
@@ -465,9 +467,6 @@ class ScanAnalyzer:
         - Matching is performed against the part of the column name preceding
           ``' Alias:'`` to tolerate aliasing in s-files.
         """
-        # Clean the scan parameter by stripping any quotes or extra spaces
-        # cleaned_scan_parameter = self.scan_parameter
-
         if not self.noscan:
             # Search for the first column that contains the cleaned scan parameter string
             for column in self.auxiliary_data.columns:
@@ -479,11 +478,11 @@ class ScanAnalyzer:
                     ].strip() if "Alias:" in column else column
 
             logger.warning(
-                f"Warning: Could not find column containing scan parameter: {self.scan_parameter}"
+                "Warning: Could not find column containing scan parameter: %s",
+                self.scan_parameter,
             )
             return None, None
-        else:
-            return None, None
+        return None, None
 
     def find_column_for_key(self, key: str) -> Optional[str]:
         """Locate an auxiliary-data column that matches a user-supplied key string.
@@ -515,7 +514,7 @@ class ScanAnalyzer:
             if any(c in col_base for c in candidates):
                 return column
 
-        logger.warning(f"Could not find auxiliary_data column matching key: '{key}'")
+        logger.warning("Could not find auxiliary_data column matching key: '%s'", key)
         return None
 
 

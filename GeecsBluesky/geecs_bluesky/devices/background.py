@@ -253,7 +253,7 @@ class BackgroundSnapshot:
         self._probe_error = ""
         try:
             await self._probe(own, movers)
-        except Exception as exc:  # noqa: BLE001 - the run opens regardless
+        except Exception as exc:
             self._active, self._datakeys = [], {}
             self._probe_error = _one_line(exc)
             logger.exception(
@@ -261,7 +261,7 @@ class BackgroundSnapshot:
                 "this run"
             )
 
-    async def _probe(self, own: Sequence[Any], movers: Sequence[Any]) -> None:
+    async def _probe(self, own: Sequence[Any], movers: Sequence[Any]) -> None:  # noqa: C901, PLR0912, PLR0915
         own_roots = {id(root_ancestor(owner_of(obj))) for obj in own}
         taken: set[str] = set()  # the movers' own columns
         moved: set[int] = set()  # roots the RunEngine staged for a mover

@@ -220,7 +220,7 @@ def spool_is_held(path: Path) -> bool:
     if fcntl is None:  # pragma: no cover - Windows
         return False
     try:
-        fh = open(path, "rb")
+        fh = open(path, "rb")  # noqa: SIM115 — handle outlives the block
     except OSError:
         return False
     with fh:
@@ -297,7 +297,7 @@ class SpoolCallback:
         line = encode_line("start", doc)  # before the file exists
         self._layout.ensure()
         path = self._layout.file_for(str(doc["uid"]), float(doc.get("time", 0.0)))
-        fh = open(path, "w", encoding="utf-8")
+        fh = open(path, "w", encoding="utf-8")  # noqa: SIM115 — handle outlives the block
         try:
             _hold(fh)
             fh.write(line)
@@ -311,9 +311,9 @@ class SpoolCallback:
 
     def _abandon(self) -> None:
         if self._file is not None:
-            try:
+            try:  # noqa: SIM105 — keeps the except comment
                 self._file.close()
-            except Exception:  # pragma: no cover - best effort on the error path
+            except Exception:  # pragma: no cover - best effort on the error path  # noqa: BLE001 — best-effort close
                 pass
         self._file = None
         self._run_uid = None

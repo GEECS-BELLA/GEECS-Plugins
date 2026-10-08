@@ -136,7 +136,7 @@ def canonicalize_polynomial_sign(
     return -np.asarray(coefficients, dtype=float), True
 
 
-def fit_polynomial(
+def fit_polynomial(  # noqa: C901, PLR0912
     y: np.ndarray,
     x: Optional[np.ndarray] = None,
     weights: Optional[np.ndarray] = None,

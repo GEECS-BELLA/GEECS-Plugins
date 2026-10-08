@@ -334,7 +334,7 @@ def _write_manifest(
     return target
 
 
-def compact_himg_folder(
+def compact_himg_folder(  # noqa: C901, PLR0915
     device_dir: Path,
     *,
     min_age: float = MIN_SOURCE_AGE_S,

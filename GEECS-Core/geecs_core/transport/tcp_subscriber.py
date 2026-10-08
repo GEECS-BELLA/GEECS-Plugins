@@ -22,6 +22,7 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 import socket
@@ -183,16 +184,14 @@ class GeecsTcpSubscriber:
         """Cancel listener task and close the TCP connection."""
         if self._listen_task is not None and not self._listen_task.done():
             self._listen_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._listen_task
-            except asyncio.CancelledError:
-                pass
             self._listen_task = None
         if self._writer is not None:
             try:
                 self._writer.close()
                 await asyncio.wait_for(self._writer.wait_closed(), timeout=1.0)
-            except Exception:
+            except Exception:  # noqa: BLE001 — teardown is best effort
                 transport = getattr(self._writer, "transport", None) or getattr(
                     self._writer, "_transport", None
                 )
@@ -274,7 +273,7 @@ class GeecsTcpSubscriber:
             name=f"tcp-sub[{self._host}:{self._port}]",
         )
 
-    async def _listen_loop(
+    async def _listen_loop(  # noqa: C901
         self,
         callback: Callback,
         variables: list[str],
@@ -325,7 +324,7 @@ class GeecsTcpSubscriber:
                         result = callback(parsed)
                         if asyncio.iscoroutine(result):
                             await result
-                    except Exception:
+                    except Exception:  # noqa: BLE001 — listener survives callback errors
                         logger.warning(
                             "TCP subscription callback failed for %s:%s; "
                             "continuing listener",
@@ -404,8 +403,6 @@ def _parse_subscription(
             raw_val if var in text_variables else coerce_scalar(raw_val.strip())
         )
     if include_shot and result:
-        try:
+        with contextlib.suppress(ValueError):
             result["shot number"] = int(msg[i1 + 2 : i2])
-        except ValueError:
-            pass
     return result

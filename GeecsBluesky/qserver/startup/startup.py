@@ -114,7 +114,7 @@ else:
     _resolver = ConfigsRepoResolver(_experiment)
     try:
         _offsets = _resolver.resolve_shot_offsets()
-    except Exception:
+    except Exception:  # noqa: BLE001 — worker must still start
         # An unreadable or invalid shot_offsets.yaml must not stop the
         # worker coming up — a scan at 1 Hz is unaffected by zero offsets.
         # Loud, because at a tight rep rate it costs rows.
@@ -132,7 +132,7 @@ else:
     # catalog costs the opt-ins and the pseudos, not the worker.
     try:
         _catalog = _resolver.scan_variable_catalog().variables
-    except Exception:
+    except Exception:  # noqa: BLE001 — worker must still start
         logger.warning(
             "scan-variable catalog not loaded — no pseudo scan variable is "
             "registered and no 'kind: motor' opt-in applies; fix the document "
@@ -222,7 +222,7 @@ if _doc_publish_addr.upper() != "OFF":
             )
         RE.subscribe(Publisher(_doc_publish_addr))
         logger.info("Publishing documents to 0MQ proxy at %s", _doc_publish_addr)
-    except Exception:
+    except Exception:  # noqa: BLE001 — worker must still start
         logger.warning(
             "Could not set up the document publisher for %s — GUI progress "
             "streams will be empty (set QS_DOC_PUBLISH_ADDR, or OFF to "

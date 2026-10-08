@@ -134,12 +134,13 @@ class _ShotFileMapper:
         # Check if data directory exists
         if not self.directory.exists():
             logger.warning(
-                f"Data directory does not exist: {self.directory}. "
-                f"Skipping file mapping for device '{self.device}'."
+                "Data directory does not exist: %s. Skipping file mapping for device '%s'.",
+                self.directory,
+                self.device,
             )
             return
 
-        logger.info(f"self.file_tail: {self.file_tail}")
+        logger.info("self.file_tail: %s", self.file_tail)
 
         # Opt-in capture-stack strategy (data_format="device_hdf5"): map
         # shots into the per-device HDF5 frame stack the PVA gateway's
@@ -150,7 +151,7 @@ class _ShotFileMapper:
             if self._map_shots_from_stack():
                 expected_shots = set(self.rows["Shotnumber"].values)
                 for m in sorted(expected_shots - set(self.paths.keys())):
-                    logger.warning(f"No stack frame found for shot {m}")
+                    logger.warning("No stack frame found for shot %s", m)
                 return
             if self.stacks_only:
                 # A stack-only reader cannot recover through native paths. Let
@@ -188,7 +189,7 @@ class _ShotFileMapper:
         expected_shots = set(self.rows["Shotnumber"].values)
         found_shots = set(self.paths.keys())
         for m in sorted(expected_shots - found_shots):
-            logger.warning(f"No file found for shot {m}")
+            logger.warning("No file found for shot %s", m)
 
     def _legacy_filename_regex(self) -> re.Pattern[str]:
         """Compile the MC-convention filename pattern for this device's tail.
@@ -210,9 +211,9 @@ class _ShotFileMapper:
                 shot_num = int(m.group("shot_number"))
                 if shot_num in self.rows["Shotnumber"].values:
                     self.paths[shot_num] = file
-                    logger.info(f"Mapped file for shot {shot_num}: {file}")
+                    logger.info("Mapped file for shot %s: %s", shot_num, file)
             else:
-                logger.debug(f"Filename {file.name} does not match expected pattern.")
+                logger.debug("Filename %s does not match expected pattern.", file.name)
 
     def _acq_timestamp_column(self) -> Optional[str]:
         """Find this device's ``acq_timestamp`` column in the auxiliary frame.
@@ -233,7 +234,7 @@ class _ShotFileMapper:
         """
         return device_valid_column(list(self.rows.columns), self.device)
 
-    def _map_files_by_acq_timestamp(self, ts_column: str) -> None:
+    def _map_files_by_acq_timestamp(self, ts_column: str) -> None:  # noqa: C901
         """Join shots to files via this device's own per-shot ``acq_timestamp``.
 
         The device stamps one double per acquisition: streamed into the event
@@ -305,7 +306,7 @@ class _ShotFileMapper:
                 file = frame_index_for_timestamp(files_by_ms, ts)
             if file is not None:
                 self.paths[shot_num] = file
-                logger.info(f"Mapped file for shot {shot_num}: {file}")
+                logger.info("Mapped file for shot %s: %s", shot_num, file)
 
     def _map_shots_from_stack(self) -> bool:
         """Join shots into the capture frame stack, if one exists.
@@ -345,7 +346,7 @@ class _ShotFileMapper:
             return False
         try:
             stack_ts = read_stack_timestamps(stack, labview_epoch=True)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — any bad stack falls back
             # ANY unreadable stack must fall back, not fail the task — the
             # dual-write PNGs are right there. Broad on purpose (review of
             # PR #693): a malformed-but-schema-valid stack can raise

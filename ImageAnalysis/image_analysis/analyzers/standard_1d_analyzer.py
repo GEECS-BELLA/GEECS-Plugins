@@ -444,7 +444,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
         return fig, ax
 
     @staticmethod
-    def render_data(
+    def render_data(  # noqa: PLR0912
         data: np.ndarray,
         analysis_results_dict: Optional[Dict] = None,
         input_params_dict: Optional[Dict] = None,

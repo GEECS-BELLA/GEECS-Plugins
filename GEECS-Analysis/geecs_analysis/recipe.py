@@ -52,7 +52,7 @@ class RecipeError(ValueError):
     """A recipe names a step, measure, parameter or binding the core cannot run."""
 
 
-def compile_recipe(
+def compile_recipe(  # noqa: C901, PLR0912
     recipe: AnalysisRecipe, *, allow_file_backgrounds: bool = False
 ) -> V2Recipe:
     """Bind the recipe's vocabulary to the registry and compile it, without I/O.

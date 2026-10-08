@@ -205,7 +205,7 @@ def test_external_datasets_register_and_read_back(tmp_path: Path, catalog) -> No
             )
         )
         for i in range(2):
-            docs.append(
+            docs.append(  # noqa: PERF401 — clearer as a loop
                 (
                     "stream_datum",
                     {

@@ -42,7 +42,7 @@ class TrajectoryOut(BaseModel):
     sampled: bool
 
 
-def preview(sweep: Sweep, cancelled: threading.Event | None = None) -> TrajectoryOut:
+def preview(sweep: Sweep, cancelled: threading.Event | None = None) -> TrajectoryOut:  # noqa: C901, PLR0912, PLR0915
     """Expand without consulting a worker, namespace, catalog or gateway.
 
     Curved patterns have no algebraic size; run upstream's geometry in a
@@ -95,13 +95,13 @@ def preview(sweep: Sweep, cancelled: threading.Event | None = None) -> Trajector
                     try:
                         output, error = child.communicate(input=pending, timeout=0.05)
                         break
-                    except subprocess.TimeoutExpired:
+                    except subprocess.TimeoutExpired as err:
                         pending = None
                         if time.monotonic() >= deadline:
                             raise ScannerError(
                                 "invalid_request",
                                 "Trajectory preview timed out. Retry when the server is less busy, or reduce the point count.",
-                            )
+                            ) from err
                         try:
                             if monitor.memory_info().rss > MAX_RSS:
                                 raise ScannerError(

@@ -10,14 +10,14 @@ import pytest
 # the CA transport, like every other CA-device suite (the `ca` extra).
 pytest.importorskip("aioca")
 
-from bluesky import RunEngine  # noqa: E402
-from bluesky.plan_stubs import mv  # noqa: E402
-from geecs_schemas.trigger_profile import TriggerState  # noqa: E402
+from bluesky import RunEngine
+from bluesky.plan_stubs import mv
+from geecs_schemas.trigger_profile import TriggerState
 
-from geecs_bluesky.devices.ca._pv import ca_pv  # noqa: E402
-from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites  # noqa: E402
-from geecs_bluesky.exceptions import GeecsConfigurationError  # noqa: E402
-from tests.ca_mock_helpers import connect_mock  # noqa: E402
+from geecs_bluesky.devices.ca._pv import ca_pv
+from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites
+from geecs_bluesky.exceptions import GeecsConfigurationError
+from tests.ca_mock_helpers import connect_mock
 
 WRITES = ShotControlWrites(
     name="htu_test",
@@ -193,7 +193,7 @@ def test_run_engine_pauses_the_box_it_set(
         yield from bps.pause()
         yield from bps.close_run()
 
-    with pytest.raises(Exception):  # RunEngineInterrupted
+    with pytest.raises(Exception):  # noqa: B017 — RunEngineInterrupted
         RE(plan())
     assert shot_control.standing_state == "OFF"
     RE.resume()

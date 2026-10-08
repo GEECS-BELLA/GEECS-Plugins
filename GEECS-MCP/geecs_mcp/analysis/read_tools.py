@@ -244,7 +244,7 @@ def _localize_display_entry(name: str, analysis_folder: Path) -> Optional[Path]:
     return None
 
 
-def _gather_figure_candidates(scan_folder: Path, analysis_folder: Path) -> list[Path]:
+def _gather_figure_candidates(scan_folder: Path, analysis_folder: Path) -> list[Path]:  # noqa: C901
     """Figure candidates: display_files first, then images in the tree.
 
     Every candidate must resolve **inside this scan's analysis folder**
@@ -419,7 +419,7 @@ def _figure_metadata(path: Path, label: str, day: str, scan_number: int) -> dict
         size = path.stat().st_size
         with PILImage.open(path) as image:  # header read only — no decode
             width, height = image.width, image.height
-    except Exception:  # a vanished/unreadable file degrades the fields
+    except Exception:  # a vanished/unreadable file degrades the fields  # noqa: BLE001 — tool boundary, error reply
         logger.debug("figure header unreadable: %s", path, exc_info=True)
     return {
         "figure": label,

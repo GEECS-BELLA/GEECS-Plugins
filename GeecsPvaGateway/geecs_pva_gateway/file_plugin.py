@@ -641,7 +641,7 @@ class HdfFilePlugin:
                 return
             try:
                 self._dispatch(item)
-            except Exception as exc:  # noqa: BLE001 - the writer must survive
+            except Exception as exc:
                 logger.exception("%s %s: writer error", self.device, self.variable)
                 self._error(str(exc))
 
@@ -685,7 +685,7 @@ class HdfFilePlugin:
             self._post(suffix, 0)
         self._post("FullFileName_RBV", "")
 
-    def _capture_on(self, op: Any) -> None:
+    def _capture_on(self, op: Any) -> None:  # noqa: C901, PLR0912, PLR0915
         """Open a session: validate, zero the readbacks, retain, arm (#853, #894)."""
         if self._session is not None:
             op.done()  # idempotent: the stock logic may repeat the put
@@ -833,7 +833,7 @@ class HdfFilePlugin:
         if ad_type is not None:
             self._post("DataType_RBV", ad_type)
 
-    def _on_frame(
+    def _on_frame(  # noqa: C901
         self,
         blob: str,
         stamp: float,

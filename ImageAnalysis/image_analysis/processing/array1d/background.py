@@ -67,10 +67,10 @@ def compute_background(
         background = np.column_stack(
             [data[:, 0], np.full(len(data), config.constant_level)]
         )
-        logger.info(f"Computed constant background: {config.constant_level}")
+        logger.info("Computed constant background: %s", config.constant_level)
         return background
 
-    elif config.method == LineBackgroundMethod.FROM_FILE:
+    if config.method == LineBackgroundMethod.FROM_FILE:
         if data_loading is None:
             raise ValueError(
                 "FROM_FILE background requires a data_loading config to know "
@@ -78,11 +78,10 @@ def compute_background(
                 "the Line1DConfig.data_loading."
             )
         background = load_background_from_file(config.file_path, data_loading)
-        logger.info(f"Loaded background from file: {config.file_path}")
+        logger.info("Loaded background from file: %s", config.file_path)
         return background
 
-    else:
-        raise ValueError(f"Unsupported background method: {config.method}")
+    raise ValueError(f"Unsupported background method: {config.method}")
 
 
 def subtract_background(
@@ -126,7 +125,7 @@ def subtract_background(
     result = data.copy()
     result[:, 1] = data[:, 1] - background[:, 1]
 
-    logger.debug(f"Subtracted background from {len(data)} points")
+    logger.debug("Subtracted background from %s points", len(data))
     return result
 
 
@@ -179,7 +178,7 @@ def load_background_from_file(
             f"Background file must contain Nx2 array, got shape {background.shape}"
         )
 
-    logger.info(f"Loaded background from {file_path}: shape {background.shape}")
+    logger.info("Loaded background from %s: shape %s", file_path, background.shape)
     return background
 
 
@@ -226,4 +225,4 @@ def save_background_to_file(background: np.ndarray, file_path: Path) -> None:
     else:
         raise ValueError(f"Unsupported file format: {suffix}. Use .npy or .npz")
 
-    logger.info(f"Saved background to {file_path}: shape {background.shape}")
+    logger.info("Saved background to %s: shape %s", file_path, background.shape)

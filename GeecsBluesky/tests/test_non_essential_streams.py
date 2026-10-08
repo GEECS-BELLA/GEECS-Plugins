@@ -25,22 +25,22 @@ import pytest
 
 pytest.importorskip("aioca")
 
-from bluesky import RunEngine  # noqa: E402
-from ophyd_async.core import set_mock_value  # noqa: E402
+from bluesky import RunEngine
+from ophyd_async.core import set_mock_value
 
-from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable  # noqa: E402
-from geecs_bluesky.devices.shot_control import ShotControl  # noqa: E402
-from geecs_bluesky.exceptions import GeecsConfigurationError  # noqa: E402
-from geecs_bluesky.plans import gated  # noqa: E402
-from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans  # noqa: E402
-from tests.ca_mock_helpers import DocCollector, connect_mock  # noqa: E402
-from tests.test_gated_plans import (  # noqa: E402
+from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
+from geecs_bluesky.devices.shot_control import ShotControl
+from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.plans import gated
+from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans
+from tests.ca_mock_helpers import DocCollector, connect_mock
+from tests.test_gated_plans import (
     GATED_WRITES,
     GatedBox,
     _events_from_pages,
     _saves,
 )
-from tests.test_strict_plans import _camera, _plugin_camera  # noqa: E402
+from tests.test_strict_plans import _camera, _plugin_camera
 
 MODES = ("strict", "gated")
 

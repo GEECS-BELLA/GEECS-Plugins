@@ -676,7 +676,7 @@ class DemoQueueClient:
     def _drive(self, period: float) -> None:
         while True:
             time.sleep(period)
-            try:
+            try:  # noqa: SIM105 — keeps the except comment
                 self.step()
             except Exception:  # noqa: BLE001 — a demo thread never dies loudly
                 pass

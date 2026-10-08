@@ -245,7 +245,7 @@ class GeecsCaGateway:
     # Construction
     # ------------------------------------------------------------------
 
-    def _build_pvdb(self) -> None:
+    def _build_pvdb(self) -> None:  # noqa: C901
         """Populate ``self.pvdb``, the readback routing map, and the manifest."""
         for dev in self.config.devices:
             readback_map: dict[str, tuple[ChannelData, VariableSpec]] = {}
@@ -371,7 +371,7 @@ class GeecsCaGateway:
             from importlib.metadata import version
 
             pkg_version = version("geecs-ca-gateway")
-        except Exception:
+        except Exception:  # noqa: BLE001 — version lookup is optional
             pkg_version = "unknown"
         channels: dict[str, ChannelData] = {
             "UPTIME": read_only(ChannelDouble)(value=0.0, units="s", precision=0),
@@ -449,7 +449,7 @@ class GeecsCaGateway:
         message = str(exc) or type(exc).__name__
         try:
             await channel.write(message[: channel.max_length])
-        except Exception:
+        except Exception:  # noqa: BLE001 — gateway loop must survive
             # Recording is best-effort — the caput still fails with the real
             # cause; never let bookkeeping mask it.
             logger.debug("failed to record set error for %s", device, exc_info=True)
@@ -559,7 +559,7 @@ class GeecsCaGateway:
                 **alarm_kwargs,
                 verify_value=not bool(alarm_kwargs),
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — gateway loop must survive
             self._warn_once(
                 device_name,
                 var,
@@ -585,7 +585,7 @@ class GeecsCaGateway:
                 continue
             try:
                 value = runtime.evaluator.evaluate(values)
-            except Exception:
+            except Exception:  # noqa: BLE001 — gateway loop must survive
                 self._warn_once(
                     device_name,
                     runtime.pv,
@@ -682,7 +682,7 @@ class GeecsCaGateway:
                 status=AlarmStatus.NO_ALARM,
                 verify_value=False,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — gateway loop must survive
             self._warn_once(
                 runtime.spec.source_device,
                 runtime.pv,
@@ -704,7 +704,7 @@ class GeecsCaGateway:
                 status=status,
                 verify_value=False,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — gateway loop must survive
             logger.debug("failed to mark derived PV %s INVALID", pv, exc_info=True)
 
     def _make_callback(self, dev):
@@ -812,7 +812,7 @@ class GeecsCaGateway:
             self._status_loop(), name="gateway-status"
         )
 
-    async def _supervise(self, dev) -> None:
+    async def _supervise(self, dev) -> None:  # noqa: C901, PLR0912, PLR0915
         """Keep one device's subscription alive; reconnect with backoff on drop.
 
         The dropped-connection wait polls ``_listen_task.done()`` via a cancellable
@@ -883,7 +883,7 @@ class GeecsCaGateway:
                 raise
             except (OSError, asyncio.TimeoutError):
                 pass  # device off/unreachable — logged once below, no traceback
-            except Exception:
+            except Exception:  # noqa: BLE001 — gateway loop must survive
                 logger.warning(
                     "%s: unexpected subscription error", dev.name, exc_info=True
                 )
@@ -957,7 +957,7 @@ class GeecsCaGateway:
                 asyncio.to_thread(self._endpoint_resolver, device_name),
                 timeout=self._ENDPOINT_RESOLVE_TIMEOUT_S,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — gateway loop must survive
             logger.info(
                 "%s: endpoint re-resolve failed (%s); keeping the last known endpoint",
                 device_name,
@@ -990,7 +990,7 @@ class GeecsCaGateway:
         if old is not None:
             try:
                 await old.close()
-            except Exception:
+            except Exception:  # noqa: BLE001 — gateway loop must survive
                 logger.debug(
                     "%s: closing stale UDP client failed", device_name, exc_info=True
                 )
@@ -1030,7 +1030,7 @@ class GeecsCaGateway:
                     1 for ch in self._connected.values() if str(ch.value) == "Connected"
                 )
                 await count.write(total)
-        except Exception:
+        except Exception:  # noqa: BLE001 — gateway loop must survive
             logger.debug("failed to update CONNECTED for %s", device, exc_info=True)
 
     async def _status_loop(self, period_s: float = 5.0) -> None:
@@ -1048,7 +1048,7 @@ class GeecsCaGateway:
                     beats += 1
                     await heartbeat.write(beats)
                 await self._sweep_stale_derived_channels(loop.time())
-            except Exception:
+            except Exception:  # noqa: BLE001 — gateway loop must survive
                 logger.debug("status loop write failed", exc_info=True)
             await asyncio.sleep(period_s)
 
@@ -1057,7 +1057,7 @@ class GeecsCaGateway:
         """Close a subscriber, swallowing teardown errors."""
         try:
             await sub.close()
-        except Exception:
+        except Exception:  # noqa: BLE001 — gateway loop must survive
             logger.debug("error closing subscriber", exc_info=True)
 
     async def _mark_device_invalid(self, device: str) -> None:
@@ -1077,7 +1077,7 @@ class GeecsCaGateway:
                     status=AlarmStatus.COMM,
                     verify_value=False,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — gateway loop must survive
                 logger.debug("failed to mark %s INVALID", pv, exc_info=True)
         for key in list(self._derived_input_cache):
             if key[0] == device:

@@ -21,25 +21,25 @@ import pytest
 
 pytest.importorskip("aioca")
 
-import bluesky.plan_stubs as bps  # noqa: E402
-import bluesky.plans as bp  # noqa: E402
-from bluesky import RunEngine  # noqa: E402
-from bluesky.utils import FailedStatus  # noqa: E402
-from ophyd_async.core import (  # noqa: E402
+import bluesky.plan_stubs as bps
+import bluesky.plans as bp
+from bluesky import RunEngine
+from bluesky.utils import FailedStatus
+from ophyd_async.core import (
     StaticFilenameProvider,
     StaticPathProvider,
     set_mock_value,
 )
 
-from geecs_bluesky.devices.ca import CaMotor  # noqa: E402
-from geecs_bluesky.devices.detector import GeecsDetector  # noqa: E402
-from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites  # noqa: E402
-from geecs_bluesky.exceptions import (  # noqa: E402
+from geecs_bluesky.devices.ca import CaMotor
+from geecs_bluesky.devices.detector import GeecsDetector
+from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites
+from geecs_bluesky.exceptions import (
     GeecsDeviceDownError,
     GeecsTriggerTimeoutError,
 )
-from geecs_bluesky.plans.strict import geecs_per_shot, geecs_per_step  # noqa: E402
-from tests.ca_mock_helpers import DocCollector, connect_mock, follow_setpoint  # noqa: E402
+from geecs_bluesky.plans.strict import geecs_per_shot, geecs_per_step
+from tests.ca_mock_helpers import DocCollector, connect_mock, follow_setpoint
 
 WRITES = ShotControlWrites(
     name="test",
@@ -497,7 +497,7 @@ def test_two_plugin_cameras_in_one_run_keep_distinct_attribute_keys(
             super().__init__()
             self.emitted: list[tuple[str, dict]] = []
 
-        def emit(self, name, doc):  # noqa: D102 - the collector
+        def emit(self, name, doc):
             self.emitted.append((str(getattr(name, "value", name)), doc))
 
     normalizer = Collecting()

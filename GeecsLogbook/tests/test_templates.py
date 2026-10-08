@@ -62,7 +62,7 @@ def test_every_literal_data_state_is_a_kit_state() -> None:
     for template in _TEMPLATES:
         for m in re.finditer(r'data-state="([a-z_][\w-]*)"', template.read_text()):
             if m.group(1) not in STATES:
-                problems.append(f"{template.name}: {m.group(1)}")
+                problems.append(f"{template.name}: {m.group(1)}")  # noqa: PERF401 — clearer as a loop
     assert not problems, (
         f"literal data-state values the kit does not colour: {problems}; "
         f"kit knows {sorted(STATES)}"

@@ -126,7 +126,7 @@ def legacy_edges(values: np.ndarray) -> np.ndarray:
 
 
 @summary(WaterfallSummary, consumes="panels", filename="summary_waterfall")
-def waterfall(
+def waterfall(  # noqa: C901
     results: Sequence[Measurement],
     positions: Sequence[float | None],
     label: str,

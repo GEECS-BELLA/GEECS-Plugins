@@ -260,7 +260,7 @@ async def test_missing_or_degenerate_db_span_stays_unlimited() -> None:
         forwarded: list[Any] = []
 
         async def setter(value: Any) -> Any:
-            forwarded.append(value)
+            forwarded.append(value)  # noqa: B023 — closure runs this iteration
 
         channel = make_setpoint_channel(
             VariableSpec(

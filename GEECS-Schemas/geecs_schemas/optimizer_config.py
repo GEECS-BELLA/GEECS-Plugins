@@ -262,7 +262,7 @@ class OptimizerConfig(VersionedSchemaModel):
         return data
 
     @model_validator(mode="after")
-    def _references(self) -> OptimizerConfig:
+    def _references(self) -> OptimizerConfig:  # noqa: C901, PLR0912
         if not self.vocs.variables:
             raise ValueError("vocs.variables must not be empty")
         for name, variable in self.vocs.variables.items():

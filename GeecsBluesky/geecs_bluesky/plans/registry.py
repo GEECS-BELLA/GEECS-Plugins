@@ -98,7 +98,7 @@ class TriggerProfiles:
                 shot_controls[name] = ShotControl.from_profile(
                     profile, experiment=experiment, name=safe_name(name)
                 )
-            except Exception as exc:  # a profile that names no device, bad YAML …
+            except Exception as exc:  # a profile that names no device, bad YAML …  # noqa: BLE001 — bad config skipped, logged
                 logger.warning(
                     "trigger profile %r not loaded: %s: %s",
                     name,
@@ -107,7 +107,7 @@ class TriggerProfiles:
                 )
         try:
             defaults = resolver.resolve_experiment_defaults()
-        except Exception as exc:  # no configs root, unreadable defaults file
+        except Exception as exc:  # no configs root, unreadable defaults file  # noqa: BLE001 — bad config skipped, logged
             logger.warning("experiment defaults not loaded: %s", exc)
             defaults = None
         default = getattr(defaults, "trigger_profile", None)
@@ -204,7 +204,7 @@ def _experiment_default(
         return True
     try:
         defaults = resolver.resolve_experiment_defaults()
-    except Exception as exc:  # no configs root, unreadable defaults file
+    except Exception as exc:  # no configs root, unreadable defaults file  # noqa: BLE001 — bad config skipped, logged
         logger.warning(
             "experiment defaults not read (%s: %s); %s",
             type(exc).__name__,
@@ -375,7 +375,7 @@ def native_image_save_wrapper(
     return (yield from bpp.finalize_wrapper(plan, restore()))
 
 
-def strict_plan(
+def strict_plan(  # noqa: C901, PLR0915
     stock: Callable[..., Any],
     profiles: TriggerProfiles,
     *,
@@ -421,7 +421,7 @@ def strict_plan(
         raise ValueError(f"{stock.__name__} does not expose exactly one strict hook")
     hook = hooks[0]
 
-    def plan(*args: Any, **kwargs: Any):
+    def plan(*args: Any, **kwargs: Any):  # noqa: C901, PLR0912, PLR0915
         trigger_profile = kwargs.pop("trigger_profile", None)
         shots_per_step = int(kwargs.pop("shots_per_step", 1))
         acquisition = str(kwargs.pop("acquisition", "strict") or "strict")
