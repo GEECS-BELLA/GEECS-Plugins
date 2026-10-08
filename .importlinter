@@ -378,9 +378,6 @@ forbidden_modules =
 # Inside GeecsBluesky
 # ---------------------------------------------------------------------------
 
-# `trajectory` is not listed although GeecsBluesky/CLAUDE.md calls it
-# import-light: it imports bluesky.plan_patterns. Fix that sentence (or the
-# module) in a GeecsBluesky PR, then add it here.
 [importlinter:contract:bluesky-client-side-is-light]
 name = GeecsBluesky's client-side modules (qs_client, actions.steps, optimization.events, plan_names, log_markers, utils) never import bluesky, ophyd-async, aioca or xopt
 type = forbidden
