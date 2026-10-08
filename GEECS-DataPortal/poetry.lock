@@ -747,7 +747,7 @@ tqdm = ["tqdm"]
 
 [[package]]
 name = "geecs-analysis"
-version = "0.27.0"
+version = "0.28.0"
 description = "Pure frame processing and unified GEECS analysis"
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -802,7 +802,7 @@ url = "../GEECS-Data-Utils"
 
 [[package]]
 name = "geecs-schemas"
-version = "0.43.1"
+version = "0.44.0"
 description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, action plans) plus legacy-YAML converters."
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -3223,7 +3223,7 @@ files = [
 
 [[package]]
 name = "scananalysis"
-version = "1.46.3"
+version = "1.47.0"
 description = "Modules for performing analyses routines on full scans"
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -4169,9 +4169,9 @@ files = [
 cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and python_version < \"3.14\"", "cffi (>=2.0.0b) ; platform_python_implementation != \"PyPy\" and python_version >= \"3.14\""]
 
 [extras]
-analysis = ["geecs-analysis", "imageanalysis", "scananalysis"]
+analysis = ["geecs-analysis", "geecs-schemas", "imageanalysis", "scananalysis"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.12"
-content-hash = "ccd74e134c6440278761b4d1e64f619457de2f229935724ba04521a435dd918f"
+content-hash = "f2956138b8b65f776a621fc4924a310162cafbe8e4daf2bbcc83fc40cb0c4b6e"

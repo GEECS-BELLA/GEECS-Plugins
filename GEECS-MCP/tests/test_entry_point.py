@@ -109,3 +109,13 @@ def test_warm_up_without_addresses_degrades_honestly(wired, monkeypatch):
     # own warning, pinned in test_progress_stream.py), served anyway.
     assert cache.started_with == (None, None)
     assert log == ["ensure_started", "run"]
+
+
+def test_version_is_the_installed_package_version():
+    """``__version__`` (the client identity) tracks pyproject, not a literal."""
+    from importlib.metadata import version
+
+    import geecs_mcp
+
+    assert geecs_mcp.__version__ == version("geecs-mcp")
+    assert runtime.CLIENT_IDENTITY == f"geecs-mcp {version('geecs-mcp')}"
