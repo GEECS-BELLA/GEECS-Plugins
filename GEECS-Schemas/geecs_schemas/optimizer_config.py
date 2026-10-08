@@ -5,9 +5,9 @@ from __future__ import annotations
 import ast
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from copy import deepcopy
-from typing import Annotated, ClassVar, Literal
+from typing import Annotated, ClassVar, Literal, cast
 
 from gest_api.vocs import ContinuousVariable, VOCS
 from pydantic import Field, JsonValue, WithJsonSchema, field_validator, model_validator
@@ -30,26 +30,29 @@ GENERATOR_NAMES = (
 )
 
 MEASUREMENT_MATH = ExpressionWhitelist(
-    functions={
-        **{
-            name: getattr(math, name)
-            for name in (
-                "sqrt",
-                "sin",
-                "cos",
-                "tan",
-                "asin",
-                "acos",
-                "atan",
-                "exp",
-                "log",
-                "log10",
-            )
+    functions=cast(
+        Mapping[str, Callable[..., float]],
+        {
+            **{
+                name: getattr(math, name)
+                for name in (
+                    "sqrt",
+                    "sin",
+                    "cos",
+                    "tan",
+                    "asin",
+                    "acos",
+                    "atan",
+                    "exp",
+                    "log",
+                    "log10",
+                )
+            },
+            "abs": abs,
+            "min": min,
+            "max": max,
         },
-        "abs": abs,
-        "min": min,
-        "max": max,
-    },
+    ),
     constants={"pi": math.pi, "e": math.e},
     binary_ops=(ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.Mod, ast.FloorDiv),
     unary_ops=(ast.UAdd, ast.USub),
@@ -205,7 +208,7 @@ class OptimizationRun(SchemaModel):
     """Run defaults; queue-item arguments may override the iteration and shot budgets."""
 
     on_finish: Literal["best", "hold"] = Field(
-        "best",
+        default="best",
         description="Move to the best feasible observation, or hold; no best restores initial positions. Relative pseudos always restore on unstage.",
     )
     seed_dumps: list[str] = Field(
@@ -213,10 +216,10 @@ class OptimizationRun(SchemaModel):
         description="Previous xopt_dump.yaml files; relative paths resolve beside this config.",
     )
     shots_per_step: int = Field(
-        5, ge=1, description="Successful strict acquisitions per iteration."
+        default=5, ge=1, description="Successful strict acquisitions per iteration."
     )
     max_iterations: int | None = Field(
-        None,
+        default=None,
         ge=1,
         description="Iteration limit; required here or in the submitted plan arguments.",
     )

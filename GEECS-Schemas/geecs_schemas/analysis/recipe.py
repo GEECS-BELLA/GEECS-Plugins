@@ -80,7 +80,7 @@ class MeasureRef(SchemaModel):
     model_config = ConfigDict(extra="allow")
 
     kind: str = Field(
-        "none",
+        default="none",
         min_length=1,
         description=(
             "Registered measure kind ('beam', 'line', 'none'). The remaining "
@@ -442,12 +442,12 @@ class RecipeRuntime(SchemaModel):
     """How the recipe runs over a scan."""
 
     priority: int = Field(
-        100,
+        default=100,
         ge=0,
         description="Run order within a group: lower runs first. 100 is the background default.",
     )
     average_frames_first: bool = Field(
-        False,
+        default=False,
         description=(
             "Average each bin's frames before processing and measure once per "
             "bin, for metrics that are not linear in the image; default "
@@ -455,14 +455,14 @@ class RecipeRuntime(SchemaModel):
         ),
     )
     save: bool = Field(
-        True,
+        default=True,
         description=(
             "Write per-shot / per-bin products and the summary figures into "
             "the analysis tree. S-file scalar columns are written regardless."
         ),
     )
     workers: int = Field(
-        1,
+        default=1,
         ge=1,
         description=(
             "Worker processes a scan run may use to read and measure frames "

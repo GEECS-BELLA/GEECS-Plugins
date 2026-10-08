@@ -239,6 +239,22 @@ run_doc_audit() {
     return 1
 }
 
+# Pyright (basic) over the [tool.pyright] include set — the four leaf
+# packages — the way CI's pyright job runs it. From the root env: its
+# extraPaths resolve the repo's own packages from this checkout, and the
+# root env supplies the third-party stubs (caproto, p4p, pydantic, ...).
+run_pyright() {
+    local root_env=""
+    if command -v poetry >/dev/null 2>&1; then
+        root_env="$(poetry env info --path 2>/dev/null || true)"
+    fi
+    if [ -z "$root_env" ] || [ ! -x "$root_env/bin/pyright" ]; then
+        echo "check.sh: pyright is not in the root env — run 'poetry install' at the repo root (see /env-doctor)" >&2
+        return 1
+    fi
+    "$root_env/bin/pyright" --pythonpath "$root_env/bin/python"
+}
+
 LINT_OK=1
 echo "== lint"
 if [ -n "$EXPLICIT_PKGS" ]; then
@@ -247,6 +263,7 @@ elif [ "$MODE" = "all" ]; then
     select_lint_runner
     "${PC[@]}" run --all-files || LINT_OK=0
     run_doc_audit || LINT_OK=0
+    run_pyright || LINT_OK=0
 elif [ "${#CHANGED[@]}" -gt 0 ]; then
     # Only lint files that still exist (deletions have nothing to lint).
     lint_files=()
@@ -262,6 +279,7 @@ elif [ "${#CHANGED[@]}" -gt 0 ]; then
         echo "   (nothing to lint)"
     fi
     run_doc_audit || LINT_OK=0
+    run_pyright || LINT_OK=0
 else
     echo "   (nothing to lint)"
 fi

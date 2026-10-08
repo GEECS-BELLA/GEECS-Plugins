@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping, Sequence
-from typing import Literal
+from typing import Literal, cast
 
 LABVIEW_EPOCH_OFFSET = 2_082_844_800
 
@@ -202,7 +202,10 @@ def scalar_attribute_variables(
         if row is None or subscribed_name.lower() in ladder:
             continue
         name = str(row["name"])
-        vartype = effective_vartype(row.get("variabletype"), row.get("choices"))
+        vartype = effective_vartype(
+            cast("str | None", row.get("variabletype")),
+            cast("str | None", row.get("choices")),
+        )
         if vartype not in SCALAR_ATTRIBUTE_VARTYPES:
             continue
         key = normalize(name) if normalize is not None else name

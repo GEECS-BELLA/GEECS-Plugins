@@ -96,16 +96,16 @@ class BeamAnalyzerSpec(AnalyzerSpecBase):
     """Beam profile metrics: centroid, rms size, FWHM, total counts along x, y and the 45° axes."""
 
     image_kind: ClassVar[ImageKind] = "camera"
-    kind: Literal["beam"] = Field("beam", description="Beam profile analyzer.")
+    kind: Literal["beam"] = Field(default="beam", description="Beam profile analyzer.")
     compute_slopes: bool = Field(
-        False,
+        default=False,
         description=(
             "Also compute beam slope / straightness metrics from line-by-line "
             "fits. Expensive; leave off unless the tilt matters."
         ),
     )
     enabled_stats: Optional[List[str]] = Field(
-        None,
+        default=None,
         description=(
             "Emit only these statistics (e.g. ['image_total', 'x_CoM', "
             "'y_fwhm']); unset emits all 18. Names are <axis>_<stat>."

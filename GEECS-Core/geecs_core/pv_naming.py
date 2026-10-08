@@ -55,7 +55,7 @@ def normalize_component(name: str) -> str:
     return _INVALID.sub("_", name.strip()).strip("_").lower()
 
 
-def pv_name(*parts: str) -> str:
+def pv_name(*parts: str | None) -> str:
     """Join namespace *parts* into a full PV name, normalizing each component.
 
     Falsy parts (``None``/``""``) are skipped, so an absent experiment prefix
@@ -63,7 +63,7 @@ def pv_name(*parts: str) -> str:
 
     Parameters
     ----------
-    *parts : str
+    *parts : str or None
         Ordered namespace components, e.g. ``experiment, device, variable``.
 
     Returns

@@ -110,4 +110,4 @@ def convert_shot_control(
                 }
             )
 
-    return TriggerProfile(name=profile_name, states=states)
+    return TriggerProfile.model_validate({"name": profile_name, "states": states})

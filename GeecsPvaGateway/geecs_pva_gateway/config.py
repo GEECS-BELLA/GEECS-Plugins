@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import socket
+from typing import cast
 
 from pydantic import BaseModel, Field
 
@@ -33,7 +34,7 @@ def local_ip_addresses(probe_target: str | None = None) -> set[str]:
     addresses: set[str] = set()
     try:
         for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            addresses.add(info[4][0])
+            addresses.add(cast(str, info[4][0]))  # AF_INET: (host, port)
     except OSError:
         pass
     if probe_target:

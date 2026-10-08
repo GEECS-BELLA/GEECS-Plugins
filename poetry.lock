@@ -306,6 +306,24 @@ files = [
 ]
 
 [[package]]
+name = "caproto"
+version = "1.3.0"
+description = "a sans-I/O implementation of the EPICS Channel Access protocol"
+optional = false
+python-versions = ">=3.8"
+groups = ["dev"]
+files = [
+    {file = "caproto-1.3.0-py3-none-any.whl", hash = "sha256:fa623c4a7d7c3537fc41ce023b7c72922b8819ab88bf9abc527e3ac594634180"},
+    {file = "caproto-1.3.0.tar.gz", hash = "sha256:ea74f433297e895695c80a706a2389f745a94d756b5835c80af73af3df585cba"},
+]
+
+[package.extras]
+async = ["curio (>=1.2)", "trio (>=0.12.1)"]
+complete = ["curio (>=1.2)", "dpkt", "netifaces", "numpy", "trio (>=0.12.1)"]
+standard = ["dpkt", "netifaces", "numpy"]
+test = ["codecov", "coverage", "curio", "curio (>=1.2)", "dpkt", "epics-pypdb", "netifaces", "numpy", "ophyd", "parsimonious", "pyepics (>=3.4.2)", "pytest", "pytest-rerunfailures", "pytest-timeout", "pytest-xdist", "trio (>=0.12.1)", "trio (>=0.18.0)"]
+
+[[package]]
 name = "certifi"
 version = "2025.6.15"
 description = "Python package for providing Mozilla's CA Bundle."
@@ -762,6 +780,47 @@ files = [
 ]
 
 [[package]]
+name = "epicscorelibs"
+version = "7.0.10.99.0.2"
+description = "The EPICS Core libraries for use by python modules"
+optional = false
+python-versions = ">=2.7"
+groups = ["dev"]
+files = [
+    {file = "epicscorelibs-7.0.10.99.0.2-cp310-cp310-macosx_11_0_universal2.whl", hash = "sha256:03ece4dbcb954a05ef278c2b8d8b5796c80a6b127bc9bcedbd301a10cdf936cb"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp310-cp310-manylinux2014_x86_64.whl", hash = "sha256:9d3079f17a6984af8b3f98985312283257b29afb26d8bfe065546febfe96d7dd"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp310-cp310-win_amd64.whl", hash = "sha256:d59b2c147ad9faf506a622daf11b514768d37c0fd8ba9aa5cff44f90cb26bea3"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp311-cp311-macosx_11_0_universal2.whl", hash = "sha256:36cf7ec5c50d4a3556e0fd70e3b75c481c3715bb29a574b4897290045bbbfbf0"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp311-cp311-manylinux2014_x86_64.whl", hash = "sha256:64fa1714eba80d4c4e7085722829607f0225275ac0fc16ea4eb04dfd45282e81"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp311-cp311-win_amd64.whl", hash = "sha256:648f7018451b2658f13481b32fe08ca0c268fa83c7e08fbb78d6f003fc65a84b"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp312-cp312-macosx_11_0_universal2.whl", hash = "sha256:2899fea6b30927f7b990dc5a4f002ce51847cd860a247545d2eed29ee6b0d8dc"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:f12d3f1e2e2b5661f7185ee43980654c55802254de2469588fed11f2eee45956"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp312-cp312-win_amd64.whl", hash = "sha256:685a7ec303e32c415aec13e71189b74007f12d406375d1bf9d86e05884133cc8"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp313-cp313-macosx_11_0_universal2.whl", hash = "sha256:a0478a07e16a583123652b419d23647b82d2b0eae28179a0eb2c6b8990fa9161"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp313-cp313-manylinux2014_x86_64.whl", hash = "sha256:80b92315b5fbc98d8d6b5c7604206c903f1b9ad1a09c82162b23b88a6554cbd2"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp313-cp313-win_amd64.whl", hash = "sha256:46afbe3eb9a8f2e816c59f587eef552f6262e3e7625bf29855e73bfc534667ee"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp314-cp314-macosx_11_0_universal2.whl", hash = "sha256:1c2f4f8ecf34858683e9116b7024bfd9b94a5842b69ecac1f8e62f55707d1338"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:c2d217ba121fbedac5985ee2b8468a69ee9442e09940e96a2467fa3b19d448c7"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:23c07e7b9ededce742019a66cadc30f09d192f5eea2deaa7d930ee7c1df92620"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp314-cp314-win_amd64.whl", hash = "sha256:ae8cec3ef5a90ce69d463bb0a836a35e131b0fbcc73bf6562ff6f0b568c67c10"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp314-cp314t-macosx_11_0_universal2.whl", hash = "sha256:761b28cf1a4303a49aa75d7c748d18eb7813938978a979ae05c2fc1d16828273"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:7dd763e66554446b38d587cdc8b299a5454dda57f00e962eb7d0dde784d45e5e"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:694e52a952dbe5f431f14508a6fc4140ca2ec9536f1f5c05dcf5b3d2bd4869d9"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp314-cp314t-win_amd64.whl", hash = "sha256:63536491f0f253f060fc7fc7e77380b980f00b369e2901ae93e4c18657a91377"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp38-cp38-macosx_11_0_universal2.whl", hash = "sha256:ccb98d799251861925115ebe6c8d127b0626e73a03be53ab029a313ec7962d5c"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp38-cp38-manylinux2010_x86_64.whl", hash = "sha256:69d09b9944c69baaad2a5fd75739c7f26421abcc69b15a85d067feafc66c82ac"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp38-cp38-win_amd64.whl", hash = "sha256:d07f898663d4c14f1f091490d0b2ddbbd3b436ec9319098166290b9eb759e7d9"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp39-cp39-macosx_11_0_universal2.whl", hash = "sha256:000ee82268e506cb661078772aac96670f2596021642137b35dd0f2f26b9a8a8"},
+    {file = "epicscorelibs-7.0.10.99.0.2-cp39-cp39-manylinux2014_x86_64.whl", hash = "sha256:b7702a83e3d30af8386d54e59220adbf7f132d1c8b77a5557760efaa12d9762c"},
+    {file = "epicscorelibs-7.0.10.99.0.2.tar.gz", hash = "sha256:a5de1b5144fe3e64593f396f94c5b4389338118963d29d50349d7d28059acd2e"},
+]
+
+[package.dependencies]
+numpy = "*"
+setuptools = "*"
+setuptools-dso = ">=2.11a2"
+
+[[package]]
 name = "event-model"
 version = "1.24.0"
 description = "Data model used by the bluesky ecosystem."
@@ -968,7 +1027,7 @@ files = [
 
 [[package]]
 name = "geecs-analysis"
-version = "0.27.0"
+version = "0.28.0"
 description = "Pure frame processing and unified GEECS analysis"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -991,7 +1050,7 @@ url = "GEECS-Analysis"
 
 [[package]]
 name = "geecs-bluesky"
-version = "0.115.2"
+version = "0.115.3"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -1016,6 +1075,27 @@ tiled = ["tiled[client] (>=0.2)"]
 [package.source]
 type = "directory"
 url = "GeecsBluesky"
+
+[[package]]
+name = "geecs-ca-gateway"
+version = "0.21.5"
+description = "EPICS Channel Access soft-IOC gateway exposing GEECS devices as PVs"
+optional = false
+python-versions = ">=3.11,<3.12"
+groups = ["dev"]
+files = []
+develop = true
+
+[package.dependencies]
+caproto = ">=1.1"
+geecs-core = {path = "../GEECS-Core", develop = true}
+geecs-schemas = {path = "../GEECS-Schemas", develop = true}
+pydantic = ">=2"
+pyyaml = "^6.0"
+
+[package.source]
+type = "directory"
+url = "GeecsCAGateway"
 
 [[package]]
 name = "geecs-core"
@@ -1066,8 +1146,29 @@ type = "directory"
 url = "GEECS-Data-Utils"
 
 [[package]]
+name = "geecs-pva-gateway"
+version = "0.16.0"
+description = "Distributed pvAccess gateway serving GEECS camera images as NTNDArray PVs"
+optional = false
+python-versions = ">=3.11,<3.12"
+groups = ["dev"]
+files = []
+develop = true
+
+[package.dependencies]
+geecs-core = {path = "../GEECS-Core", develop = true}
+geecs-data-utils = {path = "../GEECS-Data-Utils", develop = true}
+h5py = ">=3.8"
+numpy = ">=2.0,<3.0"
+p4p = ">=4.2"
+
+[package.source]
+type = "directory"
+url = "GeecsPvaGateway"
+
+[[package]]
 name = "geecs-schemas"
-version = "0.43.1"
+version = "0.44.0"
 description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, action plans) plus legacy-YAML converters."
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -3059,6 +3160,22 @@ files = [
 ]
 
 [[package]]
+name = "nose2"
+version = "0.16.0"
+description = "unittest with plugins"
+optional = false
+python-versions = ">=3.9"
+groups = ["dev"]
+files = [
+    {file = "nose2-0.16.0-py3-none-any.whl", hash = "sha256:a637c508b1fff5882c5f0f573226abe6f43b2f8005fef8896f57174d7d0e0c31"},
+    {file = "nose2-0.16.0.tar.gz", hash = "sha256:19db5ad20e264501a8ee64e3e157a3766a5e744170e54ceecb4e5ca09b08655a"},
+]
+
+[package.extras]
+coverage-plugin = ["coverage"]
+dev = ["sphinx", "sphinx-issues", "sphinx-rtd-theme"]
+
+[[package]]
 name = "notebook-shim"
 version = "0.2.4"
 description = "A shim layer for notebook traits and config"
@@ -3271,6 +3388,52 @@ files = [
     {file = "overrides-7.7.0-py3-none-any.whl", hash = "sha256:c7ed9d062f78b8e4c1a7b70bd8796b35ead4d9f510227ef9c5dc7626c60d7e49"},
     {file = "overrides-7.7.0.tar.gz", hash = "sha256:55158fa3d93b98cc75299b1e67078ad9003ca27945c76162c1c0766d6f91820a"},
 ]
+
+[[package]]
+name = "p4p"
+version = "4.3.0"
+description = "Python interface to PVAccess protocol client"
+optional = false
+python-versions = ">=3.8"
+groups = ["dev"]
+files = [
+    {file = "p4p-4.3.0-cp310-cp310-macosx_11_0_universal2.whl", hash = "sha256:f4d3305f465bf00296c17815cad4f5ae4fcae2d194c839e1e58ac8a0d43dae47"},
+    {file = "p4p-4.3.0-cp310-cp310-manylinux2014_x86_64.whl", hash = "sha256:7d4336e5eb545ba0b5547d5c78bce437fd8acfe3cf9d1155cb40e26eef256eb0"},
+    {file = "p4p-4.3.0-cp310-cp310-win_amd64.whl", hash = "sha256:566e76ea8a552b6a69aef2e521bbd0a1b216dd5efbb8634d886d722e7ba25ac5"},
+    {file = "p4p-4.3.0-cp311-cp311-macosx_11_0_universal2.whl", hash = "sha256:a9bac6559328cd022e8c37d2d174910f4f139ffab8aab80903ce9e48080f05de"},
+    {file = "p4p-4.3.0-cp311-cp311-manylinux2014_x86_64.whl", hash = "sha256:b38288455d063ae1744f2941b1ab7c7312700e3b05256ca1e00b5592fc8af0e3"},
+    {file = "p4p-4.3.0-cp311-cp311-win_amd64.whl", hash = "sha256:063fef5c7e76010565df0ebc025b399aaf7d3a11a6bcbd7c33130a2c7f42074c"},
+    {file = "p4p-4.3.0-cp312-cp312-macosx_11_0_universal2.whl", hash = "sha256:bd699bcb95e5d206eeb5a22b9ea407f8efffd11fb6a0339e5794ab4c8c1ebe11"},
+    {file = "p4p-4.3.0-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:63ea58d978a171e6a9bb28d95d2e64c1bbd936faf56cafd9a61a992893fbca84"},
+    {file = "p4p-4.3.0-cp312-cp312-win_amd64.whl", hash = "sha256:badb4b4202f06575c215ad9d2587bb50e8bdddf4ca7ec27a5ae9b6c54ffa23a4"},
+    {file = "p4p-4.3.0-cp313-cp313-macosx_11_0_universal2.whl", hash = "sha256:23e45b475c3ad8ac9bb2b56ae67d6e97bcb3a9dbf6cb5243e5f11254e388a7a5"},
+    {file = "p4p-4.3.0-cp313-cp313-manylinux2014_x86_64.whl", hash = "sha256:d0a87bb4c599f5cc0dd910b22c742f0b706fb14b8c48bba8ccf6ec5e5a71c662"},
+    {file = "p4p-4.3.0-cp313-cp313-win_amd64.whl", hash = "sha256:e76cb82428b8719f195c2d06cdf5888445e25631cf2db43852aec6cc51bc9b85"},
+    {file = "p4p-4.3.0-cp314-cp314-macosx_11_0_universal2.whl", hash = "sha256:83118d5698c1b126cdeccfc1d2bc64b6f79cc912109217997ec3f2410bffe8c6"},
+    {file = "p4p-4.3.0-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:d4525918e8eff8a83127c96589b91d320c0c56372a1addc040b30e4806ecad57"},
+    {file = "p4p-4.3.0-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:f3d62b3f02b833ae45e02008446970c1fbb30e765df61d32405a60dbef92bff2"},
+    {file = "p4p-4.3.0-cp314-cp314-win_amd64.whl", hash = "sha256:c91c8495869124e240448640fd915655f120a7a7137ee567db32e5f0e2345963"},
+    {file = "p4p-4.3.0-cp314-cp314t-macosx_11_0_universal2.whl", hash = "sha256:780474b71ae00841ceab172b7a54919164ec40933dbbf25b18bcb075c51eb9e1"},
+    {file = "p4p-4.3.0-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:3042b6d18bfeba85acb583801b8834bfc5d1e0a8718c164a0cae87a4def9e544"},
+    {file = "p4p-4.3.0-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:55662f9d36417518bccc098b8176560fef7b8a4899406dced9478e0811c6efa3"},
+    {file = "p4p-4.3.0-cp314-cp314t-win_amd64.whl", hash = "sha256:5ec36bd984f6855e01479c78b43a8a73e8fe45e71ecc4ce71565f0a0b70c5d73"},
+    {file = "p4p-4.3.0-cp38-cp38-macosx_11_0_universal2.whl", hash = "sha256:4a89c83627dbc3e550ac399e9bceb70b8c097948e529fb28bab101ca26fd0b65"},
+    {file = "p4p-4.3.0-cp38-cp38-manylinux2010_x86_64.whl", hash = "sha256:40e8932d3a5d91029e1d5a503cc269a4fbc115fb5b541230d6ff7622ee3db82a"},
+    {file = "p4p-4.3.0-cp38-cp38-win_amd64.whl", hash = "sha256:20c17a13bc749603ec1afe4ba2fce5e61300748b8ebc298c2378ec0ef4e31f27"},
+    {file = "p4p-4.3.0-cp39-cp39-macosx_11_0_universal2.whl", hash = "sha256:636bf224a5ba602c8e3adc18cdaf7f2dc2660f599babfa9922cd1be1e23b3c16"},
+    {file = "p4p-4.3.0-cp39-cp39-manylinux2014_x86_64.whl", hash = "sha256:65fca6f78533d7fbbb1f99b34ea4b6127e5d596f1fb398943b2135c4e80e342d"},
+    {file = "p4p-4.3.0.tar.gz", hash = "sha256:4efcc5bd12b3a0e28a47810ef19fbc6049b8c3bbf27372a346631ea116338bb8"},
+]
+
+[package.dependencies]
+epicscorelibs = ">=7.0.10.99.0.2,<7.0.10.99.1"
+nose2 = ">=0.8.0"
+numpy = ">=1.15,<3"
+ply = "*"
+pvxslibs = ">=1.5.3,<1.6.0a1"
+
+[package.extras]
+qt = ["qtpy"]
 
 [[package]]
 name = "packaging"
@@ -3596,6 +3759,18 @@ dev = ["pre-commit", "tox"]
 testing = ["coverage", "pytest", "pytest-benchmark"]
 
 [[package]]
+name = "ply"
+version = "3.11"
+description = "Python Lex & Yacc"
+optional = false
+python-versions = "*"
+groups = ["dev"]
+files = [
+    {file = "ply-3.11-py2.py3-none-any.whl", hash = "sha256:096f9b8350b65ebd2fd1346b12452efe5b9607f7482813ffca50c22722a807ce"},
+    {file = "ply-3.11.tar.gz", hash = "sha256:00c7c1aaa88358b9c765b6d3000c6eec0ba42abca5351b095321aef446081da3"},
+]
+
+[[package]]
 name = "pre-commit"
 version = "3.8.0"
 description = "A framework for managing and maintaining multi-language pre-commit hooks."
@@ -3732,6 +3907,46 @@ files = [
 
 [package.extras]
 tests = ["pytest"]
+
+[[package]]
+name = "pvxslibs"
+version = "1.5.3"
+description = "PVXS libraries packaged for python"
+optional = false
+python-versions = ">=3.8"
+groups = ["dev"]
+files = [
+    {file = "pvxslibs-1.5.3-cp310-cp310-macosx_11_0_universal2.whl", hash = "sha256:3d7f5edafba4a152ea3878e4a36aa4503be147ccf2f7c965f6c319dbeab232fe"},
+    {file = "pvxslibs-1.5.3-cp310-cp310-manylinux2014_x86_64.whl", hash = "sha256:63bbf952abee9a7e02b8bb222a570c83cd697909ac6b552d5f11f95b170b8ebe"},
+    {file = "pvxslibs-1.5.3-cp310-cp310-win_amd64.whl", hash = "sha256:9775a7dd94221d79e03667cecdbbbe16a5052fcf9e7bfd017ce18a78f3711c89"},
+    {file = "pvxslibs-1.5.3-cp311-cp311-macosx_11_0_universal2.whl", hash = "sha256:0455cbf61bb277c305fd24e3d1e8a9a6564a6c9b383f3ffda639bf89ed51dfc1"},
+    {file = "pvxslibs-1.5.3-cp311-cp311-manylinux2014_x86_64.whl", hash = "sha256:d5095011570d28aa78f38c1b2cc48deeedcdfbd7e406cca057ef26a0d0a25d3a"},
+    {file = "pvxslibs-1.5.3-cp311-cp311-win_amd64.whl", hash = "sha256:3d497e3081699ba56144f9dfc48fe17ddf41090b10c447d8c0efce5756f638a0"},
+    {file = "pvxslibs-1.5.3-cp312-cp312-macosx_11_0_universal2.whl", hash = "sha256:7d2115294f877cf8dec35e86d6c396e847ff5b20aaeb6438c940b6ca059d6e3c"},
+    {file = "pvxslibs-1.5.3-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:12a40eb36c0c5e162c0d1ec94de7b029c12403895187f24e54070c639ed96d3a"},
+    {file = "pvxslibs-1.5.3-cp312-cp312-win_amd64.whl", hash = "sha256:e4dbed186564241acc8acd2463e8d0cf49c63d5b2a0eb64570a0e663156f1d6e"},
+    {file = "pvxslibs-1.5.3-cp313-cp313-macosx_11_0_universal2.whl", hash = "sha256:aac254f06bfcd517017d6abb0d4ebebb77b5975440478e142ea699f4e892d0ce"},
+    {file = "pvxslibs-1.5.3-cp313-cp313-manylinux2014_x86_64.whl", hash = "sha256:6feaab0caefa06d86cc46aef47a321149f4b737692038934bd0ed4bff38161b4"},
+    {file = "pvxslibs-1.5.3-cp313-cp313-win_amd64.whl", hash = "sha256:64fbef84494f3c8183384c76b144ee9da67717d9ced98dfd4e40ae8f1a91921b"},
+    {file = "pvxslibs-1.5.3-cp314-cp314-macosx_11_0_universal2.whl", hash = "sha256:49f3ea357871f36f1d75e120725a79843561264a839257f8ce4245befae73f97"},
+    {file = "pvxslibs-1.5.3-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:140c3491408091735469f3fa5970675e2538071edf3528fff6baaf092597f57d"},
+    {file = "pvxslibs-1.5.3-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:acde6a6aa77eacaf7298cd8dfb48c243c66db7ec72825d6f34be942ddf4131b0"},
+    {file = "pvxslibs-1.5.3-cp314-cp314-win_amd64.whl", hash = "sha256:60e300cd215c44bf92644aa2c2f3546162e0b9fe1eab5a26376ccc17796d6205"},
+    {file = "pvxslibs-1.5.3-cp314-cp314t-macosx_11_0_universal2.whl", hash = "sha256:7612e3faa645a78112ee67fb1626f86282ad0b79db3a6a97dfc2236081520a5a"},
+    {file = "pvxslibs-1.5.3-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:cf9e272a2b015e9ad13b5cd816a41576d1150367bd1faa86155ce60b5c1580e5"},
+    {file = "pvxslibs-1.5.3-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:48316142b410861a109dea25114f6833ffa5b243f8fefa58742a4fa924a2f49b"},
+    {file = "pvxslibs-1.5.3-cp314-cp314t-win_amd64.whl", hash = "sha256:c3b89233dd18d756c16163eb55afb4dea394ff900bff9350bf423f7fa5566e21"},
+    {file = "pvxslibs-1.5.3-cp38-cp38-macosx_11_0_universal2.whl", hash = "sha256:c1b783b90cbdeae727aa4f570ad3ac5dbb80824ca8487704b1070d2453028abf"},
+    {file = "pvxslibs-1.5.3-cp38-cp38-manylinux2010_x86_64.whl", hash = "sha256:62f6a1b016e20b3ef68ed0c74876aab67fa64804a03975661056e25f93c40f41"},
+    {file = "pvxslibs-1.5.3-cp38-cp38-win_amd64.whl", hash = "sha256:4252c524012eb25d0e6d5f05b1622132d89d96de6daf3a7c2127729322c6be81"},
+    {file = "pvxslibs-1.5.3-cp39-cp39-macosx_11_0_universal2.whl", hash = "sha256:55d99c392d47c593a296082a645d175650cb317d25ede0954850fd04e4d06804"},
+    {file = "pvxslibs-1.5.3-cp39-cp39-manylinux2014_x86_64.whl", hash = "sha256:c160fed5e51117240c0e9ccf925b4b2375882b4b1be39a630f519de2fa02da4f"},
+    {file = "pvxslibs-1.5.3.tar.gz", hash = "sha256:d366308ce09790a459631acc300f1df0b4091292a753bc08b0667ca9d59fb469"},
+]
+
+[package.dependencies]
+epicscorelibs = ">=7.0.10.99.0.2,<7.0.10.99.1"
+setuptools_dso = ">=2.7a1"
 
 [[package]]
 name = "py"
@@ -4126,6 +4341,27 @@ files = [
     {file = "pypng-0.20220715.0-py3-none-any.whl", hash = "sha256:4a43e969b8f5aaafb2a415536c1a8ec7e341cd6a3f957fd5b5f32a4cfeed902c"},
     {file = "pypng-0.20220715.0.tar.gz", hash = "sha256:739c433ba96f078315de54c0db975aee537cbc3e1d0ae4ed9aab0ca1e427e2c1"},
 ]
+
+[[package]]
+name = "pyright"
+version = "1.1.414"
+description = "Command line wrapper for pyright"
+optional = false
+python-versions = ">=3.7"
+groups = ["dev"]
+files = [
+    {file = "pyright-1.1.414-py3-none-any.whl", hash = "sha256:2a6b4b3298c9eec174c5ed83bd338de6eee82df2992f3e1930e6199d381be36f"},
+    {file = "pyright-1.1.414.tar.gz", hash = "sha256:523c0a97c60da6333234955c277730c9cf4f5bd6d5399e7b7d2b0fc5d3599524"},
+]
+
+[package.dependencies]
+nodeenv = ">=1.6.0"
+typing-extensions = ">=4.1"
+
+[package.extras]
+all = ["nodejs-wheel-binaries", "twine (>=3.4.1)"]
+dev = ["twine (>=3.4.1)"]
+nodejs = ["nodejs-wheel-binaries"]
 
 [[package]]
 name = "pytest"
@@ -4876,7 +5112,7 @@ files = [
 
 [[package]]
 name = "scananalysis"
-version = "1.46.3"
+version = "1.47.0"
 description = "Modules for performing analyses routines on full scans"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -5088,6 +5324,21 @@ doc = ["furo", "jaraco.packaging (>=9.3)", "jaraco.tidelift (>=1.4)", "pygments-
 enabler = ["pytest-enabler (>=2.2)"]
 test = ["build[virtualenv] (>=1.0.3)", "filelock (>=3.4.0)", "ini2toml[lite] (>=0.14)", "jaraco.develop (>=7.21) ; python_version >= \"3.9\" and sys_platform != \"cygwin\"", "jaraco.envs (>=2.2)", "jaraco.path (>=3.7.2)", "jaraco.test (>=5.5)", "packaging (>=24.2)", "pip (>=19.1)", "pyproject-hooks (!=1.1)", "pytest (>=6,!=8.1.*)", "pytest-home (>=0.5)", "pytest-perf ; sys_platform != \"cygwin\"", "pytest-subprocess", "pytest-timeout", "pytest-xdist (>=3)", "tomli-w (>=1.0.0)", "virtualenv (>=13.0.0)", "wheel (>=0.44.0)"]
 type = ["importlib_metadata (>=7.0.2) ; python_version < \"3.10\"", "jaraco.develop (>=7.21) ; sys_platform != \"cygwin\"", "mypy (==1.14.*)", "pytest-mypy"]
+
+[[package]]
+name = "setuptools-dso"
+version = "2.12.4"
+description = "setuptools extension to build non-python shared libraries"
+optional = false
+python-versions = ">=2.7"
+groups = ["dev"]
+files = [
+    {file = "setuptools_dso-2.12.4-py2.py3-none-any.whl", hash = "sha256:fce70c8b6fb58f1ba609e455355776ddaa53363b84d1b7f0ec2c820e63544033"},
+    {file = "setuptools_dso-2.12.4.tar.gz", hash = "sha256:5b665849c0b37c019dee72c8b8b4cfbae131d06d49364bc90444e8596942ed6f"},
+]
+
+[package.dependencies]
+setuptools = "*"
 
 [[package]]
 name = "six"
@@ -5647,4 +5898,4 @@ test = ["websockets"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.12"
-content-hash = "523143385312c13f9c0f01540b4dd539fa9f509d511340158cb3b061b3c3594f"
+content-hash = "efc84e48955eff40ff809bf7265d5d955a763eb966ba9d5e294fa5d22fea3a1d"

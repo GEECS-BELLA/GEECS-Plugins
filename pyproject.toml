@@ -34,12 +34,16 @@ geecs-schemas = { path = "GEECS-Schemas", develop = true }
 scananalysis = {path = "ScanAnalysis", develop = true, extras = ["editor"]}
 geecs-web-theme = {path = "GeecsWebTheme", develop = true}
 LogMaker4GoogleDocs = {path = "LogMaker4GoogleDocs", develop = true}
+# The pyright leaves' third-party imports (caproto, p4p) for `poetry run pyright`.
+geecs-ca-gateway = {path = "GeecsCAGateway", develop = true}
+geecs-pva-gateway = {path = "GeecsPvaGateway", develop = true}
 
 pre-commit = "^3.5"
 ruff = "^0.4"  # Use compatible version with ruff-pre-commit
 pydocstyle = "^6.3"
 interrogate = "^1.7"  # For docstring coverage reporting
 import-linter = "^2.15"  # .importlinter contracts; run via scripts/lint_imports.py
+pyright = "^1.1.400"  # [tool.pyright] below; the PyPI wheel fetches its own node runtime
 
 pytest = ">=8.1"  # importlib import-mode only adds rootdirs to sys.path from 8.1 (tests.* imports)
 pytest-asyncio = ">=0.23"  # GeecsBluesky async suites in the integrated env
@@ -114,6 +118,31 @@ max-complexity = 10
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
+
+# -------------------------------
+# Pyright (basic) — the leaf packages only
+# -------------------------------
+# Covers the four packages with no heavy third-party typing debt. Later work:
+# GEECS-Data-Utils (~500 errors, mostly pandas-stub noise) and the rest.
+# extraPaths resolve intra-repo imports from source, so the check reads this
+# checkout whatever is installed; third-party imports come from the root env
+# (`poetry run pyright`) or, in CI, the pyright job's pip set.
+[tool.pyright]
+include = [
+    "GEECS-Core/geecs_core",
+    "GEECS-Schemas/geecs_schemas",
+    "GeecsCAGateway/geecs_ca_gateway",
+    "GeecsPvaGateway/geecs_pva_gateway",
+]
+extraPaths = [
+    "GEECS-Core",
+    "GEECS-Schemas",
+    "GEECS-Data-Utils",
+    "GeecsCAGateway",
+    "GeecsPvaGateway",
+]
+typeCheckingMode = "basic"
+pythonVersion = "3.11"
 
 # -------------------------------
 # Interrogate settings (doc coverage checker)

@@ -227,7 +227,7 @@ class TriggerProfile(VersionedSchemaModel):
     """
 
     schema_version: int = Field(
-        2,
+        default=2,
         description=(
             "Format version of this config file. Leave at 2 — tools update "
             "this automatically when the file format changes."
@@ -247,7 +247,7 @@ class TriggerProfile(VersionedSchemaModel):
         ),
     )
     description: str = Field(
-        "",
+        default="",
         description="Optional note about what setup this profile is for.",
     )
 

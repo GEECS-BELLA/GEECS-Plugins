@@ -124,6 +124,9 @@ own nested worktrees under `.claude/worktrees/`.
 - **Package manager:** Poetry — `poetry install` at the repo root installs the
   main dev environment. Each subpackage can also be installed standalone.
 - **Linting:** `ruff` (replaces flake8/isort) + `pydocstyle` (numpy convention)
+- **Type checking:** `pyright` (basic) over the leaf packages in `[tool.pyright]`
+  (GEECS-Core, GEECS-Schemas, both gateways); `scripts/check.sh` and the
+  pre-commit workflow's `pyright` job run it on every PR
   + `import-linter` (`.importlinter` holds the dependency graph below as
   contracts; `python scripts/lint_imports.py` checks every package's imports
   against it from sources alone, and runs as the `import-contracts`

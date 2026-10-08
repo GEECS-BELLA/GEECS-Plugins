@@ -68,7 +68,8 @@ def _apply_keepalive(
     probes = max(1, int(count))
     try:
         if hasattr(socket, "TCP_KEEPIDLE"):
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, idle)
+            # hasattr-guarded; typeshed omits it on macOS
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, idle)  # pyright: ignore[reportAttributeAccessIssue]
         elif hasattr(socket, "TCP_KEEPALIVE"):  # macOS spelling of the idle knob
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPALIVE, idle)
         if hasattr(socket, "TCP_KEEPINTVL"):

@@ -15,7 +15,7 @@ v2-only since.
 
 from __future__ import annotations
 
-from typing import Annotated, Optional, Union
+from typing import Annotated, Optional, Union, cast
 
 from pydantic import Field, PrivateAttr, model_validator
 
@@ -237,14 +237,15 @@ class AnalysisDiagnostic(VersionedSchemaModel):
             LineBackgroundMethod,
         )
 
-        stack_source = self.image.data_loading.data_type == Data1DType.PVA_STACK
+        image = cast(Line1DConfig, self.image)  # called for line diagnostics only
+        stack_source = image.data_loading.data_type == Data1DType.PVA_STACK
         stack_format = self.scan.data_format == "device_hdf5"
         if stack_source != stack_format:
             raise ValueError(
                 "a line diagnostic reading the per-device capture stack needs "
                 "BOTH image.data_loading.data_type: pva_stack and "
                 "scan.data_format: device_hdf5 — this document has "
-                f"data_type {self.image.data_loading.data_type.value!r} with "
+                f"data_type {image.data_loading.data_type.value!r} with "
                 f"data_format {self.scan.data_format!r}, which reads nothing"
             )
         if stack_format and self.analyzer.kind == "line_stitcher":
@@ -259,7 +260,7 @@ class AnalysisDiagnostic(VersionedSchemaModel):
                 "master device's per-shot file path, and writes its output "
                 "beside that file — a stack frame has neither"
             )
-        background = self.image.background
+        background = image.background
         if (
             stack_source
             and background is not None

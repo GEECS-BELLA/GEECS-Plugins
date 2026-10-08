@@ -114,12 +114,12 @@ class ScanRuntime(SchemaModel):
     """
 
     priority: int = Field(
-        100,
+        default=100,
         ge=0,
         description="Run order within a group: lower runs first. 100 is the background default.",
     )
     mode: Literal["per_shot", "per_bin"] = Field(
-        "per_shot",
+        default="per_shot",
         description=(
             "'per_shot' analyzes every frame; 'per_bin' averages each bin's "
             "frames first and analyzes once per bin — for metrics that are "
@@ -127,14 +127,14 @@ class ScanRuntime(SchemaModel):
         ),
     )
     save: bool = Field(
-        True,
+        default=True,
         description=(
             "Write per-shot / per-bin outputs (HDF5, PNG) into the analysis "
             "tree. S-file scalar columns are written regardless."
         ),
     )
     gdoc_slot: Optional[int] = Field(
-        None,
+        default=None,
         json_schema_extra={"deprecated": True},
         ge=0,
         le=3,
@@ -143,21 +143,21 @@ class ScanRuntime(SchemaModel):
         ),
     )
     device: Optional[str] = Field(
-        None,
+        default=None,
         description=(
             "Data subfolder under the scan when it differs from the diagnostic "
             "name (stitched or post-processed outputs in a sibling folder)."
         ),
     )
     file_tail: Optional[str] = Field(
-        None,
+        default=None,
         description=(
             "Filename suffix that identifies this device's files ('.png', "
             "'.tdms', '_postprocessed.tsv'); unset uses the analyzer's default."
         ),
     )
     data_format: Optional[Literal["per_shot_files", "device_hdf5"]] = Field(
-        None,
+        default=None,
         description=(
             "'device_hdf5' reads the per-device frame stack the PVA gateway's "
             "file plugin writes. A camera analyzer falls back to per-shot "
@@ -172,7 +172,7 @@ class ScanRuntime(SchemaModel):
         description="Summary-figure cosmetics; unset fields keep the renderer defaults.",
     )
     background_source: Optional[BackgroundSource] = Field(
-        None,
+        default=None,
         description=(
             "A scan-dependent background (another scan, this scan's own shots, "
             "or an autodetected averaged file). Fixed files go on image.background."

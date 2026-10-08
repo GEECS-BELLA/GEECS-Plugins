@@ -78,7 +78,7 @@ Schema v4 (drop the native-image-save toggle):
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional, Union
+from typing import Any, Optional, Union, cast
 
 from pydantic import Field, field_validator, model_validator
 
@@ -289,7 +289,7 @@ class CaptureSettings(SchemaModel):
     """
 
     shots_per_step: int = Field(
-        1,
+        default=1,
         ge=1,
         description=(
             "How many shots to take at each scan position / grid point (or "
@@ -297,7 +297,7 @@ class CaptureSettings(SchemaModel):
         ),
     )
     acquisition: AcquisitionMode = Field(
-        AcquisitionMode.STRICT,
+        default=AcquisitionMode.STRICT,
         description=(
             "'strict' fires shot by shot and guarantees every device is in "
             "every row; 'free_run' lets the trigger run at the machine rate "
@@ -316,7 +316,7 @@ class CaptureSettings(SchemaModel):
         ),
     )
     background_telemetry: Optional[bool] = Field(
-        None,
+        default=None,
         description=(
             "Also log every other live experiment device as best-effort "
             "snapshot columns — the variables the GEECS experiment database "
@@ -329,7 +329,7 @@ class CaptureSettings(SchemaModel):
         ),
     )
     trigger_profile: Optional[str] = Field(
-        None,
+        default=None,
         description=(
             "Name of the trigger profile that drives the shot trigger. "
             "Unset means the scan does not manage the trigger."
@@ -641,9 +641,10 @@ class ScanRequest(VersionedSchemaModel):
             if lifted.pop(key) is not None:
                 raise ValueError(_REMOVED_FIELDS[key])
         if removed_in_capture:
-            lifted["capture"] = dict(capture)
+            capture_copy: dict[str, Any] = dict(cast(dict[str, Any], capture))
+            lifted["capture"] = capture_copy
             for key in removed_in_capture:
-                if lifted["capture"].pop(key) is not None:
+                if capture_copy.pop(key) is not None:
                     raise ValueError(_REMOVED_FIELDS[key])
         if flat and "capture" in data:
             raise ValueError(

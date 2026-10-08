@@ -208,17 +208,21 @@ def _alarm_row_to_limits(row: tuple) -> AlarmLimits:
     Row order is the SELECT order in :meth:`GeecsDb.get_ca_alarm_limits`, after
     experiment/device/variable.
     """
-    return AlarmLimits(
-        lolo=_num(row[0]),
-        low=_num(row[1]),
-        high=_num(row[2]),
-        hihi=_num(row[3]),
-        lolo_severity=row[4] or "MAJOR",
-        low_severity=row[5] or "MINOR",
-        high_severity=row[6] or "MINOR",
-        hihi_severity=row[7] or "MAJOR",
-        hysteresis=_num(row[8]),
-        description=row[9] or "",
+    # model_validate, not the constructor: the severity columns are DB
+    # strings that pydantic coerces to AlarmSeverityName either way.
+    return AlarmLimits.model_validate(
+        {
+            "lolo": _num(row[0]),
+            "low": _num(row[1]),
+            "high": _num(row[2]),
+            "hihi": _num(row[3]),
+            "lolo_severity": row[4] or "MAJOR",
+            "low_severity": row[5] or "MINOR",
+            "high_severity": row[6] or "MINOR",
+            "hihi_severity": row[7] or "MAJOR",
+            "hysteresis": _num(row[8]),
+            "description": row[9] or "",
+        }
     )
 
 
