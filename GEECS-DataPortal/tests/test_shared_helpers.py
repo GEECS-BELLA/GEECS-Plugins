@@ -17,6 +17,8 @@ from geecs_portal import app as portal_app
 
 def test_resolve_scan_folder_is_the_shared_data_utils_implementation() -> None:
     """The portal must not grow a shadowing resolver of its own."""
+    from geecs_portal.routes import common as portal_app
+
     assert portal_app.resolve_scan_folder is tiled_catalog.resolve_scan_folder
 
 
