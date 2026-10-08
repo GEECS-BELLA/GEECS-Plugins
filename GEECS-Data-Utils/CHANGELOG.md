@@ -3,6 +3,36 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.52.0] - 2026-10-07
+
+### Removed
+
+- **`geecs_data_utils.scans_database`** (`ScanDatabase`,
+  `ScanDatabaseBuilder`, `ScanEntry`/`ScanMetadata`, the YAML filter
+  presets): an early Parquet scan catalog that Tiled superseded. No
+  consumer imported it; its example notebook and docs nav entry go too.
+- **`geecs_data_utils.modeling`** (`modeling.ml`: `MLDatasetBuilder`,
+  `RegressionTrainer`, model persistence and inference) and its five test
+  modules: unused and unvetted. The sklearn/Optuna sections of the
+  `correlation_analysis` example notebook go with it; the correlation
+  ranking (`geecs_data_utils.analysis`) stays.
+- **`ScanConfig`** (`type_defs`, and its top-level export): superseded by
+  `geecs_schemas`' `ScanRequest`; nothing outside this package used it.
+  `ScanMode` stays.
+- **Dependencies:** `duckdb` (required), and `scikit-learn` + `optuna`
+  with the `ml` extra that carried them. Every Data-Utils consumer stops
+  installing duckdb, and the root dev environment (which asked for the
+  `ml` extra) also sheds scikit-learn, Optuna, joblib, SQLAlchemy
+  and alembic. The root project and every consumer lock are relocked.
+
+### Added
+
+- **`scipy`** as a declared dependency. `CorrelationReport`'s
+  `spearman`/`kendall` methods need it (pandas imports it lazily); it had
+  only ever arrived through scikit-learn, and `test_correlation.py`
+  failed once the `ml` extra was gone. Consumers that did not already
+  install scipy (through ImageAnalysis or GEECS-Analysis) now do.
+
 ## [0.51.1] - 2026-10-07
 
 ### Changed

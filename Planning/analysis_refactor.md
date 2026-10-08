@@ -840,8 +840,8 @@ production observation period; re-estimate after the differential baseline.
   get a device identity in the save set.
 - **Client-side live analysis off PVA.** Fifty lines with the new core; right
   for ad-hoc viewing, wrong as a source of truth.
-- **Data-utils beyond the read side.** `scans_database`, `modeling/ml`,
-  `plotting_utils` out of the package; the producer side collected into one
+- **Data-utils beyond the read side.** `plotting_utils` out of the package
+  (`scans_database` and `modeling/ml` were deleted 2026-10); the producer side collected into one
   named module. Audit `doc_id_lookup` and the standalone LogMaker package
   during R0: remove anything used only by the retired integration, and record
   any surviving external consumers before deleting shared code. The existing

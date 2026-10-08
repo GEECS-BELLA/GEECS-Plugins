@@ -44,7 +44,6 @@ VENDOR_ONLY_EXTS = frozenset({"himg", "has"})
 # same iterdir-order nondeterminism that always applied to `himg`.
 _ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms"} | set(VENDOR_ONLY_EXTS)
 
-# from geecs_data_utils.types import ScanConfig, ScanMode
 
 # module‐level logger
 logger = logging.getLogger(__name__)
