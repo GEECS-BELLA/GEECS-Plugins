@@ -36,29 +36,28 @@ geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["qs-client
 # Completed-run lookup (get_scan_result): TiledScanCatalog over the archive.
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true, extras = ["tiled"] }
 
-# TEST-ONLY since 0.9.0 (honest labelling, review finding): nothing under
-# geecs_mcp/ imports geecs_schemas — the listing tools duck-type catalog
-# rows with getattr.  The suite builds REAL ScanVariable/PseudoScanVariable
-# models on purpose, so the row builder is tested against what a resolver
-# can actually produce.  Kept a main dependency because the resolver it
-# reads returns those models at runtime; move it to the dev group if that
-# ever stops being true.
-geecs-schemas = { path = "../GEECS-Schemas", develop = true }
-
 # On-demand ScanAnalysis execution (#686: run_scan_analysis + the
 # analyzer/group listings) — heavy (scipy/opencv/scikit-image ride in via
 # ImageAnalysis), so it is an extra mirroring GeecsBluesky's
 # analysis/optimize pattern.  Without it the run/listing tools refuse with
 # a clear message naming the extra; the server always starts.
 scananalysis = { path = "../ScanAnalysis", develop = true, optional = true }
+# The run worker loads the diagnostic through image_analysis.config —
+# imported directly, so declared, not ridden transitively via scananalysis.
+imageanalysis = { path = "../ImageAnalysis", develop = true, optional = true }
 
 [tool.poetry.extras]
-analysis-run = ["scananalysis"]
+analysis-run = ["imageanalysis", "scananalysis"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"
 ruff = ">=0.9"
 pydocstyle = ">=6.3"
+# Test-only: nothing under geecs_mcp/ imports geecs_schemas (the listing
+# tools duck-type catalog rows); the suite builds real ScanVariable models
+# so the row builder is tested against what the resolver produces.  At run
+# time those models arrive through geecs-bluesky, which declares it.
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 
 [build-system]
 requires = ["poetry-core"]

@@ -61,7 +61,7 @@ version = "0.8.0"
 description = "Reusable constraint types to use with typing.Annotated"
 optional = false
 python-versions = ">=3.10"
-groups = ["main"]
+groups = ["main", "dev"]
 files = [
     {file = "annotated_types-0.8.0-py3-none-any.whl", hash = "sha256:f072f4d804ea359e4eaf198b1af7a8b0943881a87f31bb764f8bf219bb9419e0"},
     {file = "annotated_types-0.8.0.tar.gz", hash = "sha256:13b2beaad985e05e2d6407ee4c4f35590b11f8d693a258a561055cac8f64cab7"},
@@ -1566,7 +1566,7 @@ tqdm = ["tqdm"]
 
 [[package]]
 name = "geecs-analysis"
-version = "0.27.0"
+version = "0.28.0"
 description = "Pure frame processing and unified GEECS analysis"
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -1590,7 +1590,7 @@ url = "../GEECS-Analysis"
 
 [[package]]
 name = "geecs-bluesky"
-version = "0.115.2"
+version = "0.115.3"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -1670,11 +1670,11 @@ url = "../GEECS-Data-Utils"
 
 [[package]]
 name = "geecs-schemas"
-version = "0.43.1"
+version = "0.44.0"
 description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, action plans) plus legacy-YAML converters."
 optional = false
 python-versions = ">=3.11,<3.12"
-groups = ["main"]
+groups = ["main", "dev"]
 files = []
 develop = true
 
@@ -1692,7 +1692,7 @@ version = "0.1"
 description = "A standard for generating test points and exchanging variables, objectives, and constraints in optimization problems"
 optional = false
 python-versions = ">=3.10"
-groups = ["main"]
+groups = ["main", "dev"]
 files = [
     {file = "gest_api-0.1-py3-none-any.whl", hash = "sha256:8dad05c867c631e84bdd559acad030b0a5a2a2930f82ef7ec6f3e7bd655187b3"},
     {file = "gest_api-0.1.tar.gz", hash = "sha256:c5712721072fab8fdef7e976d4140db99729245f34ff36eefc0737c5197d25a8"},
@@ -4442,7 +4442,7 @@ version = "2.13.4"
 description = "Data validation using Python type hints"
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
+groups = ["main", "dev"]
 files = [
     {file = "pydantic-2.13.4-py3-none-any.whl", hash = "sha256:45a282cde31d808236fd7ea9d919b128653c8b38b393d1c4ab335c62924d9aba"},
     {file = "pydantic-2.13.4.tar.gz", hash = "sha256:c40756b57adaa8b1efeeced5c196f3f3b7c435f90e84ea7f443901bec8099ef6"},
@@ -4465,7 +4465,7 @@ version = "2.46.4"
 description = "Core functionality for Pydantic validation and serialization"
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
+groups = ["main", "dev"]
 files = [
     {file = "pydantic_core-2.46.4-cp310-cp310-macosx_10_12_x86_64.whl", hash = "sha256:a396dcc17e5a0b164dbe026896245a4fa9ff402edca1dff0be3d53a517f74de4"},
     {file = "pydantic_core-2.46.4-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:da4b951fe36dc7c3a1ccb4e3cd1747c3542b8c9ceede8fc86cae054e764485f5"},
@@ -5412,7 +5412,7 @@ files = [
 
 [[package]]
 name = "scananalysis"
-version = "1.46.3"
+version = "1.47.0"
 description = "Modules for performing analyses routines on full scans"
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -6158,7 +6158,7 @@ version = "4.16.0"
 description = "Backported and Experimental Type Hints for Python 3.9+"
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
+groups = ["main", "dev"]
 files = [
     {file = "typing_extensions-4.16.0-py3-none-any.whl", hash = "sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8"},
     {file = "typing_extensions-4.16.0.tar.gz", hash = "sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5"},
@@ -6170,7 +6170,7 @@ version = "0.4.4"
 description = "Runtime typing introspection tools"
 optional = false
 python-versions = ">=3.10"
-groups = ["main"]
+groups = ["main", "dev"]
 files = [
     {file = "typing_inspection-0.4.4-py3-none-any.whl", hash = "sha256:65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147"},
     {file = "typing_inspection-0.4.4.tar.gz", hash = "sha256:547274fa6b0a561ccf549cc9524b999a578e737d015d8709d021f9d0d13bea47"},
@@ -6667,9 +6667,9 @@ files = [
 cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and python_version < \"3.14\"", "cffi (>=2.0.0b) ; platform_python_implementation != \"PyPy\" and python_version >= \"3.14\""]
 
 [extras]
-analysis-run = ["scananalysis"]
+analysis-run = ["imageanalysis", "scananalysis"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.12"
-content-hash = "2ff0d0cd7f6e9a6ab2f580f569d6942daa71e7896374e22b2632320120154d86"
+content-hash = "ade1b0749a61b73129d663b53e5e05e5f41edbc4adc3ad05ce729a4227c78e60"
