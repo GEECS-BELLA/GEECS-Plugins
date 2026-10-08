@@ -105,6 +105,21 @@ class TestScalarFitSummary:
         with pytest.raises(ValidationError):
             AnalysisRecipe.model_validate({**CAMERA, "summaries": [entry]})
 
+    def test_refuses_a_repeated_kind_and_points_at_one_entry(self):
+        # The sink names a summary's files by kind, so a second scalar_fit
+        # would overwrite the first one's PNG and JSON.
+        summaries = [
+            {"kind": "scalar_fit", "scalars": ["kick_1"]},
+            {"kind": "scalar_fit", "scalars": ["plateau_0"]},
+        ]
+        with pytest.raises(ValidationError, match="one scalar_fit entry fits"):
+            AnalysisRecipe.model_validate({**LINE, "summaries": summaries})
+
+    def test_refuses_any_repeated_summary_kind(self):
+        summaries = [{"kind": "average"}, {"kind": "average"}]
+        with pytest.raises(ValidationError, match="'average' twice"):
+            AnalysisRecipe.model_validate({**CAMERA, "summaries": summaries})
+
 
 class TestShape:
     def test_camera_recipe_keeps_step_parameters_as_written(self):

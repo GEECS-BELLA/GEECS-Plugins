@@ -638,6 +638,26 @@ class AnalysisRecipe(VersionedSchemaModel):
                 )
         return self
 
+    @model_validator(mode="after")
+    def _summary_kinds_are_distinct(self) -> "AnalysisRecipe":
+        """Each summary kind appears at most once: its products share one name."""
+        seen: set = set()
+        for summary in self.summaries:
+            if summary.kind in seen:
+                hint = (
+                    "; one scalar_fit entry fits several scalars (list them all "
+                    "under its scalars:)"
+                    if summary.kind == "scalar_fit"
+                    else ""
+                )
+                raise ValueError(
+                    f"summaries lists kind {summary.kind!r} twice; each kind "
+                    f"writes one file per device, so a second entry would "
+                    f"overwrite the first{hint}"
+                )
+            seen.add(summary.kind)
+        return self
+
 
 __all__ = [
     "CURRENT_RECIPE_VERSION",

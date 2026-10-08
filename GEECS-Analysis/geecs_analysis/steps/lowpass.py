@@ -18,12 +18,13 @@ class LowpassSpec(StepSpec):
     Acts on sample indices like every filtering step: the cutoff is a
     fraction of the Nyquist frequency of the sample spacing, not of a
     physical-axis frequency, and nonuniform coordinates are not resampled.
-    A trace shorter than SciPy's default edge padding is filtered with the
-    padding shortened to fit (length minus one), so any trace of at least
-    one sample is filtered rather than refused, as ``gaussian`` never
-    refuses one. The filter is recursive: a nonfinite sample makes the
-    whole filtered trace nonfinite, which stays visible to the measure
-    rather than being masked.
+    The edges are padded as SciPy's ``sosfiltfilt`` pads them by default, so
+    a trace needs one sample more than that padding: 10 samples for the
+    default order 2 (7 for order 1, 16 for order 4). A shorter trace is
+    refused rather than filtered, because the filter's edge transient would
+    be all of it. The filter is recursive: a
+    nonfinite sample makes the whole filtered trace nonfinite, which stays
+    visible to the measure rather than being masked.
     """
 
     step: Literal["lowpass"] = "lowpass"
@@ -47,6 +48,9 @@ class LowpassSpec(StepSpec):
 def lowpass(frame: Frame, spec: LowpassSpec) -> Frame:
     """Filter the samples with ``sosfiltfilt``, keeping axes, unit and label.
 
+    A trace no longer than ``sosfiltfilt``'s default edge padding is refused
+    with a ValueError naming the minimum length.
+
     Parameters
     ----------
     frame : Frame
@@ -63,8 +67,12 @@ def lowpass(frame: Frame, spec: LowpassSpec) -> Frame:
     from scipy.signal import butter, sosfiltfilt
 
     sos = butter(spec.order, spec.critical_frequency, btype="low", output="sos")
-    # scipy's own default padlen for sosfiltfilt, shortened to fit the trace.
+    # scipy's own default padlen for sosfiltfilt; the trace must exceed it.
     zeros = min(int(np.sum(sos[:, 2] == 0)), int(np.sum(sos[:, 5] == 0)))
-    default = 3 * (2 * len(sos) + 1 - zeros)
-    padlen = min(default, frame.data.size - 1)
-    return frame.replace(data=sosfiltfilt(sos, frame.data, padlen=padlen))
+    minimum = 3 * (2 * len(sos) + 1 - zeros) + 1
+    if frame.data.size < minimum:
+        raise ValueError(
+            f"An order-{spec.order} lowpass needs a trace of at least {minimum} "
+            f"samples (got {frame.data.size})"
+        )
+    return frame.replace(data=sosfiltfilt(sos, frame.data))

@@ -23,7 +23,7 @@ from geecs_analysis.registry import (
 )
 from geecs_analysis.render import RenderError
 from geecs_analysis.render.specs import FigureSpec
-from geecs_analysis.summaries.scalar_fit import FIT_SUFFIXES, linear_fit
+from geecs_analysis.algorithms.linear_fit import FIT_SUFFIXES, linear_fit
 
 FIGURE = FigureSpec(fig={"dpi": 30})
 

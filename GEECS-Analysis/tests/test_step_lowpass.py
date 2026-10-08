@@ -80,10 +80,28 @@ def test_axes_unit_label_and_provenance_are_untouched():
     assert not result.data.flags.writeable
 
 
-@pytest.mark.parametrize("size", [1, 2, 5])
-def test_a_short_trace_is_filtered_with_shortened_padding(size):
-    result = run(trace(np.full(size, 3.0)), order=4)
-    np.testing.assert_allclose(result.data, 3.0, rtol=1e-9)
+# sosfiltfilt's default padlen + 1: order 1 has one section with a zero,
+# order 2 one section, order 4 two sections.
+MINIMUM = {1: 7, 2: 10, 4: 16}
+
+
+@pytest.mark.parametrize("order", sorted(MINIMUM))
+@pytest.mark.parametrize("values", ["constant", "ramp"])
+def test_a_trace_shorter_than_the_padding_is_refused(order, values):
+    for size in (1, 3, MINIMUM[order] - 1):
+        y = np.full(size, 3.0) if values == "constant" else np.arange(size, dtype=float)
+        with pytest.raises(ValueError, match=f"at least {MINIMUM[order]} samples"):
+            run(trace(y), order=order)
+
+
+@pytest.mark.parametrize("order", sorted(MINIMUM))
+def test_the_minimum_length_is_filtered_as_sosfiltfilt_filters_it(order):
+    from scipy.signal import butter, sosfiltfilt
+
+    y = np.arange(MINIMUM[order], dtype=float) ** 1.5
+    result = run(trace(y), order=order, critical_frequency=0.3)
+    sos = butter(order, 0.3, btype="low", output="sos")
+    np.testing.assert_array_equal(result.data, sosfiltfilt(sos, y))
 
 
 def test_a_nonfinite_sample_stays_visible():

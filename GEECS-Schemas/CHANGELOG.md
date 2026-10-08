@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   summary PNG. The published `analysis_recipe.schema.json` and the schema
   reference are regenerated.
 
+### Changed
+
+- An `AnalysisRecipe` refuses a `summaries` list that names the same kind
+  twice. The ScanAnalysis sink names a summary's files by kind
+  (`<device>_summary_<kind>.png` / `.json`), so a second entry silently
+  replaced the first; one `scalar_fit` entry fits several scalars, and the
+  error says so. No format-3 document in the analysis configs corpus repeats
+  a kind.
+
 ## [0.43.1] - 2026-10-07
 
 ### Changed

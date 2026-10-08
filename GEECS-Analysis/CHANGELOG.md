@@ -16,9 +16,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Step `lowpass`: zero-phase Butterworth filter (`butter` in SOS form, then
   `sosfiltfilt`) with `order` (default 2) and `critical_frequency` (a
   fraction of the sample-spacing Nyquist, between 0 and 1, default 0.1). It
-  filters on sample indices and never resamples. On a short trace the edge
-  padding is shortened to fit rather than the trace refused. A nonfinite
-  sample makes the whole filtered trace nonfinite, which the measure sees.
+  filters on sample indices and never resamples. A trace no longer than
+  `sosfiltfilt`'s default edge padding is refused with a ValueError naming
+  the minimum length (10 samples for order 2, 16 for order 4), since the
+  edge transient would be the whole output. A nonfinite sample makes the
+  whole filtered trace nonfinite, which the measure sees.
 - Measure `pulsed_wire`: drift-plateau `windows` (closed intervals in axis
   units, ordered and strictly separated, at least two) and the `elements`
   between them (`name`, optional `length`). It emits `plateau_i` (the mean
@@ -32,7 +34,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   against the scan position. It emits `{key}_slope`, `_intercept`,
   `_zero_crossing` (each with `_stderr`), `_r2` and `_points`; undefined
   numbers stay NaN, with a note saying why. The figure shows the points,
-  the fitted lines and a dashed line at each zero crossing.
+  the fitted lines and a dashed line at each zero crossing. The fit itself
+  (`linear_fit`, `FIT_SUFFIXES`) is in `algorithms/linear_fit.py`.
 - The summary-scalars contract: a summary layout may return
   `registry.SummaryOutput(figure, scalars, notes)` instead of a bare
   `Figure`, and consumers normalise either shape with
