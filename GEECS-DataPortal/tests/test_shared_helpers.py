@@ -12,16 +12,23 @@ from __future__ import annotations
 
 from geecs_data_utils import tiled_catalog
 
-from geecs_portal import app as portal_app
+from geecs_portal.routes import common as portal_app
 
 
 def test_resolve_scan_folder_is_the_shared_data_utils_implementation() -> None:
     """The portal must not grow a shadowing resolver of its own."""
-    from geecs_portal.routes import common as portal_app
-
     assert portal_app.resolve_scan_folder is tiled_catalog.resolve_scan_folder
 
 
 def test_metadata_rows_is_the_shared_data_utils_implementation() -> None:
     """Same pin for the metadata table helper."""
+    from geecs_portal.routes import pages as portal_app
+
     assert portal_app.metadata_rows is tiled_catalog.metadata_rows
+
+
+def test_the_browsing_api_uses_the_shared_metadata_rows() -> None:
+    """The JSON twin of the run page renders the same table."""
+    from geecs_portal.routes import browse
+
+    assert browse.metadata_rows is tiled_catalog.metadata_rows

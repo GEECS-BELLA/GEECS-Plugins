@@ -253,7 +253,7 @@ ignore_imports =
     # neither the graph nor the portal's pyproject declares; it rides on the
     # `analysis` extra transitively. Follow-up PR: declare geecs-schemas in
     # the portal's analysis extra, add the edge to the graph, delete these.
-    geecs_portal.app -> geecs_schemas.analysis
+    geecs_portal.routes.config_editor -> geecs_schemas.analysis
     geecs_portal.processing -> geecs_schemas.analysis
 allow_indirect_imports = True
 

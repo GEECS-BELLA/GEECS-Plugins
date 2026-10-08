@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.40.1] - 2026-10-07
+
+### Changed
+
+- The rest of `create_app` moves into routers; `app.py` now builds the
+  state, mounts static and theme, and includes them. No behaviour change.
+  - `geecs_portal/routes/browse.py`: `/health` and the browsing JSON API.
+  - `geecs_portal/routes/pages.py`: the index redirects, the day page and the run page.
+  - `geecs_portal/routes/runs.py`: the analysis runs and their artifacts.
+  - `geecs_portal/routes/logbook.py`: sending a plot to the scan's logbook entry.
+  - `geecs_portal/routes/config_editor.py`: the config editor's mount and previews.
+
 ## [0.40.0] - 2026-10-07
 
 ### Changed

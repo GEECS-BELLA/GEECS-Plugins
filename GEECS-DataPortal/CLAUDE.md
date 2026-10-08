@@ -175,12 +175,15 @@ extending this package.
 ```
 geecs_portal/
   app.py         # create_app(catalog, default_experiment=…): builds the
-                 #   PortalState, mounts, and the routes not yet in routes/
+                 #   PortalState, mounts static/theme, includes the routers
   state.py       # PortalState on app.state (catalog, caches, config, the
                  #   helpers that need them); get_state = the one Depends
-  routes/        # one APIRouter per family: plot_api (Plot/Grid JSON +
-                 #   bin membership), images (shot/bin images, traces,
-                 #   plot.png); common = stateless request helpers
+  routes/        # one APIRouter per family: browse (health + browsing
+                 #   JSON), pages (HTML), plot_api (Plot/Grid JSON + bin
+                 #   membership), images (shot/bin images, traces,
+                 #   plot.png), runs (analysis runs + artifacts), logbook
+                 #   (plot send), config_editor (mount + previews);
+                 #   common = stateless request helpers
   analysis.py    # /api boundary chores: filters/bincfg/display parsing,
                  #   JSON shaping (NaN→null), "show the code" snippets
   processing.py  # core compilation/execution and legacy fallback for unported recipes
