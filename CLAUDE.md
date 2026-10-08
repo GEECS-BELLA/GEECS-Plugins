@@ -349,17 +349,25 @@ Each package is versioned independently using **semantic versioning**:
 | `0.x.0` minor | New feature or meaningful behaviour change (backwards-compatible) | `0.7.1 → 0.8.0` |
 | `1.0.0` major | Stable production API, deployed across multiple experiments | reserved |
 
-**On every PR that changes code in a package:**
+The table says what **kind** of bump a release gets; it no longer says
+**when**. A package is bumped **when it is deployed or tagged**, not per
+PR — the fleet tooling reads the versions, so they stay, but an ordinary
+PR touches neither `pyproject.toml`'s version nor `CHANGELOG.md`. Between
+releases a PR is identified by its merge commit, which `/fleet-status`
+already shows per host.
 
-1. Run `poetry version patch|minor|major` from inside the package directory —
-   this edits `pyproject.toml` in place
-2. Add an entry to the package's `CHANGELOG.md` under the new version number
-3. Commit `pyproject.toml` and `CHANGELOG.md` together with the code changes
+**At a deploy or tag** (once per package, in the PR or commit that cuts it):
 
-```bash
-cd GeecsScanner  && poetry version minor   # 0.5.0 → 0.6.0
-cd GEECS-Core    && poetry version patch   # 0.2.0 → 0.2.1
-```
+1. `poetry version patch|minor|major` inside the package — the largest
+   kind among the PRs being released
+2. `scripts/release_notes.py <Package> --version <new>` prints the draft
+   `CHANGELOG.md` entry: one bullet per merged PR that touched the package
+   since its previous bump (from `gh pr list --state merged`). Edit it
+   (group, cut noise, add the host deploy step) and paste it under the new
+   version heading
+
+Existing CHANGELOGs are not rewritten; the per-PR entries already there
+stay as history.
 
 Every package has a `CHANGELOG.md` following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
@@ -374,7 +382,8 @@ against the packages on disk).
 Git tags (`geecs-scanner-v0.8.0` style) are cut at **milestones** — a state
 deployed across experiments or one we may need to reproduce (e.g. the
 access-layer landing, 2026-07-06) — not on every merge. The per-package
-`CHANGELOG.md` + `pyproject.toml` versions are the routine record.
+`CHANGELOG.md` + `pyproject.toml` versions, bumped at each deploy, are
+the routine record.
 
 ## Cross-package invariants
 

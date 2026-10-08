@@ -2,7 +2,8 @@
 name: land
 description: >
   Land a change as a PR the GEECS-Plugins way: branch off the right base,
-  scope check, version bump + CHANGELOG, tests run the way CI runs them,
+  scope check, release bump only when deploying/tagging, tests run the way
+  CI runs them,
   commit.sh, PR body with the hardware-verification section, adversarial
   review by a fresh-context subagent (correctness + redundancy +
   placement) with dispositioned findings, CI watch — then hand
@@ -56,18 +57,20 @@ carries the mechanics.
    block, `deploy/site.env.example`, or an `analyzers/<Experiment>/`
    package, flag it in the PR body with where the value should live
    (`site.env` or `config.ini`). Instruction, not a hook.
-3. **Version + CHANGELOG** for every package whose code changed:
-   `poetry version patch|minor` from inside the package dir (patch = bug
-   fix, minor = feature/behavior change), plus a Keep-a-Changelog entry
-   under the new version. Docs-only changes to a package still get a
-   patch bump by repo convention (see #536/#537 precedent).
+3. **Version + CHANGELOG: bump only if this PR is the one being
+   deployed or tagged; otherwise none** (root CLAUDE.md § "Release &
+   Versioning"). A release PR runs `poetry version patch|minor` in each
+   package it releases and pastes the entry `scripts/release_notes.py
+   <Package> --version <new>` drafts from the merged PR titles. An
+   ordinary PR leaves `pyproject.toml`'s version and `CHANGELOG.md`
+   alone — its title becomes the changelog bullet, so make it read as one.
 4. **Tests**: `./scripts/check.sh` runs the affected suites the way CI
    does (`--all` before opening the PR; see `/check` for tiers and
    `/env-doctor` for env fixes). New behavior gets a pinning test;
    report exact counts, never "tests pass".
 5. **Commit** with `./scripts/commit.sh -m "..."` after `git add` (plain
    `git commit` fights the auto-fixing pre-commit hooks). Subject shape:
-   `Package X.Y.Z: what changed (#issue)`.
+   `Package: what changed (#issue)` (a release PR: `Package X.Y.Z: release`).
 6. **PR**: base per CONTRIBUTING.md. Body must include: what + why, a
    per-concern LOC breakdown when bundling, test counts, and — for
    anything touching scan execution or devices — a **hardware

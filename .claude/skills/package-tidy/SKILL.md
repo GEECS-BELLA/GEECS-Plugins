@@ -129,10 +129,11 @@ config-driven feature with zero callers. Sam picks; nothing moves before.
   dotted name AND the old file path is empty outside `CHANGELOG.md`, and
   every hit on the bare `\b<mod>\b` is triaged (`from pkg import mod`
   carries neither).
-- Version once at the end, per `/land`: minor for the package (its import
-  paths changed); patch for packages whose imports or docs changed. One
-  CHANGELOG entry: old → new paths, every visible side effect (logger
-  names, fingerprints), the host deploy step.
+- No version bump (per `/land`, bumps happen at deploy/tag). The PR body
+  records old → new paths, every visible side effect (logger names,
+  fingerprints) and the host deploy step; the release that ships it is a
+  minor bump for the package (its import paths changed) and lifts those
+  into the CHANGELOG entry.
 - Full `./scripts/check.sh --all` once; `doc_audit.py --strict` exits 0.
 
 ## 5. Gates before the PR
@@ -196,7 +197,5 @@ the whole 859-test suite in a worktree of their own.
   reinstall.
 - Merging two docstrings pushes a module docstring over doc_audit's
   25-line long-doc limit.
-- Parallel branches collide on version and CHANGELOG → bump once at
-  integration.
 - Cherry-picked or rebased branches never show as merged: before
   deleting one, compare its changed lines against master's commit.

@@ -190,8 +190,8 @@ ca_addr_list`, applied by geecs_bluesky at import) is documented in
   `pv_naming`, plus this package's config helpers; same one-namespace
   coexistence as GeecsBluesky).
 - Follow the repo-wide conventions (root `CLAUDE.md`): Pydantic v2, NumPy
-  docstrings, type hints, `poetry version` + `CHANGELOG.md` on every
-  code-changing PR.
+  docstrings, type hints, `poetry version` + `CHANGELOG.md` at deploy/tag
+  time, not per PR.
 
 ## DB-hygiene audit (`audit.py`, #496)
 

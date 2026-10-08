@@ -119,20 +119,25 @@ layout; delete-when-executed is the whole discipline):
 
 ## Every PR that changes a package
 
-1. `poetry version patch|minor` inside the package (patch = bug fix,
-   minor = feature/behavior change; `1.0.0` is reserved).
-2. Add a [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) entry to
-   the package's `CHANGELOG.md` under the new version.
-3. One concern per PR. When bundling is unavoidable, give a per-concern
+1. **No version bump, no CHANGELOG entry** — a package is bumped when it
+   is deployed or tagged, not per PR (root `CLAUDE.md` § "Release &
+   Versioning"). The release that bumps it runs `poetry version
+   patch|minor` (patch = bug fix, minor = feature/behavior change; `1.0.0`
+   is reserved) and drafts its [Keep a
+   Changelog](https://keepachangelog.com/en/1.1.0/) entry from the merged
+   PR titles with `scripts/release_notes.py <Package>`. Until then a PR is
+   identified by its merge commit. So write PR titles that read well as a
+   changelog bullet.
+2. One concern per PR. When bundling is unavoidable, give a per-concern
    breakdown in the PR body.
-4. Run `./scripts/check.sh` (it mirrors the CI env/marker mapping;
+3. Run `./scripts/check.sh` (it mirrors the CI env/marker mapping;
    `--all` before opening the PR). State exact test results
    ("477 passed"), and for anything touching scan
    execution or devices, fill in the **hardware verification** section of
    the PR template — either live results or an explicit "owed:" note.
    Code-complete and hardware-verified are different states here, and PRs
    are expected to say which they are.
-5. **Adversarial review before merge** — this one applies to *all* PRs,
+4. **Adversarial review before merge** — this one applies to *all* PRs,
    including tooling/docs-only ones that change no package. A review by
    someone (or, for AI-assisted work, a fresh-context agent) who did not
    write the diff, covering three lenses: correctness (concrete failure

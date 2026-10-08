@@ -38,7 +38,7 @@ the context token is captured as `shot` either way):
 
 Where `asctime` uses `datefmt="%Y-%m-%d %H:%M:%S"`. If either format string
 changes at its source, update the regex in `parser.HEADER_RE`
-(`geecs_data_utils/scan_log_loader.py`) and bump a minor version.  (The
+(`geecs_data_utils/scan_log_loader.py`); the next release is a minor bump.  (The
 `scan=` support landed 2026-07-13 after live Bluesky scan.logs parsed to
 zero entries — the triage ran but saw nothing.)
 

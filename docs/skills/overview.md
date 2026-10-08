@@ -25,7 +25,7 @@ codified procedure itself rather than a wrapped tool.
 
 | Skill | What it does |
 |---|---|
-| `/land` | Land a change as a PR the GEECS-Plugins way: branch off the right base, scope check, version bump + changelog, tests the way CI runs them, adversarial review, CI watch, merge |
+| `/land` | Land a change as a PR the GEECS-Plugins way: branch off the right base, scope check, release bump only when deploying/tagging, tests the way CI runs them, adversarial review, CI watch, merge |
 | `/check` | Run repo lint + unit tests the way CI does, scoped to what changed; wraps `scripts/check.sh` |
 | `/env-doctor` | Diagnose and fix a package's Poetry environment when poetry, pytest, or an import fails for setup-shaped reasons |
 | `/lab-status` | Probe lab-network and hardware reachability with bounded timeouts before doing anything that needs them; wraps `scripts/lab_status.sh` |
