@@ -845,6 +845,9 @@ class ScanData:
 
         if not scan_txt.exists():
             raise FileNotFoundError(f"Original s-file '{scan_txt}' not found.")
+        # The day-level analysis/ only (no parents: the scan folder exists, so
+        # the day folder does) — what the old creating getter guaranteed.
+        analysis_txt.parent.mkdir(exist_ok=True)
         if analysis_txt.exists():
             analysis_txt.unlink()
 

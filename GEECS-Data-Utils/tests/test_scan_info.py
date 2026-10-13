@@ -189,3 +189,19 @@ def test_module_creates_nothing(tmp_path: Path, monkeypatch):
     analysis_folder_for(scan)
     with pytest.raises(FileNotFoundError):
         analysis_folder_for(scan, validate=True)
+
+
+def test_copy_fresh_sfile_creates_only_the_day_analysis_folder(tmp_path):
+    """The one writer the old creating getter served: day-level analysis/ only."""
+    from geecs_data_utils.scan_data import ScanData
+
+    base = tmp_path / "data"
+    tag = ScanTag(year=2026, month=9, day=11, number=3, experiment="Undulator")
+    scan = ScanPaths.get_scan_folder_path(tag, base_directory=base)
+    scan.mkdir(parents=True)
+    (scan / "ScanDataScan003.txt").write_text("Shotnumber\n1\n")
+    sd = ScanData(paths=ScanPaths(tag=tag, base_directory=base))
+    sd.copy_fresh_sfile_to_analysis()
+    analysis = scan.parent.parent / "analysis"
+    assert (analysis / "s3.txt").is_file()
+    assert not (analysis / "Scan003").exists()

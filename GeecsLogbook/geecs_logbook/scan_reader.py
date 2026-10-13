@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import NamedTuple, Optional, Union
 
 from geecs_data_utils import ScanPaths
-from geecs_data_utils.data.sfile import sfile_path_for_scan
+from geecs_data_utils.data.sfile import scan_data_txt_path_for, sfile_path_for_scan
 from geecs_data_utils.scan_info import (
     ScanInfoRecord,
     classify_end_info,
@@ -132,7 +132,7 @@ def scan_contents(scan_folder: Path) -> ScanContents:
     ini_path = ini_mtime = ini_size = log_path = None
     devices: list[str] = []
     scan_data = False
-    scan_data_name = f"ScanData{scan_folder.name}.txt"
+    scan_data_name = scan_data_txt_path_for(scan_folder).name
     try:
         with os.scandir(scan_folder) as entries:
             for entry in entries:

@@ -415,7 +415,10 @@ class FolderScanCatalog:
             scan_dir = scans_dir / scan_folder_name(number)
             if not scan_dir.is_dir():
                 # An unpadded folder (``Scan7``) lists under its number too.
-                scan_dir = _scan_folders(scans_dir).get(number)
+                try:
+                    scan_dir = _scan_folders(scans_dir).get(number)
+                except OSError:  # a share blip is still "no folder" here
+                    scan_dir = None
         if scan_dir is None:
             raise KeyError(f"no scan folder for {uid!r}")
         start_doc, stop_doc = self._documents(scan_dir, experiment, day, number)
