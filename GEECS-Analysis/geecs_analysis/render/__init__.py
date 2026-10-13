@@ -15,7 +15,8 @@ if TYPE_CHECKING:
     from geecs_analysis.measurement import Measurement
 
 # What callers outside this package import (the portal, ScanAnalysis, the
-# README's examples); the draw_* helpers are internal building blocks.
+# README's examples). draw_frame/draw_overlays stay importable by name for a
+# notebook composing its own axes; no caller uses them yet.
 __all__ = ["RenderError", "image_grid", "single", "waterfall"]
 
 
