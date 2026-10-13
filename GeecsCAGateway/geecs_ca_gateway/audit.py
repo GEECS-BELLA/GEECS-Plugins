@@ -159,6 +159,7 @@ def audit_subscribed_variables(
     for device in sorted(subscribed):
         real = device_variables.get(device)
         by_name: dict[str, str] = {}
+        by_lower: dict[str, str] = {}  # the served set's case-insensitive fallback
         if real:
             for meta in real:
                 name = meta.get("name")
@@ -166,11 +167,12 @@ def audit_subscribed_variables(
                     by_name[name] = effective_vartype(
                         meta.get("variabletype"), meta.get("choices")
                     )
+                    by_lower.setdefault(name.lower(), by_name[name])
         for variable in subscribed[device]:
-            if variable not in by_name:
+            vartype = by_name.get(variable, by_lower.get(variable.lower()))
+            if vartype is None:
                 findings.append(Finding(device, variable, GHOST))
                 continue
-            vartype = by_name[variable]
             if vartype in skip:
                 findings.append(Finding(device, variable, _skip_reason(vartype)))
     return findings

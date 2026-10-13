@@ -70,9 +70,16 @@ def test_get_list_matches_case_insensitively_and_keeps_db_spelling() -> None:
     assert names(out, "D") == ["MeanCounts"]
 
 
-def test_case_only_twins_are_both_kept_for_the_collision_check() -> None:
+def test_case_only_twins_one_get_list_entry_serves_its_own_spelling() -> None:
+    # Two served twins normalise to one PV, which stops the CA gateway at startup.
     var_map = {"D": [row("Trigger"), row("trigger")]}
-    out = served_variables(var_map, {"D": ["trigger"]})
+    assert names(served_variables(var_map, {"D": ["trigger"]}), "D") == ["trigger"]
+    assert names(served_variables(var_map, {"D": ["TRIGGER"]}), "D") == ["Trigger"]
+
+
+def test_case_only_twins_both_listed_are_both_kept_for_the_collision_check() -> None:
+    var_map = {"D": [row("Trigger"), row("trigger")]}
+    out = served_variables(var_map, {"D": ["Trigger", "trigger"]})
     assert names(out, "D") == ["Trigger", "trigger"]
 
 

@@ -71,14 +71,15 @@ def part_ca(experiment: str) -> int:
     _facts(endpoints, var_map, sub_map)
 
     def pvs(specs) -> set[str]:
-        out = set()
+        names: Counter[str] = Counter()
         for spec in specs:
             for var in spec.variables:
                 readback = pv_name(experiment, spec.name, var.geecs_var)
-                out.add(f"{readback} [{var.dtype}]")
+                names[f"{readback} [{var.dtype}]"] += 1
                 if var.settable:
-                    out.add(setpoint_pv(readback))
-        return out
+                    names[setpoint_pv(readback)] += 1
+        # A PV twice is a startup collision: keep it visible, not collapsed.
+        return {pv if n == 1 else f"{pv} x{n} COLLISION" for pv, n in names.items()}
 
     old_specs = []
     for name, (host, port) in endpoints.items():  # the pre-change loop

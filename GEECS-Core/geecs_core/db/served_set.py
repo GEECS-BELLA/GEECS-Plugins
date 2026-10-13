@@ -1,10 +1,11 @@
 """The served set: which of a device's variables the CA gateway serves.
 
 A variable is served when it is on the device's ``get='yes'`` list or is
-settable, and its effective vartype is scalar. The get-list matches names
-case-insensitively (case carries no meaning in GEECS); the first qualifying
-row per exact name wins over the DB's duplicate rows, and names that differ
-only in case are both kept, for each consumer's collision check. The CA
+settable, and its effective vartype is scalar. A get-list name matches the
+row spelled the same, else the first row equal to it ignoring case (case
+carries no meaning in GEECS), so one get-list entry never serves two
+case-only twins (they would collide on one PV).
+The first qualifying row per exact name wins over the DB's duplicate rows. The CA
 gateway, the archiver and the Bluesky namespace all read the rule from here;
 each keeps its own failure handling and post-filters.
 """
@@ -66,17 +67,23 @@ def served_variables(
     """
     out: dict[str, list[ServedVariable]] = {}
     for device in var_map.keys() if devices is None else devices:
-        monitored = (
-            None
-            if sub_map is None
-            else {str(v).lower() for v in sub_map.get(device, ())}
-        )
+        rows = var_map.get(device, ())
+        monitored: set[str] | None = None
+        if sub_map is not None:
+            spelled = {str(row["name"]) for row in rows}
+            first_by_lower: dict[str, str] = {}
+            for row in rows:
+                first_by_lower.setdefault(str(row["name"]).lower(), str(row["name"]))
+            monitored = {
+                v if v in spelled else first_by_lower.get(v.lower(), v)
+                for v in map(str, sub_map.get(device, ()))
+            }
         seen: set[str] = set()
         served: list[ServedVariable] = []
-        for row in var_map.get(device, ()):
+        for row in rows:
             name = str(row["name"])
             settable = bool(row.get("settable", False))
-            is_monitored = monitored is None or name.lower() in monitored
+            is_monitored = monitored is None or name in monitored
             if not (is_monitored or (include_settable and settable)):
                 continue
             if name in seen:
