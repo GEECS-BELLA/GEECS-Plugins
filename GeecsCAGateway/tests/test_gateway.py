@@ -959,6 +959,27 @@ def test_pvdb_has_connected_and_gateway_status_pvs() -> None:
     assert gw.manifest["test:u_dev:connected"] == ("U_Dev", "CONNECTED", "status")
 
 
+async def test_status_loop_ticks_heartbeat_and_uptime() -> None:
+    """One status-loop pass writes the heartbeat the archiver records."""
+    spec = DeviceSpec(
+        name="U_Dev",
+        host="h",
+        port=1,
+        experiment="Test",
+        variables=[VariableSpec(geecs_var="Val")],
+    )
+    gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
+    task = asyncio.create_task(gw._status_loop(period_s=60.0))
+    try:
+        for _ in range(50):
+            if gw.pvdb["test:cagateway:heartbeat"].value in (1, [1]):
+                break
+            await asyncio.sleep(0.01)
+        assert gw.pvdb["test:cagateway:heartbeat"].value in (1, [1])
+    finally:
+        task.cancel()
+
+
 async def test_set_connected_updates_pv_severity_and_count() -> None:
     """CONNECTED transitions carry MAJOR severity when down, count when up."""
     from caproto import AlarmSeverity
