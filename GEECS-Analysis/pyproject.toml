@@ -17,6 +17,14 @@ pydantic = "^2.0"
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true }
 
+# Test-only: the parity tests compare the core against its consumers'
+# legacy implementations. Nothing under geecs_analysis/ imports these
+# (.importlinter pins that); this group only makes the suite run standalone.
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.4"
+imageanalysis = { path = "../ImageAnalysis", develop = true }
+scananalysis = { path = "../ScanAnalysis", develop = true }
+
 [build-system]
 requires = ["poetry-core>=1.8"]
 build-backend = "poetry.core.masonry.api"
