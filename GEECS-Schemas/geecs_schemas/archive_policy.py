@@ -85,7 +85,7 @@ class ArchivePolicy(VersionedSchemaModel):
         default_factory=list,
         description=(
             "Full PV names to archive beyond what the rule derives (e.g. a "
-            "gateway diagnostic such as 'undulator:cagateway:devices_connected'). "
+            "gateway diagnostic such as 'undulator:cagateway:uptime'). "
             "Listed PVs are never paused by onboarding; 'exclude' does not apply "
             "to them."
         ),
@@ -117,7 +117,10 @@ class ArchivePolicy(VersionedSchemaModel):
     )
     include_status: bool = Field(
         default=True,
-        description="Archive every device's 'connected' status PV (state changes only).",
+        description=(
+            "Archive every device's 'connected' status PV (state changes only) "
+            "and the gateway's own heartbeat and devices_connected."
+        ),
     )
     include_derived: bool = Field(
         default=True,

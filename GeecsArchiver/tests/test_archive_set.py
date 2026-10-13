@@ -116,6 +116,52 @@ def test_status_pv_follows_the_gateway_rule():
     assert "undulator:u_s1h:connected" not in pvs(ArchivePolicy(include_status=False))
 
 
+def test_gateway_status_pvs_ride_include_status():
+    """The gateway's heartbeat and devices_connected; never uptime/version/restart."""
+    cands = derive_candidates(
+        "Undulator", ENDPOINTS, VAR_MAP, SUB_MAP, policy=ArchivePolicy()
+    )
+    gateway = [c for c in cands if c.device == "cagateway"]
+    assert gateway == [
+        ArchiveCandidate(
+            "undulator:cagateway:devices_connected",
+            "cagateway",
+            "devices_connected",
+            "status",
+            "int",
+        ),
+        ArchiveCandidate(
+            "undulator:cagateway:heartbeat", "cagateway", "heartbeat", "status", "int"
+        ),
+    ]
+    assert not any(
+        ":cagateway:" in pv for pv in pvs(ArchivePolicy(include_status=False))
+    )
+    assert not any(
+        ":cagateway:" in pv
+        for pv in [
+            c.pv
+            for c in derive_candidates("Undulator", {}, {}, {}, policy=ArchivePolicy())
+        ]
+    )  # no served device → no experiment prefix the gateway would serve them under
+
+
+def test_the_fixture_set_is_the_rule_plus_the_two_gateway_pvs():
+    """Pinned: adding the gateway's status PVs changed nothing else."""
+    assert pvs() == [
+        "undulator:cagateway:devices_connected",
+        "undulator:cagateway:heartbeat",
+        "undulator:u_s1h:connected",
+        "undulator:u_s1h:current",
+        "undulator:u_s1h:current:SP",
+        "undulator:u_s1h:voltage",
+        "undulator:uc_cam3:centroidx",
+        "undulator:uc_cam3:connected",
+        "undulator:uc_cam3:exposure:SP",
+        "undulator:uc_cam3:save:SP",
+    ]
+
+
 def test_setpoints_can_be_switched_off():
     out = pvs(ArchivePolicy(include_setpoints=False))
     assert not any(pv.endswith(":SP") for pv in out)

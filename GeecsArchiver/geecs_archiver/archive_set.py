@@ -11,7 +11,9 @@ list) stays as the alarm.  Per enabled device:
   only on puts and carry the operator's intent) — ``include_setpoints``;
 * the device's **``connected`` status** PV — ``include_status``;
 
-plus the gateway's **derived channels** — ``include_derived`` — and the
+plus, under the same ``include_status``, the gateway's own ``heartbeat`` and
+``devices_connected`` (:data:`~geecs_core.pv_naming.GATEWAY_ARCHIVED_STATUS`),
+the gateway's **derived channels** — ``include_derived`` — and the
 policy's explicit ``include`` PVs.  Never: the timestamp variables (the
 intrinsic pair and any ``…timestamp``: pure disk burn), image / array
 variables (not scalar CA data) and ``path``-typed long strings (the
@@ -36,7 +38,10 @@ from geecs_core.db.variable_types import (
 )
 from geecs_core.pv_naming import (
     DEVICE_STATUS_VARIABLE,
+    GATEWAY_ARCHIVED_STATUS,
+    GATEWAY_DEVICE,
     device_status_pv,
+    gateway_status_pv,
     pv_name,
     setpoint_pv,
 )
@@ -128,6 +133,25 @@ def sampling_for(pv: str, policy: ArchivePolicy) -> Sampling:
     return Sampling(period=period, method=method)
 
 
+def gateway_status_candidates(
+    experiment: str, *, served: bool, policy: ArchivePolicy
+) -> list[ArchiveCandidate]:
+    """The gateway's own status PVs (:data:`~geecs_core.pv_naming.GATEWAY_ARCHIVED_STATUS`).
+
+    Under ``include_status``, like the per-device ``connected`` PVs, and only
+    when some device is *served*: the gateway learns its experiment prefix
+    from its devices.
+    """
+    if not (served and policy.include_status):
+        return []
+    return [
+        ArchiveCandidate(
+            gateway_status_pv(experiment, name), GATEWAY_DEVICE, name, "status", "int"
+        )
+        for name in GATEWAY_ARCHIVED_STATUS
+    ]
+
+
 def derive_candidates(
     experiment: str,
     endpoints: Mapping[str, object],
@@ -191,6 +215,9 @@ def derive_candidates(
                     "enum",
                 )
             )
+    out.extend(
+        gateway_status_candidates(experiment, served=bool(served), policy=policy)
+    )
     if derived is not None and policy.include_derived:
         for channel in derived.derived_channels:
             out.append(  # noqa: PERF401 — clearer as a loop

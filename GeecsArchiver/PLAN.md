@@ -337,7 +337,9 @@ GEECS-Core queries the gateway uses (`GeecsDb.get_experiment_devices`,
   overlay file, read at its conventional path — one declaration, two
   consumers).
 - **Exclude** `systimestamp` / `acq_timestamp` (advance every frame by
-  design — pure disk burn), the `cagateway:*` diagnostics, and the
+  design — pure disk burn), the `cagateway:*` diagnostics except
+  `heartbeat` and `devices_connected` (included with the per-device status
+  since 2026-10-13, via `geecs_core.pv_naming.GATEWAY_ARCHIVED_STATUS`), and the
   `path`-typed long-string PVs (the appliance cannot type the gateway's
   char-array channels — §12).
 - **Setpoints (`:SP`) — RULING 5.** The draft excluded them ("the
@@ -370,7 +372,7 @@ archive_policy.yaml`, validated by `geecs_schemas.archive_policy.ArchivePolicy`
 ```yaml
 schema_version: 1
 exclude: ["*:uc_*:image_size*"]            # PV globs the rule would otherwise include
-include: ["undulator:cagateway:devices_connected"]   # beyond the rule; never paused
+include: ["undulator:cagateway:uptime"]   # beyond the rule; never paused
 sampling_overrides:
   - match: "*:u_vacuumgauge:*"
     sampling_period: 10                     # sent with the request: the overlay is the one table

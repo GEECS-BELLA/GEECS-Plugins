@@ -154,6 +154,9 @@ value not in range (5.000000,-5.000000)`).
 `VERSION` is the installed package version). The `CAGateway` device component
 is **reserved**: a real GEECS device whose PVs would land there trips the
 collision guard at startup rather than silently clobbering the status PVs.
+The names are minted by `geecs_core.pv_naming.gateway_status_pv`; `heartbeat`
+and `devices_connected` are the status the archiver derives
+(`GATEWAY_ARCHIVED_STATUS`), and `restart` (below) is a command, never archived.
 
 **`[experiment:]cagateway:restart`** is the one *client-writable* PV in the
 namespace (the devIocStats `SYSRESET` pattern): an enum with states

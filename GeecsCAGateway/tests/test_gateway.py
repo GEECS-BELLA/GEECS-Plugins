@@ -21,7 +21,11 @@ from caproto._data import CannotExceedLimits
 from geecs_core.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 
 from geecs_core.db.alarms import AlarmLimits
-from geecs_core.pv_naming import device_status_pv
+from geecs_core.pv_naming import (
+    GATEWAY_ARCHIVED_STATUS,
+    device_status_pv,
+    gateway_status_pv,
+)
 from geecs_ca_gateway.channels import _to_text
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
 from geecs_core.exceptions import GeecsCommandFailedError
@@ -939,9 +943,41 @@ def test_pvdb_has_connected_and_gateway_status_pvs() -> None:
     assert device_status_pv("Test", "U_Dev") == "test:u_dev:connected"
     assert "test:u_dev:connected" in gw.pvdb
     assert str(gw.pvdb["test:u_dev:connected"].value) == "Disconnected"
-    for suffix in ("uptime", "heartbeat", "devices_connected", "version"):
-        assert f"test:cagateway:{suffix}" in gw.pvdb
+    # The gateway's own PVs, byte-identical to before geecs_core.pv_naming
+    # minted them — the archiver derives the status pair through the same helper.
+    assert sorted(pv for pv in gw.pvdb if ":cagateway:" in pv) == [
+        "test:cagateway:devices_connected",
+        "test:cagateway:heartbeat",
+        "test:cagateway:restart",
+        "test:cagateway:uptime",
+        "test:cagateway:version",
+    ]
+    assert [gateway_status_pv("Test", n) for n in GATEWAY_ARCHIVED_STATUS] == [
+        "test:cagateway:heartbeat",
+        "test:cagateway:devices_connected",
+    ]
     assert gw.manifest["test:u_dev:connected"] == ("U_Dev", "CONNECTED", "status")
+
+
+async def test_status_loop_ticks_heartbeat_and_uptime() -> None:
+    """One status-loop pass writes the heartbeat the archiver records."""
+    spec = DeviceSpec(
+        name="U_Dev",
+        host="h",
+        port=1,
+        experiment="Test",
+        variables=[VariableSpec(geecs_var="Val")],
+    )
+    gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
+    task = asyncio.create_task(gw._status_loop(period_s=60.0))
+    try:
+        for _ in range(50):
+            if gw.pvdb["test:cagateway:heartbeat"].value in (1, [1]):
+                break
+            await asyncio.sleep(0.01)
+        assert gw.pvdb["test:cagateway:heartbeat"].value in (1, [1])
+    finally:
+        task.cancel()
 
 
 async def test_set_connected_updates_pv_severity_and_count() -> None:
