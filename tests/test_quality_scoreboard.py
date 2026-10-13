@@ -89,7 +89,7 @@ def repo(tmp_path: Path) -> Path:
     (tmp_path / "scripts" / "quality_baseline.json").write_text(
         '{"stamps": 1, "noqa": 0, "max_complexity": 10, '
         '"max_branches": 12, "max_statements": 50, "rules_off": 0, '
-        '"rogue_configs": 0, "excludes": 0}\n'
+        '"rogue_configs": 0, "excludes": []}\n'
     )
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
@@ -167,6 +167,24 @@ ESCAPES = {
         ),
     ),
     "package-ruff-table": ("Pkg/pyproject.toml", '[tool.ruff.lint]\nselect = ["E"]\n'),
+    "root-extends-elsewhere": (
+        "pyproject.toml",
+        ROOT.replace(
+            "[tool.ruff.lint]\n",
+            '[tool.ruff]\nextend = "lint.toml"\n[tool.ruff.lint]\n',
+        ),
+    ),
+    "child-extends-elsewhere": ("Pkg/ruff.toml", 'extend = "lint.toml"\n'),
+    "include": (
+        "pyproject.toml",
+        ROOT.replace(
+            "[tool.ruff.lint]\n", '[tool.ruff]\ninclude = ["*.pyi"]\n[tool.ruff.lint]\n'
+        ),
+    ),
+    "extend-include": (
+        "Pkg/ruff.toml",
+        'extend = "../pyproject.toml"\nextend-include = ["*.pyi"]\n',
+    ),
     "package-ruff-toml": ("Pkg/ruff.toml", "line-length = 100\n"),
     "package-dot-ruff-toml": ("Pkg/.ruff.toml", "line-length = 100\n"),
     "extending-child-ignores": (
@@ -193,6 +211,16 @@ def test_config_escapes_are_ratcheted(repo: Path, name: str) -> None:
     (repo / path).write_text(text)
     subprocess.run(["git", "add", "."], cwd=repo, check=True)
     assert qs.main(["--root", str(repo), "--check"]) == 1
+
+
+def test_a_swapped_exclude_fails(repo: Path) -> None:
+    pyproject = repo / "pyproject.toml"
+    pyproject.write_text(ROOT.replace(LINT, LINT + 'exclude = ["extras/**"]\n'))
+    assert qs.main(["--root", str(repo), "--update"]) == 0
+    pyproject.write_text(ROOT.replace(LINT, LINT + 'exclude = ["**"]\n'))
+    assert qs.main(["--root", str(repo), "--check"]) == 1
+    pyproject.write_text(ROOT)
+    assert qs.main(["--root", str(repo), "--check"]) == 0  # fewer is fine
 
 
 def test_extending_child_without_escapes_passes(repo: Path) -> None:

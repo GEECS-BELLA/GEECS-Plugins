@@ -20,7 +20,9 @@ be lowered, which ``--update`` does. The ruff configs count too (see
 ``config_totals``): a per-file-ignores glob naming a complexity code is a
 stamp (the ``(ruff config)`` row), and the three thresholds, ``rules_off``
 (complexity codes deselected or ignored, prefixes included),
-``rogue_configs`` and ``excludes`` are ratcheted the same way. The
+``rogue_configs`` are ratcheted the same way; ``excludes`` is the set of
+exclude entries, and a new one fails. Not covered: pre-commit's own
+``exclude:`` patterns and the ruff hook's ``args``. The
 doc_audit advisory count is not a column: the audit takes ~15 s and
 ``scripts/check.sh`` already prints it.
 """
@@ -173,6 +175,7 @@ def config_totals(root: Path) -> Counter[str]:
         text=True,
     ).stdout
     totals: Counter[str] = Counter()
+    excluded: set[str] = set()
     for path in filter(None, out.split("\0")):
         if not (root / path).is_file():
             continue
@@ -184,10 +187,21 @@ def config_totals(root: Path) -> Counter[str]:
             data = data["tool"]["ruff"]
         is_root = path == "pyproject.toml"
         cfg = {**data, **data.get("lint", {})}
-        if not is_root and "extend" not in cfg:
+        # Only the root may stand alone, and only by extending the root may a
+        # package config exist; an include narrows the linted file set.
+        extends = (root / path).parent / cfg.get("extend", "")
+        if (
+            (is_root and "extend" in cfg)
+            or (
+                not is_root and extends.resolve() != (root / "pyproject.toml").resolve()
+            )
+            or "include" in cfg
+            or "extend-include" in cfg
+        ):
             totals["rogue_configs"] += 1
-        totals["excludes"] += len(
-            cfg.get("exclude", []) + cfg.get("extend-exclude", [])
+        excluded.update(
+            f"{path}: {e}"
+            for e in cfg.get("exclude", []) + cfg.get("extend-exclude", [])
         )
         ignored = cfg.get("ignore", []) + cfg.get("extend-ignore", [])
         totals["rules_off"] += sum(hit(c, ignored) for c in COMPLEXITY_CODES)
@@ -210,6 +224,7 @@ def config_totals(root: Path) -> Counter[str]:
             name = key.replace("-", "_")
             value = cfg.get(table, {}).get(key, default if is_root else 0)
             totals[name] = max(totals[name], value)
+    totals["excludes"] = sorted(excluded)  # type: ignore[assignment]  # a list, ratcheted as a set
     return totals
 
 
@@ -256,12 +271,23 @@ def render(board: dict[str, Counter[str]], pyright: set[str]) -> str:
     )
 
 
-def ratchet(totals: dict[str, int], baseline: Path, update: bool) -> int:
+def ratchet(totals: dict, baseline: Path, update: bool) -> int:
     """Compare the ratcheted totals to the baseline; 1 when any exceeds it."""
     base = json.loads(baseline.read_text()) if baseline.exists() else {}
     status = 0
     for key in RATCHETED:
         allowed = base.get(key)
+        if isinstance(totals[key], list):  # the exclude entries: no new ones
+            allowed = allowed if isinstance(allowed, list) else []
+            new = sorted(set(totals[key]) - set(allowed))
+            if new:
+                print(
+                    f"ratchet: {key} gained {new} — a new exclude hides code from ruff"
+                )
+                status = 1
+            elif len(totals[key]) < len(allowed):
+                print(f"ratchet: {key} shrank: lower the baseline (--update)")
+            continue
         if allowed is None or totals[key] > allowed:
             print(
                 f"ratchet: {key} = {totals[key]} exceeds the baseline {'(none)' if allowed is None else allowed} — "
