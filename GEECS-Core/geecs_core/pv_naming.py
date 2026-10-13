@@ -165,3 +165,37 @@ def device_status_pv(experiment: str | None, device: str) -> str:
         Raw GEECS names; normalized by :func:`pv_name`.
     """
     return pv_name(experiment or "", device, DEVICE_STATUS_VARIABLE)
+
+
+#: The CA gateway's own device component — the reserved namespace of its
+#: self-diagnostics (``<experiment>:cagateway:<name>``, PV_CONTRACT §1).
+GATEWAY_DEVICE = "cagateway"
+#: The gateway's 5 s liveness counter.
+GATEWAY_HEARTBEAT = "heartbeat"
+#: The gateway's count of connected GEECS devices.
+GATEWAY_DEVICES_CONNECTED = "devices_connected"
+#: The gateway's status PVs worth history, which the archiver derives;
+#: ``uptime`` and ``version`` are diagnostics, and ``restart`` is a command —
+#: never archived.
+GATEWAY_ARCHIVED_STATUS: tuple[str, ...] = (
+    GATEWAY_HEARTBEAT,
+    GATEWAY_DEVICES_CONNECTED,
+)
+
+
+def gateway_status_pv(experiment: str | None, name: str) -> str:
+    """Return one of the CA gateway's own PVs.
+
+    ``<experiment>:cagateway:<name>`` (the experiment drops out when falsy).
+    The gateway serves its diagnostics through it and the archiver derives
+    :data:`GATEWAY_ARCHIVED_STATUS` through it, so the two cannot drift.
+
+    Parameters
+    ----------
+    experiment : str or None
+        Raw GEECS experiment name.
+    name : str
+        The diagnostic's name, e.g. :data:`GATEWAY_HEARTBEAT`; normalized by
+        :func:`pv_name`.
+    """
+    return pv_name(experiment or "", GATEWAY_DEVICE, name)

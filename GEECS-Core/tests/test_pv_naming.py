@@ -71,3 +71,17 @@ def test_device_status_pv_is_the_gateway_connected_pv() -> None:
     assert DEVICE_STATUS_VARIABLE == "connected"
     assert device_status_pv("Undulator", "U_S1H") == "undulator:u_s1h:connected"
     assert device_status_pv(None, "UC_Cam 3") == "uc_cam_3:connected"
+
+
+def test_gateway_status_pv_is_the_cagateway_namespace() -> None:
+    """The CA gateway's own PVs, as it serves them and the archiver derives them."""
+    from geecs_core.pv_naming import (
+        GATEWAY_ARCHIVED_STATUS,
+        gateway_status_pv,
+    )
+
+    assert [gateway_status_pv("Undulator", n) for n in GATEWAY_ARCHIVED_STATUS] == [
+        "undulator:cagateway:heartbeat",
+        "undulator:cagateway:devices_connected",
+    ]
+    assert gateway_status_pv(None, "RESTART") == "cagateway:restart"

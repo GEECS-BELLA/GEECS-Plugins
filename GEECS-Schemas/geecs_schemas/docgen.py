@@ -192,7 +192,7 @@ schema_version: 1
 exclude:
   - "undulator:uc_*:image_size*"
 include:
-  - "undulator:cagateway:devices_connected"   # beyond the rule; never paused
+  - "undulator:cagateway:uptime"   # beyond the rule; never paused
 include_setpoints: true
 sampling_overrides:
   - match: "undulator:u_vacuumgauge:*"

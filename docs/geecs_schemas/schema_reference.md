@@ -567,9 +567,9 @@ The experiment's archive-set exceptions and sampling defaults.
 |---|---|---|---|---|
 | `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
 | `exclude` | `list[str]` | no | empty | fnmatch globs over full lowercase PV names that the derived rule would include but this experiment does not archive. |
-| `include` | `list[str]` | no | empty | Full PV names to archive beyond what the rule derives (e.g. a gateway diagnostic such as 'undulator:cagateway:devices_connected'). Listed PVs are never paused by onboarding; 'exclude' does not apply to them. |
+| `include` | `list[str]` | no | empty | Full PV names to archive beyond what the rule derives (e.g. a gateway diagnostic such as 'undulator:cagateway:uptime'). Listed PVs are never paused by onboarding; 'exclude' does not apply to them. |
 | `include_setpoints` | `bool` | no | True | Archive the ':SP' setpoint PV of every settable variable. They change only on puts and carry the operator's intent and the refused-write alarm history. |
-| `include_status` | `bool` | no | True | Archive every device's 'connected' status PV (state changes only). |
+| `include_status` | `bool` | no | True | Archive every device's 'connected' status PV (state changes only) and the gateway's own heartbeat and devices_connected. |
 | `include_derived` | `bool` | no | True | Archive the gateway's derived channels declared in the experiment's gateway/derived_channels.yaml. |
 | `default_sampling_period` | `float` | no | 1.0 | Sampling period (seconds) for PVs no override matches. |
 | `default_sampling_method` | `'MONITOR' \| 'SCAN'` | no | 'MONITOR' | Sampling method for PVs no override matches. |
@@ -584,7 +584,7 @@ schema_version: 1
 exclude:
   - "undulator:uc_*:image_size*"
 include:
-  - "undulator:cagateway:devices_connected"   # beyond the rule; never paused
+  - "undulator:cagateway:uptime"   # beyond the rule; never paused
 include_setpoints: true
 sampling_overrides:
   - match: "undulator:u_vacuumgauge:*"

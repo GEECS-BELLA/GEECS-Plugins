@@ -42,7 +42,7 @@ deploy/
   it, and the appliance's never-connected list (read by `onboard` on every
   run) is what tells you they drifted. The pieces both sides need already
   live in the shared packages: `geecs_core.configs_repo` (the configs-repo
-  lookup), `geecs_core.pv_naming.device_status_pv`,
+  lookup), `geecs_core.pv_naming.device_status_pv` and `gateway_status_pv`,
   `DerivedChannel.pv_parts` and `VersionedSchemaModel.from_path` in
   GEECS-Schemas. If the served-set rule itself ever bites, it moves to
   GEECS-Core the same way (the `variable_types` precedent) — never import

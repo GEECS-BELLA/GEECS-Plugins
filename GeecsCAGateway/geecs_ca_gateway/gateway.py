@@ -46,7 +46,13 @@ from .channels import (
 )
 from .config import GatewayConfig, VariableSpec
 from .derived import DerivedChannelSpec, ExpressionEvaluator, derived_pv_name
-from geecs_core.pv_naming import pv_name, setpoint_pv
+from geecs_core.pv_naming import (
+    GATEWAY_DEVICE,
+    GATEWAY_DEVICES_CONNECTED,
+    GATEWAY_HEARTBEAT,
+    gateway_status_pv,
+    setpoint_pv,
+)
 
 # Seconds between the LabVIEW epoch (1904-01-01) and the Unix epoch (1970-01-01).
 # GEECS timestamps (e.g. `systimestamp`) are LabVIEW-epoch; subtract to get Unix.
@@ -374,17 +380,17 @@ class GeecsCaGateway:
         except Exception:  # noqa: BLE001 — version lookup is optional
             pkg_version = "unknown"
         channels: dict[str, ChannelData] = {
-            "UPTIME": read_only(ChannelDouble)(value=0.0, units="s", precision=0),
-            "HEARTBEAT": read_only(ChannelInteger)(value=0),
-            "DEVICES_CONNECTED": read_only(ChannelInteger)(value=0),
-            "VERSION": read_only(ChannelString)(value=pkg_version),
+            "uptime": read_only(ChannelDouble)(value=0.0, units="s", precision=0),
+            GATEWAY_HEARTBEAT: read_only(ChannelInteger)(value=0),
+            GATEWAY_DEVICES_CONNECTED: read_only(ChannelInteger)(value=0),
+            "version": read_only(ChannelString)(value=pkg_version),
             # Client-writable remote-restart control (devIocStats SYSRESET
             # pattern) — also the DB-resync mechanism after a device-set edit.
-            "RESTART": make_restart_channel(self._request_restart),
+            "restart": make_restart_channel(self._request_restart),
         }
         for suffix, channel in channels.items():
-            pv = pv_name(experiment, "CAGateway", suffix)
-            if self._register(pv, "CAGateway", suffix, "status"):
+            pv = gateway_status_pv(experiment, suffix)
+            if self._register(pv, GATEWAY_DEVICE, suffix, "status"):
                 self.pvdb[pv] = channel
                 self._gateway_status[suffix] = channel
 
@@ -1024,7 +1030,7 @@ class GeecsCaGateway:
                 ),
                 status=AlarmStatus.NO_ALARM if connected else AlarmStatus.COMM,
             )
-            count = self._gateway_status.get("DEVICES_CONNECTED")
+            count = self._gateway_status.get(GATEWAY_DEVICES_CONNECTED)
             if count is not None:
                 total = sum(
                     1 for ch in self._connected.values() if str(ch.value) == "Connected"
@@ -1035,8 +1041,8 @@ class GeecsCaGateway:
 
     async def _status_loop(self, period_s: float = 5.0) -> None:
         """Tick the gateway UPTIME/HEARTBEAT PVs (devIocStats-style)."""
-        uptime = self._gateway_status.get("UPTIME")
-        heartbeat = self._gateway_status.get("HEARTBEAT")
+        uptime = self._gateway_status.get("uptime")
+        heartbeat = self._gateway_status.get(GATEWAY_HEARTBEAT)
         beats = 0
         loop = asyncio.get_running_loop()
         self._started_at = loop.time()
