@@ -167,7 +167,7 @@ SCALAR_ATTRIBUTE_VARTYPES: frozenset[str] = frozenset({"numeric"})
 
 
 def scalar_attribute_variables(
-    rows: Sequence[dict],
+    rows: Sequence[Mapping[str, object]],
     subscribed: Sequence[str],
     *,
     normalize: Callable[[str], str] | None = None,

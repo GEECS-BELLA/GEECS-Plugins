@@ -36,9 +36,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from .config import _SKIP_VARTYPES, effective_vartype
+
+if TYPE_CHECKING:
+    from geecs_core.db.geecs_db import VariableMeta
 
 logger = logging.getLogger("geecs_ca_gateway.audit")
 
@@ -115,7 +120,7 @@ class AuditResult:
 
 def audit_subscribed_variables(
     subscribed: dict[str, list[str]],
-    device_variables: dict[str, list[dict]],
+    device_variables: Mapping[str, Sequence[VariableMeta]],
     skip_types: set[str],
 ) -> list[Finding]:
     """Classify every subscribed variable the gateway will not serve.

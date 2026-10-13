@@ -21,7 +21,7 @@ import logging
 import os
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Iterator, Optional, TypedDict
 
 from pydantic import ValidationError
 
@@ -29,6 +29,23 @@ from geecs_core.db.alarms import AlarmLimits
 from geecs_core.exceptions import GeecsDeviceNotFoundError
 
 logger = logging.getLogger(__name__)
+
+
+class VariableMeta(TypedDict):
+    """One device variable's metadata row, as :func:`_variable_row_to_meta` builds it."""
+
+    name: str
+    units: str
+    min: Optional[float]
+    max: Optional[float]
+    settable: bool
+    variabletype: Optional[str]
+    choices: Optional[str]
+    tolerance: Optional[float]
+    description: str
+    alias: str
+    defaultvalue: str
+
 
 # Cached connection parameters so we only parse config files once.
 _credentials: Optional[dict] = None
@@ -162,7 +179,7 @@ def _num(value: object) -> Optional[float]:
         return None
 
 
-def _variable_row_to_meta(row: tuple) -> dict:
+def _variable_row_to_meta(row: tuple) -> VariableMeta:
     """Map a ``devicetype_variable`` or ``variable`` (+ ``choice``) row onto the metadata dict.
 
     Row order: name, units, min, max, set, variabletype, choices, tolerance,
@@ -233,7 +250,7 @@ def _is_missing_table_error(exc: Exception) -> bool:
 
 def _merge_variable_rows(
     type_rows: list[tuple], instance_rows: list[tuple]
-) -> list[dict]:
+) -> list[VariableMeta]:
     """Resolve the GEECS capability inheritance chain for one device.
 
     ``devicetype_variable`` rows define type defaults which a device instance
@@ -255,7 +272,7 @@ def _merge_variable_rows(
 
     Returns
     -------
-    list[dict]
+    list[VariableMeta]
         Metadata dicts (:func:`_variable_row_to_meta` shape) in type-row
         order, with overridden entries replaced in place; instance-only
         variables are appended at the end.
@@ -277,7 +294,7 @@ def _merge_variable_rows(
         else:
             linked[row[0]] = row
 
-    result: list[dict] = []
+    result: list[VariableMeta] = []
     used_links: set = set()
     for row in type_rows:
         instance = linked.get(row[0])
@@ -507,7 +524,7 @@ class GeecsDb:
         return result
 
     @classmethod
-    def get_device_variables(cls, device_name: str) -> list[dict]:
+    def get_device_variables(cls, device_name: str) -> list[VariableMeta]:
         """Return variable metadata for *device_name*.
 
         Each entry is a dict with keys: ``name``, ``units``, ``min``, ``max``,
@@ -640,7 +657,7 @@ class GeecsDb:
     @classmethod
     def get_experiment_device_variables(
         cls, experiment: str, *, enabled_only: bool = True
-    ) -> dict[str, list[dict]]:
+    ) -> dict[str, list[VariableMeta]]:
         """Return ``{device: [variable metadata, ...]}`` for an experiment.
 
         The batch counterpart of :meth:`get_device_variables`: metadata for

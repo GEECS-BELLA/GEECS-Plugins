@@ -134,7 +134,10 @@ control surface of a device nobody logs per shot still exists. A device that
 would expose nothing at all (nothing subscribed, nothing settable) is skipped
 entirely — no idle TCP/UDP connections. Config building costs three batched
 DB queries total (endpoints, variable metadata, get-list), not per-device
-lookups, so startup is quick even for 100+ device experiments.
+lookups, so startup is quick even for 100+ device experiments. The rule
+itself lives in `geecs_core.db.served_set` (shared with the archiver and the
+Bluesky namespace): get-list names match case-insensitively, non-scalar
+variables are never served, and the first qualifying DB row per name wins.
 
 ### Network scoping
 

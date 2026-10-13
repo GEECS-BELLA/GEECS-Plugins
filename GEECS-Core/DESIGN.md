@@ -26,6 +26,7 @@ geecs_core/
                     #   scalar_policy (a device's subscribed get='yes' list)
                     #   and device_streams (which non-scalar variables a
                     #   devicetype captures / never serves)
+                    #   + served_set (which variables the CA gateway serves)
   client/           # layer 3 — the entry-level synchronous GeecsDevice
                     #   over layers 1+2, and the one place a background
                     #   event loop bridges sync callers to the async
@@ -64,6 +65,8 @@ geecs_core/
    never serves) is read by the worker and by the PVA gateway — two
    consumers that may not import each other; the CA gateway serves scalars
    only and never reads it.
+   A third: `db/served_set.py`, the CA gateway's served set, read by the CA
+   gateway, the archiver and the worker namespace so the three cannot drift.
 
 Two supporting conventions:
 

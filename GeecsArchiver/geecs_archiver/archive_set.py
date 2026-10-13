@@ -1,10 +1,10 @@
 """The rule: which of an experiment's PVs the appliance archives, and how.
 
-The set is *derived* from the GEECS database with the same three batched
-queries the CA gateway builds its served set from — the two can only drift
-if one of them changes its rule, and onboarding's stuck-request check
+The set is *derived* from the GEECS database by the CA gateway's own
+served-set rule (:func:`geecs_core.db.served_set.served_variables`), so the
+two cannot drift; onboarding's stuck-request check
 (:func:`geecs_archiver.onboard.verify`, the appliance's never-connected
-list) makes that loud.  Per enabled device:
+list) stays as the alarm.  Per enabled device:
 
 * the **readback** PV of every monitored (``get='yes'``) scalar variable;
 * the **``:SP`` setpoint** of every settable scalar variable (they change
@@ -25,8 +25,9 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
+from geecs_core.db.served_set import served_variables
 from geecs_core.db.variable_types import (
     TIMESTAMP_LADDER,
     VARTYPE_TO_DTYPE,
@@ -40,6 +41,9 @@ from geecs_core.pv_naming import (
     setpoint_pv,
 )
 from geecs_schemas import ArchivePolicy, DerivedChannels
+
+if TYPE_CHECKING:
+    from geecs_core.db.geecs_db import VariableMeta
 
 Kind = Literal["readback", "setpoint", "status", "derived", "include"]
 
@@ -124,10 +128,10 @@ def sampling_for(pv: str, policy: ArchivePolicy) -> Sampling:
     return Sampling(period=period, method=method)
 
 
-def derive_candidates(  # noqa: C901
+def derive_candidates(
     experiment: str,
     endpoints: Mapping[str, object],
-    var_map: Mapping[str, Sequence[Mapping[str, object]]],
+    var_map: Mapping[str, Sequence[VariableMeta]],
     sub_map: Mapping[str, Iterable[str]],
     *,
     policy: ArchivePolicy,
@@ -160,36 +164,24 @@ def derive_candidates(  # noqa: C901
         explicit ``include`` PVs are appended regardless of the globs.
     """
     out: list[ArchiveCandidate] = []
-    for device in sorted(endpoints):
-        monitored = set(sub_map.get(device, ()))
-        seen: set[str] = set()
-        serves_anything = False
-        for row in var_map.get(device, ()):
-            name = str(row["name"])
-            if name in seen:  # the DB can list a variable more than once
-                continue
-            seen.add(name)
-            settable = bool(row.get("settable", False))
-            is_monitored = name in monitored
-            if not (is_monitored or settable):
-                continue  # the gateway serves the get-list plus the control surface
-            dtype = classify(row)
-            if dtype is None:
-                continue  # image / array: not scalar CA data
-            serves_anything = True
+    served = served_variables(var_map, sub_map, devices=sorted(endpoints))
+    for device, variables in served.items():
+        for sv in variables:
+            name = sv.name
+            dtype = classify(sv.row) or "float"  # never None: the set is scalar-only
             if is_timestamp_variable(name) or dtype in UNARCHIVABLE_DTYPES:
                 continue
             readback = pv_name(experiment, device, name)
-            if is_monitored:
+            if sv.monitored:
                 out.append(ArchiveCandidate(readback, device, name, "readback", dtype))
-            if settable and policy.include_setpoints:
+            if sv.settable and policy.include_setpoints:
                 out.append(
                     ArchiveCandidate(
                         setpoint_pv(readback), device, name, "setpoint", dtype
                     )
                 )
-        # The gateway skips a device that exposes nothing, status PV included.
-        if serves_anything and policy.include_status:
+        # The gateway serves a status PV only for a device that serves something.
+        if policy.include_status:
             out.append(
                 ArchiveCandidate(
                     device_status_pv(experiment, device),
