@@ -196,7 +196,6 @@ class TestScanDataDelegation:
         sd.load_scalars(append_paths=False)
         assert calls["path"] == day / "analysis" / "s2.txt"
         assert sd.data_frame is not None and len(sd.data_frame) == 1
-        # The old path derived the s-file via get_analysis_folder(),
-        # which CREATES analysis/ScanNNN — reading must no longer mkdir.
+        # Reading the s-file must never mkdir analysis/ScanNNN.
         after = sorted(str(p) for p in tmp_path.rglob("*"))
         assert after == before

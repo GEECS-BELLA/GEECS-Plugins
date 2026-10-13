@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from geecs_data_utils.scan_log_loader import first_log_timestamp
-from geecs_data_utils.scan_paths import read_scan_info_file
+from geecs_data_utils.scan_info import read_scan_info_file
 
 SCAN_INFO = """[Scan Info]
 Scan No = 5

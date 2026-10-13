@@ -177,6 +177,26 @@ class TestFolderScanCatalog:
         (run,) = FolderScanCatalog(tmp_path).list_runs("Thomson", DAY)
         assert run.exit_status == status
 
+    def test_infinite_shots_per_step_is_unusable_not_an_error(self, tmp_path):
+        # The shared ScanInfoRecord refuses inf/nan (the logbook's rule).
+        _scan(tmp_path, 1, shots="inf")
+        (run,) = FolderScanCatalog(tmp_path).list_runs("Thomson", DAY)
+        detail = FolderScanCatalog(tmp_path).load_run(run.uid)
+        assert "shots_per_step" not in detail.start_doc
+        assert "num_points" not in detail.start_doc
+
+    def test_unpadded_folder_lists_and_loads(self, tmp_path):
+        scan_dir = _scan(tmp_path, 7)
+        unpadded = scan_dir.with_name("Scan7")
+        scan_dir.rename(unpadded)
+        (unpadded / "ScanInfoScan007.ini").rename(unpadded / "ScanInfoScan7.ini")
+        catalog = FolderScanCatalog(tmp_path)
+        (run,) = catalog.list_runs("Thomson", DAY)
+        assert run.scan_number == 7 and run.exit_status == "success"
+        detail = catalog.load_run(folder_uid("Thomson", DAY, 7))
+        assert detail.start_doc["scan_folder"] == str(unpadded)
+        assert detail.start_doc["description"] == "drive frog scan"
+
     def test_load_run_start_doc_matches_the_sfile_column(self, tmp_path):
         scan_dir = _scan(tmp_path, 5)
         detail = FolderScanCatalog(tmp_path).load_run(folder_uid("Thomson", DAY, 5))

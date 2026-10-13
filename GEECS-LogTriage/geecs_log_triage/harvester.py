@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from geecs_data_utils import LogEntry, ScanPaths, ScanTag, load_scan_log
+from geecs_data_utils.scan_info import parse_scan_folder_name, scan_folder_name
 from geecs_log_triage.classifier import classify
 from geecs_log_triage.fingerprint import (
     _extract_traceback_signature,
@@ -44,12 +45,13 @@ def _level_at_least(entry: LogEntry, min_level: Severity) -> bool:
 
 
 def _scan_id_from_folder(folder: Path) -> str:
-    """Return the `Scan{NNN}` identifier for a scan folder.
+    """Return the canonical `Scan{NNN}` identifier for a scan folder.
 
-    Falls back to the basename if the folder name doesn't match the convention.
+    An unpadded folder (``Scan7``) reports as ``Scan007``; a name outside
+    the convention falls back to the basename.
     """
-    name = folder.name
-    return name if name.startswith("Scan") else folder.name
+    number = parse_scan_folder_name(folder.name)
+    return folder.name if number is None else scan_folder_name(number)
 
 
 def _occurrences_from_entries(
@@ -209,7 +211,9 @@ def _iter_scan_folders_for_date(
         return []
 
     return sorted(
-        p for p in daily_dir.iterdir() if p.is_dir() and p.name.startswith("Scan")
+        p
+        for p in daily_dir.iterdir()
+        if p.is_dir() and parse_scan_folder_name(p.name) is not None
     )
 
 
@@ -239,9 +243,7 @@ def harvest_scan(
         Report for that single scan. `total_scans_examined` is 0 if not found.
     """
     folders = _iter_scan_folders_for_date(target, experiment)
-    padded = f"Scan{scan_number:03d}"
-    unpadded = f"Scan{scan_number}"
-    matching = [f for f in folders if f.name in (padded, unpadded)]
+    matching = [f for f in folders if parse_scan_folder_name(f.name) == scan_number]
 
     if not matching:
         logger.warning(

@@ -18,14 +18,13 @@ out of scope.  Strictly read-only (repo scan-folder invariant).
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+from geecs_data_utils.scan_info import parse_scan_folder_name
+
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard for type checkers
     import pandas as pd
-
-_SCAN_FOLDER_RE = re.compile(r"^Scan(?P<number>\d{3,})$")
 
 
 def sfile_path_for_scan(scan_folder: Path) -> Path:
@@ -50,10 +49,9 @@ def sfile_path_for_scan(scan_folder: Path) -> Path:
     ValueError
         When *scan_folder* is not shaped ``.../scans/ScanNNN``.
     """
-    match = _SCAN_FOLDER_RE.match(scan_folder.name)
-    if match is None or scan_folder.parent.name != "scans":
+    number = parse_scan_folder_name(scan_folder.name)
+    if number is None or scan_folder.parent.name != "scans":
         raise ValueError(f"{scan_folder} is not a canonical scans/ScanNNN folder")
-    number = int(match.group("number"))
     return scan_folder.parent.parent / "analysis" / f"s{number}.txt"
 
 

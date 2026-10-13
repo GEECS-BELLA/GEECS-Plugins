@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
+from geecs_data_utils.scan_info import analysis_folder_for
 from geecs_data_utils.scan_paths import ScanPaths
 from geecs_data_utils.tiled_catalog import RunDetail, ScanCatalog
 
@@ -394,7 +395,7 @@ class PortalState:
             ) from exc
         if tag is None:
             raise HTTPException(status_code=404, detail="scan folder has no tag")
-        return detail, folder, analysis_runs.analysis_folder_for(folder), tag
+        return detail, folder, analysis_folder_for(folder), tag
 
 
 def get_state(request: Request) -> PortalState:

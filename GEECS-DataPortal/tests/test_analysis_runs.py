@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from geecs_data_utils.scan_info import analysis_folder_for
 from geecs_portal import analysis_runs
 from geecs_portal.app import create_app
 from test_app import FakeCatalog, _detail
@@ -143,7 +144,7 @@ def _client(scan_folder, configs_tree, behaviour="ok", **kwargs) -> TestClient:
     detail.start_doc["scan_folder"] = str(scan_folder)
     catalog.details["uid-002"] = detail
     factory = _factory(behaviour)
-    factory.analysis_folder = analysis_runs.analysis_folder_for(scan_folder)
+    factory.analysis_folder = analysis_folder_for(scan_folder)
     kwargs.setdefault("analysis_factory", factory)
     return TestClient(create_app(catalog, processing_config_dir=configs_tree, **kwargs))
 
@@ -172,7 +173,7 @@ def _reset_instances():
 
 class TestHelpers:
     def test_analysis_folder_is_the_scans_sibling(self, scan_folder):
-        assert analysis_runs.analysis_folder_for(scan_folder) == (
+        assert analysis_folder_for(scan_folder) == (
             scan_folder.parents[1] / "analysis" / "Scan002"
         )
 
@@ -442,7 +443,7 @@ class TestListing:
     def test_files_on_disk_survive_without_a_record(self, scan_folder, configs_tree):
         """A page loaded after a portal restart still lists earlier outputs."""
         pytest.importorskip("image_analysis")
-        analysis = analysis_runs.analysis_folder_for(scan_folder)
+        analysis = analysis_folder_for(scan_folder)
         (analysis / "UC_Crop" / "Array2DScanAnalyzer").mkdir(parents=True)
         (analysis / "UC_Crop" / "Array2DScanAnalyzer" / "old.png").write_bytes(b"x")
         client = _client(scan_folder, configs_tree)
@@ -677,7 +678,7 @@ class TestRun:
 
 class TestArtifactEndpoint:
     def test_gated_with_the_feature(self, scan_folder):
-        analysis = analysis_runs.analysis_folder_for(scan_folder)
+        analysis = analysis_folder_for(scan_folder)
         (analysis / "UC_Crop").mkdir(parents=True)
         (analysis / "UC_Crop" / "fig.png").write_bytes(b"x")
         catalog = FakeCatalog()
@@ -693,7 +694,7 @@ class TestArtifactEndpoint:
     def test_only_raster_images_render_inline(self, scan_folder, configs_tree):
         """A planted HTML/SVG on the share must never execute in the portal's origin."""
         pytest.importorskip("image_analysis")
-        analysis = analysis_runs.analysis_folder_for(scan_folder)
+        analysis = analysis_folder_for(scan_folder)
         (analysis / "UC_Crop").mkdir(parents=True)
         (analysis / "UC_Crop" / "fig.png").write_bytes(b"\x89PNG")
         (analysis / "UC_Crop" / "evil.html").write_text("<script>alert(1)</script>")
@@ -716,7 +717,7 @@ class TestArtifactEndpoint:
 
     def test_containment(self, scan_folder, configs_tree):
         pytest.importorskip("image_analysis")
-        analysis = analysis_runs.analysis_folder_for(scan_folder)
+        analysis = analysis_folder_for(scan_folder)
         analysis.mkdir(parents=True)
         sfile = analysis.parent / "s2.txt"
         sfile.write_text("Shotnumber\n1\n")

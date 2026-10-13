@@ -10,8 +10,8 @@ Everything is **strictly read-only over the data share**:
 
 - Paths come from :class:`geecs_data_utils.ScanPaths`'s PURE static
   builders (``get_scan_folder_path`` / ``get_scan_analysis_folder_path``)
-  — never the instance accessors, whose ``get_analysis_folder()``
-  silently ``os.makedirs`` a missing folder.  A missing folder is a
+  — never a ``ScanPaths`` instance, whose construction raises on a
+  missing folder.  A missing folder is a
   ``not_found`` envelope naming the path; nothing on the data share is
   ever created (the repo's scan-folder invariant, applied to the whole
   share).

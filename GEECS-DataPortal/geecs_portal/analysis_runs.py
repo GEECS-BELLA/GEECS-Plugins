@@ -21,9 +21,9 @@ Pieces:
   the portal still boots without the ``analysis`` extra). The app
   takes any factory with the same shape, which is how the tests run
   the whole endpoint ladder against a fake analyzer.
-- :func:`analysis_folder_for` / :func:`contained_artifact` — pure
-  path helpers for serving what a run produced without ever serving
-  outside the scan's own analysis folder.
+- :func:`contained_artifact` — the pure path helper for serving what a
+  run produced without ever serving outside the scan's own analysis
+  folder (``geecs_data_utils.scan_info.analysis_folder_for`` names it).
 
 Nothing here creates anything under ``scans/ScanNNN/`` (repo
 scan-folder invariant); the analyzer's own ``ScanPaths(read_mode=True)``
@@ -439,17 +439,6 @@ def run_scan_analyzer(
         return analyzer.run_analysis(scan_tag)
     finally:
         analyzer.cleanup()
-
-
-def analysis_folder_for(scan_folder: Path) -> Path:
-    """``{day}/analysis/ScanNNN`` for a ``{day}/scans/ScanNNN`` folder.
-
-    Pure path construction — the same ``parts[-2] = "analysis"`` rule
-    as ``ScanPaths.get_analysis_folder`` without its create-if-missing
-    side effect (the analyzer creates it when it runs; the portal only
-    reads it).
-    """
-    return scan_folder.parents[1] / "analysis" / scan_folder.name
 
 
 def contained_artifact(analysis_folder: Path, relative: str) -> Optional[Path]:

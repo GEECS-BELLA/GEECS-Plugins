@@ -246,9 +246,7 @@ def test_analysis_missing_scan_is_not_found_and_creates_nothing(share):
     result = _load(read_tools._get_scan_analysis_impl(99, DAY))
     assert not result["ok"] and result["error_kind"] == "not_found"
     assert "Scan099" in result["message"] or "Scan" in result["message"]
-    # THE read-only pin: a miss must not plant anything on the share
-    # (the get_analysis_folder() instance accessor would have mkdir'd —
-    # this asserts we never touch it).
+    # THE read-only pin: a miss must not plant anything on the share.
     assert _mtimes(share) == before
 
 

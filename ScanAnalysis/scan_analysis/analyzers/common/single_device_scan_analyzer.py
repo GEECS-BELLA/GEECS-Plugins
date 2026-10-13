@@ -35,6 +35,7 @@ import pandas as pd
 import numpy as np
 
 # --- Local / Project Imports ---
+from geecs_data_utils.scan_info import analysis_folder_for
 from geecs_data_utils.shot_files import StackMappingUnavailable, map_shot_files
 
 from scan_analysis.base import DataUnavailableWarning, ScanAnalyzer
@@ -187,9 +188,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         self.path_dict = {
             "data": Path(self.scan_directory) / f"{self.data_device_name}",
             "save": (
-                self.scan_directory.parents[1]
-                / "analysis"
-                / self.scan_directory.name
+                analysis_folder_for(self.scan_directory)
                 / f"{analyzer_name}"
                 / self.__class__.__name__
             ),
@@ -396,7 +395,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 file_tail=self.file_tail,
                 image_loader=self.image_analyzer.load_image,
                 output_path=(
-                    bg_scan_paths.get_analysis_folder()
+                    bg_scan_paths.analysis_folder()
                     / self.device_name
                     / f"{self.device_name}_background_avg.npy"
                 ),
@@ -409,7 +408,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 file_tail=self.file_tail,
                 image_loader=self.image_analyzer.load_image,
                 output_path=(
-                    self.scan_paths.get_analysis_folder()
+                    self.scan_paths.analysis_folder()
                     / self.device_name
                     / "dynamic_background.npy"
                 ),

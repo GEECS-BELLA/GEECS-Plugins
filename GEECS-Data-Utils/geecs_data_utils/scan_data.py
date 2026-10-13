@@ -841,10 +841,13 @@ class ScanData:
         """
         tag = self.paths.get_tag()
         scan_txt = self.paths.get_folder() / f"ScanDataScan{tag.number:03d}.txt"
-        analysis_txt = self.paths.get_analysis_folder().parent / f"s{tag.number}.txt"
+        analysis_txt = self.paths.analysis_folder().parent / f"s{tag.number}.txt"
 
         if not scan_txt.exists():
             raise FileNotFoundError(f"Original s-file '{scan_txt}' not found.")
+        # The day-level analysis/ only (no parents: the scan folder exists, so
+        # the day folder does) — what the old creating getter guaranteed.
+        analysis_txt.parent.mkdir(exist_ok=True)
         if analysis_txt.exists():
             analysis_txt.unlink()
 

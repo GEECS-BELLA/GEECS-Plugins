@@ -10,7 +10,13 @@ Data Portal.
 ```
 geecs_data_utils/
   __init__.py                  # Public API: ScanTag, ScanPaths, ScanData, GeecsPathsConfig
-  scan_paths.py                # ScanPaths: folder navigation + scan_info.ini parsing
+  scan_paths.py                # ScanPaths: folder navigation (pure analysis_folder())
+  scan_info.py                 # the scan-folder facts, path-free: ScanNNN name
+                               #   (lenient parse, padded write), analysis_folder_for,
+                               #   read_scan_info_file + ScanInfoRecord (finite
+                               #   floats), is_noscan, classify_end_info — the one
+                               #   home the portal, logbook, ScanAnalysis and
+                               #   LogTriage share (#1061 3.6/3.7/3.8)
   scan_data.py                 # ScanData: ScanPaths + scalar DataFrame loading + binning
   analysis_status.py           # read-only tolerant reader for scans/ScanNNN/
                                #   analysis_status/*.yaml (ScanAnalysis task_queue's
@@ -106,7 +112,7 @@ sub-paths.
 ```python
 paths = ScanPaths(tag=ScanTag(...), base_directory="/data")
 paths.get_folder()              # Path to Scan042/
-paths.get_analysis_folder()     # Path to Scan042/analysis/
+paths.analysis_folder()         # Path to {day}/analysis/Scan042 (never created)
 paths.load_scan_info()          # Dict parsed from scan_info.ini
 paths.get_folders_and_files()   # Lists device folders and files
 ScanPaths.get_latest_scan_tag(experiment, year, month, day, base_directory)
@@ -333,11 +339,13 @@ this package and must never depend on GeecsBluesky or a GUI package).
   folder's day, `time_approximate` flagging the ini-mtime and noon
   rungs). A loaded run has **`data=None`** on purpose: its scalars are
   the s-file, which `scan_frame` already reads for a run-less scan — one
-  s-file reader. Status words follow the logbook's `scan_status`
-  (`success`/`fail…`/`abort…`, other text `unknown`); an empty
-  `ScanEndInfo` (always, under Master Control) falls back to the
-  `run_closed_evidence` files — `ScanDataScanNNN.txt` or the analysis
-  s-file, opened through `data/sfile.py`'s path helpers. Uids are
+  s-file reader. The outcome is `scan_info.classify_end_info` — the
+  logbook's classifier too — projected onto the stop document's
+  `exit_status` words (`success`/`fail`/`abort`/`unknown`, `incomplete` →
+  no stop document); an empty `ScanEndInfo` (always, under Master
+  Control) falls back to the `run_closed_evidence` files —
+  `ScanDataScanNNN.txt` or the analysis s-file, opened through
+  `data/sfile.py`'s path helpers. Uids are
   `folder:{experiment}:{YYYY-MM-DD}:{number}`. A **finished** scan's
   documents are cached per catalog (bounded LRU by folder), so a
   finished day costs one `os.scandir` and no file opens; unfinished
@@ -351,7 +359,8 @@ this package and must never depend on GeecsBluesky or a GUI package).
   other (primary down → folders, `OSError` on the share → primary), and
   only both failing re-raises the primary's error. The logbook's
   `scan_reader` walks the same folders for a different product (its
-  `ScanSummary`); folding the two readers together is its own change.
+  `ScanSummary`) over the same `scan_info` facts; folding the two walks
+  together is its own change.
   Read-only; the tree-untouched pin is in `tests/test_folder_catalog.py`.
 - **`tiled_schema`** — event-schema column semantics, ONE module,
   version-tagged (`TARGET_SCHEMA_VERSION = 1`);

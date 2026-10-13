@@ -36,6 +36,7 @@ import numpy as np
 from geecs_analysis.compat.v2 import ScanBackground
 from geecs_data_utils.io.himg_stack import HIMG_SUFFIX
 from geecs_data_utils.io.images import read_imaq_image
+from geecs_data_utils.scan_info import analysis_folder_for, scan_folder_name
 from geecs_data_utils.io.scan_stack import (
     FRAMES_DATASET,
     find_stack_file,
@@ -167,8 +168,8 @@ def background_cache_path(
     """
     scan_folder = Path(data_dir).parent
     if request.scan_number is not None:
-        scan_folder = scan_folder.parent / f"Scan{request.scan_number:03d}"
-    analysis = scan_folder.parent.parent / "analysis" / scan_folder.name
+        scan_folder = scan_folder.parent / scan_folder_name(request.scan_number)
+    analysis = analysis_folder_for(scan_folder)
     # The legacy wrapper took the frames from the *device's* folder even when
     # ``scan.device`` points the run's input elsewhere (a suffixed folder of
     # derived traces): the background is the raw camera's. Same here, so the

@@ -22,6 +22,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from geecs_data_utils import ScanData, ScanPaths
+from geecs_data_utils.scan_info import is_noscan
 from geecs_data_utils.scalar_files import (
     merge_sfile,
     prepare_updates,
@@ -221,7 +222,7 @@ class ScanAnalyzer:
         self.ini_file_path = (
             self.scan_directory / f"ScanInfo{self.scan_directory.name}.ini"
         )
-        self.scan_path: Path = self.scan_data.paths.get_analysis_folder()
+        self.scan_path: Path = self.scan_data.paths.analysis_folder()
         self.auxiliary_file_path: Path = (
             self.scan_path.parent / f"s{self.scan_tag.number}.txt"
         )
@@ -232,9 +233,7 @@ class ScanAnalyzer:
             self.scan_parameter = self.extract_scan_parameter_from_ini()
 
             logger.info("Scan parameter is: %s.", self.scan_parameter)
-            s_param = self.scan_parameter.lower()
-
-            if s_param == "noscan" or s_param == "shotnumber":
+            if is_noscan(self.scan_parameter):
                 logger.warning(
                     "No parameter varied during the scan, setting noscan flag."
                 )
