@@ -36,9 +36,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from .config import _SKIP_VARTYPES, effective_vartype
+
+if TYPE_CHECKING:
+    from geecs_core.db.geecs_db import VariableMeta
 
 logger = logging.getLogger("geecs_ca_gateway.audit")
 
@@ -115,7 +120,7 @@ class AuditResult:
 
 def audit_subscribed_variables(
     subscribed: dict[str, list[str]],
-    device_variables: dict[str, list[dict]],
+    device_variables: Mapping[str, Sequence[VariableMeta]],
     skip_types: set[str],
 ) -> list[Finding]:
     """Classify every subscribed variable the gateway will not serve.
@@ -154,6 +159,7 @@ def audit_subscribed_variables(
     for device in sorted(subscribed):
         real = device_variables.get(device)
         by_name: dict[str, str] = {}
+        by_lower: dict[str, str] = {}  # the served set's case-insensitive fallback
         if real:
             for meta in real:
                 name = meta.get("name")
@@ -161,11 +167,12 @@ def audit_subscribed_variables(
                     by_name[name] = effective_vartype(
                         meta.get("variabletype"), meta.get("choices")
                     )
+                    by_lower.setdefault(name.lower(), by_name[name])
         for variable in subscribed[device]:
-            if variable not in by_name:
+            vartype = by_name.get(variable, by_lower.get(variable.lower()))
+            if vartype is None:
                 findings.append(Finding(device, variable, GHOST))
                 continue
-            vartype = by_name[variable]
             if vartype in skip:
                 findings.append(Finding(device, variable, _skip_reason(vartype)))
     return findings

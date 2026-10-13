@@ -72,13 +72,9 @@ If the list is empty, this run produces the map (main session, read-only):
    the places (`file:line`), the candidate home, and whether failure
    semantics differ between the copies (diff them before merging them).
 
-Known open examples at the time of writing — verify, not a fixed list:
-the CA served set (`get='yes'` ∪ settables of enabled devices) computed
-in GeecsCAGateway `config.py`, GeecsArchiver `archive_set.py` and
-GeecsBluesky `db_runtime.py` (candidate `geecs_core.db.served_set`;
-GeecsCAGateway `audit.py` shares the two DB queries, not the union rule;
-Bluesky reads a DB failure as "unknown", the others do not); further
-`config.ini` readers in GEECS-Data-Utils
+Known open examples at the time of writing — verify, not a fixed list
+(the CA served set, once in three packages, is now
+`geecs_core.db.served_set`): the `config.ini` readers in GEECS-Data-Utils
 `config_roots.py` and `scripts/qserver_probe.py` (the latter overlaps
 `qs_client.read_qserver_config`).
 

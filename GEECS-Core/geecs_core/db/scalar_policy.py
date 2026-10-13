@@ -17,9 +17,8 @@ the "same columns" promise cannot survive.
 Failure semantics: every query is wrapped so a DB failure (off the lab
 network, a missing table, an uncurated experiment) degrades to **empty
 policy** with a single warning — a scan must never abort because the DB
-was briefly unreachable.  (The gateways' *served set* has the opposite
-semantics — a failure reads as "unknown", never "empty" — and stays in
-``geecs_bluesky.db_runtime`` with the check it drives.)
+was briefly unreachable.  The gateway's *served set* is a different rule:
+:mod:`geecs_core.db.served_set`.
 """
 
 from __future__ import annotations

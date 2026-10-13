@@ -43,6 +43,16 @@ def test_ghost_variable_is_flagged() -> None:
     assert findings == [Finding("PicoscopeV2", "charge_pC", GHOST)]
 
 
+def test_case_only_spelling_difference_is_not_a_ghost() -> None:
+    """The gateway serves a get-list name whose row differs only in case."""
+    subscribed = {"U_Dev": ["meancounts", "image"]}
+    device_variables = {
+        "U_Dev": [_var("MeanCounts", "numeric"), _var("Image", "image")]
+    }
+    findings = audit_subscribed_variables(subscribed, device_variables, SKIP_TYPES)
+    assert findings == [Finding("U_Dev", "image", "SKIP:image")]
+
+
 def test_skip_variable_is_flagged_with_its_type() -> None:
     """A get='yes' variable typed image/1darray is a SKIP:<type> finding."""
     subscribed = {"UC_Cam": ["frame", "lineout", "exposure"]}

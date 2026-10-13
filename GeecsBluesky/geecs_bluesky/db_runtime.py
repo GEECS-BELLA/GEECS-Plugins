@@ -4,9 +4,8 @@ Turns the GEECS experiment DB's per-experiment variable policy
 (``expt_device_variable``) into the providers the device namespace builds
 from (``geecs_bluesky.namespace``):
 
-1. **Served-set resolution** — :class:`GeecsDbServedSetProvider` (the
-   gateway serves ``get='yes'`` union settable variables of enabled
-   devices; anything else has no PV).
+1. **Served-set resolution** — :class:`GeecsDbServedSetProvider`, over
+   :func:`geecs_core.db.served_set.served_variables`.
 2. **Device types** — :class:`GeecsDbDeviceTypes`.
 
 The **subscribed scalars** rule (``get='yes'`` — what every device reads
@@ -28,6 +27,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
+from geecs_core.db.served_set import served_variables
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +35,7 @@ logger = logging.getLogger(__name__)
 #: Variables the gateway synthesizes for every device regardless of the DB
 #: ``get`` flags: the timestamp ladder (``acq_timestamp`` preferred,
 #: ``systimestamp`` fallback) and the per-device ``CONNECTED`` status PV.
-#: No ``expt_device_variable`` row exists for them, so the
-#: unserved-variables check treats them as always served.
+#: No ``expt_device_variable`` row exists for them.
 GATEWAY_SYNTHESIZED_VARIABLES = frozenset(
     {"acq_timestamp", "systimestamp", "CONNECTED"}
 )
@@ -44,20 +43,10 @@ GATEWAY_SYNTHESIZED_VARIABLES = frozenset(
 
 @dataclass
 class GeecsDbServedSetProvider:
-    """The gateway's served variable set, per device — failure-tolerant.
+    """The gateway's served variable names, per device; ``None`` on DB failure.
 
-    The gateway serves each enabled device's ``get='yes'`` variables plus its
-    settable *control surface* (``GeecsCAGateway/DEPLOYMENT.md``,
-    "subscribed_only semantics") — a variable outside that union has no PV
-    at all, so a detector signal on it can never connect.  This provider
-    computes that union from two batched DB queries, cached on first use.
-
-    Failure semantics differ from
-    :class:`~geecs_core.db.scalar_policy.GeecsDbScalarPolicy` deliberately:
-    the served set drives a *check*, so a DB failure must read as "unknown"
-    (``None`` — the check is skipped with one warning), never as "empty"
-    (which would condemn every variable as unserved and dialog the operator
-    for a DB blip).  A scan never aborts because the DB was unreachable.
+    A thin, cached wrapper over
+    :func:`geecs_core.db.served_set.served_variables`.
 
     Parameters
     ----------
@@ -86,44 +75,33 @@ class GeecsDbServedSetProvider:
         return GeecsDb
 
     def served_by_device(self) -> dict[str, set[str]] | None:
-        """Return ``{device: {served variables}}``, or ``None`` on DB failure.
-
-        Returns
-        -------
-        dict or None
-            The gateway's served set (``get='yes'`` union settable) for
-            every enabled device, or ``None`` when the DB could not be read
-            — callers must then skip the unserved-variables check (degrade
-            to pass with a warning, never block a scan on a DB blip).
-        """
+        """Return ``{device: {served variables}}``, or ``None`` on DB failure."""
         if not self._attempted:
             self._attempted = True
             try:
                 db = self._geecs_db()
+                only = self.enabled_only
                 subscribed = db.get_subscribed_variables(
-                    self.experiment, enabled_only=self.enabled_only
+                    self.experiment, enabled_only=only
                 )
                 metadata = db.get_experiment_device_variables(
-                    self.experiment, enabled_only=self.enabled_only
+                    self.experiment, enabled_only=only
+                )
+                endpoints = db.get_experiment_devices(
+                    self.experiment, enabled_only=only
                 )
             except Exception:  # noqa: BLE001 — DB read fails open
                 logger.warning(
-                    "Could not read the gateway served set for experiment %r; "
-                    "the unserved-variables pre-flight check will be skipped",
+                    "Could not read the gateway served set for experiment %r",
                     self.experiment,
                     exc_info=True,
                 )
                 return None
-            served: dict[str, set[str]] = {
-                device: set(variables) for device, variables in subscribed.items()
+            served = served_variables(metadata, subscribed, devices=endpoints)
+            self._served = {
+                device: {sv.name for sv in variables}
+                for device, variables in served.items()
             }
-            for device, rows in metadata.items():
-                settable = {
-                    row["name"] for row in rows if bool(row.get("settable", False))
-                }
-                if settable:
-                    served.setdefault(device, set()).update(settable)
-            self._served = served
         return self._served
 
 

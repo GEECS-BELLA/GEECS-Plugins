@@ -18,8 +18,8 @@ take devices by name: ``count([UC_Amp4_IR_input], 10)``,
   :class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoPositioner` under the
   catalog name (:meth:`GeecsNamespace.add_pseudos`).
 
-Reads follow :class:`~geecs_core.db.scalar_policy.GeecsDbScalarPolicy`;
-children follow :class:`~geecs_bluesky.db_runtime.GeecsDbServedSetProvider`.
+Reads follow the device's ``get='yes'`` list; children follow
+:func:`geecs_core.db.served_set.served_variables`.
 Construction touches no hardware (connection is
 :func:`geecs_bluesky.preprocessors.connect_on_demand`).  A DB failure at
 build raises: an empty roster would fail every plan with "unknown device".
@@ -41,7 +41,7 @@ from geecs_core.db.device_streams import (
     capture_variables,
     served_array_variables,
 )
-from geecs_core.db.scalar_policy import GeecsDbScalarPolicy
+from geecs_core.db.served_set import served_variables
 from geecs_core.db.variable_types import (
     VARTYPE_TO_DTYPE,
     effective_vartype,
@@ -49,7 +49,7 @@ from geecs_core.db.variable_types import (
     is_scalar_vartype,
 )
 
-from geecs_bluesky.db_runtime import GeecsDbDeviceTypes, GeecsDbServedSetProvider
+from geecs_bluesky.db_runtime import GeecsDbDeviceTypes
 from geecs_bluesky.devices.ca.motor import DEFAULT_TOLERANCE, CaMotor
 from geecs_bluesky.devices.ca.pseudo import CaPseudoPositioner, build_pseudo
 from geecs_bluesky.devices.ca.settable import CaSettable
@@ -245,9 +245,9 @@ class DeviceRoster:
     ``variabletype``, ``choices``, ``tolerance`` …).  ``types``: device →
     devicetype.  ``subscribed``: device → the ``get='yes'`` variables (what
     ``read()`` returns).  ``served``: device → the gateway's served set;
-    ``None`` means "compute it from the rows" (subscribed ∪ settable, the
-    provider's rule).  ``triggered``: explicit per-device overrides of
-    :func:`looks_triggerable`.  ``endpoints``: device → the GEECS endpoint
+    ``None`` means "compute it from the rows" (:func:`served_variables`,
+    without the endpoint filter).  ``triggered``: explicit per-device
+    overrides of :func:`looks_triggerable`.  ``endpoints``: device → the GEECS endpoint
     IP (the camera server that would serve its file plugin).
     """
 
@@ -263,7 +263,7 @@ class DeviceRoster:
     def from_geecs_db(
         cls, experiment: str, *, geecs_db: Any | None = None
     ) -> DeviceRoster:
-        """Load the roster; the rules come from the ``db_runtime`` providers.
+        """Load the roster, each DB query once.
 
         Raises :class:`GeecsConfigurationError` on any DB failure — see the
         module docstring for why this is loud rather than empty.
@@ -278,6 +278,8 @@ class DeviceRoster:
                 ) from exc
         try:
             variables = geecs_db.get_experiment_device_variables(experiment)
+            subscribed = geecs_db.get_subscribed_variables(experiment)
+            endpoints = geecs_db.get_experiment_devices(experiment)
         except Exception as exc:
             raise GeecsConfigurationError(
                 f"device namespace: could not load the {experiment!r} device "
@@ -285,63 +287,24 @@ class DeviceRoster:
                 "worker cannot register devices without it — check the DB "
                 "configuration ([Database] in config.ini) and connectivity."
             ) from exc
-        served = GeecsDbServedSetProvider(experiment, db=geecs_db).served_by_device()
-        if served is None:
-            raise GeecsConfigurationError(
-                f"device namespace: the gateway served set for {experiment!r} could "
-                "not be read from the GEECS DB (see the warning above)"
-            )
-        try:
-            endpoints = {
-                device: ip
-                for device, (ip, _port) in geecs_db.get_experiment_devices(
-                    experiment
-                ).items()
-            }
-        except Exception as exc:
-            raise GeecsConfigurationError(
-                f"device namespace: could not load the {experiment!r} device "
-                f"endpoints from the GEECS DB ({type(exc).__name__}: {exc})"
-            ) from exc
+        served = served_variables(variables, subscribed, devices=endpoints)
         return cls(
             experiment=experiment,
             variables=variables,
             types=GeecsDbDeviceTypes(experiment, db=geecs_db).by_device(),
-            subscribed=GeecsDbScalarPolicy(
-                experiment, db=geecs_db
-            ).subscribed_by_device(),
-            served=served,
-            endpoints=endpoints,
+            subscribed=subscribed,
+            served={d: {sv.name for sv in vs} for d, vs in served.items()},
+            endpoints={device: ip for device, (ip, _port) in endpoints.items()},
         )
 
     def served_for(self, device: str) -> set[str]:
-        """The served variable names for *device* (lower-cased).
-
-        Without an explicit ``served`` map (rosters built in tests / offline)
-        the gateway rule is still the provider's: it is run over this roster
-        through :class:`_RosterDb`, so the rule is never restated here.
-        """
+        """The served variable names for *device* (lower-cased)."""
         served = self.served
         if served is None:
-            served = GeecsDbServedSetProvider(
-                self.experiment, db=_RosterDb(self)
-            ).served_by_device()
-        return {v.lower() for v in (served or {}).get(device, ())}
-
-
-class _RosterDb:
-    """A :class:`DeviceRoster` behind the two ``GeecsDb`` calls the served-set provider makes."""
-
-    def __init__(self, roster: DeviceRoster) -> None:
-        self._roster = roster
-
-    def get_subscribed_variables(self, experiment: str, *, enabled_only: bool = True):
-        return {d: list(v) for d, v in self._roster.subscribed.items()}
-
-    def get_experiment_device_variables(
-        self, experiment: str, *, enabled_only: bool = True
-    ):
-        return {d: list(rows) for d, rows in self._roster.variables.items()}
+            rows = {device: self.variables.get(device, [])}
+            computed = served_variables(rows, self.subscribed).get(device, ())
+            return {sv.name.lower() for sv in computed}
+        return {v.lower() for v in served.get(device, ())}
 
 
 # ----------------------------------------------------------------- namespace
@@ -529,14 +492,16 @@ class GeecsNamespace:
         self, device: str, rows: Sequence[Mapping[str, Any]], roster: DeviceRoster
     ) -> tuple[str, Any] | None:
         served = roster.served_for(device)
+        candidates = served_variables(
+            {device: rows}, {device: roster.subscribed.get(device, ())}
+        )
         typed: dict[str, tuple[Mapping[str, Any], type]] = {}
-        for row in rows:
-            name = str(row["name"])
-            if name.lower() not in served or name.lower() in _SYNTHESIZED:
+        for sv in candidates.get(device, ()):
+            if sv.name.lower() not in served or sv.name.lower() in _SYNTHESIZED:
                 continue
-            py = python_type(row)
+            py = python_type(sv.row)
             if py is not None:
-                typed[name] = (row, py)
+                typed[sv.name] = (sv.row, py)
         devicetype = roster.types.get(device, "")
         triggered = (
             bool(roster.triggered[device])

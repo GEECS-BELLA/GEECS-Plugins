@@ -9,6 +9,8 @@ units/limits/dtype); hand-built configs remain possible (see ``demo.py``).
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -127,7 +129,7 @@ class DeviceSpec(BaseModel):
         name: str,
         host: str,
         port: int,
-        variables_metadata: list[dict],
+        variables_metadata: Sequence[Mapping[str, Any]],
         *,
         include: list[str] | None = None,
         include_settable: bool = False,
@@ -325,6 +327,8 @@ class GatewayConfig(BaseModel):
         and CA clients need their ``:SP`` PVs for writes regardless of what is
         monitored per shot.  A device with *zero* ``get='yes'`` variables still
         gets its control surface (an empty monitoring list is not "no PVs").
+        The rule is :func:`geecs_core.db.served_set.served_variables`, shared
+        with the archiver and the Bluesky namespace.
 
         Everything comes from three batched queries (endpoints, variable
         metadata, get-list) rather than per-device lookups — whole-experiment
@@ -350,6 +354,7 @@ class GatewayConfig(BaseModel):
         GatewayConfig
         """
         from geecs_core.db.geecs_db import GeecsDb
+        from geecs_core.db.served_set import served_variables
 
         endpoints = GeecsDb.get_experiment_devices(
             experiment, enabled_only=enabled_only
@@ -358,7 +363,7 @@ class GatewayConfig(BaseModel):
             experiment, enabled_only=enabled_only
         )
         alarm_map = GeecsDb.get_ca_alarm_limits(experiment)
-        sub_map: dict[str, list[str]] = {}
+        sub_map: dict[str, list[str]] | None = None
         if subscribed_only:
             sub_map = GeecsDb.get_subscribed_variables(
                 experiment, enabled_only=enabled_only
@@ -371,33 +376,28 @@ class GatewayConfig(BaseModel):
                 )
 
         devices: list[DeviceSpec] = []
-        for name, (host, port) in endpoints.items():
-            # In subscribed mode a device absent from the get-map still gets an
-            # (empty) include list: nothing is monitored, but include_settable
-            # keeps its settable control surface — losing every :SP PV because
-            # no variable is logged per shot was a real deployment gap.
-            include = sub_map.get(name, []) if subscribed_only else None
+        for name, (host, port) in endpoints.items():  # the endpoint filter
             try:
+                served = served_variables(
+                    {name: var_map.get(name, [])},
+                    sub_map,
+                    include_settable=include_settable,
+                )
+                rows = [sv.row for sv in served.get(name, ())]
+                if not rows:
+                    logger.debug(
+                        "from_geecs_experiment: %s exposes no variables — skipping",
+                        name,
+                    )
+                    continue
                 spec = DeviceSpec.from_db_metadata(
-                    name,
-                    host,
-                    port,
-                    var_map.get(name, []),
-                    include=include,
-                    include_settable=include_settable and include is not None,
-                    experiment=experiment,
+                    name, host, port, rows, experiment=experiment
                 )
             except Exception:  # noqa: BLE001 — skip an unbuildable device
                 logger.warning(
                     "from_geecs_experiment: skipping %s (could not build spec)",
                     name,
                     exc_info=True,
-                )
-                continue
-            if not spec.variables:
-                logger.debug(
-                    "from_geecs_experiment: %s exposes no variables — skipping",
-                    name,
                 )
                 continue
             for var in spec.variables:

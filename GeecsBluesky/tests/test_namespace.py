@@ -370,6 +370,17 @@ def test_from_experiment_reuses_the_db_runtime_providers() -> None:
     assert "variables" in db.calls and "subscribed" in db.calls and "types" in db.calls
 
 
+def test_from_experiment_fetches_once_and_filters_endpointless_devices() -> None:
+    db = _FakeDb()
+    db.get_experiment_devices = lambda experiment, *, enabled_only=True: db._q(
+        "endpoints", {"UC_TestCam": ("192.168.6.100", 5000)}
+    )
+    roster = DeviceRoster.from_geecs_db("TestExp", geecs_db=db)
+    assert sorted(db.calls) == ["endpoints", "subscribed", "types", "variables"]
+    assert set(roster.served) == {"UC_TestCam"}  # the gateway serves no other
+    assert roster.served_for("U_S1H") == set()
+
+
 def test_db_failure_at_build_is_loud_not_empty() -> None:
     with pytest.raises(
         GeecsConfigurationError, match="could not load the 'TestExp' device roster"
