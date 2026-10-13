@@ -18,7 +18,8 @@ Lines are matched as text, so a noqa spelled inside a string literal counts.
 ``scripts/quality_baseline.json``; a lower total asks for the baseline to
 be lowered, which ``--update`` does. The root ``pyproject.toml`` counts too:
 each ``per-file-ignores`` glob naming a complexity code is a stamp (the
-``(pyproject)`` row), and ``max-complexity`` is ratcheted the same way. The
+``(pyproject)`` row); the three thresholds and ``rules_off`` (complexity
+codes not selected, or ignored) are ratcheted the same way. The
 doc_audit advisory count is not a column: the audit takes ~15 s and
 ``scripts/check.sh`` already prints it.
 """
@@ -37,7 +38,15 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE = REPO_ROOT / "scripts" / "quality_baseline.json"
-RATCHETED = ("stamps", "noqa", "max_complexity")
+RATCHETED = (
+    "stamps",
+    "noqa",
+    "max_complexity",
+    "max_branches",
+    "max_statements",
+    "rules_off",
+)
+COMPLEXITY_CODES = ("C901", "PLR0912", "PLR0915")
 COLUMNS = ("stamps", "noqa", "Any", ">80")
 # Also the file-level forms (a comment reading ``ruff: noqa: C901`` or ``flake8: noqa``).
 NOQA = re.compile(
@@ -228,8 +237,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     board = scoreboard(args.root)
     totals = {k: sum(c[k] for c in board.values()) for k in ("stamps", "noqa")}
-    mccabe = pyproject_tool(args.root, "ruff").get("lint", {}).get("mccabe", {})
-    totals["max_complexity"] = mccabe.get("max-complexity", 10)
+    lint = pyproject_tool(args.root, "ruff").get("lint", {})
+    totals["max_complexity"] = lint.get("mccabe", {}).get("max-complexity", 10)
+    pylint = lint.get("pylint", {})  # ruff's defaults for PLR0912 / PLR0915
+    totals["max_branches"] = pylint.get("max-branches", 12)
+    totals["max_statements"] = pylint.get("max-statements", 50)
+    selected = set(lint.get("select", [])) | set(lint.get("extend-select", []))
+    ignored = set(lint.get("ignore", [])) | set(lint.get("extend-ignore", []))
+    totals["rules_off"] = sum(
+        c not in selected or c in ignored for c in COMPLEXITY_CODES
+    )
     if args.check or args.update:
         status = ratchet(
             totals, args.root / BASELINE.relative_to(REPO_ROOT), args.update

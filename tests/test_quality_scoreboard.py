@@ -66,6 +66,7 @@ def test_syntax_error_keeps_the_line_counts() -> None:
 
 PYPROJECT = (
     '[tool.pyright]\ninclude = ["Pkg/pkg"]\n'
+    '[tool.ruff.lint]\nextend-select = ["C901", "PLR0912", "PLR0915"]\n'
     "[tool.ruff.lint.mccabe]\nmax-complexity = {cx}\n"
 )
 
@@ -86,7 +87,8 @@ def repo(tmp_path: Path) -> Path:
     (tmp_path / "extras" / "old.py").write_text(f"x = 1  {NOQA}: C901\n")
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "quality_baseline.json").write_text(
-        '{"stamps": 1, "noqa": 0, "max_complexity": 10}\n'
+        '{"stamps": 1, "noqa": 0, "max_complexity": 10, '
+        '"max_branches": 12, "max_statements": 50, "rules_off": 0}\n'
     )
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
@@ -125,7 +127,7 @@ def test_lower_count_asks_and_update_rewrites(
     assert "lower the baseline" in capsys.readouterr().out
     assert qs.main(["--root", str(repo), "--check", "--update"]) == 0
     baseline = json.loads((repo / "scripts" / "quality_baseline.json").read_text())
-    assert baseline == {"stamps": 0, "noqa": 0, "max_complexity": 10}
+    assert baseline["stamps"] == 0 and baseline["rules_off"] == 0
 
 
 def test_config_escapes_are_ratcheted(repo: Path) -> None:
@@ -135,6 +137,12 @@ def test_config_escapes_are_ratcheted(repo: Path) -> None:
     pyproject.write_text(
         PYPROJECT.format(cx=10)
         + '[tool.ruff.lint.per-file-ignores]\n"Pkg/**" = ["PLR0915"]\n'
+    )
+    assert qs.main(["--root", str(repo), "--check"]) == 1
+    pyproject.write_text(PYPROJECT.format(cx=10).replace(', "PLR0915"]', "]"))
+    assert qs.main(["--root", str(repo), "--check"]) == 1
+    pyproject.write_text(
+        PYPROJECT.format(cx=10) + "[tool.ruff.lint.pylint]\nmax-branches = 20\n"
     )
     assert qs.main(["--root", str(repo), "--check"]) == 1
 
