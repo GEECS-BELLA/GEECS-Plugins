@@ -201,3 +201,17 @@ def test_the_tool_contract_keys():
         "exit_status",
         "paused_reason",
     ]
+
+
+def test_a_stop_caught_mid_run_adds_no_run_keys():
+    # Started consuming mid-run (stdio's lazy start, a service restart):
+    # the stop alone must not read as a finished run of zero shots.
+    cache = _started_cache()
+    cache.on_document("stop", {"run_start": "run-0", "exit_status": "success"})
+    assert cache.snapshot() == {"available": True, "detail": ""}
+    _fail_move(cache, "U_Hexapod move failed")
+    assert cache.snapshot() == {
+        "available": True,
+        "detail": "",
+        "paused_reason": "U_Hexapod move failed",
+    }

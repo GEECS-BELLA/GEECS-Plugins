@@ -30,20 +30,24 @@ def get_progress_cache() -> ProgressStream:
 def stream_view(progress: RunProgress) -> dict[str, Any]:
     """The tool contract's ``stream`` dict for one snapshot.
 
-    Only ``available`` + ``detail`` until a run is seen; then the run's
-    uid, scan number, ``shots_total`` / ``shots_done``, exit status and
-    paused reason.
+    Only ``available`` + ``detail`` (and a failed-move ``paused_reason``)
+    until a start document is seen — a stop caught mid-run must not read
+    as a finished run of zero shots; then the run's uid, scan number,
+    ``shots_total`` / ``shots_done``, exit status and paused reason.
     """
     view: dict[str, Any] = {"available": progress.available, "detail": progress.detail}
-    if progress.state is not None:
-        view.update(
-            run_uid=progress.run_uid,
-            scan_number=progress.scan_number,
-            shots_total=progress.planned_total,
-            shots_done=progress.shots_done,
-            exit_status=progress.exit_status,
-            paused_reason=progress.paused_reason,
-        )
+    if progress.run_uid is None:
+        if progress.paused_reason is not None:
+            view["paused_reason"] = progress.paused_reason
+        return view
+    view.update(
+        run_uid=progress.run_uid,
+        scan_number=progress.scan_number,
+        shots_total=progress.planned_total,
+        shots_done=progress.shots_done,
+        exit_status=progress.exit_status,
+        paused_reason=progress.paused_reason,
+    )
     return view
 
 

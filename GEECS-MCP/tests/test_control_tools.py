@@ -276,6 +276,7 @@ def test_scan_progress_merges_stream_picture(wired, monkeypatch):
     cache = _FakeCache(
         RunProgress(
             available=True,
+            run_uid="run-1",
             scan_number=42,
             shots_done=30,
             planned_total=55,
