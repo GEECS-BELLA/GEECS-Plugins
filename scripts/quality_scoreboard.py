@@ -16,8 +16,11 @@ Lines are matched as text, so a noqa spelled inside a string literal counts.
 
 ``--check`` exits 1 when the stamp or noqa total EXCEEDS
 ``scripts/quality_baseline.json``; a lower total asks for the baseline to
-be lowered, which ``--update`` does. ``--doc-audit`` adds the doc_audit
-advisory count (it runs the whole audit, ~15 s, so it is opt-in).
+be lowered, which ``--update`` does. The root ``pyproject.toml`` counts too:
+each ``per-file-ignores`` glob naming a complexity code is a stamp (the
+``(pyproject)`` row), and ``max-complexity`` is ratcheted the same way. The
+doc_audit advisory count is not a column: the audit takes ~15 s and
+``scripts/check.sh`` already prints it.
 """
 
 from __future__ import annotations
@@ -34,9 +37,12 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE = REPO_ROOT / "scripts" / "quality_baseline.json"
-RATCHETED = ("stamps", "noqa")
+RATCHETED = ("stamps", "noqa", "max_complexity")
 COLUMNS = ("stamps", "noqa", "Any", ">80")
-NOQA = re.compile(r"#\s*noqa\b(?P<codes>:[^#\n]*)?", re.IGNORECASE)
+# Also the file-level forms (a comment reading ``ruff: noqa: C901`` or ``flake8: noqa``).
+NOQA = re.compile(
+    r"#\s*(?:(?:ruff|flake8)\s*:\s*)?noqa\b(?P<codes>:[^#\n]*)?", re.IGNORECASE
+)
 STAMP = re.compile(r"\b(C901|PLR0912|PLR0915)\b")
 ANY_WORD = re.compile(r"\bAny\b")
 LONG_FUNCTION = 80
@@ -125,46 +131,50 @@ def scoreboard(root: Path) -> dict[str, Counter[str]]:
     """Counts per package."""
     board: dict[str, Counter[str]] = defaultdict(Counter)
     for path in tracked_files(root):
+        if not (root / path).is_file():  # deleted from disk, not yet `git rm`ed
+            continue
         source = (root / path).read_text(encoding="utf-8", errors="replace")
         board[package_of(root, path)] += count_source(source)
+    ignores = pyproject_tool(root, "ruff").get("lint", {}).get("per-file-ignores", {})
+    board["(pyproject)"]["stamps"] += sum(
+        1 for codes in ignores.values() if STAMP.search(" ".join(codes))
+    )
     return dict(board)
+
+
+def pyproject_tool(root: Path, tool: str) -> dict:  # free-form TOML table
+    """The root ``pyproject.toml``'s ``[tool.<tool>]`` table."""
+    with open(root / "pyproject.toml", "rb") as fh:
+        return tomllib.load(fh).get("tool", {}).get(tool, {})
 
 
 def pyright_packages(root: Path) -> set[str]:
     """Top-level directories named in the root ``[tool.pyright] include``."""
-    with open(root / "pyproject.toml", "rb") as fh:
-        include = tomllib.load(fh).get("tool", {}).get("pyright", {}).get("include", [])
+    include = pyproject_tool(root, "pyright").get("include", [])
     return {entry.split("/", 1)[0] for entry in include}
 
 
-def doc_audit_advisories(root: Path) -> Counter[str]:
-    """Advisory doc_audit findings per package (runs the whole audit)."""
-    out = subprocess.run(
-        [sys.executable, "scripts/doc_audit.py", "--json", "-"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    findings = json.loads(out)["findings"]
-    return Counter(f["package"] for f in findings if f["severity"] == "advisory")
-
-
-def render(
-    board: dict[str, Counter[str]], pyright: set[str], docs: Counter[str] | None
-) -> str:
+def render(board: dict[str, Counter[str]], pyright: set[str]) -> str:
     """The scoreboard as a fixed-width table."""
-    cols = COLUMNS + (("docs",) if docs is not None else ())
-    rows = [("package", *cols, "pyright")]
-    total: Counter[str] = Counter({"docs": sum((docs or {}).values())})
+    rows = [("package", *COLUMNS, "pyright")]
+    total: Counter[str] = Counter()
     for pkg in sorted(board):
-        counts = board[pkg] + Counter({"docs": (docs or {}).get(pkg, 0)})
         total += board[pkg]
         rows.append(
-            (pkg, *(str(counts[c]) for c in cols), "yes" if pkg in pyright else "")
+            (
+                pkg,
+                *(str(board[pkg][c]) for c in COLUMNS),
+                "yes" if pkg in pyright else "",
+            )
         )
-    covered = f"{len(pyright & board.keys())}/{len(board.keys() - {'(repo)'})}"
-    rows.append(("TOTAL", *(str(total[c]) for c in cols), covered))
+    packages = board.keys() - {"(repo)", "(pyproject)"}
+    rows.append(
+        (
+            "TOTAL",
+            *(str(total[c]) for c in COLUMNS),
+            f"{len(pyright & packages)}/{len(packages)}",
+        )
+    )
     width = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
     return "\n".join(
         "  ".join(
@@ -215,12 +225,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="rewrite the baseline to the current counts",
     )
-    parser.add_argument(
-        "--doc-audit", action="store_true", help="add doc_audit advisory counts (~15 s)"
-    )
     args = parser.parse_args(argv)
     board = scoreboard(args.root)
-    totals = {k: sum(c[k] for c in board.values()) for k in RATCHETED}
+    totals = {k: sum(c[k] for c in board.values()) for k in ("stamps", "noqa")}
+    mccabe = pyproject_tool(args.root, "ruff").get("lint", {}).get("mccabe", {})
+    totals["max_complexity"] = mccabe.get("max-complexity", 10)
     if args.check or args.update:
         status = ratchet(
             totals, args.root / BASELINE.relative_to(REPO_ROOT), args.update
@@ -231,8 +240,7 @@ def main(argv: list[str] | None = None) -> int:
             + (" FAILED" if status else " ok")
         )
         return status
-    docs = doc_audit_advisories(args.root) if args.doc_audit else None
-    print(render(board, pyright_packages(args.root), docs))
+    print(render(board, pyright_packages(args.root)))
     return 0
 
 

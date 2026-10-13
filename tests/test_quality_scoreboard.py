@@ -53,9 +53,21 @@ def test_counts_stamps_noqa_any_and_long_functions() -> None:
     assert counts[">80"] == 1
 
 
+def test_file_level_forms_count() -> None:
+    counts = qs.count_source(f"{NOQA.replace('noqa', 'ruff: noqa')}: C901\n")
+    assert counts["stamps"] == 1
+    assert qs.count_source(f"{NOQA.replace('noqa', 'flake8: noqa')}\n")["noqa"] == 1
+
+
 def test_syntax_error_keeps_the_line_counts() -> None:
     counts = qs.count_source(f"def (:  {NOQA}: PLR0912\n")
     assert counts["stamps"] == 1 and counts["Any"] == 0
+
+
+PYPROJECT = (
+    '[tool.pyright]\ninclude = ["Pkg/pkg"]\n'
+    "[tool.ruff.lint.mccabe]\nmax-complexity = {cx}\n"
+)
 
 
 @pytest.fixture
@@ -64,7 +76,7 @@ def repo(tmp_path: Path) -> Path:
     (tmp_path / ".pre-commit-config.yaml").write_text(
         "exclude: |\n  (?x)^(\n    extras/\n  )\n\nrepos: []\n"
     )
-    (tmp_path / "pyproject.toml").write_text('[tool.pyright]\ninclude = ["Pkg/pkg"]\n')
+    (tmp_path / "pyproject.toml").write_text(PYPROJECT.format(cx=10))
     (tmp_path / "Pkg" / "pkg").mkdir(parents=True)
     (tmp_path / "Pkg" / "pyproject.toml").write_text("")
     (tmp_path / "Pkg" / "pkg" / "a.py").write_text(
@@ -74,7 +86,7 @@ def repo(tmp_path: Path) -> Path:
     (tmp_path / "extras" / "old.py").write_text(f"x = 1  {NOQA}: C901\n")
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "quality_baseline.json").write_text(
-        '{"stamps": 1, "noqa": 0}\n'
+        '{"stamps": 1, "noqa": 0, "max_complexity": 10}\n'
     )
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
@@ -88,7 +100,7 @@ def _add(repo: Path, name: str, text: str) -> None:
 
 def test_scoreboard_excludes_and_groups(repo: Path) -> None:
     board = qs.scoreboard(repo)
-    assert set(board) == {"Pkg"}  # extras/ excluded
+    assert set(board) == {"Pkg", "(pyproject)"}  # extras/ excluded
     assert board["Pkg"]["stamps"] == 1
     assert qs.pyright_packages(repo) == {"Pkg"}
 
@@ -113,7 +125,23 @@ def test_lower_count_asks_and_update_rewrites(
     assert "lower the baseline" in capsys.readouterr().out
     assert qs.main(["--root", str(repo), "--check", "--update"]) == 0
     baseline = json.loads((repo / "scripts" / "quality_baseline.json").read_text())
-    assert baseline == {"stamps": 0, "noqa": 0}
+    assert baseline == {"stamps": 0, "noqa": 0, "max_complexity": 10}
+
+
+def test_config_escapes_are_ratcheted(repo: Path) -> None:
+    pyproject = repo / "pyproject.toml"
+    pyproject.write_text(PYPROJECT.format(cx=15))
+    assert qs.main(["--root", str(repo), "--check"]) == 1
+    pyproject.write_text(
+        PYPROJECT.format(cx=10)
+        + '[tool.ruff.lint.per-file-ignores]\n"Pkg/**" = ["PLR0915"]\n'
+    )
+    assert qs.main(["--root", str(repo), "--check"]) == 1
+
+
+def test_file_deleted_from_disk_is_skipped(repo: Path) -> None:
+    (repo / "Pkg" / "pkg" / "a.py").unlink()
+    assert "Pkg" not in qs.scoreboard(repo)
 
 
 def test_real_precommit_exclude_parses() -> None:

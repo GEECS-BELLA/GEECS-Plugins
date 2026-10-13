@@ -1,4 +1,5 @@
 {
-  "stamps": 128,
-  "noqa": 323
+  "stamps": 129,
+  "noqa": 323,
+  "max_complexity": 10
 }
