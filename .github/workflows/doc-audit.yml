@@ -6,7 +6,9 @@ name: doc-audit
 # it is never narrowed the way scripts/ci_select.py narrows the unit-test
 # legs. It needs no package environment (stdlib-only, Python >= 3.11 for
 # tomllib) and finishes in well under a minute. scripts/check.sh runs the
-# same command in its lint phase.
+# same command in its lint phase. The quality ratchet rides along for the
+# same reasons (whole tree, stdlib-only, a second): the complexity-baseline
+# noqa stamps and the other noqa lines may only go down.
 on:
   push:
     branches: [master]
@@ -28,3 +30,7 @@ jobs:
 
       - name: Audit the documentation
         run: python scripts/doc_audit.py --strict
+
+      - name: Quality ratchet (noqa counts may only go down)
+        if: ${{ !cancelled() }}
+        run: python scripts/quality_scoreboard.py --check

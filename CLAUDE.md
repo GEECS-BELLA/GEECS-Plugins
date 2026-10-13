@@ -131,6 +131,13 @@ own nested worktrees under `.claude/worktrees/`.
   contracts; `python scripts/lint_imports.py` checks every package's imports
   against it from sources alone, and runs as the `import-contracts`
   pre-commit hook)
+- **Quality ratchet:** `scripts/quality_scoreboard.py` prints the debt
+  scoreboard (complexity-baseline `noqa` stamps, other `noqa` lines, `Any`
+  annotations, functions over 80 lines, pyright coverage); the stamp and
+  `noqa` counts only go down — `--check` (in `scripts/check.sh` and CI's
+  `doc-audit` workflow) fails when either exceeds
+  `scripts/quality_baseline.json`, and a PR that lowers them re-strikes the
+  baseline with `--update`
 - **Pre-commit hooks:** ruff, ruff-format, pydocstyle, check-yaml, check-json,
   check-ast, import-contracts — run automatically on commit. The auto-fixing hooks rewrite files
   during the commit, which aborts that commit ("files were modified by this
