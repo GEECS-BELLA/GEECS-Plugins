@@ -62,7 +62,9 @@ still uses ScanAnalysis until its runner/sinks and acceptance tests land.
 ## Tests
 
 Runs in the root Poetry environment and root CI leg:
-`poetry run pytest GEECS-Analysis/tests -q`.
+`poetry run pytest GEECS-Analysis/tests -q`. It also runs standalone from the
+package dir (`poetry install --with dev && poetry run pytest -q`): the `dev`
+group carries ImageAnalysis and ScanAnalysis as test oracles only.
 Pure invariants plus numerical comparisons with the legacy functions protect
 this layer. Test schema imports in a fresh interpreter to detect eager imports.
 Archived data acceptance is a separate integration gate, not simulated by unit

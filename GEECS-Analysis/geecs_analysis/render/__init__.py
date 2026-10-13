@@ -14,6 +14,11 @@ if TYPE_CHECKING:
     from geecs_data_utils.frames import Axis, Frame
     from geecs_analysis.measurement import Measurement
 
+# What callers outside this package import (the portal, ScanAnalysis, the
+# README's examples). draw_frame/draw_overlays stay importable by name for a
+# notebook composing its own axes; no caller uses them yet.
+__all__ = ["RenderError", "image_grid", "single", "waterfall"]
+
 
 class RenderError(ValueError):
     """A frame or user-supplied style could not be drawn."""
