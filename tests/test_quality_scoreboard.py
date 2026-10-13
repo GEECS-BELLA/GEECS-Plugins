@@ -140,6 +140,16 @@ def test_config_escapes_are_ratcheted(repo: Path) -> None:
     )
     assert qs.main(["--root", str(repo), "--check"]) == 1
     pyproject.write_text(PYPROJECT.format(cx=10).replace(', "PLR0915"]', "]"))
+    assert qs.main(["--root", str(repo), "--check"]) == 1  # deselected
+    pyproject.write_text(
+        PYPROJECT.format(cx=10).replace(
+            "[tool.ruff.lint]\n", '[tool.ruff.lint]\nignore = ["PLR09"]\n'
+        )
+    )
+    assert qs.main(["--root", str(repo), "--check"]) == 1  # prefix-ignored
+    pyproject.write_text(
+        PYPROJECT.format(cx=10) + "[tool.ruff.lint.pylint]\nmax-statements = 80\n"
+    )
     assert qs.main(["--root", str(repo), "--check"]) == 1
     pyproject.write_text(
         PYPROJECT.format(cx=10) + "[tool.ruff.lint.pylint]\nmax-branches = 20\n"

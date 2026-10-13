@@ -244,8 +244,14 @@ def main(argv: list[str] | None = None) -> int:
     totals["max_statements"] = pylint.get("max-statements", 50)
     selected = set(lint.get("select", [])) | set(lint.get("extend-select", []))
     ignored = set(lint.get("ignore", [])) | set(lint.get("extend-ignore", []))
+
+    # ruff matches prefixes ("PLR09", "C90", "ALL"), so a code is on when a
+    # select entry prefixes it and no ignore entry does.
+    def hit(code: str, entries: set[str]) -> bool:
+        return any(e == "ALL" or code.startswith(e) for e in entries)
+
     totals["rules_off"] = sum(
-        c not in selected or c in ignored for c in COMPLEXITY_CODES
+        not hit(c, selected) or hit(c, ignored) for c in COMPLEXITY_CODES
     )
     if args.check or args.update:
         status = ratchet(
