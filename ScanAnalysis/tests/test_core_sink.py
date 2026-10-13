@@ -10,7 +10,8 @@ from geecs_schemas.analysis import AnalysisDiagnostic
 from scan_analysis.analyzers.renderers.config import parse_output_filename
 from scan_analysis.core_products import Product, ProductPlan
 from scan_analysis.core_recipe import scan_recipe
-from scan_analysis.core_sink import analysis_directory, save_products
+from geecs_data_utils.scan_info import analysis_folder_for
+from scan_analysis.core_sink import save_products
 
 
 def document(line=False, **kwargs):
@@ -175,7 +176,7 @@ def test_analysis_symlink_cannot_write_back_into_raw_tree(tmp_path):
     scan.mkdir(parents=True)
     (tmp_path / "analysis").symlink_to(scan.parent, target_is_directory=True)
     with pytest.raises(ValueError, match="raw scans"):
-        analysis_directory(scan)
+        analysis_folder_for(scan, validate=True)
     assert not list(scan.iterdir())
 
 

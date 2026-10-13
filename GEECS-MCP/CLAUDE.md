@@ -122,10 +122,9 @@ geecs_mcp/
                   #   by the tool's own candidate set + a byte cap) for
                   #   clients to fetch-and-save as artifacts.
                   #   STRICTLY read-only over the data share: pure
-                  #   ScanPaths static builders ONLY — the instance
-                  #   get_analysis_folder() silently mkdirs and must
-                  #   never be used here; pinned by a nothing-created
-                  #   test.  Needs [Paths] geecs_data + the share
+                  #   ScanPaths static builders ONLY (a ScanPaths
+                  #   instance raises on a missing folder); pinned by
+                  #   a nothing-created test.  Needs [Paths] geecs_data + the share
                   #   mounted on the serving host (degrades honestly)
     run_tools.py  # the execution slice (#686, 0.7.0): run_scan_analysis
                   #   (Q — validate-then-refuse BEFORE side effects:

@@ -17,7 +17,6 @@ import contextlib
 import json
 import math
 import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,6 +24,7 @@ import h5py
 import numpy as np
 import pandas as pd
 from geecs_data_utils.io.scan_stack import ShotRef
+from geecs_data_utils.scan_info import analysis_folder_for, parse_scan_folder_name
 from geecs_analysis.registry import SummaryOutput, summary_definition, summary_output
 from geecs_analysis.render import RenderError, single
 
@@ -36,19 +36,6 @@ def _component(value: str, label: str) -> str:
     if not value or value in {".", ".."} or "/" in value or "\\" in value:
         raise ValueError(f"{label} must be a single path component")
     return value
-
-
-def analysis_directory(scan_folder: Path) -> Path:
-    """Resolve the sibling analysis folder without creating any directories."""
-    scan_folder = Path(scan_folder)
-    if not scan_folder.is_dir():
-        raise FileNotFoundError(scan_folder)
-    if scan_folder.parent.name != "scans":
-        raise ValueError("Expected an existing scans/ScanNNN folder")
-    target = scan_folder.parent.parent / "analysis" / scan_folder.name
-    if target.resolve().is_relative_to(scan_folder.parent.resolve()):
-        raise ValueError("Analysis outputs cannot point into the raw scans tree")
-    return target
 
 
 @dataclass(frozen=True)
@@ -75,7 +62,7 @@ def product_directory(spec: ScanRecipe, scan_folder: Path) -> Path:
     legacy wrapper did.
     """
     output = _component(spec.output_name or spec.device, "Output name")
-    root = analysis_directory(scan_folder)
+    root = analysis_folder_for(scan_folder, validate=True)
     target = (
         root / output / ("Array1DScanAnalyzer" if spec.line else "Array2DScanAnalyzer")
     )
@@ -379,7 +366,7 @@ def shot_table_path(reference: Path, shot: int, name: str) -> Path:
     if isinstance(reference, ShotRef):
         stack = Path(str(reference))
         scan = stack.parent.parent.name
-        if not re.fullmatch(r"Scan\d{3,}", scan):
+        if parse_scan_folder_name(scan) is None:
             raise ValueError(f"Stack {stack} is not under a scans/ScanNNN folder")
         return stack.parent / f"{scan}_{stack.parent.name}_{shot:03d}_{name}.tsv"
     reference = Path(reference)

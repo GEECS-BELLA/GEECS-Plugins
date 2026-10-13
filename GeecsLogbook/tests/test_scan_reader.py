@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from geecs_logbook.scan_reader import read_day, scan_status
+from geecs_logbook.scan_reader import read_day, read_scan
 
 DAY = date(2026, 9, 11)
 
@@ -66,45 +66,43 @@ class TestReadDay:
         assert day.scans == []
 
 
-class TestScanStatus:
-    """The status classifier."""
+class TestRunClosedEvidence:
+    """An empty ``ScanEndInfo`` is decided by the files, as in the portal.
 
-    def test_success(self) -> None:
-        """An exact success string classifies as success."""
-        assert scan_status("success", True) == "success"
+    The status words themselves are pinned in GEECS-Data-Utils
+    (``tests/test_scan_info.py``) — one classifier for the logbook and the
+    portal's folder catalog, so their chips cannot disagree (#1061 3.8).
+    """
 
-    def test_failure_prefix(self) -> None:
-        """Anything starting with 'fail' classifies as failed."""
-        assert scan_status("fail: TimeoutError(...)", True) == "failed"
+    def test_master_control_scan_with_scandata_is_success(self, share: Path) -> None:
+        """Master Control never fills ScanEndInfo; its closed run is a success."""
+        running = share / "Undulator" / "Y2026" / "09-Sep" / "26_0911" / "scans"
+        (running / "Scan040" / "ScanDataScan040.txt").write_text("Shotnumber\n1\n")
+        scan = read_day(DAY, "Undulator", base_directory=share).scans[3]
+        assert scan.status == "success"
+        assert scan.failure_reason is None
 
-    def test_no_scan_info_beats_everything(self) -> None:
-        """Without a ScanInfo file the scan is incomplete."""
-        assert scan_status("success", False) == "incomplete"
+    def test_the_analysis_sfile_is_evidence_too(self, share: Path) -> None:
+        """The day's ``analysis/s{N}.txt`` closes the run as well."""
+        day = share / "Undulator" / "Y2026" / "09-Sep" / "26_0911"
+        (day / "analysis").mkdir()
+        (day / "analysis" / "s40.txt").write_text("Shotnumber\n1\n")
+        assert read_day(DAY, "Undulator", base_directory=share).scans[3].status == (
+            "success"
+        )
+        # read_scan alone (no day listing) reaches the same verdict.
+        scan = read_scan(day / "scans" / "Scan040", 40)
+        assert scan.status == "success"
 
-    def test_unrecognised_end_info(self) -> None:
-        """An end string we do not recognise is reported as unknown."""
-        assert scan_status("cancelled by the interlock", True) == "unknown"
-
-    def test_abort_is_its_own_outcome(self) -> None:
-        """RE.abort(), Ctrl-C and the queueserver stop all land here.
-
-        The scanner writes ``exit_status`` verbatim, so an aborted run
-        reads ``abort: <reason>``. Reporting that as "unknown" hid the
-        reason and kept it out of the day's tally.
-        """
-        assert scan_status("abort", True) == "aborted"
-        assert scan_status("abort: RunEngine stopped by user", True) == "aborted"
-
-    def test_empty_end_info_is_incomplete_not_unknown(self) -> None:
-        """ScanEndInfo = "" means not finalised, not unrecognised.
-
-        The scanner writes it empty when the folder is claimed and fills
-        it at the stop document. It is the most common state on the real
-        share, so calling it "unknown" painted most of a day amber.
-        """
-        assert scan_status("", True) == "incomplete"
-        assert scan_status("   ", True) == "incomplete"
-        assert scan_status(None, True) == "incomplete"
+    def test_unpadded_folder_is_listed(self, share: Path) -> None:
+        """``Scan7`` is scan 7 — the shared lenient parse."""
+        scans = share / "Undulator" / "Y2026" / "09-Sep" / "26_0911" / "scans"
+        (scans / "Scan7").mkdir()
+        (scans / "ScanFoo").mkdir()
+        numbers = [
+            s.number for s in read_day(DAY, "Undulator", base_directory=share).scans
+        ]
+        assert numbers == [1, 6, 7, 31, 40]
 
 
 class TestScanFolderCreationInvariant:
@@ -242,9 +240,11 @@ class TestLeanReads:
 
     def test_missing_folder_is_reported_not_raised(self, tmp_path: Path) -> None:
         """An absent folder returns empties rather than exploding a day."""
-        from geecs_logbook.scan_reader import scan_contents
+        from geecs_logbook.scan_reader import ScanContents, scan_contents
 
-        assert scan_contents(tmp_path / "nope") == (None, None, None, None, ())
+        assert scan_contents(tmp_path / "nope") == ScanContents(
+            None, None, None, None, ()
+        )
 
 
 class TestStartTime:

@@ -53,15 +53,19 @@ owns scan folders — one surface to fix when a format changes:
 
 | Need | Use | Never |
 |---|---|---|
-| Parse `ScanInfoScanNNN.ini` | `scan_paths.read_scan_info_file(path)` | a local `ConfigParser` |
+| Parse `ScanInfoScanNNN.ini` | `scan_info.read_scan_info_file(path)` → `ScanInfoRecord.from_ini` | a local `ConfigParser` or float parser |
+| A `ScanNNN` folder's number | `scan_info.parse_scan_folder_name(name)` | a local regex |
+| A scan's outcome | `scan_info.classify_end_info(end_info, closed=…)` | a local classifier |
 | When a scan ran | `scan_log_loader.first_log_timestamp(path)` | the folder's `st_mtime` |
 
 The folder's mtime is **not** a start time: any later pass that writes into
 the folder (the analysis task queue's `analysis_status/`, for one) moves it,
 and it has been measured over an hour off the real start.
 
-What this package owns is the *logbook's* reading of those facts: the status
-classification, day shaping, and the day document.
+What this package owns is the *logbook's* reading of those facts: day
+shaping and the day document. The status classification is Data-Utils'
+(#1061 3.8) so the logbook's chip and the portal's folder catalog cannot
+disagree about the same folder.
 
 Pinned by `tests/test_scan_reader.py::TestScanFolderCreationInvariant`, which
 monkeypatches `Path.mkdir` to explode.
@@ -345,14 +349,17 @@ Pinned by `tests/test_crosslinks.py`.
 
 ## Status is reported, not inferred
 
-`scan_status` classifies from `ScanEndInfo` only:
+`geecs_data_utils.scan_info.classify_end_info` classifies from
+`ScanEndInfo`, and — only when it is empty — from the run-closed evidence
+(`ScanDataScanNNN.txt` in the scan folder's listing, or `s{N}.txt` in the
+day's `analysis/` folder, listed once per day):
 
 | Status | Meaning |
 |---|---|
-| `success` | `ScanEndInfo = "success"` |
+| `success` | `ScanEndInfo = "success"`, **or** empty and the run closed (LabVIEW Master Control never fills it) |
 | `failed` | starts with `fail` — the reason is surfaced verbatim |
 | `aborted` | starts with `abort` — `RE.abort()`, Ctrl-C, or the queueserver stop the scanner and GEECS-MCP expose; reason surfaced the same way |
-| `incomplete` | no `ScanInfo`, **or** `ScanEndInfo` still empty |
+| `incomplete` | no `ScanInfo` or an empty `ScanEndInfo`, **and** no run-closed evidence |
 | `unknown` | a non-empty `ScanEndInfo` we do not recognise |
 
 The chip must not contradict the card. `incomplete` covers two different
@@ -362,9 +369,12 @@ whose facts are on screen. Rendering "no scan info" above a provenance line
 naming the file it just read is the kind of small lie that costs trust in
 everything else on the page.
 
-The empty case is the one to get right. The scanner writes
+The empty case is the one to get right. The native scanner writes
 `ScanEndInfo = ""` when it claims the folder and fills it in at the stop
-document, so empty means *not finalised* — not *unrecognised*. It is the
+document, so empty means *not finalised* — not *unrecognised* — until a
+file written at the close says otherwise; Master Control leaves it empty
+on every scan, finished or not, and its s-files are the only close it
+records (the portal's folder catalog reads the same evidence). It is the
 most common state on the real share (37 of 49 ScanInfo files across four
 sampled days), and classifying it as `unknown` painted most of a day amber.
 

@@ -17,13 +17,18 @@ import calendar as cal
 
 from pathlib import Path
 from datetime import datetime, date
-from configparser import ConfigParser, Error as ConfigParserError, NoSectionError
+from configparser import ConfigParser
 from typing import Optional, Union, Sequence
 import pandas as pd
 
 from geecs_data_utils.utils import SysPath, ConfigurationError, month_to_int
 from geecs_data_utils.type_defs import ScanTag
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
+from geecs_data_utils.scan_info import (
+    analysis_folder_for,
+    parse_scan_folder_name,
+    read_scan_info_file,
+)
 
 # THE device-file extension taxonomy (lowercase, no dot). The vendor tier
 # lives here; the displayable-image tier is `io.images.DISPLAYABLE_IMAGE_EXTS`
@@ -48,41 +53,6 @@ _ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms"} | set(VENDOR_ONLY
 # module‐level logger
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
-
-
-def read_scan_info_file(ini_path: Union[Path, str]) -> dict[str, str]:
-    """Parse a ``ScanInfoScanNNN.ini`` file into its ``[Scan Info]`` mapping.
-
-    The one implementation of this parse. :meth:`ScanPaths.load_scan_info`
-    calls it, and so does any consumer that has the path already and does
-    not want to build a :class:`ScanPaths` — the scan logbook reads a whole
-    day this way, where a per-scan object would add an ``exists()`` round
-    trip on a network share and raise on a folder that breaks the naming
-    convention.
-
-    Parameters
-    ----------
-    ini_path : Path or str
-        The ScanInfo file. Need not exist.
-
-    Returns
-    -------
-    dict of str to str
-        The ``[Scan Info]`` section with surrounding quotes stripped, or an
-        empty dict when the file is missing, sectionless, or unreadable.
-        Never raises: one unparsable scan must not take down a caller
-        iterating a whole day.
-    """
-    parser = ConfigParser()
-    parser.optionxform = str
-    try:
-        parser.read(ini_path)
-        return {key: value.strip("'\"") for key, value in parser.items("Scan Info")}
-    except NoSectionError:
-        logger.warning('ScanInfo file %s has no "Scan Info" section', ini_path)
-    except (ConfigParserError, OSError, UnicodeDecodeError) as exc:
-        logger.warning("unreadable ScanInfo file %s: %s", ini_path, exc)
-    return {}
 
 
 class ScanPaths:
@@ -137,7 +107,6 @@ class ScanPaths:
         self._folder: Optional[Path] = None
         self._tag: Optional[ScanTag] = None
         self._tag_date: Optional[date] = None
-        self._analysis_folder: Optional[Path] = None
 
         # Handle folder initialization
         if folder is None and tag is not None:
@@ -231,7 +200,7 @@ class ScanPaths:
             )
             or (not re.match(r"\d{2}_\d{4}", date_folder_name))
             or (not scans_literal == "scans")
-            or (not re.match(r"Scan\d{3,}", scan_folder_name))
+            or parse_scan_folder_name(scan_folder_name) is None
         ):
             raise ValueError(
                 f"Folder path {folder} does not appear to follow the expected naming convention."
@@ -243,7 +212,7 @@ class ScanPaths:
             self._tag_date.year,
             self._tag_date.month,
             self._tag_date.day,
-            int(scan_folder_name[4:]),
+            parse_scan_folder_name(scan_folder_name),
             experiment=exp_name,
         )
 
@@ -349,9 +318,7 @@ class ScanPaths:
             tag=tag, base_directory=base_directory
         )
 
-        parts = list(scan_folder_path.parts)
-        parts[-2] = "analysis"
-        return Path(*parts)
+        return analysis_folder_for(scan_folder_path)
 
     @staticmethod
     def get_device_shot_path(
@@ -597,16 +564,13 @@ class ScanPaths:
         """Get the scan date."""
         return self._tag_date
 
-    def get_analysis_folder(self) -> Optional[Path]:
-        """Get the analysis folder path, creating it if necessary."""
-        if self._analysis_folder is None:
-            parts = list(Path(self._folder).parts)
-            parts[-2] = "analysis"
-            self._analysis_folder = Path(*parts)
-            if not self._analysis_folder.is_dir():
-                os.makedirs(self._analysis_folder)
+    def analysis_folder(self) -> Path:
+        """The scan's ``{day}/analysis/ScanNNN`` folder — a path only, never created.
 
-        return self._analysis_folder
+        Whoever writes into it creates it at write time; see
+        :func:`geecs_data_utils.scan_info.analysis_folder_for`.
+        """
+        return analysis_folder_for(Path(self._folder))
 
     def get_folders_and_files(self) -> dict[str, list[str]]:
         """Get lists of device folders and files in the scan directory."""
@@ -616,9 +580,7 @@ class ScanPaths:
     def load_scan_info(self):
         """Load scan configuration information from the scan info file."""
         self.scan_info.update(
-            read_scan_info_file(
-                self._folder / f"ScanInfoScan{self._tag.number:03d}.ini"
-            )
+            read_scan_info_file(self._folder / f"ScanInfo{Path(self._folder).name}.ini")
         )
         return self.scan_info
 

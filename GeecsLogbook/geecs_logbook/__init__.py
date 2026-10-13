@@ -6,7 +6,7 @@ The package is a *consumer* of scan folders and never creates one.
 
 from geecs_logbook.models import DaySummary, ScanStatus, ScanSummary
 from geecs_logbook.app import __version__, create_app
-from geecs_logbook.scan_reader import read_day, read_scan, scan_status
+from geecs_logbook.scan_reader import read_day, read_scan
 
 __all__ = [
     "DaySummary",
@@ -16,5 +16,4 @@ __all__ = [
     "create_app",
     "read_day",
     "read_scan",
-    "scan_status",
 ]

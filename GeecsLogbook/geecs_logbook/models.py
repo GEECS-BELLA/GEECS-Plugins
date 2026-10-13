@@ -11,11 +11,14 @@ Human commentary is a separate concern and does not appear here.
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal, Optional
+from typing import Optional
 
+from geecs_data_utils.scan_info import ScanEndStatus
 from pydantic import BaseModel, Field
 
-ScanStatus = Literal["success", "failed", "aborted", "incomplete", "unknown"]
+#: A scan's outcome — Data-Utils' vocabulary, shared with the portal's
+#: folder catalog (:func:`geecs_data_utils.scan_info.classify_end_info`).
+ScanStatus = ScanEndStatus
 
 #: How a scan status maps onto the kit's shared status vocabulary
 #: (:data:`geecs_web_theme.STATES`), which is what drives the chip colour.
@@ -91,7 +94,8 @@ class ScanSummary(BaseModel):
         scanner already records, so the logbook displays it rather than
         asking for it again.
     status : ScanStatus
-        Derived from ``ScanEndInfo``; see :func:`~.scan_reader.scan_status`.
+        Derived from ``ScanEndInfo`` and the run-closed evidence; see
+        :func:`geecs_data_utils.scan_info.classify_end_info`.
     failure_reason : str or None
         The text of ``ScanEndInfo`` with its ``fail:`` prefix stripped,
         when the scan failed. ``None`` otherwise.

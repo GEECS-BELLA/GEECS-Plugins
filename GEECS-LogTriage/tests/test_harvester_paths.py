@@ -47,3 +47,20 @@ def test_day_folder_is_parent_of_scans(fake_base):
     folder = day_folder_for(date(2026, 6, 29), "Thomson")
     assert folder.name == "26_0629"
     assert (folder / "scans").name == "scans"
+
+
+def test_scan_folders_use_the_shared_name_rule(fake_base):
+    # geecs_data_utils.scan_info: Scan7 is scan 7 (reported as Scan007);
+    # a non-scan ``Scan*`` folder is not a scan.
+    from geecs_log_triage.harvester import (
+        _iter_scan_folders_for_date,
+        _scan_id_from_folder,
+    )
+
+    day = date(2026, 6, 29)
+    scans = day_folder_for(day, "Thomson") / "scans"
+    for name in ("Scan007", "Scan8", "ScanFoo", "Scan009_old"):
+        (scans / name).mkdir(parents=True)
+    folders = _iter_scan_folders_for_date(day, "Thomson")
+    assert [f.name for f in folders] == ["Scan007", "Scan8"]
+    assert [_scan_id_from_folder(f) for f in folders] == ["Scan007", "Scan008"]

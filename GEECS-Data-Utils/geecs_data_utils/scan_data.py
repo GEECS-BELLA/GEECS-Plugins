@@ -841,7 +841,7 @@ class ScanData:
         """
         tag = self.paths.get_tag()
         scan_txt = self.paths.get_folder() / f"ScanDataScan{tag.number:03d}.txt"
-        analysis_txt = self.paths.get_analysis_folder().parent / f"s{tag.number}.txt"
+        analysis_txt = self.paths.analysis_folder().parent / f"s{tag.number}.txt"
 
         if not scan_txt.exists():
             raise FileNotFoundError(f"Original s-file '{scan_txt}' not found.")

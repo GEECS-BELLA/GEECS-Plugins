@@ -36,14 +36,18 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-from geecs_data_utils.data.sfile import (
-    _SCAN_FOLDER_RE,
-    scan_data_txt_path_for,
-    sfile_path_for_scan,
-)
+from geecs_data_utils.data.sfile import scan_data_txt_path_for, sfile_path_for_scan
 from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+from geecs_data_utils.scan_info import (
+    ScanInfoRecord,
+    classify_end_info,
+    finite_float,
+    parse_scan_folder_name,
+    read_scan_info_file,
+    scan_folder_name,
+)
 from geecs_data_utils.scan_log_loader import first_log_timestamp
-from geecs_data_utils.scan_paths import daily_scan_folder, read_scan_info_file
+from geecs_data_utils.scan_paths import daily_scan_folder
 from geecs_data_utils.tiled_catalog import (
     CatalogStatus,
     RunDetail,
@@ -63,8 +67,17 @@ _FINISHED_CACHE_SIZE = 16384
 #: The s-file column Master Control stamps each shot's wall time into.
 _DATETIME_COLUMN = "DateTime Timestamp"
 
-#: ``Scan Parameter`` values that mean "no variable was stepped".
-_NOSCAN_PARAMETERS = {"", "shotnumber", "noscan", "none"}
+#: :func:`~geecs_data_utils.scan_info.classify_end_info`'s outcome in the
+#: stop document's ``exit_status`` words — the vocabulary every Tiled run
+#: carries, so a folder run and a Bluesky run read alike.  ``incomplete``
+#: has no stop document yet.
+_EXIT_STATUS = {
+    "success": "success",
+    "failed": "fail",
+    "aborted": "abort",
+    "unknown": "unknown",
+    "incomplete": None,
+}
 
 
 def folder_uid(experiment: str, day: date, number: int) -> str:
@@ -113,13 +126,6 @@ def parse_folder_uid(uid: str) -> Optional[tuple[str, date, int]]:
         return None
 
 
-def _float(raw: Optional[str]) -> Optional[float]:
-    try:
-        return float(raw) if raw not in (None, "") else None
-    except ValueError:
-        return None
-
-
 def _sfile_head(scan_dir: Path) -> tuple[list[str], list[str], bool]:
     """Read an s-file's header and first data row — two lines, never the file.
 
@@ -156,7 +162,7 @@ def _on_day(epoch: Optional[float], day: date) -> bool:
 
 
 def _start_time(
-    scan_dir: Path, number: int, header: list[str], first: list[str], day: date
+    scan_dir: Path, header: list[str], first: list[str], day: date
 ) -> tuple[float, bool]:
     """When the scan started, and whether that time is only approximate.
 
@@ -169,7 +175,7 @@ def _start_time(
     """
     if _DATETIME_COLUMN in header:
         index = header.index(_DATETIME_COLUMN)
-        raw = _float(first[index]) if index < len(first) else None
+        raw = finite_float(first[index]) if index < len(first) else None
         if raw is not None and raw > LABVIEW_EPOCH_OFFSET:
             epoch = raw - LABVIEW_EPOCH_OFFSET
             if _on_day(epoch, day):
@@ -178,7 +184,7 @@ def _start_time(
     if logged is not None and _on_day(logged.timestamp(), day):
         return logged.timestamp(), False
     try:
-        mtime = (scan_dir / f"ScanInfoScan{number:03d}.ini").stat().st_mtime
+        mtime = (scan_dir / f"ScanInfo{scan_dir.name}.ini").stat().st_mtime
     except OSError:
         mtime = None
     if _on_day(mtime, day):
@@ -199,29 +205,6 @@ def _scan_variable_column(parameter: str, header: list[str]) -> str:
         if column.startswith(f"{parameter} Alias:"):
             return column
     return parameter
-
-
-def _exit_status(end_info: str, closed: bool) -> Optional[str]:
-    """``ScanEndInfo`` when it says something, else the run-closed evidence.
-
-    The ``ScanEndInfo`` words follow the logbook's ``scan_status``
-    (``success`` / ``fail…`` / ``abort…``; any other text is ``unknown``,
-    never promoted to success).  Master Control leaves ``ScanEndInfo``
-    empty on every scan, finished or not, so there an empty value falls
-    back to the s-file evidence (:func:`_sfile_head`) — the portal needs a
-    finished verdict to cache and to serve a completed run as immutable.
-    With neither, the scan reads as still running (``None``).
-    """
-    text = end_info.strip().lower()
-    if text == "success":
-        return "success"
-    if text.startswith("fail"):
-        return "fail"
-    if text.startswith("abort"):
-        return "abort"
-    if text:
-        return "unknown"
-    return "success" if closed else None
 
 
 def folder_start_doc(
@@ -246,32 +229,53 @@ def folder_start_doc(
         ``(start_doc, stop_doc)`` in the keys ``tiled_schema`` reads; the
         stop document is empty while the scan looks unfinished.
     """
-    info = read_scan_info_file(scan_dir / f"ScanInfoScan{number:03d}.ini")
+    info = ScanInfoRecord.from_ini(
+        read_scan_info_file(scan_dir / f"ScanInfo{scan_dir.name}.ini")
+    )
     header, first, closed = _sfile_head(scan_dir)
-    started, approximate = _start_time(scan_dir, number, header, first, day)
+    started, approximate = _start_time(scan_dir, header, first, day)
     start_doc: dict = {
         "scan_number": number,
         "experiment": experiment,
         "time": started,
         "time_approximate": approximate,
-        "description": info.get("ScanStartInfo", ""),
+        "description": info.purpose or "",
         "scan_folder": str(scan_dir),
         "source": "folder",
     }
-    parameter = info.get("Scan Parameter", "").strip()
-    start = _float(info.get("Start"))
-    end = _float(info.get("End"))
-    step = _float(info.get("Step size"))
-    shots_per_step = _float(info.get("Shots per step"))
-    if parameter.lower() not in _NOSCAN_PARAMETERS:
-        start_doc["motors"] = [_scan_variable_column(parameter, header)]
+    start, end, step = info.start, info.end, info.step_size
+    if not info.noscan and info.parameter:
+        start_doc["motors"] = [_scan_variable_column(info.parameter, header)]
         start_doc["plan_pattern"] = "inner_product"
-    if None not in (start, end, step, shots_per_step) and step:
+    if (
+        start is not None
+        and end is not None
+        and step
+        and info.shots_per_step is not None
+    ):
         start_doc["num_points"] = int(round(abs(end - start) / abs(step))) + 1
-        start_doc["shots_per_step"] = int(shots_per_step)
-    status = _exit_status(info.get("ScanEndInfo", ""), closed)
+        start_doc["shots_per_step"] = info.shots_per_step
+    status = _EXIT_STATUS[classify_end_info(info.end_info, closed=closed)]
     stop_doc = {"exit_status": status} if status else {}
     return start_doc, stop_doc
+
+
+def _scan_folders(scans_dir: Path) -> dict[int, Path]:
+    """A day's scan folders by number, from one ``os.scandir``.
+
+    The entry type comes with the listing, so telling a ``ScanNNN`` folder
+    from a file costs no per-entry stat on the share.  Should both
+    ``Scan007`` and ``Scan7`` exist, the canonical (padded) name wins.
+    """
+    found: dict[int, Path] = {}
+    with os.scandir(scans_dir) as entries:
+        for entry in entries:
+            number = parse_scan_folder_name(entry.name)
+            if number is None or not entry.is_dir():
+                continue
+            if number not in found or entry.name == scan_folder_name(number):
+                found[number] = Path(entry.path)
+    return found
 
 
 class FolderScanCatalog:
@@ -367,17 +371,10 @@ class FolderScanCatalog:
         # .../{experiment}/Y{YYYY}/{MM-Month}/{YY_MMDD}/scans
         resolved_experiment = scans_dir.parents[3].name
         summaries = []
-        # scandir: the entry type comes with the listing, so telling a
-        # ScanNNN folder from a file costs no per-entry stat on the share.
-        with os.scandir(scans_dir) as entries:
-            folders = sorted(
-                (int(match.group("number")), Path(entry.path))
-                for entry in entries
-                if (match := _SCAN_FOLDER_RE.match(entry.name))
-                and int(match.group("number")) not in skip
-                and entry.is_dir()
-            )
-        for number, scan_dir in folders:
+        folders = _scan_folders(scans_dir)
+        for number, scan_dir in sorted(folders.items()):
+            if number in skip:
+                continue
             start_doc, stop_doc = self._documents(
                 scan_dir, resolved_experiment, day, number
             )
@@ -413,8 +410,13 @@ class FolderScanCatalog:
             raise KeyError(f"not a folder run uid: {uid!r}")
         experiment, day, number = parts
         scans_dir = self._scans_dir(experiment, day)
-        scan_dir = None if scans_dir is None else scans_dir / f"Scan{number:03d}"
-        if scan_dir is None or not scan_dir.is_dir():
+        scan_dir: Optional[Path] = None
+        if scans_dir is not None:
+            scan_dir = scans_dir / scan_folder_name(number)
+            if not scan_dir.is_dir():
+                # An unpadded folder (``Scan7``) lists under its number too.
+                scan_dir = _scan_folders(scans_dir).get(number)
+        if scan_dir is None:
             raise KeyError(f"no scan folder for {uid!r}")
         start_doc, stop_doc = self._documents(scan_dir, experiment, day, number)
         return RunDetail(
