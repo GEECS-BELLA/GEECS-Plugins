@@ -4,5 +4,7 @@
   "max_complexity": 10,
   "max_branches": 12,
   "max_statements": 50,
-  "rules_off": 0
+  "rules_off": 0,
+  "rogue_configs": 0,
+  "excludes": 2
 }

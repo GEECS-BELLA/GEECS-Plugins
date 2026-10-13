@@ -88,7 +88,8 @@ def repo(tmp_path: Path) -> Path:
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "quality_baseline.json").write_text(
         '{"stamps": 1, "noqa": 0, "max_complexity": 10, '
-        '"max_branches": 12, "max_statements": 50, "rules_off": 0}\n'
+        '"max_branches": 12, "max_statements": 50, "rules_off": 0, '
+        '"rogue_configs": 0, "excludes": 0}\n'
     )
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
@@ -102,7 +103,7 @@ def _add(repo: Path, name: str, text: str) -> None:
 
 def test_scoreboard_excludes_and_groups(repo: Path) -> None:
     board = qs.scoreboard(repo)
-    assert set(board) == {"Pkg", "(pyproject)"}  # extras/ excluded
+    assert set(board) == {"Pkg", "(ruff config)"}  # extras/ excluded
     assert board["Pkg"]["stamps"] == 1
     assert qs.pyright_packages(repo) == {"Pkg"}
 
@@ -130,31 +131,76 @@ def test_lower_count_asks_and_update_rewrites(
     assert baseline["stamps"] == 0 and baseline["rules_off"] == 0
 
 
-def test_config_escapes_are_ratcheted(repo: Path) -> None:
-    pyproject = repo / "pyproject.toml"
-    pyproject.write_text(PYPROJECT.format(cx=15))
-    assert qs.main(["--root", str(repo), "--check"]) == 1
-    pyproject.write_text(
-        PYPROJECT.format(cx=10)
-        + '[tool.ruff.lint.per-file-ignores]\n"Pkg/**" = ["PLR0915"]\n'
-    )
-    assert qs.main(["--root", str(repo), "--check"]) == 1
-    pyproject.write_text(PYPROJECT.format(cx=10).replace(', "PLR0915"]', "]"))
-    assert qs.main(["--root", str(repo), "--check"]) == 1  # deselected
-    pyproject.write_text(
-        PYPROJECT.format(cx=10).replace(
-            "[tool.ruff.lint]\n", '[tool.ruff.lint]\nignore = ["PLR09"]\n'
+LINT = "[tool.ruff.lint]\n"
+PREFIXES = ["C901", "PLR0912", "PLR0915", "C90", "PLR09", "PLR", "C", "ALL"]
+ROOT = PYPROJECT.format(cx=10)
+ESCAPES = {
+    "max-complexity": ("pyproject.toml", PYPROJECT.format(cx=15)),
+    "max-statements": (
+        "pyproject.toml",
+        ROOT + "[tool.ruff.lint.pylint]\nmax-statements = 80\n",
+    ),
+    "max-branches": (
+        "pyproject.toml",
+        ROOT + "[tool.ruff.lint.pylint]\nmax-branches = 20\n",
+    ),
+    "deselected": ("pyproject.toml", ROOT.replace(', "PLR0915"]', "]")),
+    "select-replaced": (
+        "pyproject.toml",
+        ROOT.replace("extend-select", "select").replace('"C901", ', ""),
+    ),
+    "legacy-top-level-ignore": (
+        "pyproject.toml",
+        ROOT.replace(
+            "[tool.ruff.lint]\n", '[tool.ruff]\nignore = ["C90"]\n[tool.ruff.lint]\n'
+        ),
+    ),
+    "lint-exclude": (
+        "pyproject.toml",
+        ROOT.replace(LINT, LINT + 'exclude = ["Pkg/**"]\n'),
+    ),
+    "extend-exclude": (
+        "pyproject.toml",
+        ROOT.replace(
+            "[tool.ruff.lint]\n",
+            '[tool.ruff]\nextend-exclude = ["Pkg"]\n[tool.ruff.lint]\n',
+        ),
+    ),
+    "package-ruff-table": ("Pkg/pyproject.toml", '[tool.ruff.lint]\nselect = ["E"]\n'),
+    "package-ruff-toml": ("Pkg/ruff.toml", "line-length = 100\n"),
+    "package-dot-ruff-toml": ("Pkg/.ruff.toml", "line-length = 100\n"),
+    "extending-child-ignores": (
+        "Pkg/ruff.toml",
+        'extend = "../pyproject.toml"\n[lint]\nignore = ["PLR"]\n',
+    ),
+}
+for code in PREFIXES:
+    for key in ("ignore", "extend-ignore"):
+        ESCAPES[f"{key}-{code}"] = (
+            "pyproject.toml",
+            ROOT.replace(LINT, LINT + f'{key} = ["{code}"]\n'),
         )
-    )
-    assert qs.main(["--root", str(repo), "--check"]) == 1  # prefix-ignored
-    pyproject.write_text(
-        PYPROJECT.format(cx=10) + "[tool.ruff.lint.pylint]\nmax-statements = 80\n"
-    )
+    for key in ("per-file-ignores", "extend-per-file-ignores"):
+        ESCAPES[f"{key}-{code}"] = (
+            "pyproject.toml",
+            ROOT + f'[tool.ruff.lint.{key}]\n"**/*.py" = ["{code}"]\n',
+        )
+
+
+@pytest.mark.parametrize("name", sorted(ESCAPES))
+def test_config_escapes_are_ratcheted(repo: Path, name: str) -> None:
+    path, text = ESCAPES[name]
+    (repo / path).write_text(text)
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
     assert qs.main(["--root", str(repo), "--check"]) == 1
-    pyproject.write_text(
-        PYPROJECT.format(cx=10) + "[tool.ruff.lint.pylint]\nmax-branches = 20\n"
+
+
+def test_extending_child_without_escapes_passes(repo: Path) -> None:
+    (repo / "Pkg" / "ruff.toml").write_text(
+        'extend = "../pyproject.toml"\nline-length = 100\n'
     )
-    assert qs.main(["--root", str(repo), "--check"]) == 1
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    assert qs.main(["--root", str(repo), "--check"]) == 0
 
 
 def test_file_deleted_from_disk_is_skipped(repo: Path) -> None:

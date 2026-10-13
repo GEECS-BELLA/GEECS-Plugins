@@ -16,10 +16,11 @@ Lines are matched as text, so a noqa spelled inside a string literal counts.
 
 ``--check`` exits 1 when the stamp or noqa total EXCEEDS
 ``scripts/quality_baseline.json``; a lower total asks for the baseline to
-be lowered, which ``--update`` does. The root ``pyproject.toml`` counts too:
-each ``per-file-ignores`` glob naming a complexity code is a stamp (the
-``(pyproject)`` row); the three thresholds and ``rules_off`` (complexity
-codes not selected, or ignored) are ratcheted the same way. The
+be lowered, which ``--update`` does. The ruff configs count too (see
+``config_totals``): a per-file-ignores glob naming a complexity code is a
+stamp (the ``(ruff config)`` row), and the three thresholds, ``rules_off``
+(complexity codes deselected or ignored, prefixes included),
+``rogue_configs`` and ``excludes`` are ratcheted the same way. The
 doc_audit advisory count is not a column: the audit takes ~15 s and
 ``scripts/check.sh`` already prints it.
 """
@@ -45,6 +46,8 @@ RATCHETED = (
     "max_branches",
     "max_statements",
     "rules_off",
+    "rogue_configs",
+    "excludes",
 )
 COMPLEXITY_CODES = ("C901", "PLR0912", "PLR0915")
 COLUMNS = ("stamps", "noqa", "Any", ">80")
@@ -144,11 +147,70 @@ def scoreboard(root: Path) -> dict[str, Counter[str]]:
             continue
         source = (root / path).read_text(encoding="utf-8", errors="replace")
         board[package_of(root, path)] += count_source(source)
-    ignores = pyproject_tool(root, "ruff").get("lint", {}).get("per-file-ignores", {})
-    board["(pyproject)"]["stamps"] += sum(
-        1 for codes in ignores.values() if STAMP.search(" ".join(codes))
-    )
+    board["(ruff config)"]["stamps"] += config_totals(root)["stamps"]
     return dict(board)
+
+
+def hit(code: str, entries: list[str]) -> bool:
+    """Whether a ruff rule selector list names ``code`` (ruff matches prefixes)."""
+    return any(e == "ALL" or code.startswith(e) for e in entries)
+
+
+def config_totals(root: Path) -> Counter[str]:
+    """Ways the tracked ruff configs switch the complexity rules off.
+
+    Every tracked ``pyproject.toml`` with a ``[tool.ruff]`` table, and every
+    ``ruff.toml`` / ``.ruff.toml``, is read; ``lint.*`` keys override the
+    legacy top-level ones. A config below the root that does not ``extend``
+    another is a rogue: ruff uses the nearest config, so it would replace
+    the root wholesale.
+    """
+    out = subprocess.run(
+        ["git", "ls-files", "-z", "*pyproject.toml", "*ruff.toml"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    totals: Counter[str] = Counter()
+    for path in filter(None, out.split("\0")):
+        if not (root / path).is_file():
+            continue
+        with open(root / path, "rb") as fh:
+            data = tomllib.load(fh)
+        if path.endswith("pyproject.toml"):
+            if "ruff" not in data.get("tool", {}):
+                continue
+            data = data["tool"]["ruff"]
+        is_root = path == "pyproject.toml"
+        cfg = {**data, **data.get("lint", {})}
+        if not is_root and "extend" not in cfg:
+            totals["rogue_configs"] += 1
+        totals["excludes"] += len(
+            cfg.get("exclude", []) + cfg.get("extend-exclude", [])
+        )
+        ignored = cfg.get("ignore", []) + cfg.get("extend-ignore", [])
+        totals["rules_off"] += sum(hit(c, ignored) for c in COMPLEXITY_CODES)
+        if is_root or "select" in cfg:
+            selected = cfg.get("select", []) + cfg.get("extend-select", [])
+            totals["rules_off"] += sum(not hit(c, selected) for c in COMPLEXITY_CODES)
+        per_file = {
+            **cfg.get("per-file-ignores", {}),
+            **cfg.get("extend-per-file-ignores", {}),
+        }
+        totals["stamps"] += sum(
+            any(hit(c, codes) for c in COMPLEXITY_CODES) for codes in per_file.values()
+        )
+        # Unset thresholds take ruff's defaults (10 / 12 / 50) at the root.
+        for table, key, default in (
+            ("mccabe", "max-complexity", 10),
+            ("pylint", "max-branches", 12),
+            ("pylint", "max-statements", 50),
+        ):
+            name = key.replace("-", "_")
+            value = cfg.get(table, {}).get(key, default if is_root else 0)
+            totals[name] = max(totals[name], value)
+    return totals
 
 
 def pyproject_tool(root: Path, tool: str) -> dict:  # free-form TOML table
@@ -176,7 +238,7 @@ def render(board: dict[str, Counter[str]], pyright: set[str]) -> str:
                 "yes" if pkg in pyright else "",
             )
         )
-    packages = board.keys() - {"(repo)", "(pyproject)"}
+    packages = board.keys() - {"(repo)", "(ruff config)"}
     rows.append(
         (
             "TOTAL",
@@ -237,22 +299,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     board = scoreboard(args.root)
     totals = {k: sum(c[k] for c in board.values()) for k in ("stamps", "noqa")}
-    lint = pyproject_tool(args.root, "ruff").get("lint", {})
-    totals["max_complexity"] = lint.get("mccabe", {}).get("max-complexity", 10)
-    pylint = lint.get("pylint", {})  # ruff's defaults for PLR0912 / PLR0915
-    totals["max_branches"] = pylint.get("max-branches", 12)
-    totals["max_statements"] = pylint.get("max-statements", 50)
-    selected = set(lint.get("select", [])) | set(lint.get("extend-select", []))
-    ignored = set(lint.get("ignore", [])) | set(lint.get("extend-ignore", []))
-
-    # ruff matches prefixes ("PLR09", "C90", "ALL"), so a code is on when a
-    # select entry prefixes it and no ignore entry does.
-    def hit(code: str, entries: set[str]) -> bool:
-        return any(e == "ALL" or code.startswith(e) for e in entries)
-
-    totals["rules_off"] = sum(
-        not hit(c, selected) or hit(c, ignored) for c in COMPLEXITY_CODES
-    )
+    config = config_totals(args.root)
+    totals.update({k: config[k] for k in RATCHETED[2:]})
     if args.check or args.update:
         status = ratchet(
             totals, args.root / BASELINE.relative_to(REPO_ROOT), args.update
