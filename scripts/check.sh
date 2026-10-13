@@ -216,8 +216,8 @@ select_lint_runner() {
 # Stdlib-only, but Python >= 3.11 (tomllib): prefer the root env's python
 # over whatever `python3` is on PATH (macOS ships 3.9). Quiet on success;
 # the full report on failure.
-run_doc_audit() {
-    local py=python3 root_env="" report
+root_python() {  # root_python <what> — prints the interpreter, or fails loudly
+    local py=python3 root_env=""
     if command -v poetry >/dev/null 2>&1; then
         root_env="$(poetry env info --path 2>/dev/null || true)"
     fi
@@ -225,9 +225,15 @@ run_doc_audit() {
         py="$root_env/bin/python"
     fi
     if ! "$py" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
-        echo "check.sh: the doc audit needs Python >= 3.11 ($py is older) — run 'poetry install' at the repo root (see /env-doctor)" >&2
+        echo "check.sh: $1 needs Python >= 3.11 ($py is older) — run 'poetry install' at the repo root (see /env-doctor)" >&2
         return 1
     fi
+    echo "$py"
+}
+
+run_doc_audit() {
+    local py report
+    py="$(root_python "the doc audit")" || return 1
     report="$(mktemp)"
     if "$py" scripts/doc_audit.py --strict > "$report"; then
         echo "   doc audit: $(grep -o '^\*\*.*\*\*' "$report" | tr -d '*')"
@@ -237,6 +243,17 @@ run_doc_audit() {
     cat "$report"
     rm -f "$report"
     return 1
+}
+
+# The quality ratchet (scripts/quality_scoreboard.py --check), the way CI's
+# doc-audit workflow runs it: the complexity-baseline stamps and the other
+# noqa lines may not exceed scripts/quality_baseline.json. Whole tree,
+# stdlib-only, about a second; same Python >= 3.11 pick as the doc audit.
+run_quality_ratchet() {
+    local py
+    py="$(root_python "the quality ratchet")" || return 1
+    "$py" scripts/quality_scoreboard.py --check | sed 's/^/   /'
+    return "${PIPESTATUS[0]}"
 }
 
 # Pyright (basic) over the [tool.pyright] include set — the four leaf
@@ -267,6 +284,7 @@ elif [ "$MODE" = "all" ]; then
     select_lint_runner
     "${PC[@]}" run --all-files || LINT_OK=0
     run_doc_audit || LINT_OK=0
+    run_quality_ratchet || LINT_OK=0
     run_pyright || LINT_OK=0
 elif [ "${#CHANGED[@]}" -gt 0 ]; then
     # Only lint files that still exist (deletions have nothing to lint).
@@ -283,6 +301,7 @@ elif [ "${#CHANGED[@]}" -gt 0 ]; then
         echo "   (nothing to lint)"
     fi
     run_doc_audit || LINT_OK=0
+    run_quality_ratchet || LINT_OK=0
     run_pyright || LINT_OK=0
 else
     echo "   (nothing to lint)"
