@@ -25,7 +25,7 @@ geecs_scanner/
     scanner.py    ScannerService: the verbs over the injected client + resolver
     models.py     every answer as a Pydantic model; `state` fields are kit words
     summaries.py  a stock plan item → one line + planned shots (ported from the console)
-    streams.py    ProgressCache: the document + console streams reduced to a picture
+    streams.py    StreamCache: qs_client ProgressStream + the console ring + optimization record
     demo.py       DemoQueueClient / DemoResolver / demo_preflight — a manager in memory
     errors.py     ScannerError(kind, message, **extra); kind → HTTP status in one table
     actions.py    the action-plan preview: flatten nested runs over the schema models
@@ -163,7 +163,7 @@ resolves defaults and required devices before both preflight and submission.
 Saved presets retain the authored devices/kwargs; expansion happens only for
 preflight/submission through the shared client seam.
 Expanded required devices have `essential=True` and `save_images=True` even
-when an authored table row says otherwise. ProgressCache reduces the worker's `optimization` stream; NaN
+when an authored table row says otherwise. StreamCache reduces the worker's `optimization` stream; NaN
 becomes null for JSON. Set to best takes a run UID, rejects stale/incomplete
 runs, unsuccessful runs, offers older than 15 minutes, and offers invalidated
 by a service-submitted move/action. It records the requesting operator and

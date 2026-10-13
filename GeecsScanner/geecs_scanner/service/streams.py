@@ -1,42 +1,26 @@
-"""The latest-run picture, fed by the two 0MQ streams a browser cannot read.
+"""The scanner's stream cache: the shared progress picture plus what the page adds.
 
-The worker's document stream on the proxy out-port is **pickled Python**
-(qserver DEPLOYMENT.md: a non-Python subscriber "is not offered today"),
-and the manager's console-output stream is 0MQ too.  So this process
-consumes both, reduces them to one small picture, and the web layer hands
-that picture to the page over Server-Sent Events as JSON.  The pickled
-wire format never leaves the process.
-
-The reduction is live-verified: the start document seeds
-the scan number and the planned total (``num_points × shots_per_step``,
-falling back to ``max_iterations`` for adaptive plans — the Scan013
-lesson: never inherit the previous run's total), primary-stream events
-advance ``shots_done``, the stop document records the exit.  A console
-line carrying :data:`~geecs_bluesky.qs_client.FAILED_MOVE_LOG_PREFIX`
-becomes the paused run's *why*.
-
-Best-effort by design, under the zmq threading rules (#653): the
-consumer threads are daemons, ``stop`` does not exist — a zmq socket must
-never be touched from another thread (a cross-thread close can abort the
-process) — so the threads live for the process lifetime and emission is
-gated by the cache's lock.  A stream that cannot be set up marks the
-picture unavailable with a reason; the manager poll stays authoritative.
+The worker's document stream is pickled Python and the manager's console
+stream is 0MQ, so this process consumes both and the web layer hands the
+result to the page over Server-Sent Events as JSON; the pickled wire format
+never leaves the process.  The run's progress is reduced by
+:class:`geecs_bluesky.qs_client.progress.ProgressStream`, shared with every
+queue client; this subclass keeps the ring of console lines a late-joining page
+replays and the latest optimization record.
 """
 
 from __future__ import annotations
 
-import logging
 import math
-import threading
 import time
-from geecs_bluesky.optimization.events import OptimizationRole, optimization_name
 from collections import deque
 from collections.abc import Callable
 from typing import Any, Optional
 
-from geecs_scanner.service.models import ConsoleLine, ProgressOut, OptimizationOut
+from geecs_bluesky.optimization.events import OptimizationRole, optimization_name
+from geecs_bluesky.qs_client.progress import ProgressStream
 
-logger = logging.getLogger("geecs_scanner.streams")
+from geecs_scanner.service.models import ConsoleLine, OptimizationOut
 
 #: Console lines kept for late-joining pages.
 _CONSOLE_KEEP = 400
@@ -44,33 +28,17 @@ _CONSOLE_KEEP = 400
 #: An explicit best move is offered for fifteen minutes after successful completion.
 SET_BEST_MAX_AGE_S = 15 * 60
 
-#: The streams whose events are shots.  A strict run's rows are ``primary``
-#: events; a gated run's ``primary`` is datum-only and its per-shot rows are
-#: the sampler's ``shots`` stream (phase 2, ``plans/gated.py``).  The same
-#: pair the s-file writer counts (``geecs_bluesky.callbacks.ROW_STREAMS``);
-#: ``tests/test_streams.py`` pins the two together.  Spelled here rather
-#: than imported because ``callbacks`` drags the engine in.
-ROW_STREAMS: tuple[str, ...] = ("primary", "shots")
 
-
-class ProgressCache:
-    """Lock-protected latest-run picture plus a ring of console lines.
+class StreamCache(ProgressStream):
+    """The shared progress picture plus a ring of console lines and the optimization record.
 
     Feed it from the real streams with :meth:`ensure_started`, or directly
     with :meth:`on_document` / :meth:`push_console_line` (tests, the demo
-    backend).  :meth:`version` changes whenever anything changed, so a
-    poller can skip unchanged rounds.
+    backend).
     """
 
     def __init__(self, clock: Callable[[], float] = time.time) -> None:
-        self._lock = threading.Lock()
-        self._clock = clock
-        self._started = False
-        self._doc_addr: Optional[str] = None
-        self._available = False
-        self._detail = "stream cache not started"
-        self._state: dict[str, Any] = {}
-        self._rows: set[str] = set()
+        super().__init__(clock=clock, thread_prefix="geecs-scanner")
         self._optimization = OptimizationOut()
         self._optimization_streams: set[str] = set()
         self._console: deque[ConsoleLine] = deque(maxlen=_CONSOLE_KEEP)
@@ -78,21 +46,8 @@ class ProgressCache:
         #: Distinguishes this process's sequence numbers from a restarted
         #: one's — a reconnecting page must not take a low seq for "seen".
         self.epoch = f"{int(clock() * 1000):x}"
-        self._version = 0
 
     # ---------------------------------------------------------------- read
-
-    def version(self) -> int:
-        """A counter that changes with every update."""
-        with self._lock:
-            return self._version
-
-    def snapshot(self) -> ProgressOut:
-        """The picture as the page reads it."""
-        with self._lock:
-            return ProgressOut(
-                available=self._available, detail=self._detail, **self._state
-            )
 
     def optimization(self) -> OptimizationOut:
         """Copy the latest optimization record under the stream lock."""
@@ -117,222 +72,79 @@ class ProgressCache:
 
     # ---------------------------------------------------------------- feed
 
-    def mark_available(self, available: bool, detail: str = "") -> None:
-        """Record whether the document stream is being consumed."""
+    def on_document(self, name: str, doc: dict) -> None:
+        """Reduce one bluesky document into the picture and the optimization record."""
         with self._lock:
-            self._available = available
-            self._detail = detail
-            self._version += 1
+            self._reduce_optimization(name, doc, self._clock())
+            super().on_document(name, doc)
 
-    def on_document(self, name: str, doc: dict) -> None:  # noqa: C901, PLR0912, PLR0915
-        """Reduce one bluesky document into the picture."""
-        with self._lock:
-            now = self._clock()
-            if name == "start":
-                self._rows = set()
-                self._optimization_streams = set()
-                self._optimization = OptimizationOut()
-                if doc.get("plan_name") == "optimize":
-                    self._optimization = OptimizationOut(
-                        run_uid=doc.get("uid"),
-                        config=doc.get("optimizer_config"),
-                        scan_number=_as_int(doc.get("scan_number")),
-                        started_at=doc.get("time", now),
-                        max_iterations=doc.get("max_iterations"),
-                        objectives=doc.get("optimization_objectives", []),
-                        best_moves=dict.fromkeys(
-                            doc.get("optimization_move_targets", [])
-                        ),
-                    )
-                num_points = doc.get("num_points") or doc.get("max_iterations")
-                shots = doc.get("shots_per_step")
-                total: Optional[int] = None
-                try:
-                    if num_points and shots:
-                        total = int(num_points) * int(shots)
-                    elif doc.get("plan_name") == "count" and num_points:
-                        total = int(num_points)
-                except (TypeError, ValueError):
-                    total = None
-                tag = (
-                    doc.get("scan_tag") if isinstance(doc.get("scan_tag"), dict) else {}
-                )
-                day = None
-                try:
-                    if tag.get("year") and tag.get("month") and tag.get("day"):
-                        day = f"{int(tag['year']):04d}-{int(tag['month']):02d}-{int(tag['day']):02d}"
-                except (TypeError, ValueError):
-                    day = None
-                self._state = {
-                    "scan_number": _as_int(doc.get("scan_number")),
-                    "scan_folder": str(doc["scan_folder"])
-                    if doc.get("scan_folder")
-                    else None,
-                    "day": day,
-                    "plan_name": doc.get("plan_name"),
-                    "planned_total": total,
-                    "shots_done": 0,
-                    "state": "running",
-                    "exit_status": None,
-                    "paused_reason": None,
-                    "updated_at": now,
-                }
-            elif name == "descriptor":
-                if doc.get("name") in ROW_STREAMS and doc.get("uid"):
-                    self._rows.add(str(doc["uid"]))
-                if doc.get("name") == "optimization" and doc.get("uid"):
-                    self._optimization_streams.add(str(doc["uid"]))
-            elif name == "event":
-                if str(doc.get("descriptor")) in self._optimization_streams:
-                    data = doc.get("data", {})
-                    self._optimization.iteration = _as_int(data.get("iteration")) or 0
-                    for field, prefix in (
-                        ("proposal", OptimizationRole.PROPOSAL + ":"),
-                        ("measured", OptimizationRole.MEASURED + ":"),
-                        ("outputs", OptimizationRole.OUTPUT + ":"),
-                        ("valid_shots", OptimizationRole.VALID_SHOTS + ":"),
-                        ("best", OptimizationRole.BEST + ":"),
-                        ("best_moves", OptimizationRole.BEST_MOVE + ":"),
-                    ):
-                        setattr(
-                            self._optimization,
-                            field,
-                            {
-                                optimization_name(key[len(prefix) :]): _finite(value)
-                                for key, value in data.items()
-                                if key.startswith(prefix)
-                            },
-                        )
-                if str(doc.get("descriptor")) in self._rows:
-                    self._count_rows(_as_int(doc.get("seq_num")) or 0, now)
-            elif name == "event_page":
-                # A gated run's ``shots`` rows arrive as pages (the sampler's
-                # collect), several per batch.
-                if str(doc.get("descriptor")) in self._rows:
-                    seqs = [_as_int(v) or 0 for v in doc.get("seq_num") or []]
-                    if seqs:
-                        self._count_rows(max(seqs), now)
-            elif name == "stop":
-                status = str(doc.get("exit_status") or "")
-                if (
-                    self._optimization.run_uid
-                    and doc.get("run_start", self._optimization.run_uid)
-                    == self._optimization.run_uid
-                ):
-                    self._optimization.finished = True
-                    self._optimization.exit_status = status
-                    self._optimization.completed_at = min(now, doc.get("time", now))
-                    self._optimization.expires_at = (
-                        self._optimization.completed_at + SET_BEST_MAX_AGE_S
-                    )
-                self._state["exit_status"] = status
-                self._state["state"] = "done" if status == "success" else "aborted"
-                self._state["updated_at"] = now
-            self._version += 1
-
-    def _count_rows(self, seq: int, now: float) -> None:
-        """Rows up to *seq* are recorded (caller holds the lock)."""
-        self._state["shots_done"] = max(seq, int(self._state.get("shots_done") or 0))
-        # Progress proves the resume: a row after a failed-move pause means
-        # the operator resumed, so the reason and the paused word go (the
-        # MCP's finding #683-1).
-        if self._state.get("state") == "paused":
-            self._state["state"] = "running"
-            self._state["paused_reason"] = None
-        self._state["updated_at"] = now
-
-    def push_console_line(
-        self, text: str, failed_move_prefix: Optional[str] = None
-    ) -> None:
-        """Append one console line; a failed-move line sets the paused reason."""
+    def on_console_line(self, text: str, failed_move_prefix: Optional[str]) -> None:
+        """Append one console line to the ring, then reduce it into the picture."""
         with self._lock:
             self._seq += 1
             self._console.append(
                 ConsoleLine(seq=self._seq, text=text, at=self._clock())
             )
-            if failed_move_prefix and failed_move_prefix in text:
-                reason = text.split(failed_move_prefix, 1)[1].lstrip(" :-")
-                self._state["paused_reason"] = reason or text
-                self._state["state"] = "paused"
-            self._version += 1
+            super().on_console_line(text, failed_move_prefix)
 
-    # ----------------------------------------------------------- real streams
+    def push_console_line(
+        self, text: str, failed_move_prefix: Optional[str] = None
+    ) -> None:
+        """Append one console line; a failed-move line sets the paused reason."""
+        self.on_console_line(text, failed_move_prefix)
 
-    def ensure_started(self, doc_addr: Optional[str], info_addr: Optional[str]) -> None:
-        """Start both consumer threads once (idempotent, never raises).
-
-        Once-only by design: the first call's addresses latch for the
-        process lifetime; there is no way to retire a zmq consumer thread
-        safely.  A later call with different addresses warns and is ignored.
-        """
-        with self._lock:
-            if self._started:
-                if doc_addr and doc_addr != self._doc_addr:
-                    logger.warning(
-                        "streams already consuming %r — new address %r ignored "
-                        "(restart the service to re-point streams)",
-                        self._doc_addr,
-                        doc_addr,
+    def _reduce_optimization(self, name: str, doc: dict, now: float) -> None:
+        """The optimization record (caller holds the lock)."""
+        if name == "start":
+            self._optimization_streams = set()
+            self._optimization = OptimizationOut()
+            if doc.get("plan_name") == "optimize":
+                self._optimization = OptimizationOut(
+                    run_uid=doc.get("uid"),
+                    config=doc.get("optimizer_config"),
+                    scan_number=_as_int(doc.get("scan_number")),
+                    started_at=doc.get("time", now),
+                    max_iterations=doc.get("max_iterations"),
+                    objectives=doc.get("optimization_objectives", []),
+                    best_moves=dict.fromkeys(doc.get("optimization_move_targets", [])),
+                )
+        elif name == "descriptor":
+            if doc.get("name") == "optimization" and doc.get("uid"):
+                self._optimization_streams.add(str(doc["uid"]))
+        elif name == "event":
+            if str(doc.get("descriptor")) in self._optimization_streams:
+                data = doc.get("data", {})
+                self._optimization.iteration = _as_int(data.get("iteration")) or 0
+                for field, prefix in (
+                    ("proposal", OptimizationRole.PROPOSAL + ":"),
+                    ("measured", OptimizationRole.MEASURED + ":"),
+                    ("outputs", OptimizationRole.OUTPUT + ":"),
+                    ("valid_shots", OptimizationRole.VALID_SHOTS + ":"),
+                    ("best", OptimizationRole.BEST + ":"),
+                    ("best_moves", OptimizationRole.BEST_MOVE + ":"),
+                ):
+                    setattr(
+                        self._optimization,
+                        field,
+                        {
+                            optimization_name(key[len(prefix) :]): _finite(value)
+                            for key, value in data.items()
+                            if key.startswith(prefix)
+                        },
                     )
-                return
-            self._started = True
-            self._doc_addr = doc_addr
-            if not doc_addr:
-                self._detail = "no document-stream address configured"
-                return
-        threading.Thread(
-            target=self._run_documents,
-            args=(doc_addr,),
-            name="geecs-scanner-docs",
-            daemon=True,
-        ).start()
-        if info_addr:
-            threading.Thread(
-                target=self._run_console,
-                args=(info_addr,),
-                name="geecs-scanner-console",
-                daemon=True,
-            ).start()
-
-    def _run_documents(self, doc_addr: str) -> None:
-        try:
-            from bluesky.callbacks.zmq import RemoteDispatcher
-
-            dispatcher = RemoteDispatcher(doc_addr)
-            dispatcher.subscribe(self.on_document)
-            self.mark_available(True, "")
-            dispatcher.start()  # blocks for the thread's lifetime
-        except Exception as exc:  # noqa: BLE001 — best-effort by design
-            logger.warning("document stream at %s unavailable: %s", doc_addr, exc)
-            self.mark_available(False, f"document stream unavailable: {exc}")
-
-    def _run_console(self, info_addr: str) -> None:
-        try:
-            from bluesky_queueserver_api.console_monitor import (
-                ConsoleMonitor_ZMQ_Threads,
-            )
-
-            from geecs_bluesky.qs_client import FAILED_MOVE_LOG_PREFIX
-
-            monitor = ConsoleMonitor_ZMQ_Threads(
-                zmq_info_addr=info_addr,
-                zmq_encoding="json",
-                poll_timeout=0.5,
-                max_msgs=10_000,
-                max_lines=1_000,
-            )
-            monitor.enable()
-            while True:
-                try:
-                    msg = monitor.next_msg(timeout=0.5)
-                except Exception:  # noqa: BLE001 — a timeout; poll again
-                    continue
-                for raw in str(msg.get("msg", "")).splitlines():
-                    line = raw.rstrip()
-                    if line:
-                        self.push_console_line(line, FAILED_MOVE_LOG_PREFIX)
-        except Exception as exc:  # noqa: BLE001 — best-effort by design
-            logger.warning("console stream at %s unavailable: %s", info_addr, exc)
+        elif name == "stop":
+            status = str(doc.get("exit_status") or "")
+            if (
+                self._optimization.run_uid
+                and doc.get("run_start", self._optimization.run_uid)
+                == self._optimization.run_uid
+            ):
+                self._optimization.finished = True
+                self._optimization.exit_status = status
+                self._optimization.completed_at = min(now, doc.get("time", now))
+                self._optimization.expires_at = (
+                    self._optimization.completed_at + SET_BEST_MAX_AGE_S
+                )
 
 
 def _as_int(value: Any) -> Optional[int]:

@@ -104,7 +104,8 @@ geecs_bluesky/
                             #   (QueueClient, readiness_verdict), presets.py (expand_preset),
                             #   submit_preflight.py (the pre-submit checks, SubmissionRecord),
                             #   ready.py (geecs-qserver-ensure-ready; not imported by
-                            #   the package)
+                            #   the package), progress.py (ProgressStream: the live-run
+                            #   RunProgress every client renders, row streams = callbacks')
   config_resolver.py        # ConfigsRepoResolver: presets, trigger profiles, catalogs,
                             #   actions, optimizer configs, analysis diagnostics
   tiled/integration.py      # subscribe_tiled_spool (the engine's whole Tiled path) +

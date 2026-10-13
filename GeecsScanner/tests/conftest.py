@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from geecs_scanner.service import ProgressCache, ScannerService
+from geecs_scanner.service import StreamCache, ScannerService
 from geecs_scanner.service.demo import (
     DemoQueueClient,
     DemoReadback,
@@ -19,12 +19,12 @@ from geecs_scanner.web import create_app
 
 
 @pytest.fixture
-def streams() -> ProgressCache:
-    return ProgressCache(clock=lambda: 1_000.0)
+def streams() -> StreamCache:
+    return StreamCache(clock=lambda: 1_000.0)
 
 
 @pytest.fixture
-def manager(streams: ProgressCache) -> DemoQueueClient:
+def manager(streams: StreamCache) -> DemoQueueClient:
     return DemoQueueClient(
         streams, period=0.0, first_scan=46, user="geecs-scanner test"
     )
@@ -32,7 +32,7 @@ def manager(streams: ProgressCache) -> DemoQueueClient:
 
 @pytest.fixture
 def service(
-    manager: DemoQueueClient, streams: ProgressCache, tmp_path: Path
+    manager: DemoQueueClient, streams: StreamCache, tmp_path: Path
 ) -> ScannerService:
     # The writer's heartbeat is read from a path of the test's own, never
     # from the developer's ~/.local/state (or wherever GEECS_TILED_WRITER_STATE

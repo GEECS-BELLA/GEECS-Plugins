@@ -6,7 +6,7 @@ returns a Pydantic model or raises :class:`ScannerError`.  The web layer
 is three lines per route over it; tests drive it directly.
 """
 
-__all__ = ["ProgressCache", "ScannerError", "ScannerService"]
+__all__ = ["StreamCache", "ScannerError", "ScannerService"]
 
 
 def __getattr__(name: str):
@@ -14,7 +14,7 @@ def __getattr__(name: str):
     from importlib import import_module
 
     modules = {
-        "ProgressCache": "streams",
+        "StreamCache": "streams",
         "ScannerError": "errors",
         "ScannerService": "scanner",
     }

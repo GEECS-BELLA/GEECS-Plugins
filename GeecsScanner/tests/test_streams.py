@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from geecs_scanner.service.streams import ProgressCache
+from geecs_scanner.service.streams import StreamCache
 
 
 def test_start_seeds_total_and_never_inherits_the_previous_run() -> None:
-    c = ProgressCache(clock=lambda: 5.0)
+    c = StreamCache(clock=lambda: 5.0)
     c.on_document(
         "start",
         {
@@ -40,7 +40,7 @@ def test_start_seeds_total_and_never_inherits_the_previous_run() -> None:
 
 
 def test_gated_rows_on_the_shots_stream_count_too() -> None:
-    c = ProgressCache()
+    c = StreamCache()
     c.on_document(
         "start",
         {"scan_number": 5, "plan_name": "scan", "num_points": 3, "shots_per_step": 4},
@@ -56,16 +56,8 @@ def test_gated_rows_on_the_shots_stream_count_too() -> None:
     assert c.snapshot().shots_done == 5
 
 
-def test_row_streams_are_the_sfile_writers() -> None:
-    from geecs_bluesky.callbacks import ROW_STREAMS as ENGINE_ROWS
-
-    from geecs_scanner.service.streams import ROW_STREAMS
-
-    assert tuple(ROW_STREAMS) == tuple(ENGINE_ROWS)
-
-
 def test_count_total_is_its_num() -> None:
-    c = ProgressCache()
+    c = StreamCache()
     c.on_document(
         "start",
         {"scan_number": 1, "plan_name": "count", "num_points": 50, "shots_per_step": 1},
@@ -74,7 +66,7 @@ def test_count_total_is_its_num() -> None:
 
 
 def test_stop_records_exit_and_console_prefix_sets_the_paused_reason() -> None:
-    c = ProgressCache(clock=lambda: 1.0)
+    c = StreamCache(clock=lambda: 1.0)
     c.on_document(
         "start",
         {"scan_number": 3, "plan_name": "scan", "num_points": 2, "shots_per_step": 2},
@@ -98,9 +90,30 @@ def test_stop_records_exit_and_console_prefix_sets_the_paused_reason() -> None:
 
 
 def test_version_changes_with_every_update() -> None:
-    c = ProgressCache()
+    c = StreamCache()
     v0 = c.version()
     c.push_console_line("hello")
     assert c.version() > v0
     c.mark_available(True, "")
     assert c.snapshot().available is True
+
+
+def test_the_progress_wire_keys() -> None:
+    from geecs_scanner.service.models import ProgressOut
+
+    c = StreamCache(clock=lambda: 2.0)
+    c.on_document("start", {"uid": "r", "scan_number": 1, "plan_name": "count"})
+    assert list(ProgressOut.of(c.snapshot()).model_dump()) == [
+        "available",
+        "detail",
+        "scan_number",
+        "plan_name",
+        "planned_total",
+        "shots_done",
+        "state",
+        "exit_status",
+        "paused_reason",
+        "updated_at",
+        "scan_folder",
+        "day",
+    ]

@@ -7,7 +7,7 @@ advances one shot per :meth:`step` (a background thread calls it every
 step boundary, stops gracefully, finishes into the history with the
 manager's ``result`` shape — and emits the same bluesky documents the real
 worker would (start / descriptor / event / stop) into a
-:class:`~geecs_scanner.service.streams.ProgressCache`, so the SSE stream
+:class:`~geecs_scanner.service.streams.StreamCache`, so the SSE stream
 and the page behave exactly as they will against the worker.
 
 :class:`DemoResolver` holds three real :class:`geecs_schemas.Preset`
@@ -32,7 +32,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Optional
 
-from geecs_scanner.service.streams import ProgressCache
+from geecs_scanner.service.streams import StreamCache
 
 _DEMO_DEVICES = [
     "UC_ALineEBeam3",
@@ -387,7 +387,7 @@ class DemoQueueClient:
 
     Parameters
     ----------
-    streams : ProgressCache, optional
+    streams : StreamCache, optional
         Where the documents and console lines go.
     period : float
         Seconds between shots when self-driving; ``0`` means step by hand.
@@ -403,14 +403,14 @@ class DemoQueueClient:
 
     def __init__(
         self,
-        streams: Optional[ProgressCache] = None,
+        streams: Optional[StreamCache] = None,
         *,
         period: float = 0.0,
         first_scan: int = 46,
         clock: Callable[[], float] = time.time,
         user: str = "geecs-scanner demo",
     ) -> None:
-        self.streams = streams or ProgressCache()
+        self.streams = streams or StreamCache()
         self.streams.mark_available(True, "demo")
         self._clock = clock
         self._lock = threading.RLock()

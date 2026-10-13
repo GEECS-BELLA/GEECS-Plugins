@@ -262,24 +262,26 @@ class _FakeCache:
         self.started_with = (doc_addr, info_addr)
 
     def snapshot(self):
-        return dict(self._snapshot)
+        return self._snapshot.model_copy()
 
 
 def test_scan_progress_merges_stream_picture(wired, monkeypatch):
+    from geecs_bluesky.qs_client.progress import RunProgress
+
     from geecs_mcp.scans import progress_stream
 
     wired.re_state = "running"
     wired.doc_addr = "localhost:5568"
     wired.info_addr = "tcp://localhost:60625"
     cache = _FakeCache(
-        {
-            "available": True,
-            "detail": "",
-            "scan_number": 42,
-            "shots_done": 30,
-            "shots_total": 55,
-            "paused_reason": "U_Hexapod move failed",
-        }
+        RunProgress(
+            available=True,
+            scan_number=42,
+            shots_done=30,
+            planned_total=55,
+            state="paused",
+            paused_reason="U_Hexapod move failed",
+        )
     )
     monkeypatch.setattr(progress_stream, "get_progress_cache", lambda: cache)
     result = _load(control_tools._scan_progress_impl())

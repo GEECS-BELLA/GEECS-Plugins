@@ -383,6 +383,9 @@ ignore_imports =
     # GeecsBluesky/tests/test_lazy_package_import.py.
     geecs_bluesky.qs_client.submit_preflight -> geecs_bluesky.devices.shot_control
     geecs_bluesky.qs_client.submit_preflight -> geecs_bluesky.devices.ca.liveness
+    # The document-stream consumer thread's function-local
+    # RemoteDispatcher import; same runtime pin.
+    geecs_bluesky.qs_client.progress -> bluesky
 
 [importlinter:contract:bluesky-internal-layering]
 name = GeecsBluesky's devices, callbacks and tiled never import plans, qs_client or optimization
