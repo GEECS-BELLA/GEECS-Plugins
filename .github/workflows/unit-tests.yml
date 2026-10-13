@@ -28,17 +28,17 @@ concurrency:
 
 jobs:
   select:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       legs: ${{ steps.pick.outputs.legs }}
       any: ${{ steps.pick.outputs.any }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # ci_select diffs against the merge base, which needs real history.
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -62,7 +62,7 @@ jobs:
   test:
     needs: select
     if: needs.select.outputs.any == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       # One leg's failure must not cancel the others: a red matrix should
       # report every broken package in one run, not just the first.
@@ -71,9 +71,9 @@ jobs:
         leg: ${{ fromJSON(needs.select.outputs.legs) }}
     name: ${{ matrix.leg }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -113,7 +113,7 @@ jobs:
       # CPU-only torch for CI, which needs a lock change and is its own PR.
       - name: Cache Poetry downloads
         if: matrix.leg != 'GeecsBluesky'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cache/pypoetry/artifacts
@@ -222,7 +222,7 @@ jobs:
   gate:
     if: always()
     needs: [select, test]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check the matrix result
         run: |
