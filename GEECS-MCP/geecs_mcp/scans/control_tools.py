@@ -255,7 +255,9 @@ def _stream_snapshot(client, re_state: str | None) -> dict:
     """
     from geecs_mcp.scans import progress_stream
 
-    snapshot = progress_stream.start_for_client(client).snapshot()
+    snapshot = progress_stream.stream_view(
+        progress_stream.start_for_client(client).snapshot()
+    )
     if re_state != "paused":
         snapshot.pop("paused_reason", None)
     return snapshot

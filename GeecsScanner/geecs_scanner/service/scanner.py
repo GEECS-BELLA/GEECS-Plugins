@@ -75,7 +75,7 @@ from geecs_scanner.service.models import (
     VerbIn,
     VerbOut,
 )
-from geecs_scanner.service.streams import ProgressCache
+from geecs_scanner.service.streams import StreamCache
 from geecs_scanner.service.summaries import exit_word, summarize_item
 
 logger = logging.getLogger("geecs_scanner.service")
@@ -112,7 +112,7 @@ class ScannerService:
         The experiment this service serves (a site value, injected).
     identity : str
         What the manager records as ``user`` on every queue item.
-    streams : ProgressCache, optional
+    streams : StreamCache, optional
         The latest-run picture; a fresh unstarted cache when omitted.
     preflight : callable, optional
         The pre-submit checks; defaults to
@@ -139,7 +139,7 @@ class ScannerService:
         *,
         experiment: str,
         identity: str,
-        streams: Optional[ProgressCache] = None,
+        streams: Optional[StreamCache] = None,
         preflight: Optional[PreflightFn] = None,
         version: str = "",
         portal_url: str = "",
@@ -151,7 +151,7 @@ class ScannerService:
         self.resolver = resolver
         self.experiment = experiment
         self.identity = identity
-        self.streams = streams or ProgressCache()
+        self.streams = streams or StreamCache()
         self.version = version
         #: Where the Data Portal answers (a site value, injected); "" hides the links.
         self.portal_url = portal_url.rstrip("/")
@@ -346,7 +346,7 @@ class ScannerService:
 
     def progress(self) -> ProgressOut:
         """The latest-run picture from the streams."""
-        return self.streams.snapshot()
+        return ProgressOut.of(self.streams.snapshot())
 
     def console_since(self, seq: int) -> list[ConsoleLine]:
         """Console lines newer than *seq*."""

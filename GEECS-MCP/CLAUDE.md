@@ -98,10 +98,9 @@ geecs_mcp/
                   #   pause_scan/resume_scan (ownership like stop).
                   #   NO SUBMIT VERB since 0.9.0 — see the write-surface
                   #   note below
-    progress_stream.py # ProgressCache — the best-effort document-stream
-                  #   + console-text-stream picture behind scan_progress
-                  #   (daemon threads, zmq never touched cross-thread,
-                  #   no stop — the console's #653 rules)
+    progress_stream.py # the process-wide qs_client ProgressStream behind
+                  #   scan_progress + stream_view, its tool-contract keys
+                  #   (shots_total = the shared planned_total)
   analysis/       # the analysis domain (#675)
     read_tools.py # get_scan_analysis (task statuses from
                   #   analysis_status/ — read through the SHARED
@@ -194,8 +193,9 @@ custom servers excluded from the interactive kill switch.  See
 `deploy/DEPLOYMENT.md`.
 
 `scan_progress` carries the best-effort `stream` picture from
-`scans/progress_stream.py`: start-doc totals, primary-stream `seq_num`
-→ shots done, stop-doc exit status, and the console-text stream's
+`scans/progress_stream.py` (the reduction is `geecs_bluesky.qs_client.progress`,
+shared with the web scanner): start-doc totals, row-stream (`primary`
+and a gated run's `shots`) `seq_num` → shots done, stop-doc exit status, and the console-text stream's
 failed-move line as the paused reason (surfaced only while actually
 paused).  The manager poll stays authoritative; `stream.available=false`
 names why.  The HTTP entry point warms the consumer threads at startup

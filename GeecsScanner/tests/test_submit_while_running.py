@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.qs_client.client import QserverConfig, ZmqQueueClient
 
-from geecs_scanner.service import ProgressCache, ScannerService
+from geecs_scanner.service import StreamCache, ScannerService
 from geecs_scanner.service.demo import DemoResolver, demo_preflight
 from geecs_scanner.web import create_app
 
@@ -79,7 +79,7 @@ def _service_over(api: _BusyManagerAPI) -> ScannerService:
         DemoResolver(),
         experiment="Demo",
         identity="t",
-        streams=ProgressCache(),
+        streams=StreamCache(),
         preflight=demo_preflight,
     )
 

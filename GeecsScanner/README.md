@@ -13,8 +13,9 @@ replaced the PySide6 GEECS-Console, deleted 2026-09-14; #869).
   listings, the scan-variable catalog (pseudo entries scannable, as
   namespace nouns), preflight, submit (every preflight question acknowledged, the
   `SubmissionRecord` stamped into the run metadata), pause/resume/stop,
-  clear. `ProgressCache` reduces the worker's pickled document stream and
-  the manager's console text to one small picture.
+  clear. `StreamCache` consumes the worker's pickled document stream and the
+  manager's console text; the progress picture is `geecs_bluesky.qs_client.progress`,
+  shared with the MCP.
 - **`geecs_scanner.web`** — the JSON API, `GET /api/events` (Server-Sent
   Events: `status`, `progress`, `console`), `/health`, and the kit served
   at `/theme`. The page arrives in 0.2.0.

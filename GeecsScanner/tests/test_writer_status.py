@@ -27,7 +27,7 @@ from geecs_bluesky.tiled.spool import WriterHeartbeat, write_heartbeat
 from geecs_web_theme import STATES
 from geecs_web_theme.testing import node_available
 
-from geecs_scanner.service import ProgressCache, ScannerService
+from geecs_scanner.service import StreamCache, ScannerService
 from geecs_scanner.service.demo import (
     DemoQueueClient,
     DemoResolver,
@@ -168,7 +168,7 @@ def _service(tmp_path: Path, heartbeat: WriterHeartbeat | None) -> ScannerServic
     path = tmp_path / "heartbeat.json"
     if heartbeat is not None:
         write_heartbeat(path, heartbeat)
-    streams = ProgressCache(clock=lambda: 1_000.0)
+    streams = StreamCache(clock=lambda: 1_000.0)
     return ScannerService(
         DemoQueueClient(streams, period=0.0, first_scan=46, user="t"),
         DemoResolver(),

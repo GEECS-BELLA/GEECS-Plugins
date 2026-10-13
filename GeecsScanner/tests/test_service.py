@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 
-from geecs_scanner.service import ProgressCache, ScannerService
+from geecs_scanner.service import StreamCache, ScannerService
 from geecs_scanner.service.demo import DemoQueueClient, DemoResolver, demo_preflight
 from geecs_scanner.service.models import SubmitIn, VerbIn
 
@@ -19,7 +19,7 @@ class _SlowStop(DemoQueueClient):
         return super().stop_scan()
 
 
-def _service(manager: DemoQueueClient, streams: ProgressCache) -> ScannerService:
+def _service(manager: DemoQueueClient, streams: StreamCache) -> ScannerService:
     return ScannerService(
         manager,
         DemoResolver(),
@@ -31,7 +31,7 @@ def _service(manager: DemoQueueClient, streams: ProgressCache) -> ScannerService
 
 
 def test_a_slow_stop_does_not_block_status_or_queue() -> None:
-    streams = ProgressCache()
+    streams = StreamCache()
     manager = _SlowStop(streams, period=0.0, user="t")
     service = _service(manager, streams)
     preset = DemoResolver().resolve_preset("eb_align_1hz").model_dump(mode="json")
@@ -55,7 +55,7 @@ def test_a_slow_stop_does_not_block_status_or_queue() -> None:
 
 
 def test_verbs_hold_the_one_lock() -> None:
-    streams = ProgressCache()
+    streams = StreamCache()
     manager = _SlowStop(streams, period=0.0, user="t")
     service = _service(manager, streams)
     preset = DemoResolver().resolve_preset("eb_align_1hz").model_dump(mode="json")

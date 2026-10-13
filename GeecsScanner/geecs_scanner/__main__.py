@@ -26,9 +26,9 @@ def build_service(
     portal_url: str = "",
 ):
     """Assemble the service for real or demo mode."""
-    from geecs_scanner.service import ProgressCache, ScannerService
+    from geecs_scanner.service import StreamCache, ScannerService
 
-    streams = ProgressCache()
+    streams = StreamCache()
     if demo:
         from geecs_scanner.service.demo import (
             DemoQueueClient,

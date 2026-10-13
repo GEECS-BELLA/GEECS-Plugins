@@ -8,9 +8,12 @@ the answer, never a second mapping.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from geecs_bluesky.qs_client.progress import RunProgress
 
 
 class TiledWriterOut(BaseModel):
@@ -207,6 +210,11 @@ class ProgressOut(BaseModel):
         default=None,
         description="The run's day, ISO (from the start document's scan_tag)",
     )
+
+    @classmethod
+    def of(cls, progress: RunProgress) -> ProgressOut:
+        """The page's view of the shared picture (everything but ``run_uid``)."""
+        return cls(**progress.model_dump(exclude={"run_uid"}))
 
 
 class ConsoleLine(BaseModel):

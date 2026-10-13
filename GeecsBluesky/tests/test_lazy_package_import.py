@@ -32,6 +32,9 @@ from geecs_bluesky.qs_client import FAILED_MOVE_LOG_PREFIX
 
 assert FAILED_MOVE_LOG_PREFIX.startswith("FAILED MOVE")
 
+# The shared progress reduction every client renders stays light too.
+from geecs_bluesky.qs_client.progress import ProgressStream  # noqa: F401
+
 for heavy in ("aioca", "ophyd_async", "bluesky_queueserver_api", "bluesky"):
     assert heavy not in sys.modules, f"qs_client import pulled {heavy}"
 
