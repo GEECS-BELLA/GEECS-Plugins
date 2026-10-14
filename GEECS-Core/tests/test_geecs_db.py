@@ -882,7 +882,7 @@ def _patch_one(monkeypatch, row, queries: list) -> None:
     monkeypatch.setattr(geecs_db, "_connect_mysql", lambda _connector: _Connection())
 
 
-def test_get_scan_mode_endpoint_reads_the_three_multicast_columns(monkeypatch) -> None:
+def test_get_scan_mode_endpoint_reads_the_two_multicast_columns(monkeypatch) -> None:
     """The DB stores the ports as text; the endpoint carries ints."""
     queries: list = []
     _patch_one(monkeypatch, (" 234.5.6.8 ", "58432"), queries)

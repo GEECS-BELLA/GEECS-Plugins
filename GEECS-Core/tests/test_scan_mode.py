@@ -13,6 +13,7 @@ import time
 import pytest
 
 from geecs_core.exceptions import GeecsConnectionError
+from geecs_core.transport._framing import read_frame
 from geecs_core.testing.fake_scan_mode_device import (
     FakeScanModeDevice,
     FakeScanModeGroup,
@@ -90,8 +91,9 @@ class _Stack:
         await self.server.stop()
 
     async def start_scan(self) -> dict:
+        since = asyncio.get_running_loop().time()
         await self.multicaster.announce_scan_start("Undulator", "Shot #")
-        return await self.listener.wait_for(SCAN_START, self.names, timeout=2.0)
+        return await self.listener.wait_for(SCAN_START, self.names, 2.0, since=since)
 
 
 def _devices(*names: str, **kwargs) -> list[FakeScanModeDevice]:
@@ -167,6 +169,15 @@ class TestMessages:
     def test_the_port_is_the_framework_constant(self) -> None:
         assert SCAN_MODE_TCP_PORT == 6342
 
+    async def test_read_frame_round_trips_and_refuses_a_corrupt_header(self) -> None:
+        reader = asyncio.StreamReader()
+        reader.feed_data(frame(b"dummy") + frame(b"") + b"\xff\xff\xff\xff" + b"Path")
+        reader.feed_eof()
+        assert await read_frame(reader) == b"dummy"
+        assert await read_frame(reader) == b""
+        with pytest.raises(ValueError, match="corrupt"):
+            await read_frame(reader)
+
 
 # ---------------------------------------------------------------------------
 # Entry: ScanStart, acknowledgements, connections
@@ -193,8 +204,9 @@ class TestEntry:
 
     async def test_the_sequence_is_empty_empty_scan_start(self) -> None:
         async with _Stack(*_devices("U_A")) as stack:
+            since = asyncio.get_running_loop().time()
             sent = await stack.multicaster.announce_scan_start("Undulator", "Shot #")
-            await stack.listener.wait_for(SCAN_START, stack.names, timeout=2.0)
+            await stack.listener.wait_for(SCAN_START, stack.names, 2.0, since=since)
             assert stack.group.received == [b"Empty", b"Empty", sent]
             assert sent == b"ScanStart>>Undulator>>Shot #>>127.0.0.1"
 
@@ -202,8 +214,11 @@ class TestEntry:
         devices = [*_devices("U_A"), *_devices("U_Silent", acknowledge=False)]
         async with _Stack(*devices) as stack:
             started = time.monotonic()
+            since = asyncio.get_running_loop().time()
             await stack.multicaster.announce_scan_start("Undulator", "Shot #")
-            acks = await stack.listener.wait_for(SCAN_START, stack.names, timeout=0.3)
+            acks = await stack.listener.wait_for(
+                SCAN_START, stack.names, 0.3, since=since
+            )
             assert set(acks) == {"U_A"}
             assert time.monotonic() - started >= 0.3
             assert not devices[1].in_scan_mode
@@ -228,7 +243,7 @@ class TestEntry:
                 await listener.open()
         # A failed open leaves the listener closed: no socket, and wait_for says so.
         with pytest.raises(RuntimeError, match="open"):
-            await listener.wait_for(SCAN_START, [], 0.01)
+            await listener.wait_for(SCAN_START, [], 0.01, since=0.0)
 
     async def test_listener_collapses_duplicate_ports(self) -> None:
         port = _free_udp_port()
@@ -297,8 +312,12 @@ class TestEntry:
 
     async def test_server_refuses_a_port_in_use(self) -> None:
         async with ScanModeServer(LOOPBACK, 0) as first:
+            second = ScanModeServer(LOOPBACK, first.port)
             with pytest.raises(GeecsConnectionError, match=str(first.port)):
-                await ScanModeServer(LOOPBACK, first.port).start()
+                await second.start()
+            # A failed start leaves it not started: wait_for_hosts says so.
+            with pytest.raises(RuntimeError, match="start"):
+                await second.wait_for_hosts([], 0.01)
 
 
 # ---------------------------------------------------------------------------
@@ -372,9 +391,12 @@ class TestPathChannel:
         async with _Stack(*_devices("U_A", "U_B")) as stack:
             await stack.start_scan()
             assert await _until(lambda: stack.server.connection_count == 2)
+            since = asyncio.get_running_loop().time()
             sent = await stack.multicaster.announce_scan_end("Undulator", "Shot #")
             assert sent == b"ScanEnd>>Undulator>>Shot #>>127.0.0.1"
-            acks = await stack.listener.wait_for(SCAN_END, stack.names, timeout=2.0)
+            acks = await stack.listener.wait_for(
+                SCAN_END, stack.names, 2.0, since=since
+            )
             assert set(acks) == {"U_A", "U_B"} and all(ack.ok for ack in acks.values())
             assert await _until(lambda: not any(d.in_scan_mode for d in stack.devices))
             assert await _until(lambda: stack.server.connection_count == 0)
@@ -395,7 +417,9 @@ class TestPathChannel:
         with pytest.raises(RuntimeError, match="open"):
             ScanModeMulticaster(LOOPBACK, 1, local_ip=LOOPBACK).send(b"Empty")
         with pytest.raises(RuntimeError, match="open"):
-            await ScanModeAckListener(LOOPBACK, []).wait_for(SCAN_START, [], 0.01)
+            await ScanModeAckListener(LOOPBACK, []).wait_for(
+                SCAN_START, [], 0.01, since=0.0
+            )
         with pytest.raises(RuntimeError, match="start"):
             await ScanModeServer(LOOPBACK, 0).wait_for_hosts([], 0.01)
 
@@ -426,8 +450,11 @@ class TestMulticast:
                 async with ScanModeMulticaster(
                     group, port, local_ip=local_ip
                 ) as sender:
+                    since = asyncio.get_running_loop().time()
                     await sender.announce_scan_start("Undulator", "Shot #")
-                    acks = await listener.wait_for(SCAN_START, ["U_A"], timeout=1.0)
+                    acks = await listener.wait_for(
+                        SCAN_START, ["U_A"], 1.0, since=since
+                    )
             if not fake_group.received:
                 pytest.skip("multicast loopback is not routed on this host")
             assert set(acks) == {"U_A"}

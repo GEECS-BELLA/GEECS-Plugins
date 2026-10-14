@@ -9,8 +9,9 @@ inferred.
 
 The three channels
 ------------------
-**Multicast commands** (UDP, the experiment's ``expt.MultiCastIP`` group
-and ``MultiCastRemotePort``, sent from ``MultiCastLocalPort``)::
+**Multicast commands** (UDP, to the experiment's ``expt.MultiCastIP`` group
+at ``MultiCastRemotePort``; Master Control sends them from its
+``MultiCastLocalPort``, which no device depends on)::
 
     Empty
     Empty
@@ -128,9 +129,11 @@ def device_shot_path(scan_folder: str, scan_number: int, shot_number: int) -> st
     ``{scan_folder}\xxx\Scan{NNN}_xxx_{SSS}.fileextension`` with Windows
     separators: the device replaces ``xxx`` with its own name and
     ``fileextension`` with its own, and creates the folder if missing.
-    *scan_folder* is the device-side ``scans\ScanNNN`` folder —
-    ``expt.RootPath`` plus the date folders — which nothing here resolves or
-    checks: the worker knows the folder, the device owns the drive letter.
+    *scan_folder* is the device-side ``scans\ScanNNN`` folder, however the
+    worker derives it (the DB's ``RootPath`` or its own device-side
+    translation of the claimed folder — slice 2's call); nothing here
+    resolves or checks it: the worker knows the folder, the device owns the
+    drive letter.
 
     The reader side spells the same ``Scan{NNN}_{device}_{SSS}`` name in
     ``geecs_data_utils.scan_paths`` and ``native_files`` — a second home by
@@ -444,12 +447,14 @@ class ScanModeAckListener:
         devices: Collection[str],
         timeout: float,
         *,
-        since: float | None = None,
+        since: float,
     ) -> dict[str, ScanModeAck]:
         """Wait until every device in *devices* has acknowledged *command*, or *timeout* elapses.
 
-        Returns the acknowledgements received for *devices* at or after
-        *since* (a ``loop.time()``; ``None`` takes everything received), by
+        *since* is the ``loop.time()`` read **before** the command was
+        announced; nothing received earlier counts (the device's repeat of
+        its previous reply would otherwise pass a silent device).  Returns
+        the acknowledgements received for *devices* at or after it, by
         device.  A device absent from the result never answered; one present
         may still report an error — check its ``ok``.
         """
@@ -546,7 +551,6 @@ class ScanModeServer:
         """Listen and start the keepalive ticker."""
         if self._server is not None:
             raise RuntimeError("ScanModeServer already started")
-        self._changed = asyncio.Event()
         try:
             self._server = await asyncio.start_server(
                 self._on_connection, host=self._host, port=self._port
@@ -556,6 +560,7 @@ class ScanModeServer:
                 f"scan mode: cannot listen on {self._host}:{self._port} "
                 f"({exc.strerror or exc})"
             ) from exc
+        self._changed = asyncio.Event()
         self._port = self._server.sockets[0].getsockname()[1]
         self._keepalive_task = asyncio.create_task(
             self._keepalive_loop(), name="scan-mode-keepalive"
