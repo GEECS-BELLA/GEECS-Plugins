@@ -855,3 +855,92 @@ def test_an_instance_row_overrides_the_configured_value_in_both_getters(
     _patch_query_sequence(monkeypatch, [batch_type, batch_instance], queries)
     rows = GeecsDb.get_experiment_device_variables("Undulator")["U_ICT"]
     assert rows[0]["defaultvalue"] == "on"
+
+
+# ---------------------------------------------------------------------------
+# Scan mode: the expt row's Master Control columns (SELECT only)
+# ---------------------------------------------------------------------------
+
+
+def _patch_one(monkeypatch, row, queries: list) -> None:
+    """Route _connect_mysql to a fake connection whose fetchone returns *row*."""
+
+    class _Cursor:
+        def execute(self, query: str, params: tuple) -> None:
+            queries.append((query, params))
+
+        def fetchone(self):
+            return row
+
+    class _Connection:
+        def cursor(self) -> _Cursor:
+            return _Cursor()
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(geecs_db, "_connect_mysql", lambda _connector: _Connection())
+
+
+def test_get_scan_mode_endpoint_reads_the_three_multicast_columns(monkeypatch) -> None:
+    """The DB stores the ports as text; the endpoint carries ints."""
+    queries: list = []
+    _patch_one(monkeypatch, (" 234.5.6.8 ", "58432", "58431"), queries)
+    assert GeecsDb.get_scan_mode_endpoint("Undulator") == ("234.5.6.8", 58432, 58431)
+    endpoint = GeecsDb.get_scan_mode_endpoint("Undulator")
+    assert endpoint is not None
+    assert (endpoint.group, endpoint.port, endpoint.local_port) == (
+        "234.5.6.8",
+        58432,
+        58431,
+    )
+    query, params = queries[0]
+    assert params == ("Undulator",)
+    assert "FROM expt WHERE name = %s" in query
+    for column in ("MultiCastIP", "MultiCastRemotePort", "MultiCastLocalPort"):
+        assert column in query
+    assert query.lstrip().upper().startswith("SELECT")
+
+
+def test_get_scan_mode_endpoint_is_none_when_unconfigured(monkeypatch) -> None:
+    for row in (
+        None,
+        ("", "58432", "58431"),
+        ("234.5.6.8", None, "58431"),
+        ("234.5.6.8", " ", ""),
+    ):
+        _patch_one(monkeypatch, row, [])
+        assert GeecsDb.get_scan_mode_endpoint("X") is None
+
+
+def test_get_scan_mode_endpoint_blank_local_port_is_none(monkeypatch) -> None:
+    _patch_one(monkeypatch, ("234.5.6.9", "58432", None), [])
+    assert GeecsDb.get_scan_mode_endpoint("Test stand default") == (
+        "234.5.6.9",
+        58432,
+        None,
+    )
+
+
+def test_get_shot_control_device_strips_and_blanks_to_none(monkeypatch) -> None:
+    queries: list = []
+    _patch_one(monkeypatch, (" U_DG645_ShotControl ",), queries)
+    assert GeecsDb.get_shot_control_device("Undulator") == "U_DG645_ShotControl"
+    assert queries[0] == (
+        "SELECT shotcontroldevice FROM expt WHERE name = %s",
+        ("Undulator",),
+    )
+    for row in (("",), (None,), None):
+        _patch_one(monkeypatch, row, [])
+        assert GeecsDb.get_shot_control_device("kHzLPA") is None
+
+
+def test_get_root_path_returns_the_device_side_path_verbatim(monkeypatch) -> None:
+    queries: list = []
+    _patch_one(monkeypatch, ("z:\\data\\Undulator",), queries)
+    assert GeecsDb.get_root_path("Undulator") == "z:\\data\\Undulator"
+    assert queries[0] == ("SELECT RootPath FROM expt WHERE name = %s", ("Undulator",))
+    _patch_one(monkeypatch, ("\\\\192.168.6.12\\hdna2\\data\\kHzLPA",), [])
+    assert GeecsDb.get_root_path("kHzLPA") == "\\\\192.168.6.12\\hdna2\\data\\kHzLPA"
+    _patch_one(monkeypatch, (None,), [])
+    assert GeecsDb.get_root_path("Nowhere") is None

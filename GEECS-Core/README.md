@@ -4,15 +4,18 @@ The GEECS access library: everything a Python consumer of GEECS devices
 needs, and nothing else.
 
 - **`geecs_core.transport`** — the GEECS UDP/TCP wire protocol, asyncio-native
-  and stdlib-only: `GeecsUdpClient` (get/set with ACK + exe-reply correlation)
-  and `GeecsTcpSubscriber` (framed `Wait>>` push subscriptions).
+  and stdlib-only: `GeecsUdpClient` (get/set with ACK + exe-reply correlation),
+  `GeecsTcpSubscriber` (framed `Wait>>` push subscriptions) and `scan_mode`
+  (Master Control's scan-mode protocol, client side: `ScanModeMulticaster`,
+  `ScanModeAckListener`, `ScanModeServer`).
 - **`geecs_core.db`** — `GeecsDb`, the experiment MySQL database client
   (device endpoints, variable metadata, experiment rosters; credentials via
   the standard `~/.config/geecs_python_api/config.ini` chain).
 - **`geecs_core.pv_naming`** — the one shared GEECS→EPICS PV naming policy.
 - **`geecs_core.exceptions`** — the one `GeecsError` tree.
 - **`geecs_core.testing`** — `FakeGeecsServer`/`FakeGeecsDevice`, an
-  in-process server speaking the real wire protocol for offline tests.
+  in-process server speaking the real wire protocol for offline tests, and
+  `FakeScanModeGroup`/`FakeScanModeDevice`, the device side of scan mode.
 - **`geecs_core.client`** — `GeecsDevice`, the entry-level synchronous
   get/set/subscribe client for scripts and notebooks (see its module
   docstring for the threading model and reserved `state` keys).
