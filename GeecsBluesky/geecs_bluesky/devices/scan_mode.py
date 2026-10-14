@@ -394,7 +394,8 @@ class ScanModeControl:
         cancels it) can cancel it before ending scan mode.
         """
         if isinstance(value, EnterScanMode):
-            task = asyncio.get_running_loop().create_task(self._enter(value))
+            previous, loop = self._entry_task, asyncio.get_running_loop()
+            task = loop.create_task(self._enter(value, previous=previous))
             self._entry_task = task
             return AsyncStatus(task)
         return AsyncStatus(self._apply(value))
@@ -428,7 +429,46 @@ class ScanModeControl:
 
     # ------------------------------------------------------------- entry
 
-    async def _enter(self, entry: EnterScanMode) -> None:
+    async def _open_channels(
+        self, local_ip: str, announced: str, ports: set[int]
+    ) -> ScanModeServer:
+        """Build and open the run's protocol pieces (released together on any failure)."""
+        assert self._endpoint is not None
+        group, port = self._endpoint
+        server = ScanModeServer(local_ip, self._tcp_port)
+        listener = ScanModeAckListener(local_ip, ports)
+        sender = ScanModeMulticaster(
+            group, port, local_ip=local_ip, client_ip=announced
+        )
+        try:
+            await server.start()
+            await listener.open()
+            await sender.open()
+        except BaseException:
+            await self._release(server, listener, sender)
+            raise
+        self._server, self._listener, self._sender = server, listener, sender
+        return server
+
+    async def _cancel_entry(self, task: asyncio.Task[None] | None, why: str) -> None:
+        """Cancel and await an entry still waiting (never the current task).
+
+        Its cleanup ends scan mode for the devices that acknowledged; the
+        caller then finds nothing of it left.
+        """
+        if task is None or task.done() or task is asyncio.current_task():
+            return
+        logger.warning(
+            "scan mode: an earlier entry is still waiting (%s) — cancelling it; "
+            "its cleanup ends scan mode for the devices that entered",
+            why,
+        )
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    async def _enter(
+        self, entry: EnterScanMode, *, previous: asyncio.Task[None] | None = None
+    ) -> None:
         if self._endpoint is None:
             raise GeecsConfigurationError(
                 f"scan mode: experiment {self._experiment!r} has no multicast "
@@ -448,6 +488,10 @@ class ScanModeControl:
                 f"device roster — a run device must be an enabled device of "
                 f"{self._experiment!r}"
             )
+        # A halt skips the finalizers: the previous entry may still be waiting
+        # (its task is cancelled and awaited — it ends scan mode itself) or may
+        # have entered and never exited (ended here).
+        await self._cancel_entry(previous, "a halt skipped its cleanup")
         if self._server is not None:
             logger.warning(
                 "scan mode: the previous run (%d device(s): %s) never ended "
@@ -456,26 +500,13 @@ class ScanModeControl:
                 len(self._run_devices),
                 ", ".join(self._run_devices),
             )
-            await self._exit()
+            await self._exit(cancel_entry=False)
         hosts = {self._device_endpoints[d][0] for d in devices}
         ports = {self._device_endpoints[d][1] for d in devices}
         local_ip = self.resolve_local_ip(self._device_endpoints[devices[0]][0])
         announced = self.announce_address(local_ip)
         check_announce_address(announced, local_ip)
-        group, port = self._endpoint
-        server = ScanModeServer(local_ip, self._tcp_port)
-        listener = ScanModeAckListener(local_ip, ports)
-        sender = ScanModeMulticaster(
-            group, port, local_ip=local_ip, client_ip=announced
-        )
-        try:
-            await server.start()
-            await listener.open()
-            await sender.open()
-        except BaseException:
-            await self._release(server, listener, sender)
-            raise
-        self._server, self._listener, self._sender = server, listener, sender
+        server = await self._open_channels(local_ip, announced, ports)
         self._run_devices = devices
         self._scan_parameter = entry.scan_parameter
         self._local_ip, self._announced_as = local_ip, announced
@@ -498,12 +529,12 @@ class ScanModeControl:
                 "ending scan mode for the device(s) that entered",
                 self._experiment,
             )
-            await self._exit()
+            await self._exit(cancel_entry=False)
             return
         except BaseException:
             # A refusal: ends it for the devices that did enter; the server's
             # close ends it for any that connected without acknowledging.
-            await self._exit()
+            await self._exit(cancel_entry=False)
             raise
         lags = sorted(ack.received_at for ack in acks.values())
         logger.info(
@@ -621,16 +652,14 @@ class ScanModeControl:
 
     # -------------------------------------------------------------- exit
 
-    async def _exit(self) -> None:
-        entry = self._entry_task
-        if entry is not None and entry is not asyncio.current_task():
-            self._entry_task = None
-            if not entry.done():
-                # An exit during the entry's own wait (an abort): the entry's
-                # cleanup ends scan mode for the devices that acknowledged,
-                # and this call then finds nothing left to release.
-                entry.cancel()
-                await asyncio.gather(entry, return_exceptions=True)
+    async def _exit(self, *, cancel_entry: bool = True) -> None:
+        if cancel_entry:
+            # An exit during the entry's own wait (an abort): the entry's
+            # cleanup ends scan mode for the devices that acknowledged, and
+            # this call then finds nothing left.  A cleanup running inside an
+            # entry passes False — it must never cancel a newer entry.
+            entry, self._entry_task = self._entry_task, None
+            await self._cancel_entry(entry, "an exit arrived during its wait")
         server, listener, sender = self._server, self._listener, self._sender
         if server is None or listener is None or sender is None:
             logger.info("scan mode: nothing to release — no run is in scan mode")

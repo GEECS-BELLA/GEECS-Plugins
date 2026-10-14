@@ -207,16 +207,23 @@ def device_root_check(control: ScanModeControl) -> str:
     the experiment (``ScanStart`` is multicast) would create that folder
     on its own drive.
     """
-    local = local_data_root() or "/geecs-data"
-    translated = control.device_path(str(local)).rstrip("\\/")
-    if not _DEVICE_ROOT.match(translated):
+    local = local_data_root()
+    translated = control.device_path(str(local or "/geecs-data")).rstrip("\\/")
+    if _DEVICE_ROOT.match(translated):
+        return translated
+    if local is None:
         raise GeecsConfigurationError(
-            f"scan mode pushes device-side paths, but the data root {local!r} "
-            f"translates to {translated!r}, not a drive or UNC path — set "
-            "config.ini [Paths] geecs_device_server_data_base_path to the "
-            "devices' root (Z:/data, or \\\\server\\share\\data)"
+            "scan mode pushes device-side paths, but this host's data root is "
+            "unknown (config.ini [Paths] geecs_data, or the share is not "
+            "mounted yet) — the claimed folder could not be translated onto "
+            "the devices' root"
         )
-    return translated
+    raise GeecsConfigurationError(
+        f"scan mode pushes device-side paths, but the data root {local!r} "
+        f"translates to {translated!r}, not a drive or UNC path — set "
+        "config.ini [Paths] geecs_device_server_data_base_path to the "
+        "devices' root (Z:/data, or \\\\server\\share\\data)"
+    )
 
 
 def root_path_check(control: ScanModeControl) -> None:

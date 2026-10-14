@@ -637,6 +637,81 @@ def test_an_abort_during_the_entry_still_exits_scan_mode(
     assert _until(lambda: not stack.devices[CAM].in_scan_mode)
 
 
+def test_an_abort_during_the_acknowledgement_wait_still_exits_scan_mode(
+    RE: RunEngine, stack: Stack, caplog
+) -> None:
+    # The abort lands inside the ScanStart wait (a silent box, a long ack
+    # timeout), not in the drain: this pins the entry task's cancellation —
+    # the engine's abort cancels the status it waits on, the entry ends scan
+    # mode for the device that entered and completes without an exception.
+    cam = _camera(RE, FakeBox(), CAM)
+    stack.start(**{CAM: {"camera": cam}, BOX: {"acknowledge": False}})
+    control = stack.make_control(ack_timeout_s=4.0)
+    bound = bind_plans(
+        _profiles(RE, stack.timeline, use_scan_mode=True), scan_mode=control
+    )
+    _run_markers(RE, stack.timeline)
+
+    def abort_once_announced() -> None:
+        assert _until(lambda: "ScanStart" in _received(stack))
+        time.sleep(0.3)
+        RE.abort()
+
+    aborter = threading.Thread(target=abort_once_announced)
+    aborter.start()
+    t0 = time.monotonic()
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.scan_mode"):
+        with pytest.raises(RunEngineInterrupted):
+            RE(bound["count"]([cam], num=1))
+    aborter.join()
+    assert time.monotonic() - t0 < 3.0  # the wait was cut short, not timed out
+    assert "cancelled while waiting" in caplog.text
+    # the device logged no exception of its own (the engine's "Run aborted"
+    # traceback is bluesky's); the entry completed, nothing died late
+    ours = [r for r in caplog.records if r.name == "geecs_bluesky.devices.scan_mode"]
+    assert ours and not any(r.exc_info for r in ours)
+    assert "AttributeError" not in caplog.text
+    tl = stack.timeline
+    assert ("msg", "open_run") not in tl
+    assert tl.index(("scan_end", CAM)) < tl.index(("put", "standby"))
+    assert not control.entered and not stack.state_file.exists()
+    assert control._entry_task is None  # the finalizer's exit dropped a done task
+    assert _until(lambda: not stack.devices[CAM].in_scan_mode)
+
+
+def test_a_halt_during_the_entry_then_a_new_entry_cancels_the_old_one(
+    RE: RunEngine, stack: Stack, caplog
+) -> None:
+    # A halt skips every finalizer: the first entry keeps waiting on the
+    # silent box.  The next entry must cancel it (its cleanup ends scan mode
+    # for the device that entered) and then enter cleanly — not have the
+    # orphan's late cleanup tear down the new run.
+    stack.start(**{CAM: {}, BOX: {"acknowledge": False}})
+    control = stack.make_control(ack_timeout_s=3.0)
+
+    def halt_once_announced() -> None:
+        assert _until(lambda: "ScanStart" in _received(stack))
+        time.sleep(0.3)
+        RE.halt()
+
+    halter = threading.Thread(target=halt_once_announced)
+    halter.start()
+    with pytest.raises(RunEngineInterrupted):
+        RE(bps.mv(control, _entry()))
+    halter.join()
+    assert control.entered  # the halted entry is still waiting, nothing ended
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.scan_mode"):
+        RE(bps.mv(control, EnterScanMode((CAM,), "Shot #")))
+    assert "an earlier entry is still waiting" in caplog.text
+    assert "AttributeError" not in caplog.text
+    assert control.entered and control.run_devices == (CAM,)
+    assert _received(stack).count("ScanStart") >= 2
+    assert stack.devices[CAM].in_scan_mode
+    RE(bps.mv(control, EXIT))
+    assert not control.entered and not stack.state_file.exists()
+    assert _until(lambda: not stack.devices[CAM].in_scan_mode)
+
+
 def test_an_aborted_run_still_exits_scan_mode_before_standby(
     RE: RunEngine, stack: Stack
 ) -> None:
@@ -809,7 +884,7 @@ def test_preflight_refuses_a_device_root_that_is_no_drive(
     stack.start()
     sc = _shot_control(RE, [], use_scan_mode=True)
     control = stack.make_control(device_path=lambda p: p)  # no translation set
-    with pytest.raises(GeecsConfigurationError, match="not a drive or UNC path"):
+    with pytest.raises(GeecsConfigurationError, match="pushes device-side paths"):
         scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
 
 
