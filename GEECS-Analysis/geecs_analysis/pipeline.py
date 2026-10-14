@@ -6,6 +6,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Callable, Iterable, Mapping
 
 from geecs_analysis.registry import (
+    MeasureDefinition,
     MeasureSpec,
     StepSpec,
     definition,
@@ -101,16 +102,24 @@ def process_measure_input(
 
 
 def apply_measure(
-    frame: Frame, spec: MeasureSpec, *, inputs: Mapping[str, object] | None = None
+    frame: Frame,
+    spec: MeasureSpec,
+    *,
+    inputs: Mapping[str, object] | None = None,
+    channels: Mapping[str, Frame] | None = None,
 ) -> Measurement:
-    """Measure one processed frame with its bound service and frame input.
+    """Measure one processed frame with its bound service, frame input and channels.
 
     The frame input is handed as bound: the evaluator has already processed
-    it (:func:`process_measure_input`).
+    it (:func:`process_measure_input`). ``channels`` are the trace's
+    auxiliary channels, already cut to the frame's samples; a measure that
+    reads channels receives the ones it declared that are present, last.
     """
     declared = measure_definition(spec)
     if declared.service is None and declared.input_field is None:
-        return declared.function(frame, spec)
+        if not declared.channels:
+            return declared.function(frame, spec)
+        return declared.function(frame, spec, _declared_channels(declared, channels))
     bound = bind_inputs((), inputs, measure=spec)
     arguments: list[object] = []
     if declared.service is not None:
@@ -118,7 +127,19 @@ def apply_measure(
     if declared.input_field is not None:
         key = measure_input(spec)
         arguments.append(None if key is None else bound[key])
+    if declared.channels:
+        arguments.append(_declared_channels(declared, channels))
     return declared.function(frame, spec, *arguments)
+
+
+def _declared_channels(
+    declared: MeasureDefinition, channels: Mapping[str, Frame] | None
+) -> Mapping[str, Frame]:
+    """The supplied channels the measure declared, read-only."""
+    supplied = channels or {}
+    return MappingProxyType(
+        {name: supplied[name] for name in declared.channels if name in supplied}
+    )
 
 
 def apply_step(

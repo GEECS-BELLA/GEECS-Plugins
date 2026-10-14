@@ -76,12 +76,19 @@ class V2ShotSource:
     every sibling's same-shot trace and sorted by x, exactly as the legacy
     stitcher joined them. A shot a sibling lacks is stitched without it,
     with a warning.
+
+    ``channels`` are the recipe's auxiliary channels (``V2Recipe.channels``,
+    named columns of the trace file's ``auxiliary_columns``): each loaded
+    trace carries them as columns 2, 3, … in that order, row-aligned with
+    x and y, so they reach the core with the trace and are averaged with it
+    in a raw-bin unit.
     """
 
     data_dir: Path
     references: Mapping[int, Path]
     line_loading_json: str | None = None
     siblings: tuple[tuple[str, Mapping[int, Path]], ...] = ()
+    channels: tuple[str, ...] = ()
     _stacks: dict = field(default_factory=dict, init=False, repr=False, compare=False)
     _entered: bool = field(default=False, init=False, repr=False, compare=False)
 
@@ -103,6 +110,7 @@ class V2ShotSource:
             "references": dict(self.references),
             "line_loading_json": self.line_loading_json,
             "siblings": [(folder, dict(refs)) for folder, refs in self.siblings],
+            "channels": self.channels,
         }
 
     def __setstate__(self, state: dict) -> None:
@@ -120,6 +128,7 @@ class V2ShotSource:
                 for folder, refs in state["siblings"]
             ),
         )
+        object.__setattr__(self, "channels", tuple(state["channels"]))
         object.__setattr__(self, "_stacks", {})
         object.__setattr__(self, "_entered", False)
 
@@ -150,7 +159,11 @@ class V2ShotSource:
         path = self.references[shot]
         if self.line_loading_json is not None:
             loading = Data1DConfig.model_validate_json(self.line_loading_json)
-            data = read_1d_data(path, loading).data
+            trace = read_1d_data(path, loading)
+            if self.channels:
+                aux = trace.auxiliary_column_data
+                return np.column_stack([trace.data, *(aux[n] for n in self.channels)])
+            data = trace.data
             if not self.siblings:
                 return data
             segments = [data]
@@ -237,7 +250,9 @@ def prepare_source(
         (folder, _sibling_references(spec, folder, scan_folder, rows, stacks_only))
         for folder in spec.siblings
     )
-    return V2ShotSource(device_dir, references, loading_json, siblings)
+    return V2ShotSource(
+        device_dir, references, loading_json, siblings, spec.recipe.channels
+    )
 
 
 def _sibling_references(

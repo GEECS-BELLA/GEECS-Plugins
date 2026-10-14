@@ -107,6 +107,13 @@ class MeasureDefinition:
     like a step's background; the evaluator processes it through the same
     steps as the measured frame and hands it to the function as the last
     argument — ``None`` when the field is unset.
+
+    ``channels`` names the line input's auxiliary channels the measure
+    reads beside the trace (``frog_spectral_phase``'s ``weights``): columns
+    the input's loading declares by name (``auxiliary_columns``), loaded
+    with the trace, cut by the same sample selection, and handed to the
+    function as a ``{name: Frame}`` mapping after every other argument —
+    holding only the channels the input supplies.
     """
 
     spec: type[MeasureSpec]
@@ -116,6 +123,7 @@ class MeasureDefinition:
     sidecar: str | None = None
     shot_store: str | None = None
     input_field: str | None = None
+    channels: tuple[str, ...] = ()
 
 
 _MEASURES: dict[type[MeasureSpec], MeasureDefinition] = {}
@@ -130,13 +138,15 @@ def measure(
     sidecar: str | None = None,
     shot_store: str | None = None,
     input_field: str | None = None,
+    channels: tuple[str, ...] = (),
 ) -> Callable[[Callable[..., Measurement]], Callable[..., Measurement]]:
     """Register a builtin measure before constructing the spec union.
 
     A measure with a ``service`` receives the host's bound collaborator as a
     third argument; ``sidecar`` and ``shot_store`` name what a scan host
     persists per shot; ``input_field`` names the spec field that binds an
-    optional comparison frame; see :class:`MeasureDefinition`.
+    optional comparison frame; ``channels`` the trace's auxiliary channels
+    it reads; see :class:`MeasureDefinition`.
     """
     if not ndim or not ndim <= {1, 2}:
         raise ValueError("Measure dimensions must be a nonempty subset of {1, 2}")
@@ -154,12 +164,24 @@ def measure(
         raise ValueError(
             "A measure's input field must name an optional string field on its spec"
         )
+    channels = tuple(channels)
+    if channels and (
+        ndim != {1} or not all(channels) or len(set(channels)) != len(channels)
+    ):
+        raise ValueError("A measure's channels are distinct names on a trace measure")
 
     def register(function: Callable[..., Measurement]):
         if spec in _MEASURES:
             raise ValueError(f"Measure spec already registered: {spec.__name__}")
         _MEASURES[spec] = MeasureDefinition(
-            spec, function, frozenset(ndim), service, sidecar, shot_store, input_field
+            spec,
+            function,
+            frozenset(ndim),
+            service,
+            sidecar,
+            shot_store,
+            input_field,
+            channels,
         )
         return function
 

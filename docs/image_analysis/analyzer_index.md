@@ -18,7 +18,7 @@ Inherits from `StandardAnalyzer` and adds beam-specific outputs while delegating
 
 Worked example (pre-recipe path, in the repository): [Grenouille Analysis notebook](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/docs/image_analysis/examples/grenouille_analysis.ipynb). The recipe-path `frog` measure is on the [recipe reference](../sites/analysis_recipes/index.html#measure-frog).
 
-**`FrogSpectralPhaseAnalyzer`** (`analyzers/frog_spectral_phase_analyzer.py`) — consumes the retrieved lineout TSV files written by `GrenouilleAnalyzer`, fits the spectral phase as a polynomial in angular-frequency detuning, and reports dispersion terms (GD, GDD, TOD).
+**`FrogSpectralPhaseAnalyzer`** (`analyzers/frog_spectral_phase_analyzer.py`) — consumes the retrieved lineout TSV files written by `GrenouilleAnalyzer`, fits the spectral phase as a polynomial in angular-frequency detuning, and reports dispersion terms (GD, GDD, TOD). The recipe-path `frog_spectral_phase` measure (the spectral intensity as the line input's `weights` channel) is on the [recipe reference](../sites/analysis_recipes/index.html#measure-frog_spectral_phase).
 
 ### Magnetic spectrometer (energy spectra)
 
