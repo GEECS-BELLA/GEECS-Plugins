@@ -18,7 +18,6 @@ for analyzers that read their own file formats (phase maps).
 
 from __future__ import annotations
 
-from pathlib import Path
 import typing
 from typing import Annotated, ClassVar, List, Literal, Optional, Tuple, Union
 
@@ -504,53 +503,6 @@ class HiResMagCamSpec(AnalyzerSpecBase):
         }
 
 
-class BCaveMagOptSpec(AnalyzerSpecBase):
-    """HTU BCave stitched-spectrum optimizer metrics over the trace pipeline."""
-
-    scalar_keys: ClassVar[frozenset[str]] = frozenset(["objective"])
-
-    image_kind: ClassVar[ImageKind] = "line"
-    kind: Literal["bcave_mag_opt"] = Field(
-        "bcave_mag_opt", description="HTU BCave stitched-spectrum optimizer analyzer."
-    )
-
-
-class PhaseDownrampSpec(AnalyzerSpecBase):
-    """HTU phase-map processor: density from a probe phase map (reads its own TSV/phase files)."""
-
-    scalar_keys: ClassVar[frozenset[str]] = frozenset(
-        [
-            "Plasma downramp shock_angle",
-            "Plasma downramp shock slope (phase/pixel)",
-            "Plasma downramp shock location (pixel)",
-            "Plasma downramp plateau avg (phase)",
-            "Plasma downramp peak to plateau (phase)",
-        ]
-    )
-
-    image_kind: ClassVar[ImageKind] = None
-    kind: Literal["phase_downramp"] = Field(
-        "phase_downramp", description="HTU phase-downramp processor."
-    )
-    pixel_scale: float = Field(
-        ..., gt=0, description="Spatial calibration, µm per pixel (vertical)."
-    )
-    wavelength_nm: float = Field(..., gt=0, description="Probe wavelength, nm.")
-    threshold_fraction: float = Field(
-        0.5,
-        ge=0,
-        le=1,
-        description="Zero phase values below this fraction of the maximum.",
-    )
-    roi: Optional[Tuple[int, int, int, int]] = Field(
-        None,
-        description="Crop as (x_min, x_max, y_min, y_max); negatives count from the end.",
-    )
-    background_path: Optional[Path] = Field(
-        None, description="A background phase map to subtract."
-    )
-
-
 AnalyzerSpec = Annotated[
     Union[
         StandardAnalyzerSpec,
@@ -567,8 +519,6 @@ AnalyzerSpec = Annotated[
         HimgRestoreSpec,
         DownrampPhaseSpec,
         HiResMagCamSpec,
-        BCaveMagOptSpec,
-        PhaseDownrampSpec,
     ],
     Field(discriminator="kind"),
 ]
@@ -587,7 +537,6 @@ __all__ = [
     "AnalyzerSpec",
     "AnalyzerSpecBase",
     "ArrayCalibrationSpec",
-    "BCaveMagOptSpec",
     "BeamAnalyzerSpec",
     "CalibrationSpec",
     "DnnAxisCalibrationSpec",
@@ -603,7 +552,6 @@ __all__ = [
     "LineAnalyzerSpec",
     "LineStitcherSpec",
     "MagSpecAnalyzerSpec",
-    "PhaseDownrampSpec",
     "PolynomialCalibrationSpec",
     "StandardAnalyzerSpec",
     "TraceAnalyzerSpec",

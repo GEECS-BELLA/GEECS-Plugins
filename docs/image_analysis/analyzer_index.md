@@ -38,8 +38,6 @@ Worked example (pre-recipe path, in the repository): [Grenouille Analysis notebo
 
 **`DownrampPhaseAnalyzer`** (`analyzers/downramp_phase_analyzer.py`) — plasma downramp shock analysis from phase data. Shock angle estimation, gradient and position detection, plateau and peak-to-plateau delta calculation. Output is a combined diagnostic figure as vector PDF.
 
-**`PhaseDownrampProcessor`** (in `analyzers/density_from_phase_analysis.py`) — class-based phase-map → plasma-density pipeline using PyAbel. Includes utilities for background removal, cropping, rotation alignment, Gaussian masking, and thresholding.
-
 ### Generic / starting points
 
 **`StandardAnalyzer`** (`analyzers/standard_analyzer.py`) — general-purpose 2D image analyzer with YAML config, Pydantic-validated parameters, and a modular processing pipeline (background subtraction, masking, filtering, transforms, thresholding). The parent class for most specialized 2D analyzers.

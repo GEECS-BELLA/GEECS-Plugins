@@ -27,11 +27,6 @@ from scan_analysis.core_analyzer import CoreScanAnalyzer
 _SPECS_BY_ALIAS = {
     "beam": {"kind": "beam"},
     "standard_1d": {"kind": "trace"},
-    "phase_downramp": {
-        "kind": "phase_downramp",
-        "pixel_scale": 1.0,
-        "wavelength_nm": 800,
-    },
     "ict": {"kind": "ict"},
     "frog_spectral_phase": {"kind": "frog_spectral_phase"},
 }
@@ -55,7 +50,7 @@ def _diag(
 
     ``alias`` is a test-fixture shorthand for picking the analyzer spec.
     The default ``image:`` section matches the alias: camera for ``beam``,
-    line for ``standard_1d``, omitted for ``phase_downramp``. ``legacy=True`` adds an
+    line for ``standard_1d``. ``legacy=True`` adds an
     operation the core has not ported, forcing the legacy wrapper route.
     """
     if image is None and alias == "beam":
@@ -67,7 +62,6 @@ def _diag(
             **image,
             **(_LEGACY_LINE if image["type"] == "line" else _LEGACY_CAMERA),
         }
-    # phase_downramp: no image section
     return AnalysisDiagnostic(
         name=name,
         analyzer=_SPECS_BY_ALIAS[alias],
@@ -82,7 +76,7 @@ def _diag(
 
 
 class TestEmbeddedImageSection:
-    """Camera/line analyzers consume the image: section; a phase-map kind refuses one."""
+    """Camera/line analyzers consume the image: section."""
 
     def test_camera_alias_produces_validated_camera_config(self):
         analyzer = create_scan_analyzer(_diag(alias="beam"), route="legacy")

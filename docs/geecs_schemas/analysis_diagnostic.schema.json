@@ -52,21 +52,6 @@
       "title": "AutodetectBackgroundSpec",
       "type": "object"
     },
-    "BCaveMagOptSpec": {
-      "additionalProperties": false,
-      "description": "HTU BCave stitched-spectrum optimizer metrics over the trace pipeline.",
-      "properties": {
-        "kind": {
-          "const": "bcave_mag_opt",
-          "default": "bcave_mag_opt",
-          "description": "HTU BCave stitched-spectrum optimizer analyzer.",
-          "title": "Kind",
-          "type": "string"
-        }
-      },
-      "title": "BCaveMagOptSpec",
-      "type": "object"
-    },
     "BackgroundConfig": {
       "additionalProperties": false,
       "description": "Subtract a background from every frame before analysis.\n\nTwo stages: a primary background (a constant level, a saved frame, or\nthe frame's own border), then an optional extra constant taken off\nafterwards.  Backgrounds that depend on the scan \u2014 another scan's\ndark frames, or an aggregate of this scan's own shots \u2014 are requested\nwith ``scan.background_source`` on the diagnostic instead; the scan\nanalyzer resolves that to a file and rewrites this section to\n``from_file`` before shots are processed.",
@@ -1611,88 +1596,6 @@
       "title": "NormalizationMethod",
       "type": "string"
     },
-    "PhaseDownrampSpec": {
-      "additionalProperties": false,
-      "description": "HTU phase-map processor: density from a probe phase map (reads its own TSV/phase files).",
-      "properties": {
-        "kind": {
-          "const": "phase_downramp",
-          "default": "phase_downramp",
-          "description": "HTU phase-downramp processor.",
-          "title": "Kind",
-          "type": "string"
-        },
-        "pixel_scale": {
-          "description": "Spatial calibration, \u00b5m per pixel (vertical).",
-          "exclusiveMinimum": 0,
-          "title": "Pixel Scale",
-          "type": "number"
-        },
-        "wavelength_nm": {
-          "description": "Probe wavelength, nm.",
-          "exclusiveMinimum": 0,
-          "title": "Wavelength Nm",
-          "type": "number"
-        },
-        "threshold_fraction": {
-          "default": 0.5,
-          "description": "Zero phase values below this fraction of the maximum.",
-          "maximum": 1,
-          "minimum": 0,
-          "title": "Threshold Fraction",
-          "type": "number"
-        },
-        "roi": {
-          "anyOf": [
-            {
-              "maxItems": 4,
-              "minItems": 4,
-              "prefixItems": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "integer"
-                }
-              ],
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Crop as (x_min, x_max, y_min, y_max); negatives count from the end.",
-          "title": "Roi"
-        },
-        "background_path": {
-          "anyOf": [
-            {
-              "format": "path",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "A background phase map to subtract.",
-          "title": "Background Path"
-        }
-      },
-      "required": [
-        "pixel_scale",
-        "wavelength_nm"
-      ],
-      "title": "PhaseDownrampSpec",
-      "type": "object"
-    },
     "PolynomialCalibrationSpec": {
       "additionalProperties": false,
       "description": "Pixel-to-energy map as a polynomial in the column index (E = c0 + c1\u00b7x + c2\u00b7x\u00b2 + ...).",
@@ -2423,7 +2326,6 @@
       "description": "Which analyzer runs and its own parameters; chosen by kind.",
       "discriminator": {
         "mapping": {
-          "bcave_mag_opt": "#/$defs/BCaveMagOptSpec",
           "beam": "#/$defs/BeamAnalyzerSpec",
           "downramp_phase": "#/$defs/DownrampPhaseSpec",
           "frog_retrieval": "#/$defs/FrogRetrievalSpec",
@@ -2436,7 +2338,6 @@
           "line": "#/$defs/LineAnalyzerSpec",
           "line_stitcher": "#/$defs/LineStitcherSpec",
           "magspec": "#/$defs/MagSpecAnalyzerSpec",
-          "phase_downramp": "#/$defs/PhaseDownrampSpec",
           "standard": "#/$defs/StandardAnalyzerSpec",
           "trace": "#/$defs/TraceAnalyzerSpec"
         },
@@ -2484,12 +2385,6 @@
         },
         {
           "$ref": "#/$defs/HiResMagCamSpec"
-        },
-        {
-          "$ref": "#/$defs/BCaveMagOptSpec"
-        },
-        {
-          "$ref": "#/$defs/PhaseDownrampSpec"
         }
       ],
       "title": "Analyzer"
@@ -2518,7 +2413,7 @@
         }
       ],
       "default": null,
-      "description": "How raw frames (type: camera) or traces (type: line) are cleaned up before analysis. Omit for analyzers that read their own file formats (kind phase_downramp).",
+      "description": "How raw frames (type: camera) or traces (type: line) are cleaned up before analysis. Omit for analyzers that read their own file formats (the himg_* kinds).",
       "title": "Image"
     },
     "scan": {

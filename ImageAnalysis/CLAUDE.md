@@ -47,7 +47,6 @@ image_analysis/
     beam_analyzer.py               # BeamAnalyzer(StandardAnalyzer)
     line_analyzer.py               # LineAnalyzer(Standard1DAnalyzer)
     ict_1d_analyzer.py             # ICT1DAnalyzer(Standard1DAnalyzer)
-    density_from_phase_analysis.py # DensityFromPhaseAnalyzer(ImageAnalyzer)
     line_stitcher.py               # LineStitcher
     magspec_manual_calib_analyzer.py
     grenouille_analyzer.py         # FROG / Grenouille
@@ -140,7 +139,7 @@ schema_version: 2
 name: UC_TopView                  # device folder under scans/ScanNNN/
 output_name: UC_TopView_left      # optional output label (defaults to name)
 analyzer: {kind: beam, compute_slopes: false}   # the analyzer + ITS parameters
-image:                            # camera | line | omitted (phase_downramp)
+image:                            # camera | line | omitted (the himg_* kinds)
   type: camera
   bit_depth: 16
   roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
@@ -245,12 +244,6 @@ to all scalar keys.
 Specialized for Integrated Current Transformer (charge measurement). Applies
 Butterworth filter, calibration factor, time-step integration from the
 `ict` spec (`IctAnalyzerSpec`, alias `ICTAnalysisConfig`).
-
-### `DensityFromPhaseAnalyzer(ImageAnalyzer)`
-
-Direct subclass of `ImageAnalyzer` (not Standard). Plasma density from wavefront
-phase data — Abel inversion, background removal, rotation alignment, Gaussian
-masking.
 
 ## Adding a New Analyzer
 
@@ -427,11 +420,14 @@ The write gate is structural, and it depends on two conventions that
 `list_diagnostics(config_dir=...)` (in `image_analysis.config`)
 enumerates the loadable diagnostic IDs for pickers over the same tree.
 
-## Retired BCave camera analyzer
+## Retired analyzer kinds
 
 The legacy `bcave_magspec_stitcher` camera kind and
 `Undulator/BCaveMagSpecStitcher.py` are removed. They used a pre-
 ImageAnalyzerResult dict return and are not a supported migration target.
-The `line`, `line_stitcher` and `bcave_mag_opt` kinds remain, including the
+The `bcave_mag_opt` kind (`Undulator/BCaveMagSpecStitcherOpt.py`) and the
+`phase_downramp` kind (`density_from_phase_analysis.py`, a duplicate of
+`downramp_phase_analyzer.py`) were deleted too (#1039).
+The `line` and `line_stitcher` kinds remain, including the
 MagSpec interpSpec trace used for waterfall plots. Diagnostic filenames
 containing "Stitcher" do not imply the retired camera kind; inspect `analyzer.kind`.
