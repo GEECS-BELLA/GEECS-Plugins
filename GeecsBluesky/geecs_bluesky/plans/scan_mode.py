@@ -182,8 +182,8 @@ def root_path_check(control: ScanModeControl) -> None:
     local = local_data_root()
     if not local:
         return
-    translated = control.device_path(str(local)).rstrip("\\/").lower()
-    if translated and not db_root.rstrip("\\/").lower().startswith(translated):
+    translated = control.device_path(str(local)).rstrip("\\/")
+    if translated and not db_root.rstrip("\\/").lower().startswith(translated.lower()):
         logger.warning(
             "scan mode: the DB's RootPath for %r is %r but the shot paths are "
             "built on %r (config.ini [Paths] geecs_device_server_data_base_path) "
