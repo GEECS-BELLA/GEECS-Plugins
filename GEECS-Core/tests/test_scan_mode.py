@@ -413,6 +413,31 @@ class TestPathChannel:
             assert stack.server.connection_count == 0
             assert await _until(lambda: not any(d.connected for d in stack.devices))
 
+    async def test_stop_is_bounded_even_if_the_ticker_ignores_cancellation(
+        self,
+    ) -> None:
+        """Live 2026-10-13: wait_for swallowed the ticker's cancellation and stop() hung."""
+        server = ScanModeServer(LOOPBACK, 0, keepalive_interval_s=0.01)
+        await server.start()
+        original = server._keepalive_loop
+
+        async def stubborn() -> None:
+            while True:
+                try:
+                    await original()
+                    return
+                except asyncio.CancelledError:
+                    continue  # the swallowed cancellation, exaggerated
+
+        assert server._keepalive_task is not None
+        server._keepalive_task.cancel()
+        await asyncio.sleep(0)
+        server._keepalive_task = asyncio.create_task(stubborn())
+        await asyncio.sleep(0.05)
+        started = time.monotonic()
+        await asyncio.wait_for(server.stop(), timeout=5.0)
+        assert time.monotonic() - started < 3.0
+
     async def test_unopened_objects_say_so(self) -> None:
         with pytest.raises(RuntimeError, match="open"):
             ScanModeMulticaster(LOOPBACK, 1, local_ip=LOOPBACK).send(b"Empty")
