@@ -21,8 +21,13 @@ at ``MultiCastRemotePort``; Master Control sends them from its
 
 Every enabled device of the experiment enters scan mode on ``ScanStart``
 (applying its DB start values and storing the named address as its
-"Master Control IP") and leaves it on ``ScanEnd``.
-:class:`ScanModeMulticaster` sends these.  The address is normally the
+"Master Control IP").  :class:`ScanModeMulticaster` sends these.  The
+multicast ``ScanEnd`` is a **dead letter**: the device framework's listener
+has an empty case for it.  The scan end the device acts on is the same
+``ScanEnd>>…`` text pushed as a frame on its path-channel connection (below,
+:meth:`ScanModeServer.push_scan_end`); Master Control sends both, the frame
+40 ms after the multicast, and the device then runs its end commands,
+acknowledges by UDP and closes the connection.  Verified live 2026-10-13.  The address is normally the
 sender's IP; it may have to be the name the devices resolve that IP to
 (``client_ip``), a facility fact the consumer supplies.
 
@@ -39,8 +44,10 @@ mode — observed live: its start values stay unapplied and every fire fails
 the client IP on port :data:`SCAN_MODE_TCP_PORT` (a framework constant) and
 keeps the connection for the scan.  The client sends a length-prefixed
 ``dummy`` keepalive about every 40 ms on every connection (the device
-answers each with six zero bytes) and, per shot, pushes the length-prefixed
-``Path>>{device-side shot path}`` to every connection, where the path reads
+answers each with six zero bytes), per shot pushes the length-prefixed
+``Path>>{device-side shot path}`` to every connection, and at the end pushes
+the ``ScanEnd>>…`` frame, on which the device leaves scan mode and closes.
+The path reads
 ``{root}\...\Scan006\xxx\Scan006_xxx_001.fileextension`` and the device
 substitutes ``xxx`` and the extension (:func:`device_shot_path`).
 :class:`ScanModeServer` is that server.  A connection carries no device
@@ -325,7 +332,12 @@ class ScanModeMulticaster:
         return message
 
     async def announce_scan_end(self, experiment: str, argument: str) -> bytes:
-        """``ScanEnd`` naming this client's IP.  Returns the datagram sent."""
+        """``ScanEnd`` on the group, naming the client address.  Returns the datagram sent.
+
+        Sent for fidelity with Master Control: the device framework's
+        multicast listener does nothing with it (empty case, read 2026-10-13).
+        The scan end a device acts on is :meth:`ScanModeServer.push_scan_end`.
+        """
         message = scan_end_message(experiment, argument, self._client_ip)
         self.send(message)
         return message
@@ -700,6 +712,27 @@ class ScanModeServer:
         """Push ``Path>>{path}`` to every connection; returns how many connections took it."""
         count = await self._write_all(frame(path_message(path)))
         logger.debug("scan mode: pushed %r to %d connection(s)", path, count)
+        return count
+
+    async def push_scan_end(
+        self, experiment: str, argument: str, client_ip: str
+    ) -> int:
+        """Push the ``ScanEnd`` frame to every connection; returns how many connections took it.
+
+        **This is the exit the devices act on.**  Master Control sends
+        ``ScanEnd`` twice: on the multicast group, where the device
+        framework's listener has an empty ``ScanEnd`` case (a dead letter),
+        and 40 ms later as a frame on every path-channel connection, where
+        the device's TCP loop takes it as the scan end — it runs the stored
+        end commands, acknowledges by UDP to *client_ip* at its own port and
+        closes the connection (captured 2026-10-13, 200 frames per scan at
+        Undulator, and read in the device framework's diagrams).  Send both,
+        this one after the multicast.
+        """
+        count = await self._write_all(
+            frame(scan_end_message(experiment, argument, client_ip))
+        )
+        logger.debug("scan mode: pushed ScanEnd to %d connection(s)", count)
         return count
 
     async def wait_for_hosts(
