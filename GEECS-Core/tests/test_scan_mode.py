@@ -436,19 +436,46 @@ class TestPathChannel:
             await writer.wait_closed()
             assert await _until(lambda: server.connection_count == 0)
 
-    async def test_scan_end_is_acknowledged_and_devices_free_run_again(self) -> None:
+    async def test_multicast_scan_end_is_a_dead_letter(self) -> None:
+        """The device framework's listener has an empty ScanEnd case (read 2026-10-13)."""
+        async with _Stack(*_devices("U_A")) as stack:
+            await stack.start_scan()
+            assert await _until(lambda: stack.server.connection_count == 1)
+            since = asyncio.get_running_loop().time()
+            sent = await stack.multicaster.announce_scan_end("Undulator", "Shot #")
+            assert sent == b"ScanEnd>>Undulator>>Shot #>>127.0.0.1"
+            assert (
+                await stack.listener.wait_for(SCAN_END, stack.names, 0.3, since=since)
+                == {}
+            )
+            assert stack.devices[0].in_scan_mode and stack.server.connection_count == 1
+
+    async def test_scan_end_frame_is_acknowledged_and_devices_free_run_again(
+        self,
+    ) -> None:
+        """The exit the devices act on: the ScanEnd frame on the path channel (captured, verified live)."""
         async with _Stack(*_devices("U_A", "U_B")) as stack:
             await stack.start_scan()
             assert await _until(lambda: stack.server.connection_count == 2)
             since = asyncio.get_running_loop().time()
-            sent = await stack.multicaster.announce_scan_end("Undulator", "Shot #")
-            assert sent == b"ScanEnd>>Undulator>>Shot #>>127.0.0.1"
+            await stack.multicaster.announce_scan_end("Undulator", "Shot #")
+            assert (
+                await stack.server.push_scan_end("Undulator", "Shot #", LOOPBACK) == 2
+            )
             acks = await stack.listener.wait_for(
                 SCAN_END, stack.names, 2.0, since=since
             )
             assert set(acks) == {"U_A", "U_B"} and all(ack.ok for ack in acks.values())
+            assert (
+                acks["U_A"].raw
+                == "U_A>>ScanEnd>>Undulator>>Shot #>>127.0.0.1>>no error,"
+            )
+            for device in stack.devices:
+                assert device.scan_ends == ["ScanEnd>>Undulator>>Shot #>>127.0.0.1"]
             assert await _until(lambda: not any(d.in_scan_mode for d in stack.devices))
-            assert await _until(lambda: stack.server.connection_count == 0)
+            assert await _until(
+                lambda: stack.server.connection_count == 0
+            )  # closed by the devices
             # The ScanStart record survives beside the ScanEnd one.
             assert set(stack.listener.acknowledgements(SCAN_START)) == {"U_A", "U_B"}
             stack.listener.clear()

@@ -17,8 +17,10 @@ Each fake device does what the real device framework does, as captured
 - on the path channel it answers every keepalive with six zero bytes and
   records each ``Path>>`` it receives, bumping its stamp on every **new**
   shot number (``checkIfToAcqu``: a repeated number is not re-acquired);
-- on ``ScanEnd`` it acknowledges, leaves scan mode and closes the
-  connection shortly after, as the real device does.
+- on the ``ScanEnd`` **frame** on the path channel it acknowledges (by UDP,
+  like ``ScanStart``), leaves scan mode and closes the connection, as the
+  real device does; the multicast ``ScanEnd`` it ignores, as the real
+  device's listener does (empty case, read 2026-10-13).
 
 ``acknowledge=False`` plays a device that missed the command (the live
 scan-5 failure mode: silent, never in scan mode); ``ack_status`` plays an
@@ -98,6 +100,7 @@ class FakeScanModeDevice:
         self.received: list[bytes] = []
         self.acks_sent: list[bytes] = []
         self.paths: list[str] = []
+        self.scan_ends: list[str] = []
         self.shot_numbers: list[int] = []
         self.stamp = 0
         self.keepalives = 0
@@ -173,11 +176,7 @@ class FakeScanModeDevice:
             self.lock_ip = parts[3]
             await self._ack(parts, self.lock_ip)
             await self._connect(self.lock_ip)
-        elif parts[0] == SCAN_END:
-            await self._ack(parts, parts[3])
-            self.lock_ip = None
-            await asyncio.sleep(self._disconnect_delay_s)
-            await self._disconnect()
+        # A multicast ``ScanEnd`` is a dead letter on the real device: ignored.
 
     async def _ack(self, parts: list[str], ip: str) -> None:
         assert self._udp is not None, "start() first"
@@ -215,6 +214,16 @@ class FakeScanModeDevice:
                     writer.write(ZERO_REPLY)
                 elif payload.startswith(_PATH_PREFIX):
                     self._on_path(payload[len(_PATH_PREFIX) :].decode("latin-1"))
+                elif payload.startswith(SCAN_END.encode("latin-1")):
+                    # The real device's TCP loop: scan end -> end commands, ack, close.
+                    text = payload.decode("latin-1")
+                    parts = text.split(SEPARATOR)
+                    self.scan_ends.append(text)
+                    if self.acknowledge and len(parts) >= 4:
+                        await self._ack(parts, parts[3])
+                    self.lock_ip = None
+                    await asyncio.sleep(self._disconnect_delay_s)
+                    break  # the loop ends; the finally closes the connection
                 else:
                     logger.debug(
                         "%s: ignoring %r on the path channel", self.name, payload
@@ -225,6 +234,7 @@ class FakeScanModeDevice:
             self._connected.clear()
             if self._writer is writer:
                 self._writer = None
+                writer.close()
 
     def _on_path(self, path: str) -> None:
         self.paths.append(path)
