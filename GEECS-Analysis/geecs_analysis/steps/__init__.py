@@ -14,6 +14,7 @@ from . import (
     median,
     roi,
     rotate,
+    vignette,
     zero_below,
 )
 
@@ -31,5 +32,6 @@ __all__ = [
     "median",
     "roi",
     "rotate",
+    "vignette",
     "zero_below",
 ]
