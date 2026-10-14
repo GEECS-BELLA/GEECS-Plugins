@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 class VignetteSpec(StepSpec):
-    """Divide by ``max(vgnt4·r⁴ + vgnt2·r² + vgnt0, min_model_value)``.
+    """Multiply by ``1 / max(vgnt4·r⁴ + vgnt2·r² + vgnt0, min_model_value)``.
 
     ``r`` is the distance from the sensor centre, in the MATLAB-era
     convention ``pixel_1_based - full/2 + 0.5``. Pixels are the frame's own

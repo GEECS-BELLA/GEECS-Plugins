@@ -189,7 +189,7 @@ def compile_v2(  # noqa: C901, PLR0912
     if kind in line_kinds and not isinstance(config, Line1DConfig):
         raise UnsupportedRecipe(f"{kind} requires a line input")
     active = [n.value for n in config.pipeline if getattr(config, n.value) is not None]
-    if "vignette" in active and "roi" in active[: active.index("vignette")]:
+    if "roi" in active and "vignette" in active[active.index("roi") + 1 :]:
         # Legacy rebuilt the map on the cropped shape; the step keeps the
         # crop's sensor pixels, so the two disagree in this order.
         raise UnsupportedRecipe("Vignette after roi is not ported")

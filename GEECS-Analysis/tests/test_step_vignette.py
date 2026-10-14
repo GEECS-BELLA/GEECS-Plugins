@@ -111,8 +111,9 @@ def test_the_htt_magcam_chain_matches_the_legacy_pipeline():
 
 
 def test_a_vignette_after_an_active_roi_is_refused():
-    with pytest.raises(UnsupportedRecipe, match="after roi"):
-        compile_v2(camera(["roi", "vignette"], **SECTIONS))
+    for pipeline in (["roi", "vignette"], ["vignette", "roi", "vignette"]):
+        with pytest.raises(UnsupportedRecipe, match="after roi"):
+            compile_v2(camera(pipeline, **SECTIONS))
     # An inactive roi is no crop: the order compiles.
     sections = {**SECTIONS, "roi": None}
     compile_v2(camera(["roi", "vignette"], **sections))
