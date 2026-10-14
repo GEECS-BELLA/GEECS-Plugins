@@ -21,7 +21,7 @@ import logging
 import os
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, Optional, TypedDict
+from typing import Iterator, NamedTuple, Optional, TypedDict
 
 from pydantic import ValidationError
 
@@ -45,6 +45,21 @@ class VariableMeta(TypedDict):
     description: str
     alias: str
     defaultvalue: str
+
+
+class ScanModeEndpoint(NamedTuple):
+    """Where an experiment's scan-mode commands go — its ``expt`` row's multicast columns.
+
+    ``group`` and ``port`` are ``MultiCastIP`` and ``MultiCastRemotePort``,
+    the group every enabled device of the experiment listens on for
+    ``ScanStart``/``ScanEnd``.  The row's ``MultiCastLocalPort`` (the port
+    Master Control sends from) is deliberately not carried: a device replies
+    to the IP named in the command at its own port, and binding 58431 on a
+    host whose gateway holds ephemeral ports would collide.
+    """
+
+    group: str
+    port: int
 
 
 # Cached connection parameters so we only parse config files once.
@@ -169,6 +184,20 @@ def _query(sql: str, params: tuple = (), *, fetch: str = "all"):
     with _cursor() as cur:
         cur.execute(sql, params)
         return cur.fetchone() if fetch == "one" else cur.fetchall()
+
+
+def _expt_text(column: str, experiment: str) -> Optional[str]:
+    """One text column of *experiment*'s ``expt`` row, stripped; ``None`` when blank or no row.
+
+    *column* is a literal from this module, never caller input.
+    """
+    row = _query(
+        f"SELECT {column} FROM expt WHERE name = %s", (experiment,), fetch="one"
+    )
+    if row is None or row[0] is None:
+        return None
+    text = str(row[0]).strip()
+    return text or None
 
 
 def _num(value: object) -> Optional[float]:
@@ -831,3 +860,53 @@ class GeecsDb:
                     exc_info=True,
                 )
         return result
+
+    # ------------------------------------------------------------------
+    # Scan mode: the ``expt`` row's Master Control columns (SELECT only)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def get_scan_mode_endpoint(cls, experiment: str) -> Optional[ScanModeEndpoint]:
+        """The multicast endpoint ``ScanStart``/``ScanEnd`` go to for *experiment*.
+
+        ``expt.MultiCastIP`` and ``MultiCastRemotePort`` — the group every
+        enabled device of the experiment listens on.  ``None`` when the
+        experiment has no row or leaves either blank: scan mode cannot be
+        driven for it then.
+
+        Parameters
+        ----------
+        experiment:
+            GEECS experiment name (``expt.name``).
+        """
+        row = _query(
+            "SELECT MultiCastIP, MultiCastRemotePort FROM expt WHERE name = %s",
+            (experiment,),
+            fetch="one",
+        )
+        if row is None:
+            return None
+        group, port = ("" if v is None else str(v).strip() for v in row)
+        if not group or not port:
+            return None
+        return ScanModeEndpoint(group, int(port))
+
+    @classmethod
+    def get_shot_control_device(cls, experiment: str) -> Optional[str]:
+        """``expt.shotcontroldevice`` — the device Master Control fires per shot.
+
+        ``None`` when blank: the experiment has no shot-control box (the
+        shot message is then the only trigger).
+        """
+        return _expt_text("shotcontroldevice", experiment)
+
+    @classmethod
+    def get_root_path(cls, experiment: str) -> Optional[str]:
+        r"""``expt.RootPath`` — the experiment's data root as the **devices** see it.
+
+        A Windows drive-letter or UNC path (``z:\data\Undulator``,
+        ``\\server\share\data\kHzLPA``), the prefix of every shot path pushed
+        in scan mode; returned as stored, backslashes included.  ``None``
+        when blank.
+        """
+        return _expt_text("RootPath", experiment)

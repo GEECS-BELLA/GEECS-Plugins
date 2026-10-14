@@ -17,7 +17,11 @@ geecs_core/
                     #   producer (gateways) and consumers (Bluesky) import
                     #   THIS module; naming must never drift by copy
   transport/        # layer 1 — the UDP/TCP wire protocol, asyncio-native,
-                    #   stdlib-only (GeecsUdpClient, GeecsTcpSubscriber)
+                    #   stdlib-only (GeecsUdpClient, GeecsTcpSubscriber) +
+                    #   scan_mode (Master Control's scan-mode device
+                    #   protocol, client side: the ScanStart/ScanEnd
+                    #   multicaster, the acknowledgement listener and the
+                    #   port-6342 path server — #1084)
   db/               # layer 2 — the experiment MySQL database (GeecsDb,
                     #   blocking, lazy mysql-connector) + alarms.py (the
                     #   pydantic model for the ca_alarm_limits table) +
@@ -33,7 +37,10 @@ geecs_core/
                     #   transport
   testing/          # FakeGeecsServer / FakeGeecsDevice — an in-process
                     #   UDP+TCP server speaking the real wire protocol, so
-                    #   every consumer can test offline
+                    #   every consumer can test offline — and
+                    #   FakeScanModeGroup / FakeScanModeDevice, the device
+                    #   side of scan mode (acknowledges, connects, answers
+                    #   keepalives, takes the pushed paths)
 ```
 
 ## The three rules
@@ -67,6 +74,11 @@ geecs_core/
    only and never reads it.
    A third: `db/served_set.py`, the CA gateway's served set, read by the CA
    gateway, the archiver and the worker namespace so the three cannot drift.
+   A fourth: `transport/scan_mode.py` and its fake in `testing/` — Master
+   Control's scan-mode device protocol, whose only consumer today is the
+   worker (#1084). Admitted as wire protocol: stdlib-only, with an offline
+   fake every consumer's tests can import, and expected to shrink when the
+   device-side contract that issue describes replaces the TCP channel.
 
 Two supporting conventions:
 
@@ -90,6 +102,9 @@ The protocol quirks (exe-reply correlation, the `nval,`/`nvar` frame anchors,
 documented on the transport modules themselves and pinned by this package's
 tests; the operational history behind them lives in
 `GeecsCAGateway/CLAUDE.md` ("Wire-protocol quirks that bit us").
+Master Control's scan-mode protocol (`transport/scan_mode.py`) was captured
+live rather than read from code — issue #1084 carries the capture; every
+byte the module's tests assert is from it.
 
 ## What the DB's columns actually mean
 

@@ -1,9 +1,11 @@
 # GEECS-Core — Developer Context for Claude
 
-The GEECS access **library**: UDP/TCP wire protocol (`transport/`), experiment
-MySQL DB (`db/`), PV naming contract (`pv_naming`), the one `GeecsError` tree
-(`exceptions`), the `FakeGeecsServer` wire-protocol test double (`testing/`),
-and the entry-level synchronous `GeecsDevice` client (`client/`).
+The GEECS access **library**: UDP/TCP wire protocol (`transport/`, including
+`scan_mode` — Master Control's scan-mode device protocol, client side),
+experiment MySQL DB (`db/`), PV naming contract (`pv_naming`), the one
+`GeecsError` tree (`exceptions`), the wire-protocol test doubles
+(`testing/`: `FakeGeecsServer` and the scan-mode `FakeScanModeGroup`), and
+the entry-level synchronous `GeecsDevice` client (`client/`).
 
 **Read `DESIGN.md` before adding anything here.** It carries the three
 layering rules (dependencies flow downward; `client/` is the only sync/async
