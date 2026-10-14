@@ -230,9 +230,9 @@ class ScanModeControl:
 
         Reads the multicast endpoint, the scan-boundary rows and the
         device-side root once (at environment open, like the roster).  A
-        DB failure or a blank endpoint leaves the control disabled with a
-        WARNING: the worker still opens, and a run under a scan-mode
-        profile is refused by name.
+        DB failure (logged with its traceback) or a blank endpoint leaves
+        the control disabled: the worker still opens, and a run under a
+        scan-mode profile is refused by name.
         """
         if geecs_db is None:
             from geecs_core.db.geecs_db import GeecsDb as geecs_db
@@ -244,13 +244,14 @@ class ScanModeControl:
             endpoint = (found.group, int(found.port)) if found is not None else None
             boundary = geecs_db.get_scan_boundary_writes(experiment)
             root = geecs_db.get_root_path(experiment)
-        except Exception as exc:  # noqa: BLE001 — worker must still start
-            logger.warning(
+        except Exception as exc:  # the worker must still start; the traceback is logged
+            logger.error(
                 "scan mode: the experiment's scan-mode facts could not be read "
                 "from the GEECS DB (%s: %s) — runs under a scan-mode trigger "
                 "profile are refused until the environment is reopened",
                 type(exc).__name__,
                 exc,
+                exc_info=True,
             )
             endpoint = None
         if endpoint is None:
