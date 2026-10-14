@@ -176,9 +176,9 @@ def render_document_ephemeral(
 
     The Images tab's processing view: the portal's finite-pixel window and
     palette over the processed frame. ``auxiliary_data`` reaches only the
-    legacy fallback (a line trace's auxiliary columns, which e.g. the FROG
-    phase analyzer reads); the core route reads the primary trace alone,
-    exactly as its scan run does.
+    legacy fallback (a line trace's ``_aux_columns``); on the core route a
+    measure's auxiliary channels travel inside the array itself, appended
+    as columns the way its scan run's source appends them (``V2Recipe.channels``).
     """
     return _render(
         document,

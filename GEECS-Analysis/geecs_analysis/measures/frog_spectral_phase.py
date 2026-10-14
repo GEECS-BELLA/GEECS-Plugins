@@ -39,7 +39,15 @@ _RAD_PER_SECOND_TO_RAD_PER_FS = 1e-15
 
 
 class FrogSpectralPhaseSpec(MeasureSpec):
-    """Fit parameters; fields, defaults and bounds are the v2 ``frog_spectral_phase`` analyzer's."""
+    """Polynomial spectral-phase fit (GD, GDD, TOD) of a retrieved FROG spectrum.
+
+    Reads the ``frog`` measure's ``*_retrieved_lineouts.tsv`` as a trace of
+    spectral phase over wavelength (nm). The spectral intensity weights the
+    fit and its mask through the input's ``weights`` channel: declare it in
+    ``input.loading.auxiliary_columns`` (e.g. ``{weights: 4}``). Without it
+    the fit is unweighted and ``mask_threshold`` applies to |phase|.
+    Fields, defaults and bounds are the v2 ``frog_spectral_phase`` analyzer's.
+    """
 
     kind: Literal["frog_spectral_phase"] = "frog_spectral_phase"
     scalar_docs: ClassVar[Mapping[str, str]] = {
