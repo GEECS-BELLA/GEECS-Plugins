@@ -15,13 +15,16 @@ at ``MultiCastRemotePort``; Master Control sends them from its
 
     Empty
     Empty
-    ScanStart>>{experiment}>>{scan parameter}>>{client IP}
+    ScanStart>>{experiment}>>{scan parameter}>>{client address}
     ...
-    ScanEnd>>{experiment}>>{argument}>>{client IP}
+    ScanEnd>>{experiment}>>{argument}>>{client address}
 
 Every enabled device of the experiment enters scan mode on ``ScanStart``
-(applying its DB start values and locking its command port to the named
-IP) and leaves it on ``ScanEnd``.  :class:`ScanModeMulticaster` sends these.
+(applying its DB start values and storing the named address as its
+"Master Control IP") and leaves it on ``ScanEnd``.
+:class:`ScanModeMulticaster` sends these.  The address is normally the
+sender's IP; it may have to be the name the devices resolve that IP to
+(``client_ip``), a facility fact the consumer supplies.
 
 **Acknowledgements** (UDP unicast): a device answers both commands with
 ``{device}>>ScanStart>>{experiment}>>{scan parameter}>>{client IP}>>no error,``
@@ -386,7 +389,8 @@ class ScanModeAckListener:
     Parameters
     ----------
     local_ip :
-        The client IP named in ``ScanStart`` (the multicaster's).
+        The address to bind: the multicaster's ``local_ip`` (devices reply
+        to the address named in ``ScanStart``, which resolves to it).
     ports :
         The command ports of the devices whose acknowledgements matter —
         ``GeecsDb.get_experiment_devices`` gives them; duplicates collapse.
@@ -557,7 +561,8 @@ class ScanModeServer:
     Parameters
     ----------
     host :
-        The address to listen on — the client IP named in ``ScanStart``.
+        The address to listen on — what the address named in ``ScanStart``
+        resolves to (the multicaster's ``local_ip``).
     port :
         :data:`SCAN_MODE_TCP_PORT`; ``0`` lets the OS choose (tests), the
         bound port is then :attr:`port`.
@@ -599,7 +604,12 @@ class ScanModeServer:
         return len(self._writers)
 
     def inbound_bytes(self) -> dict[tuple[str, int], int]:
-        """Bytes each peer has sent on its connection so far (the devices' keepalive pings), by peer address."""
+        """Bytes each **open** connection's peer has sent this run, by peer address.
+
+        The devices' six-byte answers to the keepalives, on the builds that
+        answer at all.  Reset at :meth:`start`; a dropped connection's entry
+        goes with it.
+        """
         return dict(self._inbound)
 
     @property
@@ -616,6 +626,7 @@ class ScanModeServer:
                 "ScanModeServer: the previous keepalive ticker is still stopping"
             )
         self._stopping = False
+        self._inbound.clear()
         try:
             self._server = await asyncio.start_server(
                 self._on_connection, host=self._host, port=self._port
@@ -750,6 +761,7 @@ class ScanModeServer:
         peer = self._writers.pop(writer, None)
         if peer is None:
             return
+        self._inbound.pop((str(peer[0]), int(peer[1])), None)
         with contextlib.suppress(Exception):
             writer.close()
         if self._changed is not None:

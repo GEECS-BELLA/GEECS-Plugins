@@ -386,18 +386,23 @@ class TestPathChannel:
             stack.server._write_timeout_s = 0.3
             await stack.start_scan()
             assert await _until(lambda: stack.server.connection_count == 2)
-            stalled = next(iter(stack.server._writers))
+            victim, healthy = stack.devices
+            assert victim._writer is not None
+            victim_port = victim._writer.get_extra_info("sockname")[1]
+            stalled = next(
+                w for w, peer in stack.server._writers.items() if peer[1] == victim_port
+            )
 
             async def never_drains() -> None:
                 await asyncio.sleep(5.0)
 
             stalled.drain = never_drains  # type: ignore[method-assign]
-            # The healthy peer must have its path long before the stalled drain is
+            # The HEALTHY peer must have its path long before the stalled drain is
             # judged: a serial loop would hand it over only after the 0.3 s stall.
             started = time.monotonic()
             push = asyncio.create_task(stack.server.push_path(CAPTURED_PATH))
-            paths = [await device.wait_for_paths(1, 0.1) for device in stack.devices]
-            assert [CAPTURED_PATH] in paths and time.monotonic() - started < 0.15
+            assert await healthy.wait_for_paths(1, 0.15) == [CAPTURED_PATH]
+            assert time.monotonic() - started < 0.15
             took = await push
             elapsed = time.monotonic() - started
             assert took == 1
@@ -561,8 +566,12 @@ class TestPathChannel:
             assert await device.wait_connected(1.0)
             await asyncio.sleep(0.15)
             (count,) = stack.server.inbound_bytes().values()
-            # six bytes on connect plus six per keepalive answered
-            assert count == 6 * (1 + device.keepalives) or count >= 12
+            answered = device.keepalives  # same tick as the count
+            # six bytes on connect plus six per keepalive answered (one may be in flight)
+            assert count >= 12
+            assert abs(count - 6 * (1 + answered)) <= 6
+            await device.stop()
+            assert await _until(lambda: stack.server.inbound_bytes() == {})
 
     async def test_unopened_objects_say_so(self) -> None:
         with pytest.raises(RuntimeError, match="open"):
