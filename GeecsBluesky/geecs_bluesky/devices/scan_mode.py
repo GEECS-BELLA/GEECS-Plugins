@@ -114,6 +114,38 @@ def scan_number_of(folder: Path | str) -> int:
     return int(match.group(1))
 
 
+def resolve_ipv4(host: str) -> set[str]:
+    """The IPv4 addresses *host* resolves to (a ``host:port`` loses its port); empty when none."""
+    try:
+        infos = socket.getaddrinfo(host.rsplit(":", 1)[0], None, socket.AF_INET)
+    except OSError:
+        return set()
+    return {info[4][0] for info in infos}
+
+
+def check_announce_address(announced: str, local_ip: str) -> None:
+    """Refuse an announced address the devices would not resolve to this host.
+
+    A device locks its command port to the announced address and connects
+    to it; one that resolves elsewhere locks every device to a host the
+    fire never comes from and leaves them connected nowhere.  Run at the
+    entry and by the plans' preflight.
+    """
+    resolved = resolve_ipv4(announced)
+    if not resolved:
+        raise GeecsConfigurationError(
+            f"scan mode: the announced address {announced!r} does not "
+            "resolve — the devices could not connect back to it"
+        )
+    if local_ip not in resolved:
+        raise GeecsConfigurationError(
+            f"scan mode: the announced address {announced!r} resolves to "
+            f"{', '.join(sorted(resolved))}, not to this worker's "
+            f"{local_ip} — a device locked to it would refuse every command "
+            "from here (config.ini [scan_mode] client_ip)"
+        )
+
+
 class ScanModeControl:
     """The scan-mode announce: Movable over the three commands, Readable per row.
 
@@ -213,6 +245,8 @@ class ScanModeControl:
         self._announced_as: str | None = None
         self._shot = 0
         self._last_path: str | None = None
+        self._acked: tuple[str, ...] = ()
+        self._entry_task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------ building
 
@@ -349,36 +383,20 @@ class ScanModeControl:
         """The string named in ``ScanStart``: ``client_ip`` when given, else *local_ip*."""
         return self._client_ip or local_ip
 
-    @staticmethod
-    def check_announce_address(announced: str, local_ip: str) -> None:
-        """Refuse an announced address the devices would not resolve to this host.
-
-        A device locks its command port to the announced address and
-        connects to it; one that resolves elsewhere locks every device to
-        a host the fire never comes from and leaves them connected nowhere.
-        """
-        try:
-            resolved = {
-                info[4][0]
-                for info in socket.getaddrinfo(announced, None, socket.AF_INET)
-            }
-        except OSError as exc:
-            raise GeecsConfigurationError(
-                f"scan mode: the announced address {announced!r} does not "
-                f"resolve ({exc}) — the devices could not connect back to it"
-            ) from exc
-        if local_ip not in resolved:
-            raise GeecsConfigurationError(
-                f"scan mode: the announced address {announced!r} resolves to "
-                f"{', '.join(sorted(resolved)) or 'nothing'}, not to this "
-                f"worker's {local_ip} — a device locked to it would refuse "
-                "every command from here (config.ini [scan_mode] client_ip)"
-            )
-
     # ------------------------------------------------- the Bluesky protocols
 
     def set(self, value: Any) -> AsyncStatus:
-        """``EnterScanMode(...)`` enters, :data:`ANNOUNCE` announces a shot, :data:`EXIT` ends."""
+        """``EnterScanMode(...)`` enters, :data:`ANNOUNCE` announces a shot, :data:`EXIT` ends.
+
+        The entry runs as its own task so an exit that arrives while it is
+        still waiting (an abort during the acknowledgements, the connection
+        wait or the drain: the RunEngine abandons the status but never
+        cancels it) can cancel it before ending scan mode.
+        """
+        if isinstance(value, EnterScanMode):
+            task = asyncio.get_running_loop().create_task(self._enter(value))
+            self._entry_task = task
+            return AsyncStatus(task)
         return AsyncStatus(self._apply(value))
 
     async def _apply(self, value: Any) -> None:
@@ -443,7 +461,7 @@ class ScanModeControl:
         ports = {self._device_endpoints[d][1] for d in devices}
         local_ip = self.resolve_local_ip(self._device_endpoints[devices[0]][0])
         announced = self.announce_address(local_ip)
-        self.check_announce_address(announced, local_ip)
+        check_announce_address(announced, local_ip)
         group, port = self._endpoint
         server = ScanModeServer(local_ip, self._tcp_port)
         listener = ScanModeAckListener(local_ip, ports)
@@ -468,27 +486,38 @@ class ScanModeControl:
         try:
             acks = await self._scan_start(devices)
             await self._wait_connected(devices, hosts)
+            if self._drain_s > 0:
+                await asyncio.sleep(self._drain_s)
+        except asyncio.CancelledError:
+            # The RunEngine's abort cancels the status it is waiting on (or an
+            # exit arrived during the wait): end scan mode for the devices
+            # that did enter and complete — the plan's finalizer then finds
+            # nothing left, and the engine reports the abort, not a failure.
+            logger.warning(
+                "scan mode: the entry for %r was cancelled while waiting — "
+                "ending scan mode for the device(s) that entered",
+                self._experiment,
+            )
+            await self._exit()
+            return
         except BaseException:
-            # Ends it for the devices that did enter; the server's close
-            # ends it for any that connected without acknowledging.
+            # A refusal: ends it for the devices that did enter; the server's
+            # close ends it for any that connected without acknowledging.
             await self._exit()
             raise
         lags = sorted(ack.received_at for ack in acks.values())
         logger.info(
             "scan mode: %d device(s) on %d host(s) entered scan mode for %r "
-            "as %s (%d connection(s) in %.1f s); draining %.2f s before the "
-            "first shot",
+            "as %s (%d connection(s), %.2f s drain: %.1f s to the first shot)",
             len(devices),
             len(hosts),
             self._experiment,
             announced,
             server.connection_count,
-            time.monotonic() - started,
             self._drain_s,
+            time.monotonic() - started,
         )
         del lags
-        if self._drain_s > 0:
-            await asyncio.sleep(self._drain_s)
 
     async def _scan_start(self, devices: tuple[str, ...]) -> dict[str, ScanModeAck]:
         assert self._sender is not None and self._listener is not None
@@ -505,6 +534,7 @@ class ScanModeControl:
                 SCAN_START, devices, self._ack_timeout_s, since=since
             )
             silent = [d for d in devices if d not in acks]
+            self._acked = tuple(d for d, ack in acks.items() if ack.ok)
             if not silent:
                 break
             if attempt < attempts:
@@ -592,14 +622,26 @@ class ScanModeControl:
     # -------------------------------------------------------------- exit
 
     async def _exit(self) -> None:
+        entry = self._entry_task
+        if entry is not None and entry is not asyncio.current_task():
+            self._entry_task = None
+            if not entry.done():
+                # An exit during the entry's own wait (an abort): the entry's
+                # cleanup ends scan mode for the devices that acknowledged,
+                # and this call then finds nothing left to release.
+                entry.cancel()
+                await asyncio.gather(entry, return_exceptions=True)
         server, listener, sender = self._server, self._listener, self._sender
         if server is None or listener is None or sender is None:
             logger.info("scan mode: nothing to release — no run is in scan mode")
             return
-        devices = self._run_devices
+        # Only a device that acknowledged ScanStart is in scan mode and will
+        # acknowledge ScanEnd; a silent one is not waited for twice.
+        devices = self._acked
         try:
             loop = asyncio.get_running_loop()
             since = loop.time()
+            deadline = since + self._end_timeout_s
             await sender.announce_scan_end(self._experiment, self._scan_parameter)
             await asyncio.sleep(EXIT_FRAME_DELAY_S)
             pushed = await server.push_scan_end(
@@ -613,7 +655,6 @@ class ScanModeControl:
                 else {}
             )
             silent = [d for d in devices if d not in acks]
-            deadline = loop.time() + self._end_timeout_s
             while server.connection_count and loop.time() < deadline:
                 await asyncio.sleep(0.02)
             still_open = server.connection_count
@@ -644,6 +685,7 @@ class ScanModeControl:
             await self._release(server, listener, sender)
             self._server = self._listener = self._sender = None
             self._run_devices = ()
+            self._acked = ()
             self._clear_state()
 
     async def _release(
@@ -734,6 +776,8 @@ __all__ = [
     "EXIT",
     "EnterScanMode",
     "ScanModeControl",
+    "check_announce_address",
     "default_state_file",
+    "resolve_ipv4",
     "scan_number_of",
 ]

@@ -129,16 +129,15 @@ def run_submit_preflight(
         return report
 
     # -- scan mode (the worker's rule, mirrored for the client's report) ----
-    refusal = scan_mode_refusal(
-        item, _resolve_trigger_profile(preset, experiment, resolver)
-    )
+    profile = _resolve_trigger_profile(preset, experiment, resolver)
+    refusal = scan_mode_refusal(item, profile)
     if refusal is not None:
         report.refusal = refusal
         return report
 
     # -- gateway liveness ----------------------------------------------------
     devices = list(item.devices)
-    for device in _trigger_profile_devices(preset, experiment, resolver):
+    for device in _trigger_profile_devices(profile):
         if device not in devices:
             devices.append(device)
     if devices:
@@ -186,15 +185,14 @@ def _resolve_trigger_profile(preset: Any, experiment: str, resolver: Any) -> Any
         return None
 
 
-def _trigger_profile_devices(preset: Any, experiment: str, resolver: Any) -> list[str]:
-    """The devices the submission's trigger profile writes — the box, for the liveness list.
+def _trigger_profile_devices(profile: Any) -> list[str]:
+    """The devices a trigger profile document writes — the box, for the liveness list.
 
     Read off the same adapter the worker's ``ShotControl`` is built from
     (:func:`~geecs_bluesky.devices.shot_control.trigger_writes_from_profile`),
-    so the two lists cannot drift.  Fail-open like the resolution: an
-    unresolvable profile contributes nothing.
+    so the two lists cannot drift.  Fail-open like the resolution: no
+    document, or one the adapter refuses, contributes nothing.
     """
-    profile = _resolve_trigger_profile(preset, experiment, resolver)
     if profile is None:
         return []
     from geecs_bluesky.devices.shot_control import trigger_writes_from_profile

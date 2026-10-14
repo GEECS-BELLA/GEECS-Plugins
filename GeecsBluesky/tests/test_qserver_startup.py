@@ -302,10 +302,15 @@ _ROW = {
 
 
 @pytest.fixture(autouse=True)
-def _no_db_for_scan_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The scan-mode control reads the ``expt`` row at environment open; fake it like the roster."""
+def _no_db_for_scan_mode(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The scan-mode control reads the ``expt`` row at environment open; fake it like the roster.
+
+    The state file goes under ``tmp_path``: the profile's ``release_stale``
+    unlinks it, and the default would be this account's real record.
+    """
     from geecs_bluesky.devices.scan_mode import ScanModeControl
 
+    monkeypatch.setenv("GEECS_SCAN_MODE_STATE", str(tmp_path / "scan_mode.json"))
     monkeypatch.setattr(
         ScanModeControl,
         "from_experiment",

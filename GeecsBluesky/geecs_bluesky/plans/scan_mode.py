@@ -17,9 +17,10 @@ The device is :class:`~geecs_bluesky.devices.scan_mode.ScanModeControl`;
   experiment's endpoint, a run device the roster lacks, a profile write
   that disagrees with the device's own DB boundary row (the device applies
   its ``startvalue`` on ``ScanStart``, after the bracket's ARMED), an
-  announced address that does not resolve to this host, and a worker on
-  another host than the CA gateway (``EPICS_CA_ADDR_LIST``).  The DB's
-  ``RootPath`` is cross-checked against the device-side root (a WARNING).
+  announced address that does not resolve to this host, a CA gateway on
+  another host (``EPICS_CA_ADDR_LIST``), and a device-side root that is
+  no drive or UNC path (every device would save on its own drive).  The
+  DB's ``RootPath`` is cross-checked against that root (a WARNING).
 - :func:`release_scan_mode_plan` is the registered ``release_scan_mode``
   plan: end scan mode on the devices of a run that never ended it.
 """
@@ -28,6 +29,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import socket
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -37,8 +39,14 @@ import bluesky.preprocessors as bpp
 from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_bluesky.data_paths import local_data_root, pva_addr_tokens
-from geecs_bluesky.devices.ca._view import owner_of
-from geecs_bluesky.devices.scan_mode import EXIT, EnterScanMode, ScanModeControl
+from geecs_bluesky.devices.ca._view import geecs_device_of
+from geecs_bluesky.devices.scan_mode import (
+    EXIT,
+    EnterScanMode,
+    ScanModeControl,
+    check_announce_address,
+    resolve_ipv4,
+)
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_core.configs_repo import read_config_entry
 
@@ -67,9 +75,9 @@ def run_device_names(
     """
     names: dict[str, None] = {}
     for obj in [*detectors, *non_essential]:
-        device = getattr(owner_of(obj), "_geecs_device_name", None)
+        device = geecs_device_of(obj)
         if device:
-            names.setdefault(str(device))
+            names.setdefault(device)
     for device in getattr(shot_control, "liveness_signals", None) or {}:
         names.setdefault(str(device))
     return tuple(names)
@@ -81,13 +89,21 @@ def scan_parameter_for(plan_name: str) -> str:
 
 
 def scan_mode_bracket(plan: Any, control: ScanModeControl, entry: EnterScanMode):
-    """Enter scan mode before *plan*; end it in a finalizer (every exit path but a halt)."""
-    yield from bps.mv(control, entry)
+    """Enter scan mode before *plan*; end it in a finalizer (every exit path but a halt).
+
+    The entry sits inside the finalizer too: an abort while it waits for
+    the acknowledgements, the connections or the drain still ends scan
+    mode (the exit cancels the entry's outstanding task first).
+    """
+
+    def body():
+        yield from bps.mv(control, entry)
+        return (yield from plan)
 
     def leave():
         yield from bps.mv(control, EXIT)
 
-    return (yield from bpp.finalize_wrapper(plan, leave()))
+    return (yield from bpp.finalize_wrapper(body(), leave()))
 
 
 def values_agree(a: str | None, b: str | None) -> bool:
@@ -138,20 +154,24 @@ def gateway_hosts() -> tuple[str, ...]:
     return tuple(pva_addr_tokens(raw))
 
 
-def _resolves_to(host: str) -> set[str]:
+def _is_local_address(ip: str) -> bool:
+    """Whether *ip* is one of this host's addresses (a socket binds only there)."""
     try:
-        infos = socket.getaddrinfo(host.rsplit(":", 1)[0], None, socket.AF_INET)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.bind((ip, 0))
     except OSError:
-        return set()
-    return {info[4][0] for info in infos}
+        return False
+    return True
 
 
 def check_gateway_host(local_ip: str, gateways: Sequence[str]) -> None:
-    """Refuse a worker that would announce an address the CA gateway does not have.
+    """Refuse a worker on another host than the CA gateway.
 
     A device in scan mode takes commands only from the announced address,
-    and the gateway's puts (the fire, every set) come from the gateway's
-    host — so the two must be one host.  An empty *gateways* (no
+    and the gateway's puts (the fire, every set) leave from the gateway's
+    host — so the two must be one host: a gateway address is accepted
+    when it is the announced one or any other address of this host
+    (loopback, a second interface).  An empty *gateways* (no
     ``EPICS_CA_ADDR_LIST``) cannot be checked and only warns.
     """
     if not gateways:
@@ -164,14 +184,39 @@ def check_gateway_host(local_ip: str, gateways: Sequence[str]) -> None:
         return
     known: set[str] = set()
     for gateway in gateways:
-        known |= _resolves_to(gateway)
-    if known and local_ip not in known:
+        known |= resolve_ipv4(gateway)
+    if known and local_ip not in known and not any(map(_is_local_address, known)):
         raise GeecsConfigurationError(
             f"scan mode: this worker would announce {local_ip} but the CA "
             f"gateway is at {', '.join(gateways)} — a device in scan mode "
             "takes commands only from the announced address, so the worker "
             "and the gateway must run on one host"
         )
+
+
+#: A device-side root: a drive letter or a UNC share.
+_DEVICE_ROOT = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
+
+
+def device_root_check(control: ScanModeControl) -> str:
+    """Refuse a device-side root the devices could not use; return the translated root.
+
+    The pushed path is the claimed folder translated onto config.ini's
+    ``[Paths] geecs_device_server_data_base_path``; with the key unset the
+    translation is this host's own POSIX path, and every saving device of
+    the experiment (``ScanStart`` is multicast) would create that folder
+    on its own drive.
+    """
+    local = local_data_root() or "/geecs-data"
+    translated = control.device_path(str(local)).rstrip("\\/")
+    if not _DEVICE_ROOT.match(translated):
+        raise GeecsConfigurationError(
+            f"scan mode pushes device-side paths, but the data root {local!r} "
+            f"translates to {translated!r}, not a drive or UNC path — set "
+            "config.ini [Paths] geecs_device_server_data_base_path to the "
+            "devices' root (Z:/data, or \\\\server\\share\\data)"
+        )
+    return translated
 
 
 def root_path_check(control: ScanModeControl) -> None:
@@ -247,8 +292,9 @@ def scan_mode_preflight(
             + " — make the profile and the DB rows agree, or drop the row"
         )
     local_ip = control.resolve_local_ip(endpoints[run_devices[0]][0])
-    control.check_announce_address(control.announce_address(local_ip), local_ip)
+    check_announce_address(control.announce_address(local_ip), local_ip)
     check_gateway_host(local_ip, gateway_hosts())
+    device_root_check(control)
     root_path_check(control)
 
 
@@ -277,6 +323,7 @@ def release_scan_mode_plan(control: ScanModeControl | None):
 __all__ = [
     "boundary_conflicts",
     "check_gateway_host",
+    "device_root_check",
     "gateway_hosts",
     "release_scan_mode_plan",
     "root_path_check",

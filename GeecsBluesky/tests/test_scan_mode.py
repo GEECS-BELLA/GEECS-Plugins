@@ -16,8 +16,10 @@ import asyncio
 import json
 import logging
 import socket
+import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -27,6 +29,7 @@ pytest.importorskip("aioca")
 import bluesky.plan_stubs as bps
 import bluesky.plans as bp
 from bluesky import RunEngine
+from bluesky.utils import RunEngineInterrupted
 from bluesky.utils import FailedStatus
 from ophyd_async.core import set_mock_value
 
@@ -36,6 +39,7 @@ from geecs_bluesky.devices.scan_mode import (
     EXIT,
     EnterScanMode,
     ScanModeControl,
+    check_announce_address,
     scan_number_of,
 )
 from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites
@@ -284,8 +288,12 @@ def test_a_silent_device_is_refused_by_name_after_one_retry(
 ) -> None:
     stack.start(**{BOX: {"acknowledge": False}})
     control = stack.make_control(ack_timeout_s=0.3)
+    t0 = time.monotonic()
     with pytest.raises(FailedStatus) as info:
         RE(bps.mv(control, _entry()))
+    # the exit waits for ScanEnd from the device that entered, not from the
+    # silent one (its end_timeout_s is 2.0: two of them would show here)
+    assert time.monotonic() - t0 < 1.8
     cause = _cause(info)
     assert isinstance(cause, GeecsScanModeError) and cause.devices == (BOX,)
     assert "no acknowledgement from U_DG645 after 2 ScanStart(s)" in str(cause)
@@ -408,10 +416,12 @@ def test_release_stale_clears_the_record_and_names_the_devices(
 
 
 def test_the_announced_address_must_resolve_to_this_host() -> None:
-    ScanModeControl.check_announce_address("localhost", LOOPBACK)
-    ScanModeControl.check_announce_address(LOOPBACK, LOOPBACK)
+    check_announce_address("localhost", LOOPBACK)
+    check_announce_address(LOOPBACK, LOOPBACK)
     with pytest.raises(GeecsConfigurationError, match="resolves to 203.0.113.7"):
-        ScanModeControl.check_announce_address("203.0.113.7", LOOPBACK)
+        check_announce_address("203.0.113.7", LOOPBACK)
+    with pytest.raises(GeecsConfigurationError, match="does not resolve"):
+        check_announce_address("no-such-host.invalid", LOOPBACK)
 
 
 def test_scan_number_of_reads_the_folder_name(tmp_path: Path) -> None:
@@ -599,6 +609,34 @@ def test_count_under_a_scan_mode_profile_enters_before_the_claim_and_exits_befor
     assert stack.group.received[2].decode().startswith("ScanStart>>TestExp>>Shot #>>")
 
 
+def test_an_abort_during_the_entry_still_exits_scan_mode(
+    RE: RunEngine, stack: Stack
+) -> None:
+    cam = _camera(RE, FakeBox(), CAM)
+    stack.start(**{CAM: {"camera": cam}})
+    control = stack.make_control(drain_s=3.0)  # the abort lands in the drain
+    bound = bind_plans(
+        _profiles(RE, stack.timeline, use_scan_mode=True), scan_mode=control
+    )
+    _run_markers(RE, stack.timeline)
+
+    def abort_once_entered() -> None:
+        assert _until(lambda: "ScanStart" in _received(stack))
+        time.sleep(0.3)
+        RE.abort()
+
+    aborter = threading.Thread(target=abort_once_entered)
+    aborter.start()
+    with pytest.raises(RunEngineInterrupted):
+        RE(bound["count"]([cam], num=1))
+    aborter.join()
+    tl = stack.timeline
+    assert ("msg", "open_run") not in tl  # claimed nothing
+    assert tl.index(("scan_end", CAM)) < tl.index(("put", "standby"))
+    assert not control.entered and not stack.state_file.exists()
+    assert _until(lambda: not stack.devices[CAM].in_scan_mode)
+
+
 def test_an_aborted_run_still_exits_scan_mode_before_standby(
     RE: RunEngine, stack: Stack
 ) -> None:
@@ -727,6 +765,9 @@ def test_run_device_names_lists_owners_once_plus_the_box(RE: RunEngine) -> None:
     names = run_device_names([cam, cam.scalars], [cam.scalars], sc)
     assert names == (CAM, BOX)
     assert run_device_names([cam]) == (CAM,)
+    # a detector's signal names its device (the one naming walk); a plan-side
+    # object with no device behind it is skipped
+    assert run_device_names([cam.acq_timestamp, SimpleNamespace(name="bins")]) == (CAM,)
 
 
 def test_values_agree_is_numeric_aware() -> None:
@@ -750,11 +791,26 @@ def test_boundary_conflicts_name_the_variable_and_the_state(RE: RunEngine) -> No
 def test_the_gateway_host_guard(caplog) -> None:
     check_gateway_host(LOOPBACK, ("localhost",))
     check_gateway_host(LOOPBACK, ("localhost:5064",))
+    # a colocated gateway reached through loopback, or another interface of
+    # this host, is the same host
+    check_gateway_host("192.0.2.10", ("127.0.0.1",))
+    check_gateway_host("192.0.2.10", ("localhost:5064",))
     with pytest.raises(GeecsConfigurationError, match="must run on one host"):
         check_gateway_host(LOOPBACK, ("203.0.113.9",))
     with caplog.at_level(logging.WARNING, logger="geecs_bluesky.plans.scan_mode"):
         check_gateway_host(LOOPBACK, ())
     assert "EPICS_CA_ADDR_LIST is not set" in caplog.text
+
+
+def test_preflight_refuses_a_device_root_that_is_no_drive(
+    RE: RunEngine, stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("EPICS_CA_ADDR_LIST", "localhost")
+    stack.start()
+    sc = _shot_control(RE, [], use_scan_mode=True)
+    control = stack.make_control(device_path=lambda p: p)  # no translation set
+    with pytest.raises(GeecsConfigurationError, match="not a drive or UNC path"):
+        scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
 
 
 def test_preflight_refuses_what_scan_mode_cannot_carry(

@@ -510,8 +510,17 @@ devices in scan mode, and they end the scan by themselves when their
 connection dies, so environment open logs the fact and clears it
 (`release_stale`); a halt in a live process leaves the control entered,
 and the next entry ends that run first — `release_scan_mode` does it on
-demand.  Deferred from v1 (the issue): a scanner tag, a ScanInfo row, the
-path template in metadata, re-sending a repeated shot number, restricting
+demand.  The preflight also refuses a device-side root that is no drive
+or UNC path: `ScanStart` is multicast, so every saving device of the
+experiment would create a POSIX folder on its own drive.  **Movers under
+scan mode are unverified**: every device enters scan mode on the
+multicast, and a device in scan mode pushes its readbacks once per shot
+(seen on the stand: the gateway's readbacks of the run's devices froze at
+the last shot), so a `CaMotor` move between shots — completed on the
+readback within tolerance — may stall until the first sweep on the stand
+says otherwise; that check comes before any mover scan under the flag.
+Deferred from v1 (the issue): a scanner tag, a ScanInfo row, the path
+template in metadata, re-sending a repeated shot number, restricting
 `ScanStart` to the run's devices (it is multicast by design).
 
 ### The s-file of a run with stream data
@@ -734,8 +743,10 @@ cross-package invariant in the root `CLAUDE.md`); the s-file format and its
 `Device Variable` headers (every device's `_column_headers`); ScanInfo; PV
 naming (owned by the gateways and `geecs_core`); the fire between trigger
 and wait.  Transport, DB and PV naming live in GEECS-Core — this package
-touches devices **only** through the gateway's CA PVs and never imports the
-gateway (circular).
+touches devices **only** through the gateway's CA PVs (plus, under a
+scan-mode profile, the scan-mode messages of `geecs_core.transport`:
+`ScanStart`/`ScanEnd` on the group and the path channel — never a device
+command) and never imports the gateway (circular).
 
 ### Images
 
