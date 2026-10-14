@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 TARGET_SCHEMA_VERSION = 1
 
 #: The shot number a scan-mode run announced for the row's shot: the number in
-#: the devices' ``ScanNNN_<device>_SSS`` file names, never the row index.
+#: the devices' ``ScanNNN_<device>_SSS`` file names (:func:`announced_shots`).
 ANNOUNCED_SHOT_COLUMN = "announced_shot"
 
 #: Its s-file header (``tiled_export``); both spellings match by token.
@@ -152,6 +152,36 @@ def announced_shot_column(columns: Sequence[str]) -> Optional[str]:
         if normalize_token(str(column)) == ANNOUNCED_SHOT_COLUMN:
             return str(column)
     return None
+
+
+def announced_shots(frame: Any) -> Optional[Any]:
+    """The announced shot of every row, or ``None`` outside scan mode.
+
+    THE file-number rule for a scan-mode run's ``ScanNNN_<device>_SSS``
+    files, shared by every reader that joins them to rows: the value of
+    :func:`announced_shot_column`, never the row index.  The two differ
+    once an announced shot ends in no row (an immediate pause that rewinds
+    the shot in progress announces the replay under the next number).
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        A run's rows (event table or s-file).
+
+    Returns
+    -------
+    pandas.Series or None
+        Floats aligned with *frame*, NaN where a row has no usable number
+        (absent, non-numeric, below 1); ``None`` when the run has no
+        announced-shot column.
+    """
+    column = announced_shot_column([str(c) for c in frame.columns])
+    if column is None:
+        return None
+    import pandas as pd
+
+    values = pd.to_numeric(frame[column], errors="coerce").astype(float)
+    return values.where(values >= 1)
 
 
 def is_acq_timestamp_column(column: str) -> bool:

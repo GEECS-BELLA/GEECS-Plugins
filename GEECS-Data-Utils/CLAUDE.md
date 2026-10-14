@@ -514,8 +514,9 @@ frames first, while `stacks_only=True` refuses native fallback with
 `StackMappingUnavailable`. The ScanAnalysis adapter translates that into its
 `DataUnavailableWarning`; queue/status policy remains outside data-utils.
 Shot-number filenames join by the rows' announced shot when they carry one
-(`tiled_schema.announced_shot_column`: `announced_shot` / the s-file's
-`Announced Shot`, a scan-mode run), never by `Shotnumber` then.
+(`tiled_schema.announced_shots`: `announced_shot` / the s-file's
+`Announced Shot`, a scan-mode run), never by `Shotnumber` then, and a row the
+device missed (stamp absent, `valid` false) maps no file.
 
 ## HASO `.himg` capture stacks (0.46.0)
 

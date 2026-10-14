@@ -60,8 +60,11 @@ scan-mode profile.
 
 The shot number is run-wide and starts at 1. Every fire takes the next
 number, refires included, and a number is never sent twice. A device that
-misses a shot leaves a partial row; the retake gets a new number. The row
-index and the file number therefore drift apart after the first refire.
+misses a shot still leaves a row: the partial row keeps its number and the
+retake takes the next one, so the row index and the number usually agree.
+They part when an announced shot ends in no row. For example, an
+immediate pause rewinds the shot in progress and the replay is announced
+under the next number.
 
 Each row records the number it was announced as:
 
@@ -71,18 +74,24 @@ Each row records the number it was announced as:
 | s-file (`ScanDataScanNNN.txt`) | `Announced Shot` |
 
 `Shotnumber` stays the row index. Readers join a device's shot-numbered
-files to rows **by the announced shot**: ScanAnalysis's shot mapper, the
-`.himg` stack converter and the Data Portal's image viewer all do so
-whenever the run carries the column. Code that reads such files itself
-finds the column with
-`geecs_data_utils.tiled_schema.announced_shot_column`, which accepts both
+files to rows **by the announced shot**, and a row the device missed gets
+no file even if one carries its number. ScanAnalysis's shot mapper, the
+`.himg` stack converter, `ScanData`'s expected-path columns and the Data
+Portal's image viewer all do so whenever the run carries the column. Code
+that reads such files itself takes the numbers from
+`geecs_data_utils.tiled_schema.announced_shots(rows)`, which accepts both
 spellings.
 
-!!! example "A refire, from the pulsed-wire test stand"
-    A `count` of 3: the picoscope missed shot 1, the refire took 2. The
-    rows carry announced shots 2, 3 and 4, and the device folder holds
-    `Scan999_pulsewire-picoscope_002.tdms` through `_004`. Row 1 is file
-    `_002`, never `_001`.
+!!! example "A missed shot, from the pulsed-wire test stand"
+    A `count` of 3: the picoscope missed shot 1 and the refire took 2. The
+    run has four rows, announced 1 to 4; row 1 is partial (no picoscope
+    stamp), and the device folder holds
+    `Scan999_pulsewire-picoscope_002.tdms` through `_004`. Rows 2 to 4 get
+    their files; row 1 gets none.
+
+The post-run stack check does not match a non-essential device's files to
+its stream under scan mode, because the files are named by shot number and
+not by timestamp.
 
 ## Movers
 

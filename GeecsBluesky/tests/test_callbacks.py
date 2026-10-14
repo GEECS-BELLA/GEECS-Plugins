@@ -1061,6 +1061,23 @@ def test_a_gated_run_with_a_native_essential_gets_its_s_file_and_a_files_line(  
     )
 
 
+def _replay_slow_stream(start: dict, events: list) -> None:
+    """Feed a fresh stack check *start* and ``u_slow_stream``'s *events*; wait."""
+    from geecs_bluesky.callbacks import StackCheckCallback
+
+    check = StackCheckCallback(finalize_timeout=0.6)
+    uid = start["uid"]
+    check("start", start)
+    check(
+        "descriptor",
+        {"uid": "d", "run_start": uid, "name": "u_slow_stream", "object_keys": {}},
+    )
+    for i, e in enumerate(events, start=1):
+        check("event", {"descriptor": "d", "seq_num": i, "data": e["data"]})
+    check("stop", {"run_start": uid, "exit_status": "success"})
+    check.join(10.0)
+
+
 @pytest.mark.parametrize("mode", ["strict", "gated"])
 def test_a_slow_non_essential_native_saver_joins_by_stamp_and_checks_its_files(
     RE, gated_worker, tmp_path, caplog, mode
@@ -1131,17 +1148,8 @@ def test_a_slow_non_essential_native_saver_joins_by_stamp_and_checks_its_files(
     # apart, a WARNING, never a failure.
     (directory / f"U_Slow_{stamps[0]:.3f}.himg").unlink()
     (directory / f"U_Slow_{stamps[0] + 1.0:.3f}.himg").write_bytes(b"x")
-    again = StackCheckCallback(finalize_timeout=0.6)
     start = col.docs["start"][0]
-    again("start", {**start, "uid": "again"})
-    again(
-        "descriptor",
-        {"uid": "d", "run_start": "again", "name": "u_slow_stream", "object_keys": {}},
-    )
-    for i, e in enumerate(events, start=1):
-        again("event", {"descriptor": "d", "seq_num": i, "data": e["data"]})
-    again("stop", {"run_start": "again", "exit_status": "success"})
-    again.join(10.0)
+    _replay_slow_stream({**start, "uid": "again"}, events)
     log = (tmp_path / "scans" / "Scan001" / "scan.log").read_text()
     assert (
         f"WARNING native files check: u_slow: {len(stamps) - 1} of {len(stamps)} "
@@ -1149,6 +1157,13 @@ def test_a_slow_non_essential_native_saver_joins_by_stamp_and_checks_its_files(
         "event(s) without a file, 1 file stamp(s) with no event); 1 file(s) "
         "after its last event" in log
     )
+
+    # Under scan mode the device's files are shot-numbered, so the stamp
+    # match is not run at all: no line, rather than a false MISMATCH.
+    checks = log.count("native files check: u_slow")
+    _replay_slow_stream({**start, "uid": "mode", "use_scan_mode": True}, events)
+    log = (tmp_path / "scans" / "Scan001" / "scan.log").read_text()
+    assert log.count("native files check: u_slow") == checks
 
 
 def test_a_scalars_view_non_essential_reaches_the_s_file(RE, gated_worker, tmp_path):

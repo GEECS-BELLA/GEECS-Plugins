@@ -175,10 +175,22 @@ class StackCheckCallback(_StreamCallback):
                     stamps,
                     self.finalize_timeout,
                 )
-        # A non-essential native saver without a plugin (either mode): its
-        # stream's EVENTS are matched to its files — one event per stamp it
-        # published, so an event without a file is a lost save and a file
-        # without an event a stamp the stream never saw.
+        self._spawn_stream_file_checks(start, run)
+
+    def _spawn_stream_file_checks(
+        self, start: dict[str, Any], run: _RunStreams
+    ) -> None:
+        """Spawn the native-files check of each non-essential saver's stream.
+
+        A non-essential native saver without a plugin (either mode): its
+        stream's EVENTS are matched to its files — one event per stamp it
+        published, so an event without a file is a lost save and a file
+        without an event a stamp the stream never saw.  Not under scan
+        mode: its files are then shot-numbered, never stamp-named, and the
+        match could only report every file missing.
+        """
+        if start.get("use_scan_mode"):
+            return
         for stream in run.event_streams:
             rows = run.stream_rows(stream)
             for owner, directory, stamps in _native_save_dirs(dict(start), rows):

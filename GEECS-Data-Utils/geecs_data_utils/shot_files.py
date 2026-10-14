@@ -31,7 +31,7 @@ from geecs_data_utils.io.scan_stack import (
     stack_frame_index_map,
 )
 from geecs_data_utils.tiled_schema import (
-    announced_shot_column,
+    announced_shots,
     device_acq_timestamp_column,
     device_valid_column,
 )
@@ -83,6 +83,14 @@ def map_shot_files(
     return mapper.paths
 
 
+def _is_false(value: object) -> bool:
+    """A ``valid`` cell that says false; unknown (NA, unparseable) is not."""
+    try:
+        return not pd.isna(value) and not bool(value)
+    except (TypeError, ValueError):
+        return False
+
+
 @dataclass
 class _ShotFileMapper:
     """One mapping pass; mutable work state never escapes except the result map."""
@@ -116,8 +124,8 @@ class _ShotFileMapper:
           scan-mode runs): the legacy pattern
           ``Scan<scan_number>_<device_subject>_<shot_number><file_tail>``,
           e.g. ``Scan012_UC_ALineEBeam3_005.png``. The file's number is the
-          row's announced shot when the rows carry one (a refire moves it
-          away from ``Shotnumber``), else ``Shotnumber`` itself.
+          row's announced shot when the rows carry one, else ``Shotnumber``
+          itself; a scan-mode row this device missed maps no file.
 
         The presence of an ``acq_timestamp`` column selects the timestamp
         join first, but it is not conclusive on its own: the legacy scanner
@@ -224,21 +232,31 @@ class _ShotFileMapper:
         """File shot number → the row's ``Shotnumber``.
 
         A scan-mode run numbers its files by the announced shot
-        (:func:`~geecs_data_utils.tiled_schema.announced_shot_column`), never
-        by the row index; every other run by ``Shotnumber`` itself.
+        (:func:`~geecs_data_utils.tiled_schema.announced_shots`), and a row
+        whose device stamp is missing or whose ``valid`` is false is a shot
+        this device missed: a file under its number is not that shot's.
+        Every other run numbers its files by ``Shotnumber`` itself.
         """
         shots = pd.to_numeric(self.rows["Shotnumber"], errors="coerce")
-        column = announced_shot_column(list(self.rows.columns))
-        numbers = (
-            shots
-            if column is None
-            else pd.to_numeric(self.rows[column], errors="coerce")
-        )
+        numbers = announced_shots(self.rows)
+        numbers = shots if numbers is None else numbers.where(~self._missed_rows())
         return {
             int(number): int(shot)
             for number, shot in zip(numbers, shots)
             if pd.notna(number) and pd.notna(shot)
         }
+
+    def _missed_rows(self) -> pd.Series:
+        """Rows whose device stamp is absent or non-positive, or ``valid`` false."""
+        missed = pd.Series(False, index=self.rows.index)
+        ts_column = self._acq_timestamp_column()
+        if ts_column is not None:
+            stamps = pd.to_numeric(self.rows[ts_column], errors="coerce")
+            missed |= ~(np.isfinite(stamps) & (stamps > 0))
+        valid_column = self._matching_valid_column()
+        if valid_column is not None:
+            missed |= self.rows[valid_column].map(_is_false)
+        return missed
 
     def _acq_timestamp_column(self) -> Optional[str]:
         """Find this device's ``acq_timestamp`` column in the auxiliary frame.

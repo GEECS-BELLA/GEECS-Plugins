@@ -312,8 +312,8 @@ def load_shot_array(  # noqa: C901, PLR0912
         The cache key (``uid``, ``device``); required with *data_cache*.
     file_shot : int, optional
         The number in the shot's ``ScanNNN_<device>_SSS`` file name when
-        it is not *shot*: a scan-mode run's announced shot, which a
-        refire moves away from the row index.  ``None`` means *shot*.
+        it is not *shot*: a scan-mode run's announced shot, which is not
+        always the row index.  ``None`` means *shot*.
 
     Returns
     -------

@@ -31,6 +31,7 @@ import pandas as pd
 import nptdms as tdms
 
 from geecs_data_utils.scan_paths import ScanPaths
+from geecs_data_utils.tiled_schema import announced_shots
 from geecs_data_utils.type_defs import parse_ecs_dump, ECSDump
 from geecs_data_utils.data.columns import (
     ColumnMatchMode,
@@ -725,7 +726,13 @@ class ScanData:
         if "Shotnumber" not in df.columns:
             return df
 
-        shots = df["Shotnumber"].astype(int).tolist()
+        # A scan-mode run names its files by the announced shot.
+        announced = announced_shots(df)
+        shots = (
+            df["Shotnumber"].astype(int).tolist()
+            if announced is None
+            else [None if pd.isna(n) else int(n) for n in announced]
+        )
         devs = self.paths.list_device_folders()
 
         # Resolve per-device ext and variants
@@ -752,7 +759,9 @@ class ScanData:
                 )
                 # Faster than row-wise apply: precompute for all shots
                 paths = [
-                    str(
+                    None
+                    if s is None
+                    else str(
                         self.paths.build_asset_path(
                             shot=s,
                             device=dev,

@@ -149,8 +149,8 @@ def build_legacy_scalar_dataframe(
             logger.debug("geecs_scalar_headers key %r absent from the rows", event_key)
 
     _warn_unnamed_frame_columns(frames, headers)
-    # Scan mode: the number in the devices' file names, which a refire
-    # moves away from the row index (EVENT_SCHEMA.md, ``announced_shot``).
+    # Scan mode: the number in the devices' file names, which is not always
+    # the row index (EVENT_SCHEMA.md, ``announced_shot``).
     if ANNOUNCED_SHOT_COLUMN in rows.columns:
         columns[SFILE_ANNOUNCED_SHOT] = rows[ANNOUNCED_SHOT_COLUMN].to_numpy()
     columns["Shotnumber"] = range(1, n_rows + 1)

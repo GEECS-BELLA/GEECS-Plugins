@@ -1466,9 +1466,9 @@ class TestRenderedView:
 class TestScanModeFileNumbers:
     """A scan-mode run's files carry the announced shot, not the row index.
 
-    The pulsed-wire stand's shape: shot 1 was announced and missed, its
-    refire took 2, so rows 1-3 carry announced shots 2-4 and the folder
-    holds ``_002``..``_004`` beside a stale ``_001``.
+    A rewound announce: shot 3 was announced and an immediate pause rewound
+    it, so the replay was announced as 4. Rows 1-3 carry announced shots
+    1, 2, 4 and the folder holds ``_001``..``_004``, ``_003`` no row's.
     """
 
     DEVICE = "UC_ModeCam"
@@ -1495,8 +1495,8 @@ class TestScanModeFileNumbers:
         return int(np.unravel_index(np.argmax(rendered), rendered.shape)[1])
 
     def test_each_row_serves_its_announced_shot_file(self, scan_folder):
-        client = self._client(scan_folder, [2, 3, 4])
-        for row, number in ((1, 2), (2, 3), (3, 4)):
+        client = self._client(scan_folder, [1, 2, 4])
+        for row, number in ((1, 1), (2, 2), (3, 4)):
             response = client.get(
                 f"/run/uid-002/image.png?device={self.DEVICE}&shot={row}"
             )
@@ -1506,8 +1506,8 @@ class TestScanModeFileNumbers:
     def test_a_row_without_an_announced_shot_never_serves_the_row_index(
         self, scan_folder
     ):
-        client = self._client(scan_folder, [2.0, float("nan"), 4.0])
-        response = client.get(f"/run/uid-002/image.png?device={self.DEVICE}&shot=2")
+        client = self._client(scan_folder, [1.0, 2.0, float("nan")])
+        response = client.get(f"/run/uid-002/image.png?device={self.DEVICE}&shot=3")
         assert response.status_code == 404
 
     def test_a_run_without_the_column_keeps_the_row_index(self):

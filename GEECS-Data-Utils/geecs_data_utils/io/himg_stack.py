@@ -69,7 +69,7 @@ from geecs_data_utils.native_files import (
     legacy_filename_regex,
 )
 from geecs_data_utils.tiled_schema import (
-    announced_shot_column,
+    announced_shots,
     device_acq_timestamp_column,
     normalize_token,
 )
@@ -440,9 +440,11 @@ def _legacy_stamps(
             f"the scalar rows carry no {device} acq_timestamp column"
         )
     # A scan-mode file carries the announced shot, not the row index.
-    numbers = announced_shot_column(list(rows.columns)) or "Shotnumber"
+    numbers = announced_shots(rows)
     stamps: dict[int, float] = {}
-    for shot, stamp in zip(rows[numbers], rows[column]):
+    for shot, stamp in zip(
+        rows["Shotnumber"] if numbers is None else numbers, rows[column]
+    ):
         try:
             stamps[int(shot)] = float(stamp)
         except (TypeError, ValueError):

@@ -521,8 +521,12 @@ mode.  A mover with the lock `enabled` is a DB mistake to fix in the DB;
 the preflight neither checks nor warns.  (The readbacks that froze at the
 last shot on the stand were the run's detectors, which do pause.)  Readers
 join a device's shot-numbered files to rows by `announced_shot` — the
-s-file's `Announced Shot` — through `geecs_data_utils.tiled_schema.announced_shot_column`:
-the shot mapper, the `.himg` stack converter and the portal's native tier.
+s-file's `Announced Shot` — through `geecs_data_utils.tiled_schema.announced_shots`
+(it parts from the row index only when an announced shot ends in no row,
+e.g. an immediate pause's rewind): the shot mapper, the `.himg` stack
+converter, `ScanData`'s expected paths and the portal's native tier.  The
+stack check skips its stamp-named file match for non-essentials under
+scan mode (`callbacks/stack_check.py`).
 Deferred from v1 (the issue): a scanner tag, a ScanInfo row, the path
 template in metadata, re-sending a repeated shot number, restricting
 `ScanStart` to the run's devices (it is multicast by design).
