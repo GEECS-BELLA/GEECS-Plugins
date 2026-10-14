@@ -73,6 +73,10 @@ class FakeScanModeDevice:
         ``False`` plays a device that never saw the command.
     ack_status :
         The acknowledgement's status field.
+
+    What it saw is on attributes: ``received`` (group datagrams), ``acks_sent``,
+    ``paths`` and ``shot_numbers`` (frames), ``scan_ends`` (the exit frames),
+    ``stamp`` (acquisitions) and ``keepalives``.
     """
 
     def __init__(

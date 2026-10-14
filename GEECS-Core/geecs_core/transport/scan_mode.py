@@ -687,14 +687,11 @@ class ScanModeServer:
     async def stop_keepalive(self) -> None:
         """Stop the keepalive ticker; every connection stays open.
 
-        Master Control's exit, as captured: after the last shot it stops
-        answering the devices' keepalives, a device whose keepalive goes
-        unanswered leaves its shot loop within seconds, and only then does it
-        act on the multicast ``ScanEnd`` (acknowledging and closing its
-        connection).  With the ticker running no device ever leaves that
-        loop and ``ScanEnd`` is never honoured — seen live on both
-        experiments, 2026-10-13.  So the exit is this, a few seconds,
-        ``ScanEnd``, the acknowledgements, then :meth:`stop`.
+        Not part of the exit: the devices leave scan mode on the ``ScanEnd``
+        frame (:meth:`push_scan_end`) with the ticker running, as verified
+        live.  Offered because Master Control's keepalives are seen to stop
+        mid-scan in the capture and a consumer may want to quiesce the
+        channel before closing it; :meth:`stop` calls it first.
         """
         self._stopping = True
         task, self._keepalive_task = self._keepalive_task, None
