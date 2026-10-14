@@ -392,17 +392,19 @@ class TestPathChannel:
                 await asyncio.sleep(5.0)
 
             stalled.drain = never_drains  # type: ignore[method-assign]
+            # The healthy peer must have its path long before the stalled drain is
+            # judged: a serial loop would hand it over only after the 0.3 s stall.
             started = time.monotonic()
-            took = await stack.server.push_path(CAPTURED_PATH)
+            push = asyncio.create_task(stack.server.push_path(CAPTURED_PATH))
+            paths = [await device.wait_for_paths(1, 0.1) for device in stack.devices]
+            assert [CAPTURED_PATH] in paths and time.monotonic() - started < 0.15
+            took = await push
             elapsed = time.monotonic() - started
             assert took == 1
-            assert 0.25 <= elapsed < 1.0  # bounded by the stall timeout, not serialized
-            # The bytes went out to both before the stalled drain was judged (write()
-            # itself never blocks); what matters is that the healthy peer had its path
-            # within the stall window and that only the stalled connection was dropped.
-            for device in stack.devices:
-                assert await device.wait_for_paths(1, 0.2) == [CAPTURED_PATH]
-            assert stack.server.connection_count == 1
+            assert 0.25 <= elapsed < 1.0  # bounded by the stall timeout
+            assert (
+                stack.server.connection_count == 1
+            )  # only the stalled one was dropped
 
     async def test_fake_device_stop_closes_its_connection_without_the_collector(
         self,
@@ -519,6 +521,48 @@ class TestPathChannel:
             with pytest.raises(asyncio.CancelledError):
                 await waiter
             assert time.monotonic() - started < 0.5
+
+    async def test_client_ip_is_what_scan_start_names(self) -> None:
+        """A host the devices resolve to a name announces that name; the bind address stays the IP."""
+        async with _Stack(*_devices("U_A")) as stack:
+            await stack.multicaster.close()
+            stack.multicaster = ScanModeMulticaster(
+                LOOPBACK, stack.group.port, local_ip=LOOPBACK, client_ip="localhost"
+            )
+            await stack.multicaster.open()
+            assert stack.multicaster.client_ip == "localhost"
+            sent = await stack.multicaster.announce_scan_start("Undulator", "Shot #")
+            assert sent == b"ScanStart>>Undulator>>Shot #>>localhost"
+            assert await stack.devices[0].wait_connected(1.0)  # resolved and connected
+            assert (
+                await stack.multicaster.announce_scan_end("Undulator", "x")
+            ).endswith(b">>localhost")
+
+    async def test_stop_keepalive_stops_the_ticker_but_keeps_connections(self) -> None:
+        async with _Stack(*_devices("U_A")) as stack:
+            await stack.start_scan()
+            device = stack.devices[0]
+            assert await device.wait_connected(1.0)
+            await asyncio.sleep(0.15)
+            assert device.keepalives >= 2
+            await stack.server.stop_keepalive()
+            seen = device.keepalives
+            await asyncio.sleep(0.15)
+            assert device.keepalives == seen  # no more ticks
+            assert stack.server.connection_count == 1  # still connected
+            assert await stack.server.push_path(CAPTURED_PATH) == 1  # pushes still work
+            assert await device.wait_for_paths(1, 0.5) == [CAPTURED_PATH]
+            await stack.server.stop()
+
+    async def test_inbound_bytes_counts_what_devices_send(self) -> None:
+        async with _Stack(*_devices("U_A")) as stack:
+            await stack.start_scan()
+            device = stack.devices[0]
+            assert await device.wait_connected(1.0)
+            await asyncio.sleep(0.15)
+            (count,) = stack.server.inbound_bytes().values()
+            # six bytes on connect plus six per keepalive answered
+            assert count == 6 * (1 + device.keepalives) or count >= 12
 
     async def test_unopened_objects_say_so(self) -> None:
         with pytest.raises(RuntimeError, match="open"):

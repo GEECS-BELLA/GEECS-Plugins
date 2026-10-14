@@ -238,18 +238,27 @@ class ScanModeMulticaster:
         local_ip: str,
         local_port: int = 0,
         ttl: int = MULTICAST_TTL,
+        client_ip: str | None = None,
     ) -> None:
         self._group = group
         self._port = int(port)
         self._local_ip = local_ip
+        self._client_ip = client_ip or local_ip
         self._local_port = int(local_port)
         self._ttl = int(ttl)
         self._transport: asyncio.DatagramTransport | None = None
 
     @property
     def client_ip(self) -> str:
-        """The IP named in ``ScanStart`` — the one devices lock to."""
-        return self._local_ip
+        """The address named in ``ScanStart`` — the one devices lock to and connect back to.
+
+        Defaults to *local_ip*.  *client_ip* overrides it with the string the
+        devices will see our datagrams coming from: a device converts the
+        source address to text before comparing it with the stored address,
+        and a host that resolves to a name (mDNS) must announce that name or
+        every later command is dropped as foreign (found live, 2026-10-13).
+        """
+        return self._client_ip
 
     async def open(self) -> None:
         """Bind the sending socket (multicast interface and TTL set for a group address)."""
@@ -308,13 +317,13 @@ class ScanModeMulticaster:
         await asyncio.sleep(gap_s)
         self.send(EMPTY_MESSAGE)
         await asyncio.sleep(gap_s)
-        message = scan_start_message(experiment, scan_parameter, self._local_ip)
+        message = scan_start_message(experiment, scan_parameter, self._client_ip)
         self.send(message)
         return message
 
     async def announce_scan_end(self, experiment: str, argument: str) -> bytes:
         """``ScanEnd`` naming this client's IP.  Returns the datagram sent."""
-        message = scan_end_message(experiment, argument, self._local_ip)
+        message = scan_end_message(experiment, argument, self._client_ip)
         self.send(message)
         return message
 
@@ -568,6 +577,7 @@ class ScanModeServer:
         self._write_timeout_s = write_timeout_s
         self._server: asyncio.Server | None = None
         self._writers: dict[asyncio.StreamWriter, tuple[str, int]] = {}
+        self._inbound: dict[tuple[str, int], int] = {}
         self._reader_tasks: set[asyncio.Task[None]] = set()
         self._keepalive_task: asyncio.Task[None] | None = None
         self._changed: asyncio.Event | None = None
@@ -587,6 +597,10 @@ class ScanModeServer:
     def connection_count(self) -> int:
         """How many device connections are open."""
         return len(self._writers)
+
+    def inbound_bytes(self) -> dict[tuple[str, int], int]:
+        """Bytes each peer has sent on its connection so far (the devices' keepalive pings), by peer address."""
+        return dict(self._inbound)
 
     @property
     def peer_hosts(self) -> frozenset[str]:
@@ -624,16 +638,7 @@ class ScanModeServer:
         Bounded: the ticker is asked to stop by flag and by cancellation and
         waited for briefly, never indefinitely (see :func:`_bounded_drain`).
         """
-        self._stopping = True
-        if self._keepalive_task is not None:
-            self._keepalive_task.cancel()
-            done, _ = await asyncio.wait({self._keepalive_task}, timeout=2.0)
-            if done:
-                self._keepalive_task = None
-            else:
-                # Keep the reference: start() refuses until the orphan has ended,
-                # so it can never write into a new run's connections.
-                logger.warning("scan mode: the keepalive ticker did not stop in time")
+        await self.stop_keepalive()
         if self._server is not None:
             self._server.close()
         for writer in list(self._writers):
@@ -655,6 +660,30 @@ class ScanModeServer:
     async def __aexit__(self, *_: object) -> None:
         """Stop the server."""
         await self.stop()
+
+    async def stop_keepalive(self) -> None:
+        """Stop the keepalive ticker; every connection stays open.
+
+        Master Control's exit, as captured: after the last shot it stops
+        answering the devices' keepalives, a device whose keepalive goes
+        unanswered leaves its shot loop within seconds, and only then does it
+        act on the multicast ``ScanEnd`` (acknowledging and closing its
+        connection).  With the ticker running no device ever leaves that
+        loop and ``ScanEnd`` is never honoured — seen live on both
+        experiments, 2026-10-13.  So the exit is this, a few seconds,
+        ``ScanEnd``, the acknowledgements, then :meth:`stop`.
+        """
+        self._stopping = True
+        task, self._keepalive_task = self._keepalive_task, None
+        if task is None:
+            return
+        task.cancel()
+        done, _ = await asyncio.wait({task}, timeout=2.0)
+        if not done:
+            # Keep the reference: start() refuses until the orphan has ended,
+            # so it can never write into a new run's connections.
+            logger.warning("scan mode: the keepalive ticker did not stop in time")
+            self._keepalive_task = task
 
     async def push_path(self, path: str) -> int:
         """Push ``Path>>{path}`` to every connection; returns how many connections took it."""
@@ -704,8 +733,10 @@ class ScanModeServer:
             # The device sends six zero bytes per keepalive and nothing else
             # of interest: drain so its send buffer never fills, and treat
             # end-of-stream as the device leaving scan mode.
-            while await reader.read(4096):
-                pass
+            while data := await reader.read(4096):
+                self._inbound[(str(peer[0]), int(peer[1]))] = self._inbound.get(
+                    (str(peer[0]), int(peer[1])), 0
+                ) + len(data)
         except OSError as exc:
             logger.info(
                 "scan mode: connection from %s:%s lost: %s", peer[0], peer[1], exc
