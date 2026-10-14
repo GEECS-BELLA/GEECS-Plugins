@@ -74,10 +74,13 @@ Each row records the number it was announced as:
 | s-file (`ScanDataScanNNN.txt`) | `Announced Shot` |
 
 `Shotnumber` stays the row index. Readers join a device's shot-numbered
-files to rows **by the announced shot**, and a row the device missed gets
-no file even if one carries its number. ScanAnalysis's shot mapper, the
-`.himg` stack converter, `ScanData`'s expected-path columns and the Data
-Portal's image viewer all do so whenever the run carries the column. Code
+files to rows **by the announced shot** whenever the run carries the
+column: ScanAnalysis's shot mapper, the `.himg` stack converter,
+`ScanData`'s expected-path columns and the Data Portal's image viewer. The
+shot mapper and the image viewer also give a row the device missed no
+file, even when one carries its number. `ScanData` still lists the
+expected path for such a row, and the `.himg` converter refuses a folder
+holding a file for it. Code
 that reads such files itself takes the numbers from
 `geecs_data_utils.tiled_schema.announced_shots(rows)`, which accepts both
 spellings.
