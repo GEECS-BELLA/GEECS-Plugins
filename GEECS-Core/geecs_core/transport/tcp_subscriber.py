@@ -30,6 +30,7 @@ import struct
 from typing import Any, Callable, Awaitable, Collection, Sequence
 
 from ._coerce import coerce_scalar
+from ._framing import frame
 
 logger = logging.getLogger(__name__)
 
@@ -264,7 +265,7 @@ class GeecsTcpSubscriber:
                 "GeecsTcpSubscriber not connected — call connect() first"
             )
         cmd = ("Wait>>" + ",".join(variables)).encode("ascii")
-        self._writer.write(struct.pack(">i", len(cmd)) + cmd)
+        self._writer.write(frame(cmd))
         await self._writer.drain()
         logger.debug("TCP subscribed: %s", variables)
         self._warned_missing_variables.clear()

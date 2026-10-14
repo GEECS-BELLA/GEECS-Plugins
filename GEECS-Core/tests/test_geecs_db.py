@@ -885,41 +885,21 @@ def _patch_one(monkeypatch, row, queries: list) -> None:
 def test_get_scan_mode_endpoint_reads_the_three_multicast_columns(monkeypatch) -> None:
     """The DB stores the ports as text; the endpoint carries ints."""
     queries: list = []
-    _patch_one(monkeypatch, (" 234.5.6.8 ", "58432", "58431"), queries)
-    assert GeecsDb.get_scan_mode_endpoint("Undulator") == ("234.5.6.8", 58432, 58431)
+    _patch_one(monkeypatch, (" 234.5.6.8 ", "58432"), queries)
+    assert GeecsDb.get_scan_mode_endpoint("Undulator") == ("234.5.6.8", 58432)
     endpoint = GeecsDb.get_scan_mode_endpoint("Undulator")
     assert endpoint is not None
-    assert (endpoint.group, endpoint.port, endpoint.local_port) == (
-        "234.5.6.8",
-        58432,
-        58431,
+    assert (endpoint.group, endpoint.port) == ("234.5.6.8", 58432)
+    assert queries[0] == (
+        "SELECT MultiCastIP, MultiCastRemotePort FROM expt WHERE name = %s",
+        ("Undulator",),
     )
-    query, params = queries[0]
-    assert params == ("Undulator",)
-    assert "FROM expt WHERE name = %s" in query
-    for column in ("MultiCastIP", "MultiCastRemotePort", "MultiCastLocalPort"):
-        assert column in query
-    assert query.lstrip().upper().startswith("SELECT")
 
 
 def test_get_scan_mode_endpoint_is_none_when_unconfigured(monkeypatch) -> None:
-    for row in (
-        None,
-        ("", "58432", "58431"),
-        ("234.5.6.8", None, "58431"),
-        ("234.5.6.8", " ", ""),
-    ):
+    for row in (None, ("", "58432"), ("234.5.6.8", None), ("234.5.6.8", " ")):
         _patch_one(monkeypatch, row, [])
         assert GeecsDb.get_scan_mode_endpoint("X") is None
-
-
-def test_get_scan_mode_endpoint_blank_local_port_is_none(monkeypatch) -> None:
-    _patch_one(monkeypatch, ("234.5.6.9", "58432", None), [])
-    assert GeecsDb.get_scan_mode_endpoint("Test stand default") == (
-        "234.5.6.9",
-        58432,
-        None,
-    )
 
 
 def test_get_shot_control_device_strips_and_blanks_to_none(monkeypatch) -> None:

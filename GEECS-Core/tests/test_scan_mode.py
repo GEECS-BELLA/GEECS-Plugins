@@ -14,7 +14,6 @@ import pytest
 
 from geecs_core.exceptions import GeecsConnectionError
 from geecs_core.testing.fake_scan_mode_device import (
-    ZERO_REPLY,
     FakeScanModeDevice,
     FakeScanModeGroup,
 )
@@ -227,7 +226,9 @@ class TestEntry:
             listener = ScanModeAckListener(LOOPBACK, [_free_udp_port(), port])
             with pytest.raises(GeecsConnectionError, match=str(port)):
                 await listener.open()
-        assert listener.ports == tuple(sorted(listener.ports))
+        # A failed open leaves the listener closed: no socket, and wait_for says so.
+        with pytest.raises(RuntimeError, match="open"):
+            await listener.wait_for(SCAN_START, [], 0.01)
 
     async def test_listener_collapses_duplicate_ports(self) -> None:
         port = _free_udp_port()
@@ -248,6 +249,46 @@ class TestEntry:
             assert stack.server.peer_hosts == {LOOPBACK}
             for device in stack.devices:
                 assert await device.wait_connected(1.0)
+
+    async def test_a_previous_runs_repeat_cannot_stand_in_for_a_silent_device(
+        self,
+    ) -> None:
+        """The device acknowledges twice; the repeat must not pass the next run's check."""
+        device = FakeScanModeDevice("U_A", _free_udp_port(), ack_gap_s=0.3)
+        async with _Stack(device) as stack:
+            loop = asyncio.get_running_loop()
+            first_run = loop.time()
+            await stack.multicaster.announce_scan_start("Undulator", "Shot #")
+            acks = await stack.listener.wait_for(
+                SCAN_START, ["U_A"], 2.0, since=first_run
+            )
+            assert set(acks) == {"U_A"}
+            assert acks["U_A"].received_at >= first_run
+            stack.listener.clear()
+            assert await _until(lambda: len(device.acks_sent) == 2)
+            await asyncio.sleep(0.05)
+            # The repeat repopulated the bucket after clear() — the trap.
+            assert set(stack.listener.acknowledgements(SCAN_START)) == {"U_A"}
+            # The next run reads the clock before announcing; the device stays silent.
+            device.acknowledge = False
+            second_run = loop.time()
+            await stack.multicaster.announce_scan_start("Undulator", "Shot #")
+            acks = await stack.listener.wait_for(
+                SCAN_START, ["U_A"], 0.2, since=second_run
+            )
+            assert acks == {}
+            assert stack.listener.acknowledgements(SCAN_START, since=second_run) == {}
+
+    async def test_opening_twice_is_refused_not_leaked(self) -> None:
+        async with ScanModeMulticaster(LOOPBACK, 1, local_ip=LOOPBACK) as sender:
+            with pytest.raises(RuntimeError, match="already open"):
+                await sender.open()
+        async with ScanModeAckListener(LOOPBACK, [_free_udp_port()]) as listener:
+            with pytest.raises(RuntimeError, match="already open"):
+                await listener.open()
+        async with ScanModeServer(LOOPBACK, 0) as server:
+            with pytest.raises(RuntimeError, match="already started"):
+                await server.start()
 
     async def test_wait_for_hosts_names_the_hosts_still_missing(self) -> None:
         async with ScanModeServer(LOOPBACK, 0) as server:
@@ -279,7 +320,6 @@ class TestPathChannel:
             assert (
                 stack.server.connection_count == 1
             )  # the zero-byte replies never choke it
-            assert ZERO_REPLY == b"\x00" * 6
 
     async def test_push_path_reaches_every_device_with_the_captured_framing(
         self,

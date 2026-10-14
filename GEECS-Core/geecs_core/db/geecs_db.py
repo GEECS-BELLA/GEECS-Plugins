@@ -52,13 +52,14 @@ class ScanModeEndpoint(NamedTuple):
 
     ``group`` and ``port`` are ``MultiCastIP`` and ``MultiCastRemotePort``,
     the group every enabled device of the experiment listens on for
-    ``ScanStart``/``ScanEnd``; ``local_port`` is ``MultiCastLocalPort``, the
-    port Master Control sends from (``None`` when the row leaves it blank).
+    ``ScanStart``/``ScanEnd``.  The row's ``MultiCastLocalPort`` (the port
+    Master Control sends from) is deliberately not carried: a device replies
+    to the IP named in the command at its own port, and binding 58431 on a
+    host whose gateway holds ephemeral ports would collide.
     """
 
     group: str
     port: int
-    local_port: Optional[int]
 
 
 # Cached connection parameters so we only parse config files once.
@@ -868,11 +869,10 @@ class GeecsDb:
     def get_scan_mode_endpoint(cls, experiment: str) -> Optional[ScanModeEndpoint]:
         """The multicast endpoint ``ScanStart``/``ScanEnd`` go to for *experiment*.
 
-        ``expt.MultiCastIP``, ``MultiCastRemotePort`` and ``MultiCastLocalPort``
-        — the group every enabled device of the experiment listens on, and
-        the port Master Control sends from.  ``None`` when the experiment has
-        no row or leaves the group or port blank: scan mode cannot be driven
-        for it then.
+        ``expt.MultiCastIP`` and ``MultiCastRemotePort`` — the group every
+        enabled device of the experiment listens on.  ``None`` when the
+        experiment has no row or leaves either blank: scan mode cannot be
+        driven for it then.
 
         Parameters
         ----------
@@ -880,19 +880,16 @@ class GeecsDb:
             GEECS experiment name (``expt.name``).
         """
         row = _query(
-            "SELECT MultiCastIP, MultiCastRemotePort, MultiCastLocalPort "
-            "FROM expt WHERE name = %s",
+            "SELECT MultiCastIP, MultiCastRemotePort FROM expt WHERE name = %s",
             (experiment,),
             fetch="one",
         )
         if row is None:
             return None
-        group, port, local_port = ("" if v is None else str(v).strip() for v in row)
+        group, port = ("" if v is None else str(v).strip() for v in row)
         if not group or not port:
             return None
-        return ScanModeEndpoint(
-            group, int(port), int(local_port) if local_port else None
-        )
+        return ScanModeEndpoint(group, int(port))
 
     @classmethod
     def get_shot_control_device(cls, experiment: str) -> Optional[str]:

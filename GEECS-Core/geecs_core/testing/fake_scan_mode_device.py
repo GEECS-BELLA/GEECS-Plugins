@@ -32,9 +32,9 @@ import contextlib
 import logging
 import re
 import socket
-import struct
 from collections.abc import Iterable
 
+from ..transport._framing import read_frame
 from ..transport.scan_mode import (
     ACK_OK_STATUS,
     KEEPALIVE_PAYLOAD,
@@ -210,9 +210,7 @@ class FakeScanModeDevice:
     ) -> None:
         try:
             while True:
-                header = await reader.readexactly(4)
-                (length,) = struct.unpack(">i", header)
-                payload = await reader.readexactly(length)
+                payload = await read_frame(reader)
                 if payload == KEEPALIVE_PAYLOAD:
                     self.keepalives += 1
                     writer.write(ZERO_REPLY)

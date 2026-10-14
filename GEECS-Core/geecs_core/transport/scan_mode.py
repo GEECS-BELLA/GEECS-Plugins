@@ -55,11 +55,12 @@ import contextlib
 import ipaddress
 import logging
 import socket
-import struct
 from collections.abc import Collection, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from geecs_core.exceptions import GeecsConnectionError
+
+from ._framing import frame
 
 logger = logging.getLogger(__name__)
 
@@ -85,9 +86,18 @@ ACK_OK_STATUS = "no error,"
 # ---------------------------------------------------------------------------
 
 
-def frame(payload: bytes) -> bytes:
-    """Length-prefix *payload* the GEECS way: 4-byte big-endian length, then the bytes."""
-    return struct.pack(">i", len(payload)) + payload
+__all__ = [
+    "ScanModeAck",
+    "ScanModeAckListener",
+    "ScanModeMulticaster",
+    "ScanModeServer",
+    "device_shot_path",
+    "frame",
+    "parse_acknowledgement",
+    "path_message",
+    "scan_end_message",
+    "scan_start_message",
+]
 
 
 def scan_start_message(experiment: str, scan_parameter: str, client_ip: str) -> bytes:
@@ -121,6 +131,10 @@ def device_shot_path(scan_folder: str, scan_number: int, shot_number: int) -> st
     *scan_folder* is the device-side ``scans\ScanNNN`` folder —
     ``expt.RootPath`` plus the date folders — which nothing here resolves or
     checks: the worker knows the folder, the device owns the drive letter.
+
+    The reader side spells the same ``Scan{NNN}_{device}_{SSS}`` name in
+    ``geecs_data_utils.scan_paths`` and ``native_files`` — a second home by
+    necessity, since Core imports nothing from Data-Utils; keep them in step.
     """
     folder = scan_folder.rstrip("\\")
     return f"{folder}\\xxx\\Scan{scan_number:03d}_xxx_{shot_number:03d}.fileextension"
@@ -141,12 +155,19 @@ class ScanModeAck:
         error text.  The reply carries the verdict — read it.
     raw :
         The datagram as text.
+    received_at :
+        The listener's ``loop.time()`` at receipt (``0.0`` from the parser).
+        The device sends every acknowledgement twice, a few hundred
+        milliseconds apart, so a run tells its own replies from the previous
+        run's repeat by time — :meth:`ScanModeAckListener.wait_for`'s
+        ``since``.
     """
 
     device: str
     command: str
     status: str
     raw: str
+    received_at: float = 0.0
 
     @property
     def ok(self) -> bool:
@@ -197,8 +218,11 @@ class ScanModeMulticaster:
         connects back to on the path channel, so it must be the host the
         :class:`ScanModeServer` listens on.
     local_port :
-        ``expt.MultiCastLocalPort`` (Master Control sends from it); ``0``
-        lets the OS choose.
+        ``0`` (the default) lets the OS choose.  Binding Master Control's
+        ``MultiCastLocalPort`` is not advised: a device replies to the IP
+        named in the command at its own port, never to the source port, and
+        58431 sits in Linux's ephemeral range, where a gateway on the same
+        host holds two ports per device — a collision refuses :meth:`open`.
     ttl :
         Multicast TTL; the default is Master Control's.
     """
@@ -226,6 +250,8 @@ class ScanModeMulticaster:
 
     async def open(self) -> None:
         """Bind the sending socket (multicast interface and TTL set for a group address)."""
+        if self._transport is not None:
+            raise RuntimeError("ScanModeMulticaster already open")
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             if ipaddress.ip_address(self._group).is_multicast:
@@ -316,6 +342,12 @@ class ScanModeAckListener:
     name.  A port already held by another process raises
     :class:`GeecsConnectionError` at :meth:`open` naming the port.
 
+    The device sends each acknowledgement **twice**, a few hundred
+    milliseconds apart, so a listener reused across runs must not take an
+    old reply for a new one: read ``loop.time()`` before announcing and pass
+    it as ``since`` to :meth:`wait_for`.  (A repeat that lands after that
+    instant still counts — runs start more than the repeat gap apart.)
+
     Parameters
     ----------
     local_ip :
@@ -339,6 +371,8 @@ class ScanModeAckListener:
 
     async def open(self) -> None:
         """Bind every port; on failure release what was bound and raise."""
+        if self._changed is not None:
+            raise RuntimeError("ScanModeAckListener already open")
         loop = asyncio.get_running_loop()
         self._changed = asyncio.Event()
         for port in self._ports:
@@ -362,6 +396,7 @@ class ScanModeAckListener:
         for transport in self._transports:
             transport.close()
         self._transports.clear()
+        self._changed = None
 
     async def __aenter__(self) -> ScanModeAckListener:
         """Open and return ``self``."""
@@ -377,6 +412,7 @@ class ScanModeAckListener:
         if ack is None:
             logger.debug("scan mode: ignoring %r from %s on an ack port", data, addr)
             return
+        ack = replace(ack, received_at=asyncio.get_running_loop().time())
         bucket = self._acks.setdefault(ack.command, {})
         if ack.device in bucket:
             logger.debug("scan mode: repeat %s ack from %s", ack.command, ack.device)
@@ -388,22 +424,34 @@ class ScanModeAckListener:
         if self._changed is not None:
             self._changed.set()
 
-    def acknowledgements(self, command: str) -> dict[str, ScanModeAck]:
-        """Every acknowledgement of *command* received so far, by device."""
-        return dict(self._acks.get(command, {}))
+    def acknowledgements(
+        self, command: str, *, since: float | None = None
+    ) -> dict[str, ScanModeAck]:
+        """Every acknowledgement of *command* received so far (at or after *since*), by device."""
+        return {
+            device: ack
+            for device, ack in self._acks.get(command, {}).items()
+            if since is None or ack.received_at >= since
+        }
 
     def clear(self) -> None:
         """Forget every acknowledgement received so far."""
         self._acks.clear()
 
     async def wait_for(
-        self, command: str, devices: Collection[str], timeout: float
+        self,
+        command: str,
+        devices: Collection[str],
+        timeout: float,
+        *,
+        since: float | None = None,
     ) -> dict[str, ScanModeAck]:
         """Wait until every device in *devices* has acknowledged *command*, or *timeout* elapses.
 
-        Returns the acknowledgements received for *devices*, by device.  A
-        device absent from the result never answered; one present may still
-        report an error — check its ``ok``.
+        Returns the acknowledgements received for *devices* at or after
+        *since* (a ``loop.time()``; ``None`` takes everything received), by
+        device.  A device absent from the result never answered; one present
+        may still report an error — check its ``ok``.
         """
         if self._changed is None:
             raise RuntimeError("ScanModeAckListener not open — call open() first")
@@ -414,7 +462,7 @@ class ScanModeAckListener:
             self._changed.clear()
             have = {
                 device: ack
-                for device, ack in self._acks.get(command, {}).items()
+                for device, ack in self.acknowledgements(command, since=since).items()
                 if device in wanted
             }
             remaining = deadline - loop.time()
@@ -435,9 +483,17 @@ class ScanModeServer:
     Accepts every connection, keeps each alive with a framed ``dummy``
     every *keepalive_interval_s*, drains whatever the device sends back,
     and pushes a framed ``Path>>…`` to every connection on
-    :meth:`push_path`.  A connection whose write fails or stalls past
-    *write_timeout_s* is dropped.  Presence is judged by peer host
-    (:meth:`wait_for_hosts`): a connection carries no device name.
+    :meth:`push_path`.  A connection whose write fails (reset, closed) is
+    dropped at once; one whose peer has stopped reading is only noticed
+    when the socket's send buffer fills and ``drain`` stalls past
+    *write_timeout_s* — minutes of keepalives — and the device's zero-byte
+    replies are discarded, not read as a heartbeat.  So this server knows
+    **presence, not liveness**: :meth:`push_path` counts connections
+    written (a device may hold two), and :meth:`wait_for_hosts` judges by
+    peer host, since a connection carries no device name.  Whether a stuck
+    device should be dropped — and after how long — waits for live
+    evidence; Master Control itself resets some connections for reasons the
+    capture did not show.
 
     Parameters
     ----------
@@ -488,6 +544,8 @@ class ScanModeServer:
 
     async def start(self) -> None:
         """Listen and start the keepalive ticker."""
+        if self._server is not None:
+            raise RuntimeError("ScanModeServer already started")
         self._changed = asyncio.Event()
         try:
             self._server = await asyncio.start_server(
@@ -534,7 +592,7 @@ class ScanModeServer:
         await self.stop()
 
     async def push_path(self, path: str) -> int:
-        """Push ``Path>>{path}`` to every connection; returns how many took it."""
+        """Push ``Path>>{path}`` to every connection; returns how many connections took it."""
         count = await self._write_all(frame(path_message(path)))
         logger.debug("scan mode: pushed %r to %d connection(s)", path, count)
         return count

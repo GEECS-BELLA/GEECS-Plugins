@@ -23,11 +23,11 @@ import asyncio
 import contextlib
 import errno
 import logging
-import struct
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..transport._coerce import coerce_scalar
+from ..transport._framing import frame, read_frame
 
 logger = logging.getLogger(__name__)
 
@@ -208,11 +208,7 @@ class _TcpSubscriptionHandler:
     async def run(self) -> None:
         """Read the subscription command then push updates until closed."""
         try:
-            # Read 4-byte length prefix
-            header = await self._reader.readexactly(4)
-            msg_len = struct.unpack(">i", header)[0]
-            payload = await self._reader.readexactly(msg_len)
-            cmd = payload.decode("ascii")
+            cmd = (await read_frame(self._reader)).decode("ascii")
         except (asyncio.IncompleteReadError, ConnectionResetError):
             return
 
@@ -229,10 +225,9 @@ class _TcpSubscriptionHandler:
             while True:
                 shot += 1
                 msg = self._device.build_subscription_payload(var_names, shot)
-                encoded = msg.encode("ascii")
-                frame = struct.pack(">i", len(encoded)) + encoded
+                framed = frame(msg.encode("ascii"))
                 try:
-                    self._writer.write(frame)
+                    self._writer.write(framed)
                     await self._writer.drain()
                 except (ConnectionResetError, BrokenPipeError):
                     break

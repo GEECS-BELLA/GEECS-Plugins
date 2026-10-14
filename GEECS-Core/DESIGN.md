@@ -74,6 +74,11 @@ geecs_core/
    only and never reads it.
    A third: `db/served_set.py`, the CA gateway's served set, read by the CA
    gateway, the archiver and the worker namespace so the three cannot drift.
+   A fourth: `transport/scan_mode.py` and its fake in `testing/` — Master
+   Control's scan-mode device protocol, whose only consumer today is the
+   worker (#1084). Admitted as wire protocol: stdlib-only, with an offline
+   fake every consumer's tests can import, and expected to shrink when the
+   device-side contract that issue describes replaces the TCP channel.
 
 Two supporting conventions:
 
