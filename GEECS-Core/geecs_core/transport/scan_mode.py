@@ -443,11 +443,13 @@ class ScanModeAckListener:
             self._transports.append(transport)
 
     async def close(self) -> None:
-        """Release every socket."""
+        """Release every socket; a ``wait_for`` pending under it returns what it has."""
         for transport in self._transports:
             transport.close()
         self._transports.clear()
-        self._changed = None
+        changed, self._changed = self._changed, None
+        if changed is not None:
+            changed.set()
 
     async def __aenter__(self) -> ScanModeAckListener:
         """Open and return ``self``."""
@@ -506,22 +508,24 @@ class ScanModeAckListener:
         device.  A device absent from the result never answered; one present
         may still report an error — check its ``ok``.
         """
-        if self._changed is None:
+        changed = self._changed
+        if changed is None:
             raise RuntimeError("ScanModeAckListener not open — call open() first")
         wanted = set(devices)
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         while True:
-            self._changed.clear()
+            changed.clear()
             have = {
                 device: ack
                 for device, ack in self.acknowledgements(command, since=since).items()
                 if device in wanted
             }
             remaining = deadline - loop.time()
-            if wanted <= have.keys() or remaining <= 0:
+            closed = self._changed is None  # close() under us: nothing more will come
+            if wanted <= have.keys() or remaining <= 0 or closed:
                 return have
-            await _wait_event(self._changed, remaining)
+            await _wait_event(changed, remaining)
 
 
 # ---------------------------------------------------------------------------

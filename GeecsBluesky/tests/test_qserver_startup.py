@@ -301,6 +301,30 @@ _ROW = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _no_db_for_scan_mode(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The scan-mode control reads the ``expt`` row at environment open; fake it like the roster.
+
+    The state file goes under ``tmp_path``: the profile's ``release_stale``
+    unlinks it, and the default would be this account's real record.
+    """
+    from geecs_bluesky.devices.scan_mode import ScanModeControl
+
+    monkeypatch.setenv("GEECS_SCAN_MODE_STATE", str(tmp_path / "scan_mode.json"))
+    monkeypatch.setattr(
+        ScanModeControl,
+        "from_experiment",
+        classmethod(
+            lambda cls, exp, *, path_provider, device_endpoints, **kw: cls(
+                exp,
+                endpoint=None,
+                path_provider=path_provider,
+                device_endpoints=device_endpoints,
+            )
+        ),
+    )
+
+
 def _make_roster():
     from geecs_bluesky.namespace import DeviceRoster
 
@@ -366,6 +390,10 @@ def test_startup_exports_the_device_namespace_and_installs_connect_last(
     )  # the profile must set it
     ns = runpy.run_path(str(STARTUP_PATH), run_name="__not_main__")
     assert "U_S1H" in ns and "U_S1H" in ns["__all__"]
+    # the scan-mode control is built from the roster's endpoints and bound
+    # into the plans (disabled here: the fixture gives it no endpoint)
+    assert ns["_scan_mode"] is not None and not ns["_scan_mode"].enabled
+    assert "release_scan_mode" in ns and "release_scan_mode" in ns["__all__"]
     assert ns["U_S1H"].current.name == "u_s1h-current"
     # the catalog's pseudo is a noun of its own, over the bound child
     assert "S1H_twice" in ns and "S1H_twice" in ns["__all__"]

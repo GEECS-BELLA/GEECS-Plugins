@@ -58,6 +58,11 @@ ExecStart=@POETRY@ run @CHECKOUT_ROOT@/qs-checkout/GeecsBluesky/qserver/launch_r
 # the same path on every host.
 StateDirectory=geecs-tiled-writer
 Environment=GEECS_TILED_WRITER_STATE=/var/lib/geecs-tiled-writer
+# The scan-mode record (geecs_bluesky.devices.scan_mode): one small JSON
+# file the engine writes at ScanStart and clears at ScanEnd, read at the
+# next environment open to name the devices a dead worker left in scan
+# mode. Same directory, same reasoning: not a site value.
+Environment=GEECS_SCAN_MODE_STATE=/var/lib/geecs-tiled-writer/scan_mode.json
 Restart=on-failure
 RestartSec=5
 # systemd's default, stated because the launcher depends on it (#804): a

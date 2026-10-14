@@ -648,3 +648,29 @@ class TestMulticast:
             assert device.lock_ip == local_ip
         finally:
             await fake_group.stop()
+
+
+def test_the_ack_listener_closed_under_a_pending_wait_returns_what_it_has() -> None:
+    # A worker's entry can be cancelled and released while its ScanStart wait
+    # is pending (an abort); the wait must return, never raise on the
+    # listener's dropped event.
+    import socket as _socket
+
+    from geecs_core.transport.scan_mode import SCAN_START, ScanModeAckListener
+
+    with _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+
+    async def main() -> dict:
+        listener = ScanModeAckListener("127.0.0.1", {port})
+        await listener.open()
+        loop = asyncio.get_running_loop()
+        waiting = loop.create_task(
+            listener.wait_for(SCAN_START, ("Silent",), 5.0, since=loop.time())
+        )
+        await asyncio.sleep(0.05)
+        await listener.close()
+        return await asyncio.wait_for(waiting, 1.0)
+
+    assert asyncio.run(main()) == {}

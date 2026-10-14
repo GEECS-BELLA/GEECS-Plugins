@@ -7,21 +7,22 @@
 - **Pausable**, keyed on the standing state: ``ARMED`` is quiescent by
   construction, so ``pause()`` does nothing; ``SCAN`` and ``STANDBY`` pass
   external edges (:data:`QUIESCE_FROM`), so a pause there drives ``OFF``
-  and ``resume()`` restores what the plan had.  The RunEngine calls both
-  on every Pausable it has seen in a message, so being the ``set`` target
-  is enough.  Neither notification ever raises; failures are logged.
+  and ``resume()`` restores what the plan had (the RunEngine calls both on
+  every Pausable it has seen in a message).  Neither ever raises.
 
 The box's devices carry the gateway's ``CONNECTED`` PV as one ``str``
 signal each (:attr:`ShotControl.liveness_signals`), read once by the
 run's liveness gate before the first move, never a column.
 
 Writes go, in declared order, through one cached gateway ``:SP`` put per
-target (:class:`~geecs_bluesky.devices.ca.gateway_put.CaPutSetter`).  The
+target (:class:`~geecs_bluesky.devices.ca.gateway_put.CaPutSetter`); the
 ``state`` config signal mirrors the standing state into every descriptor.
-:func:`trigger_writes_from_profile` adapts a configs-repo
-``TriggerProfile`` into :class:`ShotControlWrites`: per state, the ordered
-``(device, variable, value)`` writes as verbatim wire strings; a state with
-no writes is "not defined" for this box.
+:func:`trigger_writes_from_profile` adapts a configs-repo ``TriggerProfile``
+into :class:`ShotControlWrites` (per state, the ordered writes as verbatim
+wire strings; a state with no writes is "not defined" for this box).
+Under ``use_scan_mode`` an all-empty profile is the box-less case — the
+shot message is the only trigger — and builds a controller whose every
+state is a logged no-op (:attr:`ShotControl.boxless`), not a refusal.
 """
 
 from __future__ import annotations
@@ -70,12 +71,16 @@ class ShotControlWrites(BaseModel):
         ``{state_name: [(device, variable, value), ...]}`` — the ordered
         writes per state.  Empty-string values are not expected here (the
         TriggerProfile schema rejects them; omission is the no-op).
+    use_scan_mode:
+        The profile's scan-mode flag: every run under it announces the scan
+        and each shot to the devices (``devices/scan_mode.py``).
     """
 
     model_config = ConfigDict(extra="forbid")
 
     name: str = ""
     states: dict[str, list[tuple[str, str, str]]] = Field(default_factory=dict)
+    use_scan_mode: bool = False
 
     @staticmethod
     def _state_name(state: TriggerState | str) -> str:
@@ -131,8 +136,11 @@ def trigger_writes_from_profile(profile: TriggerProfile) -> ShotControlWrites:
     Raises
     ------
     GeecsConfigurationError
-        The profile writes no device at all.
+        The profile writes no device at all — unless it carries
+        ``use_scan_mode``, the box-less case (the shot message is the only
+        trigger; see the module docstring).
     """
+    use_scan_mode = bool(getattr(profile, "use_scan_mode", False))
     states: dict[str, list[tuple[str, str, str]]] = {}
     any_device = False
     for state in TriggerState:
@@ -147,13 +155,14 @@ def trigger_writes_from_profile(profile: TriggerProfile) -> ShotControlWrites:
             any_device = True
         if triples:
             states[state.value] = triples
-    if not any_device:
+    if not any_device and not use_scan_mode:
         raise GeecsConfigurationError(
             f"trigger profile {profile.name!r} names no trigger device — "
-            "it cannot drive a scan's trigger"
+            "it cannot drive a scan's trigger (a box-less profile needs "
+            "use_scan_mode: the shot message is then the trigger)"
         )
     name = getattr(profile, "name", "") or ""
-    return ShotControlWrites(name=name, states=states)
+    return ShotControlWrites(name=name, states=states, use_scan_mode=use_scan_mode)
 
 
 class ShotControl(StandardReadable):
@@ -242,6 +251,26 @@ class ShotControl(StandardReadable):
         return self._writes.name
 
     @property
+    def writes(self) -> ShotControlWrites:
+        """The adapted profile: the ordered writes per state (the preflight reads them)."""
+        return self._writes
+
+    @property
+    def use_scan_mode(self) -> bool:
+        """Whether runs under this profile announce the scan and every shot to the devices."""
+        return self._writes.use_scan_mode
+
+    @property
+    def boxless(self) -> bool:
+        """A scan-mode profile with no writes at all: no box, every state a logged no-op.
+
+        The shot message is the only trigger; the strict loop skips the
+        fire (``plans/strict.py``).  Only under ``use_scan_mode`` — without
+        it the adapter refuses an empty profile.
+        """
+        return self.use_scan_mode and not self._transitions
+
+    @property
     def liveness_signals(self) -> dict[str, SignalR[str]]:
         """GEECS device name → its ``CONNECTED`` signal, for every device the profile writes."""
         return dict(self._liveness)
@@ -274,7 +303,15 @@ class ShotControl(StandardReadable):
 
     async def _drive(self, state: TriggerState) -> None:
         setters = self._transitions.get(state.value, [])
-        if not setters:
+        if not setters and self.boxless:
+            # No box: the state is bookkeeping, nothing is written anywhere.
+            logger.info(
+                "%s: %s — box-less profile %r, no write",
+                self.name,
+                state.value,
+                self.profile_name,
+            )
+        elif not setters:
             raise GeecsConfigurationError(
                 f"trigger profile {self.profile_name!r} defines no writes for "
                 f"{state.value}; it cannot drive the box there"

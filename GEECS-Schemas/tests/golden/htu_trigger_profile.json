@@ -58,5 +58,6 @@
         "variable": "Trigger.Source"
       }
     ]
-  }
+  },
+  "use_scan_mode": false
 }

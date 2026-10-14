@@ -319,8 +319,12 @@ is set explicitly in the writer's, the queueserver's and the scanner's
 units — the engine reads only the variable, never `$STATE_DIRECTORY`, and
 a two-process contract is never left to a per-unit default. Not a site
 value: the same path on every host, so it lives in the units, not in
-`site.env`. The catalog (`[tiled] uri` + `api_key`) comes from the service
-account's `config.ini`, as for every other Tiled client.
+`site.env`. The queueserver's unit also sets
+`GEECS_SCAN_MODE_STATE=/var/lib/geecs-tiled-writer/scan_mode.json`, the
+scan-mode record (written at `ScanStart`, cleared at `ScanEnd`, read at
+the next environment open so a dead worker's devices are named) — same
+directory, same reasoning. The catalog (`[tiled] uri` + `api_key`) comes
+from the service account's `config.ini`, as for every other Tiled client.
 
 ### Switching from a by-hand writer to the unit
 

@@ -128,9 +128,16 @@ def run_submit_preflight(
     if report.refusal is not None:
         return report
 
+    # -- scan mode (the worker's rule, mirrored for the client's report) ----
+    profile = _resolve_trigger_profile(preset, experiment, resolver)
+    refusal = scan_mode_refusal(item, profile)
+    if refusal is not None:
+        report.refusal = refusal
+        return report
+
     # -- gateway liveness ----------------------------------------------------
     devices = list(item.devices)
-    for device in _trigger_profile_devices(preset, experiment, resolver):
+    for device in _trigger_profile_devices(profile):
         if device not in devices:
             devices.append(device)
     if devices:
@@ -150,16 +157,13 @@ def _make_default_resolver(experiment: str) -> Any:
     return ConfigsRepoResolver(experiment)
 
 
-def _trigger_profile_devices(preset: Any, experiment: str, resolver: Any) -> list[str]:
-    """The devices the submission's trigger profile writes — the box, for the liveness list.
+def _resolve_trigger_profile(preset: Any, experiment: str, resolver: Any) -> Any:
+    """The submission's trigger profile document, or ``None`` (fail-open).
 
-    The preset's ``trigger_profile``, else the experiment default's; the
-    profile's devices are read off the same adapter the worker's
-    ``ShotControl`` is built from
-    (:func:`~geecs_bluesky.devices.shot_control.trigger_writes_from_profile`),
-    so the two lists cannot drift.  Fail-open: no profile, or one that
-    cannot be resolved here, logs a warning and contributes nothing — the
-    worker names a missing profile itself when the item runs.
+    The preset's ``trigger_profile``, else the experiment default's.  No
+    profile, or one that cannot be resolved here, logs a warning and
+    yields ``None`` — the worker names a missing profile itself when the
+    item runs.
     """
     try:
         if resolver is None:
@@ -169,19 +173,60 @@ def _trigger_profile_devices(preset: Any, experiment: str, resolver: Any) -> lis
             defaults = resolver.resolve_experiment_defaults()
             name = getattr(defaults, "trigger_profile", None)
         if not name:
-            return []
-        from geecs_bluesky.devices.shot_control import trigger_writes_from_profile
-
-        profile = resolver.resolve_trigger_profile(name)
-        return list(trigger_writes_from_profile(profile).devices)
+            return None
+        return resolver.resolve_trigger_profile(name)
     except Exception as exc:  # noqa: BLE001 — preflight fails open
         logger.warning(
-            "liveness preflight: trigger profile devices not resolved (%s: %s); "
-            "probing the preset's devices only",
+            "preflight: the trigger profile could not be resolved (%s: %s); "
+            "its checks are skipped",
             type(exc).__name__,
             exc,
         )
+        return None
+
+
+def _trigger_profile_devices(profile: Any) -> list[str]:
+    """The devices a trigger profile document writes — the box, for the liveness list.
+
+    Read off the same adapter the worker's ``ShotControl`` is built from
+    (:func:`~geecs_bluesky.devices.shot_control.trigger_writes_from_profile`),
+    so the two lists cannot drift.  Fail-open like the resolution: no
+    document, or one the adapter refuses, contributes nothing.
+    """
+    if profile is None:
         return []
+    from geecs_bluesky.devices.shot_control import trigger_writes_from_profile
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    try:
+        return list(trigger_writes_from_profile(profile).devices)
+    except GeecsConfigurationError as exc:
+        logger.warning(
+            "liveness preflight: trigger profile devices not resolved (%s); "
+            "probing the preset's devices only",
+            exc,
+        )
+        return []
+
+
+def scan_mode_refusal(item: Any, profile: Any) -> Optional[str]:
+    """The worker's scan-mode rule a client can check before submitting, or ``None``.
+
+    A trigger profile with ``use_scan_mode`` runs strict only — the worker
+    refuses a gated item under it (``plans/scan_mode.scan_mode_preflight``);
+    this mirrors that one rule so the scanner's report says so before the
+    queue does.  Everything else scan mode checks (the DB endpoint, the
+    boundary rows, the announced address) is the worker's alone.
+    """
+    if profile is None or not getattr(profile, "use_scan_mode", False):
+        return None
+    if item.kwargs.get("acquisition", "strict") != "gated":
+        return None
+    return (
+        f"trigger profile {getattr(profile, 'name', '?')!r} runs in GEECS scan "
+        "mode, which is strict only: a gated batch has no per-shot announce. "
+        "Use acquisition='strict', or a profile without use_scan_mode."
+    )
 
 
 def _make_default_client(experiment: str) -> Any:

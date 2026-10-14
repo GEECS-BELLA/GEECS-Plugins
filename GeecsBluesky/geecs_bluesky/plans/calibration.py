@@ -536,6 +536,22 @@ def _can_write(resolver: Any) -> bool:
     )
 
 
+def _refuse_scan_mode_profile(shot_control: Any) -> None:
+    """Refuse a scan-mode trigger profile: the calibration plans do not announce shots.
+
+    Under scan mode a device acquires only on an announced shot
+    (``devices/scan_mode.py``); these plans fire the box without one, so
+    every stamp wait would time out.  v1 refuses rather than entering scan
+    mode for a calibration (#1084).
+    """
+    if getattr(shot_control, "use_scan_mode", False):
+        raise GeecsConfigurationError(
+            f"trigger profile {shot_control.profile_name!r} runs in scan mode "
+            "(use_scan_mode), which the calibration plans do not support — "
+            "name a profile without the flag"
+        )
+
+
 def _refuse_profile_without(shot_control: Any, state: TriggerState) -> None:
     """Refuse up front a profile that cannot drive *state*.
 
@@ -917,6 +933,7 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
             )
         views = _stamp_views(detectors)
         shot_control = profiles.resolve(trigger_profile)
+        _refuse_scan_mode_profile(shot_control)
         # Every state the plan drives, before any wait or shot: run_bracket
         # opens with OFF and its finalizer restores STANDBY, so a profile
         # missing STANDBY would spend the quiet wait and the shots and then
@@ -1115,6 +1132,7 @@ def check_shot_sync_plan(profiles: Any) -> Callable[..., Any]:  # noqa: C901
             )
         views = _stamp_views(detectors)
         shot_control = profiles.resolve(trigger_profile)
+        _refuse_scan_mode_profile(shot_control)
         # The bracket drives OFF and restores STANDBY; refuse a profile that
         # cannot, before the quiet wait is spent.
         _refuse_profile_without(shot_control, TriggerState.OFF)

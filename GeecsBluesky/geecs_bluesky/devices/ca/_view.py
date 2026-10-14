@@ -30,15 +30,11 @@ def owner_of(obj: Any) -> Any:
     return obj._owner if isinstance(obj, ScalarsView) else obj
 
 
-def geecs_device_name(obj: Any) -> str:
-    """The GEECS device *obj* belongs to; its ophyd name when it belongs to none.
+def geecs_device_of(obj: Any) -> str | None:
+    """The GEECS device *obj* belongs to, or ``None`` when no device is behind it.
 
-    One rule for every plan object: a device names itself, a ``.scalars``
-    view names its owner, a detector's signal or a settable child names the
-    nearest ancestor that is a GEECS device, and a plan-side object with no
-    device behind it (the bin counter) gives its own name.  The plans'
-    failure messages, the liveness gate and the background telemetry all
-    name devices with it.
+    The walk :func:`geecs_device_name` is built on: the owner of a
+    ``.scalars`` view, then up the parents to the nearest GEECS device.
     """
     node: Any = owner_of(obj)
     for _ in range(8):
@@ -48,7 +44,20 @@ def geecs_device_name(obj: Any) -> str:
         node = getattr(node, "parent", None)
         if node is None:
             break
-    return str(getattr(obj, "name", obj))
+    return None
+
+
+def geecs_device_name(obj: Any) -> str:
+    """The GEECS device *obj* belongs to; its ophyd name when it belongs to none.
+
+    One rule for every plan object: a device names itself, a ``.scalars``
+    view names its owner, a detector's signal or a settable child names the
+    nearest ancestor that is a GEECS device, and a plan-side object with no
+    device behind it (the bin counter) gives its own name.  The plans'
+    failure messages, the liveness gate, the background telemetry and the
+    scan-mode entry list all name devices with it.
+    """
+    return geecs_device_of(obj) or str(getattr(obj, "name", obj))
 
 
 class ScalarsView(Device):

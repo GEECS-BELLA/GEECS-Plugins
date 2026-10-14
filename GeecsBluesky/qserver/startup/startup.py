@@ -35,6 +35,7 @@ import geecs_bluesky  # noqa: F401
 
 from geecs_bluesky.config_resolver import ConfigsRepoResolver
 from geecs_bluesky.devices.background import warm_up_on
+from geecs_bluesky.devices.scan_mode import ScanModeControl
 from geecs_bluesky.namespace import GeecsNamespace, motor_targets
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
@@ -100,6 +101,7 @@ _hermetic = os.environ.get("QS_DEVICE_NAMESPACE", "db").strip().lower() == "off"
 _path_provider = GeecsScanPathProvider()
 _DEVICE_NAMES: list[str] = []
 _resolver = None
+_scan_mode = None
 namespace = None
 if _hermetic:
     _profiles = TriggerProfiles({})
@@ -153,6 +155,23 @@ else:
     namespace.add_pseudos(_catalog)
     _DEVICE_NAMES = namespace.export_into(globals())
     _profiles = TriggerProfiles.from_resolver(_resolver, experiment=_experiment)
+    # GEECS scan mode (#1084): the one control the scan verbs drive under a
+    # trigger profile with use_scan_mode — the experiment's multicast
+    # endpoint, boundary rows and device-side root from the DB (fail-soft:
+    # a blank row refuses such profiles by name, never the environment),
+    # the roster's hosts and command ports, the shared path provider, and
+    # the address string the devices see this host as when it is not the
+    # bare IP (config.ini [scan_mode] client_ip).  A record a dead worker
+    # left is cleared here, with its devices named in the journal.
+    from geecs_core.configs_repo import read_config_entry
+
+    _scan_mode = ScanModeControl.from_experiment(
+        _experiment,
+        path_provider=_path_provider,
+        device_endpoints=namespace.roster.device_endpoints,
+        client_ip=read_config_entry("scan_mode", "client_ip"),
+    )
+    _scan_mode.release_stale()
 
 # The package's own INFO lines are the operational record of what happens
 # *outside* a run — a pseudo positioner's baselines captured at stage and
@@ -189,7 +208,9 @@ if not _hermetic:
 # action library over the namespace), pinned by geecs_bluesky.plan_names
 # (the readiness check asserts them).  Never import a stray generator into
 # this module.
-globals().update(bind_plans(_profiles, resolver=_resolver, settables=namespace))
+globals().update(
+    bind_plans(_profiles, resolver=_resolver, settables=namespace, scan_mode=_scan_mode)
+)
 
 # ZMQ document publisher — the GUI progress stream. bluesky documents
 # go to a bluesky-0MQ-proxy (started by launch_re_manager.sh alongside

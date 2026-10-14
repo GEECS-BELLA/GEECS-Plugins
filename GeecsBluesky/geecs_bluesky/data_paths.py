@@ -82,6 +82,11 @@ def _local_base_path() -> str | None:
     return base
 
 
+def local_data_root() -> str | None:
+    """The data root as this host mounts it, or ``None`` (see :func:`_local_base_path`)."""
+    return _local_base_path()
+
+
 def _translate_to(remote_base_path: str | None, save_path: str, who: str) -> str:
     """Translate a local scan path onto *remote_base_path* (the local path if unknown)."""
     if not remote_base_path:

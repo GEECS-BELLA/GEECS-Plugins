@@ -37,10 +37,12 @@ DB scan defaults — what is honored
 The get-side DB defaults (``background_telemetry``, and per-device
 ``db_scalars`` on the save set) ARE honored.  The set-side
 (``apply_db_scan_defaults`` — the database's ``set='yes'`` scan start/end
-writes) is **reserved and not currently honored**: the engine sets up
-triggering via the trigger profile / shot controller and camera saving via
-its own save-windowing, so DB boundary writes are intentionally disabled in
-this version.  The field is kept for a possible future re-enable.
+writes) is **reserved and not honored**: the engine never writes those
+rows itself.  The *device* applies them, on the ``ScanStart`` / ``ScanEnd``
+commands of GEECS scan mode — so under a trigger profile with
+``use_scan_mode`` they take effect exactly as under Master Control, and
+without one they do not; this flag changes neither.  Kept for a possible
+future engine-side application.
 """
 
 from __future__ import annotations
@@ -119,16 +121,16 @@ class ExperimentDefaults(VersionedSchemaModel):
     apply_db_scan_defaults: bool = Field(
         True,
         description=(
-            "RESERVED AND NOT CURRENTLY HONORED. The DB set-side scan "
-            "start/end writes (MySQL table expt_device_variable: rows with "
-            "set='yes', writing their startvalue/endvalue) are disabled in "
-            "this version — triggering is set up via the trigger profile / "
-            "shot controller and camera saving via the scanner's own "
-            "save-windowing, so the database's boundary writes are not "
-            "applied regardless of this flag. Kept for a possible future "
-            "re-enable. Note this is the set-side only: the get-side "
-            "'db_scalars' (standard telemetry) and 'background_telemetry' "
-            "are honored as normal."
+            "RESERVED AND NOT HONORED. The DB's scan start/end writes (MySQL "
+            "table expt_device_variable: rows with set='yes', their "
+            "startvalue/endvalue) are applied by the DEVICE itself on the "
+            "ScanStart/ScanEnd commands of GEECS scan mode, never by the "
+            "engine: under a trigger profile with use_scan_mode they take "
+            "effect exactly as under Master Control, and without one they do "
+            "not. This flag changes neither. Kept for a possible future "
+            "engine-side application. This is the set-side only: the "
+            "get-side 'db_scalars' (standard telemetry) and "
+            "'background_telemetry' are separate and remain active."
         ),
     )
     background_telemetry: bool = Field(

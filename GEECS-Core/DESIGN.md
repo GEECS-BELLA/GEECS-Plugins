@@ -125,12 +125,17 @@ value.** For a variable that is not set live, this *is* the device's state:
 capture gate reads it (`db/device_streams.py`). Resolve it the same way as
 everything else: instance row if present, else the devicetype default.
 
-**`expt_device_variable` — only `get` matters.** It says the experiment
-subscribes this variable, which is what makes the CA gateway serve a PV for
-it. Its `set`, `startvalue` and `endvalue` describe scan-boundary writes that
-**Master Control** performs; nothing in the Bluesky path reads them, and they
-should not be taken as a statement about the variable. A row whose `set` is
-`no` carries no live meaning in its value columns at all.
+**`expt_device_variable` — only `get` matters to the gateway.** It says
+the experiment subscribes this variable, which is what makes the CA gateway
+serve a PV for it. Its `set`, `startvalue` and `endvalue` describe
+scan-boundary writes that **the device itself** performs on the
+`ScanStart` / `ScanEnd` commands of GEECS scan mode — whoever sends them:
+Master Control, or the Bluesky worker under a trigger profile with
+`use_scan_mode` (the worker reads them only as a preflight cross-check
+against the profile's own writes, `get_scan_boundary_writes`). They are
+not a statement about the variable, and outside scan mode they do
+nothing. A row whose `set` is `no` carries no live meaning in its value
+columns at all.
 
 **Do not infer device state from a served PV that the device never pushes.**
 A subscribed variable the device does not include in its push frame leaves

@@ -45,6 +45,14 @@ from geecs_bluesky.plans.gated import (
     run_bracket,
     shot_clock,
 )
+from geecs_bluesky.plans.scan_mode import (
+    EnterScanMode,
+    release_scan_mode_plan,
+    run_device_names,
+    scan_mode_bracket,
+    scan_mode_preflight,
+    scan_parameter_for,
+)
 from geecs_bluesky.plans.strict import (
     geecs_name,
     geecs_per_shot,
@@ -382,6 +390,7 @@ def strict_plan(  # noqa: C901, PLR0915
     resolver: Any | None = None,
     settables: Any | None = None,
     mock: bool = False,
+    scan_mode: Any | None = None,
 ) -> Callable[..., Any]:
     """Bind the strict hook into one stock plan; keep its name and signature.
 
@@ -408,6 +417,12 @@ def strict_plan(  # noqa: C901, PLR0915
     mock :
         Connect a background member that is not yet connected with a mock
         backend (hermetic tests).
+    scan_mode :
+        The worker's :class:`~geecs_bluesky.devices.scan_mode.ScanModeControl`,
+        driven when the resolved profile carries ``use_scan_mode``
+        (``plans/scan_mode.py``: the preflight, the bracket inside the
+        trigger bracket, the announce in the hook, the row's
+        ``announced_shot``); ``None`` refuses such a profile.
 
     Returns
     -------
@@ -467,10 +482,24 @@ def strict_plan(  # noqa: C901, PLR0915
                 "non-essential — a device is waited on every shot or streamed "
                 "for the run, not both"
             )
+        # Scan mode (#1084): the profile's flag selects it; refuse what it
+        # cannot carry before the box is driven, then thread the control
+        # through the hook (the announce before every fire, the row's
+        # column) and bracket the run with the entry and the exit.
+        announce = scan_mode if shot_control.use_scan_mode else None
+        run_devices = run_device_names(detectors, non_essential, shot_control)
+        if shot_control.use_scan_mode:
+            scan_mode_preflight(
+                shot_control,
+                scan_mode,
+                acquisition=acquisition,
+                run_devices=run_devices,
+            )
         md = dict(kwargs.pop("md", None) or {})
         # The key the plan resolved (the configs-repo file stem), not the
         # profile's own name field — so the start document replays.
         md["trigger_profile"] = profile_key
+        md["use_scan_mode"] = shot_control.use_scan_mode
         md["shots_per_step"] = shots_per_step
         md["acquisition"] = acquisition
         # The OWNER's name: a ``.scalars`` view streams into ``<owner>_stream``,
@@ -516,10 +545,15 @@ def strict_plan(  # noqa: C901, PLR0915
                 kwargs[hook] = gated_per_shot(shot_control, quota=int(num))
         elif hook == "per_step":
             kwargs[hook] = geecs_per_step(
-                shot_control, shots_per_step=shots_per_step, shot_period=shot_period
+                shot_control,
+                shots_per_step=shots_per_step,
+                shot_period=shot_period,
+                scan_mode=announce,
             )
         else:
-            kwargs[hook] = geecs_per_shot(shot_control, shot_period=shot_period)
+            kwargs[hook] = geecs_per_shot(
+                shot_control, shot_period=shot_period, scan_mode=announce
+            )
         if snapshot is not None:
             # One more detector of the row, last: the strict take_reading
             # reads it per shot, the gated batch samples it at the tick.
@@ -543,6 +577,14 @@ def strict_plan(  # noqa: C901, PLR0915
             # (no plugin) saves whatever the switch says, so there is nothing
             # to switch (nor to log).
             inner = native_image_save_wrapper(inner, detectors, native_files)
+        if announce is not None:
+            # Inside the trigger bracket: ARMED, then ScanStart (a refused
+            # entry claims nothing), the run, ScanEnd, then STANDBY.
+            inner = scan_mode_bracket(
+                inner,
+                announce,
+                EnterScanMode(run_devices, scan_parameter_for(stock.__name__)),
+            )
         opening = TriggerState.OFF if acquisition == "gated" else TriggerState.ARMED
         # Before the first move, before the claim.
         yield from liveness_gate(shot_control, [*detectors, *non_essential])
@@ -632,6 +674,9 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
         "    trigger_profile : str, optional\n"
         "        Trigger profile driving the box for this scan (the experiment\n"
         "        default when omitted). The run is bracketed ARMED → STANDBY.\n"
+        "        A profile with use_scan_mode runs the scan in GEECS scan mode\n"
+        "        (strict only): the devices are told the scan and every shot,\n"
+        "        as under Master Control, and each row carries announced_shot.\n"
     )
     if hook == "per_step":
         extra += (
@@ -696,6 +741,7 @@ def bind_plans(
     resolver: Any | None = None,
     settables: SettableFactory | None = None,
     mock: bool = False,
+    scan_mode: Any | None = None,
 ) -> dict[str, Callable[..., Any]]:
     """Every name in :data:`GEECS_PLAN_NAMES` → the plan the worker registers.
 
@@ -706,6 +752,11 @@ def bind_plans(
     *settables* (the namespace).  *settables* is also where every scan
     verb's background telemetry comes from (:func:`background_snapshot`);
     *mock* connects its members with mock backends (hermetic tests).
+    *scan_mode* is the worker's
+    :class:`~geecs_bluesky.devices.scan_mode.ScanModeControl`: the scan
+    verbs drive it under a profile with ``use_scan_mode`` and
+    ``release_scan_mode`` ends it on demand; ``None`` (a hermetic worker)
+    refuses both.
     """
     bound: dict[str, Callable[..., Any]] = {}
     for name in GEECS_PLAN_NAMES:
@@ -718,17 +769,22 @@ def bind_plans(
                 resolver=resolver,
                 settables=settables,
                 mock=mock,
+                scan_mode=scan_mode,
             )
         elif name == "optimize":
             from .optimize import optimize_plan
 
-            bound[name] = optimize_plan(profiles, resolver, settables, mock=mock)
+            bound[name] = optimize_plan(
+                profiles, resolver, settables, mock=mock, scan_mode=scan_mode
+            )
         elif name == "run_action":
             bound[name] = run_action_plan(resolver, settables)
         elif name == "measure_shot_offsets":
             bound[name] = measure_shot_offsets_plan(profiles, resolver)
         elif name == "check_shot_sync":
             bound[name] = check_shot_sync_plan(profiles)
+        elif name == "release_scan_mode":
+            bound[name] = release_scan_mode_plan(scan_mode)
         else:
             assert name not in NON_SCAN_PLAN_NAMES
             bound[name] = strict_plan(
@@ -737,6 +793,7 @@ def bind_plans(
                 resolver=resolver,
                 settables=settables,
                 mock=mock,
+                scan_mode=scan_mode,
             )
     return bound
 

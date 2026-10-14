@@ -9,6 +9,8 @@ Scan-level exceptions below subclass the same ``GeecsError`` base.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from geecs_core.exceptions import (
     GeecsCommandError,
     GeecsCommandFailedError,
@@ -30,6 +32,7 @@ __all__ = [
     "GeecsConfirmTimeoutError",
     "GeecsConfigurationError",
     "GeecsDeviceDownError",
+    "GeecsScanModeError",
     "PseudoComponentsDisagreeError",
     "PseudoRestorePendingError",
     "ActionCheckFailedError",
@@ -203,6 +206,23 @@ class GeecsDeviceDownError(GeecsError):
 
     def __init__(self, message: str, device_name: str | None = None) -> None:
         self.device_name = device_name
+        super().__init__(message)
+
+
+class GeecsScanModeError(GeecsError):
+    """Scan mode could not be entered for the run's devices (#1084).
+
+    Raised by :class:`~geecs_bluesky.devices.scan_mode.ScanModeControl` at
+    the run's entry when a device stays silent after ``ScanStart`` (and
+    its retry), acknowledges with an error, or never connects to the path
+    channel — before any shot: Master Control fires into a missing
+    acknowledgement and every fire then fails; the worker refuses the run
+    instead.  The message is operator-facing; ``devices`` names the ones
+    at fault.
+    """
+
+    def __init__(self, message: str, devices: Sequence[str] = ()) -> None:
+        self.devices = tuple(devices)
         super().__init__(message)
 
 

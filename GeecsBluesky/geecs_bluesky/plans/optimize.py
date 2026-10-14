@@ -10,7 +10,7 @@ from collections import deque
 from collections.abc import Callable, Generator
 from pathlib import Path
 from time import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from bluesky import plan_stubs as bps, preprocessors as bpp
 from bluesky.protocols import Movable
@@ -27,6 +27,13 @@ from .gated import (
     non_essential_wrapper,
     refuse_free_running_non_essentials,
     run_bracket,
+)
+from .scan_mode import (
+    EnterScanMode,
+    run_device_names,
+    scan_mode_bracket,
+    scan_mode_preflight,
+    scan_parameter_for,
 )
 from .strict import BinCounter, geecs_take_reading, name_failed_status
 
@@ -132,12 +139,15 @@ def optimize_plan(  # noqa: C901, PLR0915
     namespace: GeecsNamespace | None,
     *,
     mock: bool = False,
+    scan_mode: Any | None = None,
 ) -> Callable[..., Generator]:
     """Bind the optimize verb without importing the optional analysis/Xopt stack.
 
     *mock* connects the background telemetry's members with mock backends
     (hermetic tests), as :func:`~geecs_bluesky.plans.registry.bind_plans`
-    passes it.
+    passes it; *scan_mode* is the worker's scan-mode control, driven under
+    a profile with ``use_scan_mode`` exactly as the strict binder drives it
+    (``plans/scan_mode.py``).
     """
 
     def optimize(  # noqa: C901, PLR0912, PLR0915
@@ -285,6 +295,12 @@ def optimize_plan(  # noqa: C901, PLR0915
         except Exception as exc:
             raise GeecsConfigurationError(f"optimizer generator: {exc}") from exc
         sc = profiles.resolve(trigger_profile)
+        announce = scan_mode if sc.use_scan_mode else None
+        run_devices = run_device_names(detectors, non_essential, sc)
+        if sc.use_scan_mode:
+            scan_mode_preflight(
+                sc, scan_mode, acquisition="strict", run_devices=run_devices
+            )
         native_files = resolve_native_image_save(native_image_save, resolver)
         snapshot = (
             background_snapshot(namespace, mock=mock)
@@ -299,6 +315,7 @@ def optimize_plan(  # noqa: C901, PLR0915
             shots_per_step=shots,
             acquisition="strict",
             trigger_profile=trigger_profile or profiles.default,
+            use_scan_mode=sc.use_scan_mode,
             # the owner's name: the stream is ``<owner>_stream`` (a view's too)
             non_essential=[owner_of(d).name for d in non_essential],
             shot_period=shot_period,
@@ -350,8 +367,9 @@ def optimize_plan(  # noqa: C901, PLR0915
             ]
         )
         pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="geecs-optimize")
-        take = geecs_take_reading(sc, shot_period=shot_period)
+        take = geecs_take_reading(sc, shot_period=shot_period, scan_mode=announce)
         bins = BinCounter()
+        row_extras = [bins] if announce is None else [bins, announce]
 
         def inner():  # noqa: C901
             if records.folder is not None:
@@ -381,7 +399,9 @@ def optimize_plan(  # noqa: C901, PLR0915
                 )
                 completed = []
                 for _ in range(shots):
-                    reading = yield from take([*detectors, *measurement_signals, bins])
+                    reading = yield from take(
+                        [*detectors, *measurement_signals, *row_extras]
+                    )
                     completed.append(
                         {key: value["value"] for key, value in reading.items()}
                     )
@@ -544,6 +564,12 @@ def optimize_plan(  # noqa: C901, PLR0915
                     movers=list(movables.values()),
                 )
             staged = native_image_save_wrapper(staged, detectors, native_files)
+            if announce is not None:
+                staged = scan_mode_bracket(
+                    staged,
+                    announce,
+                    EnterScanMode(run_devices, scan_parameter_for("optimize")),
+                )
             yield from name_failed_status(run_bracket(staged, sc, TriggerState.ARMED))
 
         # Subscribe outside open_run to see the claim preprocessor's augmented start document.

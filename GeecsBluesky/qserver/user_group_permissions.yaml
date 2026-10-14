@@ -33,12 +33,14 @@ user_groups:
   # profile registers (geecs_bluesky.plan_names.GEECS_PLAN_NAMES — count,
   # sweep and optimize over the device namespace, plus mv for a manual
   # move, run_action for a named action plan, and the two once-run
-  # shot-offset plans (measure_shot_offsets, check_shot_sync);
-  # tests/test_deploy_templates.py pins this line to that tuple); no
-  # function execution (the function verbs went with the funnel, #807).
+  # shot-offset plans (measure_shot_offsets, check_shot_sync), and
+  # release_scan_mode (end GEECS scan mode on the devices of a run that
+  # never ended it); tests/test_deploy_templates.py pins this line to that
+  # tuple); no function execution (the function verbs went with the funnel,
+  # #807).
   operator:
     allowed_plans:
-      - ":^(count|sweep|optimize|mv|run_action|measure_shot_offsets|check_shot_sync)$"
+      - ":^(count|sweep|optimize|mv|run_action|measure_shot_offsets|check_shot_sync|release_scan_mode)$"
     forbidden_plans:
       - null
     # Devices are nouns in the namespace (#807 phase 1): a plan argument may
