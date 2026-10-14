@@ -469,6 +469,11 @@ class ScanModeControl:
     async def _enter(
         self, entry: EnterScanMode, *, previous: asyncio.Task[None] | None = None
     ) -> None:
+        # First, before any refusal below could drop the only reference to it:
+        # a previous entry still waiting (a halt skipped its cleanup) is
+        # cancelled and awaited — its own cleanup ends scan mode for the
+        # devices that entered.
+        await self._cancel_entry(previous, "a halt skipped its cleanup")
         if self._endpoint is None:
             raise GeecsConfigurationError(
                 f"scan mode: experiment {self._experiment!r} has no multicast "
@@ -488,10 +493,8 @@ class ScanModeControl:
                 f"device roster — a run device must be an enabled device of "
                 f"{self._experiment!r}"
             )
-        # A halt skips the finalizers: the previous entry may still be waiting
-        # (its task is cancelled and awaited — it ends scan mode itself) or may
-        # have entered and never exited (ended here).
-        await self._cancel_entry(previous, "a halt skipped its cleanup")
+        # A halt skips the finalizers: the previous entry may have entered and
+        # never exited — ended here (one still waiting was cancelled above).
         if self._server is not None:
             logger.warning(
                 "scan mode: the previous run (%d device(s): %s) never ended "

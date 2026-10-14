@@ -712,6 +712,45 @@ def test_a_halt_during_the_entry_then_a_new_entry_cancels_the_old_one(
     assert _until(lambda: not stack.devices[CAM].in_scan_mode)
 
 
+def test_a_refused_entry_after_a_halt_still_cancels_the_old_one(
+    RE: RunEngine, stack: Stack
+) -> None:
+    # The cancel of a halted entry runs before any refusal: an entry refused
+    # by the roster check must not drop the only reference to the old task,
+    # or its timeout cleanup would later end a run that entered in between.
+    # The old entry waits for a host that never connects (the box's endpoint
+    # is declared on another loopback address): nothing wakes that wait but
+    # its own clock or a cancel.
+    stack.start()
+    control = stack.make_control(
+        connect_timeout_s=2.0,
+        device_endpoints={
+            CAM: (LOOPBACK, stack.ports[CAM]),
+            BOX: ("127.0.0.2", stack.ports[BOX]),
+        },
+    )
+
+    def halt_once_announced() -> None:
+        assert _until(lambda: "ScanStart" in _received(stack))
+        time.sleep(0.5)  # the acks are in; the entry waits for the second host
+        RE.halt()
+
+    halter = threading.Thread(target=halt_once_announced)
+    halter.start()
+    with pytest.raises(RunEngineInterrupted):
+        RE(bps.mv(control, _entry()))
+    halter.join()
+    assert control.entered
+    with pytest.raises(FailedStatus):
+        RE(bps.mv(control, EnterScanMode(("Nope",), "Shot #")))  # roster refusal
+    RE(bps.mv(control, EnterScanMode((CAM,), "Shot #")))
+    assert control.entered and control.run_devices == (CAM,)
+    time.sleep(2.5)  # past the halted entry's connect timeout
+    assert control.entered and control.run_devices == (CAM,)  # not torn down
+    RE(bps.mv(control, EXIT))
+    assert not control.entered and not stack.state_file.exists()
+
+
 def test_an_aborted_run_still_exits_scan_mode_before_standby(
     RE: RunEngine, stack: Stack
 ) -> None:
