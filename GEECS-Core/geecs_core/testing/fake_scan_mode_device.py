@@ -37,6 +37,7 @@ from collections.abc import Iterable
 from ..transport._framing import read_frame
 from ..transport.scan_mode import (
     ACK_OK_STATUS,
+    _wait_event,
     KEEPALIVE_PAYLOAD,
     PATH_KEY,
     SCAN_END,
@@ -155,13 +156,11 @@ class FakeScanModeDevice:
             remaining = deadline - loop.time()
             if len(self.paths) >= count or remaining <= 0:
                 return list(self.paths)
-            with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(self._path_event.wait(), timeout=remaining)
+            await _wait_event(self._path_event, remaining)
 
     async def wait_connected(self, timeout: float) -> bool:
         """Wait until the path-channel connection is open; ``False`` on timeout."""
-        with contextlib.suppress(asyncio.TimeoutError):
-            await asyncio.wait_for(self._connected.wait(), timeout=timeout)
+        await _wait_event(self._connected, timeout)
         return self.connected
 
     # ------------------------------------------------------------------
@@ -239,12 +238,15 @@ class FakeScanModeDevice:
         self._path_event.set()
 
     async def _disconnect(self) -> None:
+        # Take the writer first: cancelling the reader runs its ``finally``,
+        # which clears ``self._writer`` — taken afterwards it would be None and
+        # the connection would only close when garbage-collected.
+        writer, self._writer = self._writer, None
         task, self._reader_task = self._reader_task, None
         if task is not None and task is not asyncio.current_task():
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-        writer, self._writer = self._writer, None
         if writer is not None:
             writer.close()
             with contextlib.suppress(Exception):

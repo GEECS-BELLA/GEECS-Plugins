@@ -320,6 +320,29 @@ class ScanModeMulticaster:
 
 
 # ---------------------------------------------------------------------------
+# Waiting without losing a cancellation
+# ---------------------------------------------------------------------------
+
+
+async def _wait_event(event: asyncio.Event, timeout: float) -> None:
+    """Wait for *event* up to *timeout* seconds; a cancellation always propagates.
+
+    ``asyncio.wait_for(event.wait(), timeout)`` on Python 3.10 and 3.11
+    returns normally instead of raising when the event was set in the same
+    loop tick as the caller's cancellation (its ``except CancelledError: if
+    fut.done(): return fut.result()`` branch), so a loop built on it would
+    shrug off an abort and run on to its own deadline.  ``asyncio.wait``
+    has no such branch.
+    """
+    waiter = asyncio.ensure_future(event.wait())
+    try:
+        await asyncio.wait({waiter}, timeout=timeout)
+    finally:
+        if not waiter.done():
+            waiter.cancel()
+
+
+# ---------------------------------------------------------------------------
 # Acknowledgement listener
 # ---------------------------------------------------------------------------
 
@@ -473,8 +496,7 @@ class ScanModeAckListener:
             remaining = deadline - loop.time()
             if wanted <= have.keys() or remaining <= 0:
                 return have
-            with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(self._changed.wait(), timeout=remaining)
+            await _wait_event(self._changed, remaining)
 
 
 # ---------------------------------------------------------------------------
@@ -490,7 +512,8 @@ async def _bounded_drain(writer: asyncio.StreamWriter, timeout: float) -> bool:
     same loop tick as the outer cancellation — and ``drain()`` on an empty
     buffer completes at once, so the keepalive task was seen to survive its
     own cancellation and :meth:`ScanModeServer.stop` waited on it forever
-    (live, 2026-10-13).  ``asyncio.wait`` neither cancels nor swallows.
+    (live, 2026-10-13).  ``asyncio.wait`` neither cancels nor swallows;
+    :func:`_wait_event` is the same cure for the event waits.
     """
     task = asyncio.ensure_future(writer.drain())
     try:
@@ -574,6 +597,10 @@ class ScanModeServer:
         """Listen and start the keepalive ticker."""
         if self._server is not None:
             raise RuntimeError("ScanModeServer already started")
+        if self._keepalive_task is not None and not self._keepalive_task.done():
+            raise RuntimeError(
+                "ScanModeServer: the previous keepalive ticker is still stopping"
+            )
         self._stopping = False
         try:
             self._server = await asyncio.start_server(
@@ -601,9 +628,12 @@ class ScanModeServer:
         if self._keepalive_task is not None:
             self._keepalive_task.cancel()
             done, _ = await asyncio.wait({self._keepalive_task}, timeout=2.0)
-            if not done:
+            if done:
+                self._keepalive_task = None
+            else:
+                # Keep the reference: start() refuses until the orphan has ended,
+                # so it can never write into a new run's connections.
                 logger.warning("scan mode: the keepalive ticker did not stop in time")
-            self._keepalive_task = None
         if self._server is not None:
             self._server.close()
         for writer in list(self._writers):
@@ -650,8 +680,7 @@ class ScanModeServer:
             remaining = deadline - loop.time()
             if not missing or remaining <= 0:
                 return missing
-            with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(self._changed.wait(), timeout=remaining)
+            await _wait_event(self._changed, remaining)
 
     # ------------------------------------------------------------------
 
@@ -709,29 +738,39 @@ class ScanModeServer:
                 await self._write_all(payload)
 
     async def _write_all(self, data: bytes) -> int:
-        """Write *data* to every connection, dropping any that fails or stalls."""
-        written = 0
-        for writer, peer in list(self._writers.items()):
-            if writer not in self._writers:
-                continue  # dropped by its reader while an earlier drain awaited
-            try:
-                writer.write(data)
-                flushed = await _bounded_drain(writer, self._write_timeout_s)
-            except OSError as exc:
-                flushed = False
-                reason = f"{type(exc).__name__}: {exc}"
-            else:
-                reason = f"no progress in {self._write_timeout_s}s"
-            if not flushed:
-                logger.warning(
-                    "scan mode: dropping the connection from %s:%s — write failed (%s)",
-                    peer[0],
-                    peer[1],
-                    reason,
-                )
-                self._drop(writer)
-                with contextlib.suppress(Exception):
-                    writer.transport.abort()
-                continue
-            written += 1
-        return written
+        """Write *data* to every connection at once; returns how many took it.
+
+        Every connection is written and drained independently and the drains
+        run concurrently, so a peer whose buffer has filled costs only itself
+        the *write_timeout_s* stall — the others keep the 40 ms cadence.
+        """
+        results = await asyncio.gather(
+            *(self._write_one(writer, data) for writer in list(self._writers))
+        )
+        return sum(1 for ok in results if ok)
+
+    async def _write_one(self, writer: asyncio.StreamWriter, data: bytes) -> bool:
+        """Write *data* to one connection; drop it on a failed or stalled write."""
+        peer = self._writers.get(writer)
+        if peer is None:
+            return False  # dropped by its reader in the meantime
+        try:
+            writer.write(data)
+            flushed = await _bounded_drain(writer, self._write_timeout_s)
+        except OSError as exc:
+            flushed = False
+            reason = f"{type(exc).__name__}: {exc}"
+        else:
+            reason = f"no progress in {self._write_timeout_s}s"
+        if flushed:
+            return True
+        logger.warning(
+            "scan mode: dropping the connection from %s:%s — write failed (%s)",
+            peer[0],
+            peer[1],
+            reason,
+        )
+        self._drop(writer)
+        with contextlib.suppress(Exception):
+            writer.transport.abort()
+        return False

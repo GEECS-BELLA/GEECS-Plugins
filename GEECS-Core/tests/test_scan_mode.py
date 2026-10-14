@@ -26,6 +26,8 @@ from geecs_core.transport.scan_mode import (
     ScanModeAckListener,
     ScanModeMulticaster,
     ScanModeServer,
+    _bounded_drain,
+    _wait_event,
     device_shot_path,
     frame,
     parse_acknowledgement,
@@ -378,6 +380,46 @@ class TestPathChannel:
             assert await stack.server.push_path(CAPTURED_PATH) == 1
             assert await stack.devices[1].wait_for_paths(1, 1.0) == [CAPTURED_PATH]
 
+    async def test_a_stalled_peer_does_not_delay_the_others(self) -> None:
+        """One connection whose drain stalls costs only itself; the rest keep their cadence."""
+        async with _Stack(*_devices("U_A", "U_B")) as stack:
+            stack.server._write_timeout_s = 0.3
+            await stack.start_scan()
+            assert await _until(lambda: stack.server.connection_count == 2)
+            stalled = next(iter(stack.server._writers))
+
+            async def never_drains() -> None:
+                await asyncio.sleep(5.0)
+
+            stalled.drain = never_drains  # type: ignore[method-assign]
+            started = time.monotonic()
+            took = await stack.server.push_path(CAPTURED_PATH)
+            elapsed = time.monotonic() - started
+            assert took == 1
+            assert 0.25 <= elapsed < 1.0  # bounded by the stall timeout, not serialized
+            # The bytes went out to both before the stalled drain was judged (write()
+            # itself never blocks); what matters is that the healthy peer had its path
+            # within the stall window and that only the stalled connection was dropped.
+            for device in stack.devices:
+                assert await device.wait_for_paths(1, 0.2) == [CAPTURED_PATH]
+            assert stack.server.connection_count == 1
+
+    async def test_fake_device_stop_closes_its_connection_without_the_collector(
+        self,
+    ) -> None:
+        """Review: the fake used to lose its writer when cancelling the reader and left the socket to GC."""
+        async with _Stack(*_devices("U_A")) as stack:
+            await stack.start_scan()
+            device = stack.devices[0]
+            assert await device.wait_connected(1.0)
+            keep_alive = (
+                device._writer
+            )  # a strong reference: only an explicit close can end it
+            assert keep_alive is not None
+            await device.stop()
+            assert keep_alive.is_closing()
+            assert await _until(lambda: stack.server.connection_count == 0, timeout=0.5)
+
     async def test_a_raw_peer_that_only_connects_and_leaves_is_tolerated(self) -> None:
         """A device may open a second connection and let it go (captured: 53 attempts, 26 kept)."""
         async with ScanModeServer(LOOPBACK, 0) as server:
@@ -437,6 +479,46 @@ class TestPathChannel:
         started = time.monotonic()
         await asyncio.wait_for(server.stop(), timeout=5.0)
         assert time.monotonic() - started < 3.0
+
+    async def test_bounded_drain_propagates_a_same_tick_cancellation(self) -> None:
+        """The swallowed-cancellation window: drain completes in the tick the caller is cancelled."""
+        async with ScanModeServer(LOOPBACK, 0) as server:
+            _, writer = await asyncio.open_connection(LOOPBACK, server.port)
+            try:
+                task = asyncio.create_task(_bounded_drain(writer, 1.0))
+                await asyncio.sleep(0)  # the drain future is scheduled
+                await asyncio.sleep(0)  # ... and completes in this tick
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            finally:
+                writer.close()
+
+    async def test_wait_event_propagates_a_same_tick_cancellation(self) -> None:
+        event = asyncio.Event()
+        task = asyncio.create_task(_wait_event(event, 1.0))
+        await asyncio.sleep(0)
+        event.set()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    async def test_listener_wait_for_honours_an_abort_at_once(self) -> None:
+        """An abort landing as the acks arrive must not be swallowed into a full timeout."""
+        async with _Stack(*_devices("U_A")) as stack:
+            since = asyncio.get_running_loop().time()
+            waiter = asyncio.create_task(
+                stack.listener.wait_for(
+                    SCAN_START, ["U_A", "U_Never"], 5.0, since=since
+                )
+            )
+            await stack.multicaster.announce_scan_start("Undulator", "Shot #")
+            await _until(lambda: "U_A" in stack.listener.acknowledgements(SCAN_START))
+            started = time.monotonic()
+            waiter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter
+            assert time.monotonic() - started < 0.5
 
     async def test_unopened_objects_say_so(self) -> None:
         with pytest.raises(RuntimeError, match="open"):
