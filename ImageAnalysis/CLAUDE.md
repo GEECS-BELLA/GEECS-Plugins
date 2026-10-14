@@ -420,7 +420,7 @@ The write gate is structural, and it depends on two conventions that
 `list_diagnostics(config_dir=...)` (in `image_analysis.config`)
 enumerates the loadable diagnostic IDs for pickers over the same tree.
 
-## Retired BCave analyzers
+## Retired analyzer kinds
 
 The legacy `bcave_magspec_stitcher` camera kind and
 `Undulator/BCaveMagSpecStitcher.py` are removed. They used a pre-

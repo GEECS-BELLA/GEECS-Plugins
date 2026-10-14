@@ -77,8 +77,8 @@ def configs(tmp_path, monkeypatch):
                 # A legacy-route kind whose class this host cannot import
                 # (the registry entry is pointed at a module that does not
                 # exist below), standing in for a vendor-SDK analyzer.
-                "analyzer": {"kind": "frog_spectral_phase"},
-                "image": {"type": "line", "data_loading": {"data_type": "tsv"}},
+                "analyzer": {"kind": "downramp_phase"},
+                "image": {"type": "camera", "bit_depth": 16},
                 "scan": {},
             }
         )
@@ -87,7 +87,7 @@ def configs(tmp_path, monkeypatch):
 
     monkeypatch.setitem(
         registry.ANALYZER_CLASS_PATHS,
-        "frog_spectral_phase",
+        "downramp_phase",
         "no.such.vendor.module.Analyzer",
     )
     group_dir = root / "groups" / "HTU"

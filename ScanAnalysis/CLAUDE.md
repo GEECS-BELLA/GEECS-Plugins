@@ -382,7 +382,7 @@ constructor `kwargs`). ImageAnalysis maps kind → class
 
 ```yaml
 analyzer: {kind: beam, compute_slopes: false}
-analyzer: {kind: himg_to_stack}              # no image: section for this kind
+analyzer: {kind: trace}                      # a 1D kind; image: {type: line, ...}
 ```
 
 ### The config editor (`config_store.py` + `config_editor/`)
