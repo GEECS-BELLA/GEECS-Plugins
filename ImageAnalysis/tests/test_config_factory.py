@@ -187,19 +187,6 @@ class TestCreateImageAnalyzer:
         analyzer = create_image_analyzer(diag)
         assert analyzer.__class__.__name__ == "StandardAnalyzer"
 
-    def test_no_image_kind_without_image_section(self):
-        diag = AnalysisDiagnostic(
-            name="Phase",
-            analyzer={
-                "kind": "phase_downramp",
-                "pixel_scale": 2.0,
-                "wavelength_nm": 800.0,
-            },
-        )
-        assert diag.image is None
-        analyzer = create_image_analyzer(diag)
-        assert analyzer.config.pixel_scale == 2.0
-
 
 class TestOutputNameAndMetricSuffix:
     """Per-device output-naming controls (issue #412) on the document."""

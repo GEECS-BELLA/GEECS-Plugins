@@ -31,7 +31,7 @@ class TestRegistry:
         assert SCHEMA_REGISTRY["analysis_group"] is AnalysisGroup
 
     def test_every_union_member_has_a_distinct_kind(self):
-        assert len(ANALYZER_SPECS) == 16
+        assert len(ANALYZER_SPECS) == 14
         for kind, model in ANALYZER_SPECS.items():
             assert model.model_fields["kind"].default == kind
             assert model.image_kind in ("camera", "line", None)
@@ -91,17 +91,9 @@ class TestV2Shape:
 
     def test_no_image_analyzer_without_image(self):
         diag = AnalysisDiagnostic.model_validate(
-            {
-                "name": "Phase",
-                "analyzer": {
-                    "kind": "phase_downramp",
-                    "pixel_scale": 1.0,
-                    "wavelength_nm": 800,
-                },
-            }
+            {"name": "U_HasoLift", "analyzer": {"kind": "himg_restore"}}
         )
         assert diag.image is None and diag.image_kind is None
-        assert diag.analyzer.threshold_fraction == 0.5
 
     def test_unknown_kind_is_refused(self):
         with pytest.raises(ValidationError, match="kind"):
@@ -129,13 +121,11 @@ class TestV2Shape:
                 "needs image.type 'camera'",
             ),
             ("ict", {"type": "camera"}, "needs image.type 'line'"),
-            ("phase_downramp", {"type": "camera"}, "takes no image section"),
+            ("himg_restore", {"type": "camera"}, "takes no image section"),
         ],
     )
     def test_analyzer_and_image_kind_must_agree(self, kind, image, message):
         analyzer = {"kind": kind}
-        if kind == "phase_downramp":
-            analyzer.update(pixel_scale=1.0, wavelength_nm=800)
         with pytest.raises(ValidationError, match=message):
             AnalysisDiagnostic.model_validate(
                 {"name": "x", "analyzer": analyzer, "image": image}

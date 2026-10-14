@@ -382,10 +382,7 @@ constructor `kwargs`). ImageAnalysis maps kind → class
 
 ```yaml
 analyzer: {kind: beam, compute_slopes: false}
-analyzer:
-  kind: phase_downramp                        # no image: section for this kind
-  pixel_scale: 1.0
-  wavelength_nm: 800
+analyzer: {kind: himg_to_stack}              # no image: section for this kind
 ```
 
 ### The config editor (`config_store.py` + `config_editor/`)

@@ -48,8 +48,6 @@ ANALYZER_CLASS_PATHS: dict[str, str] = {
     "line_stitcher": "image_analysis.analyzers.line_stitcher.LineStitcher",
     "downramp_phase": "image_analysis.analyzers.downramp_phase_analyzer.DownrampPhaseAnalyzer",
     "hi_res_mag_cam": "image_analysis.analyzers.Undulator.hi_res_mag_cam_analyzer.HiResMagCamAnalyzer",
-    "bcave_mag_opt": "image_analysis.analyzers.Undulator.BCaveMagSpecStitcherOpt.BCaveMagOpt",
-    "phase_downramp": "image_analysis.analyzers.density_from_phase_analysis.PhaseDownrampProcessor",
 }
 
 _missing = FRAME_KINDS ^ set(ANALYZER_CLASS_PATHS)

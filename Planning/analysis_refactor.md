@@ -80,7 +80,7 @@ weeks.
   host. Neither blocks the beam/line milestone, and neither is retired merely
   because local validation is unavailable.
 - **Retire `bcave_magspec_stitcher` (owner approved).** This is the legacy
-  camera analyzer, not `line_stitcher`, `bcave_mag_opt`, or the `line` recipe
+  camera analyzer, not `line_stitcher`, `bcave_mag_opt` (itself deleted later, #1039), or the `line` recipe
   that reads an already-stitched spectrum for waterfall plots.
 - **Additional analyzer families await owner selection.** Beam and line are
   the minimum release gate, not permission to delete every other analyzer.
@@ -339,7 +339,7 @@ carries the numbers above and the review verdict as its verification section.
 | Own `Frame` vs xarray | tentative | Own dataclass first (~150 lines); `to_xarray()` bridge if it ever pays off. |
 | Where spec models live | tentative | `geecs_analysis.specs`, numpy-free, owns the unions; portal, MCP and the optimizer config import it for validation. Back into GEECS-Schemas only if a numpy-free consumer appears. |
 | Heavy analyzers as plugins | tentative | HASO (wavekit), FROG (32-bit DLL), MagSpec DNN in their own small packages, registered by entry point; specs in the core so every recipe validates everywhere. They are Windows-only; the services box is Linux. |
-| Zero-config analyzer kinds | open | `standard` (2D) and `trace` (1D): preprocessing only, both map to `measure: none`. `downramp_phase` / `phase_downramp`: work in progress, out of parity scope until one is chosen. `hi_res_mag_cam`: its optimizer config references a diagnostic that does not exist. `frog_spectral_phase`: cheap to port if GDD/TOD numbers are wanted. |
+| Zero-config analyzer kinds | open | `standard` (2D) and `trace` (1D): preprocessing only, both map to `measure: none`. `downramp_phase`: work in progress, out of parity scope (its duplicate `phase_downramp` was deleted, #1039). `hi_res_mag_cam`: its optimizer config references a diagnostic that does not exist. `frog_spectral_phase`: cheap to port if GDD/TOD numbers are wanted. |
 | Pure-Python FROG (`grenouille.py`) as the Linux path | open | Dead today, but the only Linux-capable FROG retrieval in the repo. Physics judgement is Sam's. |
 | Automatic post-scan analysis, worker service, second machine | deferred | Decide with the non-scalar-over-PVA rollout and the new box. Compute is not the constraint (1–5 cores for 30 cameras at 1 Hz); network fan-out is, and each camera server's PVA gateway is the subscription point now that the central capture daemon is retired. |
 | Live scalars as PVs (#744) | deferred | The optimizer already consumes live PVA frames in memory; a central publisher node is the same core plus ~200 lines of p4p. Engine-side telemetry identity is the open question. |
@@ -399,7 +399,7 @@ mostly not analysis.
 - **Dead after #803's deletion pass, ~2.7k LOC**: `BCaveMagSpecStitcher` 282
   (calls a method that exists nowhere); `HIMGWithAveraging`; `grenouille.py`
   751 and `qwlsi.py` 718 imported only by their tests;
-  `density_from_phase_analysis` duplicating `downramp_phase_analyzer`; the
+  `density_from_phase_analysis` duplicating `downramp_phase_analyzer` (deleted, #1039); the
   `use_injected_data` mode of `ScanAnalyzer` (its only consumer, the old
   evaluator, was replaced by the native optimizer); four heavyweight
   dependencies carried by dead code.
@@ -701,7 +701,7 @@ is written out as `figure.imshow.vmin: 0` so the pure draw keeps it.
 `scripts/analysis_convert_corpus.py` converts a configs tree in place
 (37 of 50 on 2026-09-24: 34 beam, 3 line), leaving the 13 the core does
 not serve as v2 (4 `magspec` with scan backgrounds, 2 `line_stitcher`,
-2 `ict`, 2 `frog_retrieval`, `bcave_mag_opt`, `haso`, one `trace` with a
+2 `ict`, 2 `frog_retrieval`, `bcave_mag_opt` (since deleted, #1039), `haso`, one `trace` with a
 preprocessing-only ROI). The converted corpus lives on the configs branch
 `analysis-recipe-v3` for the maintainer to test against; it merges to the
 configs `main` when he is happy. Slice 2 (2026-09-24) made the editor the
@@ -820,7 +820,7 @@ production observation period; re-estimate after the differential baseline.
 | A2 | `run_scan`, `grid`/`waterfall`/`animation`, analysis-tree + scalar + s-file sinks, the factory adapter and routing | Analysis tab and MCP on the new stack for every `beam`/`line` recipe (37 of 50) | after a week: the 2D/1D wrappers' beam path is unreachable | 2 days | one archived day end-to-end; s-file columns byte-identical for beam recipes |
 | F1 | Colourbar sized from the image axes in `single` (`draw_frame`) and `image_grid`'s shared colourbar; rendered before/after in the PR | every core beam figure looks right; lands before promotion (see "Still required") | nothing | ½ day | operator look at the before/after |
 | F2 | Overlay-kind registry (`Marker`, `Projection`, `Circle`, `Box`, `Segment`, `Text`); `overlays` (per-id style) and `references` on `RendererOptions` under `scan.renderer`, mapped into `FigureSpec` by the v2 renderers; one editor section (overlays + references) with the live preview as validator | operators add reference geometry without code; developers add a kind in one file | the `isinstance` chain in `draw_overlays` | 1–2 days, two PRs (core + schema, then editor) | preview renders every kind; the maintainer confirmed the set (measure overlays + static references) covers the cases in mind |
-| A3 | Long tail: `ict`, `magspec`, `frog_retrieval`, stitcher as a source, HASO as a source, `bcave_mag_opt`; plugins for the Windows-only ones | each recipe flips as it passes the harness | old ImageAnalysis and ScanAnalysis cores when the last route flips; **this file** | ½ day each | Windows machine, vendor SDK, real data per diagnostic; physics sign-off |
+| A3 | Long tail: `ict`, `magspec`, `frog_retrieval`, stitcher as a source, HASO as a source, ~~`bcave_mag_opt`~~ (deleted, #1039); plugins for the Windows-only ones | each recipe flips as it passes the harness | old ImageAnalysis and ScanAnalysis cores when the last route flips; **this file** | ½ day each | Windows machine, vendor SDK, real data per diagnostic; physics sign-off |
 | A4 | Data-utils read side, additive: `ScanLayout`, `ScanScalars`, `ShotSource` converging on `shot_join` / `scan_stack` | portal deletes its ladder; `ScanData` goes | `ScanPaths` facade after the last caller moves | 2 days | none; spread across small PRs |
 | A5 | Optional: corpus conversion to v3; delete the v2 adapter | one config vocabulary | v2 adapter | 1 day | none |
 

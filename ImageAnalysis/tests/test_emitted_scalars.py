@@ -11,7 +11,7 @@ from image_analysis.config import create_image_analyzer
 
 
 @pytest.mark.parametrize("kind", sorted(ANALYZER_SPECS))
-def test_declared_scalars_are_emitted(kind):  # noqa: C901
+def test_declared_scalars_are_emitted(kind):
     if kind == "frog_retrieval":
         pytest.skip("vendor DLL; declarations reviewed against analyze_image")
     if ANALYZER_SPECS[kind].scope != "frame":
@@ -23,8 +23,6 @@ def test_declared_scalars_are_emitted(kind):  # noqa: C901
         )
     if kind == "line_stitcher":
         spec.update(sibling_devices=["Sibling"], output_label="Stitched")
-    if kind == "phase_downramp":
-        spec.update(pixel_scale=1, wavelength_nm=800)
     model = ANALYZER_SPECS[kind](**spec)
     image = (
         None if model.image_kind is None else {"type": model.image_kind, "pipeline": []}
@@ -42,13 +40,9 @@ def test_declared_scalars_are_emitted(kind):  # noqa: C901
         # The spectral phase analyzer consumes a two-column frequency/phase trace.
         frame = np.column_stack((axis, (axis - 800) ** 2 * 0.001))
     analyzer = create_image_analyzer(diagnostic)
-    if kind == "phase_downramp":
-        analyzer.bg_data = np.zeros_like(
-            frame
-        )  # Synthetic equivalent of its background loader.
     result = analyzer.analyze_image(frame, auxiliary_data=auxiliary)
     assert model.emitted_scalars() <= set(result.scalars)
-    if kind in {"beam", "standard", "line", "ict", "magspec", "trace", "bcave_mag_opt"}:
+    if kind in {"beam", "standard", "line", "ict", "magspec", "trace"}:
         assert model.emitted_scalars() == set(result.scalars)
 
 
