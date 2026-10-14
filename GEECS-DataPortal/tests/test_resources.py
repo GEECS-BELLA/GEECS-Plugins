@@ -1473,7 +1473,7 @@ class TestScanModeFileNumbers:
 
     DEVICE = "UC_ModeCam"
 
-    def _client(self, scan_folder, announced):
+    def _files(self, scan_folder):
         device_dir = scan_folder / self.DEVICE
         device_dir.mkdir()
         for number in (1, 2, 3, 4):
@@ -1482,6 +1482,9 @@ class TestScanModeFileNumbers:
             Image.fromarray(image).save(
                 device_dir / f"Scan002_{self.DEVICE}_{number:03d}.png"
             )
+
+    def _client(self, scan_folder, announced):
+        self._files(scan_folder)
         catalog = FakeCatalog()
         detail = _detail(2)
         detail.start_doc["scan_folder"] = str(scan_folder)
@@ -1514,3 +1517,22 @@ class TestScanModeFileNumbers:
         from geecs_portal.routes.common import _file_shot
 
         assert _file_shot(_detail(2), 2) is None
+
+    def test_a_folder_only_run_reads_the_number_from_the_s_file(self, scan_folder):
+        # The folder catalog (Tiled down) loads no event table: data=None.
+        import dataclasses
+
+        self._files(scan_folder)
+        analysis_dir = scan_folder.parent.parent / "analysis"
+        analysis_dir.mkdir()
+        (analysis_dir / "s2.txt").write_text(
+            "Bin #\tAnnounced Shot\tShotnumber\n1\t1\t1\n1\t2\t2\n1\t4\t3\n"
+        )
+        detail = dataclasses.replace(_detail(2), data=None)
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        catalog = FakeCatalog()
+        catalog.details["uid-002"] = detail
+        client = TestClient(create_app(catalog))
+        response = client.get(f"/run/uid-002/image.png?device={self.DEVICE}&shot=3")
+        assert response.status_code == 200
+        assert self._served_number(response) == 4

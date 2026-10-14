@@ -105,7 +105,7 @@ def _camera_frame(
             acq_timestamp=acq,
             data_cache=portal.data_cache if complete else None,
             cache_key=(uid, device) if complete else None,
-            file_shot=_file_shot(detail, shot),
+            file_shot=_file_shot(detail, shot, folder),
         )
     except HTTPException as exc:
         kind = LookupError if exc.status_code == 404 else ValueError

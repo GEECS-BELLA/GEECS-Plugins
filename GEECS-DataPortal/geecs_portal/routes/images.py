@@ -136,7 +136,7 @@ def run_image(
             acq_timestamp=acq,
             data_cache=portal.data_cache if complete else None,
             cache_key=(uid, device) if complete else None,
-            file_shot=_file_shot(detail, shot),
+            file_shot=_file_shot(detail, shot, folder),
         )
         if resolved.array is None:
             raise HTTPException(
@@ -171,7 +171,7 @@ def run_image(
         acq_timestamp=acq,
         data_cache=portal.data_cache if complete else None,
         cache_key=(uid, device) if complete else None,
-        file_shot=_file_shot(detail, shot),
+        file_shot=_file_shot(detail, shot, folder),
         **render,
     )
     if result.png is None:
@@ -237,7 +237,7 @@ def run_bin_image(  # noqa: C901
             acq_timestamp=acq,
             data_cache=portal.data_cache if complete else None,
             cache_key=(uid, device) if complete else None,
-            file_shot=_file_shot(detail, shot),
+            file_shot=_file_shot(detail, shot, folder),
         )
         if resolved.array is None:
             if resolved.kind in ("vendor", "unrenderable"):

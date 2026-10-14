@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode
 
@@ -12,6 +13,11 @@ from starlette.requests import Request
 from geecs_data_utils import tiled_schema as schema_map
 from geecs_data_utils.data.binning import compute_bin_key
 from geecs_data_utils.data.row_filters import filter_mask
+from geecs_data_utils.data.sfile import (
+    read_sfile,
+    scan_data_txt_path_for,
+    sfile_path_for_scan,
+)
 from geecs_data_utils.scan_frame import scan_frame
 from geecs_data_utils.tiled_catalog import (
     RunSummary,
@@ -152,7 +158,7 @@ def _acq_timestamp(detail, device: str, shot: int) -> tuple[Optional[float], boo
     return (value, True)
 
 
-def _file_shot(detail, shot: int) -> Optional[int]:
+def _file_shot(detail, shot: int, folder: Optional[Path] = None) -> Optional[int]:
     """The number in the row's shot-numbered file names, when it is not *shot*.
 
     A scan-mode run's devices save ``ScanNNN_<device>_SSS`` under the shot
@@ -160,9 +166,11 @@ def _file_shot(detail, shot: int) -> Optional[int]:
     (:func:`geecs_data_utils.tiled_schema.announced_shots`), which is not
     always the row index.  ``None`` for every other run.  A scan-mode row
     without a usable value gives ``0``, a number no file carries, so the
-    native tier misses rather than serving the row index's file.
+    native tier misses rather than serving the row index's file.  A run
+    with no event table (the folder catalog's) reads the number from the
+    s-file in *folder*.
     """
-    frame = detail.data
+    frame = detail.data if detail.data is not None else _sfile_rows(folder)
     if frame is None or shot < 1 or shot > len(frame):
         return None
     numbers = schema_map.announced_shots(frame)
@@ -170,6 +178,22 @@ def _file_shot(detail, shot: int) -> Optional[int]:
         return None
     number = numbers.iloc[shot - 1]
     return 0 if number != number else int(number)
+
+
+def _sfile_rows(folder: Optional[Path]):
+    """The scan's s-file rows (analysis copy first, then the scanner's), or None."""
+    if folder is None:
+        return None
+    try:
+        paths = (sfile_path_for_scan(folder), scan_data_txt_path_for(folder))
+    except ValueError:  # not a canonical scans/ScanNNN folder
+        return None
+    for path in paths:
+        try:
+            return read_sfile(path)
+        except (OSError, ValueError):  # absent, empty or unparsable
+            continue
+    return None
 
 
 def _scan_label(summary: RunSummary) -> str:
