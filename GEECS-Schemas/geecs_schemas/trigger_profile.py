@@ -20,6 +20,19 @@ separate files — so format v2 removed them.  A v1 file with an empty
 defines a variant is refused with the remedy: split it into its own
 profile.
 
+Scan mode
+---------
+``use_scan_mode: true`` runs every scan under the profile in GEECS **scan
+mode**, the way Master Control drives the devices: the worker announces
+the scan to the experiment's devices (``ScanStart``), pushes each shot's
+save path to them before the fire, and ends the scan (``ScanEnd``) when the
+run closes; a device then acquires once per announced shot, saves
+shot-numbered files and applies its own database start/end values.  The
+profile's writes stay what they are — the box's states — and a profile
+with the flag and **no writes at all** is the box-less case (the shot
+message is the only trigger).  Off by default; strict acquisition only.
+The worker side is GeecsBluesky's ``devices/scan_mode.py``.
+
 Developer notes
 ---------------
 Successor of the shot-control YAML once validated by the retired
@@ -249,6 +262,21 @@ class TriggerProfile(VersionedSchemaModel):
     description: str = Field(
         default="",
         description="Optional note about what setup this profile is for.",
+    )
+    use_scan_mode: bool = Field(
+        default=False,
+        description=(
+            "Run scans under this profile in GEECS scan mode, as Master "
+            "Control drives the devices: the worker announces the scan to "
+            "the experiment's devices (ScanStart), pushes each shot's save "
+            "path to them before the fire, and ends the scan (ScanEnd) when "
+            "the run closes. A device then acquires once per announced shot, "
+            "saves shot-numbered files and applies its own database "
+            "start/end values. Off by default. Strict acquisition only: a "
+            "gated run and the calibration plans refuse such a profile. A "
+            "profile with this flag and no writes at all is the box-less "
+            "case — the shot message is the only trigger."
+        ),
     )
 
     _fix_off_key = field_validator("states", mode="before")(_normalize_state_keys)

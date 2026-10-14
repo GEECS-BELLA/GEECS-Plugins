@@ -507,13 +507,16 @@ class GeecsDb:
 
         .. note::
 
-           **Reserved / not currently consumed by the engine.**  This is a
-           read-only library query; the GeecsBluesky engine does *not* apply
-           these DB set-side boundary writes in the current version (the
-           set-side is intentionally disabled — triggering is owned by the
-           trigger profile / shot controller and camera saving by the
-           scanner's save-windowing).  The method is kept for inspection and
-           for a possible future DB scan-write feature.
+           **The device applies these rows, never the engine.**  A device
+           writes its ``startvalue`` on the ``ScanStart`` command of GEECS
+           scan mode and its ``endvalue`` on ``ScanEnd`` (its base
+           ``Configure`` method, read 2026-10-13), whoever sends the
+           commands — Master Control, or the Bluesky worker under a
+           trigger profile with ``use_scan_mode``.  Outside scan mode the
+           rows do nothing.  This read-only query is the worker's
+           preflight cross-check: a trigger-profile write that disagrees
+           with the device's own row for the same variable is refused
+           (GeecsBluesky ``plans/scan_mode.py``).
 
         Parameters
         ----------

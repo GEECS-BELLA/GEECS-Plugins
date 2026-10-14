@@ -12,6 +12,14 @@ missed frame keeps its row and adds one.
 Everything else is the stock plan: ``bp.list_scan(dets, motor, points,
 per_step=geecs_per_step(shot_control))`` moves, checkpoints, rewinds and
 records run metadata exactly as it does for any other detector.
+
+Under a scan-mode trigger profile (``scan_mode=`` a
+:class:`~geecs_bluesky.devices.scan_mode.ScanModeControl`) the fire gains
+one line in front of it: the shot's announce — the run-wide shot number
+and its save path pushed to the devices, which acquire on it — and a
+box-less profile skips the fire itself.  The order is ``trigger,
+announce, fire, wait``: the announce lands after every detector's stamp
+baseline and before the shot exists, like the fire.
 """
 
 from __future__ import annotations
@@ -31,6 +39,7 @@ from ophyd_async.core import StandardDetector
 from geecs_bluesky.devices.ca._view import ScalarsView, geecs_device_name
 from geecs_bluesky.devices.ca.liveness import read_disconnected
 from geecs_bluesky.devices.detector import STRICT_TRIGGER_INFO
+from geecs_bluesky.devices.scan_mode import ANNOUNCE
 from geecs_bluesky.exceptions import (
     GeecsDeviceDownError,
     GeecsTriggerTimeoutError,
@@ -239,6 +248,7 @@ def geecs_take_reading(  # noqa: C901, PLR0915
     max_refires: int = 2,
     name: str = "primary",
     shot_period: float | None = None,
+    scan_mode: Any | None = None,
 ) -> Callable[[Sequence[Any]], Any]:
     """Return a ``take_reading`` that fires the trigger box between trigger and wait.
 
@@ -273,6 +283,15 @@ def geecs_take_reading(  # noqa: C901, PLR0915
         period since the previous fire of this plan (the first shot is not
         delayed).  ``None`` fires as fast as the shot allows (the laser's
         rate at short exposures).  Strict only.
+    scan_mode :
+        The run's :class:`~geecs_bluesky.devices.scan_mode.ScanModeControl`
+        under a scan-mode profile: every attempt announces its shot
+        (``mv(scan_mode, ANNOUNCE)`` — the next run-wide shot number and
+        its path, pushed to the devices) right before the fire, and a
+        box-less profile (``shot_control.boxless``) fires nothing — the
+        announce is the shot.  An announce that fails propagates like a
+        refused fire: another shot cannot help.  ``None`` is the plain
+        strict shot.
 
     Returns
     -------
@@ -283,6 +302,7 @@ def geecs_take_reading(  # noqa: C901, PLR0915
     if shot_period is not None and shot_period <= 0:
         raise ValueError(f"shot_period must be positive seconds, got {shot_period}")
     last_fire: dict[str, float | None] = {"at": None}
+    boxless = bool(getattr(shot_control, "boxless", False))
 
     def throttle():
         """Sleep the remainder of the shot period — BEFORE the detectors are triggered.
@@ -299,7 +319,12 @@ def geecs_take_reading(  # noqa: C901, PLR0915
 
     def fire():
         last_fire["at"] = time.monotonic()
-        yield from bps.mv(shot_control, TriggerState.SINGLESHOT.value)
+        if scan_mode is not None:
+            # The shot's number and path reach the devices before the fire
+            # (Master Control's ~70 ms spacing is the put's own latency here).
+            yield from bps.mv(scan_mode, ANNOUNCE)
+        if not boxless:
+            yield from bps.mv(shot_control, TriggerState.SINGLESHOT.value)
 
     def take_reading(devices: Sequence[Any]):  # noqa: C901
         devices = separate_devices(devices)
@@ -455,6 +480,11 @@ class BinCounter:
         }
 
 
+def _row_extras(bins: BinCounter, scan_mode: Any | None) -> list[Any]:
+    """The plan-side readables of every row: the bin counter, and the announce under scan mode."""
+    return [bins] if scan_mode is None else [bins, scan_mode]
+
+
 def geecs_per_shot(shot_control: Any, **kwargs: Any) -> Callable[..., Any]:
     """``bp.count(..., per_shot=geecs_per_shot(shot_control))``.
 
@@ -463,9 +493,10 @@ def geecs_per_shot(shot_control: Any, **kwargs: Any) -> Callable[..., Any]:
     take_reading = geecs_take_reading(shot_control, **kwargs)
     bins = BinCounter()
     bins.value = 1
+    extras = _row_extras(bins, kwargs.get("scan_mode"))
 
     def per_shot(detectors: Sequence[Any], take_reading_: Any = None):
-        return (yield from name_failed_status(take_reading([*detectors, bins])))
+        return (yield from name_failed_status(take_reading([*detectors, *extras])))
 
     per_shot.__name__ = per_shot.__qualname__ = "geecs_per_shot"
     return per_shot
@@ -493,6 +524,7 @@ def geecs_per_step(
         raise ValueError(f"shots_per_step must be >= 1, got {shots_per_step}")
     take_reading = geecs_take_reading(shot_control, **kwargs)
     bins = BinCounter()
+    extras = _row_extras(bins, kwargs.get("scan_mode"))
 
     def one_step(detectors: Sequence[Any], step: Any, pos_cache: Any):
         motors = list(step.keys())
@@ -503,7 +535,7 @@ def geecs_per_step(
             # Pause (a deferred pause) lands after the shot in progress,
             # not at the end of the step: pause means pause in every mode.
             yield from bps.checkpoint()
-            yield from take_reading([*detectors, *motors, bins])
+            yield from take_reading([*detectors, *motors, *extras])
 
     def per_step(
         detectors: Sequence[Any], step: Any, pos_cache: Any, take_reading_: Any = None

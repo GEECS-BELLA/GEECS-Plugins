@@ -295,3 +295,52 @@ def test_liveness_signals_follow_a_multi_device_profile(RE: RunEngine) -> None:
     )
     connect_mock(RE, sc)
     assert list(sc.liveness_signals) == ["DG", "Shutter"]
+
+
+# ------------------------------------------------------- scan mode (#1084)
+def test_a_scan_mode_profile_with_no_writes_is_a_box_less_controller(
+    RE: RunEngine, caplog
+) -> None:
+    """Under the flag an all-empty profile builds, and every state is a logged no-op."""
+    import logging
+
+    from geecs_schemas.trigger_profile import TriggerProfile
+
+    profile = TriggerProfile.model_validate(
+        {"name": "bench", "states": {}, "use_scan_mode": True}
+    )
+    sc = ShotControl.from_profile(profile, experiment="TestExp", name="bench")
+    connect_mock(RE, sc)
+    assert sc.use_scan_mode and sc.boxless
+    assert sc.liveness_signals == {} and not sc.defines("ARMED")
+    with caplog.at_level(logging.INFO, logger="geecs_bluesky.devices.shot_control"):
+        RE(mv(sc, "ARMED"))
+        RE(mv(sc, "SINGLESHOT"))
+        RE(mv(sc, "STANDBY"))
+    assert sc.standing_state == "STANDBY"
+    assert "box-less profile 'bench', no write" in caplog.text
+
+
+def test_without_the_flag_an_empty_profile_is_still_refused() -> None:
+    from geecs_schemas.trigger_profile import TriggerProfile
+
+    profile = TriggerProfile.model_validate({"name": "empty", "states": {}})
+    with pytest.raises(GeecsConfigurationError, match="names no trigger device"):
+        ShotControl.from_profile(profile, experiment="TestExp", name="empty")
+
+
+def test_a_scan_mode_profile_with_writes_keeps_refusing_undefined_states(
+    RE: RunEngine,
+) -> None:
+    sc = ShotControl(
+        ShotControlWrites(
+            name="sm", states={"SCAN": [("DG", "Source", "edges")]}, use_scan_mode=True
+        ),
+        experiment="TestExp",
+        name="sm",
+        setter_factory=Recorder,
+    )
+    connect_mock(RE, sc)
+    assert sc.use_scan_mode and not sc.boxless
+    with pytest.raises(GeecsConfigurationError, match="ARMED"):
+        _run(RE, lambda: sc.set("ARMED"))

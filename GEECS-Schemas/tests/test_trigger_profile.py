@@ -173,3 +173,24 @@ class TestTriggerProfile:
                     "states": {"SCAN": [{"devcie": DG, "variable": "V", "value": "1"}]},
                 }
             )
+
+    def test_use_scan_mode_is_off_by_default_and_round_trips(self):
+        # The scan-mode toggle (#1084) is additive: an existing document
+        # reads as before, and a flagged one survives a JSON round trip.
+        assert make_profile().use_scan_mode is False
+        flagged = TriggerProfile.model_validate(
+            {**make_profile().model_dump(mode="json"), "use_scan_mode": True}
+        )
+        assert flagged.use_scan_mode is True
+        again = TriggerProfile.model_validate(flagged.model_dump(mode="json"))
+        assert again == flagged
+
+    def test_a_scan_mode_profile_with_no_writes_is_the_box_less_case(self):
+        # The shot message is the only trigger: no state is defined, and the
+        # document still loads — the worker's adapter turns it into a no-box
+        # controller under the flag (GeecsBluesky).
+        profile = TriggerProfile.model_validate(
+            {"name": "bench", "states": {}, "use_scan_mode": True}
+        )
+        assert profile.use_scan_mode and profile.devices == []
+        assert not profile.defines_state("ARMED")

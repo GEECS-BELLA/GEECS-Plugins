@@ -37,6 +37,7 @@ readiness check asserts the manager lists them all.
 | `mv` | the stock stub with its failure named | no |
 | `run_action` | a named plan from the experiment's `actions.yaml`, compiled to stubs over the namespace | no |
 | `measure_shot_offsets`, `check_shot_sync` | the once-run calibration and its preflight (`plans/calibration.py`) | no |
+| `release_scan_mode` | `plans/scan_mode.py`: end GEECS scan mode on the devices of a run that never ended it (a halt skips the finalizers) | no |
 
 The moving stock verbs (`scan`, `list_scan`, `rel_scan`, …) are **not**
 registered: `sweep` is the one moving plan, and it uses `scan_nd`
@@ -72,6 +73,9 @@ geecs_bluesky/
                             #   (a non-essential device without a plugin)
   devices/background.py     # BackgroundSnapshot — the run's background telemetry,
                             #   warm_up / warm_up_on at environment open
+  devices/scan_mode.py      # ScanModeControl — GEECS scan mode's client side as one Movable
+                            #   (enter / announce a shot / exit) + Readable (announced_shot);
+                            #   the state file, release_stale at environment open
   devices/hdf_plugin.py     # the file plugin's worker side: GeecsHdfIO (+Rewind),
                             #   PluginPathProvider (two paths per folder), file_plugin_hosts,
                             #   GeecsHdfDataLogic (the stock logic; the stream's geometry read
@@ -89,6 +93,8 @@ geecs_bluesky/
   plans/sweep.py            # sweep_plan: the Sweep payload through scan_nd, relative/reset
   plans/optimize.py         # optimize_plan: native Xopt loop, one run, one bin per iteration
   plans/calibration.py      # measure_shot_offsets / check_shot_sync (once-run, never a step)
+  plans/scan_mode.py        # scan mode in the bound plans: the bracket inside the trigger
+                            #   bracket, run_device_names, the preflight, release_scan_mode
   plans/registry.py         # bind_plans: the registration table, strict_plan (the acquisition
                             #   binder), liveness_gate, TriggerProfiles, background_wrapper
   plans/claim_scan.py       # the day-scoped claim (the ONE folder creator), the
@@ -445,6 +451,69 @@ recorded physical targets, not a relative coordinate after its zero
 moved.  Optimizer listings retain validation errors through
 `optimizer_config_listing()`; the names-only listing delegates to it.
 
+### Scan mode (a trigger profile's flag)
+
+A trigger profile with `use_scan_mode: true` runs every scan under it in
+**GEECS scan mode**, the way Master Control drives the devices (the
+protocol, captured live, is GEECS-Core's `transport/scan_mode.py`): the
+devices are told the scan, told every shot, and released at the close, so
+they acquire once per announced shot, save shot-numbered files
+(`ScanNNN_<device>_SSS.<ext>`) and apply their own DB start/end values.
+Nothing on the LabVIEW side changes.  Strict only; `optimize` runs the
+same loop; a gated run and the calibration plans refuse the profile.  The
+worker's side is one Movable, `devices/scan_mode.ScanModeControl`, driven
+at three points (`plans/scan_mode.py`):
+
+```
+mv(box, ARMED)
+mv(scan_mode, EnterScanMode(run devices))   # ScanStart on the group; wait for every run
+                                            #   device's ack (one retry) + every host's
+                                            #   path-channel connection; one drain; a silent
+                                            #   device refuses the run BEFORE the claim
+  stage / open_run …
+    prepare; trigger(detectors)             # the stamp baseline
+    mv(scan_mode, ANNOUNCE)                 # shot N+1: Path>> pushed on every connection
+    mv(box, SINGLESHOT)                     # the fire (skipped by a box-less profile)
+    wait; create / read / save              # the row carries announced_shot
+  … close_run / unstage
+mv(scan_mode, EXIT)                         # ScanEnd (multicast for form + the frame the
+                                            #   devices act on), acks, server closed — a
+                                            #   finalizer, so on abort and failure too
+mv(box, STANDBY)
+```
+
+The rules: the entry sits **inside the trigger bracket, before the stage
+and the claim** (a refused entry claims nothing, the liveness gate's
+posture); the run devices the entry waits for are the detectors' owners,
+the non-essentials and the profile's box — not the movers, not the
+background; the shot number is **run-wide and never re-sent** (a refire
+takes the next number; the partial row keeps its own — `announced_shot`
+is the join key for the files, never the s-file's row index); the pushed
+path is the claimed folder translated by `data_paths.device_server_save_path`
+(config.ini's device-side root; the DB's `RootPath` is a WARNING-level
+cross-check), resolved per shot through the shared path provider; the exit
+runs **before STANDBY** on every path but `RE.halt()`; the announced
+address is the gateway's own (`detect_local_ip` against the device host,
+or `[scan_mode] client_ip` when the devices know this host by a name) —
+a device in scan mode takes commands only from it, so **the worker and the
+CA gateway must share a host**, and the preflight refuses a mismatch
+against `EPICS_CA_ADDR_LIST`.  The preflight also refuses a profile write
+that disagrees with the device's own DB boundary row for the same
+variable (the device applies its `startvalue` on `ScanStart`, *after* the
+bracket's ARMED).  A **box-less profile** — the flag and no writes at all
+— builds a `ShotControl` whose every state is a logged no-op
+(`ShotControl.boxless`); the strict loop then fires nothing and the
+announce is the shot.  The **state file** (`GEECS_SCAN_MODE_STATE`,
+default `~/.local/state/geecs-bluesky/scan_mode.json`) records the run
+between entry and exit: a worker that died with it present left its
+devices in scan mode, and they end the scan by themselves when their
+connection dies, so environment open logs the fact and clears it
+(`release_stale`); a halt in a live process leaves the control entered,
+and the next entry ends that run first — `release_scan_mode` does it on
+demand.  Deferred from v1 (the issue): a scanner tag, a ScanInfo row, the
+path template in metadata, re-sending a repeated shot number, restricting
+`ScanStart` to the run's devices (it is multicast by design).
+
 ### The s-file of a run with stream data
 
 The rows are `primary`'s events when it has them and the sampler's
@@ -774,6 +843,11 @@ gateway (circular).
 - `[Database]`: `GeecsDb`.
 - `[qserver]`: `qs_client`'s own reader, which falls back rather than raising
   on a malformed file (the client seam's manager addresses).
+- `[scan_mode] client_ip`: optional — the address *string* announced in
+  `ScanStart`/`ScanEnd` when the devices know the worker's host by a name
+  rather than its bare IP; it must resolve to the local IP (the startup
+  profile reads it for `ScanModeControl`).  The multicast group, port,
+  boundary rows and device-side root come from the GEECS DB.
 
 Facility values have one home (root `CLAUDE.md`); the worker's are in the
 host's `site.env`, rendered into the units.
@@ -807,6 +881,9 @@ with no dependency edge between them.
   behind it.
 - Read quiescence in a scan step — it costs the longest device timeout;
   it belongs in the once-run calibration or a preflight.
+- Re-send a shot number under scan mode, or announce one outside the
+  trigger bracket: the counter is run-wide and a refire takes the next
+  number; the entry precedes the claim and the exit precedes STANDBY.
 - Treat monitor silence as liveness — a device's timeout event carries an
   unchanged stamp, which the gateway's change suppression drops, so nothing
   is posted at all; `CONNECTED` is the signal.

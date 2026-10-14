@@ -249,6 +249,8 @@ class DeviceRoster:
     without the endpoint filter).  ``triggered``: explicit per-device
     overrides of :func:`looks_triggerable`.  ``endpoints``: device → the GEECS endpoint
     IP (the camera server that would serve its file plugin).
+    ``command_ports``: device → its GEECS command port (where the device
+    acknowledges a scan-mode ``ScanStart``; ``devices/scan_mode.py``).
     """
 
     experiment: str
@@ -258,6 +260,16 @@ class DeviceRoster:
     served: Mapping[str, set[str]] | None = None
     triggered: Mapping[str, bool] = field(default_factory=dict)
     endpoints: Mapping[str, str] = field(default_factory=dict)
+    command_ports: Mapping[str, int] = field(default_factory=dict)
+
+    @property
+    def device_endpoints(self) -> dict[str, tuple[str, int]]:
+        """Device → ``(ip, command port)`` for every device with both known."""
+        return {
+            device: (ip, self.command_ports[device])
+            for device, ip in self.endpoints.items()
+            if device in self.command_ports
+        }
 
     @classmethod
     def from_geecs_db(
@@ -295,6 +307,9 @@ class DeviceRoster:
             subscribed=subscribed,
             served={d: {sv.name for sv in vs} for d, vs in served.items()},
             endpoints={device: ip for device, (ip, _port) in endpoints.items()},
+            command_ports={
+                device: int(port) for device, (_ip, port) in endpoints.items()
+            },
         )
 
     def served_for(self, device: str) -> set[str]:
