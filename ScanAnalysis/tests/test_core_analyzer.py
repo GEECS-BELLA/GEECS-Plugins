@@ -304,9 +304,9 @@ def test_core_supports_only_recipes_the_core_can_run():
     assert not core_supports(
         AnalysisDiagnostic.model_validate(
             {
-                "name": "FrogPhase",
-                "analyzer": {"kind": "frog_spectral_phase"},
-                "image": {"type": "line", "data_loading": {"data_type": "npy"}},
+                "name": "Downramp",
+                "analyzer": {"kind": "downramp_phase"},
+                "image": {"type": "camera"},
             }
         )
     )

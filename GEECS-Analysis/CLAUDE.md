@@ -162,7 +162,18 @@ statistics, then the fit on the frame floored at 10 counts as the legacy
 analyzer did; `emittance_proxy` keeps its `1e6` sentinel for the optimizer,
 the fit parameters (`bowtie_x0` in sensor pixels, `w0`, `theta`, `r²`) are
 NaN with a note on a rejected fit. The v2 `threshold_factor` is dropped
-(never read). The compiler's supported subset is documented
+(never read). `frog_spectral_phase` compiles to the measure of that name
+(`algorithms.polynomial_fit`, ported bit for bit): sign canonicalisation,
+phi0 removal and the fixed-length fit resample as before. Its spectral
+intensity is a **channel**: a line measure registered with
+`channels=("weights",)` reads the input loading's named
+`auxiliary_columns` of those names (`V2Recipe.channels`; the source appends
+them to the trace as columns 2, 3, …), cut by the recipe's `roi` steps
+only, as the legacy preprocessing cut its auxiliary columns, and handed
+to the function as a `{name: Frame}` mapping after every other argument.
+Columns no measure reads are not loaded; `interpolate` (and, in v3, a
+stitched input) with a channel is refused. A raw-bin unit averages the
+channel with its trace (the legacy per-bin path dropped the weights). The compiler's supported subset is documented
 in its docstring and pinned by differential tests. Never silently skip an active unported operation.
 Explicit identity transforms compile to no steps; fixed-canvas rotation is
 supported. Flips and distortion correction still raise UnsupportedRecipe.

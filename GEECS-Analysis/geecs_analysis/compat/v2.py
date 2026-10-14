@@ -9,7 +9,7 @@ and the legacy beam ROI-origin convention (even for inactive/repeated ROIs).
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Literal, Mapping
+from typing import TYPE_CHECKING, Literal, Mapping, Sequence
 
 from geecs_schemas.analysis import AnalysisDiagnostic
 from geecs_schemas.analysis.processing_1d import Line1DConfig
@@ -17,6 +17,7 @@ from geecs_schemas.analysis.processing_2d import CameraConfig
 
 from geecs_analysis.measures.beam import BeamSpec
 from geecs_analysis.measures.frog import FrogSpec
+from geecs_analysis.measures.frog_spectral_phase import FrogSpectralPhaseSpec
 from geecs_analysis.measures.hi_res_mag_cam import HiResMagCamSpec
 from geecs_analysis.measures.ict import IctSpec
 from geecs_analysis.measures.line import LineSpec
@@ -27,7 +28,7 @@ from geecs_analysis.pipeline import (
     bind_inputs,
     process_measure_input,
 )
-from geecs_analysis.registry import StepSpec
+from geecs_analysis.registry import MeasureSpec, StepSpec, measure_definition
 from geecs_analysis.specs import Analysis
 from geecs_analysis.steps.background_constant import BackgroundConstantSpec
 from geecs_analysis.steps.background_frame import BackgroundFrameSpec
@@ -44,7 +45,7 @@ from geecs_analysis.steps.zero_below import ZeroBelowSpec
 
 if TYPE_CHECKING:
     import numpy as np
-    from geecs_data_utils.frames import ShotMeta
+    from geecs_data_utils.frames import Frame, ShotMeta
     from geecs_analysis.measurement import Measurement
 
 
@@ -96,6 +97,37 @@ class V2Recipe:
     camera_origin: tuple[int, int] = (0, 0)
     file_backgrounds: tuple[FileBackground, ...] = ()
     scan_backgrounds: tuple[ScanBackground, ...] = ()
+    #: A line input's named auxiliary channels the measure reads, in the
+    #: order the source appends them to the trace as columns 2, 3, …
+    channels: tuple[str, ...] = ()
+
+
+#: Ported v2 kinds whose measure takes the analyzer's own parameters, by name.
+_PARAMETERIZED = {
+    "ict": IctSpec,
+    "frog_retrieval": FrogSpec,
+    "hi_res_mag_cam": HiResMagCamSpec,
+    "frog_spectral_phase": FrogSpectralPhaseSpec,
+}
+
+
+def trace_channels(
+    measure: MeasureSpec, auxiliary_columns: Mapping[str, int], steps: Sequence
+) -> tuple[str, ...]:
+    """The input's named auxiliary columns the measure reads, in declared order.
+
+    A column the measure does not read is not loaded (the legacy line
+    analyzers ignored theirs too). A channel follows the trace's sample
+    selection (``roi``) but not a resample, so ``interpolate`` with a
+    channel is refused, as the legacy preprocessing refused it.
+    """
+    declared = measure_definition(measure).channels
+    channels = tuple(name for name in auxiliary_columns if name in declared)
+    if channels and any(isinstance(spec, InterpolateSpec) for spec in steps):
+        raise UnsupportedRecipe(
+            f"Auxiliary channels {list(channels)} cannot follow interpolation"
+        )
+    return channels
 
 
 def compile_v2(  # noqa: C901, PLR0912
@@ -123,7 +155,8 @@ def compile_v2(  # noqa: C901, PLR0912
     sibling devices' traces is the source's job (the document's
     ``sibling_folders``). ``hi_res_mag_cam`` compiles to the measure of
     that name (its ``threshold_factor`` is not carried: the fit never read
-    it).
+    it). ``frog_spectral_phase`` compiles to the measure of that name; its
+    ``weights`` auxiliary column becomes the input's ``weights`` channel.
     """
     kind = document.analyzer.kind
     if kind not in {
@@ -135,6 +168,7 @@ def compile_v2(  # noqa: C901, PLR0912
         "frog_retrieval",
         "ict",
         "hi_res_mag_cam",
+        "frog_spectral_phase",
     }:
         raise UnsupportedRecipe(f"Analyzer not ported: {kind}")
     config = document.image
@@ -148,9 +182,8 @@ def compile_v2(  # noqa: C901, PLR0912
         "hi_res_mag_cam",
     } and not isinstance(config, CameraConfig):
         raise UnsupportedRecipe(f"{kind} requires a camera input")
-    if kind in {"line", "line_stitcher", "trace", "ict"} and not isinstance(
-        config, Line1DConfig
-    ):
+    line_kinds = {"line", "line_stitcher", "trace", "ict", "frog_spectral_phase"}
+    if kind in line_kinds and not isinstance(config, Line1DConfig):
         raise UnsupportedRecipe(f"{kind} requires a line input")
     steps = []
     for name in config.pipeline:
@@ -176,19 +209,10 @@ def compile_v2(  # noqa: C901, PLR0912
         # A stitcher is a line analyzer over the joined trace; the source
         # (the scan host) joins the sibling devices' segments before this.
         measure = LineSpec()
-    elif kind == "ict":
-        measure = IctSpec.model_validate(
-            document.analyzer.model_dump(include=set(IctSpec.model_fields) - {"kind"})
-        )
-    elif kind == "frog_retrieval":
-        measure = FrogSpec.model_validate(
-            document.analyzer.model_dump(include=set(FrogSpec.model_fields) - {"kind"})
-        )
-    elif kind == "hi_res_mag_cam":
-        measure = HiResMagCamSpec.model_validate(
-            document.analyzer.model_dump(
-                include=set(HiResMagCamSpec.model_fields) - {"kind"}
-            )
+    elif kind in _PARAMETERIZED:
+        spec = _PARAMETERIZED[kind]
+        measure = spec.model_validate(
+            document.analyzer.model_dump(include=set(spec.model_fields) - {"kind"})
         )
     else:
         measure = NoneSpec()
@@ -232,6 +256,7 @@ def compile_v2(  # noqa: C901, PLR0912
         )
     return V2Recipe(
         **common,
+        channels=trace_channels(measure, config.data_loading.auxiliary_columns, steps),
         storage_dtype=config.storage_dtype,
         x_scale=config.x_scale_factor,
         y_scale=config.y_scale_factor,
@@ -395,7 +420,7 @@ def _line_steps(name: str, config: Line1DConfig) -> list[StepSpec]:  # noqa: C90
     )
 
 
-def analyze_v2(  # noqa: C901
+def analyze_v2(
     data: np.ndarray,
     recipe: V2Recipe,
     *,
@@ -404,32 +429,23 @@ def analyze_v2(  # noqa: C901
 ) -> Measurement:
     """Run already-loaded raw samples with legacy scaling/rounding conventions.
 
-    Images use HxW arrays; traces use Nx2 arrays. Sources keep native dtype until
-    this boundary so trace axis scaling occurs in the same precision as before.
-    Input arrays are always copied and never mutated. No paths are accepted.
+    Images use HxW arrays; traces use Nx2 arrays, plus one column per
+    declared auxiliary channel (``recipe.channels``, in order). Sources keep
+    native dtype until this boundary so trace axis scaling occurs in the
+    same precision as before. Input arrays are always copied and never
+    mutated. No paths are accepted.
     """
     import numpy as np
     from geecs_data_utils.frames import Axis, Frame
 
     bound = bind_inputs(recipe.analysis.steps, inputs, measure=recipe.analysis.measure)
+    channels: dict[str, Frame] = {}
     if recipe.input_kind == "camera":
         if data.ndim != 2:
             raise ValueError("Camera input must be HxW")
         frame = Frame.from_array(data, shot=shot)
     else:
-        if data.ndim != 2 or data.shape[1] != 2:
-            raise ValueError("Trace input must be Nx2")
-        scaled = data.copy()
-        # Legacy performs these before its float64 processing conversion.
-        scaled[:, 0] *= recipe.x_scale
-        scaled[:, 1] *= recipe.y_scale
-        frame = Frame.from_trace(
-            scaled,
-            x_unit=recipe.x_unit,
-            y_unit=recipe.y_unit,
-            y_label=recipe.label,
-            shot=shot,
-        )
+        frame, channels = _trace_input(data, recipe, shot)
 
     def process(frame: Frame) -> Frame:
         for spec in recipe.analysis.steps:
@@ -446,6 +462,7 @@ def analyze_v2(  # noqa: C901
         return frame
 
     frame = process(frame)
+    channels = _follow_selection(channels, recipe.analysis.steps, frame.data.size)
     # A measure's frame input (the haso reference) sees the shot's steps.
     measured = process_measure_input(recipe.analysis.measure, bound, process)
     if recipe.input_kind == "line":
@@ -473,7 +490,9 @@ def analyze_v2(  # noqa: C901
                 )
             ),
         )
-    result = apply_measure(frame, recipe.analysis.measure, inputs=measured)
+    result = apply_measure(
+        frame, recipe.analysis.measure, inputs=measured, channels=channels
+    )
     if (
         recipe.input_kind == "line"
         and recipe.storage_dtype == "float64"
@@ -485,3 +504,54 @@ def analyze_v2(  # noqa: C901
         data[data < 0] = 0
         result = replace(result, frame=frame.replace(data=data), notes=())
     return result
+
+
+def _trace_input(
+    data: np.ndarray, recipe: V2Recipe, shot: ShotMeta | None
+) -> tuple[Frame, dict[str, Frame]]:
+    """The scaled trace and its auxiliary channels on the same x axis.
+
+    Channel samples are taken as loaded (the legacy analyzer never scaled
+    or rounded its auxiliary columns).
+    """
+    from geecs_data_utils.frames import Frame
+
+    width = 2 + len(recipe.channels)
+    if data.ndim != 2 or data.shape[1] != width:
+        names = ", ".join(("x", "y", *recipe.channels))
+        raise ValueError(f"Trace input must be Nx{width} ({names})")
+    scaled = data[:, :2].copy()
+    # Legacy performs these before its float64 processing conversion.
+    scaled[:, 0] *= recipe.x_scale
+    scaled[:, 1] *= recipe.y_scale
+    frame = Frame.from_trace(
+        scaled,
+        x_unit=recipe.x_unit,
+        y_unit=recipe.y_unit,
+        y_label=recipe.label,
+        shot=shot,
+    )
+    channels = {
+        name: Frame.from_array(data[:, column], axes=frame.axes, shot=shot, label=name)
+        for column, name in enumerate(recipe.channels, start=2)
+    }
+    return frame, channels
+
+
+def _follow_selection(
+    channels: dict[str, Frame], steps: Sequence[StepSpec], size: int
+) -> dict[str, Frame]:
+    """Cut each channel by the recipe's sample selections (``roi``), nothing else.
+
+    The legacy analyzer cut its auxiliary columns by the line ROI only; the
+    other steps change the trace's values, not which samples it has.
+    """
+    cut = {}
+    for name, channel in channels.items():
+        for spec in steps:
+            if isinstance(spec, RoiSpec):
+                channel = apply_step(channel, spec)
+        if channel.data.size != size:
+            raise ValueError(f"Channel {name!r} no longer matches the trace's samples")
+        cut[name] = channel
+    return cut

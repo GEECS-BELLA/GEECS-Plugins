@@ -23,8 +23,10 @@ from geecs_analysis import summaries as _summaries  # noqa: F401 -- registers th
 from geecs_analysis.compat.v2 import (
     FileBackground,
     ScanBackground,
+    UnsupportedRecipe,
     V2Recipe,
     compile_v2,
+    trace_channels,
 )
 from geecs_analysis.pipeline import measure_input
 from geecs_analysis.registry import (
@@ -129,8 +131,17 @@ def compile_recipe(  # noqa: C901, PLR0912
     )
     if isinstance(recipe.input, LineInput):
         source = recipe.input
+        try:
+            channels = trace_channels(
+                analysis.measure, source.loading.auxiliary_columns, analysis.steps
+            )
+        except UnsupportedRecipe as exc:
+            raise RecipeError(str(exc)) from exc
+        if channels and source.siblings:
+            raise RecipeError("a stitched line input carries no auxiliary channels")
         return V2Recipe(
             **common,
+            channels=channels,
             storage_dtype=source.storage_dtype,
             x_scale=source.x_scale,
             y_scale=source.y_scale,

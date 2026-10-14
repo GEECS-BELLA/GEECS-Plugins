@@ -284,6 +284,7 @@ def test_recipe_schema_binds_the_registry_vocabulary():
     assert set(measures) == {
         "beam",
         "frog",
+        "frog_spectral_phase",
         "haso",
         "hi_res_mag_cam",
         "ict",

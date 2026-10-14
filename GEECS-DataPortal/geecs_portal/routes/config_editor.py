@@ -44,7 +44,9 @@ def _line_trace(diag, detail, folder, device: str, shot: int):
     way ``analyze_image_file`` hands them to line analyzers. A stitched
     input (``sibling_folders``) is the source's own joined trace, as the
     run reads it, and carries no auxiliary columns (the legacy stitcher
-    passed none either).
+    passed none either). A recipe whose measure reads auxiliary channels
+    (``frog_spectral_phase``'s weights) gets the source's trace too, the
+    channels appended as the run appends them.
     """
     from dataclasses import replace
 
@@ -71,7 +73,9 @@ def _line_trace(diag, detail, folder, device: str, shot: int):
     reference = source.references.get(shot)
     if reference is None:
         raise LookupError(f"no {device} file for shot {shot}")
-    if source.siblings:
+    if source.siblings or source.channels:
+        # The core's own trace: joined siblings, or the auxiliary channels
+        # the measure reads appended as columns (x, y, channels…).
         return source.load(shot), None
     trace = read_1d_data(reference, diag.line_loading)
     aux = (

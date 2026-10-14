@@ -28,7 +28,7 @@ _SPECS_BY_ALIAS = {
     "beam": {"kind": "beam"},
     "standard_1d": {"kind": "trace"},
     "ict": {"kind": "ict"},
-    "frog_spectral_phase": {"kind": "frog_spectral_phase"},
+    "downramp_phase": {"kind": "downramp_phase"},
 }
 
 
@@ -143,12 +143,9 @@ class TestScanWrapperSelection:
 
     def test_unported_kind_stays_on_the_wrapper(self):
         analyzer = create_scan_analyzer(
-            _diag(
-                alias="frog_spectral_phase",
-                image={"type": "line", "data_loading": {"data_type": "csv"}},
-            )
+            _diag(alias="downramp_phase", image={"type": "camera"})
         )
-        assert isinstance(analyzer, Array1DScanAnalyzer)
+        assert isinstance(analyzer, Array2DScanAnalyzer)
 
     def test_injected_data_stays_on_the_wrapper(self):
         analyzer = create_scan_analyzer(_diag(alias="beam"), use_injected_data=True)
