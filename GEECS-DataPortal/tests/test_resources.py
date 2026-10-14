@@ -1461,3 +1461,56 @@ class TestRenderedView:
                 },
             )
             assert response.status_code == 404, display
+
+
+class TestScanModeFileNumbers:
+    """A scan-mode run's files carry the announced shot, not the row index.
+
+    The pulsed-wire stand's shape: shot 1 was announced and missed, its
+    refire took 2, so rows 1-3 carry announced shots 2-4 and the folder
+    holds ``_002``..``_004`` beside a stale ``_001``.
+    """
+
+    DEVICE = "UC_ModeCam"
+
+    def _client(self, scan_folder, announced):
+        device_dir = scan_folder / self.DEVICE
+        device_dir.mkdir()
+        for number in (1, 2, 3, 4):
+            image = np.zeros((6, 6), dtype=np.uint16)
+            image[0, number] = 40_000  # the file's number, as a pixel column
+            Image.fromarray(image).save(
+                device_dir / f"Scan002_{self.DEVICE}_{number:03d}.png"
+            )
+        catalog = FakeCatalog()
+        detail = _detail(2)
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        detail.data[f"{self.DEVICE}-acq_timestamp"] = [_LV + 1.0, _LV + 2.0, _LV + 3.0]
+        detail.data["announced_shot"] = announced
+        catalog.details["uid-002"] = detail
+        return TestClient(create_app(catalog))
+
+    def _served_number(self, response) -> int:
+        rendered = np.asarray(Image.open(io.BytesIO(response.content)))
+        return int(np.unravel_index(np.argmax(rendered), rendered.shape)[1])
+
+    def test_each_row_serves_its_announced_shot_file(self, scan_folder):
+        client = self._client(scan_folder, [2, 3, 4])
+        for row, number in ((1, 2), (2, 3), (3, 4)):
+            response = client.get(
+                f"/run/uid-002/image.png?device={self.DEVICE}&shot={row}"
+            )
+            assert response.status_code == 200
+            assert self._served_number(response) == number
+
+    def test_a_row_without_an_announced_shot_never_serves_the_row_index(
+        self, scan_folder
+    ):
+        client = self._client(scan_folder, [2.0, float("nan"), 4.0])
+        response = client.get(f"/run/uid-002/image.png?device={self.DEVICE}&shot=2")
+        assert response.status_code == 404
+
+    def test_a_run_without_the_column_keeps_the_row_index(self):
+        from geecs_portal.routes.common import _file_shot
+
+        assert _file_shot(_detail(2), 2) is None

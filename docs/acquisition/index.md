@@ -31,6 +31,16 @@ scan folder and a structured Tiled run.
     [:octicons-arrow-right-24: Data Utils](../geecs_data_utils/overview.md) ·
     [Where the data lands](../web_services/scanner.md#where-the-data-lands)
 
+-   :material-sync:{ .lg .middle } **GEECS scan mode**
+
+    ---
+
+    Run a scan with the devices behaving as under Master Control: paused
+    between shots, one shot-numbered file per announced shot, their own
+    start and end values applied. One flag on the trigger profile.
+
+    [:octicons-arrow-right-24: Scan mode](scan_mode.md)
+
 </div>
 
 Something misbehaving? Start at the scanner page's

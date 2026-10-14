@@ -152,6 +152,32 @@ def _acq_timestamp(detail, device: str, shot: int) -> tuple[Optional[float], boo
     return (value, True)
 
 
+def _file_shot(detail, shot: int) -> Optional[int]:
+    """The number in the row's shot-numbered file names, when it is not *shot*.
+
+    A scan-mode run's devices save ``ScanNNN_<device>_SSS`` under the shot
+    the run announced, which a refire moves away from the row index; the
+    row's announced-shot column
+    (:func:`geecs_data_utils.tiled_schema.announced_shot_column`) carries
+    it.  ``None`` for every other run.  A scan-mode row without a usable
+    value gives ``0``, a number no file carries, so the native tier misses
+    rather than serving the row index's file.
+    """
+    import math
+
+    frame = detail.data
+    if frame is None or shot < 1 or shot > len(frame):
+        return None
+    column = schema_map.announced_shot_column([str(c) for c in frame.columns])
+    if column is None:
+        return None
+    try:
+        value = float(frame[column].iloc[shot - 1])
+    except (TypeError, ValueError):
+        return 0
+    return int(value) if math.isfinite(value) and value >= 1 else 0
+
+
 def _scan_label(summary: RunSummary) -> str:
     """The listing's scan cell: ``Scan 002``, else the uid's first 8 chars."""
     if summary.scan_number is not None:

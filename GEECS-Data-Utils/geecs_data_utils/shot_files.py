@@ -31,6 +31,7 @@ from geecs_data_utils.io.scan_stack import (
     stack_frame_index_map,
 )
 from geecs_data_utils.tiled_schema import (
+    announced_shot_column,
     device_acq_timestamp_column,
     device_valid_column,
 )
@@ -111,9 +112,12 @@ class _ShotFileMapper:
           (canonicalised to integer milliseconds), never a filename guess.
           The join is strictly per-device: this device's column against this
           device's folder; other devices' clocks never enter it.
-        - **shot-number filenames** (MC-produced scans): the legacy pattern
+        - **shot-number filenames** (MC-produced scans, and the worker's
+          scan-mode runs): the legacy pattern
           ``Scan<scan_number>_<device_subject>_<shot_number><file_tail>``,
-          e.g. ``Scan012_UC_ALineEBeam3_005.png``.
+          e.g. ``Scan012_UC_ALineEBeam3_005.png``. The file's number is the
+          row's announced shot when the rows carry one (a refire moves it
+          away from ``Shotnumber``), else ``Shotnumber`` itself.
 
         The presence of an ``acq_timestamp`` column selects the timestamp
         join first, but it is not conclusive on its own: the legacy scanner
@@ -201,6 +205,7 @@ class _ShotFileMapper:
     def _map_files_by_shot_number(self) -> None:
         """Legacy strategy: parse shot numbers out of MC-convention filenames."""
         data_filename_regex = self._legacy_filename_regex()
+        shot_for_number = self._shot_for_file_number()
 
         for file in self.directory.iterdir():
             if not file.is_file():
@@ -208,12 +213,32 @@ class _ShotFileMapper:
 
             m = data_filename_regex.match(file.name)
             if m:
-                shot_num = int(m.group("shot_number"))
-                if shot_num in self.rows["Shotnumber"].values:
+                shot_num = shot_for_number.get(int(m.group("shot_number")))
+                if shot_num is not None:
                     self.paths[shot_num] = file
                     logger.info("Mapped file for shot %s: %s", shot_num, file)
             else:
                 logger.debug("Filename %s does not match expected pattern.", file.name)
+
+    def _shot_for_file_number(self) -> dict[int, int]:
+        """File shot number → the row's ``Shotnumber``.
+
+        A scan-mode run numbers its files by the announced shot
+        (:func:`~geecs_data_utils.tiled_schema.announced_shot_column`), never
+        by the row index; every other run by ``Shotnumber`` itself.
+        """
+        shots = pd.to_numeric(self.rows["Shotnumber"], errors="coerce")
+        column = announced_shot_column(list(self.rows.columns))
+        numbers = (
+            shots
+            if column is None
+            else pd.to_numeric(self.rows[column], errors="coerce")
+        )
+        return {
+            int(number): int(shot)
+            for number, shot in zip(numbers, shots)
+            if pd.notna(number) and pd.notna(shot)
+        }
 
     def _acq_timestamp_column(self) -> Optional[str]:
         """Find this device's ``acq_timestamp`` column in the auxiliary frame.

@@ -9,7 +9,8 @@ schema evolves, this is the single file to touch.
 
 Column families (schema v1):
 
-- Row identity: ``scan_event_index`` / ``bin_number`` / ``shot_index_in_bin``.
+- Row identity: ``scan_event_index`` / ``bin_number`` / ``shot_index_in_bin``,
+  plus ``announced_shot`` on a scan-mode run (the files' shot number).
 - Per synchronous device ``<dev>-<variable>`` data columns plus companion
   columns (``-acq_timestamp``, ``-t0_acq_timestamp``, ``-shot_id``,
   ``-shot_offset``, ``-valid``, ``-nonscalar_save_path``).
@@ -32,8 +33,21 @@ if TYPE_CHECKING:
 #: The ``geecs_event_schema`` version this module targets.
 TARGET_SCHEMA_VERSION = 1
 
-#: Row-identity columns set by the plan on every mode, every row.
-ID_COLUMNS: tuple[str, ...] = ("scan_event_index", "bin_number", "shot_index_in_bin")
+#: The shot number a scan-mode run announced for the row's shot: the number in
+#: the devices' ``ScanNNN_<device>_SSS`` file names, never the row index.
+ANNOUNCED_SHOT_COLUMN = "announced_shot"
+
+#: Its s-file header (``tiled_export``); both spellings match by token.
+SFILE_ANNOUNCED_SHOT = "Announced Shot"
+
+#: Row-identity columns: the first three on every row of every mode, the
+#: announced shot on a scan-mode run's rows only.
+ID_COLUMNS: tuple[str, ...] = (
+    "scan_event_index",
+    "bin_number",
+    "shot_index_in_bin",
+    ANNOUNCED_SHOT_COLUMN,
+)
 
 #: The 1-based step index — groups rows into steps for per-step statistics.
 BIN_COLUMN = "bin_number"
@@ -111,9 +125,33 @@ def is_id_column(column: str) -> bool:
     Returns
     -------
     bool
-        True for ``scan_event_index`` / ``bin_number`` / ``shot_index_in_bin``.
+        True for ``scan_event_index`` / ``bin_number`` / ``shot_index_in_bin``
+        / ``announced_shot``.
     """
     return column in ID_COLUMNS
+
+
+def announced_shot_column(columns: Sequence[str]) -> Optional[str]:
+    """Find the run's announced-shot column, or ``None`` outside scan mode.
+
+    Matches every spelling by :func:`normalize_token`: the event key
+    ``announced_shot`` and the s-file header ``Announced Shot``.  When the
+    run has it, a device's shot-numbered files join to rows by its value.
+
+    Parameters
+    ----------
+    columns : sequence of str
+        All column names of a run's rows (event table or s-file).
+
+    Returns
+    -------
+    str or None
+        The matching column name, or ``None`` when the run has none.
+    """
+    for column in columns:
+        if normalize_token(str(column)) == ANNOUNCED_SHOT_COLUMN:
+            return str(column)
+    return None
 
 
 def is_acq_timestamp_column(column: str) -> bool:

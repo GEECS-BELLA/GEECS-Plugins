@@ -512,13 +512,17 @@ connection dies, so environment open logs the fact and clears it
 and the next entry ends that run first — `release_scan_mode` does it on
 demand.  The preflight also refuses a device-side root that is no drive
 or UNC path: `ScanStart` is multicast, so every saving device of the
-experiment would create a POSIX folder on its own drive.  **Movers under
-scan mode are unverified**: every device enters scan mode on the
-multicast, and a device in scan mode pushes its readbacks once per shot
-(seen on the stand: the gateway's readbacks of the run's devices froze at
-the last shot), so a `CaMotor` move between shots — completed on the
-readback within tolerance — may stall until the first sweep on the stand
-says otherwise; that check comes before any mover scan under the flag.
+experiment would create a POSIX folder on its own drive.  **Movers keep
+their normal acquisition**: a device's DB `scanmode_lock` is its opt-out of
+the paused per-shot loop, and a mover's is never `enabled`.  It still
+acknowledges `ScanStart` and connects, but its readbacks keep flowing, so a
+`CaMotor` move between shots completes on its readback as outside scan
+mode.  A mover with the lock `enabled` is a DB mistake to fix in the DB;
+the preflight neither checks nor warns.  (The readbacks that froze at the
+last shot on the stand were the run's detectors, which do pause.)  Readers
+join a device's shot-numbered files to rows by `announced_shot` — the
+s-file's `Announced Shot` — through `geecs_data_utils.tiled_schema.announced_shot_column`:
+the shot mapper, the `.himg` stack converter and the portal's native tier.
 Deferred from v1 (the issue): a scanner tag, a ScanInfo row, the path
 template in metadata, re-sending a repeated shot number, restricting
 `ScanStart` to the run's devices (it is multicast by design).

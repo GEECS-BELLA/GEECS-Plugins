@@ -282,6 +282,7 @@ def load_shot_array(  # noqa: C901, PLR0912
     acq_timestamp: Optional[float] = None,
     data_cache=None,
     cache_key: Optional[tuple[str, str]] = None,
+    file_shot: Optional[int] = None,
 ) -> ShotArray:
     """Resolve one device shot's pixel array from an existing scan folder.
 
@@ -309,6 +310,10 @@ def load_shot_array(  # noqa: C901, PLR0912
         Pass ONLY for completed runs — their data is immutable.
     cache_key : tuple of (str, str), optional
         The cache key (``uid``, ``device``); required with *data_cache*.
+    file_shot : int, optional
+        The number in the shot's ``ScanNNN_<device>_SSS`` file name when
+        it is not *shot*: a scan-mode run's announced shot, which a
+        refire moves away from the row index.  ``None`` means *shot*.
 
     Returns
     -------
@@ -383,7 +388,7 @@ def load_shot_array(  # noqa: C901, PLR0912
     ext = kind.ext or "png"
     try:
         native = ScanPaths(folder=scan_folder).build_asset_path(
-            shot=shot, device=device, ext=ext
+            shot=shot if file_shot is None else file_shot, device=device, ext=ext
         )
     except ValueError as exc:
         # A folder that exists but fails the canonical-layout validation
@@ -431,6 +436,7 @@ def load_shot_image(
     cmap: Optional[str] = None,
     plo: Optional[float] = None,
     phi: Optional[float] = None,
+    file_shot: Optional[int] = None,
 ) -> ShotImage:
     """Resolve and render one device shot — :func:`load_shot_array` + PNG.
 
@@ -447,6 +453,7 @@ def load_shot_image(
         acq_timestamp=acq_timestamp,
         data_cache=data_cache,
         cache_key=cache_key,
+        file_shot=file_shot,
     )
     png = None
     if resolved.array is not None:

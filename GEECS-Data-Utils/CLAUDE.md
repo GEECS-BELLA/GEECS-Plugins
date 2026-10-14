@@ -513,6 +513,9 @@ stat probes bypass stale SMB listings. `prefer_stack=True` tries capture
 frames first, while `stacks_only=True` refuses native fallback with
 `StackMappingUnavailable`. The ScanAnalysis adapter translates that into its
 `DataUnavailableWarning`; queue/status policy remains outside data-utils.
+Shot-number filenames join by the rows' announced shot when they carry one
+(`tiled_schema.announced_shot_column`: `announced_shot` / the s-file's
+`Announced Shot`, a scan-mode run), never by `Shotnumber` then.
 
 ## HASO `.himg` capture stacks (0.46.0)
 
