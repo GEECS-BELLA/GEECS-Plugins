@@ -41,6 +41,7 @@ from geecs_analysis.steps.interpolate import InterpolateSpec
 from geecs_analysis.steps.median import MedianSpec
 from geecs_analysis.steps.roi import RoiSpec
 from geecs_analysis.steps.rotate import RotateSpec
+from geecs_analysis.steps.vignette import VignetteSpec
 from geecs_analysis.steps.zero_below import ZeroBelowSpec
 
 if TYPE_CHECKING:
@@ -138,7 +139,9 @@ def compile_v2(  # noqa: C901, PLR0912
     Currently covers constant backgrounds, ROI, circular/crosshair masks, trace
     interpolation, Gaussian/median filtering, fixed-canvas rotation,
     absolute trace clipping and non-inverted constant image thresholds
-    (to_zero/truncate/truncate_inv). Trace processing must be float64 and
+    (to_zero/truncate/truncate_inv), and the radial-polynomial vignette when
+    it comes before any active ROI (a ``map_file`` vignette, or one after the
+    crop, is refused). Trace processing must be float64 and
     storage float32/float64. Other active features are refused before execution.
     A trace ROI that selects no samples of a shot fails that shot explicitly
     ("ROI selects no samples"), as it already did for ``line``; the legacy
@@ -185,6 +188,11 @@ def compile_v2(  # noqa: C901, PLR0912
     line_kinds = {"line", "line_stitcher", "trace", "ict", "frog_spectral_phase"}
     if kind in line_kinds and not isinstance(config, Line1DConfig):
         raise UnsupportedRecipe(f"{kind} requires a line input")
+    active = [n.value for n in config.pipeline if getattr(config, n.value) is not None]
+    if "roi" in active and "vignette" in active[active.index("roi") + 1 :]:
+        # Legacy rebuilt the map on the cropped shape; the step keeps the
+        # crop's sensor pixels, so the two disagree in this order.
+        raise UnsupportedRecipe("Vignette after roi is not ported")
     steps = []
     for name in config.pipeline:
         section = getattr(config, name.value)
@@ -371,6 +379,23 @@ def _camera_steps(  # noqa: C901, PLR0912
         if section.median_kernel_size is not None:
             steps.append(MedianSpec(kernel=section.median_kernel_size))
         return steps
+    if name == "vignette":
+        if section.method != "radial_polynomial":
+            raise UnsupportedRecipe(
+                f"Vignette method not ported: {section.method.value}"
+            )
+        return [
+            VignetteSpec(
+                full_width=section.full_width,
+                full_height=section.full_height,
+                x_offset=section.x_offset,
+                y_offset=section.y_offset,
+                vgnt4=section.vgnt4,
+                vgnt2=section.vgnt2,
+                vgnt0=section.vgnt0,
+                min_model_value=section.min_model_value,
+            )
+        ]
     if name == "thresholding":
         if section.method != "constant" or section.invert:
             raise UnsupportedRecipe(

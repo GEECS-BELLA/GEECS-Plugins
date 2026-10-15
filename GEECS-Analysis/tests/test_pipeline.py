@@ -135,6 +135,7 @@ def test_schema_round_trip_retains_duplicate_steps():
         "gaussian",
         "roi",
         "rotate",
+        "vignette",
     }
     with pytest.raises(ValidationError):
         pipeline.steps[0].kernel = 7

@@ -262,6 +262,12 @@ prefilter=False, reshape=False. It preserves axes, shape and metadata; its angle
 is in sample-index space, not a transformation of world coordinates. The v2
 adapter reverses crosshair centers once and retains every mask/rotation order.
 
+`vignette` is the legacy radial-polynomial map bit for bit (`1.0 / model`,
+then multiply), evaluated on the frame's `px` axis values plus the sensor
+offsets, so it is the same correction before or after `roi`. The legacy map
+was built on the cropped shape instead; `compile_v2` therefore refuses a v2
+vignette after an active roi, and the `map_file` method.
+
 ## Execution units
 
 `compat.v2_run` is the streaming v2 orchestration boundary. The host supplies

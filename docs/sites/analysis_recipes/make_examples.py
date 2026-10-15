@@ -396,6 +396,10 @@ STEP_EXAMPLES = {
         "Crop to the region that matters.",
     ),
     "rotate": ({"angle": 20}, "Straighten a tilted image before projections."),
+    "vignette": (
+        {"full_width": 160, "full_height": 120, "vgnt2": 2e-5},
+        "Brighten a lens's dim edges; pixels are sensor pixels, so it reads the same before or after roi.",
+    ),
     "zero_below": (
         {"level": 150},
         "Zero pixels below a noise floor (unlike clip_below).",
