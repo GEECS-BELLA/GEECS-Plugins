@@ -234,21 +234,21 @@ def to_v3(  # noqa: C901, PLR0912, PLR0915
     raw["measure"] = _spec_mapping(compiled.analysis.measure, "kind")
     measure = compiled.analysis.measure
     if measure.kind == "magspec" and measure.calibration.kind == "dnn_axis":
-        if magnetic_field_column is None:
-            notes.append(
-                "the legacy per-shot teslameter override is not carried: set "
-                "measure.magnetic_field_column to the scan's field column to read "
-                "the dipole field per shot"
-            )
-        elif scan.mode == "per_bin":
+        if scan.mode == "per_bin":
             # The legacy per-bin path overrode with the bin's MEAN field; a
             # recipe reads a recorded column per shot only (compile_recipe
             # refuses the column on averaged frames), so magnetic_field_t
-            # applies and the difference is said here.
+            # applies whether or not a column was given, and this says so.
             notes.append(
                 "the legacy per-bin teslameter override used each bin's mean "
                 "field; a recipe reads a recorded column per shot only, so "
                 "magnetic_field_column is not set and magnetic_field_t applies"
+            )
+        elif magnetic_field_column is None:
+            notes.append(
+                "the legacy per-shot teslameter override is not carried: set "
+                "measure.magnetic_field_column to the scan's field column to read "
+                "the dipole field per shot"
             )
         else:
             raw["measure"]["magnetic_field_column"] = magnetic_field_column

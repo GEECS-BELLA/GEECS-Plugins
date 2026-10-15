@@ -495,16 +495,19 @@ def test_a_per_shot_column_needs_per_shot_units(tmp_path):
         },
         scan={"average_frames_first": True},
     )
-    with pytest.raises(RecipeError, match="average_frames_first"):
+    # "measure …" so the editor places it on the measure section.
+    with pytest.raises(RecipeError, match="^measure .*average_frames_first"):
         compile_recipe(bound, allow_file_backgrounds=True)
-    # The converter leaves a per_bin document's column unset and says why:
-    # the legacy per-bin override used the bin's mean field.
+    # The converter leaves a per_bin document's column unset and says why
+    # (the legacy per-bin override used the bin's mean field) — with or
+    # without a column asked for, never "set magnetic_field_column".
     doc = diagnostic(synthetic_tables(tmp_path), scan={"mode": "per_bin"})
-    conversion = to_v3(doc, magnetic_field_column=COLUMN)
-    written = canonical_document(conversion.recipe)["measure"]
-    assert "magnetic_field_column" not in written
-    assert any("bin's mean field" in note for note in conversion.notes)
-    assert compile_recipe(conversion.recipe, allow_file_backgrounds=True)
+    for conversion in (to_v3(doc, magnetic_field_column=COLUMN), to_v3(doc)):
+        written = canonical_document(conversion.recipe)["measure"]
+        assert "magnetic_field_column" not in written
+        assert any("bin's mean field" in note for note in conversion.notes)
+        assert not any("not carried" in note for note in conversion.notes)
+        assert compile_recipe(conversion.recipe, allow_file_backgrounds=True)
 
 
 def test_execution_refuses_a_missing_or_mistyped_table(tmp_path):

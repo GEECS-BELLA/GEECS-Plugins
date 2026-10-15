@@ -98,8 +98,9 @@ def compile_recipe(
     if (required - tables) and isinstance(recipe.input, LineInput):
         raise RecipeError("frame inputs are loaded for camera recipes only")
     if shot_scalar_columns(analysis.measure) and recipe.scan.average_frames_first:
+        # "measure …": the editor places the error on the measure section.
         raise RecipeError(
-            "the measure reads the scan's recorded scalars per shot; "
+            "measure reads the scan's recorded scalars per shot; "
             "scan.average_frames_first averages the frames before it sees a shot"
         )
     common = dict(
