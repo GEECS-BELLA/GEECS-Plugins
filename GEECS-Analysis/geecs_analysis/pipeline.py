@@ -105,7 +105,10 @@ def shot_scalar_columns(spec: MeasureSpec) -> tuple[str, ...]:
 
     What a scan host binds on each shot's ``ShotMeta.scalars`` for this
     recipe; empty for a measure that reads none, or whose spec leaves the
-    fields unset.
+    fields unset. A cell the scan did not record for a shot (NaN in the
+    s-file) is left out, so the measure takes its own fallback for that
+    shot; a per-shot column cannot be read on averaged frames
+    (``compile_recipe`` refuses it with ``scan.average_frames_first``).
     """
     columns = (getattr(spec, field) for field in measure_definition(spec).shot_scalars)
     return tuple(column for column in columns if column is not None)

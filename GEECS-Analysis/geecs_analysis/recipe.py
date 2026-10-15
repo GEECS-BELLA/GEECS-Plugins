@@ -29,7 +29,7 @@ from geecs_analysis.compat.v2 import (
     compile_v2,
     trace_channels,
 )
-from geecs_analysis.pipeline import measure_input, measure_tables
+from geecs_analysis.pipeline import measure_input, measure_tables, shot_scalar_columns
 from geecs_analysis.registry import (
     definition,
     definitions,
@@ -55,7 +55,7 @@ class RecipeError(ValueError):
     """A recipe names a step, measure, parameter or binding the core cannot run."""
 
 
-def compile_recipe(  # noqa: C901, PLR0912
+def compile_recipe(
     recipe: AnalysisRecipe, *, allow_file_backgrounds: bool = False
 ) -> V2Recipe:
     """Bind the recipe's vocabulary to the registry and compile it, without I/O.
@@ -88,55 +88,20 @@ def compile_recipe(  # noqa: C901, PLR0912
             f"measure {analysis.measure.kind!r} does not measure "
             f"{recipe.input.kind} frames"
         )
-    required = {
-        getattr(spec, definition(spec).input_field)
-        for spec in analysis.steps
-        if definition(spec).input_field is not None
-    }
-    reference = measure_input(analysis.measure)
-    if reference is not None:
-        if reference in required:
-            # The reference goes through the steps: a step subtracting the
-            # same frame would leave the measure comparing against zeros.
-            raise RecipeError(
-                f"frame input {reference!r} is bound by a step and by the measure; "
-                "declare the measure's comparison frame under its own name"
-            )
-        binding = recipe.inputs.get(reference)
-        if binding is not None and binding.fallback_level is not None:
-            raise RecipeError(
-                f"frame input {reference!r} is the measure's comparison frame; a "
-                "fallback_level (a constant for a background step) cannot stand in for it"
-            )
-        required.add(reference)
-    tables = set(measure_tables(analysis.measure).values())
-    if tables & required:
-        raise RecipeError(
-            f"inputs bound both as a frame and as a table: {sorted(tables & required)}"
-        )
+    required = _step_inputs(analysis)
+    required |= _reference_input(recipe, analysis, required)
+    tables = _table_inputs(analysis, required)
     required |= tables
-    declared = set(recipe.inputs)
-    if required - declared:
-        raise RecipeError(
-            "steps or the measure bind inputs the recipe does not declare: "
-            f"{sorted(required - declared)}"
-        )
-    if declared - required:
-        raise RecipeError(
-            "recipe declares inputs no step or measure uses: "
-            f"{sorted(declared - required)}"
-        )
-    for key, binding in recipe.inputs.items():
-        if (binding.table is not None) != (key in tables):
-            raise RecipeError(
-                f"input {key!r} is declared as a "
-                f"{'table' if binding.table is not None else 'frame'} but bound as a "
-                f"{'frame' if binding.table is not None else 'table'}"
-            )
+    _check_declarations(recipe, required, tables)
     if required and not allow_file_backgrounds:
         raise RecipeError("frame and table inputs need a source host that loads them")
     if (required - tables) and isinstance(recipe.input, LineInput):
         raise RecipeError("frame inputs are loaded for camera recipes only")
+    if shot_scalar_columns(analysis.measure) and recipe.scan.average_frames_first:
+        raise RecipeError(
+            "the measure reads the scan's recorded scalars per shot; "
+            "scan.average_frames_first averages the frames before it sees a shot"
+        )
     common = dict(
         analysis=analysis,
         input_kind=recipe.input.kind,
@@ -145,25 +110,36 @@ def compile_recipe(  # noqa: C901, PLR0912
         metric_suffix=recipe.scalar_suffix,
     )
     if isinstance(recipe.input, LineInput):
-        source = recipe.input
-        try:
-            channels = trace_channels(
-                analysis.measure, source.loading.auxiliary_columns, analysis.steps
-            )
-        except UnsupportedRecipe as exc:
-            raise RecipeError(str(exc)) from exc
-        if channels and source.siblings:
-            raise RecipeError("a stitched line input carries no auxiliary channels")
-        return V2Recipe(
-            **common,
-            channels=channels,
-            storage_dtype=source.storage_dtype,
-            x_scale=source.x_scale,
-            y_scale=source.y_scale,
-            x_unit=source.x_unit,
-            y_unit=source.y_unit,
-            label=source.label,
+        return _line_recipe(recipe.input, analysis, common)
+    return _camera_recipe(recipe, analysis, common)
+
+
+def _line_recipe(source: LineInput, analysis: Analysis, common: dict) -> V2Recipe:
+    """The compiled line recipe: the source's scaling and the measure's channels."""
+    try:
+        channels = trace_channels(
+            analysis.measure, source.loading.auxiliary_columns, analysis.steps
         )
+    except UnsupportedRecipe as exc:
+        raise RecipeError(str(exc)) from exc
+    if channels and source.siblings:
+        raise RecipeError("a stitched line input carries no auxiliary channels")
+    return V2Recipe(
+        **common,
+        channels=channels,
+        storage_dtype=source.storage_dtype,
+        x_scale=source.x_scale,
+        y_scale=source.y_scale,
+        x_unit=source.x_unit,
+        y_unit=source.y_unit,
+        label=source.label,
+    )
+
+
+def _camera_recipe(
+    recipe: AnalysisRecipe, analysis: Analysis, common: dict
+) -> V2Recipe:
+    """The compiled camera recipe: the crop origin and the host's input requests."""
     origin = (0, 0)
     for spec in analysis.steps:
         # Beam coordinates start where the first crop starts, as the pure
@@ -195,6 +171,78 @@ def compile_recipe(  # noqa: C901, PLR0912
             if binding.table is not None
         ),
     )
+
+
+def _step_inputs(analysis: Analysis) -> set[str]:
+    """The frame keys the steps bind."""
+    return {
+        getattr(spec, definition(spec).input_field)
+        for spec in analysis.steps
+        if definition(spec).input_field is not None
+    }
+
+
+def _reference_input(
+    recipe: AnalysisRecipe, analysis: Analysis, required: set[str]
+) -> set[str]:
+    """The measure's comparison frame, if any: its own key, never a step's."""
+    reference = measure_input(analysis.measure)
+    if reference is None:
+        return set()
+    if reference in required:
+        # The reference goes through the steps: a step subtracting the
+        # same frame would leave the measure comparing against zeros.
+        raise RecipeError(
+            f"frame input {reference!r} is bound by a step and by the measure; "
+            "declare the measure's comparison frame under its own name"
+        )
+    binding = recipe.inputs.get(reference)
+    if binding is not None and binding.fallback_level is not None:
+        raise RecipeError(
+            f"frame input {reference!r} is the measure's comparison frame; a "
+            "fallback_level (a constant for a background step) cannot stand in for it"
+        )
+    return {reference}
+
+
+def _table_inputs(analysis: Analysis, frames: set[str]) -> set[str]:
+    """The keys the measure binds as tables: one per field, none of them a frame."""
+    keys = list(measure_tables(analysis.measure).values())
+    if len(set(keys)) != len(keys):
+        raise RecipeError(
+            "the measure binds one input under two table fields: "
+            f"{sorted({key for key in keys if keys.count(key) > 1})}"
+        )
+    tables = set(keys)
+    if tables & frames:
+        raise RecipeError(
+            f"inputs bound both as a frame and as a table: {sorted(tables & frames)}"
+        )
+    return tables
+
+
+def _check_declarations(
+    recipe: AnalysisRecipe, required: set[str], tables: set[str]
+) -> None:
+    """Every bound key is declared, every declared key is used, each as its kind."""
+    declared = set(recipe.inputs)
+    if required - declared:
+        raise RecipeError(
+            "steps or the measure bind inputs the recipe does not declare: "
+            f"{sorted(required - declared)}"
+        )
+    if declared - required:
+        raise RecipeError(
+            "recipe declares inputs no step or measure uses: "
+            f"{sorted(declared - required)}"
+        )
+    for key, binding in recipe.inputs.items():
+        if (binding.table is not None) != (key in tables):
+            raise RecipeError(
+                f"input {key!r} is declared as a "
+                f"{'table' if binding.table is not None else 'frame'} but bound as a "
+                f"{'frame' if binding.table is not None else 'table'}"
+            )
 
 
 def compile_document(

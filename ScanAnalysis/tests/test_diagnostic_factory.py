@@ -147,23 +147,29 @@ class TestScanWrapperSelection:
         )
         assert isinstance(analyzer, Array2DScanAnalyzer)
 
-    def test_a_v2_magspec_with_survey_tables_stays_on_the_wrapper(self):
-        # The core compiles magspec, but a dnn_axis document's table requests
-        # need a host opt-in no route gives yet (#1039, PR 3): until the
-        # document is regenerated as v3 it runs on the legacy analyzer,
-        # which reads its tables itself.
-        tables = "data/HTT-MagSpce-Calibrations"
+    @pytest.mark.parametrize(
+        "calibration",
+        [
+            {
+                "kind": "dnn_axis",
+                "camera_calibration_file": "data/HTT-MagSpce-Calibrations/260224DnnVarianCam.txt",
+                "trajectory_calibration_file": "data/HTT-MagSpce-Calibrations/170925DnnVarianTrj.txt",
+                "camera_number": 1,
+            },
+            {"kind": "polynomial", "coeffs": [1.0, 0.1]},
+        ],
+        ids=["dnn_axis", "polynomial"],
+    )
+    def test_a_v2_magspec_stays_on_the_wrapper(self, calibration):
+        # The core compiles magspec, but the kind needs a host opt-in no
+        # route gives yet (#1039, PR 3 writes its derived products): until a
+        # document is regenerated as v3 it runs on the legacy analyzer.
         diag = AnalysisDiagnostic.model_validate(
             {
                 "name": "UC_Test",
                 "analyzer": {
                     "kind": "magspec",
-                    "calibration": {
-                        "kind": "dnn_axis",
-                        "camera_calibration_file": f"{tables}/260224DnnVarianCam.txt",
-                        "trajectory_calibration_file": f"{tables}/170925DnnVarianTrj.txt",
-                        "camera_number": 1,
-                    },
+                    "calibration": calibration,
                     "energy_range": [1.2, 1501.3],
                 },
                 "image": {"type": "camera", "pipeline": []},

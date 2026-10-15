@@ -61,10 +61,14 @@ still uses ScanAnalysis until its runner/sinks and acceptance tests land.
   per shot** (the live dipole field) names the spec fields holding the
   column name with `shot_scalars=(...)`: the host binds that column's
   value on each shot's `ShotMeta.scalars` (`pipeline.shot_scalar_columns`
-  lists the columns a recipe needs) and the measure reads
+  lists the columns a recipe needs; a NaN cell is left out, so the
+  measure's fallback applies to that shot) and the measure reads
   `frame.shot.scalars`, falling back to its own parameter when the shot
-  lacks it — no shared state between shots. One measure does both:
-  `magspec`.
+  lacks it — no shared state between shots. Such a column cannot be read
+  on averaged frames: `compile_recipe` refuses it with
+  `scan.average_frames_first` (the legacy per-bin override used the bin's
+  mean field; `to_v3` says so instead of carrying it). One measure does
+  both: `magspec`.
 - Register each builtin in `steps/__init__.py`; the registry constructs the
   discriminated spec union. Adding a builtin must not require a dispatcher edit.
   Runtime/plugin registration after spec construction is not supported yet.

@@ -102,7 +102,14 @@ def synthetic_tables(directory: Path, *, lanex_by_setting: bool = True) -> dict:
 
 
 def diagnostic(
-    paths, *, camera=1, field=0.3, lanex=True, energy_range=(1.0, 1500.0), image=None
+    paths,
+    *,
+    camera=1,
+    field=0.3,
+    lanex=True,
+    energy_range=(1.0, 1500.0),
+    image=None,
+    scan=None,
 ):
     cal = {
         "kind": "dnn_axis",
@@ -123,6 +130,7 @@ def diagnostic(
                 "num_energy_points": 300,
             },
             "image": {"type": "camera", **(PIPELINE if image is None else image)},
+            "scan": scan or {},
         }
     )
 
@@ -195,7 +203,10 @@ def assert_same_result(core, old) -> None:
 def test_polynomial_route_equals_the_legacy_analyzer(seed):
     doc = polynomial()
     raw = frame(seed)
-    core = analyze_v2(raw, compile_v2(doc))
+    # The whole kind waits for a host that serves it, whatever the calibration.
+    with pytest.raises(UnsupportedRecipe, match="source host"):
+        compile_v2(doc)
+    core = analyze_v2(raw, compile_v2(doc, allow_table_inputs=True))
     assert_same_result(core, legacy(doc, raw))
     assert core.frame.unit == "counts/MeV" and core.overlays == ()
 
@@ -204,9 +215,13 @@ def test_array_calibration_is_inline_only():
     values = [20.0 + 0.5 * i for i in range(128)]
     doc = polynomial(calibration={"kind": "array", "values": values})
     raw = frame(0)
-    assert_same_result(analyze_v2(raw, compile_v2(doc)), legacy(doc, raw))
+    compiled = compile_v2(doc, allow_table_inputs=True)
+    assert_same_result(analyze_v2(raw, compiled), legacy(doc, raw))
     with pytest.raises(UnsupportedRecipe, match="file"):
-        compile_v2(polynomial(calibration={"kind": "array", "file": "axis.npy"}))
+        compile_v2(
+            polynomial(calibration={"kind": "array", "file": "axis.npy"}),
+            allow_table_inputs=True,
+        )
 
 
 # ------------------------------------------------------------ dnn_axis + tables
@@ -440,6 +455,19 @@ def test_a_v3_recipe_binds_its_tables_by_key():
         ({"inputs": {"cam": {"table": "cam.txt"}}}, "does not declare"),
         (
             {
+                "inputs": {"cam": {"table": "cam.txt"}},
+                "measure": {
+                    "kind": "magspec",
+                    "calibration": {"kind": "dnn_axis", "camera_number": 1},
+                    "camera_table": "cam",
+                    "trajectory_table": "cam",
+                    "energy_range": [30, 90],
+                },
+            },
+            "two table fields",
+        ),
+        (
+            {
                 "inputs": {
                     "cam": {"table": "c"},
                     "trj": {"table": "t"},
@@ -453,6 +481,30 @@ def test_a_v3_recipe_binds_its_tables_by_key():
 def test_table_binding_errors_are_recipe_errors(patch, needle):
     with pytest.raises(RecipeError, match=needle):
         compile_recipe(recipe(**patch), allow_file_backgrounds=True)
+
+
+def test_a_per_shot_column_needs_per_shot_units(tmp_path):
+    bound = recipe(
+        measure={
+            "kind": "magspec",
+            "calibration": {"kind": "dnn_axis", "camera_number": 1},
+            "camera_table": "cam",
+            "trajectory_table": "trj",
+            "magnetic_field_column": COLUMN,
+            "energy_range": [30, 90],
+        },
+        scan={"average_frames_first": True},
+    )
+    with pytest.raises(RecipeError, match="average_frames_first"):
+        compile_recipe(bound, allow_file_backgrounds=True)
+    # The converter leaves a per_bin document's column unset and says why:
+    # the legacy per-bin override used the bin's mean field.
+    doc = diagnostic(synthetic_tables(tmp_path), scan={"mode": "per_bin"})
+    conversion = to_v3(doc, magnetic_field_column=COLUMN)
+    written = canonical_document(conversion.recipe)["measure"]
+    assert "magnetic_field_column" not in written
+    assert any("bin's mean field" in note for note in conversion.notes)
+    assert compile_recipe(conversion.recipe, allow_file_backgrounds=True)
 
 
 def test_execution_refuses_a_missing_or_mistyped_table(tmp_path):

@@ -180,11 +180,11 @@ def compile_v2(  # noqa: C901, PLR0912
     that name (its ``threshold_factor`` is not carried: the fit never read
     it). ``frog_spectral_phase`` compiles to the measure of that name; its
     ``weights`` auxiliary column becomes the input's ``weights`` channel.
-    ``magspec`` compiles to the ``magspec`` measure; a ``dnn_axis``
-    calibration declares its three survey files as table requests, which
-    need a source host's opt-in (``allow_table_inputs=True``, set by
-    ``to_v3`` and the corpus converter only) — the paths are carried as
-    written, so every other caller keeps its legacy route for them.
+    ``magspec`` compiles to the ``magspec`` measure only under a source
+    host's opt-in (``allow_table_inputs=True``, set by ``to_v3`` and the
+    corpus converter only): a ``dnn_axis`` calibration declares its three
+    survey files as table requests, paths as written, and every v2 magspec
+    document keeps its legacy route everywhere else.
     """
     kind = document.analyzer.kind
     if kind not in {
@@ -312,18 +312,24 @@ def _magspec_measure(
 ) -> tuple[MagspecSpec, tuple[TableInput, ...]]:
     """The v2 magspec analyzer as the ``magspec`` measure plus its table requests.
 
+    The whole kind needs the host's opt-in (``allow_table_inputs``), whatever
+    its calibration: a magspec run has products beyond its scalars (the
+    stitcher chain's ``-interp`` folders) that only a host serving the kind
+    writes, so every v2 magspec document keeps its legacy route until then.
     A ``dnn_axis`` calibration's three files become table inputs keyed by
     the measure's own field names (``camera_table``, ``trajectory_table``,
     ``lanex_table``), paths as written in the document. The ``array``
     calibration's ``.npy`` file is not ported; inline ``values`` is.
     """
+    if not allow_table_inputs:
+        raise UnsupportedRecipe(
+            "magspec needs a source host that binds its tables and writes its products"
+        )
     calibration = spec.calibration
     common = dict(
         energy_range=spec.energy_range, num_energy_points=spec.num_energy_points
     )
     if calibration.kind == "dnn_axis":
-        if not allow_table_inputs:
-            raise UnsupportedRecipe("Calibration tables must be resolved by a source")
         tables = [
             TableInput("camera_table", calibration.camera_calibration_file),
             TableInput("trajectory_table", calibration.trajectory_calibration_file),

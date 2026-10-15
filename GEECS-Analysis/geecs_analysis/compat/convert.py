@@ -240,6 +240,16 @@ def to_v3(  # noqa: C901, PLR0912, PLR0915
                 "measure.magnetic_field_column to the scan's field column to read "
                 "the dipole field per shot"
             )
+        elif scan.mode == "per_bin":
+            # The legacy per-bin path overrode with the bin's MEAN field; a
+            # recipe reads a recorded column per shot only (compile_recipe
+            # refuses the column on averaged frames), so magnetic_field_t
+            # applies and the difference is said here.
+            notes.append(
+                "the legacy per-bin teslameter override used each bin's mean "
+                "field; a recipe reads a recorded column per shot only, so "
+                "magnetic_field_column is not set and magnetic_field_t applies"
+            )
         else:
             raw["measure"]["magnetic_field_column"] = magnetic_field_column
             measure = measure.model_copy(
