@@ -136,7 +136,7 @@ def draw_overlays(
 ) -> None:
     """Draw typed overlays using their frame coordinates and stable styling ids."""
     import numpy as np
-    from geecs_analysis.measurement import Marker, Projection
+    from geecs_analysis.measurement import Marker, Projection, Segment
 
     style = style or FigureSpec()
     for overlay in result.overlays:
@@ -154,6 +154,12 @@ def draw_overlays(
                     "linestyle": "none",
                     **kwargs,
                 },
+            )
+        elif isinstance(overlay, Segment):
+            ax.plot(
+                [overlay.x0, overlay.x1],
+                [overlay.y0, overlay.y1],
+                **{"color": "cyan", "linewidth": 1.5, "linestyle": "--", **kwargs},
             )
         elif isinstance(overlay, Projection):
             if result.frame.data.ndim != 2:

@@ -400,7 +400,7 @@ import sys
 from geecs_analysis.specs import Analysis
 for kind, count in (
     ("beam", 18), ("hi_res_mag_cam", 24), ("line", 6), ("none", 0), ("pulsed_wire", 10),
-    ("frog_spectral_phase", 5),
+    ("frog_spectral_phase", 5), ("downramp_phase", 9),
 ):
     recipe = Analysis.model_validate({"measure": {"kind": kind}})
     assert len(recipe.measure.emitted_scalars()) == count

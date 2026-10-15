@@ -36,7 +36,7 @@ Worked example (pre-recipe path, in the repository): [Grenouille Analysis notebo
 
 **HASO wavefront** — no ImageAnalyzer: the `haso` *measure* of the analysis core computes the zonal phase from the sensor's raw pixels through WaveKit 4.3, which ImageAnalysis runs out of process (`algorithms/haso_wavekit.py`, natively on Windows or under 64-bit Wine on Linux). A recipe names the sensor's configuration file; every shot's processed phase, raw phase, intensity, slopes and pupil go to one HDF5 per scan. See the [HASO runbook](../analysis/haso.md).
 
-**`DownrampPhaseAnalyzer`** (`analyzers/downramp_phase_analyzer.py`) — plasma downramp shock analysis from phase data. Shock angle estimation, gradient and position detection, plateau and peak-to-plateau delta calculation. Output is a combined diagnostic figure as vector PDF.
+**`DownrampPhaseAnalyzer`** (`analyzers/downramp_phase_analyzer.py`) — plasma downramp shock analysis from phase data. Shock angle estimation, gradient and position detection, plateau and peak-to-plateau delta calculation. Output is a combined diagnostic figure as vector PDF. The recipe-path `downramp_phase` measure (the same numbers; the PDF's shock line, position and plateau drawn as overlays on the standard figure instead) is on the [recipe reference](../sites/analysis_recipes/index.html#measure-downramp_phase).
 
 ### Generic / starting points
 

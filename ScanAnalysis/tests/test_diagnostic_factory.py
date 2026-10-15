@@ -28,7 +28,6 @@ _SPECS_BY_ALIAS = {
     "beam": {"kind": "beam"},
     "standard_1d": {"kind": "trace"},
     "ict": {"kind": "ict"},
-    "downramp_phase": {"kind": "downramp_phase"},
 }
 
 
@@ -138,12 +137,6 @@ class TestScanWrapperSelection:
     def test_autodetect_background_stays_on_the_wrapper(self):
         analyzer = create_scan_analyzer(
             _diag(scan={"background_source": {"autodetect": {}}})
-        )
-        assert isinstance(analyzer, Array2DScanAnalyzer)
-
-    def test_unported_kind_stays_on_the_wrapper(self):
-        analyzer = create_scan_analyzer(
-            _diag(alias="downramp_phase", image={"type": "camera"})
         )
         assert isinstance(analyzer, Array2DScanAnalyzer)
 

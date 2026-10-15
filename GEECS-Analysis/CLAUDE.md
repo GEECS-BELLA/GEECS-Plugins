@@ -120,8 +120,13 @@ this core preserves the input Frame and scalar math. Do not silently use a
 mutable Frame to reproduce the old accidental aliasing.
 
 Nonfinite scalars remain visible with notes. Never replace them with zero or
-use matching NaNs as evidence of scientific parity. Overlays have stable ids;
-centroid markers are omitted when their coordinates are nonfinite.
+use matching NaNs as evidence of scientific parity. Overlays have stable ids
+and three families, each carrying data (`measurement.py`): `Projection` (a
+lineout along an image edge), `Marker` (a point) and `Segment` (a line
+between two points in frame coordinates); centroid markers and shock
+segments are omitted when their coordinates are nonfinite (shock
+segments also on a nonuniform axis, where a line on the sample grid is
+not a line), and a bin average folds markers and segments endpoint-wise.
 
 ## The recipe (format 3)
 
@@ -194,6 +199,21 @@ to the function as a `{name: Frame}` mapping after every other argument.
 Columns no measure reads are not loaded; `interpolate` (and, in v3, a
 stitched input) with a channel is refused. A raw-bin unit averages the
 channel with its trace (the legacy per-bin path dropped the weights).
+`downramp_phase` compiles to the measure of that name
+(`algorithms.downramp_shock`, ported bit for bit): the legacy inversion,
+median subtraction and binarised Gaussian mask, the laser-axis rotation
+(`scipy.ndimage.rotate` on a reshaped canvas), the row-wise shock angle,
+the column-sum gradient and the plateau window; the five legacy scalar
+names (spaces and all) plus the four beam slopes the legacy merged in;
+the frame is the legacy 16-bit phase product (`(2¹⁶−1)/2π` counts per
+radian, truncated) as float64. Its per-shot PDF is dropped: the shock
+line, its column and the plateau bounds are `Segment` overlays carried
+back from the rotated canvas onto the frame (`unrotate`, scipy's own
+rotation geometry inverted; on a nonuniform axis they are omitted with
+a note), the two projections beside them; a map with
+no signal after masking, or no steepest window, is NaN with a note where
+the legacy class raised. The spec's four parameters are the legacy
+constants (the v2 spec has none).
 `magspec` compiles to the measure of that name (`algorithms.magspec_calibration`,
 ported bit for bit: the 1-based `X Start`/`X End` slice, `argsort` +
 `CubicSpline(extrapolate=False)` over screen position (only the
