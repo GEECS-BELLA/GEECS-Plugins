@@ -332,9 +332,9 @@ active and the tab button exists only when `analysis_enabled` (feature
 configured + extra installed + folder resolvable) — a bookmarked
 `tab=analysis` otherwise falls back to Plot.
 **Destructive kinds and progress** (0.38.0): each listed analyzer
-carries `destructive` (the diagnostic's `AnalyzerSpecBase.destructive`
-— today only the `.himg` compaction, `himg_compact`; a v3 recipe is
-never destructive).  For such a kind the tab's row says *deletes files*
+carries `destructive` (the document's `destructive` — true only for the
+`.himg` compaction job, a `HimgJob` with `kind: himg_compact`; a recipe
+or a v2 diagnostic is never destructive).  For such a kind the tab's row says *deletes files*
 and its run button opens a real `<dialog>` (`showModal()`: focus trap,
 `Esc`, inert background; focus on the input, never the delete button)
 that asks the user to type **this scan's number** (`const SCAN_NUMBER`);

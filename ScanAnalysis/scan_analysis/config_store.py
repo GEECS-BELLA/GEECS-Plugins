@@ -7,8 +7,8 @@ Qt ``ConfigFileGUI`` (deleted in 1.21.0).
 
 Rules the store enforces:
 
-- Documents are the GEECS-Schemas models (``AnalysisRecipe`` v3 and ``AnalysisDiagnostic`` v2,
-  ``AnalysisGroup``); a document that does not validate is never written.
+- Documents are the GEECS-Schemas models (``AnalysisRecipe`` v3, ``AnalysisDiagnostic`` v2
+  and the ``.himg`` ``HimgJob`` in the analyzers tree, ``AnalysisGroup``); a document that does not validate is never written.
 - Writes are atomic (temp file + rename in the same directory) and
   optimistic: a save carries the etag the file had when it was read, and a
   changed file refuses the save (:class:`ConflictError`) — two editors
@@ -40,6 +40,7 @@ from geecs_schemas.analysis import (
     AnalysisDiagnostic,
     AnalysisGroup,
     AnalysisRecipe,
+    HimgJob,
     canonical_document,
     load_analysis_document,
 )
@@ -177,16 +178,17 @@ class Saved:
         }
 
 
-#: The model per kind, for the kinds with one. An ``analyzer`` file is either
-#: analysis format: the recipe (format 3) is what the editor writes, a v2
-#: diagnostic still loads and validates (``load_analysis_document`` dispatches
-#: on the file's own version) but is shown read-only.
+#: The model per kind, for the kinds with one. An ``analyzer`` file is any
+#: document of that tree: the recipe (format 3) is what the editor writes; a
+#: v2 diagnostic or a ``.himg`` job still loads and validates
+#: (``load_analysis_document`` dispatches on what the file declares) but is
+#: shown read-only.
 _MODELS: dict[str, type[BaseModel]] = {"group": AnalysisGroup}
 _FOLDERS: dict[str, str] = {"analyzer": "analyzers", "group": "groups"}
 
 
 def _validate_raw(kind: DocumentKind, raw: Mapping[str, Any]) -> BaseModel:
-    """Validate a raw document as its kind: either analysis format, or a group."""
+    """Validate a raw document as its kind: any analyzers-tree document, or a group."""
     if kind == "analyzer":
         return load_analysis_document(dict(raw))
     return _MODELS[kind].model_validate(dict(raw))
@@ -364,14 +366,18 @@ class ConfigStore:
 
     @staticmethod
     def _summary(doc: BaseModel) -> dict[str, Any]:
-        if isinstance(doc, (AnalysisRecipe, AnalysisDiagnostic)):
+        if isinstance(doc, (AnalysisRecipe, AnalysisDiagnostic, HimgJob)):
+            # what runs: the recipe's measure, the diagnostic's analyzer, the job
+            if isinstance(doc, AnalysisRecipe):
+                runs = doc.measure.kind
+            elif isinstance(doc, AnalysisDiagnostic):
+                runs = doc.analyzer.kind
+            else:
+                runs = doc.kind
             return {
                 "name": doc.device,
-                # what runs: the recipe's measure, the diagnostic's analyzer
-                "analyzer_kind": doc.measure.kind
-                if isinstance(doc, AnalysisRecipe)
-                else doc.analyzer.kind,
-                "image_type": doc.input_kind,
+                "analyzer_kind": runs,
+                "image_type": getattr(doc, "input_kind", None),
                 "device": doc.data_folder,
                 "output_name": doc.effective_output_name,
                 "schema_version": doc.schema_version,

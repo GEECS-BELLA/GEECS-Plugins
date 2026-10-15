@@ -125,12 +125,10 @@ owns the three things that need the analysis stack:
   `line_config=` / `output_name=` where the constructor declares them.
 - **`registry`** — `ANALYZER_CLASS_PATHS` (kind → class path, imported on
   demand so vendor SDKs stay unimported) and `analyzer_class(kind)`.
-  `tests/test_config_registry.py` pins it against the schema's union —
-  its *frame-scoped* kinds (`FRAME_KINDS`: every spec whose `scope` is
-  `"frame"`). A scan-scoped kind (`scope = "scan"`, e.g. `himg_to_stack`,
-  a converter over the device folder) has no ImageAnalyzer: ScanAnalysis
-  maps it itself, `analyzer_class` refuses it by name, and the ephemeral
-  runner refuses it before any lookup.
+  `tests/test_config_registry.py` pins it against the schema's union.
+  The `.himg` jobs (`geecs_schemas.analysis.HimgJob`, a document of their
+  own) have no ImageAnalyzer: ScanAnalysis runs them, and the factory and
+  the ephemeral runner refuse them like a recipe.
 
 A v2 diagnostic:
 

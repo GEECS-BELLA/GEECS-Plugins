@@ -249,10 +249,19 @@ def _check_declarations(
 def compile_document(
     document: AnalysisDocument, *, allow_file_backgrounds: bool = False
 ) -> V2Recipe:
-    """Compile either document format to the one in-memory recipe."""
+    """Compile either document format to the one in-memory recipe.
+
+    Anything else from the analyzers tree (a ``.himg`` job: no frames, no
+    measure) raises ``UnsupportedRecipe``, the refusal every caller of the
+    core already handles.
+    """
     if isinstance(document, AnalysisRecipe):
         return compile_recipe(document, allow_file_backgrounds=allow_file_backgrounds)
-    return compile_v2(document, allow_file_backgrounds=allow_file_backgrounds)
+    if isinstance(document, AnalysisDiagnostic):
+        return compile_v2(document, allow_file_backgrounds=allow_file_backgrounds)
+    raise UnsupportedRecipe(
+        f"a {type(document).__name__} is not an analysis: it has no frames to analyze"
+    )
 
 
 def is_line(document: AnalysisDocument) -> bool:

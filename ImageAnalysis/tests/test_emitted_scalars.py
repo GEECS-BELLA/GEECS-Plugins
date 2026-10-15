@@ -14,8 +14,6 @@ from image_analysis.config import create_image_analyzer
 def test_declared_scalars_are_emitted(kind):
     if kind == "frog_retrieval":
         pytest.skip("vendor DLL; declarations reviewed against analyze_image")
-    if ANALYZER_SPECS[kind].scope != "frame":
-        pytest.skip("scan-scoped kind: no per-frame analyzer, no scalars")
     spec = {"kind": kind}
     if kind == "magspec":
         spec.update(

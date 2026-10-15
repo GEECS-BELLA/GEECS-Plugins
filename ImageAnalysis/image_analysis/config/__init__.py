@@ -21,11 +21,10 @@ from .loader import (
     load_diagnostic,
     load_line_config,
 )
-from .registry import ANALYZER_CLASS_PATHS, FRAME_KINDS, analyzer_class
+from .registry import ANALYZER_CLASS_PATHS, analyzer_class
 
 __all__ = [
     "ANALYZER_CLASS_PATHS",
-    "FRAME_KINDS",
     "analyzer_class",
     "create_image_analyzer",
     "find_config_file",

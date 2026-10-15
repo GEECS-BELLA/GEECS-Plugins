@@ -21,7 +21,7 @@ scan_analysis/
   route_compare.py                 # snapshot + compare two routes' analysis trees (one equality rule)
   task_queue.py                    # Task claiming, heartbeat, YAML status system
   config/
-    diagnostic_factory.py          # create_scan_analyzer(AnalysisRecipe | AnalysisDiagnostic)
+    diagnostic_factory.py          # create_scan_analyzer(AnalysisRecipe | AnalysisDiagnostic | HimgJob)
     analysis_group_loader.py       # discover_analyzers/groups + load_analysis_group,
                                    #   ResolvedDiagnosticConfig (the models: geecs_schemas.analysis)
   analyzers/
@@ -30,7 +30,7 @@ scan_analysis/
       array2D_scan_analysis.py         # Array2DScanAnalyzer
       array1d_scan_analysis.py         # Array1DScanAnalyzer
       scatter_plotter_analysis.py      # ScatterPlotterAnalysis + PlotParameter
-      himg_kinds.py                    # the scan-scoped .himg kinds, run out of process: HimgToStackAnalyzer (folder → capture stack),
+      himg_kinds.py                    # the .himg jobs (HimgJob documents), run out of process: HimgToStackAnalyzer (folder → capture stack),
                                        #   HimgCompactAnalyzer (verify, then DELETE the .himg — destructive), HimgRestoreAnalyzer (rebuild them)
 ```
 
@@ -228,8 +228,9 @@ Nothing is written next to the archived scan.
 Scan analysis is driven by YAML config files stored in the
 **GEECS-Plugins-configs** repository (not this repo). The documents are
 **GEECS-Schemas'** (`geecs_schemas.analysis`): one YAML per diagnostic
-under `analyzers/<namespace>/<id>.yaml`, in one of two formats read by
-`load_analysis_document` on its `schema_version` — the v3 `AnalysisRecipe`
+under `analyzers/<namespace>/<id>.yaml`, read by `load_analysis_document`
+(beside the `.himg` jobs' `HimgJob`, below) in one of two formats by its
+`schema_version` — the v3 `AnalysisRecipe`
 (the analysis core's native shape: `input:`, ordered `steps:`, `measure:`,
 the per-frame `figure:`, the `summaries:` kinds; every recipe the core
 serves, 37 of 50 since 2026-09-24) or the v2 `AnalysisDiagnostic`
@@ -277,15 +278,17 @@ the wrappers' kwargs mapping use `route="legacy"`; the auto-routing tests force
 the wrapper with a schema-valid feature the core refuses (a flip, or a
 bilateral trace filter).
 
-A third, smaller route: a v2 kind whose spec declares `scope = "scan"`
-(`AnalyzerSpecBase.scope`; the three `.himg` kinds) is a *scan-scoped*
-kind — one step over the device folder with no ImageAnalyzer, no per-frame
-results and no products under `analysis/`. `create_scan_analyzer` maps it
-through `SCAN_SCOPED_CLASS_PATHS` (kind → ScanAnalysis class) before the
-core/legacy decision; `route="core"` and `use_injected_data` are refused.
-ImageAnalysis's registry covers the frame-scoped kinds only, so adding a
-scan-scoped kind is one spec in GEECS-Schemas and one line in that table
-(`tests/test_himg_kinds.py` pins the coverage). The three live in
+A third, smaller route: a `.himg` job — the third document of the
+analyzers tree, `geecs_schemas.analysis.HimgJob` (top-level `kind:`
+`himg_to_stack` / `himg_compact` / `himg_restore`, `device`,
+`output_name`, `scan.priority`; not an analysis, so neither a recipe nor
+a v2 diagnostic) — is one step over the device folder with no
+ImageAnalyzer, no per-frame results and no products under `analysis/`.
+`create_scan_analyzer` maps it through `himg_kinds.HIMG_JOB_CLASSES`
+(kind → ScanAnalysis class) before the core/legacy decision;
+`route="core"` and `use_injected_data` are refused, and every core entry
+point (`compile_document`, so `core_supports` and the previews) refuses
+it as `UnsupportedRecipe` (`tests/test_himg_kinds.py` pins the coverage). The three live in
 `analyzers/common/himg_kinds.py` and run their work **out of process**
 through `geecs_data_utils.io.himg_worker.run_himg_job` (a child
 interpreter streams frames done/total back; the analyzer relays them
@@ -296,7 +299,7 @@ nothing on the page): `HimgToStackAnalyzer` (`himg_to_stack`) converts a
 HASO device's `.himg` files into its capture stack (the same function as
 `geecs-himg convert`), verified after writing; the `.himg` files stay, a
 second run verifies the existing stack. `HimgCompactAnalyzer`
-(`himg_compact`, the one kind with `destructive = True`) verifies every
+(`himg_compact`, the one job with `destructive` true) verifies every
 frame against the stack and the file on disk, then deletes the `.himg`
 files and leaves `himg_manifest.json`; every guard (a `.himg` younger
 than a minute, no `ScanData` table or s-file, a file the stack lacks, a
@@ -312,7 +315,7 @@ allow_destructive=False)` raises `DestructiveKindRefused` for a
 `destructive` document unless the caller says it confirmed the run —
 the portal passes `True` only past its typed-scan-number check, the
 task queue's group loader (`load_analyzers_from_config`) skips such a
-kind with a logged reason, and MCP's single-analyzer path is refused.
+job with a logged reason, and MCP's single-analyzer path is refused.
 
 `discover_analyzers` delegates to `geecs_data_utils.analysis_configs`; group
 lookup remains here because group aliases have different rules.
@@ -363,7 +366,7 @@ ResolvedDiagnosticConfig          # What the loader hands the factory (this pack
   id: str                         # Diagnostic filename stem (task-queue ID)
   enabled: bool                   # Refs with enabled: false are excluded
   priority: int                   # Group override, else the diagnostic's own
-  diagnostic: AnalysisRecipe | AnalysisDiagnostic   # whichever the file's schema_version says
+  diagnostic: AnalysisRecipe | AnalysisDiagnostic | HimgJob   # whichever the file declares
 ```
 
 `scan_analysis.config` exports only its own things — the group loader,
@@ -693,7 +696,7 @@ In practice:
   input's `folder`. It creates no directory. Moving derived artifacts
   under `analysis/` and letting inputs read from there is a separate,
   undecided design question. The second exception (the HASO arc brief the
-  owner approved 2026-09-28): the scan-scoped `himg_to_stack` kind writes
+  owner approved 2026-09-28): the `himg_to_stack` job writes
   the device's capture stack `<device>/<device>.h5` beside the `.himg`
   sources — the one place every stack reader looks, by the file-plugin
   contract — through `geecs_data_utils.io.himg_stack` (temp file, verify,

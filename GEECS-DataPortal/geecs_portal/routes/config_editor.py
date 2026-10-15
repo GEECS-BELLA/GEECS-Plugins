@@ -139,6 +139,16 @@ def _line_preview(
 _SUMMARY_SHOTS_MAX = 8
 
 
+def _drawable(document: dict):
+    """Validate an editor document that draws frames; a ``.himg`` job draws none (400)."""
+    from geecs_schemas.analysis import HimgJob, load_analysis_document
+
+    diag = load_analysis_document(document)
+    if isinstance(diag, HimgJob):
+        raise ValueError(f"a .himg job ({diag.kind}) draws no figure")
+    return diag
+
+
 def _config_editor_summary_preview(
     portal: PortalState, document: dict, params: dict, index: int
 ) -> bytes:
@@ -155,7 +165,6 @@ def _config_editor_summary_preview(
     grid panels are per-bin averages).
     """
     from geecs_analysis.recipe import is_line
-    from geecs_schemas.analysis import load_analysis_document
 
     ephemeral = portal.ephemeral_module()
     uid = str(params.get("uid") or "")
@@ -168,7 +177,7 @@ def _config_editor_summary_preview(
     if not uid:
         raise LookupError("summary preview needs a scan")
     shots = max(1, min(_SUMMARY_SHOTS_MAX, shots))
-    diag = load_analysis_document(document)
+    diag = _drawable(document)
     # the document's own data folder, never a host-picked device: a
     # preview of one camera's frames under another's recipe is a lie
     device = diag.data_folder
@@ -207,7 +216,6 @@ def _config_editor_preview(portal: PortalState, document: dict, params: dict) ->
     """
     ephemeral = portal.ephemeral_module()
     from geecs_analysis.recipe import is_line
-    from geecs_schemas.analysis import load_analysis_document
 
     uid = str(params.get("uid") or "")
     day = str(params.get("day") or "")
@@ -217,7 +225,7 @@ def _config_editor_preview(portal: PortalState, document: dict, params: dict) ->
         raise ValueError("shot must be an integer") from exc
     if not uid or shot < 1:
         raise LookupError("preview needs a scan and a shot (>= 1)")
-    diag = load_analysis_document(document)
+    diag = _drawable(document)
     # the document's own data folder (see the summary preview)
     device = diag.data_folder
     if is_line(diag):

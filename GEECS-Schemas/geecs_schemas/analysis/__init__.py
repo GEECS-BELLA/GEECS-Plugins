@@ -1,4 +1,4 @@
-"""Analysis-config schemas: the two analysis documents, the group document, and their parts.
+"""Analysis-config schemas: the two analysis documents, the ``.himg`` job, the group document, and their parts.
 
 Everything the analysis stack loads from ``scan_analysis_configs/`` is
 described here — pydantic only, so editors, the data portal, MCP and CI
@@ -6,14 +6,15 @@ can validate a document without the analysis stack installed.  Two formats
 share the ``analyzers/`` tree: the v3 :class:`AnalysisRecipe` (the analysis
 core's native shape: input, ordered steps, a measure, the per-frame draw,
 the summary kinds) and the v2 :class:`AnalysisDiagnostic` (kept for the
-analyzer kinds the core has not ported).  :func:`load_analysis_document`
-dispatches on ``schema_version``.
+analyzer kinds the core has not ported); a third document, the
+:class:`HimgJob`, carries the ``.himg`` data-management jobs that sit in
+the same tree.  :func:`load_analysis_document` dispatches on a top-level
+``kind`` (a job), else ``schema_version``.
 """
 
 from geecs_schemas.analysis.canonical import canonical_document
 from geecs_schemas.analysis.analyzers import (
     ANALYZER_SPECS,
-    AnalyzerScope,
     AnalyzerSpec,
     AnalyzerSpecBase,
     ArrayCalibrationSpec,
@@ -24,9 +25,6 @@ from geecs_schemas.analysis.analyzers import (
     FrogRetrievalSpec,
     FrogSpectralPhaseSpec,
     HiResMagCamSpec,
-    HimgCompactSpec,
-    HimgRestoreSpec,
-    HimgToStackSpec,
     IctAnalyzerSpec,
     ImageKind,
     LineAnalyzerSpec,
@@ -42,6 +40,7 @@ from geecs_schemas.analysis.diagnostic import (
     ImageSection,
 )
 from geecs_schemas.analysis.document import AnalysisDocument, load_analysis_document
+from geecs_schemas.analysis.himg import HimgJob, HimgJobKind, HimgJobRuntime
 from geecs_schemas.analysis.group import AnalysisGroup, AnalyzerRef
 from geecs_schemas.analysis.processing_1d import (
     Data1DLoading,
@@ -106,12 +105,14 @@ from geecs_schemas.analysis.scan_runtime import (
 
 __all__ = [
     "ANALYZER_SPECS",
-    "AnalyzerScope",
     "CURRENT_RECIPE_VERSION",
     "CURRENT_SCHEMA_VERSION",
     "SUMMARY_KINDS",
     "AnalysisDiagnostic",
     "AnalysisDocument",
+    "HimgJob",
+    "HimgJobKind",
+    "HimgJobRuntime",
     "AnalysisGroup",
     "AnalysisRecipe",
     "AverageSummary",
@@ -141,9 +142,6 @@ __all__ = [
     "FrogRetrievalSpec",
     "FrogSpectralPhaseSpec",
     "FromCurrentScanSpec",
-    "HimgCompactSpec",
-    "HimgRestoreSpec",
-    "HimgToStackSpec",
     "HiResMagCamSpec",
     "IctAnalyzerSpec",
     "ImageGridSummary",

@@ -24,6 +24,7 @@ from geecs_schemas.analysis import (
     AnalysisDiagnostic,
     AnalysisGroup,
     AnalysisRecipe,
+    HimgJob,
     load_analysis_document,
 )
 
@@ -56,12 +57,9 @@ class TestAnalysisCorpus:
             except Exception as exc:  # noqa: BLE001 — collected and reported below
                 failures[key] = str(exc).splitlines()[0]
                 continue
-            model = (
-                AnalysisRecipe
-                if isinstance(diag, AnalysisRecipe)
-                else AnalysisDiagnostic
-            )
-            assert diag.schema_version == (3 if model is AnalysisRecipe else 2)
+            model = type(diag)
+            versions = {AnalysisRecipe: 3, AnalysisDiagnostic: 2, HimgJob: 1}
+            assert diag.schema_version == versions[model]
             # stable through a dump: the editor's save path
             assert model.model_validate(diag.model_dump(mode="json")) == diag
             lifted += 1

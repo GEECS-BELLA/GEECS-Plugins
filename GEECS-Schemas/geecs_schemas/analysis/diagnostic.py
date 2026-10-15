@@ -81,7 +81,7 @@ class AnalysisDiagnostic(VersionedSchemaModel):
         description=(
             "How raw frames (type: camera) or traces (type: line) are cleaned "
             "up before analysis. Omit for analyzers that read their own file "
-            "formats (the himg_* kinds)."
+            "formats (none ships today)."
         ),
     )
     scan: ScanRuntime = Field(
@@ -125,8 +125,8 @@ class AnalysisDiagnostic(VersionedSchemaModel):
 
     @property
     def destructive(self) -> bool:
-        """Whether a run deletes or rewrites data files — the analyzer kind's ``destructive``."""
-        return type(self.analyzer).destructive
+        """A diagnostic only adds files — never destructive (the ``.himg`` job's flag)."""
+        return False
 
     @property
     def line_loading(self) -> Optional[Data1DLoading]:

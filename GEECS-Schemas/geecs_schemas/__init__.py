@@ -20,6 +20,7 @@ from geecs_schemas.analysis import (
     AnalyzerRef,
     AnalyzerSpec,
     CameraConfig,
+    HimgJob,
     Line1DConfig,
     RendererOptions,
     ScanRuntime,
@@ -162,6 +163,7 @@ __all__ = [
     "AnalyzerRef",
     "AnalyzerSpec",
     "CameraConfig",
+    "HimgJob",
     "Line1DConfig",
     "RendererOptions",
     "ScanRuntime",
@@ -213,5 +215,6 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "analysis_diagnostic": AnalysisDiagnostic,
     "analysis_recipe": AnalysisRecipe,
     "analysis_group": AnalysisGroup,
+    "himg_job": HimgJob,
     "log_entry": LogEntry,
 }

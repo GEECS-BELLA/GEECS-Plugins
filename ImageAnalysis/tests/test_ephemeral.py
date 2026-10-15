@@ -30,14 +30,6 @@ def _write_diagnostic(path: Path, name: str, *, kind: str = "standard") -> None:
         "image": {"type": "camera", "bit_depth": 16},
         "scan": {"priority": 100},
     }
-    if kind == "himg_to_stack":
-        # A scan-scoped kind: no image section at all.
-        payload = {
-            "schema_version": 2,
-            "name": name,
-            "analyzer": {"kind": kind},
-            "scan": {"priority": 100},
-        }
     path.write_text(yaml.safe_dump(payload))
 
 
@@ -148,14 +140,14 @@ class TestRunDiagnosticEphemeral:
         with pytest.raises(ValueError, match="cannot run ephemerally"):
             run_diagnostic_ephemeral("U_FROG", [np.ones((4, 4))], config_dir=tmp_path)
 
-    def test_scan_scoped_kind_is_refused_by_scope(self, tmp_path):
-        """A converter kind has no per-frame analyzer: refused before any lookup."""
-        _write_diagnostic(
-            tmp_path / "analyzers" / "HTU" / "U_HasoLift_stack.yaml",
-            "U_HasoLift",
-            kind="himg_to_stack",
+    def test_a_himg_job_is_refused(self, tmp_path):
+        """A .himg job works on a device folder: no per-frame analyzer to run."""
+        path = tmp_path / "analyzers" / "HTU" / "U_HasoLift_stack.yaml"
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            yaml.safe_dump({"kind": "himg_to_stack", "device": "U_HasoLift"})
         )
-        with pytest.raises(ValueError, match="scan-scoped"):
+        with pytest.raises(TypeError, match="only a v2 diagnostic"):
             run_diagnostic_ephemeral(
                 "U_HasoLift_stack", [np.ones((4, 4))], config_dir=tmp_path
             )

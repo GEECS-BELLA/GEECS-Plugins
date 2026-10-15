@@ -146,17 +146,11 @@ def _ephemeral_analyzer_for(diag: "AnalysisDiagnostic") -> "ImageAnalyzer":
     """Denylist gate + instantiation for an already-validated v2 document."""
     if not hasattr(diag, "analyzer"):
         raise TypeError(
-            "an analysis recipe (schema_version 3) has no ephemeral ImageAnalyzer "
-            "route: compile it with geecs_analysis.recipe.compile_recipe and "
-            "run it on the core"
+            "only a v2 diagnostic has an ephemeral ImageAnalyzer route: an "
+            "analysis recipe (schema_version 3) runs on the core and a .himg "
+            "job works on a scan's device folder, never on in-memory frames"
         )
     kind = diag.analyzer.kind
-    if type(diag.analyzer).scope != "frame":
-        raise ValueError(
-            f"Analyzer kind {kind!r} is scan-scoped: it runs once over the "
-            "device folder (ScanAnalysis) and has no per-frame analyzer to "
-            "run on in-memory frames."
-        )
     if kind in EPHEMERAL_DENYLIST:
         raise ValueError(
             f"Analyzer kind {kind!r} cannot run ephemerally: its side "

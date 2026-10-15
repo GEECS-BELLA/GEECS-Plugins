@@ -63,15 +63,15 @@ def configs_tree(tmp_path) -> Path:
 
     diag("UC_Crop", "cam")
     diag("UC_Other", "elsewhere")
-    # The one destructive kind (the .himg compaction): scan-scoped, so no
-    # image section; on the same device as UC_Crop.
+    # The one destructive job (the .himg compaction), its own document
+    # kind; on the same device as UC_Crop.
     (analyzers / "UC_Compact.yaml").write_text(
         yaml.safe_dump(
             {
-                "schema_version": 2,
-                "name": "UC_Compact",
-                "analyzer": {"kind": "himg_compact"},
-                "scan": {"priority": 100, "device": "cam"},
+                "schema_version": 1,
+                "kind": "himg_compact",
+                "device": "cam",
+                "output_name": "UC_Compact",
             }
         )
     )

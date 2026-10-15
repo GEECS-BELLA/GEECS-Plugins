@@ -14,11 +14,17 @@ published JSON schemas and Markdown references through existing tooling.
 
 ## Analysis documents
 
-Two formats share `scan_analysis_configs/analyzers/`: the v3
-`AnalysisRecipe` (`analysis/recipe.py`, the analysis core's native shape)
-and the v2 `AnalysisDiagnostic` (kept for the analyzer kinds the core has
-not ported). `load_analysis_document` dispatches on `schema_version`;
-every loader goes through it. The recipe types the document's frame —
+Three documents share `scan_analysis_configs/analyzers/`: the v3
+`AnalysisRecipe` (`analysis/recipe.py`, the analysis core's native shape),
+the v2 `AnalysisDiagnostic` (kept for the analyzer kinds the core has
+not ported), and the `HimgJob` (`analysis/himg.py`: the `.himg`
+data-management jobs, not analyses — a top-level `kind`, its own
+`schema_version: 1`). `load_analysis_document` reads a top-level `kind`
+as a job (neither analysis format has one), else dispatches on
+`schema_version`; every loader goes through it. Every document carries
+the same neutral names (`device`, `data_folder`, `effective_output_name`,
+`destructive`, `scan.priority`, `source_id`) so a host lists them
+without asking which it holds. The recipe types the document's frame —
 naming, `input`, `inputs`, `scan`, `figure` (`FigureStyle`, the per-frame
 draw) and the summary kinds' option models (`image_grid`, `waterfall`,
 `average`, `scalar_fit`, each declaring the frame dimensionality it draws,

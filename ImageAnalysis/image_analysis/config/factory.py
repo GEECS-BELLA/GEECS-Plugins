@@ -61,8 +61,9 @@ def create_image_analyzer(diag: AnalysisDiagnostic) -> Any:
     """
     if not isinstance(diag, AnalysisDiagnostic):
         raise TypeError(
-            "an analysis recipe (schema_version 3) runs on the analysis core, "
-            "not on an ImageAnalyzer: build it with "
+            "only a v2 diagnostic has an ImageAnalyzer: an analysis recipe "
+            "(schema_version 3) runs on the analysis core and a .himg job on "
+            "ScanAnalysis — build either with "
             "scan_analysis.config.create_scan_analyzer or compile it with "
             "geecs_analysis.recipe.compile_recipe"
         )
