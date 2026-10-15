@@ -119,9 +119,10 @@ def downramp_phase(frame: Frame, spec: DownrampPhaseSpec) -> Measurement:
     scalar is NaN with a note (the legacy class failed there). So are the
     slope, location and plateau when no window of the summed phase
     qualifies, and the plateau values when its window is empty. The
-    overlays are omitted wherever their geometry is undefined. Extras:
-    the map on the laser axis (``rotated_phase``) and its column sums
-    (``summed_phase``), the legacy figure's data.
+    overlays are omitted wherever their geometry is undefined. One extra:
+    the column sums of the map on the laser axis (``summed_phase``), the
+    profile the legacy figure plotted; the rotated map itself is not
+    carried (nothing writes it, and it would ride every pooled result).
     """
     import numpy as np
     from geecs_data_utils.frames import Frame
@@ -172,12 +173,9 @@ def downramp_phase(frame: Frame, spec: DownrampPhaseSpec) -> Measurement:
     if shock.rotated is not None:
         overlays.extend(_segments(shock, frame))
         extras = {
-            "rotated_phase": Frame.from_array(
-                shock.rotated, shot=frame.shot, label="rotated phase"
-            ),
             "summed_phase": Frame.from_array(
                 shock.profile, shot=frame.shot, label="summed phase"
-            ),
+            )
         }
     return Measurement(
         scalars=scalars,
@@ -222,7 +220,8 @@ def _segments(shock: ShockAnalysis, frame: Frame) -> list[Segment]:
     column across the canvas, and the plateau window's two bounding
     columns — each a line on the rotated canvas, carried back through the
     rotation to the frame's coordinates (the canvas is larger, so an end
-    may lie past the frame; the renderer clips).
+    may lie past the frame; the product draws keep the image's limits and
+    clip it).
     """
     import numpy as np
 

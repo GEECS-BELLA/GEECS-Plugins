@@ -38,8 +38,9 @@ class Marker:
 class Segment:
     """A straight line between two points in the source frame's coordinate system.
 
-    Drawn as a line; averaged endpoint-wise over a bin like a marker, and
-    omitted from the average when an endpoint is nonfinite.
+    Drawn as a line; averaged like a marker — each coordinate over its
+    finite values — and dropped from the average when any coordinate has
+    none.
     """
 
     id: str

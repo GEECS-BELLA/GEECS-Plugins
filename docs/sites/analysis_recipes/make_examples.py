@@ -60,11 +60,13 @@ def frame_info(f: Frame, vmax: float) -> dict:
 
 
 def overlays(res) -> dict:
-    """Projections as sample lists, markers as (x, y)."""
+    """Projections as sample lists, markers as (x, y), segments as (x0, y0, x1, y1)."""
     out = {}
     for o in res.overlays:
         if hasattr(o, "frame"):
             out[o.id] = [float(v) for v in o.frame.data]
+        elif hasattr(o, "x1"):
+            out[o.id] = [float(o.x0), float(o.y0), float(o.x1), float(o.y1)]
         else:
             out[o.id] = [float(o.x), float(o.y)]
     return out

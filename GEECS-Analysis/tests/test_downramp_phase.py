@@ -76,13 +76,11 @@ def legacy(doc: AnalysisDiagnostic, image: np.ndarray, analyzer_class=None):
 
 
 def assert_equal_scalars(result: Measurement, expected: dict) -> None:
-    """Every legacy key, equal; NaN only where the legacy value is NaN too."""
+    """Every legacy key, equal — and the oracle finite, so matched NaNs never pass."""
+    assert all(math.isfinite(float(v)) for v in expected.values()), "oracle undefined"
     assert set(result.scalars) == set(expected)
     for key, value in expected.items():
-        if math.isnan(float(value)):
-            assert math.isnan(result.scalars[key]), key
-        else:
-            assert result.scalars[key] == float(value), key
+        assert result.scalars[key] == float(value), key
 
 
 def overlay(result: Measurement, name: str):
@@ -105,9 +103,6 @@ def test_the_v2_route_equals_the_legacy_analyzer(case, seed):
     image = phase_map(case, seed)
     old = legacy(doc, image)
     new = analyze_v2(image, compile_v2(doc))
-    assert all(math.isfinite(float(v)) for v in old.scalars.values()), (
-        "oracle undefined"
-    )
     assert_equal_scalars(new, old.scalars)
     assert new.notes == ()
     # The frame is the legacy 16-bit phase product, stored as float64.
@@ -258,14 +253,21 @@ def test_a_profile_with_no_steepest_window_leaves_the_plateau_undefined():
 # ------------------------------------------------------------- overlays
 
 
-def test_unrotate_inverts_the_rotation_of_the_laser_axis():
-    image = np.zeros((40, 70))
-    image[9, 51] = 1.0
-    angle = 11.3
-    rotated = ndimage.rotate(image, angle=angle, reshape=True, order=1)
-    where = np.unravel_index(np.argmax(rotated), rotated.shape)
-    back = ported.unrotate(np.array([where]), angle, image.shape, rotated.shape)[0]
-    np.testing.assert_allclose(back, (9, 51), atol=1.0)
+@pytest.mark.parametrize("angle", [11.3, -37.0, 95.0])
+def test_unrotate_inverts_the_rotation_of_the_laser_axis(angle):
+    """Linear interpolation reproduces a plane exactly, so the inverse map is pinned exactly."""
+    rows, cols = np.mgrid[0:40, 0:70]
+    plane = 0.7 * rows - 0.3 * cols + 5.0
+    rotated = ndimage.rotate(plane, angle=angle, reshape=True, order=1)
+    canvas = np.argwhere(np.ones(rotated.shape, dtype=bool))
+    back = ported.unrotate(canvas, angle, plane.shape, rotated.shape)
+    # Only canvas points whose sample lies inside the input (no padding).
+    inside = (
+        (back[:, 0] >= 0) & (back[:, 0] <= 39) & (back[:, 1] >= 0) & (back[:, 1] <= 69)
+    )
+    assert inside.sum() > 1000
+    expected = 0.7 * back[inside, 0] - 0.3 * back[inside, 1] + 5.0
+    np.testing.assert_allclose(rotated[tuple(canvas[inside].T)], expected, atol=1e-9)
 
 
 def test_the_shock_overlays_sit_on_the_frame_where_the_shock_is():
@@ -282,9 +284,8 @@ def test_the_shock_overlays_sit_on_the_frame_where_the_shock_is():
             # canvas's edges, not the shock; its line is drawn as fitted.
             fit = overlay(result, "shock_fit")
             assert distance_to_segment(fit, SHOCK_COLUMN, axis_row) < 4.0, case
-        assert result.extras["summed_phase"].data.shape == (
-            result.extras["rotated_phase"].data.shape[1],
-        )
+        assert set(result.extras) == {"summed_phase"}
+        assert result.extras["summed_phase"].data.size >= result.frame.data.shape[1]
 
 
 def test_overlays_follow_the_frame_coordinates_after_a_crop():
@@ -304,10 +305,16 @@ def test_segments_render_and_can_be_hidden_by_id():
     from geecs_analysis.render.specs import FigureSpec
     import matplotlib.pyplot as plt
 
-    result = analyze_v2(phase_map("shock", 0), compile_v2(document()))
+    result = analyze_v2(phase_map("tilted", 0), compile_v2(document()))
+    segments = [o for o in result.overlays if isinstance(o, Segment)]
+    assert min(min(s.y0, s.y1) for s in segments) < 0  # past the frame's edge
     drawn = single(result)
     lines = {line.get_linestyle() for line in drawn.axes[0].lines}
     assert "--" in lines
+    # The product draw keeps the image's limits; a segment past the edge is clipped.
+    left, right, bottom, top = drawn.axes[0].images[0].get_extent()
+    assert drawn.axes[0].get_xlim() == (left, right)
+    assert drawn.axes[0].get_ylim() == (bottom, top)
     plt.close(drawn)
     hidden = single(
         result,

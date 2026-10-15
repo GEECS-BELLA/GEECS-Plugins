@@ -15,7 +15,7 @@ undefined plateau rather than failing.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Optional
 
 import numpy as np
 from scipy import ndimage
@@ -32,7 +32,7 @@ def apply_gaussian_mask(
     sigma_y: float = 20,
     binarize: bool = False,
     threshold_factor: float = 0.01,
-) -> Union[np.ndarray, tuple[np.ndarray, np.ndarray]]:
+) -> np.ndarray:
     """Apply a separable 2D Gaussian mask and optionally binarize.
 
     Parameters

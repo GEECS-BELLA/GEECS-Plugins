@@ -301,7 +301,7 @@ def test_core_supports_only_recipes_the_core_can_run():
     assert core_supports(document("line"))
     assert core_supports(document(background_source={"scan_number": 5}))
     assert not core_supports(document(background_source={"autodetect": {}}))
-    # Every frame-scoped kind is ported; a flip is what the core still refuses.
+    # A flip: a schema-valid camera feature the core refuses.
     assert not core_supports(
         AnalysisDiagnostic.model_validate(
             {
