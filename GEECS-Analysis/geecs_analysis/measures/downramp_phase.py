@@ -119,7 +119,9 @@ def downramp_phase(frame: Frame, spec: DownrampPhaseSpec) -> Measurement:
     scalar is NaN with a note (the legacy class failed there). So are the
     slope, location and plateau when no window of the summed phase
     qualifies, and the plateau values when its window is empty. The
-    overlays are omitted wherever their geometry is undefined. One extra:
+    segment overlays are omitted wherever their geometry is undefined
+    and, with a note, on a nonuniform axis, where a line on the sample
+    grid is not a line in coordinates. One extra:
     the column sums of the map on the laser axis (``summed_phase``), the
     profile the legacy figure plotted; the rotated map itself is not
     carried (nothing writes it, and it would ride every pooled result).
@@ -171,7 +173,15 @@ def downramp_phase(frame: Frame, spec: DownrampPhaseSpec) -> Measurement:
     overlays = [projection("projection_x", 1), projection("projection_y", 0)]
     extras = {}
     if shock.rotated is not None:
-        overlays.extend(_segments(shock, frame))
+        y, x = frame.axes
+        uneven = [name for name, axis in (("x", x), ("y", y)) if not _uniform(axis)]
+        if uneven:
+            notes += (
+                f"Shock overlays omitted on a nonuniform axis ({', '.join(uneven)}): "
+                "a line on the sample grid is not a line in its coordinates",
+            )
+        else:
+            overlays.extend(_segments(shock, frame))
         extras = {
             "summed_phase": Frame.from_array(
                 shock.profile, shot=frame.shot, label="summed phase"
@@ -253,8 +263,21 @@ def _segments(shock: ShockAnalysis, frame: Frame) -> list[Segment]:
     return segments
 
 
+def _uniform(axis: Axis) -> bool:
+    """Whether the samples are evenly spaced, to a part in 10⁹ (a computed axis's float noise)."""
+    import numpy as np
+
+    steps = np.diff(axis.values)
+    return steps.size == 0 or bool(np.allclose(steps, steps[0], rtol=1e-9, atol=0.0))
+
+
 def _at(axis: Axis, index: float) -> float:
-    """A fractional sample index as the axis's coordinate (affine in the sample spacing)."""
+    """A fractional sample index as the axis's coordinate, affine in the sample spacing.
+
+    Exact on a uniform axis, the only kind the segments are built for
+    (``_uniform``): a line on the sample grid has no straight image on
+    any other.
+    """
     values = axis.values
     spacing = float(values[1] - values[0]) if values.size > 1 else 1.0
     return float(values[0]) + index * spacing

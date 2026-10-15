@@ -301,6 +301,42 @@ def test_overlays_follow_the_frame_coordinates_after_a_crop():
         )
 
 
+def test_overlays_follow_uniform_axes_and_are_omitted_on_a_nonuniform_one():
+    """Segments follow a scaled, offset axis; a nonuniform one gets none, with a note."""
+    from geecs_data_utils.frames import Axis
+
+    image = phase_map("shock", 1)
+    recipe = compile_v2(document())
+    reference = analyze_v2(image, recipe)
+    # Uniform axes: offset, scaled, and one with a computed axis's float noise.
+    scaled = analyze(
+        Frame.from_array(
+            image,
+            axes=(Axis(np.linspace(0.0, 1.0, 64)), Axis(-9.6 + 0.2 * np.arange(96))),
+        ),
+        recipe.analysis,
+    )
+    for name in OVERLAYS:
+        a, b = overlay(scaled, name), overlay(reference, name)
+        assert (a.x0, a.y0, a.x1, a.y1) == pytest.approx(
+            (-9.6 + 0.2 * b.x0, b.y0 / 63, -9.6 + 0.2 * b.x1, b.y1 / 63)
+        )
+    assert scaled.notes == reference.notes == ()
+    # A nonuniform axis: the scalars live on the sample grid and are
+    # untouched; the segments are gone and a note says why.
+    for axes, names in (
+        ((Axis(np.arange(64.0)), Axis(np.arange(96.0) ** 2)), "x"),
+        ((Axis(np.arange(64.0) ** 2), Axis(np.arange(96.0) ** 2)), "x, y"),
+    ):
+        result = analyze(Frame.from_array(image, axes=axes), recipe.analysis)
+        assert dict(result.scalars) == dict(reference.scalars)
+        assert {o.id for o in result.overlays} == {"projection_x", "projection_y"}
+        assert result.notes == (
+            f"Shock overlays omitted on a nonuniform axis ({names}): "
+            "a line on the sample grid is not a line in its coordinates",
+        )
+
+
 def test_segments_render_and_can_be_hidden_by_id():
     from geecs_analysis.render.specs import FigureSpec
     import matplotlib.pyplot as plt

@@ -104,8 +104,9 @@ use matching NaNs as evidence of scientific parity. Overlays have stable ids
 and three families, each carrying data (`measurement.py`): `Projection` (a
 lineout along an image edge), `Marker` (a point) and `Segment` (a line
 between two points in frame coordinates); centroid markers and shock
-segments are omitted when their coordinates are nonfinite, and a bin
-average folds markers and segments endpoint-wise.
+segments are omitted when their coordinates are nonfinite (shock
+segments also on a nonuniform axis, where a line on the sample grid is
+not a line), and a bin average folds markers and segments endpoint-wise.
 
 ## The recipe (format 3)
 
@@ -188,7 +189,8 @@ the frame is the legacy 16-bit phase product (`(2¹⁶−1)/2π` counts per
 radian, truncated) as float64. Its per-shot PDF is dropped: the shock
 line, its column and the plateau bounds are `Segment` overlays carried
 back from the rotated canvas onto the frame (`unrotate`, scipy's own
-rotation geometry inverted), the two projections beside them; a map with
+rotation geometry inverted; on a nonuniform axis they are omitted with
+a note), the two projections beside them; a map with
 no signal after masking, or no steepest window, is NaN with a note where
 the legacy class raised. The spec's four parameters are the legacy
 constants (the v2 spec has none). The compiler's supported subset is documented
