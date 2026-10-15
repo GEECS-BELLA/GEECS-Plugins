@@ -271,8 +271,9 @@ def test_lanex_row_falls_back_to_position_without_a_setting_column(tmp_path):
 def test_cells_the_legacy_reader_never_converted_may_be_blank(tmp_path, camera):
     """Only the camera's screen rows are converted, as the legacy reader did.
 
-    A survey may leave the other screen's cells of that column blank, and
-    ``side logic`` after the split row; the legacy reader never read them.
+    A survey may leave the other screen's rows of the screen and momentum
+    columns blank, and ``side logic`` after the split row; the legacy
+    reader never read them.
     """
     paths = synthetic_tables(tmp_path)
     table = read_table(paths["trajectory"])
@@ -281,10 +282,11 @@ def test_cells_the_legacy_reader_never_converted_may_be_blank(tmp_path, camera):
     front = camera in (1, 2)
     own = set(range(split) if front else range(split, len(table)))
     screen = table.columns.index("front screen [m]" if front else "side screen [m]")
+    momentum = table.columns.index("momentum [MeV/c]")
     rows = [list(row) for row in table.rows]
     for index, row in enumerate(rows):
         if index not in own:
-            row[screen] = ""
+            row[screen] = row[momentum] = ""
         if index > split:
             row[logic] = ""
     write_tsv(paths["trajectory"], list(table.columns), rows)
