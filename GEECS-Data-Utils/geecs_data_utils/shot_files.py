@@ -31,6 +31,7 @@ from geecs_data_utils.io.scan_stack import (
     stack_frame_index_map,
 )
 from geecs_data_utils.tiled_schema import (
+    announced_shots,
     device_acq_timestamp_column,
     device_valid_column,
 )
@@ -82,6 +83,14 @@ def map_shot_files(
     return mapper.paths
 
 
+def _is_false(value: object) -> bool:
+    """A ``valid`` cell that says false; unknown (NA, unparseable) is not."""
+    try:
+        return not pd.isna(value) and not bool(value)
+    except (TypeError, ValueError):
+        return False
+
+
 @dataclass
 class _ShotFileMapper:
     """One mapping pass; mutable work state never escapes except the result map."""
@@ -111,9 +120,12 @@ class _ShotFileMapper:
           (canonicalised to integer milliseconds), never a filename guess.
           The join is strictly per-device: this device's column against this
           device's folder; other devices' clocks never enter it.
-        - **shot-number filenames** (MC-produced scans): the legacy pattern
+        - **shot-number filenames** (MC-produced scans, and the worker's
+          scan-mode runs): the legacy pattern
           ``Scan<scan_number>_<device_subject>_<shot_number><file_tail>``,
-          e.g. ``Scan012_UC_ALineEBeam3_005.png``.
+          e.g. ``Scan012_UC_ALineEBeam3_005.png``. The file's number is the
+          row's announced shot when the rows carry one, else ``Shotnumber``
+          itself; a scan-mode row this device missed maps no file.
 
         The presence of an ``acq_timestamp`` column selects the timestamp
         join first, but it is not conclusive on its own: the legacy scanner
@@ -201,6 +213,7 @@ class _ShotFileMapper:
     def _map_files_by_shot_number(self) -> None:
         """Legacy strategy: parse shot numbers out of MC-convention filenames."""
         data_filename_regex = self._legacy_filename_regex()
+        shot_for_number = self._shot_for_file_number()
 
         for file in self.directory.iterdir():
             if not file.is_file():
@@ -208,12 +221,42 @@ class _ShotFileMapper:
 
             m = data_filename_regex.match(file.name)
             if m:
-                shot_num = int(m.group("shot_number"))
-                if shot_num in self.rows["Shotnumber"].values:
+                shot_num = shot_for_number.get(int(m.group("shot_number")))
+                if shot_num is not None:
                     self.paths[shot_num] = file
                     logger.info("Mapped file for shot %s: %s", shot_num, file)
             else:
                 logger.debug("Filename %s does not match expected pattern.", file.name)
+
+    def _shot_for_file_number(self) -> dict[int, int]:
+        """File shot number → the row's ``Shotnumber``.
+
+        A scan-mode run numbers its files by the announced shot
+        (:func:`~geecs_data_utils.tiled_schema.announced_shots`), and a row
+        whose device stamp is missing or whose ``valid`` is false is a shot
+        this device missed: a file under its number is not that shot's.
+        Every other run numbers its files by ``Shotnumber`` itself.
+        """
+        shots = pd.to_numeric(self.rows["Shotnumber"], errors="coerce")
+        numbers = announced_shots(self.rows)
+        numbers = shots if numbers is None else numbers.where(~self._missed_rows())
+        return {
+            int(number): int(shot)
+            for number, shot in zip(numbers, shots)
+            if pd.notna(number) and pd.notna(shot)
+        }
+
+    def _missed_rows(self) -> pd.Series:
+        """Rows whose device stamp is absent or non-positive, or ``valid`` false."""
+        missed = pd.Series(False, index=self.rows.index)
+        ts_column = self._acq_timestamp_column()
+        if ts_column is not None:
+            stamps = pd.to_numeric(self.rows[ts_column], errors="coerce")
+            missed |= ~(np.isfinite(stamps) & (stamps > 0))
+        valid_column = self._matching_valid_column()
+        if valid_column is not None:
+            missed |= self.rows[valid_column].map(_is_false)
+        return missed
 
     def _acq_timestamp_column(self) -> Optional[str]:
         """Find this device's ``acq_timestamp`` column in the auxiliary frame.

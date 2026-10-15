@@ -15,6 +15,7 @@ from geecs_data_utils.tiled_catalog import fmt_time_of_day, metadata_rows
 from geecs_portal import figures, resources
 from geecs_portal.routes.common import (
     _acq_timestamp,
+    _file_shot,
     _jump_target,
     _parse_day,
     _parse_iso_day,
@@ -193,6 +194,7 @@ def run_view(
                 acq_timestamp=acq_s,
                 data_cache=portal.data_cache,
                 cache_key=warm_key,
+                file_shot=_file_shot(warm_detail, s),
             )
 
         portal.data_cache.warm_native(

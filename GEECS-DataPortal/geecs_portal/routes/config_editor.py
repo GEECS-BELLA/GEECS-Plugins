@@ -10,7 +10,7 @@ import numpy as np
 from fastapi import FastAPI, HTTPException
 
 from geecs_portal import resources
-from geecs_portal.routes.common import _acq_timestamp, _image_folder
+from geecs_portal.routes.common import _acq_timestamp, _file_shot, _image_folder
 from geecs_portal.state import PortalState
 
 logger = logging.getLogger(__name__)
@@ -109,6 +109,7 @@ def _camera_frame(
             acq_timestamp=acq,
             data_cache=portal.data_cache if complete else None,
             cache_key=(uid, device) if complete else None,
+            file_shot=_file_shot(detail, shot, folder),
         )
     except HTTPException as exc:
         kind = LookupError if exc.status_code == 404 else ValueError

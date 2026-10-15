@@ -1461,3 +1461,78 @@ class TestRenderedView:
                 },
             )
             assert response.status_code == 404, display
+
+
+class TestScanModeFileNumbers:
+    """A scan-mode run's files carry the announced shot, not the row index.
+
+    A rewound announce: shot 3 was announced and an immediate pause rewound
+    it, so the replay was announced as 4. Rows 1-3 carry announced shots
+    1, 2, 4 and the folder holds ``_001``..``_004``, ``_003`` no row's.
+    """
+
+    DEVICE = "UC_ModeCam"
+
+    def _files(self, scan_folder):
+        device_dir = scan_folder / self.DEVICE
+        device_dir.mkdir()
+        for number in (1, 2, 3, 4):
+            image = np.zeros((6, 6), dtype=np.uint16)
+            image[0, number] = 40_000  # the file's number, as a pixel column
+            Image.fromarray(image).save(
+                device_dir / f"Scan002_{self.DEVICE}_{number:03d}.png"
+            )
+
+    def _client(self, scan_folder, announced):
+        self._files(scan_folder)
+        catalog = FakeCatalog()
+        detail = _detail(2)
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        detail.data[f"{self.DEVICE}-acq_timestamp"] = [_LV + 1.0, _LV + 2.0, _LV + 3.0]
+        detail.data["announced_shot"] = announced
+        catalog.details["uid-002"] = detail
+        return TestClient(create_app(catalog))
+
+    def _served_number(self, response) -> int:
+        rendered = np.asarray(Image.open(io.BytesIO(response.content)))
+        return int(np.unravel_index(np.argmax(rendered), rendered.shape)[1])
+
+    def test_each_row_serves_its_announced_shot_file(self, scan_folder):
+        client = self._client(scan_folder, [1, 2, 4])
+        for row, number in ((1, 1), (2, 2), (3, 4)):
+            response = client.get(
+                f"/run/uid-002/image.png?device={self.DEVICE}&shot={row}"
+            )
+            assert response.status_code == 200
+            assert self._served_number(response) == number
+
+    def test_a_row_without_an_announced_shot_never_serves_the_row_index(
+        self, scan_folder
+    ):
+        client = self._client(scan_folder, [1.0, 2.0, float("nan")])
+        response = client.get(f"/run/uid-002/image.png?device={self.DEVICE}&shot=3")
+        assert response.status_code == 404
+
+    def test_a_run_without_the_column_keeps_the_row_index(self):
+        from geecs_portal.routes.common import _file_shot
+
+        assert _file_shot(_detail(2), 2) is None
+
+    def test_a_folder_only_run_reads_the_number_from_the_s_file(self, scan_folder):
+        # The folder catalog (Tiled down) loads no event table: data=None.
+        import dataclasses
+
+        self._files(scan_folder)
+        analysis_dir = scan_folder.parent.parent / "analysis"
+        analysis_dir.mkdir()
+        (analysis_dir / "s2.txt").write_text(
+            "Bin #\tAnnounced Shot\tShotnumber\n1\t1\t1\n1\t2\t2\n1\t4\t3\n"
+        )
+        detail = dataclasses.replace(_detail(2), data=None)
+        detail.start_doc["scan_folder"] = str(scan_folder)
+        catalog = FakeCatalog()
+        catalog.details["uid-002"] = detail
+        client = TestClient(create_app(catalog))
+        response = client.get(f"/run/uid-002/image.png?device={self.DEVICE}&shot=3")
+        assert response.status_code == 200
+        assert self._served_number(response) == 4

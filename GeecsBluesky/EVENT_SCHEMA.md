@@ -88,7 +88,7 @@ trigger state (`shot_control-state`) when it is read.
 | `<device>-<variable>` | A scalar-only device's subscribed readbacks (`CaSnapshotReadable`) |
 | `<device>-<settable>-position` / `-readback` | A settable child's readback when the DB subscribes it (`CaMotor` / `CaSettable`), and the scan motor's column |
 | `bin_number` | The scan step the row belongs to, from 1 (the GEECS `per_step`; every row of a `count` is bin 1) — the s-file's `Bin #` |
-| `announced_shot` | Scan mode only (`use_scan_mode`): the run-wide shot number announced for the row's shot, from 1 — every fire increments it, refires included, so a partial row keeps its number and the retake takes the next; a number is never re-sent. The join key for a device's shot-numbered files (`ScanNNN_<device>_SSS.<ext>`): the s-file's row index is not it |
+| `announced_shot` | Scan mode only (`use_scan_mode`): the run-wide shot number announced for the row's shot, from 1 — every fire increments it, refires included, so a partial row keeps its number and the retake takes the next; a number is never re-sent. The join key for a device's shot-numbered files (`ScanNNN_<device>_SSS.<ext>`): the s-file's row index is not it — the s-file's `Announced Shot` |
 
 A device listed as `X.scalars` (the scalars-only view every namespace
 device carries; `save_images: false` in a preset) contributes the same

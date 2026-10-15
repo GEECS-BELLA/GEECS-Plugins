@@ -59,8 +59,9 @@ Legacy Master Control convention
 --------------------------------
 The same contract family includes the legacy MC/file-mover naming
 ``Scan{NNN}_{device_subject}_{shot:03d}{file_tail}`` used by scans whose
-files were renamed post-hoc by shot number; :func:`legacy_filename_regex`
-builds its matcher.
+files were renamed post-hoc by shot number, and by devices in GEECS scan mode,
+which save under the shot number the scan announced (the rows' announced-shot
+column, not the row index); :func:`legacy_filename_regex` builds its matcher.
 """
 
 from __future__ import annotations

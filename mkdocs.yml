@@ -58,6 +58,7 @@ nav:
   # the group that matches its audience.
   - Acquisition:
       - acquisition/index.md
+      - GEECS scan mode: acquisition/scan_mode.md
       - Notes and Discussions:
           - Bayesian optimization for e-beam brightness: acquisition/notes/bayesian optimization for e-beam brightness.md
 

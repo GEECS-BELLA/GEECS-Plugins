@@ -68,7 +68,11 @@ from geecs_data_utils.native_files import (
     filename_timestamp_regex,
     legacy_filename_regex,
 )
-from geecs_data_utils.tiled_schema import device_acq_timestamp_column, normalize_token
+from geecs_data_utils.tiled_schema import (
+    announced_shots,
+    device_acq_timestamp_column,
+    normalize_token,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -435,8 +439,12 @@ def _legacy_stamps(
         raise HimgStampsUnavailable(
             f"the scalar rows carry no {device} acq_timestamp column"
         )
+    # A scan-mode file carries the announced shot, not the row index.
+    numbers = announced_shots(rows)
     stamps: dict[int, float] = {}
-    for shot, stamp in zip(rows["Shotnumber"], rows[column]):
+    for shot, stamp in zip(
+        rows["Shotnumber"] if numbers is None else numbers, rows[column]
+    ):
         try:
             stamps[int(shot)] = float(stamp)
         except (TypeError, ValueError):

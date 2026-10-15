@@ -453,7 +453,9 @@ capture HDF5 stacks first (`geecs_data_utils.io.scan_stack` — joined by
 event row's `acq_timestamp`, ScanAnalysis parity; NEVER by frame
 ordinal when a timestamp is available — pre-scan extra frames shift
 ordinals, FORMAT.md caveat a), else native files via `native_files`
-exact stat-probes (legacy `ScanNNN_device_shot` names tried first;
+exact stat-probes (legacy `ScanNNN_device_shot` names tried first, numbered
+by the row's announced shot on a scan-mode run, from the s-file when the
+folder catalog loaded no event table — `routes.common._file_shot`;
 `read_imaq_image` loads pixels; never re-derive the filename
 convention), vendor-SDK formats (`.himg`/`.has`) as a path card, never
 rendered.  The event column matches through
