@@ -267,6 +267,35 @@ def test_lanex_row_falls_back_to_position_without_a_setting_column(tmp_path):
     )
 
 
+@pytest.mark.parametrize("camera", [1, 3])
+def test_cells_the_legacy_reader_never_converted_may_be_blank(tmp_path, camera):
+    """Only the camera's screen rows are converted, as the legacy reader did.
+
+    A survey may leave the other screen's cells of that column blank, and
+    ``side logic`` after the split row; the legacy reader never read them.
+    """
+    paths = synthetic_tables(tmp_path)
+    table = read_table(paths["trajectory"])
+    logic = table.columns.index("side logic")
+    split = next(i for i, row in enumerate(table.rows) if float(row[logic]) == 1.0)
+    front = camera in (1, 2)
+    own = set(range(split) if front else range(split, len(table)))
+    screen = table.columns.index("front screen [m]" if front else "side screen [m]")
+    rows = [list(row) for row in table.rows]
+    for index, row in enumerate(rows):
+        if index not in own:
+            row[screen] = ""
+        if index > split:
+            row[logic] = ""
+    write_tsv(paths["trajectory"], list(table.columns), rows)
+    doc = diagnostic(paths, camera=camera)
+    compiled = compile_v2(doc, allow_table_inputs=True)
+    raw = frame(camera)
+    assert_same_result(
+        analyze_v2(raw, compiled, inputs=bound_tables(compiled)), legacy(doc, raw)
+    )
+
+
 def test_the_per_shot_field_equals_the_legacy_override_and_never_leaks(tmp_path):
     doc = diagnostic(synthetic_tables(tmp_path), field=0.3)
     compiled = compile_recipe(

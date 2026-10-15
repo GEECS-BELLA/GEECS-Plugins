@@ -87,18 +87,23 @@ def trajectory(table: Table, camera_number: int) -> Trajectory:
 
     The table lists the front-screen rows first; the first row whose
     ``side logic`` is 1 starts the side-screen rows, as the legacy split did.
+    Only the cells the legacy reader converted are converted here: ``side
+    logic`` up to that row, then the camera's screen column and the momentum
+    over the camera's rows — a survey may leave the rest blank.
     """
     import numpy as np
 
-    side = np.flatnonzero(table.floats("side logic") == 1.0)
-    if side.size == 0:
+    logic = table.strings("side logic")
+    first = next((i for i, cell in enumerate(logic) if float(cell) == 1.0), None)
+    if first is None:
         raise ValueError("No 'side logic == 1' split in the trajectory table")
-    first = int(side[0])
     front = camera_number in FRONT_SCREEN_CAMERAS
     rows = slice(None, first) if front else slice(first, None)
     column = "front screen [m]" if front else "side screen [m]"
+    screen = np.array([float(c) for c in table.strings(column)[rows]], dtype=float)
+    momentum = table.strings("momentum [MeV/c]")[rows]
     return Trajectory(
-        1000.0 * table.floats(column)[rows], table.floats("momentum [MeV/c]")[rows]
+        1000.0 * screen, np.array([float(c) for c in momentum], dtype=float)
     )
 
 

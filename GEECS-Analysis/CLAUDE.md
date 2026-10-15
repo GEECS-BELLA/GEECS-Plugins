@@ -196,7 +196,9 @@ stitched input) with a channel is refused. A raw-bin unit averages the
 channel with its trace (the legacy per-bin path dropped the weights).
 `magspec` compiles to the measure of that name (`algorithms.magspec_calibration`,
 ported bit for bit: the 1-based `X Start`/`X End` slice, `argsort` +
-`CubicSpline(extrapolate=False)` over screen position, the `1.98/146`
+`CubicSpline(extrapolate=False)` over screen position (only the
+camera's screen rows converted — a survey may leave the other screen's
+cells blank), the `1.98/146`
 lanex factors, `np.gradient` + row-wise `np.interp` onto a grid clipped to
 the calibration's reach — the two per-shot clip warnings are gone, not
 the clip; `energy_range` is a request). A `dnn_axis` calibration's three
