@@ -716,10 +716,12 @@ In practice:
   frame × 1000, and `-interpSpec` TSV) are written per single-shot unit
   into `scans/ScanNNN/<output_name><suffix>/<raw stem>.png|.tsv` by
   `core_sink.write_sibling_outputs`, byte for byte the legacy analyzer's
-  files, whatever `save` says: the scan folder must exist and the suffix
+  per-shot files (a capture-stack frame gets the shot-number stem, where
+  legacy overwrote one file named by the stack), whatever `save` says: the scan folder must exist and the suffix
   folder is the one directory created (`mkdir(exist_ok=True)`). A failed
-  write is logged and the run keeps its scalars. A per-bin unit writes
-  none (the legacy per-bin path had no file to name them by). The raw
+  write is logged and the run keeps its scalars. A per-bin run writes
+  none, even for a bin of one loaded shot (the legacy per-bin path had no
+  file to name them by). The raw
   stem keeps old and new data readable by one stitcher; on a
   timestamp-named scan the join rests on data-utils' stem-agnostic
   listing fallback (`core_source._sibling_references`).

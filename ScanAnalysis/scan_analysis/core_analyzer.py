@@ -362,12 +362,14 @@ class CoreScanAnalyzer(ScanAnalyzer):
     ) -> None:
         """Write one shot's sibling outputs beside the raw folder, as the legacy analyzer did.
 
-        Written whatever ``save`` says and only for a single-shot unit (the
-        legacy per-bin path had no file to name them by). A failure — the
+        Written whatever ``save`` says and only on a per-shot run: a raw bin
+        is an averaged unit even when one shot loaded (the legacy per-bin
+        path had no file to name them by). A failure — the
         scan folder briefly invisible, a full share — is logged and the run
         goes on with its scalars, as the legacy analyzer's was.
         """
-        if len(outcome.loaded_shots) != 1:
+        if prepared.average_before_analysis:
+            # A raw bin of one loaded shot is still an averaged unit.
             return
         shot = outcome.loaded_shots[0]
         try:

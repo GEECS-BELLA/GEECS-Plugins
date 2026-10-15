@@ -406,7 +406,9 @@ def write_sibling_outputs(
 
     Each goes to ``<scan folder>/<output_name><suffix>/<stem>.png|.tsv``,
     the stem the shot's raw file's (``_shot_location``) — byte for byte the
-    legacy magspec writer: ``png16`` is the data times the output's scale,
+    legacy magspec writer's per-shot files (a capture-stack frame gets the
+    legacy shot-number stem; the legacy writer named every stack frame by
+    the stack's own stem, one file overwritten per shot): ``png16`` is the data times the output's scale,
     clipped to 0..65535 and truncated to uint16; ``tsv`` is ``np.savetxt``
     of the axis and the samples under a ``<label> [<unit>]`` header. The
     scan folder must already exist (a missing one raises

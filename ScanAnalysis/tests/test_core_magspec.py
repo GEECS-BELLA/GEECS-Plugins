@@ -277,7 +277,7 @@ def test_a_pooled_run_writes_the_identical_tree(tmp_path, monkeypatch, configs, 
 def test_per_bin_runs_write_no_sibling_outputs(tmp_path, monkeypatch, configs):
     """The legacy per-bin path had no file to name them by; neither route writes them."""
     document = diagnostic(None, mode="per_bin")
-    bins = dict(bins=[1, 1, 2, 2, 3, 3])
+    bins = dict(bins=[1, 1, 2, 2, 3, 4])  # bin 4: one shot, still a bin
     legacy = run(monkeypatch, tmp_path / "legacy", document, "legacy", **bins)
     core = run(monkeypatch, tmp_path / "core", document, "core", **bins)
     old, new = snapshot(legacy), snapshot(core)
