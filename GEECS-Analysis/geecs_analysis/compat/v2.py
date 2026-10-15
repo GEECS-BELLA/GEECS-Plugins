@@ -16,6 +16,7 @@ from geecs_schemas.analysis.processing_1d import Line1DConfig
 from geecs_schemas.analysis.processing_2d import CameraConfig
 
 from geecs_analysis.measures.beam import BeamSpec
+from geecs_analysis.measures.downramp_phase import DownrampPhaseSpec
 from geecs_analysis.measures.frog import FrogSpec
 from geecs_analysis.measures.frog_spectral_phase import FrogSpectralPhaseSpec
 from geecs_analysis.measures.hi_res_mag_cam import HiResMagCamSpec
@@ -109,6 +110,7 @@ _PARAMETERIZED = {
     "frog_retrieval": FrogSpec,
     "hi_res_mag_cam": HiResMagCamSpec,
     "frog_spectral_phase": FrogSpectralPhaseSpec,
+    "downramp_phase": DownrampPhaseSpec,
 }
 
 
@@ -160,6 +162,8 @@ def compile_v2(  # noqa: C901, PLR0912
     that name (its ``threshold_factor`` is not carried: the fit never read
     it). ``frog_spectral_phase`` compiles to the measure of that name; its
     ``weights`` auxiliary column becomes the input's ``weights`` channel.
+    ``downramp_phase`` compiles to the measure of that name at its legacy
+    constants (the v2 spec has no parameters).
     """
     kind = document.analyzer.kind
     if kind not in {
@@ -172,6 +176,7 @@ def compile_v2(  # noqa: C901, PLR0912
         "ict",
         "hi_res_mag_cam",
         "frog_spectral_phase",
+        "downramp_phase",
     }:
         raise UnsupportedRecipe(f"Analyzer not ported: {kind}")
     config = document.image
@@ -183,6 +188,7 @@ def compile_v2(  # noqa: C901, PLR0912
         "standard",
         "frog_retrieval",
         "hi_res_mag_cam",
+        "downramp_phase",
     } and not isinstance(config, CameraConfig):
         raise UnsupportedRecipe(f"{kind} requires a camera input")
     line_kinds = {"line", "line_stitcher", "trace", "ict", "frog_spectral_phase"}

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     import numpy as np
     from geecs_data_utils.frames import Frame
     from geecs_analysis.compat.v2 import V2Recipe
-    from geecs_analysis.measurement import Marker, Measurement, Projection
+    from geecs_analysis.measurement import Marker, Measurement, Projection, Segment
 
 AverageMode = Literal["noscan", "bin"]
 
@@ -135,30 +135,38 @@ class _ProjectionAverage:
         return Projection(template.id, template.axis, frame)
 
 
-class _MarkerAverage:
-    """The bin-mode average of one marker id: each coordinate over its finite values."""
+def _points(overlay: Marker | Segment) -> list[float]:
+    """A marker's point or a segment's two ends, as one coordinate vector."""
+    from geecs_analysis.measurement import Marker
 
-    def __init__(self, template: Marker) -> None:
+    if isinstance(overlay, Marker):
+        return [overlay.x, overlay.y]
+    return [overlay.x0, overlay.y0, overlay.x1, overlay.y1]
+
+
+class _PointAverage:
+    """The bin-mode average of one marker or segment id: each coordinate over its finite values."""
+
+    def __init__(self, template: Marker | Segment) -> None:
         import numpy as np
 
         self.id = template.id
-        self.sum = _Sum(np.array([template.x, template.y]), skip_nan=True)
+        self.kind = type(template)
+        self.sum = _Sum(np.array(_points(template)), skip_nan=True)
 
-    def add(self, overlay: Marker) -> None:
+    def add(self, overlay: Marker | Segment) -> None:
         import numpy as np
-        from geecs_analysis.measurement import Marker
 
-        if not isinstance(overlay, Marker):
+        if type(overlay) is not self.kind:
             raise ValueError("Averaged overlay ids must retain their type")
-        self.sum.add(np.array([overlay.x, overlay.y]))
+        self.sum.add(np.array(_points(overlay)))
 
-    def result(self) -> Marker | None:
+    def result(self) -> Marker | Segment | None:
         import numpy as np
-        from geecs_analysis.measurement import Marker
 
-        x, y = self.sum.mean()
-        if np.isfinite(x) and np.isfinite(y):
-            return Marker(self.id, float(x), float(y))
+        values = self.sum.mean()
+        if np.all(np.isfinite(values)):
+            return self.kind(self.id, *(float(v) for v in values))
         return None
 
 
@@ -206,7 +214,7 @@ class RunningAverage:
         self._values: dict[str, list[float]] = {}
         self._first_has_scalars = False
         self._bin_keys: tuple[str, ...] | None = None
-        self._overlays: dict[str, _ProjectionAverage | _MarkerAverage] = {}
+        self._overlays: dict[str, _ProjectionAverage | _PointAverage] = {}
 
     def add(self, result: Measurement) -> None:  # noqa: C901, PLR0912
         """Fold one more processed result."""
@@ -257,7 +265,7 @@ class RunningAverage:
                     self._overlays[overlay.id] = (
                         _ProjectionAverage(overlay)
                         if isinstance(overlay, Projection)
-                        else _MarkerAverage(overlay)
+                        else _PointAverage(overlay)
                     )
                 else:
                     running.add(overlay)

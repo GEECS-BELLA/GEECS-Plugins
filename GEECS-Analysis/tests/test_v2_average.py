@@ -310,3 +310,32 @@ def test_camera_bin_fold_without_nans_matches_nanmean_and_builds_no_count(late):
     np.testing.assert_array_equal(
         running.result().frame.data, np.nanmean(frames, axis=0)
     )
+
+
+def test_segments_fold_endpoint_wise_and_drop_when_an_end_is_nonfinite():
+    from geecs_analysis.measurement import Segment
+
+    _, compiled = recipe()
+    running = RunningAverage(compiled, mode="bin")
+    ends = [(1.0, 2.0, 5.0, 6.0), (3.0, 4.0, 7.0, 8.0), (np.nan, 4.0, 7.0, 8.0)]
+    for x0, y0, x1, y1 in ends:
+        running.add(
+            Measurement(
+                {"a": 1.0},
+                Frame.from_array(np.ones((2, 2))),
+                (
+                    Segment("shock", x0, y0, x1, y1),
+                    Segment("gone", np.nan, 0.0, 0.0, 0.0),
+                ),
+            )
+        )
+    (folded,) = running.result().overlays
+    assert folded == Segment("shock", 2.0, 10 / 3, 19 / 3, 22 / 3)
+    with pytest.raises(ValueError, match="retain their type"):
+        running.add(
+            Measurement(
+                {"a": 1.0},
+                Frame.from_array(np.ones((2, 2))),
+                (Marker("shock", 0.0, 0.0),),
+            )
+        )

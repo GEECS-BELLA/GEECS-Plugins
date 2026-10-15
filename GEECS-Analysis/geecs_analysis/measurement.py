@@ -34,7 +34,22 @@ class Marker:
     y: float
 
 
-Overlay = Projection | Marker
+@dataclass(frozen=True)
+class Segment:
+    """A straight line between two points in the source frame's coordinate system.
+
+    Drawn as a line; averaged endpoint-wise over a bin like a marker, and
+    omitted from the average when an endpoint is nonfinite.
+    """
+
+    id: str
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+
+Overlay = Projection | Marker | Segment
 
 
 @dataclass(frozen=True)
@@ -71,7 +86,7 @@ class Measurement:
                 raise TypeError(f"Scalar {key} must be real numerical data")
             values[key] = float(value)
         overlays = tuple(self.overlays)
-        if any(not isinstance(o, (Projection, Marker)) for o in overlays):
+        if any(not isinstance(o, (Projection, Marker, Segment)) for o in overlays):
             raise TypeError("Unsupported overlay type")
         if len({o.id for o in overlays}) != len(overlays):
             raise ValueError("Overlay ids must be unique within a measurement")

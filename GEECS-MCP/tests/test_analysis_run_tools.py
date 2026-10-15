@@ -74,11 +74,17 @@ def configs(tmp_path, monkeypatch):
             {
                 "schema_version": 2,
                 "name": "windows_only",
-                # A legacy-route kind whose class this host cannot import
-                # (the registry entry is pointed at a module that does not
-                # exist below), standing in for a vendor-SDK analyzer.
-                "analyzer": {"kind": "downramp_phase"},
-                "image": {"type": "camera", "bit_depth": 16},
+                # A legacy-route recipe (the flip keeps it off the core) of a
+                # kind whose class this host cannot import (the registry
+                # entry is pointed at a module that does not exist below),
+                # standing in for a vendor-SDK analyzer.
+                "analyzer": {"kind": "hi_res_mag_cam"},
+                "image": {
+                    "type": "camera",
+                    "bit_depth": 16,
+                    "pipeline": ["transforms"],
+                    "transforms": {"flip_horizontal": True},
+                },
                 "scan": {},
             }
         )
@@ -87,7 +93,7 @@ def configs(tmp_path, monkeypatch):
 
     monkeypatch.setitem(
         registry.ANALYZER_CLASS_PATHS,
-        "downramp_phase",
+        "hi_res_mag_cam",
         "no.such.vendor.module.Analyzer",
     )
     group_dir = root / "groups" / "HTU"
