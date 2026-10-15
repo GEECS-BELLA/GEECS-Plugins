@@ -116,7 +116,7 @@ The worker refuses a scan-mode run before it starts when:
 - a profile write and the device's own DB start/end row set the same
   variable to different values. The device reads its rows at every
   `ScanStart`, so the worker re-reads them for each run; if the DB does
-  not answer, it checks against the rows read at environment open.
+  not answer, it checks against the last rows it read.
 - the experiment has no scan-mode endpoint (multicast group and port) in
   the database.
 - the device-side save root (`device_server_save_path` in `config.ini`) is
