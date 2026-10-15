@@ -137,19 +137,26 @@ environment open.
 
 Seen on the Undulator, accepted for now:
 
-- **Every saving device saves.** The path goes to every connected device,
-  and each one whose DB start row switches saving on writes a file per
-  shot, listed in the scan or not, as under Master Control. A listed
-  camera can therefore write both its native file and the worker's stack.
+- **Unlisted devices save too.** The path goes to every connected device,
+  and a device the scan does not list writes a file per shot whenever its
+  DB start row switches saving on, as under Master Control. A listed
+  device's saving belongs to the worker: staging, which comes after
+  `ScanStart`, switches it off, and it comes back on only when the
+  device's native saving is enabled for the run. A listed camera with
+  native saving on therefore writes both its native file and the
+  worker's stack.
 - **A box-less run can leave a stale path.** A device triggered by the box
   never fires during a box-less run, so it keeps the run's last path. Its
   next trigger, the first shot of the next fired run, writes into the
   box-less run's folder under its last shot number, and nothing into the
   new run.
 - **A software single shot sets the pace.** With the box on `Single shot`
-  (laser off) shots follow as fast as the slowest listed device answers,
-  and a slower device that is not listed misses some. With the laser on,
-  `Single shot external rising edges` holds the laser's rate.
+  (laser off) the next shot follows once the essential devices have
+  answered, after the plan's own work and any `shot_period`. A slower
+  device the run does not wait for (unlisted or `non_essential`) misses
+  some shots. With the laser on, `Single shot external rising edges`
+  synchronizes each shot to a laser edge; the same limits still set the
+  rate, so a moving scan can take every other edge.
 
 ## Where to look in the code
 
