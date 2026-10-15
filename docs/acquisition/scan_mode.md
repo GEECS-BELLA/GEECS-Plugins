@@ -102,7 +102,9 @@ A device's DB `scanmode_lock` is its opt-out of the paused per-shot loop,
 and a mover's is never `enabled`. A mover acknowledges `ScanStart` like
 every device but keeps its readbacks flowing, so a sweep moves it between
 shots exactly as outside scan mode. A mover with the lock `enabled` is a
-database mistake: fix the row. The worker neither checks nor warns.
+database mistake: fix the row, then relaunch the device. A device reads
+its lock only at launch, so a running one keeps the old value. The worker
+neither checks nor warns.
 
 ## Preflight refusals
 
@@ -112,7 +114,9 @@ The worker refuses a scan-mode run before it starts when:
   device accepts commands only from the address announced in `ScanStart`,
   which is the gateway's.
 - a profile write and the device's own DB start/end row set the same
-  variable to different values.
+  variable to different values. The device reads its rows at every
+  `ScanStart`, so the worker re-reads them for each run; if the DB does
+  not answer, it checks against the rows read at environment open.
 - the experiment has no scan-mode endpoint (multicast group and port) in
   the database.
 - the device-side save root (`device_server_save_path` in `config.ini`) is
@@ -128,6 +132,24 @@ A run ends scan mode in its finalizer, which every path runs except
 first. If the worker process died, the devices end the scan themselves
 when their connection drops, and the worker clears its record at the next
 environment open.
+
+## Known oddities
+
+Seen on the Undulator, accepted for now:
+
+- **Every saving device saves.** The path goes to every connected device,
+  and each one whose DB start row switches saving on writes a file per
+  shot, listed in the scan or not, as under Master Control. A listed
+  camera can therefore write both its native file and the worker's stack.
+- **A box-less run can leave a stale path.** A device triggered by the box
+  never fires during a box-less run, so it keeps the run's last path. Its
+  next trigger, the first shot of the next fired run, writes into the
+  box-less run's folder under its last shot number, and nothing into the
+  new run.
+- **A software single shot sets the pace.** With the box on `Single shot`
+  (laser off) shots follow as fast as the slowest listed device answers,
+  and a slower device that is not listed misses some. With the laser on,
+  `Single shot external rising edges` holds the laser's rate.
 
 ## Where to look in the code
 
