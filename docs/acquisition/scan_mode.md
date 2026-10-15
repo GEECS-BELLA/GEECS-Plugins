@@ -119,10 +119,10 @@ The worker refuses a scan-mode run before it starts when:
   not answer, it checks against the last rows it read.
 - the experiment has no scan-mode endpoint (multicast group and port) in
   the database.
-- the device-side save root (`device_server_save_path` in `config.ini`) is
-  not a drive or UNC path. `ScanStart` reaches every saving device of the
-  experiment, so a POSIX path would create folders on each device's own
-  drive.
+- the device-side save root (`[Paths] geecs_device_server_data_base_path`
+  in `config.ini`) is not a drive or UNC path. `ScanStart` reaches every
+  saving device of the experiment, so a POSIX path would create folders on
+  each device's own drive.
 
 ## When a run never ended
 
