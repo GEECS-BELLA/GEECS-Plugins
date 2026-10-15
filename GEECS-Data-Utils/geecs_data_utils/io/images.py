@@ -2,8 +2,9 @@
 
 Most functions here map a file path to a NumPy array and contain no analysis
 logic; higher-level packages (ImageAnalysis, ScanAnalysis, Bluesky
-the portal's shot viewer) wrap them. Two exceptions operate on in-memory
-data: :func:`decode_imaq_image_string` decodes an NI IMAQ "Flatten Image to
+the portal's shot viewer) wrap them. One writer, :func:`write_png16`, is the
+16-bit greyscale PNG an analysis product is saved as. Two exceptions operate
+on in-memory data: :func:`decode_imaq_image_string` decodes an NI IMAQ "Flatten Image to
 String" payload (as received live over the device TCP stream), and
 :func:`average_frames` is the shared frame-stack averager every "mean of N
 shots" consumer converges on — image-domain array math kept beside the
@@ -37,6 +38,20 @@ _IMAQ_CLASS_MARKER = b"LV_ImageDTClassInfo"
 # IMAQ Vision image-type code (header offset +36) -> pixel dtype. Only the
 # grayscale types observed on real cameras; others raise rather than guess.
 _IMAQ_DTYPE_BY_TYPE = {0: "<u1", 7: "<u2"}
+
+
+def write_png16(file_path: Union[Path, str], image: np.ndarray) -> None:
+    """Write a 2D ``uint16`` array as a 16-bit greyscale PNG (pypng, no sBIT).
+
+    The writer the legacy magspec analyzer saved its ``-interp`` images
+    with, so the bytes are the ones already on disk.
+    """
+    if image.ndim != 2 or image.dtype != np.uint16:
+        raise ValueError("A 16-bit PNG is written from a 2D uint16 array")
+    with Path(file_path).open("wb") as handle:
+        png.Writer(
+            width=image.shape[1], height=image.shape[0], bitdepth=16, greyscale=True
+        ).write(handle, image)
 
 
 def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:

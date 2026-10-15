@@ -114,15 +114,75 @@ def test_overrides_reach_the_document_and_a_dirty_output_is_refused(tmp_path):
         )
 
 
-def test_scan_background_recipes_are_refused_before_any_copy(tmp_path):
+def test_a_dark_scan_is_copied_and_the_archive_untouched(tmp_path, capsys):
+    """Both routes average the dark scan inside their private trees."""
+    scan, diagnostic = _archive(tmp_path / "share")
+    dark = scan.parent / "Scan006" / "Camera"
+    dark.mkdir(parents=True)  # fixture acquisition
+    (dark.parent / "ScanInfoScan006.ini").write_text('[Scan Info]\nScan No = "6"\n')
+    for shot in range(1, 4):
+        np.save(dark / f"Scan006_Camera_{shot:03d}.npy", np.full((24, 24), 2.0 + shot))
+    diagnostic.write_text(
+        diagnostic.read_text()
+        .replace("scan:\n", "scan:\n  background_source:\n    scan_number: 6\n")
+        .replace("pipeline: []", "pipeline: [background]\n  background: {}")
+    )
+    before = sorted(p.relative_to(tmp_path) for p in (tmp_path / "share").rglob("*"))
+    output = tmp_path / "compare"
+    rc = harness.main(
+        ["--diagnostic", str(diagnostic), "--scan", str(scan), "--output", str(output)]
+    )
+    printed = capsys.readouterr().out
+    assert rc == 0, printed
+    assert printed.rstrip().endswith("MATCH")
+    assert (
+        sorted(p.relative_to(tmp_path) for p in (tmp_path / "share").rglob("*"))
+        == before
+    )
+    for route in ("legacy", "core"):
+        cached = list((output / route).rglob("Camera_background_avg.npy"))
+        assert [p.parent.parent.name for p in cached] == ["Scan006"]
+
+
+def test_the_core_route_may_run_the_converted_recipe(tmp_path, capsys):
+    """--core-diagnostic: the v3 recipe is accepted against the v2 document it replaces."""
+    from geecs_analysis.compat.convert import to_v3
+    from geecs_schemas.analysis import canonical_document
+    from image_analysis.config import load_diagnostic
+
+    scan, diagnostic = _archive(tmp_path / "share")
+    converted = tmp_path / "v3" / "Camera.yaml"  # the same stem names the sidecar
+    converted.parent.mkdir()
+    converted.write_text(
+        yaml.safe_dump(canonical_document(to_v3(load_diagnostic(diagnostic)).recipe))
+    )
+    output = tmp_path / "compare"
+    rc = harness.main(
+        [
+            "--diagnostic",
+            str(diagnostic),
+            "--core-diagnostic",
+            str(converted),
+            "--scan",
+            str(scan),
+            "--output",
+            str(output),
+        ]
+    )
+    printed = capsys.readouterr().out
+    assert rc == 0, printed
+    assert printed.rstrip().endswith("MATCH")
+
+
+def test_other_scan_backgrounds_are_refused_before_any_copy(tmp_path):
     scan, diagnostic = _archive(tmp_path / "share")
     diagnostic.write_text(
         diagnostic.read_text().replace(
-            "scan:\n", "scan:\n  background_source:\n    scan_number: 6\n"
+            "scan:\n", "scan:\n  background_source:\n    from_current_scan: {}\n"
         )
     )
     output = tmp_path / "compare"
-    with pytest.raises(SystemExit, match="background_source"):
+    with pytest.raises(SystemExit, match="dark-scan background"):
         harness.main(
             [
                 "--diagnostic",
@@ -156,7 +216,10 @@ def test_the_scan_paths_patch_is_never_installed_when_construction_fails(tmp_pat
     )
     private = tmp_path / "private"
     harness._copy_scan(scan, "Camera", private)
+    import geecs_data_utils
+
     original = scan_base.ScanPaths
     with pytest.raises(UnsupportedRecipe):
         harness._run("core", document, private, scan)
     assert scan_base.ScanPaths is original is ScanPaths
+    assert geecs_data_utils.ScanPaths is ScanPaths

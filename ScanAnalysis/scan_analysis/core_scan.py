@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from numbers import Real
 from pathlib import Path
-from typing import Iterable, Iterator, Literal
+from typing import Iterable, Iterator, Literal, Mapping
 
 import numpy as np
 import pandas as pd
 from geecs_analysis.compat.v2_run import ShotGroup, UnitResult, run_units
+from geecs_analysis.pipeline import shot_scalar_columns
+from geecs_data_utils.frames import ShotMeta
 
 from scan_analysis.core_inputs import PreparedRecipe, prepare_v2
 from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
@@ -70,6 +72,37 @@ def group_shots(
     )
 
 
+def shot_metadata(
+    rows: pd.DataFrame, device: str, columns: Iterable[str]
+) -> dict[int, ShotMeta]:
+    """Each shot's recorded values of the columns a measure reads per shot.
+
+    One ``ShotMeta`` per shot that has at least one finite value among
+    ``columns``, carrying those values on ``scalars``; the identity is the
+    one the runner gives every other shot (device, shot number). A missing
+    column or a NaN (or non-numeric) cell is left out, so the measure's own
+    fallback applies to that shot.
+    """
+    columns = [column for column in dict.fromkeys(columns) if column in rows]
+    if not columns:
+        return {}
+    shots = [_integer(n, "Shotnumber", positive=True) for n in rows["Shotnumber"]]
+    values = {
+        column: pd.to_numeric(rows[column], errors="coerce").to_numpy(np.float64)
+        for column in columns
+    }
+    metadata = {}
+    for index, number in enumerate(shots):
+        scalars = {
+            column: float(cells[index])
+            for column, cells in values.items()
+            if np.isfinite(cells[index])
+        }
+        if scalars:
+            metadata[number] = ShotMeta(device, number, scalars=scalars)
+    return metadata
+
+
 @dataclass(frozen=True)
 class PreparedScan:
     """One run's recipe, input references, grouping and scalar naming snapshot."""
@@ -82,6 +115,8 @@ class PreparedScan:
     metric_suffix: str
     #: The host-side view the run was prepared from (figure, summaries, save).
     spec: ScanRecipe | None = None
+    #: Each shot's recorded values the measure reads per shot (``shot_metadata``).
+    metadata: Mapping[int, ShotMeta] = field(default_factory=dict)
 
     def run(self, *, workers: int = 1) -> Iterator[UnitResult]:
         """Yield core measurements and explicit load/analysis failures lazily.
@@ -98,6 +133,7 @@ class PreparedScan:
             self.source,
             average_before_analysis=self.average_before_analysis,
             inputs=self.prepared.inputs,
+            shot_metadata=self.metadata,
             workers=workers,
         )
 
@@ -133,7 +169,9 @@ def prepare_scan(
     cached in that scan's analysis tree (``core_backgrounds``) — the one
     write preparation may make. Neither preparation nor execution changes
     the caller's document/rows or creates missing scan folders. The host
-    owns completion checks, logging failures, and product sinks.
+    owns completion checks, logging failures, and product sinks. A measure
+    that reads recorded columns per shot (``shot_scalar_columns``: the
+    magspec field) gets them from the rows here, on each shot's metadata.
     """
     snapshot = document.model_copy(deep=True)
     spec = scan_recipe(snapshot)
@@ -150,4 +188,9 @@ def prepare_scan(
         spec.output_name,
         spec.scalar_suffix,
         spec,
+        shot_metadata(
+            row_snapshot,
+            prepared.recipe.device,
+            shot_scalar_columns(prepared.recipe.analysis.measure),
+        ),
     )

@@ -8,14 +8,14 @@ image/1D analyzers. Automatic watching and Google Docs uploads are retired.
 ```
 scan_analysis/
   base.py                          # ScanAnalyzer abstract base class
-  core_inputs.py                   # v2 core compilation + loaded file-background bindings + services
+  core_inputs.py                   # v2 core compilation + loaded file-background and table bindings + services
   core_services.py                 # the services a measure names (the FROG retriever, the WaveKit engine), built from config.ini + the scan's stack
   core_backgrounds.py              # scan backgrounds: exact strip-wise per-pixel statistics over a scan's frames, cached
   core_source.py                   # completed-scan native/stack input mapping and reads
   core_scan.py                     # write-free scan preparation, grouping and execution
   core_products.py                 # write-free average/bin and summary product planning (ProductCollector streams it)
   core_workers.py                  # the worker count a run gets: recipe request, host cap (config.ini), small-run floor
-  core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN; draw_product / draw_summary; per-shot sidecar tables beside the raw file; ShotStore (a measure's per-scan HDF5 of every shot's frame + extras)
+  core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN; draw_product / draw_summary; per-shot sidecar tables beside the raw file; sibling outputs (magspec -interp/-interpSpec) beside the device folder; ShotStore (a measure's per-scan HDF5 of every shot's frame + extras)
   core_preview.py                  # the editor's previews through the run's own calls (frame; a summary's layout over a few shots)
   core_analyzer.py                 # CoreScanAnalyzer: the core route behind the ScanAnalyzer contract
   route_compare.py                 # snapshot + compare two routes' analysis trees (one equality rule)
@@ -111,7 +111,13 @@ is the one allowance for that (the harness's `--nonuniform-axis`), and
 else exact.
 
 `core_scan.prepare_scan` snapshots config, rows, source, recipe and scalar naming
-for one explicit run. `PreparedScan.run()` streams core `UnitResult` outcomes;
+for one explicit run. A measure that reads a recorded column per shot
+(`pipeline.shot_scalar_columns`: the magspec field) gets its finite cells on
+each shot's `ShotMeta.scalars` (`shot_metadata`; a NaN or absent cell is
+left out, so the measure's fallback applies), passed to `run_units` as
+`shot_metadata`. Table inputs (`recipe.tables`) are read in
+`core_inputs.prepare_v2`, a relative path against
+`config_roots.scan_analysis_config`; an unreadable table fails the run. `PreparedScan.run()` streams core `UnitResult` outcomes;
 `scalar_records()` projects bare scalars to `{output_name}_{key}{metric_suffix}`
 without mutating the result or caller's rows. Per-bin updates include all bin
 members even when some inputs fail. Groups follow scalar-row order; empty bins
@@ -206,11 +212,18 @@ definition of "the same outputs"; the differential test and
 `scripts/analysis_scan_compare.py` both use them. The script runs the
 comparison on a real scan: it copies the scan's inputs into two private trees,
 runs `route="legacy"` in one and `route="core"` in the other, and diffs their
-analysis trees. It refuses recipes with `scan.background_source`: the legacy
-wrapper resolves the reference scan through its own `ScanPaths`, outside the
-private tree, and caches a background beside the archived scan; the core does
-not run those recipes anyway. For every other recipe nothing is written next to
-the archived scan.
+analysis trees plus the files each run added inside the scan folder
+(`snapshot_scan_products`, byte for byte: the magspec `-interp` /
+`-interpSpec` folders). A dark-scan background (`scan_number`, or a v3
+`from_scan` with a scan) is copied too — that scan's device folder and ini,
+never its cache — and both routes' `ScanPaths` (the legacy wrapper's
+call-time import included) resolve inside the private tree; other scan
+backgrounds are refused. `--core-diagnostic` runs the core on another
+document with the same file stem (the regenerated v3 recipe against the v2
+document it replaces); `--legacy-serial` runs the legacy wrapper's shots one
+at a time (the legacy magspec analyzer wrote each shot's field into one
+shared calibration, so its thread pool could measure a shot with another's).
+Nothing is written next to the archived scan.
 
 Scan analysis is driven by YAML config files stored in the
 **GEECS-Plugins-configs** repository (not this repo). The documents are
@@ -698,6 +711,18 @@ In practice:
   the portal's typed confirmation — and they still create no directory and
   touch nothing outside that one device folder (pinned in
   `GEECS-Data-Utils/tests/test_himg_compact.py` and `tests/test_himg_kinds.py`).
+  The third exception (#1039 rulings): a measure's **sibling outputs**
+  (`@measure(sibling_outputs=...)`; magspec's `-interp` 16-bit PNG, the
+  frame × 1000, and `-interpSpec` TSV) are written per single-shot unit
+  into `scans/ScanNNN/<output_name><suffix>/<raw stem>.png|.tsv` by
+  `core_sink.write_sibling_outputs`, byte for byte the legacy analyzer's
+  files, whatever `save` says: the scan folder must exist and the suffix
+  folder is the one directory created (`mkdir(exist_ok=True)`). A failed
+  write is logged and the run keeps its scalars. A per-bin unit writes
+  none (the legacy per-bin path had no file to name them by). The raw
+  stem keeps old and new data readable by one stitcher; on a
+  timestamp-named scan the join rests on data-utils' stem-agnostic
+  listing fallback (`core_source._sibling_references`).
 
 Do not treat a missing entire scan folder as `no_data`. `no_data` means the
 scan exists but a specific device/analyzer has no usable data. If the scan

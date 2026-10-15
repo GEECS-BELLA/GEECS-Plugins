@@ -18,8 +18,11 @@ from geecs_analysis.registry import measure_definition
 from geecs_analysis.recipe import AnalysisDocument, compile_document
 from geecs_analysis.steps.background_constant import BackgroundConstantSpec
 from geecs_analysis.steps.background_frame import BackgroundFrameSpec
+from geecs_data_utils.config_roots import scan_analysis_config
 from geecs_data_utils.frames import Frame
 from geecs_data_utils.io.images import read_imaq_image
+from geecs_data_utils.io.tables import read_table
+from geecs_data_utils.tables import Table
 
 from scan_analysis.core_services import services_for
 
@@ -105,6 +108,11 @@ def prepare_v2(
     cached — before any shot is read; ``compute_scan_backgrounds=False``
     uses only an existing cache and refuses the recipe
     (``ScanContextRequired``) otherwise.
+
+    A measure's table inputs (``recipe.tables``: the ``magspec`` calibration
+    surveys) are read here, a relative path against the analysis-configs
+    root (``config_roots.scan_analysis_config``); a table that cannot be
+    read fails the preparation — there is no fallback.
     """
     recipe = compile_document(document, allow_file_backgrounds=True)
     service = measure_definition(recipe.analysis.measure).service
@@ -150,11 +158,28 @@ def prepare_v2(
         inputs[request.key] = Frame.from_array(
             _scan_background(document, request, data_dir, compute_scan_backgrounds)
         )
+    for request in recipe.tables:
+        inputs[request.key] = load_table(request.path)
     inputs.update(services_for(recipe.analysis.measure, data_dir=data_dir))
     return PreparedRecipe(
         recipe,
         bind_inputs(recipe.analysis.steps, inputs, measure=recipe.analysis.measure),
     )
+
+
+def load_table(path: str) -> Table:
+    """Read one table input; a relative path is under the analysis-configs root."""
+    resolved = Path(path)
+    if not resolved.is_absolute():
+        root = scan_analysis_config.base_dir
+        if root is None:
+            raise FileNotFoundError(
+                f"Table {path} is relative and no analysis-configs root is "
+                "configured (SCAN_ANALYSIS_CONFIG_DIR or config.ini "
+                "[Paths] scan_analysis_configs_path)"
+            )
+        resolved = root / resolved
+    return read_table(resolved)
 
 
 def _scan_background(document, request, data_dir, compute):

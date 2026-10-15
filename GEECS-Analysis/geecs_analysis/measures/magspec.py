@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, Mapping, Optiona
 
 from pydantic import Field, field_validator, model_validator
 
-from geecs_analysis.registry import MeasureSpec, SpecModel, measure
+from geecs_analysis.registry import MeasureSpec, SiblingOutput, SpecModel, measure
 
 if TYPE_CHECKING:
     from geecs_data_utils.frames import Frame
@@ -31,6 +31,13 @@ SCALARS = ("peak_energy_MeV", "mean_energy_MeV", "total_charge_au", "max_intensi
 TABLE_FIELDS = ("camera_table", "trajectory_table", "lanex_table")
 #: The spec field naming the per-shot dipole-field column.
 FIELD_COLUMN = "magnetic_field_column"
+#: The legacy analyzer's per-shot products beside the camera's raw folder,
+#: read by the spectrometer stitcher: the resampled image in aC/MeV (fC/MeV
+#: × 1000) as a 16-bit PNG, and the ``spectrum`` extra as a two-column TSV.
+SIBLING_OUTPUTS = (
+    SiblingOutput("-interp", "frame", "png16", scale=1000.0),
+    SiblingOutput("-interpSpec", "spectrum", "tsv"),
+)
 
 
 class DnnAxisCalibration(SpecModel):
@@ -190,7 +197,14 @@ class MagspecSpec(MeasureSpec):
         return frozenset(SCALARS)
 
 
-@measure(MagspecSpec, ndim={2}, tables=TABLE_FIELDS, shot_scalars=(FIELD_COLUMN,))
+@measure(
+    MagspecSpec,
+    ndim={2},
+    tables=TABLE_FIELDS,
+    shot_scalars=(FIELD_COLUMN,),
+    sibling_outputs=SIBLING_OUTPUTS,
+    per_shot_axes=True,
+)
 def magspec(
     frame: Frame,
     spec: MagspecSpec,

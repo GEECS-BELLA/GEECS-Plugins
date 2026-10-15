@@ -1,9 +1,14 @@
 """Save core scan products under the sibling analysis tree, using the legacy file names.
 
-One exception to "under the analysis tree": a measure's per-shot sidecar
+Two exceptions to "under the analysis tree": a measure's per-shot sidecar
 table (the FROG retrieval's lineouts) is written beside the shot's raw file,
 where the legacy analyzer wrote it and where follow-on analyzers read it
-(a recipe input's ``folder``). It never creates a directory.
+(a recipe input's ``folder``). It never creates a directory. And a measure's
+*sibling outputs* (the magspec ``-interp`` image and ``-interpSpec``
+spectrum, a stitcher's input) are written per shot into
+``<output name><suffix>/`` folders beside the device's raw folder in the
+scan folder, named by the raw file's stem, as the legacy analyzer wrote
+them: the suffix folder is the one directory created, never the scan folder.
 
 A measure's *shot store* (:class:`ShotStore`, the ``haso`` measure's
 wavefront products) is the per-shot product that stays under the analysis
@@ -23,9 +28,15 @@ from pathlib import Path
 import h5py
 import numpy as np
 import pandas as pd
+from geecs_data_utils.io.images import write_png16
 from geecs_data_utils.io.scan_stack import ShotRef
 from geecs_data_utils.scan_info import analysis_folder_for, parse_scan_folder_name
-from geecs_analysis.registry import SummaryOutput, summary_definition, summary_output
+from geecs_analysis.registry import (
+    SiblingOutput,
+    SummaryOutput,
+    summary_definition,
+    summary_output,
+)
 from geecs_analysis.render import RenderError, single
 
 from scan_analysis.core_products import ProductPlan
@@ -353,6 +364,23 @@ def save_products(  # noqa: C901, PLR0912, PLR0915
     return SavedProducts(tuple(files), tuple(display), tuple(notes))
 
 
+def _shot_location(reference: Path, shot: int) -> tuple[Path, str]:
+    """The folder a shot's file sits in and the stem that names it.
+
+    A per-shot file ``X.png`` is its own stem. A frame of a capture stack
+    ``scans/ScanNNN/Dev/Dev.h5`` takes the legacy shot-number stem
+    ``ScanNNN_Dev_<shot:03d>`` — a name data-utils' shot mapping resolves.
+    """
+    if isinstance(reference, ShotRef):
+        stack = Path(str(reference))
+        scan = stack.parent.parent.name
+        if parse_scan_folder_name(scan) is None:
+            raise ValueError(f"Stack {stack} is not under a scans/ScanNNN folder")
+        return stack.parent, f"{scan}_{stack.parent.name}_{shot:03d}"
+    reference = Path(reference)
+    return reference.parent, reference.stem
+
+
 def shot_table_path(reference: Path, shot: int, name: str) -> Path:
     """Where one shot's sidecar table goes: beside the shot's own file.
 
@@ -363,14 +391,69 @@ def shot_table_path(reference: Path, shot: int, name: str) -> Path:
     reading these tables (its input ``folder``) finds them.
     """
     _component(name, "Sidecar name")
-    if isinstance(reference, ShotRef):
-        stack = Path(str(reference))
-        scan = stack.parent.parent.name
-        if parse_scan_folder_name(scan) is None:
-            raise ValueError(f"Stack {stack} is not under a scans/ScanNNN folder")
-        return stack.parent / f"{scan}_{stack.parent.name}_{shot:03d}_{name}.tsv"
-    reference = Path(reference)
-    return reference.parent / f"{reference.stem}_{name}.tsv"
+    folder, stem = _shot_location(reference, shot)
+    return folder / f"{stem}_{name}.tsv"
+
+
+def write_sibling_outputs(
+    measurement,
+    outputs: tuple[SiblingOutput, ...],
+    reference: Path,
+    shot: int,
+    output_name: str,
+) -> list[Path]:
+    """Write one shot's sibling outputs; return the files written.
+
+    Each goes to ``<scan folder>/<output_name><suffix>/<stem>.png|.tsv``,
+    the stem the shot's raw file's (``_shot_location``) — byte for byte the
+    legacy magspec writer: ``png16`` is the data times the output's scale,
+    clipped to 0..65535 and truncated to uint16; ``tsv`` is ``np.savetxt``
+    of the axis and the samples under a ``<label> [<unit>]`` header. The
+    scan folder must already exist (a missing one raises
+    ``FileNotFoundError`` and nothing is created); the suffix folder is
+    created with ``exist_ok`` and no parents. Written whatever ``save``
+    says, as the legacy analyzer did.
+    """
+    folder, stem = _shot_location(reference, shot)
+    scan_folder = folder.parent
+    if not scan_folder.is_dir():
+        raise FileNotFoundError(
+            f"Scan folder {scan_folder} is not visible; refusing to create "
+            "sibling output folders"
+        )
+    written = []
+    for output in outputs:
+        directory = scan_folder / _component(
+            f"{output_name}{output.suffix}", "Sibling output folder"
+        )
+        if output.source == "frame":
+            frame = measurement.frame
+        elif output.source in measurement.extras:
+            frame = measurement.extras[output.source]
+        else:
+            raise ValueError(f"The measurement has no {output.source!r} extra")
+        if output.format == "png16":
+            if frame.data.ndim != 2:
+                raise ValueError(f"{output.suffix}: a PNG is written from an image")
+            image = np.clip(frame.data * output.scale, 0, 65535).astype(np.uint16)
+            directory.mkdir(exist_ok=True)
+            path = directory / f"{stem}.png"
+            write_png16(path, image)
+        else:
+            if frame.data.ndim != 1:
+                raise ValueError(f"{output.suffix}: a TSV is written from a trace")
+            axis = frame.axes[0]
+            directory.mkdir(exist_ok=True)
+            path = directory / f"{stem}.tsv"
+            np.savetxt(
+                str(path),
+                np.column_stack([axis.values, frame.data]),
+                delimiter="\t",
+                header=f"{axis.label} [{axis.unit}]\t{frame.label} [{frame.unit}]",
+                comments="",
+            )
+        written.append(path)
+    return written
 
 
 def write_shot_table(measurement, reference: Path, shot: int, name: str) -> Path:

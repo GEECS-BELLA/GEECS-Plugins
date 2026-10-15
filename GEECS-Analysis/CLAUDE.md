@@ -68,7 +68,15 @@ still uses ScanAnalysis until its runner/sinks and acceptance tests land.
   on averaged frames: `compile_recipe` refuses it with
   `scan.average_frames_first` (the legacy per-bin override used the bin's
   mean field; `to_v3` says so instead of carrying it). One measure does
-  both: `magspec`.
+  both: `magspec`. A measure whose host writes per-shot files beside the raw
+  folder declares them: `sibling_outputs=(SiblingOutput(suffix, source,
+  "png16"|"tsv", scale), ...)` (magspec's `-interp` frame × 1000 and
+  `-interpSpec` spectrum; ScanAnalysis' `core_sink` writes them). A measure
+  whose coordinates may move from shot to shot declares `per_shot_axes=True`
+  (magspec: the field moves the clipped energy grid): `RunningAverage` then
+  folds differing camera axes index-wise — the legacy average's `nanmean`
+  over each shot's axis — where every other measure's are refused; while
+  none has moved the first result's axes are kept.
 - Register each builtin in `steps/__init__.py`; the registry constructs the
   discriminated spec union. Adding a builtin must not require a dispatcher edit.
   Runtime/plugin registration after spec construction is not supported yet.
