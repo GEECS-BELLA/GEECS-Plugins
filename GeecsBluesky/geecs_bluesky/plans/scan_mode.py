@@ -290,6 +290,7 @@ def scan_mode_preflight(
             "roster — a run device must be an enabled device of "
             f"{control.experiment!r}"
         )
+    control.refresh_boundary_writes()  # the rows the device will apply now
     conflicts = boundary_conflicts(shot_control, control.boundary_writes)
     if conflicts:
         raise GeecsConfigurationError(
