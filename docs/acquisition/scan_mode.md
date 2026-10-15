@@ -140,9 +140,11 @@ Seen on the Undulator, accepted for now:
 - **Unlisted devices save too.** The path goes to every connected device,
   and a device the scan does not list writes a file per shot whenever its
   DB start row switches saving on, as under Master Control. A listed
-  device's saving belongs to the worker: staging, which comes after
-  `ScanStart`, switches it off, and it comes back on only when the
-  device's native saving is enabled for the run. A listed camera with
+  triggered device with save controls (a camera, say) has its saving
+  owned by the worker: staging, which comes after `ScanStart`, switches
+  it off, and it comes back on only when the device's native saving is
+  enabled for the run. Any other listed device keeps its DB row's
+  saving. A listed camera with
   native saving on therefore writes both its native file and the
   worker's stack.
 - **A box-less run can leave a stale path.** A device triggered by the box
