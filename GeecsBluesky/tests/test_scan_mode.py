@@ -449,29 +449,40 @@ def test_from_experiment_is_fail_soft(tmp_path: Path, caplog) -> None:
         group, port = "234.5.6.9", "58432"
 
     class Db2:
+        start = "armed"
+
         def get_scan_mode_endpoint(self, experiment):
             return Found()
 
         def get_scan_boundary_writes(self, experiment):
             return {
                 BOX: [
-                    {"variable": "Source", "startvalue": "armed", "endvalue": "standby"}
+                    {
+                        "variable": "Source",
+                        "startvalue": self.start,
+                        "endvalue": "standby",
+                    }
                 ]
             }
 
         def get_root_path(self, experiment):
             return "z:\\data\\TestExp"
 
+    db = Db2()
     control = ScanModeControl.from_experiment(
         "TestExp",
         path_provider=GeecsScanPathProvider(),
         device_endpoints={},
-        geecs_db=Db2(),
+        geecs_db=db,
     )
     assert control.enabled and control.endpoint == ("234.5.6.9", 58432)
     assert (
         control.db_root_path == "z:\\data\\TestExp" and BOX in control.boundary_writes
     )
+    # the control keeps the DB it was built from: the per-run re-read reaches it
+    db.start = "edges"
+    control.refresh_boundary_writes()
+    assert control.boundary_writes[BOX][0]["startvalue"] == "edges"
 
 
 # --------------------------------------------------------- the strict loop
