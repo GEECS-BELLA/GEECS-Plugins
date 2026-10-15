@@ -713,7 +713,7 @@ In practice:
   `GEECS-Data-Utils/tests/test_himg_compact.py` and `tests/test_himg_kinds.py`).
   The third exception (#1039 rulings): a measure's **sibling outputs**
   (`@measure(sibling_outputs=...)`; magspec's `-interp` 16-bit PNG, the
-  frame × 1000, and `-interpSpec` TSV) are written per single-shot unit
+  frame × 1000, and `-interpSpec` TSV) are written per shot of a per-shot run
   into `scans/ScanNNN/<output_name><suffix>/<raw stem>.png|.tsv` by
   `core_sink.write_sibling_outputs`, byte for byte the legacy analyzer's
   per-shot files (a capture-stack frame gets the shot-number stem, where
