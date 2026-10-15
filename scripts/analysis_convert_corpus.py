@@ -19,12 +19,11 @@ from __future__ import annotations
 
 import argparse
 import sys
-from dataclasses import replace
 from pathlib import Path
 
 import yaml
 from geecs_analysis.compat.convert import to_v3
-from geecs_analysis.compat.v2 import UnsupportedRecipe, compile_v2
+from geecs_analysis.compat.v2 import UnsupportedRecipe
 from geecs_analysis.recipe import compile_recipe
 from geecs_schemas.analysis import (
     AnalysisDiagnostic,
@@ -35,8 +34,16 @@ from geecs_schemas.analysis import (
 from scan_analysis.config_store import dump_yaml
 
 
-def convert_tree(root: Path, *, write: bool) -> int:
-    """Convert the tree under ``root/analyzers``; return the number converted."""
+def convert_tree(
+    root: Path, *, write: bool, magnetic_field_column: str | None = None
+) -> int:
+    """Convert the tree under ``root/analyzers``; return the number converted.
+
+    A magspec document's calibration tables are cited under
+    ``calibrations/<namespace>/`` (the document's own directory name);
+    ``magnetic_field_column`` is written into every ``dnn_axis`` magspec
+    recipe as the per-shot dipole-field column.
+    """
     converted = 0
     for path in sorted((root / "analyzers").glob("*/*.y*ml")):
         label = f"{path.parent.name}/{path.stem}"
@@ -47,22 +54,23 @@ def convert_tree(root: Path, *, write: bool) -> int:
             continue
         assert isinstance(document, AnalysisDiagnostic)
         try:
-            conversion = to_v3(document)
+            conversion = to_v3(
+                document,
+                table_namespace=path.parent.name,
+                magnetic_field_column=magnetic_field_column,
+            )
         except UnsupportedRecipe as exc:
             print(f"{label}: stays v2 ({exc})")
             continue
         text = dump_yaml(canonical_document(conversion.recipe))
         # The written file must read back to a recipe that compiles exactly
-        # as its source did; the converter checked its own object, this
-        # checks the serialization.
+        # as the converted object does (the converter already checked that
+        # object against its source); this checks the serialization.
         reread = load_analysis_document(yaml.safe_load(text))
         assert isinstance(reread, AnalysisRecipe)
-        source = compile_v2(document, allow_file_backgrounds=True)
+        expected = compile_recipe(conversion.recipe, allow_file_backgrounds=True)
         result = compile_recipe(reread, allow_file_backgrounds=True)
-        if any("coordinates" in n for n in conversion.notes):
-            # The one reported difference: an inactive v2 roi's origin.
-            result = replace(result, camera_origin=source.camera_origin)
-        if result != source:
+        if result != expected:
             raise AssertionError(f"{label}: written recipe compiles differently")
         print(f"{label}: v3 ({document.analyzer.kind} -> {reread.measure.kind})")
         for note in conversion.notes:
@@ -85,11 +93,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--write", action="store_true", help="write the converted files in place"
     )
+    parser.add_argument(
+        "--magnetic-field-column",
+        default=None,
+        help=(
+            "the scan's recorded column of the live dipole field (the s-file "
+            "column the legacy magspec analyzer read per shot), written into "
+            "every dnn_axis magspec recipe as measure.magnetic_field_column"
+        ),
+    )
     args = parser.parse_args(argv)
     if not (args.configs / "analyzers").is_dir():
         print(f"no analyzers/ under {args.configs}", file=sys.stderr)
         return 2
-    count = convert_tree(args.configs, write=args.write)
+    count = convert_tree(
+        args.configs,
+        write=args.write,
+        magnetic_field_column=args.magnetic_field_column,
+    )
     print(f"{count} recipe(s) {'written' if args.write else 'convertible'}")
     return 0
 

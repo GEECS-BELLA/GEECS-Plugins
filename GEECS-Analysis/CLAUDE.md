@@ -49,6 +49,26 @@ still uses ScanAnalysis until its runner/sinks and acceptance tests land.
   sharing the key still sees the loaded frame), and `apply_measure`
   hands it over as the last argument, `None` when the field is unset.
   One such measure: `haso`'s `reference` (the plasma imprint).
+- A measure that reads a **table** (a calibration survey the core may not
+  read from disk) names the spec fields holding its binding keys at
+  registration: `@measure(..., tables=("camera_table", ...))`, each an
+  `Optional[str]` field. The recipe declares each key in `inputs` as
+  `{table: <path>}` (relative to the analysis-configs root); the host reads
+  it into a `geecs_data_utils.tables.Table` (`io.tables.read_table`) and
+  binds it; `bind_inputs` refuses anything else; `apply_measure` hands them
+  over as keyword arguments named by the field, `None` when unset
+  (`pipeline.measure_tables`). A measure that reads a **recorded scalar
+  per shot** (the live dipole field) names the spec fields holding the
+  column name with `shot_scalars=(...)`: the host binds that column's
+  value on each shot's `ShotMeta.scalars` (`pipeline.shot_scalar_columns`
+  lists the columns a recipe needs; a NaN cell is left out, so the
+  measure's fallback applies to that shot) and the measure reads
+  `frame.shot.scalars`, falling back to its own parameter when the shot
+  lacks it — no shared state between shots. Such a column cannot be read
+  on averaged frames: `compile_recipe` refuses it with
+  `scan.average_frames_first` (the legacy per-bin override used the bin's
+  mean field; `to_v3` says so instead of carrying it). One measure does
+  both: `magspec`.
 - Register each builtin in `steps/__init__.py`; the registry constructs the
   discriminated spec union. Adding a builtin must not require a dispatcher edit.
   Runtime/plugin registration after spec construction is not supported yet.
@@ -193,7 +213,28 @@ rotation geometry inverted; on a nonuniform axis they are omitted with
 a note), the two projections beside them; a map with
 no signal after masking, or no steepest window, is NaN with a note where
 the legacy class raised. The spec's four parameters are the legacy
-constants (the v2 spec has none). The compiler's supported subset is documented
+constants (the v2 spec has none).
+`magspec` compiles to the measure of that name (`algorithms.magspec_calibration`,
+ported bit for bit: the 1-based `X Start`/`X End` slice, `argsort` +
+`CubicSpline(extrapolate=False)` over screen position (only the
+camera's screen rows converted — a survey may leave the other screen's
+cells blank), the `1.98/146`
+lanex factors, `np.gradient` + row-wise `np.interp` onto a grid clipped to
+the calibration's reach — the two per-shot clip warnings are gone, not
+the clip; `energy_range` is a request). A `dnn_axis` calibration's three
+files become table requests (`V2Recipe.tables`) under
+`compile_v2(allow_table_inputs=True)`, set only by `to_v3` and the corpus
+converter, so a v2 magspec document stays on its legacy route everywhere
+else; `to_v3(table_namespace=, magnetic_field_column=)` moves the paths
+under `calibrations/<namespace>/` and turns the legacy per-shot
+teslameter override — a column name hardcoded in the analyzer, which
+wrote the live value into the shared calibration so later shots without
+a reading used it — into the document's `magnetic_field_column`, read per
+shot from `ShotMeta.scalars` with the spec's `magnetic_field_t` as the
+fallback. The `array` calibration's `.npy` file is refused; inline
+`values` stays. The resampled image replaces the processed frame (rows as
+they were, `Energy` in MeV across; `fC/MeV` with a lanex table) and the
+`spectrum` extra is the legacy `-interpSpec` column (pC/MeV). The compiler's supported subset is documented
 in its docstring and pinned by differential tests. Never silently skip an active unported operation.
 Explicit identity transforms compile to no steps; fixed-canvas rotation is
 supported. Flips and distortion correction still raise UnsupportedRecipe.

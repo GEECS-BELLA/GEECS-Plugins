@@ -221,13 +221,15 @@ class ScanStatistic(SchemaModel):
 
 
 class FrameInput(SchemaModel):
-    """A frame the source layer loads (or computes) before the run and binds by name.
+    """An input the source layer loads (or computes) before the run and binds by name.
 
     Steps refer to it by the key it is stored under (``background_frame``'s
-    ``source``).  The analysis core never opens a file or reads a scan; the
-    scan host does: a ``path`` (``{scan_dir}`` resolved to the device's data
-    directory), or a ``from_scan`` statistic over a scan's frames.  Exactly
-    one of the two is set.
+    ``source``), a measure by the key its spec names.  The analysis core
+    never opens a file or reads a scan; the scan host does: a ``path``
+    (``{scan_dir}`` resolved to the device's data directory), a ``from_scan``
+    statistic over a scan's frames, or a ``table`` — a tab-delimited text
+    table (a spectrometer's calibration survey) for a measure that declares
+    a table input.  Exactly one of the three is set.
     """
 
     path: Optional[str] = Field(
@@ -252,14 +254,26 @@ class FrameInput(SchemaModel):
             "the frame and warn; unset makes a failed read an error. Files only."
         ),
     )
+    table: Optional[str] = Field(
+        None,
+        min_length=1,
+        description=(
+            "Tab-delimited table to read (a calibration survey), relative to "
+            "the analysis-configs root or absolute; bound for a measure that "
+            "names it as a table input, never as a frame."
+        ),
+    )
 
     @model_validator(mode="after")
     def _one_source(self) -> "FrameInput":
-        """Exactly one of path / from_scan; a fallback only for a file."""
-        if (self.path is None) == (self.from_scan is None):
-            raise ValueError("a frame input needs exactly one of path or from_scan")
-        if self.from_scan is not None and self.fallback_level is not None:
-            raise ValueError("fallback_level applies to a path, not to from_scan")
+        """Exactly one of path / from_scan / table; a fallback only for a file."""
+        sources = [s for s in (self.path, self.from_scan, self.table) if s is not None]
+        if len(sources) != 1:
+            raise ValueError("an input needs exactly one of path, from_scan or table")
+        if self.path is None and self.fallback_level is not None:
+            raise ValueError(
+                "fallback_level applies to a path, not to from_scan or table"
+            )
         return self
 
 
@@ -523,9 +537,10 @@ class AnalysisRecipe(VersionedSchemaModel):
     inputs: Dict[str, FrameInput] = Field(
         default_factory=dict,
         description=(
-            "Frames loaded before the run and bound by name for steps that "
-            "take one (a background image) or a measure that compares against "
-            "one (the haso reference)."
+            "Inputs loaded before the run and bound by name: frames for steps "
+            "that take one (a background image) or a measure that compares "
+            "against one (the haso reference), and tables for a measure that "
+            "reads one (the magspec calibration surveys)."
         ),
     )
     steps: List[StepRef] = Field(

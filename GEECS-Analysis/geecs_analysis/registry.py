@@ -114,6 +114,20 @@ class MeasureDefinition:
     with the trace, cut by the same sample selection, and handed to the
     function as a ``{name: Frame}`` mapping after every other argument —
     holding only the channels the input supplies.
+
+    ``tables`` names the optional string fields of the spec that hold
+    table-binding keys (the ``magspec`` measure's calibration surveys): the
+    recipe declares each key under ``inputs`` as a ``table`` the scan host
+    reads into a ``geecs_data_utils.tables.Table``, and the function
+    receives them as keyword arguments named by the field, ``None`` for a
+    field the spec leaves unset.
+
+    ``shot_scalars`` names the optional string fields of the spec that hold
+    a column name of the scan's recorded scalars (a teslameter's field read
+    per shot): the host binds that column's value for each shot on its
+    ``ShotMeta.scalars``, and the function reads it from the frame's shot —
+    nothing is passed, so a shot that lacks the column is the measure's own
+    fallback case.
     """
 
     spec: type[MeasureSpec]
@@ -124,10 +138,43 @@ class MeasureDefinition:
     shot_store: str | None = None
     input_field: str | None = None
     channels: tuple[str, ...] = ()
+    tables: tuple[str, ...] = ()
+    shot_scalars: tuple[str, ...] = ()
 
 
 _MEASURES: dict[type[MeasureSpec], MeasureDefinition] = {}
 MeasureT = TypeVar("MeasureT", bound=MeasureSpec)
+
+
+def _optional_string_field(spec: type[MeasureSpec], name: str) -> bool:
+    """Whether ``name`` is an ``Optional[str]`` field of the spec (a binding slot)."""
+    return name in spec.model_fields and spec.model_fields[name].annotation in (
+        Optional[str],
+        str | None,
+    )
+
+
+def _check_measure_fields(
+    spec: type[MeasureSpec],
+    input_field: str | None,
+    tables: tuple[str, ...],
+    shot_scalars: tuple[str, ...],
+) -> None:
+    """The binding slots a measure declares are distinct optional string fields."""
+    if input_field is not None and not _optional_string_field(spec, input_field):
+        raise ValueError(
+            "A measure's input field must name an optional string field on its spec"
+        )
+    for label, names in (("tables", tables), ("shot_scalars", shot_scalars)):
+        if len(set(names)) != len(names) or not all(
+            _optional_string_field(spec, name) for name in names
+        ):
+            raise ValueError(
+                f"A measure's {label} must name distinct optional string fields "
+                "on its spec"
+            )
+    if input_field is not None and input_field in tables:
+        raise ValueError("A measure's input field cannot also be a table field")
 
 
 def measure(
@@ -139,6 +186,8 @@ def measure(
     shot_store: str | None = None,
     input_field: str | None = None,
     channels: tuple[str, ...] = (),
+    tables: tuple[str, ...] = (),
+    shot_scalars: tuple[str, ...] = (),
 ) -> Callable[[Callable[..., Measurement]], Callable[..., Measurement]]:
     """Register a builtin measure before constructing the spec union.
 
@@ -146,7 +195,9 @@ def measure(
     third argument; ``sidecar`` and ``shot_store`` name what a scan host
     persists per shot; ``input_field`` names the spec field that binds an
     optional comparison frame; ``channels`` the trace's auxiliary channels
-    it reads; see :class:`MeasureDefinition`.
+    it reads; ``tables`` the spec fields that bind tables; ``shot_scalars``
+    the spec fields naming recorded columns read per shot; see
+    :class:`MeasureDefinition`.
     """
     if not ndim or not ndim <= {1, 2}:
         raise ValueError("Measure dimensions must be a nonempty subset of {1, 2}")
@@ -157,13 +208,9 @@ def measure(
     ):
         if value is not None and not value:
             raise ValueError(f"A measure's {label} must be a nonempty name")
-    if input_field is not None and (
-        input_field not in spec.model_fields
-        or spec.model_fields[input_field].annotation not in (Optional[str], str | None)
-    ):
-        raise ValueError(
-            "A measure's input field must name an optional string field on its spec"
-        )
+    tables = tuple(tables)
+    shot_scalars = tuple(shot_scalars)
+    _check_measure_fields(spec, input_field, tables, shot_scalars)
     channels = tuple(channels)
     if channels and (
         ndim != {1} or not all(channels) or len(set(channels)) != len(channels)
@@ -182,6 +229,8 @@ def measure(
             shot_store,
             input_field,
             channels,
+            tables,
+            shot_scalars,
         )
         return function
 

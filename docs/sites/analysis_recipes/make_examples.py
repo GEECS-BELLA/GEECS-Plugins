@@ -216,6 +216,51 @@ def hires_example() -> dict:
     }
 
 
+def magspec_example() -> dict:
+    """A dispersed beam on a spectrometer screen: columns map to energy by a polynomial."""
+    H, W = 120, 320
+    y, x = np.mgrid[0:H, 0:W]
+    coeffs = [60.0, 0.35, 4e-4]
+    energy = coeffs[0] + coeffs[1] * x + coeffs[2] * x**2  # MeV per column
+    peaks = [120.0, 85.0]
+    img = 2500 * np.exp(-0.5 * ((energy - peaks[0]) / 6) ** 2)
+    img = img * np.exp(-0.5 * ((y - 60) / 9) ** 2)
+    img += (
+        900
+        * np.exp(-0.5 * ((energy - peaks[1]) / 4) ** 2)
+        * np.exp(-0.5 * ((y - 64) / 12) ** 2)
+    )
+    img += 40 + rng.normal(0, 8, img.shape)
+    raw = np.clip(img, 0, 4095)
+    steps = [
+        {"step": "background_constant", "level": 40},
+        {"step": "zero_below", "level": 15},
+    ]
+    measure = {
+        "kind": "magspec",
+        "calibration": {"kind": "polynomial", "coeffs": coeffs},
+        "energy_range": [1, 1500],
+        "num_energy_points": 400,
+    }
+    res = analyze(
+        Frame.from_array(raw),
+        Analysis.model_validate({"steps": steps, "measure": measure}),
+    )
+    spectrum = res.extras["spectrum"]
+    return {
+        "steps": steps,
+        "measure": measure,
+        "scalars": floats(res.scalars),
+        "final": frame_info(res.frame, float(res.frame.data.max())),
+        "spectrum": {
+            "x": np.asarray(spectrum.axes[0].values)[::2].round(2).tolist(),
+            "y": np.asarray(spectrum.data)[::2].round(4).tolist(),
+        },
+        "truth": {"peaks": peaks},
+        "notes": list(res.notes),
+    }
+
+
 def none_example() -> dict:
     """Preprocessing only: raw and processed frames, no scalars."""
     H, W = 120, 160
@@ -556,6 +601,7 @@ def main() -> None:
     data["stitch"] = stitch_example()
     data["steps"] = step_examples()
     data["summaries"] = summary_examples()
+    data["magspec"] = magspec_example()
     blob = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
     html = PAGE.read_text()
     html, n = re.subn(
@@ -568,7 +614,7 @@ def main() -> None:
     if n != 1:
         raise SystemExit("data block not found in index.html")
     PAGE.write_text(html)
-    for k in ("ict", "hires"):
+    for k in ("ict", "hires", "magspec"):
         print(k, data[k]["scalars"], data[k].get("notes"))
     print(f"{len(blob) // 1024} KB of example data")
 

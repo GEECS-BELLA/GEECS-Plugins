@@ -210,7 +210,7 @@ def _binding_errors(recipe: AnalysisRecipe) -> list[dict[str, str]]:
 
     The schema validates a recipe's frame; the core refuses unknown step or
     measure names, unknown parameters, a step or measure that does not
-    process the input's frames, and frame inputs no step or measure uses.
+    process the input's frames, and frame or table inputs no step or measure uses.
     Refused here, a recipe that would fail at run time is never written.
     Pydantic's locations name the union variant (``steps.0.roi.bounds``);
     the variant is dropped so the location matches the form's field path.
@@ -230,20 +230,26 @@ def _binding_errors(recipe: AnalysisRecipe) -> list[dict[str, str]]:
                 out.append({"loc": ".".join(str(p) for p in loc), "msg": err["msg"]})
             return out
         message = str(exc)
-        loc = "steps"
-        if message.startswith("measure "):
-            loc = "measure"
-        elif "frame inputs" in message:
-            loc = "inputs"
-        elif message.startswith("step "):
-            name = message.split("'")[1] if "'" in message else ""
-            index = next(
-                (i for i, s in enumerate(recipe.steps) if s.step == name), None
-            )
-            if index is not None:
-                loc = f"steps.{index}"
-        return [{"loc": loc, "msg": message}]
+        return [{"loc": _binding_location(message, recipe), "msg": message}]
     return []
+
+
+def _binding_location(message: str, recipe: AnalysisRecipe) -> str:
+    """The form field a binding error points at, read off the core's message."""
+    if message.startswith("measure "):
+        return "measure"
+    if "stitched line input" in message:
+        return "input"
+    if "input" in message:
+        # Frame and table bindings: declared under inputs, used by a step
+        # or the measure; every mismatch names an input.
+        return "inputs"
+    if message.startswith("step "):
+        name = message.split("'")[1] if "'" in message else ""
+        index = next((i for i, s in enumerate(recipe.steps) if s.step == name), None)
+        if index is not None:
+            return f"steps.{index}"
+    return "steps"
 
 
 def dump_yaml(document: Mapping[str, Any]) -> str:

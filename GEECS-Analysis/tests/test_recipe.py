@@ -290,6 +290,7 @@ def test_recipe_schema_binds_the_registry_vocabulary():
         "hi_res_mag_cam",
         "ict",
         "line",
+        "magspec",
         "none",
         "pulsed_wire",
     }
