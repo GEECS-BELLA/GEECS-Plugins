@@ -8,6 +8,7 @@ from . import (
     hi_res_mag_cam,
     ict,
     line,
+    magspec,
     none,
     pulsed_wire,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "hi_res_mag_cam",
     "ict",
     "line",
+    "magspec",
     "none",
     "pulsed_wire",
 ]

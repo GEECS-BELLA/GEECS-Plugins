@@ -164,7 +164,12 @@ def test_processing_imports_only_the_data_value_model():
             for name in names:
                 assert name not in {"pathlib", "os", "io", "matplotlib.pyplot"}, path
                 if name.startswith("geecs_data_utils"):
-                    assert name == "geecs_data_utils.frames", path
+                    # The value models only (frames, and the tables a
+                    # measure binds); never a reader.
+                    assert name in {
+                        "geecs_data_utils.frames",
+                        "geecs_data_utils.tables",
+                    }, path
                 assert not name.startswith(("image_analysis", "scan_analysis")), path
 
 

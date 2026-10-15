@@ -1175,7 +1175,7 @@ One device's analysis: input, ordered steps, a measure, the draw, the summaries.
 | `description` | `str (optional)` | no | None | Free-text note about this recipe. |
 | `metadata` | `dict[str, Any] (optional)` | no | None | Free-form documentary fields; nothing reads them. |
 | `input` | `CameraInput \| LineInput` | yes | — | Where the frames come from and how one is read. |
-| `inputs` | `dict[str, FrameInput]` | no | empty | Frames loaded before the run and bound by name for steps that take one (a background image) or a measure that compares against one (the haso reference). |
+| `inputs` | `dict[str, FrameInput]` | no | empty | Inputs loaded before the run and bound by name: frames for steps that take one (a background image) or a measure that compares against one (the haso reference), and tables for a measure that reads one (the magspec calibration surveys). |
 | `steps` | `list[StepRef]` | no | empty | Processing steps in order; any order, repeats allowed. |
 | `measure` | `MeasureRef` | no | MeasureRef(kind='none') | What is measured on each processed frame. |
 | `scan` | `RecipeRuntime` | no | RecipeRuntime(priority=100, average_frames_first=False, save=True, workers=1) | How the recipe runs over a scan. |
@@ -1240,13 +1240,14 @@ Frames are traces (1D): how one file is read and scaled.
 
 ### FrameInput
 
-A frame the source layer loads (or computes) before the run and binds by name.
+An input the source layer loads (or computes) before the run and binds by name.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `path` | `str (optional)` | no | None | File to load ('{scan_dir}' stands for the device's data directory under the scan). |
 | `from_scan` | `ScanStatistic (optional)` | no | None | Compute the frame from a scan's frames (a dark scan's mean, or this scan's median/percentile) instead of loading a file. |
 | `fallback_level` | `float (optional)` | no | None | When the file cannot be read, subtract this constant instead of the frame and warn; unset makes a failed read an error. Files only. |
+| `table` | `str (optional)` | no | None | Tab-delimited table to read (a calibration survey), relative to the analysis-configs root or absolute; bound for a measure that names it as a table input, never as a frame. |
 
 ### ScanStatistic
 

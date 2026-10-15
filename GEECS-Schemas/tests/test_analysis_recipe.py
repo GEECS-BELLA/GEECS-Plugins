@@ -198,6 +198,26 @@ class TestRefusals:
         with pytest.raises(ValidationError, match=needle):
             AnalysisRecipe.model_validate({**CAMERA, **patch})
 
+    @pytest.mark.parametrize(
+        "binding, needle",
+        [
+            (
+                {"path": "a.npy", "table": "t.txt"},
+                "exactly one of path, from_scan or table",
+            ),
+            ({"from_scan": {"scan": 1}, "table": "t.txt"}, "exactly one"),
+            ({}, "exactly one"),
+            ({"table": "t.txt", "fallback_level": 0}, "not to from_scan or table"),
+            ({"table": ""}, "table"),
+        ],
+    )
+    def test_an_input_is_one_of_path_from_scan_or_table(self, binding, needle):
+        with pytest.raises(ValidationError, match=needle):
+            AnalysisRecipe.model_validate({**CAMERA, "inputs": {"x": binding}})
+        AnalysisRecipe.model_validate(
+            {**CAMERA, "inputs": {"x": {"table": "calibrations/HTT/cam.txt"}}}
+        )
+
     def test_image_grid_refused_on_a_line_recipe(self):
         with pytest.raises(ValidationError, match="does not draw line"):
             AnalysisRecipe.model_validate(

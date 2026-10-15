@@ -157,3 +157,26 @@ def test_pickled_frames_arrive_read_only_with_provenance():
         copy.data[0, 0] = 1
     with pytest.raises(ValueError, match="read-only"):
         copy.axes[1].values[0] = 9
+
+
+def test_shot_scalars_are_finite_floats_read_only_and_travel_with_the_shot():
+    shot = ShotMeta("cam", 3, 1.5, {"Dipole Field": np.float32(0.25), "ICT": 7})
+    assert dict(shot.scalars) == {"Dipole Field": pytest.approx(0.25), "ICT": 7.0}
+    assert all(type(v) is float for v in shot.scalars.values())
+    with pytest.raises(TypeError):
+        shot.scalars["ICT"] = 1.0
+    assert shot == pickle.loads(pickle.dumps(shot))
+    assert ShotMeta("cam", 3, 1.5) != shot and hash(ShotMeta("cam", 3, 1.5)) == hash(
+        shot
+    )
+    frame = Frame.from_array(np.ones((2, 2)), shot=shot)
+    assert pickle.loads(pickle.dumps(frame)).shot.scalars["ICT"] == 7.0
+
+
+@pytest.mark.parametrize(
+    "scalars",
+    [{"": 1.0}, {"x": np.nan}, {"x": np.inf}, {"x": True}, {"x": "0.2"}],
+)
+def test_invalid_shot_scalars_are_refused(scalars):
+    with pytest.raises(ValueError):
+        ShotMeta("cam", scalars=scalars)

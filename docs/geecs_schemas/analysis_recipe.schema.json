@@ -213,7 +213,7 @@
     },
     "FrameInput": {
       "additionalProperties": false,
-      "description": "A frame the source layer loads (or computes) before the run and binds by name.\n\nSteps refer to it by the key it is stored under (``background_frame``'s\n``source``).  The analysis core never opens a file or reads a scan; the\nscan host does: a ``path`` (``{scan_dir}`` resolved to the device's data\ndirectory), or a ``from_scan`` statistic over a scan's frames.  Exactly\none of the two is set.",
+      "description": "An input the source layer loads (or computes) before the run and binds by name.\n\nSteps refer to it by the key it is stored under (``background_frame``'s\n``source``), a measure by the key its spec names.  The analysis core\nnever opens a file or reads a scan; the scan host does: a ``path``\n(``{scan_dir}`` resolved to the device's data directory), a ``from_scan``\nstatistic over a scan's frames, or a ``table`` \u2014 a tab-delimited text\ntable (a spectrometer's calibration survey) for a measure that declares\na table input.  Exactly one of the three is set.",
       "properties": {
         "path": {
           "anyOf": [
@@ -253,6 +253,20 @@
           "default": null,
           "description": "When the file cannot be read, subtract this constant instead of the frame and warn; unset makes a failed read an error. Files only.",
           "title": "Fallback Level"
+        },
+        "table": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tab-delimited table to read (a calibration survey), relative to the analysis-configs root or absolute; bound for a measure that names it as a table input, never as a frame.",
+          "title": "Table"
         }
       },
       "title": "FrameInput",
@@ -793,7 +807,7 @@
       "additionalProperties": {
         "$ref": "#/$defs/FrameInput"
       },
-      "description": "Frames loaded before the run and bound by name for steps that take one (a background image) or a measure that compares against one (the haso reference).",
+      "description": "Inputs loaded before the run and bound by name: frames for steps that take one (a background image) or a measure that compares against one (the haso reference), and tables for a measure that reads one (the magspec calibration surveys).",
       "title": "Inputs",
       "type": "object"
     },
