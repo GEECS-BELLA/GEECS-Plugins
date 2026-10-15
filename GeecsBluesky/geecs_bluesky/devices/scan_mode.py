@@ -189,6 +189,9 @@ class ScanModeControl:
     boundary_writes, db_root_path :
         The DB's ``set='yes'`` rows per device and its ``RootPath`` —
         carried for the preflight (``plans/scan_mode.py``), unused here.
+    geecs_db :
+        The DB the rows came from; :meth:`refresh_boundary_writes` re-reads
+        them from it per run (``None``: the rows stay as given).
     """
 
     name = "scan_mode"
@@ -213,8 +216,10 @@ class ScanModeControl:
         device_path: Callable[[str], str] = device_server_save_path,
         boundary_writes: Mapping[str, list[Mapping[str, Any]]] | None = None,
         db_root_path: str | None = None,
+        geecs_db: Any | None = None,
     ) -> None:
         self._experiment = experiment
+        self._geecs_db = geecs_db
         self._endpoint = (str(endpoint[0]), int(endpoint[1])) if endpoint else None
         self._path_provider = path_provider
         self._device_endpoints = {
@@ -263,7 +268,8 @@ class ScanModeControl:
         """Build from the GEECS DB's experiment row, fail-soft.
 
         Reads the multicast endpoint, the scan-boundary rows and the
-        device-side root once (at environment open, like the roster).  A
+        device-side root at environment open, like the roster; the rows are
+        read again per run (:meth:`refresh_boundary_writes`).  A
         DB failure (logged with its traceback) or a blank endpoint leaves
         the control disabled: the worker still opens, and a run under a
         scan-mode profile is refused by name.
@@ -302,8 +308,35 @@ class ScanModeControl:
             device_endpoints=device_endpoints,
             boundary_writes=boundary,
             db_root_path=root,
+            geecs_db=geecs_db,
             **kwargs,
         )
+
+    def refresh_boundary_writes(self) -> None:
+        """Re-read the DB's scan-boundary rows; on a failure keep the last ones.
+
+        The device reads its own rows on every ``ScanStart``, so the
+        preflight must compare against the rows as they are now, not as
+        they were at environment open (Undulator 26_1015 Scan018: a row
+        edited back after the open was applied by the DG645 while the
+        preflight still held the edit).  A DB that does not answer (the
+        connect is bounded) leaves the previous rows, logged at ERROR.
+        """
+        if self._geecs_db is None:
+            return
+        try:
+            rows = self._geecs_db.get_scan_boundary_writes(self._experiment)
+        except Exception as exc:  # the cached rows still guard the run
+            logger.error(
+                "scan mode: the scan-boundary rows could not be re-read from "
+                "the GEECS DB (%s: %s) — checking the profile against the "
+                "rows read earlier",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
+            return
+        self.boundary_writes = {device: list(r) for device, r in rows.items()}
 
     # ------------------------------------------------------------- facts
 

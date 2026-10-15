@@ -500,8 +500,11 @@ CA gateway must share a host**, and the preflight refuses a mismatch
 against `EPICS_CA_ADDR_LIST`.  The preflight also refuses a profile write
 that disagrees with the device's own DB boundary row for the same
 variable (the device applies its `startvalue` on `ScanStart`, *after* the
-bracket's ARMED).  A **box-less profile** — the flag and no writes at all
-— builds a `ShotControl` whose every state is a logged no-op
+bracket's ARMED); the device reads its rows from the DB at every
+`ScanStart`, so the preflight re-reads them per run
+(`ScanModeControl.refresh_boundary_writes`, the rows from environment
+open kept, logged at ERROR, when the DB does not answer).  A **box-less
+profile** — the flag and no writes at all — builds a `ShotControl` whose every state is a logged no-op
 (`ShotControl.boxless`); the strict loop then fires nothing and the
 announce is the shot.  The **state file** (`GEECS_SCAN_MODE_STATE`,
 default `~/.local/state/geecs-bluesky/scan_mode.json`) records the run

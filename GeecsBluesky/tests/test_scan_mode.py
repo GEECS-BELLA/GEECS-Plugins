@@ -449,29 +449,40 @@ def test_from_experiment_is_fail_soft(tmp_path: Path, caplog) -> None:
         group, port = "234.5.6.9", "58432"
 
     class Db2:
+        start = "armed"
+
         def get_scan_mode_endpoint(self, experiment):
             return Found()
 
         def get_scan_boundary_writes(self, experiment):
             return {
                 BOX: [
-                    {"variable": "Source", "startvalue": "armed", "endvalue": "standby"}
+                    {
+                        "variable": "Source",
+                        "startvalue": self.start,
+                        "endvalue": "standby",
+                    }
                 ]
             }
 
         def get_root_path(self, experiment):
             return "z:\\data\\TestExp"
 
+    db = Db2()
     control = ScanModeControl.from_experiment(
         "TestExp",
         path_provider=GeecsScanPathProvider(),
         device_endpoints={},
-        geecs_db=Db2(),
+        geecs_db=db,
     )
     assert control.enabled and control.endpoint == ("234.5.6.9", 58432)
     assert (
         control.db_root_path == "z:\\data\\TestExp" and BOX in control.boundary_writes
     )
+    # the control keeps the DB it was built from: the per-run re-read reaches it
+    db.start = "edges"
+    control.refresh_boundary_writes()
+    assert control.boundary_writes[BOX][0]["startvalue"] == "edges"
 
 
 # --------------------------------------------------------- the strict loop
@@ -951,3 +962,38 @@ def test_preflight_refuses_what_scan_mode_cannot_carry(
     monkeypatch.setenv("EPICS_CA_ADDR_LIST", "203.0.113.9")
     with pytest.raises(GeecsConfigurationError, match="one host"):
         scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+
+
+def test_preflight_reads_the_boundary_rows_as_they_are_now(
+    RE: RunEngine, stack: Stack, monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    # Undulator 26_1015 Scan018: the row was edited back after environment
+    # open; the device applied the new row, the preflight held the old one.
+    monkeypatch.setenv("EPICS_CA_ADDR_LIST", "localhost")
+    stack.start()
+    sc = _shot_control(RE, [], use_scan_mode=True)
+
+    class Db:
+        start: str | None = "armed"  # agrees with the profile's ARMED
+        down = False
+
+        def get_scan_boundary_writes(self, experiment):
+            if self.down:
+                raise ConnectionError("db down")
+            row = {"variable": "Source", "startvalue": self.start, "endvalue": None}
+            return {BOX: [row]}
+
+    db = Db()
+    control = stack.make_control(
+        boundary_writes=db.get_scan_boundary_writes("TestExp"), geecs_db=db
+    )
+    scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+    db.start = "edges"  # edited in the DB after the control was built
+    with pytest.raises(GeecsConfigurationError, match="'edges' as its startvalue"):
+        scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+    # a DB that does not answer keeps the rows last read, and says so
+    db.down = True
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.scan_mode"):
+        with pytest.raises(GeecsConfigurationError, match="conflicts"):
+            scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+    assert "could not be re-read" in caplog.text
