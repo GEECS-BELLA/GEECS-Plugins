@@ -117,15 +117,30 @@ def _summaries_v2(options: RendererOptions, *, line: bool) -> list[dict]:
     return [grid, {"kind": "average"}]
 
 
-def to_v3(document: AnalysisDiagnostic) -> Conversion:  # noqa: C901, PLR0912, PLR0915
+def to_v3(  # noqa: C901, PLR0912, PLR0915
+    document: AnalysisDiagnostic,
+    *,
+    table_namespace: str | None = None,
+    magnetic_field_column: str | None = None,
+) -> Conversion:
     """Convert one v2 diagnostic the core serves; ``UnsupportedRecipe`` otherwise.
+
+    ``table_namespace`` rewrites a magspec document's calibration-table
+    paths (ImageAnalysis-relative in v2) to ``calibrations/<namespace>/<file>``
+    under the analysis-configs root, where the configs repository keeps
+    them. ``magnetic_field_column`` names the scan's recorded column of the
+    live dipole field a ``dnn_axis`` magspec reads per shot — the legacy
+    analyzer's hardcoded teslameter override, which the recipe carries as a
+    document field or not at all; other documents ignore it.
 
     Raises
     ------
     geecs_analysis.compat.v2.UnsupportedRecipe
         The recipe needs a capability the core has not ported; it stays v2.
     """
-    compiled = compile_v2(document, allow_file_backgrounds=True)
+    compiled = compile_v2(
+        document, allow_file_backgrounds=True, allow_table_inputs=True
+    )
     notes: list[str] = []
     config = document.image
     line = isinstance(config, Line1DConfig)
@@ -186,7 +201,7 @@ def to_v3(document: AnalysisDiagnostic) -> Conversion:  # noqa: C901, PLR0912, P
     if getattr(config, "metadata", None):
         raw["metadata"] = dict(config.metadata)
     raw["input"] = source
-    if compiled.file_backgrounds or compiled.scan_backgrounds:
+    if compiled.file_backgrounds or compiled.scan_backgrounds or compiled.tables:
         raw["inputs"] = {
             request.key: {
                 "path": request.path,
@@ -201,8 +216,44 @@ def to_v3(document: AnalysisDiagnostic) -> Conversion:  # noqa: C901, PLR0912, P
             if request.percentile is not None:
                 statistic["percentile"] = request.percentile
             raw["inputs"][request.key] = {"from_scan": statistic}
+        tables = []
+        for request in compiled.tables:
+            path = request.path
+            if table_namespace is not None:
+                # The file name alone: the core handles no paths, so no pathlib.
+                name = path.replace("\\", "/").rsplit("/", 1)[-1]
+                path = f"calibrations/{table_namespace}/{name}"
+                notes.append(
+                    f"calibration table {request.path} is read as {path} under the "
+                    "analysis-configs root; the file must be there"
+                )
+            raw["inputs"][request.key] = {"table": path}
+            tables.append(replace(request, path=path))
+        compiled = replace(compiled, tables=tuple(tables))
     raw["steps"] = [_spec_mapping(spec, "step") for spec in compiled.analysis.steps]
     raw["measure"] = _spec_mapping(compiled.analysis.measure, "kind")
+    measure = compiled.analysis.measure
+    if measure.kind == "magspec" and measure.calibration.kind == "dnn_axis":
+        if magnetic_field_column is None:
+            notes.append(
+                "the legacy per-shot teslameter override is not carried: set "
+                "measure.magnetic_field_column to the scan's field column to read "
+                "the dipole field per shot"
+            )
+        else:
+            raw["measure"]["magnetic_field_column"] = magnetic_field_column
+            measure = measure.model_copy(
+                update={"magnetic_field_column": magnetic_field_column}
+            )
+            compiled = replace(
+                compiled,
+                analysis=compiled.analysis.model_copy(update={"measure": measure}),
+            )
+            notes.append(
+                "the legacy per-shot teslameter override (a column name in the "
+                f"analyzer's code) is measure.magnetic_field_column "
+                f"{magnetic_field_column!r}; magnetic_field_t is the fallback"
+            )
     runtime: dict = {}
     if scan.priority != 100:
         runtime["priority"] = scan.priority

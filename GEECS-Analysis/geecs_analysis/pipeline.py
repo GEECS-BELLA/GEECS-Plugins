@@ -34,28 +34,26 @@ def bind_inputs(
     service also binds that key: the host's collaborator (any object that is
     not a Frame, e.g. the FROG retrieval), which the core calls but never
     builds, configures or inspects. A ``measure`` whose spec names a frame
-    input (:func:`measure_input`) binds that Frame too.
+    input (:func:`measure_input`) binds that Frame too, and one whose spec
+    names tables (:func:`measure_tables`) binds a ``Table`` under each key.
     """
     from geecs_data_utils.frames import Frame
+    from geecs_data_utils.tables import Table
 
     supplied = inputs if inputs is not None else {}
-    resolved = {}
-
-    def bind_frame(key: str) -> None:
-        if key not in supplied:
-            raise ValueError(f"Missing frame input: {key}")
-        value = supplied[key]
-        if not isinstance(value, Frame):
-            raise TypeError(f"Frame input {key!r} must be a Frame")
-        resolved[key] = value
-
+    wanted: list[tuple[str, type, str]] = []
     for spec in steps:
         field = definition(spec).input_field
         if field is not None:
-            bind_frame(getattr(spec, field))
-    key = measure_input(measure) if measure is not None else None
-    if key is not None:
-        bind_frame(key)
+            wanted.append((getattr(spec, field), Frame, "frame"))
+    if measure is not None:
+        key = measure_input(measure)
+        if key is not None:
+            wanted.append((key, Frame, "frame"))
+        wanted.extend((key, Table, "table") for key in measure_tables(measure).values())
+    resolved = {
+        key: _supplied(supplied, key, kind, label) for key, kind, label in wanted
+    }
     service = measure_definition(measure).service if measure is not None else None
     if service is not None:
         if service not in supplied:
@@ -70,6 +68,18 @@ def bind_inputs(
     return MappingProxyType(resolved)
 
 
+def _supplied(
+    supplied: Mapping[str, object], key: str, kind: type, label: str
+) -> object:
+    """The caller's value under ``key``, which must be a ``kind``."""
+    if key not in supplied:
+        raise ValueError(f"Missing {label} input: {key}")
+    value = supplied[key]
+    if not isinstance(value, kind):
+        raise TypeError(f"{label.capitalize()} input {key!r} must be a {kind.__name__}")
+    return value
+
+
 def measure_input(spec: MeasureSpec) -> str | None:
     """The frame-binding key the measure's spec names, or ``None``.
 
@@ -79,6 +89,26 @@ def measure_input(spec: MeasureSpec) -> str | None:
     """
     field = measure_definition(spec).input_field
     return None if field is None else getattr(spec, field)
+
+
+def measure_tables(spec: MeasureSpec) -> Mapping[str, str]:
+    """The measure's table bindings, ``{spec field: binding key}``, for the fields set."""
+    return {
+        field: getattr(spec, field)
+        for field in measure_definition(spec).tables
+        if getattr(spec, field) is not None
+    }
+
+
+def shot_scalar_columns(spec: MeasureSpec) -> tuple[str, ...]:
+    """The scan's recorded columns the measure reads per shot, as the spec names them.
+
+    What a scan host binds on each shot's ``ShotMeta.scalars`` for this
+    recipe; empty for a measure that reads none, or whose spec leaves the
+    fields unset.
+    """
+    columns = (getattr(spec, field) for field in measure_definition(spec).shot_scalars)
+    return tuple(column for column in columns if column is not None)
 
 
 def process_measure_input(
@@ -114,9 +144,15 @@ def apply_measure(
     it (:func:`process_measure_input`). ``channels`` are the trace's
     auxiliary channels, already cut to the frame's samples; a measure that
     reads channels receives the ones it declared that are present, last.
+    Tables arrive as keyword arguments named by the spec field that binds
+    each (``None`` for a field left unset).
     """
     declared = measure_definition(spec)
-    if declared.service is None and declared.input_field is None:
+    if (
+        declared.service is None
+        and declared.input_field is None
+        and not declared.tables
+    ):
         if not declared.channels:
             return declared.function(frame, spec)
         return declared.function(frame, spec, _declared_channels(declared, channels))
@@ -129,7 +165,13 @@ def apply_measure(
         arguments.append(None if key is None else bound[key])
     if declared.channels:
         arguments.append(_declared_channels(declared, channels))
-    return declared.function(frame, spec, *arguments)
+    # Tables go by the field's name; a field left unset hands over None.
+    tables = measure_tables(spec)
+    keywords = {
+        field: bound[tables[field]] if field in tables else None
+        for field in declared.tables
+    }
+    return declared.function(frame, spec, *arguments, **keywords)
 
 
 def _declared_channels(

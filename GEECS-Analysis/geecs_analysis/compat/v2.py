@@ -21,6 +21,7 @@ from geecs_analysis.measures.frog_spectral_phase import FrogSpectralPhaseSpec
 from geecs_analysis.measures.hi_res_mag_cam import HiResMagCamSpec
 from geecs_analysis.measures.ict import IctSpec
 from geecs_analysis.measures.line import LineSpec
+from geecs_analysis.measures.magspec import MagspecSpec
 from geecs_analysis.measures.none import NoneSpec
 from geecs_analysis.pipeline import (
     apply_measure,
@@ -47,6 +48,7 @@ from geecs_analysis.steps.zero_below import ZeroBelowSpec
 if TYPE_CHECKING:
     import numpy as np
     from geecs_data_utils.frames import Frame, ShotMeta
+    from geecs_schemas.analysis.analyzers import MagSpecAnalyzerSpec
     from geecs_analysis.measurement import Measurement
 
 
@@ -81,6 +83,18 @@ class ScanBackground:
 
 
 @dataclass(frozen=True)
+class TableInput:
+    """A source-layer request for a tab-delimited table; the core never opens the path.
+
+    The host reads it into a ``geecs_data_utils.tables.Table`` (a relative
+    path against the analysis-configs root) and binds it under ``key``.
+    """
+
+    key: str
+    path: str
+
+
+@dataclass(frozen=True)
 class V2Recipe:
     """An immutable in-memory recipe and explicit legacy conversion conventions."""
 
@@ -101,6 +115,9 @@ class V2Recipe:
     #: A line input's named auxiliary channels the measure reads, in the
     #: order the source appends them to the trace as columns 2, 3, …
     channels: tuple[str, ...] = ()
+    #: The measure's table inputs (the magspec calibration surveys), read
+    #: and bound by the host under their keys before the run.
+    tables: tuple[TableInput, ...] = ()
 
 
 #: Ported v2 kinds whose measure takes the analyzer's own parameters, by name.
@@ -132,7 +149,10 @@ def trace_channels(
 
 
 def compile_v2(  # noqa: C901, PLR0912
-    document: AnalysisDiagnostic, *, allow_file_backgrounds: bool = False
+    document: AnalysisDiagnostic,
+    *,
+    allow_file_backgrounds: bool = False,
+    allow_table_inputs: bool = False,
 ) -> V2Recipe:
     """Translate supported beam/line/standard/trace/frog_retrieval recipes, without file access.
 
@@ -160,6 +180,11 @@ def compile_v2(  # noqa: C901, PLR0912
     that name (its ``threshold_factor`` is not carried: the fit never read
     it). ``frog_spectral_phase`` compiles to the measure of that name; its
     ``weights`` auxiliary column becomes the input's ``weights`` channel.
+    ``magspec`` compiles to the ``magspec`` measure; a ``dnn_axis``
+    calibration declares its three survey files as table requests, which
+    need a source host's opt-in (``allow_table_inputs=True``, set by
+    ``to_v3`` and the corpus converter only) — the paths are carried as
+    written, so every other caller keeps its legacy route for them.
     """
     kind = document.analyzer.kind
     if kind not in {
@@ -172,6 +197,7 @@ def compile_v2(  # noqa: C901, PLR0912
         "ict",
         "hi_res_mag_cam",
         "frog_spectral_phase",
+        "magspec",
     }:
         raise UnsupportedRecipe(f"Analyzer not ported: {kind}")
     config = document.image
@@ -183,6 +209,7 @@ def compile_v2(  # noqa: C901, PLR0912
         "standard",
         "frog_retrieval",
         "hi_res_mag_cam",
+        "magspec",
     } and not isinstance(config, CameraConfig):
         raise UnsupportedRecipe(f"{kind} requires a camera input")
     line_kinds = {"line", "line_stitcher", "trace", "ict", "frog_spectral_phase"}
@@ -208,6 +235,7 @@ def compile_v2(  # noqa: C901, PLR0912
             if isinstance(config, CameraConfig)
             else _line_steps(name.value, config)
         )
+    tables: tuple[TableInput, ...] = ()
     if kind == "beam":
         measure = BeamSpec(
             enabled_stats=document.analyzer.enabled_stats,
@@ -217,6 +245,10 @@ def compile_v2(  # noqa: C901, PLR0912
         # A stitcher is a line analyzer over the joined trace; the source
         # (the scan host) joins the sibling devices' segments before this.
         measure = LineSpec()
+    elif kind == "magspec":
+        measure, tables = _magspec_measure(
+            document.analyzer, allow_table_inputs=allow_table_inputs
+        )
     elif kind in _PARAMETERIZED:
         spec = _PARAMETERIZED[kind]
         measure = spec.model_validate(
@@ -254,6 +286,7 @@ def compile_v2(  # noqa: C901, PLR0912
             camera_origin=origin,
             file_backgrounds=requests,
             scan_backgrounds=scans,
+            tables=tables,
         )
     if config.processing_dtype != "float64" or config.storage_dtype not in {
         "float32",
@@ -272,6 +305,50 @@ def compile_v2(  # noqa: C901, PLR0912
         y_unit=config.y_units or "",
         label=config.label,
     )
+
+
+def _magspec_measure(
+    spec: MagSpecAnalyzerSpec, *, allow_table_inputs: bool
+) -> tuple[MagspecSpec, tuple[TableInput, ...]]:
+    """The v2 magspec analyzer as the ``magspec`` measure plus its table requests.
+
+    A ``dnn_axis`` calibration's three files become table inputs keyed by
+    the measure's own field names (``camera_table``, ``trajectory_table``,
+    ``lanex_table``), paths as written in the document. The ``array``
+    calibration's ``.npy`` file is not ported; inline ``values`` is.
+    """
+    calibration = spec.calibration
+    common = dict(
+        energy_range=spec.energy_range, num_energy_points=spec.num_energy_points
+    )
+    if calibration.kind == "dnn_axis":
+        if not allow_table_inputs:
+            raise UnsupportedRecipe("Calibration tables must be resolved by a source")
+        tables = [
+            TableInput("camera_table", calibration.camera_calibration_file),
+            TableInput("trajectory_table", calibration.trajectory_calibration_file),
+        ]
+        if calibration.lanex_calibration_file is not None:
+            tables.append(TableInput("lanex_table", calibration.lanex_calibration_file))
+        measure = MagspecSpec(
+            calibration={
+                "kind": "dnn_axis",
+                "camera_number": calibration.camera_number,
+                "magnetic_field_t": calibration.magnetic_field_t,
+            },
+            camera_table="camera_table",
+            trajectory_table="trajectory_table",
+            lanex_table="lanex_table" if len(tables) == 3 else None,
+            **common,
+        )
+        return measure, tuple(tables)
+    if calibration.kind == "array":
+        if calibration.file is not None:
+            raise UnsupportedRecipe("Array calibration not ported: file")
+        values = {"kind": "array", "values": calibration.values}
+        return MagspecSpec(calibration=values, **common), ()
+    coefficients = {"kind": "polynomial", "coeffs": calibration.coeffs}
+    return MagspecSpec(calibration=coefficients, **common), ()
 
 
 def _scan_background(

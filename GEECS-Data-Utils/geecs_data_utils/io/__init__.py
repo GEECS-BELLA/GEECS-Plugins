@@ -57,6 +57,7 @@ from geecs_data_utils.io.images import (
     read_imaq_png_image,
     read_tsv_file,
 )
+from geecs_data_utils.io.tables import read_table
 from geecs_data_utils.io.scan_stack import (
     LABVIEW_EPOCH_OFFSET,
     ShotRef,
@@ -110,6 +111,7 @@ __all__ = [
     "parse_attribute_name",
     "read_stack_attributes",
     "read_stack_timestamps",
+    "read_table",
     "stack_content_kind",
     "stack_scalar_variables",
     "read_tsv_file",

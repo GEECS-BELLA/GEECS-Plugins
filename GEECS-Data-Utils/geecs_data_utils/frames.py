@@ -7,8 +7,11 @@ offset into another array. This module performs no reading or writing.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from math import isfinite
+from numbers import Real
+from types import MappingProxyType
+from typing import Mapping
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -69,14 +72,22 @@ class Axis:
 
 @dataclass(frozen=True)
 class ShotMeta:
-    """Read-only shot identity; sources normalize timestamps to Unix seconds."""
+    """Read-only shot identity; sources normalize timestamps to Unix seconds.
+
+    ``scalars`` are the scan's recorded values for this shot that a recipe
+    asked for by column name (cells of the shot's s-file row — a live
+    teslameter reading a measure uses per shot): finite floats keyed by
+    column, bound by the scan host, empty when nothing was asked for or
+    recorded. They travel with the shot's frames and pickle with them.
+    """
 
     device: str
     shot_number: int | None = None
     acq_timestamp: float | None = None
+    scalars: Mapping[str, float] = field(default_factory=dict, hash=False)
 
     def __post_init__(self) -> None:
-        """Refuse ambiguous or invalid shot provenance."""
+        """Refuse ambiguous or invalid shot provenance; own the scalars read-only."""
         if not isinstance(self.device, str) or not self.device.strip():
             raise ValueError("Shot provenance requires a device name")
         if self.shot_number is not None and (
@@ -85,6 +96,31 @@ class ShotMeta:
             raise ValueError("Shot number must be a positive integer")
         if self.acq_timestamp is not None and not isfinite(self.acq_timestamp):
             raise ValueError("Acquisition timestamp must be finite")
+        scalars = {}
+        for key, value in dict(self.scalars).items():
+            if not isinstance(key, str) or not key:
+                raise ValueError("Shot scalar names must be nonempty strings")
+            if isinstance(value, bool) or not isinstance(value, Real):
+                raise ValueError(f"Shot scalar {key!r} must be a real number")
+            if not isfinite(value):
+                raise ValueError(f"Shot scalar {key!r} must be finite")
+            scalars[key] = float(value)
+        object.__setattr__(self, "scalars", MappingProxyType(scalars))
+
+    def __getstate__(self) -> dict:
+        """Pickle the scalars as a plain dict (a proxy view cannot be)."""
+        return {
+            "device": self.device,
+            "shot_number": self.shot_number,
+            "acq_timestamp": self.acq_timestamp,
+            "scalars": dict(self.scalars),
+        }
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the read-only scalar view."""
+        for name, value in state.items():
+            object.__setattr__(self, name, value)
+        object.__setattr__(self, "scalars", MappingProxyType(dict(state["scalars"])))
 
 
 @dataclass(frozen=True, eq=False)

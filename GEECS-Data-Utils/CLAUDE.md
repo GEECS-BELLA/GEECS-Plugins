@@ -94,7 +94,13 @@ positions. `from_trace` / `as_trace` adapt the existing Nx2 reader convention
 without resampling. No current consumer is switched by introducing these types.
 Both pickle, and arrive **read-only again** (`__setstate__` re-freezes the
 arrays; numpy pickles values, not flags) — the analysis core's process-pool
-workers return measurements built on them.
+workers return measurements built on them. `ShotMeta.scalars` carries the
+scan's recorded values a recipe asked for by column (finite floats,
+read-only, pickled with the shot): the per-shot inputs a measure reads
+(the magspec dipole field), which the scan host fills from the s-file
+rows. `geecs_data_utils.tables.Table` is the read-only string table the
+core's table inputs are bound as (`columns`, `rows`, `floats`), read by
+`io.tables.read_table` (tab-delimited, a header row, blank lines skipped).
 
 ### `ScanTag`
 

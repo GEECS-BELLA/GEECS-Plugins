@@ -23,12 +23,13 @@ from geecs_analysis import summaries as _summaries  # noqa: F401 -- registers th
 from geecs_analysis.compat.v2 import (
     FileBackground,
     ScanBackground,
+    TableInput,
     UnsupportedRecipe,
     V2Recipe,
     compile_v2,
     trace_channels,
 )
-from geecs_analysis.pipeline import measure_input
+from geecs_analysis.pipeline import measure_input, measure_tables
 from geecs_analysis.registry import (
     definition,
     definitions,
@@ -60,10 +61,11 @@ def compile_recipe(  # noqa: C901, PLR0912
     """Bind the recipe's vocabulary to the registry and compile it, without I/O.
 
     Unknown step or measure names, unknown parameters, steps or a measure
-    that do not process the input's frames, and frame bindings the steps
-    and the measure do not use (or use without declaring) are refused with
-    :class:`RecipeError`.
-    Frame inputs require a source host that loads them
+    that do not process the input's frames, and bindings the steps and the
+    measure do not use (or use without declaring) are refused with
+    :class:`RecipeError` — so is an input declared as a table but bound as
+    a frame, or the reverse.
+    Frame and table inputs require a source host that loads them
     (``allow_file_backgrounds=True``); the live optimizer has none.
     """
     try:
@@ -107,20 +109,33 @@ def compile_recipe(  # noqa: C901, PLR0912
                 "fallback_level (a constant for a background step) cannot stand in for it"
             )
         required.add(reference)
+    tables = set(measure_tables(analysis.measure).values())
+    if tables & required:
+        raise RecipeError(
+            f"inputs bound both as a frame and as a table: {sorted(tables & required)}"
+        )
+    required |= tables
     declared = set(recipe.inputs)
     if required - declared:
         raise RecipeError(
-            "steps or the measure bind frame inputs the recipe does not declare: "
+            "steps or the measure bind inputs the recipe does not declare: "
             f"{sorted(required - declared)}"
         )
     if declared - required:
         raise RecipeError(
-            "recipe declares frame inputs no step or measure uses: "
+            "recipe declares inputs no step or measure uses: "
             f"{sorted(declared - required)}"
         )
+    for key, binding in recipe.inputs.items():
+        if (binding.table is not None) != (key in tables):
+            raise RecipeError(
+                f"input {key!r} is declared as a "
+                f"{'table' if binding.table is not None else 'frame'} but bound as a "
+                f"{'frame' if binding.table is not None else 'table'}"
+            )
     if required and not allow_file_backgrounds:
-        raise RecipeError("frame inputs need a source host that loads them")
-    if required and isinstance(recipe.input, LineInput):
+        raise RecipeError("frame and table inputs need a source host that loads them")
+    if (required - tables) and isinstance(recipe.input, LineInput):
         raise RecipeError("frame inputs are loaded for camera recipes only")
     common = dict(
         analysis=analysis,
@@ -162,7 +177,7 @@ def compile_recipe(  # noqa: C901, PLR0912
         file_backgrounds=tuple(
             FileBackground(key, binding.path, binding.fallback_level)
             for key, binding in recipe.inputs.items()
-            if binding.from_scan is None
+            if binding.path is not None
         ),
         scan_backgrounds=tuple(
             ScanBackground(
@@ -173,6 +188,11 @@ def compile_recipe(  # noqa: C901, PLR0912
             )
             for key, binding in recipe.inputs.items()
             if binding.from_scan is not None
+        ),
+        tables=tuple(
+            TableInput(key, binding.table)
+            for key, binding in recipe.inputs.items()
+            if binding.table is not None
         ),
     )
 

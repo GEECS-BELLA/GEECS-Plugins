@@ -14,7 +14,7 @@ import pytest
 from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
 from scan_analysis.config.diagnostic_factory import create_scan_analyzer
-from scan_analysis.core_analyzer import CoreScanAnalyzer
+from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +146,31 @@ class TestScanWrapperSelection:
             _diag(alias="downramp_phase", image={"type": "camera"})
         )
         assert isinstance(analyzer, Array2DScanAnalyzer)
+
+    def test_a_v2_magspec_with_survey_tables_stays_on_the_wrapper(self):
+        # The core compiles magspec, but a dnn_axis document's table requests
+        # need a host opt-in no route gives yet (#1039, PR 3): until the
+        # document is regenerated as v3 it runs on the legacy analyzer,
+        # which reads its tables itself.
+        tables = "data/HTT-MagSpce-Calibrations"
+        diag = AnalysisDiagnostic.model_validate(
+            {
+                "name": "UC_Test",
+                "analyzer": {
+                    "kind": "magspec",
+                    "calibration": {
+                        "kind": "dnn_axis",
+                        "camera_calibration_file": f"{tables}/260224DnnVarianCam.txt",
+                        "trajectory_calibration_file": f"{tables}/170925DnnVarianTrj.txt",
+                        "camera_number": 1,
+                    },
+                    "energy_range": [1.2, 1501.3],
+                },
+                "image": {"type": "camera", "pipeline": []},
+            }
+        )
+        assert not core_supports(diag)
+        assert isinstance(create_scan_analyzer(diag), Array2DScanAnalyzer)
 
     def test_injected_data_stays_on_the_wrapper(self):
         analyzer = create_scan_analyzer(_diag(alias="beam"), use_injected_data=True)
