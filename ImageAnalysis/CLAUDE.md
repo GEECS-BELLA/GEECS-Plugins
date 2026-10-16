@@ -125,12 +125,10 @@ owns the three things that need the analysis stack:
   `line_config=` / `output_name=` where the constructor declares them.
 - **`registry`** — `ANALYZER_CLASS_PATHS` (kind → class path, imported on
   demand so vendor SDKs stay unimported) and `analyzer_class(kind)`.
-  `tests/test_config_registry.py` pins it against the schema's union —
-  its *frame-scoped* kinds (`FRAME_KINDS`: every spec whose `scope` is
-  `"frame"`). A scan-scoped kind (`scope = "scan"`, e.g. `himg_to_stack`,
-  a converter over the device folder) has no ImageAnalyzer: ScanAnalysis
-  maps it itself, `analyzer_class` refuses it by name, and the ephemeral
-  runner refuses it before any lookup.
+  `tests/test_config_registry.py` pins it against the schema's union.
+  The `.himg` jobs (`geecs_schemas.analysis.HimgJob`, a document of their
+  own) have no ImageAnalyzer: ScanAnalysis runs them, and the factory and
+  the ephemeral runner refuse them like a recipe.
 
 A v2 diagnostic:
 
@@ -139,7 +137,7 @@ schema_version: 2
 name: UC_TopView                  # device folder under scans/ScanNNN/
 output_name: UC_TopView_left      # optional output label (defaults to name)
 analyzer: {kind: beam, compute_slopes: false}   # the analyzer + ITS parameters
-image:                            # camera | line | omitted (the himg_* kinds)
+image:                            # camera | line
   type: camera
   bit_depth: 16
   roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
@@ -159,7 +157,7 @@ its `to_data1d_config`) hand it to GEECS-Data-Utils' reader as its own
 
 **Adding an analyzer** = one spec model in
 `geecs_schemas.analysis.analyzers` (joined into `AnalyzerSpec`, with
-`image_kind` = `"camera"` / `"line"` / `None`; `scope` stays `"frame"`) +
+`image_kind` = `"camera"` / `"line"`) +
 one line in `ANALYZER_CLASS_PATHS` + a constructor that takes the spec:
 `def __init__(self, camera_config, *, spec: MySpec | None = None,
 output_name=None)`. Specs whose fields all have defaults may be optional

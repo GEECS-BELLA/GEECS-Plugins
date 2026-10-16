@@ -289,6 +289,13 @@ analyzers:
   - {ref: U_FROG, enabled: false}
   - {ref: U_BCaveICT, priority: 1}
 """,
+    "himg_job": """\
+schema_version: 1
+kind: himg_compact               # or himg_to_stack / himg_restore
+device: U_HasoLift               # the HASO device folder under scans/ScanNNN/
+output_name: HasoLift_compact    # the portal lists the job under this label
+scan: {priority: 6}
+""",
     "log_entry": """\
 schema_version: 1
 entry_id: 7f3a9c2b1d04

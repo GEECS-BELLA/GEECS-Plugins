@@ -197,7 +197,8 @@ def compile_measurements(  # noqa: C901, PLR0912
                 diag = resolver.resolve_diagnostic(
                     spec.diagnostic, overrides=spec.overrides
                 )
-                if diag.input_kind != "camera":
+                # a .himg job has no input kind: not an analysis at all
+                if getattr(diag, "input_kind", None) != "camera":
                     raise ValueError(
                         f"{name}: diagnostic {spec.diagnostic} is not supported on live camera frames"
                     )

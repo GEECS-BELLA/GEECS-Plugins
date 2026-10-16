@@ -589,7 +589,7 @@ class AnalysisRecipe(VersionedSchemaModel):
 
     @property
     def destructive(self) -> bool:
-        """A recipe only adds files — never destructive (the v2 diagnostic's analyzer flag)."""
+        """A recipe only adds files — never destructive (the ``.himg`` job's flag)."""
         return False
 
     @property

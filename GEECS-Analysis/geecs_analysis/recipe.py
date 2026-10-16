@@ -13,9 +13,7 @@ hold. No file access and no numerical imports happen here.
 
 from __future__ import annotations
 
-from typing import Union
-
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
+from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisDocument, AnalysisRecipe
 from geecs_schemas.analysis.recipe import LineInput
 from pydantic import ValidationError
 
@@ -48,7 +46,8 @@ RECIPE_REFERENCE_URL = (
     "https://geecs-plugins.readthedocs.io/en/latest/sites/analysis_recipes/index.html"
 )
 
-AnalysisDocument = Union[AnalysisDiagnostic, AnalysisRecipe]
+# ``AnalysisDocument`` is the schemas' one alias, re-exported: either
+# analysis format, or a .himg job (``compile_document`` refuses the job).
 
 
 class RecipeError(ValueError):
@@ -249,10 +248,19 @@ def _check_declarations(
 def compile_document(
     document: AnalysisDocument, *, allow_file_backgrounds: bool = False
 ) -> V2Recipe:
-    """Compile either document format to the one in-memory recipe."""
+    """Compile either document format to the one in-memory recipe.
+
+    Anything else from the analyzers tree (a ``.himg`` job: no frames, no
+    measure) raises ``UnsupportedRecipe``, the refusal every caller of the
+    core already handles.
+    """
     if isinstance(document, AnalysisRecipe):
         return compile_recipe(document, allow_file_backgrounds=allow_file_backgrounds)
-    return compile_v2(document, allow_file_backgrounds=allow_file_backgrounds)
+    if isinstance(document, AnalysisDiagnostic):
+        return compile_v2(document, allow_file_backgrounds=allow_file_backgrounds)
+    raise UnsupportedRecipe(
+        f"a {type(document).__name__} is not an analysis: it has no frames to analyze"
+    )
 
 
 def is_line(document: AnalysisDocument) -> bool:

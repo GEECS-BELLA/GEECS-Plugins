@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Optional, Union
 
 import pandas as pd
-from geecs_analysis.compat.v2 import UnsupportedRecipe, compile_v2
+from geecs_analysis.compat.v2 import UnsupportedRecipe
+from geecs_analysis.recipe import compile_document
 from geecs_analysis.registry import (
     MeasureDefinition,
     SiblingOutput,
@@ -81,7 +82,7 @@ def core_supports(document: AnalysisDocument) -> bool:
     if isinstance(document, AnalysisRecipe):
         return True
     try:
-        compile_v2(document, allow_file_backgrounds=True)
+        compile_document(document, allow_file_backgrounds=True)
     except UnsupportedRecipe:
         return False
     return True

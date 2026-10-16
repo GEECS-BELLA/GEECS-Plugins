@@ -1,8 +1,9 @@
-"""The scan-scoped ``.himg`` kinds: ``himg_to_stack``, ``himg_compact``, ``himg_restore``.
+"""The ``.himg`` jobs: ``himg_to_stack``, ``himg_compact``, ``himg_restore``.
 
 Three data-management steps over one HASO device folder,
-``scans/ScanNNN/<device>/``, each a scan-scoped kind (``scope == "scan"``:
-no ImageAnalyzer, no per-frame results, no products under ``analysis/``)
+``scans/ScanNNN/<device>/``, each the runner of a
+:class:`~geecs_schemas.analysis.HimgJob` document's ``kind`` (no
+ImageAnalyzer, no per-frame results, no products under ``analysis/``)
 that runs once and returns one label describing what it did:
 
 - :class:`HimgToStackAnalyzer` (``himg_to_stack``) writes the device's
@@ -36,7 +37,7 @@ Scan-folder invariant, and its one exception: nothing here creates a
 directory, and the device folder must exist (a missing one is
 ``no_data``).  ``himg_compact`` deletes files inside that folder and
 ``himg_restore`` rewrites them — the deliberate exception the root
-CLAUDE.md names, gated by the ``destructive`` flag on the spec.
+CLAUDE.md names, gated by the document's ``destructive`` flag.
 """
 
 from __future__ import annotations
@@ -52,13 +53,17 @@ from geecs_data_utils.io.himg_stack import (
     list_himg_files,
 )
 from geecs_data_utils.io.himg_worker import run_himg_job
-from geecs_schemas.analysis import AnalyzerSpecBase
 
 from scan_analysis.base import DataUnavailableWarning, ScanAnalyzer
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["HimgCompactAnalyzer", "HimgRestoreAnalyzer", "HimgToStackAnalyzer"]
+__all__ = [
+    "HIMG_JOB_CLASSES",
+    "HimgCompactAnalyzer",
+    "HimgRestoreAnalyzer",
+    "HimgToStackAnalyzer",
+]
 
 
 class _HimgFolderAnalyzer(ScanAnalyzer):
@@ -67,37 +72,24 @@ class _HimgFolderAnalyzer(ScanAnalyzer):
     Parameters
     ----------
     device_name : str
-        The device (the diagnostic's ``name``): names the stamp column of
-        the scan's rows for legacy shot-numbered files and the stamp
-        attribute in the stack.
-    data_device_name : str, optional
-        The data subfolder (``scan.device``); the device name by default.
-    spec : AnalyzerSpecBase, optional
-        The kind's settings (none today; kept for the factory's shape).
+        The device (the job's ``device``): its folder under the scan, the
+        stamp column of the scan's rows for legacy shot-numbered files and
+        the stamp attribute in the stack.
     """
 
     #: The worker job this kind runs.
     command: ClassVar[str]
 
-    def __init__(
-        self,
-        *,
-        device_name: str,
-        data_device_name: Optional[str] = None,
-        spec: Optional[AnalyzerSpecBase] = None,
-        **kwargs,
-    ):
+    def __init__(self, *, device_name: str, **kwargs):
         super().__init__(device_name=device_name, **kwargs)
-        self.spec = spec
-        self.data_device_name: str = data_device_name or device_name
         self.last_report = None
 
     def _device_dir(self) -> Path:
         """The device folder, which must already exist — never created here."""
-        device_dir = Path(self.scan_directory) / self.data_device_name
+        device_dir = Path(self.scan_directory) / self.device_name
         if not device_dir.is_dir():
             raise DataUnavailableWarning(
-                f"No data directory for {self.data_device_name} in {self.scan_directory}"
+                f"No data directory for {self.device_name} in {self.scan_directory}"
             )
         return device_dir
 
@@ -160,7 +152,7 @@ class HimgCompactAnalyzer(_HimgFolderAnalyzer):
     """Verify every frame against the stack, then delete the ``.himg`` files (``himg_compact``).
 
     The destructive kind: the host asks for the scan number before running
-    it (``HimgCompactSpec.destructive``).  Every refusal — a young file,
+    it (``HimgJob.destructive``).  Every refusal — a young file,
     no closed-run table, a stack short of the folder, a mismatch, another
     writer's ``.part`` — comes back from data-utils as a failed run naming
     the reason, with nothing deleted.
@@ -176,7 +168,7 @@ class HimgCompactAnalyzer(_HimgFolderAnalyzer):
         except NoHimgFiles as exc:
             raise DataUnavailableWarning(str(exc)) from exc
         except NoHimgStack as exc:
-            raise RuntimeError(f"{exc} — run the himg_to_stack kind first") from exc
+            raise RuntimeError(f"{exc} — run the himg_to_stack job first") from exc
         self.last_report = report
         return [report.summary()]
 
@@ -195,3 +187,12 @@ class HimgRestoreAnalyzer(_HimgFolderAnalyzer):
             raise RuntimeError(f"{exc} — nothing to restore from") from exc
         self.last_report = report
         return [report.summary()]
+
+
+#: job kind → the class that runs it (``create_scan_analyzer`` builds from
+#: here; ``tests/test_himg_kinds.py`` pins it against ``HimgJobKind``).
+HIMG_JOB_CLASSES: dict[str, type[_HimgFolderAnalyzer]] = {
+    "himg_to_stack": HimgToStackAnalyzer,
+    "himg_compact": HimgCompactAnalyzer,
+    "himg_restore": HimgRestoreAnalyzer,
+}

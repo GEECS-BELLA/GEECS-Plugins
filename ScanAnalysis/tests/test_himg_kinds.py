@@ -1,8 +1,7 @@
-"""The scan-scoped ``.himg`` kinds: factory dispatch, the converter, compaction and restore runs."""
+"""The ``.himg`` jobs: factory dispatch, the converter, compaction and restore runs."""
 
 from __future__ import annotations
 
-import importlib
 import os
 import struct
 import time
@@ -22,17 +21,19 @@ from geecs_data_utils.io.himg_compact import (
 )
 from geecs_data_utils.io.himg_stack import list_himg_files, verify_himg_stack
 from geecs_data_utils.io.scan_stack import find_stack_file, read_stack_timestamps
-from geecs_schemas.analysis import ANALYZER_SPECS, AnalysisDiagnostic
+from typing import get_args
+
+from geecs_schemas.analysis import HimgJob, HimgJobKind
 
 from scan_analysis import base
 from scan_analysis.analyzers.common.himg_kinds import (
+    HIMG_JOB_CLASSES,
     HimgCompactAnalyzer,
     HimgRestoreAnalyzer,
     HimgToStackAnalyzer,
 )
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.config.diagnostic_factory import (
-    SCAN_SCOPED_CLASS_PATHS,
     DestructiveKindRefused,
     create_scan_analyzer,
 )
@@ -45,13 +46,9 @@ STAMPS = [3873135602.613, 3873135603.611, 3873135604.615]
 OLD = time.time() - 3600  # past the compaction age guard
 
 
-def document(kind: str = "himg_to_stack", **scan) -> AnalysisDiagnostic:
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": DEVICE,
-            "analyzer": {"kind": kind},
-            "scan": {"priority": 5, **scan},
-        }
+def document(kind: str = "himg_to_stack") -> HimgJob:
+    return HimgJob.model_validate(
+        {"kind": kind, "device": DEVICE, "scan": {"priority": 5}}
     )
 
 
@@ -113,9 +110,8 @@ class TestFactory:
         analyzer = create_scan_analyzer(document(), id="HasoStack")
         assert isinstance(analyzer, HimgToStackAnalyzer)
         assert analyzer.id == "HasoStack" and analyzer.priority == 5
-        assert analyzer.device_name == DEVICE == analyzer.data_device_name
+        assert analyzer.device_name == DEVICE
         assert analyzer.background_source is None
-        assert analyzer.spec.kind == "himg_to_stack"
         assert isinstance(
             create_scan_analyzer(document("himg_compact"), allow_destructive=True),
             HimgCompactAnalyzer,
@@ -124,27 +120,19 @@ class TestFactory:
             create_scan_analyzer(document("himg_restore")), HimgRestoreAnalyzer
         )
 
-    def test_scan_device_names_the_data_folder(self):
-        analyzer = create_scan_analyzer(document(device="U_HasoLift-Raw"))
-        assert analyzer.device_name == DEVICE
-        assert analyzer.data_device_name == "U_HasoLift-Raw"
-
     @pytest.mark.parametrize("kind", ["himg_to_stack", "himg_compact", "himg_restore"])
     def test_the_kinds_have_no_core_or_injected_route(self, kind):
         assert core_supports(document(kind)) is False
-        with pytest.raises(ValueError, match="scan-scoped"):
+        with pytest.raises(ValueError, match="no core route"):
             create_scan_analyzer(document(kind), route="core", allow_destructive=True)
         with pytest.raises(ValueError, match="injected-data"):
             create_scan_analyzer(
                 document(kind), use_injected_data=True, allow_destructive=True
             )
 
-    def test_every_scan_scoped_kind_has_a_scan_analysis_class(self):
-        scan_scoped = {k for k, m in ANALYZER_SPECS.items() if m.scope == "scan"}
-        assert scan_scoped == set(SCAN_SCOPED_CLASS_PATHS)
-        for class_path in SCAN_SCOPED_CLASS_PATHS.values():
-            module_path, class_name = class_path.rsplit(".", 1)
-            cls = getattr(importlib.import_module(module_path), class_name)
+    def test_every_job_kind_has_a_scan_analysis_class(self):
+        assert set(get_args(HimgJobKind)) == set(HIMG_JOB_CLASSES)
+        for cls in HIMG_JOB_CLASSES.values():
             assert issubclass(cls, base.ScanAnalyzer)
 
     def test_only_the_compaction_is_destructive(self):
@@ -278,7 +266,7 @@ class TestCompactAndRestore:
 
     def test_compact_without_a_stack_names_the_converter(self, tmp_path, monkeypatch):
         scan = build_scan(tmp_path)
-        with pytest.raises(RuntimeError, match="run the himg_to_stack kind first"):
+        with pytest.raises(RuntimeError, match="run the himg_to_stack job first"):
             run(monkeypatch, tmp_path, document("himg_compact"))
         assert len(list_himg_files(scan / DEVICE)) == 3
 
@@ -331,10 +319,10 @@ class TestDestructiveGate:
             (analyzers / f"{name}.yaml").write_text(
                 yaml.safe_dump(
                     {
-                        "schema_version": 2,
-                        "name": DEVICE,
+                        "schema_version": 1,
+                        "kind": kind,
+                        "device": DEVICE,
                         "output_name": name,
-                        "analyzer": {"kind": kind},
                         "scan": {"priority": 5},
                     }
                 )
@@ -350,4 +338,4 @@ class TestDestructiveGate:
         loaded = load_analyzers_from_config("haso", config_dir=tmp_path)
         assert [type(a) for a in loaded] == [HimgToStackAnalyzer]
         assert "skipping HasoLift_compact" in caplog.text
-        assert "destructive kind" in caplog.text
+        assert "destructive job" in caplog.text

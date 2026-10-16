@@ -198,5 +198,5 @@ def test_legacy_image_analyzer_entry_points_refuse_a_recipe():
 
     with pytest.raises(TypeError, match="analysis core"):
         create_image_analyzer(recipe())
-    with pytest.raises(TypeError, match="no ephemeral"):
+    with pytest.raises(TypeError, match="ephemeral ImageAnalyzer route"):
         _ephemeral_analyzer_for(recipe())

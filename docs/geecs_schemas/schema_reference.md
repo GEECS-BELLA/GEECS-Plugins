@@ -667,8 +667,8 @@ One device's analysis: which analyzer, how frames are cleaned up, how it runs ov
 | `output_name` | `str (optional)` | no | None | Label for everything this analyzer writes (s-file column prefix, output folder). Defaults to name; set it to run two analyzers over one device with distinct outputs. |
 | `metric_suffix` | `str (optional)` | no | None | Suffix appended to every s-file column name; affects scalars only, never files or folders. |
 | `description` | `str (optional)` | no | None | Free-text note about this diagnostic. |
-| `analyzer` | `StandardAnalyzerSpec \| TraceAnalyzerSpec \| LineAnalyzerSpec \| BeamAnalyzerSpec \| MagSpecAnalyzerSpec \| FrogRetrievalSpec \| FrogSpectralPhaseSpec \| IctAnalyzerSpec \| LineStitcherSpec \| HimgToStackSpec \| HimgCompactSpec \| HimgRestoreSpec \| DownrampPhaseSpec \| HiResMagCamSpec` | yes | — | Which analyzer runs and its own parameters; chosen by kind. |
-| `image` | `CameraConfig \| Line1DConfig (optional)` | no | None | How raw frames (type: camera) or traces (type: line) are cleaned up before analysis. Omit for analyzers that read their own file formats (the himg_* kinds). |
+| `analyzer` | `StandardAnalyzerSpec \| TraceAnalyzerSpec \| LineAnalyzerSpec \| BeamAnalyzerSpec \| MagSpecAnalyzerSpec \| FrogRetrievalSpec \| FrogSpectralPhaseSpec \| IctAnalyzerSpec \| LineStitcherSpec \| DownrampPhaseSpec \| HiResMagCamSpec` | yes | — | Which analyzer runs and its own parameters; chosen by kind. |
+| `image` | `CameraConfig \| Line1DConfig (optional)` | no | None | How raw frames (type: camera) or traces (type: line) are cleaned up before analysis. Omit for analyzers that read their own file formats (none ships today). |
 | `scan` | `ScanRuntime` | no | ScanRuntime(priority=100, mode='per_shot', save=True, gdoc_slot=None, device=None, file_tail=None, data_format=None, renderer=RendererOptions(colormap_mode=None, cmap=None, vmin=None, vmax=None, duration=None, dpi=None, xlabel=None, ylabel=None, colorbar_label=None, mode=None, waterfall_sort_key=None, waterfall_sort_sigma=None, waterfall_sort_bounds=None, waterfall_even_y_spacing=None, figsize=None, figsize_inches=None), background_source=None) | How the analyzer runs over a scan: order, per shot or per bin, saving, files. |
 
 Example:
@@ -829,30 +829,6 @@ Concatenate this device's trace with its sibling devices' traces into one spectr
 | `kind` | `'line_stitcher'` | no | 'line_stitcher' | Multi-device trace stitcher. |
 | `sibling_devices` | `list[str]` | yes | — | The other devices whose traces are appended to this diagnostic's device. Each must have a folder in the scan. |
 | `output_label` | `str (optional)` | no | None | Name of the folder (under the scan) and filename label the stitched traces are written to; defaults to the diagnostic's output_name. Must differ from the master device's name — the stitcher refuses to write into the raw data folder. |
-
-### HimgToStackSpec
-
-Convert this device's HASO ``.himg`` files into its per-scan capture stack — data management, not analysis.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `kind` | `'himg_to_stack'` | no | 'himg_to_stack' | HASO .himg folder → capture-stack converter. |
-
-### HimgCompactSpec
-
-Delete this device's HASO ``.himg`` files once every frame is verified in its stack — the one destructive kind.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `kind` | `'himg_compact'` | no | 'himg_compact' | HASO .himg compaction: verify every frame against the stack, then delete the .himg files (destructive). |
-
-### HimgRestoreSpec
-
-Rebuild this device's HASO ``.himg`` files from its stack, byte-identical — undo ``himg_compact``.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `kind` | `'himg_restore'` | no | 'himg_restore' | HASO .himg restore: rebuild the .himg files from the stack. |
 
 ### DownrampPhaseSpec
 
@@ -1378,6 +1354,39 @@ One diagnostic in a group, optionally disabled or re-prioritised for this group.
 | `ref` | `str` | yes | — | The diagnostic's ID (its YAML file stem). |
 | `enabled` | `bool` | no | True | False keeps the entry listed but skips it when the group runs. |
 | `priority` | `int (optional)` | no | None | Run order within this group; unset uses the diagnostic's own scan.priority. |
+
+## `himg_job`
+
+### HimgJob
+
+One ``.himg`` data-management job over a HASO device folder.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this job file. Leave at 1 — tools update this automatically when the file format changes. |
+| `kind` | `'himg_to_stack' \| 'himg_compact' \| 'himg_restore'` | yes | — | Which job: himg_to_stack (folder → capture stack), himg_compact (verify, then delete the .himg files — destructive) or himg_restore (rebuild the .himg files from the stack). |
+| `device` | `str` | yes | — | The HASO device whose folder under scans/ScanNNN/ holds the .himg files. |
+| `output_name` | `str (optional)` | no | None | Label the portal's Analysis tab lists the job under. Defaults to device; the job writes nothing under analysis/. |
+| `description` | `str (optional)` | no | None | Free-text note about this job. |
+| `scan` | `HimgJobRuntime` | no | HimgJobRuntime(priority=100) | How the job runs among a group's analyses. |
+
+Example:
+
+```yaml
+schema_version: 1
+kind: himg_compact               # or himg_to_stack / himg_restore
+device: U_HasoLift               # the HASO device folder under scans/ScanNNN/
+output_name: HasoLift_compact    # the portal lists the job under this label
+scan: {priority: 6}
+```
+
+### HimgJobRuntime
+
+How the job runs among a group's analyses.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `priority` | `int` | no | 100 | Run order within a group: lower runs first. 100 is the background default. |
 
 ## `log_entry`
 

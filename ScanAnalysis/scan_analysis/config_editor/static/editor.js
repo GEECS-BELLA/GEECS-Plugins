@@ -648,12 +648,14 @@
     right.append(el("h4", {}, "yaml"), yamlBox, okBox, errBox);
 
     // the scan subfolder a document reads: a recipe's input.folder or
-    // device, a format 2 diagnostic's scan.device or name
+    // device, a format 2 diagnostic's scan.device or name, a .himg job's device
     function dataFolder(doc) {
       if (!doc) return "";
       if (doc.schema_version === 3) return (doc.input && doc.input.folder) || doc.device || "";
-      return (doc.scan && doc.scan.device) || doc.name || "";
+      return (doc.scan && doc.scan.device) || doc.name || doc.device || "";
     }
+    // a .himg job (top-level kind): read-only like a v2 diagnostic, but never ported
+    function isHimgJob(doc) { return !!(doc && typeof doc.kind === "string"); }
     function hasSummaryPreview() { return hasPreview && !!(state.listing && state.listing.summary_preview); }
     // the host's own cap on shots per summary preview (its listing says)
     function shotsMax() { const m = state.listing && Number(state.listing.summary_shots_max); return m > 0 ? m : 8; }
@@ -736,7 +738,11 @@
             el("span", { class: "ce-count" }, bad ? `${byNs[ns].length} · ${bad} bad` : String(byNs[ns].length))));
           trackOpen(grp, key);
           for (const e of byNs[ns]) grp.append(el("a", { href: "#", class: (state.kind === kind && state.id === e.id ? "sel" : "") + (e.valid ? "" : " bad"), title: e.error || (e.analyzer_kind ? `${e.analyzer_kind} / ${e.device}` : ""), onclick: (ev) => { ev.preventDefault(); open(kind, e.id); } }, e.id,
-            kind === "analyzer" && e.valid && e.schema_version !== 3 ? el("span", { class: "tag", title: "format 2 diagnostic: read-only until its kind is ported" }, "v2") : null));
+            kind === "analyzer" && e.valid && e.schema_version !== 3
+              ? (e.document === "job"
+                ? el("span", { class: "tag", title: ".himg job: data management, read-only here" }, "job")
+                : el("span", { class: "tag", title: "format 2 diagnostic: read-only until its kind is ported" }, "v2"))
+              : null));
           sec.append(grp);
         }
         side.append(sec);
@@ -787,22 +793,25 @@
       // sidebar highlight cannot say whether this is a diagnostic or a group.
       const ro = state.readOnlyDoc;
       const title = el("span", { class: "title" },
-        el("span", { class: "ce-kind" }, kind === "analyzer" ? (ro ? "diagnostic \u00b7 format 2" : "recipe") : "group"),
+        el("span", { class: "ce-kind" }, kind === "analyzer" ? (ro ? (isHimgJob(ro.document) ? ".himg job" : "diagnostic \u00b7 format 2") : "recipe") : "group"),
         `${state.namespace}/${state.id}`);
       const dirty = el("span", { class: "dirty" });
       const bar = el("div", { class: "ce-bar" }, title, dirty);
       if (ro) {
         const d = ro.document || {};
-        const kindName = d.analyzer && d.analyzer.kind ? d.analyzer.kind : "unknown";
+        const kindName = isHimgJob(d) ? d.kind : d.analyzer && d.analyzer.kind ? d.analyzer.kind : "unknown";
         if (!readOnly && state.etag) bar.append(el("button", { type: "button", onclick: remove }, "Delete"));
         main.append(bar);
-        main.append(el("p", { class: "ce-readonly-note", html: `This is a format 2 diagnostic (kind <code>${esc(kindName)}</code>). The analysis core does not run this kind yet, so the file is shown as saved; it converts to a recipe when the kind is ported. Edit it in the configs repository.` }));
+        main.append(el("p", { class: "ce-readonly-note", html: isHimgJob(d)
+          ? `This is a .himg job (<code>${esc(kindName)}</code>): data management over the device folder, not an analysis, so it has no form and draws nothing. Edit it in the configs repository.`
+          : `This is a format 2 diagnostic (kind <code>${esc(kindName)}</code>). The analysis core does not run this kind yet, so the file is shown as saved; it converts to a recipe when the kind is ported. Edit it in the configs repository.` }));
         if (!ro.valid) main.append(el("div", { class: "ce-errors" }, (ro.errors || []).map((e) => (e.loc ? `${e.loc}: ` : "") + e.msg).join("\n")));
         main.append(el("pre", { class: "ce-yaml" }, ro.yaml || ""));
         state.form = null; state.formRoot = null; state.dirtyEl = dirty; state.saveBtn = null;
         errBox.textContent = ""; okBox.textContent = ""; previewBox.innerHTML = ""; summaryBox.innerHTML = ""; yamlBox.textContent = "";
         // the saved document still previews: the pane shows what its run draws
-        state.get = ro.valid ? () => d : null;
+        // a .himg job draws nothing: no preview to offer
+        state.get = ro.valid && !isHimgJob(d) ? () => d : null;
         if (state.get) await validate();
         return;
       }

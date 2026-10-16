@@ -91,6 +91,17 @@ class TestListing:
             "UC_A",
         ]
 
+    def test_each_entry_says_which_document_it_is(self, tree):
+        """The editor tags an entry by this field, never by a name prefix."""
+        (tree / "analyzers" / "HTU" / "Job.yaml").write_text(
+            yaml.safe_dump({"kind": "himg_restore", "device": "U_HasoLift"})
+        )
+        entries = {e.id: e for e in ConfigStore(tree).list("analyzer")}
+        job = entries["Job"].summary
+        assert job["document"] == "job" and job["analyzer_kind"] == "himg_restore"
+        assert job["device"] == "U_HasoLift" and job["image_type"] is None
+        assert entries["UC_A"].summary["document"] in ("recipe", "diagnostic")
+
     def test_groups_list(self, tree):
         (entry,) = ConfigStore(tree).list("group")
         assert entry.id == "baseline" and entry.summary["count"] == 2

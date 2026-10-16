@@ -799,17 +799,17 @@ def load_analyzers_from_config(
     analyzers = []
     for r in group.analyzers:
         if getattr(r.diagnostic, "destructive", False):
-            # A kind that deletes data files never runs from a group: the
-            # queue runs unasked, and a destructive kind runs only where
+            # A job that deletes data files never runs from a group: the
+            # queue runs unasked, and a destructive job runs only where
             # someone confirmed it (the portal's typed scan number, or the
             # shell). Skipped with a reason, never silently.
             logger.warning(
-                "group %s: skipping %s — %r is a destructive kind and runs only "
+                "group %s: skipping %s — %r is a destructive job and runs only "
                 "on an explicit, confirmed request (the portal or the shell), "
                 "never from the queue",
                 group_name,
                 r.id,
-                r.diagnostic.analyzer.kind,
+                getattr(r.diagnostic, "kind", r.id),
             )
             continue
         analyzers.append(

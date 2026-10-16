@@ -1,8 +1,9 @@
-"""Build a runnable scan-analyzer from either analysis document.
+"""Build a runnable scan-analyzer from any document of the analyzers tree.
 
-Two routes sit behind one call (and a third for the scan-scoped kinds —
-``HimgToStackSpec.scope == "scan"`` — which have no ImageAnalyzer and go
-straight to their ScanAnalysis class in :data:`SCAN_SCOPED_CLASS_PATHS`).
+Two routes sit behind one call (and a third for the ``.himg`` jobs — a
+:class:`~geecs_schemas.analysis.HimgJob`, no ImageAnalyzer, straight to
+its ScanAnalysis class in
+:data:`~scan_analysis.analyzers.common.himg_kinds.HIMG_JOB_CLASSES`).
 An analysis recipe (the v3
 :class:`~geecs_schemas.analysis.AnalysisRecipe`) always runs on the core; a
 v2 diagnostic the analysis core can run
@@ -32,20 +33,20 @@ explicitly via the keyword arguments.
 
 from __future__ import annotations
 
-import importlib
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Type
 
 from geecs_schemas.analysis import (
     AnalysisDiagnostic,
+    AnalysisDocument,
     AnalysisRecipe,
+    HimgJob,
     Line1DConfig,
     ScanRuntime,
 )
 from image_analysis.config import create_image_analyzer
 
 from geecs_analysis.compat.v2 import compile_v2
-from geecs_analysis.recipe import AnalysisDocument
 
 from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
 
@@ -54,29 +55,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["SCAN_SCOPED_CLASS_PATHS", "DestructiveKindRefused", "create_scan_analyzer"]
+__all__ = ["DestructiveKindRefused", "create_scan_analyzer"]
 
 
 class DestructiveKindRefused(ValueError):
-    """A kind that deletes data files was asked for without the host's opt-in.
+    """A job that deletes data files was asked for without the host's opt-in.
 
-    ``AnalyzerSpecBase.destructive`` marks such a kind (the ``.himg``
-    compaction); it runs only where someone confirmed it — the data
+    ``destructive`` on the document marks such a job (the ``.himg``
+    compaction, ``HimgJob.destructive``); it runs only where someone confirmed it — the data
     portal after its typed-scan-number check, or the shell — and every
     other host (the task queue, MCP, a script) gets this instead.
     """
-
-
-#: kind → class path of the ScanAnalyzer implementing a *scan-scoped* kind
-#: (``AnalyzerSpecBase.scope == "scan"``: one step over the device folder,
-#: no ImageAnalyzer — ImageAnalysis' registry covers the frame-scoped kinds
-#: only).  ``tests/test_himg_kinds.py`` pins that every scan-scoped kind
-#: in the schema has an entry here.
-SCAN_SCOPED_CLASS_PATHS: Dict[str, str] = {
-    "himg_to_stack": "scan_analysis.analyzers.common.himg_kinds.HimgToStackAnalyzer",
-    "himg_compact": "scan_analysis.analyzers.common.himg_kinds.HimgCompactAnalyzer",
-    "himg_restore": "scan_analysis.analyzers.common.himg_kinds.HimgRestoreAnalyzer",
-}
 
 
 def create_scan_analyzer(  # noqa: C901
@@ -109,8 +98,9 @@ def create_scan_analyzer(  # noqa: C901
 
     Parameters
     ----------
-    diag : AnalysisRecipe or AnalysisDiagnostic
-        Validated document. For a v2 diagnostic, ``analyzer`` + ``image`` go to
+    diag : AnalysisRecipe or AnalysisDiagnostic or HimgJob
+        Validated document. A ``.himg`` job becomes its ScanAnalysis
+        class (no core route, no injected data). For a v2 diagnostic, ``analyzer`` + ``image`` go to
         :func:`image_analysis.config.create_image_analyzer`; the typed
         ``scan`` section (:class:`ScanRuntime`) drives the wrapper.
     id : str, optional
@@ -134,7 +124,7 @@ def create_scan_analyzer(  # noqa: C901
         Which implementation runs the recipe; see above.
     allow_destructive : bool, default=False
         The host's opt-in for a kind that deletes data files
-        (``AnalyzerSpecBase.destructive``, the ``.himg`` compaction).
+        (``HimgJob.destructive``, the ``.himg`` compaction).
         Without it such a document raises :class:`DestructiveKindRefused`
         before anything is built — the task queue and MCP never pass it;
         the data portal passes it after its typed-scan-number check.
@@ -163,13 +153,26 @@ def create_scan_analyzer(  # noqa: C901
         # The gate every host passes through: a kind that deletes data
         # files is built only for a caller that says it confirmed the run.
         raise DestructiveKindRefused(
-            f"{source_id or getattr(diag, 'device', diag)}: kind "
-            f"{diag.analyzer.kind!r} deletes data files and runs only on an "
+            f"{source_id or diag.device}: "
+            f"{getattr(diag, 'kind', 'this job')!r} deletes data files and runs only on an "
             "explicit, confirmed request (the data portal's typed scan number, "
             "or the shell) — never from the task queue or an unconfirmed host"
         )
     if route not in ("auto", "core", "legacy"):
         raise ValueError(f"route must be auto, core or legacy, not {route!r}")
+    if isinstance(diag, HimgJob):
+        if route == "core":
+            raise ValueError(f"The .himg job {diag.kind!r} has no core route")
+        if use_injected_data:
+            raise ValueError("A .himg job has no injected-data mode")
+        from scan_analysis.analyzers.common.himg_kinds import HIMG_JOB_CLASSES
+
+        analyzer = HIMG_JOB_CLASSES[diag.kind](device_name=diag.device)
+        analyzer.id = id if id is not None else source_id or diag.device
+        analyzer.priority = effective_priority
+        analyzer.background_source = None
+        logger.debug("Routing .himg job %r to ScanAnalysis", analyzer.id)
+        return analyzer
     if isinstance(diag, AnalysisRecipe):
         if route == "legacy":
             raise ValueError("An analysis recipe (v3) has no legacy route")
@@ -181,17 +184,6 @@ def create_scan_analyzer(  # noqa: C901
 
     scan_cfg: ScanRuntime = diag.scan  # typed in-document since v2
     effective_id = id if id is not None else source_id or diag.name
-    if type(diag.analyzer).scope == "scan":
-        if route == "core":
-            raise ValueError(
-                f"Analyzer kind {diag.analyzer.kind!r} is scan-scoped; it has no core route"
-            )
-        if use_injected_data:
-            raise ValueError("A scan-scoped kind has no injected-data mode")
-        logger.debug("Routing scan-scoped kind %r to ScanAnalysis", effective_id)
-        return _scan_scoped_analyzer(
-            diag, analyzer_id=effective_id, priority=effective_priority
-        )
     if route == "core" or (
         route == "auto" and not use_injected_data and core_supports(diag)
     ):
@@ -211,31 +203,6 @@ def create_scan_analyzer(  # noqa: C901
         priority=effective_priority,
         use_injected_data=use_injected_data,
     )
-
-
-def _scan_scoped_analyzer(
-    diag: AnalysisDiagnostic, *, analyzer_id: str, priority: int
-) -> "ScanAnalyzer":
-    """Build the ScanAnalyzer for a scan-scoped kind from :data:`SCAN_SCOPED_CLASS_PATHS`."""
-    kind = diag.analyzer.kind
-    try:
-        class_path = SCAN_SCOPED_CLASS_PATHS[kind]
-    except KeyError as exc:
-        raise KeyError(
-            f"Scan-scoped analyzer kind {kind!r} has no ScanAnalysis class; "
-            f"known: {sorted(SCAN_SCOPED_CLASS_PATHS)}"
-        ) from exc
-    module_path, class_name = class_path.rsplit(".", 1)
-    analyzer_class = getattr(importlib.import_module(module_path), class_name)
-    analyzer = analyzer_class(
-        spec=diag.analyzer,
-        device_name=diag.name,
-        data_device_name=diag.scan.device,
-    )
-    analyzer.id = analyzer_id
-    analyzer.priority = priority
-    analyzer.background_source = None
-    return analyzer
 
 
 def _wrap_in_scan_analyzer(
