@@ -668,9 +668,14 @@ class ScanModeControl:
                 self._server, self._listener, self._sender, entered
             )
             if still_open:
-                logger.warning(
-                    "scan mode: %d connection(s) still open before the new ScanStart",
-                    still_open,
+                # A device still in the old scan would queue the new start.
+                raise GeecsScanModeError(
+                    f"scan mode: {still_open} path-channel connection(s) still "
+                    f"open {self._end_timeout_s:.1f} s after the retry's ScanEnd "
+                    "— the run was refused before any shot rather than send a "
+                    "second ScanStart into an open scan (it would replay after "
+                    "the run). Resubmit.",
+                    devices=silent,
                 )
         errors = {d: ack.status for d, ack in acks.items() if not ack.ok}
         if silent or errors:

@@ -52,7 +52,8 @@ scan-mode profile.
    refuses the run, naming it. A refused entry claims no scan number.
    The worker never sends a second `ScanStart` into an open scan: a
    device would hold it and re-enter scan mode after the run's
-   `ScanEnd`.
+   `ScanEnd`. If any connection is still open when that first `ScanEnd`
+   times out, the worker refuses the run instead of retrying.
 2. **Each shot.** After the detectors are prepared, the worker pushes the
    shot's save path (`…\ScanNNN\<device>\ScanNNN_<device>_SSS.<ext>`) to
    every connected device, then fires the box as usual.

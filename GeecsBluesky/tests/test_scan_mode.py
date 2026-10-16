@@ -344,6 +344,27 @@ def test_a_retry_ends_the_scan_first_so_nothing_replays_after_the_exit(
     assert not any(d.in_scan_mode or d.connected for d in stack.devices.values())
 
 
+def test_a_retry_is_refused_while_a_connection_outlives_its_scan_end(
+    RE: RunEngine, stack: Stack
+) -> None:
+    # The camera is unlisted, so its ScanEnd ack is not waited for, and it
+    # closes after the deadline: a fresh ScanStart would land in its open
+    # scan and replay after the run.  The entry is refused instead.
+    stack.start(**{CAM: {"disconnect_delay_s": 0.7}, BOX: {"miss_scan_starts": 1}})
+    control = stack.make_control(ack_timeout_s=0.3, end_timeout_s=0.2)
+    with pytest.raises(FailedStatus) as info:
+        RE(bps.mv(control, _entry(BOX)))
+    cause = _cause(info)
+    assert isinstance(cause, GeecsScanModeError) and cause.devices == (BOX,)
+    assert "still open 0.2 s after the retry's ScanEnd" in str(cause)
+    assert _received(stack).count("ScanStart") == 1
+    assert not control.entered and not stack.state_file.exists()
+    cam = stack.devices[CAM]
+    assert _until(lambda: not cam.connected)
+    time.sleep(0.2)  # a replay would reconnect within a few ms
+    assert cam.replays == 0 and not cam.in_scan_mode
+
+
 def test_a_silent_device_is_refused_by_name_after_one_retry(
     RE: RunEngine, stack: Stack
 ) -> None:
