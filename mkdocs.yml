@@ -75,8 +75,6 @@ nav:
           - Overview: scan_analysis/overview.md
           - API Reference:
               - Core Modules: scan_analysis/api/base.md
-          - Examples:
-              - Scatter Plot Analysis: scan_analysis/examples/scatter_plot_analysis.ipynb
       - Data Utils:
           - Overview: geecs_data_utils/overview.md
           - API Reference:

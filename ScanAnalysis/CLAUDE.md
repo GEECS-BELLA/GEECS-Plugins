@@ -7,38 +7,41 @@ image/1D analyzers. Automatic watching and Google Docs uploads are retired.
 
 ```
 scan_analysis/
-  base.py                          # ScanAnalyzer abstract base class
-  core_inputs.py                   # v2 core compilation + loaded file-background and table bindings + services
+  base.py                          # ScanAnalyzer abstract base class (the contract CoreScanAnalyzer and the .himg jobs honour)
+  core_inputs.py                   # core compilation + loaded file-background and table bindings + services
   core_services.py                 # the services a measure names (the FROG retriever, the WaveKit engine), built from config.ini + the scan's stack
   core_backgrounds.py              # scan backgrounds: exact strip-wise per-pixel statistics over a scan's frames, cached
   core_source.py                   # completed-scan native/stack input mapping and reads
   core_scan.py                     # write-free scan preparation, grouping and execution
   core_products.py                 # write-free average/bin and summary product planning (ProductCollector streams it)
   core_workers.py                  # the worker count a run gets: recipe request, host cap (config.ini), small-run floor
-  core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN; draw_product / draw_summary; per-shot sidecar tables beside the raw file; sibling outputs (magspec -interp/-interpSpec) beside the device folder; ShotStore (a measure's per-scan HDF5 of every shot's frame + extras)
+  core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN (+ parse_output_filename, their inverse); draw_product / draw_summary; per-shot sidecar tables beside the raw file; sibling outputs (magspec -interp/-interpSpec) beside the device folder; ShotStore (a measure's per-scan HDF5 of every shot's frame + extras)
   core_preview.py                  # the editor's previews through the run's own calls (frame; a summary's layout over a few shots)
-  core_analyzer.py                 # CoreScanAnalyzer: the core route behind the ScanAnalyzer contract
-  route_compare.py                 # snapshot + compare two routes' analysis trees (one equality rule)
+  core_analyzer.py                 # CoreScanAnalyzer: the one analysis route behind the ScanAnalyzer contract
+  route_compare.py                 # snapshot + compare two analysis trees (one equality rule); goldens on disk
   task_queue.py                    # Task claiming, heartbeat, YAML status system
   config/
-    diagnostic_factory.py          # create_scan_analyzer(AnalysisRecipe | AnalysisDiagnostic | HimgJob)
+    loader.py                      # load_diagnostic(stem | path): one document, the config.ini root as the default tree
+    diagnostic_factory.py          # create_scan_analyzer(AnalysisRecipe | HimgJob)
     analysis_group_loader.py       # discover_analyzers/groups + load_analysis_group,
                                    #   ResolvedDiagnosticConfig (the models: geecs_schemas.analysis)
   analyzers/
     common/
-      single_device_scan_analyzer.py   # SingleDeviceScanAnalyzer base
-      array2D_scan_analysis.py         # Array2DScanAnalyzer
-      array1d_scan_analysis.py         # Array1DScanAnalyzer
-      scatter_plotter_analysis.py      # ScatterPlotterAnalysis + PlotParameter
       himg_kinds.py                    # the .himg jobs (HimgJob documents), run out of process: HimgToStackAnalyzer (folder → capture stack),
                                        #   HimgCompactAnalyzer (verify, then DELETE the .himg — destructive), HimgRestoreAnalyzer (rebuild them)
 ```
 
+The legacy route — `SingleDeviceScanAnalyzer` and the `Array1D` /
+`Array2D` wrappers around an ImageAnalysis analyzer, their renderers,
+`ScatterPlotterAnalysis` — was retired in #1039 (2026-10-16); its last
+state is the tag `legacy-analysis-final`. Never adopt it in new code: the
+core route serves every kind, and `tests/data/golden/` pins the trees the
+wrappers wrote (see "Goldens" below).
+
 ## Config System (YAML → Pydantic → Factory → Instances)
 
-`core_inputs.prepare_v2` prepares supported v2 recipes for the new numerical
-core. It is shared with portal processing/unsaved previews and imports no legacy
-analyzers. Compile capabilities before any reads, then load backgrounds once via
+`core_inputs.prepare_v2` prepares a document for the numerical core. It is
+shared with portal processing/unsaved previews. Compile capabilities before any reads, then load backgrounds once via
 data-utils and bind immutable Frames. Failed file loads retain the v2 constant
 fallback; loaded shape errors propagate. `data_dir` means the device directory
 when resolving `{scan_dir}`. Context-free previews leave that placeholder
@@ -196,34 +199,28 @@ A missing or empty device folder, or stack-only input without a stack, raises
 `DataUnavailableWarning`. Scalars are persisted before products, so a product
 write failure never loses them, and the waterfall sort column resolves against
 the refreshed rows as the legacy wrapper did. Summary figures are labelled
-with the cleaned ScanInfo parameter, not the s-file column. `core_supports`
-is the routing predicate: compile only, no reads; unported kinds or steps
-(and an `autodetect` background) stay on the legacy wrappers. `create_scan_analyzer`
-selects this route for every recipe `core_supports` accepts unless the caller
-passes `use_injected_data=True`; the legacy wrappers stay until the observation
-period ends. `tests/test_core_analyzer.py` runs both routes on
-synthetic beam, line, standard and trace scans and compares file lists, HDF5
-payloads, s-file columns, sidecars and the display-file list exactly, except
-noscan averages, where the legacy wrapper sums shots in directory-listing order
-and a few-ulp tolerance is explicit. Figure content is not compared: the two
-renderers differ by design, so titles and layout are the operator's review.
-`route_compare.snapshot_analysis_tree` / `compare_snapshots` are the one
-definition of "the same outputs"; the differential test and
-`scripts/analysis_scan_compare.py` both use them. The script runs the
-comparison on a real scan: it copies the scan's inputs into two private trees,
-runs `route="legacy"` in one and `route="core"` in the other, and diffs their
-analysis trees plus the files each run added inside the scan folder
-(`snapshot_scan_products`, byte for byte: the magspec `-interp` /
-`-interpSpec` folders). A dark-scan background (`scan_number`, or a v3
-`from_scan` with a scan) is copied too — that scan's device folder and ini,
-never its cache — and both routes' `ScanPaths` (the legacy wrapper's
-call-time import included) resolve inside the private tree; other scan
-backgrounds are refused. `--core-diagnostic` runs the core on another
-document with the same file stem (the regenerated v3 recipe against the v2
-document it replaces); `--legacy-serial` runs the legacy wrapper's shots one
-at a time (the legacy magspec analyzer wrote each shot's field into one
-shared calibration, so its thread pool could measure a shot with another's).
-Nothing is written next to the archived scan.
+with the cleaned ScanInfo parameter, not the s-file column. Construction
+compiles the document (no reads): one that does not bind to the registry
+raises `RecipeError`, one asking for what the core does not do
+`UnsupportedRecipe`, before any scan is touched — there is no other route.
+
+**Goldens.** `route_compare.snapshot_analysis_tree` / `compare_snapshots`
+are the one definition of "the same outputs" (HDF5 payloads and tables
+exact, PNGs by presence, scan-folder products byte for byte); a snapshot
+is stored with `write_golden` (a `manifest.json` + one `arrays.npz` of the
+payloads and numeric table columns) and read back with `read_golden`. The
+differential tests (`tests/test_core_{analyzer,backgrounds,downramp_phase,
+frog_spectral_phase,hi_res_mag_cam,ict,magspec,stitch}.py`) run the core on
+synthetic scans and compare file lists, HDF5 payloads, s-file columns,
+sidecars, sibling bytes and the display-file list **exactly** against
+`tests/data/golden/<case>/` — the trees the legacy wrappers wrote, captured
+from the core in the golden-first commit of #1039 while the two were
+compared and matched (every stated allowance of that comparison is recorded
+in the test's docstring). Regenerate deliberately, never casually:
+`GEECS_UPDATE_GOLDENS=1 pytest ScanAnalysis/tests/test_core_*.py` rewrites
+every golden from the current core, so a numeric change to the core must be
+argued in the PR that re-strikes them. The pooled-vs-serial pins use the
+same comparison at 0 ulp.
 
 Scan analysis is driven by YAML config files stored in the
 **GEECS-Plugins-configs** repository (not this repo). The documents are
@@ -232,19 +229,17 @@ under `analyzers/<namespace>/<id>.yaml`, read by `load_analysis_document`
 (beside the `.himg` jobs' `HimgJob`, below) in one of two formats by its
 `schema_version` — the v3 `AnalysisRecipe`
 (the analysis core's native shape: `input:`, ordered `steps:`, `measure:`,
-the per-frame `figure:`, the `summaries:` kinds; every recipe the core
-serves, 37 of 50 since 2026-09-24) or the v2 `AnalysisDiagnostic`
-(`analyzer:` + `image:` consumed by ImageAnalysis + the typed `scan:`
-section, kept for the unported kinds). Diagnostics are assembled into
+the per-frame `figure:`, the `summaries:` kinds; the whole corpus since
+2026-10-16) or the v2 `AnalysisDiagnostic` (`analyzer:` + `image:` + the
+typed `scan:` section; compiled onto the same core by `compile_v2` until
+the v2 document is deleted — #1039, PR C). Diagnostics are assembled into
 `AnalysisGroup` files under `groups/<namespace>/<group>.yaml`, which
 explicit runners and the task queue consume directly. A pre-v2 file is
 refused at load; `scripts/analysis_convert_corpus.py` (repo root) converts
 a v2 diagnostic the core serves into a recipe, and nothing lifts the other
 way. `core_recipe.ScanRecipe` is the one host-side view of either format;
 the source, runner, planner and sink read it and never ask which document
-they serve. Scatter analyzers sit outside the YAML config
-system entirely — they are plain Python subclasses of
-`ScatterPlotterAnalysis` (see below) because they don't consume images.
+they serve.
 
 ### Public loader / factory API
 
@@ -263,32 +258,29 @@ for a in analyzers:
     a.run_analysis(scan_tag)
 ```
 
-`create_scan_analyzer` has two routes behind one contract: a recipe that
-`core_supports` accepts becomes a `CoreScanAnalyzer` on `geecs_analysis`;
-anything else (unported kinds or steps, an `autodetect` background, or
-`use_injected_data=True`) gets the legacy `Array1DScanAnalyzer` /
-`Array2DScanAnalyzer` wrapper around an ImageAnalysis analyzer. `route="legacy"`
-forces the wrapper for a supported recipe (the observation-period escape hatch
-and the comparison harness's oracle); `route="core"` forces the core and raises
-`UnsupportedRecipe` when it cannot run the recipe. Legacy runtime attributes
-assigned after construction (`background_source`, `flag_save_data`, `file_tail`)
-are inert on a `CoreScanAnalyzer`: its behaviour comes from its own copy of the
-document, so override the document, or ask for `route="legacy"`. Tests that pin
-the wrappers' kwargs mapping use `route="legacy"`; the auto-routing tests force
-the wrapper with a schema-valid feature the core refuses (a flip, or a
-bilateral trace filter).
+`create_scan_analyzer(document, *, id=, priority=, allow_destructive=)` has
+one analysis route: every analysis document becomes a `CoreScanAnalyzer`
+on `geecs_analysis`, compiled at construction. Runtime attributes assigned
+after construction (`background_source`, `file_tail`) are inert on it: its
+behaviour comes from its own copy of the document, so override the
+document (`load_diagnostic(..., overrides=)`). `load_diagnostic` (in
+`config/loader.py`) is the one single-document loader — data-utils'
+`read_diagnostic` over the tree + the schemas' `load_analysis_document` +
+the client `config.ini` default root, which neither of those packages may
+read — used by the group loader, the portal's Analysis tab, MCP's worker
+and notebooks alike.
 
-A third, smaller route: a `.himg` job — the third document of the
+The other route: a `.himg` job — the third document of the
 analyzers tree, `geecs_schemas.analysis.HimgJob` (top-level `kind:`
 `himg_to_stack` / `himg_compact` / `himg_restore`, `device`,
 `output_name`, `scan.priority`; not an analysis, so neither a recipe nor
 a v2 diagnostic) — is one step over the device folder with no
 ImageAnalyzer, no per-frame results and no products under `analysis/`.
 `create_scan_analyzer` maps it through `himg_kinds.HIMG_JOB_CLASSES`
-(kind → ScanAnalysis class) before the core/legacy decision;
-`route="core"` and `use_injected_data` are refused, and every core entry
-point (`compile_document`, so `core_supports` and the previews) refuses
-it as `UnsupportedRecipe` (`tests/test_himg_kinds.py` pins the coverage). The three live in
+(kind → ScanAnalysis class) before anything reaches the core, and every
+core entry point (`compile_document`, so `CoreScanAnalyzer` and the
+previews) refuses it as `UnsupportedRecipe` (`tests/test_himg_kinds.py`
+pins the coverage). The three live in
 `analyzers/common/himg_kinds.py` and run their work **out of process**
 through `geecs_data_utils.io.himg_worker.run_himg_job` (a child
 interpreter streams frames done/total back; the analyzer relays them
@@ -369,32 +361,26 @@ ResolvedDiagnosticConfig          # What the loader hands the factory (this pack
   diagnostic: AnalysisRecipe | AnalysisDiagnostic | HimgJob   # whichever the file declares
 ```
 
-`scan_analysis.config` exports only its own things — the group loader,
-`ResolvedDiagnosticConfig` and `create_scan_analyzer`; the models are
-imported from `geecs_schemas.analysis`. The factory picks the wrapper class from
-the type of `diag.image` — `Line1DConfig` → `Array1DScanAnalyzer`,
-anything else → `Array2DScanAnalyzer` — and passes
-`scan.renderer.as_kwargs()` (only the options the YAML set) to the
-wrapper's `renderer_kwargs`, so `Image2DRendererConfig` /
-`Line1DRendererConfig` defaults still apply.
+`scan_analysis.config` exports only its own things — `load_diagnostic`,
+the group loader, `ResolvedDiagnosticConfig` and `create_scan_analyzer`;
+the models are imported from `geecs_schemas.analysis`.
 
-**Output-naming contract (#412)** — image analyzers emit **bare** scalar
-keys (`x_fwhm`, not `UC_TopView_x_fwhm`); the ScanAnalyzer wrapper applies
-the diagnostic's `output_name` prefix (defaults to `name`) and
-`metric_suffix` when storing per-shot results. `output_name` also names
-the per-analyzer output directory under `analysis/Scan<NNN>/`; override
-it to run two analyzer variants over the same camera with distinct
-output trees and s-file columns (`output_name: UC_TopView_left` /
-`UC_TopView_right`). `metric_suffix` affects scalar keys only, never
-directory or file names. This keeps ImageAnalysis reusable standalone —
-`ImageAnalysis/CLAUDE.md` points here for the full contract.
+**Output-naming contract (#412)** — measures emit **bare** scalar keys
+(`x_fwhm`, not `UC_TopView_x_fwhm`); the scan run (`PreparedScan.scalar_records`)
+applies the document's `output_name` prefix (defaults to the device) and
+`scalar_suffix` / `metric_suffix` when storing per-shot results.
+`output_name` also names the per-analyzer output directory under
+`analysis/Scan<NNN>/`; override it to run two variants over the same
+camera with distinct output trees and s-file columns
+(`output_name: UC_TopView_left` / `UC_TopView_right`). The suffix affects
+scalar keys only, never directory or file names.
 
-### The `analyzer:` section
+### The v2 `analyzer:` section
 
 Which analyzer runs, and its parameters, in one typed block chosen by
-`kind` (the former `image_analyzer` class path + `image.analysis` dict +
-constructor `kwargs`). ImageAnalysis maps kind → class
-(`image_analysis.config.registry`):
+`kind`; `geecs_analysis.compat.v2.compile_v2` maps it onto the core's
+steps and measure (the former ImageAnalysis registry is gone with the
+legacy route):
 
 ```yaml
 analyzer: {kind: beam, compute_slopes: false}
@@ -491,28 +477,12 @@ is generated. Adding a step, measure or summary kind in GEECS-Analysis
 (its spec's `description=` on every field — the form shows it as help)
 shows up in the add-select automatically.
 
-### Scatter (`analyzers/common/scatter_plotter_analysis.py`)
-
-Scatter analyzers read scalar columns from the s-file and produce a
-summary plot — no image data flows through them, so the unified
-`image:` / `scan:` shape doesn't apply. They are configured directly in
-Python: subclass `ScatterPlotterAnalysis` and pass one or more
-`PlotParameter` named tuples (sfile key, legend/axis labels, color).
-`analyzers/Undulator/ict_plot_analysis.py` (`ICTPlotAnalysis`) is the
-reference example. The former `analyzer_config_models.py` +
-`analyzer_factory.py` scatter-config module pair was removed.
-
 ## Analyzer Class Hierarchy
 
 ```
 ScanAnalyzer  (base.py)
-  ├── CoreScanAnalyzer  (core_analyzer.py) — the geecs_analysis route
-  ├── SingleDeviceScanAnalyzer  (single_device_scan_analyzer.py)
-  │     ├── Array2DScanAnalyzer  (array2D_scan_analysis.py)
-  │     │     └── HIMGWithAveraging  (Undulator/HIMG_with_average_saving.py)
-  │     └── Array1DScanAnalyzer  (array1d_scan_analysis.py)
-  └── ScatterPlotterAnalysis  (scatter_plotter_analysis.py)
-        └── ICTPlotAnalysis  (Undulator/ict_plot_analysis.py)
+  ├── CoreScanAnalyzer  (core_analyzer.py) — every analysis document, on geecs_analysis
+  └── HimgToStackAnalyzer / HimgCompactAnalyzer / HimgRestoreAnalyzer  (common/himg_kinds.py)
 ```
 
 ### `ScanAnalyzer.run_analysis(scan_tag) -> Optional[list[Path | str]]`
@@ -520,61 +490,6 @@ ScanAnalyzer  (base.py)
 The main entry point. Returns a list of **display files** (paths to summary
 figures) that the task queue records, or
 `None` when there was nothing to analyze.
-
-### `SingleDeviceScanAnalyzer`
-
-Input mapping delegates to `geecs_data_utils.shot_files.map_shot_files`.
-The adapter retains stack-only absence as `DataUnavailableWarning` so MCP
-records `no_data`; the shared data layer has no queue or analysis imports.
-
-- Holds an `ImageAnalyzer` instance
-- `_run_analysis_core()` → resolves the device data folder, then dispatches
-  to one of two streaming pipelines based on `analysis_mode` (the
-  constructor kwarg fed from `scan.mode` in the diagnostic YAML):
-  - **`per_shot`** (default): fused per-shot tasks call
-    `ImageAnalyzer.analyze_image_file(path, aux)` atomically. One image
-    is loaded and analyzed per task; per-shot data never has to shuttle
-    between separate load and analyze phases through analyzer-instance
-    state. This is the correctness property enforced after the shot-by-shot
-    refactor (1.5.0) — it eliminates a whole class of bugs (aux-columns
-    regression, stale `data_metadata`, etc.).
-  - **`per_bin`**: streams bin-by-bin. For each bin, parallel-load that
-    bin's files, average, run `analyze_image` once on the averaged image,
-    store result, release. Memory bounded by one bin's image count. Use
-    this for analyzers where running on the bin-average is scientifically
-    distinct from per-shot + post-hoc result averaging (nonlinear measures,
-    threshold-based metrics, etc.).
-- Both pipelines call `_postprocess_noscan()` or `_postprocess_scan()` once
-  the per-task work is done.
-- `DataUnavailableWarning` — raised when device data dir is missing or empty;
-  caught with `logger.warning()` only (no traceback). Separate from real errors
-  which still log with traceback.
-
-#### Adding a new analyzer
-
-Implement `analyze_image_file(path, aux)` if your analyzer needs to
-coordinate load and analyze (rare). Otherwise, just implement
-`analyze_image(image, aux)` and `load_image(path)` and rely on the base
-class composition. **Do not** rely on instance state being preserved
-between a separate `load_image` call and a later `analyze_image` call —
-the per-shot pipeline runs them inside one atomic task per shot, but
-shared instance state across tasks is undefined under parallelism.
-
-### `Array2DScanAnalyzer`
-
-- Wraps any 2D `ImageAnalyzer` (StandardAnalyzer, BeamAnalyzer, etc.)
-- `_postprocess_noscan()` → averaged image
-- `_postprocess_scan()` → grid montage of per-bin averages
-- Uses `Image2DRenderer` for consistent figure rendering
-- `renderer_kwargs` from config: colormap mode (sequential/diverging), vmin/vmax
-
-### `Array1DScanAnalyzer`
-
-- Wraps any 1D `ImageAnalyzer` (Standard1DAnalyzer, LineAnalyzer, etc.)
-- `_postprocess_noscan()` → averaged line plot
-- `_postprocess_scan()` → waterfall plot (one trace per bin)
-- Uses `Line1DRenderer`
-- `renderer_kwargs`: colormap mode for waterfall coloring
 
 ## Task Queue System (`task_queue.py`)
 
@@ -635,17 +550,15 @@ still owns sidecar destination names, sibling analysis-directory creation and
 refreshing `auxiliary_data`. Preserve the difference between s-file merging
 (missing updates retain old cells) and sidecars (generated NaNs remain NaN).
 
-## Renderer output names are a consumed contract
+## Product output names are a consumed contract
 
-`RenderContext.get_filename` (`analyzers/renderers/config.py`) and the
-renderers' summary names (`_average_processed*`, `_averaged_image_grid`,
-`_summary_{mode}`, the noscan `.gif`) are parsed back by
-`parse_output_filename` in the same module — the data portal's Analysis
-tab classifies outputs through it (summary vs per-bin). Change a name
-and its parser together; `tests/test_renderer_output_names.py` pins the
-pairing. (The wrappers' own `parts[-2].isdigit()` bin-key parsing in
-`array2D_scan_analysis.py` / `array1d_scan_analysis.py` predates this
-helper and is a known follow-up.)
+The sink's product names (`core_sink.save_products`: `{device}_{bin}_processed*`,
+`_average_processed*`, `_averaged_image_grid`, `_summary_{kind}` + its
+JSON, the noscan `.gif` — the legacy renderers' shapes, kept) are parsed
+back by `core_sink.parse_output_filename` in the same module — the data
+portal's Analysis tab classifies outputs through it (summary vs per-bin).
+Change a name and its parser together;
+`tests/test_renderer_output_names.py` pins the pairing.
 
 ## Retired watching and uploads
 
@@ -661,12 +574,12 @@ ScanAnalysis has no LogMaker, watchdog or Qt dependency.
   for fast diagnostics.
 - **`enabled: false`** on a group ref — Disable an analyzer without
   removing it from the group config.
-- **`analyzer.kind`** — Picks the analyzer and types its parameters; the
-  class path lives in ImageAnalysis' registry, not the YAML. Adding a new
-  analyzer = one spec model in GEECS-Schemas + one registry line.
-- **Embedded `image:` config** — The per-device image-processing config
-  (ROI, background, pipeline) lives inside the diagnostic YAML itself;
-  there is no separate camera-config lookup.
+- **`measure.kind` / `steps`** — A recipe names the core's registered
+  measure and steps; a new kind is one spec + function in GEECS-Analysis
+  (its `CLAUDE.md`), never a class path in a YAML.
+- **Everything in the document** — The per-device processing (ROI,
+  background, pipeline) lives inside the diagnostic YAML itself; there is
+  no separate camera-config lookup.
 
 ## Filesystem invariants
 
@@ -742,26 +655,26 @@ pinned by tests in `tests/test_task_queue.py::TestScanFolderCreationInvariant`.
 
 ## Adding a New Scan Analyzer
 
-1. (Optional) Add or reuse an `ImageAnalyzer` subclass in `ImageAnalysis`.
-2. Create the diagnostic YAML in the configs repo under
-   `analyzers/<namespace>/<id>.yaml`, carrying both an `image:` and a
-   `scan:` section:
+1. (Optional) Add or reuse a step, measure or summary kind in
+   `GEECS-Analysis` (its `CLAUDE.md`); the editor's add-select lists the
+   registry automatically.
+2. Create the recipe YAML in the configs repo under
+   `analyzers/<namespace>/<id>.yaml` — or in the portal's config editor,
+   which previews it on a real shot (the shape below is illustrative; the
+   editor's schema is the authority on step names and fields):
 
    ```yaml
-   schema_version: 2
-   name: MyDevice                      # device/channel name for data discovery
-   analyzer: {kind: beam}              # + the analyzer's own parameters
-   image:                              # consumed by ImageAnalysis
-     type: camera                      # camera → Array2D; line → Array1D
-     roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
-     background: {method: constant, constant_level: 5.0}
-     pipeline: [background, roi]
-   scan:                               # consumed by ScanAnalysis
+   schema_version: 3
+   device: MyDevice                    # the folder under scans/ScanNNN/
+   input: {kind: camera}
+   steps:                              # ordered, from the core's registry
+     - {step: background_constant, level: 5.0}
+     - {step: roi, bounds: {y: [350, 650], x: [0, 650]}}
+   measure: {kind: beam}
+   summaries: [{kind: average}]
+   scan:
      priority: 50
-     mode: per_shot                    # or per_bin
-     gdoc_slot: 0                      # optional
-     # background_source:              # optional, for cross-scan or dynamic bg
-     #   scan_number: 42
+     # workers: 4                      # a process pool; the host caps it
    ```
 
 3. Add the diagnostic to one or more groups under
@@ -774,9 +687,6 @@ pinned by tests in `tests/test_task_queue.py::TestScanFolderCreationInvariant`.
      - {ref: OtherDevice, priority: 5}
    ```
 
-4. No Python changes needed in ScanAnalysis itself. The factory
-   (`create_scan_analyzer`) resolves `analyzer.kind` through ImageAnalysis'
-   registry, builds the inner `ImageAnalyzer` via
-   `image_analysis.config.create_image_analyzer`, and wraps it in
-   `Array1DScanAnalyzer` or `Array2DScanAnalyzer` based on the type of
-   the `image:` section.
+4. No Python changes needed in ScanAnalysis itself: `load_diagnostic`
+   reads it, `create_scan_analyzer` compiles it against the core's
+   registry and runs it as a `CoreScanAnalyzer`.

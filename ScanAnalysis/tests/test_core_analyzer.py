@@ -1,4 +1,4 @@
-"""The core route writes the golden trees (the legacy wrappers' products, pinned) and keeps the contract."""
+"""The core route writes the golden trees (the retired wrappers' products, pinned) and keeps the contract."""
 
 from __future__ import annotations
 
@@ -12,17 +12,9 @@ from geecs_data_utils import ScanPaths, ScanTag
 from geecs_schemas.analysis import AnalysisDiagnostic
 
 import scan_analysis.base as base
-from scan_analysis.analyzers.common.single_device_scan_analyzer import (
-    SingleDeviceScanAnalyzer,
-)
 from scan_analysis.base import DataUnavailableWarning
-from scan_analysis.config import create_scan_analyzer
 from scan_analysis import core_workers
-from scan_analysis.core_analyzer import (
-    CoreScanAnalyzer,
-    core_supports,
-    write_scalars_into_rows,
-)
+from scan_analysis.core_analyzer import CoreScanAnalyzer, write_scalars_into_rows
 from geecs_analysis.compat.convert import to_v3
 from geecs_analysis.recipe import is_line
 from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
@@ -103,9 +95,10 @@ def build_scan(
 
 
 def run(
-    monkeypatch, tmp_path, route, doc, *, noscan, device_files=True, single_bin=False
+    monkeypatch, tmp_path, label, doc, *, noscan, device_files=True, single_bin=False
 ):
-    base_dir = tmp_path / route
+    """One core run of ``doc`` over a fresh scan under ``tmp_path / label``."""
+    base_dir = tmp_path / label
     line = is_line(doc)
     scan = build_scan(
         base_dir,
@@ -115,14 +108,7 @@ def run(
         single_bin=single_bin,
     )
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=base_dir))
-    if route == "legacy":
-        # The oracle is the legacy wrapper, forced explicitly: without
-        # route="legacy" the factory would hand back the core for every
-        # supported recipe and this comparison would test core against core.
-        analyzer = create_scan_analyzer(doc, id="Diag", priority=1, route="legacy")
-        assert isinstance(analyzer, SingleDeviceScanAnalyzer)
-    else:
-        analyzer = CoreScanAnalyzer(doc, id="Diag", priority=1)
+    analyzer = CoreScanAnalyzer(doc, id="Diag", priority=1)
     raw_before = sorted(p.relative_to(scan) for p in scan.rglob("*"))
     try:
         display = analyzer.run_analysis(TAG)
@@ -166,9 +152,10 @@ def test_the_core_route_writes_the_golden_tree(
 ):
     """Every file, HDF5 payload, s-file column, sidecar and display file: exact.
 
-    The golden is the tree the legacy wrapper wrote for this case (captured
-    from the core while the two matched, #1039); the core sums in scalar-row
-    order, so against its own golden even the noscan average is exact.
+    The golden is the tree the retired legacy wrapper wrote for this case
+    (captured from the core while the two matched, #1039; the wrapper's last
+    state is tag ``legacy-analysis-final``); the core sums in scalar-row
+    order, so against its golden even the noscan average is exact.
     """
     doc = document(kind, mode=mode, renderer=renderer)
     core_scan, core_display, plan = run(
@@ -186,27 +173,6 @@ def test_the_core_route_writes_the_golden_tree(
     assert compare_snapshots(expected.files, core, average_ulps=0) == []
     assert display == expected.extra["display"]
     assert core_display
-
-
-@pytest.mark.parametrize("kind,mode,noscan,renderer", CASES)
-def test_the_legacy_wrapper_wrote_the_golden_tree(
-    tmp_path, monkeypatch, golden, request, kind, mode, noscan, renderer
-):
-    """The oracle: the golden IS the legacy wrapper's tree, to its own allowance.
-
-    Exact everywhere except noscan averages: the wrapper sums shots in
-    directory-listing order, the golden in scalar-row order, so those differ
-    by summation rounding only (see compare_snapshots).
-    """
-    doc = document(kind, mode=mode, renderer=renderer)
-    legacy_scan, legacy_display, _ = run(
-        monkeypatch, tmp_path, "legacy", doc, noscan=noscan
-    )
-    legacy = snapshot(legacy_scan)
-    expected = golden(f"core_route/{request.node.callspec.id}")
-    assert sorted(legacy) == sorted(expected.files)
-    assert compare_snapshots(expected.files, legacy, average_ulps=4) == []
-    assert relative_display(legacy_scan, legacy_display) == expected.extra["display"]
 
 
 def test_single_bin_scan_keeps_the_cleaned_parameter_label(tmp_path, monkeypatch):
@@ -232,42 +198,19 @@ def test_scalars_persist_without_products_when_save_is_off(
     assert core_display == []
 
 
-def test_the_legacy_wrapper_persisted_the_golden_scalars_when_save_is_off(
-    tmp_path, monkeypatch, golden
-):
-    doc = document(save=False)
-    legacy_scan, legacy_display, _ = run(
-        monkeypatch, tmp_path, "legacy", doc, noscan=False
-    )
-    legacy = snapshot(legacy_scan)
-    expected = golden("core_route/save-off")
-    assert sorted(legacy) == sorted(expected.files)
-    assert compare_snapshots(expected.files, legacy) == []
-    assert legacy_display == []
-
-
-@pytest.mark.parametrize("route", ["legacy", "core"])
-def test_missing_device_folder_is_no_data(tmp_path, monkeypatch, route):
+def test_missing_device_folder_is_no_data(tmp_path, monkeypatch):
     with pytest.raises(DataUnavailableWarning):
-        run(monkeypatch, tmp_path, route, document(), noscan=False, device_files=False)
-    assert not list((tmp_path / route).rglob("*.h5"))
+        run(monkeypatch, tmp_path, "core", document(), noscan=False, device_files=False)
+    assert not list(tmp_path.rglob("*.h5"))
 
 
-@pytest.mark.parametrize("route", ["legacy", "core"])
-def test_missing_sfile_returns_none(tmp_path, monkeypatch, route):
-    base_dir = tmp_path / route
-    scan = build_scan(base_dir, line=False, noscan=False)
+def test_missing_sfile_returns_none(tmp_path, monkeypatch):
+    scan = build_scan(tmp_path, line=False, noscan=False)
     (scan.parent.parent / "analysis" / "s1.txt").unlink()
-    monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=base_dir))
-    doc = document()
-    analyzer = (
-        create_scan_analyzer(doc, id="Diag", priority=1, route="legacy")
-        if route == "legacy"
-        else CoreScanAnalyzer(doc, id="Diag", priority=1)
-    )
-    assert isinstance(analyzer, SingleDeviceScanAnalyzer) is (route == "legacy")
+    monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=tmp_path))
+    analyzer = CoreScanAnalyzer(document(), id="Diag", priority=1)
     assert analyzer.run_analysis(TAG) is None
-    assert not list((tmp_path / route).rglob("*.h5"))
+    assert not list(tmp_path.rglob("*.h5"))
 
 
 # Sort values by shot: 30, 10, 50, 20, 60, 40 (mean 35, population std 17.08).
@@ -331,27 +274,6 @@ def test_contract_attributes_and_cleanup():
     analyzer.cleanup()
     assert analyzer.auxiliary_data is None and analyzer.display_contents == []
     assert analyzer.last_plan is None
-
-
-def test_core_supports_only_recipes_the_core_can_run():
-    assert core_supports(document())
-    assert core_supports(document("line"))
-    assert core_supports(document(background_source={"scan_number": 5}))
-    assert not core_supports(document(background_source={"autodetect": {}}))
-    # A flip: a schema-valid camera feature the core refuses.
-    assert not core_supports(
-        AnalysisDiagnostic.model_validate(
-            {
-                "name": "Camera",
-                "analyzer": {"kind": "beam"},
-                "image": {
-                    "type": "camera",
-                    "pipeline": ["transforms"],
-                    "transforms": {"flip_horizontal": True},
-                },
-            }
-        )
-    )
 
 
 @pytest.mark.parametrize("kind,mode,noscan,renderer", CASES)

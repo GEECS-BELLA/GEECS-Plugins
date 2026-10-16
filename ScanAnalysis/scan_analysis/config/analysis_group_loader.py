@@ -37,7 +37,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from geecs_schemas.analysis import AnalysisDocument, AnalysisGroup
-from image_analysis.config import load_diagnostic
+from scan_analysis.config.loader import load_diagnostic
 
 logger = logging.getLogger(__name__)
 

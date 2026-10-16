@@ -1,356 +1,131 @@
-"""Tests for the diagnostic-factory: AnalysisDiagnostic → ScanAnalyzer."""
+"""The diagnostic factory: an analysis document → its ScanAnalyzer, one route."""
 
 from __future__ import annotations
 
-import yaml
-
-
-from geecs_schemas.analysis import AnalysisDiagnostic
-from image_analysis.config import load_diagnostic
-from geecs_schemas.analysis.processing_1d import Line1DConfig
-from geecs_schemas.analysis.processing_2d import CameraConfig
 import pytest
+import yaml
+from geecs_analysis.compat.v2 import UnsupportedRecipe
+from geecs_analysis.recipe import RecipeError
+from geecs_schemas.analysis import AnalysisRecipe
 
-from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
-from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
-from scan_analysis.config.diagnostic_factory import create_scan_analyzer
-from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
-
-
-# ---------------------------------------------------------------------------
-# Fixture helpers
-# ---------------------------------------------------------------------------
-
-
-# The analyzer specs exercised in these tests, by a test-local alias. The
-# 2D-vs-1D dimension lives on the image: section's ``type`` field.
-_SPECS_BY_ALIAS = {
-    "beam": {"kind": "beam"},
-    "standard_1d": {"kind": "trace"},
-    "ict": {"kind": "ict"},
-}
+from scan_analysis.analyzers.common.himg_kinds import HimgToStackAnalyzer
+from scan_analysis.config import load_diagnostic
+from scan_analysis.config.diagnostic_factory import (
+    DestructiveKindRefused,
+    create_scan_analyzer,
+)
+from scan_analysis.core_analyzer import CoreScanAnalyzer
 
 
-# Schema-valid features the analysis core refuses at compile time, so a
-# test can pin the legacy wrappers' behaviour without changing the factory.
-_LEGACY_CAMERA = {"pipeline": ["transforms"], "transforms": {"flip_horizontal": True}}
-_LEGACY_LINE = {"pipeline": ["filtering"], "filtering": {"method": "bilateral"}}
+def recipe(*, device="UC_Test", kind="camera", scan=None, **patch) -> AnalysisRecipe:
+    """A minimal v3 recipe: a beam measure over a camera, or a line measure over a trace."""
+    document = {
+        "schema_version": 3,
+        "device": device,
+        "input": {"kind": kind}
+        if kind == "camera"
+        else {"kind": "line", "loading": {"data_type": "csv"}},
+        "measure": {"kind": "beam" if kind == "camera" else "line"},
+        "scan": scan or {},
+        **patch,
+    }
+    return AnalysisRecipe.model_validate(document)
 
 
-def _diag(
-    *,
-    name="UC_Test",
-    alias="beam",
-    image=None,
-    scan=None,
-    legacy=False,
-) -> AnalysisDiagnostic:
-    """Build a minimal AnalysisDiagnostic for factory tests.
+class TestTheCoreRoute:
+    """Every analysis document becomes a CoreScanAnalyzer, compiled at construction."""
 
-    ``alias`` is a test-fixture shorthand for picking the analyzer spec.
-    The default ``image:`` section matches the alias: camera for ``beam``,
-    line for ``standard_1d``. ``legacy=True`` adds an
-    operation the core has not ported, forcing the legacy wrapper route.
-    """
-    if image is None and alias == "beam":
-        image = {"type": "camera", "bit_depth": 16}
-    elif image is None and alias == "standard_1d":
-        image = {"type": "line", "data_loading": {"data_type": "csv"}}
-    if legacy and image is not None:
-        image = {
-            **image,
-            **(_LEGACY_LINE if image["type"] == "line" else _LEGACY_CAMERA),
-        }
-    return AnalysisDiagnostic(
-        name=name,
-        analyzer=_SPECS_BY_ALIAS[alias],
-        image=image,
-        scan=scan or {},
-    )
-
-
-# ---------------------------------------------------------------------------
-# Image-section validation (step 1)
-# ---------------------------------------------------------------------------
-
-
-class TestEmbeddedImageSection:
-    """Camera/line analyzers consume the image: section."""
-
-    def test_camera_alias_produces_validated_camera_config(self):
-        analyzer = create_scan_analyzer(_diag(alias="beam"), route="legacy")
-        # BeamAnalyzer stores its CameraConfig on self.camera_config
-        assert isinstance(analyzer.image_analyzer.camera_config, CameraConfig)
-        assert analyzer.image_analyzer.camera_config.bit_depth == 16
-        # Identity flows through the analyzer's output_name property
-        # (#412 — CameraConfig.name is gone; output_name comes from the
-        # diagnostic's effective_output_name).
-        assert analyzer.image_analyzer.output_name == "UC_Test"
-
-    def test_line_alias_produces_validated_line_config(self):
-        diag = _diag(
-            alias="standard_1d",
-            image={
-                "type": "line",
-                "description": "test",
-                "data_loading": {"data_type": "csv"},
-            },
-        )
-        analyzer = create_scan_analyzer(diag, route="legacy")
-        assert isinstance(analyzer.image_analyzer.line_config, Line1DConfig)
-        assert analyzer.image_analyzer.output_name == "UC_Test"
-
-
-# ---------------------------------------------------------------------------
-# Scan-wrapper selection (step 3)
-# ---------------------------------------------------------------------------
-
-
-class TestScanWrapperSelection:
-    """Supported recipes run on the core; the rest pick a wrapper by ``diag.image``."""
-
-    def test_supported_camera_recipe_routes_to_the_core(self):
-        analyzer = create_scan_analyzer(_diag(alias="beam"))
+    @pytest.mark.parametrize("kind", ["camera", "line"])
+    def test_a_recipe_builds_on_the_core(self, kind):
+        analyzer = create_scan_analyzer(recipe(kind=kind))
         assert isinstance(analyzer, CoreScanAnalyzer)
+        assert analyzer.device_name == "UC_Test"
 
-    def test_supported_line_recipe_routes_to_the_core(self):
-        analyzer = create_scan_analyzer(_diag(alias="standard_1d"))
-        assert isinstance(analyzer, CoreScanAnalyzer)
-
-    def test_core_route_keeps_its_own_document_copy(self):
-        diag = _diag(name="UC_Copy", scan={"mode": "per_bin", "save": False})
-        analyzer = create_scan_analyzer(diag)
-        assert analyzer.document == diag and analyzer.document is not diag
-        assert (analyzer.document.scan.mode, analyzer.document.scan.save) == (
-            "per_bin",
-            False,
+    def test_the_core_keeps_its_own_document_copy(self):
+        doc = recipe(
+            device="UC_Copy", scan={"average_frames_first": True, "save": False}
         )
+        analyzer = create_scan_analyzer(doc)
+        assert analyzer.document == doc and analyzer.document is not doc
+        assert analyzer.spec.average_frames_first is True
+        assert analyzer.document.scan.save is False
 
-    def test_unported_camera_step_produces_array2d_wrapper(self):
-        analyzer = create_scan_analyzer(_diag(alias="beam", legacy=True))
-        assert isinstance(analyzer, Array2DScanAnalyzer)
+    def test_a_recipe_the_core_cannot_bind_is_refused_before_any_scan(self):
+        with pytest.raises(RecipeError, match="does not bind"):
+            create_scan_analyzer(recipe(steps=[{"step": "sharpen"}]))
 
-    def test_unported_line_step_produces_array1d_wrapper(self):
-        analyzer = create_scan_analyzer(_diag(alias="standard_1d", legacy=True))
-        assert isinstance(analyzer, Array1DScanAnalyzer)
-
-    def test_autodetect_background_stays_on_the_wrapper(self):
-        analyzer = create_scan_analyzer(
-            _diag(scan={"background_source": {"autodetect": {}}})
-        )
-        assert isinstance(analyzer, Array2DScanAnalyzer)
-
-    @pytest.mark.parametrize(
-        "calibration",
-        [
-            {
-                "kind": "dnn_axis",
-                "camera_calibration_file": "data/HTT-MagSpce-Calibrations/260224DnnVarianCam.txt",
-                "trajectory_calibration_file": "data/HTT-MagSpce-Calibrations/170925DnnVarianTrj.txt",
-                "camera_number": 1,
-            },
-            {"kind": "polynomial", "coeffs": [1.0, 0.1]},
-        ],
-        ids=["dnn_axis", "polynomial"],
-    )
-    def test_a_v2_magspec_stays_on_the_wrapper(self, calibration):
-        # The core compiles magspec, but the kind needs a host opt-in no
-        # route gives yet (#1039, PR 3 writes its derived products): until a
-        # document is regenerated as v3 it runs on the legacy analyzer.
-        diag = AnalysisDiagnostic.model_validate(
-            {
-                "name": "UC_Test",
-                "analyzer": {
-                    "kind": "magspec",
-                    "calibration": calibration,
-                    "energy_range": [1.2, 1501.3],
-                },
-                "image": {"type": "camera", "pipeline": []},
-            }
-        )
-        assert not core_supports(diag)
-        assert isinstance(create_scan_analyzer(diag), Array2DScanAnalyzer)
-
-    def test_injected_data_stays_on_the_wrapper(self):
-        analyzer = create_scan_analyzer(_diag(alias="beam"), use_injected_data=True)
-        assert isinstance(analyzer, Array2DScanAnalyzer)
-        assert analyzer.use_injected_data is True
-
-    def test_route_legacy_forces_the_wrapper_for_a_supported_recipe(self):
-        analyzer = create_scan_analyzer(_diag(alias="beam"), route="legacy")
-        assert isinstance(analyzer, Array2DScanAnalyzer)
-
-    def test_route_core_refuses_what_the_core_cannot_run(self):
-        from geecs_analysis.compat.v2 import UnsupportedRecipe
-
+    def test_a_job_document_never_reaches_the_core(self):
         with pytest.raises(UnsupportedRecipe):
-            create_scan_analyzer(_diag(alias="beam", legacy=True), route="core")
-        with pytest.raises(ValueError, match="injected"):
-            create_scan_analyzer(
-                _diag(alias="beam"), route="core", use_injected_data=True
-            )
-        with pytest.raises(ValueError, match="route"):
-            create_scan_analyzer(_diag(alias="beam"), route="fast")
+            CoreScanAnalyzer(load_job_document("himg_to_stack"), id="Job", priority=1)
+
+    def test_no_route_or_injected_data_keywords(self):
+        """#1039: the legacy escape hatches are gone from the signature."""
+        with pytest.raises(TypeError):
+            create_scan_analyzer(recipe(), route="legacy")
+        with pytest.raises(TypeError):
+            create_scan_analyzer(recipe(), use_injected_data=True)
 
 
-# ---------------------------------------------------------------------------
-# Scan runtime config mapping
-# ---------------------------------------------------------------------------
+def load_job_document(kind: str):
+    from geecs_schemas.analysis import load_analysis_document
+
+    return load_analysis_document(
+        {"kind": kind, "device": "U_HasoLift", "scan": {"priority": 5}}
+    )
 
 
-@pytest.fixture(params=["core", "legacy"])
-def legacy(request):
-    """Run a contract test on both factory routes (the ``route`` argument)."""
-    return request.param
+class TestRuntimeAttachment:
+    """id / priority defaults and overrides, on the core and the job route."""
 
+    def test_id_defaults_to_the_device(self):
+        assert create_scan_analyzer(recipe(device="UC_Foo")).id == "UC_Foo"
 
-class TestScanRuntimeAttachment:
-    """id/priority kwargs override defaults on both routes; wrapper kwargs map."""
+    def test_id_kwarg_overrides_the_device(self):
+        assert create_scan_analyzer(recipe(device="UC_Foo"), id="MyDiag").id == "MyDiag"
 
-    def test_id_defaults_to_name(self, legacy):
-        analyzer = create_scan_analyzer(_diag(name="UC_Foo"), route=legacy)
-        assert analyzer.id == "UC_Foo"
-
-    def test_id_kwarg_overrides_name(self, legacy):
-        analyzer = create_scan_analyzer(_diag(name="UC_Foo"), id="MyDiag", route=legacy)
-        assert analyzer.id == "MyDiag"
-
-    def test_id_defaults_to_loaded_diagnostic_source_id(self, tmp_path):
+    def test_id_defaults_to_a_loaded_documents_source_id(self, tmp_path):
         path = tmp_path / "PW-MagSpectStitcher.yaml"
         path.write_text(
             yaml.safe_dump(
                 {
-                    "schema_version": 2,
-                    "name": "CAM-TEA-MagSpecA-interpSpec",
-                    "analyzer": {"kind": "trace"},
-                    "image": {
-                        "type": "line",
-                        "description": "test",
-                        "data_loading": {"data_type": "csv"},
-                    },
+                    "schema_version": 3,
+                    "device": "CAM-TEA-MagSpecA-interpSpec",
+                    "input": {"kind": "line", "loading": {"data_type": "csv"}},
+                    "measure": {"kind": "line"},
                     "scan": {"priority": 7},
                 }
             )
         )
-
         analyzer = create_scan_analyzer(load_diagnostic(path))
-
         assert analyzer.id == "PW-MagSpectStitcher"
         assert analyzer.device_name == "CAM-TEA-MagSpecA-interpSpec"
-
-    def test_priority_defaults_to_scan_priority(self, legacy):
-        analyzer = create_scan_analyzer(_diag(scan={"priority": 7}), route=legacy)
         assert analyzer.priority == 7
 
-    def test_priority_kwarg_overrides_scan_priority(self, legacy):
-        analyzer = create_scan_analyzer(
-            _diag(scan={"priority": 7}), priority=99, route=legacy
+    def test_priority_defaults_to_the_documents_and_the_kwarg_overrides_it(self):
+        assert create_scan_analyzer(recipe(scan={"priority": 7})).priority == 7
+        assert (
+            create_scan_analyzer(recipe(scan={"priority": 7}), priority=99).priority
+            == 99
         )
-        assert analyzer.priority == 99
 
-    def test_retired_gdoc_slot_is_accepted_but_not_attached(self):
-        analyzer = create_scan_analyzer(_diag(scan={"gdoc_slot": 2}))
-        assert not hasattr(analyzer, "gdoc_slot")
-
-    def test_no_upload_state_on_default_analyzer(self):
-        analyzer = create_scan_analyzer(_diag())
-        assert not hasattr(analyzer, "gdoc_slot")
-
-    def test_save_maps_to_flag_save_images_for_array2d(self):
-        on = create_scan_analyzer(_diag(scan={"save": True}), route="legacy")
-        off = create_scan_analyzer(_diag(scan={"save": False}), route="legacy")
-        assert on.flag_save_data is True  # base attr is flag_save_data
-        assert off.flag_save_data is False
-
-    def test_save_maps_to_flag_save_data_for_array1d(self):
-        line_image = {
-            "type": "line",
-            "description": "x",
-            "data_loading": {"data_type": "csv"},
-        }
-        on = create_scan_analyzer(
-            _diag(alias="standard_1d", image=line_image, scan={"save": True}),
-            route="legacy",
-        )
-        off = create_scan_analyzer(
-            _diag(alias="standard_1d", image=line_image, scan={"save": False}),
-            route="legacy",
-        )
-        assert on.flag_save_data is True
-        assert off.flag_save_data is False
-
-    def test_analysis_mode_passed_through(self):
-        analyzer = create_scan_analyzer(_diag(scan={"mode": "per_bin"}), route="legacy")
-        assert analyzer.analysis_mode == "per_bin"
-
-    def test_device_override_routes_to_data_device_name(self):
-        """``scan.device`` overrides only the *data folder*, not the GEECS device.
-
-        ``device_name`` keys auxiliary-data lookups and background-image
-        paths and must stay the GEECS device identifier;
-        ``data_device_name`` is the data subfolder override used for
-        post-processed/stitched outputs that live next to the device's
-        own folder.
-        """
-        analyzer = create_scan_analyzer(
-            _diag(name="UC_Logical", scan={"device": "UC_DataFolder"}), route="legacy"
-        )
-        assert analyzer.device_name == "UC_Logical"
-        assert analyzer.data_device_name == "UC_DataFolder"
-
-    def test_no_device_override_uses_top_level_name(self):
-        analyzer = create_scan_analyzer(_diag(name="UC_Same"), route="legacy")
-        assert analyzer.device_name == "UC_Same"
-        # ``data_device_name`` defaults to ``device_name`` inside the
-        # wrapper; the constructor coerces ``None`` → ``device_name``.
-        assert analyzer.data_device_name == "UC_Same"
-
-    def test_file_tail_passed_through_when_set(self):
-        analyzer = create_scan_analyzer(
-            _diag(scan={"file_tail": ".himg"}), route="legacy"
-        )
-        assert analyzer.file_tail == ".himg"
-
-
-class TestBackgroundSourceAttachment:
-    """The scan.background_source directive is attached to the wrapper."""
-
-    def test_default_is_none(self):
-        analyzer = create_scan_analyzer(_diag(), route="legacy")
+    def test_a_job_gets_its_class_id_and_priority(self):
+        analyzer = create_scan_analyzer(load_job_document("himg_to_stack"), id="Stack")
+        assert isinstance(analyzer, HimgToStackAnalyzer)
+        assert (analyzer.id, analyzer.priority) == ("Stack", 5)
         assert analyzer.background_source is None
 
-    def test_scan_number_directive_attached(self):
-        analyzer = create_scan_analyzer(
-            _diag(scan={"background_source": {"scan_number": 5}}), route="legacy"
-        )
-        assert analyzer.background_source is not None
-        assert analyzer.background_source.scan_number == 5
-        assert analyzer.background_source.from_current_scan is None
 
-    def test_from_current_scan_directive_attached(self):
-        analyzer = create_scan_analyzer(
-            _diag(
-                scan={
-                    "background_source": {
-                        "from_current_scan": {
-                            "method": "percentile",
-                            "percentile": 5,
-                        }
-                    }
-                }
-            ),
-            route="legacy",
-        )
-        assert analyzer.background_source is not None
-        assert analyzer.background_source.scan_number is None
-        assert analyzer.background_source.from_current_scan.method == "percentile"
-        assert analyzer.background_source.from_current_scan.percentile == 5
+class TestTheDestructiveGate:
+    """A kind that deletes data files is built only for a host that confirmed it."""
 
-    def test_autodetect_directive_attached(self):
+    def test_the_compaction_is_refused_without_the_opt_in(self):
+        with pytest.raises(DestructiveKindRefused, match="deletes data files"):
+            create_scan_analyzer(load_job_document("himg_compact"))
+
+    def test_the_opt_in_builds_it(self):
+        from scan_analysis.analyzers.common.himg_kinds import HimgCompactAnalyzer
+
         analyzer = create_scan_analyzer(
-            _diag(scan={"background_source": {"autodetect": {}}})
+            load_job_document("himg_compact"), allow_destructive=True
         )
-        assert analyzer.background_source is not None
-        assert analyzer.background_source.scan_number is None
-        assert analyzer.background_source.from_current_scan is None
-        assert analyzer.background_source.autodetect is not None
+        assert isinstance(analyzer, HimgCompactAnalyzer)

@@ -16,22 +16,22 @@ config editor → preview → explicit run loop end to end.
 
 ### Interactive / offline
 
-Instantiate an analyzer and call `run_analysis(scan_tag)` with the tag of
-the scan you want to process. This is the typical starting point for
-developing or debugging an analyzer, and for reprocessing historical data.
+Load a recipe, build its analyzer and call `run_analysis(scan_tag)` with
+the tag of the scan you want to process. This is the typical starting point
+for developing or debugging a recipe, and for reprocessing historical data.
 
 ```python
 from geecs_data_utils import ScanTag
-from scan_analysis.analyzers.common import Array2DScanAnalyzer
+from scan_analysis.config import create_scan_analyzer, load_diagnostic
 
 tag = ScanTag(year=2026, month=5, day=8, number=42, experiment="Undulator")
-analyzer = Array2DScanAnalyzer(device_name="UC_TopView")
+analyzer = create_scan_analyzer(load_diagnostic("UC_TopView"))  # by file stem
 display_files = analyzer.run_analysis(tag)
 ```
 
 The base class handles scan-folder location, s-file loading, and binning;
-the analyzer's `_run_analysis_core()` does the work that's specific to the
-diagnostic. For running a recipe on a scan from Python, see
+`CoreScanAnalyzer` runs the recipe on the analysis core and writes the
+products. For running a recipe on a scan from Python, see
 [analysis without the portal](../analysis/examples/analysis_without_the_portal.ipynb).
 
 ### From the data portal
@@ -77,12 +77,10 @@ analyzers:
 
 `load_analysis_group` loads a group by path-key (`"HTU/baseline"`), resolves
 each ref to its diagnostic config, builds a `ScanAnalyzer` for each, and
-dispatches them per-scan according to their priorities. A recipe the
-`geecs_analysis` core can run (beam, line, standard and trace kinds with
-ported processing steps and no scan-context background) becomes a
-`CoreScanAnalyzer`; anything else instantiates the right `ImageAnalyzer`
-and wraps it in the legacy `Array2DScanAnalyzer` (camera configs) or
-`Array1DScanAnalyzer` (line configs). Both routes write the same files.
+dispatches them per-scan according to their priorities. Every recipe
+becomes a `CoreScanAnalyzer` on the `geecs_analysis` core (the legacy
+`Array2DScanAnalyzer` / `Array1DScanAnalyzer` wrappers around ImageAnalysis
+were retired in 2026-10; their outputs are pinned as the core's goldens).
 
 Authoring these YAMLs by hand is fine;
 the **[config editor](../tutorials/analysis.md)** is the friendlier path.
@@ -109,36 +107,31 @@ but ignored. They are hidden in the editor.
 scan_analysis/
 ├── base.py                   # ScanAnalyzer abstract base
 ├── task_queue.py             # Heartbeat-based queue; claim/release/status YAML
+├── core_analyzer.py          # CoreScanAnalyzer: a recipe run on the analysis core
+├── core_*.py                 # the run: source, scan, products, sink, previews
 ├── config/
-│   ├── diagnostic_factory.py     # create_scan_analyzer(diag, ...)
+│   ├── loader.py                 # load_diagnostic(stem | path)
+│   ├── diagnostic_factory.py     # create_scan_analyzer(document, ...)
 │   └── analysis_group_loader.py  # discover_analyzers/groups + load_analysis_group,
 │                                 #   ResolvedDiagnosticConfig (models: geecs_schemas.analysis)
-└── analyzers/
-    ├── common/
-    │   ├── array2D_scan_analysis.py   # Wraps an ImageAnalyzer for 2D shots
-    │   ├── array1d_scan_analysis.py   # Same for 1D
-    │   ├── single_device_scan_analyzer.py
-    │   └── scatter_plotter_analysis.py
-    └── Undulator/                 # Experiment-specific specialised analyzers
+└── analyzers/common/himg_kinds.py  # the .himg data-management jobs
 ```
 
 The Python group workflow: read a group YAML →
 `load_analysis_group` → resolves refs →
 `create_scan_analyzer(r.diagnostic, id=r.id, priority=r.priority)` builds
-each → a `CoreScanAnalyzer` on the analysis core, or `Array2DScanAnalyzer`
-(or 1D) wrapping the underlying `ImageAnalyzer` for recipes the core does
-not run yet → `run_analysis(scan_tag)` does the work.
+each → a `CoreScanAnalyzer` on the analysis core → `run_analysis(scan_tag)`
+does the work.
 
 ---
 
 ## Writing a custom analyzer
 
-For most camera and 1D workflows, the generic `Array2DScanAnalyzer` /
-`Array1DScanAnalyzer` wrappers are enough — point them at an
-`ImageAnalyzer` (custom or built-in) and configuration alone gets you the
-behaviour you want. When the per-scan shape is genuinely different (e.g.
-specialised stitching, multi-device correlation), subclass `ScanAnalyzer`
-directly:
+For camera and 1D workflows a recipe is enough — the core's steps,
+measures and summaries, configured in YAML, get you the behaviour you want
+(a new measure is a GEECS-Analysis change). When the per-scan shape is
+genuinely different (the `.himg` jobs are the precedent), subclass
+`ScanAnalyzer` directly:
 
 ```python
 from pathlib import Path
@@ -170,7 +163,6 @@ the full surface area.
 | Notebook | What it covers |
 |---|---|
 | [Analysis without the portal](../analysis/examples/analysis_without_the_portal.ipynb) | Run a recipe on a scan from Python: one shot, every shot, a variant |
-| [Scatter Plot Analysis](examples/scatter_plot_analysis.ipynb) | Generic two-axis scatter analyzer over multiple devices |
 
 Older notebooks on the pre-recipe analyzer path stay in the repository for
 one-off use but are not published:

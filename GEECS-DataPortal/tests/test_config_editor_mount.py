@@ -539,8 +539,9 @@ class TestLinePreview:
         np.savetxt(scan_folder / "scope" / "Scan002_scope_001.tsv", xy, delimiter="\t")
         client = _client(scan_folder, configs_tree, config_editor=True)
         doc = dict(_LINE_DOC)
-        # the DOCUMENT's loader decides the columns: y from column 2, and
-        # column 1 rides along as an auxiliary column
+        # the DOCUMENT's loader decides the columns: y from column 2; an
+        # auxiliary column the measure does not read travels nowhere (a
+        # measure that reads channels gets them appended to the array)
         doc["image"] = {
             "type": "line",
             "data_loading": {
@@ -552,10 +553,7 @@ class TestLinePreview:
         assert self._post(client, doc).status_code == 200
         ((frames, kwargs),) = seen
         np.testing.assert_array_equal(frames[0], xy[:, [0, 2]])
-        np.testing.assert_array_equal(
-            kwargs["auxiliary_data"]["_aux_columns"]["other"], xy[:, 1]
-        )
-        assert "file_path" not in kwargs["auxiliary_data"]
+        assert "auxiliary_data" not in kwargs
 
     def test_an_array_stack_serves_its_frame(self, scan_folder, configs_tree, seen):
         np = pytest.importorskip("numpy")

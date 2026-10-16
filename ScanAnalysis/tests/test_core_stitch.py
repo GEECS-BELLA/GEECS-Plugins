@@ -16,11 +16,8 @@ from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
 import scan_analysis.base as base
 from geecs_analysis.compat.convert import to_v3
 from scan_analysis import core_workers
-from scan_analysis.analyzers.common.single_device_scan_analyzer import (
-    SingleDeviceScanAnalyzer,
-)
 from scan_analysis.config import create_scan_analyzer
-from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
+from scan_analysis.core_analyzer import CoreScanAnalyzer
 from scan_analysis.core_source import prepare_source
 from scan_analysis.route_compare import (
     WIDTH_COLUMN_SUFFIXES,
@@ -118,14 +115,10 @@ def build_scan(base_dir: Path, *, native: bool = False, skip=()) -> Path:
     return scan
 
 
-def run(monkeypatch, base_dir: Path, doc, *, route="core", **build) -> Path:
+def run(monkeypatch, base_dir: Path, doc, **build) -> Path:
     scan = build_scan(base_dir, **build)
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=base_dir))
-    if route == "legacy":
-        analyzer = create_scan_analyzer(doc, id="Stitch", priority=1, route="legacy")
-        assert isinstance(analyzer, SingleDeviceScanAnalyzer)
-    else:
-        analyzer = CoreScanAnalyzer(doc, id="Stitch", priority=1)
+    analyzer = CoreScanAnalyzer(doc, id="Stitch", priority=1)
     try:
         analyzer.run_analysis(TAG)
     finally:
@@ -143,12 +136,20 @@ def stitched(scan: Path, shot: int, doc=None) -> np.ndarray:
     return prepare_source(doc or document(), scan, rows).load(shot)
 
 
-def test_a_stitcher_diagnostic_runs_on_the_core_route():
-    assert core_supports(document())
+def test_a_stitcher_diagnostic_builds_on_the_core():
+    assert isinstance(create_scan_analyzer(document()), CoreScanAnalyzer)
 
 
 def test_the_core_route_writes_the_golden_tree(tmp_path, monkeypatch, golden):
-    """The legacy stitcher's tree, exact — its widths measured over MeV (below)."""
+    """The retired legacy stitcher's tree, exact — but for the widths.
+
+    A joined trace is unevenly spaced, and the core measures its widths over
+    MeV (GEECS-Analysis 0.26.0, #1029) where the legacy analyzer counted
+    samples times the spacing at the centroid: the golden holds the core's
+    widths, matched to the legacy tree under ``route_compare``'s
+    nonuniform-axis allowance (the two width columns by presence) when the
+    two were compared, everything else exact.
+    """
     core = run(monkeypatch, tmp_path / "core", document())
     new = snapshot(core)
     expected = golden("stitch/scan", new)
@@ -158,29 +159,6 @@ def test_the_core_route_writes_the_golden_tree(tmp_path, monkeypatch, golden):
     assert any(c.startswith(f"MagSpec1{SUFFIX}_") for c in columns)
     assert len([c for c in columns if c.endswith(WIDTH_COLUMN_SUFFIXES)]) == 2
     assert compare_snapshots(expected.files, new, average_ulps=0) == []
-
-
-def test_the_legacy_stitcher_wrote_the_golden_tree_but_for_the_widths(
-    tmp_path, monkeypatch, golden
-):
-    legacy = run(monkeypatch, tmp_path / "legacy", document(), route="legacy")
-    old = snapshot(legacy)
-    expected = golden("stitch/scan")
-    assert sorted(old) == sorted(expected.files)
-    old_rows, golden_rows = old["s1.txt"][1], expected.files["s1.txt"][1]
-    # The one deliberate difference: a joined trace is unevenly spaced, and
-    # the core measures its widths over MeV (GEECS-Analysis 0.26.0, #1029)
-    # where the legacy analyzer counted samples times the spacing at the
-    # centroid. route_compare's nonuniform-axis allowance excludes the two
-    # width columns; every other file, column and sample is identical, and
-    # without the allowance the widths are all that differs.
-    widths = [c for c in golden_rows.columns if c.endswith(WIDTH_COLUMN_SUFFIXES)]
-    assert len(widths) == 2
-    for column in widths:
-        assert not np.allclose(old_rows[column], golden_rows[column])
-    strict = compare_snapshots(expected.files, old)
-    assert strict and all(".txt:" in problem for problem in strict)
-    assert compare_snapshots(expected.files, old, nonuniform_axis=True) == []
 
 
 def test_the_joined_trace_is_every_segment_sorted_by_x(tmp_path):

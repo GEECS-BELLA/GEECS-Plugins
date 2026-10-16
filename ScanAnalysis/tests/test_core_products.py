@@ -203,42 +203,15 @@ def test_duplicate_unit_keys_are_not_silently_overwritten():
         )
 
 
-#: What the legacy ``Array2DScanAnalyzer.get_binned_data`` returned for the
-#: outcomes below (#1039): bin → (the bin's mean motor position, the value
-#: of its product). Per shot, units 5, 1, 3 (values 15, 3, 9) land in bins
-#: 3, 1, 2; per bin, units keyed 3, 1, 2 (values 9, 3, 6) are the bins.
+#: What the retired legacy ``Array2DScanAnalyzer.get_binned_data`` returned
+#: for the outcomes below (#1039, tag ``legacy-analysis-final``): bin → (the
+#: bin's mean motor position, the value of its product). Per shot, units 5,
+#: 1, 3 (values 15, 3, 9) land in bins 3, 1, 2; per bin, units keyed 3, 1, 2
+#: (values 9, 3, 6) are the bins.
 LEGACY_BINS = {
     False: {1: (11.0, 3.0), 2: (21.0, 9.0), 3: (31.0, 15.0)},
     True: {1: (11.0, 3.0), 2: (21.0, 6.0), 3: (31.0, 9.0)},
 }
-
-
-def legacy_bin_adapter(doc, outcomes):
-    """The oracle itself (deleted with the wrappers): the literal table above is its answer."""
-    from image_analysis.config import create_image_analyzer
-    from image_analysis.types import ImageAnalyzerResult
-    from scan_analysis.analyzers.common.array2D_scan_analysis import (
-        Array2DScanAnalyzer,
-    )
-
-    old = Array2DScanAnalyzer(
-        device_name="Device",
-        image_analyzer=create_image_analyzer(doc),
-        analysis_mode=doc.scan.mode,
-    )
-    old.auxiliary_data = rows()
-    old.noscan = False
-    old.scan_parameter = "motor"
-    old.results = {
-        o.group.key: ImageAnalyzerResult(
-            data_type="2d",
-            processed_image=o.measurement.frame.data,
-            scalars=dict(o.measurement.scalars),
-        )
-        for o in outcomes
-    }
-    binned = old.get_binned_data()
-    return {k: (v["value"], v["result"].scalars["signal"]) for k, v in binned.items()}
 
 
 @pytest.mark.parametrize("averaged", [False, True])
@@ -253,7 +226,6 @@ def test_scanned_products_match_the_legacy_bin_adapter(averaged):
     )
     outcomes = [outcome(n, n * 3) for n in ((3, 1, 2) if averaged else (5, 1, 3))]
     expected = LEGACY_BINS[averaged]
-    assert legacy_bin_adapter(doc, outcomes) == expected
     plan = plan_products(
         compile_v2(doc),
         outcomes,

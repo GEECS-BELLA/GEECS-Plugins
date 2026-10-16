@@ -102,7 +102,6 @@ class ScanAnalyzer:
         self,
         skip_plt_show: bool = True,
         device_name: Optional[str] = None,
-        use_injected_data: bool = False,
         **kwargs,
     ):
         """Initialize the analyzer and default state.
@@ -115,24 +114,6 @@ class ScanAnalyzer:
         device_name : str, optional
             Logical device name the analyzer is associated with. Purely informational
             here; concrete analyzers may use it to locate files.
-        use_injected_data : bool, default=False
-            When ``False`` (default, post-scan path), ``load_auxiliary_data``
-            reads the s-file from disk and the scan-parameter column name
-            follows MasterControl's space-separated disk convention.
-
-            When ``True`` (mid-scan/optimizer path), ``load_auxiliary_data``
-            is a no-op — the caller must set ``self.auxiliary_data``
-            to the in-memory DataLogger DataFrame *before* calling
-            ``run_analysis``. The scan-parameter column name automatically
-            uses the in-memory ``device:variable`` colon convention,
-            and per-shot scalar results stay on
-            ``self._pending_aux_updates`` instead of being appended to
-            the s-file.
-
-            Contract is intentionally tight: the base class never reaches
-            out to any in-memory data source itself (that would invert
-            the dep graph through Scanner-GUI's ``ScanManager``). The
-            caller owns the data injection.
         **kwargs
             Additional analyzer-specific options (ignored by the base class).
         """
@@ -144,13 +125,6 @@ class ScanAnalyzer:
         self.scan_path: Optional[Path] = None
         self.auxiliary_file_path: Optional[Path] = None
         self.scan_parameter: Optional[str] = None  # the one you’ll *use*
-
-        # Single switch. Disk vs in-memory data source is the underlying
-        # distinction; the colon vs space scan-parameter convention is a
-        # derived consequence (in-memory DataLogger uses colons,
-        # MasterControl's disk s-file uses spaces).
-        self.use_injected_data: bool = use_injected_data
-        self.use_colon_scan_param: bool = use_injected_data
 
         self.noscan = False
         self.device_name = device_name
@@ -266,24 +240,14 @@ class ScanAnalyzer:
         Returns
         -------
         str
-            Cleaned scan parameter. By default, colons are replaced with spaces
-            unless `use_colon_scan_param` is set to True. Optimization scans with
-            a "Shotnumber" parameter are mapped to "Bin #".
+            Cleaned scan parameter: colons replaced with spaces (a MasterControl
+            scan saves the scalar data columns with a space between device and
+            variable). Optimization scans with a "Shotnumber" parameter are
+            mapped to "Bin #".
         """
         ini_contents = self.scan_data.paths.load_scan_info()
-        # A MasterControl scan saves the scalar data columns with spaces between device
-        # and variable, rather than use the basic device:variable configuration. If
-        # dealing with live data, the device:variable convention is preserved
-        # Load and sanitize raw scan parameter
         raw_param = ini_contents["Scan Parameter"].strip().replace('"', "")
-        scan_parameter = ScanParameter(raw_string=raw_param)
-
-        # Default value is space-separated unless overridden
-        cleaned_scan_parameter = (
-            scan_parameter.with_colon()
-            if self.use_colon_scan_param
-            else scan_parameter.with_space()
-        )
+        cleaned_scan_parameter = ScanParameter(raw_string=raw_param).with_space()
 
         scan_mode = ini_contents.get("ScanMode", None)
 
@@ -298,35 +262,27 @@ class ScanAnalyzer:
 
         Notes
         -----
-        - When ``use_injected_data`` is True, callers are expected to set
-          ``self.auxiliary_data`` directly; this method does nothing.
-        - For non-``noscan`` cases, the per-bin mean of the scan parameter
-          column is computed into ``self.binned_param_values``.
+        For non-``noscan`` cases, the per-bin mean of the scan parameter
+        column is computed into ``self.binned_param_values``.
         """
-        # When use_injected_data is True the caller (e.g. the optimizer's
-        # MultiDeviceScanEvaluator) supplies self.auxiliary_data from the
-        # in-memory DataLogger before run_analysis; nothing to load here.
-        if not self.use_injected_data:
-            try:
-                self.auxiliary_data = pd.read_csv(
-                    self.auxiliary_file_path, delimiter="\t"
-                )
-                self.bins = self.auxiliary_data["Bin #"].values
+        try:
+            self.auxiliary_data = pd.read_csv(self.auxiliary_file_path, delimiter="\t")
+            self.bins = self.auxiliary_data["Bin #"].values
 
-                if not self.noscan:
-                    # Find the scan parameter column and calculate the binned values
-                    scan_param_column = self.find_scan_param_column()[0]
-                    self.binned_param_values = (
-                        self.auxiliary_data.groupby("Bin #")[scan_param_column]
-                        .mean()
-                        .values
-                    )
-
-            except (KeyError, FileNotFoundError) as e:
-                logger.warning(
-                    "%s. Scan parameter not found in auxiliary data. Possible aborted scan. Skipping",
-                    e,
+            if not self.noscan:
+                # Find the scan parameter column and calculate the binned values
+                scan_param_column = self.find_scan_param_column()[0]
+                self.binned_param_values = (
+                    self.auxiliary_data.groupby("Bin #")[scan_param_column]
+                    .mean()
+                    .values
                 )
+
+        except (KeyError, FileNotFoundError) as e:
+            logger.warning(
+                "%s. Scan parameter not found in auxiliary data. Possible aborted scan. Skipping",
+                e,
+            )
 
     def close_or_show_plot(self):
         """Show or close figures based on `skip_plt_show`."""

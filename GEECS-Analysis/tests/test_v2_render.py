@@ -26,8 +26,9 @@ def trace(x, y):
     )
 
 
-#: The legacy ``Line1DRenderer._get_colormap_params_1d`` answer for the data
-#: below with vmin=-3, vmax=9 (#1039): (vmin, vmax, colormap, zero-centred).
+#: The retired legacy ``Line1DRenderer._get_colormap_params_1d`` answer for
+#: the data below with vmin=-3, vmax=9 (#1039, tag ``legacy-analysis-final``):
+#: (vmin, vmax, colormap, zero-centred).
 LEGACY_PALETTE = {
     "auto": (-1.0, 8.0, "RdBu_r", True),
     "sequential": (0.0, 9.0, "plasma", False),
@@ -38,16 +39,9 @@ LEGACY_PALETTE = {
 
 @pytest.mark.parametrize("mode", ["auto", "sequential", "diverging", "custom"])
 def test_waterfall_palette_matches_legacy_for_finite_data(mode):
-    from scan_analysis.analyzers.renderers.line_1d_renderer import Line1DRenderer
-    from scan_analysis.analyzers.renderers.config import Line1DRendererConfig
-
     options = RendererOptions(colormap_mode=mode, vmin=-3, vmax=9, dpi=30)
     data = np.array([[-1, 0, 8], [2, 3, 4]])
-    legacy = Line1DRenderer()._get_colormap_params_1d(
-        data, Line1DRendererConfig(**options.as_kwargs())
-    )
     expected = LEGACY_PALETTE[mode]
-    assert (*legacy[:3], legacy[3] is not None) == expected
     fig = waterfall_v2(
         [trace([1, 2, 3], row) for row in data], [1, 2], "motor", options
     )

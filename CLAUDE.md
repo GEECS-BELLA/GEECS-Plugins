@@ -300,10 +300,13 @@ developed analysis packages. `LogMaker4GoogleDocs` is a standalone legacy packag
    same layout)
 2. **GEECS-Data-Utils** `ScanPaths` / `ScanData` resolves the folder, loads
    scalar summary data from s-files or TDMS
-3. **ImageAnalysis** `StandardAnalyzer` / `BeamAnalyzer` / etc. processes
-   per-shot image files → `ImageAnalyzerResult`
-4. **ScanAnalysis** `Array2DScanAnalyzer` or `Array1DScanAnalyzer` wraps an
-   `ImageAnalyzer`, aggregates per-shot results, renders summary plots
+3. **GEECS-Analysis** compiles the recipe (steps, measure, summaries) and
+   measures each shot's frame → a `Measurement` (scalars + processed frame)
+4. **ScanAnalysis** `CoreScanAnalyzer` runs that recipe over the scan
+   (`create_scan_analyzer`), persists the scalars, folds the per-shot
+   results into averages/bins and writes the products and summary figures
+   (the legacy `Array1D`/`Array2DScanAnalyzer` wrappers around ImageAnalysis
+   were retired 2026-10-16 — tag `legacy-analysis-final`)
 5. The **Data Portal** displays saved results; analysis is explicitly requested
    there. Automatic watching and Google Docs uploads are retired.
 

@@ -44,8 +44,7 @@ def build_analyzers(analyzer: str | None, group: str | None, config_root: Path) 
         Runnable ScanAnalyzer instances, in execution order.
     """
     if analyzer:
-        from image_analysis.config import load_diagnostic
-        from scan_analysis.config import create_scan_analyzer
+        from scan_analysis.config import create_scan_analyzer, load_diagnostic
 
         return [
             create_scan_analyzer(

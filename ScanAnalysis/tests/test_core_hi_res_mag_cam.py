@@ -1,4 +1,4 @@
-"""HiResMagCam on the core route: the golden (legacy) products and scalars, per shot and per bin."""
+"""HiResMagCam on the core route: the golden products and scalars, per shot and per bin."""
 
 from __future__ import annotations
 
@@ -12,11 +12,8 @@ from geecs_data_utils import ScanPaths, ScanTag
 from geecs_schemas.analysis import AnalysisDiagnostic
 
 import scan_analysis.base as base
-from scan_analysis.analyzers.common.single_device_scan_analyzer import (
-    SingleDeviceScanAnalyzer,
-)
 from scan_analysis.config import create_scan_analyzer
-from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
+from scan_analysis.core_analyzer import CoreScanAnalyzer
 from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
 
 TAG = ScanTag(year=2026, month=1, day=1, number=1, experiment="Test")
@@ -92,14 +89,10 @@ def build_scan(base_dir: Path) -> Path:
     return scan
 
 
-def run(monkeypatch, base_dir: Path, doc, route: str) -> Path:
+def run(monkeypatch, base_dir: Path, doc) -> Path:
     scan = build_scan(base_dir)
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=base_dir))
-    if route == "legacy":
-        analyzer = create_scan_analyzer(doc, id="Diag", priority=1, route="legacy")
-        assert isinstance(analyzer, SingleDeviceScanAnalyzer)
-    else:
-        analyzer = CoreScanAnalyzer(doc, id="Diag", priority=1)
+    analyzer = CoreScanAnalyzer(doc, id="Diag", priority=1)
     try:
         analyzer.run_analysis(TAG)
     finally:
@@ -107,14 +100,14 @@ def run(monkeypatch, base_dir: Path, doc, route: str) -> Path:
     return scan
 
 
-def test_a_hi_res_mag_cam_diagnostic_runs_on_the_core_route():
-    assert core_supports(document("per_shot"))
+def test_the_diagnostic_builds_on_the_core():
+    assert isinstance(create_scan_analyzer(document("per_shot")), CoreScanAnalyzer)
 
 
 @pytest.mark.parametrize("mode", ["per_shot", "per_bin"])
 def test_the_core_route_writes_the_golden_tree(tmp_path, monkeypatch, golden, mode):
-    """The legacy wrapper's products and scalars, exact; the waist where built."""
-    core = run(monkeypatch, tmp_path / "core", document(mode), "core")
+    """The retired legacy wrapper's products and scalars, exact; the waist where built."""
+    core = run(monkeypatch, tmp_path / "core", document(mode))
     new = snapshot_analysis_tree(core.parent.parent / "analysis")
     expected = golden(f"hi_res_mag_cam/{mode}", new)
     assert sorted(new) == sorted(expected.files)
@@ -137,12 +130,3 @@ def test_the_core_route_writes_the_golden_tree(tmp_path, monkeypatch, golden, mo
     assert (x0[~inside] > ROI["x_max"] - 1).all()
     if mode == "per_bin":
         assert (rows.groupby("Bin #")["Diag_bowtie_x0"].nunique() == 1).all()
-
-
-@pytest.mark.parametrize("mode", ["per_shot", "per_bin"])
-def test_the_legacy_wrapper_wrote_the_golden_tree(tmp_path, monkeypatch, golden, mode):
-    legacy = run(monkeypatch, tmp_path / "legacy", document(mode), "legacy")
-    old = snapshot_analysis_tree(legacy.parent.parent / "analysis")
-    expected = golden(f"hi_res_mag_cam/{mode}")
-    assert sorted(old) == sorted(expected.files)
-    assert compare_snapshots(expected.files, old) == []

@@ -22,6 +22,7 @@ import contextlib
 import json
 import math
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
@@ -42,6 +43,49 @@ from geecs_analysis.render import RenderError, single
 
 from scan_analysis.core_products import ProductPlan
 from scan_analysis.core_recipe import ScanRecipe
+
+
+# ---------------------------------------------------------------------------
+# Output-name contract (the inverse of the product file names written below)
+# ---------------------------------------------------------------------------
+
+_BIN_OUTPUT = re.compile(r"_(\d+)_processed(?:_visual)?\.[A-Za-z0-9]+$")
+_SUMMARY_MARKERS = ("_average_processed", "_averaged_image_grid.", "_summary_")
+
+
+def parse_output_filename(name: str) -> tuple[str, int | None]:
+    """Classify a product file by its name: ``(kind, bin)``.
+
+    The sink writes per-bin files as ``{device}_{bin}_processed.h5`` /
+    ``{device}_{bin}_processed_visual.png``, the scan-level average with
+    identifier ``average``, the 2D grid as ``{device}_averaged_image_grid.png``,
+    the 1D summary as ``{device}_summary_{mode}.png`` (a ``scalar_fit``'s
+    JSON beside it), and the noscan animation as a ``.gif`` — the legacy
+    renderers' shapes, kept. Consumers that present these outputs (the data
+    portal's Analysis tab) classify through THIS function so the naming
+    stays a one-place contract: change a name here and its parser together
+    (``tests/test_renderer_output_names.py`` pins the pairing).
+
+    Parameters
+    ----------
+    name : str
+        A filename or path (only the basename is inspected).
+
+    Returns
+    -------
+    (kind, bin)
+        ``("bin", n)`` for per-bin outputs, ``("summary", None)`` for
+        scan-level figures, ``("other", None)`` for anything else.
+    """
+    base = Path(name).name
+    match = _BIN_OUTPUT.search(base)
+    if match:
+        return "bin", int(match.group(1))
+    if any(marker in base for marker in _SUMMARY_MARKERS) or base.lower().endswith(
+        ".gif"
+    ):
+        return "summary", None
+    return "other", None
 
 
 def _component(value: str, label: str) -> str:

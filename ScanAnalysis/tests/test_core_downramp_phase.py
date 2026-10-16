@@ -1,4 +1,4 @@
-"""Downramp phase on the core route: the golden (legacy) tree, its PDF no longer in the scan folder."""
+"""Downramp phase on the core route: the golden tree, no PDF in the scan folder."""
 
 from __future__ import annotations
 
@@ -12,11 +12,8 @@ from geecs_data_utils import ScanPaths, ScanTag
 from geecs_schemas.analysis import AnalysisDiagnostic
 
 import scan_analysis.base as base
-from scan_analysis.analyzers.common.single_device_scan_analyzer import (
-    SingleDeviceScanAnalyzer,
-)
 from scan_analysis.config import create_scan_analyzer
-from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
+from scan_analysis.core_analyzer import CoreScanAnalyzer
 from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
 
 TAG = ScanTag(year=2026, month=1, day=1, number=1, experiment="Test")
@@ -81,14 +78,10 @@ def build_scan(base_dir: Path) -> Path:
     return scan
 
 
-def run(monkeypatch, base_dir: Path, doc, route: str) -> Path:
+def run(monkeypatch, base_dir: Path, doc) -> Path:
     scan = build_scan(base_dir)
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=base_dir))
-    if route == "legacy":
-        analyzer = create_scan_analyzer(doc, id="Diag", priority=1, route="legacy")
-        assert isinstance(analyzer, SingleDeviceScanAnalyzer)
-    else:
-        analyzer = CoreScanAnalyzer(doc, id="Diag", priority=1)
+    analyzer = CoreScanAnalyzer(doc, id="Diag", priority=1)
     try:
         analyzer.run_analysis(TAG)
     finally:
@@ -96,14 +89,14 @@ def run(monkeypatch, base_dir: Path, doc, route: str) -> Path:
     return scan
 
 
-def test_a_downramp_phase_diagnostic_runs_on_the_core_route():
-    assert core_supports(document("per_shot"))
+def test_the_diagnostic_builds_on_the_core():
+    assert isinstance(create_scan_analyzer(document("per_shot")), CoreScanAnalyzer)
 
 
 @pytest.mark.parametrize("mode", ["per_shot", "per_bin"])
 def test_the_core_route_writes_the_golden_tree(tmp_path, monkeypatch, golden, mode):
-    """The legacy wrapper's tree (its phase product as the core's float64), exact."""
-    core = run(monkeypatch, tmp_path / "core", document(mode), "core")
+    """The retired legacy wrapper's tree (its phase product as the core's float64), exact."""
+    core = run(monkeypatch, tmp_path / "core", document(mode))
     new = snapshot_analysis_tree(core.parent.parent / "analysis")
     expected = golden(f"downramp_phase/{mode}", new)
     assert sorted(new) == sorted(expected.files)
@@ -119,28 +112,6 @@ def test_the_core_route_writes_the_golden_tree(tmp_path, monkeypatch, golden, mo
     location = rows["Diag_Plasma downramp shock location (pixel)"]
     shock = [SHOCK_COLUMNS[(shot - 1) // 2] for shot in rows["Shotnumber"]]
     np.testing.assert_allclose(location, shock, atol=3)
-    # The wrapper's analyzer drew its PDF into the raw device folder (per
+    # The legacy analyzer drew its PDF into the raw device folder (per
     # shot, where it had a file path); the core route writes nothing there.
     assert not list((core / DEVICE).glob("*.pdf"))
-
-
-@pytest.mark.parametrize("mode", ["per_shot", "per_bin"])
-def test_the_legacy_wrapper_wrote_the_golden_tree(tmp_path, monkeypatch, golden, mode):
-    """The oracle: the wrapper stored the analyzer's uint16 phase product, the
-    golden the same values as float64; everything else exact."""
-    legacy = run(monkeypatch, tmp_path / "legacy", document(mode), "legacy")
-    old = snapshot_analysis_tree(legacy.parent.parent / "analysis")
-    expected = golden(f"downramp_phase/{mode}")
-    assert sorted(old) == sorted(expected.files)
-    products = [name for name in old if name.endswith(".h5")]
-    assert products
-    for name in products:
-        _, key, legacy_data, _ = old[name]
-        _, key2, golden_data, golden_dtype = expected.files[name]
-        assert (key, golden_dtype) == (key2, np.float64), name
-        np.testing.assert_array_equal(golden_data, legacy_data, err_msg=name)
-    rest_old = {name: old[name] for name in old if not name.endswith(".h5")}
-    rest = {n: expected.files[n] for n in expected.files if not n.endswith(".h5")}
-    assert compare_snapshots(rest, rest_old) == []
-    pdfs = list((legacy / DEVICE).glob("*_combined_shock_analysis.pdf"))
-    assert bool(pdfs) == (mode == "per_shot")

@@ -1,4 +1,4 @@
-"""ICT on the core route: the golden (legacy) products, and the legacy charges to a stated tolerance."""
+"""ICT on the core route: the golden products and charges."""
 
 from __future__ import annotations
 
@@ -12,11 +12,8 @@ from geecs_data_utils import ScanPaths, ScanTag
 from geecs_schemas.analysis import AnalysisDiagnostic
 
 import scan_analysis.base as base
-from scan_analysis.analyzers.common.single_device_scan_analyzer import (
-    SingleDeviceScanAnalyzer,
-)
 from scan_analysis.config import create_scan_analyzer
-from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
+from scan_analysis.core_analyzer import CoreScanAnalyzer
 from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
 
 TAG = ScanTag(year=2026, month=1, day=1, number=1, experiment="Test")
@@ -77,14 +74,10 @@ def build_scan(base_dir: Path) -> Path:
     return scan
 
 
-def run(monkeypatch, base_dir: Path, doc, route: str) -> Path:
+def run(monkeypatch, base_dir: Path, doc) -> Path:
     scan = build_scan(base_dir)
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=base_dir))
-    if route == "legacy":
-        analyzer = create_scan_analyzer(doc, id="ICT", priority=1, route="legacy")
-        assert isinstance(analyzer, SingleDeviceScanAnalyzer)
-    else:
-        analyzer = CoreScanAnalyzer(doc, id="ICT", priority=1)
+    analyzer = CoreScanAnalyzer(doc, id="ICT", priority=1)
     try:
         analyzer.run_analysis(TAG)
     finally:
@@ -92,16 +85,23 @@ def run(monkeypatch, base_dir: Path, doc, route: str) -> Path:
     return scan
 
 
-def test_an_ict_diagnostic_runs_on_the_core_route():
-    assert core_supports(document())
+def test_the_diagnostic_builds_on_the_core():
+    assert isinstance(create_scan_analyzer(document()), CoreScanAnalyzer)
 
 
 @pytest.mark.parametrize("dt", [DT, None], ids=["dt", "no-dt"])
 def test_the_core_route_writes_the_golden_tree(
     tmp_path, monkeypatch, golden, request, dt
 ):
-    """The legacy wrapper's files, its products at the declared float32, exact."""
-    core = run(monkeypatch, tmp_path / "core", document(dt), "core")
+    """The retired legacy wrapper's files and charges, the products at the declared float32, exact.
+
+    The wrapper saved its raw input trace at float64, ignoring the config's
+    ``storage_dtype``, and low-passed the charge in float32; the core stores
+    the processed trace at the declared float32 and filters at float64 — the
+    golden holds the core's, matched to the wrapper's at 1e-6 relative when
+    the two were compared.
+    """
+    core = run(monkeypatch, tmp_path / "core", document(dt))
     new = snapshot_analysis_tree(core.parent.parent / "analysis")
     expected = golden(f"ict/{request.node.callspec.id}", new)
     assert sorted(new) == sorted(expected.files)
@@ -109,29 +109,3 @@ def test_the_core_route_writes_the_golden_tree(
     assert compare_snapshots(expected.files, new, average_ulps=0) == []
     rows = new["s1.txt"][1]
     assert (rows["U_BCaveICT_charge_pC"] > 0).all()
-
-
-@pytest.mark.parametrize("dt", [DT, None], ids=["dt", "no-dt"])
-def test_the_legacy_ict_wrapper_wrote_the_golden_tree(
-    tmp_path, monkeypatch, golden, request, dt
-):
-    """The oracle, to its stated tolerances."""
-    legacy = run(monkeypatch, tmp_path / "legacy", document(dt), "legacy")
-    old = snapshot_analysis_tree(legacy.parent.parent / "analysis")
-    expected = golden(f"ict/{request.node.callspec.id}")
-    # The same files. Legacy ICT saved its raw input trace at float64,
-    # ignoring the config's storage_dtype; the golden holds the processed
-    # trace at the declared float32 — equal to float32 precision.
-    products = {name for name in old if name.endswith(".h5")}
-    assert products
-    assert sorted(old) == sorted(expected.files)
-    for name in products:
-        _, key, legacy_data, legacy_dtype = old[name]
-        _, key2, golden_data, golden_dtype = expected.files[name]
-        assert (key, legacy_dtype, golden_dtype) == (key2, "float64", "float32"), name
-        np.testing.assert_allclose(golden_data, legacy_data, rtol=1e-6, atol=1e-9)
-    # The charge is filtered at float64 on the core (the legacy low-pass ran
-    # in float32): a stated tolerance, not equality.
-    rows_old, rows_golden = old["s1.txt"][1], expected.files["s1.txt"][1]
-    for column in SCALARS:
-        np.testing.assert_allclose(rows_golden[column], rows_old[column], rtol=1e-6)

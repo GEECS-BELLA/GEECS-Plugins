@@ -92,8 +92,7 @@ The `scan` section controls how the run goes over the scan:
 The same run from Python:
 
 ```python
-from image_analysis.config import load_diagnostic
-from scan_analysis.config import create_scan_analyzer
+from scan_analysis.config import create_scan_analyzer, load_diagnostic
 
 recipe = load_diagnostic("UC_ALineEBeam3")  # by file stem
 create_scan_analyzer(recipe).run_analysis(scan_tag)  # writes outputs

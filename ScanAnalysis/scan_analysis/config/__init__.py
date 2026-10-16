@@ -1,18 +1,20 @@
-"""Loading analysis groups and building scan analyzers from diagnostics.
+"""Loading analysis documents and groups, and building scan analyzers from them.
 
-The documents — :class:`~geecs_schemas.analysis.AnalysisDiagnostic` (one
-YAML per diagnostic under ``scan_analysis_configs/analyzers/<namespace>/``,
-with its ``analyzer:``, ``image:`` and typed ``scan:`` sections) and
+The documents — :class:`~geecs_schemas.analysis.AnalysisRecipe` (one YAML
+per diagnostic under ``scan_analysis_configs/analyzers/<namespace>/``), the
+``.himg`` jobs' :class:`~geecs_schemas.analysis.HimgJob`, and
 :class:`~geecs_schemas.analysis.AnalysisGroup` (``groups/<namespace>/``,
 what explicit analysis runs dispatch) — live in GEECS-Schemas; import
 them from ``geecs_schemas.analysis``.  This package owns what needs the
 analysis stack:
 
+* :mod:`loader` — :func:`load_diagnostic`: one document by stem or path,
+  the client ``config.ini`` root as the default tree.
 * :mod:`analysis_group_loader` — discover and load groups, resolve each
-  reference to a :class:`ResolvedDiagnosticConfig` (diagnostic + file-stem
+  reference to a :class:`ResolvedDiagnosticConfig` (document + file-stem
   id + effective priority).
-* :mod:`diagnostic_factory` — :func:`create_scan_analyzer`: a diagnostic →
-  the wrapping :class:`~scan_analysis.base.ScanAnalyzer`.
+* :mod:`diagnostic_factory` — :func:`create_scan_analyzer`: a document →
+  the :class:`~scan_analysis.base.ScanAnalyzer` that runs it.
 
 Quick start::
 
@@ -27,15 +29,12 @@ Quick start::
 
 Or one diagnostic directly::
 
-    >>> from image_analysis.config import load_diagnostic
-    >>> from scan_analysis.config import create_scan_analyzer
-    >>> diag = load_diagnostic("UC_VisaEBeam1")
-    >>> diag.image.roi.x_max = 200    # optional notebook tweak
-    >>> analyzer = create_scan_analyzer(diag)
+    >>> from scan_analysis.config import create_scan_analyzer, load_diagnostic
+    >>> recipe = load_diagnostic("UC_VisaEBeam1")
+    >>> analyzer = create_scan_analyzer(recipe)
 
-``SCAN_ANALYSIS_CONFIG_DIR`` (env var) or ``scan_analysis_configs_path``
-in ``~/.config/geecs_python_api/config.ini`` sets the configs root;
-ImageAnalysis derives its own search root as ``<root>/analyzers``.
+``scan_analysis_configs_path`` in ``~/.config/geecs_python_api/config.ini``
+sets the default configs root; every loader takes ``config_dir=`` instead.
 """
 
 from .analysis_group_loader import (
@@ -47,6 +46,7 @@ from .analysis_group_loader import (
     resolve_group,
 )
 from .diagnostic_factory import create_scan_analyzer
+from .loader import load_diagnostic
 
 __all__ = [
     "LoadedAnalysisGroup",
@@ -55,5 +55,6 @@ __all__ = [
     "discover_analyzers",
     "discover_groups",
     "load_analysis_group",
+    "load_diagnostic",
     "resolve_group",
 ]
