@@ -661,10 +661,12 @@ class ScanModeControl:
                 self._ack_timeout_s,
                 ", ".join(silent),
             )
+            # Cleared first: a cancel inside the round must not make the
+            # entry's cleanup wait for acks these devices already sent.
+            entered, self._acked = self._acked, ()
             _, _, _, still_open = await self._end_scan(
-                self._server, self._listener, self._sender, self._acked
+                self._server, self._listener, self._sender, entered
             )
-            self._acked = ()
             if still_open:
                 logger.warning(
                     "scan mode: %d connection(s) still open before the new ScanStart",

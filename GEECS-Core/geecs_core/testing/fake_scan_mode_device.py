@@ -20,10 +20,10 @@ Each fake device does what the real device framework does, as captured
 - on the ``ScanEnd`` **frame** on the path channel it acknowledges (by UDP,
   like ``ScanStart``), leaves scan mode and closes the connection, as the
   real device does;
-- a ``ScanStart`` that arrives while it is connected is acknowledged at
-  once but its connection waits for the scan's end: the real device's TCP
-  loop runs inside its ``ScanStart`` case, so at ``ScanEnd`` it re-enters
-  scan mode and reconnects (``replays`` counts it; live 2026-10-15); the multicast ``ScanEnd`` it ignores, as the real
+- a ``ScanStart`` that arrives while it is connected waits for the scan's
+  end: the real device's TCP loop runs inside its ``ScanStart`` case, so at
+  ``ScanEnd`` it acknowledges, re-enters scan mode and reconnects
+  (``replays`` counts it; live 2026-10-15); the multicast ``ScanEnd`` it ignores, as the real
   device's listener does (empty case, read 2026-10-13).
 
 ``acknowledge=False`` plays a device that missed the command (the live
@@ -116,7 +116,7 @@ class FakeScanModeDevice:
         self.keepalives = 0
         self.replays = 0
         self._miss_scan_starts = miss_scan_starts
-        self._queued_start: str | None = None
+        self._queued_start: list[str] | None = None
 
         self._last_shot: int | None = None
         self._udp: asyncio.DatagramTransport | None = None
@@ -189,12 +189,12 @@ class FakeScanModeDevice:
             if self._miss_scan_starts > 0:
                 self._miss_scan_starts -= 1
                 return
+            if self.connected:
+                self._queued_start = parts  # acted on when this scan ends
+                return
             self.lock_ip = parts[3]
             await self._ack(parts, self.lock_ip)
-            if self.connected:
-                self._queued_start = self.lock_ip  # acted on at ScanEnd
-            else:
-                await self._connect(self.lock_ip)
+            await self._connect(self.lock_ip)
         # A multicast ``ScanEnd`` is a dead letter on the real device: ignored.
 
     async def _ack(self, parts: list[str], ip: str) -> None:
@@ -256,14 +256,15 @@ class FakeScanModeDevice:
                 self._writer = None
                 writer.close()
 
-    def _replay(self, ip: str) -> None:
-        """Re-enter scan mode on the queued ``ScanStart`` once this connection closed."""
+    def _replay(self, parts: list[str]) -> None:
+        """Act on the queued ``ScanStart`` once this connection closed."""
 
         async def replay() -> None:
             await asyncio.sleep(0)  # let the ending loop's ``finally`` close first
             self.replays += 1
-            self.lock_ip = ip
-            await self._connect(ip)
+            self.lock_ip = parts[3]
+            await self._ack(parts, self.lock_ip)
+            await self._connect(self.lock_ip)
 
         task = asyncio.create_task(replay(), name=f"fake-scan-mode-replay[{self.name}]")
         self._tasks.add(task)
