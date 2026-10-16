@@ -6,8 +6,7 @@ device at three points of a strict run (the rules: CLAUDE.md, "Scan mode"):
 - ``mv(control, EnterScanMode(devices, parameter))`` right after ARMED,
   before the stage and the claim: ``ScanStart`` on the experiment's
   multicast group, then every run device's acknowledgement (one retry:
-  ``ScanEnd``, then a fresh ``ScanStart``),
-  every run host's path-channel connection (port 6342) and one drain.  A
+  ``ScanEnd``, a fresh ``ScanStart``), every host's connection and a drain.  A
   silent or refusing device refuses the run by name
   (:exc:`~geecs_bluesky.exceptions.GeecsScanModeError`): nothing claimed.
 - ``mv(control, ANNOUNCE)`` on every shot, between the detectors' trigger
