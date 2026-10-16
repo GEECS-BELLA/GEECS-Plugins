@@ -13,9 +13,7 @@ hold. No file access and no numerical imports happen here.
 
 from __future__ import annotations
 
-from typing import Union
-
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
+from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisDocument, AnalysisRecipe
 from geecs_schemas.analysis.recipe import LineInput
 from pydantic import ValidationError
 
@@ -48,7 +46,8 @@ RECIPE_REFERENCE_URL = (
     "https://geecs-plugins.readthedocs.io/en/latest/sites/analysis_recipes/index.html"
 )
 
-AnalysisDocument = Union[AnalysisDiagnostic, AnalysisRecipe]
+# ``AnalysisDocument`` is the schemas' one alias, re-exported: either
+# analysis format, or a .himg job (``compile_document`` refuses the job).
 
 
 class RecipeError(ValueError):

@@ -739,7 +739,7 @@
           trackOpen(grp, key);
           for (const e of byNs[ns]) grp.append(el("a", { href: "#", class: (state.kind === kind && state.id === e.id ? "sel" : "") + (e.valid ? "" : " bad"), title: e.error || (e.analyzer_kind ? `${e.analyzer_kind} / ${e.device}` : ""), onclick: (ev) => { ev.preventDefault(); open(kind, e.id); } }, e.id,
             kind === "analyzer" && e.valid && e.schema_version !== 3
-              ? (String(e.analyzer_kind || "").startsWith("himg_")
+              ? (e.document === "job"
                 ? el("span", { class: "tag", title: ".himg job: data management, read-only here" }, "job")
                 : el("span", { class: "tag", title: "format 2 diagnostic: read-only until its kind is ported" }, "v2"))
               : null));
@@ -810,7 +810,8 @@
         state.form = null; state.formRoot = null; state.dirtyEl = dirty; state.saveBtn = null;
         errBox.textContent = ""; okBox.textContent = ""; previewBox.innerHTML = ""; summaryBox.innerHTML = ""; yamlBox.textContent = "";
         // the saved document still previews: the pane shows what its run draws
-        state.get = ro.valid ? () => d : null;
+        // a .himg job draws nothing: no preview to offer
+        state.get = ro.valid && !isHimgJob(d) ? () => d : null;
         if (state.get) await validate();
         return;
       }

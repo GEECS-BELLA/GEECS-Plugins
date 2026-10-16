@@ -137,7 +137,7 @@ schema_version: 2
 name: UC_TopView                  # device folder under scans/ScanNNN/
 output_name: UC_TopView_left      # optional output label (defaults to name)
 analyzer: {kind: beam, compute_slopes: false}   # the analyzer + ITS parameters
-image:                            # camera | line | omitted (the himg_* kinds)
+image:                            # camera | line
   type: camera
   bit_depth: 16
   roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
@@ -157,7 +157,7 @@ its `to_data1d_config`) hand it to GEECS-Data-Utils' reader as its own
 
 **Adding an analyzer** = one spec model in
 `geecs_schemas.analysis.analyzers` (joined into `AnalyzerSpec`, with
-`image_kind` = `"camera"` / `"line"` / `None`; `scope` stays `"frame"`) +
+`image_kind` = `"camera"` / `"line"`) +
 one line in `ANALYZER_CLASS_PATHS` + a constructor that takes the spec:
 `def __init__(self, camera_config, *, spec: MySpec | None = None,
 output_name=None)`. Specs whose fields all have defaults may be optional

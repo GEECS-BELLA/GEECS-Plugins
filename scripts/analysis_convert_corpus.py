@@ -28,6 +28,7 @@ from geecs_analysis.recipe import compile_recipe
 from geecs_schemas.analysis import (
     AnalysisDiagnostic,
     AnalysisRecipe,
+    HimgJob,
     canonical_document,
     load_analysis_document,
 )
@@ -51,6 +52,9 @@ def convert_tree(
         document = load_analysis_document(raw)
         if isinstance(document, AnalysisRecipe):
             print(f"{label}: already v3")
+            continue
+        if isinstance(document, HimgJob):
+            print(f"{label}: .himg job, not an analysis")
             continue
         assert isinstance(document, AnalysisDiagnostic)
         try:

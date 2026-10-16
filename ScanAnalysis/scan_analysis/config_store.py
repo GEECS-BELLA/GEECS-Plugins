@@ -369,12 +369,14 @@ class ConfigStore:
         if isinstance(doc, (AnalysisRecipe, AnalysisDiagnostic, HimgJob)):
             # what runs: the recipe's measure, the diagnostic's analyzer, the job
             if isinstance(doc, AnalysisRecipe):
-                runs = doc.measure.kind
+                document, runs = "recipe", doc.measure.kind
             elif isinstance(doc, AnalysisDiagnostic):
-                runs = doc.analyzer.kind
+                document, runs = "diagnostic", doc.analyzer.kind
             else:
-                runs = doc.kind
+                document, runs = "job", doc.kind
             return {
+                # which document the file is, so the editor never guesses
+                "document": document,
                 "name": doc.device,
                 "analyzer_kind": runs,
                 "image_type": getattr(doc, "input_kind", None),
