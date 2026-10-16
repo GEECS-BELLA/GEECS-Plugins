@@ -26,6 +26,16 @@ def trace(x, y):
     )
 
 
+#: The legacy ``Line1DRenderer._get_colormap_params_1d`` answer for the data
+#: below with vmin=-3, vmax=9 (#1039): (vmin, vmax, colormap, zero-centred).
+LEGACY_PALETTE = {
+    "auto": (-1.0, 8.0, "RdBu_r", True),
+    "sequential": (0.0, 9.0, "plasma", False),
+    "diverging": (-8.0, 8.0, "RdBu_r", False),
+    "custom": (-3.0, 9.0, "plasma", False),
+}
+
+
 @pytest.mark.parametrize("mode", ["auto", "sequential", "diverging", "custom"])
 def test_waterfall_palette_matches_legacy_for_finite_data(mode):
     from scan_analysis.analyzers.renderers.line_1d_renderer import Line1DRenderer
@@ -33,16 +43,18 @@ def test_waterfall_palette_matches_legacy_for_finite_data(mode):
 
     options = RendererOptions(colormap_mode=mode, vmin=-3, vmax=9, dpi=30)
     data = np.array([[-1, 0, 8], [2, 3, 4]])
-    expected = Line1DRenderer()._get_colormap_params_1d(
+    legacy = Line1DRenderer()._get_colormap_params_1d(
         data, Line1DRendererConfig(**options.as_kwargs())
     )
+    expected = LEGACY_PALETTE[mode]
+    assert (*legacy[:3], legacy[3] is not None) == expected
     fig = waterfall_v2(
         [trace([1, 2, 3], row) for row in data], [1, 2], "motor", options
     )
     artist = fig.axes[0].collections[0]
     assert artist.get_clim() == expected[:2]
     assert artist.cmap.name == expected[2]
-    if expected[3] is not None:
+    if expected[3]:
         assert artist.norm(0) == 0.5
     np.testing.assert_array_equal(artist.get_array().reshape(data.shape), data)
     fig.clear()

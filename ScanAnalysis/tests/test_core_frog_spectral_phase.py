@@ -1,4 +1,4 @@
-"""FROG spectral phase on the core route: the legacy wrapper's tree, the weights as a channel."""
+"""FROG spectral phase on the core route: the golden (legacy) tree, the weights as a channel."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 from geecs_data_utils import ScanPaths, ScanTag
 from geecs_schemas.analysis import AnalysisDiagnostic
 
@@ -134,14 +135,29 @@ def test_a_frog_spectral_phase_diagnostic_runs_on_the_core_route():
     assert core_supports(document())
 
 
-def test_the_core_route_writes_the_legacy_tree(tmp_path, monkeypatch):
-    legacy = run(monkeypatch, tmp_path / "legacy", document(), "legacy")
-    core = run(monkeypatch, tmp_path / "core", document(), "core")
-    old = snapshot_analysis_tree(legacy.parent.parent / "analysis")
+@pytest.mark.parametrize("storage", ["float64", "float32"])
+def test_the_core_route_writes_the_golden_tree(tmp_path, monkeypatch, golden, storage):
+    """The legacy wrapper's tree at float64 storage, exact; at float32 the
+    same tree with the declared storage dtype (see the oracle test)."""
+    core = run(monkeypatch, tmp_path / "core", document(storage), "core")
     new = snapshot_analysis_tree(core.parent.parent / "analysis")
-    assert any(name.endswith(".h5") for name in old)
-    # float64 storage: products, bin averages and scalars equal exactly.
-    assert compare_snapshots(old, new, average_ulps=0) == []
+    expected = golden(f"frog_spectral_phase/{storage}", new)
+    assert sorted(new) == sorted(expected.files)
+    assert any(name.endswith(".h5") for name in new)
+    assert compare_snapshots(expected.files, new, average_ulps=0) == []
+
+
+def test_the_legacy_wrapper_wrote_the_golden_tree(tmp_path, monkeypatch, golden):
+    """The oracle at float64 storage: products, bin averages and scalars exact."""
+    legacy = run(monkeypatch, tmp_path / "legacy", document(), "legacy")
+    old = snapshot_analysis_tree(legacy.parent.parent / "analysis")
+    expected = golden("frog_spectral_phase/float64")
+    assert sorted(old) == sorted(expected.files)
+    assert compare_snapshots(expected.files, old, average_ulps=0) == []
+
+
+def test_the_weights_reach_the_fit(tmp_path, monkeypatch):
+    core = run(monkeypatch, tmp_path / "core", document(), "core")
     rows = pd.read_csv(
         core.parent.parent / "analysis" / "s1.txt",
         sep="\t",
@@ -153,17 +169,15 @@ def test_the_core_route_writes_the_legacy_tree(tmp_path, monkeypatch):
     assert rows[f"{DEVICE}_gdd_fs2"].diff().abs().min() > 10.0
 
 
-def test_float32_storage_differs_only_by_the_stored_product_dtype(
-    tmp_path, monkeypatch
+def test_the_legacy_wrapper_at_float32_differs_only_by_the_stored_dtype(
+    tmp_path, monkeypatch, golden
 ):
-    doc = document("float32")
-    legacy = run(monkeypatch, tmp_path / "legacy", doc, "legacy")
-    core = run(monkeypatch, tmp_path / "core", doc, "core")
+    legacy = run(monkeypatch, tmp_path / "legacy", document("float32"), "legacy")
     old = snapshot_analysis_tree(legacy.parent.parent / "analysis")
-    new = snapshot_analysis_tree(core.parent.parent / "analysis")
-    assert sorted(old) == sorted(new)
+    expected = golden("frog_spectral_phase/float32")
+    assert sorted(old) == sorted(expected.files)
     # The legacy wrapper saved the float64 fit ignoring storage_dtype (as it
-    # did for ICT); the core stores the declared float32. The fit itself is
+    # did for ICT); the golden stores the declared float32. The fit itself is
     # float64 on both routes. Every product of this scanned run is a bin
     # average, which the core takes at the storage dtype (float32
     # accumulation, the GEECS-Analysis convention) and the wrapper in
@@ -173,16 +187,16 @@ def test_float32_storage_differs_only_by_the_stored_product_dtype(
     assert products
     for name in products:
         _, key, legacy_data, legacy_dtype = old[name]
-        _, key2, core_data, core_dtype = new[name]
-        assert (key, legacy_dtype, core_dtype) == (key2, "float64", "float32"), name
+        _, key2, golden_data, golden_dtype = expected.files[name]
+        assert (key, legacy_dtype, golden_dtype) == (key2, "float64", "float32"), name
         np.testing.assert_allclose(
-            core_data, legacy_data, rtol=rtol, atol=0, err_msg=name
+            golden_data, legacy_data, rtol=rtol, atol=0, err_msg=name
         )
     # The scalars are computed from identically rounded inputs: exact.
     tables = [name for name in old if old[name][0] == "table"]
     rest_old = {name: old[name] for name in tables}
-    rest_new = {name: new[name] for name in tables}
-    assert compare_snapshots(rest_old, rest_new) == []
+    rest = {name: expected.files[name] for name in tables}
+    assert compare_snapshots(rest, rest_old) == []
 
 
 def test_a_raw_bin_run_fits_the_bin_mean_with_the_bin_mean_weights(

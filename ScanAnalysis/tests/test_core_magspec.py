@@ -1,4 +1,4 @@
-"""magspec on the core route: the legacy analyzer's scalars, products and -interp files, byte for byte."""
+"""magspec on the core route: the golden (legacy) scalars, products and -interp files, byte for byte."""
 
 from __future__ import annotations
 
@@ -239,15 +239,16 @@ def test_a_v2_magspec_document_keeps_its_legacy_route(configs):
     assert core_supports(recipe(diagnostic(configs)))
 
 
-@pytest.mark.parametrize("save", [True, False])
-def test_the_core_route_matches_the_legacy_analyzer_byte_for_byte(
-    tmp_path, monkeypatch, configs, save
+@pytest.mark.parametrize("save", [True, False], ids=["save-on", "save-off"])
+def test_the_core_route_writes_the_golden_tree_byte_for_byte(
+    tmp_path, monkeypatch, configs, golden, request, save
 ):
-    document = diagnostic(configs, save=save)
-    legacy = run(monkeypatch, tmp_path / "legacy", document, "legacy")
-    core = run(monkeypatch, tmp_path / "core", document, "core")
-    old, new = snapshot(legacy), snapshot(core)
-    assert compare_snapshots(old, new) == []
+    """The legacy analyzer's scalars, products and -interp files (#1039)."""
+    core = run(monkeypatch, tmp_path / "core", diagnostic(configs, save=save), "core")
+    new = snapshot(core)
+    expected = golden(f"magspec/{request.node.callspec.id}", new)
+    assert sorted(new) == sorted(expected.files)
+    assert compare_snapshots(expected.files, new, average_ulps=0) == []
     for suffix, tail in (("-interp", ".png"), ("-interpSpec", ".tsv")):
         written = sorted(n for n in new if f"/{DEVICE}{suffix}/" in n)
         assert written == [
@@ -258,6 +259,19 @@ def test_the_core_route_matches_the_legacy_analyzer_byte_for_byte(
     rows = pd.read_csv(core.parent.parent / "analysis" / "s2.txt", sep="\t")
     peaks = rows[f"{DEVICE}_peak_energy_MeV"]
     assert peaks.notna().all() and peaks.nunique() > 1, "the field moves each shot"
+
+
+@pytest.mark.parametrize("save", [True, False], ids=["save-on", "save-off"])
+def test_the_legacy_analyzer_wrote_the_golden_tree_byte_for_byte(
+    tmp_path, monkeypatch, configs, golden, request, save
+):
+    legacy = run(
+        monkeypatch, tmp_path / "legacy", diagnostic(configs, save=save), "legacy"
+    )
+    old = snapshot(legacy)
+    expected = golden(f"magspec/{request.node.callspec.id}")
+    assert sorted(old) == sorted(expected.files)
+    assert compare_snapshots(expected.files, old) == []
 
 
 def test_a_pooled_run_writes_the_identical_tree(tmp_path, monkeypatch, configs, caplog):
@@ -274,34 +288,82 @@ def test_a_pooled_run_writes_the_identical_tree(tmp_path, monkeypatch, configs, 
     assert compare_snapshots(snapshot(serial), snapshot(pooled), average_ulps=0) == []
 
 
-def test_per_bin_runs_write_no_sibling_outputs(tmp_path, monkeypatch, configs):
-    """The legacy per-bin path had no file to name them by; neither route writes them."""
-    document = diagnostic(None, mode="per_bin")
-    bins = dict(bins=[1, 1, 2, 2, 3, 4])  # bin 4: one shot, still a bin
-    legacy = run(monkeypatch, tmp_path / "legacy", document, "legacy", **bins)
-    core = run(monkeypatch, tmp_path / "core", document, "core", **bins)
-    old, new = snapshot(legacy), snapshot(core)
-    assert compare_snapshots(old, new) == []
+PER_BIN = dict(bins=[1, 1, 2, 2, 3, 4])  # bin 4: one shot, still a bin
+
+
+def test_per_bin_runs_write_no_sibling_outputs(tmp_path, monkeypatch, golden):
+    """The legacy per-bin path had no file to name them by; the core writes none."""
+    core = run(
+        monkeypatch,
+        tmp_path / "core",
+        diagnostic(None, mode="per_bin"),
+        "core",
+        **PER_BIN,
+    )
+    new = snapshot(core)
+    expected = golden("magspec/per-bin", new)
+    assert sorted(new) == sorted(expected.files)
+    assert compare_snapshots(expected.files, new, average_ulps=0) == []
     assert not [name for name in new if "-interp" in name]
     assert any(name.endswith(".h5") for name in new)
 
 
+def test_the_legacy_per_bin_run_wrote_the_golden_tree(tmp_path, monkeypatch, golden):
+    legacy = run(
+        monkeypatch,
+        tmp_path / "legacy",
+        diagnostic(None, mode="per_bin"),
+        "legacy",
+        **PER_BIN,
+    )
+    old = snapshot(legacy)
+    expected = golden("magspec/per-bin")
+    assert sorted(old) == sorted(expected.files)
+    assert compare_snapshots(expected.files, old) == []
+
+
+#: One field reading missing; the shot reads the document's ``magnetic_field_t``.
+MISSING_FIELDS = (0.29, float("nan"), 0.31, 0.30, 0.295, 0.305)
+#: The same run with that reading recorded as the document's field.
+STEADY_FIELDS = (0.29, 0.3, 0.31, 0.30, 0.295, 0.305)
+
+
+def without_field_column(tree: dict[str, tuple]) -> dict[str, tuple]:
+    """The snapshot less the recorded field column, which differs by construction."""
+    return {**tree, "s2.txt": ("table", tree["s2.txt"][1].drop(columns=[COLUMN]))}
+
+
 def test_a_missing_field_reading_takes_the_documents_field(
-    tmp_path, monkeypatch, configs
+    tmp_path, monkeypatch, configs, golden
 ):
     """A NaN cell is left out of the shot's metadata: that shot uses magnetic_field_t."""
-    fields = (0.29, float("nan"), 0.31, 0.30, 0.295, 0.305)
     core = run(
-        monkeypatch, tmp_path / "core", diagnostic(configs), "core", fields=fields
+        monkeypatch,
+        tmp_path / "core",
+        diagnostic(configs),
+        "core",
+        fields=MISSING_FIELDS,
     )
-    steady = (0.29, 0.3, 0.31, 0.30, 0.295, 0.305)
+    new = without_field_column(snapshot(core))
+    expected = golden("magspec/missing-field", new)
+    assert sorted(new) == sorted(expected.files)
+    assert compare_snapshots(expected.files, new, average_ulps=0) == []
+
+
+def test_the_legacy_analyzer_on_the_steady_field_wrote_the_golden_tree(
+    tmp_path, monkeypatch, configs, golden
+):
     legacy = run(
-        monkeypatch, tmp_path / "legacy", diagnostic(configs), "legacy", fields=steady
+        monkeypatch,
+        tmp_path / "legacy",
+        diagnostic(configs),
+        "legacy",
+        fields=STEADY_FIELDS,
     )
-    old, new = snapshot(legacy), snapshot(core)
-    for tree in (old, new):  # the recorded column itself differs by construction
-        tree["s2.txt"] = ("table", tree["s2.txt"][1].drop(columns=[COLUMN]))
-    assert compare_snapshots(old, new) == []
+    old = without_field_column(snapshot(legacy))
+    expected = golden("magspec/missing-field")
+    assert sorted(old) == sorted(expected.files)
+    assert compare_snapshots(expected.files, old) == []
 
 
 def test_shot_metadata_carries_finite_cells_only():

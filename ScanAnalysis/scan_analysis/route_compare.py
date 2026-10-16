@@ -1,20 +1,28 @@
-"""Snapshot and compare the analysis trees two factory routes wrote for one scan.
+"""Snapshot and compare the analysis trees two runs wrote for one scan.
 
-One definition of "the same outputs", shared by the in-suite differential test
-and ``scripts/analysis_scan_compare.py``, so neither drifts when a product kind
-or a tolerance changes. HDF5 payloads and tab-separated scalar tables are
-decoded and compared; every other file (the PNG figures) counts by presence
-only, because the two renderers draw different pixels by design. The files a
-run adds inside the scan folder itself (a measure's sibling outputs, the
-magspec ``-interp`` / ``-interpSpec`` folders) are no figures: they are
-compared byte for byte.
+One definition of "the same outputs", shared by every differential test in
+the suite (a run against its committed golden tree, a pooled run against the
+serial one), so none drifts when a product kind or a tolerance changes. HDF5
+payloads and tab-separated scalar tables are decoded and compared; every
+other file (the PNG figures) counts by presence only, because figures are the
+operator's review, not a pin. The files a run adds inside the scan folder
+itself (a measure's sibling outputs, the magspec ``-interp`` /
+``-interpSpec`` folders) are no figures: they are compared byte for byte.
+
+A snapshot can be stored as a **golden** (:func:`write_golden`: a JSON
+manifest beside one ``.npz`` of the arrays and numeric table columns) and
+read back (:func:`read_golden`) in the shape :func:`compare_snapshots`
+takes, so a test pins a run against a tree generated once — the legacy
+analyzers' outputs, captured before those analyzers were deleted (#1039).
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 import h5py
 import numpy as np
@@ -145,3 +153,106 @@ def compare_snapshots(  # noqa: C901, PLR0912
 def _width_columns(table: pd.DataFrame) -> list[str]:
     """The table's ``*_rms`` / ``*_fwhm`` columns, in table order."""
     return [c for c in table.columns if str(c).endswith(WIDTH_COLUMN_SUFFIXES)]
+
+
+# ------------------------------------------------------------------- goldens
+
+MANIFEST_NAME = "manifest.json"
+ARRAYS_NAME = "arrays.npz"
+
+
+@dataclass(frozen=True)
+class Golden:
+    """A stored snapshot: the files in ``compare_snapshots``' shape, plus notes."""
+
+    files: dict[str, tuple]
+    #: Whatever the writer recorded beside the tree (a display-file list).
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+def write_golden(
+    snapshot: dict[str, tuple], folder: Path, *, extra: dict[str, Any] | None = None
+) -> None:
+    """Store a snapshot under ``folder`` as ``manifest.json`` + ``arrays.npz``.
+
+    HDF5 payloads keep their dtype in the ``.npz``; a table's numeric
+    columns go there too (so a float survives bit for bit, where a text
+    round trip may not) and its other columns into the manifest; a
+    scan-folder product keeps its digest; any other file keeps only its
+    name, as the comparison counts it by presence alone.
+    """
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    arrays: dict[str, np.ndarray] = {}
+    manifest: dict[str, Any] = {}
+
+    def store(data: np.ndarray) -> str:
+        key = f"a{len(arrays)}"
+        arrays[key] = np.asarray(data)
+        return key
+
+    for name in sorted(snapshot):
+        entry = snapshot[name]
+        kind = entry[0]
+        if kind == "h5":
+            _, key, data, dtype = entry
+            manifest[name] = {
+                "kind": kind,
+                "key": key,
+                "dtype": np.dtype(dtype).str,
+                "array": store(data),
+            }
+        elif kind == "table":
+            table: pd.DataFrame = entry[1]
+            columns = []
+            for column in table.columns:
+                values = table[column].to_numpy()
+                if np.issubdtype(values.dtype, np.number) or values.dtype == bool:
+                    columns.append({"name": column, "array": store(values)})
+                else:
+                    columns.append(
+                        {
+                            "name": column,
+                            "values": [
+                                None if (isinstance(v, float) and np.isnan(v)) else v
+                                for v in values.tolist()
+                            ],
+                        }
+                    )
+            manifest[name] = {"kind": kind, "columns": columns}
+        elif kind == "bytes":
+            manifest[name] = {"kind": kind, "sha256": entry[1]}
+        else:
+            manifest[name] = {"kind": "file"}
+    payload = {"files": manifest, "extra": extra or {}}
+    (folder / MANIFEST_NAME).write_text(
+        json.dumps(payload, indent=1, sort_keys=True) + "\n"
+    )
+    np.savez_compressed(folder / ARRAYS_NAME, **arrays)
+
+
+def read_golden(folder: Path) -> Golden:
+    """Read a tree :func:`write_golden` stored; ``("file", None)`` for presence-only files."""
+    folder = Path(folder)
+    payload = json.loads((folder / MANIFEST_NAME).read_text())
+    with np.load(folder / ARRAYS_NAME) as handle:
+        arrays = {key: handle[key] for key in handle.files}
+    files: dict[str, tuple] = {}
+    for name, entry in payload["files"].items():
+        kind = entry["kind"]
+        if kind == "h5":
+            data = arrays[entry["array"]]
+            files[name] = ("h5", entry["key"], data, np.dtype(entry["dtype"]))
+        elif kind == "table":
+            columns = {}
+            for column in entry["columns"]:
+                if "array" in column:
+                    columns[column["name"]] = arrays[column["array"]]
+                else:
+                    columns[column["name"]] = column["values"]
+            files[name] = ("table", pd.DataFrame(columns))
+        elif kind == "bytes":
+            files[name] = ("bytes", entry["sha256"])
+        else:
+            files[name] = ("file", None)
+    return Golden(files, dict(payload.get("extra", {})))

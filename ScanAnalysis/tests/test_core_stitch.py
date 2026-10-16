@@ -1,4 +1,4 @@
-"""The line stitcher on the core route: the source joins sibling traces, as the legacy stitcher did."""
+"""The line stitcher on the core route: the source joins sibling traces, as the legacy stitcher did (its tree pinned)."""
 
 from __future__ import annotations
 
@@ -147,29 +147,40 @@ def test_a_stitcher_diagnostic_runs_on_the_core_route():
     assert core_supports(document())
 
 
-def test_the_core_route_matches_the_legacy_stitcher(tmp_path, monkeypatch):
-    legacy = run(monkeypatch, tmp_path / "legacy", document(), route="legacy")
+def test_the_core_route_writes_the_golden_tree(tmp_path, monkeypatch, golden):
+    """The legacy stitcher's tree, exact — its widths measured over MeV (below)."""
     core = run(monkeypatch, tmp_path / "core", document())
-    old, new = snapshot(legacy), snapshot(core)
-    assert sorted(old) == sorted(new)
+    new = snapshot(core)
+    expected = golden("stitch/scan", new)
+    assert sorted(new) == sorted(expected.files)
     assert any(name.endswith(".h5") for name in new)
-    old_rows, new_rows = old["s1.txt"][1], new["s1.txt"][1]
-    columns = new_rows.columns
+    columns = new["s1.txt"][1].columns
     assert any(c.startswith(f"MagSpec1{SUFFIX}_") for c in columns)
+    assert len([c for c in columns if c.endswith(WIDTH_COLUMN_SUFFIXES)]) == 2
+    assert compare_snapshots(expected.files, new, average_ulps=0) == []
+
+
+def test_the_legacy_stitcher_wrote_the_golden_tree_but_for_the_widths(
+    tmp_path, monkeypatch, golden
+):
+    legacy = run(monkeypatch, tmp_path / "legacy", document(), route="legacy")
+    old = snapshot(legacy)
+    expected = golden("stitch/scan")
+    assert sorted(old) == sorted(expected.files)
+    old_rows, golden_rows = old["s1.txt"][1], expected.files["s1.txt"][1]
     # The one deliberate difference: a joined trace is unevenly spaced, and
     # the core measures its widths over MeV (GEECS-Analysis 0.26.0, #1029)
     # where the legacy analyzer counted samples times the spacing at the
-    # centroid. route_compare's nonuniform-axis allowance (the harness's
-    # --nonuniform-axis) excludes the two width columns; every other file,
-    # column and sample is identical, and without the allowance the widths
-    # are all that differs.
-    widths = [c for c in columns if c.endswith(WIDTH_COLUMN_SUFFIXES)]
+    # centroid. route_compare's nonuniform-axis allowance excludes the two
+    # width columns; every other file, column and sample is identical, and
+    # without the allowance the widths are all that differs.
+    widths = [c for c in golden_rows.columns if c.endswith(WIDTH_COLUMN_SUFFIXES)]
     assert len(widths) == 2
     for column in widths:
-        assert not np.allclose(old_rows[column], new_rows[column])
-    strict = compare_snapshots(old, new)
+        assert not np.allclose(old_rows[column], golden_rows[column])
+    strict = compare_snapshots(expected.files, old)
     assert strict and all(".txt:" in problem for problem in strict)
-    assert compare_snapshots(old, new, nonuniform_axis=True) == []
+    assert compare_snapshots(expected.files, old, nonuniform_axis=True) == []
 
 
 def test_the_joined_trace_is_every_segment_sorted_by_x(tmp_path):

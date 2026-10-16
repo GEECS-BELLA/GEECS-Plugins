@@ -1,4 +1,4 @@
-"""Scan backgrounds on the core route: exact strip statistics, the legacy wrapper's outputs, no stray writes."""
+"""Scan backgrounds on the core route: exact strip statistics, the golden (legacy) trees, no stray writes."""
 
 from __future__ import annotations
 
@@ -33,6 +33,21 @@ def stack(n: int = 7, shape=(13, 9), seed: int = 2) -> list[np.ndarray]:
     return [rng.integers(0, 4000, size=shape).astype(np.uint16) for _ in range(n)]
 
 
+def whole_stack_statistic(frames, statistic: str, percentile=None) -> np.ndarray:
+    """The legacy aggregation, verbatim: one float64 stack, one numpy call.
+
+    What ``image_analysis.processing.array2d.background._aggregate_image_stack``
+    computed (mean over the raw stack; median / percentile over the stack
+    cast to float64) — the strip statistic must reproduce it bit for bit.
+    """
+    if statistic == "mean":
+        return np.mean(np.stack(frames), axis=0)
+    cast = np.stack([f.astype(np.float64) for f in frames], axis=0)
+    if statistic == "median":
+        return np.median(cast, axis=0)
+    return np.percentile(cast, percentile, axis=0)
+
+
 @pytest.mark.parametrize(
     "statistic,percentile",
     [("mean", None), ("median", None), ("percentile", 10.0), ("percentile", 37.5)],
@@ -45,7 +60,11 @@ def test_the_strip_statistic_is_the_legacy_whole_stack_one_bit_for_bit(
     from image_analysis.processing.array2d.background import _aggregate_image_stack
 
     frames = stack()
-    expected = _aggregate_image_stack(frames, method=statistic, percentile=percentile)
+    expected = whole_stack_statistic(frames, statistic, percentile)
+    np.testing.assert_array_equal(
+        expected,
+        _aggregate_image_stack(frames, method=statistic, percentile=percentile),
+    )
     loaders = [lambda f=f: f for f in frames]
     actual = scan_statistic(
         loaders, statistic, percentile, budget_bytes=budget, scratch_dir=tmp_path
@@ -55,8 +74,6 @@ def test_the_strip_statistic_is_the_legacy_whole_stack_one_bit_for_bit(
 
 
 def test_an_unreadable_frame_is_skipped_and_a_mismatched_one_refused():
-    from image_analysis.processing.array2d.background import _aggregate_image_stack
-
     frames = stack(5)
 
     def broken():
@@ -69,7 +86,7 @@ def test_an_unreadable_frame_is_skipped_and_a_mismatched_one_refused():
     )
     np.testing.assert_array_equal(
         scan_statistic(loaders, "percentile", 20.0, budget_bytes=1),
-        _aggregate_image_stack(frames, method="percentile", percentile=20.0),
+        whole_stack_statistic(frames, "percentile", 20.0),
     )
     odd = [lambda: frames[0], lambda: frames[1][:4]]
     with pytest.raises(ValueError, match="differ in shape"):
@@ -199,18 +216,31 @@ SOURCES = [
 
 
 @pytest.mark.parametrize("source", SOURCES)
-def test_the_core_route_matches_the_legacy_wrapper(tmp_path, monkeypatch, source):
+def test_the_core_route_writes_the_golden_tree(
+    tmp_path, monkeypatch, golden, request, source
+):
+    """The tree the legacy wrapper wrote with this background, exact (#1039)."""
     doc = document(**source)
     assert core_supports(doc)
-    # Each route gets its own document: the legacy wrapper rewrites the
-    # background section of the one it is given (to a from_file background
-    # pointing at its cache), which would feed the core a pre-resolved file.
-    legacy = run(monkeypatch, tmp_path / "legacy", document(**source), "legacy")
     core = run(monkeypatch, tmp_path / "core", doc)
-    old, new = outputs(legacy), outputs(core)
+    new = outputs(core)
+    expected = golden(f"backgrounds/{request.node.callspec.id}", new)
     assert any(name.endswith(".h5") for name in new)
-    assert sorted(old) == sorted(new)
-    assert compare_snapshots(old, new) == []
+    assert sorted(new) == sorted(expected.files)
+    assert compare_snapshots(expected.files, new, average_ulps=0) == []
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_the_legacy_wrapper_wrote_the_golden_tree(
+    tmp_path, monkeypatch, golden, request, source
+):
+    """The oracle: the legacy wrapper, given its own document (it rewrites the
+    background section to a from_file background pointing at its cache)."""
+    legacy = run(monkeypatch, tmp_path / "legacy", document(**source), "legacy")
+    old = outputs(legacy)
+    expected = golden(f"backgrounds/{request.node.callspec.id}")
+    assert sorted(old) == sorted(expected.files)
+    assert compare_snapshots(expected.files, old) == []
 
 
 def test_a_dark_scan_is_averaged_once_and_shared(tmp_path, monkeypatch):

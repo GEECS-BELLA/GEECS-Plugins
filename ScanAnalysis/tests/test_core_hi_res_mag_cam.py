@@ -1,4 +1,4 @@
-"""HiResMagCam on the core route: the legacy wrapper's products and scalars, per shot and per bin."""
+"""HiResMagCam on the core route: the golden (legacy) products and scalars, per shot and per bin."""
 
 from __future__ import annotations
 
@@ -112,14 +112,14 @@ def test_a_hi_res_mag_cam_diagnostic_runs_on_the_core_route():
 
 
 @pytest.mark.parametrize("mode", ["per_shot", "per_bin"])
-def test_the_core_route_matches_the_legacy_wrapper(tmp_path, monkeypatch, mode):
-    legacy = run(monkeypatch, tmp_path / "legacy", document(mode), "legacy")
+def test_the_core_route_writes_the_golden_tree(tmp_path, monkeypatch, golden, mode):
+    """The legacy wrapper's products and scalars, exact; the waist where built."""
     core = run(monkeypatch, tmp_path / "core", document(mode), "core")
-    old = snapshot_analysis_tree(legacy.parent.parent / "analysis")
     new = snapshot_analysis_tree(core.parent.parent / "analysis")
-    assert sorted(old) == sorted(new)
+    expected = golden(f"hi_res_mag_cam/{mode}", new)
+    assert sorted(new) == sorted(expected.files)
     assert any(name.endswith(".h5") for name in new)
-    assert compare_snapshots(old, new) == []
+    assert compare_snapshots(expected.files, new, average_ulps=0) == []
     rows = pd.read_csv(core.parent.parent / "analysis" / "s1.txt", sep="\t")
     assert set(BOWTIE) <= set(rows.columns)
     assert (rows["Diag_emittance_proxy"] != 1e6).all(), "every bow-tie must fit"
@@ -137,3 +137,12 @@ def test_the_core_route_matches_the_legacy_wrapper(tmp_path, monkeypatch, mode):
     assert (x0[~inside] > ROI["x_max"] - 1).all()
     if mode == "per_bin":
         assert (rows.groupby("Bin #")["Diag_bowtie_x0"].nunique() == 1).all()
+
+
+@pytest.mark.parametrize("mode", ["per_shot", "per_bin"])
+def test_the_legacy_wrapper_wrote_the_golden_tree(tmp_path, monkeypatch, golden, mode):
+    legacy = run(monkeypatch, tmp_path / "legacy", document(mode), "legacy")
+    old = snapshot_analysis_tree(legacy.parent.parent / "analysis")
+    expected = golden(f"hi_res_mag_cam/{mode}")
+    assert sorted(old) == sorted(expected.files)
+    assert compare_snapshots(expected.files, old) == []

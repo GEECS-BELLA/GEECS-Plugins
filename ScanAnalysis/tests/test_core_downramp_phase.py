@@ -1,4 +1,4 @@
-"""Downramp phase on the core route: the legacy wrapper's tree, its PDF no longer in the scan folder."""
+"""Downramp phase on the core route: the golden (legacy) tree, its PDF no longer in the scan folder."""
 
 from __future__ import annotations
 
@@ -101,24 +101,14 @@ def test_a_downramp_phase_diagnostic_runs_on_the_core_route():
 
 
 @pytest.mark.parametrize("mode", ["per_shot", "per_bin"])
-def test_the_core_route_matches_the_legacy_wrapper(tmp_path, monkeypatch, mode):
-    legacy = run(monkeypatch, tmp_path / "legacy", document(mode), "legacy")
+def test_the_core_route_writes_the_golden_tree(tmp_path, monkeypatch, golden, mode):
+    """The legacy wrapper's tree (its phase product as the core's float64), exact."""
     core = run(monkeypatch, tmp_path / "core", document(mode), "core")
-    old = snapshot_analysis_tree(legacy.parent.parent / "analysis")
     new = snapshot_analysis_tree(core.parent.parent / "analysis")
-    assert sorted(old) == sorted(new)
-    products = [name for name in old if name.endswith(".h5")]
-    assert products
-    for name in products:
-        _, key, legacy_data, legacy_dtype = old[name]
-        _, key2, core_data, core_dtype = new[name]
-        # The wrapper stored the analyzer's uint16 phase product; the core
-        # stores its frame, the same values as float64.
-        assert (key, core_dtype) == (key2, np.float64), name
-        np.testing.assert_array_equal(core_data, legacy_data, err_msg=name)
-    rest_old = {name: old[name] for name in old if not name.endswith(".h5")}
-    rest_new = {name: new[name] for name in new if not name.endswith(".h5")}
-    assert compare_snapshots(rest_old, rest_new) == []
+    expected = golden(f"downramp_phase/{mode}", new)
+    assert sorted(new) == sorted(expected.files)
+    assert any(name.endswith(".h5") for name in new)
+    assert compare_snapshots(expected.files, new, average_ulps=0) == []
     rows = pd.read_csv(
         core.parent.parent / "analysis" / "s1.txt",
         sep="\t",
@@ -127,10 +117,30 @@ def test_the_core_route_matches_the_legacy_wrapper(tmp_path, monkeypatch, mode):
     for key in SCALARS:
         assert rows[f"Diag_{key}"].notna().all(), key
     location = rows["Diag_Plasma downramp shock location (pixel)"]
-    expected = [SHOCK_COLUMNS[(shot - 1) // 2] for shot in rows["Shotnumber"]]
-    np.testing.assert_allclose(location, expected, atol=3)
+    shock = [SHOCK_COLUMNS[(shot - 1) // 2] for shot in rows["Shotnumber"]]
+    np.testing.assert_allclose(location, shock, atol=3)
     # The wrapper's analyzer drew its PDF into the raw device folder (per
     # shot, where it had a file path); the core route writes nothing there.
+    assert not list((core / DEVICE).glob("*.pdf"))
+
+
+@pytest.mark.parametrize("mode", ["per_shot", "per_bin"])
+def test_the_legacy_wrapper_wrote_the_golden_tree(tmp_path, monkeypatch, golden, mode):
+    """The oracle: the wrapper stored the analyzer's uint16 phase product, the
+    golden the same values as float64; everything else exact."""
+    legacy = run(monkeypatch, tmp_path / "legacy", document(mode), "legacy")
+    old = snapshot_analysis_tree(legacy.parent.parent / "analysis")
+    expected = golden(f"downramp_phase/{mode}")
+    assert sorted(old) == sorted(expected.files)
+    products = [name for name in old if name.endswith(".h5")]
+    assert products
+    for name in products:
+        _, key, legacy_data, _ = old[name]
+        _, key2, golden_data, golden_dtype = expected.files[name]
+        assert (key, golden_dtype) == (key2, np.float64), name
+        np.testing.assert_array_equal(golden_data, legacy_data, err_msg=name)
+    rest_old = {name: old[name] for name in old if not name.endswith(".h5")}
+    rest = {n: expected.files[n] for n in expected.files if not n.endswith(".h5")}
+    assert compare_snapshots(rest, rest_old) == []
     pdfs = list((legacy / DEVICE).glob("*_combined_shock_analysis.pdf"))
     assert bool(pdfs) == (mode == "per_shot")
-    assert not list((core / DEVICE).glob("*.pdf"))

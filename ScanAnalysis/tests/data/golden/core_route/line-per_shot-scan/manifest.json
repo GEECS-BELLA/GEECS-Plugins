@@ -1,0 +1,117 @@
+{
+ "extra": {
+  "display": [
+   "Scan001/Diag/Array1DScanAnalyzer/Spec_summary_waterfall.png"
+  ]
+ },
+ "files": {
+  "Scan001/Diag/Array1DScanAnalyzer/Spec_1_processed.h5": {
+   "array": "a0",
+   "dtype": "<f4",
+   "key": "data",
+   "kind": "h5"
+  },
+  "Scan001/Diag/Array1DScanAnalyzer/Spec_1_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/Diag/Array1DScanAnalyzer/Spec_2_processed.h5": {
+   "array": "a1",
+   "dtype": "<f4",
+   "key": "data",
+   "kind": "h5"
+  },
+  "Scan001/Diag/Array1DScanAnalyzer/Spec_2_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/Diag/Array1DScanAnalyzer/Spec_3_processed.h5": {
+   "array": "a2",
+   "dtype": "<f4",
+   "key": "data",
+   "kind": "h5"
+  },
+  "Scan001/Diag/Array1DScanAnalyzer/Spec_3_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/Diag/Array1DScanAnalyzer/Spec_summary_waterfall.png": {
+   "kind": "file"
+  },
+  "Scan001/Scan001_Diag.txt": {
+   "columns": [
+    {
+     "array": "a3",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a4",
+     "name": "Diag_CoM"
+    },
+    {
+     "array": "a5",
+     "name": "Diag_rms"
+    },
+    {
+     "array": "a6",
+     "name": "Diag_fwhm"
+    },
+    {
+     "array": "a7",
+     "name": "Diag_peak_location"
+    },
+    {
+     "array": "a8",
+     "name": "Diag_integrated_intensity"
+    },
+    {
+     "array": "a9",
+     "name": "Diag_peak_value"
+    }
+   ],
+   "kind": "table"
+  },
+  "s1.txt": {
+   "columns": [
+    {
+     "array": "a10",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a11",
+     "name": "Bin #"
+    },
+    {
+     "array": "a12",
+     "name": "U_Motor Position Alias:motor"
+    },
+    {
+     "array": "a13",
+     "name": "U_Charge Value"
+    },
+    {
+     "array": "a14",
+     "name": "Diag_CoM"
+    },
+    {
+     "array": "a15",
+     "name": "Diag_fwhm"
+    },
+    {
+     "array": "a16",
+     "name": "Diag_integrated_intensity"
+    },
+    {
+     "array": "a17",
+     "name": "Diag_peak_location"
+    },
+    {
+     "array": "a18",
+     "name": "Diag_peak_value"
+    },
+    {
+     "array": "a19",
+     "name": "Diag_rms"
+    }
+   ],
+   "kind": "table"
+  }
+ }
+}

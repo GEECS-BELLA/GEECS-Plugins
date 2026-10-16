@@ -6,8 +6,10 @@ import pandas as pd
 
 from scan_analysis.route_compare import (
     compare_snapshots,
+    read_golden,
     snapshot_analysis_tree,
     snapshot_scan_products,
+    write_golden,
 )
 
 
@@ -118,3 +120,47 @@ def test_scan_products_are_compared_byte_for_byte_and_inputs_skipped(tmp_path):
     assert compare_snapshots(trees["legacy"], trees["core"]) == [
         "Scan003/Cam-interp/raw.png: bytes differ"
     ]
+
+
+def test_a_golden_round_trips_every_kind_bit_for_bit(tmp_path):
+    """Arrays keep dtype and value, tables their column dtypes and text cells."""
+    image = np.arange(6, dtype=np.float32).reshape(2, 3) / 7
+    table = pd.DataFrame(
+        {
+            "Shotnumber": [1, 2, 3],
+            "Bin #": [1, 1, 2],
+            "x": [0.1 + 0.2, np.nan, 1e-300],
+            "label": ["a", None, "c"],
+            "flag": [True, False, True],
+        }
+    )
+    snapshot = {
+        "Scan001/Out/D_1_processed.h5": ("h5", "image", image, image.dtype),
+        "Scan001/Out/D_1_processed_visual.png": ("file", 1234),
+        "Scan001/Cam-interp/raw.png": ("bytes", "ab" * 32),
+        "s1.txt": ("table", table),
+    }
+    write_golden(snapshot, tmp_path / "case", extra={"display": ["a.png"]})
+    assert sorted(p.name for p in (tmp_path / "case").iterdir()) == [
+        "arrays.npz",
+        "manifest.json",
+    ]
+    stored = read_golden(tmp_path / "case")
+    assert stored.extra == {"display": ["a.png"]}
+    assert sorted(stored.files) == sorted(snapshot)
+    assert compare_snapshots(stored.files, snapshot, average_ulps=0) == []
+    kind, key, data, dtype = stored.files["Scan001/Out/D_1_processed.h5"]
+    assert (kind, key, dtype) == ("h5", "image", np.dtype("float32"))
+    assert data.dtype == np.float32
+    assert stored.files["Scan001/Out/D_1_processed_visual.png"] == ("file", None)
+    assert stored.files["Scan001/Cam-interp/raw.png"] == ("bytes", "ab" * 32)
+    pd.testing.assert_frame_equal(stored.files["s1.txt"][1], table, check_exact=True)
+    # A changed sample is reported, so the golden really bites.
+    nudged = {**snapshot}
+    nudged["Scan001/Out/D_1_processed.h5"] = (
+        "h5",
+        "image",
+        np.nextafter(image, np.float32(9)),
+        image.dtype,
+    )
+    assert compare_snapshots(stored.files, nudged) != []

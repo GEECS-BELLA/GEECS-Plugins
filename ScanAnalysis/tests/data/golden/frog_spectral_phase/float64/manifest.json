@@ -1,0 +1,101 @@
+{
+ "extra": {},
+ "files": {
+  "Scan001/Scan001_FSP.txt": {
+   "columns": [
+    {
+     "array": "a0",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a1",
+     "name": "U_FROG_Grenouille-Temporal_tod_fs3"
+    },
+    {
+     "array": "a2",
+     "name": "U_FROG_Grenouille-Temporal_gdd_fs2"
+    },
+    {
+     "array": "a3",
+     "name": "U_FROG_Grenouille-Temporal_gd_fs"
+    },
+    {
+     "array": "a4",
+     "name": "U_FROG_Grenouille-Temporal_phi0_rad"
+    },
+    {
+     "array": "a5",
+     "name": "U_FROG_Grenouille-Temporal_flipped"
+    }
+   ],
+   "kind": "table"
+  },
+  "Scan001/U_FROG_Grenouille-Temporal/Array1DScanAnalyzer/U_FROG_Grenouille-Temporal_1_processed.h5": {
+   "array": "a6",
+   "dtype": "<f8",
+   "key": "data",
+   "kind": "h5"
+  },
+  "Scan001/U_FROG_Grenouille-Temporal/Array1DScanAnalyzer/U_FROG_Grenouille-Temporal_1_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/U_FROG_Grenouille-Temporal/Array1DScanAnalyzer/U_FROG_Grenouille-Temporal_2_processed.h5": {
+   "array": "a7",
+   "dtype": "<f8",
+   "key": "data",
+   "kind": "h5"
+  },
+  "Scan001/U_FROG_Grenouille-Temporal/Array1DScanAnalyzer/U_FROG_Grenouille-Temporal_2_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/U_FROG_Grenouille-Temporal/Array1DScanAnalyzer/U_FROG_Grenouille-Temporal_3_processed.h5": {
+   "array": "a8",
+   "dtype": "<f8",
+   "key": "data",
+   "kind": "h5"
+  },
+  "Scan001/U_FROG_Grenouille-Temporal/Array1DScanAnalyzer/U_FROG_Grenouille-Temporal_3_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/U_FROG_Grenouille-Temporal/Array1DScanAnalyzer/U_FROG_Grenouille-Temporal_summary_waterfall.png": {
+   "kind": "file"
+  },
+  "s1.txt": {
+   "columns": [
+    {
+     "array": "a9",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a10",
+     "name": "Bin #"
+    },
+    {
+     "array": "a11",
+     "name": "U_Motor Position Alias:motor"
+    },
+    {
+     "array": "a12",
+     "name": "U_FROG_Grenouille-Temporal_flipped"
+    },
+    {
+     "array": "a13",
+     "name": "U_FROG_Grenouille-Temporal_gd_fs"
+    },
+    {
+     "array": "a14",
+     "name": "U_FROG_Grenouille-Temporal_gdd_fs2"
+    },
+    {
+     "array": "a15",
+     "name": "U_FROG_Grenouille-Temporal_phi0_rad"
+    },
+    {
+     "array": "a16",
+     "name": "U_FROG_Grenouille-Temporal_tod_fs3"
+    }
+   ],
+   "kind": "table"
+  }
+ }
+}

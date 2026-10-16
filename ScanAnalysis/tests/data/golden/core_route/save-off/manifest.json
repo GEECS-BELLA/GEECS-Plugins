@@ -1,0 +1,179 @@
+{
+ "extra": {},
+ "files": {
+  "Scan001/Scan001_Diag.txt": {
+   "columns": [
+    {
+     "array": "a0",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a1",
+     "name": "Diag_image_total"
+    },
+    {
+     "array": "a2",
+     "name": "Diag_image_peak_value"
+    },
+    {
+     "array": "a3",
+     "name": "Diag_x_CoM"
+    },
+    {
+     "array": "a4",
+     "name": "Diag_x_rms"
+    },
+    {
+     "array": "a5",
+     "name": "Diag_x_fwhm"
+    },
+    {
+     "array": "a6",
+     "name": "Diag_x_peak_location"
+    },
+    {
+     "array": "a7",
+     "name": "Diag_y_CoM"
+    },
+    {
+     "array": "a8",
+     "name": "Diag_y_rms"
+    },
+    {
+     "array": "a9",
+     "name": "Diag_y_fwhm"
+    },
+    {
+     "array": "a10",
+     "name": "Diag_y_peak_location"
+    },
+    {
+     "array": "a11",
+     "name": "Diag_x_45_CoM"
+    },
+    {
+     "array": "a12",
+     "name": "Diag_x_45_rms"
+    },
+    {
+     "array": "a13",
+     "name": "Diag_x_45_fwhm"
+    },
+    {
+     "array": "a14",
+     "name": "Diag_x_45_peak_location"
+    },
+    {
+     "array": "a15",
+     "name": "Diag_y_45_CoM"
+    },
+    {
+     "array": "a16",
+     "name": "Diag_y_45_rms"
+    },
+    {
+     "array": "a17",
+     "name": "Diag_y_45_fwhm"
+    },
+    {
+     "array": "a18",
+     "name": "Diag_y_45_peak_location"
+    }
+   ],
+   "kind": "table"
+  },
+  "s1.txt": {
+   "columns": [
+    {
+     "array": "a19",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a20",
+     "name": "Bin #"
+    },
+    {
+     "array": "a21",
+     "name": "U_Motor Position Alias:motor"
+    },
+    {
+     "array": "a22",
+     "name": "U_Charge Value"
+    },
+    {
+     "array": "a23",
+     "name": "Diag_image_peak_value"
+    },
+    {
+     "array": "a24",
+     "name": "Diag_image_total"
+    },
+    {
+     "array": "a25",
+     "name": "Diag_x_45_CoM"
+    },
+    {
+     "array": "a26",
+     "name": "Diag_x_45_fwhm"
+    },
+    {
+     "array": "a27",
+     "name": "Diag_x_45_peak_location"
+    },
+    {
+     "array": "a28",
+     "name": "Diag_x_45_rms"
+    },
+    {
+     "array": "a29",
+     "name": "Diag_x_CoM"
+    },
+    {
+     "array": "a30",
+     "name": "Diag_x_fwhm"
+    },
+    {
+     "array": "a31",
+     "name": "Diag_x_peak_location"
+    },
+    {
+     "array": "a32",
+     "name": "Diag_x_rms"
+    },
+    {
+     "array": "a33",
+     "name": "Diag_y_45_CoM"
+    },
+    {
+     "array": "a34",
+     "name": "Diag_y_45_fwhm"
+    },
+    {
+     "array": "a35",
+     "name": "Diag_y_45_peak_location"
+    },
+    {
+     "array": "a36",
+     "name": "Diag_y_45_rms"
+    },
+    {
+     "array": "a37",
+     "name": "Diag_y_CoM"
+    },
+    {
+     "array": "a38",
+     "name": "Diag_y_fwhm"
+    },
+    {
+     "array": "a39",
+     "name": "Diag_y_peak_location"
+    },
+    {
+     "array": "a40",
+     "name": "Diag_y_rms"
+    }
+   ],
+   "kind": "table"
+  }
+ }
+}

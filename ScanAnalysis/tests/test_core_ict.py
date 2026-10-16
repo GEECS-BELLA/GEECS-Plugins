@@ -1,4 +1,4 @@
-"""ICT on the core route: the legacy wrapper's products, and its charges to a stated tolerance."""
+"""ICT on the core route: the golden (legacy) products, and the legacy charges to a stated tolerance."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from scan_analysis.analyzers.common.single_device_scan_analyzer import (
 )
 from scan_analysis.config import create_scan_analyzer
 from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
-from scan_analysis.route_compare import snapshot_analysis_tree
+from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
 
 TAG = ScanTag(year=2026, month=1, day=1, number=1, experiment="Test")
 SHOTS = 6
@@ -96,27 +96,42 @@ def test_an_ict_diagnostic_runs_on_the_core_route():
     assert core_supports(document())
 
 
-@pytest.mark.parametrize("dt", [DT, None])
-def test_the_core_route_matches_the_legacy_ict_wrapper(tmp_path, monkeypatch, dt):
-    legacy = run(monkeypatch, tmp_path / "legacy", document(dt), "legacy")
+@pytest.mark.parametrize("dt", [DT, None], ids=["dt", "no-dt"])
+def test_the_core_route_writes_the_golden_tree(
+    tmp_path, monkeypatch, golden, request, dt
+):
+    """The legacy wrapper's files, its products at the declared float32, exact."""
     core = run(monkeypatch, tmp_path / "core", document(dt), "core")
-    old = snapshot_analysis_tree(legacy.parent.parent / "analysis")
     new = snapshot_analysis_tree(core.parent.parent / "analysis")
+    expected = golden(f"ict/{request.node.callspec.id}", new)
+    assert sorted(new) == sorted(expected.files)
+    assert any(name.endswith(".h5") for name in new)
+    assert compare_snapshots(expected.files, new, average_ulps=0) == []
+    rows = new["s1.txt"][1]
+    assert (rows["U_BCaveICT_charge_pC"] > 0).all()
+
+
+@pytest.mark.parametrize("dt", [DT, None], ids=["dt", "no-dt"])
+def test_the_legacy_ict_wrapper_wrote_the_golden_tree(
+    tmp_path, monkeypatch, golden, request, dt
+):
+    """The oracle, to its stated tolerances."""
+    legacy = run(monkeypatch, tmp_path / "legacy", document(dt), "legacy")
+    old = snapshot_analysis_tree(legacy.parent.parent / "analysis")
+    expected = golden(f"ict/{request.node.callspec.id}")
     # The same files. Legacy ICT saved its raw input trace at float64,
-    # ignoring the config's storage_dtype; the core stores the processed
+    # ignoring the config's storage_dtype; the golden holds the processed
     # trace at the declared float32 — equal to float32 precision.
     products = {name for name in old if name.endswith(".h5")}
-    assert products and products == {name for name in new if name.endswith(".h5")}
-    assert sorted(old) == sorted(new)
+    assert products
+    assert sorted(old) == sorted(expected.files)
     for name in products:
         _, key, legacy_data, legacy_dtype = old[name]
-        _, key2, core_data, core_dtype = new[name]
-        assert (key, legacy_dtype, core_dtype) == (key2, "float64", "float32"), name
-        np.testing.assert_allclose(core_data, legacy_data, rtol=1e-6, atol=1e-9)
+        _, key2, golden_data, golden_dtype = expected.files[name]
+        assert (key, legacy_dtype, golden_dtype) == (key2, "float64", "float32"), name
+        np.testing.assert_allclose(golden_data, legacy_data, rtol=1e-6, atol=1e-9)
     # The charge is filtered at float64 on the core (the legacy low-pass ran
     # in float32): a stated tolerance, not equality.
-    rows_old = pd.read_csv(legacy.parent.parent / "analysis" / "s1.txt", sep="\t")
-    rows_new = pd.read_csv(core.parent.parent / "analysis" / "s1.txt", sep="\t")
+    rows_old, rows_golden = old["s1.txt"][1], expected.files["s1.txt"][1]
     for column in SCALARS:
-        np.testing.assert_allclose(rows_new[column], rows_old[column], rtol=1e-6)
-    assert (rows_new["U_BCaveICT_charge_pC"] > 0).all()
+        np.testing.assert_allclose(rows_golden[column], rows_old[column], rtol=1e-6)

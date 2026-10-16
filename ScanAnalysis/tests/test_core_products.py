@@ -203,23 +203,24 @@ def test_duplicate_unit_keys_are_not_silently_overwritten():
         )
 
 
-@pytest.mark.parametrize("averaged", [False, True])
-def test_scanned_products_match_legacy_bin_adapter(averaged):
+#: What the legacy ``Array2DScanAnalyzer.get_binned_data`` returned for the
+#: outcomes below (#1039): bin → (the bin's mean motor position, the value
+#: of its product). Per shot, units 5, 1, 3 (values 15, 3, 9) land in bins
+#: 3, 1, 2; per bin, units keyed 3, 1, 2 (values 9, 3, 6) are the bins.
+LEGACY_BINS = {
+    False: {1: (11.0, 3.0), 2: (21.0, 9.0), 3: (31.0, 15.0)},
+    True: {1: (11.0, 3.0), 2: (21.0, 6.0), 3: (31.0, 9.0)},
+}
+
+
+def legacy_bin_adapter(doc, outcomes):
+    """The oracle itself (deleted with the wrappers): the literal table above is its answer."""
     from image_analysis.config import create_image_analyzer
     from image_analysis.types import ImageAnalyzerResult
     from scan_analysis.analyzers.common.array2D_scan_analysis import (
         Array2DScanAnalyzer,
     )
 
-    doc = AnalysisDiagnostic.model_validate(
-        {
-            "name": "Device",
-            "analyzer": {"kind": "beam"},
-            "image": {"type": "camera", "pipeline": []},
-            "scan": {"mode": "per_bin" if averaged else "per_shot"},
-        }
-    )
-    outcomes = [outcome(n, n * 3) for n in ((3, 1, 2) if averaged else (5, 1, 3))]
     old = Array2DScanAnalyzer(
         device_name="Device",
         image_analyzer=create_image_analyzer(doc),
@@ -236,7 +237,23 @@ def test_scanned_products_match_legacy_bin_adapter(averaged):
         )
         for o in outcomes
     }
-    expected = old.get_binned_data()
+    binned = old.get_binned_data()
+    return {k: (v["value"], v["result"].scalars["signal"]) for k, v in binned.items()}
+
+
+@pytest.mark.parametrize("averaged", [False, True])
+def test_scanned_products_match_the_legacy_bin_adapter(averaged):
+    doc = AnalysisDiagnostic.model_validate(
+        {
+            "name": "Device",
+            "analyzer": {"kind": "beam"},
+            "image": {"type": "camera", "pipeline": []},
+            "scan": {"mode": "per_bin" if averaged else "per_shot"},
+        }
+    )
+    outcomes = [outcome(n, n * 3) for n in ((3, 1, 2) if averaged else (5, 1, 3))]
+    expected = LEGACY_BINS[averaged]
+    assert legacy_bin_adapter(doc, outcomes) == expected
     plan = plan_products(
         compile_v2(doc),
         outcomes,
@@ -247,11 +264,11 @@ def test_scanned_products_match_legacy_bin_adapter(averaged):
     )
     assert [p.identifier for p in plan.singles] == list(expected)
     for product in plan.singles:
-        entry = expected[product.identifier]
-        assert product.position == entry["value"]
-        assert dict(product.measurement.scalars) == entry["result"].scalars
+        position, value = expected[product.identifier]
+        assert product.position == position
+        assert dict(product.measurement.scalars) == {"signal": value}
         np.testing.assert_array_equal(
-            product.measurement.frame.data, entry["result"].processed_image
+            product.measurement.frame.data, np.full((2, 2), value)
         )
 
 

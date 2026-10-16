@@ -1,0 +1,77 @@
+{
+ "extra": {},
+ "files": {
+  "Scan001/Scan001_ICT.txt": {
+   "columns": [
+    {
+     "array": "a0",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a1",
+     "name": "U_BCaveICT_charge_pC"
+    },
+    {
+     "array": "a2",
+     "name": "U_BCaveICT_ICT Signal Peak_us"
+    }
+   ],
+   "kind": "table"
+  },
+  "Scan001/U_BCaveICT/Array1DScanAnalyzer/U_BCaveICT_1_processed.h5": {
+   "array": "a3",
+   "dtype": "<f4",
+   "key": "data",
+   "kind": "h5"
+  },
+  "Scan001/U_BCaveICT/Array1DScanAnalyzer/U_BCaveICT_1_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/U_BCaveICT/Array1DScanAnalyzer/U_BCaveICT_2_processed.h5": {
+   "array": "a4",
+   "dtype": "<f4",
+   "key": "data",
+   "kind": "h5"
+  },
+  "Scan001/U_BCaveICT/Array1DScanAnalyzer/U_BCaveICT_2_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/U_BCaveICT/Array1DScanAnalyzer/U_BCaveICT_3_processed.h5": {
+   "array": "a5",
+   "dtype": "<f4",
+   "key": "data",
+   "kind": "h5"
+  },
+  "Scan001/U_BCaveICT/Array1DScanAnalyzer/U_BCaveICT_3_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/U_BCaveICT/Array1DScanAnalyzer/U_BCaveICT_summary_waterfall.png": {
+   "kind": "file"
+  },
+  "s1.txt": {
+   "columns": [
+    {
+     "array": "a6",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a7",
+     "name": "Bin #"
+    },
+    {
+     "array": "a8",
+     "name": "U_Motor Position Alias:motor"
+    },
+    {
+     "array": "a9",
+     "name": "U_BCaveICT_ICT Signal Peak_us"
+    },
+    {
+     "array": "a10",
+     "name": "U_BCaveICT_charge_pC"
+    }
+   ],
+   "kind": "table"
+  }
+ }
+}

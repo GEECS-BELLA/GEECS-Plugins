@@ -1,4 +1,4 @@
-"""The core route reproduces the legacy wrappers' products, scalars and contract."""
+"""The core route writes the golden trees (the legacy wrappers' products, pinned) and keeps the contract."""
 
 from __future__ import annotations
 
@@ -161,31 +161,52 @@ CASES = [
 
 
 @pytest.mark.parametrize("kind,mode,noscan,renderer", CASES)
-def test_core_route_matches_legacy_outputs(
-    tmp_path, monkeypatch, kind, mode, noscan, renderer
+def test_the_core_route_writes_the_golden_tree(
+    tmp_path, monkeypatch, golden, request, kind, mode, noscan, renderer
 ):
+    """Every file, HDF5 payload, s-file column, sidecar and display file: exact.
+
+    The golden is the tree the legacy wrapper wrote for this case (captured
+    from the core while the two matched, #1039); the core sums in scalar-row
+    order, so against its own golden even the noscan average is exact.
+    """
     doc = document(kind, mode=mode, renderer=renderer)
-    legacy_scan, legacy_display, _ = run(
-        monkeypatch, tmp_path, "legacy", doc, noscan=noscan
-    )
     core_scan, core_display, plan = run(
         monkeypatch, tmp_path, "core", doc, noscan=noscan
     )
-    legacy, core = snapshot(legacy_scan), snapshot(core_scan)
-    assert sorted(core) == sorted(legacy)
+    core = snapshot(core_scan)
+    display = relative_display(core_scan, core_display)
+    expected = golden(f"core_route/{request.node.callspec.id}", core, display=display)
+    assert sorted(core) == sorted(expected.files)
     assert any(name.endswith(".png") for name in core)
     if not noscan:
         # Figures name the scan by the cleaned ScanInfo string, as legacy did.
         assert plan.position_label == "U_Motor Position"
     assert any(name.endswith(".h5") for name in core)
-    # Exact everywhere except noscan averages: the legacy wrapper sums shots
-    # in directory-listing order, the core in scalar-row order, so those
-    # differ by summation rounding only (see compare_snapshots).
-    assert compare_snapshots(legacy, core, average_ulps=4) == []
-    assert relative_display(core_scan, core_display) == relative_display(
-        legacy_scan, legacy_display
-    )
+    assert compare_snapshots(expected.files, core, average_ulps=0) == []
+    assert display == expected.extra["display"]
     assert core_display
+
+
+@pytest.mark.parametrize("kind,mode,noscan,renderer", CASES)
+def test_the_legacy_wrapper_wrote_the_golden_tree(
+    tmp_path, monkeypatch, golden, request, kind, mode, noscan, renderer
+):
+    """The oracle: the golden IS the legacy wrapper's tree, to its own allowance.
+
+    Exact everywhere except noscan averages: the wrapper sums shots in
+    directory-listing order, the golden in scalar-row order, so those differ
+    by summation rounding only (see compare_snapshots).
+    """
+    doc = document(kind, mode=mode, renderer=renderer)
+    legacy_scan, legacy_display, _ = run(
+        monkeypatch, tmp_path, "legacy", doc, noscan=noscan
+    )
+    legacy = snapshot(legacy_scan)
+    expected = golden(f"core_route/{request.node.callspec.id}")
+    assert sorted(legacy) == sorted(expected.files)
+    assert compare_snapshots(expected.files, legacy, average_ulps=4) == []
+    assert relative_display(legacy_scan, legacy_display) == expected.extra["display"]
 
 
 def test_single_bin_scan_keeps_the_cleaned_parameter_label(tmp_path, monkeypatch):
@@ -196,17 +217,33 @@ def test_single_bin_scan_keeps_the_cleaned_parameter_label(tmp_path, monkeypatch
     assert plan.position_label == "U_Motor Position"
 
 
-def test_scalars_persist_without_products_when_save_is_off(tmp_path, monkeypatch):
+def test_scalars_persist_without_products_when_save_is_off(
+    tmp_path, monkeypatch, golden
+):
+    doc = document(save=False)
+    core_scan, core_display, _ = run(monkeypatch, tmp_path, "core", doc, noscan=False)
+    core = snapshot(core_scan)
+    expected = golden("core_route/save-off", core)
+    assert (
+        sorted(core) == sorted(expected.files) == ["Scan001/Scan001_Diag.txt", "s1.txt"]
+    )
+    assert compare_snapshots(expected.files, core, average_ulps=0) == []
+    assert "Diag_x_CoM" in core["s1.txt"][1].columns
+    assert core_display == []
+
+
+def test_the_legacy_wrapper_persisted_the_golden_scalars_when_save_is_off(
+    tmp_path, monkeypatch, golden
+):
     doc = document(save=False)
     legacy_scan, legacy_display, _ = run(
         monkeypatch, tmp_path, "legacy", doc, noscan=False
     )
-    core_scan, core_display, _ = run(monkeypatch, tmp_path, "core", doc, noscan=False)
-    legacy, core = snapshot(legacy_scan), snapshot(core_scan)
-    assert sorted(core) == sorted(legacy) == ["Scan001/Scan001_Diag.txt", "s1.txt"]
-    assert compare_snapshots(legacy, core) == []
-    assert "Diag_x_CoM" in core["s1.txt"][1].columns
-    assert core_display == legacy_display == []
+    legacy = snapshot(legacy_scan)
+    expected = golden("core_route/save-off")
+    assert sorted(legacy) == sorted(expected.files)
+    assert compare_snapshots(expected.files, legacy) == []
+    assert legacy_display == []
 
 
 @pytest.mark.parametrize("route", ["legacy", "core"])
