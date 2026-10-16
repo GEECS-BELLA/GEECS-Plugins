@@ -314,9 +314,12 @@ def test_a_stack_table_maps_back_through_the_announced_shot(tmp_path):
     device = tmp_path / "scans" / "Scan007" / "Dev"
     device.mkdir(parents=True)  # fixture acquisition
     time = Axis(np.linspace(-1.0, 1.0, 4), label="time", unit="fs")
-    rows = pd.DataFrame({"Shotnumber": [1, 2, 3], "Announced Shot": [2, 3, 4]})
+    # Shot 4's announced cell is blank: its name could only collide.
+    rows = pd.DataFrame(
+        {"Shotnumber": [1, 2, 3, 4], "Announced Shot": [2, 3, 4, np.nan]}
+    )
     numbers = file_numbers(rows)
-    for shot in (1, 2, 3):
+    for shot in (1, 2, 3, 4):
         measurement = Measurement(
             scalars={},
             frame=Frame.from_array(np.zeros((2, 2))),
@@ -327,9 +330,13 @@ def test_a_stack_table_maps_back_through_the_announced_shot(tmp_path):
             },
         )
         reference = ShotRef(device / "Dev.h5", shot - 1)
-        write_shot_table(
-            measurement, reference, shot, "retrieved_lineouts", numbers.get(shot)
-        )
+        if shot == 4:
+            with pytest.raises(ValueError, match="no announced shot"):
+                write_shot_table(
+                    measurement, reference, shot, "retrieved_lineouts", numbers
+                )
+            continue
+        write_shot_table(measurement, reference, shot, "retrieved_lineouts", numbers)
     mapped = map_shot_files(
         device, rows, device="Dev", file_tail="_retrieved_lineouts.tsv"
     )

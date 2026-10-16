@@ -104,18 +104,20 @@ def shot_metadata(
     return metadata
 
 
-def file_numbers(rows: pd.DataFrame) -> dict[int, int]:
-    """Each shot's number in a shot-number file name, where it is not the shot.
+def file_numbers(rows: pd.DataFrame) -> dict[int, int] | None:
+    """Each shot's number in a shot-number file name, in a scan-mode run.
 
     A scan-mode run numbers its ``ScanNNN_<device>_SSS`` files by the
     announced shot, and data-utils' shot mapping reads such names back
     through that column (``announced_shots``), so a file the host names for
     a shot (a capture-stack frame's sidecar or sibling output) carries the
-    same number. Empty outside scan mode, where the number is the shot.
+    same number. A row without a usable announced shot is left out: no
+    shot-number name maps back to it. ``None`` outside scan mode, where the
+    number is the shot.
     """
     numbers = announced_shots(rows)
     if numbers is None:
-        return {}
+        return None
     shots = pd.to_numeric(rows["Shotnumber"], errors="coerce")
     return {
         int(shot): int(number)
@@ -138,8 +140,8 @@ class PreparedScan:
     spec: ScanRecipe | None = None
     #: Each shot's recorded values the measure reads per shot (``shot_metadata``).
     metadata: Mapping[int, ShotMeta] = field(default_factory=dict)
-    #: Each shot's number in a shot-number file name, where it differs (``file_numbers``).
-    file_numbers: Mapping[int, int] = field(default_factory=dict)
+    #: Each shot's number in a shot-number file name; ``None`` outside scan mode (``file_numbers``).
+    file_numbers: Mapping[int, int] | None = None
 
     def run(self, *, workers: int = 1) -> Iterator[UnitResult]:
         """Yield core measurements and explicit load/analysis failures lazily.

@@ -24,6 +24,7 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
 
 import h5py
 import numpy as np
@@ -365,30 +366,43 @@ def save_products(  # noqa: C901, PLR0912, PLR0915
 
 
 def _shot_location(
-    reference: Path, shot: int, file_number: int | None = None
+    reference: Path, shot: int, file_numbers: Mapping[int, int] | None = None
 ) -> tuple[Path, str]:
     """The folder a shot's file sits in and the stem that names it.
 
     A per-shot file ``X.png`` is its own stem. A frame of a capture stack
     ``scans/ScanNNN/Dev/Dev.h5`` takes the legacy shot-number stem
     ``ScanNNN_Dev_<number:03d>`` — a name data-utils' shot mapping resolves.
-    The number is ``file_number`` when given (a scan-mode run's announced
-    shot, ``core_scan.file_numbers``: the mapping reads it back through
-    that column), else the shot.
+    In a scan-mode run (``file_numbers`` given: the announced shots,
+    ``core_scan.file_numbers``) the number is the shot's announced one, as
+    the mapping reads it back; a shot without one raises ``ValueError``
+    rather than take a name that maps to another row. Otherwise it is the
+    shot.
     """
     if isinstance(reference, ShotRef):
         stack = Path(str(reference))
         scan = stack.parent.parent.name
         if parse_scan_folder_name(scan) is None:
             raise ValueError(f"Stack {stack} is not under a scans/ScanNNN folder")
-        number = shot if file_number is None else file_number
+        if file_numbers is None:
+            number = shot
+        elif shot in file_numbers:
+            number = file_numbers[shot]
+        else:
+            raise ValueError(
+                f"Shot {shot} has no announced shot; a shot-number name "
+                "would not map back to it"
+            )
         return stack.parent, f"{scan}_{stack.parent.name}_{number:03d}"
     reference = Path(reference)
     return reference.parent, reference.stem
 
 
 def shot_table_path(
-    reference: Path, shot: int, name: str, file_number: int | None = None
+    reference: Path,
+    shot: int,
+    name: str,
+    file_numbers: Mapping[int, int] | None = None,
 ) -> Path:
     """Where one shot's sidecar table goes: beside the shot's own file.
 
@@ -400,7 +414,7 @@ def shot_table_path(
     input ``folder``) finds them.
     """
     _component(name, "Sidecar name")
-    folder, stem = _shot_location(reference, shot, file_number)
+    folder, stem = _shot_location(reference, shot, file_numbers)
     return folder / f"{stem}_{name}.tsv"
 
 
@@ -410,7 +424,7 @@ def write_sibling_outputs(
     reference: Path,
     shot: int,
     output_name: str,
-    file_number: int | None = None,
+    file_numbers: Mapping[int, int] | None = None,
 ) -> list[Path]:
     """Write one shot's sibling outputs; return the files written.
 
@@ -426,7 +440,7 @@ def write_sibling_outputs(
     created with ``exist_ok`` and no parents. Written whatever ``save``
     says, as the legacy analyzer did.
     """
-    folder, stem = _shot_location(reference, shot, file_number)
+    folder, stem = _shot_location(reference, shot, file_numbers)
     scan_folder = folder.parent
     if not scan_folder.is_dir():
         raise FileNotFoundError(
@@ -473,7 +487,7 @@ def write_shot_table(
     reference: Path,
     shot: int,
     name: str,
-    file_number: int | None = None,
+    file_numbers: Mapping[int, int] | None = None,
 ) -> Path:
     """Write a measurement's extras as one tab-separated table beside the shot.
 
@@ -485,7 +499,7 @@ def write_shot_table(
     ``spectral_intensity``, ``spectral_phase``). The shot's directory must
     already exist; nothing is created but the file.
     """
-    path = shot_table_path(reference, shot, name, file_number)
+    path = shot_table_path(reference, shot, name, file_numbers)
     if not path.parent.is_dir():
         raise FileNotFoundError(f"Shot directory does not exist: {path.parent}")
     columns: dict[str, np.ndarray] = {}

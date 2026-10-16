@@ -358,7 +358,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
                 prepared.source.references[shot],
                 shot,
                 name,
-                prepared.file_numbers.get(shot),
+                prepared.file_numbers,
             )
         except (OSError, ValueError) as exc:
             logger.warning("Shot %s: %s table not written: %s", shot, name, exc)
@@ -385,7 +385,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
                 prepared.source.references[shot],
                 shot,
                 self.spec.output_name or self.spec.device,
-                prepared.file_numbers.get(shot),
+                prepared.file_numbers,
             )
         except (OSError, ValueError) as exc:
             logger.warning("Shot %s: sibling outputs not written: %s", shot, exc)
