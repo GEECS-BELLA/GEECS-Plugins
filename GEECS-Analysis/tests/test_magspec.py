@@ -629,3 +629,104 @@ def test_to_v3_moves_the_tables_under_a_namespace_and_names_the_field_column(tmp
             to_v3(polynomial(), magnetic_field_column=COLUMN).recipe
         )["measure"]
     )
+
+
+# ------------------------------------------------------- host-facing declarations
+
+
+def test_sibling_outputs_are_declared_for_the_host():
+    from geecs_analysis.registry import SiblingOutput, measure_definition
+
+    definition = measure_definition(MagspecSpec(**polynomial_measure()))
+    assert [
+        (o.suffix, o.source, o.format, o.scale) for o in definition.sibling_outputs
+    ] == [
+        ("-interp", "frame", "png16", 1000.0),
+        ("-interpSpec", "spectrum", "tsv", 1.0),
+    ]
+    assert definition.per_shot_axes
+    for bad in ("", "..", "a/b", "a\\b"):
+        with pytest.raises(ValueError, match="one folder name"):
+            SiblingOutput(bad, "frame", "png16")
+    with pytest.raises(ValueError, match="format"):
+        SiblingOutput("-x", "frame", "jpeg")
+
+    class Twice(MeasureSpec):
+        kind: str = "twice"
+
+    with pytest.raises(ValueError, match="distinct suffixes"):
+        measure(
+            Twice,
+            ndim={2},
+            sibling_outputs=(SiblingOutput("-a", "frame", "png16"),) * 2,
+        )
+
+
+def polynomial_measure() -> dict:
+    return {
+        "calibration": {"kind": "polynomial", "coeffs": [20.0, 0.5, 2e-3]},
+        "energy_range": [30, 90],
+    }
+
+
+@pytest.mark.parametrize("mode", ["noscan", "bin"])
+def test_an_average_folds_moving_energy_grids_index_wise(tmp_path, mode):
+    """A per-shot field moves the grid; the average is the legacy nanmean of frames and axes."""
+    from image_analysis.types import ImageAnalyzerResult
+
+    from geecs_analysis.compat.v2_average import RunningAverage
+
+    doc = diagnostic(synthetic_tables(tmp_path))
+    compiled = compile_recipe(
+        to_v3(doc, magnetic_field_column=COLUMN).recipe, allow_file_backgrounds=True
+    )
+    tables = bound_tables(compiled)
+    running = RunningAverage(compiled, mode=mode)
+    olds, grids = [], []
+    for n, field in enumerate((0.28, 0.30, 0.33), start=1):
+        shot = ShotMeta("TestCam", n, scalars={COLUMN: field})
+        core = analyze_v2(frame(n), compiled, shot=shot, inputs=tables)
+        running.add(core)
+        grids.append(core.frame.axes[1].values)
+        olds.append(legacy(doc, frame(n), {LEGACY_COLUMN: field}))
+    assert not np.array_equal(grids[0], grids[2]), "the field moves the grid"
+    average = running.result()
+    expected = ImageAnalyzerResult.average(olds)
+    np.testing.assert_array_equal(average.frame.data, expected.processed_image)
+    np.testing.assert_array_equal(
+        average.frame.axes[1].values, expected.render_data["energy_axis"]
+    )
+
+
+def test_a_steady_grid_keeps_the_first_axes_and_other_measures_still_refuse():
+    from geecs_data_utils.frames import Axis
+
+    from geecs_analysis.compat.v2_average import RunningAverage
+
+    compiled = compile_v2(polynomial(), allow_table_inputs=True)
+    first = analyze_v2(frame(1), compiled)
+    running = RunningAverage(compiled, mode="bin")
+    for n in (1, 2, 3):
+        running.add(analyze_v2(frame(n), compiled))
+    for kept, axis in zip(running.result().frame.axes, first.frame.axes, strict=True):
+        assert np.array_equal(kept.values, axis.values)
+    beam = compile_v2(
+        AnalysisDiagnostic.model_validate(
+            {
+                "name": "TestCam",
+                "analyzer": {"kind": "beam"},
+                "image": {"type": "camera", "pipeline": []},
+            }
+        )
+    )
+    result = analyze_v2(frame(1), beam)
+    y, x = result.frame.axes
+    moved = result.frame.data, (y, Axis(x.values + 1.0, unit=x.unit, label=x.label))
+    running = RunningAverage(beam, mode="bin")
+    running.add(result)
+    with pytest.raises(ValueError, match="matching axes"):
+        running.add(
+            result.__class__(
+                scalars={}, frame=Frame.from_array(moved[0], axes=moved[1])
+            )
+        )

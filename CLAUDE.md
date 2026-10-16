@@ -453,6 +453,10 @@ The rule is pinned by tests:
   still be written, verify before any delete) and, in the Data Portal,
   behind the `destructive` spec flag's typed-scan-number confirmation
 - `GeecsLogbook/tests/test_scan_reader.py::TestScanFolderCreationInvariant`
+- `ScanAnalysis/tests/test_core_magspec.py::test_the_writer_never_creates_a_scan_folder`
+  — a measure's sibling outputs (the magspec `-interp` / `-interpSpec`
+  folders beside the device's raw folder): the suffix folder is the one
+  directory created, never the scan folder
 
 Each package's CLAUDE.md restates this rule with package-specific guidance for
 adding new analyzers/writers.

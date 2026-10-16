@@ -4,7 +4,11 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
+from scan_analysis.route_compare import (
+    compare_snapshots,
+    snapshot_analysis_tree,
+    snapshot_scan_products,
+)
 
 
 def test_snapshot_decodes_hdf5_tables_and_counts_other_files(tmp_path):
@@ -93,3 +97,24 @@ def test_average_tolerance_is_a_few_ulps_of_the_stored_dtype():
     assert compare_snapshots(entry(base), entry(one_ulp)) == []
     assert compare_snapshots(entry(base), entry(far)) != []
     assert compare_snapshots(entry(base), entry(one_ulp), average_ulps=0) != []
+
+
+def test_scan_products_are_compared_byte_for_byte_and_inputs_skipped(tmp_path):
+    trees = {}
+    for route, payload in (("legacy", b"\x00\x01"), ("core", b"\x00\x02")):
+        scan = tmp_path / route / "Scan003"
+        (scan / "Cam").mkdir(parents=True)
+        (scan / "Cam" / "raw.png").write_bytes(route.encode())  # an input
+        (scan / "ScanInfoScan003.ini").write_text(route)
+        (scan / "Cam-interp").mkdir()
+        (scan / "Cam-interp" / "raw.png").write_bytes(payload)
+        (scan / "Cam-interpSpec").mkdir()
+        (scan / "Cam-interpSpec" / "raw.tsv").write_text("Energy [MeV]\n")
+        trees[route] = snapshot_scan_products(scan, {"Cam", "ScanInfoScan003.ini"})
+    assert sorted(trees["core"]) == [
+        "Scan003/Cam-interp/raw.png",
+        "Scan003/Cam-interpSpec/raw.tsv",
+    ]
+    assert compare_snapshots(trees["legacy"], trees["core"]) == [
+        "Scan003/Cam-interp/raw.png: bytes differ"
+    ]

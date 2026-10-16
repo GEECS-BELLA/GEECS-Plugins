@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Callable, ClassVar, Mapping, Optional, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Callable,
+    ClassVar,
+    Literal,
+    Mapping,
+    Optional,
+    TypeVar,
+)
 
 from pydantic import BaseModel, ConfigDict
 
@@ -88,6 +96,39 @@ def definition(spec: StepSpec) -> StepDefinition:
 
 
 @dataclass(frozen=True)
+class SiblingOutput:
+    """One per-shot file a scan host writes into a folder beside the device's raw folder.
+
+    The folder is ``<output name><suffix>`` in the scan folder and the file
+    is named by the shot's raw file stem — the legacy spectrometer's
+    ``-interp`` / ``-interpSpec`` products, which a stitcher reads as its
+    input. ``source`` is ``"frame"`` (the measured frame) or the key of a
+    1D extra. ``png16``: the 2D data times ``scale``, clipped to 0..65535
+    and truncated to a 16-bit greyscale PNG. ``tsv``: the trace's axis and
+    samples as two tab-separated columns headed ``<label> [<unit>]``.
+    """
+
+    suffix: str
+    source: str
+    format: Literal["png16", "tsv"]
+    scale: float = 1.0
+
+    def __post_init__(self) -> None:
+        """Refuse a suffix that is not part of one folder name, or an unknown format."""
+        if (
+            not self.suffix
+            or self.suffix in {".", ".."}
+            or "/" in self.suffix
+            or "\\" in self.suffix
+        ):
+            raise ValueError("A sibling output's suffix is part of one folder name")
+        if not self.source:
+            raise ValueError("A sibling output's source is 'frame' or an extra's key")
+        if self.format not in ("png16", "tsv"):
+            raise ValueError(f"Unknown sibling output format: {self.format!r}")
+
+
+@dataclass(frozen=True)
 class MeasureDefinition:
     """A measurement spec, function and supported dimensions.
 
@@ -128,6 +169,16 @@ class MeasureDefinition:
     ``ShotMeta.scalars``, and the function reads it from the frame's shot —
     nothing is passed, so a shot that lacks the column is the measure's own
     fallback case.
+
+    ``sibling_outputs`` are the per-shot files a scan host writes beside the
+    device's raw folder from each single-shot measurement
+    (:class:`SiblingOutput`; the ``magspec`` measure's ``-interp`` image and
+    ``-interpSpec`` spectrum).
+
+    ``per_shot_axes`` says the measured frame's coordinates may differ from
+    shot to shot (the ``magspec`` energy grid, which a per-shot field
+    moves): a summary average folds them index-wise instead of refusing
+    them, as the legacy average did.
     """
 
     spec: type[MeasureSpec]
@@ -140,6 +191,8 @@ class MeasureDefinition:
     channels: tuple[str, ...] = ()
     tables: tuple[str, ...] = ()
     shot_scalars: tuple[str, ...] = ()
+    sibling_outputs: tuple[SiblingOutput, ...] = ()
+    per_shot_axes: bool = False
 
 
 _MEASURES: dict[type[MeasureSpec], MeasureDefinition] = {}
@@ -188,6 +241,8 @@ def measure(
     channels: tuple[str, ...] = (),
     tables: tuple[str, ...] = (),
     shot_scalars: tuple[str, ...] = (),
+    sibling_outputs: tuple[SiblingOutput, ...] = (),
+    per_shot_axes: bool = False,
 ) -> Callable[[Callable[..., Measurement]], Callable[..., Measurement]]:
     """Register a builtin measure before constructing the spec union.
 
@@ -196,8 +251,10 @@ def measure(
     persists per shot; ``input_field`` names the spec field that binds an
     optional comparison frame; ``channels`` the trace's auxiliary channels
     it reads; ``tables`` the spec fields that bind tables; ``shot_scalars``
-    the spec fields naming recorded columns read per shot; see
-    :class:`MeasureDefinition`.
+    the spec fields naming recorded columns read per shot;
+    ``sibling_outputs`` the per-shot files written beside the raw folder;
+    ``per_shot_axes`` that the frame's coordinates may move shot to shot;
+    see :class:`MeasureDefinition`.
     """
     if not ndim or not ndim <= {1, 2}:
         raise ValueError("Measure dimensions must be a nonempty subset of {1, 2}")
@@ -216,6 +273,11 @@ def measure(
         ndim != {1} or not all(channels) or len(set(channels)) != len(channels)
     ):
         raise ValueError("A measure's channels are distinct names on a trace measure")
+    sibling_outputs = tuple(sibling_outputs)
+    if not all(isinstance(output, SiblingOutput) for output in sibling_outputs) or len(
+        {output.suffix for output in sibling_outputs}
+    ) != len(sibling_outputs):
+        raise ValueError("A measure's sibling outputs have distinct suffixes")
 
     def register(function: Callable[..., Measurement]):
         if spec in _MEASURES:
@@ -231,6 +293,8 @@ def measure(
             channels,
             tables,
             shot_scalars,
+            sibling_outputs,
+            per_shot_axes,
         )
         return function
 

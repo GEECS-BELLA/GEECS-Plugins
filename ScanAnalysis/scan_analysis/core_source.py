@@ -270,6 +270,14 @@ def _sibling_references(
     own files. A missing sibling folder, or a stack-only sibling without a
     stack, maps no shots (warned once); the input's shots are then stitched
     without it.
+
+    Derived per-shot files (a measure's sibling outputs, the magspec
+    ``-interpSpec`` spectra) keep the raw file's stem, so on a
+    timestamp-named scan they are ``<device>_<ts>.tsv`` inside the folder
+    ``<device>-interpSpec``: the direct probe for ``<folder>_<ts>`` misses
+    and the join rests on data-utils' listing fallback, which matches the
+    timestamp whatever the stem (``map_shot_files``). Legacy-written and
+    core-written folders join the same way.
     """
     if folder in {".", ".."} or "/" in folder or "\\" in folder:
         raise ValueError("A sibling must name one scan subfolder")

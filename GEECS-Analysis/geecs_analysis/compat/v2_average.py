@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, Sequence
 
+from geecs_analysis.registry import measure_definition
+
 if TYPE_CHECKING:
     import numpy as np
     from geecs_data_utils.frames import Frame
@@ -192,7 +194,11 @@ class RunningAverage:
     not a running sum.
 
     :meth:`add` refuses a result whose rank, units or camera axes disagree
-    with the first one. A result of another shape marks the average mixed:
+    with the first one — except the coordinates of a measure registered
+    with ``per_shot_axes`` (magspec: a per-shot field moves the energy
+    grid), which are folded index-wise like a trace's, the legacy average's
+    ``nanmean`` over each shot's axis; while no axis has moved the first
+    result's axes are kept. A result of another shape marks the average mixed:
     :meth:`result` is then ``None`` so the host can skip the averaged
     figure without losing per-shot scalar products (further results are
     still folded for their scalars only). :attr:`count` is the number of
@@ -215,6 +221,11 @@ class RunningAverage:
         self._first_has_scalars = False
         self._bin_keys: tuple[str, ...] | None = None
         self._overlays: dict[str, _ProjectionAverage | _PointAverage] = {}
+        self._per_shot_axes = (
+            self.rank == 2 and measure_definition(recipe.analysis.measure).per_shot_axes
+        )
+        self._axis_sums: list[_Sum] | None = None
+        self._axes_moved = False
 
     def add(self, result: Measurement) -> None:  # noqa: C901, PLR0912
         """Fold one more processed result."""
@@ -240,7 +251,9 @@ class RunningAverage:
                 np.array_equal(a.values, b.values)
                 for a, b in zip(frame.axes, first.axes, strict=True)
             ):
-                raise ValueError("Averaged camera results must have matching axes")
+                if not self._per_shot_axes:
+                    raise ValueError("Averaged camera results must have matching axes")
+                self._axes_moved = True
         if not self.mixed:
             if self.rank == 1:
                 # Coordinates and samples, at the storage dtype the stacked
@@ -253,6 +266,14 @@ class RunningAverage:
                 self._sum = _Sum(data, skip_nan=self.mode == "bin", dtype=dtype)
             else:
                 self._sum.add(data)
+            if self._per_shot_axes:
+                if self._axis_sums is None:
+                    self._axis_sums = [
+                        _Sum(axis.values, skip_nan=False) for axis in frame.axes
+                    ]
+                else:
+                    for running, axis in zip(self._axis_sums, frame.axes, strict=True):
+                        running.add(axis.values)
         if result.scalars:
             if self._bin_keys is None:
                 self._bin_keys = tuple(result.scalars)
@@ -273,7 +294,7 @@ class RunningAverage:
     def result(self) -> Measurement | None:
         """The average of everything folded; ``None`` when empty or mixed."""
         import numpy as np
-        from geecs_data_utils.frames import Frame
+        from geecs_data_utils.frames import Axis, Frame
         from geecs_analysis.measurement import Measurement
 
         first = self._first
@@ -291,8 +312,14 @@ class RunningAverage:
                 y_label=first.label,
             )
         else:
+            axes = first.axes
+            if self._axes_moved:
+                axes = tuple(
+                    Axis(running.mean(), unit=axis.unit, label=axis.label)
+                    for running, axis in zip(self._axis_sums, first.axes, strict=True)
+                )
             frame = Frame.from_array(
-                self._sum.mean(), axes=first.axes, unit=first.unit, label=first.label
+                self._sum.mean(), axes=axes, unit=first.unit, label=first.label
             )
         if self.mode == "noscan":
             keys = () if not self._first_has_scalars else tuple(self._values)

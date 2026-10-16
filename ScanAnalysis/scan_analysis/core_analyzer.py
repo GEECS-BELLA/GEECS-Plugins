@@ -9,7 +9,11 @@ from typing import Optional, Union
 
 import pandas as pd
 from geecs_analysis.compat.v2 import UnsupportedRecipe, compile_v2
-from geecs_analysis.registry import measure_definition
+from geecs_analysis.registry import (
+    MeasureDefinition,
+    SiblingOutput,
+    measure_definition,
+)
 from geecs_data_utils.shot_files import StackMappingUnavailable
 from geecs_schemas.analysis import AnalysisRecipe, WaterfallSummary
 
@@ -22,6 +26,7 @@ from scan_analysis.core_sink import (
     save_products,
     shot_store_path,
     write_shot_table,
+    write_sibling_outputs,
 )
 from scan_analysis.core_source import source_directory
 from scan_analysis.core_workers import effective_workers
@@ -204,7 +209,6 @@ class CoreScanAnalyzer(ScanAnalyzer):
                 share(workers)
         pending: list[dict] = []
         definition = measure_definition(prepared.prepared.recipe.analysis.measure)
-        sidecar = definition.sidecar
         store: ShotStore | None = None
         if (
             definition.shot_store is not None
@@ -218,7 +222,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
             )
         try:
             fold_error = self._stream(
-                prepared, collector, workers, pending, sidecar, store
+                prepared, collector, workers, pending, definition, store
             )
         except BaseException:
             if store is not None:
@@ -258,7 +262,7 @@ class CoreScanAnalyzer(ScanAnalyzer):
         collector: ProductCollector,
         workers: int,
         pending: list[dict],
-        sidecar: str | None,
+        definition: MeasureDefinition,
         store: ShotStore | None,
     ) -> ValueError | None:
         """The per-outcome loop: fold, persist per shot, queue the scalars.
@@ -290,8 +294,10 @@ class CoreScanAnalyzer(ScanAnalyzer):
                     collector.add(outcome)
                 except ValueError as exc:
                     fold_error = exc
-            if sidecar is not None:
-                self._write_sidecar(prepared, outcome, sidecar)
+            if definition.sidecar is not None:
+                self._write_sidecar(prepared, outcome, definition.sidecar)
+            if definition.sibling_outputs:
+                self._write_siblings(prepared, outcome, definition.sibling_outputs)
             if store is not None and len(outcome.loaded_shots) == 1:
                 store = self._store_shot(store, outcome.loaded_shots[0], outcome)
             pending.extend(prepared.scalar_records(outcome))
@@ -347,9 +353,42 @@ class CoreScanAnalyzer(ScanAnalyzer):
             return
         shot = outcome.loaded_shots[0]
         try:
-            write_shot_table(measurement, prepared.source.references[shot], shot, name)
+            write_shot_table(
+                measurement,
+                prepared.source.references[shot],
+                shot,
+                name,
+                prepared.file_numbers,
+            )
         except (OSError, ValueError) as exc:
             logger.warning("Shot %s: %s table not written: %s", shot, name, exc)
+
+    def _write_siblings(
+        self, prepared: PreparedScan, outcome, outputs: tuple[SiblingOutput, ...]
+    ) -> None:
+        """Write one shot's sibling outputs beside the raw folder, as the legacy analyzer did.
+
+        Written whatever ``save`` says and only on a per-shot run: a raw bin
+        is an averaged unit even when one shot loaded (the legacy per-bin
+        path had no file to name them by). A failure — the
+        scan folder briefly invisible, a full share — is logged and the run
+        goes on with its scalars, as the legacy analyzer's was.
+        """
+        if prepared.average_before_analysis:
+            # A raw bin of one loaded shot is still an averaged unit.
+            return
+        shot = outcome.loaded_shots[0]
+        try:
+            write_sibling_outputs(
+                outcome.measurement,
+                outputs,
+                prepared.source.references[shot],
+                shot,
+                self.spec.output_name or self.spec.device,
+                prepared.file_numbers,
+            )
+        except (OSError, ValueError) as exc:
+            logger.warning("Shot %s: sibling outputs not written: %s", shot, exc)
 
     def cleanup(self) -> None:
         """Release the loaded s-file and the display list after a run."""

@@ -300,3 +300,47 @@ def test_a_written_table_maps_back_to_its_shot(tmp_path, stack):
     assert all(
         path.name.endswith("_retrieved_lineouts.tsv") for path in mapped.values()
     )
+
+
+def test_a_stack_table_maps_back_through_the_announced_shot(tmp_path):
+    """Scan mode: a rewind leaves the announced shot ahead of ``Shotnumber``."""
+    from geecs_data_utils.frames import Axis, Frame
+    from geecs_data_utils.shot_files import map_shot_files
+
+    from geecs_analysis.measurement import Measurement
+    from scan_analysis.core_scan import file_numbers
+    from scan_analysis.core_sink import write_shot_table
+
+    device = tmp_path / "scans" / "Scan007" / "Dev"
+    device.mkdir(parents=True)  # fixture acquisition
+    time = Axis(np.linspace(-1.0, 1.0, 4), label="time", unit="fs")
+    # Shot 4's announced cell is blank: its name could only collide.
+    rows = pd.DataFrame(
+        {"Shotnumber": [1, 2, 3, 4], "Announced Shot": [2, 3, 4, np.nan]}
+    )
+    numbers = file_numbers(rows)
+    for shot in (1, 2, 3, 4):
+        measurement = Measurement(
+            scalars={},
+            frame=Frame.from_array(np.zeros((2, 2))),
+            extras={
+                "temporal_intensity": Frame.from_array(
+                    np.full(4, float(shot)), axes=(time,)
+                )
+            },
+        )
+        reference = ShotRef(device / "Dev.h5", shot - 1)
+        if shot == 4:
+            with pytest.raises(ValueError, match="no announced shot"):
+                write_shot_table(
+                    measurement, reference, shot, "retrieved_lineouts", numbers
+                )
+            continue
+        write_shot_table(measurement, reference, shot, "retrieved_lineouts", numbers)
+    mapped = map_shot_files(
+        device, rows, device="Dev", file_tail="_retrieved_lineouts.tsv"
+    )
+    assert sorted(mapped) == [1, 2, 3]
+    for shot, path in mapped.items():
+        table = pd.read_csv(path, sep="\t")
+        assert (table["temporal_intensity"] == shot).all(), "each row reads its own"

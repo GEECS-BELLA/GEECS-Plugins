@@ -4,12 +4,17 @@ One definition of "the same outputs", shared by the in-suite differential test
 and ``scripts/analysis_scan_compare.py``, so neither drifts when a product kind
 or a tolerance changes. HDF5 payloads and tab-separated scalar tables are
 decoded and compared; every other file (the PNG figures) counts by presence
-only, because the two renderers draw different pixels by design.
+only, because the two renderers draw different pixels by design. The files a
+run adds inside the scan folder itself (a measure's sibling outputs, the
+magspec ``-interp`` / ``-interpSpec`` folders) are no figures: they are
+compared byte for byte.
 """
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
+from typing import Iterable
 
 import h5py
 import numpy as np
@@ -45,6 +50,27 @@ def snapshot_analysis_tree(analysis: Path) -> dict[str, tuple]:
     return files
 
 
+def snapshot_scan_products(scan: Path, inputs: Iterable[str]) -> dict[str, tuple]:
+    """Fingerprint every file a run added inside a ``scans/ScanNNN`` folder.
+
+    Keyed by path relative to the scan folder's parent (``ScanNNN/...``, so
+    the keys never collide with an analysis tree's); every entry is
+    ``("bytes", sha256 hex)``. ``inputs`` names the top-level entries that
+    were there before the run (the copied device folder, the ScanInfo ini)
+    and are skipped.
+    """
+    scan = Path(scan)
+    skipped = set(inputs)
+    files: dict[str, tuple] = {}
+    for path in sorted(scan.rglob("*")):
+        relative = path.relative_to(scan)
+        if not path.is_file() or relative.parts[0] in skipped:
+            continue
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        files[path.relative_to(scan.parent).as_posix()] = ("bytes", digest)
+    return files
+
+
 def compare_snapshots(  # noqa: C901, PLR0912
     legacy: dict[str, tuple],
     core: dict[str, tuple],
@@ -65,8 +91,9 @@ def compare_snapshots(  # noqa: C901, PLR0912
     ``*_rms`` / ``*_fwhm`` columns (``WIDTH_COLUMN_SUFFIXES``) are compared
     by presence only: the core measures those widths over x (GEECS-Analysis
     0.26.0, #1029) where the legacy analyzer scaled index-space widths by
-    the one spacing at the centroid, so they differ by design. Other files
-    are compared by presence only.
+    the one spacing at the centroid, so they differ by design. Scan-folder
+    products (``snapshot_scan_products``) must be byte-identical; other
+    files are compared by presence only.
     """
     problems = []
     for name in sorted(set(legacy) - set(core)):
@@ -93,6 +120,9 @@ def compare_snapshots(  # noqa: C901, PLR0912
             if not same:
                 gap = np.nanmax(np.abs(data.astype(float) - data2.astype(float)))
                 problems.append(f"{name}: arrays differ (max |delta| = {gap:.3g})")
+        elif expected[0] == "bytes":
+            if expected[1] != actual[1]:
+                problems.append(f"{name}: bytes differ")
         elif expected[0] == "table":
             old_table, new_table = expected[1], actual[1]
             if nonuniform_axis:
