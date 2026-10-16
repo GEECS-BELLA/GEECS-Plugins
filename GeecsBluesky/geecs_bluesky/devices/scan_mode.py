@@ -572,6 +572,7 @@ class ScanModeControl:
             # close ends it for any that connected without acknowledging.
             await self._exit(cancel_entry=False)
             raise
+        self._log_quiet_hosts(server)
         lags = sorted(ack.received_at for ack in acks.values())
         logger.info(
             "scan mode: %d device(s) on %d host(s) entered scan mode for %r "
@@ -585,6 +586,29 @@ class ScanModeControl:
             time.monotonic() - started,
         )
         del lags
+
+    def _log_quiet_hosts(self, server: ScanModeServer) -> None:
+        """Name the experiment's hosts that opened no path-channel connection.
+
+        Only the run's devices are waited for and retried.  A device outside
+        the run whose host lost the ``ScanStart`` datagram (whole hosts at
+        once, after a minute of silence on the group) is not in
+        scan mode and saves nothing this run; this line is the only trace.
+        """
+        quiet: dict[str, list[str]] = {}
+        for device, (host, _) in self._device_endpoints.items():
+            if host not in server.peer_hosts:
+                quiet.setdefault(host, []).append(device)
+        if quiet:
+            logger.warning(
+                "scan mode: %d host(s) opened no path-channel connection after "
+                "ScanStart; their devices are not in scan mode this run: %s",
+                len(quiet),
+                "; ".join(
+                    f"{host} ({', '.join(sorted(devices))})"
+                    for host, devices in sorted(quiet.items())
+                ),
+            )
 
     async def _scan_start(self, devices: tuple[str, ...]) -> dict[str, ScanModeAck]:
         assert self._sender is not None and self._listener is not None

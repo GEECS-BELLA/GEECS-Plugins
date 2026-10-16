@@ -14,8 +14,8 @@ Each fake device does what the real device framework does, as captured
 - on ``ScanStart`` it records the lock IP (the command's last argument),
   acknowledges by unicast to that IP at its own command-port number —
   twice, like the real device — and connects to ``{lock IP}:{tcp_port}``;
-- on the path channel it answers every keepalive with six zero bytes and
-  records each ``Path>>`` it receives, bumping its stamp on every **new**
+- on the path channel it counts the keepalives (and writes nothing back,
+  like the real device) and records each ``Path>>`` it receives, bumping its stamp on every **new**
   shot number (``checkIfToAcqu``: a repeated number is not re-acquired);
 - on the ``ScanEnd`` **frame** on the path channel it acknowledges (by UDP,
   like ``ScanStart``), leaves scan mode and closes the connection, as the
@@ -50,8 +50,6 @@ from ..transport.scan_mode import (
 
 logger = logging.getLogger(__name__)
 
-#: What the real device writes on connect and in answer to every keepalive.
-ZERO_REPLY = b"\x00" * 6
 _PATH_PREFIX = f"{PATH_KEY}{SEPARATOR}".encode("latin-1")
 _SHOT_NUMBER = re.compile(r"_(\d+)\.fileextension$")
 
@@ -201,7 +199,6 @@ class FakeScanModeDevice:
             )
             return
         self._writer = writer
-        writer.write(ZERO_REPLY)  # the real device's first bytes on connect
         self._connected.set()
         self._reader_task = asyncio.create_task(
             self._read_frames(reader, writer), name=f"fake-scan-mode-tcp[{self.name}]"
@@ -215,7 +212,6 @@ class FakeScanModeDevice:
                 payload = await read_frame(reader)
                 if payload == KEEPALIVE_PAYLOAD:
                     self.keepalives += 1
-                    writer.write(ZERO_REPLY)
                 elif payload.startswith(_PATH_PREFIX):
                     self._on_path(payload[len(_PATH_PREFIX) :].decode("latin-1"))
                 elif payload.startswith(SCAN_END.encode("latin-1")):

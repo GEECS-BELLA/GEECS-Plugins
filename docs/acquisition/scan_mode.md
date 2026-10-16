@@ -152,6 +152,18 @@ Seen on the Undulator, accepted for now:
   next trigger, the first shot of the next fired run, writes into the
   box-less run's folder under its last shot number, and nothing into the
   new run.
+- **Two minutes without a shot ends scan mode on the devices.** After
+  100–120 s with no announced shot (a pause, a halt, a long move) the
+  devices apply their end values and stop saving, yet keep their
+  connections and still acknowledge `ScanEnd`; the worker does not notice.
+  Measured on the Undulator, 2026-10-15: 100 s kept, 120 s lost, with the
+  keepalive at 40 ms or 10 s.
+- **A `ScanStart` retry brings devices back after `ScanEnd`.** A device
+  queues a second `ScanStart` until its scan ends, so when the entry
+  retried, every device that took the first one re-enters scan mode
+  right after `ScanEnd` (its start values again) until the worker closes
+  the channel a few seconds later. The exit then reports connections left
+  open.
 - **A software single shot sets the pace.** With the box on `Single shot`
   (laser off) the next shot follows once the essential devices have
   answered, after the plan's own work and any `shot_period`. A slower

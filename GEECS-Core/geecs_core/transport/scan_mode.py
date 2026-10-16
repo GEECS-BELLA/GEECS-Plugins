@@ -43,8 +43,7 @@ mode — observed live: its start values stay unapplied and every fire fails
 **The path channel** (TCP): after ``ScanStart`` every device connects to
 the client IP on port :data:`SCAN_MODE_TCP_PORT` (a framework constant) and
 keeps the connection for the scan.  The client sends a length-prefixed
-``dummy`` keepalive about every 40 ms on every connection (the device
-answers each with six zero bytes), per shot pushes the length-prefixed
+``dummy`` keepalive on every connection (:data:`KEEPALIVE_INTERVAL_S`), per shot pushes the length-prefixed
 ``Path>>{device-side shot path}`` to every connection, and at the end pushes
 the ``ScanEnd>>…`` frame, on which the device leaves scan mode and closes.
 The path reads
@@ -78,8 +77,12 @@ logger = logging.getLogger(__name__)
 #: The port every device connects to after ``ScanStart`` — a device-framework
 #: constant, not a DB value.
 SCAN_MODE_TCP_PORT = 6342
-#: Master Control's keepalive period per connection (captured: ~40 ms).
-KEEPALIVE_INTERVAL_S = 0.04
+#: The keepalive period per connection.  The device reads each frame header
+#: with a 60 s timeout (``shared/MulticastListener.vi``, every revision since
+#: the channel landed); on a timeout it closes and reconnects, staying in scan
+#: mode.  Master Control sends one every ~40 ms; 10 s held 108 Undulator
+#: connections through 300 s with no reconnect (2026-10-15).
+KEEPALIVE_INTERVAL_S = 10.0
 #: Master Control's multicast TTL (captured); the groups span routed subnets.
 MULTICAST_TTL = 5
 SEPARATOR = ">>"
@@ -560,13 +563,13 @@ class ScanModeServer:
     """The port-6342 server devices connect to after ``ScanStart``.
 
     Accepts every connection, keeps each alive with a framed ``dummy``
-    every *keepalive_interval_s*, drains whatever the device sends back,
-    and pushes a framed ``Path>>…`` to every connection on
+    every *keepalive_interval_s*, reads each connection only to see it
+    close, and pushes a framed ``Path>>…`` to every connection on
     :meth:`push_path`.  A connection whose write fails (reset, closed) is
     dropped at once; one whose peer has stopped reading is only noticed
     when the socket's send buffer fills and ``drain`` stalls past
-    *write_timeout_s* — minutes of keepalives — and the device's zero-byte
-    replies are discarded, not read as a heartbeat.  So this server knows
+    *write_timeout_s* — minutes of keepalives — and the device writes
+    nothing back, so there is no heartbeat to read.  So this server knows
     **presence, not liveness**: :meth:`push_path` counts connections
     written (a device may hold two), and :meth:`wait_for_hosts` judges by
     peer host, since a connection carries no device name.  Whether a stuck
@@ -598,7 +601,6 @@ class ScanModeServer:
         self._write_timeout_s = write_timeout_s
         self._server: asyncio.Server | None = None
         self._writers: dict[asyncio.StreamWriter, tuple[str, int]] = {}
-        self._inbound: dict[tuple[str, int], int] = {}
         self._reader_tasks: set[asyncio.Task[None]] = set()
         self._keepalive_task: asyncio.Task[None] | None = None
         self._changed: asyncio.Event | None = None
@@ -619,15 +621,6 @@ class ScanModeServer:
         """How many device connections are open."""
         return len(self._writers)
 
-    def inbound_bytes(self) -> dict[tuple[str, int], int]:
-        """Bytes each **open** connection's peer has sent this run, by peer address.
-
-        The devices' six-byte answers to the keepalives, on the builds that
-        answer at all.  Reset at :meth:`start`; a dropped connection's entry
-        goes with it.
-        """
-        return dict(self._inbound)
-
     @property
     def peer_hosts(self) -> frozenset[str]:
         """The IPs with at least one open connection."""
@@ -642,7 +635,6 @@ class ScanModeServer:
                 "ScanModeServer: the previous keepalive ticker is still stopping"
             )
         self._stopping = False
-        self._inbound.clear()
         try:
             self._server = await asyncio.start_server(
                 self._on_connection, host=self._host, port=self._port
@@ -775,13 +767,11 @@ class ScanModeServer:
             len(self._writers),
         )
         try:
-            # The device sends six zero bytes per keepalive and nothing else
-            # of interest: drain so its send buffer never fills, and treat
-            # end-of-stream as the device leaving scan mode.
-            while data := await reader.read(4096):
-                self._inbound[(str(peer[0]), int(peer[1]))] = self._inbound.get(
-                    (str(peer[0]), int(peer[1])), 0
-                ) + len(data)
+            # The device writes nothing on this channel (the "six zero
+            # bytes" once seen in captures were Ethernet padding on its bare
+            # ACKs): read only to see end-of-stream, the device leaving.
+            while await reader.read(4096):
+                pass
         except OSError as exc:
             logger.info(
                 "scan mode: connection from %s:%s lost: %s", peer[0], peer[1], exc
@@ -795,7 +785,6 @@ class ScanModeServer:
         peer = self._writers.pop(writer, None)
         if peer is None:
             return
-        self._inbound.pop((str(peer[0]), int(peer[1])), None)
         with contextlib.suppress(Exception):
             writer.close()
         if self._changed is not None:

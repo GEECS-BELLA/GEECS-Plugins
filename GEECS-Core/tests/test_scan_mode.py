@@ -19,6 +19,7 @@ from geecs_core.testing.fake_scan_mode_device import (
     FakeScanModeGroup,
 )
 from geecs_core.transport.scan_mode import (
+    KEEPALIVE_INTERVAL_S,
     KEEPALIVE_PAYLOAD,
     SCAN_END,
     SCAN_MODE_TCP_PORT,
@@ -62,6 +63,10 @@ async def _until(predicate, timeout: float = 2.0) -> bool:
     return True
 
 
+#: The test stack's keepalive period: Master Control's, so ticks are countable.
+TICK_S = 0.04
+
+
 class _Stack:
     """Server + fake group + ack listener + multicaster, all on loopback."""
 
@@ -70,7 +75,7 @@ class _Stack:
         self.names = [device.name for device in devices]
 
     async def __aenter__(self) -> _Stack:
-        self.server = ScanModeServer(LOOPBACK, 0)
+        self.server = ScanModeServer(LOOPBACK, 0, keepalive_interval_s=TICK_S)
         await self.server.start()
         for device in self.devices:
             device.tcp_port = self.server.port
@@ -328,9 +333,11 @@ class TestEntry:
 
 
 class TestPathChannel:
-    async def test_keepalives_tick_about_every_40_ms_and_replies_are_drained(
-        self,
-    ) -> None:
+    def test_the_default_keepalive_beats_the_device_read_timeout(self) -> None:
+        # The device's header read times out at 60 s and it then reconnects.
+        assert KEEPALIVE_INTERVAL_S <= 60.0 / 4
+
+    async def test_keepalives_tick_about_every_40_ms(self) -> None:
         async with _Stack(*_devices("U_A")) as stack:
             await stack.start_scan()
             device = stack.devices[0]
@@ -338,9 +345,7 @@ class TestPathChannel:
             await asyncio.sleep(0.3)
             # 0.3 s / 40 ms ≈ 7 ticks; allow for a loaded CI host.
             assert device.keepalives >= 4
-            assert (
-                stack.server.connection_count == 1
-            )  # the zero-byte replies never choke it
+            assert stack.server.connection_count == 1
 
     async def test_push_path_reaches_every_device_with_the_captured_framing(
         self,
@@ -585,20 +590,6 @@ class TestPathChannel:
             assert await stack.server.push_path(CAPTURED_PATH) == 1  # pushes still work
             assert await device.wait_for_paths(1, 0.5) == [CAPTURED_PATH]
             await stack.server.stop()
-
-    async def test_inbound_bytes_counts_what_devices_send(self) -> None:
-        async with _Stack(*_devices("U_A")) as stack:
-            await stack.start_scan()
-            device = stack.devices[0]
-            assert await device.wait_connected(1.0)
-            await asyncio.sleep(0.15)
-            (count,) = stack.server.inbound_bytes().values()
-            answered = device.keepalives  # same tick as the count
-            # six bytes on connect plus six per keepalive answered (one may be in flight)
-            assert count >= 12
-            assert abs(count - 6 * (1 + answered)) <= 6
-            await device.stop()
-            assert await _until(lambda: stack.server.inbound_bytes() == {})
 
     async def test_unopened_objects_say_so(self) -> None:
         with pytest.raises(RuntimeError, match="open"):
