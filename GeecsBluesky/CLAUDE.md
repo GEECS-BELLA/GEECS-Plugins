@@ -467,7 +467,8 @@ at three points (`plans/scan_mode.py`):
 ```
 mv(box, ARMED)
 mv(scan_mode, EnterScanMode(run devices))   # ScanStart on the group; wait for every run
-                                            #   device's ack (one retry) + every host's
+                                            #   device's ack (one retry: ScanEnd, then a
+                                            #   fresh ScanStart) + every host's
                                             #   path-channel connection; one drain; a silent
                                             #   device refuses the run BEFORE the claim
   stage / open_run …
