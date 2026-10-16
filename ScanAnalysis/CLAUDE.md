@@ -212,8 +212,11 @@ payloads and numeric table columns) and read back with `read_golden`. The
 differential tests (`tests/test_core_{analyzer,backgrounds,downramp_phase,
 frog_spectral_phase,hi_res_mag_cam,ict,magspec,stitch}.py`) run the core on
 synthetic scans and compare file lists, HDF5 payloads, s-file columns,
-sidecars, sibling bytes and the display-file list **exactly** against
-`tests/data/golden/<case>/` — the trees the legacy wrappers wrote, captured
+sidecars, decoded sibling spectra and the display-file list against
+`tests/data/golden/<case>/` to `route_compare.GOLDEN_RTOL` (1e-6, relative
+to each array's or column's scale — cross-platform float drift between the
+macOS where they were generated and Linux CI; a ×1.0001 change still
+fails, `tests/test_route_compare.py` pins it) — the trees the legacy wrappers wrote, captured
 from the core in the golden-first commit of #1039 while the two were
 compared and matched (every stated allowance of that comparison is recorded
 in the test's docstring). Regenerate deliberately, never casually:
@@ -379,8 +382,8 @@ scalar keys only, never directory or file names.
 
 Which analyzer runs, and its parameters, in one typed block chosen by
 `kind`; `geecs_analysis.compat.v2.compile_v2` maps it onto the core's
-steps and measure (the former ImageAnalysis registry is gone with the
-legacy route):
+steps and measure (the ImageAnalysis registry is no longer consulted by
+the factory):
 
 ```yaml
 analyzer: {kind: beam, compute_slopes: false}

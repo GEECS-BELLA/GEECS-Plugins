@@ -6,8 +6,17 @@ serial one), so none drifts when a product kind or a tolerance changes. HDF5
 payloads and tab-separated scalar tables are decoded and compared; every
 other file (the PNG figures) counts by presence only, because figures are the
 operator's review, not a pin. The files a run adds inside the scan folder
-itself (a measure's sibling outputs, the magspec ``-interp`` /
-``-interpSpec`` folders) are no figures: they are compared byte for byte.
+itself (a measure's sibling outputs, the magspec ``-interpSpec`` spectra)
+are decoded and compared like the analysis tree's tables; the ``-interp``
+images, like every PNG, by presence.
+
+Exact is the default. A golden generated on one platform and checked on
+another sees float drift (BLAS/SIMD summation order, scipy builds): a
+magspec peak energy, a bow-tie fit, a beam width differ in the last digits.
+``compare_snapshots(rtol=...)`` states that allowance once — relative to the
+array's or column's own scale, so zeros beside large values do not fail
+spuriously — and every reported difference carries the max relative delta,
+so the margin is visible where it fails.
 
 A snapshot can be stored as a **golden** (:func:`write_golden`: a JSON
 manifest beside one ``.npz`` of the arrays and numeric table columns) and
@@ -59,13 +68,14 @@ def snapshot_analysis_tree(analysis: Path) -> dict[str, tuple]:
 
 
 def snapshot_scan_products(scan: Path, inputs: Iterable[str]) -> dict[str, tuple]:
-    """Fingerprint every file a run added inside a ``scans/ScanNNN`` folder.
+    """Decode every file a run added inside a ``scans/ScanNNN`` folder.
 
     Keyed by path relative to the scan folder's parent (``ScanNNN/...``, so
-    the keys never collide with an analysis tree's); every entry is
-    ``("bytes", sha256 hex)``. ``inputs`` names the top-level entries that
-    were there before the run (the copied device folder, the ScanInfo ini)
-    and are skipped.
+    the keys never collide with an analysis tree's). A ``.tsv`` / ``.txt``
+    is ``("table", DataFrame)``, a PNG ``("file", size)`` (presence only),
+    anything else ``("bytes", sha256 hex)``. ``inputs`` names the top-level
+    entries that were there before the run (the copied device folder, the
+    ScanInfo ini) and are skipped.
     """
     scan = Path(scan)
     skipped = set(inputs)
@@ -74,9 +84,41 @@ def snapshot_scan_products(scan: Path, inputs: Iterable[str]) -> dict[str, tuple
         relative = path.relative_to(scan)
         if not path.is_file() or relative.parts[0] in skipped:
             continue
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        files[path.relative_to(scan.parent).as_posix()] = ("bytes", digest)
+        name = path.relative_to(scan.parent).as_posix()
+        if path.suffix in {".tsv", ".txt"}:
+            files[name] = ("table", pd.read_csv(path, sep="\t"))
+        elif path.suffix.lower() == ".png":
+            files[name] = ("file", path.stat().st_size)
+        else:
+            files[name] = ("bytes", hashlib.sha256(path.read_bytes()).hexdigest())
     return files
+
+
+def _close(expected: np.ndarray, actual: np.ndarray, rtol: float) -> tuple[bool, float]:
+    """Whether ``actual`` is within ``rtol`` of ``expected``, and the relative delta seen.
+
+    The allowance is relative to the expected array's own scale
+    (``rtol * max|expected|``, so a zero beside large values is held to the
+    same absolute margin as its neighbours), NaNs match NaNs, and the
+    returned delta is ``max|actual - expected| / max|expected|`` (0 when
+    both are all zero), whatever the verdict.
+    """
+    a = np.asarray(expected, dtype=float)
+    b = np.asarray(actual, dtype=float)
+    if a.shape != b.shape:
+        return False, float("inf")
+    nan_a, nan_b = np.isnan(a), np.isnan(b)
+    if not np.array_equal(nan_a, nan_b):
+        return False, float("inf")
+    finite = ~nan_a
+    if not finite.any():
+        return True, 0.0
+    scale = float(np.max(np.abs(a[finite])))
+    gap = float(np.max(np.abs(a[finite] - b[finite]))) if finite.any() else 0.0
+    if scale == 0.0:
+        return gap == 0.0, (0.0 if gap == 0.0 else float("inf"))
+    relative = gap / scale
+    return relative <= rtol, relative
 
 
 def compare_snapshots(  # noqa: C901, PLR0912
@@ -85,23 +127,30 @@ def compare_snapshots(  # noqa: C901, PLR0912
     *,
     average_ulps: int = 4,
     nonuniform_axis: bool = False,
+    rtol: float = 0.0,
 ) -> list[str]:
     """Return one line per difference; an empty list means the trees match.
 
-    Arrays and tables must match exactly, with two explicit exceptions.
+    Arrays and tables must match exactly, with three explicit allowances.
     Noscan average arrays (``AVERAGE_MARKER`` in the name): the legacy
-    wrapper sums shots in directory-listing order, whatever the filesystem
-    returns, while the core sums in scalar-row order; same per-shot inputs
+    wrapper summed shots in directory-listing order, whatever the filesystem
+    returned, while the core sums in scalar-row order; same per-shot inputs
     and formula, so they differ only by summation rounding, bounded here by
-    ``average_ulps`` of the stored dtype. And, when the caller declares the
+    ``average_ulps`` of the stored dtype. When the caller declares the
     diagnostic's trace axis nonuniform (``nonuniform_axis``: a trace
     stitched from sibling cameras, a nonlinear calibration), the tables'
     ``*_rms`` / ``*_fwhm`` columns (``WIDTH_COLUMN_SUFFIXES``) are compared
     by presence only: the core measures those widths over x (GEECS-Analysis
     0.26.0, #1029) where the legacy analyzer scaled index-space widths by
-    the one spacing at the centroid, so they differ by design. Scan-folder
-    products (``snapshot_scan_products``) must be byte-identical; other
-    files are compared by presence only.
+    the one spacing at the centroid, so they differ by design. And ``rtol``
+    — **cross-platform float drift**: a golden generated on one platform
+    and checked on another (BLAS/SIMD summation order, scipy builds) —
+    bounds every array and numeric table column to ``rtol`` of its own
+    scale (``_close``; the pooled-vs-serial pins keep the default 0, they
+    run on one machine). Every array or column difference reports the max
+    relative delta seen, so the margin is visible. Scan-folder products
+    (``snapshot_scan_products``) follow the same rules by kind; raw bytes
+    must be identical; other files are compared by presence only.
     """
     problems = []
     for name in sorted(set(legacy) - set(core)):
@@ -120,14 +169,18 @@ def compare_snapshots(  # noqa: C901, PLR0912
                     f"{name}: {key}/{dtype}/{data.shape} vs {key2}/{dtype2}/{data2.shape}"
                 )
                 continue
-            if AVERAGE_MARKER in name:
-                tolerance = average_ulps * np.finfo(dtype).eps
+            if AVERAGE_MARKER in name and average_ulps:
+                tolerance = max(rtol, average_ulps * float(np.finfo(dtype).eps))
                 same = np.allclose(data, data2, rtol=tolerance, atol=0, equal_nan=True)
+                _, relative = _close(data, data2, rtol)
             else:
-                same = np.array_equal(data, data2, equal_nan=True)
+                same, relative = _close(data, data2, rtol)
             if not same:
                 gap = np.nanmax(np.abs(data.astype(float) - data2.astype(float)))
-                problems.append(f"{name}: arrays differ (max |delta| = {gap:.3g})")
+                problems.append(
+                    f"{name}: arrays differ (max |delta| = {gap:.3g}, "
+                    f"relative {relative:.3g} > rtol {rtol:.3g})"
+                )
         elif expected[0] == "bytes":
             if expected[1] != actual[1]:
                 problems.append(f"{name}: bytes differ")
@@ -143,10 +196,38 @@ def compare_snapshots(  # noqa: C901, PLR0912
                     continue
                 old_table = old_table.drop(columns=old_widths)
                 new_table = new_table.drop(columns=new_widths)
+            problems.extend(
+                f"{name}: {line}"
+                for line in _table_problems(old_table, new_table, rtol)
+            )
+    return problems
+
+
+def _table_problems(old: pd.DataFrame, new: pd.DataFrame, rtol: float) -> list[str]:
+    """Column names, dtypes and non-numeric cells exact; numeric columns within ``rtol``."""
+    if list(old.columns) != list(new.columns):
+        return [f"columns {list(old.columns)} vs {list(new.columns)}"]
+    if len(old) != len(new):
+        return [f"{len(old)} rows vs {len(new)}"]
+    problems = []
+    for column in old.columns:
+        a, b = old[column].to_numpy(), new[column].to_numpy()
+        numeric = np.issubdtype(a.dtype, np.number) and np.issubdtype(
+            b.dtype, np.number
+        )
+        if numeric and a.dtype.kind == "f" and rtol:
+            same, relative = _close(a, b, rtol)
+            if not same:
+                problems.append(
+                    f'column "{column}" differs (relative {relative:.3g} > rtol {rtol:.3g})'
+                )
+        else:
             try:
-                pd.testing.assert_frame_equal(old_table, new_table, check_exact=True)
+                pd.testing.assert_series_equal(
+                    old[column], new[column], check_exact=True, check_names=False
+                )
             except AssertionError as exc:
-                problems.append(f"{name}: {str(exc).splitlines()[0]}")
+                problems.append(f'column "{column}": {str(exc).splitlines()[0]}')
     return problems
 
 
@@ -159,6 +240,11 @@ def _width_columns(table: pd.DataFrame) -> list[str]:
 
 MANIFEST_NAME = "manifest.json"
 ARRAYS_NAME = "arrays.npz"
+#: The one allowance a committed golden gets: cross-platform float drift,
+#: relative to each array's / column's own scale (``compare_snapshots(rtol=)``).
+#: Generated on macOS, checked on Linux CI; a ×1.0001 (1e-4) perturbation of
+#: a core numeric must still fail — ``tests/test_route_compare.py`` pins it.
+GOLDEN_RTOL = 1e-6
 
 
 @dataclass(frozen=True)

@@ -164,10 +164,9 @@ the full surface area.
 |---|---|
 | [Analysis without the portal](../analysis/examples/analysis_without_the_portal.ipynb) | Run a recipe on a scan from Python: one shot, every shot, a variant |
 
-Older notebooks on the pre-recipe analyzer path stay in the repository for
-one-off use but are not published:
-[Basic Usage (2D)](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/docs/scan_analysis/examples/basic_usage.ipynb),
-[Basic Usage (1D)](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/docs/scan_analysis/examples/basic_usage_1D.ipynb).
+The older notebooks on the pre-recipe analyzer path (`basic_usage`,
+`basic_usage_1D`, `HTT-magspec`) were removed with that path; they are
+readable at the tag `legacy-analysis-final`.
 
 ## See also
 

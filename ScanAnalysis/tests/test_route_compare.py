@@ -101,9 +101,12 @@ def test_average_tolerance_is_a_few_ulps_of_the_stored_dtype():
     assert compare_snapshots(entry(base), entry(one_ulp), average_ulps=0) != []
 
 
-def test_scan_products_are_compared_byte_for_byte_and_inputs_skipped(tmp_path):
+def test_scan_products_decode_spectra_count_images_and_skip_inputs(tmp_path):
     trees = {}
-    for route, payload in (("legacy", b"\x00\x01"), ("core", b"\x00\x02")):
+    for route, (payload, charge) in (
+        ("legacy", (b"\x00\x01", "1.5")),
+        ("core", (b"\x00\x02", "1.5000001")),
+    ):
         scan = tmp_path / route / "Scan003"
         (scan / "Cam").mkdir(parents=True)
         (scan / "Cam" / "raw.png").write_bytes(route.encode())  # an input
@@ -111,15 +114,68 @@ def test_scan_products_are_compared_byte_for_byte_and_inputs_skipped(tmp_path):
         (scan / "Cam-interp").mkdir()
         (scan / "Cam-interp" / "raw.png").write_bytes(payload)
         (scan / "Cam-interpSpec").mkdir()
-        (scan / "Cam-interpSpec" / "raw.tsv").write_text("Energy [MeV]\n")
+        (scan / "Cam-interpSpec" / "raw.tsv").write_text(
+            f"Energy [MeV]\tCharge\n10.0\t{charge}\n"
+        )
+        (scan / "Cam-other").mkdir()
+        (scan / "Cam-other" / "blob.bin").write_bytes(payload)
         trees[route] = snapshot_scan_products(scan, {"Cam", "ScanInfoScan003.ini"})
     assert sorted(trees["core"]) == [
         "Scan003/Cam-interp/raw.png",
         "Scan003/Cam-interpSpec/raw.tsv",
+        "Scan003/Cam-other/blob.bin",
     ]
-    assert compare_snapshots(trees["legacy"], trees["core"]) == [
-        "Scan003/Cam-interp/raw.png: bytes differ"
+    assert trees["core"]["Scan003/Cam-interp/raw.png"][0] == "file"
+    assert trees["core"]["Scan003/Cam-interpSpec/raw.tsv"][0] == "table"
+    # the image by presence, the spectrum as numbers, raw bytes exactly
+    problems = compare_snapshots(trees["legacy"], trees["core"])
+    assert problems == [
+        'Scan003/Cam-interpSpec/raw.tsv: column "Charge": Series are different',
+        "Scan003/Cam-other/blob.bin: bytes differ",
     ]
+    assert compare_snapshots(trees["legacy"], trees["core"], rtol=1e-6) == [
+        "Scan003/Cam-other/blob.bin: bytes differ"
+    ]
+
+
+def test_the_golden_tolerance_is_relative_to_scale_and_bites_a_1e4_change():
+    """GOLDEN_RTOL: cross-platform drift passes; a x1.0001 core change does not."""
+    from scan_analysis.route_compare import GOLDEN_RTOL
+
+    image = np.array([[0.0, 1000.0], [2500.0, np.nan]])
+    table = pd.DataFrame({"Shotnumber": [1, 2], "x": [0.0, 3000.0], "k": ["a", "b"]})
+
+    def tree(array, frame):
+        return {
+            "D_1_processed.h5": ("h5", "image", array, array.dtype),
+            "s1.txt": ("table", frame),
+        }
+
+    base = tree(image, table)
+    # last-digit drift (and a zero beside large values): inside the allowance
+    drift = tree(
+        image + np.array([[1e-13, 1e-9], [-2e-9, 0.0]]),
+        table.assign(x=[1e-12, 3000.0 + 1e-9]),
+    )
+    assert compare_snapshots(base, drift, rtol=GOLDEN_RTOL) == []
+    assert compare_snapshots(base, drift) != []
+    # the bite: a x1.0001 change is 1e-4 relative, a hundred times the allowance
+    nudged = tree(image * 1.0001, table.assign(x=[0.0, 3000.0 * 1.0001]))
+    problems = compare_snapshots(base, nudged, rtol=GOLDEN_RTOL)
+    assert len(problems) == 2
+    assert "relative 0.0001 > rtol 1e-06" in problems[0]
+    assert 'column "x" differs (relative 0.0001' in problems[1]
+    # NaN placement and a non-numeric cell stay exact
+    assert (
+        compare_snapshots(base, tree(np.nan_to_num(image), table), rtol=GOLDEN_RTOL)
+        != []
+    )
+    assert (
+        compare_snapshots(
+            base, tree(image, table.assign(k=["a", "c"])), rtol=GOLDEN_RTOL
+        )
+        != []
+    )
 
 
 def test_a_golden_round_trips_every_kind_bit_for_bit(tmp_path):

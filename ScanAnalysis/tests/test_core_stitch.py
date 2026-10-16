@@ -20,6 +20,7 @@ from scan_analysis.config import create_scan_analyzer
 from scan_analysis.core_analyzer import CoreScanAnalyzer
 from scan_analysis.core_source import prepare_source
 from scan_analysis.route_compare import (
+    GOLDEN_RTOL,
     WIDTH_COLUMN_SUFFIXES,
     compare_snapshots,
     snapshot_analysis_tree,
@@ -158,14 +159,17 @@ def test_the_core_route_writes_the_golden_tree(tmp_path, monkeypatch, golden):
     columns = new["s1.txt"][1].columns
     assert any(c.startswith(f"MagSpec1{SUFFIX}_") for c in columns)
     assert len([c for c in columns if c.endswith(WIDTH_COLUMN_SUFFIXES)]) == 2
-    assert compare_snapshots(expected.files, new, average_ulps=0) == []
+    assert (
+        compare_snapshots(expected.files, new, average_ulps=0, rtol=GOLDEN_RTOL) == []
+    )
 
 
 def test_the_joined_trace_is_every_segment_sorted_by_x(tmp_path):
     scan = build_scan(tmp_path)
     joined = stitched(scan, 3)
     expected = np.concatenate([trace(d, 3) for d in DEVICES])
-    expected = expected[expected[:, 0].argsort()]
+    # A stable sort: a grid point two cameras share keeps segment order.
+    expected = expected[expected[:, 0].argsort(kind="stable")]
     np.testing.assert_array_equal(joined, expected)
 
 

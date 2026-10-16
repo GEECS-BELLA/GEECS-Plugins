@@ -17,7 +17,11 @@ from scan_analysis import core_workers
 from scan_analysis.core_analyzer import CoreScanAnalyzer, write_scalars_into_rows
 from geecs_analysis.compat.convert import to_v3
 from geecs_analysis.recipe import is_line
-from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
+from scan_analysis.route_compare import (
+    GOLDEN_RTOL,
+    compare_snapshots,
+    snapshot_analysis_tree,
+)
 
 TAG = ScanTag(year=2026, month=1, day=1, number=1, experiment="Test")
 PARAM_COLUMN = "U_Motor Position Alias:motor"
@@ -170,7 +174,9 @@ def test_the_core_route_writes_the_golden_tree(
         # Figures name the scan by the cleaned ScanInfo string, as legacy did.
         assert plan.position_label == "U_Motor Position"
     assert any(name.endswith(".h5") for name in core)
-    assert compare_snapshots(expected.files, core, average_ulps=0) == []
+    assert (
+        compare_snapshots(expected.files, core, average_ulps=0, rtol=GOLDEN_RTOL) == []
+    )
     assert display == expected.extra["display"]
     assert core_display
 
@@ -193,7 +199,9 @@ def test_scalars_persist_without_products_when_save_is_off(
     assert (
         sorted(core) == sorted(expected.files) == ["Scan001/Scan001_Diag.txt", "s1.txt"]
     )
-    assert compare_snapshots(expected.files, core, average_ulps=0) == []
+    assert (
+        compare_snapshots(expected.files, core, average_ulps=0, rtol=GOLDEN_RTOL) == []
+    )
     assert "Diag_x_CoM" in core["s1.txt"][1].columns
     assert core_display == []
 

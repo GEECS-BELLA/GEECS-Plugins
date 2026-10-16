@@ -30,55 +30,103 @@
    "kind": "table"
   },
   "Scan002/TestCam-interp/Scan002_TestCam_001.png": {
-   "kind": "bytes",
-   "sha256": "b7bd70feee765723e4a9465c550f72c41a101626fdb3e375dc30245f03186e21"
+   "kind": "file"
   },
   "Scan002/TestCam-interp/Scan002_TestCam_002.png": {
-   "kind": "bytes",
-   "sha256": "8b17e968cce380a8f83f184276686e193b4e1f212de3fff06b29a312cf385d79"
+   "kind": "file"
   },
   "Scan002/TestCam-interp/Scan002_TestCam_003.png": {
-   "kind": "bytes",
-   "sha256": "0a75b9cd2a3877608c5fb2964b1fd4f63ed5c398f50f5ba2c6aca085b693ad64"
+   "kind": "file"
   },
   "Scan002/TestCam-interp/Scan002_TestCam_004.png": {
-   "kind": "bytes",
-   "sha256": "d504a5796d250726e5aeb734f73d68190947fe8169194fa8de090b4c9c5c5d9a"
+   "kind": "file"
   },
   "Scan002/TestCam-interp/Scan002_TestCam_005.png": {
-   "kind": "bytes",
-   "sha256": "1ca5d74635fde5bc368e787f58cf14258c3caf04c3dbb8c3dd24621b5689ea17"
+   "kind": "file"
   },
   "Scan002/TestCam-interp/Scan002_TestCam_006.png": {
-   "kind": "bytes",
-   "sha256": "d5650f1a4bbbc9f4fbdc3d18fdef8d5d7eebde589f511c13e390f2f12232e24e"
+   "kind": "file"
   },
   "Scan002/TestCam-interpSpec/Scan002_TestCam_001.tsv": {
-   "kind": "bytes",
-   "sha256": "07f9c61831ac5048bbf46f19b2d8c7be1b360f0e6fe44078bc6e2bd5ab7296e6"
+   "columns": [
+    {
+     "array": "a5",
+     "name": "Energy [MeV]"
+    },
+    {
+     "array": "a6",
+     "name": "Charge Density [pC/MeV]"
+    }
+   ],
+   "kind": "table"
   },
   "Scan002/TestCam-interpSpec/Scan002_TestCam_002.tsv": {
-   "kind": "bytes",
-   "sha256": "9ad50d7df39152d9c37c453367f4fc4d50364bb3857dce6a1c64d9dda930279f"
+   "columns": [
+    {
+     "array": "a7",
+     "name": "Energy [MeV]"
+    },
+    {
+     "array": "a8",
+     "name": "Charge Density [pC/MeV]"
+    }
+   ],
+   "kind": "table"
   },
   "Scan002/TestCam-interpSpec/Scan002_TestCam_003.tsv": {
-   "kind": "bytes",
-   "sha256": "3172fabeb83c5fe0fb466e6b5f10d16e42f149d2dfaeabe9eaba71e33c6f58ed"
+   "columns": [
+    {
+     "array": "a9",
+     "name": "Energy [MeV]"
+    },
+    {
+     "array": "a10",
+     "name": "Charge Density [pC/MeV]"
+    }
+   ],
+   "kind": "table"
   },
   "Scan002/TestCam-interpSpec/Scan002_TestCam_004.tsv": {
-   "kind": "bytes",
-   "sha256": "66a03044027208fa9f2a05447117fb60eda830e06105129435f29073b0937c2a"
+   "columns": [
+    {
+     "array": "a11",
+     "name": "Energy [MeV]"
+    },
+    {
+     "array": "a12",
+     "name": "Charge Density [pC/MeV]"
+    }
+   ],
+   "kind": "table"
   },
   "Scan002/TestCam-interpSpec/Scan002_TestCam_005.tsv": {
-   "kind": "bytes",
-   "sha256": "19cf80caaed9b4398333e3c4eb24bb310af76a6a9ecfe4b927c4c3f075ced287"
+   "columns": [
+    {
+     "array": "a13",
+     "name": "Energy [MeV]"
+    },
+    {
+     "array": "a14",
+     "name": "Charge Density [pC/MeV]"
+    }
+   ],
+   "kind": "table"
   },
   "Scan002/TestCam-interpSpec/Scan002_TestCam_006.tsv": {
-   "kind": "bytes",
-   "sha256": "c35499e5f91fc6bfa2df88a35d5feb29bd61fcfc36ee41d4769a2da4da492bb2"
+   "columns": [
+    {
+     "array": "a15",
+     "name": "Energy [MeV]"
+    },
+    {
+     "array": "a16",
+     "name": "Charge Density [pC/MeV]"
+    }
+   ],
+   "kind": "table"
   },
   "Scan002/TestCam/Array2DScanAnalyzer/TestCam_average_processed.h5": {
-   "array": "a5",
+   "array": "a17",
    "dtype": "<f8",
    "key": "image",
    "kind": "h5"
@@ -89,31 +137,31 @@
   "s2.txt": {
    "columns": [
     {
-     "array": "a6",
+     "array": "a18",
      "name": "Shotnumber"
     },
     {
-     "array": "a7",
+     "array": "a19",
      "name": "Bin #"
     },
     {
-     "array": "a8",
+     "array": "a20",
      "name": "HTT-MagTeslameter-DTM141 Field"
     },
     {
-     "array": "a9",
+     "array": "a21",
      "name": "TestCam_max_intensity"
     },
     {
-     "array": "a10",
+     "array": "a22",
      "name": "TestCam_mean_energy_MeV"
     },
     {
-     "array": "a11",
+     "array": "a23",
      "name": "TestCam_peak_energy_MeV"
     },
     {
-     "array": "a12",
+     "array": "a24",
      "name": "TestCam_total_charge_au"
     }
    ],

@@ -18,7 +18,11 @@ from scan_analysis.core_analyzer import CoreScanAnalyzer
 from scan_analysis.core_backgrounds import resolve_scan_background, scan_statistic
 from scan_analysis.core_inputs import ScanContextRequired
 from scan_analysis.core_preview import prepare_document
-from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
+from scan_analysis.route_compare import (
+    GOLDEN_RTOL,
+    compare_snapshots,
+    snapshot_analysis_tree,
+)
 
 DEVICE = "Camera"
 SHOTS = 6
@@ -203,7 +207,9 @@ def test_the_core_route_writes_the_golden_tree(
     expected = golden(f"backgrounds/{request.node.callspec.id}", new)
     assert any(name.endswith(".h5") for name in new)
     assert sorted(new) == sorted(expected.files)
-    assert compare_snapshots(expected.files, new, average_ulps=0) == []
+    assert (
+        compare_snapshots(expected.files, new, average_ulps=0, rtol=GOLDEN_RTOL) == []
+    )
 
 
 def test_a_dark_scan_is_averaged_once_and_shared(tmp_path, monkeypatch):

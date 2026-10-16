@@ -14,7 +14,11 @@ from geecs_schemas.analysis import AnalysisDiagnostic
 import scan_analysis.base as base
 from scan_analysis.config import create_scan_analyzer
 from scan_analysis.core_analyzer import CoreScanAnalyzer
-from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
+from scan_analysis.route_compare import (
+    GOLDEN_RTOL,
+    compare_snapshots,
+    snapshot_analysis_tree,
+)
 
 TAG = ScanTag(year=2026, month=1, day=1, number=1, experiment="Test")
 SHOTS = 6
@@ -101,7 +105,9 @@ def test_the_core_route_writes_the_golden_tree(tmp_path, monkeypatch, golden, mo
     expected = golden(f"downramp_phase/{mode}", new)
     assert sorted(new) == sorted(expected.files)
     assert any(name.endswith(".h5") for name in new)
-    assert compare_snapshots(expected.files, new, average_ulps=0) == []
+    assert (
+        compare_snapshots(expected.files, new, average_ulps=0, rtol=GOLDEN_RTOL) == []
+    )
     rows = pd.read_csv(
         core.parent.parent / "analysis" / "s1.txt",
         sep="\t",

@@ -1,4 +1,4 @@
-"""magspec on the core route: the golden scalars, products and -interp files, byte for byte."""
+"""magspec on the core route: the golden scalars, products and -interpSpec spectra."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from scan_analysis.core_inputs import load_table
 from scan_analysis.core_scan import shot_metadata
 from scan_analysis.core_sink import write_sibling_outputs
 from scan_analysis.route_compare import (
+    GOLDEN_RTOL,
     compare_snapshots,
     snapshot_analysis_tree,
     snapshot_scan_products,
@@ -233,12 +234,18 @@ def test_a_converted_magspec_recipe_builds_on_the_core(configs):
 def test_the_core_route_writes_the_golden_tree_byte_for_byte(
     tmp_path, monkeypatch, configs, golden, request, save
 ):
-    """The retired legacy analyzer's scalars, products and -interp files (#1039)."""
+    """The retired legacy analyzer's scalars, products and -interp files (#1039).
+
+    The ``-interpSpec`` spectra are compared as numbers, the ``-interp``
+    images by presence (a 16-bit PNG's bytes depend on the zlib build).
+    """
     core = run(monkeypatch, tmp_path / "core", diagnostic(configs, save=save))
     new = snapshot(core)
     expected = golden(f"magspec/{request.node.callspec.id}", new)
     assert sorted(new) == sorted(expected.files)
-    assert compare_snapshots(expected.files, new, average_ulps=0) == []
+    assert (
+        compare_snapshots(expected.files, new, average_ulps=0, rtol=GOLDEN_RTOL) == []
+    )
     for suffix, tail in (("-interp", ".png"), ("-interpSpec", ".tsv")):
         written = sorted(n for n in new if f"/{DEVICE}{suffix}/" in n)
         assert written == [
@@ -277,7 +284,9 @@ def test_per_bin_runs_write_no_sibling_outputs(tmp_path, monkeypatch, golden):
     new = snapshot(core)
     expected = golden("magspec/per-bin", new)
     assert sorted(new) == sorted(expected.files)
-    assert compare_snapshots(expected.files, new, average_ulps=0) == []
+    assert (
+        compare_snapshots(expected.files, new, average_ulps=0, rtol=GOLDEN_RTOL) == []
+    )
     assert not [name for name in new if "-interp" in name]
     assert any(name.endswith(".h5") for name in new)
 
@@ -308,7 +317,9 @@ def test_a_missing_field_reading_takes_the_documents_field(
     new = without_field_column(snapshot(core))
     expected = golden("magspec/missing-field", new)
     assert sorted(new) == sorted(expected.files)
-    assert compare_snapshots(expected.files, new, average_ulps=0) == []
+    assert (
+        compare_snapshots(expected.files, new, average_ulps=0, rtol=GOLDEN_RTOL) == []
+    )
 
 
 def test_shot_metadata_carries_finite_cells_only():
