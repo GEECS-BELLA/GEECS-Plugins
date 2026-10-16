@@ -19,7 +19,11 @@ Each fake device does what the real device framework does, as captured
   shot number (``checkIfToAcqu``: a repeated number is not re-acquired);
 - on the ``ScanEnd`` **frame** on the path channel it acknowledges (by UDP,
   like ``ScanStart``), leaves scan mode and closes the connection, as the
-  real device does; the multicast ``ScanEnd`` it ignores, as the real
+  real device does;
+- a ``ScanStart`` that arrives while it is connected is acknowledged at
+  once but its connection waits for the scan's end: the real device's TCP
+  loop runs inside its ``ScanStart`` case, so at ``ScanEnd`` it re-enters
+  scan mode and reconnects (``replays`` counts it; live 2026-10-15); the multicast ``ScanEnd`` it ignores, as the real
   device's listener does (empty case, read 2026-10-13).
 
 ``acknowledge=False`` plays a device that missed the command (the live
@@ -69,12 +73,15 @@ class FakeScanModeDevice:
         :class:`~geecs_core.transport.scan_mode.ScanModeServer` chose.
     acknowledge :
         ``False`` plays a device that never saw the command.
+    miss_scan_starts :
+        How many ``ScanStart`` datagrams to lose before hearing one (a
+        datagram lost on the network).
     ack_status :
         The acknowledgement's status field.
 
     What it saw is on attributes: ``received`` (group datagrams), ``acks_sent``,
     ``paths`` and ``shot_numbers`` (frames), ``scan_ends`` (the exit frames),
-    ``stamp`` (acquisitions) and ``keepalives``.
+    ``stamp`` (acquisitions), ``keepalives`` and ``replays``.
     """
 
     def __init__(
@@ -88,6 +95,7 @@ class FakeScanModeDevice:
         ack_repeats: int = 2,
         ack_gap_s: float = 0.02,
         disconnect_delay_s: float = 0.04,
+        miss_scan_starts: int = 0,
     ) -> None:
         self.name = name
         self.command_port = int(command_port)
@@ -106,6 +114,9 @@ class FakeScanModeDevice:
         self.shot_numbers: list[int] = []
         self.stamp = 0
         self.keepalives = 0
+        self.replays = 0
+        self._miss_scan_starts = miss_scan_starts
+        self._queued_start: str | None = None
 
         self._last_shot: int | None = None
         self._udp: asyncio.DatagramTransport | None = None
@@ -175,9 +186,15 @@ class FakeScanModeDevice:
         if len(parts) < 4 or not self.acknowledge:
             return  # ``Empty`` (the real device clears its path), or a missed command
         if parts[0] == SCAN_START:
+            if self._miss_scan_starts > 0:
+                self._miss_scan_starts -= 1
+                return
             self.lock_ip = parts[3]
             await self._ack(parts, self.lock_ip)
-            await self._connect(self.lock_ip)
+            if self.connected:
+                self._queued_start = self.lock_ip  # acted on at ScanEnd
+            else:
+                await self._connect(self.lock_ip)
         # A multicast ``ScanEnd`` is a dead letter on the real device: ignored.
 
     async def _ack(self, parts: list[str], ip: str) -> None:
@@ -223,6 +240,9 @@ class FakeScanModeDevice:
                         await self._ack(parts, parts[3])
                     self.lock_ip = None
                     await asyncio.sleep(self._disconnect_delay_s)
+                    if self._queued_start is not None:
+                        self._replay(self._queued_start)
+                        self._queued_start = None
                     break  # the loop ends; the finally closes the connection
                 else:
                     logger.debug(
@@ -235,6 +255,19 @@ class FakeScanModeDevice:
             if self._writer is writer:
                 self._writer = None
                 writer.close()
+
+    def _replay(self, ip: str) -> None:
+        """Re-enter scan mode on the queued ``ScanStart`` once this connection closed."""
+
+        async def replay() -> None:
+            await asyncio.sleep(0)  # let the ending loop's ``finally`` close first
+            self.replays += 1
+            self.lock_ip = ip
+            await self._connect(ip)
+
+        task = asyncio.create_task(replay(), name=f"fake-scan-mode-replay[{self.name}]")
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     def _on_path(self, path: str) -> None:
         self.paths.append(path)

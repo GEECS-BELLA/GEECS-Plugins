@@ -320,6 +320,30 @@ def test_a_host_gone_quiet_is_warned_at_entry_and_at_the_first_shot(
     assert "1 host(s) that connected before" in caplog.text
 
 
+def test_a_retry_ends_the_scan_first_so_nothing_replays_after_the_exit(
+    RE: RunEngine, stack: Stack, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The box loses the first ScanStart; the camera took it.  A second
+    # ScanStart into the camera's open scan would be queued by the device and
+    # replayed at ScanEnd — so the retry ends the scan, then starts afresh.
+    stack.start(**{BOX: {"miss_scan_starts": 1}})
+    control = stack.make_control(ack_timeout_s=0.3)
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.scan_mode"):
+        RE(bps.mv(control, _entry()))
+    assert control.entered and control.run_devices == (CAM, BOX)
+    assert "ending scan mode and sending ScanStart afresh" in caplog.text
+    cam = stack.devices[CAM]
+    start = ["Empty", "Empty", "ScanStart"]
+    assert _received(stack) == [*start, "ScanEnd", *start]
+    assert len(cam.scan_ends) == 1  # the retry's ScanEnd
+    assert all(d.in_scan_mode and d.connected for d in stack.devices.values())
+    RE(bps.mv(control, EXIT))
+    assert _until(lambda: all(not d.connected for d in stack.devices.values()))
+    time.sleep(0.2)  # a replay would reconnect within a few ms
+    assert [d.replays for d in stack.devices.values()] == [0, 0]
+    assert not any(d.in_scan_mode or d.connected for d in stack.devices.values())
+
+
 def test_a_silent_device_is_refused_by_name_after_one_retry(
     RE: RunEngine, stack: Stack
 ) -> None:

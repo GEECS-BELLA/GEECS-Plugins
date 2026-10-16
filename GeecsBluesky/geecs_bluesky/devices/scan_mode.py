@@ -5,7 +5,8 @@ device at three points of a strict run (the rules: CLAUDE.md, "Scan mode"):
 
 - ``mv(control, EnterScanMode(devices, parameter))`` right after ARMED,
   before the stage and the claim: ``ScanStart`` on the experiment's
-  multicast group, then every run device's acknowledgement (one retry),
+  multicast group, then every run device's acknowledgement (one retry:
+  ``ScanEnd``, then a fresh ``ScanStart``),
   every run host's path-channel connection (port 6342) and one drain.  A
   silent or refusing device refuses the run by name
   (:exc:`~geecs_bluesky.exceptions.GeecsScanModeError`): nothing claimed.
@@ -633,12 +634,13 @@ class ScanModeControl:
 
     async def _scan_start(self, devices: tuple[str, ...]) -> dict[str, ScanModeAck]:
         assert self._sender is not None and self._listener is not None
+        assert self._server is not None
         loop = asyncio.get_running_loop()
-        since = loop.time()  # before the announce: a repeat of an old ack never counts
         attempts = 1 + self._retries
         acks: dict[str, ScanModeAck] = {}
         silent: list[str] = list(devices)
         for attempt in range(1, attempts + 1):
+            since = loop.time()  # before the announce: an old ack never counts
             await self._sender.announce_scan_start(
                 self._experiment, self._scan_parameter
             )
@@ -647,16 +649,27 @@ class ScanModeControl:
             )
             silent = [d for d in devices if d not in acks]
             self._acked = tuple(d for d, ack in acks.items() if ack.ok)
-            if not silent:
+            if not silent or attempt == attempts:
                 break
-            if attempt < attempts:
+            # Never a second ScanStart into an open scan: a device queues it
+            # and acts on it at ScanEnd, re-entering scan mode after the run.
+            # End the scan for everyone who entered, then start afresh.
+            logger.warning(
+                "scan mode: %d of %d device(s) silent %.1f s after ScanStart "
+                "(%s) — ending scan mode and sending ScanStart afresh",
+                len(silent),
+                len(devices),
+                self._ack_timeout_s,
+                ", ".join(silent),
+            )
+            _, _, _, still_open = await self._end_scan(
+                self._server, self._listener, self._sender, self._acked
+            )
+            self._acked = ()
+            if still_open:
                 logger.warning(
-                    "scan mode: %d of %d device(s) silent %.1f s after ScanStart "
-                    "(%s) — sending ScanStart once more",
-                    len(silent),
-                    len(devices),
-                    self._ack_timeout_s,
-                    ", ".join(silent),
+                    "scan mode: %d connection(s) still open before the new ScanStart",
+                    still_open,
                 )
         errors = {d: ack.status for d, ack in acks.items() if not ack.ok}
         if silent or errors:
@@ -751,25 +764,9 @@ class ScanModeControl:
         # acknowledge ScanEnd; a silent one is not waited for twice.
         devices = self._acked
         try:
-            loop = asyncio.get_running_loop()
-            since = loop.time()
-            deadline = since + self._end_timeout_s
-            await sender.announce_scan_end(self._experiment, self._scan_parameter)
-            await asyncio.sleep(EXIT_FRAME_DELAY_S)
-            pushed = await server.push_scan_end(
-                self._experiment, self._scan_parameter, self._announced_as or ""
+            pushed, lags, silent, still_open = await self._end_scan(
+                server, listener, sender, devices
             )
-            acks = (
-                await listener.wait_for(
-                    SCAN_END, devices, self._end_timeout_s, since=since
-                )
-                if devices
-                else {}
-            )
-            silent = [d for d in devices if d not in acks]
-            while server.connection_count and loop.time() < deadline:
-                await asyncio.sleep(0.02)
-            still_open = server.connection_count
             if silent or still_open:
                 logger.warning(
                     "scan mode: ScanEnd pushed on %d connection(s); %d of %d "
@@ -783,15 +780,12 @@ class ScanModeControl:
                     still_open,
                 )
             else:
-                lags = [(ack.received_at - since) * 1e3 for ack in acks.values()] or [
-                    0.0
-                ]
                 logger.info(
                     "scan mode: %d device(s) left scan mode (ScanEnd frame on %d "
                     "connection(s), acknowledged within %.0f ms)",
                     len(devices),
                     pushed,
-                    max(lags),
+                    max(lags, default=0.0),
                 )
         finally:
             await self._release(server, listener, sender)
@@ -799,6 +793,39 @@ class ScanModeControl:
             self._run_devices = ()
             self._acked = ()
             self._clear_state()
+
+    async def _end_scan(
+        self,
+        server: ScanModeServer,
+        listener: ScanModeAckListener,
+        sender: ScanModeMulticaster,
+        devices: tuple[str, ...],
+    ) -> tuple[int, list[float], list[str], int]:
+        """Send ``ScanEnd`` and wait, under one deadline, for *devices*' acks and every close.
+
+        The multicast for form, then the frame on every connection (the exit
+        the devices act on).  Returns the connections the frame went on, the
+        acknowledgement lags (ms), the *devices* that did not acknowledge and
+        the connections still open.  The server stays up.
+        """
+        loop = asyncio.get_running_loop()
+        since = loop.time()
+        deadline = since + self._end_timeout_s
+        await sender.announce_scan_end(self._experiment, self._scan_parameter)
+        await asyncio.sleep(EXIT_FRAME_DELAY_S)
+        pushed = await server.push_scan_end(
+            self._experiment, self._scan_parameter, self._announced_as or ""
+        )
+        acks = (
+            await listener.wait_for(SCAN_END, devices, self._end_timeout_s, since=since)
+            if devices
+            else {}
+        )
+        silent = [d for d in devices if d not in acks]
+        while server.connection_count and loop.time() < deadline:
+            await asyncio.sleep(0.02)
+        lags = [(ack.received_at - since) * 1e3 for ack in acks.values()]
+        return pushed, lags, silent, server.connection_count
 
     async def _release(
         self,

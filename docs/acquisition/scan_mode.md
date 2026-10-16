@@ -46,9 +46,13 @@ scan-mode profile.
    the worker multicasts `ScanStart` on the experiment's group. Every
    enabled device acknowledges and opens a connection back to the worker.
    The worker waits for every device the run records from and the
-   profile's shot-control device, retries
-   `ScanStart` once for the silent ones, and otherwise refuses the run,
-   naming them. A refused entry claims no scan number.
+   profile's shot-control device. If any stays silent (a `ScanStart` can
+   be lost on the network), it ends the scan for the devices that did
+   enter and sends one fresh `ScanStart`. If a device is still silent, it
+   refuses the run, naming it. A refused entry claims no scan number.
+   The worker never sends a second `ScanStart` into an open scan: a
+   device would hold it and re-enter scan mode after the run's
+   `ScanEnd`.
 2. **Each shot.** After the detectors are prepared, the worker pushes the
    shot's save path (`…\ScanNNN\<device>\ScanNNN_<device>_SSS.<ext>`) to
    every connected device, then fires the box as usual.
@@ -159,12 +163,11 @@ Seen on the Undulator, accepted for now:
   pause, halt or move longer than that therefore ends scan mode for the
   rest of the run. Measured on the Undulator, 2026-10-15: 100 s kept,
   120 s released, with the keepalive at 40 ms or 10 s.
-- **A `ScanStart` retry brings devices back after `ScanEnd`.** A device
-  queues a second `ScanStart` until its scan ends, so when the entry
-  retried, every device that took the first one re-enters scan mode
-  right after `ScanEnd` (its start values again) until the worker closes
-  the channel a few seconds later. The exit then reports connections left
-  open.
+- **A retried entry applies the start values twice.** The devices that
+  heard the first `ScanStart` get their end values and then their start
+  values again before the run begins (a DG645 switches trigger source
+  twice). Unlisted devices whose host lost both `ScanStart`s are named in
+  the worker's log.
 - **A software single shot sets the pace.** With the box on `Single shot`
   (laser off) the next shot follows once the essential devices have
   answered, after the plan's own work and any `shot_period`. A slower
