@@ -568,7 +568,8 @@ class ScanModeServer:
     :meth:`push_path`.  A connection whose write fails (reset, closed) is
     dropped at once; one whose peer has stopped reading is only noticed
     when the socket's send buffer fills and ``drain`` stalls past
-    *write_timeout_s* — minutes of keepalives — and the device writes
+    *write_timeout_s*, which a frame per shot and a keepalive every 10 s
+    effectively never do — and the device writes
     nothing back, so there is no heartbeat to read.  So this server knows
     **presence, not liveness**: :meth:`push_path` counts connections
     written (a device may hold two), and :meth:`wait_for_hosts` judges by
@@ -808,7 +809,7 @@ class ScanModeServer:
 
         Every connection is written and drained independently and the drains
         run concurrently, so a peer whose buffer has filled costs only itself
-        the *write_timeout_s* stall — the others keep the 40 ms cadence.
+        the *write_timeout_s* stall — the others keep their cadence.
         """
         results = await asyncio.gather(
             *(self._write_one(writer, data) for writer in list(self._writers))

@@ -234,6 +234,10 @@ class ScanModeControl:
         self._end_timeout_s = float(end_timeout_s)
         self._drain_s = float(drain_s)
         self._retries = max(0, int(retries))
+        # Hosts that opened a path-channel connection on some entry of this
+        # process, and the entry's warning about any of them gone quiet.
+        self._seen_hosts: set[str] = set()
+        self._quiet_warning: str | None = None
         self._state_file = state_file or default_state_file()
         self._device_path = device_path
         self.boundary_writes: dict[str, list[Mapping[str, Any]]] = {
@@ -592,22 +596,39 @@ class ScanModeControl:
 
         Only the run's devices are waited for and retried.  A device outside
         the run whose host lost the ``ScanStart`` datagram (whole hosts at
-        once, after a minute of silence on the group) is not in
-        scan mode and saves nothing this run; this line is the only trace.
+        once, after a minute of silence on the group) is not in scan mode
+        and saves nothing this run.  A host that connected on an earlier
+        entry and is quiet now is WARNED (again at the first shot, so the
+        run's ``scan.log`` carries it); one never seen connecting — devices
+        enabled in the DB but not running — only at INFO, or every run would
+        warn.
         """
+        connected = server.peer_hosts
         quiet: dict[str, list[str]] = {}
         for device, (host, _) in self._device_endpoints.items():
-            if host not in server.peer_hosts:
+            if host not in connected:
                 quiet.setdefault(host, []).append(device)
-        if quiet:
-            logger.warning(
-                "scan mode: %d host(s) opened no path-channel connection after "
-                "ScanStart; their devices are not in scan mode this run: %s",
-                len(quiet),
-                "; ".join(
-                    f"{host} ({', '.join(sorted(devices))})"
-                    for host, devices in sorted(quiet.items())
-                ),
+
+        def named(hosts: list[str]) -> str:
+            return "; ".join(f"{h} ({', '.join(sorted(quiet[h]))})" for h in hosts)
+
+        lost = sorted(h for h in quiet if h in self._seen_hosts)
+        never = sorted(h for h in quiet if h not in self._seen_hosts)
+        self._seen_hosts |= connected
+        self._quiet_warning = None
+        if lost:
+            self._quiet_warning = (
+                f"scan mode: {len(lost)} host(s) that connected before opened no "
+                "path-channel connection after this ScanStart (lost on the "
+                "network?); their devices are not in scan mode this run: " + named(lost)
+            )
+            logger.warning(self._quiet_warning)
+        if never:
+            logger.info(
+                "scan mode: %d host(s) never seen connecting (devices not "
+                "running?): %s",
+                len(never),
+                named(never),
             )
 
     async def _scan_start(self, devices: tuple[str, ...]) -> dict[str, ScanModeAck]:
@@ -692,6 +713,8 @@ class ScanModeControl:
                 "folder (is the claim_scan preprocessor installed?)"
             )
         number = scan_number_of(folder)
+        if self._shot == 0 and self._quiet_warning:
+            logger.warning(self._quiet_warning)  # into the run's scan.log
         self._shot += 1
         path = device_shot_path(self._device_path(str(folder)), number, self._shot)
         count = await self._server.push_path(path)

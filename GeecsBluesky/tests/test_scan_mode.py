@@ -283,21 +283,41 @@ def test_enter_announce_exit_round_trip(RE: RunEngine, stack: Stack) -> None:
     assert _received(stack)[-1] == "ScanEnd"
 
 
-def test_a_quiet_host_outside_the_run_is_named_at_entry(
-    RE: RunEngine, stack: Stack, caplog: pytest.LogCaptureFixture
-) -> None:
-    # An enabled device the run does not list, on a host that never connects
-    # (its ScanStart lost): the run goes ahead and the entry names the host.
-    stack.start()
+def _control_with_other_host(stack: Stack) -> ScanModeControl:
+    # An enabled device the run does not list, on a host that never connects.
     endpoints = {name: (LOOPBACK, port) for name, port in stack.ports.items()}
     endpoints["U_Other"] = ("127.0.0.2", _free_port(socket.SOCK_DGRAM))
-    control = stack.make_control(device_endpoints=endpoints)
-    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.scan_mode"):
+    return stack.make_control(device_endpoints=endpoints)
+
+
+def test_a_host_never_seen_connecting_is_only_noted(
+    RE: RunEngine, stack: Stack, caplog: pytest.LogCaptureFixture
+) -> None:
+    stack.start()
+    control = _control_with_other_host(stack)
+    with caplog.at_level(logging.INFO, logger="geecs_bluesky.devices.scan_mode"):
         RE(bps.mv(control, _entry()))
     assert control.entered
-    assert "1 host(s) opened no path-channel connection" in caplog.text
-    assert "127.0.0.2 (U_Other)" in caplog.text
-    assert LOOPBACK + " (" not in caplog.text
+    quiet = [r for r in caplog.records if "127.0.0.2 (U_Other)" in r.getMessage()]
+    assert [r.levelno for r in quiet] == [logging.INFO]
+    assert LOOPBACK not in quiet[0].getMessage()
+
+
+def test_a_host_gone_quiet_is_warned_at_entry_and_at_the_first_shot(
+    RE: RunEngine, stack: Stack, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The host connected on an earlier entry; its ScanStart was lost this time.
+    stack.start()
+    control = _control_with_other_host(stack)
+    control._seen_hosts.add("127.0.0.2")
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.scan_mode"):
+        RE(bps.mv(control, _entry()))
+        assert caplog.text.count("127.0.0.2 (U_Other)") == 1
+        RE(bps.mv(control, ANNOUNCE))
+        RE(bps.mv(control, ANNOUNCE))
+    # repeated once, at the first shot, when the run's scan.log is attached
+    assert caplog.text.count("127.0.0.2 (U_Other)") == 2
+    assert "1 host(s) that connected before" in caplog.text
 
 
 def test_a_silent_device_is_refused_by_name_after_one_retry(
