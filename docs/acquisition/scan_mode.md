@@ -152,12 +152,13 @@ Seen on the Undulator, accepted for now:
   next trigger, the first shot of the next fired run, writes into the
   box-less run's folder under its last shot number, and nothing into the
   new run.
-- **Two minutes without a shot ends scan mode on the devices.** After
-  100–120 s with no announced shot (a pause, a halt, a long move) the
-  devices apply their end values and stop saving, yet keep their
-  connections and still acknowledge `ScanEnd`; the worker does not notice.
-  Measured on the Undulator, 2026-10-15: 100 s kept, 120 s lost, with the
-  keepalive at 40 ms or 10 s.
+- **A device releases itself after about two minutes without a shot.**
+  This is by design: a hung scan cannot hold a device. After 100–120 s
+  with no announced shot, the device applies its end values and stops
+  saving, but keeps its connection and still acknowledges `ScanEnd`. A
+  pause, halt or move longer than that therefore ends scan mode for the
+  rest of the run. Measured on the Undulator, 2026-10-15: 100 s kept,
+  120 s released, with the keepalive at 40 ms or 10 s.
 - **A `ScanStart` retry brings devices back after `ScanEnd`.** A device
   queues a second `ScanStart` until its scan ends, so when the entry
   retried, every device that took the first one re-enters scan mode
