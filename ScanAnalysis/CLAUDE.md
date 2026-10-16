@@ -716,8 +716,10 @@ In practice:
   frame × 1000, and `-interpSpec` TSV) are written per shot of a per-shot run
   into `scans/ScanNNN/<output_name><suffix>/<raw stem>.png|.tsv` by
   `core_sink.write_sibling_outputs`, byte for byte the legacy analyzer's
-  per-shot files (a capture-stack frame gets the shot-number stem, where
-  legacy overwrote one file named by the stack), whatever `save` says: the scan folder must exist and the suffix
+  per-shot files (a capture-stack frame gets the shot-number stem — the
+  announced shot in scan mode, `core_scan.file_numbers`, as data-utils maps
+  it back; the FROG sidecar too — where legacy overwrote one file named by
+  the stack), whatever `save` says: the scan folder must exist and the suffix
   folder is the one directory created (`mkdir(exist_ok=True)`). A failed
   write is logged and the run keeps its scalars. A per-bin run writes
   none, even for a bin of one loaded shot (the legacy per-bin path had no

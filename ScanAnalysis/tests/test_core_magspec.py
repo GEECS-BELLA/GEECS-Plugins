@@ -380,6 +380,58 @@ def test_a_stitcher_reads_the_core_written_spectra_on_a_timestamp_named_scan(
     assert stitched[f"{DEVICE}_integrated_intensity"].gt(0).all()
 
 
+def test_stack_frames_name_their_outputs_by_the_announced_shot(
+    tmp_path, monkeypatch, configs
+):
+    """A scan-mode stack's -interpSpec files map back to their own rows.
+
+    The rows' announced shots run one ahead of ``Shotnumber`` (a rewind
+    replayed a shot under the next number); data-utils maps shot-number
+    names through that column, so the files carry it.
+    """
+    import h5py
+    from geecs_data_utils.io.scan_stack import (
+        FRAMES_DATASET,
+        LABVIEW_EPOCH_OFFSET,
+        TIMESTAMPS_DATASET,
+    )
+    from geecs_data_utils.shot_files import map_shot_files
+
+    root = tmp_path / "share"
+    scan = ScanPaths.get_scan_folder_path(tag=TAG, base_directory=root)
+    (scan / DEVICE).mkdir(parents=True)  # fixture acquisition
+    shots = [1, 2, 3]
+    stamps = [100.0 + shot for shot in shots]
+    with h5py.File(scan / DEVICE / f"{DEVICE}.h5", "w") as handle:
+        handle.create_dataset(FRAMES_DATASET, data=np.stack([frame(s) for s in shots]))
+        handle.create_dataset(TIMESTAMPS_DATASET, data=stamps)
+    (scan / "ScanInfoScan002.ini").write_text(
+        '[Scan Info]\nScan No = "2"\nScan Parameter = "Shotnumber"\n'
+    )
+    rows = pd.DataFrame(
+        {
+            "Shotnumber": shots,
+            "Announced Shot": [shot + 1 for shot in shots],
+            COLUMN: list(FIELDS[:3]),
+            f"{DEVICE} acq_timestamp": [t + LABVIEW_EPOCH_OFFSET for t in stamps],
+        }
+    )
+    analysis = scan.parent.parent / "analysis"
+    analysis.mkdir()
+    rows.to_csv(analysis / "s2.txt", sep="\t", index=False)
+    private_scan_paths(monkeypatch, root)
+    document = diagnostic(configs, dark=False)
+    document = document.model_copy(
+        update={"scan": document.scan.model_copy(update={"data_format": "device_hdf5"})}
+    )
+    _run_core(recipe(document))
+    spectra = scan / f"{DEVICE}-interpSpec"
+    mapped = map_shot_files(spectra, rows, device=DEVICE, file_tail=".tsv")
+    assert {shot: path.name for shot, path in mapped.items()} == {
+        shot: f"Scan002_{DEVICE}_{shot + 1:03d}.tsv" for shot in shots
+    }
+
+
 def _run_core(document) -> None:
     analyzer = CoreScanAnalyzer(document, id="Diag", priority=1)
     try:
