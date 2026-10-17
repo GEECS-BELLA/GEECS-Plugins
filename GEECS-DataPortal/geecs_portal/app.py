@@ -31,6 +31,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
+import httpx
 from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
@@ -120,6 +121,7 @@ def create_app(
     analysis_factory: Optional[analysis_runs.AnalyzerFactory] = None,
     config_editor: bool = False,
     logbook_url: str = "",
+    logbook_client: Optional[httpx.Client] = None,
 ) -> FastAPI:
     """Build the portal application over an injected catalog.
 
@@ -159,6 +161,11 @@ def create_app(
         shows no link. The link is built for runs of
         ``default_experiment`` alone — the logbook serves one
         experiment's share and scan numbers restart per experiment.
+    logbook_client : httpx.Client, optional
+        The HTTP client the plot send talks to the logbook with. ``None``
+        (the default) makes one per send; tests inject a client over an
+        in-process logbook so the whole conversation runs without a
+        socket.
     config_editor : bool, default False
         Mount the analysis config editor (``scan_analysis.config_editor``)
         at ``/configs`` over the same ``processing_config_dir`` tree, with a
@@ -219,6 +226,7 @@ def create_app(
         logbook_send_base=(
             logbook_base if logbook_base.startswith(("http://", "https://")) else ""
         ),
+        logbook_client=logbook_client,
     )
     app.state.portal = portal
     for family in (plot_api, runs, logbook, browse, pages, images):

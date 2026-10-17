@@ -186,6 +186,14 @@ class TestLoadAnalysisGroup:
         assert result.name == "HTU_laser"
         assert [r.id for r in result.analyzers] == ["OAPin2", "GaiaMode"]
 
+    def test_malformed_group_yaml_is_a_value_error(self, configs_tree):
+        """The documented contract: invalid YAML is ValueError, not a parser error."""
+        group_path = configs_tree / "groups" / "HTU" / "broken.yaml"
+        group_path.parent.mkdir(parents=True, exist_ok=True)
+        group_path.write_text("name: [unclosed\nanalyzers:\n  - GaiaMode\n")
+        with pytest.raises(ValueError, match="Malformed YAML"):
+            load_analysis_group(group_path)
+
     def test_load_by_path_infers_config_root(self, configs_tree):
         group_path = configs_tree / "groups" / "PW" / "frog.yaml"
         _write_group(group_path, "PW_frog", ["FROG"])

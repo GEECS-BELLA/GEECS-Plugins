@@ -345,7 +345,12 @@ def load_analysis_group(
     analyzer_index = discover_analyzers(base_dir)
 
     with open(group_path, "r") as f:
-        data = yaml.safe_load(f) or {}
+        try:
+            data = yaml.safe_load(f) or {}
+        except yaml.YAMLError as exc:
+            raise ValueError(
+                f"Malformed YAML in group config {group_path}: {exc}"
+            ) from exc
 
     try:
         group_cfg = AnalysisGroup.model_validate(data)
