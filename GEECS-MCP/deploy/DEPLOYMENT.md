@@ -22,7 +22,8 @@ mcp_servers:
               get_analysis_artifact, get_scan_scalars,
               list_analyzers, list_analysis_groups, wait_for_analysis,
               stop_scan, pause_scan]
-      ask:   [submit_preset, move, resume_scan, clear_queue, run_analysis]
+      ask:   [submit_preset, move, resume_scan, clear_queue, run_analysis,
+              post_logbook_entry]
 ```
 
 (The lists mirror `geecs_mcp/tool_names.py` — `READ_TOOLS` and
@@ -54,7 +55,7 @@ either (the framework's deny augmentation walks its own
 
 - **Interactive**: the native `ask` permission prompt on every control
   verb — a human sees each `submit_preset`/`move`/`clear_queue`/
-  `resume_scan`/`run_analysis` call with its arguments (the HTU
+  `resume_scan`/`run_analysis`/`post_logbook_entry` call with its arguments (the HTU
   deployment puts them on `allow` at the admin tier with its DEVIATION
   marker — the profile owner's call). The
   halt family (`stop_scan`,
@@ -66,12 +67,13 @@ either (the framework's deny augmentation walks its own
   `hook_config.json`'s `write_tools` (populated from the profile's
   `config:`) — list every `tool_names.WRITE_TOOLS` entry there
   (`submit_preset`, `move`, `resume_scan` — resume restarts motion, so
-  it gates like a submission — `clear_queue`, `run_analysis`) and
+  it gates like a submission — `clear_queue`, `run_analysis`,
+  `post_logbook_entry`) and
   **deliberately NOT the halt family** (`stop_scan`, `pause_scan`):
   exempt by omission, so a halt is never blocked on any path. E.g.
   `write_tools: [mcp__geecs__submit_preset, mcp__geecs__move,
   mcp__geecs__resume_scan, mcp__geecs__clear_queue,
-  mcp__geecs__run_analysis]`.  **A profile deployed before 0.9.0
+  mcp__geecs__run_analysis, mcp__geecs__post_logbook_entry]`.  **A profile deployed before 0.9.0
   names removed tools** (`submit_scan`, `run_action`,
   `move_scan_variable`, `describe_action`, `validate_scan_request`):
   drop those entries — a permission naming a tool the server does not

@@ -253,9 +253,13 @@ Polls `GET /api/run/{uid}/analysis` every 2 s until
    context.
 3. ok: `{entry_id, url: "<logbook>/entry/<id>", day, scan, kind, status, author, attachments: [{path, scan_number, attached, link, appended} | {path, scan_number, attached: false, error_kind, message}], complete}`.
 
-Order is the recovery rule (built in PR F). Every figure reference is
-checked (an image suffix, a path) and its run resolved **before** step 1,
-so a bad reference refuses the call with nothing written. Once the entry
+Order is the recovery rule (built in PR F). The entry's `scan` and every
+figure's scan are resolved, and every figure path is found among that
+run's listed images, **before** step 1, so a bad reference refuses the
+call with nothing written. The sends carry `entry_required: true` (a
+portal field added in PR F): a missing entry is the portal's 404, never
+the Plot tab's fresh `note` — which the logbook would create `kept`, one
+per figure, if the portal's logbook were not the MCP's. Once the entry
 exists the call is ok whatever the figures do: a failed send is a row
 with the service's kind and words, `complete: false` plus a `note` say
 so, and the `entry_id` is never lost — posting again would make a second

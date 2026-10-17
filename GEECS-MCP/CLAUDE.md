@@ -73,6 +73,9 @@ geecs_mcp/
   errors.py          make_ok / make_error; the five kinds (module docstring)
   scans/tools.py     the scans domain over the scanner's HTTP API
   analysis/tools.py  the analysis domain over the portal's HTTP API
+  portal.py          naming a scan to the portal: resolve_uid (the jump
+                     route, `matched` checked), the analysis listing, the
+                     figure rule — shared by the analysis and logbook domains
   logbook/tools.py   post_logbook_entry: the logbook's create + the portal's
                      figure send
 tests/
@@ -103,11 +106,15 @@ tests/
   `wait_for_analysis` polls the portal's listing; `get_scan_scalars`
   forwards the column list and lets the portal cap it.
 - **A write is reported once it has happened.**  `post_logbook_entry`
-  checks every figure reference and resolves its run *before* the entry
-  is created (a bad one refuses the call with nothing written); once the
+  resolves the entry's `scan` and every figure's run, and finds every
+  figure path among that run's listed images, *before* the entry is
+  created (a bad one refuses the call with nothing written); once the
   entry exists the result is ok whatever the figures do — each one's
   outcome is a row in `attachments`, `complete: false` says some failed,
   and the `entry_id` is never lost (a retry would be a second entry).
+  Its sends ask the portal for `entry_required`, so a draft that has
+  gone — or a portal pointed at another logbook — is a refused figure,
+  never a stand-in `note` born `kept`.
   The entry is an `agent_analysis` **draft**: the logbook refuses a
   non-note kind born `kept`, and no verb here keeps one.
 - The wait verbs' timeouts are **results** (`finished: false`), never

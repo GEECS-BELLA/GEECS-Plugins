@@ -97,7 +97,7 @@ class TestEntry:
 
     async def test_an_unconfigured_logbook_names_its_key(self, monkeypatch) -> None:
         monkeypatch.setattr(config, "service_url", lambda service: None)
-        out = await post()
+        out = await post(scan=None)  # a day-level entry: no portal lookup first
         assert out["error_kind"] == "service_unreachable"
         assert out["service"] == "logbook"
         assert "logbook_url" in out["message"]
@@ -147,24 +147,60 @@ class TestFigures:
             assert out["error_kind"] == "invalid_request", (figures, out)
         assert await _entries(logbook) == []
 
-    async def test_a_failed_figure_keeps_the_entry_and_says_so(
+    async def test_a_path_the_run_does_not_list_writes_nothing(
         self, wired, logbook
     ) -> None:
-        """The entry exists once created: a failed send is a row, never a lost id."""
+        """A typo'd or invented figure name is refused before the entry exists."""
+        await _analysed()
+        out = await post(
+            figures=[{"scan_number": SCAN, "path": "UC_Crop/cam_sumary_waterfall.png"}]
+        )
+        assert out["error_kind"] == "not_found"
+        assert "nothing was written" in out["message"]
+        assert out["figures"] == [FIGURE]
+        assert await _entries(logbook) == []
+
+    async def test_an_entry_scan_the_day_does_not_hold_writes_nothing(
+        self, wired, logbook
+    ) -> None:
+        out = await post(scan=99)
+        assert out["error_kind"] == "not_found"
+        assert await _entries(logbook) == []
+
+    async def test_a_failed_figure_keeps_the_entry_and_never_makes_a_stand_in(
+        self, wired, logbook, portal, tmp_path, monkeypatch
+    ) -> None:
+        """The portal's send points at ANOTHER logbook: every figure is refused, nothing kept.
+
+        The entry exists once created, so the failed sends are rows, never a
+        lost id; and the portal is asked for ``entry_required``, so it does
+        not answer a missing entry with a fresh ``note`` born ``kept``.
+        """
+        from fastapi.testclient import TestClient
+        from geecs_logbook.app import create_app
+
+        other = create_app(
+            "Undulator", base_directory=tmp_path, notes_db=tmp_path / "other.sqlite"
+        )
+        portal_app, _, _ = portal
+        monkeypatch.setattr(
+            portal_app.state.portal,
+            "logbook_client",
+            TestClient(other, base_url="http://logbook"),
+        )
         await _analysed()
         out = await post(
             figures=[
-                {"scan_number": SCAN, "path": "UC_Crop/missing.png"},
                 {"scan_number": SCAN, "path": FIGURE},
+                {"scan_number": SCAN, "path": FIGURE, "caption": "again"},
             ]
         )
         assert out["ok"] is True, out
         assert out["complete"] is False
         assert "do not post it again" in out["note"]
-        missing, attached = out["attachments"]
-        assert missing["attached"] is False
-        assert missing["error_kind"] == "not_found"
-        assert attached["attached"] is True
+        assert [row["attached"] for row in out["attachments"]] == [False, False]
+        assert {row["error_kind"] for row in out["attachments"]} == {"not_found"}
         (stored,) = await _entries(logbook)
         assert stored["entry_id"] == out["entry_id"]
-        assert len(stored["attachments"]) == 1
+        assert stored["attachments"] == []
+        assert await _entries(other) == []  # no stand-in entry anywhere

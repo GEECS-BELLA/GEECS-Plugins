@@ -9,20 +9,22 @@ its ``POST /api/run/{uid}/logbook`` send — the upload, re-read and
 append live there once.  No image bytes pass through this server, and
 nothing here validates the entry: the logbook does.
 
-Order matters for recovery.  Every figure reference is checked and its
-run resolved *before* the entry is written, so a bad reference refuses
-the whole call with nothing written.  Once the entry exists the call is
-a success whatever happens to the figures: each one's outcome is
-reported on its own, and the ``entry_id`` is never lost to a failed
-attachment — posting again would make a second entry.
+Order matters for recovery.  Before the entry is written, the entry's
+own ``scan`` and every figure's scan are resolved in the portal's catalog
+and every figure path is found among that run's listed images, so a bad
+reference refuses the whole call with nothing written.  Once the entry
+exists the call is a success whatever happens to the figures: each one's
+outcome is reported on its own, and the ``entry_id`` is never lost to a
+failed attachment — posting again would make a second entry.  The sends
+ask the portal for ``entry_required``: a draft that has gone (or a portal
+pointed at another logbook) is a refused figure, never a stand-in note.
 """
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
-from geecs_mcp import clients, config, errors, guard, tool_names
-from geecs_mcp.analysis.tools import IMAGE_SUFFIXES, resolve_uid
+from geecs_mcp import clients, config, errors, guard, portal, tool_names
 from geecs_mcp.clients import ServiceRefusal, ServiceUnavailable
 from geecs_mcp.identity import InvalidArgument, identity_for
 from geecs_mcp.server import mcp
@@ -52,7 +54,7 @@ def _figure_refs(figures: Any, day: str) -> list[dict[str, Any]]:
             raise InvalidArgument(
                 f"figures[{i}] names no path (an artifact path from get_scan_figure)"
             )
-        if not path.lower().endswith(IMAGE_SUFFIXES):
+        if not portal.is_image(path):
             raise InvalidArgument(
                 f"figures[{i}] {path!r} is not an image: the logbook attaches "
                 "figures only — quote a sidecar's numbers in body_md instead "
@@ -85,6 +87,7 @@ async def _attach(entry_id: str, ref: dict[str, Any], author: str) -> dict[str, 
                 "path": ref["path"],
                 "caption": ref["caption"],
                 "author": author,
+                "entry_required": True,
             },
         )
     except ServiceRefusal as exc:
@@ -103,11 +106,30 @@ async def _attach(entry_id: str, ref: dict[str, Any], author: str) -> dict[str, 
             "service": exc.service,
         }
     row.update(attached=True, link=reply.get("link"), appended=reply.get("appended"))
-    if reply.get("entry_id") and reply["entry_id"] != entry_id:
-        # The entry was deleted between the create and this send: the
-        # portal's send made a fresh one rather than lose the figure.
-        row["entry_id"] = reply["entry_id"]
     return row
+
+
+async def _check_figures(refs: list[dict[str, Any]]) -> None:
+    """Resolve each figure's run and find its path among the run's images, or refuse."""
+    runs: dict[tuple[Any, str], tuple[str, str, int, set[str]]] = {}
+    for ref in refs:
+        key = (ref["scan_number"], ref["day"])
+        if key not in runs:
+            uid, iso, number = await portal.resolve_uid(*key)
+            listing = await portal.analysis_listing(uid, iso)
+            names = {f["figure"] for f in portal.figure_entries(listing, uid, iso)}
+            runs[key] = (uid, iso, number, names)
+        uid, iso, number, names = runs[key]
+        if ref["path"] not in names:
+            raise ServiceRefusal(
+                "not_found",
+                f"no figure {ref['path']!r} among scan {number}'s artifacts on {iso} "
+                "(nothing was written)",
+                figures=sorted(names),
+                scan_number=number,
+                day=iso,
+            )
+        ref.update(uid=uid, day=iso, scan_number=number)
 
 
 async def _post_logbook_entry(
@@ -121,15 +143,10 @@ async def _post_logbook_entry(
     author = identity_for(operator)
     day = str(day or "").strip()
     refs = _figure_refs(figures, day)
-
-    # Resolve every figure's run before anything is written.
-    uids: dict[tuple[Any, str], tuple[str, str]] = {}
-    for ref in refs:
-        key = (ref["scan_number"], ref["day"])
-        if key not in uids:
-            uid, iso, _ = await resolve_uid(*key)
-            uids[key] = (uid, iso)
-        ref["uid"], ref["day"] = uids[key]
+    # Everything is checked before anything is written.
+    if scan is not None:
+        _, _, scan = await portal.resolve_uid(scan, day)
+    await _check_figures(refs)
 
     entry = await clients.call(
         "logbook",
@@ -182,16 +199,18 @@ async def post_logbook_entry(
 ) -> str:
     """Write an entry in the scans logbook — a DRAFT a person keeps afterwards.
 
-    ``day`` is ``YYYY-MM-DD``; ``scan`` files it on that scan's card (omit
-    for a day-level entry).  ``body_md`` is Markdown: put the script behind
+    ``day`` is ``YYYY-MM-DD``; ``scan`` (a scan the portal holds that day)
+    files it on that scan's card (omit for a day-level entry).
+    ``body_md`` is Markdown: put the script behind
     a quoted number inline as a fenced block.  ``operator`` names the
     person supervising; the entry's author is
     ``agent, admin supervision (<operator>)``.
 
     ``figures``: ``[{scan_number, path, day?, caption?}]`` — ``path`` is
     the ``figure`` that ``get_scan_figure`` returns (images only); the
-    portal attaches each one, ``day`` defaulting to the entry's.  Every
-    reference is resolved before anything is written, so a bad one
+    portal attaches each one, ``day`` defaulting to the entry's.  The
+    entry's ``scan``, every figure's scan and every figure path are
+    checked against the portal before anything is written, so a bad one
     refuses the call with nothing posted.
 
     ``payload``: optional ``{kind: "analysis", analyzer, metrics, figures}``
