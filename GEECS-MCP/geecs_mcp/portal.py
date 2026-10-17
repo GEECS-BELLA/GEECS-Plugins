@@ -32,7 +32,16 @@ def day_or_today(day: Optional[str]) -> str:
 
 
 async def resolve_uid(scan_number: Any, day: Optional[str]) -> tuple[str, str, int]:
-    """``(uid, day, scan_number)`` through the portal's jump route, or a refusal."""
+    """``(uid, day, scan_number)`` through the portal's jump route, or a refusal.
+
+    The number is taken only when it IS an integer: ``int()`` alone would
+    turn ``2.9`` (or ``True``) into a real scan, and a figure reference
+    arrives in an untyped dict, so nothing upstream has checked it.
+    """
+    if isinstance(scan_number, bool) or (
+        isinstance(scan_number, float) and not scan_number.is_integer()
+    ):
+        raise InvalidArgument(f"scan_number {scan_number!r} is not an integer")
     try:
         number = int(scan_number)
     except (TypeError, ValueError):

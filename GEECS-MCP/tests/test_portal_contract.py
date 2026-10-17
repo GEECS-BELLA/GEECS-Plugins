@@ -53,6 +53,12 @@ class TestResolution:
             _j(await run(tools._get_scan_analysis, 0, DAY))["error_kind"]
             == "invalid_request"
         )
+        assert (
+            _j(await run(tools._get_scan_analysis, 2.9, DAY))["error_kind"]
+            == "invalid_request"
+        )
+        # An integral float is the number it names (a JSON client may send 2.0).
+        assert _j(await run(tools._get_scan_analysis, 2.0, DAY))["ok"] is True
 
     async def test_an_unconfigured_portal_names_its_key(self, monkeypatch) -> None:
         monkeypatch.setattr(config, "service_url", lambda service: None)
