@@ -223,7 +223,9 @@ class TestWaitForScan:
         assert out["ok"] is True and out["finished"] is True
         assert out["scan_numbers"] == [9]
 
-    async def test_an_unknown_item_is_not_found(self, wired) -> None:
+    async def test_an_unknown_item_is_not_found(self, stepping) -> None:
+        # `stepping`: the vanished re-reads sleep through the patched pause,
+        # not the wall clock
         out = _j(await run(tools._wait_for_scan, "no-such-item", 1))
         assert out["error_kind"] == "not_found"
         assert "history" in out["message"]

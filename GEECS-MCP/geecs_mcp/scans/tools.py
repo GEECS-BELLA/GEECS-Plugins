@@ -45,7 +45,7 @@ STOP_READ_TIMEOUT_S = 130.0
 HISTORY_DEPTH = 50
 #: The scanner reads the running item, the waiting items and the history
 #: in separate manager round trips, so an item moving waiting → running
-#: (or running → finished) can be in none of the three for one read.  An
+#: can be in none of the three for one read.  An
 #: item seen nowhere is re-read this many times before it is "not found".
 VANISHED_REREADS = 3
 
