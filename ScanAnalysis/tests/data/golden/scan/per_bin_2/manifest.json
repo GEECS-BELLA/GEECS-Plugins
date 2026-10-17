@@ -1,0 +1,88 @@
+{
+ "extra": {},
+ "files": {
+  "frame": {
+   "array": "a0",
+   "dtype": "<f8",
+   "key": "data",
+   "kind": "h5"
+  },
+  "scalars": {
+   "columns": [
+    {
+     "array": "a1",
+     "name": "image_total"
+    },
+    {
+     "array": "a2",
+     "name": "image_peak_value"
+    },
+    {
+     "array": "a3",
+     "name": "x_CoM"
+    },
+    {
+     "array": "a4",
+     "name": "x_rms"
+    },
+    {
+     "array": "a5",
+     "name": "x_fwhm"
+    },
+    {
+     "array": "a6",
+     "name": "x_peak_location"
+    },
+    {
+     "array": "a7",
+     "name": "y_CoM"
+    },
+    {
+     "array": "a8",
+     "name": "y_rms"
+    },
+    {
+     "array": "a9",
+     "name": "y_fwhm"
+    },
+    {
+     "array": "a10",
+     "name": "y_peak_location"
+    },
+    {
+     "array": "a11",
+     "name": "x_45_CoM"
+    },
+    {
+     "array": "a12",
+     "name": "x_45_rms"
+    },
+    {
+     "array": "a13",
+     "name": "x_45_fwhm"
+    },
+    {
+     "array": "a14",
+     "name": "x_45_peak_location"
+    },
+    {
+     "array": "a15",
+     "name": "y_45_CoM"
+    },
+    {
+     "array": "a16",
+     "name": "y_45_rms"
+    },
+    {
+     "array": "a17",
+     "name": "y_45_fwhm"
+    },
+    {
+     "array": "a18",
+     "name": "y_45_peak_location"
+    }
+   ],
+   "kind": "table"
+  }
+ }
+}

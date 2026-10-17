@@ -25,6 +25,9 @@ scan_analysis/
     diagnostic_factory.py          # create_scan_analyzer(AnalysisRecipe | HimgJob)
     analysis_group_loader.py       # discover_analyzers/groups + load_analysis_group,
                                    #   ResolvedDiagnosticConfig (the models: geecs_schemas.analysis)
+  services/                        # the vendor launchers core_services builds (moved from the retired ImageAnalysis):
+                                   #   frog_dll_retrieval.py + _frog_dll_worker.py (FrogDllRetrieval, Kane's 32-bit FROG.dll),
+                                   #   haso_wavekit.py + _wavekit_worker.py (HasoWaveKit, WaveKit), wavekit_doctor.py (geecs-wavekit-doctor)
   analyzers/
     common/
       himg_kinds.py                    # the .himg jobs (HimgJob documents), run out of process: HimgToStackAnalyzer (folder → capture stack),
@@ -382,8 +385,7 @@ scalar keys only, never directory or file names.
 
 Which analyzer runs, and its parameters, in one typed block chosen by
 `kind`; `geecs_analysis.compat.v2.compile_v2` maps it onto the core's
-steps and measure (the ImageAnalysis registry is no longer consulted by
-the factory):
+steps and measure:
 
 ```yaml
 analyzer: {kind: beam, compute_slopes: false}

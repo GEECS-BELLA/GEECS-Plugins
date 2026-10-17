@@ -137,7 +137,7 @@ def create_app(
         config resolution (two competing resolution paths exist, so
         the portal names its tree explicitly). The selector also hides
         itself when
-        ImageAnalysis (the ``analysis`` extra) is not installed.
+        the analysis stack (the ``analysis`` extra) is not installed.
     analysis_factory : callable, optional
         ``(analyzer_id, config_dir) -> ScanAnalyzer`` for the analysis
         runs (``/api/run/{uid}/analysis``). ``None``

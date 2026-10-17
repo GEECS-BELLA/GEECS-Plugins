@@ -39,8 +39,8 @@ restart between runs.
 - The data share mounted at that path (e.g. `/mnt/<share>/data/`) —
   read-write if analysis runs are enabled (above).
 - For the Images tab's processing selector and the Analysis tab's
-  runs: `poetry install -E analysis` (ImageAnalysis + ScanAnalysis and
-  their closure, incl. the Google client libs ScanAnalysis lists) and
+  runs: `poetry install -E analysis` (GEECS-Analysis + GEECS-Schemas +
+  ScanAnalysis and their closure) and
   `--processing-configs <scan_analysis_configs tree>` on the command
   line. Omit both for a read-only viewer.
 - Port **8200** free (`ss -tlnp | grep 8200`).
@@ -69,7 +69,7 @@ poetry env use python3.11
 poetry install --extras analysis
 ```
 
-The `analysis` extra installs ImageAnalysis for the Images tab's
+The `analysis` extra installs the analysis core and ScanAnalysis for the Images tab's
 **processing selector** (0.13.0+) and the Analysis tab. The feature
 needs both the extra and the scan-analysis configs tree on the command
 line; the rendered unit supplies the latter from the site profile —

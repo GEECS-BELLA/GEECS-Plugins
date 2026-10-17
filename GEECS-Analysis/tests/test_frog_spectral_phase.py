@@ -65,63 +65,67 @@ def lineout(seed: int, *, gdd: float = 300.0, n: int = 256) -> np.ndarray:
     return np.column_stack([wavelength, phase, intensity])
 
 
-def legacy(doc: AnalysisDiagnostic, data: np.ndarray, weights: bool = True):
-    from image_analysis.analyzers.frog_spectral_phase_analyzer import (
-        FrogSpectralPhaseAnalyzer,
-    )
-
-    analyzer = FrogSpectralPhaseAnalyzer(doc.image, spec=doc.analyzer)
-    aux = {"_aux_columns": {"weights": data[:, 2].copy()}} if weights else None
-    return analyzer.analyze_image(data[:, :2].copy(), aux)
+def core_values(result) -> dict:
+    """The core's scalars, trace, phase and fit reference."""
+    return {
+        **{f"scalar_{k}": v for k, v in result.scalars.items()},
+        "trace": result.frame.as_trace(),
+        "spectral_phase": result.extras["spectral_phase"].data,
+        "fit_reference": result.extras["fit_reference"].data,
+    }
 
 
 # ----------------------------------------------------------------- algorithm
 
 
-@pytest.mark.parametrize("seed", range(4))
-@pytest.mark.parametrize("weighted", [True, False])
-@pytest.mark.parametrize("threshold", [None, 0.2, 0.5])
-def test_the_fit_is_the_legacy_fit_bit_for_bit(seed, weighted, threshold):
-    from image_analysis.algorithms import polynomial_fit as oracle
-
-    data = lineout(seed)
-    arguments = dict(
+def fit_values(module, data: np.ndarray, weighted: bool, threshold) -> dict:
+    """One implementation's fit and sign canonicalisations, flattened."""
+    fit = module.fit_polynomial(
         y=data[:, 1],
         x=data[:, 0] - 800.0,
         weights=data[:, 2] if weighted else None,
+        config=module.PolynomialFitConfig(
+            order=3, mask_threshold=threshold, fit_num_points=50
+        ),
     )
-    options = dict(order=3, mask_threshold=threshold, fit_num_points=50)
-    old = oracle.fit_polynomial(
-        **arguments, config=oracle.PolynomialFitConfig(**options)
-    )
-    new = ported.fit_polynomial(
-        **arguments, config=ported.PolynomialFitConfig(**options)
-    )
-    for field in (
-        "coefficients",
-        "fit_x",
-        "fit_y",
-        "valid_mask",
-        "normalized_reference",
+    values = {
+        field: getattr(fit, field)
+        for field in (
+            "coefficients",
+            "fit_x",
+            "fit_y",
+            "valid_mask",
+            "normalized_reference",
+        )
+    }
+    values["order"], values["num_fit_points"] = fit.order, fit.num_fit_points
+    for n, (order, sign, epsilon) in enumerate(
+        ((2, 1.0, 0.0), (2, -1.0, 0.0), (3, 1.0, 1e9))
     ):
-        np.testing.assert_array_equal(getattr(new, field), getattr(old, field), field)
-    assert (new.order, new.num_fit_points) == (old.order, old.num_fit_points)
-    for order, sign, epsilon in ((2, 1.0, 0.0), (2, -1.0, 0.0), (3, 1.0, 1e9)):
-        flipped_old = oracle.canonicalize_polynomial_sign(
-            old.coefficients, order, sign, epsilon
+        coefficients, flipped = module.canonicalize_polynomial_sign(
+            fit.coefficients, order, sign, epsilon
         )
-        flipped_new = ported.canonicalize_polynomial_sign(
-            new.coefficients, order, sign, epsilon
-        )
-        np.testing.assert_array_equal(flipped_new[0], flipped_old[0])
-        assert flipped_new[1] == flipped_old[1]
+        values[f"canonical_{n}"] = coefficients
+        values[f"flipped_{n}"] = flipped
+    return values
+
+
+@pytest.mark.parametrize("seed", range(4))
+@pytest.mark.parametrize("weighted", [True, False])
+@pytest.mark.parametrize("threshold", [None, 0.2, 0.5])
+def test_the_fit_is_the_legacy_fit_bit_for_bit(
+    seed, weighted, threshold, expected, request
+):
+    data = lineout(seed)
+    expected(
+        f"fit_{request.node.callspec.id}",
+        actual=fit_values(ported, data, weighted, threshold),
+    )
 
 
 def test_the_fit_refuses_what_the_legacy_fit_refuses():
-    from image_analysis.algorithms import polynomial_fit as oracle
-
     y = np.array([1.0, 2.0, np.nan, 4.0])
-    for module in (oracle, ported):
+    for module in (ported,):
         with pytest.raises(ValueError, match="requires at least 4 valid points; got 3"):
             module.fit_polynomial(y, config=module.PolynomialFitConfig(order=3))
         with pytest.raises(ValueError, match="no positive finite"):
@@ -135,33 +139,28 @@ def test_the_fit_refuses_what_the_legacy_fit_refuses():
 
 @pytest.mark.parametrize("storage", ["float64", "float32"])
 @pytest.mark.parametrize("seed", range(3))
-def test_the_v2_route_equals_the_legacy_analyzer(storage, seed):
+def test_the_v2_route_equals_the_legacy_analyzer(storage, seed, expected, request):
     doc = document(storage=storage)
     data = lineout(seed)
     result = analyze_v2(data, compile_v2(doc))
-    old = legacy(doc, data)
-    assert dict(result.scalars) == old.scalars
     # The fit is float64 on both routes whatever the storage dtype: the
     # stored input is rounded identically, the fit computed in float64.
-    np.testing.assert_array_equal(result.frame.as_trace(), old.line_data)
-    np.testing.assert_array_equal(
-        result.extras["spectral_phase"].data, old.render_data["raw_spectral_phase"]
-    )
-    np.testing.assert_array_equal(
-        result.extras["fit_reference"].data,
-        old.render_data["fit_normalized_reference"],
+    expected(
+        f"route_{request.node.callspec.id}",
+        actual=core_values(result),
     )
     assert set(result.scalars) == doc.analyzer.emitted_scalars()
 
 
-def test_a_sign_flip_matches_the_legacy_flip():
+def test_a_sign_flip_matches_the_legacy_flip(expected):
     doc = document()
     data = lineout(1, gdd=-300.0)
     result = analyze_v2(data, compile_v2(doc))
-    old = legacy(doc, data)
-    assert result.scalars["flipped"] == 1.0 == old.scalars["flipped"]
-    assert dict(result.scalars) == old.scalars
-    np.testing.assert_array_equal(result.frame.as_trace(), old.line_data)
+    stored = expected(
+        "sign_flip",
+        actual=core_values(result),
+    )
+    assert result.scalars["flipped"] == 1.0 == stored["scalar_flipped"]
 
 
 @pytest.mark.parametrize(
@@ -172,23 +171,27 @@ def test_a_sign_flip_matches_the_legacy_flip():
         {"reference_wavelength_nm": 790.0, "sign_reference": -1.0},
     ],
 )
-def test_options_match_the_legacy_analyzer(analyzer):
+def test_options_match_the_legacy_analyzer(analyzer, expected, request):
     doc = document(analyzer=analyzer)
     data = lineout(2)
     result = analyze_v2(data, compile_v2(doc))
-    old = legacy(doc, data)
-    assert dict(result.scalars) == old.scalars
-    np.testing.assert_array_equal(result.frame.as_trace(), old.line_data)
+    expected(
+        f"options_{request.node.callspec.id}",
+        actual=core_values(result),
+    )
 
 
-def test_the_weights_channel_weights_the_fit_and_follows_the_roi():
+def test_the_weights_channel_weights_the_fit_and_follows_the_roi(expected):
     doc = document()
     data = lineout(0)
     weighted = analyze_v2(data, compile_v2(doc))
     # Same trace, no channel declared: the unweighted legacy fit.
     unweighted_doc = document(loading={**LOADING, "auxiliary_columns": {}})
     plain = analyze_v2(data[:, :2], compile_v2(unweighted_doc))
-    assert dict(plain.scalars) == legacy(unweighted_doc, data, weights=False).scalars
+    expected(
+        "unweighted",
+        actual=core_values(plain),
+    )
     assert plain.scalars["gdd_fs2"] != weighted.scalars["gdd_fs2"]
     # The channel was cut by the roi: its reference spans the ROI samples.
     inside = (data[:, 0] >= 750.0) & (data[:, 0] <= 850.0)

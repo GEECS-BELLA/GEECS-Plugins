@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from functools import partial
 from pathlib import Path
 
@@ -60,9 +61,18 @@ def shift_columns(frame: np.ndarray, k: int) -> np.ndarray:
     return out
 
 
+def _bowtie_generator():
+    """GEECS-Analysis's synthetic bow-tie, the one copy both packages' tests use."""
+    path = Path(__file__).parents[2] / "GEECS-Analysis/tests/synthetic_bowtie.py"
+    spec = importlib.util.spec_from_file_location("synthetic_bowtie", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.generate_bowtie_image
+
+
 def build_scan(base_dir: Path) -> Path:
     """A three-bin scan of bow-ties whose waist column moves with the bin."""
-    from image_analysis.tools.synthetic_generators import generate_bowtie_image
+    generate_bowtie_image = _bowtie_generator()
 
     scan = ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir)
     device = scan / "UC_HiResMagCam"

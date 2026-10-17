@@ -60,7 +60,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 ROOT_ENV_PKGS = frozenset(
     {
         "GEECS-Analysis",
-        "ImageAnalysis",
         "ScanAnalysis",
         "GEECS-Data-Utils",
         "GEECS-Schemas",

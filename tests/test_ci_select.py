@@ -46,7 +46,7 @@ def test_graph_is_read_from_the_real_pyprojects() -> None:
     graph = ci_select.discover_graph()
 
     assert "GEECS-Core" in graph["GeecsBluesky"]
-    assert "GEECS-Data-Utils" in graph["ImageAnalysis"]
+    assert "GEECS-Data-Utils" in graph["ScanAnalysis"]
     assert "GeecsBluesky" in graph["GeecsScanner"]
     # Leaf/foundational packages depend on nothing in-repo.
     assert graph["GEECS-Data-Utils"] == set()
@@ -62,7 +62,7 @@ def test_optional_extra_dependencies_still_count() -> None:
     """
     graph = ci_select.discover_graph()
     assert "GEECS-Analysis" in graph["GeecsBluesky"]
-    assert "ImageAnalysis" not in graph["GeecsBluesky"]
+    assert "ScanAnalysis" not in graph["GeecsBluesky"]
     legs, _ = ci_select.classify(["GEECS-Analysis/geecs_analysis/run.py"], graph)
     assert "GeecsBluesky" in legs
 
@@ -84,14 +84,14 @@ def test_foundational_change_pulls_in_dependents() -> None:
         assert dependent in legs, (
             f"{dependent} depends on GEECS-Data-Utils but was not selected"
         )
-    # ImageAnalysis/ScanAnalysis are dependents too; they live in the root leg.
+    # GEECS-Analysis/ScanAnalysis are dependents too; they live in the root leg.
     assert ci_select.ROOT_LEG in legs
 
 
 def test_transitive_dependents_are_reached() -> None:
     """GEECS-Core → GeecsBluesky → GeecsScanner is followed all the way.
 
-    GeecsScanner does not depend on GEECS-Core through ImageAnalysis or any
+    GeecsScanner does not depend on GEECS-Core through ScanAnalysis or any
     single hop it declares first; only the transitive walk reaches it.
     """
     graph = ci_select.discover_graph()

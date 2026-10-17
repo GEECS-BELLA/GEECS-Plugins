@@ -444,7 +444,7 @@ scalar discovery comes from the compiled measure.  Unsupported active
 processing fails before acquisition.  Live diagnostics remain
 camera-only.  Per-shot results carry the matched Unix acquisition
 timestamp; a per-bin mean carries no invented shot number or timestamp.
-Evaluation does no config I/O and uses no ImageAnalysis; it applies the
+Evaluation does no config I/O and uses no analysis package; it applies the
 reduction/min_shots rules and `measurement.scalar` names.  Relative
 pseudos restore on unstage; the scanner's explicit Set to best uses the
 recorded physical targets, not a relative coordinate after its zero

@@ -67,7 +67,7 @@ clear message when absent, the server always starts):
 
 - The `analysis-run` extra installed (`pip install
   '<checkout>/GEECS-MCP[analysis-run]'` / `poetry install -E
-  analysis-run`) — pulls ScanAnalysis + ImageAnalysis (scipy/opencv,
+  analysis-run`) — pulls ScanAnalysis and the analysis core (scipy,
   heavy; this is why it is an extra).
 - The scan-analysis configs root: `SCAN_ANALYSIS_CONFIG_DIR` env var,
   or config.ini `[Paths] scan_analysis_configs_path` (the

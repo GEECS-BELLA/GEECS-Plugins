@@ -14,7 +14,7 @@ from pathlib import Path
 
 import matplotlib
 
-# Pinned BEFORE any ScanAnalysis / ImageAnalysis import: the analysis
+# Pinned BEFORE any ScanAnalysis / GEECS-Analysis import: the analysis
 # runs execute ScanAnalysis renderers (pyplot) on a worker thread, and a
 # GUI backend selected lazily on a non-main thread is a crash. The
 # portal's own figures use the Figure API and need no backend at all.

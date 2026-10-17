@@ -71,7 +71,7 @@ from geecs_schemas.analysis import AnalysisDiagnostic
 from geecs_analysis.compat.v2 import compile_v2
 document = AnalysisDiagnostic.model_validate_json({document().model_dump_json()!r})
 assert compile_v2(document, allow_file_backgrounds=True).file_backgrounds
-for name in ('numpy', 'scipy', 'matplotlib', 'geecs_data_utils', 'image_analysis'):
+for name in ('numpy', 'scipy', 'matplotlib', 'geecs_data_utils'):
     assert name not in sys.modules, name
 """
     subprocess.run([sys.executable, "-c", code], check=True)

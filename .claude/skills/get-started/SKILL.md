@@ -123,11 +123,12 @@ reference before building; each is deliberately small.
    notebooks under `docs/geecs_data_utils/examples/` and
    `docs/analysis/examples/analysis_without_the_portal.ipynb`; run with
    `poetry run jupyter lab` from the repo root.
-3. **A new image analyzer.** Subclass `StandardAnalyzer` (2D) or
-   `Standard1DAnalyzer` (1D); copy-pasteable template in
-   `ImageAnalysis/CLAUDE.md` § "Adding a New Analyzer"; small
-   references: `analyzers/beam_analyzer.py`, `analyzers/ict_1d_analyzer.py`.
-   Tests are hermetic via `image_analysis/tools/synthetic_generators.py`.
+3. **A new analysis step or measure.** The analysis core is
+   `GEECS-Analysis/` (pure algorithms in `geecs_analysis/algorithms/`,
+   steps in `geecs_analysis/steps/`, measures in `geecs_analysis/measures/`);
+   orientation in `GEECS-Analysis/CLAUDE.md`. Small references:
+   `algorithms/basic_beam_stats.py`, `algorithms/ict.py`. Tests are
+   hermetic via synthetic frames (e.g. `GEECS-Analysis/tests/synthetic_bowtie.py`).
 4. **A live image-streaming viewer.** A small GUI subscribing to a
    camera's PVA `NTNDArray` PV (a few lines of `p4p`) and displaying
    frames. Orientation: `docs/geecs_gateway/image_pvs.md`; authority:
@@ -143,7 +144,7 @@ reference before building; each is deliberately small.
 ## Neighborhoods
 
 Steer first projects toward the actively developed packages
-(ImageAnalysis, ScanAnalysis, GEECS-Data-Utils, GeecsScanner,
+(GEECS-Analysis, ScanAnalysis, GEECS-Data-Utils, GeecsScanner,
 GeecsBluesky, the gateways). Never start a newcomer in — and never cite
 as a style reference — anything on the root `CLAUDE.md` "Known debt"
 list, `extras/` (legacy dump pending pruning), or

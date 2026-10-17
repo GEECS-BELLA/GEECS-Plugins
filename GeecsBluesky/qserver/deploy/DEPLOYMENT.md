@@ -471,7 +471,7 @@ surface once this service is enabled.
 ## Native optimization acceptance
 
 Install the worker's `optimize` extra alongside `ca tiled qserver`. The scanner
-needs no ImageAnalysis, Xopt or Torch dependency. The worker warms numerical
+needs no analysis package, Xopt or Torch dependency. The worker warms numerical
 imports on the profile thread before readiness. The PVA monitor must receive an initial image
 within five seconds before the plan arms or claims a scan; verify the host's
 PVA address configuration. Frame acquisition uses live arrays, never the
