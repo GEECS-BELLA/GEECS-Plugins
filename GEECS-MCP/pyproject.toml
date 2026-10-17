@@ -44,6 +44,9 @@ pydocstyle = ">=6.3"
 # the runs themselves are driven through an injected fake factory).
 geecs-scanner = { path = "../GeecsScanner", develop = true }
 geecs-data-portal = { path = "../GEECS-DataPortal", develop = true, extras = ["analysis"] }
+# The logbook: post_logbook_entry's create, and the portal's figure sends,
+# land in one in-process logbook app.
+geecs-logbook = { path = "../GeecsLogbook", develop = true }
 
 [build-system]
 requires = ["poetry-core"]

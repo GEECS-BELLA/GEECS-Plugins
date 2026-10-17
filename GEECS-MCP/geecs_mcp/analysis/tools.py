@@ -64,7 +64,7 @@ def _day_or_today(day: Optional[str]) -> str:
     return text or date.today().isoformat()
 
 
-async def _resolve_uid(scan_number: Any, day: Optional[str]) -> tuple[str, str, int]:
+async def resolve_uid(scan_number: Any, day: Optional[str]) -> tuple[str, str, int]:
     """``(uid, day, scan_number)`` through the portal's jump route, or a refusal."""
     try:
         number = int(scan_number)
@@ -178,7 +178,7 @@ async def _analysis_listing(uid: str, day: str) -> dict:
 
 
 async def _get_scan_analysis(scan_number: Any, day: Optional[str]) -> str:
-    uid, iso, number = await _resolve_uid(scan_number, day)
+    uid, iso, number = await resolve_uid(scan_number, day)
     listing = await _analysis_listing(uid, iso)
     analyzers = []
     for entry in listing.get("analyzers") or []:
@@ -220,7 +220,7 @@ async def _run_analysis(
     analyzer = str(analyzer or "").strip()
     if not analyzer:
         return errors.make_error("invalid_request", "name an analyzer (list_analyzers)")
-    uid, iso, number = await _resolve_uid(scan_number, day)
+    uid, iso, number = await resolve_uid(scan_number, day)
     params: dict[str, Any] = {"analyzer": analyzer, "day": iso}
     if confirm is not None:
         try:
@@ -275,7 +275,7 @@ async def _wait_for_analysis(
     analyzer = str(analyzer or "").strip()
     if not analyzer:
         return errors.make_error("invalid_request", "name the analyzer you started")
-    uid, iso, number = await _resolve_uid(scan_number, day)
+    uid, iso, number = await resolve_uid(scan_number, day)
     deadline = anyio.current_time() + bounded_wait(timeout_s)
     while True:
         listing = await _analysis_listing(uid, iso)
@@ -353,7 +353,7 @@ async def _get_analysis_artifact(
     except (TypeError, ValueError):
         cap = ARTIFACT_DEFAULT_BYTES
     cap = max(1, min(cap, ARTIFACT_MAX_BYTES))
-    uid, iso, number = await _resolve_uid(scan_number, day)
+    uid, iso, number = await resolve_uid(scan_number, day)
     body, content_type, truncated, total = await clients.get_bytes(
         "portal",
         f"/run/{uid}/artifact",
@@ -420,7 +420,7 @@ async def _get_scan_scalars(
     if not cols:
         return errors.make_error("invalid_request", "name at least one scalar column")
     # the column cap is the portal's (400 above its four): forwarded, not restated
-    uid, iso, number = await _resolve_uid(scan_number, day)
+    uid, iso, number = await resolve_uid(scan_number, day)
     params: dict[str, Any] = {"cols": cols, "day": iso}
     params.update(
         {k: v for k, v in (("x", x), ("bincfg", bincfg), ("filters", filters)) if v}
@@ -508,7 +508,7 @@ def _thumbnail_jpeg(data: bytes) -> tuple[bytes, int, int]:
 async def _get_scan_figure(
     scan_number: Any, label: Optional[str], day: Optional[str], thumbnail: bool
 ) -> str:
-    uid, iso, number = await _resolve_uid(scan_number, day)
+    uid, iso, number = await resolve_uid(scan_number, day)
     listing = await _analysis_listing(uid, iso)
     figures = _figure_entries(listing, uid, iso)
     wanted = str(label or "").strip()
