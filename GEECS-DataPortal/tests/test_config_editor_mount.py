@@ -288,12 +288,12 @@ class TestPreview:
 
         np = pytest.importorskip("numpy")
         pytest.importorskip("PIL")
-        from geecs_analysis.engine.v2 import analyze_v2
+        from geecs_analysis.engine.compiled import analyze_compiled
         from geecs_analysis.recipe import figure_of
         from geecs_analysis.render import single
         from geecs_schemas.analysis import load_analysis_document
         from PIL import Image
-        from scan_analysis.core_inputs import prepare_v2
+        from scan_analysis.core_inputs import prepare_recipe
 
         rng = np.random.default_rng(2)
         frame = rng.integers(500, 4000, size=(12, 16), dtype=np.uint16)
@@ -319,9 +319,9 @@ class TestPreview:
         )
         assert r.status_code == 200, r.text
         document = load_analysis_document(recipe)
-        prepared = prepare_v2(document, data_dir=scan_folder / "cam")
+        prepared = prepare_recipe(document, data_dir=scan_folder / "cam")
         expected = single(
-            analyze_v2(frame, prepared.recipe, inputs=prepared.inputs),
+            analyze_compiled(frame, prepared.recipe, inputs=prepared.inputs),
             figure_of(document),
         )
         buffer = io.BytesIO()
@@ -329,7 +329,7 @@ class TestPreview:
         assert r.content == buffer.getvalue()
         # the subtraction happened: the drawn frame is not the raw one
         assert not np.array_equal(
-            analyze_v2(frame, prepared.recipe, inputs=prepared.inputs).frame.data,
+            analyze_compiled(frame, prepared.recipe, inputs=prepared.inputs).frame.data,
             frame.astype(float),
         )
 

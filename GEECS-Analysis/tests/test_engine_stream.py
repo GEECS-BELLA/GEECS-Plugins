@@ -6,8 +6,8 @@ import pytest
 from geecs_data_utils.frames import ShotMeta
 from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.engine.v2 import analyze_v2
-from geecs_analysis.engine.v2_run import ShotGroup, run_units
+from geecs_analysis.engine.compiled import analyze_compiled
+from geecs_analysis.engine.stream import ShotGroup, run_units
 from geecs_analysis.recipe import compile_recipe
 
 
@@ -123,7 +123,7 @@ def test_trace_raw_average_preserves_float32_precision_before_scaling():
         ).astype(np.float32)
         for seed in range(3)
     ]
-    expected = analyze_v2(np.mean(arrays, axis=0), compiled)
+    expected = analyze_compiled(np.mean(arrays, axis=0), compiled)
     (actual,) = run_units(
         compiled,
         [ShotGroup(1, (1, 2, 3))],
@@ -273,7 +273,7 @@ def test_raw_bin_fold_equals_the_stacked_mean_bit_for_bit(kind, monkeypatch):
     1x1 frames reduces along its only (contiguous) axis, where numpy sums
     pairwise, and a float fold can then differ in the last bit.
     """
-    import geecs_analysis.engine.v2_run as v2_run
+    import geecs_analysis.engine.stream as stream
 
     rng = np.random.default_rng(1025)
     if kind == "uint16 camera":
@@ -296,13 +296,13 @@ def test_raw_bin_fold_equals_the_stacked_mean_bit_for_bit(kind, monkeypatch):
         return buffer  # A reused read buffer, as a streaming source has.
 
     seen = []
-    real = v2_run.analyze_v2
+    real = stream.analyze_compiled
 
     def capture(raw, *args, **kwargs):
         seen.append(raw.copy())
         return real(raw, *args, **kwargs)
 
-    monkeypatch.setattr(v2_run, "analyze_v2", capture)
+    monkeypatch.setattr(stream, "analyze_compiled", capture)
     shots = tuple(range(1, len(frames) + 1))
     (result,) = run_units(
         compiled, [ShotGroup(1, shots)], load, average_before_analysis=True
@@ -378,18 +378,18 @@ def test_mixed_members_that_keep_the_sum_average_as_the_promoted_stack(
     folded members were never rounded narrower; the result takes the
     promoted stack's dtype (float32, not float16, once a float32 joins).
     """
-    import geecs_analysis.engine.v2_run as v2_run
+    import geecs_analysis.engine.stream as stream
 
     rng = np.random.default_rng(7)
     frames = [rng.integers(0, 200, (4, 5)).astype(dtypes[n >= 5]) for n in range(9)]
     seen = []
-    real = v2_run.analyze_v2
+    real = stream.analyze_compiled
 
     def capture(raw, *args, **kwargs):
         seen.append(raw.copy())
         return real(raw, *args, **kwargs)
 
-    monkeypatch.setattr(v2_run, "analyze_v2", capture)
+    monkeypatch.setattr(stream, "analyze_compiled", capture)
     (result,) = run_units(
         recipe(),
         [ShotGroup(1, tuple(range(1, 10)))],

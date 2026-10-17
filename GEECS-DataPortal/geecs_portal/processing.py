@@ -18,7 +18,7 @@ from geecs_data_utils.frames import Frame
 from geecs_schemas.analysis import AnalysisDocument, load_analysis_document
 from pydantic import ValidationError
 
-from geecs_analysis.engine.v2 import UnsupportedRecipe
+from geecs_analysis.engine.compiled import UnsupportedRecipe
 from geecs_analysis.measurement import Measurement
 from geecs_analysis.render import RenderError, single
 from geecs_analysis.render.specs import FigureSpec
@@ -138,7 +138,7 @@ def render_document_ephemeral(
     The Images tab's processing view: the portal's finite-pixel window and
     palette over the processed frame. A measure's auxiliary channels travel
     inside the array itself, appended as columns the way its scan run's
-    source appends them (``V2Recipe.channels``).
+    source appends them (``CompiledRecipe.channels``).
     """
     return _render(
         document,

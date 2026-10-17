@@ -14,8 +14,8 @@ from geecs_schemas.analysis import AnalysisRecipe
 from pydantic import ValidationError
 
 from geecs_analysis.algorithms import magspec_calibration as calibration
-from geecs_analysis.engine.v2 import analyze_v2
-from geecs_analysis.engine.v2_run import ShotGroup, run_units
+from geecs_analysis.engine.compiled import analyze_compiled
+from geecs_analysis.engine.stream import ShotGroup, run_units
 from geecs_analysis.measures.magspec import MagspecSpec
 from geecs_analysis.pipeline import measure_tables, shot_scalar_columns
 from geecs_analysis.recipe import RecipeError, compile_recipe
@@ -199,7 +199,7 @@ def assert_same_result(check, name: str, core) -> None:
 @pytest.mark.parametrize("seed", range(3))
 def test_polynomial_route_equals_the_legacy_analyzer(seed, expected):
     raw = frame(seed)
-    core = analyze_v2(raw, compile_recipe(poly(), allow_file_backgrounds=True))
+    core = analyze_compiled(raw, compile_recipe(poly(), allow_file_backgrounds=True))
     assert_same_result(
         expected,
         f"polynomial_{seed}",
@@ -218,7 +218,7 @@ def test_array_calibration_is_inline_only(expected):
     assert_same_result(
         expected,
         "array",
-        analyze_v2(raw, compiled),
+        analyze_compiled(raw, compiled),
     )
 
 
@@ -246,7 +246,7 @@ def test_dnn_route_equals_the_legacy_analyzer_on_the_same_tables(
         else ["camera_table", "trajectory_table"]
     )
     raw = frame(camera)
-    core = analyze_v2(raw, compiled, inputs=bound_tables(compiled))
+    core = analyze_compiled(raw, compiled, inputs=bound_tables(compiled))
     assert_same_result(
         expected,
         f"dnn_{request.node.callspec.id}",
@@ -267,7 +267,7 @@ def test_lanex_row_falls_back_to_position_without_a_setting_column(tmp_path, exp
     assert_same_result(
         expected,
         "lanex_by_position",
-        analyze_v2(raw, compiled, inputs=bound_tables(compiled)),
+        analyze_compiled(raw, compiled, inputs=bound_tables(compiled)),
     )
 
 
@@ -302,7 +302,7 @@ def test_cells_the_legacy_reader_never_converted_may_be_blank(
     assert_same_result(
         expected,
         f"blank_cells_{camera}",
-        analyze_v2(raw, compiled, inputs=bound_tables(compiled)),
+        analyze_compiled(raw, compiled, inputs=bound_tables(compiled)),
     )
 
 
@@ -314,7 +314,7 @@ def test_the_per_shot_field_equals_the_legacy_override_and_never_leaks(
     assert shot_scalar_columns(compiled.analysis.measure) == (COLUMN,)
     tables = bound_tables(compiled)
     raw = frame(5)
-    with_field = analyze_v2(
+    with_field = analyze_compiled(
         raw,
         compiled,
         shot=ShotMeta("TestCam", 1, scalars={COLUMN: 0.25}),
@@ -327,7 +327,9 @@ def test_the_per_shot_field_equals_the_legacy_override_and_never_leaks(
     )
     # A second shot without the column: the recipe's field, as a fresh
     # legacy analyzer would give — not the previous shot's reading.
-    without = analyze_v2(raw, compiled, shot=ShotMeta("TestCam", 2), inputs=tables)
+    without = analyze_compiled(
+        raw, compiled, shot=ShotMeta("TestCam", 2), inputs=tables
+    )
     assert_same_result(
         expected,
         "recipe_field",
@@ -349,7 +351,7 @@ def test_the_field_rides_through_the_runner_on_shot_metadata(tmp_path):
         inputs=tables,
         shot_metadata={1: shot},
     )
-    direct = analyze_v2(raw, compiled, shot=shot, inputs=tables)
+    direct = analyze_compiled(raw, compiled, shot=shot, inputs=tables)
     assert unit.error is None and dict(unit.measurement.scalars) == dict(direct.scalars)
     assert unit.measurement.frame.shot == shot
 
@@ -534,13 +536,13 @@ def test_execution_refuses_a_missing_or_mistyped_table(tmp_path):
     )
     tables = bound_tables(compiled)
     with pytest.raises(ValueError, match="Missing table input: lanex_table"):
-        analyze_v2(
+        analyze_compiled(
             frame(0),
             compiled,
             inputs={k: v for k, v in tables.items() if k != "lanex_table"},
         )
     with pytest.raises(TypeError, match="Table input 'camera_table' must be a Table"):
-        analyze_v2(
+        analyze_compiled(
             frame(0),
             compiled,
             inputs={**tables, "camera_table": Frame.from_array(np.ones((2, 2)))},
@@ -576,7 +578,7 @@ def test_calibration_refusals_match_the_legacy_ones(tmp_path, change, needle):
     doc = dnn(paths, **change)
     compiled = compile_recipe(doc, allow_file_backgrounds=True)
     with pytest.raises(ValueError, match=needle):
-        analyze_v2(frame(0), compiled, inputs=bound_tables(compiled))
+        analyze_compiled(frame(0), compiled, inputs=bound_tables(compiled))
 
 
 # ------------------------------------------------------------ conversion
@@ -624,7 +626,7 @@ def polynomial_measure() -> dict:
 def test_an_average_folds_moving_energy_grids_index_wise(tmp_path, mode, expected):
     """A per-shot field moves the grid; the average is the legacy nanmean of frames and axes."""
 
-    from geecs_analysis.engine.v2_average import RunningAverage
+    from geecs_analysis.engine.average import RunningAverage
 
     doc = dnn(synthetic_tables(tmp_path), field_column=COLUMN)
     compiled = compile_recipe(doc, allow_file_backgrounds=True)
@@ -634,7 +636,7 @@ def test_an_average_folds_moving_energy_grids_index_wise(tmp_path, mode, expecte
     fields = (0.28, 0.30, 0.33)
     for n, field in enumerate(fields, start=1):
         shot = ShotMeta("TestCam", n, scalars={COLUMN: field})
-        core = analyze_v2(frame(n), compiled, shot=shot, inputs=tables)
+        core = analyze_compiled(frame(n), compiled, shot=shot, inputs=tables)
         running.add(core)
         grids.append(core.frame.axes[1].values)
     assert not np.array_equal(grids[0], grids[2]), "the field moves the grid"
@@ -652,13 +654,13 @@ def test_an_average_folds_moving_energy_grids_index_wise(tmp_path, mode, expecte
 def test_a_steady_grid_keeps_the_first_axes_and_other_measures_still_refuse():
     from geecs_data_utils.frames import Axis
 
-    from geecs_analysis.engine.v2_average import RunningAverage
+    from geecs_analysis.engine.average import RunningAverage
 
     compiled = compile_recipe(poly(), allow_file_backgrounds=True)
-    first = analyze_v2(frame(1), compiled)
+    first = analyze_compiled(frame(1), compiled)
     running = RunningAverage(compiled, mode="bin")
     for n in (1, 2, 3):
-        running.add(analyze_v2(frame(n), compiled))
+        running.add(analyze_compiled(frame(n), compiled))
     for kept, axis in zip(running.result().frame.axes, first.frame.axes, strict=True):
         assert np.array_equal(kept.values, axis.values)
     beam = compile_recipe(
@@ -670,7 +672,7 @@ def test_a_steady_grid_keeps_the_first_axes_and_other_measures_still_refuse():
             }
         )
     )
-    result = analyze_v2(frame(1), beam)
+    result = analyze_compiled(frame(1), beam)
     y, x = result.frame.axes
     moved = result.frame.data, (y, Axis(x.values + 1.0, unit=x.unit, label=x.label))
     running = RunningAverage(beam, mode="bin")

@@ -12,7 +12,7 @@ from geecs_data_utils import ScanPaths, ScanTag
 from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
-from geecs_analysis.engine.v2 import analyze_v2
+from geecs_analysis.engine.compiled import analyze_compiled
 from geecs_analysis.recipe import compile_recipe
 from scan_analysis.config import create_scan_analyzer
 from scan_analysis.core_analyzer import CoreScanAnalyzer
@@ -186,7 +186,7 @@ def test_a_raw_bin_run_fits_the_bin_mean_with_the_bin_mean_weights(
         raw = [
             lineout(shot).iloc[:, [3, 5, 4]].to_numpy() for shot in (first, first + 1)
         ]
-        expected = analyze_v2(np.mean(np.stack(raw), axis=0), recipe).scalars
+        expected = analyze_compiled(np.mean(np.stack(raw), axis=0), recipe).scalars
         for shot in (first, first + 1):
             got = rows.loc[rows["Shotnumber"] == shot, f"{DEVICE}_gdd_fs2"].item()
             assert got == expected["gdd_fs2"]

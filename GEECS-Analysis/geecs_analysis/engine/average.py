@@ -17,7 +17,7 @@ from geecs_analysis.registry import measure_definition
 if TYPE_CHECKING:
     import numpy as np
     from geecs_data_utils.frames import Frame
-    from geecs_analysis.engine.v2 import V2Recipe
+    from geecs_analysis.engine.compiled import CompiledRecipe
     from geecs_analysis.measurement import Marker, Measurement, Projection, Segment
 
 AverageMode = Literal["noscan", "bin"]
@@ -39,9 +39,9 @@ class _Sum:
     the sum would double a NaN-free accumulator for nothing (a scope
     trace of a million samples, one accumulator per bin).
 
-    ``engine.v2_run`` folds raw-bin members with it (``skip_nan=False``)
+    ``engine.stream`` folds raw-bin members with it (``skip_nan=False``)
     and holds that mean to the stacked ``np.mean`` bit for bit, so a change
-    here changes raw-bin results too (``tests/test_v2_run.py`` pins them).
+    here changes raw-bin results too (``tests/test_engine_stream.py`` pins them).
     """
 
     def __init__(
@@ -205,7 +205,7 @@ class RunningAverage:
     results folded.
     """
 
-    def __init__(self, recipe: V2Recipe, *, mode: AverageMode) -> None:
+    def __init__(self, recipe: CompiledRecipe, *, mode: AverageMode) -> None:
         if mode not in ("noscan", "bin"):
             raise ValueError("Average mode must be noscan or bin")
         self.recipe = recipe
@@ -343,7 +343,7 @@ class RunningAverage:
 
 def average_results(
     results: Sequence[Measurement],
-    recipe: V2Recipe,
+    recipe: CompiledRecipe,
     *,
     mode: AverageMode,
 ) -> Measurement | None:

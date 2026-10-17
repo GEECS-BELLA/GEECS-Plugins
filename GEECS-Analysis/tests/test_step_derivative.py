@@ -108,7 +108,7 @@ for name in ("numpy", "scipy", "matplotlib"):
 
 def test_a_recipe_run_keeps_the_derivative_unit():
     """The line run's storage rebuild keeps the unit the steps produced."""
-    from geecs_analysis.engine.v2 import analyze_v2
+    from geecs_analysis.engine.compiled import analyze_compiled
     from geecs_analysis.recipe import compile_recipe
     from geecs_schemas.analysis import AnalysisRecipe
 
@@ -127,7 +127,7 @@ def test_a_recipe_run_keeps_the_derivative_unit():
         }
     )
     x = np.linspace(0.0, 1.0, 11)
-    result = analyze_v2(np.column_stack((x, 2.0 * x)), compile_recipe(recipe))
+    result = analyze_compiled(np.column_stack((x, 2.0 * x)), compile_recipe(recipe))
     assert result.frame.unit == "V/s"
     assert result.frame.label == "deflection"
     np.testing.assert_allclose(result.frame.data, 2.0)

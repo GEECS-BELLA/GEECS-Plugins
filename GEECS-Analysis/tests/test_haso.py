@@ -13,8 +13,8 @@ from geecs_data_utils.frames import Frame
 from geecs_schemas.analysis import AnalysisRecipe
 from pydantic import ValidationError
 
-from geecs_analysis.engine.v2 import analyze_v2
-from geecs_analysis.engine.v2_run import ShotGroup, run_units
+from geecs_analysis.engine.compiled import analyze_compiled
+from geecs_analysis.engine.stream import ShotGroup, run_units
 from geecs_analysis.measures.haso import (
     EXTRAS,
     SCALARS,
@@ -314,7 +314,7 @@ def test_the_scan_evaluator_processes_the_reference_and_checks_its_shape():
     )
     engine = FakeEngine()
     probe = pixels(seed=5)
-    analyze_v2(
+    analyze_compiled(
         pixels(),
         recipe,
         inputs={"haso": engine, "probe": Frame.from_array(probe.astype(np.float64))},
@@ -323,9 +323,9 @@ def test_the_scan_evaluator_processes_the_reference_and_checks_its_shape():
         engine.calls[0][1]["reference"], np.clip(probe.astype(float) - 7, 0, None)
     )
     with pytest.raises(ValueError, match="Missing frame input: probe"):
-        analyze_v2(pixels(), recipe, inputs={"haso": engine})
+        analyze_compiled(pixels(), recipe, inputs={"haso": engine})
     with pytest.raises(ValueError, match="full image"):
-        analyze_v2(
+        analyze_compiled(
             pixels(),
             recipe,
             inputs={"haso": engine, "probe": Frame.from_array(np.zeros((4, 4)))},
@@ -356,7 +356,7 @@ def test_a_haso_measurement_pickles_with_its_extras():
         np.testing.assert_array_equal(copy.extras[key].data, frame.data)
 
 
-# A spawned worker imports the engine's module by name (see test_v2_pool).
+# A spawned worker imports the engine's module by name (see test_engine_pool).
 HELPER = textwrap.dedent(
     '''
     """A picklable engine and loader for the pooled HASO run."""

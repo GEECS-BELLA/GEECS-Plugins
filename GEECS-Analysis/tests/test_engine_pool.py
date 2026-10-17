@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.engine.v2_run import ShotGroup, run_units
+from geecs_analysis.engine.stream import ShotGroup, run_units
 from geecs_analysis.recipe import compile_recipe
 
 # A spawned worker imports the loader's module by name, so the loader lives
@@ -220,7 +220,7 @@ DRIVER = textwrap.dedent(
     from geecs_schemas.analysis import AnalysisRecipe
 
     from geecs_analysis.recipe import compile_recipe
-    from geecs_analysis.engine.v2_run import ShotGroup, run_units
+    from geecs_analysis.engine.stream import ShotGroup, run_units
     from pool_helper import Source
 
     if __name__ == "__main__":

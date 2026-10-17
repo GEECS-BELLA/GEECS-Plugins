@@ -2,7 +2,7 @@
 
 The editor's frame preview must be the product image a scan run would
 write, so this module makes the run's calls and nothing else:
-:func:`prepare_document` is the run's ``prepare_v2`` (frame inputs
+:func:`prepare_document` is the run's ``prepare_recipe`` (frame inputs
 resolved from the document's device folder under the scan, as
 ``core_scan.prepare_scan`` resolves them), :func:`measure_frame` its
 per-frame analysis, :func:`preview_frame` the sink's per-frame draw
@@ -23,13 +23,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
-from geecs_analysis.engine.v2 import analyze_v2
-from geecs_analysis.engine.v2_average import average_results
+from geecs_analysis.engine.compiled import analyze_compiled
+from geecs_analysis.engine.average import average_results
 from geecs_analysis.recipe import AnalysisDocument, figure_of, summaries_of
 from geecs_analysis.registry import summary_definition
 from geecs_analysis.render import RenderError
 
-from scan_analysis.core_inputs import PreparedRecipe, prepare_v2
+from scan_analysis.core_inputs import PreparedRecipe, prepare_recipe
 from scan_analysis.core_sink import draw_product, draw_summary
 from scan_analysis.core_source import source_directory
 
@@ -56,7 +56,7 @@ def prepare_document(
 
     With *scan_folder* the recipe's ``{scan_dir}`` is the document's own
     device folder under that scan (``source_directory``); without one the
-    placeholder stays literal, as ``prepare_v2`` documents. Raises
+    placeholder stays literal, as ``prepare_recipe`` documents. Raises
     ``UnsupportedRecipe`` for a v2 kind the core does not serve — the
     caller keeps its own route for those. A measure that runs an external
     program per frame (``frog``) is refused the same way unless the caller
@@ -68,7 +68,7 @@ def prepare_document(
     )
     # A preview never reads a whole scan or writes a cache: a scan background
     # is used only once a run has computed it (``ScanContextRequired``).
-    return prepare_v2(
+    return prepare_recipe(
         document,
         data_dir=data_dir,
         services=services,
@@ -78,7 +78,7 @@ def prepare_document(
 
 def measure_frame(prepared: PreparedRecipe, array: np.ndarray) -> Measurement:
     """The run's per-frame analysis of one loaded array."""
-    return analyze_v2(array, prepared.recipe, inputs=prepared.inputs)
+    return analyze_compiled(array, prepared.recipe, inputs=prepared.inputs)
 
 
 def preview_frame(

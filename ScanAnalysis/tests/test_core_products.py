@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from geecs_analysis.engine.v2_run import ShotGroup, UnitResult
+from geecs_analysis.engine.stream import ShotGroup, UnitResult
 from geecs_analysis.measurement import Measurement
 from geecs_data_utils.frames import Frame
 from geecs_analysis.recipe import compile_recipe

@@ -439,7 +439,7 @@ the same configs resolver in the preflight and `submit_preset`; saving a
 preset validates its authored document without expansion.  Analysis
 diagnostics resolve through Data Utils' shared config-root manager and
 read-only YAML reader via `ConfigsRepoResolver.resolve_diagnostic`.  The
-worker compiles each diagnostic once through `geecs_analysis.engine.v2`;
+worker compiles each diagnostic once through `geecs_analysis.engine.compiled`;
 scalar discovery comes from the compiled measure.  Unsupported active
 processing fails before acquisition.  Live diagnostics remain
 camera-only.  Per-shot results carry the matched Unix acquisition

@@ -1,7 +1,7 @@
 """The core's runtime: the in-memory compiled recipe and the evaluator that runs it.
 
-``geecs_analysis.recipe.compile_recipe`` produces a :class:`V2Recipe`;
-:func:`analyze_v2` runs it on already-loaded samples, without loading
+``geecs_analysis.recipe.compile_recipe`` produces a :class:`CompiledRecipe`;
+:func:`analyze_compiled` runs it on already-loaded samples, without loading
 configs or input files. The legacy conventions the ported analyzers pinned
 stay at this boundary: trace storage rounding before measurement, float64
 trace-result negative clipping, and the beam ROI-origin convention. (The
@@ -74,7 +74,7 @@ class TableInput:
 
 
 @dataclass(frozen=True)
-class V2Recipe:
+class CompiledRecipe:
     """An immutable in-memory recipe and explicit legacy conversion conventions."""
 
     analysis: Analysis
@@ -118,9 +118,9 @@ def trace_channels(
     return channels
 
 
-def analyze_v2(
+def analyze_compiled(
     data: np.ndarray,
-    recipe: V2Recipe,
+    recipe: CompiledRecipe,
     *,
     shot: ShotMeta | None = None,
     inputs: Mapping[str, object] | None = None,
@@ -205,7 +205,7 @@ def analyze_v2(
 
 
 def _trace_input(
-    data: np.ndarray, recipe: V2Recipe, shot: ShotMeta | None
+    data: np.ndarray, recipe: CompiledRecipe, shot: ShotMeta | None
 ) -> tuple[Frame, dict[str, Frame]]:
     """The scaled trace and its auxiliary channels on the same x axis.
 

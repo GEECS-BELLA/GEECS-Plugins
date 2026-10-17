@@ -14,9 +14,9 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
-from geecs_analysis.engine.v2 import V2Recipe
-from geecs_analysis.engine.v2_average import RunningAverage
-from geecs_analysis.engine.v2_run import UnitResult
+from geecs_analysis.engine.compiled import CompiledRecipe
+from geecs_analysis.engine.average import RunningAverage
+from geecs_analysis.engine.stream import UnitResult
 from geecs_analysis.measurement import Measurement
 from geecs_analysis.summaries.waterfall import MAX_COLUMNS, display_trace
 
@@ -93,7 +93,7 @@ class ProductCollector:
 
     def __init__(
         self,
-        recipe: V2Recipe,
+        recipe: CompiledRecipe,
         rows: pd.DataFrame,
         *,
         average_before_analysis: bool,
@@ -272,7 +272,7 @@ class ProductCollector:
 
 
 def plan_products(
-    recipe: V2Recipe,
+    recipe: CompiledRecipe,
     outcomes: Sequence[UnitResult],
     rows: pd.DataFrame,
     *,

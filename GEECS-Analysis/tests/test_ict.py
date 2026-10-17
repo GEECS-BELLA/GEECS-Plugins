@@ -7,7 +7,7 @@ import pytest
 from geecs_schemas.analysis import AnalysisRecipe
 
 from geecs_analysis.algorithms.ict import apply_ict_analysis
-from geecs_analysis.engine.v2 import V2Recipe, analyze_v2
+from geecs_analysis.engine.compiled import CompiledRecipe, analyze_compiled
 from geecs_analysis.measures.ict import SCALARS, IctSpec
 from geecs_analysis.recipe import compile_recipe
 
@@ -24,7 +24,7 @@ def scope_trace(seed: int, *, n: int = 2500, pulse_at: int | None = None) -> np.
     return pulse + pickup + rng.normal(0, 0.0015, n) + 0.0005
 
 
-def recipe(dt: float | None = DT) -> V2Recipe:
+def recipe(dt: float | None = DT) -> CompiledRecipe:
     measure = {"kind": "ict", "calibration_factor": 0.2, "butterworth_crit_f": 0.1}
     if dt is not None:
         measure["dt"] = dt
@@ -67,7 +67,7 @@ def test_the_core_route_matches_the_legacy_ict_analyzer(seed, dt, expected, requ
     legacy = expected(
         f"v2_route_{request.node.callspec.id}",
     )
-    core = analyze_v2(raw, recipe(dt=dt))
+    core = analyze_compiled(raw, recipe(dt=dt))
     # Legacy low-pass-filtered the float32 stored trace in float32; the core
     # filters the same samples at float64. Stated tolerance, not equality.
     assert set(core.scalars) == set(legacy)
@@ -80,6 +80,6 @@ def test_the_core_route_matches_the_legacy_ict_analyzer(seed, dt, expected, requ
 def test_a_trace_the_algorithm_cannot_analyze_is_nan_with_a_note():
     """Legacy wrote 0 pC here; the core keeps the failure visible."""
     raw = np.column_stack([np.arange(5) * DT, -np.ones(5)])
-    result = analyze_v2(raw, recipe())
+    result = analyze_compiled(raw, recipe())
     assert all(np.isnan(v) for v in result.scalars.values())
     assert any(n.startswith("ICT analysis failed") for n in result.notes)

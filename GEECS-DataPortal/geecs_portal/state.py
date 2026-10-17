@@ -190,7 +190,7 @@ class PortalState:
             )
         try:
             # Check the optional runtime even when the router is cached.
-            importlib.import_module("geecs_analysis.engine.v2")
+            importlib.import_module("geecs_analysis.engine.compiled")
             ephemeral = importlib.import_module("geecs_portal.processing")
         except ImportError as exc:
             raise HTTPException(

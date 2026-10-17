@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from geecs_analysis.engine.v2 import analyze_v2
+from geecs_analysis.engine.compiled import analyze_compiled
 from geecs_analysis.recipe import RecipeError
 from geecs_schemas.analysis import AnalysisRecipe
 
@@ -54,8 +54,8 @@ def test_file_backgrounds_and_fallbacks_match_old_backend(
     files = {p: p.read_bytes() for p in tmp_path.iterdir()}
     raw = np.random.default_rng(7).integers(100, 200, (10, 10), dtype=np.uint16)
 
-    prepared = core_inputs.prepare_v2(doc)
-    result = analyze_v2(raw, prepared.recipe, inputs=prepared.inputs)
+    prepared = core_inputs.prepare_recipe(doc)
+    result = analyze_compiled(raw, prepared.recipe, inputs=prepared.inputs)
     assert all(np.isfinite(v) for v in result.scalars.values())
     measurement_golden(
         f"inputs/file_background_{state}",
@@ -84,10 +84,10 @@ def test_device_directory_resolution_and_single_load_are_explicit(
         return reader(path)
 
     monkeypatch.setattr(core_inputs, "read_imaq_image", counted)
-    prepared = core_inputs.prepare_v2(doc, data_dir=device)
+    prepared = core_inputs.prepare_recipe(doc, data_dir=device)
     # Repeated steps and multiple frames reuse the loaded snapshot.
     for _ in range(2):
-        result = analyze_v2(
+        result = analyze_compiled(
             np.full((10, 10), 100), prepared.recipe, inputs=prepared.inputs
         )
         np.testing.assert_array_equal(result.frame.data, np.full((8, 8), 98))
@@ -100,16 +100,18 @@ def test_device_directory_resolution_and_single_load_are_explicit(
 def test_context_free_preview_keeps_placeholder_fallback(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     doc = recipe("{scan_dir}/dark.npy")
-    prepared = core_inputs.prepare_v2(doc)
+    prepared = core_inputs.prepare_recipe(doc)
     assert not prepared.inputs
-    result = analyze_v2(np.full((10, 10), 100), prepared.recipe)
+    result = analyze_compiled(np.full((10, 10), 100), prepared.recipe)
     np.testing.assert_array_equal(result.frame.data, np.full((8, 8), 78))
     assert not list(tmp_path.iterdir())
 
 
 def test_missing_scan_tree_is_not_created_by_background_resolution(tmp_path):
     data_dir = tmp_path / "scans" / "Scan999" / "Camera"
-    prepared = core_inputs.prepare_v2(recipe("{scan_dir}/dark.npy"), data_dir=data_dir)
+    prepared = core_inputs.prepare_recipe(
+        recipe("{scan_dir}/dark.npy"), data_dir=data_dir
+    )
     assert not prepared.inputs
     assert not (tmp_path / "scans").exists()
 
@@ -117,9 +119,9 @@ def test_missing_scan_tree_is_not_created_by_background_resolution(tmp_path):
 def test_loaded_shape_mismatch_raises_without_constant_fallback(tmp_path, caplog):
     path = tmp_path / "dark.npy"
     np.save(path, np.ones((1, 8)))
-    prepared = core_inputs.prepare_v2(recipe(path))
+    prepared = core_inputs.prepare_recipe(recipe(path))
     with pytest.raises(ValueError, match="shape"):
-        analyze_v2(np.ones((10, 10)), prepared.recipe, inputs=prepared.inputs)
+        analyze_compiled(np.ones((10, 10)), prepared.recipe, inputs=prepared.inputs)
     assert "Falling back" not in caplog.text
 
 
@@ -133,4 +135,4 @@ def test_compile_refusal_happens_before_reading_any_file(tmp_path, monkeypatch):
 
     monkeypatch.setattr(core_inputs, "read_imaq_image", forbid_read)
     with pytest.raises(RecipeError, match="does not bind"):
-        core_inputs.prepare_v2(doc)
+        core_inputs.prepare_recipe(doc)

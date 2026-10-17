@@ -479,7 +479,7 @@ read back from Linux.  Three rules hold on this side, and the writer's half
    over SMB (~2 ms of a 5 ms per-frame read), so a consumer reading every
    frame of one stack opens it once and reads through `read_frame(f, i)`
    — the read behind `read_shot`, same bounds check — rather than
-   `read_shot` per frame. ScanAnalysis's `V2ShotSource` does this per run
+   `read_shot` per frame. ScanAnalysis's `RecipeShotSource` does this per run
    and per pool worker.
 
 ## Key Dependency

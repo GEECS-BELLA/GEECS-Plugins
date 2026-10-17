@@ -43,7 +43,7 @@ wrappers wrote (see "Goldens" below).
 
 ## Config System (YAML → Pydantic → Factory → Instances)
 
-`core_inputs.prepare_v2` prepares a document for the numerical core. It is
+`core_inputs.prepare_recipe` prepares a document for the numerical core. It is
 shared with portal processing/unsaved previews. Compile capabilities before any reads, then load backgrounds once via
 data-utils and bind immutable Frames. Failed file loads retain the constant
 fallback; loaded shape errors propagate. `data_dir` means the device directory
@@ -72,7 +72,7 @@ capture stack (`core_source.stack_required` — an unconverted scan is
 refused as `StackMappingUnavailable`, i.e. `no_data`, naming the
 `himg_to_stack` converter). The same rule sits in `core_source.prepare_source`
 and `core_backgrounds`: `.himg` frames (`file_tail: .himg`) are read through
-the stack only, never per shot. `prepare_v2(services=False)` refuses
+the stack only, never per shot. `prepare_recipe(services=False)` refuses
 such a recipe with `ServicesNotRequested` (an `UnsupportedRecipe`):
 `core_preview.prepare_document` defaults to that, so the portal's shot
 browser keeps its old route (which refuses FROG) and never starts the DLL
@@ -80,7 +80,7 @@ per view; `preview_frame` / `preview_summary` — the editor's explicit
 previews — and scan runs ask for services.
 
 `core_source.prepare_source` maps a completed scan's scalar rows to native
-files or capture-stack frames through data-utils. The returned `V2ShotSource`
+files or capture-stack frames through data-utils. The returned `RecipeShotSource`
 snapshots references and reader settings, retains `ShotRef` indices, and loads
 native arrays without dtype conversion or caching. Diagnostic identity selects
 timestamp columns; `scan.device` selects the folder/native filename stem.
@@ -122,7 +122,7 @@ for one explicit run. A measure that reads a recorded column per shot
 each shot's `ShotMeta.scalars` (`shot_metadata`; a NaN or absent cell is
 left out, so the measure's fallback applies), passed to `run_units` as
 `shot_metadata`. Table inputs (`recipe.tables`) are read in
-`core_inputs.prepare_v2`, a relative path against
+`core_inputs.prepare_recipe`, a relative path against
 `config_roots.scan_analysis_config`; an unreadable table fails the run. `PreparedScan.run()` streams core `UnitResult` outcomes;
 `scalar_records()` projects bare scalars to `{output_name}_{key}{metric_suffix}`
 without mutating the result or caller's rows. Per-bin updates include all bin
@@ -130,7 +130,7 @@ members even when some inputs fail. Groups follow scalar-row order; empty bins
 are omitted and missing bin values form no group. Duplicate/nonpositive shot
 numbers and fractional bin ids are explicit preparation errors. No sinks or
 legacy factory route change are included in this adapter. `run(workers=N)`
-hands the count to the core's ordered pool (`geecs_analysis.engine.v2_run`);
+hands the count to the core's ordered pool (`geecs_analysis.engine.stream`);
 the outcomes arrive in group order whatever the count.
 
 `core_products.plan_products` chooses saved average/bin measurements and ordered

@@ -3,7 +3,7 @@
 The schema types the recipe's frame; this module binds its ``steps`` and
 ``measure`` to the builtin registry, checks that each can process the
 input's frames, and produces the in-memory compiled recipe the evaluator
-(``engine.v2.analyze_v2``) runs. Consumers call :func:`compile_document`,
+(``engine.compiled.analyze_compiled``) runs. Consumers call :func:`compile_document`,
 :func:`figure_of` and :func:`summaries_of`. No file access and no numerical
 imports happen here.
 """
@@ -15,12 +15,12 @@ from geecs_schemas.analysis.recipe import LineInput
 from pydantic import ValidationError
 
 from geecs_analysis import summaries as _summaries  # noqa: F401 -- registers the summary kinds
-from geecs_analysis.engine.v2 import (
+from geecs_analysis.engine.compiled import (
     FileBackground,
     ScanBackground,
     TableInput,
     UnsupportedRecipe,
-    V2Recipe,
+    CompiledRecipe,
     trace_channels,
 )
 from geecs_analysis.pipeline import measure_input, measure_tables, shot_scalar_columns
@@ -52,7 +52,7 @@ class RecipeError(ValueError):
 
 def compile_recipe(
     recipe: AnalysisRecipe, *, allow_file_backgrounds: bool = False
-) -> V2Recipe:
+) -> CompiledRecipe:
     """Bind the recipe's vocabulary to the registry and compile it, without I/O.
 
     Unknown step or measure names, unknown parameters, steps or a measure
@@ -110,7 +110,7 @@ def compile_recipe(
     return _camera_recipe(recipe, analysis, common)
 
 
-def _line_recipe(source: LineInput, analysis: Analysis, common: dict) -> V2Recipe:
+def _line_recipe(source: LineInput, analysis: Analysis, common: dict) -> CompiledRecipe:
     """The compiled line recipe: the source's scaling and the measure's channels."""
     try:
         channels = trace_channels(
@@ -120,7 +120,7 @@ def _line_recipe(source: LineInput, analysis: Analysis, common: dict) -> V2Recip
         raise RecipeError(str(exc)) from exc
     if channels and source.siblings:
         raise RecipeError("a stitched line input carries no auxiliary channels")
-    return V2Recipe(
+    return CompiledRecipe(
         **common,
         channels=channels,
         storage_dtype=source.storage_dtype,
@@ -134,7 +134,7 @@ def _line_recipe(source: LineInput, analysis: Analysis, common: dict) -> V2Recip
 
 def _camera_recipe(
     recipe: AnalysisRecipe, analysis: Analysis, common: dict
-) -> V2Recipe:
+) -> CompiledRecipe:
     """The compiled camera recipe: the crop origin and the host's input requests."""
     origin = (0, 0)
     for spec in analysis.steps:
@@ -143,7 +143,7 @@ def _camera_recipe(
         if isinstance(spec, RoiSpec) and spec.units == "index":
             origin = tuple(int(lo or 0) for lo, _ in spec.bounds)
             break
-    return V2Recipe(
+    return CompiledRecipe(
         **common,
         camera_origin=origin,
         file_backgrounds=tuple(
@@ -243,7 +243,7 @@ def _check_declarations(
 
 def compile_document(
     document: AnalysisDocument, *, allow_file_backgrounds: bool = False
-) -> V2Recipe:
+) -> CompiledRecipe:
     """Compile a recipe to the in-memory recipe the evaluator runs.
 
     Anything else from the analyzers tree (a ``.himg`` job: no frames, no

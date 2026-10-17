@@ -43,7 +43,7 @@ compile and run v3 recipes through it.
   registration: `@measure(..., input_field="reference")`, an
   `Optional[str]` field of its spec holding a binding key the recipe
   declares in `inputs` (a `from_scan` mean, a file). `bind_inputs(...,
-  measure=)` binds it, both evaluators (`run.analyze`, `analyze_v2`) fold
+  measure=)` binds it, both evaluators (`run.analyze`, `analyze_compiled`) fold
   it through the recipe's own steps (`process_measure_input` — a step
   sharing the key still sees the loaded frame), and `apply_measure`
   hands it over as the last argument, `None` when the field is unset.
@@ -125,7 +125,7 @@ sample-index coordinates, as before.
 
 LineBasicStats owns scratch because its RMS helper mutates samples. Measures
 never mutate the processed Frame; the old float64 LineAnalyzer result could
-alias that scratch, while its float32 result did not. The runtime (`analyze_v2`) must
+alias that scratch, while its float32 result did not. The runtime (`analyze_compiled`) must
 explicitly handle any output-array compatibility needed by float64 recipes;
 this core preserves the input Frame and scalar math. Do not silently use a
 mutable Frame to reproduce the old accidental aliasing.
@@ -160,7 +160,7 @@ A new step, measure or summary also needs
 `docs/sites/analysis_recipes/make_examples.py` rerun (pinned by
 `test_recipe_reference_page`). A recipe
 compiles to the one in-memory
-recipe (`V2Recipe`, renamed at A5) and runs through `analyze_v2`; consumers
+recipe (`CompiledRecipe`) and runs through `analyze_compiled`; consumers
 call `compile_document` / `figure_of` / `summaries_of` / `is_line`. A
 recipe has no inactive sections: coordinates start where the first crop
 starts. (The v2 `AnalysisDiagnostic` and its compile bridge were deleted
@@ -168,14 +168,14 @@ in #1039; the runtime module `compat` became `engine` then.)
 
 ## The runtime and the ported measures
 
-`engine.v2` is the runtime: `V2Recipe`, the request types and
-`analyze_v2`, which takes loaded native-dtype arrays; retaining native
+`engine.compiled` is the runtime: `CompiledRecipe`, the request types and
+`analyze_compiled`, which takes loaded native-dtype arrays; retaining native
 trace precision until axis scaling is deliberate.
 `allow_file_backgrounds=True` declares camera file requests without reading
 them; only a source host that can bind those requests should opt in. Default
 compilation still refuses them, including for the live optimizer. The source
 adapter in `scan_analysis.core_inputs` loads via data-utils and applies the
-constant fallback on reader/conversion failure. `analyze_v2(inputs=...)` never
+constant fallback on reader/conversion failure. `analyze_compiled(inputs=...)` never
 loads a file or chooses fallback. Scan backgrounds (a recipe's `from_scan`
 input) compile the same way to `ScanBackground` requests on the compiled
 recipe — the host computes the frame (ScanAnalysis `core_backgrounds`) and
@@ -196,7 +196,7 @@ NaN with a note on a rejected fit. The `frog_spectral_phase` measure
 phi0 removal and the fixed-length fit resample as before. Its spectral
 intensity is a **channel**: a line measure registered with
 `channels=("weights",)` reads the input loading's named
-`auxiliary_columns` of those names (`V2Recipe.channels`; the source appends
+`auxiliary_columns` of those names (`CompiledRecipe.channels`; the source appends
 them to the trace as columns 2, 3, …), cut by the recipe's `roi` steps
 only, as the legacy preprocessing cut its auxiliary columns, and handed
 to the function as a `{name: Frame}` mapping after every other argument.
@@ -226,7 +226,7 @@ cells blank), the `1.98/146`
 lanex factors, `np.gradient` + row-wise `np.interp` onto a grid clipped to
 the calibration's reach — the two per-shot clip warnings are gone, not
 the clip; `energy_range` is a request). A `dnn_axis` calibration's three
-files are table inputs (`V2Recipe.tables`, paths under
+files are table inputs (`CompiledRecipe.tables`, paths under
 `calibrations/<namespace>/` in the configs root), and the legacy per-shot
 teslameter override — a column name hardcoded in the analyzer, which
 wrote the live value into the shared calibration so later shots without
@@ -318,7 +318,7 @@ was built on the cropped shape instead.
 
 ## Execution units
 
-`engine.v2_run` is the streaming v2 orchestration boundary. The host supplies
+`engine.stream` is the streaming recipe orchestration boundary. The host supplies
 explicit groups and a loader; no path/config discovery or output writes belong
 here. Raw native arrays must be averaged before v2 axis scaling and processing,
 using mean rather than nanmean — and folded into a running sum as each
@@ -336,7 +336,7 @@ scalar propagation) and actual loaded contributors. Failures are explicit
 outcomes, and raw buffers are released before yielding. Load in declared order
 for reproducible sums; sources can reuse buffers, so snapshot each returned
 array. This runner does not replace scan grouping, scalar/output sinks or the
-factory by itself. Pure analyze/analyze_v2 remain loaded-input-only APIs.
+factory by itself. Pure analyze/analyze_compiled remain loaded-input-only APIs.
 
 `run_units(..., workers=N)` is the one pool (#1003). `workers <= 1` is the
 serial loop, no pool built. Above that, a `spawn` `ProcessPoolExecutor`
@@ -363,13 +363,13 @@ own module), and **no step keeps cross-shot state**. Host concerns —
 (`core_workers`), never here. The loader must pickle; a plain callable
 works (a dict's `__getitem__`), a host source implements
 `__getstate__`. Under pytest's importlib mode a test loader class must
-live in a real module on `sys.path` (`tests/test_v2_pool.py` writes one).
+live in a real module on `sys.path` (`tests/test_engine_pool.py` writes one).
 
 `Measurement`, `Frame` and `Axis` pickle for exactly this (the scalar view
 travels as a dict and is restored read-only; unpickled arrays are re-frozen
 in data-utils); keep `__getstate__`/`__setstate__` in step with the fields.
 
-`engine.v2_average.average_results` owns the post-analysis summary conventions:
+`engine.average.average_results` owns the post-analysis summary conventions:
 noscan uses ordinary means and omits shot overlays; bin summaries use nanmean
 and average projections. Never re-analyze the averaged processed frame to
 produce mean scalars. Trace samples AND coordinates reduce at the recipe's

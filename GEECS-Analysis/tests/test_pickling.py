@@ -7,7 +7,7 @@ import pytest
 from geecs_data_utils.frames import Axis, Frame, ShotMeta
 from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.engine.v2 import analyze_v2
+from geecs_analysis.engine.compiled import analyze_compiled
 from geecs_analysis.measurement import Marker, Measurement, Projection
 from geecs_analysis.recipe import compile_document, compile_recipe
 
@@ -81,7 +81,7 @@ def test_line_measurement_from_the_evaluator_round_trips():
     compiled = compile_recipe(doc)
     x = np.linspace(0.0, 10.0, 40)
     trace = np.column_stack([x, np.exp(-((x - 4) ** 2))])
-    original = analyze_v2(trace, compiled, shot=ShotMeta("Spectrum", 2))
+    original = analyze_compiled(trace, compiled, shot=ShotMeta("Spectrum", 2))
     copy = pickle.loads(pickle.dumps(original))
     same_measurement(copy, original)
     assert copy.frame.shot == ShotMeta("Spectrum", 2)

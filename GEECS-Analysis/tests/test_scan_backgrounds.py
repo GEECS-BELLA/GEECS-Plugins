@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.engine.v2 import ScanBackground
+from geecs_analysis.engine.compiled import ScanBackground
 from geecs_analysis.recipe import RecipeError, compile_recipe
 from geecs_analysis.steps.background_constant import BackgroundConstantSpec
 from geecs_analysis.steps.background_frame import BackgroundFrameSpec

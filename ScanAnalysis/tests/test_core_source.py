@@ -13,7 +13,7 @@ from geecs_data_utils.io.scan_stack import (
 from geecs_data_utils.shot_files import StackMappingUnavailable
 from geecs_schemas.analysis import AnalysisRecipe
 
-from scan_analysis.core_source import V2ShotSource, prepare_source
+from scan_analysis.core_source import RecipeShotSource, prepare_source
 
 
 def document(*, line=False, data_type="csv", device=None, data_format=None, **inp):
@@ -82,7 +82,7 @@ def test_trace_settings_are_snapshotted_before_document_edits(tmp_path):
 def test_reference_map_is_owned_but_retains_shotref_identity(tmp_path):
     ref = ShotRef(tmp_path / "stack.h5", 7)
     refs = {2: ref}
-    source = V2ShotSource(tmp_path, refs)
+    source = RecipeShotSource(tmp_path, refs)
     refs.clear()
     assert source.references[2] is ref
 

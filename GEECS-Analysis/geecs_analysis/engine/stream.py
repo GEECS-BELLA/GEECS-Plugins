@@ -1,4 +1,4 @@
-"""Streaming v2 execution over explicit shot groups and a caller-owned loader.
+"""Streaming recipe execution over explicit shot groups and a caller-owned loader.
 
 The host resolves files, grouping and output destinations. This runner only
 loads the requested group and evaluates the compiled recipe. It writes nothing.
@@ -18,13 +18,13 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Mapping
 
-from geecs_analysis.engine.v2 import V2Recipe, analyze_v2
+from geecs_analysis.engine.compiled import CompiledRecipe, analyze_compiled
 from geecs_analysis.pipeline import bind_inputs
 
 if TYPE_CHECKING:
     import numpy as np
     from geecs_data_utils.frames import ShotMeta
-    from geecs_analysis.engine.v2_average import _Sum
+    from geecs_analysis.engine.average import _Sum
     from geecs_analysis.measurement import Measurement
 
 #: The multiprocessing start method of the worker pool. The hosts are
@@ -96,7 +96,7 @@ def _opened(load: Loader) -> Iterator[Loader]:
 
 
 def _run_group(  # noqa: C901, PLR0912, PLR0915
-    recipe: V2Recipe,
+    recipe: CompiledRecipe,
     group: ShotGroup,
     load: Loader,
     average_before_analysis: bool,
@@ -107,7 +107,7 @@ def _run_group(  # noqa: C901, PLR0912, PLR0915
     import numpy as np
     from geecs_data_utils.frames import ShotMeta
 
-    from geecs_analysis.engine.v2_average import _Sum
+    from geecs_analysis.engine.average import _Sum
 
     loaded = []
     failures = []
@@ -171,7 +171,7 @@ def _run_group(  # noqa: C901, PLR0912, PLR0915
                 raw = first
                 number = group.shots[0]
                 shot = metadata.get(number, ShotMeta(recipe.device, number))
-            measurement = analyze_v2(raw, recipe, shot=shot, inputs=bound)
+            measurement = analyze_compiled(raw, recipe, shot=shot, inputs=bound)
         except Exception as exc:  # noqa: BLE001 — per-shot isolation
             error = str(exc)
     # Release native arrays before the outcome travels. Only the owned
@@ -197,7 +197,7 @@ def _mean_dtype(native: np.dtype) -> np.dtype:
 
 
 def run_units(
-    recipe: V2Recipe,
+    recipe: CompiledRecipe,
     groups: Iterable[ShotGroup],
     load: Loader,
     *,
@@ -264,7 +264,7 @@ def _checked(group: ShotGroup, average_before_analysis: bool) -> ShotGroup:
 
 
 def _run_serial(
-    recipe: V2Recipe,
+    recipe: CompiledRecipe,
     groups: Iterable[ShotGroup],
     load: Loader,
     average_before_analysis: bool,
@@ -331,7 +331,7 @@ def _exit_with_parent() -> None:
 def _worker_init(
     queue: Any,
     level: int,
-    recipe: V2Recipe,
+    recipe: CompiledRecipe,
     load: Loader,
     inputs: Mapping[str, object],
     average_before_analysis: bool,
@@ -379,7 +379,7 @@ def _worker_run(group: ShotGroup, metadata: Mapping[int, ShotMeta]) -> UnitResul
 
 
 def _run_pooled(
-    recipe: V2Recipe,
+    recipe: CompiledRecipe,
     groups: Iterable[ShotGroup],
     load: Loader,
     average_before_analysis: bool,

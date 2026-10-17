@@ -9,14 +9,14 @@ from typing import Iterable, Iterator, Literal, Mapping
 
 import numpy as np
 import pandas as pd
-from geecs_analysis.engine.v2_run import ShotGroup, UnitResult, run_units
+from geecs_analysis.engine.stream import ShotGroup, UnitResult, run_units
 from geecs_analysis.pipeline import shot_scalar_columns
 from geecs_data_utils.frames import ShotMeta
 from geecs_data_utils.tiled_schema import announced_shots
 
-from scan_analysis.core_inputs import PreparedRecipe, prepare_v2
+from scan_analysis.core_inputs import PreparedRecipe, prepare_recipe
 from scan_analysis.core_recipe import AnalysisDocument, ScanRecipe, scan_recipe
-from scan_analysis.core_source import V2ShotSource, prepare_source, source_directory
+from scan_analysis.core_source import RecipeShotSource, prepare_source, source_directory
 
 
 def _integer(value: object, label: str, *, positive: bool = False) -> int:
@@ -131,7 +131,7 @@ class PreparedScan:
     """One run's recipe, input references, grouping and scalar naming snapshot."""
 
     prepared: PreparedRecipe
-    source: V2ShotSource
+    source: RecipeShotSource
     groups: tuple[ShotGroup, ...]
     average_before_analysis: bool
     output_name: str
@@ -202,7 +202,7 @@ def prepare_scan(
     spec = scan_recipe(snapshot)
     row_snapshot = rows.copy(deep=True)
     directory = source_directory(spec, scan_folder)
-    prepared = prepare_v2(snapshot, data_dir=directory)
+    prepared = prepare_recipe(snapshot, data_dir=directory)
     source = prepare_source(spec, scan_folder, row_snapshot)
     mode = "per_bin" if spec.average_frames_first else "per_shot"
     return PreparedScan(

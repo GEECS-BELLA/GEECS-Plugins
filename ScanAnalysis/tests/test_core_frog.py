@@ -34,7 +34,7 @@ LEGACY_COLUMNS = [
 
 # The retriever travels to spawned pool workers, which import its module by
 # name, so it lives in a real module on sys.path (see GEECS-Analysis's
-# test_v2_pool). Its time and wavelength grids differ in length, as the
+# test_engine_pool). Its time and wavelength grids differ in length, as the
 # DLL's do, so the table's padding is exercised.
 HELPER = textwrap.dedent(
     '''
@@ -246,7 +246,7 @@ def test_shot_table_paths_sit_beside_the_file_or_the_stack():
 def test_a_per_request_view_never_starts_the_dll_but_the_explicit_preview_does(
     monkeypatch, helper
 ):
-    from geecs_analysis.engine.v2 import UnsupportedRecipe
+    from geecs_analysis.engine.compiled import UnsupportedRecipe
 
     from scan_analysis.core_inputs import ServicesNotRequested
     from scan_analysis.core_preview import prepare_document, preview_frame
