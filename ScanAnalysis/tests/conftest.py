@@ -8,7 +8,16 @@ from typing import Any
 
 import pytest
 
-from scan_analysis.route_compare import Golden, read_golden, write_golden
+import numpy as np
+import pandas as pd
+
+from scan_analysis.route_compare import (
+    GOLDEN_RTOL,
+    Golden,
+    compare_snapshots,
+    read_golden,
+    write_golden,
+)
 
 #: The committed golden trees the differential tests pin against: one folder
 #: per case (``manifest.json`` + ``arrays.npz``), generated from the core
@@ -44,6 +53,34 @@ def golden():
         return read_golden(folder)
 
     return resolve
+
+
+def measurement_snapshot(data: Any, scalars: dict[str, float]) -> dict[str, tuple]:
+    """One measurement (its frame data and scalars) in ``compare_snapshots``' shape."""
+    data = np.asarray(data)
+    if data.dtype.kind == "f":  # values, not storage width (legacy kept float32 traces)
+        data = data.astype(np.float64)
+    table = pd.DataFrame({key: [float(v)] for key, v in scalars.items()})
+    return {"frame": ("h5", "data", data, data.dtype), "scalars": ("table", table)}
+
+
+@pytest.fixture
+def measurement_golden(golden):
+    """Check one measurement (frame data and scalars) against the stored golden ``name``.
+
+    The stored values came from the legacy oracle while it was present
+    (#1039); ``GEECS_UPDATE_GOLDENS`` now stores the core's. Floats are held
+    to ``GOLDEN_RTOL`` of their own scale.
+    """
+
+    def check(name: str, data: Any, scalars: dict[str, float]) -> None:
+        core = measurement_snapshot(data, scalars)
+        problems = compare_snapshots(
+            golden(name, core).files, core, average_ulps=0, rtol=GOLDEN_RTOL
+        )
+        assert problems == [], problems
+
+    return check
 
 
 @pytest.fixture(scope="session")

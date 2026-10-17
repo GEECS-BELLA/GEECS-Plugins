@@ -20,7 +20,6 @@ its own `pyproject.toml`, managed by [Poetry](https://python-poetry.org/).
 | `GEECS-Schemas/` | Pydantic schemas for every scanner and analysis config document | library |
 | `GeecsWebTheme/` | Shared stylesheets and FastAPI glue for every web surface | library |
 | `GEECS-Analysis/` | Pure analysis core: coordinate-aware processing steps driven by recipe documents | library |
-| `ImageAnalysis/` | Per-image analyzers and processing pipelines | library |
 | `ScanAnalysis/` | Post-scan analysis: task queue, config system, scan analyzers, the web config editor | library |
 | `GeecsBluesky/` | Bluesky backend: GEECS devices as ophyd-async devices, the scan plans, the queueserver worker, the Tiled writer, the queue client | queueserver worker (`qserver/launch_re_manager.sh`); `geecs-tiled-writer` |
 | `GeecsCAGateway/` | Channel Access gateway serving GEECS devices as PVs (readback + setpoint) | `geecs-ca-gateway` |
@@ -59,9 +58,8 @@ graph TD
     Archiver[GeecsArchiver]
     Triage[GEECS-LogTriage]
   end
-  subgraph analysis["Analysis cores"]
+  subgraph analysis["Analysis core"]
     Analysis[GEECS-Analysis]
-    ImageAnalysis
   end
   subgraph foundations["Foundations (no intra-repo imports)"]
     Core[GEECS-Core]
@@ -70,17 +68,16 @@ graph TD
     Theme[GeecsWebTheme]
   end
   Scanner --> Bluesky & Schemas & Core & Theme
-  Portal --> ScanAnalysis & Analysis & ImageAnalysis & DataUtils & Theme
+  Portal --> ScanAnalysis & Analysis & DataUtils & Theme
   Logbook --> DataUtils & Schemas & Theme
   MCP --> Bluesky & ScanAnalysis & DataUtils
   Bluesky --> Analysis & Core & DataUtils & Schemas
-  ScanAnalysis --> Analysis & ImageAnalysis & DataUtils & Schemas & Theme
+  ScanAnalysis --> Analysis & DataUtils & Schemas & Theme
   CAGW --> Core & Schemas
   PVAGW --> Core & DataUtils
   Archiver --> Core & Schemas
   Triage --> DataUtils
   Analysis --> DataUtils & Schemas
-  ImageAnalysis --> DataUtils & Schemas
 ```
 
 `LogMaker4GoogleDocs` stands alone. Nothing imports the gateways: they are
@@ -141,7 +138,7 @@ poetry run mkdocs serve # the documentation site, locally (root env)
   shared host bootstrap, and each service keeps its recipe in its package
   (`<Package>/deploy/`; the worker's is `GeecsBluesky/qserver/deploy/`).
 - **Not packages:** `scripts/` (check, commit and audit tools), `tests/`
-  (repo-wide contract tests), `Planning/` (design notes), `image_analysis_configs/`.
+  (repo-wide contract tests), `Planning/` (design notes).
   `extras/` is unmaintained legacy material; do not build on it.
 - **Issues:** [GitHub issues](https://github.com/GEECS-BELLA/GEECS-Plugins/issues).
 

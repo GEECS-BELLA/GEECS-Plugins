@@ -1,8 +1,5 @@
 """File resolution preserves legacy numerical and failure contracts without writes."""
 
-import subprocess
-import sys
-
 import numpy as np
 import pytest
 from geecs_analysis.compat.v2 import UnsupportedRecipe, analyze_v2
@@ -32,9 +29,9 @@ def document(path):
 
 
 @pytest.mark.parametrize("state", ["loaded", "missing", "corrupt"])
-def test_file_backgrounds_and_fallbacks_match_old_backend(tmp_path, state, caplog):
-    from image_analysis.ephemeral import run_document_ephemeral
-
+def test_file_backgrounds_and_fallbacks_match_old_backend(
+    tmp_path, state, caplog, measurement_golden
+):
     path = tmp_path / "dark.npy"
     if state == "loaded":
         np.save(path, np.arange(64).reshape(8, 8) / 10)
@@ -44,13 +41,15 @@ def test_file_backgrounds_and_fallbacks_match_old_backend(tmp_path, state, caplo
     before = doc.model_dump_json()
     files = {p: p.read_bytes() for p in tmp_path.iterdir()}
     raw = np.random.default_rng(7).integers(100, 200, (10, 10), dtype=np.uint16)
-    (old,) = run_document_ephemeral(doc, [raw])
+
     prepared = core_inputs.prepare_v2(doc)
     result = analyze_v2(raw, prepared.recipe, inputs=prepared.inputs)
-    np.testing.assert_array_equal(result.frame.data, old.processed_image)
-    assert result.scalars.keys() == old.scalars.keys()
-    assert all(np.isfinite(v) for v in old.scalars.values())
-    assert dict(result.scalars) == old.scalars
+    assert all(np.isfinite(v) for v in result.scalars.values())
+    measurement_golden(
+        f"inputs/file_background_{state}",
+        result.frame.data,
+        dict(result.scalars),
+    )
     assert doc.model_dump_json() == before
     assert {p: p.read_bytes() for p in tmp_path.iterdir()} == files
     if state != "loaded":
@@ -126,21 +125,3 @@ def test_compile_refusal_happens_before_reading_any_file(monkeypatch):
     monkeypatch.setattr(core_inputs, "read_imaq_image", forbid_read)
     with pytest.raises(UnsupportedRecipe):
         core_inputs.prepare_v2(doc)
-
-
-def test_preparation_has_no_legacy_analyzer_imports(tmp_path):
-    path = tmp_path / "dark.npy"
-    np.save(path, np.ones((8, 8)))
-    code = f"""
-import builtins
-original = builtins.__import__
-def guarded(name, *args, **kwargs):
-    if name.startswith('image_analysis'):
-        raise AssertionError(name)
-    return original(name, *args, **kwargs)
-builtins.__import__ = guarded
-from geecs_schemas.analysis import AnalysisDiagnostic
-from scan_analysis.core_inputs import prepare_v2
-assert prepare_v2(AnalysisDiagnostic.model_validate_json({document(path).model_dump_json()!r})).inputs
-"""
-    subprocess.run([sys.executable, "-c", code], check=True)

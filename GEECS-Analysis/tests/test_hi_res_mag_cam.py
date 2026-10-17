@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.util
 import math
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -20,14 +22,18 @@ from geecs_analysis.measures.hi_res_mag_cam import (
 from geecs_analysis.recipe import compile_recipe
 from geecs_analysis.render import single
 
+_spec = importlib.util.spec_from_file_location(
+    "synthetic_bowtie", Path(__file__).with_name("synthetic_bowtie.py")
+)
+_bowtie = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_bowtie)
+
 FIT_FIELDS = ("score", "w0", "theta", "x0", "r_squared")
 
 
 def bowtie(seed: int, **kwargs) -> np.ndarray:
-    """A synthetic bow-tie frame from the legacy generator (the tests' oracle input)."""
-    from image_analysis.tools.synthetic_generators import generate_bowtie_image
-
-    return generate_bowtie_image(
+    """A synthetic bow-tie frame from the legacy generator (``synthetic_bowtie.py``)."""
+    return _bowtie.generate_bowtie_image(
         **{
             "shape": (64, 128),
             "noise_level": 10.0,
@@ -73,39 +79,35 @@ def diagnostic(analyzer: dict | None = None, **image) -> AnalysisDiagnostic:
     )
 
 
-def assert_same_value(actual: float, expected: float, key: str) -> None:
-    """Equal wherever legacy has a value (finite or infinite); NaN only where legacy is NaN."""
-    if math.isnan(expected):
-        assert math.isnan(actual), key
-    else:
-        assert actual == expected, key
-
-
 # ---------------------------------------------------------------------------
 # The algorithm
 # ---------------------------------------------------------------------------
 
 
+def fit_values(algorithm, image: np.ndarray) -> dict:
+    """What a bowtie fit reports, flattened for the stored-value check."""
+    result = algorithm.evaluate(image)
+    values = {name: float(getattr(result, name)) for name in FIT_FIELDS}
+    values["param_errors"] = np.asarray(result.param_errors, dtype=float)
+    values["weights"] = np.asarray(result.weights)
+    values["sizes"] = np.asarray(result.sizes, dtype=float)
+    for n, profile in enumerate(algorithm.get_last_profile()):
+        values[f"profile_{n}"] = np.asarray(profile)
+    return values
+
+
 @pytest.mark.parametrize("seed", range(6))
 @pytest.mark.parametrize("case", CASES)
 @pytest.mark.parametrize("clearance,min_counts", [(4, 2500.0), (2, 500.0)])
-def test_the_algorithm_is_the_legacy_one_bit_for_bit(seed, case, clearance, min_counts):
-    from image_analysis.algorithms.bowtie_fit import BowtieFitAlgorithm as Legacy
-
+def test_the_algorithm_is_the_legacy_one_bit_for_bit(
+    seed, case, clearance, min_counts, expected, request
+):
     image = frame(case, seed).astype(float)
     image[image < 10] = 0
     args = dict(n_beam_size_clearance=clearance, min_total_counts=min_counts)
-    ours, theirs = BowtieFitAlgorithm(**args), Legacy(**args)
-    result, expected = ours.evaluate(image), theirs.evaluate(image)
-    for name in FIT_FIELDS:
-        assert_same_value(getattr(result, name), getattr(expected, name), name)
-    for got, want in zip(result.param_errors, expected.param_errors, strict=True):
-        assert_same_value(got, want, "param_errors")
-    np.testing.assert_array_equal(result.weights, expected.weights)
-    assert np.array_equal(result.sizes, expected.sizes, equal_nan=True)
-    assert all(
-        np.array_equal(a, b, equal_nan=True)
-        for a, b in zip(ours.get_last_profile(), theirs.get_last_profile(), strict=True)
+    expected(
+        f"algorithm_{request.node.callspec.id}",
+        actual=fit_values(BowtieFitAlgorithm(**args), image),
     )
 
 
@@ -163,31 +165,28 @@ def test_the_differential_cases_cover_an_accepted_fit_and_both_rejections():
         "waist past left edge",
     ],
 )
-def test_the_v2_route_matches_the_legacy_analyzer(seed, image):
+def test_the_v2_route_matches_the_legacy_analyzer(seed, image, expected, request):
     """Same frame and config through HiResMagCamAnalyzer and through the core."""
-    from image_analysis.analyzers.Undulator.hi_res_mag_cam_analyzer import (
-        HiResMagCamAnalyzer,
-    )
 
     document = diagnostic(
         {"n_beam_size_clearance": 3, "min_total_counts": 1500}, **image
     )
     raw = bowtie(seed, energy_center=70, vertical_offset=3)
-    legacy = HiResMagCamAnalyzer(document.image, spec=document.analyzer).analyze_image(
-        raw
-    )
+
     core = analyze_v2(raw, compile_v2(document))
-    assert set(core.scalars) == set(legacy.scalars) == V2Spec().emitted_scalars()
+    weights = {o.id: o for o in core.overlays}["bowtie_weights"]
+    stored = expected(
+        f"route_{request.node.callspec.id}",
+        actual={
+            **{f"scalar_{k}": v for k, v in core.scalars.items()},
+            "bowtie_weights": weights.frame.data,
+        },
+    )
+    assert set(core.scalars) == V2Spec().emitted_scalars()
     assert set(core.scalars) == HiResMagCamSpec().emitted_scalars()
-    assert legacy.scalars["emittance_proxy"] != REJECTED
-    for key, value in legacy.scalars.items():
-        assert_same_value(core.scalars[key], float(value), key)
+    assert float(stored["scalar_emittance_proxy"]) != REJECTED
     assert core.notes == ()
     assert math.isfinite(core.scalars["bowtie_x0"])
-    weights = {o.id: o for o in core.overlays}["bowtie_weights"]
-    np.testing.assert_array_equal(
-        weights.frame.data, legacy.render_data["bowtie_weights"]
-    )
     np.testing.assert_array_equal(
         weights.frame.axes[0].values, core.frame.axes[1].values
     )

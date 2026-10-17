@@ -54,7 +54,7 @@ geecs_mcp/
 
 Runtime dependencies: `fastmcp`, `httpx`, `anyio`, `pillow` (the
 opt-in thumbnail only). **Removed**: `geecs-bluesky`, `geecs-data-utils`,
-`scananalysis`, `imageanalysis`, `pyyaml`, the `analysis-run` extra, the
+`scananalysis`, `pyyaml`, the `analysis-run` extra, the
 `/figures/` route, the progress-stream consumer, `[mcp] client_identity`.
 Tools become plain `async def` over `httpx.AsyncClient` — the
 `anyio.to_thread` wrapper pattern goes with the sync seams it wrapped.

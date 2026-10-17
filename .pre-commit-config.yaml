@@ -1,8 +1,7 @@
 exclude: |
   (?x)^(
     extras/|
-    .*/tests/data/wire/|
-    .*/image_analysis/algorithms/(grenouille|qwlsi)\.py$
+    .*/tests/data/wire/
   )
 
 repos:

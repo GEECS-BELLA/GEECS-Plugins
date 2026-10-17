@@ -29,14 +29,14 @@ __all__ = ["SERVICE_FACTORIES", "services_for"]
 
 def _frog_retriever(data_dir: Optional[Path]) -> object:
     """The FROG.dll retrieval, configured by ``[Paths] frog_*`` in config.ini."""
-    from image_analysis.algorithms.frog_dll_retrieval import FrogDllRetrieval
+    from scan_analysis.services.frog_dll_retrieval import FrogDllRetrieval
 
     return FrogDllRetrieval.from_config()
 
 
 def _haso_wavekit(data_dir: Optional[Path]) -> object:
     """The WaveKit engine (``[Paths] wavekit_*``) with the scan's sensor header."""
-    from image_analysis.algorithms.haso_wavekit import HasoWaveKit
+    from scan_analysis.services.haso_wavekit import HasoWaveKit
 
     if data_dir is None:
         raise LookupError(

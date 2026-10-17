@@ -183,7 +183,6 @@ docs/
 ├── development_guidelines.md   # This file
 ├── installation.md            # General installation
 ├── geecs_scanner/             # GEECS Scanner docs
-├── image_analysis/            # Image analysis docs
 └── scan_analysis/             # Scan analysis docs
 ```
 

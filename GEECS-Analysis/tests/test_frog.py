@@ -161,12 +161,8 @@ def test_v2_frog_diagnostic_compiles_to_the_frog_measure_with_its_parameters():
     assert recipe.analysis.steps == ()
 
 
-def test_the_v2_route_matches_the_legacy_grenouille_analyzer(monkeypatch):
-    """The legacy analyzer, on the same fake DLL, is the oracle."""
-    from geecs_schemas.analysis import FrogRetrievalSpec
-    from image_analysis.algorithms.frog_dll_retrieval import FrogDllRetrieval
-    from image_analysis.analyzers.grenouille_analyzer import GrenouilleAnalyzer
-
+def test_the_v2_route_matches_the_legacy_grenouille_analyzer(expected):
+    """The legacy GrenouilleAnalyzer, on the same fake DLL, was the oracle."""
     image = {
         "bit_depth": 16,
         "background": {"method": "constant", "constant_level": 1.0},
@@ -180,28 +176,20 @@ def test_the_v2_route_matches_the_legacy_grenouille_analyzer(monkeypatch):
         "pipeline": ["background", "filtering", "thresholding"],
     }
     document = diagnostic(**image)
-    legacy_retriever = FakeRetriever()
-    monkeypatch.setattr(
-        FrogDllRetrieval, "from_config", classmethod(lambda cls: legacy_retriever)
-    )
-    legacy = GrenouilleAnalyzer(
-        document.image, spec=FrogRetrievalSpec(**PARAMETERS)
-    ).analyze_image(trace())
-
     retriever = FakeRetriever()
     result = analyze_v2(trace(), compile_v2(document), inputs={"frog": retriever})
-
-    np.testing.assert_array_equal(retriever.calls[0][0], legacy_retriever.calls[0][0])
-    assert retriever.calls[0][1] == legacy_retriever.calls[0][1]
-    assert result.scalars == {k: float(v) for k, v in legacy.scalars.items()}
-    np.testing.assert_array_equal(result.frame.data, legacy.processed_image)
     projections = {o.id: o.frame.data for o in result.overlays}
-    np.testing.assert_array_equal(
-        projections["projection_x"], legacy.render_data["horizontal_projection"]
+    expected(
+        "grenouille_route",
+        actual={
+            "retriever_input": retriever.calls[0][0],
+            "processed_image": result.frame.data,
+            "projection_x": projections["projection_x"],
+            "projection_y": projections["projection_y"],
+            **{f"scalar_{k}": v for k, v in result.scalars.items()},
+        },
     )
-    np.testing.assert_array_equal(
-        projections["projection_y"], legacy.render_data["vertical_projection"]
-    )
+    assert retriever.calls[0][1] == PARAMETERS
 
 
 def test_a_frog_diagnostic_converts_to_a_v3_recipe_that_compiles_identically():

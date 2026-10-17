@@ -185,13 +185,3 @@ def test_sink_resolves_every_kind_in_a_fresh_process():
         "['average_processed_visual', 'averaged_image_grid', 'summary_scalar_fit', "
         "'summary_waterfall']"
     )
-
-
-def test_legacy_image_analyzer_entry_points_refuse_a_recipe():
-    from image_analysis.config import create_image_analyzer
-    from image_analysis.ephemeral import _ephemeral_analyzer_for
-
-    with pytest.raises(TypeError, match="analysis core"):
-        create_image_analyzer(recipe())
-    with pytest.raises(TypeError, match="ephemeral ImageAnalyzer route"):
-        _ephemeral_analyzer_for(recipe())

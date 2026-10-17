@@ -19,25 +19,16 @@ def recipe(kind, **options):
     return Analysis.model_validate({"measure": {"kind": kind, **options}})
 
 
-def assert_finite_scalars_equal(actual, expected):
-    assert actual.keys() == expected.keys()
-    assert all(np.isfinite(list(expected.values())))
-    assert dict(actual) == expected
+def assert_finite(scalars):
+    assert all(np.isfinite(list(scalars.values())))
 
 
 @pytest.mark.parametrize("shape", [(11, 13), (23, 17)])
 @pytest.mark.parametrize("slopes", [False, True])
-def test_beam_matches_legacy_in_global_pixel_coordinates(shape, slopes):
-    from image_analysis.algorithms.basic_beam_stats import (
-        beam_profile_stats,
-        flatten_beam_stats,
-    )
-    from image_analysis.algorithms.beam_slopes import compute_beam_slopes
-
+def test_beam_matches_legacy_in_global_pixel_coordinates(
+    shape, slopes, expected, request
+):
     samples = np.random.default_rng(7).uniform(1, 100, shape)
-    expected = flatten_beam_stats(beam_profile_stats(samples, roi_offset=(30, 20)))
-    if slopes:
-        expected.update(compute_beam_slopes(samples))
     frame = Frame.from_array(
         samples,
         axes=(
@@ -47,7 +38,11 @@ def test_beam_matches_legacy_in_global_pixel_coordinates(shape, slopes):
         shot=ShotMeta("camera", 3, 45),
     )
     result = analyze(frame, recipe("beam", compute_slopes=slopes))
-    assert_finite_scalars_equal(result.scalars, expected)
+    assert_finite(result.scalars)
+    stored = expected(
+        f"beam_{request.node.callspec.id}",
+        actual=dict(result.scalars),
+    )
     assert result.frame is frame
     assert not result.notes
     np.testing.assert_array_equal(frame.data, samples)
@@ -58,7 +53,9 @@ def test_beam_matches_legacy_in_global_pixel_coordinates(shape, slopes):
     assert projections["projection_x"].frame.axes[0] is frame.axes[1]
     assert projections["projection_x"].frame.shot is frame.shot
     marker = next(o for o in result.overlays if isinstance(o, Marker))
-    assert (marker.x, marker.y) == (expected["x_CoM"], expected["y_CoM"])
+    assert (marker.x, marker.y) == (result.scalars["x_CoM"], result.scalars["y_CoM"])
+    assert marker.x == pytest.approx(float(stored["x_CoM"]), rel=1e-6)
+    assert marker.y == pytest.approx(float(stored["y_CoM"]), rel=1e-6)
 
 
 def test_beam_affine_coordinates_transform_centroids_and_widths():
@@ -97,23 +94,25 @@ def test_beam_affine_coordinates_transform_centroids_and_widths():
         np.linspace(0.1, 0.9, 9).astype(np.float32).astype(float),
     ],
 )
-def test_line_matches_legacy_on_evenly_spaced_axes(coordinates):
-    from image_analysis.algorithms.basic_line_stats import LineBasicStats
-
+def test_line_matches_legacy_on_evenly_spaced_axes(coordinates, expected, request):
     trace = np.column_stack((coordinates, [1, 2, 4, 8, 12, 9, 4, 2, 1]))
-    expected = LineBasicStats(line_data=trace.copy()).to_dict()
     result = analyze(Frame.from_trace(trace, x_unit="MeV"), recipe("line"))
-    assert_finite_scalars_equal(result.scalars, expected)
+    assert_finite(result.scalars)
+    expected(
+        f"line_even_{request.node.callspec.id}",
+        actual=dict(result.scalars),
+    )
     assert not result.notes
 
 
-def test_line_widths_on_an_uneven_axis_are_moments_over_x():
+def test_line_widths_on_an_uneven_axis_are_moments_over_x(expected):
     """#1029: not index-space widths times the one spacing at the centroid."""
-    from image_analysis.algorithms.basic_line_stats import LineBasicStats
 
     x = np.array([2, 3, 6, 7, 10, 12, 15, 19, 20], dtype=float)
     y = np.array([1, 2, 4, 8, 12, 9, 4, 2, 1], dtype=float)
-    legacy = LineBasicStats(line_data=np.column_stack((x, y))).to_dict()
+    legacy = expected(
+        "line_uneven_legacy",
+    )
     result = analyze(
         Frame.from_trace(np.column_stack((x, y)), x_unit="MeV"), recipe("line")
     )
@@ -133,10 +132,10 @@ def test_line_widths_on_an_uneven_axis_are_moments_over_x():
     # x 6→7 (6.625 MeV) and 8→3 at x 12→15 (13.5 MeV).
     assert result.scalars["fwhm"] == pytest.approx(13.5 - 6.625, rel=1e-12)
     # Legacy scaled by the 2 MeV spacing at the centroid: 2.875 × 2 = 5.75.
-    assert legacy["fwhm"] == 5.75
-    assert legacy["rms"] == pytest.approx(3.2987, abs=1e-4)
+    assert float(legacy["fwhm"]) == pytest.approx(5.75, rel=1e-6)
+    assert float(legacy["rms"]) == pytest.approx(3.2987, abs=1e-4)
     for key in ("CoM", "peak_location", "integrated_intensity", "peak_value"):
-        assert result.scalars[key] == legacy[key]
+        assert result.scalars[key] == pytest.approx(float(legacy[key]), rel=1e-6)
     assert not result.notes
 
 
@@ -178,14 +177,15 @@ def interval_weights(x):
     )
 
 
-def test_line_widths_on_a_stitched_trace_are_measured_in_x():
-    from image_analysis.algorithms.basic_line_stats import LineBasicStats
-
+def test_line_widths_on_a_stitched_trace_are_measured_in_x(expected):
     joined = stitched_repro()
     x, y = joined[:, 0], joined[:, 1]
     frame = Frame.from_array(y, axes=(Axis(values=x, unit="MeV"),))
     result = analyze(frame, recipe("line"))
-    legacy = LineBasicStats(line_data=joined.copy()).to_dict()
+    legacy = expected(
+        "line_stitched_legacy",
+    )
+    legacy = {key: float(value) for key, value in legacy.items()}
 
     # Measured directly in MeV on the joined trace: the span of the samples
     # at or above half maximum brackets the interpolated crossings to within
@@ -214,7 +214,7 @@ def test_line_widths_on_a_stitched_trace_are_measured_in_x():
     assert abs(result.scalars["rms"] - legacy["rms"]) > 5
 
     for key in ("CoM", "peak_location", "integrated_intensity", "peak_value"):
-        assert result.scalars[key] == legacy[key]
+        assert result.scalars[key] == pytest.approx(legacy[key], rel=1e-6)
     assert not result.notes
 
 
@@ -253,12 +253,7 @@ def test_even_spacing_is_judged_against_the_step():
     assert not is_evenly_spaced(stitched_repro()[:, 0])
 
 
-def test_beam_widths_on_an_uneven_camera_axis_follow_the_line_measure():
-    from image_analysis.algorithms.basic_beam_stats import (
-        beam_profile_stats,
-        flatten_beam_stats,
-    )
-
+def test_beam_widths_on_an_uneven_camera_axis_follow_the_line_measure(expected):
     samples = np.random.default_rng(9).uniform(1, 10, (9, 11))
     x = np.array([0, 1, 3, 4, 6, 9, 10, 13, 14, 18, 20], dtype=float)
     frame = Frame.from_array(
@@ -283,20 +278,25 @@ def test_beam_widths_on_an_uneven_camera_axis_follow_the_line_measure():
     )
     assert beam["x_rms"] == pytest.approx(5.8563, abs=1e-4)
     # The evenly spaced y axis, the diagonals and the image totals are legacy.
-    legacy = flatten_beam_stats(beam_profile_stats(samples, roi_offset=(0, 4)))
+    legacy = expected(
+        "beam_uneven_legacy",
+    )
     for key, value in legacy.items():
         if key.startswith(("y_", "x_45", "y_45", "image")):
-            assert beam[key] == value
+            assert beam[key] == pytest.approx(float(value), rel=1e-6)
 
 
-def test_negative_line_samples_preserve_legacy_scalars_without_mutating_frame():
-    from image_analysis.algorithms.basic_line_stats import LineBasicStats
-
+def test_negative_line_samples_preserve_legacy_scalars_without_mutating_frame(
+    expected,
+):
     trace = np.column_stack((np.arange(9), [-1, 2, 4, 8, 12, 9, 4, 2, -2]))
-    expected = LineBasicStats(line_data=trace.copy()).to_dict()
     frame = Frame.from_trace(trace)
     result = analyze(frame, recipe("line"))
-    assert_finite_scalars_equal(result.scalars, expected)
+    assert_finite(result.scalars)
+    expected(
+        "line_negative",
+        actual=dict(result.scalars),
+    )
     np.testing.assert_array_equal(frame.as_trace(), trace)
     assert result.frame is frame
     # Deliberately retain the legacy sum after internal negative clipping.
@@ -405,7 +405,7 @@ for kind, count in (
     recipe = Analysis.model_validate({"measure": {"kind": kind}})
     assert len(recipe.measure.emitted_scalars()) == count
 Analysis.model_json_schema()
-for module in ("numpy", "scipy", "matplotlib", "geecs_data_utils", "image_analysis"):
+for module in ("numpy", "scipy", "matplotlib", "geecs_data_utils"):
     assert module not in sys.modules, module
 """,
         ],

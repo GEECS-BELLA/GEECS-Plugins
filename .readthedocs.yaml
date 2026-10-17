@@ -15,6 +15,7 @@ python:
     # relative to the checkout, same as the local docs env.
     - method: pip
       path: GeecsBluesky
+    # ScanAnalysis: docs/scan_analysis/api/base.md documents scan_analysis.base.
     - method: pip
-      path: ImageAnalysis
+      path: ScanAnalysis
     - requirements: docs/requirements.txt

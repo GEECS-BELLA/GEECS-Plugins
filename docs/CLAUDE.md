@@ -89,7 +89,7 @@ poetry run mkdocs build     # static site → ./site/, clean output expected
 regression to fix before merging, even when the exit code is 0 (some
 errors are non-fatal but indicate broken pages).
 
-The build pulls in path-installed dev packages (GeecsBluesky, ImageAnalysis,
+The build pulls in path-installed dev packages (GeecsBluesky, GEECS-Analysis,
 ScanAnalysis, etc.) because mkdocstrings imports them to read docstrings.
 Missing imports surface as `griffe:` or `mkdocstrings:` warnings.
 
@@ -105,7 +105,7 @@ was retired with that GUI.
 
 - Headings use sentence case for body sections; the page title is the only
   H1.
-- Internal links use relative paths (`../image_analysis/overview.md`), not
+- Internal links use relative paths (`../scan_analysis/overview.md`), not
   absolute. mkdocs validates these at build time.
 - Code samples that exercise the API should be runnable as-is. If a sample
   has external dependencies, mark them explicitly in prose, don't hide them.

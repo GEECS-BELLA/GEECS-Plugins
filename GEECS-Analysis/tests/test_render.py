@@ -177,7 +177,6 @@ from geecs_analysis.measurement import Measurement
 from geecs_data_utils.frames import Frame
 figure = single(Measurement({}, Frame.from_array([1, 2, 3])))
 assert "matplotlib.pyplot" not in sys.modules
-assert "image_analysis" not in sys.modules
 """,
         ],
         check=True,

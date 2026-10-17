@@ -10,7 +10,6 @@ tooling. Each subdirectory is an independent Python package with its own
 |---|---|
 | `GEECS-Analysis/` | Replacement pure analysis core under development: coordinate-aware steps and numpy-free specs; consumers migrate on the analysis integration branch |
 | `ScanAnalysis/` | Post-scan analysis framework: task queue, YAML config system, scan analyzers |
-| `ImageAnalysis/` | Per-image analysis: pipelines, offline analyzers, config models |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
 | `GEECS-Schemas/` | Lightweight Pydantic/GEST config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) and for the analysis configs (`geecs_schemas.analysis`: the `AnalysisRecipe` v3 document — the analysis core's native shape: input, ordered steps, a measure, the per-frame `figure`, the summary kinds — beside the `AnalysisDiagnostic` v2 document with its kind-discriminated analyzer specs for the unported kinds, the `HimgJob` document for the `.himg` data-management jobs, `AnalysisGroup`, and `load_analysis_document` dispatching on a top-level `kind` (a job), else `schema_version`) + legacy-YAML converters + the docgen Markdown reference generator. Depends on Pydantic and gest-api (VOCS) — importable without Xopt or analysis |
 | `GeecsBluesky/` | Bluesky RunEngine backend, rebuilt as a native Bluesky application (#807): the queueserver worker (`qserver/` — RE Manager profile exporting the device namespace and the registered plans: `count`, `sweep`, `optimize`, `mv`, `run_action`, the shot-offset calibration), `GeecsNamespace` (every DB device as an ophyd-async noun; acquirers are `GeecsDetector`, a stock `StandardDetector`), `ShotControl` (the trigger box as a Movable/Pausable), the strict `take_reading` (the fire between trigger and wait), the `qs_client` manager client, Tiled integration |
@@ -74,14 +73,14 @@ command — enough friction to be a real drag on iteration. Living under
 agent already has permission to operate on.
 
 Do not create worktrees in the repository root itself, inside subpackages
-(e.g. `ImageAnalysis/.claude/worktrees/`), or in random tmp locations. The
+(e.g. `ScanAnalysis/.claude/worktrees/`), or in random tmp locations. The
 canonical location is `<repo-root>/.claude/worktrees/<feature-name>/`.
 
 **Always start Claude sessions with the repo root as the working directory.**
 When Claude Code is configured to spawn a session worktree, it places the
 worktree relative to wherever the session was launched from. Launching from
-`<repo-root>/ImageAnalysis/` produces a worktree at
-`ImageAnalysis/.claude/worktrees/<id>/`, not at `<repo-root>/.claude/worktrees/`.
+`<repo-root>/ScanAnalysis/` produces a worktree at
+`ScanAnalysis/.claude/worktrees/<id>/`, not at `<repo-root>/.claude/worktrees/`.
 The `**/.claude/worktrees/` pattern in `.gitignore` is a safety net for this
 case, but the right fix is to launch from the repo root.
 
@@ -173,8 +172,6 @@ GEECS-Analysis       →  GEECS-Data-Utils (Frame/Axis, no input readers in the 
                         GEECS-Schemas (the v3 recipe document it binds to its
                         registry, the FigureStyle its FigureSpec extends, the
                         summary kinds' option models, and the v2 adapter)
-ImageAnalysis        →  GEECS-Data-Utils, GEECS-Schemas (the analysis-config
-                        documents and processing models it consumes)
 GEECS-Core           →  (no intra-repo deps — the GEECS access library:
                         transport, DB, PV naming, exceptions, fake server)
 GeecsArchiver        →  GEECS-Core (GeecsDb, pv_naming, the variable-type
@@ -203,7 +200,7 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         seam + the shared browser helpers; the scan
                         browser of the suite — never imports the scanner
                         or tiled directly)
-                        (+ GEECS-Analysis + ImageAnalysis + ScanAnalysis +
+                        (+ GEECS-Analysis + ScanAnalysis +
                         GEECS-Schemas, optional via
                         the `analysis` extra — core processing/preview for supported
                         v2 recipes with legacy ephemeral fallback, and the
@@ -238,7 +235,7 @@ GeecsLogbook         →  GEECS-Data-Utils (ScanPaths only — it reads scan
                         a peer VIEW LAYER of GEECS-DataPortal. Never
                         imports the portal, ScanAnalysis, or anything
                         Bluesky
-ScanAnalysis         →  GEECS-Data-Utils, GEECS-Analysis, ImageAnalysis, GEECS-Schemas,
+ScanAnalysis         →  GEECS-Data-Utils, GEECS-Analysis, GEECS-Schemas,
                         (+ fastapi/jinja2 via the
                         `editor` extra — scan_analysis.config_editor,
                         the web config editor router the portal mounts
@@ -251,8 +248,8 @@ GEECS-MCP            →  TRANSITIONAL (its DESIGN.md, PR D landed): the
                         analysis domain still imports GeecsBluesky
                         (config resolver), GEECS-Data-Utils (the
                         analysis_status reader) and, via the
-                        `analysis-run` extra, ScanAnalysis +
-                        ImageAnalysis — until PR E moves it onto the
+                        `analysis-run` extra, ScanAnalysis — until PR E
+                        moves it onto the
                         portal's routes and switches on the
                         `mcp-is-a-client` import contract, after which
                         the package has NO runtime intra-repo edge.
@@ -291,8 +288,8 @@ both gateways and GeecsBluesky share lives in `geecs_core.db.variable_types`.
 
 `GEECS-Data-Utils` is the foundational layer — everything depends on it and it
 depends on nothing else in the repo. `GeecsScanner` sits at the top of the
-DAQ side. `ScanAnalysis` and `ImageAnalysis` are the most actively
-developed analysis packages. `LogMaker4GoogleDocs` is a standalone legacy package; analysis no longer imports it.
+DAQ side. `GEECS-Analysis` (the analysis core) and `ScanAnalysis` are the most
+actively developed analysis packages. `LogMaker4GoogleDocs` is a standalone legacy package; analysis no longer imports it.
 
 ## How Packages Are Used Together (Typical Analysis Flow)
 
@@ -332,7 +329,7 @@ developed analysis packages. `LogMaker4GoogleDocs` is a standalone legacy packag
 `base_path` is typically a network drive (Windows: `Z:/data`, Linux/Mac: mounted
 equivalent). Resolved by `GeecsPathsConfig` from `~/.config/geecs_python_api/config.ini`.
 
-## Deleted legacy packages (2026-08-20)
+## Deleted legacy packages
 
 `GEECS-PythonAPI` (legacy TCP device layer) and `GEECS-Scanner-GUI` (legacy
 PyQt5 DAQ front-end) were **deleted from `dev`** at the end of the geecs-core
@@ -354,6 +351,15 @@ replacement. Its final state is preserved at the tag
 `geecs-console-v0.32.1-final`; never adopt it in new code. The
 `geecs_bluesky.qs_client` seam, the surface kit and the scanner's service
 layer carry everything of it that survived.
+
+`ImageAnalysis` (the per-image analyzer package, with the repo-root
+`image_analysis_configs/` tree and its mkdocs pages) was **deleted
+2026-10-16** in the v2 deletion arc (#1039). Its final state is preserved
+at the tag `legacy-analysis-final`; never adopt it in new code. Its
+successors: GEECS-Analysis's algorithms, steps and measures for per-image
+analysis, and `ScanAnalysis/scan_analysis/services/` for the vendor
+launchers (FROG.dll's `FrogDllRetrieval`, WaveKit's `HasoWaveKit`, the
+`geecs-wavekit-doctor` script).
 
 ## Release & Versioning
 
@@ -387,7 +393,7 @@ stay as history.
 
 Every package has a `CHANGELOG.md` following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
-`GEECS-Analysis/`, `GEECS-Data-Utils/`, `ScanAnalysis/`, `ImageAnalysis/`,
+`GEECS-Analysis/`, `GEECS-Data-Utils/`, `ScanAnalysis/`,
 `LogMaker4GoogleDocs/`, `GeecsBluesky/`, `GEECS-Core/`, `GeecsCAGateway/`,
 `GeecsPvaGateway/`, `GEECS-Schemas/`, `GEECS-MCP/`, `GEECS-DataPortal/`,
 `GEECS-LogTriage/`, `GeecsLogbook/`, `GeecsWebTheme/`, `GeecsScanner/`,
@@ -411,7 +417,7 @@ has caused real production incidents; the consequences aren't abstract.
 Only the **scanner side** (concretely `claim_scan_number`
 in GeecsBluesky's `plans/claim_scan.py`, on every scan entry point)
 brings new `scans/ScanNNN/` folders into existence. Everything else — all of
-ScanAnalysis, ImageAnalysis, LogMaker4GoogleDocs, every offline analyzer —
+GEECS-Analysis, ScanAnalysis, LogMaker4GoogleDocs, every offline analyzer —
 must treat the scan folder as preexisting and refuse to auto-create it.
 
 Concretely, this means analysis-side code must **not**:
@@ -439,9 +445,6 @@ in production. Don't reintroduce it.
 The rule is pinned by tests:
 
 - `ScanAnalysis/tests/test_task_queue.py::TestScanFolderCreationInvariant`
-- `ImageAnalysis/tests/analyzers/test_line_stitcher.py::TestLineStitcherScanFolderInvariant`
-- `ImageAnalysis/tests/analyzers/test_magspec_calib.py::TestScanFolderInvariant`
-- `ImageAnalysis/tests/processing/test_array1d_background.py`
 - `GEECS-Data-Utils/tests/test_scan_paths_create_invariant.py`
 - `GEECS-Data-Utils/tests/test_himg_stack.py::TestRefusals::test_a_missing_folder_is_never_created`
   and `ScanAnalysis/tests/test_himg_kinds.py::TestConvert::test_missing_device_folder_is_no_data_and_stays_missing`

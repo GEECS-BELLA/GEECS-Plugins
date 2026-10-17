@@ -294,7 +294,7 @@ class ConfigStore:
         """Every YAML file under the kind's folder, at any depth.
 
         The same walk the runtime loaders do (``rglob`` in
-        ``image_analysis.config.loader`` and ScanAnalysis'
+        ``scan_analysis.config.loader`` and
         ``analysis_group_loader``), so what the store lists, checks for
         duplicate ids and cross-references is exactly what a run will load.
         """

@@ -145,7 +145,7 @@ README_EXEMPT = {
 #: Packages the prose checks leave alone unless ``--all`` is given. Ruled by
 #: the owner on 2026-09-30: legacy (LogMaker), an experiment (MCP), and the
 #: two analysis packages whose template-style docstrings are not worth a pass.
-SKIP_PROSE = {"LogMaker4GoogleDocs", "GEECS-MCP", "GEECS-Analysis", "ImageAnalysis"}
+SKIP_PROSE = {"LogMaker4GoogleDocs", "GEECS-MCP", "GEECS-Analysis"}
 
 #: Packages whose prose has been tidied: the advisory prose checks are hard
 #: there (outside ``tests/``), so ``--strict`` stops the essays and the

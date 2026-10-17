@@ -108,9 +108,9 @@ dependencies outside this vocabulary package), `analyzers` (the `AnalyzerSpec` u
 `ANALYZER_SPECS` kind → model table), `renderer` (`RendererOptions`, one
 typed option set for both summary renderers), `scan_runtime`
 (`ScanRuntime`, `BackgroundSource`), `diagnostic` and `group`.  The class
-path left the document in v2: ImageAnalysis keeps kind → class in its own
-registry, so adding an analyzer means one spec model here and one registry
-line there. The `.himg` data-management jobs (`himg_to_stack`,
+path left the document in v2: the analysis core maps each kind onto its
+steps and measure (`geecs_analysis.compat.v2`), so adding an analyzer means
+one spec model here and one mapping there. The `.himg` data-management jobs (`himg_to_stack`,
 `himg_compact`, `himg_restore`: one step over the device folder, no
 ImageAnalyzer) are not analyzer kinds but a document of their own,
 `himg.HimgJob` (top-level `kind:`, `schema_version: 1`), which

@@ -52,9 +52,9 @@ The configuration model post-PR-E is two-tier:
 
 * **Per-diagnostic configs** under `scan_analysis_configs/analyzers/`. One
   YAML per camera or 1D signal. Each is a
-  [`AnalysisDiagnostic`](../image_analysis/overview.md#how-a-diagnostic-is-described)
+  `AnalysisDiagnostic`
   bundling the typed `analyzer:` spec (`kind` + its parameters), the
-  ImageAnalysis-owned `image:` block and the ScanAnalysis-owned `scan:` block.
+  `image:` block and the ScanAnalysis-owned `scan:` block.
 
 * **Per-group configs** under `scan_analysis_configs/groups/`. One YAML
   per analyzer group — a named collection of analyzer refs that get run
@@ -172,8 +172,6 @@ readable at the tag `legacy-analysis-final`.
 
 - The [Analysis tutorial](../tutorials/analysis.md) — the no-Python
   config editor → preview → explicit run path.
-- [Image Analysis overview](../image_analysis/overview.md) — the
-  per-shot processing layer that diagnostic configs configure.
 - [Data Utils overview](../geecs_data_utils/overview.md) — `ScanTag` and
   `ScanPaths`, the path-resolution primitives this package uses.
 - [API Reference](api/base.md) — the `ScanAnalyzer` base class surface.

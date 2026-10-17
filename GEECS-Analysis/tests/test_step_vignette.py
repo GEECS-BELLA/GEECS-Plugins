@@ -29,20 +29,15 @@ def run(frame, **params):
         ((20, 30), (0, 0), {**MODEL, "vgnt0": -1.0, "min_model_value": 1e-3}),
     ],
 )
-def test_equals_the_legacy_map_bit_for_bit(shape, offsets, model):
-    from image_analysis.processing.array2d.vignette import (
-        apply_vignette_map,
-        build_radial_vignette_map,
-    )
-
+def test_equals_the_legacy_map_bit_for_bit(shape, offsets, model, expected, request):
     raw = np.random.default_rng(3).normal(100, 20, shape)
     x_offset, y_offset = offsets
     frame = Frame.from_array(raw, shot=ShotMeta("camera", 1, 0.0))
     result = run(frame, x_offset=x_offset, y_offset=y_offset, **model)
-    legacy_map = build_radial_vignette_map(
-        shape, x_offset=x_offset, y_offset=y_offset, **model
+    expected(
+        f"vignette_{request.node.callspec.id}",
+        actual=result.data,
     )
-    np.testing.assert_array_equal(result.data, apply_vignette_map(raw, legacy_map))
     assert result.axes is frame.axes and result.shot is frame.shot
     np.testing.assert_array_equal(frame.data, raw)
 
@@ -92,14 +87,12 @@ SECTIONS = dict(
 )
 
 
-def test_the_htt_magcam_chain_matches_the_legacy_pipeline():
+def test_the_htt_magcam_chain_matches_the_legacy_pipeline(expected):
     # The HTT-MagCam documents' order: background, vignette, roi, ...
-    from image_analysis.ephemeral import run_document_ephemeral
 
     pipeline = ["background", "vignette", "roi", "thresholding", "filtering"]
     doc = camera([*pipeline, "transforms"], **SECTIONS)
     data = np.random.default_rng(5).integers(0, 4000, (31, 45), dtype=np.uint16)
-    old = run_document_ephemeral(doc, [data])[0]
     recipe = compile_v2(doc)
     assert [s.step for s in recipe.analysis.steps][:3] == [
         "background_constant",
@@ -107,7 +100,10 @@ def test_the_htt_magcam_chain_matches_the_legacy_pipeline():
         "vignette",
     ]
     result = analyze_v2(data, recipe, shot=ShotMeta("diagnostic", 1, 0.0))
-    np.testing.assert_array_equal(result.frame.data, old.processed_image)
+    expected(
+        "htt_magcam_chain",
+        actual=result.frame.data,
+    )
 
 
 def test_a_vignette_after_an_active_roi_is_refused():
