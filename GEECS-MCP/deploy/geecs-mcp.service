@@ -33,10 +33,11 @@ ExecStart=@CHECKOUT_ROOT@/geecs-mcp-venv/bin/python -m geecs_mcp --transport htt
 Restart=on-failure
 RestartSec=5
 # The MCP shares the box with the production manager/gateway/Tiled —
-# cap it so even a pathological failure cannot starve them. An HTTP client
-# with no analysis in process needs little; the thumbnail decode is capped
-# at 80 Mpx.
-MemoryMax=512M
+# cap it so even a pathological failure cannot starve them. The one large
+# allocation is get_scan_figure's opt-in thumbnail: a figure up to the 80 Mpx
+# decode cap peaks near 0.8 GB resident (an RGBA one, measured), and decodes
+# run one at a time, so 1G holds the worst accepted request.
+MemoryMax=1G
 CPUQuota=50%
 
 [Install]

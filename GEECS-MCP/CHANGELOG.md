@@ -34,8 +34,9 @@ contract). What an agent does is what an operator does on those pages.
 - Configuration is only `[mcp] scanner_url / portal_url / logbook_url` in
   the service account's `config.ini`, rendered by `bootstrap_host.sh` from
   `site.env`'s new `GEECS_SERVICES_HOST`.
-- The `geecs-mcp` unit orders after the three services and caps memory at
-  512M (was 1G).
+- The `geecs-mcp` unit orders after the three services (its `MemoryMax`
+  stays 1G: a thumbnail decode at the 80 Mpx cap peaks near 0.8 GB, and
+  `get_scan_figure` now decodes one figure at a time).
 
 ### Removed
 

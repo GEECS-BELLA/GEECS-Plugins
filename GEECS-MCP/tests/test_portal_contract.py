@@ -341,3 +341,17 @@ class TestFigures:
         out = _j(await run(tools._get_scan_figure, PORTAL_SCAN, None, DAY, False))
         assert out["ok"] is True
         assert out["figures"] == []
+
+
+def test_figure_decodes_run_one_at_a_time(monkeypatch) -> None:
+    """A thumbnail decode holds the module lock: two at once would outgrow MemoryMax."""
+    seen = []
+
+    def spy(data):
+        seen.append(tools._DECODE_LOCK.locked())
+        return b"jpeg", 1, 1
+
+    monkeypatch.setattr(tools, "_decode_thumbnail", spy)
+    assert tools._thumbnail_jpeg(b"png") == (b"jpeg", 1, 1)
+    assert seen == [True]
+    assert not tools._DECODE_LOCK.locked()

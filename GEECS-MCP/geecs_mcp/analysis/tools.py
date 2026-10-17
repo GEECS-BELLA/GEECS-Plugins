@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import io
 import json
+import threading
 from typing import Any, Optional
 
 import anyio
@@ -401,7 +402,18 @@ async def get_scan_scalars(
 # ---------------------------------------------------------------------------
 
 
+#: One figure decode at a time: an 80 Mpx RGBA decode peaks near 0.8 GB
+#: resident, so two at once would outgrow the unit's MemoryMax and the
+#: OOM kill would take every in-flight call with it.
+_DECODE_LOCK = threading.Lock()
+
+
 def _thumbnail_jpeg(data: bytes) -> tuple[bytes, int, int]:
+    with _DECODE_LOCK:
+        return _decode_thumbnail(data)
+
+
+def _decode_thumbnail(data: bytes) -> tuple[bytes, int, int]:
     from PIL import Image as PILImage
 
     with PILImage.open(io.BytesIO(data)) as image:
