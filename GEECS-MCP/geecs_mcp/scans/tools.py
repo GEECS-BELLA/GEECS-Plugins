@@ -21,7 +21,7 @@ import anyio
 
 from geecs_mcp import clients, errors, guard, tool_names
 from geecs_mcp.clients import ServiceRefusal
-from geecs_mcp.identity import identity_for
+from geecs_mcp.identity import InvalidArgument, identity_for
 from geecs_mcp.server import mcp
 
 #: The scanner's ``GET /api/configs/{kind}`` kinds (the page's dropdowns).
@@ -153,14 +153,31 @@ async def list_scan_configs(kind: str, name: Optional[str] = None) -> str:
 
 
 def _verb_body(force: bool, operator: Optional[str]) -> dict[str, Any]:
+    """``{force, operator?}`` — the operator as the identity string when named."""
     body: dict[str, Any] = {"force": bool(force)}
     if operator and operator.strip():
         body["operator"] = identity_for(operator)
     return body
 
 
+def _halt_body(force: bool, operator: Optional[str]) -> tuple[dict[str, Any], str]:
+    """The halt family's body, and a note when the name could not be recorded.
+
+    An invalid optional name (over the identity cap) must never stop a
+    halt: the request goes without it and the note says so.
+    """
+    try:
+        return _verb_body(force, operator), ""
+    except InvalidArgument as exc:
+        return {"force": bool(force)}, f"operator not recorded: {exc}"
+
+
 async def _verb(
-    path: str, body: Optional[dict[str, Any]], *, read_timeout_s=None
+    path: str,
+    body: Optional[dict[str, Any]],
+    *,
+    read_timeout_s=None,
+    note: str = "",
 ) -> str:
     out = await clients.call(
         "scanner", "POST", path, json=body, read_timeout_s=read_timeout_s
@@ -170,7 +187,15 @@ async def _verb(
         # (nothing running, not paused, the stop budget expired) — a verdict
         # on the ask, so policy_refusal with the scanner's words.
         return errors.make_error("policy_refusal", str(out.get("message") or "refused"))
-    return errors.make_ok(message=str(out.get("message") or ""))
+    payload: dict[str, Any] = {"message": str(out.get("message") or "")}
+    if note:
+        payload["note"] = note
+    return errors.make_ok(**payload)
+
+
+async def _halt(path: str, force: bool, operator: str, *, read_timeout_s=None) -> str:
+    body, note = _halt_body(force, operator)  # inside the guard; never raises past it
+    return await _verb(path, body, read_timeout_s=read_timeout_s, note=note)
 
 
 @mcp.tool(name=tool_names.STOP_SCAN)
@@ -179,14 +204,11 @@ async def stop_scan(force: bool = False, operator: str = "") -> str:
 
     Blocks until the scanner reports the stop landed (its own budget is
     120 s).  ``operator`` is recorded when given; a halt is never blocked
-    on a missing name.  ``force`` is passed through for the scanner's
-    ownership registry.
+    on a missing or malformed name.  ``force`` is passed through for the
+    scanner's ownership registry.
     """
     return await guard.run_async(
-        _verb,
-        "/api/stop",
-        _verb_body(force, operator),
-        read_timeout_s=STOP_READ_TIMEOUT_S,
+        _halt, "/api/stop", force, operator, read_timeout_s=STOP_READ_TIMEOUT_S
     )
 
 
@@ -198,7 +220,7 @@ async def pause_scan(force: bool = False, operator: str = "") -> str:
     it lands.  A pause makes the machine strictly quieter; ``operator`` is
     recorded when given and never required.
     """
-    return await guard.run_async(_verb, "/api/pause", _verb_body(force, operator))
+    return await guard.run_async(_halt, "/api/pause", force, operator)
 
 
 async def _resume(operator: str, force: bool) -> str:
@@ -331,6 +353,35 @@ def _find_item(queue: dict, item_uid: str) -> tuple[str, Optional[dict]]:
     return "", None
 
 
+def _correlated_progress(
+    where: str, row: Optional[dict], progress: Any
+) -> tuple[Optional[dict], Optional[dict]]:
+    """Split the snapshot into ``(the item's own progress or None, another scan's live picture)``.
+
+    ``/api/progress`` is the scanner's latest-run picture, not a lookup by
+    item: once the next queued scan starts it describes that one.  A
+    finished item's progress is attached only when the snapshot names one
+    of its scan numbers and has ended; a running item's only while the
+    snapshot is live (a ``done``/``aborted`` snapshot is the previous
+    run's, before this one's start document); a waiting item's never.
+    Anything else comes back as ``live_scan`` — number and state — so the
+    caller sees the machine's state without mistaking it for this item's.
+    """
+    if not isinstance(progress, dict):
+        return None, None
+    state = progress.get("state")
+    if where == "finished" and row is not None:
+        mine = progress.get("scan_number") in (row.get("scan_numbers") or [])
+        mine = mine and state in ("done", "aborted")
+    elif where == "running":
+        mine = state in ("running", "paused")
+    else:
+        mine = False
+    if mine:
+        return progress, None
+    return None, {"scan_number": progress.get("scan_number"), "state": state}
+
+
 def _bounded_wait(timeout_s: Any) -> float:
     try:
         value = float(timeout_s)
@@ -380,7 +431,8 @@ async def _wait_for_scan(item_uid: str, timeout_s: float) -> str:
         item_uid, _bounded_wait(timeout_s), poll_s=SCAN_POLL_S
     )
     if where == "finished":
-        progress = await clients.call("scanner", "GET", "/api/progress")
+        snapshot = await clients.call("scanner", "GET", "/api/progress")
+        progress, live_scan = _correlated_progress(where, row, snapshot)
         return errors.make_ok(
             finished=True,
             item_uid=item_uid,
@@ -392,6 +444,7 @@ async def _wait_for_scan(item_uid: str, timeout_s: float) -> str:
             run_uids=row.get("run_uids") or [],
             detail=row.get("detail", ""),
             progress=progress,
+            live_scan=live_scan,
         )
     if not where:
         return errors.make_error(
@@ -400,6 +453,7 @@ async def _wait_for_scan(item_uid: str, timeout_s: float) -> str:
             f"{HISTORY_DEPTH} finished items — the manager's history is bounded "
             "and clearable; scan_history shows what it still holds",
         )
+    progress, live_scan = _correlated_progress(where, row, progress)
     return errors.make_ok(
         finished=False,
         item_uid=item_uid,
@@ -408,6 +462,7 @@ async def _wait_for_scan(item_uid: str, timeout_s: float) -> str:
         plan=row.get("plan"),
         summary=row.get("summary"),
         progress=progress,
+        live_scan=live_scan,
     )
 
 
@@ -419,8 +474,10 @@ async def wait_for_scan(item_uid: str, timeout_s: float = 240.0) -> str:
     detail, progress}`` — ``scan_numbers``/``run_uids`` are the keys for
     ``run_analysis`` and ``post_logbook_entry``.  Still going when the
     budget ends: ``{finished: false, where: running|waiting, position,
-    progress}`` — a result, not an error; call again.  ``not_found`` when
-    the item is in none of the queue's three lists.
+    progress}`` — a result, not an error; call again.  ``progress`` is
+    THIS item's picture or null; when the scanner's live snapshot belongs
+    to another scan it comes as ``live_scan`` instead.  ``not_found``
+    when the item is in none of the queue's three lists.
     """
     return await guard.run_async(_wait_for_scan, item_uid, timeout_s)
 

@@ -179,6 +179,33 @@ class TestWaitForScan:
         assert out["progress"]["shots_done"] == 1
         assert out["progress"]["scan_number"]
 
+    async def test_progress_is_attached_only_when_it_is_this_item_s(
+        self, stepping
+    ) -> None:
+        """/api/progress is the LATEST run's picture: never another scan's under this item."""
+        first = (await _submit())["item_uid"]  # running at once
+        second = (await _submit())["item_uid"]  # waiting behind it
+        # waiting: the live snapshot is the first scan's, not the second's
+        waiting = _j(await run(tools._wait_for_scan, second, 0))
+        assert waiting["finished"] is False and waiting["where"] == "waiting"
+        assert waiting["progress"] is None
+        assert waiting["live_scan"]["state"] in ("running", "paused")
+        # run the first to its end; the second starts right behind it
+        done = _j(await run(tools._wait_for_scan, first, 240))
+        assert done["finished"] is True
+        for _ in range(3):
+            stepping.step()  # the second scan is now the live one
+        again = _j(await run(tools._wait_for_scan, first, 240))
+        assert again["finished"] is True
+        assert again["scan_numbers"] == done["scan_numbers"]
+        assert again["progress"] is None  # the snapshot is the second scan's
+        assert again["live_scan"]["scan_number"] != done["scan_numbers"][0]
+        # and the running second item gets the live picture as ITS progress
+        running = _j(await run(tools._wait_for_scan, second, 0))
+        assert running["where"] == "running"
+        assert running["progress"]["scan_number"] == again["live_scan"]["scan_number"]
+        assert running["live_scan"] is None
+
     async def test_an_item_between_two_queue_reads_is_re_read_not_lost(
         self, monkeypatch
     ) -> None:
@@ -323,6 +350,20 @@ class TestHaltsAndQueue:
         assert out["ok"] is True
         assert "removed" in out["message"]
         assert _j(await run(tools._scan_history, 5))["waiting"] == []
+
+    async def test_a_malformed_optional_name_never_blocks_a_halt(self, wired) -> None:
+        """Through the WRAPPERS: an over-long operator is dropped, the halt still goes out."""
+        long_name = "A" * 100
+        for halt in (tools.stop_scan, tools.pause_scan):
+            out = _j(await halt(operator=long_name))
+            # the request reached the scanner: its own "nothing is running" verdict
+            assert out["error_kind"] == "policy_refusal", out
+            assert out["message"] == "nothing is running"
+        # and with a scan running, the halt lands and the note says what was dropped
+        assert (await _submit())["ok"]
+        out = _j(await tools.pause_scan(operator=long_name))
+        assert out["ok"] is True
+        assert "operator not recorded" in out["note"]
 
     async def test_resume_with_a_blank_operator_is_an_envelope_not_a_raise(
         self, wired
