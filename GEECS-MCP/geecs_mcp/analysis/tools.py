@@ -23,14 +23,14 @@ import anyio
 
 from geecs_mcp import clients, config, errors, guard, tool_names
 from geecs_mcp.clients import ServiceRefusal
+from geecs_mcp.identity import InvalidArgument
 from geecs_mcp.server import mcp
+from geecs_mcp.waits import bounded_wait
 
 #: Job states the portal's analysis runner reports.
 ACTIVE_STATES = ("queued", "running")
 #: Polling cadence for wait_for_analysis (the portal's tab polls at 1.5 s).
 ANALYSIS_POLL_S = 2.0
-#: The same cap the scans domain's wait uses (DESIGN.md §4.3).
-MAX_WAIT_S = 600.0
 #: The portal keeps the last 400 log lines per job; the agent gets a tail.
 LOG_TAIL_LINES = 40
 #: get_analysis_artifact's default and ceiling (bytes) — a sidecar JSON is
@@ -43,10 +43,10 @@ FIGURE_FETCH_MAX_BYTES = 50_000_000
 THUMBNAIL_EDGE_PX = 768
 THUMBNAIL_JPEG_QUALITY = 80
 MAX_FIGURE_PIXELS = 80_000_000
-#: The portal's inline raster set (its artifact route's policy).
+#: The MCP's own routing rule between its two readers: a raster suffix is
+#: a figure (get_scan_figure), anything else an artifact — the same set the
+#: portal renders inline.
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp")
-#: The portal caps a binned request at four scalar columns.
-MAX_SCALAR_COLUMNS = 4
 
 
 async def _sleep(seconds: float) -> None:
@@ -69,11 +69,11 @@ async def _resolve_uid(scan_number: Any, day: Optional[str]) -> tuple[str, str, 
     try:
         number = int(scan_number)
     except (TypeError, ValueError):
-        raise ServiceRefusal(
-            "invalid_request", f"scan_number {scan_number!r} is not an integer"
+        raise InvalidArgument(
+            f"scan_number {scan_number!r} is not an integer"
         ) from None
     if number < 1:
-        raise ServiceRefusal("invalid_request", "scan_number must be positive")
+        raise InvalidArgument("scan_number must be positive")
     iso = _day_or_today(day)
     jump = await clients.call(
         "portal", "GET", f"/api/run/jump/{iso}", params={"prefer": number}
@@ -223,7 +223,12 @@ async def _run_analysis(
     uid, iso, number = await _resolve_uid(scan_number, day)
     params: dict[str, Any] = {"analyzer": analyzer, "day": iso}
     if confirm is not None:
-        params["confirm"] = int(confirm)
+        try:
+            params["confirm"] = int(confirm)
+        except (TypeError, ValueError):
+            raise InvalidArgument(
+                f"confirm {confirm!r} is not an integer (the scan number)"
+            ) from None
     try:
         job = await clients.call(
             "portal", "POST", f"/api/run/{uid}/analysis", params=params
@@ -271,11 +276,7 @@ async def _wait_for_analysis(
     if not analyzer:
         return errors.make_error("invalid_request", "name the analyzer you started")
     uid, iso, number = await _resolve_uid(scan_number, day)
-    try:
-        budget = max(0.0, min(float(timeout_s), MAX_WAIT_S))
-    except (TypeError, ValueError):
-        budget = 0.0
-    deadline = anyio.current_time() + budget
+    deadline = anyio.current_time() + bounded_wait(timeout_s)
     while True:
         listing = await _analysis_listing(uid, iso)
         entry, job = _job_for(listing, analyzer)
@@ -368,6 +369,14 @@ async def _get_analysis_artifact(
         "size_bytes": total,
         "truncated": truncated,
     }
+    if b"\x00" in body:
+        # HDF5, NPY, pickles: the listing shows them and the portal serves
+        # them as text/plain, but replacement characters are not numbers
+        return errors.make_error(
+            "invalid_request",
+            f"{path!r} is a binary file — read it with the tools that know its "
+            "format, not through model context",
+        )
     text = body.decode("utf-8", errors="replace")
     if not truncated:
         try:
@@ -409,12 +418,8 @@ async def _get_scan_scalars(
 ) -> str:
     cols = [str(c).strip() for c in (columns or []) if str(c).strip()]
     if not cols:
-        return errors.make_error("invalid_request", "name one to four scalar columns")
-    if len(cols) > MAX_SCALAR_COLUMNS:
-        return errors.make_error(
-            "invalid_request",
-            f"at most {MAX_SCALAR_COLUMNS} columns per call (the portal's cap)",
-        )
+        return errors.make_error("invalid_request", "name at least one scalar column")
+    # the column cap is the portal's (400 above its four): forwarded, not restated
     uid, iso, number = await _resolve_uid(scan_number, day)
     params: dict[str, Any] = {"cols": cols, "day": iso}
     params.update(
@@ -438,7 +443,7 @@ async def get_scan_scalars(
     bincfg: str = "",
     filters: str = "",
 ) -> str:
-    """Per-bin centres, error bands and counts of up to four scalar columns (the portal's Plot tab numbers).
+    """Per-bin centres, error bands and counts of scalar columns (the portal's Plot tab numbers; it caps them at four).
 
     ``bincfg`` and ``filters`` are the portal's own JSON strings, passed
     through unparsed, so a binning set up in the Plot tab is reproducible
@@ -480,7 +485,7 @@ def _figure_entries(listing: dict, uid: str, day: str) -> list[dict]:
     return entries
 
 
-def _thumbnail_jpeg(data: bytes) -> bytes:
+def _thumbnail_jpeg(data: bytes) -> tuple[bytes, int, int]:
     from PIL import Image as PILImage
 
     with PILImage.open(io.BytesIO(data)) as image:

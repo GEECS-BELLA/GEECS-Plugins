@@ -168,6 +168,7 @@ class FakeAnalyzer:
         sidecar.write_text(json.dumps({"slope": 0.0508, "crossing_mm": -3.054}))
         table = out / "cam_shots.txt"
         table.write_text("".join(f"{i}\t{i * 0.5}\n" for i in range(5000)))
+        (out / "cam_processed.h5").write_bytes(b"\x89HDF\r\n\x1a\n" + b"\x00" * 64)
         return [figure, "a label, not a path"]
 
     def cleanup(self):

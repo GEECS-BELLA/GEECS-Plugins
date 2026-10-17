@@ -42,6 +42,11 @@ CONNECT_TIMEOUT_S = 5.0
 READ_TIMEOUT_S = 20.0
 
 #: Status → kind for the ``{"detail": …}`` services (portal, logbook).
+#: The envelope's own keys: context a service sends under these names
+#: must not be splatted over them (a body with ``ok: true`` would otherwise
+#: report a refusal as success).
+_RESERVED_KEYS = frozenset({"ok", "error_kind", "message"})
+
 _KIND_BY_STATUS = {
     400: "invalid_request",
     404: "not_found",
@@ -153,7 +158,7 @@ def _refusal(service: str, response: httpx.Response) -> ServiceRefusal:
             or _KIND_BY_STATUS.get(response.status_code, "invalid_request")
         )
         message = str(error.pop("message", "") or response.text)
-        return ServiceRefusal(kind, message, **error)
+        return ServiceRefusal(kind, message, **_context(error))
     kind = _KIND_BY_STATUS.get(response.status_code, "invalid_request")
     extra: dict[str, Any] = {}
     if isinstance(body, dict):
@@ -163,7 +168,12 @@ def _refusal(service: str, response: httpx.Response) -> ServiceRefusal:
         extra = {k: v for k, v in body.items() if k != "detail"}
         if isinstance(body.get("detail"), dict):
             extra.update({k: v for k, v in body["detail"].items() if k != "message"})
-    return ServiceRefusal(kind, _detail_text(body, response), **extra)
+    return ServiceRefusal(kind, _detail_text(body, response), **_context(extra))
+
+
+def _context(extra: dict[str, Any]) -> dict[str, Any]:
+    """A service's refusal context minus the envelope's reserved keys."""
+    return {k: v for k, v in extra.items() if k not in _RESERVED_KEYS}
 
 
 async def call(

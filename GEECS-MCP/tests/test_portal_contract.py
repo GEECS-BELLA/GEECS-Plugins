@@ -187,6 +187,20 @@ class TestNumbers:
         assert len(out["text"]) <= 1024
         assert out["size_bytes"] > 1024
 
+    async def test_a_binary_artifact_is_refused_not_decoded(self, wired) -> None:
+        await _finished()
+        out = _j(
+            await run(
+                tools._get_analysis_artifact,
+                PORTAL_SCAN,
+                "UC_Crop/Array2DScanAnalyzer/cam_processed.h5",
+                DAY,
+                65536,
+            )
+        )
+        assert out["error_kind"] == "invalid_request"
+        assert "binary" in out["message"]
+
     async def test_an_image_path_is_refused_toward_get_scan_figure(self, wired) -> None:
         out = _j(
             await run(
@@ -231,13 +245,21 @@ class TestNumbers:
             ]
             == "invalid_request"
         )
-        five = ["a", "b", "c", "d", "e"]
-        assert (
-            _j(await run(tools._get_scan_scalars, PORTAL_SCAN, five, DAY, "", "", ""))[
-                "error_kind"
-            ]
-            == "invalid_request"
+        five = [
+            "a",
+            "b",
+            "c",
+            "d",
+            "e",
+        ]  # the PORTAL's cap (its 400), not restated here
+        over = _j(
+            await run(tools._get_scan_scalars, PORTAL_SCAN, five, DAY, "", "", "")
         )
+        assert over["error_kind"] == "invalid_request" and "4" in over["message"]
+        bad_confirm = _j(
+            await run(tools._run_analysis, PORTAL_SCAN, "UC_Compact", DAY, "two")
+        )
+        assert bad_confirm["error_kind"] == "invalid_request"
         unknown = _j(
             await run(
                 tools._get_scan_scalars,

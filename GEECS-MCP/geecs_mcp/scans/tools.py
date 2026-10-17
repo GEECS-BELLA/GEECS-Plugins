@@ -23,6 +23,7 @@ from geecs_mcp import clients, errors, guard, tool_names
 from geecs_mcp.clients import ServiceRefusal
 from geecs_mcp.identity import InvalidArgument, identity_for
 from geecs_mcp.server import mcp
+from geecs_mcp.waits import bounded_wait as _bounded_wait
 
 #: The scanner's ``GET /api/configs/{kind}`` kinds (the page's dropdowns).
 CONFIG_KINDS = (
@@ -36,9 +37,6 @@ CONFIG_KINDS = (
 #: Polling cadence (s): the scanner page itself polls at 1 Hz.
 SCAN_POLL_S = 2.0
 MOVE_POLL_S = 1.0
-#: Server-side cap on how long one wait call may block — pending the
-#: OSPREY team's word on tool-call budgets (DESIGN.md §4.3).
-MAX_WAIT_S = 600.0
 #: The scanner's stop blocks up to 120 s for the pause to land.
 STOP_READ_TIMEOUT_S = 130.0
 #: How deep into the manager's history the wait verbs look.
@@ -380,14 +378,6 @@ def _correlated_progress(
     if mine:
         return progress, None
     return None, {"scan_number": progress.get("scan_number"), "state": state}
-
-
-def _bounded_wait(timeout_s: Any) -> float:
-    try:
-        value = float(timeout_s)
-    except (TypeError, ValueError):
-        value = 0.0
-    return max(0.0, min(value, MAX_WAIT_S))
 
 
 async def _wait_for_item(
