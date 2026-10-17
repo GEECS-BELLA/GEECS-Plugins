@@ -66,23 +66,19 @@ def measurement_snapshot(data: Any, scalars: dict[str, float]) -> dict[str, tupl
 
 @pytest.fixture
 def measurement_golden(golden):
-    """Check one measurement against the stored golden ``name``.
+    """Check one measurement (frame data and scalars) against the stored golden ``name``.
 
-    ``measurement_golden(name, data, scalars, oracle=None)``: ``oracle`` is
-    a zero-argument callable returning another ``(data, scalars)`` (once the
-    legacy oracle, #1039) that must match the same golden, and is what
-    ``GEECS_UPDATE_GOLDENS`` stores when given. Floats are held to ``GOLDEN_RTOL`` of their own scale.
+    The stored values came from the legacy oracle while it was present
+    (#1039); ``GEECS_UPDATE_GOLDENS`` now stores the core's. Floats are held
+    to ``GOLDEN_RTOL`` of their own scale.
     """
 
-    def check(name: str, data: Any, scalars: dict[str, float], oracle=None) -> None:
+    def check(name: str, data: Any, scalars: dict[str, float]) -> None:
         core = measurement_snapshot(data, scalars)
-        reference = measurement_snapshot(*oracle()) if oracle is not None else core
-        stored = golden(name, reference).files
-        for label, snapshot in (("oracle", reference), ("core", core)):
-            problems = compare_snapshots(
-                stored, snapshot, average_ulps=0, rtol=GOLDEN_RTOL
-            )
-            assert problems == [], (label, problems)
+        problems = compare_snapshots(
+            golden(name, core).files, core, average_ulps=0, rtol=GOLDEN_RTOL
+        )
+        assert problems == [], problems
 
     return check
 
