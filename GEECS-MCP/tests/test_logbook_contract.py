@@ -142,7 +142,15 @@ class TestFigures:
         assert await _entries(logbook) == []
 
     async def test_malformed_references_are_refused(self, wired, logbook) -> None:
-        for figures in ("a.png", ["a.png"], [{"scan_number": SCAN}]):
+        for figures in (
+            "a.png",
+            ["a.png"],
+            [{"scan_number": SCAN}],
+            # Never truncated onto a real scan: 2.9 would otherwise be scan 2,
+            # whose figure has the same analyzer-relative name.
+            [{"scan_number": SCAN + 0.9, "path": FIGURE}],
+            [{"scan_number": True, "path": FIGURE}],
+        ):
             out = await post(figures=figures)
             assert out["error_kind"] == "invalid_request", (figures, out)
         assert await _entries(logbook) == []
