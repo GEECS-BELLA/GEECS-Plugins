@@ -546,15 +546,15 @@ async def _get_scan_figure(
             f"figure {wanted!r} is over the {FIGURE_FETCH_MAX_BYTES // 1_000_000} MB fetch cap",
         )
     jpeg, width, height = await anyio.to_thread.run_sync(_thumbnail_jpeg, data)
-    import base64
+    from fastmcp.utilities.types import Image
 
     payload.update(
-        bytes=total,
-        width=width,
-        height=height,
-        thumbnail={"format": "jpeg", "base64": base64.b64encode(jpeg).decode("ascii")},
+        bytes=total, width=width, height=height, thumbnail="jpeg image block follows"
     )
-    return errors.make_ok(**payload)
+    # Two content blocks: the reference as text, the bounded JPEG as a real
+    # MCP image block (a base64 string inside the JSON would reach the model
+    # as text — thousands of characters it cannot look at).
+    return [errors.make_ok(**payload), Image(data=jpeg, format="jpeg")]
 
 
 @mcp.tool(name=tool_names.GET_SCAN_FIGURE)
@@ -563,14 +563,15 @@ async def get_scan_figure(
     label: Optional[str] = None,
     day: Optional[str] = None,
     thumbnail: bool = False,
-) -> str:
+):
     """A figure REFERENCE from the scan's analysis outputs — never the image through context by default.
 
     Without ``label``: the list of figures (``figure`` path, ``analyzer``,
     ``kind``, the portal ``figure_url`` a client fetches directly), or the
     one summary figure's reference when there is exactly one.  With
     ``label`` (a listed ``figure`` path): that reference.  ``thumbnail=true``
-    adds a ≤768 px JPEG (base64) for a bounded look — the only way image
-    bytes ride model context.
+    adds a ≤768 px JPEG as an MCP **image** content block beside the
+    reference — the only way image bytes ride model context.  (No return
+    annotation on purpose: the image block is not a string.)
     """
     return await guard.run_async(_get_scan_figure, scan_number, label, day, thumbnail)
