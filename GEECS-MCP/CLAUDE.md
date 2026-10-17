@@ -29,8 +29,8 @@ built.
   number) is passed through, never filled in.
 - **Identity.**  Every write verb takes `operator` (the supervising
   person's name) and sends `agent, admin supervision (<operator>)`
-  (`identity.py`) — the scanner records it on the run; the logbook will
-  record it as the author.  The halt family records it when given and
+  (`identity.py`) — the scanner records it on the run; the logbook records
+  it as the entry's author.  The halt family records it when given and
   is never blocked on a missing or malformed name.
 - **A scan is named by scan number and day** (today when omitted); the
   portal's `jump` route turns that into the run uid, and a number the day
@@ -73,10 +73,13 @@ geecs_mcp/
   errors.py          make_ok / make_error; the five kinds (module docstring)
   scans/tools.py     the scans domain over the scanner's HTTP API
   analysis/tools.py  the analysis domain over the portal's HTTP API
+  logbook/tools.py   post_logbook_entry: the logbook's create + the portal's
+                     figure send
 tests/
-  conftest.py                the scanner's and the portal's own apps, in process
+  conftest.py                the scanner's, the portal's and the logbook's own apps, in process
   test_scanner_contract.py   every scans verb against the scanner's real routes
   test_portal_contract.py    every analysis verb against the portal's real routes
+  test_logbook_contract.py   post_logbook_entry against the logbook and the portal's send
   test_registration.py       the tool groups partition the registered set; identity; the envelope
 ```
 
@@ -99,6 +102,14 @@ tests/
   comes as `live_scan`); `run_analysis` is the portal's job and
   `wait_for_analysis` polls the portal's listing; `get_scan_scalars`
   forwards the column list and lets the portal cap it.
+- **A write is reported once it has happened.**  `post_logbook_entry`
+  checks every figure reference and resolves its run *before* the entry
+  is created (a bad one refuses the call with nothing written); once the
+  entry exists the result is ok whatever the figures do — each one's
+  outcome is a row in `attachments`, `complete: false` says some failed,
+  and the `entry_id` is never lost (a retry would be a second entry).
+  The entry is an `agent_analysis` **draft**: the logbook refuses a
+  non-note kind born `kept`, and no verb here keeps one.
 - The wait verbs' timeouts are **results** (`finished: false`), never
   errors; the budget is `waits.MAX_WAIT_S` (600 s) pending the OSPREY
   team's word.
@@ -122,10 +133,10 @@ tests/
 | `get_scan_analysis`, `get_scan_figure`, `get_analysis_artifact`, `get_scan_scalars`, `list_analyzers`, `list_analysis_groups`, `wait_for_analysis` | R | portal |
 | `submit_preset`, `move`, `resume_scan`, `clear_queue` | W | scanner |
 | `run_analysis` | W | portal (`POST /api/run/{uid}/analysis`: one document on one scan, one job per scan at a time) |
+| `post_logbook_entry` | W | logbook (`POST /api/entries`, a draft in the scans book) + portal (`POST /api/run/{uid}/logbook` per figure, by artifact path — no image bytes pass through here) |
 | `stop_scan`, `pause_scan` | S | scanner |
 
-`post_logbook_entry` (W, logbook + portal) arrives with PR F.  Retired
-by the rebuild: `get_scan_result` (→ the two numeric reads),
+Retired by the rebuild: `get_scan_result` (→ the two numeric reads),
 `run_scan_analysis` (→ `run_analysis`; the server runs no analysis of its
 own and spawns no worker), the `/figures/` route (→ the portal's artifact
 URL), the progress-stream consumer, `runtime.py`, `[mcp] client_identity`,
@@ -137,12 +148,16 @@ the `analysis-run` extra and every intra-repo runtime dependency.
 in-process: the scanner's app is built from `geecs_scanner`'s demo
 manager (`period=0`, stepped by hand) and the portal's from
 `geecs_portal.app.create_app` over a fake catalog, a temp scan tree and
-an injected fake analyzer factory — the shape of the portal's own tests,
+an injected fake analyzer factory, and the logbook's from
+`geecs_logbook.app.create_app` over the same temp share and a temp
+SQLite store — the shape of each service's own tests,
 copied into `tests/conftest.py` because the subpackages' identically
 named `tests` trees cannot be imported across packages (a
 `geecs_portal.testing` module would be the one-copy home; a portal-side
-change).  Both apps sit on `httpx.ASGITransport`s behind
-`clients.transport_for`.  A route or model change in either service
+change).  All three apps sit on `httpx.ASGITransport`s behind
+`clients.transport_for`, and the portal's figure send reaches the same
+logbook through a `starlette` `TestClient` (`create_app(logbook_client=)`;
+the send drives a sync client).  A route or model change in any service
 fails this suite in the same PR (`scripts/ci_select.py` adds the leg
 through the dev path dependencies).  The portal fixture needs the
 portal's `analysis` extra installed (its analysis routes are gated on

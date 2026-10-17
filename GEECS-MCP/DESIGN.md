@@ -251,7 +251,16 @@ Polls `GET /api/run/{uid}/analysis` every 2 s until
    per its CLAUDE.md), so the MCP does not grow a second copy and never
    moves image bytes: nothing flows through the MCP host or model
    context.
-3. ok: `{entry_id, url: "<logbook>/entry/<id>", attachments: [{path, link, appended}]}`.
+3. ok: `{entry_id, url: "<logbook>/entry/<id>", day, scan, kind, status, author, attachments: [{path, scan_number, attached, link, appended} | {path, scan_number, attached: false, error_kind, message}], complete}`.
+
+Order is the recovery rule (built in PR F). Every figure reference is
+checked (an image suffix, a path) and its run resolved **before** step 1,
+so a bad reference refuses the call with nothing written. Once the entry
+exists the call is ok whatever the figures do: a failed send is a row
+with the service's kind and words, `complete: false` plus a `note` say
+so, and the `entry_id` is never lost — posting again would make a second
+entry. A figure's `day` defaults to the **entry's** day, not the MCP
+host's today.
 
 The script behind a quoted number (the approach page's provenance
 habit) goes **inline in `body_md`** as a fenced block: the attachment
@@ -420,7 +429,7 @@ server and nothing else is.
 | C | GeecsScanner | stamp `md.geecs.operator` on idle-only items (if §8.6 is yes) |
 | D | GEECS-MCP | the client core: `config.py`, `clients.py`, `errors.py` kinds, scans domain over the scanner (kept verbs + `submit_preset`, `move`, `wait_for_scan`), `progress_stream.py` deleted, scanner contract tests. **Dependencies, `runtime.py` and the old analysis modules stay**: today's `analysis/read_tools.py` and `run_tools.py` import `runtime`, `geecs_data_utils.analysis_status` and `_run_guarded` from `scans/read_tools.py`, and `create_server()` imports both unconditionally — so D moves `_run_guarded` to a small `geecs_mcp/guard.py` and repoints those two imports, and the server starts with the scans domain on HTTP and the analysis domain unchanged. The import contract is **not** enabled yet. CLAUDE.md gets the scans half |
 | E | GEECS-MCP | analysis domain over the portal (`get_scan_analysis`, `get_scan_figure`, `get_analysis_artifact`, `get_scan_scalars`, `list_*`, `run_analysis`, `wait_for_analysis`), then the deletions that D could not make: `run_tools.py`, `run_worker.py`, `/figures/`, `runtime.py`, `guard.py`, the `analysis-run` extra, the `geecs-bluesky` / `geecs-data-utils` / `scananalysis` / `imageanalysis` / `pyyaml` dependencies; the `mcp-is-a-client` import contract switched on; portal contract tests; CLAUDE.md/README rewrite finished |
-| F | GEECS-MCP | logbook domain (`post_logbook_entry`) + logbook contract tests; GeecsLogbook CLAUDE.md deferred-decisions row updated (§4.6) |
+| F | GEECS-MCP | logbook domain (`post_logbook_entry`) + logbook contract tests (the logbook app in process, reached by the MCP and by the portal's send); GeecsLogbook CLAUDE.md deferred-decisions row updated (§4.6) |
 
 D and E are each useful alone: after D the agent can submit, move and
 wait over HTTP while analysis still runs through the old path; after E
