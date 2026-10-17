@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import mimetypes
-
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
@@ -63,29 +61,28 @@ def _artifact_image(
 ) -> tuple[bytes, str, str]:
     """(bytes, filename, content type) of one raster artifact, or 404/400.
 
-    The same gate and containment as ``GET /run/{uid}/artifact``: the
-    feature must be on, the path must resolve inside the scan's own
-    analysis folder. Only the inline raster set is sent — the logbook
-    stores images and PDFs, and a sidecar table is not a figure.
+    The same gate as ``GET /run/{uid}/artifact`` (the feature must be on,
+    the run must resolve to a scan folder); the containment, the inline
+    set and the size cap are ``analysis_runs.read_inline_artifact``'s —
+    one artifact contract for the route that serves and the route that
+    forwards. Only the inline raster set is sent — the logbook stores
+    images and PDFs, and a sidecar table is not a figure.
     """
     portal.analysis_available()
     _, _, analysis_folder, _ = portal.analysis_context(uid, day)
-    file = analysis_runs.contained_artifact(analysis_folder, relative)
-    if file is None:
-        raise HTTPException(status_code=404, detail="no such artifact")
-    if file.suffix.lower() not in analysis_runs.INLINE_IMAGE_SUFFIXES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{relative!r} is not a raster image artifact",
-        )
-    content_type = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
     try:
-        data = file.read_bytes()
+        found = analysis_runs.read_inline_artifact(
+            analysis_folder, relative, max_bytes=logbook_send.MAX_PLOT_BYTES
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except OSError as exc:
         raise HTTPException(
             status_code=503, detail=f"artifact unreadable: {exc}"
         ) from exc
-    return data, file.name, content_type
+    if found is None:
+        raise HTTPException(status_code=404, detail="no such artifact")
+    return found
 
 
 @router.post("/api/run/{uid}/logbook", status_code=201)

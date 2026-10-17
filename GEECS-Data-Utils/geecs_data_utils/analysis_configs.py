@@ -30,9 +30,19 @@ def deep_merge(base: RawDocument, overlay: RawDocument) -> RawDocument:
 
 
 def read_yaml_mapping(path: Path) -> RawDocument:
-    """Read one fresh YAML mapping; empty YAML becomes an empty document."""
+    """Read one fresh YAML mapping; empty YAML becomes an empty document.
+
+    Raises ``ValueError`` for anything that is not a mapping — a
+    syntactically malformed file included (``yaml.YAMLError`` is not a
+    ``ValueError``, and a consumer dropping "invalid configs" by
+    ``ValueError`` would otherwise crash on the one kind of broken file
+    a hand edit produces most).
+    """
     with path.open("r") as stream:
-        data = yaml.safe_load(stream)
+        try:
+            data = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"Malformed YAML at {path}: {exc}") from exc
     if data is None:
         return {}
     if not isinstance(data, dict):

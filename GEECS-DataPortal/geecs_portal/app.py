@@ -29,8 +29,9 @@ import contextlib
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
+import httpx
 from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
@@ -43,9 +44,6 @@ from geecs_portal.routes import browse, images, logbook, pages, plot_api, runs
 from geecs_portal.routes.common import _root
 from geecs_portal.routes.config_editor import mount_config_editor
 from geecs_portal.state import PortalState
-
-if TYPE_CHECKING:
-    import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +121,7 @@ def create_app(
     analysis_factory: Optional[analysis_runs.AnalyzerFactory] = None,
     config_editor: bool = False,
     logbook_url: str = "",
-    logbook_client: Optional["httpx.Client"] = None,
+    logbook_client: Optional[httpx.Client] = None,
 ) -> FastAPI:
     """Build the portal application over an injected catalog.
 

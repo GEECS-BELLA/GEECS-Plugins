@@ -115,3 +115,11 @@ def test_empty_and_non_mapping_yaml_are_explicit(tmp_path):
     path.write_text("- not\n- a mapping\n")
     with pytest.raises(ValueError, match="Expected a YAML mapping"):
         read_yaml_mapping(path)
+
+
+def test_malformed_yaml_is_a_value_error_not_a_parser_error(tmp_path):
+    """An unbalanced bracket from a hand edit must read as an invalid document."""
+    path = tmp_path / "broken.yaml"
+    path.write_text("name: [unclosed\nsteps:\n  - roi\n")
+    with pytest.raises(ValueError, match="Malformed YAML"):
+        read_yaml_mapping(path)

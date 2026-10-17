@@ -1016,6 +1016,37 @@ class TestCatalog:
             "members": ["UC_Compact", "UC_Crop"],
         }
 
+    def test_malformed_yaml_drops_one_group_not_the_route(
+        self, scan_folder, configs_tree
+    ) -> None:
+        """A hand edit's unbalanced bracket: in a group file, and in a member's."""
+        (configs_tree / "groups" / "HTU" / "syntax.yaml").write_text(
+            "name: [unclosed\nanalyzers:\n  - UC_Crop\n"
+        )
+        (configs_tree / "groups" / "HTU" / "member.yaml").write_text(
+            "name: member\nanalyzers:\n  - UC_Torn\n"
+        )
+        (configs_tree / "analyzers" / "HTU" / "UC_Torn.yaml").write_text(
+            "name: UC_Torn\nscan: {priority: [\n"
+        )
+        response = _client(scan_folder, configs_tree).get("/api/analysis/catalog")
+        assert response.status_code == 200
+        assert [g["id"] for g in response.json()["groups"]] == ["HTU/all"]
+        assert "UC_Torn" not in {a["id"] for a in response.json()["analyzers"]}
+
+    def test_a_duplicate_stem_degrades_to_an_empty_catalog(
+        self, scan_folder, configs_tree
+    ) -> None:
+        """An unlistable tree is no diagnostics, never a 500 (the listing's own rule)."""
+        other = configs_tree / "analyzers" / "PW"
+        other.mkdir()
+        (other / "UC_Crop.yaml").write_text(
+            (configs_tree / "analyzers" / "HTU" / "UC_Crop.yaml").read_text()
+        )
+        response = _client(scan_folder, configs_tree).get("/api/analysis/catalog")
+        assert response.status_code == 200
+        assert response.json() == {"analyzers": [], "groups": []}
+
     def test_a_tree_without_groups_lists_none(self, scan_folder, configs_tree) -> None:
         shutil.rmtree(configs_tree / "groups")
         body = _client(scan_folder, configs_tree).get("/api/analysis/catalog").json()

@@ -887,6 +887,32 @@ class TestArtifactSource:
         assert "raster image" in response.json()["detail"]
         assert not stub.calls
 
+    def test_an_oversized_artifact_is_refused_before_it_is_read(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """The cap is checked on the stat, so a huge file never enters this process."""
+        from geecs_data_utils.scan_info import analysis_folder_for
+
+        stub = _StubSend()
+        monkeypatch.setattr(logbook_send, "send_plot", stub)
+        client = _analysis_client(tmp_path)
+        scan_folder = (
+            tmp_path
+            / "Undulator"
+            / "Y2026"
+            / "07-Jul"
+            / "26_0713"
+            / "scans"
+            / "Scan002"
+        )
+        big = analysis_folder_for(scan_folder) / "UC_Crop" / "huge.png"
+        with big.open("wb") as handle:  # sparse: the size without the bytes
+            handle.truncate(logbook_send.MAX_PLOT_BYTES + 1)
+        response = _post_path(client, "UC_Crop/huge.png")
+        assert response.status_code == 400
+        assert "send cap" in response.json()["detail"]
+        assert not stub.calls
+
     def test_exactly_one_source_is_required(self, tmp_path) -> None:
         client = _analysis_client(tmp_path)
         both = _post_path(client, image=_DATA_URL)

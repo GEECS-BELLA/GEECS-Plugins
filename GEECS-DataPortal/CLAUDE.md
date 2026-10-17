@@ -318,7 +318,9 @@ arc, 2026-10) lists the tree **scan-free** — every loadable diagnostic
 `recipe|diagnostic|job`) and every loadable group with its resolved
 `members` in run order (ScanAnalysis's own `discover_groups` +
 `load_analysis_group`, so a file that would fail a run — bad YAML, a
-ref no diagnostic answers to — is dropped with a log line) — the planning surface
+ref no diagnostic answers to — is dropped with a log line; the group walk
+is uncached by choice: groups are few and the route is called when a
+plan is made, not per page) — the planning surface
 for an agent or a picker; the portal still runs one diagnostic per job,
 so a group is a plan the caller expands.  `GET /api/run/{uid}/analysis`
 lists every loadable diagnostic in the same `--processing-configs`

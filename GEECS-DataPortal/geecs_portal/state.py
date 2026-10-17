@@ -7,8 +7,9 @@ import importlib
 import logging
 from datetime import date
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
+import httpx
 from fastapi import HTTPException
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
@@ -99,7 +100,7 @@ class PortalState:
     logbook_send_base: str = ""
     #: The client the plot send uses (``None`` = one per send); injected
     #: by tests so the conversation runs against an in-process logbook.
-    logbook_client: Optional[Any] = None
+    logbook_client: Optional[httpx.Client] = None
     config_editor_enabled: bool = False  # set when the editor router mounts
     # (fingerprint → valid names): re-validated only when the tree
     # changes — discovery lists every YAML stem, but legacy flat camera
@@ -323,13 +324,13 @@ class PortalState:
         file, so a legacy config is a log line, not a broken image.
         """
         if self.processing_config_dir is None:
-            return []
+            return {}
         try:
             processing_api = self.ephemeral_module()
             list_diagnostics = processing_api.list_diagnostics
             load_diagnostic = processing_api.load_diagnostic
         except HTTPException:
-            return []
+            return {}
         # Fingerprint BEFORE listing: a YAML landing between the two
         # scans then costs one harmless revalidation, instead of a
         # cache entry permanently missing it. mtime+size so same-second
@@ -352,7 +353,7 @@ class PortalState:
             names = list_diagnostics(config_dir=self.processing_config_dir)
         except Exception as exc:  # noqa: BLE001 — unlistable tree = no selector
             logger.debug("processing configs unavailable: %s", exc)
-            return []
+            return {}
         valid: dict[str, _DiagInfo] = {}
         for name in names:
             try:
