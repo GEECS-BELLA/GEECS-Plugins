@@ -317,7 +317,7 @@ denylisted/miswired 400, analyzer failure 400 — never a 500.
 **Analysis runs** (0.16.0): `GET /api/analysis/catalog` (GEECS-MCP
 arc, 2026-10) lists the tree **scan-free** — every loadable diagnostic
 (`id`, `device`, `output_dir`, `destructive`, `kind` ∈
-`recipe|diagnostic|job`) and every loadable group with its resolved
+`recipe|job`) and every loadable group with its resolved
 `members` in run order (ScanAnalysis's own `discover_groups` +
 `load_analysis_group`, so a file that would fail a run — bad YAML, a
 ref no diagnostic answers to — is dropped with a log line; the group walk

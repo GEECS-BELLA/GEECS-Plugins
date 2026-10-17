@@ -992,7 +992,7 @@ class TestCatalog:
             "device": "cam",
             "output_dir": "UC_Crop",
             "destructive": False,
-            "kind": "diagnostic",
+            "kind": "recipe",  # a version-2 fixture loads as a recipe since #1039
         }
         assert by_id["UC_Compact"]["destructive"] is True
         assert by_id["UC_Compact"]["kind"] == "job"
