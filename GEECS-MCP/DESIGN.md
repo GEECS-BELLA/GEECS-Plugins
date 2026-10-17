@@ -110,15 +110,23 @@ server renders; `WRITE_TOOLS` on allow at the admin tier only, with the
 profile's DEVIATION marker; the readonly and knowledge renders drop the
 write verbs. The headless gate is the profile's `write_tools` list
 derived from `WRITE_TOOLS`, as `deploy/DEPLOYMENT.md` describes today.
-The htu-assistant scout proposes attaching the writes-check hook through
-osprey's `claude_code.servers.geecs.hooks` key — a different key from
-the `mcp_servers` block's `hooks:`, which `DEPLOYMENT.md` and this
-package's CLAUDE.md record as silently ignored (verified 2026-08-22).
-That reading comes from osprey's source, not a live run: it is
-**unverified** until the first rendered profile is exercised, and PR G
-rewrites the gating sections of `DEPLOYMENT.md` and CLAUDE.md to
-whatever that verification shows, so the repo never carries two
-statements of the headless gate.
+The writes-check and approval hooks attach to this server only when
+the profile declares it under osprey's `claude_code.servers.geecs`
+config keys (`transport`, `url`, `permissions`, `hooks.pre_tool_use:
+[writes_check, approval]`) **instead of** the `mcp_servers:` block: a
+`hooks:` key on an `mcp_servers` entry is dropped at load, and a dotted
+`claude_code.servers.geecs.hooks` key beside an `mcp_servers` entry is
+overwritten by the build — so `DEPLOYMENT.md`'s 2026-08-22 statement
+stands for the `mcp_servers` route, and both statements are about
+different keys. Verified structurally by the htu-assistant session on
+2026-10-16 (osprey build renders, three tiers carry a `PreToolUse`
+matcher `mcp__geecs__.*` with both hook commands; no agent session
+run, so the denied-write and the allow-listed-read-passes-silently
+checks are still owed live). The headless gate is unchanged:
+`write_tools` → `hook_config.json` → the `osprey query` floor. PR G
+rewrites the gating sections of `DEPLOYMENT.md` and CLAUDE.md to this,
+and HTU's profile moves the server to the `claude_code.servers` route
+when the new verbs land.
 
 ## 4. Verb by verb
 
