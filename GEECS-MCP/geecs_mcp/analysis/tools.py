@@ -1,0 +1,572 @@
+"""The analysis domain over the Data Portal's HTTP API.
+
+Every verb here is one of the portal's routes seen through the envelope —
+the same analysis runs, listings and artifacts an operator sees on the
+portal's Analysis tab (DESIGN.md §4.4–§4.9).  A scan is named the way the
+loop knows it, by scan number and day; the portal's ``jump`` route turns
+that into the run uid every other route takes, and a scan number the day
+does not hold is ``not_found`` (the jump route otherwise returns the day's
+newest run, which must never be analysed by mistake).
+
+Nothing here reads the data share, runs an analyzer or interprets a
+column: the portal does, and this module forwards its words.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+from datetime import date
+from typing import Any, Optional
+
+import anyio
+
+from geecs_mcp import clients, config, errors, guard, tool_names
+from geecs_mcp.clients import ServiceRefusal
+from geecs_mcp.server import mcp
+
+#: Job states the portal's analysis runner reports.
+ACTIVE_STATES = ("queued", "running")
+#: Polling cadence for wait_for_analysis (the portal's tab polls at 1.5 s).
+ANALYSIS_POLL_S = 2.0
+#: The same cap the scans domain's wait uses (DESIGN.md §4.3).
+MAX_WAIT_S = 600.0
+#: The portal keeps the last 400 log lines per job; the agent gets a tail.
+LOG_TAIL_LINES = 40
+#: get_analysis_artifact's default and ceiling (bytes) — a sidecar JSON is
+#: a few KiB; a per-shot table can be MBs, and never belongs in context whole.
+ARTIFACT_DEFAULT_BYTES = 64 * 1024
+ARTIFACT_MAX_BYTES = 256 * 1024
+#: Figure bytes fetched for the opt-in thumbnail (a DoS guard, not a
+#: context budget — only the ≤768 px JPEG reaches the agent).
+FIGURE_FETCH_MAX_BYTES = 50_000_000
+THUMBNAIL_EDGE_PX = 768
+THUMBNAIL_JPEG_QUALITY = 80
+MAX_FIGURE_PIXELS = 80_000_000
+#: The portal's inline raster set (its artifact route's policy).
+IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+#: The portal caps a binned request at four scalar columns.
+MAX_SCALAR_COLUMNS = 4
+
+
+async def _sleep(seconds: float) -> None:
+    """The wait verb's pause — a module attribute so tests can replace it."""
+    await anyio.sleep(seconds)
+
+
+# ---------------------------------------------------------------------------
+# resolving a scan
+# ---------------------------------------------------------------------------
+
+
+def _day_or_today(day: Optional[str]) -> str:
+    text = str(day or "").strip()
+    return text or date.today().isoformat()
+
+
+async def _resolve_uid(scan_number: Any, day: Optional[str]) -> tuple[str, str, int]:
+    """``(uid, day, scan_number)`` through the portal's jump route, or a refusal."""
+    try:
+        number = int(scan_number)
+    except (TypeError, ValueError):
+        raise ServiceRefusal(
+            "invalid_request", f"scan_number {scan_number!r} is not an integer"
+        ) from None
+    if number < 1:
+        raise ServiceRefusal("invalid_request", "scan_number must be positive")
+    iso = _day_or_today(day)
+    jump = await clients.call(
+        "portal", "GET", f"/api/run/jump/{iso}", params={"prefer": number}
+    )
+    if not jump.get("matched") or not jump.get("uid"):
+        raise ServiceRefusal(
+            "not_found",
+            f"no scan {number} on {iso} in the portal's catalog "
+            f"({jump.get('runs', 0)} run(s) that day)",
+            day=iso,
+            scan_number=number,
+        )
+    return str(jump["uid"]), iso, number
+
+
+def _portal_base() -> str:
+    return config.service_url("portal") or ""
+
+
+def _artifact_url(uid: str, path: str, day: str) -> str:
+    from urllib.parse import urlencode
+
+    return (
+        f"{_portal_base()}/run/{uid}/artifact?{urlencode({'path': path, 'day': day})}"
+    )
+
+
+def _bounded_job(job: Any) -> Any:
+    """The portal's job record with its log cut to a tail."""
+    if not isinstance(job, dict):
+        return job
+    out = dict(job)
+    log = out.get("log")
+    if isinstance(log, list) and len(log) > LOG_TAIL_LINES:
+        out["log"] = log[-LOG_TAIL_LINES:]
+        out["log_truncated"] = True
+        out["log_lines_total"] = len(log)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# listings
+# ---------------------------------------------------------------------------
+
+
+async def _catalog() -> dict:
+    return await clients.call("portal", "GET", "/api/analysis/catalog") or {}
+
+
+async def _list_analyzers() -> str:
+    catalog = await _catalog()
+    analyzers = list(catalog.get("analyzers") or [])
+    return errors.make_ok(analyzers=analyzers, count=len(analyzers))
+
+
+@mcp.tool(name=tool_names.LIST_ANALYZERS)
+async def list_analyzers() -> str:
+    """Every analysis document the portal can run: ``id``, ``device``, ``output_dir``, ``destructive``, ``kind``.
+
+    The ids are what ``run_analysis`` takes — never invent one.  A
+    ``destructive`` kind (the ``.himg`` compaction) needs ``confirm`` set
+    to the scan number.
+    """
+    return await guard.run_async(_list_analyzers)
+
+
+async def _list_analysis_groups() -> str:
+    catalog = await _catalog()
+    groups = list(catalog.get("groups") or [])
+    return errors.make_ok(
+        groups=groups,
+        count=len(groups),
+        note=(
+            "the portal runs one diagnostic per job: a group is a plan to "
+            "expand — call run_analysis for each member in order"
+        ),
+    )
+
+
+@mcp.tool(name=tool_names.LIST_ANALYSIS_GROUPS)
+async def list_analysis_groups() -> str:
+    """The analysis groups as written: ``id``, ``name``, ``members`` in run order.
+
+    Not runnable as one unit here — the portal runs one diagnostic per
+    job — so a group is the order to call ``run_analysis`` in.
+    """
+    return await guard.run_async(_list_analysis_groups)
+
+
+# ---------------------------------------------------------------------------
+# the per-scan picture
+# ---------------------------------------------------------------------------
+
+
+async def _analysis_listing(uid: str, day: str) -> dict:
+    return (
+        await clients.call(
+            "portal", "GET", f"/api/run/{uid}/analysis", params={"day": day}
+        )
+        or {}
+    )
+
+
+async def _get_scan_analysis(scan_number: Any, day: Optional[str]) -> str:
+    uid, iso, number = await _resolve_uid(scan_number, day)
+    listing = await _analysis_listing(uid, iso)
+    analyzers = []
+    for entry in listing.get("analyzers") or []:
+        row = dict(entry)
+        row["job"] = _bounded_job(row.get("job"))
+        analyzers.append(row)
+    return errors.make_ok(
+        uid=uid,
+        day=iso,
+        scan_number=listing.get("scan_number", number),
+        running=listing.get("running"),
+        analyzers=analyzers,
+    )
+
+
+@mcp.tool(name=tool_names.GET_SCAN_ANALYSIS)
+async def get_scan_analysis(scan_number: int, day: Optional[str] = None) -> str:
+    """The portal's analysis picture of one scan: every analyzer with its job, files and artifacts.
+
+    ``day`` is ISO (``2026-10-16``), today when omitted.  Per analyzer:
+    ``applicable`` (its device has data in this scan), ``job`` (the
+    portal's record — ``queued``/``running``/``done``/``failed``/``no_data``,
+    ``error``, a bounded ``log`` tail; null when nothing ran since the
+    portal started), ``files`` on disk and ``artifacts`` (``path``,
+    ``kind`` summary|other|bin, ``inline``).  Paths feed
+    ``get_analysis_artifact`` and ``get_scan_figure``.
+    """
+    return await guard.run_async(_get_scan_analysis, scan_number, day)
+
+
+# ---------------------------------------------------------------------------
+# run_analysis / wait_for_analysis
+# ---------------------------------------------------------------------------
+
+
+async def _run_analysis(
+    scan_number: Any, analyzer: str, day: Optional[str], confirm: Any
+) -> str:
+    analyzer = str(analyzer or "").strip()
+    if not analyzer:
+        return errors.make_error("invalid_request", "name an analyzer (list_analyzers)")
+    uid, iso, number = await _resolve_uid(scan_number, day)
+    params: dict[str, Any] = {"analyzer": analyzer, "day": iso}
+    if confirm is not None:
+        params["confirm"] = int(confirm)
+    try:
+        job = await clients.call(
+            "portal", "POST", f"/api/run/{uid}/analysis", params=params
+        )
+    except ServiceRefusal as exc:
+        if exc.kind == "not_found" and "no diagnostic" in exc.message:
+            catalog = await _catalog()
+            ids = [a.get("id") for a in catalog.get("analyzers") or []]
+            raise ServiceRefusal(exc.kind, exc.message, analyzers=ids) from None
+        raise
+    return errors.make_ok(
+        uid=uid, day=iso, scan_number=number, analyzer=analyzer, job=_bounded_job(job)
+    )
+
+
+@mcp.tool(name=tool_names.RUN_ANALYSIS)
+async def run_analysis(
+    scan_number: int,
+    analyzer: str,
+    day: Optional[str] = None,
+    confirm: Optional[int] = None,
+) -> str:
+    """Start one analysis document on one scan through the portal (its Analysis tab's run).
+
+    Returns at once with the portal's job record (usually ``queued``);
+    follow it with ``wait_for_analysis``.  One job per scan at a time
+    (``policy_refusal`` with the active job otherwise).  A ``destructive``
+    kind needs ``confirm=<scan_number>`` — the same typed confirmation the
+    tab asks a person for; this server never fills it in.
+    """
+    return await guard.run_async(_run_analysis, scan_number, analyzer, day, confirm)
+
+
+def _job_for(listing: dict, analyzer: str) -> tuple[Optional[dict], Optional[dict]]:
+    for entry in listing.get("analyzers") or []:
+        if entry.get("id") == analyzer:
+            return entry, entry.get("job")
+    return None, None
+
+
+async def _wait_for_analysis(
+    scan_number: Any, analyzer: str, day: Optional[str], timeout_s: Any
+) -> str:
+    analyzer = str(analyzer or "").strip()
+    if not analyzer:
+        return errors.make_error("invalid_request", "name the analyzer you started")
+    uid, iso, number = await _resolve_uid(scan_number, day)
+    try:
+        budget = max(0.0, min(float(timeout_s), MAX_WAIT_S))
+    except (TypeError, ValueError):
+        budget = 0.0
+    deadline = anyio.current_time() + budget
+    while True:
+        listing = await _analysis_listing(uid, iso)
+        entry, job = _job_for(listing, analyzer)
+        if entry is None:
+            return errors.make_error(
+                "not_found",
+                f"no analyzer {analyzer!r} in the portal's listing for scan {number}",
+                analyzers=[e.get("id") for e in listing.get("analyzers") or []],
+            )
+        state = (job or {}).get("state")
+        if (
+            job is None
+            or state not in ACTIVE_STATES
+            or anyio.current_time() >= deadline
+        ):
+            break
+        await _sleep(ANALYSIS_POLL_S)
+    finished = job is not None and state not in ACTIVE_STATES
+    return errors.make_ok(
+        finished=finished,
+        uid=uid,
+        day=iso,
+        scan_number=number,
+        analyzer=analyzer,
+        # "unknown": the portal restarted since the run — the files on disk
+        # are what is known, never a guess at done
+        state=state if job is not None else "unknown",
+        error=(job or {}).get("error"),
+        progress=(job or {}).get("progress"),
+        artifacts=entry.get("artifacts") or [],
+        files=entry.get("files") or [],
+        job=_bounded_job(job),
+    )
+
+
+@mcp.tool(name=tool_names.WAIT_FOR_ANALYSIS)
+async def wait_for_analysis(
+    scan_number: int,
+    analyzer: str,
+    day: Optional[str] = None,
+    timeout_s: float = 240.0,
+) -> str:
+    """Block until the analyzer's job on this scan leaves ``queued``/``running`` (cap 600 s).
+
+    ``{finished, state, error, artifacts, files, job}`` — ``state`` is
+    ``done``/``failed``/``no_data``, or ``unknown`` when the portal has no
+    job record (it restarted; the files on disk are listed).  A timeout is
+    a result with ``finished: false``; call again.
+    """
+    return await guard.run_async(
+        _wait_for_analysis, scan_number, analyzer, day, timeout_s
+    )
+
+
+# ---------------------------------------------------------------------------
+# reading numbers: artifacts and scalars
+# ---------------------------------------------------------------------------
+
+
+async def _get_analysis_artifact(
+    scan_number: Any, path: str, day: Optional[str], max_bytes: Any
+) -> str:
+    path = str(path or "").strip()
+    if not path:
+        return errors.make_error(
+            "invalid_request", "name an artifact path from get_scan_analysis"
+        )
+    if path.lower().endswith(IMAGE_SUFFIXES):
+        return errors.make_error(
+            "invalid_request", f"{path!r} is an image — use get_scan_figure for figures"
+        )
+    try:
+        cap = int(max_bytes)
+    except (TypeError, ValueError):
+        cap = ARTIFACT_DEFAULT_BYTES
+    cap = max(1, min(cap, ARTIFACT_MAX_BYTES))
+    uid, iso, number = await _resolve_uid(scan_number, day)
+    body, content_type, truncated, total = await clients.get_bytes(
+        "portal",
+        f"/run/{uid}/artifact",
+        params={"path": path, "day": iso},
+        max_bytes=cap,
+    )
+    payload: dict[str, Any] = {
+        "uid": uid,
+        "day": iso,
+        "scan_number": number,
+        "path": path,
+        "content_type": content_type,
+        "size_bytes": total,
+        "truncated": truncated,
+    }
+    text = body.decode("utf-8", errors="replace")
+    if not truncated:
+        try:
+            payload["data"] = json.loads(text)
+            return errors.make_ok(**payload)
+        except ValueError:
+            pass
+    payload["text"] = text
+    return errors.make_ok(**payload)
+
+
+@mcp.tool(name=tool_names.GET_ANALYSIS_ARTIFACT)
+async def get_analysis_artifact(
+    scan_number: int,
+    path: str,
+    day: Optional[str] = None,
+    max_bytes: int = ARTIFACT_DEFAULT_BYTES,
+) -> str:
+    """Read one non-image artifact a run produced — the numbers the loop decides on.
+
+    ``path`` as ``get_scan_analysis`` lists it (relative to the scan's
+    analysis folder): a ``*_summary_*.json`` sidecar comes back parsed as
+    ``data``; a text table as ``text``.  Capped at ``max_bytes`` (ceiling
+    256 KiB) with ``truncated`` and ``size_bytes`` when cut.  Images are
+    refused — ``get_scan_figure`` is for those.
+    """
+    return await guard.run_async(
+        _get_analysis_artifact, scan_number, path, day, max_bytes
+    )
+
+
+async def _get_scan_scalars(
+    scan_number: Any,
+    columns: list[str],
+    day: Optional[str],
+    x: str,
+    bincfg: str,
+    filters: str,
+) -> str:
+    cols = [str(c).strip() for c in (columns or []) if str(c).strip()]
+    if not cols:
+        return errors.make_error("invalid_request", "name one to four scalar columns")
+    if len(cols) > MAX_SCALAR_COLUMNS:
+        return errors.make_error(
+            "invalid_request",
+            f"at most {MAX_SCALAR_COLUMNS} columns per call (the portal's cap)",
+        )
+    uid, iso, number = await _resolve_uid(scan_number, day)
+    params: dict[str, Any] = {"cols": cols, "day": iso}
+    params.update(
+        {k: v for k, v in (("x", x), ("bincfg", bincfg), ("filters", filters)) if v}
+    )
+    binned = (
+        await clients.call("portal", "GET", f"/api/run/{uid}/binned", params=params)
+        or {}
+    )
+    # the plot and the notebook snippet are for browsers; the numbers stay
+    numbers = {k: v for k, v in binned.items() if k not in ("figure", "code")}
+    return errors.make_ok(uid=uid, day=iso, scan_number=number, columns=cols, **numbers)
+
+
+@mcp.tool(name=tool_names.GET_SCAN_SCALARS)
+async def get_scan_scalars(
+    scan_number: int,
+    columns: list[str],
+    day: Optional[str] = None,
+    x: str = "",
+    bincfg: str = "",
+    filters: str = "",
+) -> str:
+    """Per-bin centres, error bands and counts of up to four scalar columns (the portal's Plot tab numbers).
+
+    ``bincfg`` and ``filters`` are the portal's own JSON strings, passed
+    through unparsed, so a binning set up in the Plot tab is reproducible
+    from its URL; with none, the portal's default binning applies.  The
+    reply is the portal's numeric payload (``bins``, ``counts``,
+    ``series``, ``x_centers`` when ``x`` is given) with the figure and the
+    notebook snippet dropped.
+    """
+    return await guard.run_async(
+        _get_scan_scalars, scan_number, columns, day, x, bincfg, filters
+    )
+
+
+# ---------------------------------------------------------------------------
+# get_scan_figure
+# ---------------------------------------------------------------------------
+
+
+def _is_image(path: str) -> bool:
+    return str(path).lower().endswith(IMAGE_SUFFIXES)
+
+
+def _figure_entries(listing: dict, uid: str, day: str) -> list[dict]:
+    entries = []
+    for analyzer in listing.get("analyzers") or []:
+        for artifact in analyzer.get("artifacts") or []:
+            path = artifact.get("path")
+            if not isinstance(path, str) or not _is_image(path):
+                continue
+            entries.append(
+                {
+                    "figure": path,
+                    "analyzer": analyzer.get("id"),
+                    "kind": artifact.get("kind"),
+                    "bin": artifact.get("bin"),
+                    "figure_url": _artifact_url(uid, path, day),
+                }
+            )
+    return entries
+
+
+def _thumbnail_jpeg(data: bytes) -> bytes:
+    from PIL import Image as PILImage
+
+    with PILImage.open(io.BytesIO(data)) as image:
+        if image.width * image.height > MAX_FIGURE_PIXELS:
+            raise ServiceRefusal(
+                "invalid_request",
+                f"figure is {image.width}x{image.height} — over the "
+                f"{MAX_FIGURE_PIXELS / 1e6:.0f} MP decode cap",
+            )
+        image.load()
+        width, height = image.size
+        if max(image.size) > THUMBNAIL_EDGE_PX:
+            image.thumbnail((THUMBNAIL_EDGE_PX, THUMBNAIL_EDGE_PX))
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=THUMBNAIL_JPEG_QUALITY)
+        return buffer.getvalue(), width, height
+
+
+async def _get_scan_figure(
+    scan_number: Any, label: Optional[str], day: Optional[str], thumbnail: bool
+) -> str:
+    uid, iso, number = await _resolve_uid(scan_number, day)
+    listing = await _analysis_listing(uid, iso)
+    figures = _figure_entries(listing, uid, iso)
+    wanted = str(label or "").strip()
+    if not wanted:
+        summaries = [f for f in figures if f.get("kind") == "summary"]
+        if len(summaries) == 1 and not thumbnail:
+            wanted = summaries[0]["figure"]
+        else:
+            return errors.make_ok(
+                uid=uid,
+                day=iso,
+                scan_number=number,
+                figures=figures,
+                note="name one of these as `label` for its reference (or thumbnail=true)",
+            )
+    match = next((f for f in figures if f["figure"] == wanted), None)
+    if match is None:
+        return errors.make_error(
+            "not_found",
+            f"no figure {wanted!r} among scan {number}'s artifacts",
+            figures=[f["figure"] for f in figures],
+        )
+    payload: dict[str, Any] = {"uid": uid, "day": iso, "scan_number": number, **match}
+    if not thumbnail:
+        return errors.make_ok(**payload)
+    data, content_type, truncated, total = await clients.get_bytes(
+        "portal",
+        f"/run/{uid}/artifact",
+        params={"path": wanted, "day": iso},
+        max_bytes=FIGURE_FETCH_MAX_BYTES,
+    )
+    if truncated:
+        return errors.make_error(
+            "invalid_request",
+            f"figure {wanted!r} is over the {FIGURE_FETCH_MAX_BYTES // 1_000_000} MB fetch cap",
+        )
+    jpeg, width, height = await anyio.to_thread.run_sync(_thumbnail_jpeg, data)
+    import base64
+
+    payload.update(
+        bytes=total,
+        width=width,
+        height=height,
+        thumbnail={"format": "jpeg", "base64": base64.b64encode(jpeg).decode("ascii")},
+    )
+    return errors.make_ok(**payload)
+
+
+@mcp.tool(name=tool_names.GET_SCAN_FIGURE)
+async def get_scan_figure(
+    scan_number: int,
+    label: Optional[str] = None,
+    day: Optional[str] = None,
+    thumbnail: bool = False,
+) -> str:
+    """A figure REFERENCE from the scan's analysis outputs — never the image through context by default.
+
+    Without ``label``: the list of figures (``figure`` path, ``analyzer``,
+    ``kind``, the portal ``figure_url`` a client fetches directly), or the
+    one summary figure's reference when there is exactly one.  With
+    ``label`` (a listed ``figure`` path): that reference.  ``thumbnail=true``
+    adds a ≤768 px JPEG (base64) for a bounded look — the only way image
+    bytes ride model context.
+    """
+    return await guard.run_async(_get_scan_figure, scan_number, label, day, thumbnail)

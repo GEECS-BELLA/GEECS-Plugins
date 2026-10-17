@@ -161,9 +161,10 @@ jobs:
               poetry install --with dev --extras qserver --extras qs-client \
                 --extras ca --extras tiled --extras optimize ;;
             GEECS-MCP)
-              # analysis-run: the #686 execution-slice tests importorskip
-              # without it — install it so CI actually runs them.
-              poetry install --with dev -E analysis-run ;;
+              # No extras: the package has no intra-repo runtime dependency.
+              # Its dev group brings the scanner and the portal (with the
+              # portal's `analysis` extra) for the in-process contract tests.
+              poetry install --with dev ;;
             *)
               poetry install --with dev ;;
           esac

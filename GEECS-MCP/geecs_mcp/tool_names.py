@@ -22,17 +22,18 @@ LIST_SCAN_CONFIGS = "list_scan_configs"
 WAIT_FOR_SCAN = "wait_for_scan"
 GET_SCAN_ANALYSIS = "get_scan_analysis"
 GET_SCAN_FIGURE = "get_scan_figure"
+GET_ANALYSIS_ARTIFACT = "get_analysis_artifact"
+GET_SCAN_SCALARS = "get_scan_scalars"
 LIST_ANALYZERS = "list_analyzers"
 LIST_ANALYSIS_GROUPS = "list_analysis_groups"
+WAIT_FOR_ANALYSIS = "wait_for_analysis"
 
 # writes
 SUBMIT_PRESET = "submit_preset"
 MOVE = "move"
 RESUME_SCAN = "resume_scan"
 CLEAR_QUEUE = "clear_queue"
-#: Retired by DESIGN.md (→ ``run_analysis`` over the portal); registered
-#: until PR E lands the analysis domain's rewrite.
-RUN_SCAN_ANALYSIS = "run_scan_analysis"
+RUN_ANALYSIS = "run_analysis"
 
 # the halt family
 STOP_SCAN = "stop_scan"
@@ -48,20 +49,24 @@ READ_TOOLS = (
     WAIT_FOR_SCAN,
     GET_SCAN_ANALYSIS,
     GET_SCAN_FIGURE,
+    GET_ANALYSIS_ARTIFACT,
+    GET_SCAN_SCALARS,
     LIST_ANALYZERS,
     LIST_ANALYSIS_GROUPS,
+    WAIT_FOR_ANALYSIS,
 )
 
 #: Write tools (W) — every verb that queues work, moves hardware or
 #: writes a record: the deployment lists these in ``write_tools`` (the
 #: headless gate) and decides their interactive posture per tier.
-#: ``resume_scan`` is a write, not a halt: it restarts motion.
+#: ``resume_scan`` is a write, not a halt: it restarts motion;
+#: ``run_analysis`` writes the analysis tree and burns the portal's CPU.
 WRITE_TOOLS = (
     SUBMIT_PRESET,
     MOVE,
     RESUME_SCAN,
     CLEAR_QUEUE,
-    RUN_SCAN_ANALYSIS,
+    RUN_ANALYSIS,
 )
 
 #: The halt family (S) — NEVER listed in ``write_tools``: exempt by

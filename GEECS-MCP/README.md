@@ -15,10 +15,14 @@ acknowledged here), `move` (the scanner's `mv` plan, idle-only, with the
 readback), `resume_scan`, `clear_queue`. The halt family — `stop_scan`,
 `pause_scan` — is never behind the headless gate.
 
-**Analysis (old path until PR E).** `get_scan_analysis`,
-`get_scan_figure`, `list_analyzers`, `list_analysis_groups`,
-`run_scan_analysis` still read the share and run ScanAnalysis in this
-process; they move onto the portal's analysis route next.
+**Analysis (over the Data Portal).** `list_analyzers` /
+`list_analysis_groups` (the portal's catalog), `run_analysis` +
+`wait_for_analysis` (one document on one scan through the portal's
+Analysis-tab route), `get_scan_analysis` (the per-scan picture),
+`get_analysis_artifact` (a run's JSON/text sidecar, byte-capped) and
+`get_scan_scalars` (per-bin statistics of up to four columns) for the
+numbers, `get_scan_figure` (a reference to the portal's artifact URL;
+`thumbnail=true` for a bounded JPEG).
 
 Permission lists import `geecs_mcp.tool_names` (`READ_TOOLS`,
 `WRITE_TOOLS`, `STOP_TOOLS`); `deploy/DEPLOYMENT.md` has the profile
@@ -41,7 +45,7 @@ permission lists import `geecs_mcp.tool_names` symbols.
 
 ## Development
 
-`poetry install --with dev -E analysis-run`, `poetry run pytest`. See `CLAUDE.md` for the
+`poetry install --with dev`, `poetry run pytest`. See `CLAUDE.md` for the
 architecture, the verb roadmap, and the safety doctrine.
 
 ## Deployment

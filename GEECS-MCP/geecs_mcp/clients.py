@@ -156,8 +156,13 @@ def _refusal(service: str, response: httpx.Response) -> ServiceRefusal:
         return ServiceRefusal(kind, message, **error)
     kind = _KIND_BY_STATUS.get(response.status_code, "invalid_request")
     extra: dict[str, Any] = {}
-    if isinstance(body, dict) and isinstance(body.get("detail"), dict):
-        extra = {k: v for k, v in body["detail"].items() if k != "message"}
+    if isinstance(body, dict):
+        # Context rides either beside ``detail`` (the portal's 409 carries
+        # the active ``job`` there) or inside a dict-shaped ``detail`` (the
+        # logbook's 409 carries the ``current`` entry): keep both.
+        extra = {k: v for k, v in body.items() if k != "detail"}
+        if isinstance(body.get("detail"), dict):
+            extra.update({k: v for k, v in body["detail"].items() if k != "message"})
     return ServiceRefusal(kind, _detail_text(body, response), **extra)
 
 
@@ -216,3 +221,65 @@ async def call(
             f"answered {response.status_code} with a non-JSON body "
             f"({response.headers.get('content-type', '?')})",
         ) from exc
+
+
+async def get_bytes(
+    service: str,
+    path: str,
+    *,
+    params: Optional[dict[str, Any]] = None,
+    max_bytes: int,
+    read_timeout_s: Optional[float] = None,
+) -> tuple[bytes, str, bool, Optional[int]]:
+    """``(body, content type, truncated, total size)`` of one GET, capped at *max_bytes*.
+
+    For the portal's artifact route: the body is streamed and reading
+    stops once the cap is reached, so a large sidecar never lands whole in
+    this process.  ``truncated`` is true only when bytes beyond the cap
+    exist; ``total size`` is the ``Content-Length`` when the service sent
+    one (the portal's file responses do), else the bytes read.
+    """
+    client = get_client(service)
+    clean_params = {k: v for k, v in (params or {}).items() if v is not None}
+    timeout = (
+        httpx.Timeout(read_timeout_s, connect=CONNECT_TIMEOUT_S)
+        if read_timeout_s is not None
+        else httpx.USE_CLIENT_DEFAULT
+    )
+    try:
+        async with client.stream(
+            "GET", path, params=clean_params, timeout=timeout
+        ) as response:
+            if response.status_code >= 500:
+                await response.aread()
+                raise ServiceUnavailable(
+                    service, str(client.base_url), f"HTTP {response.status_code}"
+                )
+            if response.status_code >= 400:
+                await response.aread()
+                raise _refusal(service, response)
+            chunks: list[bytes] = []
+            total = 0
+            truncated = False
+            async for chunk in response.aiter_bytes():
+                room = max_bytes - total
+                if len(chunk) > room:
+                    chunks.append(chunk[:room])
+                    total += room
+                    truncated = True
+                    break
+                chunks.append(chunk)
+                total += len(chunk)
+            content_type = response.headers.get(
+                "content-type", "application/octet-stream"
+            )
+            declared = response.headers.get("content-length")
+    except httpx.HTTPError as exc:
+        raise ServiceUnavailable(
+            service, str(client.base_url), f"{type(exc).__name__}: {exc}"
+        ) from exc
+    size: Optional[int] = total
+    if declared is not None and declared.isdigit():
+        size = int(declared)
+        truncated = truncated or size > total
+    return b"".join(chunks), content_type, truncated, size

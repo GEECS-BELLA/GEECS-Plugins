@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import logging
 
-import anyio
-
 from geecs_mcp import errors
 from geecs_mcp.clients import ServiceRefusal, ServiceUnavailable
 from geecs_mcp.identity import InvalidArgument
@@ -31,19 +29,6 @@ async def run_async(impl, *args, **kwargs) -> str:
         )
     except InvalidArgument as exc:  # an argument this server checks itself
         return errors.make_error("invalid_request", str(exc))
-    except Exception as exc:
-        logger.exception("tool %s failed", getattr(impl, "__name__", impl))
-        return errors.make_error("internal_error", str(exc))
-
-
-async def run_guarded(impl, *args) -> str:
-    """Dispatch one SYNC impl to a worker thread; a raise becomes an envelope.
-
-    The analysis domain's wrapper until PR E moves it onto the portal's
-    routes (its impls read the share synchronously).
-    """
-    try:
-        return await anyio.to_thread.run_sync(impl, *args)
     except Exception as exc:
         logger.exception("tool %s failed", getattr(impl, "__name__", impl))
         return errors.make_error("internal_error", str(exc))
