@@ -8,7 +8,16 @@ from typing import Any
 
 import pytest
 
-from scan_analysis.route_compare import Golden, read_golden, write_golden
+import numpy as np
+import pandas as pd
+
+from scan_analysis.route_compare import (
+    GOLDEN_RTOL,
+    Golden,
+    compare_snapshots,
+    read_golden,
+    write_golden,
+)
 
 #: The committed golden trees the differential tests pin against: one folder
 #: per case (``manifest.json`` + ``arrays.npz``), generated from the core
@@ -44,6 +53,38 @@ def golden():
         return read_golden(folder)
 
     return resolve
+
+
+def measurement_snapshot(data: Any, scalars: dict[str, float]) -> dict[str, tuple]:
+    """One measurement (its frame data and scalars) in ``compare_snapshots``' shape."""
+    data = np.asarray(data)
+    if data.dtype.kind == "f":  # values, not storage width (legacy kept float32 traces)
+        data = data.astype(np.float64)
+    table = pd.DataFrame({key: [float(v)] for key, v in scalars.items()})
+    return {"frame": ("h5", "data", data, data.dtype), "scalars": ("table", table)}
+
+
+@pytest.fixture
+def measurement_golden(golden):
+    """Check one measurement against the stored golden ``name``.
+
+    ``measurement_golden(name, data, scalars, oracle=None)``: ``oracle`` is
+    a zero-argument callable returning another ``(data, scalars)`` that must
+    match the same golden, and is what ``GEECS_UPDATE_GOLDENS`` stores when
+    given. Floats are held to ``GOLDEN_RTOL`` of their own scale.
+    """
+
+    def check(name: str, data: Any, scalars: dict[str, float], oracle=None) -> None:
+        core = measurement_snapshot(data, scalars)
+        reference = measurement_snapshot(*oracle()) if oracle is not None else core
+        stored = golden(name, reference).files
+        for label, snapshot in (("oracle", reference), ("core", core)):
+            problems = compare_snapshots(
+                stored, snapshot, average_ulps=0, rtol=GOLDEN_RTOL
+            )
+            assert problems == [], (label, problems)
+
+    return check
 
 
 @pytest.fixture(scope="session")

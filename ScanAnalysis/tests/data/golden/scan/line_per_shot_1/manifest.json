@@ -1,0 +1,40 @@
+{
+ "extra": {},
+ "files": {
+  "frame": {
+   "array": "a0",
+   "dtype": "<f8",
+   "key": "data",
+   "kind": "h5"
+  },
+  "scalars": {
+   "columns": [
+    {
+     "array": "a1",
+     "name": "CoM"
+    },
+    {
+     "array": "a2",
+     "name": "rms"
+    },
+    {
+     "array": "a3",
+     "name": "fwhm"
+    },
+    {
+     "array": "a4",
+     "name": "peak_location"
+    },
+    {
+     "array": "a5",
+     "name": "integrated_intensity"
+    },
+    {
+     "array": "a6",
+     "name": "peak_value"
+    }
+   ],
+   "kind": "table"
+  }
+ }
+}

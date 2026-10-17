@@ -32,8 +32,12 @@ def document(path):
 
 
 @pytest.mark.parametrize("state", ["loaded", "missing", "corrupt"])
-def test_file_backgrounds_and_fallbacks_match_old_backend(tmp_path, state, caplog):
+def test_file_backgrounds_and_fallbacks_match_old_backend(
+    tmp_path, state, caplog, measurement_golden
+):
     from image_analysis.ephemeral import run_document_ephemeral
+
+    assert run_document_ephemeral.__module__.startswith("image_analysis.")
 
     path = tmp_path / "dark.npy"
     if state == "loaded":
@@ -44,13 +48,20 @@ def test_file_backgrounds_and_fallbacks_match_old_backend(tmp_path, state, caplo
     before = doc.model_dump_json()
     files = {p: p.read_bytes() for p in tmp_path.iterdir()}
     raw = np.random.default_rng(7).integers(100, 200, (10, 10), dtype=np.uint16)
-    (old,) = run_document_ephemeral(doc, [raw])
+
+    def legacy():
+        (old,) = run_document_ephemeral(doc, [raw])
+        return old.processed_image, old.scalars
+
     prepared = core_inputs.prepare_v2(doc)
     result = analyze_v2(raw, prepared.recipe, inputs=prepared.inputs)
-    np.testing.assert_array_equal(result.frame.data, old.processed_image)
-    assert result.scalars.keys() == old.scalars.keys()
-    assert all(np.isfinite(v) for v in old.scalars.values())
-    assert dict(result.scalars) == old.scalars
+    assert all(np.isfinite(v) for v in result.scalars.values())
+    measurement_golden(
+        f"inputs/file_background_{state}",
+        result.frame.data,
+        dict(result.scalars),
+        oracle=legacy,
+    )
     assert doc.model_dump_json() == before
     assert {p: p.read_bytes() for p in tmp_path.iterdir()} == files
     if state != "loaded":

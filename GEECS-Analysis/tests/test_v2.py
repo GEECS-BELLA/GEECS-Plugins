@@ -28,32 +28,48 @@ def document(kind="beam", **image):
     )
 
 
-def compare(doc, data):
-    from image_analysis.ephemeral import run_document_ephemeral
+@pytest.fixture
+def compare(expected, request):
+    """Run ``doc`` on ``data`` through the core and check it against the stored output."""
+    calls = iter(range(100))
 
-    original = data.copy()
-    before = doc.model_dump_json()
-    old = run_document_ephemeral(doc, [data])[0]
-    recipe = compile_v2(doc)
-    result = analyze_v2(data, recipe, shot=ShotMeta("diagnostic", 7, 123))
-    expected_data = old.line_data if doc.image.type == "line" else old.processed_image
-    actual_data = (
-        result.frame.as_trace() if doc.image.type == "line" else result.frame.data
-    )
-    np.testing.assert_array_equal(actual_data, expected_data)
-    assert result.scalars.keys() == old.scalars.keys()
-    for key, value in old.scalars.items():
-        if np.isfinite(value):
-            assert result.scalars[key] == value, key
-        else:
-            # Undefined outcomes are validity assertions, not finite parity.
-            assert not np.isfinite(result.scalars[key])
-            assert f"Nonfinite scalar: {key}" in result.notes
-    np.testing.assert_array_equal(data, original)
-    assert doc.model_dump_json() == before
-    assert recipe.output_name == "output" and recipe.metric_suffix == "_left"
-    assert result.frame.shot.shot_number == 7
-    return result
+    def run(doc, data):
+        from image_analysis.ephemeral import run_document_ephemeral
+
+        assert run_document_ephemeral.__module__.startswith("image_analysis.")
+        line = doc.image.type == "line"
+
+        def legacy():
+            old = run_document_ephemeral(doc, [data])[0]
+            return {
+                "data": old.line_data if line else old.processed_image,
+                **old.scalars,
+            }
+
+        original = data.copy()
+        before = doc.model_dump_json()
+        recipe = compile_v2(doc)
+        result = analyze_v2(data, recipe, shot=ShotMeta("diagnostic", 7, 123))
+        actual = {
+            "data": result.frame.as_trace() if line else result.frame.data,
+            **result.scalars,
+        }
+        stored = expected(
+            f"{request.node.name}-{next(calls)}",
+            actual,
+            oracle=legacy,
+        )
+        for key, value in stored.items():
+            if key != "data" and not np.isfinite(value):
+                # Undefined outcomes are validity assertions, not finite parity.
+                assert f"Nonfinite scalar: {key}" in result.notes
+        np.testing.assert_array_equal(data, original)
+        assert doc.model_dump_json() == before
+        assert recipe.output_name == "output" and recipe.metric_suffix == "_left"
+        assert result.frame.shot.shot_number == 7
+        return result
+
+    return run
 
 
 @pytest.mark.parametrize(
@@ -67,7 +83,7 @@ def compare(doc, data):
     ],
 )
 @pytest.mark.parametrize("kind", ["beam", "standard"])
-def test_camera_sequences_match_old_backend(kind, pipeline):
+def test_camera_sequences_match_old_backend(kind, pipeline, compare):
     doc = document(
         kind,
         pipeline=pipeline,
@@ -85,7 +101,7 @@ def test_camera_sequences_match_old_backend(kind, pipeline):
 
 
 @pytest.mark.parametrize("mode", ["to_zero", "truncate", "truncate_inv"])
-def test_camera_threshold_variants(mode):
+def test_camera_threshold_variants(mode, compare):
     compare(
         document(
             pipeline=["thresholding"],
@@ -95,7 +111,7 @@ def test_camera_threshold_variants(mode):
     )
 
 
-def test_identity_transforms_in_active_camera_pipeline():
+def test_identity_transforms_in_active_camera_pipeline(compare):
     compare(
         document(
             pipeline=["background", "transforms", "roi", "transforms"],
@@ -113,7 +129,7 @@ def test_identity_transforms_in_active_camera_pipeline():
 
 
 @pytest.mark.parametrize("bounds", [(1, 200, 1, 300), (50, 60, 70, 80)])
-def test_camera_roi_clamping_and_empty_fallback_keep_v2_origin(bounds):
+def test_camera_roi_clamping_and_empty_fallback_keep_v2_origin(bounds, compare):
     x0, x1, y0, y1 = bounds
     doc = document(
         pipeline=["roi"], roi={"x_min": x0, "x_max": x1, "y_min": y0, "y_max": y1}
@@ -125,7 +141,7 @@ def test_camera_roi_clamping_and_empty_fallback_keep_v2_origin(bounds):
 @pytest.mark.parametrize("native_dtype", ["float32", "float64"])
 @pytest.mark.parametrize("kind", ["line", "trace"])
 def test_trace_scaling_storage_rounding_and_private_negative_clipping(
-    kind, native_dtype, storage
+    kind, native_dtype, storage, compare
 ):
     data = np.column_stack(
         (np.linspace(0.050, 0.180, 131), np.sin(np.linspace(0, np.pi, 131)) * 9 - 0.5)
@@ -152,7 +168,7 @@ def test_trace_scaling_storage_rounding_and_private_negative_clipping(
 
 
 @pytest.mark.parametrize("below", [True, False])
-def test_gaussian_trace_and_clipping(below):
+def test_gaussian_trace_and_clipping(below, compare):
     compare(
         document(
             "line",
@@ -168,7 +184,7 @@ def test_gaussian_trace_and_clipping(below):
     )
 
 
-def test_none_sections_and_disabled_line_steps_do_not_run():
+def test_none_sections_and_disabled_line_steps_do_not_run(compare):
     compare(
         document(
             "trace",
@@ -239,7 +255,7 @@ def test_unported_active_features_are_refused_before_execution(kind, image):
         compile_v2(document(kind, **image))
 
 
-def test_inactive_unsupported_features_are_not_executed():
+def test_inactive_unsupported_features_are_not_executed(compare):
     doc = document(
         pipeline=[], background={"method": "from_file", "file_path": "never-opened.npy"}
     )
@@ -286,7 +302,7 @@ for module in ("numpy", "scipy", "matplotlib", "image_analysis", "geecs_data_uti
     [(1.5, 3.5), (0.0, 4.0), (-5.0, 2.0), (3.0, 99.0), (2.0, 2.0)],
 )
 @pytest.mark.parametrize("storage", ["float32", "float64"])
-def test_trace_roi_matches_the_legacy_trace_analyzer(bounds, storage):
+def test_trace_roi_matches_the_legacy_trace_analyzer(bounds, storage, compare):
     x = np.linspace(0.0, 4.0, 9)
     data = np.column_stack((x, np.sin(x) + 2))
     doc = document(
@@ -319,7 +335,7 @@ def test_a_trace_roi_that_selects_nothing_fails_the_shot_explicitly():
         ["circular_mask", "roi", "circular_mask"],
     ],
 )
-def test_circular_mask_keeps_legacy_local_center(mask_outside, pipeline):
+def test_circular_mask_keeps_legacy_local_center(mask_outside, pipeline, compare):
     data = np.random.default_rng(7).uniform(1, 100, (41, 51))
     compare(
         document(
@@ -340,7 +356,7 @@ def test_circular_mask_keeps_legacy_local_center(mask_outside, pipeline):
 @pytest.mark.parametrize("storage_dtype", ["float32", "float64"])
 @pytest.mark.parametrize("axis_order", ["ascending", "descending", "duplicate"])
 def test_interpolation_matches_legacy_samples_and_measures(
-    kind, storage_dtype, axis_order
+    kind, storage_dtype, axis_order, compare
 ):
     x = np.array([1, 2, 3.5, 5, 8, 9], dtype=np.float32)
     if axis_order == "descending":
@@ -368,7 +384,9 @@ def test_interpolation_matches_legacy_samples_and_measures(
         ["roi", "crosshair_masking", "transforms", "crosshair_masking", "transforms"],
     ],
 )
-def test_camera_crosshairs_and_rotation_match_legacy_composition(angle, pipeline):
+def test_camera_crosshairs_and_rotation_match_legacy_composition(
+    angle, pipeline, compare
+):
     compare(
         document(
             pipeline=pipeline,

@@ -47,33 +47,48 @@ def diagnostic(dt: float | None = DT, **image) -> AnalysisDiagnostic:
 
 @pytest.mark.parametrize("seed", range(12))
 @pytest.mark.parametrize("pulse_at", [None, 40, 2300])
-def test_the_algorithm_is_the_legacy_one_bit_for_bit(seed, pulse_at):
+def test_the_algorithm_is_the_legacy_one_bit_for_bit(seed, pulse_at, expected, request):
     from image_analysis.algorithms.ict_algorithms import (
         apply_ict_analysis as legacy,
     )
+
+    assert legacy.__module__.startswith("image_analysis.")
 
     data = scope_trace(seed, pulse_at=pulse_at)
     args = dict(
         dt=DT, butterworth_order=2, butterworth_crit_f=0.1, calibration_factor=0.2
     )
-    assert apply_ict_analysis(data, **args) == legacy(data, **args)
+    expected(
+        f"algorithm_{request.node.callspec.id}",
+        actual=apply_ict_analysis(data, **args),
+        oracle=lambda: legacy(data, **args),
+    )
 
 
 @pytest.mark.parametrize("dt", [DT, None])
 @pytest.mark.parametrize("seed", range(4))
-def test_the_v2_route_matches_the_legacy_ict_analyzer(seed, dt):
+def test_the_v2_route_matches_the_legacy_ict_analyzer(seed, dt, expected, request):
     """Same trace and config through ICT1DAnalyzer and through the core."""
     from image_analysis.analyzers.ict_1d_analyzer import ICT1DAnalyzer
+
+    assert ICT1DAnalyzer.__module__.startswith("image_analysis.")
 
     document = diagnostic(dt=dt)
     time = np.arange(2500) * DT
     raw = np.column_stack([time, scope_trace(seed)])
-    legacy = ICT1DAnalyzer(document.image, spec=document.analyzer).analyze_image(raw)
+    legacy = expected(
+        f"v2_route_{request.node.callspec.id}",
+        oracle=lambda: dict(
+            ICT1DAnalyzer(document.image, spec=document.analyzer)
+            .analyze_image(raw)
+            .scalars
+        ),
+    )
     core = analyze_v2(raw, compile_v2(document))
     # Legacy low-pass-filtered the float32 stored trace in float32; the core
     # filters the same samples at float64. Stated tolerance, not equality.
-    assert set(core.scalars) == set(legacy.scalars)
-    for key, value in legacy.scalars.items():
+    assert set(core.scalars) == set(legacy)
+    for key, value in legacy.items():
         assert core.scalars[key] == pytest.approx(float(value), rel=1e-6), key
     assert set(core.scalars) == IctSpec().emitted_scalars() == set(SCALARS)
     assert core.notes == ()

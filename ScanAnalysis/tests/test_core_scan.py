@@ -58,9 +58,11 @@ def test_fractional_bin_identity_is_not_silently_truncated():
 
 @pytest.mark.parametrize("mode", ["per_shot", "per_bin"])
 def test_execution_matches_legacy_arrays_and_scalar_naming_without_writes(
-    tmp_path, mode
+    tmp_path, mode, measurement_golden
 ):
     from image_analysis.ephemeral import run_document_ephemeral
+
+    assert run_document_ephemeral.__module__.startswith("image_analysis.")
 
     rows = inputs(tmp_path)
     original_rows = rows.copy(deep=True)
@@ -74,17 +76,25 @@ def test_execution_matches_legacy_arrays_and_scalar_naming_without_writes(
     )
     for outcome in outcomes:
         raw = [scan.source.load(n) for n in outcome.loaded_shots]
-        (old,) = run_document_ephemeral(
-            doc, [np.mean(raw, axis=0)] if mode == "per_bin" else raw
-        )
+
+        def legacy(raw=raw):
+            (old,) = run_document_ephemeral(
+                doc, [np.mean(raw, axis=0)] if mode == "per_bin" else raw
+            )
+            return old.processed_image, old.scalars
+
         assert outcome.error is None
         new = outcome.measurement
-        np.testing.assert_array_equal(new.frame.data, old.processed_image)
-        assert all(np.isfinite(v) for v in old.scalars.values())
-        assert dict(new.scalars) == old.scalars
+        assert all(np.isfinite(v) for v in new.scalars.values())
+        measurement_golden(
+            f"scan/{mode}_{outcome.group.key}",
+            new.frame.data,
+            dict(new.scalars),
+            oracle=legacy,
+        )
         records = scan.scalar_records(outcome)
         assert [r["Shotnumber"] for r in records] == list(outcome.group.shots)
-        assert records[0]["Variant_x_CoM_roi"] == old.scalars["x_CoM"]
+        assert records[0]["Variant_x_CoM_roi"] == new.scalars["x_CoM"]
         assert "x_CoM" in new.scalars  # Projection never prefixes the core value.
     if mode == "per_bin":
         assert outcomes[1].loaded_shots == (1,)
@@ -170,8 +180,12 @@ def test_missing_scan_is_not_created(tmp_path):
 
 
 @pytest.mark.parametrize("mode", ["per_shot", "per_bin"])
-def test_native_line_execution_keeps_scaled_axis_and_finite_metrics(tmp_path, mode):
+def test_native_line_execution_keeps_scaled_axis_and_finite_metrics(
+    tmp_path, mode, measurement_golden
+):
     from image_analysis.ephemeral import run_document_ephemeral
+
+    assert run_document_ephemeral.__module__.startswith("image_analysis.")
 
     doc = AnalysisDiagnostic.model_validate(
         {
@@ -194,13 +208,21 @@ def test_native_line_execution_keeps_scaled_axis_and_finite_metrics(tmp_path, mo
         raw.append(data)
         np.save(directory / f"Scan001_Spectrum_{shot:03d}.npy", data)
     scan = prepare_scan(doc, tmp_path, pd.DataFrame({"Shotnumber": [1, 2]}))
-    expected = run_document_ephemeral(
-        doc, [np.mean(raw, axis=0)] if mode == "per_bin" else raw
-    )
-    for result, old in zip(scan.run(), expected, strict=True):
+    batch = [np.mean(raw, axis=0)] if mode == "per_bin" else raw
+    results = list(scan.run())
+    assert len(results) == len(batch)
+    for index, result in enumerate(results):
+
+        def legacy(index=index):
+            old = run_document_ephemeral(doc, batch)[index]
+            return old.line_data, old.scalars
+
         assert result.error is None
-        np.testing.assert_array_equal(
-            result.measurement.frame.as_trace(), old.line_data
+        scalars = dict(result.measurement.scalars)
+        assert all(np.isfinite(v) for v in scalars.values())
+        measurement_golden(
+            f"scan/line_{mode}_{index}",
+            result.measurement.frame.as_trace(),
+            scalars,
+            oracle=legacy,
         )
-        assert all(np.isfinite(v) for v in old.scalars.values())
-        assert dict(result.measurement.scalars) == old.scalars

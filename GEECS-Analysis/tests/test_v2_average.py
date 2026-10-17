@@ -27,13 +27,35 @@ def recipe(kind="camera", storage="float32"):
     return doc, compile_v2(doc)
 
 
+def legacy_summary(old, mode, kind, average):
+    """The legacy ImageAnalyzerResult summary, flattened for storage."""
+    if mode == "bin":
+        summary = average(old)
+        out = {"data": summary.get_primary_data()}
+        out.update({f"scalar__{k}": v for k, v in summary.scalars.items()})
+        if kind == "camera":
+            out["projection_x"] = summary.render_data["horizontal_projection"]
+            out["projection_y"] = summary.render_data["vertical_projection"]
+        return out
+    out = {"data": np.mean([r.get_primary_data() for r in old], axis=0)}
+    out.update(
+        {f"scalar__{k}": np.mean([r.scalars[k] for r in old]) for k in old[0].scalars}
+    )
+    return out
+
+
 @pytest.mark.parametrize(
     "kind,storage", [("camera", "float64"), ("line", "float32"), ("line", "float64")]
 )
 @pytest.mark.parametrize("mode", ["noscan", "bin"])
-def test_saved_averages_match_old_results_without_reanalysis(kind, storage, mode):
+def test_saved_averages_match_old_results_without_reanalysis(
+    kind, storage, mode, expected, request
+):
     from image_analysis.ephemeral import run_document_ephemeral
     from image_analysis.types import ImageAnalyzerResult
+
+    assert run_document_ephemeral.__module__.startswith("image_analysis.")
+    assert ImageAnalyzerResult.__module__.startswith("image_analysis.")
 
     doc, compiled = recipe(kind, storage)
     raw = []
@@ -45,39 +67,31 @@ def test_saved_averages_match_old_results_without_reanalysis(kind, storage, mode
             x = np.linspace(0.03, 20.07, 101, dtype=np.float32)
             array = np.column_stack((x + shift, np.exp(-((x - 7 - shift) ** 2) / 4)))
         raw.append(array)
-    old = run_document_ephemeral(doc, raw)
     new = [
         analyze_v2(array, compiled, shot=ShotMeta("Detector", n))
         for n, array in enumerate(raw, 1)
     ]
     result = average_results(new, compiled, mode=mode)
-    if mode == "bin":
-        expected = ImageAnalyzerResult.average(old)
-        expected_data = expected.get_primary_data()
-        scalars = expected.scalars
-    else:
-        expected_data = np.mean([r.get_primary_data() for r in old], axis=0)
-        scalars = {
-            key: np.mean([r.scalars[key] for r in old]) for key in old[0].scalars
-        }
-    actual_data = result.frame.data if kind == "camera" else result.frame.as_trace()
-    np.testing.assert_array_equal(actual_data, expected_data)
-    assert all(np.isfinite(v) for v in scalars.values())
-    assert dict(result.scalars) == scalars
+    assert all(np.isfinite(v) for v in result.scalars.values())
+    actual = {
+        "data": result.frame.data if kind == "camera" else result.frame.as_trace()
+    }
+    actual.update({f"scalar__{k}": v for k, v in result.scalars.items()})
+    if mode == "bin" and kind == "camera":
+        projections = {o.id: o for o in result.overlays if isinstance(o, Projection)}
+        actual["projection_x"] = projections["projection_x"].frame.data
+        actual["projection_y"] = projections["projection_y"].frame.data
+        assert all(o.frame.shot is None for o in projections.values())
+    expected(
+        f"average_{request.node.callspec.id}",
+        actual=actual,
+        oracle=lambda: legacy_summary(
+            run_document_ephemeral(doc, raw), mode, kind, ImageAnalyzerResult.average
+        ),
+    )
     assert result.frame.shot is None
     if mode == "noscan":
         assert not result.overlays
-    elif kind == "camera":
-        projections = {o.id: o for o in result.overlays if isinstance(o, Projection)}
-        np.testing.assert_array_equal(
-            projections["projection_x"].frame.data,
-            expected.render_data["horizontal_projection"],
-        )
-        np.testing.assert_array_equal(
-            projections["projection_y"].frame.data,
-            expected.render_data["vertical_projection"],
-        )
-        assert all(o.frame.shot is None for o in projections.values())
     # Summary means are statistics of measurements, not a fresh nonlinear fit.
     rerun = analyze_v2(np.mean(raw, axis=0), compiled)
     width = "x_rms" if kind == "camera" else "rms"

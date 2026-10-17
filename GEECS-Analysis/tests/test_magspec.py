@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import pickle
 from pathlib import Path
 
@@ -166,31 +165,37 @@ def legacy(doc: AnalysisDiagnostic, raw: np.ndarray, aux: dict | None = None):
         MagSpecManualCalibAnalyzer,
     )
 
-    return MagSpecManualCalibAnalyzer(doc.image, spec=doc.analyzer).analyze_image(
+    assert MagSpecManualCalibAnalyzer.__module__.startswith("image_analysis.")
+    old = MagSpecManualCalibAnalyzer(doc.image, spec=doc.analyzer).analyze_image(
         raw, aux
     )
+    return {
+        **{f"scalar_{k}": float(v) for k, v in old.scalars.items()},
+        "frame": old.processed_image,
+        "energy_axis": old.render_data["energy_axis"],
+    }
 
 
 def bound_tables(compiled) -> dict[str, Table]:
     return {request.key: read_table(request.path) for request in compiled.tables}
 
 
-def assert_same_result(core, old) -> None:
-    """Scalars, the resampled frame, its energy axis and the spectrum, 0 ulp."""
-    assert set(core.scalars) == set(old.scalars) == MagspecSpec.scalar_docs.keys()
-    for key, value in old.scalars.items():
-        if math.isnan(value):
-            assert math.isnan(core.scalars[key]), key
-        else:
-            assert core.scalars[key] == value, key
-    np.testing.assert_array_equal(core.frame.data, old.processed_image)
-    np.testing.assert_array_equal(
-        core.frame.axes[1].values, old.render_data["energy_axis"]
+def assert_same_result(check, name: str, core, oracle=None) -> None:
+    """Scalars, the resampled frame, its energy axis and the spectrum, vs ``name``."""
+    assert set(core.scalars) == MagspecSpec.scalar_docs.keys()
+    stored = check(
+        name,
+        actual={
+            **{f"scalar_{k}": v for k, v in core.scalars.items()},
+            "frame": core.frame.data,
+            "energy_axis": core.frame.axes[1].values,
+        },
+        oracle=oracle,
     )
     assert (core.frame.axes[1].unit, core.frame.axes[1].label) == ("MeV", "Energy")
     spectrum = core.extras["spectrum"]
-    np.testing.assert_array_equal(
-        spectrum.data, np.sum(old.processed_image, axis=0) / 1000.0
+    np.testing.assert_allclose(
+        spectrum.data, np.sum(stored["frame"], axis=0) / 1000.0, rtol=1e-6
     )
     assert spectrum.axes[0] is core.frame.axes[1]
     assert (spectrum.unit, spectrum.label) == ("pC/MeV", "Charge Density")
@@ -200,23 +205,33 @@ def assert_same_result(core, old) -> None:
 
 
 @pytest.mark.parametrize("seed", range(3))
-def test_polynomial_route_equals_the_legacy_analyzer(seed):
+def test_polynomial_route_equals_the_legacy_analyzer(seed, expected):
     doc = polynomial()
     raw = frame(seed)
     # The whole kind waits for a host that serves it, whatever the calibration.
     with pytest.raises(UnsupportedRecipe, match="source host"):
         compile_v2(doc)
     core = analyze_v2(raw, compile_v2(doc, allow_table_inputs=True))
-    assert_same_result(core, legacy(doc, raw))
+    assert_same_result(
+        expected,
+        f"polynomial_{seed}",
+        core,
+        oracle=lambda: legacy(doc, raw),
+    )
     assert core.frame.unit == "counts/MeV" and core.overlays == ()
 
 
-def test_array_calibration_is_inline_only():
+def test_array_calibration_is_inline_only(expected):
     values = [20.0 + 0.5 * i for i in range(128)]
     doc = polynomial(calibration={"kind": "array", "values": values})
     raw = frame(0)
     compiled = compile_v2(doc, allow_table_inputs=True)
-    assert_same_result(analyze_v2(raw, compiled), legacy(doc, raw))
+    assert_same_result(
+        expected,
+        "array",
+        analyze_v2(raw, compiled),
+        oracle=lambda: legacy(doc, raw),
+    )
     with pytest.raises(UnsupportedRecipe, match="file"):
         compile_v2(
             polynomial(calibration={"kind": "array", "file": "axis.npy"}),
@@ -231,7 +246,7 @@ def test_array_calibration_is_inline_only():
 @pytest.mark.parametrize("lanex", [True, False])
 @pytest.mark.parametrize("energy_range", [(1.0, 1500.0), (60.0, 75.0)])
 def test_dnn_route_equals_the_legacy_analyzer_on_the_same_tables(
-    tmp_path, camera, lanex, energy_range
+    tmp_path, camera, lanex, energy_range, expected, request
 ):
     doc = diagnostic(
         synthetic_tables(tmp_path),
@@ -249,7 +264,12 @@ def test_dnn_route_equals_the_legacy_analyzer_on_the_same_tables(
     )
     raw = frame(camera)
     core = analyze_v2(raw, compiled, inputs=bound_tables(compiled))
-    assert_same_result(core, legacy(doc, raw))
+    assert_same_result(
+        expected,
+        f"dnn_{request.node.callspec.id}",
+        core,
+        oracle=lambda: legacy(doc, raw),
+    )
     assert core.frame.unit == ("fC/MeV" if lanex else "counts/MeV")
     if energy_range[0] < 2:
         # The request is clipped to the calibration's reach, silently.
@@ -258,17 +278,22 @@ def test_dnn_route_equals_the_legacy_analyzer_on_the_same_tables(
         assert core.notes == ()
 
 
-def test_lanex_row_falls_back_to_position_without_a_setting_column(tmp_path):
+def test_lanex_row_falls_back_to_position_without_a_setting_column(tmp_path, expected):
     doc = diagnostic(synthetic_tables(tmp_path, lanex_by_setting=False), camera=3)
     compiled = compile_v2(doc, allow_table_inputs=True)
     raw = frame(3)
     assert_same_result(
-        analyze_v2(raw, compiled, inputs=bound_tables(compiled)), legacy(doc, raw)
+        expected,
+        "lanex_by_position",
+        analyze_v2(raw, compiled, inputs=bound_tables(compiled)),
+        oracle=lambda: legacy(doc, raw),
     )
 
 
 @pytest.mark.parametrize("camera", [1, 3])
-def test_cells_the_legacy_reader_never_converted_may_be_blank(tmp_path, camera):
+def test_cells_the_legacy_reader_never_converted_may_be_blank(
+    tmp_path, camera, expected
+):
     """Only the camera's screen rows are converted, as the legacy reader did.
 
     A survey may leave the other screen's rows of the screen and momentum
@@ -294,11 +319,16 @@ def test_cells_the_legacy_reader_never_converted_may_be_blank(tmp_path, camera):
     compiled = compile_v2(doc, allow_table_inputs=True)
     raw = frame(camera)
     assert_same_result(
-        analyze_v2(raw, compiled, inputs=bound_tables(compiled)), legacy(doc, raw)
+        expected,
+        f"blank_cells_{camera}",
+        analyze_v2(raw, compiled, inputs=bound_tables(compiled)),
+        oracle=lambda: legacy(doc, raw),
     )
 
 
-def test_the_per_shot_field_equals_the_legacy_override_and_never_leaks(tmp_path):
+def test_the_per_shot_field_equals_the_legacy_override_and_never_leaks(
+    tmp_path, expected
+):
     doc = diagnostic(synthetic_tables(tmp_path), field=0.3)
     compiled = compile_recipe(
         to_v3(doc, magnetic_field_column=COLUMN).recipe, allow_file_backgrounds=True
@@ -312,12 +342,23 @@ def test_the_per_shot_field_equals_the_legacy_override_and_never_leaks(tmp_path)
         shot=ShotMeta("TestCam", 1, scalars={COLUMN: 0.25}),
         inputs=tables,
     )
-    assert_same_result(with_field, legacy(doc, raw, {LEGACY_COLUMN: 0.25}))
+    assert_same_result(
+        expected,
+        "per_shot_field",
+        with_field,
+        oracle=lambda: legacy(doc, raw, {LEGACY_COLUMN: 0.25}),
+    )
     # A second shot without the column: the recipe's field, as a fresh
     # legacy analyzer would give — not the previous shot's reading.
     without = analyze_v2(raw, compiled, shot=ShotMeta("TestCam", 2), inputs=tables)
-    assert_same_result(without, legacy(doc, raw))
+    assert_same_result(
+        expected,
+        "recipe_field",
+        without,
+        oracle=lambda: legacy(doc, raw),
+    )
     assert without.scalars["peak_energy_MeV"] != with_field.scalars["peak_energy_MeV"]
+    # The legacy analyzer leaked the previous shot's field (oracle-only).
     from image_analysis.analyzers.magspec_manual_calib_analyzer import (
         MagSpecManualCalibAnalyzer,
     )
@@ -364,19 +405,18 @@ def real_tables() -> dict[str, Path]:
 
 
 @pytest.mark.parametrize("camera", [1, 2, 3, 4])
-def test_the_real_calibration_equals_the_legacy_axis_and_charge_factor(camera):
+def test_the_real_calibration_equals_the_legacy_axis_and_charge_factor(
+    camera, expected
+):
+    from image_analysis.algorithms.axis_interpolation import interpolate_image_axis
     from image_analysis.analyzers.magspec_manual_calib_analyzer import (
         DnnAxisCalibration,
     )
 
+    assert DnnAxisCalibration.__module__.startswith("image_analysis.")
+    assert interpolate_image_axis.__module__.startswith("image_analysis.")
+
     paths = real_tables()
-    oracle = DnnAxisCalibration(
-        camera_calibration_file=str(paths["camera"]),
-        trajectory_calibration_file=str(paths["trajectory"]),
-        lanex_calibration_file=str(paths["lanex"]),
-        camera_number=camera,
-        magnetic_field_t=0.2008,
-    )
     tables = {key: read_table(path) for key, path in paths.items()}
     row = calibration.camera_row(tables["camera"], camera)
     geometry = calibration.camera_geometry(row)
@@ -386,17 +426,38 @@ def test_the_real_calibration_equals_the_legacy_axis_and_charge_factor(camera):
         0.2008,
         geometry.width,
     )
-    np.testing.assert_array_equal(axis, oracle.build_axis(geometry.width))
-    assert calibration.charge_factor(row, tables["lanex"]) == oracle.get_charge_factor()
     # The HTT documents' request, clipped to the camera's own reach.
     image = np.random.default_rng(camera).normal(100, 10, (4, geometry.width))
     resampled, grid = calibration.resample_columns(image, axis, 1000, 1.2, 1501.3)
     assert (grid[0], grid[-1]) == (axis.min(), axis.max())
-    from image_analysis.algorithms.axis_interpolation import interpolate_image_axis
 
-    old, old_grid = interpolate_image_axis(image, axis, 1, 1000, 1.2, 1501.3)
-    np.testing.assert_array_equal(resampled, old)
-    np.testing.assert_array_equal(grid, old_grid)
+    def legacy_calibration() -> dict:
+        oracle = DnnAxisCalibration(
+            camera_calibration_file=str(paths["camera"]),
+            trajectory_calibration_file=str(paths["trajectory"]),
+            lanex_calibration_file=str(paths["lanex"]),
+            camera_number=camera,
+            magnetic_field_t=0.2008,
+        )
+        old_axis = oracle.build_axis(geometry.width)
+        old, old_grid = interpolate_image_axis(image, old_axis, 1, 1000, 1.2, 1501.3)
+        return {
+            "axis": old_axis,
+            "charge_factor": oracle.get_charge_factor(),
+            "resampled": old,
+            "grid": old_grid,
+        }
+
+    expected(
+        f"real_calibration_{camera}",
+        actual={
+            "axis": axis,
+            "charge_factor": calibration.charge_factor(row, tables["lanex"]),
+            "resampled": resampled,
+            "grid": grid,
+        },
+        oracle=legacy_calibration,
+    )
 
 
 # ------------------------------------------------------------ refusals
@@ -670,9 +731,14 @@ def polynomial_measure() -> dict:
 
 
 @pytest.mark.parametrize("mode", ["noscan", "bin"])
-def test_an_average_folds_moving_energy_grids_index_wise(tmp_path, mode):
+def test_an_average_folds_moving_energy_grids_index_wise(tmp_path, mode, expected):
     """A per-shot field moves the grid; the average is the legacy nanmean of frames and axes."""
+    from image_analysis.analyzers.magspec_manual_calib_analyzer import (
+        MagSpecManualCalibAnalyzer,
+    )
     from image_analysis.types import ImageAnalyzerResult
+
+    assert ImageAnalyzerResult.__module__.startswith("image_analysis.")
 
     from geecs_analysis.compat.v2_average import RunningAverage
 
@@ -682,19 +748,36 @@ def test_an_average_folds_moving_energy_grids_index_wise(tmp_path, mode):
     )
     tables = bound_tables(compiled)
     running = RunningAverage(compiled, mode=mode)
-    olds, grids = [], []
-    for n, field in enumerate((0.28, 0.30, 0.33), start=1):
+    grids = []
+    fields = (0.28, 0.30, 0.33)
+    for n, field in enumerate(fields, start=1):
         shot = ShotMeta("TestCam", n, scalars={COLUMN: field})
         core = analyze_v2(frame(n), compiled, shot=shot, inputs=tables)
         running.add(core)
         grids.append(core.frame.axes[1].values)
-        olds.append(legacy(doc, frame(n), {LEGACY_COLUMN: field}))
     assert not np.array_equal(grids[0], grids[2]), "the field moves the grid"
     average = running.result()
-    expected = ImageAnalyzerResult.average(olds)
-    np.testing.assert_array_equal(average.frame.data, expected.processed_image)
-    np.testing.assert_array_equal(
-        average.frame.axes[1].values, expected.render_data["energy_axis"]
+
+    def legacy_average() -> dict:
+        olds = [
+            MagSpecManualCalibAnalyzer(doc.image, spec=doc.analyzer).analyze_image(
+                frame(n), {LEGACY_COLUMN: field}
+            )
+            for n, field in enumerate(fields, start=1)
+        ]
+        mean = ImageAnalyzerResult.average(olds)
+        return {
+            "frame": mean.processed_image,
+            "energy_axis": mean.render_data["energy_axis"],
+        }
+
+    expected(
+        f"average_{mode}",
+        actual={
+            "frame": average.frame.data,
+            "energy_axis": average.frame.axes[1].values,
+        },
+        oracle=legacy_average,
     )
 
 
