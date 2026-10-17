@@ -96,7 +96,7 @@ class ScanPaths:
             ``read_mode=False`` is for *scanner-side* callers only — the
             queueserver worker's scan claim (``geecs_bluesky.plans.claim_scan``),
             which legitimately brings new scan folders into existence.
-            Analysis code (ScanAnalysis, ImageAnalysis, anything that consumes
+            Analysis code (ScanAnalysis, anything that consumes
             existing scans) must always leave this at the default.
             Silent creation from the consumer side has caused data loss: a
             transient SMB/NetApp visibility blip looks like a missing folder, and

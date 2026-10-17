@@ -5,8 +5,9 @@ stored ``.npz`` values were captured from the legacy backend and are
 unchanged, so these pin trace ROI, interpolation (including descending and
 duplicate x), circular-mask local centres, crosshair + rotation
 composition, camera ROI clamping and its empty-fallback origin, the
-threshold variants, trace storage rounding and negative clipping, and the
-camera step sequences.
+threshold variants, and the camera step sequences. Trace storage rounding
+and the float64 negative clip are exercised but not pinned: their effect
+sits inside the 1e-6 comparison tolerance.
 """
 
 import numpy as np

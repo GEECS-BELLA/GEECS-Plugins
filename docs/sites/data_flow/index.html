@@ -304,7 +304,7 @@ svg.has-sel .step:not(.on){opacity:.25}
   <g class="n" data-id="notebooks" tabindex="0" role="button" aria-label="Python & notebooks: open details">
     <rect class="node" x="920" y="504" width="260" height="44" rx="6"/>
     <text class="t-title" x="934" y="522">Python &amp; notebooks</text>
-    <text class="t-sub" x="934" y="538">geecs_data_utils · ImageAnalysis · GeecsDevice</text>
+    <text class="t-sub" x="934" y="538">geecs_data_utils · geecs_analysis · GeecsDevice</text>
     <circle class="st st-robust" cx="1170" cy="514" r="4"/>
   </g>
 
@@ -720,10 +720,10 @@ const INFO = {
   "does": "Load a scan's scalars and images, bin them, analyze single images, or talk to a device directly from a script or notebook.",
   "how": [
    "GEECS-Data-Utils for the scan tree: `ScanTag`, `ScanPaths`, `ScanData`, frame-stack readers, and `ScanCatalog` over Tiled.",
-   "ImageAnalysis for per-image processing pipelines and typed analyzers returning a standard result.",
+   "GEECS-Analysis for per-shot analysis: compile a v3 recipe (steps and a measure) and measure a loaded frame into scalars and a processed frame.",
    "GEECS-Core's `GeecsDevice` for synchronous get, set and subscribe on a device, the successor to the deleted GEECS-PythonAPI."
   ],
-  "now": "The mature layer. ImageAnalysis moved to its 2.x line on 2026-09-05 with the schema-typed analysis configs; GEECS-Core stays deliberately small. Example notebooks live in the docs site.",
+  "now": "The mature layer. Per-image analysis lives in the GEECS-Analysis core since ImageAnalysis was retired on 2026-10-16 (tag `legacy-analysis-final`); GEECS-Core stays deliberately small. Example notebooks live in the docs site.",
   "next": [
    "Nothing structural owed. GEECS-Core stays small on purpose: code belongs there only if every consumer of GEECS devices needs it."
   ],
@@ -731,7 +731,7 @@ const INFO = {
   "meta": [
    "[Getting started](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/docs/tutorials/getting_started.md)",
    "[GEECS-Core](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-Core/CLAUDE.md)",
-   "[ImageAnalysis](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/ImageAnalysis/CLAUDE.md)"
+   "[GEECS-Analysis](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-Analysis/CLAUDE.md)"
   ]
  },
  "schemas": {
@@ -745,7 +745,7 @@ const INFO = {
   "The amber arrows carry instances of these models: a request leaves the scanner, is validated at the boundary, and is what the plan receives.",
   "A doc generator renders every field description to the reference page and CI fails if a field lacks one, so the documentation cannot drift from the code."
  ],
- "now": "The analysis configs joined the package on 2026-09-08 (the v2 analysis document with kind-discriminated analyzer specs). Scan variables are authored new-schema only as of 2026-09-04; the legacy dialect and its converter were deleted once both experiments' catalogs were regenerated.",
+ "now": "The analysis configs joined the package on 2026-09-08; since 2026-10-16 the v3 `AnalysisRecipe` is the only analysis document (the v2 document was deleted). Scan variables are authored new-schema only as of 2026-09-04; the legacy dialect and its converter were deleted once both experiments' catalogs were regenerated.",
  "next": [
   "Give the remaining config kinds the same treatment as scan variables: regenerate in new-schema form, then delete the converters (save elements, trigger profiles, action libraries, presets, optimizer configs).",
   "Named operator-shaped plan schemas (noscan, 1D, optimize) so agent UIs can render a plan's parameters.",
@@ -763,20 +763,18 @@ const INFO = {
   "name": "ScanAnalysis",
   "role": "Explicit post-scan analysis and saved results.",
   "status": "robust",
-  "does": "Runs configured image and 1D analyzers on completed scans, writes derived scalars, and renders summary figures.",
+  "does": "Runs analysis recipes on completed scans through the GEECS-Analysis core, writes derived scalars, and renders summary figures.",
   "how": [
-   "YAML diagnostic configs in the configs repo load into Pydantic models; a factory builds the analyzer. One diagnostic file carries both the per-image section and the per-scan section.",
+   "YAML recipes in the configs repo load into the v3 `AnalysisRecipe` model; the core compiles each one and ScanAnalysis runs it over the scan's shots, then folds the results into averages, bins and summary figures.",
    "The data portal runs analysis explicitly. The existing queue retains per-scan status files, claims and heartbeats for MCP compatibility; automatic watching and Google Docs uploads are retired.",
-   "The portal config editor previews unsaved diagnostics before an explicit save and run."
+   "The portal config editor previews unsaved recipes before an explicit save and run."
   ],
-  "now": "The v2 configs and web editor remain. The analysis core is being refactored; portal runs are the operational endpoint. A future automatic analysis service is not yet designed.",
+  "now": "Every analysis runs on the GEECS-Analysis core from v3 recipes; the legacy ImageAnalysis wrappers were retired on 2026-10-16. Portal runs are the operational endpoint. A future automatic analysis service is not yet designed.",
   "next": [
-   "Finish the analysis-core refactor; move the remaining notebooks and mirror pairs onto the v2 constructors.",
-   "A generalized 2D scan analyzer so defining an image analyzer is enough.",
-   "Decide whether ScanAnalysis reads Tiled or keeps reading exported s-files.",
+         "Decide whether ScanAnalysis reads Tiled or keeps reading exported s-files.",
    "Design automatic post-scan execution as a separate service."
   ],
-  "vision": "ImageAnalysis is where a single image is analyzed; ScanAnalysis is where anything more complex lives. Configs are the whole definition of an analysis.",
+  "vision": "GEECS-Analysis is where a single shot is analyzed; ScanAnalysis is where the scan-level work lives. Configs are the whole definition of an analysis.",
   "meta": [
    "[CHANGELOG](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/ScanAnalysis/CHANGELOG.md)",
    "[ScanAnalysis](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/ScanAnalysis/CLAUDE.md)",
