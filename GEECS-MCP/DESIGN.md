@@ -1,9 +1,11 @@
 # GEECS-MCP as the agent's single write entry point — design note
 
-Status: **proposal, 2026-10-16** — the first deliverable of the closed-loop
-acquisition arc. Nothing below is built. The verb names are the contract
-the htu-assistant deployment imports (`tool_names.py`); the endpoint and
-envelope columns are what the contract tests will pin.
+Status: **built, 2026-10-17** (proposed 2026-10-16; PRs A–G of §9,
+geecs-mcp 0.10.0). `CLAUDE.md` is the package as built; where the two
+differ, the code and `CLAUDE.md` win and this note keeps the reasoning.
+The verb names are the contract the htu-assistant deployment imports
+(`tool_names.py`); the contract tests pin the endpoint and envelope
+columns.
 
 ## 1. Decisions this note builds on (settled, not reopened here)
 
@@ -126,9 +128,8 @@ matcher `mcp__geecs__.*` with both hook commands; no agent session
 run, so the denied-write and the allow-listed-read-passes-silently
 checks are still owed live). The headless gate is unchanged:
 `write_tools` → `hook_config.json` → the `osprey query` floor. PR G
-rewrites the gating sections of `DEPLOYMENT.md` and CLAUDE.md to this,
-and HTU's profile moves the server to the `claude_code.servers` route
-when the new verbs land.
+rewrote the gating sections of `DEPLOYMENT.md` to this; HTU's profile
+moves the server to the `claude_code.servers` route.
 
 ## 4. Verb by verb
 

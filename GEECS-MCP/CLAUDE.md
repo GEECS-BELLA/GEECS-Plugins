@@ -27,11 +27,17 @@ built.
   and passes the `check` names back.  Nothing here fills `acknowledged`
   in.  Likewise a destructive analysis kind's `confirm` (the typed scan
   number) is passed through, never filled in.
-- **Identity.**  Every write verb takes `operator` (the supervising
-  person's name) and sends `agent, admin supervision (<operator>)`
-  (`identity.py`) — the scanner records it on the run; the logbook records
-  it as the entry's author.  The halt family records it when given and
-  is never blocked on a missing or malformed name.
+- **Identity — a record, not an authorization.**  `submit_preset`,
+  `move`, `resume_scan` and `post_logbook_entry` require `operator` (the
+  supervising person's name) and send `agent, admin supervision
+  (<operator>)` (`identity.py`): the scanner records a submission's on
+  the run (`md.geecs.operator`; its move does not yet stamp the queued
+  item), the logbook records it as the entry's author.  The halt family
+  records it when given and is never blocked on a missing or malformed
+  name.  `clear_queue` and `run_analysis` carry none today (the portal's
+  analysis route has no field for one).  The string records a claim;
+  who may call a verb is the profile's permission lists and osprey's
+  hooks (`deploy/DEPLOYMENT.md`).
 - **A scan is named by scan number and day** (today when omitted); the
   portal's `jump` route turns that into the run uid, and a number the day
   does not hold is `not_found` — the jump route otherwise answers the
@@ -42,7 +48,7 @@ built.
   profile derives `allow` / `ask` / `write_tools` from its three tuples.
 - **Configuration is ONLY `~/.config/geecs_python_api/config.ini`**:
   `[mcp] scanner_url / portal_url / logbook_url` (`config.py`; rendered
-  from `site.env` by `deploy/bootstrap_host.sh` in PR G).  An unset URL
+  from `site.env`'s `GEECS_SERVICES_HOST` by `deploy/bootstrap_host.sh`).  An unset URL
   makes that service's verbs answer `service_unreachable` naming the key;
   the server always starts.  `deploy/DEPLOYMENT.md` is the one full key
   inventory.

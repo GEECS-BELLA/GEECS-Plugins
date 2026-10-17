@@ -6,13 +6,17 @@ separate in your head:
 
 **Agents operating the lab.** The [GEECS MCP Server](../geecs_mcp/overview.md)
 is a deployed lab service — the same standing as the gateway or the
-console — that exposes GEECS-semantic operations (check a scan's progress,
-look up archived results, halt a run, run post-scan analysis) as typed
-tools an AI agent can call. It deliberately has **no submit verb**:
-scans are started from the scanner console, not by an agent. An agent framework such as
+console — that gives an AI agent the closed loop as typed tools: queue a
+scan from a saved preset, make a single move, wait for it, run the
+standard analysis, read the numbers and figures, post a draft to the
+logbook, and halt a run. It is a thin client of the web scanner, the Data
+Portal and the logbook, so every request passes the same preflight and
+refusals an operator's does, and the agent never answers a preflight
+question for the operator. An agent framework such as
 [OSPREY](../geecs_mcp/osprey.md) connects to it and puts those tools in the
-hands of an operator-facing assistant: "run the baseline analysis on
-scan 12" becomes a tool call instead of a person clicking through a GUI.
+hands of an operator-facing assistant: "run the Amp4In preset and analyse
+it" becomes a few gated tool calls instead of a person clicking through
+three GUIs.
 If you are here to understand *what the AI assistant can actually do to the
 machine, and what stops it doing more*, start with the
 [MCP server overview](../geecs_mcp/overview.md).
