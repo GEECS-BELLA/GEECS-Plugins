@@ -1,7 +1,7 @@
 """The GEECS MCP server — FastMCP instance + tool registration.
 
-One general server, domains as subpackages: ``scans/`` today; future
-domains (health, db, logs, analysis) register the same way.
+One general server, domains as subpackages: ``scans/`` (the scanner's
+HTTP API), ``analysis/`` (the portal's, from PR E on), ``logbook/`` (PR F).
 
 The osprey house pattern (its native bluesky server): a module-level
 :class:`FastMCP`, tool modules that self-register via ``@mcp.tool()``,
@@ -24,25 +24,21 @@ logger = logging.getLogger("geecs_mcp")
 mcp = FastMCP(
     "geecs",
     instructions=(
-        "Read access to the GEECS scan service, plus the halt verbs. Read "
-        "tools: manager/queue status, recent scan history, completed-run "
-        "results from the Tiled archive, the experiment's config catalogs "
-        "(trigger profiles, presets, optimizer configs, scan variables, "
-        "actions), scan_progress. Control verbs: stop_scan "
-        "(graceful; another client's scan needs force=true and an "
-        "operator's say-so), pause_scan / resume_scan (same ownership "
-        "etiquette), clear_queue (the only remover). Analysis domain: "
-        "get_scan_analysis (task statuses + output tree) and "
-        "get_scan_figure (a figure REFERENCE — metadata plus a fetch "
-        "URL served by this same server; thumbnail=true for a bounded "
-        "inline preview, never pull full figures through context), "
-        "run_scan_analysis (execute a ScanAnalysis diagnostic or group "
-        "for one existing scan, detached — poll get_scan_analysis for "
-        "progress; analyzer/group names come from list_analyzers / "
-        "list_analysis_groups). "
-        "There is NO submit verb: scans are submitted from the web "
-        "scanner, not from here. Names must come from the listing tools "
-        "— never invent catalog names."
+        "The GEECS facility server: a thin client of the web scanner, the "
+        "Data Portal and the logbook. Reads: scan_status, scan_progress, "
+        "scan_history (queue rows with item_uid, scan_numbers, run_uids), "
+        "list_scan_configs (the catalogs — names must come from here, never "
+        "invented), wait_for_scan (blocks until an item finishes; a timeout "
+        "is a result with finished=false, call again), get_scan_analysis / "
+        "get_scan_figure / list_analyzers / list_analysis_groups. Writes "
+        "(every one takes the supervising operator's name): submit_preset "
+        "(the scanner's preflight runs; its questions come back verbatim "
+        "under needs_acknowledgement and are never acknowledged here — show "
+        "them to the operator, then pass the check names back), move (the "
+        "scanner's mv plan, idle-only, returns the readback), resume_scan, "
+        "clear_queue, run_scan_analysis. The halt family — stop_scan, "
+        "pause_scan — always works. Every refusal carries the service's own "
+        "words in `message` and a kind to branch on."
     ),
 )
 
@@ -53,10 +49,7 @@ def create_server() -> FastMCP:
         read_tools as analysis_read_tools,
         run_tools as analysis_run_tools,
     )
-    from geecs_mcp.scans import (  # noqa: F401 — self-register
-        control_tools,
-        read_tools,
-    )
+    from geecs_mcp.scans import tools as scans_tools  # noqa: F401 — self-register
 
-    logger.info("geecs MCP server initialised (read + halt tools; no submit verb)")
+    logger.info("geecs MCP server initialised (scans over the scanner's HTTP API)")
     return mcp

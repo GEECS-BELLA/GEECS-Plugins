@@ -49,7 +49,7 @@ from typing import Any, Optional
 
 from geecs_mcp import errors, tool_names
 from geecs_mcp.analysis import read_tools
-from geecs_mcp.scans.read_tools import _run_guarded
+from geecs_mcp.guard import run_guarded as _run_guarded
 from geecs_mcp.server import mcp
 
 logger = logging.getLogger("geecs_mcp.analysis.run")

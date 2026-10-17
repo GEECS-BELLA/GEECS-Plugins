@@ -1,0 +1,347 @@
+"""The scans domain against the scanner's real routes (in process).
+
+Each test calls a tool's impl and asserts on the envelope; the scanner
+app underneath is the real one over its demo manager, stepped by hand.
+"""
+
+from __future__ import annotations
+
+import json
+
+import httpx
+import pytest
+
+from geecs_mcp import clients, config, guard
+from geecs_mcp.scans import tools
+
+OPERATOR = "Ada Lovelace"
+IDENTITY = "agent, admin supervision (Ada Lovelace)"
+
+
+def _j(envelope: str) -> dict:
+    return json.loads(envelope)
+
+
+async def run(impl, *args, **kwargs) -> str:
+    """Through the guard, as the wrappers call: refusals arrive as envelopes."""
+    return await guard.run_async(impl, *args, **kwargs)
+
+
+async def _submit(
+    acknowledged=("gateway_liveness",), name="jet_pressure_sweep"
+) -> dict:
+    return _j(await run(tools._submit_preset, name, list(acknowledged), OPERATOR))
+
+
+# ----------------------------------------------------------------- reads
+
+
+class TestReads:
+    async def test_scan_status_is_the_scanner_snapshot(self, wired) -> None:
+        out = _j(await run(tools._scan_status))
+        assert out["ok"] is True
+        assert out["connected"] is True
+        assert out["re_state"] == "idle"
+        assert out["identity"] == "geecs-scanner test"
+        assert out["scanner_version"] == "0.0.0+test"
+
+    async def test_scan_progress_before_any_scan(self, wired) -> None:
+        out = _j(await run(tools._scan_progress))
+        assert out["ok"] is True
+        assert "shots_done" in out and "state" in out
+
+    async def test_list_scan_configs_names_and_one_preset(self, wired) -> None:
+        names = _j(await run(tools._list_scan_configs, "presets", None))
+        assert names["ok"] is True
+        assert "jet_pressure_sweep" in names["names"]
+        doc = _j(await run(tools._list_scan_configs, "presets", "jet_pressure_sweep"))
+        assert doc["ok"] is True
+        assert doc["preset"]["name"] == "jet_pressure_sweep"
+        assert doc["preset"]["devices"]
+
+    async def test_list_scan_configs_refusals(self, wired) -> None:
+        bad_kind = _j(await run(tools._list_scan_configs, "save_sets", None))
+        assert bad_kind["ok"] is False
+        assert bad_kind["error_kind"] == "not_found"
+        assert "presets" in bad_kind["kinds"]
+        missing = _j(await run(tools._list_scan_configs, "presets", "nope"))
+        assert missing["ok"] is False
+        assert missing["error_kind"] == "not_found"
+        by_name = _j(await run(tools._list_scan_configs, "actions", "x"))
+        assert by_name["error_kind"] == "invalid_request"
+
+    async def test_scan_history_rows_carry_the_keys(self, stepping) -> None:
+        submitted = await _submit()
+        assert submitted["ok"]
+        for _ in range(80):  # the demo sweep is 7 steps × 10 shots
+            stepping.step()
+        out = _j(await run(tools._scan_history, 5))
+        assert out["ok"] is True
+        assert out["running"] is None
+        finished = out["finished"][0]
+        assert finished["item_uid"] == submitted["item_uid"]
+        assert len(finished["scan_numbers"]) == 1
+        assert finished["run_uids"]
+        assert finished["user"] == "geecs-scanner test"
+
+
+# ---------------------------------------------------------- submit_preset
+
+
+class TestSubmitPreset:
+    async def test_the_question_comes_back_verbatim_and_is_never_acknowledged_here(
+        self, wired
+    ) -> None:
+        out = await _submit(acknowledged=())
+        assert out["ok"] is False
+        assert out["error_kind"] == "policy_refusal"
+        question = out["needs_acknowledgement"][0]
+        assert question["check"] == "gateway_liveness"
+        assert "Disconnected" in question["title"]
+        assert out["planned_shots"]
+        # nothing was queued
+        assert _j(await run(tools._scan_history, 5))["waiting"] == []
+
+    async def test_an_acknowledged_submit_queues_under_the_identity_string(
+        self, wired
+    ) -> None:
+        out = await _submit()
+        assert out["ok"] is True
+        assert out["item_uid"]
+        assert out["operator"] == IDENTITY
+        assert out["submitted_as"] == "geecs-scanner test"
+        assert out["plan"]["name"] in ("sweep", "count", "optimize")
+        assert out["acknowledged"] == ["gateway_liveness"]
+        assert {o["check"] for o in out["preflight"]} >= {"validate", "worker_ready"}
+        # the scanner stamped the operator on the item's provenance (the
+        # demo manager starts an item at once when idle, so look there too)
+        item = wired.running_item() or wired.queue_items()[0]
+        assert item["kwargs"]["md"]["geecs"]["operator"] == IDENTITY
+
+    async def test_a_submit_while_one_waits_is_refused_with_the_rows(
+        self, wired
+    ) -> None:
+        assert (await _submit())["ok"]  # starts at once on the idle demo manager
+        behind = await _submit()  # queued behind the running one: allowed
+        assert behind["ok"] is True
+        out = await _submit()  # something already WAITS: refused, with the rows
+        assert out["ok"] is False
+        assert out["error_kind"] == "policy_refusal"
+        assert out["pending_items"][0]["plan"] == "sweep"
+
+    async def test_unknown_preset_lists_the_catalog(self, wired) -> None:
+        out = await _submit(name="not_a_preset")
+        assert out["error_kind"] == "not_found"
+        assert "jet_pressure_sweep" in out["names"]
+
+    async def test_a_blank_operator_is_refused_before_any_call(self, wired) -> None:
+        out = _j(
+            await run(
+                tools._submit_preset, "jet_pressure_sweep", ["gateway_liveness"], "  "
+            )
+        )
+        assert out["error_kind"] == "invalid_request"
+        assert "operator" in out["message"]
+        assert _j(await run(tools._scan_history, 5))["waiting"] == []
+
+
+# ---------------------------------------------------------- wait_for_scan
+
+
+class TestWaitForScan:
+    async def test_waits_to_the_end_and_returns_the_keys(self, stepping) -> None:
+        item_uid = (await _submit())["item_uid"]
+        out = _j(await run(tools._wait_for_scan, item_uid, 240))
+        assert out["ok"] is True
+        assert out["finished"] is True
+        assert out["state"] == "ok"
+        assert len(out["scan_numbers"]) == 1
+        assert len(out["run_uids"]) == 1
+        assert out["progress"]["state"] == "done"
+        assert out["progress"]["scan_number"] == out["scan_numbers"][0]
+
+    async def test_a_timeout_is_a_result_with_the_progress(
+        self, wired, frozen_clock, monkeypatch
+    ) -> None:
+        item_uid = (await _submit())["item_uid"]  # started at once (idle manager)
+        wired.step()  # one shot
+
+        async def tick(_s: float) -> None:
+            frozen_clock["t"] += 10.0
+
+        monkeypatch.setattr(tools, "_sleep", tick)
+        out = _j(await run(tools._wait_for_scan, item_uid, 5))
+        assert out["ok"] is True
+        assert out["finished"] is False
+        assert out["where"] == "running"
+        assert out["progress"]["shots_done"] == 1
+        assert out["progress"]["scan_number"]
+
+    async def test_an_unknown_item_is_not_found(self, wired) -> None:
+        out = _j(await run(tools._wait_for_scan, "no-such-item", 1))
+        assert out["error_kind"] == "not_found"
+        assert "history" in out["message"]
+
+    async def test_the_budget_is_capped(self) -> None:
+        assert tools._bounded_wait(10_000) == tools.MAX_WAIT_S
+        assert tools._bounded_wait(-3) == 0.0
+        assert tools._bounded_wait("x") == 0.0
+
+
+# -------------------------------------------------------------------- move
+
+
+class TestMove:
+    async def test_a_move_finishes_and_reads_back(self, stepping) -> None:
+        out = _j(await run(tools._move, "U_Hexapod:xpos", 1.25, OPERATOR, True, 60))
+        assert out["ok"] is True, out
+        assert out["finished"] is True
+        assert out["reference"] == "U_Hexapod.xpos"
+        assert out["readback"]["value"] == 1.25
+        assert out["readback"]["variable"] == "U_Hexapod:xpos"
+        assert out["operator"] == IDENTITY
+
+    async def test_a_bare_device_moves_but_has_no_readback(self, stepping) -> None:
+        out = _j(await run(tools._move, "U_S1H", 0.5, OPERATOR, True, 60))
+        assert out["ok"] is True and out["finished"] is True
+        assert out["readback"] is None
+        assert "not a Device:Variable" in out["readback_detail"]
+
+    async def test_refused_while_a_scan_runs(self, wired) -> None:
+        assert (await _submit())["ok"]  # running at once on the idle demo manager
+        out = _j(await run(tools._move, "U_Hexapod:xpos", 1.0, OPERATOR, True, 60))
+        assert out["ok"] is False
+        assert out["error_kind"] == "policy_refusal"
+        assert out["re_state"] == "running"
+
+    async def test_argument_checks_happen_before_any_call(self, wired) -> None:
+        nan = _j(
+            await run(tools._move, "U_Hexapod:xpos", float("nan"), OPERATOR, True, 60)
+        )
+        assert nan["error_kind"] == "invalid_request"
+        blank = _j(await run(tools._move, "U_Hexapod:xpos", 1.0, "", True, 60))
+        assert blank["error_kind"] == "invalid_request"
+        text = _j(await run(tools._move, "U_Hexapod:xpos", "fast", OPERATOR, True, 60))
+        assert text["error_kind"] == "invalid_request"
+
+    async def test_no_wait_returns_the_queued_item(self, wired) -> None:
+        out = _j(await run(tools._move, "U_Hexapod:xpos", 2.0, OPERATOR, False, 60))
+        assert out["ok"] is True
+        assert out["finished"] is False
+        assert out["item_uid"]
+
+
+# ---------------------------------------------------- halts and the queue
+
+
+class TestHaltsAndQueue:
+    async def test_nothing_running_is_a_refusal_in_the_scanner_words(
+        self, wired
+    ) -> None:
+        out = _j(
+            await run(tools._verb, "/api/stop", {"force": False}, read_timeout_s=1)
+        )
+        assert out["ok"] is False
+        assert out["error_kind"] == "policy_refusal"
+        assert out["message"] == "nothing is running"
+
+    async def test_pause_resume_stop_through_a_scan(self, wired) -> None:
+        assert (await _submit())["ok"]  # running at once
+        paused = _j(
+            await run(tools._verb, "/api/pause", tools._verb_body(False, OPERATOR))
+        )
+        assert paused["ok"] is True
+        for _ in range(10):
+            wired.step()  # reaches a step boundary → paused
+        assert _j(await run(tools._scan_status))["re_state"] == "paused"
+        resumed = _j(
+            await run(tools._verb, "/api/resume", tools._verb_body(False, OPERATOR))
+        )
+        assert resumed["ok"] is True
+        stopped = _j(
+            await run(
+                tools._verb, "/api/stop", tools._verb_body(False, ""), read_timeout_s=5
+            )
+        )
+        assert stopped["ok"] is True
+        history = _j(await run(tools._scan_history, 5))
+        assert history["finished"][0]["word"] == "stopped"
+
+    async def test_clear_queue_removes_the_waiting_items(self, wired) -> None:
+        assert (await _submit())["ok"]  # running
+        assert (await _submit())["ok"]  # waiting behind it
+        assert len(_j(await run(tools._scan_history, 5))["waiting"]) == 1
+        out = _j(await run(tools._verb, "/api/clear", None))
+        assert out["ok"] is True
+        assert "removed" in out["message"]
+        assert _j(await run(tools._scan_history, 5))["waiting"] == []
+
+    def test_the_verb_body_carries_the_identity_string_only_when_named(self) -> None:
+        assert tools._verb_body(True, "") == {"force": True}
+        assert tools._verb_body(False, OPERATOR) == {
+            "force": False,
+            "operator": IDENTITY,
+        }
+
+
+# ------------------------------------------------------- the transport seam
+
+
+class TestServiceFailures:
+    async def test_an_unconfigured_service_names_the_key(self, monkeypatch) -> None:
+        monkeypatch.setattr(config, "service_url", lambda service: None)
+        out = _j(await run(tools._scan_status))
+        assert out["error_kind"] == "service_unreachable"
+        assert out["service"] == "scanner"
+        assert "scanner_url" in out["message"]
+
+    async def test_a_dead_scanner_is_unreachable(self, monkeypatch) -> None:
+        def dead(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("connection refused")
+
+        monkeypatch.setattr(config, "service_url", lambda service: "http://scanner")
+        monkeypatch.setattr(
+            clients, "transport_for", lambda service: httpx.MockTransport(dead)
+        )
+        try:
+            out = _j(await run(tools._scan_status))
+        finally:
+            await clients.reset_clients()
+        assert out["error_kind"] == "service_unreachable"
+        assert "ConnectError" in out["message"]
+
+    async def test_a_scanner_500_is_unreachable_not_a_refusal(
+        self, monkeypatch
+    ) -> None:
+        def wedged(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, text="store is wedged")
+
+        monkeypatch.setattr(config, "service_url", lambda service: "http://scanner")
+        monkeypatch.setattr(
+            clients, "transport_for", lambda service: httpx.MockTransport(wedged)
+        )
+        try:
+            out = _j(await run(tools._scan_status))
+        finally:
+            await clients.reset_clients()
+        assert out["error_kind"] == "service_unreachable"
+        assert "500" in out["message"]
+
+    async def test_a_portal_style_detail_maps_by_status(self, monkeypatch) -> None:
+        def refuse(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                409, json={"detail": {"message": "busy", "job": {"state": "running"}}}
+            )
+
+        monkeypatch.setattr(config, "service_url", lambda service: "http://portal")
+        monkeypatch.setattr(
+            clients, "transport_for", lambda service: httpx.MockTransport(refuse)
+        )
+        try:
+            with pytest.raises(clients.ServiceRefusal) as caught:
+                await clients.call("portal", "GET", "/x")
+        finally:
+            await clients.reset_clients()
+        assert caught.value.kind == "policy_refusal"
+        assert caught.value.message == "busy"
+        assert caught.value.extra == {"job": {"state": "running"}}

@@ -1,29 +1,37 @@
 """The structured result envelope every tool returns.
 
 Tools never raise to the agent: every return is a JSON string with ``ok``
-plus either the payload or ``{error_kind, message}``.  The engine's
+plus either the payload or ``{error_kind, message}``.  The services'
 message text is preserved verbatim inside ``message`` — those strings are
-the operator vocabulary.
+the operator vocabulary, the same words the scanner page and the portal
+show.
 
-Error kinds — this server's own names, chosen so an agent can branch on the
-kind without parsing ``message`` (``tiled_unreachable`` covers the
-archive's network failures, which are neither the manager's nor the
-request's fault):
+Error kinds — chosen so an agent can branch on the kind without parsing
+``message``.  The scanner's own ``error.kind`` vocabulary is this one, so
+its verdicts pass through unchanged; the portal's and the logbook's
+status codes map onto it (:mod:`geecs_mcp.clients`):
 
-- ``policy_refusal`` — ownership etiquette, or a verb refused in the
-  current RE state; retryable by changing the ask.
-- ``invalid_request`` — schema/validation; fix the request.
-- ``manager_unreachable`` — the RE Manager did not answer.
-- ``worker_refused`` — the manager accepted the RPC, the worker said no.
-- ``task_timeout`` — a bounded worker task did not finish in budget.
-  **Currently has no producer**: its only one was the deleted
-  ``move_scan_variable`` (0.9.0).  Kept in the taxonomy because it is a
-  published envelope value an agent may already branch on, and a future
-  bounded verb needs it back.
-- ``not_found`` — results/configs that do not exist.
-- ``tiled_unreachable`` — the archive did not answer.
+- ``policy_refusal`` — the service refused in the current state: a
+  preflight question not yet acknowledged (``needs_acknowledgement``),
+  something already queued (``pending_items``), an idle-only item while
+  a plan runs (``re_state`` / ``items_in_queue``), a halt with nothing
+  running, an analysis job already active, a logbook version conflict.
+  Retryable by changing the ask.
+- ``invalid_request`` — schema/validation, a refused preflight, an
+  argument this server checks (a blank operator); fix the request.
+- ``not_found`` — a preset, run, artifact, entry or item that does not
+  exist.
+- ``service_unreachable`` — the scanner, portal or logbook did not
+  answer, or answered with its own failure (5xx); ``service`` and ``url``
+  say which.  The scanner's ``manager_unreachable`` (its 503 when the RE
+  Manager is down) lands here with the scanner's message.
 - ``internal_error`` — a bug in this server (the tools-never-raise
   backstop; the message carries the exception text for the log trail).
+
+Retired with the HTTP-client rebuild (no producer left):
+``manager_unreachable``, ``worker_refused``, ``tiled_unreachable``,
+``task_timeout`` — the wait verbs' timeouts are ok results with
+``finished: false``, never errors.
 """
 
 from __future__ import annotations
@@ -35,11 +43,8 @@ from typing import Any
 ERROR_KINDS = (
     "policy_refusal",
     "invalid_request",
-    "manager_unreachable",
-    "worker_refused",
-    "task_timeout",
     "not_found",
-    "tiled_unreachable",
+    "service_unreachable",
     "internal_error",
 )
 

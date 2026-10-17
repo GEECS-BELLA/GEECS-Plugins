@@ -231,13 +231,14 @@ means:
   reach the worker; the proxy is a fan-out, so subscribers never touch
   the manager socket, Redis, or the in port. Add 5568 to the same
   firewall allow rule as 60615/60625; leave 5567 closed. The in-repo
-  subscribers are the reference practice: the scanner's
-  `geecs_scanner/service/streams.py` (`ProgressCache`),
-  and GEECS-MCP's `geecs_mcp/scans/progress_stream.py` (`ProgressCache`)
-  — each a `bluesky.callbacks.zmq.RemoteDispatcher` on the `doc_addr`
+  subscriber is the reference practice: the scanner's
+  `geecs_scanner/service/streams.py` (`StreamCache`) — a
+  `bluesky.callbacks.zmq.RemoteDispatcher` on the `doc_addr`
   that `geecs_bluesky.qs_client` reads from the `[qserver]` section of
-  `config.ini` (default `<host>:5568`). The `RemoteDispatcher` snippet
-  lives in `../README.md`, "Document stream".
+  `config.ini` (default `<host>:5568`). GEECS-MCP no longer subscribes:
+  since its HTTP-client rebuild it reads the scanner's `/api/progress`
+  and `/api/queue` JSON instead (GEECS-MCP/DESIGN.md). The
+  `RemoteDispatcher` snippet lives in `../README.md`, "Document stream".
 - **Wire format.** bluesky's `Publisher` defaults: one zmq frame per
   document, `b"<prefix> <name> <pickled doc>"` with an empty prefix —
   split on the first two spaces, decode the name, `pickle.loads` the
