@@ -382,6 +382,7 @@ class TestRouteGate:
             "entry_id": "e1",
             "appended": False,
             "url": "http://logbook.example:8400/entry/e1",
+            "link": "attachments/x",
         }
         call = stub.calls[0]
         assert call["day"] == "2026-07-12"
@@ -793,3 +794,130 @@ const fetch = async(url,options)=>{posted={url:String(url),...JSON.parse(options
         [node, str(script)], capture_output=True, text=True, timeout=20
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# ----------------------------------------------------- the artifact source
+
+
+def _analysis_client(tmp_path, **over) -> TestClient:
+    """A portal whose Scan002 has an analysis folder holding one PNG and one table."""
+    yaml = pytest.importorskip("yaml")
+    from geecs_data_utils.scan_info import analysis_folder_for
+
+    scan_folder = (
+        tmp_path / "Undulator" / "Y2026" / "07-Jul" / "26_0713" / "scans" / "Scan002"
+    )
+    (scan_folder / "cam").mkdir(parents=True)
+    out = analysis_folder_for(scan_folder) / "UC_Crop" / "Array2DScanAnalyzer"
+    out.mkdir(parents=True)
+    (out / "summary.png").write_bytes(_PNG)
+    (out / "table.json").write_text("{}")
+    tree = tmp_path / "proc_configs"
+    (tree / "analyzers" / "HTU").mkdir(parents=True)
+    (tree / "analyzers" / "HTU" / "UC_Crop.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": 2,
+                "name": "UC_Crop",
+                "analyzer": {"kind": "standard"},
+                "image": {"type": "camera", "bit_depth": 16},
+                "scan": {"priority": 100, "device": "cam"},
+            }
+        )
+    )
+    catalog = FakeCatalog()
+    detail = _detail(2)
+    detail.start_doc["scan_folder"] = str(scan_folder)
+    catalog.details[_UID] = detail
+    kwargs = {
+        "default_experiment": "Undulator",
+        "logbook_url": _BASE,
+        "processing_config_dir": tree,
+        "analysis_factory": lambda *a, **k: None,  # the gate's "installed" half
+    }
+    kwargs.update(over)
+    return TestClient(create_app(catalog, **kwargs))
+
+
+_ARTIFACT = "UC_Crop/Array2DScanAnalyzer/summary.png"
+
+
+def _post_path(client: TestClient, path: str = _ARTIFACT, **over) -> httpx.Response:
+    body = {"author": "agent, admin supervision (Ada)", "path": path, "caption": "fit"}
+    body.update(over)
+    return client.post(f"/api/run/{_UID}/logbook", json=body)
+
+
+class TestArtifactSource:
+    """A run's figure goes to the logbook by reference; the portal reads it."""
+
+    def test_the_artifact_bytes_are_sent_under_their_own_name(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        stub = _StubSend()
+        monkeypatch.setattr(logbook_send, "send_plot", stub)
+        response = _post_path(_analysis_client(tmp_path))
+        assert response.status_code == 201
+        assert response.json()["link"] == "attachments/x"
+        call = stub.calls[0]
+        assert call["png"] == _PNG
+        assert call["filename"] == "scan002-summary.png"
+        assert call["content_type"] == "image/png"
+        assert call["author"] == "agent, admin supervision (Ada)"
+
+    def test_a_path_that_escapes_or_is_missing_is_404(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        stub = _StubSend()
+        monkeypatch.setattr(logbook_send, "send_plot", stub)
+        client = _analysis_client(tmp_path)
+        assert _post_path(client, "../../../etc/passwd").status_code == 404
+        assert _post_path(client, "UC_Crop/nope.png").status_code == 404
+        assert not stub.calls
+
+    def test_a_non_image_artifact_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        stub = _StubSend()
+        monkeypatch.setattr(logbook_send, "send_plot", stub)
+        response = _post_path(
+            _analysis_client(tmp_path), "UC_Crop/Array2DScanAnalyzer/table.json"
+        )
+        assert response.status_code == 400
+        assert "raster image" in response.json()["detail"]
+        assert not stub.calls
+
+    def test_exactly_one_source_is_required(self, tmp_path) -> None:
+        client = _analysis_client(tmp_path)
+        both = _post_path(client, image=_DATA_URL)
+        neither = client.post(f"/api/run/{_UID}/logbook", json={"author": "Ada"})
+        assert both.status_code == 422
+        assert neither.status_code == 422
+
+    def test_the_feature_gate_holds_for_the_path_source(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """No analysis tree configured: there is no artifact folder to read from."""
+        stub = _StubSend()
+        monkeypatch.setattr(logbook_send, "send_plot", stub)
+        client = _analysis_client(
+            tmp_path, processing_config_dir=None, analysis_factory=None
+        )
+        assert _post_path(client).status_code == 404
+        assert not stub.calls
+
+    def test_the_whole_conversation_runs_over_an_injected_client(
+        self, tmp_path
+    ) -> None:
+        """The seam the MCP contract tests ride: no stub, an in-process logbook."""
+        book = FakeLogbook()
+        client = _analysis_client(tmp_path, logbook_client=book.client())
+        response = _post_path(client)
+        assert response.status_code == 201
+        body = response.json()
+        assert body["entry_id"] == "e0001"
+        assert body["link"] == "attachments/e0001/plot-1.png"
+        entry = book.only_entry()
+        assert entry["author"] == "agent, admin supervision (Ada)"
+        assert "![fit](attachments/e0001/plot-1.png)" in entry["body_md"]
+        assert _PNG in book.uploads[0]

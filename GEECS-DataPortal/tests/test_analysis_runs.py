@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -78,6 +79,28 @@ def configs_tree(tmp_path) -> Path:
     (analyzers / "UC_Legacy.yaml").write_text(
         yaml.safe_dump({"name": "UC_Legacy", "bit_depth": 16})
     )
+    # Groups: one valid (a disabled member, and a priority override that
+    # puts UC_Compact first), one with a ref no diagnostic answers to,
+    # one that is not a group document at all.
+    groups = tree / "groups" / "HTU"
+    groups.mkdir(parents=True)
+    (groups / "all.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "HTU_all",
+                "description": "everything after a scan",
+                "analyzers": [
+                    "UC_Crop",
+                    {"ref": "UC_Other", "enabled": False},
+                    {"ref": "UC_Compact", "priority": 1},
+                ],
+            }
+        )
+    )
+    (groups / "dangling.yaml").write_text(
+        yaml.safe_dump({"name": "dangling", "analyzers": ["UC_Missing"]})
+    )
+    (groups / "broken.yaml").write_text(yaml.safe_dump({"nonsense": 1}))
     return tree
 
 
@@ -947,3 +970,58 @@ class TestProgress:
             progress=sink,
         )
         assert hooked.progress is sink
+
+
+# ------------------------------------------------------------- the catalog
+
+
+class TestCatalog:
+    """``GET /api/analysis/catalog``: the tree's analyzers and groups, scan-free."""
+
+    def test_lists_the_loadable_analyzers_with_their_kind(
+        self, scan_folder, configs_tree
+    ) -> None:
+        response = _client(scan_folder, configs_tree).get("/api/analysis/catalog")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+        by_id = {a["id"]: a for a in response.json()["analyzers"]}
+        # UC_Legacy is not a loadable document and is dropped, as the run listing drops it.
+        assert set(by_id) == {"UC_Crop", "UC_Other", "UC_Compact"}
+        assert by_id["UC_Crop"] == {
+            "id": "UC_Crop",
+            "device": "cam",
+            "output_dir": "UC_Crop",
+            "destructive": False,
+            "kind": "diagnostic",
+        }
+        assert by_id["UC_Compact"]["destructive"] is True
+        assert by_id["UC_Compact"]["kind"] == "job"
+
+    def test_lists_groups_with_their_resolved_members_in_run_order(
+        self, scan_folder, configs_tree
+    ) -> None:
+        groups = (
+            _client(scan_folder, configs_tree)
+            .get("/api/analysis/catalog")
+            .json()["groups"]
+        )
+        # broken.yaml is not a group document and dangling.yaml names a
+        # diagnostic that does not exist: both would fail a run, both dropped.
+        assert [g["id"] for g in groups] == ["HTU/all"]
+        assert groups[0] == {
+            "id": "HTU/all",
+            "name": "HTU_all",
+            "description": "everything after a scan",
+            # priority 1 runs before UC_Crop's default; the disabled ref is out
+            "members": ["UC_Compact", "UC_Crop"],
+        }
+
+    def test_a_tree_without_groups_lists_none(self, scan_folder, configs_tree) -> None:
+        shutil.rmtree(configs_tree / "groups")
+        body = _client(scan_folder, configs_tree).get("/api/analysis/catalog").json()
+        assert body["groups"] == []
+        assert len(body["analyzers"]) == 3
+
+    def test_feature_off_is_404(self) -> None:
+        client = TestClient(create_app(FakeCatalog()))
+        assert client.get("/api/analysis/catalog").status_code == 404

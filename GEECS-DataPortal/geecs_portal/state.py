@@ -7,7 +7,7 @@ import importlib
 import logging
 from datetime import date
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import HTTPException
 from fastapi.templating import Jinja2Templates
@@ -37,6 +37,11 @@ class _DiagInfo:
     #: the tab asks for the scan number first and the start endpoint
     #: refuses without it.
     destructive: bool = False
+    #: Which document this is — ``recipe`` (the v3 ``AnalysisRecipe``),
+    #: ``diagnostic`` (the v2 ``AnalysisDiagnostic``) or ``job`` (an
+    #: ``.himg`` job) — so a catalog reader can tell a measurement from
+    #: a data-management step without opening the YAML.
+    kind: str = "unknown"
 
     @classmethod
     def from_diagnostic(cls, diag) -> "_DiagInfo":
@@ -45,7 +50,31 @@ class _DiagInfo:
             device=str(diag.data_folder),
             output_name=str(diag.effective_output_name),
             destructive=bool(getattr(diag, "destructive", False)),
+            kind=_DOCUMENT_KINDS.get(type(diag).__name__, "unknown"),
         )
+
+
+#: Document class → the catalog's ``kind`` word (by name: this module
+#: imports no schema class).
+_DOCUMENT_KINDS = {
+    "AnalysisRecipe": "recipe",
+    "AnalysisDiagnostic": "diagnostic",
+    "HimgJob": "job",
+}
+
+
+@dataclasses.dataclass(frozen=True)
+class _GroupInfo:
+    """A loadable analysis group's facts for the catalog."""
+
+    #: Path-like id relative to ``groups/`` without the suffix
+    #: (``HTU/all``) — unique, unlike the bare stem.
+    id: str
+    name: str
+    description: str
+    #: The resolved members in run order (priority ascending): enabled
+    #: refs only, every one a loadable diagnostic — what a run would get.
+    members: tuple[str, ...]
 
 
 @dataclasses.dataclass
@@ -68,6 +97,9 @@ class PortalState:
     #: the browser's front door and names no host this process can dial, so
     #: it links but does not send, and the page hides the button.
     logbook_send_base: str = ""
+    #: The client the plot send uses (``None`` = one per send); injected
+    #: by tests so the conversation runs against an in-process logbook.
+    logbook_client: Optional[Any] = None
     config_editor_enabled: bool = False  # set when the editor router mounts
     # (fingerprint → valid names): re-validated only when the tree
     # changes — discovery lists every YAML stem, but legacy flat camera
@@ -337,6 +369,52 @@ class PortalState:
             self.processing_cache.clear()  # one entry: the current tree state
             self.processing_cache[fingerprint] = valid
         return valid
+
+    def group_infos(self) -> list[_GroupInfo]:
+        """LOADABLE analysis groups under the configured tree (``[]`` = none).
+
+        The analyzer listing's sibling for the catalog, through
+        ScanAnalysis's own loader: ``discover_groups`` finds the files
+        (one walk, the runtime's rule for the two accepted names) and
+        ``load_analysis_group`` validates and RESOLVES each one — so a
+        group is listed with exactly the members a run would get, and a
+        file that would fail at run time (bad YAML, an invalid document,
+        a ref no diagnostic answers to) is dropped with an INFO log
+        naming it, as the per-run listing drops an invalid diagnostic.
+        Uncached: groups are few and the route is on demand.
+        """
+        if self.processing_config_dir is None:
+            return []
+        try:
+            from scan_analysis.config.analysis_group_loader import (
+                discover_groups,
+                load_analysis_group,
+            )
+        except ImportError:
+            return []
+        root = Path(self.processing_config_dir)
+        try:
+            index = discover_groups(root)
+        except (FileNotFoundError, OSError):
+            return []
+        groups: list[_GroupInfo] = []
+        groups_dir = root / "groups"
+        # The index keys each file twice (stem + path-like); list each FILE once.
+        for path in sorted(set(index.values()), key=str):
+            try:
+                loaded = load_analysis_group(path)
+            except (ValueError, FileNotFoundError, OSError) as exc:
+                logger.info("analysis catalog: skipping group %s (%s)", path, exc)
+                continue
+            groups.append(
+                _GroupInfo(
+                    id=path.relative_to(groups_dir).with_suffix("").as_posix(),
+                    name=loaded.name,
+                    description=loaded.description or "",
+                    members=tuple(r.id for r in loaded.analyzers),
+                )
+            )
+        return groups
 
     def analysis_enabled(self) -> bool:
         """Whether the scan page should offer the Analysis tab at all."""

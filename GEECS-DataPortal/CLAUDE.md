@@ -65,6 +65,15 @@ extending this package.
   own service**, over that service's public API — create the scan's
   entry, upload the PNG, append the image paragraph — and to nothing
   else: not the scans tree, not the analysis tree, not portal state.
+  The image comes from exactly one of two sources: `image`, the Plot
+  tab's data URL, or `path` (GEECS-MCP arc, 2026-10), an analysis
+  artifact named as the run listing names it — read off the analysis
+  tree under the artifact route's containment rule, raster images only,
+  so a client holding only a reference (the MCP server posting an
+  agent's figures) moves no bytes.  The reply carries the attachment
+  `link` the body now shows.  `create_app(logbook_client=…)` injects the
+  httpx client the send uses (tests: an in-process logbook); production
+  makes one per send.
   The portal still never imports GeecsLogbook; the edge is three URLs.
   It exists because clipboard *image* writes are a secure-context
   privilege and the deployment is plain HTTP, so "copy the plot" cannot
@@ -303,7 +312,15 @@ explicitly). The `analysis` extra installs the core runtime. A
 missing config root or core runtime hides the selector and 404s the param.
 Errors map honestly: unknown diagnostic 404,
 denylisted/miswired 400, analyzer failure 400 — never a 500.
-**Analysis runs** (0.16.0): `GET /api/run/{uid}/analysis`
+**Analysis runs** (0.16.0): `GET /api/analysis/catalog` (GEECS-MCP
+arc, 2026-10) lists the tree **scan-free** — every loadable diagnostic
+(`id`, `device`, `output_dir`, `destructive`, `kind` ∈
+`recipe|diagnostic|job`) and every loadable group with its resolved
+`members` in run order (ScanAnalysis's own `discover_groups` +
+`load_analysis_group`, so a file that would fail a run — bad YAML, a
+ref no diagnostic answers to — is dropped with a log line) — the planning surface
+for an agent or a picker; the portal still runs one diagnostic per job,
+so a group is a plan the caller expands.  `GET /api/run/{uid}/analysis`
 lists every loadable diagnostic in the same `--processing-configs`
 tree with `applicable` (its data device — `scan.device`, else the
 name — has a folder in this scan), its in-memory `job` record

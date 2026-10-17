@@ -14,6 +14,46 @@ from geecs_portal.state import PortalState, get_state
 router = APIRouter()
 
 
+@router.get("/api/analysis/catalog")
+def analysis_catalog(portal: PortalState = Depends(get_state)) -> JSONResponse:
+    """Every loadable diagnostic and group in the configured tree, scan-free.
+
+    The per-run listing (below) is scoped to one scan; a client planning
+    what to run — an agent choosing an analyzer, or a page's picker —
+    needs the catalog before it has a scan. Same feature gate as the
+    runs; same loadable set as the per-run listing (``processing_infos``,
+    invalid YAMLs dropped). A group is listed with its resolved members
+    in run order, through ScanAnalysis's own loader — the portal runs one
+    diagnostic per job, so a group is a plan the caller expands, never
+    something this route runs.
+    """
+    portal.analysis_available()
+    infos = portal.processing_infos()
+    analyzers = [
+        {
+            "id": name,
+            "device": info.device,
+            "output_dir": info.output_name,
+            "destructive": info.destructive,
+            "kind": info.kind,
+        }
+        for name, info in infos.items()
+    ]
+    groups = [
+        {
+            "id": group.id,
+            "name": group.name,
+            "description": group.description,
+            "members": list(group.members),
+        }
+        for group in portal.group_infos()
+    ]
+    return JSONResponse(
+        {"analyzers": analyzers, "groups": groups},
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
 @router.get("/api/run/{uid}/analysis")
 def run_analysis_list(
     uid: str, day: str = "", portal: PortalState = Depends(get_state)
