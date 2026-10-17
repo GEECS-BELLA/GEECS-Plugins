@@ -2,9 +2,9 @@
 
 import numpy as np
 import pytest
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
+from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.v2 import UnsupportedRecipe, analyze_v2, compile_v2
+from geecs_analysis.compat.v2 import analyze_v2
 from geecs_analysis.pipeline import apply_pipeline
 from geecs_analysis.recipe import compile_recipe
 from geecs_analysis.specs import Pipeline
@@ -67,27 +67,6 @@ def test_non_pixel_axes_are_refused():
         run(frame, **MODEL)
 
 
-def camera(pipeline, **sections):
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": "diagnostic",
-            "output_name": "output",
-            "analyzer": {"kind": "standard"},
-            "image": {"type": "camera", "pipeline": pipeline, **sections},
-        }
-    )
-
-
-SECTIONS = dict(
-    background={"method": "constant", "constant_level": 3, "additional_constant": 1},
-    vignette={"x_offset": 25, "y_offset": 170, **MODEL},
-    roi={"x_min": 4, "x_max": 40, "y_min": 2, "y_max": 27},
-    thresholding={"method": "constant", "value": 0, "mode": "to_zero"},
-    filtering={"median_kernel_size": 5},
-    transforms={"rotation_angle": 0.2},
-)
-
-
 def test_the_htt_magcam_chain_matches_the_legacy_pipeline(expected):
     # The HTT-MagCam documents' order: background, vignette, roi, ...
     steps = [
@@ -118,18 +97,3 @@ def test_the_htt_magcam_chain_matches_the_legacy_pipeline(expected):
         "htt_magcam_chain",
         actual=result.frame.data,
     )
-
-
-def test_a_vignette_after_an_active_roi_is_refused():
-    for pipeline in (["roi", "vignette"], ["vignette", "roi", "vignette"]):
-        with pytest.raises(UnsupportedRecipe, match="after roi"):
-            compile_v2(camera(pipeline, **SECTIONS))
-    # An inactive roi is no crop: the order compiles.
-    sections = {**SECTIONS, "roi": None}
-    compile_v2(camera(["roi", "vignette"], **sections))
-
-
-def test_a_map_file_vignette_is_refused():
-    vignette = {"method": "map_file", "map_file_path": "never-opened.npy"}
-    with pytest.raises(UnsupportedRecipe, match="map_file"):
-        compile_v2(camera(["vignette"], vignette=vignette))

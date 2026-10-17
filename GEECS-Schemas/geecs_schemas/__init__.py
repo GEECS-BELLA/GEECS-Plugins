@@ -14,16 +14,10 @@ tooling — can import it without dragging in hardware or analysis stacks.
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 from geecs_schemas.analysis import (
-    AnalysisDiagnostic,
     AnalysisGroup,
     AnalysisRecipe,
     AnalyzerRef,
-    AnalyzerSpec,
-    CameraConfig,
     HimgJob,
-    Line1DConfig,
-    RendererOptions,
-    ScanRuntime,
 )
 from geecs_schemas.action_plan import (
     ActionPlan,
@@ -157,16 +151,10 @@ __all__ = [
     "CheckStep",
     "RunPlanStep",
     # analysis
-    "AnalysisDiagnostic",
     "AnalysisGroup",
     "AnalysisRecipe",
     "AnalyzerRef",
-    "AnalyzerSpec",
-    "CameraConfig",
     "HimgJob",
-    "Line1DConfig",
-    "RendererOptions",
-    "ScanRuntime",
     # shot_offsets
     "ShotOffsets",
     "DeviceOffset",
@@ -212,7 +200,6 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "derived_channels": DerivedChannels,
     "archive_policy": ArchivePolicy,
     "shot_offsets": ShotOffsets,
-    "analysis_diagnostic": AnalysisDiagnostic,
     "analysis_recipe": AnalysisRecipe,
     "analysis_group": AnalysisGroup,
     "himg_job": HimgJob,

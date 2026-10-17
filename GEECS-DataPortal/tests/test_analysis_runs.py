@@ -52,11 +52,11 @@ def configs_tree(tmp_path) -> Path:
         (analyzers / f"{name}.yaml").write_text(
             yaml.safe_dump(
                 {
-                    "schema_version": 2,
-                    "name": name,
-                    "analyzer": {"kind": "standard"},
-                    "image": {"type": "camera", "bit_depth": 16},
-                    "scan": {"priority": 100, "device": device},
+                    "schema_version": 3,
+                    "device": device,
+                    "output_name": name,
+                    "input": {"kind": "camera"},
+                    "scan": {"priority": 100},
                 }
             )
         )
@@ -273,7 +273,7 @@ class TestRunner:
             logging.getLogger("geecs_portal.app").warning("request-side noise")
             browser = threading.Thread(
                 name="AnyIO worker thread",
-                target=lambda: logging.getLogger("image_analysis.ephemeral").warning(
+                target=lambda: logging.getLogger("geecs_portal.processing").warning(
                     "a concurrent browser's processing"
                 ),
             )
@@ -737,10 +737,10 @@ class TestRealFactory:
         analyzer = analysis_runs.scan_analysis_factory("UC_Crop", configs_tree)
         assert callable(analyzer.run_analysis) and callable(analyzer.cleanup)
         assert analyzer.id == "UC_Crop"
-        # A supported beam recipe takes the core route; the scan.device
-        # override travels in the analyzer's own copy of the document.
+        # A recipe takes the core route; its device travels in the
+        # analyzer's own copy of the document.
         assert isinstance(analyzer, CoreScanAnalyzer)
-        assert analyzer.document.scan.device == "cam"
+        assert analyzer.document.device == "cam"
 
 
 class TestAnalysisTab:

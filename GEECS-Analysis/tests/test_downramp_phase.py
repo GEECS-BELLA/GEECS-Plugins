@@ -7,15 +7,12 @@ import math
 import numpy as np
 import pytest
 from geecs_schemas.analysis import (
-    AnalysisDiagnostic,
     AnalysisRecipe,
-    DownrampPhaseSpec as V2Spec,
 )
 from scipy import ndimage
 
 from geecs_analysis.algorithms import downramp_shock as ported
-from geecs_analysis.compat.convert import to_v3
-from geecs_analysis.compat.v2 import V2Recipe, analyze_v2, compile_v2
+from geecs_analysis.compat.v2 import V2Recipe, analyze_v2
 from geecs_analysis.measurement import Measurement, Segment
 from geecs_analysis.measures.downramp_phase import (
     OVERLAYS,
@@ -56,16 +53,6 @@ def phase_map(case: str, seed: int, shape: tuple[int, int] = (64, 96)) -> np.nda
     }.get(case, 1.0 + 1.5 / (1 + np.exp(-(x - edge) / 2.0)))
     dip = along * np.exp(-0.5 * ((y - axis) / 8) ** 2)
     return 3.0 - dip + 0.02 * rng.normal(size=(H, W))
-
-
-def document(**image) -> AnalysisDiagnostic:
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": "U_HasoLift",
-            "analyzer": {"kind": "downramp_phase"},
-            "image": {"type": "camera", "pipeline": [], **image},
-        }
-    )
 
 
 def recipe(*steps: dict) -> V2Recipe:
@@ -359,27 +346,9 @@ def test_segments_render_and_can_be_hidden_by_id():
 
 
 def test_the_scalars_are_the_legacy_names_plus_the_slopes_it_merged_in():
-    assert set(SHOCK_SCALARS) == V2Spec.scalar_keys
     assert DownrampPhaseSpec().emitted_scalars() == set(SHOCK_SCALARS) | set(
         SLOPE_SCALARS
     )
-    assert set(V2Spec.model_fields) == {"kind"}
     assert DownrampPhaseSpec() == DownrampPhaseSpec(
         window_size=20, sigma_x=100, sigma_y=20, threshold_factor=0.01
-    )
-
-
-def test_compiles_to_the_measure_and_converts_to_v3_identically():
-    doc = document()
-    recipe = compile_v2(doc)
-    assert recipe.analysis.measure == DownrampPhaseSpec()
-    assert recipe.input_kind == "camera"
-    conversion = to_v3(doc)
-    assert conversion.notes == ()
-    assert conversion.recipe.measure.model_dump() == {"kind": "downramp_phase"}
-    recompiled = compile_recipe(conversion.recipe, allow_file_backgrounds=True)
-    assert recompiled == compile_v2(doc, allow_file_backgrounds=True)
-    image = phase_map("shock", 0)
-    assert dict(analyze_v2(image, recompiled).scalars) == dict(
-        analyze_v2(image, recipe).scalars
     )

@@ -2,30 +2,11 @@
 
 import numpy as np
 import pytest
-from geecs_analysis.compat.v2 import UnsupportedRecipe, analyze_v2
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
+from geecs_analysis.compat.v2 import analyze_v2
+from geecs_analysis.recipe import RecipeError
+from geecs_schemas.analysis import AnalysisRecipe
 
 from scan_analysis import core_inputs
-
-
-def document(path):
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": "Camera",
-            "analyzer": {"kind": "beam"},
-            "image": {
-                "type": "camera",
-                "pipeline": ["roi", "background", "background"],
-                "roi": {"x_min": 1, "x_max": 9, "y_min": 1, "y_max": 9},
-                "background": {
-                    "method": "from_file",
-                    "file_path": str(path),
-                    "constant_level": 13,
-                    "additional_constant": -2,
-                },
-            },
-        }
-    )
 
 
 def recipe(path) -> AnalysisRecipe:
@@ -142,15 +123,14 @@ def test_loaded_shape_mismatch_raises_without_constant_fallback(tmp_path, caplog
     assert "Falling back" not in caplog.text
 
 
-def test_compile_refusal_happens_before_reading_any_file(monkeypatch):
-    data = document("unused.npy").model_dump(mode="json")
-    data["image"]["pipeline"].append("transforms")
-    data["image"]["transforms"] = {"flip_horizontal": True}
-    doc = AnalysisDiagnostic.model_validate(data)
+def test_compile_refusal_happens_before_reading_any_file(tmp_path, monkeypatch):
+    data = recipe(tmp_path / "dark.npy").model_dump(mode="json")
+    data["steps"].append({"step": "no_such_step"})
+    doc = AnalysisRecipe.model_validate(data)
 
     def forbid_read(*args):
         raise AssertionError("read before capability validation")
 
     monkeypatch.setattr(core_inputs, "read_imaq_image", forbid_read)
-    with pytest.raises(UnsupportedRecipe):
+    with pytest.raises(RecipeError, match="does not bind"):
         core_inputs.prepare_v2(doc)

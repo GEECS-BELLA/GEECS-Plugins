@@ -1,7 +1,6 @@
 """Timestamp joins and reductions use owned live arrays, never scan files."""
 
 from types import SimpleNamespace
-import builtins
 
 import numpy as np
 import pytest
@@ -202,7 +201,10 @@ def test_compiled_recipe_survives_source_removal_and_preserves_reduction(
         raise AssertionError("evaluation must not reopen configuration or compile")
 
     monkeypatch.setattr(resolver, "resolve_diagnostic", forbidden)
-    monkeypatch.setattr(v2, "compile_v2", forbidden)
+    import geecs_analysis.recipe as recipe_module
+
+    monkeypatch.setattr(recipe_module, "compile_document", forbidden)
+    monkeypatch.setattr(recipe_module, "compile_recipe", forbidden)
     result = compiled.evaluate_bin(rows, {"Camera": frames})
     assert result.outputs == {"cam.image_total": expected}
     assert result.valid_shots == {"cam": 2}  # duplicate and absent frames don't count
@@ -228,18 +230,8 @@ def test_failed_and_nonfinite_frames_do_not_meet_minimum(diagnostic_setup, mode)
     assert np.isnan(result.outputs["cam.image_total"])
 
 
-def test_overrides_discover_compiled_scalars_and_never_import_legacy(
-    diagnostic_setup, monkeypatch
-):
+def test_overrides_discover_compiled_scalars(diagnostic_setup):
     compile, resolver, path, _, _ = diagnostic_setup
-    original_import = builtins.__import__
-
-    def import_without_legacy(name, *args, **kwargs):
-        if name.startswith("image_analysis"):
-            raise AssertionError("optimizer must use geecs-analysis directly")
-        return original_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", import_without_legacy)
     before = path.read_bytes()
     compiled = compile(
         overrides={

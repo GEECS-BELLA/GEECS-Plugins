@@ -9,17 +9,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 from geecs_schemas.analysis import (
-    AnalysisDiagnostic,
     AnalysisRecipe,
-    HiResMagCamSpec as V2Spec,
 )
 
 from geecs_analysis.algorithms.bowtie_fit import BowtieFitAlgorithm
-from geecs_analysis.compat.convert import to_v3
-from geecs_analysis.compat.v2 import V2Recipe, analyze_v2, compile_v2
-from geecs_analysis.measures.beam import BeamSpec
+from geecs_analysis.compat.v2 import V2Recipe, analyze_v2
 from geecs_analysis.measures.hi_res_mag_cam import (
-    BOWTIE_SCALARS,
     REJECTED,
     HiResMagCamSpec,
 )
@@ -71,16 +66,6 @@ def frame(case: str, seed: int) -> np.ndarray:
 
 
 CASES = ("bowtie", "off-centre", "left arm", "waist blanked")
-
-
-def diagnostic(analyzer: dict | None = None, **image) -> AnalysisDiagnostic:
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": "UC_HiResMagCam",
-            "analyzer": {"kind": "hi_res_mag_cam", **(analyzer or {})},
-            "image": {"type": "camera", "pipeline": [], **image},
-        }
-    )
 
 
 def recipe(*steps: dict, **measure) -> V2Recipe:
@@ -185,7 +170,6 @@ def test_the_core_route_matches_the_legacy_analyzer(seed, steps, expected, reque
             "bowtie_weights": weights.frame.data,
         },
     )
-    assert set(core.scalars) == V2Spec().emitted_scalars()
     assert set(core.scalars) == HiResMagCamSpec().emitted_scalars()
     assert float(stored["scalar_emittance_proxy"]) != REJECTED
     assert core.notes == ()
@@ -267,28 +251,3 @@ def test_overlays_render_the_fit_weights_as_a_lineout():
 # ---------------------------------------------------------------------------
 # The vocabulary
 # ---------------------------------------------------------------------------
-
-
-def test_the_spec_mirrors_the_v2_spec_except_the_unused_threshold_factor():
-    v2, core = V2Spec.model_fields, HiResMagCamSpec.model_fields
-    assert set(v2) - {"kind"} - set(core) == {"threshold_factor"}
-    assert set(core) - {"kind"} <= set(v2)
-    for name in set(core) - {"kind"}:
-        assert core[name].default == v2[name].default, name
-        assert core[name].metadata == v2[name].metadata, name
-    assert HiResMagCamSpec().emitted_scalars() == BeamSpec().emitted_scalars() | set(
-        BOWTIE_SCALARS
-    )
-
-
-def test_a_diagnostic_converts_to_a_recipe_that_compiles_identically():
-    document = diagnostic({"n_beam_size_clearance": 5})
-    conversion = to_v3(document)
-    assert conversion.recipe.measure.model_dump()["kind"] == "hi_res_mag_cam"
-    assert compile_recipe(conversion.recipe) == compile_v2(document)
-    assert not any("threshold_factor" in note for note in conversion.notes)
-    spoken = to_v3(diagnostic({"threshold_factor": 5.0}))
-    assert any(
-        note.startswith("analyzer.threshold_factor dropped") for note in spoken.notes
-    )
-    assert compile_recipe(spoken.recipe) == compile_v2(diagnostic())

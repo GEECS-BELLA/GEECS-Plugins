@@ -14,14 +14,15 @@ published JSON schemas and Markdown references through existing tooling.
 
 ## Analysis documents
 
-Three documents share `scan_analysis_configs/analyzers/`: the v3
-`AnalysisRecipe` (`analysis/recipe.py`, the analysis core's native shape),
-the v2 `AnalysisDiagnostic` (kept for the analyzer kinds the core has
-not ported), and the `HimgJob` (`analysis/himg.py`: the `.himg`
+Two documents share `scan_analysis_configs/analyzers/`: the
+`AnalysisRecipe` (`analysis/recipe.py`, format 3, the analysis core's
+native shape) and the `HimgJob` (`analysis/himg.py`: the `.himg`
 data-management jobs, not analyses — a top-level `kind`, its own
 `schema_version: 1`). `load_analysis_document` reads a top-level `kind`
-as a job (neither analysis format has one), else dispatches on
-`schema_version`; every loader goes through it. Every document carries
+as a job (a recipe has none), else validates a recipe, which refuses
+another `schema_version` and the retired v2 layout (`analyzer:` +
+`image:`); every loader goes through it. `processing_1d` keeps only
+`Data1DType` / `Data1DLoading`, the line input's loading section. Every document carries
 the same neutral names (`device`, `data_folder`, `effective_output_name`,
 `destructive`, `scan.priority`, `source_id`) so a host lists them
 without asking which it holds. The recipe types the document's frame —

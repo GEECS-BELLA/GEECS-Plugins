@@ -206,10 +206,10 @@ def test_camera_measurement_refire_and_preclaim_connection(
     (path / "Camera.yaml").write_text(
         yaml.safe_dump(
             {
-                "schema_version": 2,
-                "name": "Camera",
-                "image": {"type": "camera"},
-                "analyzer": {"kind": "beam"},
+                "schema_version": 3,
+                "device": "Camera",
+                "input": {"kind": "camera"},
+                "measure": {"kind": "beam"},
             }
         )
     )

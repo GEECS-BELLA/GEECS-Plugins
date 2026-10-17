@@ -28,10 +28,10 @@ def _write_diagnostic(path: Path, name: str, *, priority: int = 100) -> None:
     path.write_text(
         yaml.safe_dump(
             {
-                "schema_version": 2,
-                "name": name,
-                "analyzer": {"kind": "beam"},
-                "image": {"type": "camera", "bit_depth": 16},
+                "schema_version": 3,
+                "device": name,
+                "input": {"kind": "camera"},
+                "measure": {"kind": "beam"},
                 "scan": {"priority": priority},
             }
         )
@@ -156,9 +156,9 @@ class TestResolveGroup:
             resolve_group(group, idx)
 
     def test_invalid_diagnostic_yaml_surfaces_path(self, configs_tree):
-        # Corrupt a diagnostic by omitting the required ``name`` field.
+        # Corrupt a diagnostic: no recipe (nor job) shape at all.
         (configs_tree / "analyzers" / "HTU" / "GaiaMode.yaml").write_text(
-            yaml.safe_dump({"analyzer": {"kind": "beam"}})
+            yaml.safe_dump({"measure": {"kind": "beam"}})
         )
         idx = discover_analyzers(configs_tree)
         group = AnalysisGroup(name="test", analyzers=["GaiaMode"])

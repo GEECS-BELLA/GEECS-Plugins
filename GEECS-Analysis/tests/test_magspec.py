@@ -10,13 +10,11 @@ import pytest
 from geecs_data_utils.frames import Frame, ShotMeta
 from geecs_data_utils.io import read_table
 from geecs_data_utils.tables import Table
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
-from geecs_schemas.analysis.canonical import canonical_document
+from geecs_schemas.analysis import AnalysisRecipe
 from pydantic import ValidationError
 
 from geecs_analysis.algorithms import magspec_calibration as calibration
-from geecs_analysis.compat.convert import to_v3
-from geecs_analysis.compat.v2 import UnsupportedRecipe, analyze_v2, compile_v2
+from geecs_analysis.compat.v2 import analyze_v2
 from geecs_analysis.compat.v2_run import ShotGroup, run_units
 from geecs_analysis.measures.magspec import MagspecSpec
 from geecs_analysis.pipeline import measure_tables, shot_scalar_columns
@@ -97,56 +95,6 @@ def synthetic_tables(directory: Path, *, lanex_by_setting: bool = True) -> dict:
         "trajectory": write_tsv(directory / "trj.txt", trj_columns, trj_rows),
         "lanex": write_tsv(directory / "lanex.txt", lanex_columns, lanex_rows),
     }
-
-
-def diagnostic(
-    paths,
-    *,
-    camera=1,
-    field=0.3,
-    lanex=True,
-    energy_range=(1.0, 1500.0),
-    image=None,
-    scan=None,
-):
-    cal = {
-        "kind": "dnn_axis",
-        "camera_calibration_file": str(paths["camera"]),
-        "trajectory_calibration_file": str(paths["trajectory"]),
-        "camera_number": camera,
-        "magnetic_field_t": field,
-    }
-    if lanex:
-        cal["lanex_calibration_file"] = str(paths["lanex"])
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": "TestCam",
-            "analyzer": {
-                "kind": "magspec",
-                "calibration": cal,
-                "energy_range": list(energy_range),
-                "num_energy_points": 300,
-            },
-            "image": {"type": "camera", **(PIPELINE if image is None else image)},
-            "scan": scan or {},
-        }
-    )
-
-
-def polynomial(**analyzer) -> AnalysisDiagnostic:
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": "TestCam",
-            "analyzer": {
-                "kind": "magspec",
-                "calibration": {"kind": "polynomial", "coeffs": [20.0, 0.5, 2e-3]},
-                "energy_range": [30, 90],
-                "num_energy_points": 200,
-                **analyzer,
-            },
-            "image": {"type": "camera", **PIPELINE},
-        }
-    )
 
 
 #: The converter's v3 form of ``PIPELINE``.
@@ -272,14 +220,6 @@ def test_array_calibration_is_inline_only(expected):
         "array",
         analyze_v2(raw, compiled),
     )
-
-
-def test_v2_array_calibration_file_is_refused():
-    with pytest.raises(UnsupportedRecipe, match="file"):
-        compile_v2(
-            polynomial(calibration={"kind": "array", "file": "axis.npy"}),
-            allow_table_inputs=True,
-        )
 
 
 # ------------------------------------------------------------ dnn_axis + tables
@@ -586,16 +526,6 @@ def test_a_per_shot_column_needs_per_shot_units(tmp_path):
     # "measure …" so the editor places it on the measure section.
     with pytest.raises(RecipeError, match="^measure .*average_frames_first"):
         compile_recipe(bound, allow_file_backgrounds=True)
-    # The converter leaves a per_bin document's column unset and says why
-    # (the legacy per-bin override used the bin's mean field) — with or
-    # without a column asked for, never "set magnetic_field_column".
-    doc = diagnostic(synthetic_tables(tmp_path), scan={"mode": "per_bin"})
-    for conversion in (to_v3(doc, magnetic_field_column=COLUMN), to_v3(doc)):
-        written = canonical_document(conversion.recipe)["measure"]
-        assert "magnetic_field_column" not in written
-        assert any("bin's mean field" in note for note in conversion.notes)
-        assert not any("not carried" in note for note in conversion.notes)
-        assert compile_recipe(conversion.recipe, allow_file_backgrounds=True)
 
 
 def test_execution_refuses_a_missing_or_mistyped_table(tmp_path):
@@ -650,46 +580,6 @@ def test_calibration_refusals_match_the_legacy_ones(tmp_path, change, needle):
 
 
 # ------------------------------------------------------------ conversion
-
-
-def test_to_v3_moves_the_tables_under_a_namespace_and_names_the_field_column(tmp_path):
-    doc = diagnostic(synthetic_tables(tmp_path))
-    plain = to_v3(doc)
-    assert plain.recipe.inputs["camera_table"].table == str(tmp_path / "cam.txt")
-    assert any("not carried" in note for note in plain.notes)
-    assert "magnetic_field_column" not in canonical_document(plain.recipe)["measure"]
-
-    conversion = to_v3(doc, table_namespace="HTT", magnetic_field_column=COLUMN)
-    inputs = conversion.recipe.inputs
-    assert {k: v.table for k, v in inputs.items()} == {
-        "camera_table": "calibrations/HTT/cam.txt",
-        "trajectory_table": "calibrations/HTT/trj.txt",
-        "lanex_table": "calibrations/HTT/lanex.txt",
-    }
-    assert sum("calibrations/HTT/" in note for note in conversion.notes) == 3
-    written = canonical_document(conversion.recipe)
-    assert written["measure"]["calibration"] == {
-        "kind": "dnn_axis",
-        "camera_number": 1,
-        "magnetic_field_t": 0.3,
-    }
-    assert written["measure"]["magnetic_field_column"] == COLUMN
-    reread = AnalysisRecipe.model_validate(written)
-    compiled = compile_recipe(reread, allow_file_backgrounds=True)
-    assert compiled == compile_recipe(conversion.recipe, allow_file_backgrounds=True)
-    assert [t.path for t in compiled.tables] == [
-        "calibrations/HTT/cam.txt",
-        "calibrations/HTT/trj.txt",
-        "calibrations/HTT/lanex.txt",
-    ]
-    assert compiled.analysis.measure.magnetic_field_column == COLUMN
-    # A polynomial document ignores the column: nothing per shot to read.
-    assert (
-        "magnetic_field_column"
-        not in canonical_document(
-            to_v3(polynomial(), magnetic_field_column=COLUMN).recipe
-        )["measure"]
-    )
 
 
 # ------------------------------------------------------- host-facing declarations

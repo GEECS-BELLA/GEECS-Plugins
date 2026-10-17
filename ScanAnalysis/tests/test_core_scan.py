@@ -3,8 +3,8 @@
 import numpy as np
 import pandas as pd
 import pytest
-from geecs_analysis.compat.v2 import UnsupportedRecipe
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
+from geecs_analysis.recipe import RecipeError
+from geecs_schemas.analysis import AnalysisRecipe
 
 from scan_analysis.core_scan import group_shots, prepare_scan
 
@@ -150,24 +150,16 @@ def test_unsupported_recipe_fails_before_background_or_shot_reads(
 ):
     from scan_analysis import core_inputs, core_source
 
-    data = {
-        "name": "Camera",
-        "output_name": "Variant",
-        "metric_suffix": "_roi",
-        "analyzer": {"kind": "beam"},
-        "image": {"type": "camera", "pipeline": []},
-        "scan": {"mode": "per_shot", "file_tail": ".npy"},
-    }
-    data["image"]["pipeline"] = ["transforms"]
-    data["image"]["transforms"] = {"flip_horizontal": True}
-    doc = AnalysisDiagnostic.model_validate(data)
+    data = document().model_dump(mode="json")
+    data["steps"] = [{"step": "no_such_step"}]
+    doc = AnalysisRecipe.model_validate(data)
 
     def forbidden(*args, **kwargs):
         raise AssertionError("Input I/O preceded capability validation")
 
     monkeypatch.setattr(core_inputs, "read_imaq_image", forbidden)
     monkeypatch.setattr(core_source, "map_shot_files", forbidden)
-    with pytest.raises(UnsupportedRecipe):
+    with pytest.raises(RecipeError, match="does not bind"):
         prepare_scan(doc, tmp_path, pd.DataFrame({"Shotnumber": [1]}))
 
 

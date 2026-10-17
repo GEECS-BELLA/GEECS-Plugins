@@ -29,7 +29,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisGroup, AnalysisRecipe
+from geecs_schemas.analysis import AnalysisGroup, AnalysisRecipe
 from geecs_schemas.scan_request import (
     ActionBindings,
     CaptureSettings,
@@ -56,9 +56,8 @@ EXPORTED_SCHEMAS: dict[str, type[BaseModel]] = {
     "capture_settings": CaptureSettings,
     "action_bindings": ActionBindings,
     "scan_axis": ScanAxis,
-    # The analysis-config documents (0.19.0): what the web config editor
-    # renders its forms from, one variant per analyzer kind.
-    "analysis_diagnostic": AnalysisDiagnostic,
+    # The analysis-config documents: what the web config editor renders
+    # its forms from.
     "analysis_group": AnalysisGroup,
     # The v3 recipe (the analysis core's native shape); steps/measure carry
     # the core registry's vocabulary, which this artifact lists by name only.

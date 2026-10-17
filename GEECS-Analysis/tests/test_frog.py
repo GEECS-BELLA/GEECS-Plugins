@@ -10,10 +10,9 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 from geecs_data_utils.frames import Frame
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
+from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.convert import to_v3
-from geecs_analysis.compat.v2 import analyze_v2, compile_v2
+from geecs_analysis.compat.v2 import analyze_v2
 from geecs_analysis.compat.v2_run import ShotGroup, run_units
 from geecs_analysis.measures.frog import SCALARS, FrogSpec
 from geecs_analysis.recipe import compile_recipe
@@ -90,16 +89,6 @@ def trace(seed: int = 3) -> np.ndarray:
     return np.random.default_rng(seed).integers(0, 400, size=(12, 10)).astype(np.uint16)
 
 
-def diagnostic(**image) -> AnalysisDiagnostic:
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": "U_FROG_Grenouille-Temporal",
-            "analyzer": {"kind": "frog_retrieval", **PARAMETERS},
-            "image": {"type": "camera", **image},
-        }
-    )
-
-
 def recipe(*steps) -> AnalysisRecipe:
     return AnalysisRecipe.model_validate(
         {
@@ -166,12 +155,6 @@ def test_a_missing_retriever_is_an_error_naming_the_service():
         )
 
 
-def test_v2_frog_diagnostic_compiles_to_the_frog_measure_with_its_parameters():
-    recipe = compile_v2(diagnostic(pipeline=[]))
-    assert recipe.analysis.measure == FrogSpec(**PARAMETERS)
-    assert recipe.analysis.steps == ()
-
-
 def test_the_core_route_matches_the_legacy_grenouille_analyzer(expected):
     """The legacy GrenouilleAnalyzer, on the same fake DLL, was the oracle."""
     document = recipe(
@@ -193,13 +176,6 @@ def test_the_core_route_matches_the_legacy_grenouille_analyzer(expected):
         },
     )
     assert retriever.calls[0][1] == PARAMETERS
-
-
-def test_a_frog_diagnostic_converts_to_a_v3_recipe_that_compiles_identically():
-    document = diagnostic(pipeline=[])
-    converted = to_v3(document).recipe
-    assert converted.measure.model_dump()["kind"] == "frog"
-    assert compile_recipe(converted).analysis == compile_v2(document).analysis
 
 
 def test_a_frog_measurement_pickles_with_its_extras():
@@ -277,22 +253,14 @@ def test_a_pooled_frog_run_equals_the_serial_run(tmp_path, monkeypatch):
     monkeypatch.delitem(importlib.sys.modules, "frog_pool_helper", raising=False)
 
 
-def test_frog_spec_mirrors_the_v2_spec():
-    """Same fields and defaults, and no bound the v2 schema lacks: every v2
-    config the legacy route ran must compile (target_error 0 = never stop)."""
-    from geecs_schemas.analysis import FrogRetrievalSpec
-
-    v2 = FrogRetrievalSpec.model_fields
-    core = FrogSpec.model_fields
-    assert set(core) - {"kind"} == set(v2) - {"kind"}
-    for name in set(core) - {"kind"}:
-        assert core[name].default == v2[name].default, name
+def test_zero_stopping_bounds_compile():
+    """target_error 0 means never stop: the legacy route ran such configs."""
     edge = {"target_error": 0.0, "max_time_seconds": 0.0, "max_iterations": 0}
-    document = AnalysisDiagnostic.model_validate(
+    document = AnalysisRecipe.model_validate(
         {
-            "name": "Dev",
-            "analyzer": {"kind": "frog_retrieval", **edge},
-            "image": {"type": "camera"},
+            "device": "Dev",
+            "input": {"kind": "camera"},
+            "measure": {"kind": "frog", **edge},
         }
     )
-    assert compile_v2(document).analysis.measure == FrogSpec(**edge)
+    assert compile_recipe(document).analysis.measure == FrogSpec(**edge)

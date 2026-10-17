@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
-from geecs_schemas.analysis import FrogSpectralPhaseSpec as V2Spec
+from geecs_schemas.analysis import AnalysisRecipe
 
 from geecs_analysis.algorithms import polynomial_fit as ported
-from geecs_analysis.compat.convert import to_v3
-from geecs_analysis.compat.v2 import UnsupportedRecipe, analyze_v2, compile_v2
+from geecs_analysis.compat.v2 import analyze_v2
 from geecs_analysis.measures.frog_spectral_phase import (
     FrogSpectralPhaseSpec,
     wavelength_nm_to_omega_rad_per_fs,
@@ -26,28 +24,8 @@ LOADING = {
 }
 
 
-def document(
-    *, storage="float64", loading=None, analyzer=None, image=None
-) -> AnalysisDiagnostic:
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": "U_FROG_Grenouille-Temporal",
-            "analyzer": {"kind": "frog_spectral_phase", **(analyzer or {})},
-            "image": {
-                "type": "line",
-                "storage_dtype": storage,
-                "data_loading": LOADING if loading is None else loading,
-                "roi": {"x_min": 750.0, "x_max": 850.0},
-                "pipeline": ["roi"],
-                **(image or {}),
-            },
-            "scan": {"mode": "per_shot", "file_tail": "_retrieved_lineouts.tsv"},
-        }
-    )
-
-
 def recipe(*, storage="float64", loading=None, measure=None) -> AnalysisRecipe:
-    """The v3 recipe of `document`, as the v2 converter wrote it."""
+    """The FROG temporal-lineout recipe."""
     return AnalysisRecipe.model_validate(
         {
             "device": "U_FROG_Grenouille-Temporal",
@@ -265,44 +243,6 @@ def test_a_column_no_measure_reads_is_not_a_channel():
     )
     assert compile_recipe(line).channels == ()
     assert compiled(loading=loading).channels == ()
-
-
-def test_interpolation_with_a_channel_is_refused_as_legacy_refused_it():
-    interpolated = {
-        "pipeline": ["roi", "interpolation"],
-        "interpolation": {"num_points": 100, "x_min": 750.0, "x_max": 850.0},
-    }
-    with pytest.raises(UnsupportedRecipe, match="interpolation"):
-        compile_v2(document(image=interpolated))
-    no_channel = document(
-        image=interpolated, loading={**LOADING, "auxiliary_columns": {}}
-    )
-    assert compile_v2(no_channel).channels == ()
-
-
-def test_the_spec_mirrors_the_v2_analyzer_spec():
-    assert set(FrogSpectralPhaseSpec.model_fields) == set(V2Spec.model_fields)
-    for name, field in V2Spec.model_fields.items():
-        if name != "kind":
-            assert FrogSpectralPhaseSpec.model_fields[name].default == field.default
-    for order in (0, 3, 6):
-        assert (
-            FrogSpectralPhaseSpec(fit_order=order).emitted_scalars()
-            == V2Spec(fit_order=order).emitted_scalars()
-        )
-
-
-def test_converts_to_v3_and_recompiles_identically():
-    doc = document(analyzer={"fit_order": 4})
-    conversion = to_v3(doc)
-    assert conversion.notes == ()
-    assert conversion.recipe.input.loading.auxiliary_columns == {"weights": 4}
-    recompiled = compile_recipe(conversion.recipe, allow_file_backgrounds=True)
-    assert recompiled == compile_v2(doc, allow_file_backgrounds=True)
-    data = lineout(0)
-    assert dict(analyze_v2(data, recompiled).scalars) == dict(
-        analyze_v2(data, compile_v2(doc)).scalars
-    )
 
 
 def _v3(**input_fields) -> AnalysisRecipe:

@@ -9,13 +9,12 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
+from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis import core_workers
 from scan_analysis.core_analyzer import CoreScanAnalyzer, write_scalars_into_rows
-from geecs_analysis.compat.convert import to_v3
 from geecs_analysis.recipe import is_line
 from scan_analysis.route_compare import (
     GOLDEN_RTOL,
@@ -27,33 +26,6 @@ TAG = ScanTag(year=2026, month=1, day=1, number=1, experiment="Test")
 PARAM_COLUMN = "U_Motor Position Alias:motor"
 SORT_COLUMN = "U_Charge Value"
 SHOTS = 6
-
-
-def document(kind="beam", *, mode="per_shot", renderer=None, **scan):
-    line = kind in {"line", "trace"}
-    image = (
-        {
-            "type": "line",
-            "data_loading": {"data_type": "npy"},
-            "storage_dtype": "float32",
-        }
-        if line
-        else {"type": "camera", "pipeline": []}
-    )
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": "Spec" if line else "Camera",
-            "output_name": "Diag",
-            "analyzer": {"kind": kind},
-            "image": image,
-            "scan": {
-                "mode": mode,
-                "file_tail": ".npy",
-                "renderer": renderer or {"dpi": 30},
-                **scan,
-            },
-        }
-    )
 
 
 def recipe(kind="beam", *, mode="per_shot", sort=None, **scan) -> AnalysisRecipe:
@@ -303,36 +275,6 @@ def test_contract_attributes_and_cleanup():
     analyzer.cleanup()
     assert analyzer.auxiliary_data is None and analyzer.display_contents == []
     assert analyzer.last_plan is None
-
-
-#: CASES with their v2 renderers, for the v2-only conversion test below.
-V2_CASES = [
-    pytest.param(
-        *c.values[:3],
-        {"waterfall_sort_key": "U_Charge", "dpi": 30} if c.values[3] else None,
-        id=c.id,
-    )
-    for c in CASES
-]
-
-
-@pytest.mark.parametrize("kind,mode,noscan,renderer", V2_CASES)
-def test_converted_recipe_matches_its_v2_source_on_the_core(
-    tmp_path, monkeypatch, kind, mode, noscan, renderer
-):
-    """A v3 recipe converted from a v2 diagnostic writes the identical tree."""
-    doc = document(kind, mode=mode, renderer=renderer)
-    v2_scan, v2_display, _ = run(monkeypatch, tmp_path, "v2", doc, noscan=noscan)
-    v3_scan, v3_display, _ = run(
-        monkeypatch, tmp_path, "v3", to_v3(doc).recipe, noscan=noscan
-    )
-    v2, v3 = snapshot(v2_scan), snapshot(v3_scan)
-    assert sorted(v2) == sorted(v3)
-    # One evaluator, one shot order: exact, the noscan average included.
-    assert compare_snapshots(v2, v3, average_ulps=0) == []
-    assert relative_display(v2_scan, v2_display) == relative_display(
-        v3_scan, v3_display
-    )
 
 
 @pytest.mark.parametrize("kind,mode,noscan,sort", CASES[:4])

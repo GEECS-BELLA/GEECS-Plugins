@@ -5,12 +5,10 @@ import sys
 
 import numpy as np
 import pytest
-import yaml
-from geecs_analysis.compat.convert import to_v3
 from geecs_analysis.measurement import Measurement
 from geecs_analysis.recipe import RecipeError
 from geecs_data_utils.frames import Frame
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
+from geecs_schemas.analysis import AnalysisRecipe
 
 from scan_analysis.config.diagnostic_factory import create_scan_analyzer
 from scan_analysis.config_store import ConfigStore
@@ -18,32 +16,6 @@ from scan_analysis.core_analyzer import CoreScanAnalyzer
 from scan_analysis.core_products import Product, ProductPlan
 from scan_analysis.core_recipe import scan_recipe
 from scan_analysis.core_sink import save_products
-
-
-def diagnostic(kind="beam", **scan):
-    image = (
-        {
-            "type": "line",
-            "data_loading": {"data_type": "npy"},
-            "storage_dtype": "float32",
-        }
-        if kind == "line"
-        else {
-            "type": "camera",
-            "pipeline": ["roi"],
-            "roi": {"x_min": 1, "x_max": 3, "y_min": 0, "y_max": 2},
-        }
-    )
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": "Device",
-            "output_name": "Output",
-            "metric_suffix": "_s",
-            "analyzer": {"kind": kind},
-            "image": image,
-            "scan": {"renderer": {"dpi": 30}, **scan},
-        }
-    )
 
 
 def recipe(**patch):
@@ -55,35 +27,6 @@ def recipe(**patch):
             **patch,
         }
     )
-
-
-@pytest.mark.parametrize(
-    "doc",
-    [
-        diagnostic("beam", mode="per_bin", priority=2, save=False, file_tail=".tif"),
-        diagnostic("line", device="Device-x", data_format="per_shot_files"),
-    ],
-    ids=["camera", "line"],
-)
-def test_converted_recipe_gives_the_same_run_facts(doc):
-    v2 = scan_recipe(doc)
-    v3 = scan_recipe(to_v3(doc).recipe)
-    for field in (
-        "recipe",
-        "device",
-        "folder",
-        "output_name",
-        "scalar_suffix",
-        "file_tail",
-        "prefer_stack",
-        "line_loading_json",
-        "average_frames_first",
-        "save",
-        "priority",
-    ):
-        assert getattr(v2, field) == getattr(v3, field), field
-    assert [s.kind for s in v2.summaries] == [s.kind for s in v3.summaries]
-    assert v2.line == v3.line
 
 
 def test_factory_routes_a_recipe_to_the_core():
@@ -154,7 +97,6 @@ def test_store_lists_validates_and_writes_a_recipe(tmp_path):
     root = tmp_path / "scan_analysis_configs"
     (root / "analyzers" / "HTU").mkdir(parents=True)
     (root / "groups").mkdir()
-    v2 = diagnostic("beam")
     v3 = recipe(
         output_name="Output",
         scalar_suffix="_s",
@@ -165,9 +107,6 @@ def test_store_lists_validates_and_writes_a_recipe(tmp_path):
             {"kind": "average"},
         ],
     )
-    (root / "analyzers" / "HTU" / "Old.yaml").write_text(
-        yaml.safe_dump(v2.model_dump(mode="json", exclude_none=True))
-    )
     store = ConfigStore(root)
     report = store.validate("analyzer", v3.model_dump(mode="json", exclude_none=True))
     assert report.ok and report.canonical["schema_version"] == 3
@@ -175,7 +114,6 @@ def test_store_lists_validates_and_writes_a_recipe(tmp_path):
     entries = {e.id: e for e in store.list("analyzer")}
     assert entries["New"].valid and entries["New"].summary["schema_version"] == 3
     assert entries["New"].summary["analyzer_kind"] == "beam"
-    assert entries["Old"].valid and entries["Old"].summary["schema_version"] == 2
     loaded = store.read("analyzer", "New")
     assert loaded.valid and loaded.document["schema_version"] == 3
 

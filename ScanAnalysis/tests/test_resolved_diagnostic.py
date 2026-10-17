@@ -1,31 +1,32 @@
-"""ResolvedDiagnosticConfig — the group loader's wrapper around a diagnostic.
+"""ResolvedDiagnosticConfig — the group loader's wrapper around a recipe.
 
-The documents themselves (``AnalysisDiagnostic``, ``ScanRuntime``,
-``BackgroundSource``, ``AnalysisGroup``) are tested in
-``GEECS-Schemas/tests/test_analysis_diagnostic.py``.
+The documents themselves (``AnalysisRecipe``, ``AnalysisGroup``) are tested
+in GEECS-Schemas.
 """
 
 from __future__ import annotations
 
 import pytest
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 from pydantic import ValidationError
 
 from scan_analysis.config import ResolvedDiagnosticConfig
 
 
 class TestResolvedDiagnosticConfig:
-    def _diag(self, **scan) -> AnalysisDiagnostic:
-        return AnalysisDiagnostic(
-            name="UC_Test",
-            analyzer={"kind": "beam"},
-            image={"type": "camera", "bit_depth": 16},
-            scan=scan,
+    def _recipe(self, **scan) -> AnalysisRecipe:
+        return AnalysisRecipe.model_validate(
+            {
+                "device": "UC_Test",
+                "input": {"kind": "camera"},
+                "measure": {"kind": "beam"},
+                "scan": scan,
+            }
         )
 
-    def test_pairs_a_diagnostic_with_its_id_and_priority(self):
+    def test_pairs_a_recipe_with_its_id_and_priority(self):
         resolved = ResolvedDiagnosticConfig(
-            id="UC_Test_file", priority=7, diagnostic=self._diag(priority=50)
+            id="UC_Test_file", priority=7, diagnostic=self._recipe(priority=50)
         )
         assert resolved.enabled is True
         assert resolved.priority == 7
@@ -33,10 +34,10 @@ class TestResolvedDiagnosticConfig:
 
     def test_priority_must_be_non_negative(self):
         with pytest.raises(ValidationError):
-            ResolvedDiagnosticConfig(id="x", priority=-1, diagnostic=self._diag())
+            ResolvedDiagnosticConfig(id="x", priority=-1, diagnostic=self._recipe())
 
     def test_unknown_field_refused(self):
         with pytest.raises(ValidationError):
             ResolvedDiagnosticConfig(
-                id="x", priority=1, diagnostic=self._diag(), extra_field=True
+                id="x", priority=1, diagnostic=self._recipe(), extra_field=True
             )

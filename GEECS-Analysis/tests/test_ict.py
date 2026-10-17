@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe, IctAnalyzerSpec
+from geecs_schemas.analysis import AnalysisRecipe
 
 from geecs_analysis.algorithms.ict import apply_ict_analysis
-from geecs_analysis.compat.convert import to_v3
-from geecs_analysis.compat.v2 import V2Recipe, analyze_v2, compile_v2
+from geecs_analysis.compat.v2 import V2Recipe, analyze_v2
 from geecs_analysis.measures.ict import SCALARS, IctSpec
 from geecs_analysis.recipe import compile_recipe
 
@@ -42,26 +41,6 @@ def recipe(dt: float | None = DT) -> V2Recipe:
                 "measure": measure,
             }
         )
-    )
-
-
-def diagnostic(dt: float | None = DT, **image) -> AnalysisDiagnostic:
-    analyzer = {"kind": "ict", "calibration_factor": 0.2, "butterworth_crit_f": 0.1}
-    if dt is not None:
-        analyzer["dt"] = dt
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": "U_BCaveICT",
-            "analyzer": analyzer,
-            "image": {
-                "type": "line",
-                "data_loading": {"data_type": "npy"},
-                "storage_dtype": "float32",
-                "label": "volts (V) vs time (s)",
-                "pipeline": [],
-                **image,
-            },
-        }
     )
 
 
@@ -104,18 +83,3 @@ def test_a_trace_the_algorithm_cannot_analyze_is_nan_with_a_note():
     result = analyze_v2(raw, recipe())
     assert all(np.isnan(v) for v in result.scalars.values())
     assert any(n.startswith("ICT analysis failed") for n in result.notes)
-
-
-def test_ict_spec_mirrors_the_v2_spec():
-    v2, core = IctAnalyzerSpec.model_fields, IctSpec.model_fields
-    assert set(core) - {"kind"} == set(v2) - {"kind"}
-    for name in set(core) - {"kind"}:
-        assert core[name].default == v2[name].default, name
-        assert core[name].metadata == v2[name].metadata, name
-
-
-def test_an_ict_diagnostic_converts_to_a_recipe_that_compiles_identically():
-    document = diagnostic()
-    recipe = to_v3(document).recipe
-    assert recipe.measure.model_dump()["kind"] == "ict"
-    assert compile_recipe(recipe) == compile_v2(document)

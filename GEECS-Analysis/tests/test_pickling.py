@@ -5,9 +5,9 @@ import pickle
 import numpy as np
 import pytest
 from geecs_data_utils.frames import Axis, Frame, ShotMeta
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
+from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.v2 import analyze_v2, compile_v2
+from geecs_analysis.compat.v2 import analyze_v2
 from geecs_analysis.measurement import Marker, Measurement, Projection
 from geecs_analysis.recipe import compile_document, compile_recipe
 
@@ -87,22 +87,8 @@ def test_line_measurement_from_the_evaluator_round_trips():
     assert copy.frame.shot == ShotMeta("Spectrum", 2)
 
 
-def test_compiled_recipes_of_both_formats_round_trip():
-    v2 = compile_v2(
-        AnalysisDiagnostic.model_validate(
-            {
-                "name": "Camera",
-                "analyzer": {"kind": "beam", "compute_slopes": True},
-                "image": {
-                    "type": "camera",
-                    "pipeline": ["roi", "filtering"],
-                    "roi": {"x_min": 1, "x_max": 5, "y_min": 0, "y_max": 4},
-                    "filtering": {"gaussian_sigma": 1.5},
-                },
-            }
-        )
-    )
-    v3 = compile_document(
+def test_a_compiled_recipe_round_trips():
+    compiled = compile_document(
         AnalysisRecipe.model_validate(
             {
                 "device": "Camera",
@@ -112,5 +98,4 @@ def test_compiled_recipes_of_both_formats_round_trip():
             }
         )
     )
-    for compiled in (v2, v3):
-        assert pickle.loads(pickle.dumps(compiled)) == compiled
+    assert pickle.loads(pickle.dumps(compiled)) == compiled

@@ -326,12 +326,8 @@ def test_zero_signal_marks_undefined_metrics_without_claiming_parity(kind, frame
 
 @pytest.mark.parametrize("enabled", [None, [], ["x_CoM", "image_total"], ["typo"]])
 @pytest.mark.parametrize("slopes", [False, True])
-def test_scalar_discovery_preserves_v2_selection_contract(enabled, slopes):
-    from geecs_schemas.analysis import BeamAnalyzerSpec
-
+def test_scalar_discovery_matches_what_the_measure_emits(enabled, slopes):
     spec = BeamSpec(enabled_stats=enabled, compute_slopes=slopes)
-    old = BeamAnalyzerSpec(enabled_stats=enabled, compute_slopes=slopes)
-    assert spec.emitted_scalars() == old.emitted_scalars()
     result = analyze(Frame.from_array(np.ones((3, 4))), Analysis(measure=spec))
     assert set(result.scalars) == spec.emitted_scalars()
     assert LineSpec().emitted_scalars() == set(

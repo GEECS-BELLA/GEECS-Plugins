@@ -1,11 +1,10 @@
-"""One view of either analysis document for the scan host: what a run needs to know.
+"""One view of an analysis recipe for the scan host: what a run needs to know.
 
-The core compiles both formats to one numerical recipe; the scan host
+The core compiles the recipe to its numerical form; the scan host
 additionally needs where the files are, how they are read, how the run
-behaves and what to draw. ``scan_recipe`` reads those from a v3
-:class:`~geecs_schemas.analysis.AnalysisRecipe` or a v2
-:class:`~geecs_schemas.analysis.AnalysisDiagnostic` once, so the source,
-runner, planner and sink never ask which format they serve.
+behaves and what to draw. ``scan_recipe`` reads those from the
+:class:`~geecs_schemas.analysis.AnalysisRecipe` once, so the source,
+runner, planner and sink read one view.
 """
 
 from __future__ import annotations
@@ -21,14 +20,13 @@ from geecs_analysis.recipe import (
     summaries_of,
 )
 from geecs_analysis.render.specs import FigureSpec
-from geecs_schemas.analysis import AnalysisRecipe
 
 __all__ = ["AnalysisDocument", "ScanRecipe", "scan_recipe"]
 
 
 @dataclass(frozen=True)
 class ScanRecipe:
-    """A run's compiled recipe plus the host-side facts, format-independent.
+    """A run's compiled recipe plus the host-side facts.
 
     ``device`` names the product files and the auxiliary-data prefix;
     ``folder`` is the data subfolder under the scan (the device unless the
@@ -52,8 +50,7 @@ class ScanRecipe:
     priority: int
     figure: FigureSpec
     summaries: tuple
-    #: Worker processes the recipe asks for (``scan.workers``; a v2 diagnostic
-    #: has no such field and runs serially). The host caps it.
+    #: Worker processes the recipe asks for (``scan.workers``). The host caps it.
     workers: int = 1
     #: Sibling device folders whose same-shot traces the source joins to the
     #: input's (a stitched multi-camera spectrum); empty for most recipes.
@@ -69,20 +66,11 @@ def scan_recipe(document: AnalysisDocument) -> ScanRecipe:
     """Compile the document (declaring file backgrounds) and read the run facts."""
     recipe = compile_document(document, allow_file_backgrounds=True)
     loading = document.line_loading
-    if isinstance(document, AnalysisRecipe):
-        # What only the format knows: where file discovery and the runtime
-        # switches live. Everything named the same way is read below.
-        source = document.input
-        file_tail, prefer_stack = source.file_tail, source.format == "device_hdf5"
-        scalar_suffix = document.scalar_suffix
-        average_first = document.scan.average_frames_first
-        workers = document.scan.workers
-    else:
-        file_tail = document.scan.file_tail
-        prefer_stack = document.scan.data_format == "device_hdf5"
-        scalar_suffix = document.metric_suffix
-        average_first = document.scan.mode == "per_bin"
-        workers = 1
+    source = document.input
+    file_tail, prefer_stack = source.file_tail, source.format == "device_hdf5"
+    scalar_suffix = document.scalar_suffix
+    average_first = document.scan.average_frames_first
+    workers = document.scan.workers
     return ScanRecipe(
         recipe=recipe,
         device=document.device,

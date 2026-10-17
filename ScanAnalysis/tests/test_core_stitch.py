@@ -11,10 +11,9 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
+from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
-from geecs_analysis.compat.convert import to_v3
 from scan_analysis import core_workers
 from scan_analysis.config import create_scan_analyzer
 from scan_analysis.core_analyzer import CoreScanAnalyzer
@@ -66,40 +65,6 @@ def document(device=None, **inp) -> AnalysisRecipe:
             "measure": {"kind": "line"},
             "figure": {"fig": {"dpi": 30}},
             "summaries": [{"kind": "waterfall"}, {"kind": "average"}],
-        }
-    )
-
-
-def v2_document(**scan) -> AnalysisDiagnostic:
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": f"MagSpec1{SUFFIX}",
-            "analyzer": {
-                "kind": "line_stitcher",
-                "sibling_devices": [f"MagSpec2{SUFFIX}", f"MagSpec3{SUFFIX}"],
-                "output_label": "Stitched",
-            },
-            "image": {
-                "type": "line",
-                "data_loading": {"data_type": "tsv"},
-                "label": "Charge density vs Energy",
-                "x_units": "MeV",
-                "storage_dtype": "float32",
-                "roi": {"x_min": 4.0, "x_max": 26.0},
-                "filtering": {"method": "median", "kernel_size": 3},
-                "thresholding": {
-                    "method": "absolute",
-                    "threshold_value": 0.0,
-                    "clip_below": True,
-                },
-                "pipeline": ["roi", "filtering", "thresholding"],
-            },
-            "scan": {
-                "mode": "per_shot",
-                "file_tail": ".tsv",
-                "renderer": {"dpi": 30},
-                **scan,
-            },
         }
     )
 
@@ -241,18 +206,6 @@ def test_the_source_pickles_with_its_siblings(tmp_path):
     source = prepare_source(document(), scan, rows)
     copy = pickle.loads(pickle.dumps(source))
     np.testing.assert_array_equal(copy.load(2), source.load(2))
-
-
-def test_the_converted_recipe_stitches_and_writes_what_the_v2_route_writes(
-    tmp_path, monkeypatch
-):
-    conversion = to_v3(v2_document())
-    recipe = conversion.recipe
-    assert recipe.input.siblings == [f"MagSpec2{SUFFIX}", f"MagSpec3{SUFFIX}"]
-    assert any("output_label dropped" in note for note in conversion.notes)
-    v2 = run(monkeypatch, tmp_path / "v2", v2_document())
-    v3 = run(monkeypatch, tmp_path / "v3", recipe)
-    assert compare_snapshots(snapshot(v2), snapshot(v3), average_ulps=0) == []
 
 
 def test_a_pooled_stitch_writes_the_serial_tree(tmp_path, monkeypatch, caplog):
