@@ -226,6 +226,26 @@ forbidden_modules =
 # imports GEECS-Schemas, the queue client imports GEECS-Core), and the graph
 # is about what each package imports itself.
 
+[importlinter:contract:mcp-is-a-client]
+name = GEECS-MCP is a thin HTTP client: it imports nothing in the repo (the scanner, the portal and the logbook are dev-only path deps for its contract tests)
+type = forbidden
+source_modules =
+    geecs_mcp
+forbidden_modules =
+    geecs_bluesky
+    scan_analysis
+    geecs_analysis
+    geecs_data_utils
+    geecs_core
+    geecs_schemas
+    geecs_web_theme
+    geecs_ca_gateway
+    geecs_pva_gateway
+    geecs_archiver
+    geecs_log_triage
+    logmaker_4_googledocs
+allow_indirect_imports = True
+
 [importlinter:contract:portal-edges]
 name = GEECS-DataPortal imports GEECS-Data-Utils, GEECS-Schemas, the analysis packages and the web theme: never the scanner, the logbook, MCP, Bluesky, Core or the EPICS side
 type = forbidden

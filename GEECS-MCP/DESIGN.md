@@ -390,8 +390,10 @@ tools' base URLs resolve without sockets. The seam is
 Each contract test calls the **tool impl** and asserts on the envelope,
 so a route or model change in any service fails `GEECS-MCP/tests` in the
 same PR (`ci_select.py` adds the leg via the dev path deps). The portal
-fixture needs no analysis extra: a fake `analysis_factory` satisfies the
-feature gate. Registration test: every `tool_names` entry is on the
+fixture needs the portal's `analysis` extra after all (amended in PR E):
+a fake `analysis_factory` satisfies the run gate, but the listing and
+the catalog are gated on the analysis core being importable, so the dev
+dependency declares the extra. Registration test: every `tool_names` entry is on the
 server and nothing else is.
 
 ## 8. Open points for Sam (short)

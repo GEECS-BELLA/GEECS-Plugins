@@ -146,7 +146,7 @@ def claim_is_active(status: TaskStatus, now: Optional[datetime] = None) -> bool:
 
     The public face of the staleness rule (heartbeat/claim age vs
     ``CLAIM_STALE_AFTER_SECONDS``) for external queue clients — e.g. the
-    GEECS-MCP ``run_scan_analysis`` verb refuses to double-run a task
+    an explicit runner refuses to double-run a task
     another runner is actively working (#686) — so consumers never
     re-derive the timestamp semantics.
 

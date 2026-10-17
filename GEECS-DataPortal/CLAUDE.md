@@ -46,9 +46,10 @@ extending this package.
   directly on a single worker thread with an in-memory job record.
   Deliberately **not** a participant in the file-based task queue
   (`scan_analysis.task_queue`: no status records, claim locks,
-  heartbeats or Google Doc uploads) — "just run it"; GEECS-MCP's
-  `run_scan_analysis` is a separate, experimental runner and the two
-  do not coordinate (accepted with the ruling).  A run writes wherever
+  heartbeats or Google Doc uploads) — "just run it"; since the
+  GEECS-MCP rebuild its `run_analysis` IS this route (the agent's runs
+  queue behind an operator's on the same worker thread) — the server
+  runs no analysis of its own.  A run writes wherever
   ScanAnalysis writes: figures/HDF5 under `analysis/ScanNNN/`, s-file
   columns (warn-and-overwrite), and for some analyzers derived
   subfolders inside the scan folder.  Nothing on the scans path is

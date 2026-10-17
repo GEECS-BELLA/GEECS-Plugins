@@ -6,7 +6,7 @@ per (scan, analyzer) at ``<scan_folder>/analysis_status/<task_id>.yaml``;
 is the one *schema-light* read-side view of those files for consumers
 outside ScanAnalysis (GEECS-MCP's ``get_scan_analysis`` today; code that
 needs the typed ``TaskStatus`` — e.g. to feed ``claim_is_active`` — keeps
-using ``task_queue.read_statuses``, as MCP's ``run_tools`` does) — light on
+using ``task_queue.read_statuses``) — light on
 purpose: it names the writer's documented fields (:data:`STATUS_FIELDS`)
 and coerces each one tolerantly instead of validating a contract, so a
 torn write mid-heartbeat, an odd field type, or a field this reader has

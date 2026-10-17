@@ -258,9 +258,11 @@ class TestWaitForScan:
         assert "history" in out["message"]
 
     async def test_the_budget_is_capped(self) -> None:
-        assert tools._bounded_wait(10_000) == tools.MAX_WAIT_S
-        assert tools._bounded_wait(-3) == 0.0
-        assert tools._bounded_wait("x") == 0.0
+        from geecs_mcp import waits
+
+        assert waits.bounded_wait(10_000) == waits.MAX_WAIT_S
+        assert waits.bounded_wait(-3) == 0.0
+        assert waits.bounded_wait("x") == 0.0
 
 
 # -------------------------------------------------------------------- move

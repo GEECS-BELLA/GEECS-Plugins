@@ -76,7 +76,7 @@ say() { printf '\n== %s\n' "$1"; }
 SERVICES="gateway portal logbook qserver tiled-writer mcp scanner archiver"
 clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal|logbook) echo "portal-checkout";; qserver|tiled-writer|mcp|scanner) echo "qs-checkout";; archiver) echo "archiver-checkout";; esac; }
 pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; logbook) echo "GeecsLogbook";; qserver|tiled-writer) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; scanner) echo "GeecsScanner";; archiver) echo "GeecsArchiver";; esac; }
-extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook) echo "";; qserver|tiled-writer) echo "ca tiled qserver optimize";; mcp) echo "analysis-run";; scanner) echo "";; archiver) echo "";; esac; }
+extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook) echo "";; qserver|tiled-writer) echo "ca tiled qserver optimize";; mcp) echo "";; scanner) echo "";; archiver) echo "";; esac; }
 # The queueserver is two units: the manager and the geecs-qserver-ready oneshot
 # that opens its worker environment and asserts the plan list after every
 # (re)start (#793) — enabled together, rendered from the same clone. The

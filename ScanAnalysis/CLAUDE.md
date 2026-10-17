@@ -485,7 +485,8 @@ post-scan service. That service remains a separate design decision.
    invisible to status readers, which glob `*.yaml`): two runners whose
    worklists both saw `queued` can no longer double-run one task
    (previously a pure check-then-claim race; surfaced when GEECS-MCP's
-   `run_scan_analysis` began spawning workers at call time, #690).
+   `run_scan_analysis` — since retired — began spawning workers at call
+   time, #690).
    Liveness stays in the status heartbeat (`claim_is_active`, public);
    a dead holder's lock is broken automatically
 
@@ -510,7 +511,7 @@ Any package other than this one consumes these files through
 tolerant, schema-light, read-only reader — #682), never a local parser;
 the exception is code that must drive the queue with the typed
 `TaskStatus` (`claim_is_active`), which uses `read_statuses` here
-(GEECS-MCP's `run_tools`, behind its `analysis-run` extra).
+(no in-repo consumer since GEECS-MCP moved onto the portal's routes).
 `tests/test_analysis_status_contract.py` pins the writer against that
 reader: a new `to_dict()` key fails there until `STATUS_FIELDS` /
 `AnalysisStatus` in GEECS-Data-Utils learn it — extend both in the same

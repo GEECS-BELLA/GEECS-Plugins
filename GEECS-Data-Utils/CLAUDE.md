@@ -285,8 +285,10 @@ ScanAnalysis's task queue writes at
 `scans/Scan<NNN>/analysis_status/<task_id>.yaml` — for consumers outside
 ScanAnalysis (GEECS-MCP's `get_scan_analysis` today; #682).  Code that
 needs the typed `TaskStatus` to drive the queue (`claim_is_active`) keeps
-using `task_queue.read_statuses` — GEECS-MCP's `run_tools` does, behind
-its `analysis-run` extra.  `read_analysis_statuses(scan_folder)` returns
+using `task_queue.read_statuses`.  (GEECS-MCP, the reader this module
+was written for, reads analysis state through the portal since its
+HTTP-client rebuild; the module keeps its contract for the next
+consumer.)  `read_analysis_statuses(scan_folder)` returns
 `{task_id: AnalysisStatus}` in filename order.  Schema-light on purpose:
 `TaskStatus.to_dict()` in `ScanAnalysis/scan_analysis/task_queue.py`
 stays the authoritative shape; `STATUS_FIELDS` here names its keys and

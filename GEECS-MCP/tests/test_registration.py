@@ -35,6 +35,20 @@ def test_the_tool_groups_partition_every_registered_tool():
 def test_the_retired_names_are_gone():
     assert not hasattr(tool_names, "GET_SCAN_RESULT")
     assert not hasattr(tool_names, "QUEUE_TOOLS")
+    assert not hasattr(tool_names, "RUN_SCAN_ANALYSIS")
+
+
+def test_the_envelope_is_strict_json():
+    """A non-finite float becomes null, never a bare NaN token."""
+    import json
+    import math
+
+    from geecs_mcp import errors
+
+    out = json.loads(errors.make_ok(value=math.nan, nested={"x": [1.0, math.inf]}))
+    assert out["value"] is None and out["nested"]["x"] == [1.0, None]
+    with pytest.raises(ValueError):
+        errors.make_error("no_such_kind", "x")
 
 
 def test_version_is_the_installed_package_version():

@@ -19,10 +19,10 @@ mcp_servers:
     permissions:
       allow: [scan_status, scan_progress, scan_history, list_scan_configs,
               wait_for_scan, get_scan_analysis, get_scan_figure,
-              list_analyzers, list_analysis_groups,
+              get_analysis_artifact, get_scan_scalars,
+              list_analyzers, list_analysis_groups, wait_for_analysis,
               stop_scan, pause_scan]
-      ask:   [submit_preset, move, resume_scan, clear_queue,
-              run_scan_analysis]
+      ask:   [submit_preset, move, resume_scan, clear_queue, run_analysis]
 ```
 
 (The lists mirror `geecs_mcp/tool_names.py` — `READ_TOOLS` and
@@ -53,9 +53,10 @@ either (the framework's deny augmentation walks its own
 `FRAMEWORK_SERVERS` only). The actual gates are therefore:
 
 - **Interactive**: the native `ask` permission prompt on every control
-  verb — a human sees each `stop_scan`/`clear_queue`/`pause_scan`/
-  `resume_scan`/`run_scan_analysis` call with its arguments — and, since the rebuild,
-  `submit_preset` and `move`. The
+  verb — a human sees each `submit_preset`/`move`/`clear_queue`/
+  `resume_scan`/`run_analysis` call with its arguments (the HTU
+  deployment puts them on `allow` at the admin tier with its DEVIATION
+  marker — the profile owner's call). The
   halt family (`stop_scan`,
   `pause_scan`) is NOT behind the kill switch on either path:
   interactively because the kill switch does not cover custom servers
@@ -65,12 +66,12 @@ either (the framework's deny augmentation walks its own
   `hook_config.json`'s `write_tools` (populated from the profile's
   `config:`) — list every `tool_names.WRITE_TOOLS` entry there
   (`submit_preset`, `move`, `resume_scan` — resume restarts motion, so
-  it gates like a submission — `clear_queue`, `run_scan_analysis`) and
+  it gates like a submission — `clear_queue`, `run_analysis`) and
   **deliberately NOT the halt family** (`stop_scan`, `pause_scan`):
   exempt by omission, so a halt is never blocked on any path. E.g.
   `write_tools: [mcp__geecs__submit_preset, mcp__geecs__move,
   mcp__geecs__resume_scan, mcp__geecs__clear_queue,
-  mcp__geecs__run_scan_analysis]`.  **A profile deployed before 0.9.0
+  mcp__geecs__run_analysis]`.  **A profile deployed before 0.9.0
   names removed tools** (`submit_scan`, `run_action`,
   `move_scan_variable`, `describe_action`, `validate_scan_request`):
   drop those entries — a permission naming a tool the server does not
@@ -78,31 +79,12 @@ either (the framework's deny augmentation walks its own
   gate — a profile missing these entries leaves an unattended agent's
   writes ungated.
 
-**Analysis execution (0.7.0, #686)** — `run_scan_analysis` needs two
-things on the serving host, both optional (the tools refuse with a
-clear message when absent, the server always starts):
-
-- The `analysis-run` extra installed (`pip install
-  '<checkout>/GEECS-MCP[analysis-run]'` / `poetry install -E
-  analysis-run`) — pulls ScanAnalysis and the analysis core (scipy,
-  heavy; this is why it is an extra).
-- The scan-analysis configs root: `SCAN_ANALYSIS_CONFIG_DIR` env var,
-  or config.ini `[Paths] scan_analysis_configs_path` (the
-  GEECS-Plugins-Configs checkout holding `analyzers/` + `groups/`) —
-  the same resolution every ScanAnalysis consumer uses.
-
-The verb also needs the data share writable (analysis outputs +
-`analysis_status/` inside *existing* scan folders only — a missing
-scan folder is refused, never created), and each run burns CPU on this
-host in a detached worker process — mind the systemd unit's resource
-caps if agent-triggered analysis becomes routine.  Note the worker's
-detachment is session-level, not cgroup-level: **a systemd service
-restart kills mid-run analysis workers** (default
-`KillMode=control-group`).  That is recoverable, not silent — the
-task's claim goes stale after 180 s and a repeat `run_scan_analysis`
-re-runs it; in `get_scan_analysis` a dead worker shows as a task stuck
-`queued` (died before claiming) or `claimed` with a growing
-`heartbeat_age_s` (died mid-run).
+**Analysis runs through the portal.** `run_analysis` is the portal's
+`POST /api/run/{uid}/analysis` — the Analysis tab's own run, on the
+portal's worker thread, under the portal's memory ceiling — so this
+server needs no analysis extra, no configs root and no data share: it
+needs the portal's address.  The portal's `DEPLOYMENT.md` owns the share
+and the configs tree.
 
 Two upstream osprey issues (to be filed from the osprey side): the
 silent acceptance of unknown keys like `hooks:` on custom-server
@@ -117,17 +99,16 @@ Host setup (same checkout + ritual as the worker):
 # worker's clone is <root>/qs-checkout (deploy/bootstrap_host.sh does all of
 # this — see docs/platform/site_profile.md)
 python3.11 -m venv <root>/geecs-mcp-venv
-<root>/geecs-mcp-venv/bin/pip install "<root>/qs-checkout/GEECS-MCP[analysis-run]"   # non-editable:
-                                                                                     # code bakes into the venv
+<root>/geecs-mcp-venv/bin/pip install "<root>/qs-checkout/GEECS-MCP"   # non-editable:
+                                                                       # code bakes into the venv
 <root>/qs-checkout/deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging
 sudo install -m 0644 ~/deploy-staging/geecs-mcp.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now geecs-mcp
 ```
 
 Config is the standard `~/.config/geecs_python_api/config.ini` of the
-service user: `[mcp] scanner_url / portal_url / logbook_url` (above)
-and, for the analysis domain until PR E, `[Experiment] expt`, `[tiled]`
-and the configs-repo path.  `[mcp] client_identity` is no longer read:
+service user: `[mcp] scanner_url / portal_url / logbook_url` (above) —
+nothing else is read.  `[mcp] client_identity` is no longer read:
 the queue item's `user` is the scanner's identity for every submitter
 and the operator rides in the run's `md.geecs.operator`.  `[mcp]
 max_shots` is no longer read either (0.9.0).
@@ -138,11 +119,9 @@ running service), `systemctl restart geecs-mcp`.
 
 Interim security posture: no transport auth, lab-network-internal —
 identical to the manager's control socket; issue #660 (CurveZMQ / fleet
-auth) covers the eventual answer for both.  This covers the
-``/figures/{day}/{scan}/{label}`` route too (0.6.0): it serves raw
-analysis-figure bytes off the data share on the same port, bounded to
-each scan's own analysis folder with a 50 MB cap — same posture, same
-eventual auth answer.
+auth) covers the eventual answer for both.  The server serves no bytes
+of its own any more: a figure reference points at the portal's artifact
+URL, under the portal's posture.
 
 ## Per-machine stdio (dev loop / single host)
 
