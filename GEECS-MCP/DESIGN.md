@@ -24,7 +24,9 @@ envelope columns are what the contract tests will pin.
 
 The two PMQ alignment campaigns (2026-10-08, 2026-10-15) ran this loop
 by hand against the same three HTTP APIs; this server packages that
-practice as tools and nothing more.
+practice as tools and nothing more. The approach page shared with the
+OSPREY team (the "approach page" below) lives with the htu-assistant
+deployment, not in this repo.
 
 ## 2. Shape
 
@@ -57,12 +59,16 @@ opt-in thumbnail only). **Removed**: `geecs-bluesky`, `geecs-data-utils`,
 Tools become plain `async def` over `httpx.AsyncClient` — the
 `anyio.to_thread` wrapper pattern goes with the sync seams it wrapped.
 
-Import contract (`.importlinter`): a new forbidden contract
-`mcp-is-a-client` — `geecs_mcp` never imports `geecs_bluesky`,
-`geecs_scanner`, `geecs_portal`, `geecs_logbook`, `scan_analysis`,
-`geecs_data_utils`, `geecs_core`. The three services stay **dev-group**
-path dependencies (for the in-process contract tests, §7), which is also
-what makes `scripts/ci_select.py` run the MCP leg when any of them changes.
+Import contract (`.importlinter`): the existing `package-layers`
+contract already keeps `geecs_mcp` from importing its layer-mates
+(`geecs_scanner`, `geecs_portal`, `geecs_logbook`). A new forbidden
+contract `mcp-is-a-client` adds the lower layers: `geecs_mcp` never
+imports `geecs_bluesky`, `scan_analysis`, `geecs_data_utils`,
+`geecs_core` or `geecs_schemas` — documents (presets, entries, payloads)
+pass through as dicts and the services validate them. The three services
+stay **dev-group** path dependencies (for the in-process contract tests,
+§7), which is also what makes `scripts/ci_select.py` run the MCP leg
+when any of them changes.
 
 ## 3. Verb table
 
@@ -89,13 +95,21 @@ profile's existing entries survive.
 | `wait_for_scan` | R | scanner | `GET /api/queue`, `GET /api/progress` (poll) | **new** |
 | `run_analysis` | W | portal | jump → `POST /api/run/{uid}/analysis?analyzer=&confirm=` | **new** |
 | `wait_for_analysis` | R | portal | `GET /api/run/{uid}/analysis` (poll) | **new** |
-| `post_logbook_entry` | W | logbook (+portal) | `POST /api/entries` → `POST /api/entries/{id}/attachments` → `PATCH /api/entries/{id}` | **new** |
+| `post_logbook_entry` | W | logbook + portal | logbook `POST /api/entries`; per figure, portal `POST /api/run/{uid}/logbook` (`path` source, §4.6) | **new** |
 | `run_scan_analysis` | — | — | — | **drop** (→ `run_analysis`) |
 | `get_scan_result` | — | — | — | **drop** — not in the keep list; the portal's run routes carry the same picture (confirm, §8) |
 
 `tool_names.py` groups: `READ_TOOLS` (R rows), `WRITE_TOOLS` (W rows
 except the halt family), `STOP_TOOLS` (`stop_scan`, `pause_scan`). The
-old `QUEUE_TOOLS` name goes; the profile imports `WRITE_TOOLS`.
+old `QUEUE_TOOLS` name goes. The import path `geecs_mcp.tool_names` is
+stable: the HTU profile derives its allow/ask lists and
+`control_system.write_tools` from the three tuples, never retyped.
+The deployment's posture (htu-assistant session, 2026-10-16):
+`READ_TOOLS` on allow everywhere; `STOP_TOOLS` on allow wherever the
+server renders; `WRITE_TOOLS` on allow at the admin tier only, with the
+profile's DEVIATION marker, the writes-check hook attached through
+`claude_code.servers.geecs.hooks`; the readonly and knowledge renders
+drop the write verbs.
 
 ## 4. Verb by verb
 
@@ -119,7 +133,9 @@ signatures; defaults are the contract.
    question that appeared between the two calls) is returned exactly as
    in step 2. A 409 `pending_items` (something already queued) →
    `policy_refusal` with the rows. `clear_pending` is never sent.
-4. ok: `{item_uid, submitted_as, planned_shots, summary, plan:{name,args,kwargs}, preflight: outcomes}`.
+4. ok: `{item_uid, submitted_as, planned_shots, summary, plan:{name,args,kwargs}, preflight: outcomes}`
+   — `item_uid`/`submitted_as` from the submit reply, `plan` and the
+   `preflight` outcomes from step 2 (SubmitOut carries neither).
 
 `item_uid` is the handle `wait_for_scan` takes. The scanner's submit
 returns no scan number or run uid (they exist only once the worker has
@@ -135,8 +151,14 @@ claimed the scan).
    adds none.
 2. With `wait`: poll `GET /api/queue` every 1 s until the `mv` item's
    `item_uid` appears in `finished[]` (or `timeout_s` elapses → ok with
-   `finished: false`); then `GET /api/readback?variable=<reference>`.
-3. ok: `{item_uid, reference, finished, state, word, detail, readback:{value, units, timestamp, age_s}}`.
+   `finished: false`); then `GET /api/readback?variable=<Device:Variable>`.
+   The readback route takes only the canonical `Device:Variable` (400
+   otherwise), **not** the dotted `reference` the move reply returns, so
+   the MCP reads back with the caller's `Device:Variable`, or, for a
+   catalog name, with the `target` that `GET /api/scan-variables` lists
+   for it; a bare device or a pseudo variable (`target: null`) has no
+   readback and the field is `null` with a `readback_detail` saying why.
+3. ok: `{item_uid, reference, finished, state, word, detail, readback:{value, units, timestamp, age_s} | null, readback_detail}`.
 
 ### 4.3 `wait_for_scan(item_uid, timeout_s=240)`
 
@@ -180,21 +202,30 @@ Polls `GET /api/run/{uid}/analysis` every 2 s until
 
 ### 4.6 `post_logbook_entry(day, body_md, operator, scan=None, figures=(), payload=None)`
 
-1. `POST /api/entries {day, book: "scans", scan, author: <identity string>, body_md, template: "blank", kind: "agent_analysis", status: "draft", payload}`.
+1. `POST <logbook>/api/entries {day, book: "scans", scan, author: <identity string>, body_md, template: "blank", kind: "agent_analysis", status: "draft", payload}`.
    The logbook **refuses a non-note kind created as `kept`**: an agent's
    entry is a draft until a person keeps it. That is the existing
    contract and it is the right one here; the MCP exposes no keep verb.
    `payload`, when given, is the schema's `AnalysisPayload`
-   (`{kind: "analysis", analyzer, metrics, figures}`), passed through.
+   (`{kind: "analysis", analyzer, metrics, figures}`) passed through as a
+   dict — the logbook validates it, as the thin-client rule says.
+   (`EntryCreate` therefore stays in the logbook's `routes/entries.py`;
+   GeecsLogbook's CLAUDE.md "deferred decisions" row that planned to move
+   it beside `LogEntry` "for GEECS-MCP to validate" is updated in PR F to
+   record this: the MCP validates nothing.)
 2. For each figure — a portal artifact reference
-   `{scan_number, day?, path}` — `GET <portal>/run/{uid}/artifact?path=`
-   then `POST /api/entries/{id}/attachments` (multipart `file`, PNG/JPEG/
-   GIF/WebP/PDF, ≤20 MiB). Images come from the portal so the agent never
-   pushes image bytes through model context; the MCP host holds nothing.
-3. `GET /api/entries/{id}` (the uploads bumped `version`), then
-   `PATCH /api/entries/{id} {body_md: body + image links, editor: <identity string>, expected_version}`;
-   one retry on 409.
-4. ok: `{entry_id, url: "<logbook>/entry/<id>", version, attachments: [{filename, link}]}`.
+   `{scan_number, day?, path, caption?}` — one call to the **portal**:
+   `POST <portal>/api/run/{uid}/logbook {entry: <id>, path, caption, author: <identity string>}`.
+   That route exists today for the Plot tab (`PlotToLogbook` with an
+   `image` data-URL); PR B adds `path` as the alternative image source,
+   the artifact fetched server-side with the same containment as
+   `/run/{uid}/artifact`. The portal's `logbook_send` already owns the
+   upload → re-read → PATCH-append → retry-on-409 sequence
+   (`geecs_portal/logbook_send.py`, the logbook's one HTTP write client
+   per its CLAUDE.md), so the MCP does not grow a second copy and never
+   moves image bytes: nothing flows through the MCP host or model
+   context.
+3. ok: `{entry_id, url: "<logbook>/entry/<id>", attachments: [{path, link, appended}]}`.
 
 The script behind a quoted number (the approach page's provenance
 habit) goes **inline in `body_md`** as a fenced block: the attachment
@@ -227,7 +258,7 @@ route accepts images and PDFs only.
   own ownership check goes with `client_identity`: the queue item's
   `user` is now the scanner's identity for every submitter.
 
-### 4.8 One portal addition: `GET /api/analysis/catalog`
+### 4.8 Two portal additions (PR B)
 
 The portal has no analyzer catalog independent of a scan (the Analysis
 tab lists per run; the editor's `/configs/api/list` exists only behind
@@ -236,7 +267,9 @@ tab lists per run; the editor's `/configs/api/list` exists only behind
 from the same processing tree the portal already loads
 (`PortalState.processing_infos()` + the ScanAnalysis config store the
 analysis extra brings) serves `list_analyzers` / `list_analysis_groups`
-and is useful to the tab too. One portal PR, ~60 lines with its test.
+and is useful to the tab too. The second is the `path` image source on
+`POST /api/run/{uid}/logbook` (§4.6). One portal PR, ~100 lines with
+tests.
 
 ## 5. Error envelope
 
@@ -246,15 +279,17 @@ service text preserved verbatim in `message`. Kinds:
 
 | kind | produced by |
 |---|---|
-| `invalid_request` | scanner `error.kind == invalid_request` (400), FastAPI 422 bodies, portal/logbook 400/422, argument checks (empty operator) |
+| `invalid_request` | scanner `error.kind == invalid_request` (400), FastAPI 422 bodies, portal/logbook 400/422, the logbook's 413/415 on attachments (relayed through the portal send), argument checks (empty operator) |
 | `not_found` | scanner 404; portal 404 (`run not found`, `no diagnostic`, `no such artifact`, jump `matched: false`); logbook 404 |
-| `policy_refusal` | scanner 409 (`needs_acknowledgement`, `pending_items`, `re_state`, `items_in_queue`, `exists`), the verbs' 200 `{ok:false}` (`nothing is running`), portal 409 (run in progress), logbook 409 (version) |
+| `policy_refusal` | scanner 409 (`needs_acknowledgement`, `pending_items`, `re_state`, `items_in_queue`, `exists`), the verbs' 200 `{ok:false}` (`nothing to stop (RE state: …)`, and the stop budget's `pause did not land within 120 s — scan still running`), portal 409 (run in progress), logbook 409 (version) |
 | `service_unreachable` | **new** — connect/read failure or 5xx from any of the three; `extra.service ∈ {scanner, portal, logbook}` and `extra.url`. Replaces `manager_unreachable` and `tiled_unreachable` (the scanner's 503 `manager_unreachable` maps here with `service: "scanner"` and the scanner's message) |
-| `task_timeout` | scanner 504 only (its `stop` budget). The wait verbs' timeouts are **ok results** with `finished: false` |
 | `internal_error` | the tools-never-raise backstop |
 
-Dropped: `manager_unreachable`, `worker_refused`, `tiled_unreachable`
-(no producers after the rebuild; the CHANGELOG names them).
+Dropped: `manager_unreachable`, `worker_refused`, `tiled_unreachable`,
+`task_timeout` (no producers after the rebuild — the scanner maps the
+kind to 504 but nothing raises it, and its stop budget expires as a 200
+`{ok:false}`; the wait verbs' timeouts are **ok results** with
+`finished: false`). The CHANGELOG names them.
 
 HTTP budgets (httpx per client): connect 5 s; read 20 s, except
 `POST /api/stop` 130 s (the scanner blocks up to 120 s for the pause)
@@ -269,8 +304,8 @@ operator is `invalid_request`. Where it lands:
 | Service | Field | Note |
 |---|---|---|
 | scanner submit | `SubmitIn.operator` → `md.geecs.operator` on the run | `SubmissionRecord.client` stays the scanner's own identity (`geecs-scanner <version>`) — the record names the service that queued it; the operator field names who |
-| scanner move / verbs | `MoveIn.operator`, `VerbIn.operator` | the move route **logs** the operator but does not stamp it on the `mv` item's metadata (`_queue_item` takes none); a two-line scanner change stamps `md.geecs.operator` on idle-only items too — proposed in §9 |
-| logbook | `author` on create, `editor` on the PATCH | ≤120 chars; the entry's `kind: agent_analysis` + `status: draft` is the machine-readable half |
+| scanner move / verbs | `MoveIn.operator`, `VerbIn.operator` | `ScannerService.move` never reads `body.operator` today (the verbs log it only on `force`); a two-line scanner change stamps `md.geecs.operator` on idle-only items (move, action, calibration) — proposed in §9 |
+| logbook | `author` on create; `author` on each portal send (its `editor` on the append) | ≤120 chars; the entry's `kind: agent_analysis` + `status: draft` is the machine-readable half |
 
 `operator` is an argument rather than a config value because it names a
 person per shift, not a deployment; the skill supplies it from the
@@ -286,9 +321,9 @@ tools' base URLs resolve without sockets. The seam is
 
 | Service | Fixture | What is real |
 |---|---|---|
-| scanner | `create_app(ScannerService(DemoQueueClient(streams, period=0, user=...), DemoResolver(), preflight=demo_preflight, settables=DemoSettables(), readback=DemoReadback(...)))` (GeecsScanner's own `tests/conftest.py` shape) | routes, models, preflight flow (the demo preflight always asks `gateway_liveness` — the pass-through path is exercised by construction), the `mv` idle-only rule, queue history with `scan_ids`/`run_uids`; the test advances scans with `manager.step()` between the wait verb's polls (the sleep is a patchable module attribute) |
+| scanner | `create_app(ScannerService(DemoQueueClient(streams, period=0, user=...), DemoResolver(), preflight=demo_preflight, settables=DemoSettables(), readback=DemoReadback(...)))` (GeecsScanner's own `tests/conftest.py` shape) | routes, models, preflight flow (the demo preflight always asks `gateway_liveness` — the pass-through path is exercised by construction), the `mv` idle-only rule, queue history rows with `scan_numbers`/`run_uids`; the test advances scans with `manager.step()` between the wait verb's polls (the sleep is a patchable module attribute) |
 | portal | `create_app(FakeCatalog(), processing_config_dir=tmp configs tree, analysis_factory=fake)` (the portal's `tests/test_analysis_runs.py` shape) | jump/run/analysis/artifact routes, the 202/409/400 ladder, the job record states, artifact containment |
-| logbook | `create_app("Undulator", base_directory=tmp share, notes_db=tmp sqlite)` | the store, the draft rule, attachments, versioning, the mirror |
+| logbook | `create_app("Undulator", base_directory=tmp share, notes_db=tmp sqlite)` | the store, the draft rule, attachments, versioning, the mirror; the portal fixture's `--logbook-url` points at this app so the figure sends run end to end |
 
 Each contract test calls the **tool impl** and asserts on the envelope,
 so a route or model change in any service fails `GEECS-MCP/tests` in the
@@ -314,12 +349,12 @@ server and nothing else is.
 | # | Package | Content |
 |---|---|---|
 | A | GEECS-MCP | this note (`DESIGN.md`) |
-| B | GEECS-DataPortal | `GET /api/analysis/catalog` + test |
+| B | GEECS-DataPortal | `GET /api/analysis/catalog`; `path` artifact source on `POST /api/run/{uid}/logbook` (+ tests) |
 | C | GeecsScanner | stamp `md.geecs.operator` on idle-only items (if §8.6 is yes) |
 | D | GEECS-MCP | the client core: `config.py`, `clients.py`, `errors.py` kinds, scans domain over the scanner (kept verbs + `submit_preset`, `move`, `wait_for_scan`), deletions (`runtime.py` singletons, `progress_stream.py`, the bluesky/data-utils deps), `.importlinter` contract, scanner contract tests, CLAUDE.md/README rewrite |
 | E | GEECS-MCP | analysis domain over the portal (`get_scan_analysis`, `get_scan_figure`, `list_*`, `run_analysis`, `wait_for_analysis`), deletions (`run_tools.py`, `run_worker.py`, `/figures/`, the `analysis-run` extra), portal contract tests |
-| F | GEECS-MCP | logbook domain (`post_logbook_entry`) + logbook contract tests |
-| G | deploy + docs | unit template (no extra; `After=` the three services; `MemoryMax=512M`), `bootstrap_host.sh` (`extras_of mcp` empty), `site.env.example` + `bootstrap_host.sh` rendering `[mcp] scanner_url/portal_url/logbook_url` from one `GEECS_SERVICES_HOST` key (ports are fleet constants, the archiver's `17665` precedent), `DEPLOYMENT.md`, `fleet_map.md`, `docs/geecs_mcp/*`, `agentic/index.md` ("no submit verb" prose goes) — then the host install (Sam's sudo block), kill the nohup process, live check from an osprey machine |
+| F | GEECS-MCP | logbook domain (`post_logbook_entry`) + logbook contract tests; GeecsLogbook CLAUDE.md deferred-decisions row updated (§4.6) |
+| G | deploy + docs | unit template (no extra; `After=` the three services; `MemoryMax=512M`), `bootstrap_host.sh` (`extras_of mcp` empty), `site.env.example` + `bootstrap_host.sh` rendering `[mcp] scanner_url/portal_url/logbook_url` from one `GEECS_SERVICES_HOST` key (ports are fleet constants, the archiver's `17665` precedent; `site.env.example` already cites the key in a comment without defining it — G defines it), `DEPLOYMENT.md`, `fleet_map.md`, `docs/geecs_mcp/*`, `agentic/index.md` ("no submit verb" prose goes) — then the host install (Sam's sudo block), kill the nohup process, live check from an osprey machine |
 
 Version bump (`0.9.3 → 0.10.0`, or whatever the fleet rule says at the
 time) happens in G, at the deploy, per the release policy. The
