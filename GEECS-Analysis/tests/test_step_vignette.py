@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.v2 import analyze_v2
+from geecs_analysis.engine.v2 import analyze_v2
 from geecs_analysis.pipeline import apply_pipeline
 from geecs_analysis.recipe import compile_recipe
 from geecs_analysis.specs import Pipeline

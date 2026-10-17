@@ -288,7 +288,7 @@ class TestPreview:
 
         np = pytest.importorskip("numpy")
         pytest.importorskip("PIL")
-        from geecs_analysis.compat.v2 import analyze_v2
+        from geecs_analysis.engine.v2 import analyze_v2
         from geecs_analysis.recipe import figure_of
         from geecs_analysis.render import single
         from geecs_schemas.analysis import load_analysis_document

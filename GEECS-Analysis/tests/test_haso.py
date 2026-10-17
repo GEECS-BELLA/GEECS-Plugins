@@ -13,8 +13,8 @@ from geecs_data_utils.frames import Frame
 from geecs_schemas.analysis import AnalysisRecipe
 from pydantic import ValidationError
 
-from geecs_analysis.compat.v2 import analyze_v2
-from geecs_analysis.compat.v2_run import ShotGroup, run_units
+from geecs_analysis.engine.v2 import analyze_v2
+from geecs_analysis.engine.v2_run import ShotGroup, run_units
 from geecs_analysis.measures.haso import (
     EXTRAS,
     SCALARS,

@@ -18,13 +18,13 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Mapping
 
-from geecs_analysis.compat.v2 import V2Recipe, analyze_v2
+from geecs_analysis.engine.v2 import V2Recipe, analyze_v2
 from geecs_analysis.pipeline import bind_inputs
 
 if TYPE_CHECKING:
     import numpy as np
     from geecs_data_utils.frames import ShotMeta
-    from geecs_analysis.compat.v2_average import _Sum
+    from geecs_analysis.engine.v2_average import _Sum
     from geecs_analysis.measurement import Measurement
 
 #: The multiprocessing start method of the worker pool. The hosts are
@@ -107,7 +107,7 @@ def _run_group(  # noqa: C901, PLR0912, PLR0915
     import numpy as np
     from geecs_data_utils.frames import ShotMeta
 
-    from geecs_analysis.compat.v2_average import _Sum
+    from geecs_analysis.engine.v2_average import _Sum
 
     loaded = []
     failures = []

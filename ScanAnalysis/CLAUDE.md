@@ -130,7 +130,7 @@ members even when some inputs fail. Groups follow scalar-row order; empty bins
 are omitted and missing bin values form no group. Duplicate/nonpositive shot
 numbers and fractional bin ids are explicit preparation errors. No sinks or
 legacy factory route change are included in this adapter. `run(workers=N)`
-hands the count to the core's ordered pool (`geecs_analysis.compat.v2_run`);
+hands the count to the core's ordered pool (`geecs_analysis.engine.v2_run`);
 the outcomes arrive in group order whatever the count.
 
 `core_products.plan_products` chooses saved average/bin measurements and ordered

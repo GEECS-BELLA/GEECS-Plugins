@@ -23,8 +23,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
-from geecs_analysis.compat.v2 import analyze_v2
-from geecs_analysis.compat.v2_average import average_results
+from geecs_analysis.engine.v2 import analyze_v2
+from geecs_analysis.engine.v2_average import average_results
 from geecs_analysis.recipe import AnalysisDocument, figure_of, summaries_of
 from geecs_analysis.registry import summary_definition
 from geecs_analysis.render import RenderError

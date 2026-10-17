@@ -6,8 +6,8 @@ import pytest
 from geecs_data_utils.frames import ShotMeta
 from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.v2 import analyze_v2
-from geecs_analysis.compat.v2_run import ShotGroup, run_units
+from geecs_analysis.engine.v2 import analyze_v2
+from geecs_analysis.engine.v2_run import ShotGroup, run_units
 from geecs_analysis.recipe import compile_recipe
 
 
@@ -273,7 +273,7 @@ def test_raw_bin_fold_equals_the_stacked_mean_bit_for_bit(kind, monkeypatch):
     1x1 frames reduces along its only (contiguous) axis, where numpy sums
     pairwise, and a float fold can then differ in the last bit.
     """
-    import geecs_analysis.compat.v2_run as v2_run
+    import geecs_analysis.engine.v2_run as v2_run
 
     rng = np.random.default_rng(1025)
     if kind == "uint16 camera":
@@ -378,7 +378,7 @@ def test_mixed_members_that_keep_the_sum_average_as_the_promoted_stack(
     folded members were never rounded narrower; the result takes the
     promoted stack's dtype (float32, not float16, once a float32 joins).
     """
-    import geecs_analysis.compat.v2_run as v2_run
+    import geecs_analysis.engine.v2_run as v2_run
 
     rng = np.random.default_rng(7)
     frames = [rng.integers(0, 200, (4, 5)).astype(dtypes[n >= 5]) for n in range(9)]

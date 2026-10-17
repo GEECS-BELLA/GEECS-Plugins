@@ -13,7 +13,7 @@ from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
 import scan_analysis.core_backgrounds as core_backgrounds
-from geecs_analysis.compat.v2 import ScanBackground
+from geecs_analysis.engine.v2 import ScanBackground
 from scan_analysis.core_analyzer import CoreScanAnalyzer
 from scan_analysis.core_backgrounds import resolve_scan_background, scan_statistic
 from scan_analysis.core_inputs import ScanContextRequired

@@ -246,7 +246,7 @@ def test_shot_table_paths_sit_beside_the_file_or_the_stack():
 def test_a_per_request_view_never_starts_the_dll_but_the_explicit_preview_does(
     monkeypatch, helper
 ):
-    from geecs_analysis.compat.v2 import UnsupportedRecipe
+    from geecs_analysis.engine.v2 import UnsupportedRecipe
 
     from scan_analysis.core_inputs import ServicesNotRequested
     from scan_analysis.core_preview import prepare_document, preview_frame

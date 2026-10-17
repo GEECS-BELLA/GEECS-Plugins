@@ -7,7 +7,7 @@ import pytest
 from geecs_schemas.analysis import AnalysisRecipe
 
 from geecs_analysis.algorithms import polynomial_fit as ported
-from geecs_analysis.compat.v2 import analyze_v2
+from geecs_analysis.engine.v2 import analyze_v2
 from geecs_analysis.measures.frog_spectral_phase import (
     FrogSpectralPhaseSpec,
     wavelength_nm_to_omega_rad_per_fs,

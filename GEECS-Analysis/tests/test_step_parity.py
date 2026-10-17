@@ -14,7 +14,7 @@ import pytest
 from geecs_data_utils.frames import ShotMeta
 from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.v2 import analyze_v2
+from geecs_analysis.engine.v2 import analyze_v2
 from geecs_analysis.recipe import compile_recipe
 
 LINE = {"kind": "line", "loading": {"data_type": "tsv"}, "label": "x vs y"}

@@ -1177,7 +1177,7 @@ class TestProcessingSelector:
         import sys
 
         # Simulate the required analysis runtime missing, even with a cached router.
-        monkeypatch.setitem(sys.modules, "geecs_analysis.compat.v2", None)
+        monkeypatch.setitem(sys.modules, "geecs_analysis.engine.v2", None)
         client = self._client(scan_folder, configs_tree)
         page = client.get("/run/uid-002", params={"device": "cam", "tab": "images"})
         assert page.status_code == 200

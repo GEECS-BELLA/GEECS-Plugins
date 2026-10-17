@@ -187,7 +187,7 @@ def test_compiled_recipe_survives_source_removal_and_preserves_reduction(
     original = {stamp: frame.copy() for stamp, frame in frames.items()}
     rows = [{"stamp": stamp + LABVIEW_EPOCH_OFFSET} for stamp in (101, 102, 102, 103)]
     observed = []
-    from geecs_analysis.compat import v2
+    from geecs_analysis.engine import v2
 
     analyze = v2.analyze_v2
 

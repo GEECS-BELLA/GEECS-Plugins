@@ -12,7 +12,7 @@ from geecs_data_utils import ScanPaths, ScanTag
 from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
-from geecs_analysis.compat.v2 import analyze_v2
+from geecs_analysis.engine.v2 import analyze_v2
 from geecs_analysis.recipe import compile_recipe
 from scan_analysis.config import create_scan_analyzer
 from scan_analysis.core_analyzer import CoreScanAnalyzer

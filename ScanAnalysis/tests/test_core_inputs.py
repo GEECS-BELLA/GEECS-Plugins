@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from geecs_analysis.compat.v2 import analyze_v2
+from geecs_analysis.engine.v2 import analyze_v2
 from geecs_analysis.recipe import RecipeError
 from geecs_schemas.analysis import AnalysisRecipe
 

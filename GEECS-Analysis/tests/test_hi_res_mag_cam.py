@@ -13,7 +13,7 @@ from geecs_schemas.analysis import (
 )
 
 from geecs_analysis.algorithms.bowtie_fit import BowtieFitAlgorithm
-from geecs_analysis.compat.v2 import V2Recipe, analyze_v2
+from geecs_analysis.engine.v2 import V2Recipe, analyze_v2
 from geecs_analysis.measures.hi_res_mag_cam import (
     REJECTED,
     HiResMagCamSpec,

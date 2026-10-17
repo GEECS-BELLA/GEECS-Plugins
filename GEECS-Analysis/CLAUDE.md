@@ -164,11 +164,11 @@ recipe (`V2Recipe`, renamed at A5) and runs through `analyze_v2`; consumers
 call `compile_document` / `figure_of` / `summaries_of` / `is_line`. A
 recipe has no inactive sections: coordinates start where the first crop
 starts. (The v2 `AnalysisDiagnostic` and its compile bridge were deleted
-in #1039; the runtime keeps the module name `compat` until its rename.)
+in #1039; the runtime module `compat` became `engine` then.)
 
 ## The runtime and the ported measures
 
-`compat.v2` is the runtime: `V2Recipe`, the request types and
+`engine.v2` is the runtime: `V2Recipe`, the request types and
 `analyze_v2`, which takes loaded native-dtype arrays; retaining native
 trace precision until axis scaling is deliberate.
 `allow_file_backgrounds=True` declares camera file requests without reading
@@ -318,7 +318,7 @@ was built on the cropped shape instead.
 
 ## Execution units
 
-`compat.v2_run` is the streaming v2 orchestration boundary. The host supplies
+`engine.v2_run` is the streaming v2 orchestration boundary. The host supplies
 explicit groups and a loader; no path/config discovery or output writes belong
 here. Raw native arrays must be averaged before v2 axis scaling and processing,
 using mean rather than nanmean — and folded into a running sum as each
@@ -369,7 +369,7 @@ live in a real module on `sys.path` (`tests/test_v2_pool.py` writes one).
 travels as a dict and is restored read-only; unpickled arrays are re-frozen
 in data-utils); keep `__getstate__`/`__setstate__` in step with the fields.
 
-`compat.v2_average.average_results` owns the post-analysis summary conventions:
+`engine.v2_average.average_results` owns the post-analysis summary conventions:
 noscan uses ordinary means and omits shot overlays; bin summaries use nanmean
 and average projections. Never re-analyze the averaged processed frame to
 produce mean scalars. Trace samples AND coordinates reduce at the recipe's

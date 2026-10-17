@@ -9,7 +9,7 @@ from typing import Iterable, Iterator, Literal, Mapping
 
 import numpy as np
 import pandas as pd
-from geecs_analysis.compat.v2_run import ShotGroup, UnitResult, run_units
+from geecs_analysis.engine.v2_run import ShotGroup, UnitResult, run_units
 from geecs_analysis.pipeline import shot_scalar_columns
 from geecs_data_utils.frames import ShotMeta
 from geecs_data_utils.tiled_schema import announced_shots

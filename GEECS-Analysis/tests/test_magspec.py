@@ -14,8 +14,8 @@ from geecs_schemas.analysis import AnalysisRecipe
 from pydantic import ValidationError
 
 from geecs_analysis.algorithms import magspec_calibration as calibration
-from geecs_analysis.compat.v2 import analyze_v2
-from geecs_analysis.compat.v2_run import ShotGroup, run_units
+from geecs_analysis.engine.v2 import analyze_v2
+from geecs_analysis.engine.v2_run import ShotGroup, run_units
 from geecs_analysis.measures.magspec import MagspecSpec
 from geecs_analysis.pipeline import measure_tables, shot_scalar_columns
 from geecs_analysis.recipe import RecipeError, compile_recipe
@@ -624,7 +624,7 @@ def polynomial_measure() -> dict:
 def test_an_average_folds_moving_energy_grids_index_wise(tmp_path, mode, expected):
     """A per-shot field moves the grid; the average is the legacy nanmean of frames and axes."""
 
-    from geecs_analysis.compat.v2_average import RunningAverage
+    from geecs_analysis.engine.v2_average import RunningAverage
 
     doc = dnn(synthetic_tables(tmp_path), field_column=COLUMN)
     compiled = compile_recipe(doc, allow_file_backgrounds=True)
@@ -652,7 +652,7 @@ def test_an_average_folds_moving_energy_grids_index_wise(tmp_path, mode, expecte
 def test_a_steady_grid_keeps_the_first_axes_and_other_measures_still_refuse():
     from geecs_data_utils.frames import Axis
 
-    from geecs_analysis.compat.v2_average import RunningAverage
+    from geecs_analysis.engine.v2_average import RunningAverage
 
     compiled = compile_recipe(poly(), allow_file_backgrounds=True)
     first = analyze_v2(frame(1), compiled)

@@ -12,7 +12,7 @@ from geecs_schemas.analysis import (
 from scipy import ndimage
 
 from geecs_analysis.algorithms import downramp_shock as ported
-from geecs_analysis.compat.v2 import V2Recipe, analyze_v2
+from geecs_analysis.engine.v2 import V2Recipe, analyze_v2
 from geecs_analysis.measurement import Measurement, Segment
 from geecs_analysis.measures.downramp_phase import (
     OVERLAYS,

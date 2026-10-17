@@ -18,7 +18,7 @@ from geecs_data_utils.frames import Frame
 from geecs_schemas.analysis import AnalysisDocument, load_analysis_document
 from pydantic import ValidationError
 
-from geecs_analysis.compat.v2 import UnsupportedRecipe
+from geecs_analysis.engine.v2 import UnsupportedRecipe
 from geecs_analysis.measurement import Measurement
 from geecs_analysis.render import RenderError, single
 from geecs_analysis.render.specs import FigureSpec

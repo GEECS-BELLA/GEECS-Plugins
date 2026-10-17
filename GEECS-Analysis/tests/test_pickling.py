@@ -7,7 +7,7 @@ import pytest
 from geecs_data_utils.frames import Axis, Frame, ShotMeta
 from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.v2 import analyze_v2
+from geecs_analysis.engine.v2 import analyze_v2
 from geecs_analysis.measurement import Marker, Measurement, Projection
 from geecs_analysis.recipe import compile_document, compile_recipe
 

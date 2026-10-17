@@ -3,7 +3,7 @@
 The schema types the recipe's frame; this module binds its ``steps`` and
 ``measure`` to the builtin registry, checks that each can process the
 input's frames, and produces the in-memory compiled recipe the evaluator
-(``compat.v2.analyze_v2``) runs. Consumers call :func:`compile_document`,
+(``engine.v2.analyze_v2``) runs. Consumers call :func:`compile_document`,
 :func:`figure_of` and :func:`summaries_of`. No file access and no numerical
 imports happen here.
 """
@@ -15,7 +15,7 @@ from geecs_schemas.analysis.recipe import LineInput
 from pydantic import ValidationError
 
 from geecs_analysis import summaries as _summaries  # noqa: F401 -- registers the summary kinds
-from geecs_analysis.compat.v2 import (
+from geecs_analysis.engine.v2 import (
     FileBackground,
     ScanBackground,
     TableInput,

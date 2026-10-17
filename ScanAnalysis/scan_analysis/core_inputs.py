@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Mapping
 
 import numpy as np
-from geecs_analysis.compat.v2 import UnsupportedRecipe, V2Recipe
+from geecs_analysis.engine.v2 import UnsupportedRecipe, V2Recipe
 from geecs_analysis.pipeline import bind_inputs
 from geecs_analysis.registry import measure_definition
 from geecs_analysis.recipe import AnalysisDocument, compile_document

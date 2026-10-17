@@ -7,7 +7,7 @@ import pytest
 from geecs_schemas.analysis import AnalysisRecipe
 
 from geecs_analysis.algorithms.ict import apply_ict_analysis
-from geecs_analysis.compat.v2 import V2Recipe, analyze_v2
+from geecs_analysis.engine.v2 import V2Recipe, analyze_v2
 from geecs_analysis.measures.ict import SCALARS, IctSpec
 from geecs_analysis.recipe import compile_recipe
 

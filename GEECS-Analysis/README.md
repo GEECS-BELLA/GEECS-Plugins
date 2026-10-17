@@ -97,7 +97,7 @@ including when legacy RMS clips negative values internally.
 ## Running a recipe
 
 ```python
-from geecs_analysis.compat.v2 import analyze_v2
+from geecs_analysis.engine.v2 import analyze_v2
 from geecs_analysis.recipe import compile_recipe
 
 compiled = compile_recipe(recipe)  # an already-validated AnalysisRecipe
@@ -175,7 +175,7 @@ duplicated transforms retain their configured order at the v2 boundary.
 
 ## Streaming execution units
 
-`compat.v2_run.run_units` evaluates explicit `ShotGroup`s through a
+`engine.v2_run.run_units` evaluates explicit `ShotGroup`s through a
 caller-supplied `load(shot_number)` function. A host owns scan discovery,
 grouping, readers and output sinks. Per-shot groups have one member;
 `average_before_analysis=True` loads a bin's native arrays and computes its

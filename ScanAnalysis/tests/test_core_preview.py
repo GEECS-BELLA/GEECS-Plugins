@@ -84,7 +84,7 @@ def test_summary_preview_is_the_sinks_summary_figure(scan):
     prepared = prepare_document(document, scan_folder=scan)
     measurements = [measure_frame(prepared, f) for f in frames]
     panels = tuple(Product(i + 1, m, float(i + 1)) for i, m in enumerate(measurements))
-    from geecs_analysis.compat.v2_average import average_results
+    from geecs_analysis.engine.v2_average import average_results
 
     average = Product(
         "average", average_results(measurements, prepared.recipe, mode="noscan")

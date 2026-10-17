@@ -29,7 +29,7 @@ from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET
 from .live_frames import FrameSource, LiveFrameSource
 
 if TYPE_CHECKING:
-    from geecs_analysis.compat.v2 import V2Recipe
+    from geecs_analysis.engine.v2 import V2Recipe
     from geecs_bluesky.config_resolver import ConfigsRepoResolver
     from geecs_bluesky.namespace import GeecsNamespace
 
@@ -90,7 +90,7 @@ class CompiledMeasurements:
         frames: Mapping[str, Mapping[float, NDArray]],
     ) -> BinResult:
         """Reduce valid measurements, then evaluate derived outputs in order."""
-        from geecs_analysis.compat.v2 import analyze_v2
+        from geecs_analysis.engine.v2 import analyze_v2
 
         outputs: dict[str, float] = {}
         counts: dict[str, int] = {}

@@ -14,9 +14,9 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
-from geecs_analysis.compat.v2 import V2Recipe
-from geecs_analysis.compat.v2_average import RunningAverage
-from geecs_analysis.compat.v2_run import UnitResult
+from geecs_analysis.engine.v2 import V2Recipe
+from geecs_analysis.engine.v2_average import RunningAverage
+from geecs_analysis.engine.v2_run import UnitResult
 from geecs_analysis.measurement import Measurement
 from geecs_analysis.summaries.waterfall import MAX_COLUMNS, display_trace
 
