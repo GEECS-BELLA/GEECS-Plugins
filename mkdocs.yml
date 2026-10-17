@@ -106,6 +106,7 @@ nav:
           - Overview: geecs_mcp/overview.md
           - Scan Service: geecs_mcp/scan_service.md
           - Analysis: geecs_mcp/analysis.md
+          - Logbook: geecs_mcp/logbook.md
           - Leveraging OSPREY: geecs_mcp/osprey.md
       - Skills:
           - Overview: skills/overview.md
