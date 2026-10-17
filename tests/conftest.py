@@ -69,32 +69,6 @@ def data_root() -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Image analysis config initialisation
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _init_image_analysis_config():
-    """Set the image_analysis config base directory for the test session.
-
-    Resolves the path via ScanPaths (same as the example notebooks).  If the
-    configs repo is not present the fixture is a no-op — integration tests
-    that actually need YAML configs will fail with a clear ValueError rather
-    than a silent skip, since those tests are only run on networked machines
-    that should also have the configs repo checked out.
-    """
-    try:
-        from geecs_data_utils import ScanPaths
-        from geecs_data_utils.config_roots import image_analysis_config
-
-        config_path = ScanPaths.paths_config.image_analysis_configs_path
-        if config_path and Path(config_path).exists():
-            image_analysis_config.set_base_dir(config_path)
-    except Exception:  # noqa: BLE001 — configs optional offline
-        pass  # CI / offline: no configs repo; integration tests are already skipped
-
-
-# ---------------------------------------------------------------------------
 # Canonical scan registry — central source of truth for "what scan we test
 # against," so each integration test doesn't have to hardcode date/number
 # tuples and so any retired-or-relocated scan is updated in one place.

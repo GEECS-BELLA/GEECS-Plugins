@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.v2 import analyze_v2
+from geecs_analysis.engine.compiled import analyze_compiled
 from geecs_analysis.pipeline import apply_pipeline
 from geecs_analysis.recipe import compile_recipe
 from geecs_analysis.specs import Pipeline
@@ -92,7 +92,7 @@ def test_the_htt_magcam_chain_matches_the_legacy_pipeline(expected):
         "background_constant",
         "vignette",
     ]
-    result = analyze_v2(data, recipe, shot=ShotMeta("diagnostic", 1, 0.0))
+    result = analyze_compiled(data, recipe, shot=ShotMeta("diagnostic", 1, 0.0))
     expected(
         "htt_magcam_chain",
         actual=result.frame.data,

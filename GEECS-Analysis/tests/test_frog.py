@@ -12,8 +12,8 @@ import pytest
 from geecs_data_utils.frames import Frame
 from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.v2 import analyze_v2
-from geecs_analysis.compat.v2_run import ShotGroup, run_units
+from geecs_analysis.engine.compiled import analyze_compiled
+from geecs_analysis.engine.stream import ShotGroup, run_units
 from geecs_analysis.measures.frog import SCALARS, FrogSpec
 from geecs_analysis.recipe import compile_recipe
 from geecs_analysis.run import analyze
@@ -163,7 +163,9 @@ def test_the_core_route_matches_the_legacy_grenouille_analyzer(expected):
         {"step": "zero_below", "level": 0},
     )
     retriever = FakeRetriever()
-    result = analyze_v2(trace(), compile_recipe(document), inputs={"frog": retriever})
+    result = analyze_compiled(
+        trace(), compile_recipe(document), inputs={"frog": retriever}
+    )
     projections = {o.id: o.frame.data for o in result.overlays}
     expected(
         "grenouille_route",
@@ -194,7 +196,7 @@ def test_a_frog_measurement_pickles_with_its_extras():
         )
 
 
-# A spawned worker imports the retriever's module by name (see test_v2_pool).
+# A spawned worker imports the retriever's module by name (see test_engine_pool).
 HELPER = textwrap.dedent(
     '''
     """A picklable retriever and loader for the pooled FROG run."""

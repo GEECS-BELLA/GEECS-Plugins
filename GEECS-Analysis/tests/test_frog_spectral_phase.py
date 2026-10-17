@@ -7,7 +7,7 @@ import pytest
 from geecs_schemas.analysis import AnalysisRecipe
 
 from geecs_analysis.algorithms import polynomial_fit as ported
-from geecs_analysis.compat.v2 import analyze_v2
+from geecs_analysis.engine.compiled import analyze_compiled
 from geecs_analysis.measures.frog_spectral_phase import (
     FrogSpectralPhaseSpec,
     wavelength_nm_to_omega_rad_per_fs,
@@ -141,7 +141,7 @@ def test_the_fit_refuses_what_the_legacy_fit_refuses():
 @pytest.mark.parametrize("seed", range(3))
 def test_the_core_route_equals_the_legacy_analyzer(storage, seed, expected, request):
     data = lineout(seed)
-    result = analyze_v2(data, compiled(storage=storage))
+    result = analyze_compiled(data, compiled(storage=storage))
     # The fit is float64 on both routes whatever the storage dtype: the
     # stored input is rounded identically, the fit computed in float64.
     expected(
@@ -153,7 +153,7 @@ def test_the_core_route_equals_the_legacy_analyzer(storage, seed, expected, requ
 
 def test_a_sign_flip_matches_the_legacy_flip(expected):
     data = lineout(1, gdd=-300.0)
-    result = analyze_v2(data, compiled())
+    result = analyze_compiled(data, compiled())
     stored = expected(
         "sign_flip",
         actual=core_values(result),
@@ -171,7 +171,7 @@ def test_a_sign_flip_matches_the_legacy_flip(expected):
 )
 def test_options_match_the_legacy_analyzer(analyzer, expected, request):
     data = lineout(2)
-    result = analyze_v2(data, compiled(measure=analyzer))
+    result = analyze_compiled(data, compiled(measure=analyzer))
     expected(
         f"options_{request.node.callspec.id}",
         actual=core_values(result),
@@ -180,10 +180,10 @@ def test_options_match_the_legacy_analyzer(analyzer, expected, request):
 
 def test_the_weights_channel_weights_the_fit_and_follows_the_roi(expected):
     data = lineout(0)
-    weighted = analyze_v2(data, compiled())
+    weighted = analyze_compiled(data, compiled())
     # Same trace, no channel declared: the unweighted legacy fit.
     unweighted = compiled(loading={**LOADING, "auxiliary_columns": {}})
-    plain = analyze_v2(data[:, :2], unweighted)
+    plain = analyze_compiled(data[:, :2], unweighted)
     expected(
         "unweighted",
         actual=core_values(plain),
@@ -202,14 +202,14 @@ def test_the_channel_is_the_declared_column_not_a_neighbour():
     data = lineout(0)
     swapped = data.copy()
     swapped[:, 2] = np.roll(data[:, 2], 7)
-    assert dict(analyze_v2(swapped, core).scalars) != dict(
-        analyze_v2(data, core).scalars
+    assert dict(analyze_compiled(swapped, core).scalars) != dict(
+        analyze_compiled(data, core).scalars
     )
 
 
 def test_a_trace_without_its_declared_channel_is_refused():
     with pytest.raises(ValueError, match=r"Nx3 \(x, y, weights\)"):
-        analyze_v2(lineout(0)[:, :2], compiled())
+        analyze_compiled(lineout(0)[:, :2], compiled())
 
 
 def test_too_few_points_above_the_mask_fails_the_shot():
@@ -217,7 +217,7 @@ def test_too_few_points_above_the_mask_fails_the_shot():
     data[:, 2] = 0.0
     data[128, 2] = 1.0
     with pytest.raises(ValueError, match="valid points"):
-        analyze_v2(data, compiled())
+        analyze_compiled(data, compiled())
 
 
 # --------------------------------------------------------------- compiling

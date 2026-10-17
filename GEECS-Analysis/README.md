@@ -97,11 +97,11 @@ including when legacy RMS clips negative values internally.
 ## Running a recipe
 
 ```python
-from geecs_analysis.compat.v2 import analyze_v2
+from geecs_analysis.engine.compiled import analyze_compiled
 from geecs_analysis.recipe import compile_recipe
 
 compiled = compile_recipe(recipe)  # an already-validated AnalysisRecipe
-result = analyze_v2(raw_array, compiled)  # HxW camera or Nx2 trace
+result = analyze_compiled(raw_array, compiled)  # HxW camera or Nx2 trace
 ```
 
 Compilation is numpy-free and reads no files. It snapshots the recipe;
@@ -113,11 +113,11 @@ The optimizer compiles camera recipes once before acquisition.
 Source hosts opt into frame and table inputs with
 `compile_recipe(recipe, allow_file_backgrounds=True)`. The compiled recipe
 declares immutable binding names, path strings and fallback levels;
-compilation itself never loads them. `analyze_v2` accepts the same `inputs`
+compilation itself never loads them. `analyze_compiled` accepts the same `inputs`
 mapping as pure analysis and refuses missing bindings. Default compilation
 still rejects file-dependent recipes, including in the live optimizer.
 
-`scan_analysis.core_inputs.prepare_v2` is the source adapter used by the portal.
+`scan_analysis.core_inputs.prepare_recipe` is the source adapter used by the portal.
 It loads each background once through data-utils, preserves load-failure
 constant fallback, and returns a compiled recipe plus bound Frames. A
 successfully loaded shape mismatch remains an error. No files are written
@@ -175,7 +175,7 @@ duplicated transforms retain their configured order at the v2 boundary.
 
 ## Streaming execution units
 
-`compat.v2_run.run_units` evaluates explicit `ShotGroup`s through a
+`engine.stream.run_units` evaluates explicit `ShotGroup`s through a
 caller-supplied `load(shot_number)` function. A host owns scan discovery,
 grouping, readers and output sinks. Per-shot groups have one member;
 `average_before_analysis=True` loads a bin's native arrays and computes its

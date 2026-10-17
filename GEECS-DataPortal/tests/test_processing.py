@@ -87,7 +87,7 @@ def test_a_core_failure_propagates_without_a_second_backend(recipe_tree, monkeyp
     import scan_analysis.core_preview as core_preview
 
     # every view analyses through ScanAnalysis' preview seam
-    monkeypatch.setattr(core_preview, "analyze_v2", fail_core)
+    monkeypatch.setattr(core_preview, "analyze_compiled", fail_core)
     with pytest.raises(RuntimeError, match="core failure"):
         processing.process_images("beam", [array], config_dir=root)
     with pytest.raises(RuntimeError, match="core failure"):

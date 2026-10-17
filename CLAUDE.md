@@ -202,8 +202,8 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         or tiled directly)
                         (+ GEECS-Analysis + ScanAnalysis +
                         GEECS-Schemas, optional via
-                        the `analysis` extra — core processing/preview for supported
-                        v2 recipes with legacy ephemeral fallback, and the
+                        the `analysis` extra — core processing/preview of
+                        recipes, and the
                         Analysis tab's direct ScanAnalyzer runs)
                         GeecsWebTheme (the shared palette; the portal
                         mounts it at /theme for itself and the config

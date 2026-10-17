@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 import numpy as np
-from geecs_analysis.compat.v2 import ScanBackground
+from geecs_analysis.engine.compiled import ScanBackground
 from geecs_data_utils.io.himg_stack import HIMG_SUFFIX
 from geecs_data_utils.io.images import read_imaq_image
 from geecs_data_utils.scan_info import analysis_folder_for, scan_folder_name

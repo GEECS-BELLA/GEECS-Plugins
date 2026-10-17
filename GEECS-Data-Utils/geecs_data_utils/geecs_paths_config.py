@@ -34,8 +34,6 @@ class GeecsPathsConfig:
     experiment : str, optional
         The default experiment name. May be None on analysis-only machines where
         the experiment is always supplied at runtime (e.g. via the data portal).
-    image_analysis_configs_path : Path
-        path to directory containing image analysis configs
     scan_analysis_configs_path : Path
         path to directory containing scan analysis configs
     """
@@ -45,7 +43,6 @@ class GeecsPathsConfig:
         config_path: Path = Path("~/.config/geecs_python_api/config.ini").expanduser(),
         default_experiment: Optional[str] = None,
         set_base_path: Optional[Union[Path, str]] = None,
-        image_analysis_configs_path: Optional[Union[Path, str]] = None,
         scan_analysis_configs_path: Optional[Union[Path, str]] = None,
     ):
         """
@@ -64,8 +61,6 @@ class GeecsPathsConfig:
             config file (may stay None on analysis-only machines).
         set_base_path : Path, optional
             Default path for locating GEECS data (default: Z:/data).
-        image_analysis_configs_path : Path, optional
-            default path to folder containing image_analysis_configs
         scan_analysis_configs_path : Path, optional
             default path to folder containing scan_analysis_configs
 
@@ -99,18 +94,11 @@ class GeecsPathsConfig:
                         if local_path_str is not None:
                             base_path = self._validate_path(Path(local_path_str))
 
-                    # Resolve scan_analysis_configs_path FIRST so the
-                    # image-side path can derive from it.
                     if scan_analysis_configs_path is None:
                         local_path = Path(
                             config["Paths"].get("scan_analysis_configs_path", None)
                         )
                         scan_analysis_configs_path = self._validate_path(local_path)
-
-                    if image_analysis_configs_path is None:
-                        image_analysis_configs_path = self._resolve_image_path(
-                            config, scan_analysis_configs_path
-                        )
 
                 except Exception as e:
                     logger.exception("Error reading config file %s: %s", config_path, e)
@@ -129,7 +117,6 @@ class GeecsPathsConfig:
 
         self.base_path = base_path  # .resolve()
         self.experiment = experiment
-        self.image_analysis_configs_path = image_analysis_configs_path
         self.scan_analysis_configs_path = scan_analysis_configs_path
 
         # Optional tool-specific paths loaded from config.ini
@@ -199,56 +186,6 @@ class GeecsPathsConfig:
         if input_path is not None and input_path.exists():
             return input_path
         logger.warning("%s path was not found", input_path)
-        return None
-
-    @classmethod
-    def _resolve_image_path(
-        cls, config: ConfigParser, scan_analysis_configs_path: Optional[Path]
-    ) -> Optional[Path]:
-        """Resolve the image-analysis config path with unified-configs awareness.
-
-        After the unified-configs migration, image and scan analysis
-        share one config tree: the per-diagnostic YAMLs under
-        ``scan_analysis_configs_path/analyzers`` carry both an
-        ``image:`` section and a ``scan:`` section. ImageAnalysis
-        searches that subtree recursively to find a camera or line
-        config by name.
-
-        The legacy ``image_analysis_configs_path`` key in ``config.ini``
-        is honoured (with a deprecation warning) for users who haven't
-        yet updated their config file. When the legacy key is absent,
-        the image path derives from ``scan_analysis_configs_path /
-        "analyzers"``.
-
-        Parameters
-        ----------
-        config : ConfigParser
-            Loaded ``config.ini``.
-        scan_analysis_configs_path : Path, optional
-            Already-resolved scan-analysis configs root.
-
-        Returns
-        -------
-        Path or None
-            Resolved image-analysis configs path, or ``None`` if neither
-            the legacy key nor the derived path exists.
-        """
-        legacy = config["Paths"].get("image_analysis_configs_path", None)
-        if legacy is not None:
-            logger.warning(
-                "image_analysis_configs_path in config.ini is deprecated. "
-                "After the unified-configs migration, ImageAnalysis reads "
-                "from scan_analysis_configs_path/analyzers (which holds "
-                "the embedded image: section of each diagnostic). Remove "
-                "the line from config.ini to use auto-derivation."
-            )
-            resolved = cls._validate_path(Path(legacy))
-            if resolved is not None:
-                return resolved
-
-        if scan_analysis_configs_path is not None:
-            return cls._validate_path(Path(scan_analysis_configs_path) / "analyzers")
-
         return None
 
 

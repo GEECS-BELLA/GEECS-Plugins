@@ -5,8 +5,9 @@ stored ``.npz`` values were captured from the legacy backend and are
 unchanged, so these pin trace ROI, interpolation (including descending and
 duplicate x), circular-mask local centres, crosshair + rotation
 composition, camera ROI clamping and its empty-fallback origin, the
-threshold variants, trace storage rounding and negative clipping, and the
-camera step sequences.
+threshold variants, and the camera step sequences. Trace storage rounding
+and the float64 negative clip are exercised but not pinned: their effect
+sits inside the 1e-6 comparison tolerance.
 """
 
 import numpy as np
@@ -14,7 +15,7 @@ import pytest
 from geecs_data_utils.frames import ShotMeta
 from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.v2 import analyze_v2
+from geecs_analysis.engine.compiled import analyze_compiled
 from geecs_analysis.recipe import compile_recipe
 
 LINE = {"kind": "line", "loading": {"data_type": "tsv"}, "label": "x vs y"}
@@ -50,7 +51,7 @@ def compare(expected, request):
         original = data.copy()
         before = doc.model_dump_json()
         compiled = compile_recipe(doc)
-        result = analyze_v2(data, compiled, shot=ShotMeta("diagnostic", 7, 123))
+        result = analyze_compiled(data, compiled, shot=ShotMeta("diagnostic", 7, 123))
         actual = {
             "data": result.frame.as_trace() if line else result.frame.data,
             **result.scalars,
@@ -180,7 +181,7 @@ def test_a_trace_roi_that_selects_nothing_fails_the_shot_explicitly():
     doc = trace_recipe([{"step": "roi", "bounds": [[20, 30]], "units": "axis"}], False)
     data = np.column_stack((np.arange(5.0), np.ones(5)))
     with pytest.raises(ValueError, match="ROI selects no samples"):
-        analyze_v2(data, compile_recipe(doc))
+        analyze_compiled(data, compile_recipe(doc))
 
 
 MASK = {"step": "circular_mask", "center": [17, 21], "radius": 12, "value": 0.5}

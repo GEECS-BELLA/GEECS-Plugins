@@ -12,7 +12,7 @@ from geecs_schemas.analysis import (
 from scipy import ndimage
 
 from geecs_analysis.algorithms import downramp_shock as ported
-from geecs_analysis.compat.v2 import V2Recipe, analyze_v2
+from geecs_analysis.engine.compiled import CompiledRecipe, analyze_compiled
 from geecs_analysis.measurement import Measurement, Segment
 from geecs_analysis.measures.downramp_phase import (
     OVERLAYS,
@@ -55,7 +55,7 @@ def phase_map(case: str, seed: int, shape: tuple[int, int] = (64, 96)) -> np.nda
     return 3.0 - dip + 0.02 * rng.normal(size=(H, W))
 
 
-def recipe(*steps: dict) -> V2Recipe:
+def recipe(*steps: dict) -> CompiledRecipe:
     return compile_recipe(
         AnalysisRecipe.model_validate(
             {
@@ -104,7 +104,7 @@ def distance_to_segment(segment: Segment, x: float, y: float) -> float:
 @pytest.mark.parametrize("case", CASES)
 def test_the_core_route_equals_the_legacy_analyzer(case, seed, expected, request):
     image = phase_map(case, seed)
-    new = analyze_v2(image, recipe())
+    new = analyze_compiled(image, recipe())
     stored = expected(
         f"route_{request.node.callspec.id}",
         actual=core_values(new),
@@ -126,7 +126,7 @@ def test_the_recipe_steps_precede_the_shock_analysis_as_the_pipeline_did(
     steps, expected, request
 ):
     data = phase_map("angled", 3)
-    new = analyze_v2(data, recipe(*steps))
+    new = analyze_compiled(data, recipe(*steps))
     stored = expected(
         f"steps_{request.node.callspec.id}",
         actual=core_values(new),
@@ -135,10 +135,10 @@ def test_the_recipe_steps_precede_the_shock_analysis_as_the_pipeline_did(
 
 
 def test_the_measured_shock_is_where_it_was_planted():
-    plain = analyze_v2(phase_map("shock", 0), recipe())
+    plain = analyze_compiled(phase_map("shock", 0), recipe())
     assert plain.scalars[SHOCK_LOCATION] == pytest.approx(SHOCK_COLUMN, abs=3)
     assert plain.scalars[SHOCK_ANGLE] == pytest.approx(0.0, abs=0.05)
-    angled = analyze_v2(phase_map("angled", 0), recipe())
+    angled = analyze_compiled(phase_map("angled", 0), recipe())
     assert angled.scalars[SHOCK_ANGLE] == pytest.approx(math.atan(0.3), abs=0.05)
     assert plain.scalars[PLATEAU_AVG] > 0
 
@@ -160,7 +160,7 @@ def test_options_reach_the_legacy_functions_at_the_same_values(expected):
         actual=core_values(new),
     )
     assert_defined(stored)
-    defaults = analyze_v2(image, recipe())
+    defaults = analyze_compiled(image, recipe())
     assert defaults.scalars[SHOCK_LOCATION] != new.scalars[SHOCK_LOCATION]
 
 
@@ -205,7 +205,7 @@ def test_the_mask_and_the_window_search_are_the_legacy_functions_bit_for_bit(exp
 
 def test_a_flat_map_is_nan_with_a_note_where_the_legacy_class_fails():
     flat = np.full((40, 60), 2.5)
-    result = analyze_v2(flat, recipe())
+    result = analyze_compiled(flat, recipe())
     assert all(math.isnan(result.scalars[key]) for key in SHOCK_SCALARS + SLOPE_SCALARS)
     assert result.notes[0].startswith("No signal after masking")
     assert np.all(result.frame.data == 0)
@@ -258,7 +258,7 @@ def test_the_shock_overlays_sit_on_the_frame_where_the_shock_is():
     """The rotated-canvas geometry lands back on the planted shock, tilted channel included."""
     axis_row = 32  # the channel crosses the map's centre
     for case in ("shock", "angled", "tilted"):
-        result = analyze_v2(phase_map(case, 1), recipe())
+        result = analyze_compiled(phase_map(case, 1), recipe())
         location = overlay(result, "shock_location")
         assert distance_to_segment(location, SHOCK_COLUMN, axis_row) < 3.0, case
         start, end = overlay(result, "plateau_start"), overlay(result, "plateau_end")
@@ -274,8 +274,8 @@ def test_the_shock_overlays_sit_on_the_frame_where_the_shock_is():
 
 def test_overlays_follow_the_frame_coordinates_after_a_crop():
     roi = {"step": "roi", "bounds": [[4, 60], [10, 96]]}
-    cropped = analyze_v2(phase_map("shock", 1), recipe(roi))
-    local = analyze_v2(phase_map("shock", 1)[4:60, 10:], recipe())
+    cropped = analyze_compiled(phase_map("shock", 1), recipe(roi))
+    local = analyze_compiled(phase_map("shock", 1)[4:60, 10:], recipe())
     for name in OVERLAYS:
         a, b = overlay(cropped, name), overlay(local, name)
         assert (a.x0, a.y0, a.x1, a.y1) == pytest.approx(
@@ -289,7 +289,7 @@ def test_overlays_follow_uniform_axes_and_are_omitted_on_a_nonuniform_one():
 
     image = phase_map("shock", 1)
     compiled = recipe()
-    reference = analyze_v2(image, compiled)
+    reference = analyze_compiled(image, compiled)
     # Uniform axes: offset, scaled, and one with a computed axis's float noise.
     scaled = analyze(
         Frame.from_array(
@@ -323,7 +323,7 @@ def test_segments_render_and_can_be_hidden_by_id():
     from geecs_analysis.render.specs import FigureSpec
     import matplotlib.pyplot as plt
 
-    result = analyze_v2(phase_map("tilted", 0), recipe())
+    result = analyze_compiled(phase_map("tilted", 0), recipe())
     segments = [o for o in result.overlays if isinstance(o, Segment)]
     assert min(min(s.y0, s.y1) for s in segments) < 0  # past the frame's edge
     drawn = single(result)

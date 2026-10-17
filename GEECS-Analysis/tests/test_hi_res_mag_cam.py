@@ -13,7 +13,7 @@ from geecs_schemas.analysis import (
 )
 
 from geecs_analysis.algorithms.bowtie_fit import BowtieFitAlgorithm
-from geecs_analysis.compat.v2 import V2Recipe, analyze_v2
+from geecs_analysis.engine.compiled import CompiledRecipe, analyze_compiled
 from geecs_analysis.measures.hi_res_mag_cam import (
     REJECTED,
     HiResMagCamSpec,
@@ -68,7 +68,7 @@ def frame(case: str, seed: int) -> np.ndarray:
 CASES = ("bowtie", "off-centre", "left arm", "waist blanked")
 
 
-def recipe(*steps: dict, **measure) -> V2Recipe:
+def recipe(*steps: dict, **measure) -> CompiledRecipe:
     return compile_recipe(
         AnalysisRecipe.model_validate(
             {
@@ -161,7 +161,7 @@ def test_the_core_route_matches_the_legacy_analyzer(seed, steps, expected, reque
     compiled = recipe(*steps, n_beam_size_clearance=3, min_total_counts=1500)
     raw = bowtie(seed, energy_center=70, vertical_offset=3)
 
-    core = analyze_v2(raw, compiled)
+    core = analyze_compiled(raw, compiled)
     weights = {o.id: o for o in core.overlays}["bowtie_weights"]
     stored = expected(
         f"route_{request.node.callspec.id}",
@@ -189,7 +189,7 @@ def test_the_core_route_matches_the_legacy_analyzer(seed, steps, expected, reque
 def test_a_waist_past_the_crop_reads_past_the_edge_not_clamped_to_it(columns, side):
     """The fit accepts a waist within ten columns of data; x0 must say where it is."""
     roi = {"step": "roi", "bounds": [[0, 64], list(columns)]}
-    core = analyze_v2(bowtie(1), recipe(roi))
+    core = analyze_compiled(bowtie(1), recipe(roi))
     assert core.scalars["emittance_proxy"] != REJECTED
     x0 = core.scalars["bowtie_x0"]
     assert x0 == pytest.approx(64, abs=4)
@@ -199,8 +199,10 @@ def test_a_waist_past_the_crop_reads_past_the_edge_not_clamped_to_it(columns, si
 
 def test_the_waist_column_is_in_sensor_pixels_like_the_centroid():
     raw = bowtie(1, energy_center=70)
-    cropped = analyze_v2(raw, recipe({"step": "roi", "bounds": [[0, 64], [20, 128]]}))
-    local = analyze_v2(raw[:, 20:], recipe())
+    cropped = analyze_compiled(
+        raw, recipe({"step": "roi", "bounds": [[0, 64], [20, 128]]})
+    )
+    local = analyze_compiled(raw[:, 20:], recipe())
     assert cropped.scalars["bowtie_x0"] == pytest.approx(
         local.scalars["bowtie_x0"] + 20
     )
@@ -216,7 +218,7 @@ def test_the_waist_column_is_in_sensor_pixels_like_the_centroid():
     ],
 )
 def test_a_rejected_fit_keeps_the_sentinel_and_blanks_the_fit_parameters(raw, reason):
-    core = analyze_v2(raw, recipe())
+    core = analyze_compiled(raw, recipe())
     assert core.scalars["emittance_proxy"] == REJECTED
     for key in ("bowtie_x0", "bowtie_w0", "bowtie_theta", "bowtie_r_squared"):
         assert math.isnan(core.scalars[key]), key
@@ -227,14 +229,14 @@ def test_a_rejected_fit_keeps_the_sentinel_and_blanks_the_fit_parameters(raw, re
 def test_the_measure_never_mutates_the_frame_it_floors():
     """The fit sees the frame floored at 10 counts; the measured frame does not."""
     raw = bowtie(3)
-    core = analyze_v2(raw, recipe())
+    core = analyze_compiled(raw, recipe())
     assert (core.frame.data > 0).sum() > (core.frame.data >= 10).sum()
     assert core.scalars["total_counts"] == core.frame.data[core.frame.data >= 10].sum()
     assert core.scalars["image_total"] == core.frame.data.sum()
 
 
 def test_overlays_render_the_fit_weights_as_a_lineout():
-    core = analyze_v2(bowtie(4), recipe())
+    core = analyze_compiled(bowtie(4), recipe())
     assert {o.id for o in core.overlays} == {
         "projection_x",
         "projection_y",
