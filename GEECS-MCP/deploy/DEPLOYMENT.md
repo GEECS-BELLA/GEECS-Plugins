@@ -1,39 +1,19 @@
 # GEECS-MCP deployment
 
-Two transports, one server.
+Two transports, one server.  Since 0.10.0 the server is a thin HTTP
+client of three services — the web scanner (`:8300`), the Data Portal
+(`:8200`) and the logbook (`:8400`) — and reaches nothing else
+(`DESIGN.md`).
 
 ## Central HTTP service (the multi-machine mode — recommended)
 
-One server runs on the **qserver box** (it already reaches everything
-locally: the RE Manager, the CA gateway, Tiled, the DB, and — crucially
-— it resolves configs from the SAME checkout the worker uses, so
-client-side validation exactly matches worker truth). Every osprey
-machine then needs **no GEECS install at all**:
+One server runs on the services box as the `geecs-mcp` systemd unit,
+`:8100/mcp`.  Every osprey machine then needs **no GEECS install at all**.
 
-```yaml
-# profile.yml on every osprey machine
-mcp_servers:
-  geecs:
-    url: http://192.168.6.14:8100/mcp
-    transport: http
-    permissions:
-      allow: [scan_status, scan_progress, scan_history, list_scan_configs,
-              wait_for_scan, get_scan_analysis, get_scan_figure,
-              get_analysis_artifact, get_scan_scalars,
-              list_analyzers, list_analysis_groups, wait_for_analysis,
-              stop_scan, pause_scan]
-      ask:   [submit_preset, move, resume_scan, clear_queue, run_analysis,
-              post_logbook_entry]
-```
+### Configuration
 
-(The lists mirror `geecs_mcp/tool_names.py` — `READ_TOOLS` and
-`STOP_TOOLS` under `allow`, `WRITE_TOOLS` under `ask` here; the HTU
-deployment's posture — the write verbs on `allow` at the admin tier only,
-with a DEVIATION marker — is the profile owner's call, derived from the
-same tuples.  Update both together when a verb lands.)
-
-Since the HTTP-client rebuild (DESIGN.md) the server reaches the lab
-through three services, named in the service account's `config.ini`:
+The service account's `~/.config/geecs_python_api/config.ini` — nothing
+else is read:
 
 ```ini
 [mcp]
@@ -42,64 +22,107 @@ portal_url  = http://<services host>:8200
 logbook_url = http://<services host>:8400
 ```
 
-An unset key leaves that service's verbs answering `service_unreachable`
-with the key's name; the server always starts.  `bootstrap_host.sh`
-renders them from `site.env` (PR G of the arc).
+`deploy/bootstrap_host.sh` renders the section from `site.env`'s
+`GEECS_SERVICES_HOST` (ports are fleet constants), and appends it to an
+existing `config.ini` that has none.  A file that already has a
+pre-0.10 `[mcp]` section (`client_identity`, `max_shots`) is not edited:
+the bootstrap prints the three lines to add by hand, and the old keys
+are ignored.  An unset key leaves that service's verbs answering
+`service_unreachable` with the key's name; the server always starts.
 
-**Hook/kill-switch semantics (VERIFIED against osprey, 2026-08-22)**:
-a `hooks:` key on a profile-level custom-server block is **silently
-ignored** — osprey hook presets do not attach to custom servers, and
-the interactive writes kill switch does not cover custom-server tools
-either (the framework's deny augmentation walks its own
-`FRAMEWORK_SERVERS` only). The actual gates are therefore:
+The server needs no data share, no configs root, no Tiled key and no
+analysis extra: analysis runs on the portal (`run_analysis` is the
+Analysis tab's own job, under the portal's memory ceiling), figures are
+sent to the logbook by the portal, and a figure reference is the
+portal's artifact URL.
 
-- **Interactive**: the native `ask` permission prompt on every control
-  verb — a human sees each `submit_preset`/`move`/`clear_queue`/
-  `resume_scan`/`run_analysis`/`post_logbook_entry` call with its arguments (the HTU
-  deployment puts them on `allow` at the admin tier with its DEVIATION
-  marker — the profile owner's call). The
-  halt family (`stop_scan`,
-  `pause_scan`) is NOT behind the kill switch on either path:
-  interactively because the kill switch does not cover custom servers
-  (upstream gap), headless by the deliberate `write_tools` omission
-  below — halts are never blocked.
-- **Headless** (`osprey query`): the framework reads
-  `hook_config.json`'s `write_tools` (populated from the profile's
-  `config:`) — list every `tool_names.WRITE_TOOLS` entry there
-  (`submit_preset`, `move`, `resume_scan` — resume restarts motion, so
-  it gates like a submission — `clear_queue`, `run_analysis`,
-  `post_logbook_entry`) and
-  **deliberately NOT the halt family** (`stop_scan`, `pause_scan`):
-  exempt by omission, so a halt is never blocked on any path. E.g.
-  `write_tools: [mcp__geecs__submit_preset, mcp__geecs__move,
-  mcp__geecs__resume_scan, mcp__geecs__clear_queue,
-  mcp__geecs__run_analysis, mcp__geecs__post_logbook_entry]`.  **A profile deployed before 0.9.0
-  names removed tools** (`submit_scan`, `run_action`,
-  `move_scan_variable`, `describe_action`, `validate_scan_request`):
-  drop those entries — a permission naming a tool the server does not
-  register is inert, but it misreads as a capability that exists.  This is the ONLY headless
-  gate — a profile missing these entries leaves an unattended agent's
-  writes ungated.
+### The profile and the gates
 
-**Analysis runs through the portal.** `run_analysis` is the portal's
-`POST /api/run/{uid}/analysis` — the Analysis tab's own run, on the
-portal's worker thread, under the portal's memory ceiling — so this
-server needs no analysis extra, no configs root and no data share: it
-needs the portal's address.  The portal's `DEPLOYMENT.md` owns the share
-and the configs tree.
+The verb names and their classes come from `geecs_mcp/tool_names.py` —
+`READ_TOOLS`, `WRITE_TOOLS`, `STOP_TOOLS`.  A profile derives its lists
+from those tuples; never retype them.
 
-Two upstream osprey issues (to be filed from the osprey side): the
-silent acceptance of unknown keys like `hooks:` on custom-server
-blocks, and custom servers being excluded from the interactive kill
-switch. Until they land, do not add a `hooks:`
-key here — it would document intent the framework does not enforce.
+**Interactive gate — declare the server under `claude_code.servers`.**
+Osprey attaches its `writes_check` and `approval` pre-tool-use hooks to
+a custom server only when the profile declares it through the
+`claude_code.servers.<name>` config keys:
 
-Host setup (same checkout + ritual as the worker):
+```yaml
+# profile.yml on every osprey machine
+claude_code:
+  servers:
+    geecs:
+      transport: http
+      url: http://192.168.6.14:8100/mcp
+      permissions:
+        allow: [<READ_TOOLS>, <STOP_TOOLS>]   # + WRITE_TOOLS at the admin tier only
+        ask:   [<WRITE_TOOLS>]
+      hooks:
+        pre_tool_use: [writes_check, approval]
+```
+
+Verified structurally by the htu-assistant deployment on 2026-10-16
+(osprey 2026.9.0b3): the build renders, and each tier carries a
+`PreToolUse` matcher `mcp__geecs__.*` with both hook commands.  The
+matcher covers the reads too.  **Owed live** (an agent session on an
+osprey machine): a write is denied with `writes_enabled` off, and an
+allow-listed read passes without a prompt.
+
+The older **`mcp_servers:` route carries no hooks**: a `hooks:` key on
+an `mcp_servers` entry is silently dropped at load, and a dotted
+`claude_code.servers.geecs.hooks` key beside an `mcp_servers` entry is
+overwritten by the build (VERIFIED against osprey, 2026-08-22, and again
+2026-10-16).  On that route the only interactive gate is the native
+`ask` prompt on each write verb.
+
+The HTU deployment's posture is the profile owner's call: `READ_TOOLS`
+on `allow` everywhere, `STOP_TOOLS` on `allow` wherever the server
+renders, `WRITE_TOOLS` on `allow` at the admin tier only with its
+DEVIATION marker, and the write verbs dropped from the readonly and
+knowledge renders.
+
+**Headless gate** (`osprey query`): the framework reads
+`hook_config.json`'s `write_tools` (populated from the profile's
+`config:`) — list every `WRITE_TOOLS` entry there as
+`mcp__geecs__<verb>`: `submit_preset`, `move`, `resume_scan` (resume
+restarts motion, so it gates like a submission), `clear_queue`,
+`run_analysis`, `post_logbook_entry`.  This is the ONLY headless gate —
+a profile missing these entries leaves an unattended agent's writes
+ungated.
+
+**The halt family is never gated.**  `stop_scan` and `pause_scan` are
+deliberately absent from `write_tools` and sit on `allow`: a halt is
+never blocked on any path.
+
+**Names a pre-0.10 profile may still carry**: `get_scan_result`,
+`run_scan_analysis` (0.10.0), and `submit_scan`, `run_action`,
+`move_scan_variable`, `describe_action`, `validate_scan_request`
+(0.9.0).  Drop them — a permission naming a tool the server does not
+register is inert, but it misreads as a capability that exists.
+
+### Identity is a record, not an authorization
+
+Write verbs that take `operator` send
+`agent, admin supervision (<operator>)`: `submit_preset` (the scanner
+records it on the run, `md.geecs.operator`), `move` and `resume_scan`
+(sent to the scanner, which does not yet stamp it on the queued item),
+`post_logbook_entry` (the entry's author).  `stop_scan` / `pause_scan`
+record it when given and never refuse over it.  `clear_queue` and
+`run_analysis` carry no operator today (the portal's analysis route
+has no field for one).
+
+The string records who the agent says supervised; it proves nothing.
+Who may call which verb is decided by the profile's permission lists
+and osprey's hooks above, never by this server.
+
+### Host setup
+
+Same clone and ritual as the worker (`deploy/bootstrap_host.sh` does all
+of this — see `docs/platform/site_profile.md`):
 
 ```bash
 # as the service account; <root> = GEECS_CHECKOUT_ROOT from site.env, the
-# worker's clone is <root>/qs-checkout (deploy/bootstrap_host.sh does all of
-# this — see docs/platform/site_profile.md)
+# worker's clone is <root>/qs-checkout
 python3.11 -m venv <root>/geecs-mcp-venv
 <root>/geecs-mcp-venv/bin/pip install "<root>/qs-checkout/GEECS-MCP"   # non-editable:
                                                                        # code bakes into the venv
@@ -108,22 +131,32 @@ sudo install -m 0644 ~/deploy-staging/geecs-mcp.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now geecs-mcp
 ```
 
-Config is the standard `~/.config/geecs_python_api/config.ini` of the
-service user: `[mcp] scanner_url / portal_url / logbook_url` (above) —
-nothing else is read.  `[mcp] client_identity` is no longer read:
-the queue item's `user` is the scanner's identity for every submitter
-and the operator rides in the run's `md.geecs.operator`.  `[mcp]
-max_shots` is no longer read either (0.9.0).
+**Moving a host off a hand-started server** (a `nohup python -m
+geecs_mcp …` from 0.9): stop that process first — it holds `:8100` and
+the unit would fail to bind — then install and enable the unit as
+above, and check `ss -ltnp | grep 8100` names the unit's venv.
 
 Update ritual: `git pull` in the checkout, re-run the pip install (the
 install is non-editable by design — a pull never mutates code under the
 running service), `systemctl restart geecs-mcp`.
 
+Health check: a `scan_status` tool call from an agent.  Every verb that
+reaches a service names it on failure (`service_unreachable`,
+`service`, `url`): `scan_status` checks the scanner's address and
+`list_analyzers` the portal's.  No read reaches the logbook; its
+address is first exercised by a real `post_logbook_entry`, which is a
+write — do not post a test entry to check it.
+
+**The portal moves with this server.**  `post_logbook_entry` sends each
+figure through the portal with `entry_required` (GEECS-DataPortal
+0.41.0): a portal older than that ignores the field, and a figure whose
+draft has gone becomes a fresh `kept` note instead of a refused row.
+Deploy the portal first, or together.
+
 Interim security posture: no transport auth, lab-network-internal —
 identical to the manager's control socket; issue #660 (CurveZMQ / fleet
 auth) covers the eventual answer for both.  The server serves no bytes
-of its own any more: a figure reference points at the portal's artifact
-URL, under the portal's posture.
+of its own.
 
 ## Per-machine stdio (dev loop / single host)
 
@@ -136,6 +169,9 @@ mcp_servers:
     args: ["-m", "geecs_mcp"]
     permissions: { ... as above ... }
 ```
+
+(The `mcp_servers` route: no hooks, as above.)  The machine running it
+needs the same `[mcp]` section, pointing at the services box.
 
 Installing from the shared-drive clone works (`pip install
 <share>/GEECS-Plugins/GEECS-MCP`) — **non-editable only**: an editable

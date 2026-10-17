@@ -232,7 +232,8 @@ for s in $SERVICES; do
         [ -d "$venv" ] || run python3.11 -m venv "$venv"
         # Non-editable by design: the running code is baked into the venv, so a
         # pull in qs-checkout never mutates code under the running MCP server.
-        run "$venv/bin/pip" install --quiet --upgrade "$dir[$(extras_of mcp)]"
+        extras="$(extras_of mcp)"
+        run "$venv/bin/pip" install --quiet --upgrade "$dir${extras:+[$extras]}"
         continue
     fi
     extras="$(extras_of "$s")"
@@ -279,6 +280,13 @@ EOF
         if [ -n "${GEECS_ARCHIVER_HOST:-}" ]; then
             printf '\n[archiver]\nurl = http://%s:17665\n' "$GEECS_ARCHIVER_HOST"
         fi
+        # The three services geecs-mcp is a client of, when this site names
+        # their host. Ports are fleet constants (GEECS-MCP/DESIGN.md § 10).
+        if [ -n "${GEECS_SERVICES_HOST:-}" ]; then render_mcp_section; fi
+}
+render_mcp_section() {
+        printf '\n[mcp]\nscanner_url = http://%s:8300\nportal_url = http://%s:8200\nlogbook_url = http://%s:8400\n' \
+            "$GEECS_SERVICES_HOST" "$GEECS_SERVICES_HOST" "$GEECS_SERVICES_HOST"
 }
 if [ -s "$CFG" ]; then   # -s: an empty placeholder file counts as absent
     # Never overwritten (it also holds the hand-entered Tiled api_key), but
@@ -300,6 +308,18 @@ if [ -s "$CFG" ]; then   # -s: an empty placeholder file counts as absent
     if [ -n "${GEECS_ARCHIVER_HOST:-}" ] && ! grep -qE '^[[:space:]]*\[archiver\][[:space:]]*$' "$CFG"; then
         if [ "$DRY" -eq 1 ]; then echo "  [dry] would append [archiver] url = http://$GEECS_ARCHIVER_HOST:17665 to $CFG"
         else printf '\n[archiver]\nurl = http://%s:17665\n' "$GEECS_ARCHIVER_HOST" >> "$CFG"; echo "  appended [archiver] url = http://$GEECS_ARCHIVER_HOST:17665 to $CFG (the only change made to an existing file)"; fi
+    fi
+    # The same additive migration for geecs-mcp's three service URLs. A file
+    # that already has an [mcp] section (a pre-0.10 MCP host: client_identity,
+    # max_shots) is not edited — the keys are printed to add by hand.
+    if [ -n "${GEECS_SERVICES_HOST:-}" ]; then
+        if ! grep -qE '^[[:space:]]*\[mcp\][[:space:]]*$' "$CFG"; then
+            if [ "$DRY" -eq 1 ]; then echo "  [dry] would append [mcp] scanner_url/portal_url/logbook_url (http://$GEECS_SERVICES_HOST:8300/8200/8400) to $CFG"
+            else render_mcp_section >> "$CFG"; echo "  appended [mcp] scanner_url/portal_url/logbook_url (http://$GEECS_SERVICES_HOST:8300/8200/8400) to $CFG"; fi
+        elif ! grep -qE '^[[:space:]]*scanner_url[[:space:]]*=' "$CFG"; then
+            echo "  NOTE: $CFG has an [mcp] section without the service URLs — geecs-mcp answers service_unreachable until these lines are added under [mcp] by hand:"
+            render_mcp_section | sed -n '3,5p' | sed 's/^/      /'
+        fi
     fi
 elif [ "$DRY" -eq 1 ]; then echo "  [dry] would write $CFG:"; render_config_ini | sed 's/^/      /'
 else
