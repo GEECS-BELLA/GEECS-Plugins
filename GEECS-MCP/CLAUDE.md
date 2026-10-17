@@ -106,7 +106,10 @@ tests/
   portal's job log is cut to a 40-line tail; `get_analysis_artifact` is
   byte-capped (64 KiB default, 256 KiB ceiling), refuses images and
   binary files, and image bytes ride model context only through
-  `get_scan_figure(thumbnail=true)`'s ≤768 px JPEG — the 0.6.0 lesson (a
+  `get_scan_figure(thumbnail=true)`'s ≤768 px JPEG, returned as an MCP
+  **image** content block beside the text reference (never base64 inside
+  the JSON, which reaches the model as thousands of characters of text;
+  the wrapper carries no return annotation for that reason) — the 0.6.0 lesson (a
   247 KB inline PNG once blew a haiku-tier agent's context).  Figures are
   otherwise **references**: the portal's own artifact URL, for a client
   to fetch and save.

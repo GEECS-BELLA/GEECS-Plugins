@@ -22,7 +22,7 @@ Analysis-tab route), `get_scan_analysis` (the per-scan picture),
 `get_analysis_artifact` (a run's JSON/text sidecar, byte-capped) and
 `get_scan_scalars` (per-bin statistics of up to four columns) for the
 numbers, `get_scan_figure` (a reference to the portal's artifact URL;
-`thumbnail=true` for a bounded JPEG).
+`thumbnail=true` for a bounded JPEG as an MCP image block).
 
 Permission lists import `geecs_mcp.tool_names` (`READ_TOOLS`,
 `WRITE_TOOLS`, `STOP_TOOLS`); `deploy/DEPLOYMENT.md` has the profile

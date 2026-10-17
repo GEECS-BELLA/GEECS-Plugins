@@ -284,21 +284,44 @@ class TestFigures:
         )
         assert "thumbnail" not in out
 
-    async def test_a_thumbnail_is_a_bounded_jpeg(self, wired) -> None:
+    async def test_a_thumbnail_is_an_mcp_image_block(self, wired) -> None:
+        """Through the registered tool and an MCP client: text + IMAGE content, not base64 text."""
+        from fastmcp import Client
+
+        from geecs_mcp.server import create_server
+
         await _finished()
-        out = _j(
-            await run(
-                tools._get_scan_figure,
-                PORTAL_SCAN,
-                "UC_Crop/Array2DScanAnalyzer/cam_summary_waterfall.png",
-                DAY,
-                True,
+        async with Client(create_server()) as client:
+            result = await client.call_tool(
+                "get_scan_figure",
+                {
+                    "scan_number": PORTAL_SCAN,
+                    "label": "UC_Crop/Array2DScanAnalyzer/cam_summary_waterfall.png",
+                    "day": DAY,
+                    "thumbnail": True,
+                },
             )
-        )
-        assert out["ok"] is True, out
-        assert out["width"] == 40 and out["height"] == 30
-        jpeg = base64.b64decode(out["thumbnail"]["base64"])
-        assert jpeg[:2] == b"\xff\xd8"  # JPEG magic
+        kinds = [type(block).__name__ for block in result.content]
+        assert kinds == ["TextContent", "ImageContent"], kinds
+        reference = json.loads(result.content[0].text)
+        assert reference["ok"] is True
+        assert reference["width"] == 40 and reference["height"] == 30
+        image = result.content[1]
+        assert image.mimeType == "image/jpeg"
+        assert base64.b64decode(image.data)[:2] == b"\xff\xd8"  # JPEG magic
+
+    async def test_without_thumbnail_the_reference_is_text_only(self, wired) -> None:
+        from fastmcp import Client
+
+        from geecs_mcp.server import create_server
+
+        await _finished()
+        async with Client(create_server()) as client:
+            result = await client.call_tool(
+                "get_scan_figure", {"scan_number": PORTAL_SCAN, "day": DAY}
+            )
+        assert [type(b).__name__ for b in result.content] == ["TextContent"]
+        assert json.loads(result.content[0].text)["kind"] == "summary"
 
     async def test_an_unknown_label_lists_the_figures(self, wired) -> None:
         await _finished()
