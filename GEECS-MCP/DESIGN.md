@@ -107,9 +107,18 @@ stable: the HTU profile derives its allow/ask lists and
 The deployment's posture (htu-assistant session, 2026-10-16):
 `READ_TOOLS` on allow everywhere; `STOP_TOOLS` on allow wherever the
 server renders; `WRITE_TOOLS` on allow at the admin tier only, with the
-profile's DEVIATION marker, the writes-check hook attached through
-`claude_code.servers.geecs.hooks`; the readonly and knowledge renders
-drop the write verbs.
+profile's DEVIATION marker; the readonly and knowledge renders drop the
+write verbs. The headless gate is the profile's `write_tools` list
+derived from `WRITE_TOOLS`, as `deploy/DEPLOYMENT.md` describes today.
+The htu-assistant scout proposes attaching the writes-check hook through
+osprey's `claude_code.servers.geecs.hooks` key — a different key from
+the `mcp_servers` block's `hooks:`, which `DEPLOYMENT.md` and this
+package's CLAUDE.md record as silently ignored (verified 2026-08-22).
+That reading comes from osprey's source, not a live run: it is
+**unverified** until the first rendered profile is exercised, and PR G
+rewrites the gating sections of `DEPLOYMENT.md` and CLAUDE.md to
+whatever that verification shows, so the repo never carries two
+statements of the headless gate.
 
 ## 4. Verb by verb
 
@@ -156,8 +165,10 @@ claimed the scan).
    otherwise), **not** the dotted `reference` the move reply returns, so
    the MCP reads back with the caller's `Device:Variable`, or, for a
    catalog name, with the `target` that `GET /api/scan-variables` lists
-   for it; a bare device or a pseudo variable (`target: null`) has no
-   readback and the field is `null` with a `readback_detail` saying why.
+   for it; a bare device or a pseudo variable (`target` null — or the
+   empty string, which the listing also emits and the MCP treats the
+   same) has no readback and the field is `null` with a
+   `readback_detail` saying why.
 3. ok: `{item_uid, reference, finished, state, word, detail, readback:{value, units, timestamp, age_s} | null, readback_detail}`.
 
 ### 4.3 `wait_for_scan(item_uid, timeout_s=240)`
@@ -214,12 +225,17 @@ Polls `GET /api/run/{uid}/analysis` every 2 s until
    it beside `LogEntry` "for GEECS-MCP to validate" is updated in PR F to
    record this: the MCP validates nothing.)
 2. For each figure — a portal artifact reference
-   `{scan_number, day?, path, caption?}` — one call to the **portal**:
+   `{scan_number, day?, path, caption?}` — resolve `uid` with the §4.4
+   jump (once per distinct scan, `matched` checked), then one call to
+   the **portal**:
    `POST <portal>/api/run/{uid}/logbook {entry: <id>, path, caption, author: <identity string>}`.
    That route exists today for the Plot tab (`PlotToLogbook` with an
    `image` data-URL); PR B adds `path` as the alternative image source,
    the artifact fetched server-side with the same containment as
-   `/run/{uid}/artifact`. The portal's `logbook_send` already owns the
+   `/run/{uid}/artifact`, and adds the attachment `link` to the route's
+   reply (today `{entry_id, appended, url}`). Its gate — the run must be
+   this experiment's, with a day and a scan number — refuses with 404,
+   which is `not_found` here. The portal's `logbook_send` already owns the
    upload → re-read → PATCH-append → retry-on-409 sequence
    (`geecs_portal/logbook_send.py`, the logbook's one HTTP write client
    per its CLAUDE.md), so the MCP does not grow a second copy and never
@@ -281,7 +297,7 @@ service text preserved verbatim in `message`. Kinds:
 |---|---|
 | `invalid_request` | scanner `error.kind == invalid_request` (400), FastAPI 422 bodies, portal/logbook 400/422, the logbook's 413/415 on attachments (relayed through the portal send), argument checks (empty operator) |
 | `not_found` | scanner 404; portal 404 (`run not found`, `no diagnostic`, `no such artifact`, jump `matched: false`); logbook 404 |
-| `policy_refusal` | scanner 409 (`needs_acknowledgement`, `pending_items`, `re_state`, `items_in_queue`, `exists`), the verbs' 200 `{ok:false}` (`nothing to stop (RE state: …)`, and the stop budget's `pause did not land within 120 s — scan still running`), portal 409 (run in progress), logbook 409 (version) |
+| `policy_refusal` | scanner 409 (`needs_acknowledgement`, `pending_items`, `re_state`, `items_in_queue`), the verbs' 200 `{ok:false}` (`nothing to stop (RE state: …)`, and the stop budget's `pause did not land within 120 s — scan still running`), portal 409 (run in progress), logbook 409 (version) |
 | `service_unreachable` | **new** — connect/read failure or 5xx from any of the three; `extra.service ∈ {scanner, portal, logbook}` and `extra.url`. Replaces `manager_unreachable` and `tiled_unreachable` (the scanner's 503 `manager_unreachable` maps here with `service: "scanner"` and the scanner's message) |
 | `internal_error` | the tools-never-raise backstop |
 
@@ -323,7 +339,7 @@ tools' base URLs resolve without sockets. The seam is
 |---|---|---|
 | scanner | `create_app(ScannerService(DemoQueueClient(streams, period=0, user=...), DemoResolver(), preflight=demo_preflight, settables=DemoSettables(), readback=DemoReadback(...)))` (GeecsScanner's own `tests/conftest.py` shape) | routes, models, preflight flow (the demo preflight always asks `gateway_liveness` — the pass-through path is exercised by construction), the `mv` idle-only rule, queue history rows with `scan_numbers`/`run_uids`; the test advances scans with `manager.step()` between the wait verb's polls (the sleep is a patchable module attribute) |
 | portal | `create_app(FakeCatalog(), processing_config_dir=tmp configs tree, analysis_factory=fake)` (the portal's `tests/test_analysis_runs.py` shape) | jump/run/analysis/artifact routes, the 202/409/400 ladder, the job record states, artifact containment |
-| logbook | `create_app("Undulator", base_directory=tmp share, notes_db=tmp sqlite)` | the store, the draft rule, attachments, versioning, the mirror; the portal fixture's `--logbook-url` points at this app so the figure sends run end to end |
+| logbook | `create_app("Undulator", base_directory=tmp share, notes_db=tmp sqlite)` | the store, the draft rule, attachments, versioning, the mirror. The figure sends run end to end because PR B gives the portal's `create_app` a `logbook_client` injection (today `send_plot` builds its own socket `httpx.Client` unless one is passed): the fixture hands it an `httpx.Client` on an `ASGITransport` to this app, with `logbook_url` set |
 
 Each contract test calls the **tool impl** and asserts on the envelope,
 so a route or model change in any service fails `GEECS-MCP/tests` in the
