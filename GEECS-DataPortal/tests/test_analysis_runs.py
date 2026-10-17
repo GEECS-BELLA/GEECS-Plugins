@@ -992,7 +992,7 @@ class TestCatalog:
             "device": "cam",
             "output_dir": "UC_Crop",
             "destructive": False,
-            "kind": "diagnostic",
+            "kind": "recipe",
         }
         assert by_id["UC_Compact"]["destructive"] is True
         assert by_id["UC_Compact"]["kind"] == "job"

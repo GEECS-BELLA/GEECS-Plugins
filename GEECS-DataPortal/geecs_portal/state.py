@@ -59,7 +59,6 @@ class _DiagInfo:
 #: imports no schema class).
 _DOCUMENT_KINDS = {
     "AnalysisRecipe": "recipe",
-    "AnalysisDiagnostic": "diagnostic",
     "HimgJob": "job",
 }
 
