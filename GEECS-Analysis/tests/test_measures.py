@@ -28,15 +28,6 @@ def assert_finite(scalars):
 def test_beam_matches_legacy_in_global_pixel_coordinates(
     shape, slopes, expected, request
 ):
-    from image_analysis.algorithms.basic_beam_stats import (
-        beam_profile_stats,
-        flatten_beam_stats,
-    )
-    from image_analysis.algorithms.beam_slopes import compute_beam_slopes
-
-    assert beam_profile_stats.__module__.startswith("image_analysis.")
-    assert compute_beam_slopes.__module__.startswith("image_analysis.")
-
     samples = np.random.default_rng(7).uniform(1, 100, shape)
     frame = Frame.from_array(
         samples,
@@ -51,10 +42,6 @@ def test_beam_matches_legacy_in_global_pixel_coordinates(
     stored = expected(
         f"beam_{request.node.callspec.id}",
         actual=dict(result.scalars),
-        oracle=lambda: {
-            **flatten_beam_stats(beam_profile_stats(samples, roi_offset=(30, 20))),
-            **(compute_beam_slopes(samples) if slopes else {}),
-        },
     )
     assert result.frame is frame
     assert not result.notes
@@ -108,32 +95,23 @@ def test_beam_affine_coordinates_transform_centroids_and_widths():
     ],
 )
 def test_line_matches_legacy_on_evenly_spaced_axes(coordinates, expected, request):
-    from image_analysis.algorithms.basic_line_stats import LineBasicStats
-
-    assert LineBasicStats.__module__.startswith("image_analysis.")
-
     trace = np.column_stack((coordinates, [1, 2, 4, 8, 12, 9, 4, 2, 1]))
     result = analyze(Frame.from_trace(trace, x_unit="MeV"), recipe("line"))
     assert_finite(result.scalars)
     expected(
         f"line_even_{request.node.callspec.id}",
         actual=dict(result.scalars),
-        oracle=lambda: LineBasicStats(line_data=trace.copy()).to_dict(),
     )
     assert not result.notes
 
 
 def test_line_widths_on_an_uneven_axis_are_moments_over_x(expected):
     """#1029: not index-space widths times the one spacing at the centroid."""
-    from image_analysis.algorithms.basic_line_stats import LineBasicStats
-
-    assert LineBasicStats.__module__.startswith("image_analysis.")
 
     x = np.array([2, 3, 6, 7, 10, 12, 15, 19, 20], dtype=float)
     y = np.array([1, 2, 4, 8, 12, 9, 4, 2, 1], dtype=float)
     legacy = expected(
         "line_uneven_legacy",
-        oracle=lambda: LineBasicStats(line_data=np.column_stack((x, y))).to_dict(),
     )
     result = analyze(
         Frame.from_trace(np.column_stack((x, y)), x_unit="MeV"), recipe("line")
@@ -200,17 +178,12 @@ def interval_weights(x):
 
 
 def test_line_widths_on_a_stitched_trace_are_measured_in_x(expected):
-    from image_analysis.algorithms.basic_line_stats import LineBasicStats
-
-    assert LineBasicStats.__module__.startswith("image_analysis.")
-
     joined = stitched_repro()
     x, y = joined[:, 0], joined[:, 1]
     frame = Frame.from_array(y, axes=(Axis(values=x, unit="MeV"),))
     result = analyze(frame, recipe("line"))
     legacy = expected(
         "line_stitched_legacy",
-        oracle=lambda: LineBasicStats(line_data=joined.copy()).to_dict(),
     )
     legacy = {key: float(value) for key, value in legacy.items()}
 
@@ -281,13 +254,6 @@ def test_even_spacing_is_judged_against_the_step():
 
 
 def test_beam_widths_on_an_uneven_camera_axis_follow_the_line_measure(expected):
-    from image_analysis.algorithms.basic_beam_stats import (
-        beam_profile_stats,
-        flatten_beam_stats,
-    )
-
-    assert beam_profile_stats.__module__.startswith("image_analysis.")
-
     samples = np.random.default_rng(9).uniform(1, 10, (9, 11))
     x = np.array([0, 1, 3, 4, 6, 9, 10, 13, 14, 18, 20], dtype=float)
     frame = Frame.from_array(
@@ -314,9 +280,6 @@ def test_beam_widths_on_an_uneven_camera_axis_follow_the_line_measure(expected):
     # The evenly spaced y axis, the diagonals and the image totals are legacy.
     legacy = expected(
         "beam_uneven_legacy",
-        oracle=lambda: flatten_beam_stats(
-            beam_profile_stats(samples, roi_offset=(0, 4))
-        ),
     )
     for key, value in legacy.items():
         if key.startswith(("y_", "x_45", "y_45", "image")):
@@ -326,10 +289,6 @@ def test_beam_widths_on_an_uneven_camera_axis_follow_the_line_measure(expected):
 def test_negative_line_samples_preserve_legacy_scalars_without_mutating_frame(
     expected,
 ):
-    from image_analysis.algorithms.basic_line_stats import LineBasicStats
-
-    assert LineBasicStats.__module__.startswith("image_analysis.")
-
     trace = np.column_stack((np.arange(9), [-1, 2, 4, 8, 12, 9, 4, 2, -2]))
     frame = Frame.from_trace(trace)
     result = analyze(frame, recipe("line"))
@@ -337,7 +296,6 @@ def test_negative_line_samples_preserve_legacy_scalars_without_mutating_frame(
     expected(
         "line_negative",
         actual=dict(result.scalars),
-        oracle=lambda: LineBasicStats(line_data=trace.copy()).to_dict(),
     )
     np.testing.assert_array_equal(frame.as_trace(), trace)
     assert result.frame is frame
@@ -447,7 +405,7 @@ for kind, count in (
     recipe = Analysis.model_validate({"measure": {"kind": kind}})
     assert len(recipe.measure.emitted_scalars()) == count
 Analysis.model_json_schema()
-for module in ("numpy", "scipy", "matplotlib", "geecs_data_utils", "image_analysis"):
+for module in ("numpy", "scipy", "matplotlib", "geecs_data_utils"):
     assert module not in sys.modules, module
 """,
         ],

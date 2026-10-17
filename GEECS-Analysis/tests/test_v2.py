@@ -34,17 +34,7 @@ def compare(expected, request):
     calls = iter(range(100))
 
     def run(doc, data):
-        from image_analysis.ephemeral import run_document_ephemeral
-
-        assert run_document_ephemeral.__module__.startswith("image_analysis.")
         line = doc.image.type == "line"
-
-        def legacy():
-            old = run_document_ephemeral(doc, [data])[0]
-            return {
-                "data": old.line_data if line else old.processed_image,
-                **old.scalars,
-            }
 
         original = data.copy()
         before = doc.model_dump_json()
@@ -57,7 +47,6 @@ def compare(expected, request):
         stored = expected(
             f"{request.node.name}-{next(calls)}",
             actual,
-            oracle=legacy,
         )
         for key, value in stored.items():
             if key != "data" and not np.isfinite(value):
@@ -289,7 +278,7 @@ from geecs_analysis.compat.v2 import compile_v2
 from geecs_schemas.analysis import AnalysisDiagnostic
 recipe = compile_v2(AnalysisDiagnostic.model_validate({"name": "camera", "analyzer": {"kind": "beam"}, "image": {"type": "camera"}}))
 assert len(recipe.analysis.measure.emitted_scalars()) == 18
-for module in ("numpy", "scipy", "matplotlib", "image_analysis", "geecs_data_utils"):
+for module in ("numpy", "scipy", "matplotlib", "geecs_data_utils"):
     assert module not in sys.modules, module
 """,
         ],
@@ -316,12 +305,9 @@ def test_trace_roi_matches_the_legacy_trace_analyzer(bounds, storage, compare):
 
 def test_a_trace_roi_that_selects_nothing_fails_the_shot_explicitly():
     """Legacy returned an empty trace; the core fails that shot with a reason."""
-    from image_analysis.ephemeral import run_document_ephemeral
 
     doc = document("trace", pipeline=["roi"], roi={"x_min": 20, "x_max": 30})
     data = np.column_stack((np.arange(5.0), np.ones(5)))
-    (legacy,) = run_document_ephemeral(doc, [data])
-    assert legacy.line_data.shape == (0, 2)
     with pytest.raises(ValueError, match="ROI selects no samples"):
         analyze_v2(data, compile_v2(doc))
 

@@ -30,13 +30,6 @@ def run(frame, **params):
     ],
 )
 def test_equals_the_legacy_map_bit_for_bit(shape, offsets, model, expected, request):
-    from image_analysis.processing.array2d.vignette import (
-        apply_vignette_map,
-        build_radial_vignette_map,
-    )
-
-    assert apply_vignette_map.__module__.startswith("image_analysis.")
-
     raw = np.random.default_rng(3).normal(100, 20, shape)
     x_offset, y_offset = offsets
     frame = Frame.from_array(raw, shot=ShotMeta("camera", 1, 0.0))
@@ -44,12 +37,6 @@ def test_equals_the_legacy_map_bit_for_bit(shape, offsets, model, expected, requ
     expected(
         f"vignette_{request.node.callspec.id}",
         actual=result.data,
-        oracle=lambda: apply_vignette_map(
-            raw,
-            build_radial_vignette_map(
-                shape, x_offset=x_offset, y_offset=y_offset, **model
-            ),
-        ),
     )
     assert result.axes is frame.axes and result.shot is frame.shot
     np.testing.assert_array_equal(frame.data, raw)
@@ -102,9 +89,6 @@ SECTIONS = dict(
 
 def test_the_htt_magcam_chain_matches_the_legacy_pipeline(expected):
     # The HTT-MagCam documents' order: background, vignette, roi, ...
-    from image_analysis.ephemeral import run_document_ephemeral
-
-    assert run_document_ephemeral.__module__.startswith("image_analysis.")
 
     pipeline = ["background", "vignette", "roi", "thresholding", "filtering"]
     doc = camera([*pipeline, "transforms"], **SECTIONS)
@@ -119,7 +103,6 @@ def test_the_htt_magcam_chain_matches_the_legacy_pipeline(expected):
     expected(
         "htt_magcam_chain",
         actual=result.frame.data,
-        oracle=lambda: run_document_ephemeral(doc, [data])[0].processed_image,
     )
 
 

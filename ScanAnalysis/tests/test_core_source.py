@@ -1,8 +1,5 @@
 """Completed-scan sources retain native precision, identity and stack indices."""
 
-import subprocess
-import sys
-
 import h5py
 import numpy as np
 import pandas as pd
@@ -147,15 +144,3 @@ def test_missing_device_is_empty_and_does_not_create_outputs(tmp_path):
 def test_device_override_stays_within_one_scan_subfolder(tmp_path, device):
     with pytest.raises(ValueError, match="one scan subfolder"):
         prepare_source(document(device=device), tmp_path, pd.DataFrame())
-
-
-def test_source_imports_no_legacy_analyzers():
-    subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import sys; from scan_analysis.core_source import prepare_source; "
-            "assert not any(n.startswith('image_analysis') for n in sys.modules)",
-        ],
-        check=True,
-    )

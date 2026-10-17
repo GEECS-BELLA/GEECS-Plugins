@@ -65,25 +65,8 @@ def lineout(seed: int, *, gdd: float = 300.0, n: int = 256) -> np.ndarray:
     return np.column_stack([wavelength, phase, intensity])
 
 
-def legacy(doc: AnalysisDiagnostic, data: np.ndarray, weights: bool = True):
-    from image_analysis.analyzers.frog_spectral_phase_analyzer import (
-        FrogSpectralPhaseAnalyzer,
-    )
-
-    assert FrogSpectralPhaseAnalyzer.__module__.startswith("image_analysis.")
-    analyzer = FrogSpectralPhaseAnalyzer(doc.image, spec=doc.analyzer)
-    aux = {"_aux_columns": {"weights": data[:, 2].copy()}} if weights else None
-    old = analyzer.analyze_image(data[:, :2].copy(), aux)
-    return {
-        **{f"scalar_{k}": float(v) for k, v in old.scalars.items()},
-        "trace": old.line_data,
-        "spectral_phase": old.render_data["raw_spectral_phase"],
-        "fit_reference": old.render_data["fit_normalized_reference"],
-    }
-
-
 def core_values(result) -> dict:
-    """The core's counterpart of :func:`legacy`."""
+    """The core's scalars, trace, phase and fit reference."""
     return {
         **{f"scalar_{k}": v for k, v in result.scalars.items()},
         "trace": result.frame.as_trace(),
@@ -133,23 +116,16 @@ def fit_values(module, data: np.ndarray, weighted: bool, threshold) -> dict:
 def test_the_fit_is_the_legacy_fit_bit_for_bit(
     seed, weighted, threshold, expected, request
 ):
-    from image_analysis.algorithms import polynomial_fit as oracle
-
-    assert oracle.__name__.startswith("image_analysis.")
-
     data = lineout(seed)
     expected(
         f"fit_{request.node.callspec.id}",
         actual=fit_values(ported, data, weighted, threshold),
-        oracle=lambda: fit_values(oracle, data, weighted, threshold),
     )
 
 
 def test_the_fit_refuses_what_the_legacy_fit_refuses():
-    from image_analysis.algorithms import polynomial_fit as oracle
-
     y = np.array([1.0, 2.0, np.nan, 4.0])
-    for module in (oracle, ported):
+    for module in (ported,):
         with pytest.raises(ValueError, match="requires at least 4 valid points; got 3"):
             module.fit_polynomial(y, config=module.PolynomialFitConfig(order=3))
         with pytest.raises(ValueError, match="no positive finite"):
@@ -172,7 +148,6 @@ def test_the_v2_route_equals_the_legacy_analyzer(storage, seed, expected, reques
     expected(
         f"route_{request.node.callspec.id}",
         actual=core_values(result),
-        oracle=lambda: legacy(doc, data),
     )
     assert set(result.scalars) == doc.analyzer.emitted_scalars()
 
@@ -184,7 +159,6 @@ def test_a_sign_flip_matches_the_legacy_flip(expected):
     stored = expected(
         "sign_flip",
         actual=core_values(result),
-        oracle=lambda: legacy(doc, data),
     )
     assert result.scalars["flipped"] == 1.0 == stored["scalar_flipped"]
 
@@ -204,7 +178,6 @@ def test_options_match_the_legacy_analyzer(analyzer, expected, request):
     expected(
         f"options_{request.node.callspec.id}",
         actual=core_values(result),
-        oracle=lambda: legacy(doc, data),
     )
 
 
@@ -218,7 +191,6 @@ def test_the_weights_channel_weights_the_fit_and_follows_the_roi(expected):
     expected(
         "unweighted",
         actual=core_values(plain),
-        oracle=lambda: legacy(unweighted_doc, data, weights=False),
     )
     assert plain.scalars["gdd_fs2"] != weighted.scalars["gdd_fs2"]
     # The channel was cut by the roi: its reference spans the ROI samples.

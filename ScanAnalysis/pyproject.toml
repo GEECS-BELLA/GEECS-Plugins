@@ -10,10 +10,9 @@ packages = [
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
-ImageAnalysis = { path = "../ImageAnalysis", develop = true }
 geecs-analysis = { path = "../GEECS-Analysis", develop = true }
 # the config documents (AnalysisDiagnostic / AnalysisGroup / ScanRuntime) —
-# pydantic-only, shared with ImageAnalysis, the portal and MCP
+# pydantic-only, shared with the portal and MCP
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
 
@@ -31,6 +30,12 @@ geecs-web-theme = { path = "../GeecsWebTheme", develop = true, optional = true }
 
 [tool.poetry.extras]
 editor = ["fastapi", "jinja2", "geecs-web-theme"]
+
+[tool.poetry.scripts]
+# Check, prepare and self-test a host's WaveKit (HASO) install:
+# config keys, share tree, Wine prefix, the vendor sample, the golden
+# reference (scan_analysis.services.wavekit_doctor).
+geecs-wavekit-doctor = "scan_analysis.services.wavekit_doctor:main"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.4"

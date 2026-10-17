@@ -49,7 +49,6 @@ follow that split; the bottom row is for navigation and troubleshooting.
     with.
 
     [:octicons-arrow-right-24: GEECS Scanner](web_services/scanner.md) ·
-    [Image Analysis](image_analysis/overview.md) ·
     [Scan Analysis](scan_analysis/overview.md) ·
     [Data Utils](geecs_data_utils/overview.md) ·
     [GEECS-Core](geecs_core/overview.md)
@@ -75,21 +74,21 @@ flowchart LR
     Core[GEECS-Core<br/>transport + DB + GeecsDevice]
     GW[CA/PVA Gateways<br/>GEECS as EPICS PVs]
     SA[Scan Analysis<br/>per-scan workflows]
-    IA[Image Analysis<br/>per-image pipelines]
+    AC[GEECS-Analysis<br/>analysis core]
     DU[Data Utils<br/>paths + s-files]
 
     Scanner --> Engine
     Engine -->|CA service| GW
     GW --> Core
     Engine --> DU
-    SA --> IA
+    SA --> AC
     SA --> DU
-    IA -.->|optional, via Array2DScanAnalyzer| SA
+    AC --> DU
 ```
 
 A typical workflow: the GEECS Scanner runs a scan that writes a folder to
 the data server (and a structured run to the Tiled catalog). Scan Analysis (live or offline) reads that folder, runs
-configured Image Analysis analyzers across the shots, renders summary
+a configured analysis recipe on the analysis core across the shots, renders summary
 figures, and appends derived scalars back to the s-file. A separate notebook
 can then load the s-file via Data Utils for ad-hoc exploration.
 
@@ -100,9 +99,9 @@ for collecting data, in a browser: pick or compose a scan, submit it to the
 Bluesky queueserver, watch it live, move devices and run action plans. The
 engine underneath (GeecsBluesky) is equally usable headlessly.
 
-**[Image Analysis](image_analysis/overview.md)** — per-image processing and
-analysis. Pipelines are described in YAML (background, masking, filtering,
-geometric transforms, thresholding) with specialised analyzers for beam
+**[Analysis](analysis/index.md)** — per-image processing in the analysis
+core (GEECS-Analysis): recipes of ordered steps (background, masking,
+filtering, geometric transforms, thresholding) and a measure for beam
 profile, FROG, magspec, HASO wavefront, and 1D traces.
 
 **[Scan Analysis](scan_analysis/overview.md)** — orchestrates analysis across

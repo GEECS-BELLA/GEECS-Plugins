@@ -2,7 +2,7 @@
 
 Foundational data layer. Provides scan path navigation, scalar data loading,
 data binning/aggregation, and a queryable Parquet-based scan metadata database.
-Used by ImageAnalysis, ScanAnalysis, GeecsBluesky, GeecsScanner and the
+Used by GEECS-Analysis, ScanAnalysis, GeecsBluesky, GeecsScanner and the
 Data Portal.
 
 ## Package Layout
@@ -230,12 +230,12 @@ own row), and all-NaN columns never cause drops.
 requires an explicit config root for stems (or accepts an explicit `Path`) and
 returns the source path and a fresh raw document. It neither validates analysis
 schemas nor imports numerical analyzers; consumers own typed validation and
-default-root selection. No folders are created. ImageAnalysis's typed loader
-delegates here; other consumers should share this boundary.
+default-root selection. No folders are created. ScanAnalysis's typed loader
+(`scan_analysis.config.loader.load_diagnostic`) delegates here; other
+consumers should share this boundary.
 
 `ConfigDirManager` (config_base.py) manages a directory that can hold multiple
-YAML config files. ImageAnalysis and ScanAnalysis now resolve through the
-unified Scan/ImageAnalysis config tree.
+YAML config files. ScanAnalysis resolves through the unified analysis config tree.
 
 ```python
 from geecs_data_utils.config_roots import image_analysis_config, scan_analysis_config
@@ -272,7 +272,6 @@ from geecs_data_utils.plotting_utils import plot_binned, plot_binned_multi
 
 ## How Other Packages Use This
 
-- **ImageAnalysis** — `ScanPaths` to locate device data folders per scan
 - **ScanAnalysis** — `ScanData` for binning scalar data in summary plots;
   `ScanPaths` as the base for scan folder resolution
 - **GeecsBluesky / GeecsScanner** — `ScanPaths` for scan folder

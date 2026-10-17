@@ -146,7 +146,7 @@ def test_schema_import_is_numerical_and_io_dependency_free():
 import sys
 from geecs_analysis.specs import Pipeline
 Pipeline.model_json_schema()
-for name in ("numpy", "scipy", "cv2", "matplotlib", "geecs_data_utils", "image_analysis"):
+for name in ("numpy", "scipy", "cv2", "matplotlib", "geecs_data_utils"):
     assert name not in sys.modules, name
 """
     subprocess.run([sys.executable, "-c", code], check=True)
@@ -170,18 +170,12 @@ def test_processing_imports_only_the_data_value_model():
                         "geecs_data_utils.frames",
                         "geecs_data_utils.tables",
                     }, path
-                assert not name.startswith(("image_analysis", "scan_analysis")), path
+                assert not name.startswith("scan_analysis"), path
 
 
 @pytest.mark.parametrize("ndim", [1, 2])
 @pytest.mark.parametrize("kind", ["median", "gaussian"])
 def test_filters_match_legacy_including_reflected_edges(ndim, kind, expected, request):
-    from image_analysis.processing.array1d import filtering as old1d
-    from image_analysis.processing.array2d import filtering as old2d
-
-    assert old1d.__name__.startswith("image_analysis.")
-    assert old2d.__name__.startswith("image_analysis.")
-
     samples = np.random.default_rng(13).normal(size=(19,) if ndim == 1 else (7, 9))
     # Deliberate edge impulses distinguish reflect from constant/wrap padding.
     samples.flat[0] = 100
@@ -193,30 +187,10 @@ def test_filters_match_legacy_including_reflected_edges(ndim, kind, expected, re
     expected(
         f"filter_{request.node.callspec.id}",
         actual=actual.data,
-        oracle=lambda: (
-            getattr(old1d, f"apply_{kind}_filter")(frame.as_trace(), parameter)[:, 1]
-            if ndim == 1
-            else getattr(old2d, f"apply_{kind}_filter")(samples, parameter)
-        ),
     )
 
 
 def test_trace_processing_matches_legacy_composition(expected):
-    from geecs_schemas.analysis.processing_1d import (
-        LineBackgroundConfig,
-        LineROIConfig,
-        LineThresholdingConfig,
-    )
-    from image_analysis.processing.array1d.background import (
-        compute_background,
-        subtract_background,
-    )
-    from image_analysis.processing.array1d.filtering import apply_median_filter
-    from image_analysis.processing.array1d.roi import apply_roi_1d
-    from image_analysis.processing.array1d.thresholding import apply_thresholding
-
-    assert apply_thresholding.__module__.startswith("image_analysis.")
-
     trace = np.column_stack(
         (np.linspace(50, 180, 131), np.random.default_rng(14).normal(size=131))
     )
@@ -230,66 +204,27 @@ def test_trace_processing_matches_legacy_composition(expected):
     expected(
         "trace_composition",
         actual=result.as_trace(),
-        oracle=lambda: apply_thresholding(
-            apply_median_filter(
-                apply_roi_1d(
-                    subtract_background(
-                        trace,
-                        compute_background(
-                            trace,
-                            LineBackgroundConfig(method="constant", constant_level=0.2),
-                        ),
-                    ),
-                    LineROIConfig(x_min=60, x_max=160),
-                ),
-                3,
-            ),
-            LineThresholdingConfig(
-                method="absolute", threshold_value=-0.1, clip_below=True
-            ),
-        ),
     )
 
 
 def test_thresholds_match_distinct_legacy_semantics(expected):
-    from image_analysis.processing.array2d.thresholding import apply_constant_threshold
-    from image_analysis.processing.array1d.thresholding import apply_thresholding
-    from geecs_schemas.analysis.processing_1d import LineThresholdingConfig
-
-    assert apply_constant_threshold.__module__.startswith("image_analysis.")
-    assert apply_thresholding.__module__.startswith("image_analysis.")
-
     data = np.array([[-2.0, 0.0, 1.0, 3.0, 10.0]])
     image = Frame.from_array(data)
     zeroed = run(image, {"step": "zero_below", "level": 3})
     expected(
         "threshold_zero_below",
         actual=zeroed.data,
-        oracle=lambda: apply_constant_threshold(data, 3, mode="to_zero"),
     )
     trace = Frame.from_array(data[0])
-    for kind, below in [("clip_below", True), ("clip_above", False)]:
+    for kind in ("clip_below", "clip_above"):
         expected(
             f"threshold_{kind}",
             actual=run(trace, {"step": kind, "level": 3}).as_trace(),
-            oracle=lambda below=below: apply_thresholding(
-                trace.as_trace(),
-                LineThresholdingConfig(
-                    method="absolute", threshold_value=3, clip_below=below
-                ),
-            ),
         )
     np.testing.assert_array_equal(zeroed.data, [[0, 0, 0, 3, 10]])
 
 
 def test_beam_processing_matches_legacy_composition(expected):
-    from geecs_schemas.analysis.processing_2d import BackgroundConfig
-    from image_analysis.processing.array2d.background import apply_background
-    from image_analysis.processing.array2d.thresholding import apply_constant_threshold
-
-    assert apply_background.__module__.startswith("image_analysis.")
-    assert apply_constant_threshold.__module__.startswith("image_analysis.")
-
     image = np.random.default_rng(15).integers(0, 200, (15, 17), dtype=np.uint16)
     result = run(
         Frame.from_array(image),
@@ -300,13 +235,6 @@ def test_beam_processing_matches_legacy_composition(expected):
     expected(
         "beam_composition",
         actual=result.data,
-        oracle=lambda: apply_constant_threshold(
-            apply_background(
-                image, BackgroundConfig(method="constant", constant_level=90)
-            )[1:12, 2:14],
-            0,
-            mode="to_zero",
-        ),
     )
     np.testing.assert_array_equal(result.axes[0].values, np.arange(1, 12))
     np.testing.assert_array_equal(result.axes[1].values, np.arange(2, 14))

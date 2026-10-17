@@ -69,9 +69,9 @@ def measurement_golden(golden):
     """Check one measurement against the stored golden ``name``.
 
     ``measurement_golden(name, data, scalars, oracle=None)``: ``oracle`` is
-    a zero-argument callable returning another ``(data, scalars)`` that must
-    match the same golden, and is what ``GEECS_UPDATE_GOLDENS`` stores when
-    given. Floats are held to ``GOLDEN_RTOL`` of their own scale.
+    a zero-argument callable returning another ``(data, scalars)`` (once the
+    legacy oracle, #1039) that must match the same golden, and is what
+    ``GEECS_UPDATE_GOLDENS`` stores when given. Floats are held to ``GOLDEN_RTOL`` of their own scale.
     """
 
     def check(name: str, data: Any, scalars: dict[str, float], oracle=None) -> None:

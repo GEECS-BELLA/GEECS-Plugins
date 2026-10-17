@@ -49,7 +49,7 @@ diagnose the package the current task is about.
    | `GeecsCAGateway` | `poetry install` (path-deps geecs-core) |
    | `GEECS-Core` | `poetry install` (self-contained) |
    | `GEECS-LogTriage` | `poetry install` |
-   | `GEECS-DataPortal` | `poetry install --extras analysis` (the processing-selector test class importorskips `image_analysis` without it) |
+   | `GEECS-DataPortal` | `poetry install --extras analysis` |
 
    Symptom of missing `ca`: the whole GeecsBluesky mock-device test layer
    collects as "1 skipped" (`pytest.importorskip("aioca")`).
@@ -59,7 +59,7 @@ diagnose the package the current task is about.
    `./scripts/check.sh --dry-run` to see which suites a diff needs, or
    read the script's runner table; do not re-derive or restate the
    mapping here. Symptom worth knowing: the root-env packages
-   (`ImageAnalysis`, `ScanAnalysis`, `GEECS-Data-Utils`, `GEECS-Schemas`)
+   (`GEECS-Analysis`, `ScanAnalysis`, `GEECS-Data-Utils`, `GEECS-Schemas`)
    have no dev env of their own, so `pytest` inside them fails with
    "Command not found" — run them from the repo root env (the script
    does this for you).

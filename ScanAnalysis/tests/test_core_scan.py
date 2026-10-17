@@ -60,10 +60,6 @@ def test_fractional_bin_identity_is_not_silently_truncated():
 def test_execution_matches_legacy_arrays_and_scalar_naming_without_writes(
     tmp_path, mode, measurement_golden
 ):
-    from image_analysis.ephemeral import run_document_ephemeral
-
-    assert run_document_ephemeral.__module__.startswith("image_analysis.")
-
     rows = inputs(tmp_path)
     original_rows = rows.copy(deep=True)
     doc = document(mode)
@@ -75,14 +71,6 @@ def test_execution_matches_legacy_arrays_and_scalar_naming_without_writes(
         [3, 1] if mode == "per_shot" else [2, 1]
     )
     for outcome in outcomes:
-        raw = [scan.source.load(n) for n in outcome.loaded_shots]
-
-        def legacy(raw=raw):
-            (old,) = run_document_ephemeral(
-                doc, [np.mean(raw, axis=0)] if mode == "per_bin" else raw
-            )
-            return old.processed_image, old.scalars
-
         assert outcome.error is None
         new = outcome.measurement
         assert all(np.isfinite(v) for v in new.scalars.values())
@@ -90,7 +78,6 @@ def test_execution_matches_legacy_arrays_and_scalar_naming_without_writes(
             f"scan/{mode}_{outcome.group.key}",
             new.frame.data,
             dict(new.scalars),
-            oracle=legacy,
         )
         records = scan.scalar_records(outcome)
         assert [r["Shotnumber"] for r in records] == list(outcome.group.shots)
@@ -183,10 +170,6 @@ def test_missing_scan_is_not_created(tmp_path):
 def test_native_line_execution_keeps_scaled_axis_and_finite_metrics(
     tmp_path, mode, measurement_golden
 ):
-    from image_analysis.ephemeral import run_document_ephemeral
-
-    assert run_document_ephemeral.__module__.startswith("image_analysis.")
-
     doc = AnalysisDiagnostic.model_validate(
         {
             "name": "Spectrum",
@@ -212,11 +195,6 @@ def test_native_line_execution_keeps_scaled_axis_and_finite_metrics(
     results = list(scan.run())
     assert len(results) == len(batch)
     for index, result in enumerate(results):
-
-        def legacy(index=index):
-            old = run_document_ephemeral(doc, batch)[index]
-            return old.line_data, old.scalars
-
         assert result.error is None
         scalars = dict(result.measurement.scalars)
         assert all(np.isfinite(v) for v in scalars.values())
@@ -224,5 +202,4 @@ def test_native_line_execution_keeps_scaled_axis_and_finite_metrics(
             f"scan/line_{mode}_{index}",
             result.measurement.frame.as_trace(),
             scalars,
-            oracle=legacy,
         )

@@ -170,7 +170,7 @@ wavekit_launcher = env WINEDEBUG=-all wine            # add WINEPREFIX=<dir> for
 - No dongle: the sensor's `.dat` is the licence for image → slopes →
   phase.
 
-`geecs-wavekit-doctor` (ImageAnalysis, in the Portal's env) does all of
+`geecs-wavekit-doctor` (ScanAnalysis, in the Portal's env) does all of
 this and reports:
 
 ```
@@ -291,8 +291,8 @@ Two more rules follow from "the stack is the only copy":
 | What | Where |
 |---|---|
 | The measure (`HasoSpec`, packaging, scalars) | `GEECS-Analysis/geecs_analysis/measures/haso.py` |
-| The engine service and the worker | `ImageAnalysis/image_analysis/algorithms/haso_wavekit.py`, `_wavekit_worker.py` (Python 3.8 syntax) |
-| The doctor | `ImageAnalysis/image_analysis/algorithms/wavekit_doctor.py` (`geecs-wavekit-doctor`) |
+| The engine service and the worker | `ScanAnalysis/scan_analysis/services/haso_wavekit.py`, `_wavekit_worker.py` (Python 3.8 syntax) |
+| The doctor | `ScanAnalysis/scan_analysis/services/wavekit_doctor.py` (`geecs-wavekit-doctor`) |
 | The host side: service factory, stack-only source, the wavefront store | `ScanAnalysis/scan_analysis/core_services.py`, `core_source.py`, `core_sink.ShotStore` |
 | The `.himg` codec and the stack converter | `GEECS-Data-Utils/geecs_data_utils/io/himg.py`, `io/himg_stack.py` |
 | Compaction and restore, the out-of-process runner, the shell command | `io/himg_compact.py`, `io/himg_worker.py`, `himg_cli.py` (`geecs-himg`); the kinds in `ScanAnalysis/scan_analysis/analyzers/common/himg_kinds.py` |

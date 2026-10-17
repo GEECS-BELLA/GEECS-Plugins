@@ -287,7 +287,7 @@ view); only meaningful with `processing`, ignored without it. `mode`
 is an enum: an unknown value is a **400**, the `bincfg`-enum
 precedent and a deliberate exception to "values degrade" — a wrong
 mode is a broken link, not a cosmetic) and
-`?processing=<diagnostic id>` (the `processing` URL state): the named ImageAnalysis diagnostic runs
+`?processing=<diagnostic id>` (the `processing` URL state): the named analysis diagnostic runs
 **ephemerally** on the served pixels via
 `geecs_portal.processing.process_images` — the write-free
 router: the document compiles once per request batch and runs on
@@ -405,7 +405,7 @@ The W2-must-be-dramatically-cheaper checkpoint is the point of this
 list — a new tab should be exactly these steps:
 
 1. **Primitive** — the numerics live in GEECS-Data-Utils (or
-   ImageAnalysis), pure and hermetically tested there.  If the tab
+   GEECS-Analysis), pure and hermetically tested there.  If the tab
    needs new math, that PR comes first.
 2. **Endpoint** — one `/api/run/{uid}/…` route in `routes/plot_api.py`: parse
    params via `analysis.py` (`BadParam` → 400 — and that means full

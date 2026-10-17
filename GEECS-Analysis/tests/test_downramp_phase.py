@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import math
-import warnings
-from functools import partial
 
 import numpy as np
 import pytest
@@ -66,26 +64,8 @@ def document(**image) -> AnalysisDiagnostic:
     )
 
 
-def legacy(doc: AnalysisDiagnostic, image: np.ndarray, analyzer_class=None) -> dict:
-    """The legacy analyzer's scalars, frame and projections (the oracle)."""
-    from image_analysis.analyzers.downramp_phase_analyzer import DownrampPhaseAnalyzer
-
-    assert DownrampPhaseAnalyzer.__module__.startswith("image_analysis.")
-    cls = analyzer_class or DownrampPhaseAnalyzer
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # the oracle's mean-of-empty / fit warnings
-        old = cls(camera_config=doc.image).analyze_image(image.copy())
-    assert old.processed_image.dtype == np.uint16
-    return {
-        **{f"scalar_{k}": float(v) for k, v in old.scalars.items()},
-        "frame": old.processed_image,
-        "projection_x": old.render_data["horizontal_projection"],
-        "projection_y": old.render_data["vertical_projection"],
-    }
-
-
 def core_values(result: Measurement) -> dict:
-    """The core's counterpart of :func:`legacy`."""
+    """The core's scalars, frame and projections."""
     return {
         **{f"scalar_{k}": v for k, v in result.scalars.items()},
         "frame": result.frame.data,
@@ -124,7 +104,6 @@ def test_the_v2_route_equals_the_legacy_analyzer(case, seed, expected, request):
     stored = expected(
         f"route_{request.node.callspec.id}",
         actual=core_values(new),
-        oracle=lambda: legacy(doc, image),
     )
     assert_defined(stored)
     assert new.notes == ()
@@ -155,7 +134,6 @@ def test_the_recipe_steps_precede_the_shock_analysis_as_the_pipeline_did(
     stored = expected(
         f"steps_{request.node.callspec.id}",
         actual=core_values(new),
-        oracle=lambda: legacy(doc, data),
     )
     assert_defined(stored)
 
@@ -172,36 +150,10 @@ def test_the_measured_shock_is_where_it_was_planted():
 # ------------------------------------------------------------ the options
 
 
-def test_options_reach_the_legacy_functions_at_the_same_values(monkeypatch, expected):
+def test_options_reach_the_legacy_functions_at_the_same_values(expected):
     """The spec's knobs are the legacy constants; at other values both agree too."""
     options = dict(window_size=12, sigma_x=30.0, sigma_y=10.0, threshold_factor=0.05)
     image = phase_map("angled", 5)
-
-    def oracle_at_the_options() -> dict:
-        import image_analysis.analyzers.downramp_phase_analyzer as oracle
-
-        monkeypatch.setattr(
-            oracle,
-            "apply_gaussian_mask",
-            partial(
-                oracle.apply_gaussian_mask,
-                sigma_x=30.0,
-                sigma_y=10.0,
-                threshold_factor=0.05,
-            ),
-        )
-
-        class Legacy(oracle.DownrampPhaseAnalyzer):
-            # The legacy composite passed its window to the gradient and plateau
-            # steps but not to the angle fit (always 20); the spec's one window
-            # reaches all three, so the oracle gets it there too.
-            def compile_shock_analysis(self, phase_array, window_size=12):
-                return super().compile_shock_analysis(phase_array, window_size=12)
-
-            def get_shock_angle(self, image, ax, window_size=12):
-                return super().get_shock_angle(image, ax, window_size=12)
-
-        return legacy(document(), image, Legacy)
 
     new = analyze(
         Frame.from_array(image),
@@ -210,7 +162,6 @@ def test_options_reach_the_legacy_functions_at_the_same_values(monkeypatch, expe
     stored = expected(
         "options",
         actual=core_values(new),
-        oracle=oracle_at_the_options,
     )
     assert_defined(stored)
     defaults = analyze_v2(image, compile_v2(document()))
@@ -237,18 +188,6 @@ def search_values(module, slope, angle, image: np.ndarray) -> dict:
 def test_the_mask_and_the_window_search_are_the_legacy_functions_bit_for_bit(expected):
     image = phase_map("tilted", 2)
 
-    def oracle_search() -> dict:
-        import image_analysis.analyzers.downramp_phase_analyzer as oracle
-        from matplotlib.figure import Figure
-
-        analyzer = oracle.DownrampPhaseAnalyzer(camera_config=document().image)
-        return search_values(
-            oracle,
-            lambda p, w: analyzer.find_max_local_slope(p, w)[:2],
-            lambda m, w: analyzer.get_shock_angle(m, Figure().subplots(), w),
-            image,
-        )
-
     def ported_slope(profile, window):
         found = ported.find_max_local_slope(profile, window)
         center = None if math.isnan(found.slope) else found.center
@@ -262,7 +201,6 @@ def test_the_mask_and_the_window_search_are_the_legacy_functions_bit_for_bit(exp
             lambda m, w: ported.shock_angle(m, w).angle_rad,
             image,
         ),
-        oracle=oracle_search,
     )
 
 
@@ -271,8 +209,6 @@ def test_the_mask_and_the_window_search_are_the_legacy_functions_bit_for_bit(exp
 
 def test_a_flat_map_is_nan_with_a_note_where_the_legacy_class_fails():
     flat = np.full((40, 60), 2.5)
-    with pytest.raises(ValueError):
-        legacy(document(), flat)
     result = analyze_v2(flat, compile_v2(document()))
     assert all(math.isnan(result.scalars[key]) for key in SHOCK_SCALARS + SLOPE_SCALARS)
     assert result.notes[0].startswith("No signal after masking")

@@ -45,6 +45,5 @@ than tucked away in their respective package tabs.
 
 After either tutorial, the per-package documentation
 ([GEECS Scanner](../web_services/scanner.md),
-[Image Analysis](../image_analysis/overview.md),
 [Scan Analysis](../scan_analysis/overview.md)) covers the underlying
 concepts and APIs in depth.

@@ -1,1 +1,0 @@
-"""Image-analysis tools subpackage."""

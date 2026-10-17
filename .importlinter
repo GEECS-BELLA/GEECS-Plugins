@@ -25,7 +25,6 @@ root_packages =
     geecs_web_theme
     logmaker_4_googledocs
     geecs_analysis
-    image_analysis
     scan_analysis
     geecs_bluesky
     geecs_ca_gateway
@@ -53,7 +52,7 @@ type = layers
 layers =
     geecs_scanner | geecs_mcp | geecs_portal | geecs_logbook
     geecs_bluesky | scan_analysis | geecs_ca_gateway | geecs_pva_gateway | geecs_archiver | geecs_log_triage
-    geecs_analysis | image_analysis
+    geecs_analysis
     geecs_core | geecs_data_utils | geecs_schemas | geecs_web_theme | logmaker_4_googledocs
 
 # A foundation is listed on both sides: self-imports are not counted, so a
@@ -74,7 +73,6 @@ forbidden_modules =
     geecs_web_theme
     logmaker_4_googledocs
     geecs_analysis
-    image_analysis
     scan_analysis
     geecs_bluesky
     geecs_ca_gateway
@@ -96,7 +94,6 @@ source_modules =
     geecs_web_theme
     logmaker_4_googledocs
     geecs_analysis
-    image_analysis
     scan_analysis
     geecs_bluesky
     geecs_archiver
@@ -118,7 +115,6 @@ source_modules =
     geecs_schemas
     geecs_web_theme
     geecs_analysis
-    image_analysis
     scan_analysis
     geecs_bluesky
     geecs_ca_gateway
@@ -138,11 +134,10 @@ forbidden_modules =
 # ---------------------------------------------------------------------------
 
 [importlinter:contract:analysis-side]
-name = GEECS-Analysis, ImageAnalysis and ScanAnalysis never import the DAQ side (Core, Bluesky, the EPICS packages) or a surface
+name = GEECS-Analysis and ScanAnalysis never import the DAQ side (Core, Bluesky, the EPICS packages) or a surface
 type = forbidden
 source_modules =
     geecs_analysis
-    image_analysis
     scan_analysis
 forbidden_modules =
     geecs_core
@@ -155,11 +150,10 @@ forbidden_modules =
     geecs_mcp
 
 [importlinter:contract:analysis-cores]
-name = GEECS-Analysis and ImageAnalysis import only GEECS-Data-Utils and GEECS-Schemas: never ScanAnalysis or the web theme
+name = GEECS-Analysis imports only GEECS-Data-Utils and GEECS-Schemas: never ScanAnalysis or the web theme
 type = forbidden
 source_modules =
     geecs_analysis
-    image_analysis
 forbidden_modules =
     scan_analysis
     geecs_web_theme
@@ -170,7 +164,6 @@ type = forbidden
 source_modules =
     geecs_bluesky
 forbidden_modules =
-    image_analysis
     scan_analysis
     geecs_web_theme
     geecs_archiver
@@ -191,7 +184,6 @@ source_modules =
 forbidden_modules =
     geecs_bluesky
     geecs_analysis
-    image_analysis
     scan_analysis
     geecs_web_theme
     geecs_scanner
@@ -269,7 +261,6 @@ forbidden_modules =
     geecs_bluesky
     geecs_core
     geecs_analysis
-    image_analysis
     geecs_archiver
     geecs_log_triage
     geecs_scanner
@@ -292,7 +283,6 @@ forbidden_modules =
     geecs_logbook
     geecs_mcp
     geecs_analysis
-    image_analysis
     scan_analysis
     geecs_data_utils
     geecs_archiver
@@ -300,7 +290,7 @@ forbidden_modules =
 allow_indirect_imports = True
 
 [importlinter:contract:mcp-edges]
-name = GEECS-MCP imports GeecsBluesky's client side, GEECS-Data-Utils, ScanAnalysis and ImageAnalysis: never the scanner, the portal, the logbook, Core, Schemas (test-only), GEECS-Analysis, the web theme or the EPICS side
+name = GEECS-MCP imports GeecsBluesky's client side, GEECS-Data-Utils and ScanAnalysis: never the scanner, the portal, the logbook, Core, Schemas (test-only), GEECS-Analysis, the web theme or the EPICS side
 type = forbidden
 source_modules =
     geecs_mcp

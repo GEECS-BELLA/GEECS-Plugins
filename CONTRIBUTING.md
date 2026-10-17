@@ -191,7 +191,7 @@ Style: NumPy docstrings, type hints on public functions, Pydantic v2
 ## Tests
 
 CI (`.github/workflows/unit-tests.yml`, one Ubuntu job) runs: root
-`tests/`, ImageAnalysis, ScanAnalysis, GEECS-Data-Utils and GEECS-Schemas
+`tests/`, ScanAnalysis, GEECS-Data-Utils and GEECS-Schemas
 from the **root env**, and GeecsWebTheme, GeecsLogbook, GeecsScanner,
 GEECS-DataPortal, GEECS-Core, GeecsCAGateway, GeecsBluesky (pure unit
 tests, `qs-client` extra included), GEECS-MCP and GeecsPvaGateway each

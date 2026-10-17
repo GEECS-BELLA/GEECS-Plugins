@@ -30,8 +30,8 @@ still uses ScanAnalysis until its runner/sinks and acceptance tests land.
   calls it and never builds, configures or inspects it. It must pickle —
   a pooled run sends it to each worker once. ScanAnalysis builds services
   (`core_services`), a notebook passes one by hand. Two service measures:
-  `frog` (Kane's FROG.dll via ImageAnalysis' `FrogDllRetrieval`) and `haso`
-  (Imagine Optic's WaveKit via ImageAnalysis' `HasoWaveKit`; the measure
+  `frog` (Kane's FROG.dll via ScanAnalysis' `scan_analysis.services.frog_dll_retrieval.FrogDllRetrieval`) and `haso`
+  (Imagine Optic's WaveKit via ScanAnalysis' `scan_analysis.services.haso_wavekit.HasoWaveKit`; the measure
   rounds and clips the processed frame to the sensor's uint16 pixels and
   packages the processed phase as the frame, raw phase / intensity /
   slopes / pupil as extras, two pupil scalars).
@@ -83,8 +83,9 @@ still uses ScanAnalysis until its runner/sinks and acceptance tests land.
 - Preserve operation order and duplicates. New coordinate-changing operations
   must transform axes together with samples. Filtering acts on sample indices,
   even when coordinates are nonuniform; it does not resample.
-- Preserve legacy scientific algorithms when migrating. Differential tests may
-  import ImageAnalysis as an oracle; production code must not depend on it.
+- Preserve legacy scientific algorithms when migrating. Parity tests pin
+  committed expected values generated from the legacy oracle (ImageAnalysis,
+  retired; tag `legacy-analysis-final`).
   Never equate NaNs to claim numerical parity; expose undefined measurements.
 
 ## Tests
@@ -92,9 +93,12 @@ still uses ScanAnalysis until its runner/sinks and acceptance tests land.
 Runs in the root Poetry environment and root CI leg:
 `poetry run pytest GEECS-Analysis/tests -q`. It also runs standalone from the
 package dir (`poetry install --with dev && poetry run pytest -q`): the `dev`
-group carries ImageAnalysis and ScanAnalysis as test oracles only.
-Pure invariants plus numerical comparisons with the legacy functions protect
-this layer. Test schema imports in a fresh interpreter to detect eager imports.
+group carries no other analysis package. Pure invariants plus parity tests
+protect this layer: the parity tests compare against committed expected
+values in `tests/data/expected/` (the `expected` fixture in
+`tests/conftest.py`), generated from the legacy oracle at tag
+`legacy-analysis-final`; `GEECS_UPDATE_GOLDENS=1` regenerates them from the
+core. Test schema imports in a fresh interpreter to detect eager imports.
 Archived data acceptance is a separate integration gate, not simulated by unit
 fixtures. Run `scripts/check.sh --all` before a PR, as required by root policy.
 
@@ -182,8 +186,8 @@ loads a file or chooses fallback. Scan backgrounds (`scan.background_source`
 the same way to `ScanBackground` requests on the compiled recipe — the host
 computes the frame (ScanAnalysis `core_backgrounds`) and binds it for
 `background_frame`; the core never reads a scan. `autodetect` is refused.
-`ict` compiles to the `ict` measure (`algorithms.ict`, ported from
-ImageAnalysis bit for bit). Its charge filters the stored trace at float64
+`ict` compiles to the `ict` measure (`algorithms.ict`, ported bit for bit
+from the retired ImageAnalysis). Its charge filters the stored trace at float64
 where legacy filtered the float32 array in float32 (~1e-7 relative, up to
 ~1e-5 on sub-pC charges), and a
 trace the algorithm cannot analyze is NaN with a note, not legacy's 0 pC.

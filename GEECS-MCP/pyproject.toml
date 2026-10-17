@@ -37,17 +37,14 @@ geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["qs-client
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true, extras = ["tiled"] }
 
 # On-demand ScanAnalysis execution (#686: run_scan_analysis + the
-# analyzer/group listings) — heavy (scipy/opencv/scikit-image ride in via
-# ImageAnalysis), so it is an extra mirroring GeecsBluesky's
+# analyzer/group listings) — heavy (scipy and the analysis core ride in
+# via ScanAnalysis), so it is an extra mirroring GeecsBluesky's
 # analysis/optimize pattern.  Without it the run/listing tools refuse with
 # a clear message naming the extra; the server always starts.
 scananalysis = { path = "../ScanAnalysis", develop = true, optional = true }
-# The run worker loads the diagnostic through image_analysis.config —
-# imported directly, so declared, not ridden transitively via scananalysis.
-imageanalysis = { path = "../ImageAnalysis", develop = true, optional = true }
 
 [tool.poetry.extras]
-analysis-run = ["imageanalysis", "scananalysis"]
+analysis-run = ["scananalysis"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"

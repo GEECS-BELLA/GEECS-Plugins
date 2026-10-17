@@ -1,8 +1,5 @@
 """File resolution preserves legacy numerical and failure contracts without writes."""
 
-import subprocess
-import sys
-
 import numpy as np
 import pytest
 from geecs_analysis.compat.v2 import UnsupportedRecipe, analyze_v2
@@ -35,10 +32,6 @@ def document(path):
 def test_file_backgrounds_and_fallbacks_match_old_backend(
     tmp_path, state, caplog, measurement_golden
 ):
-    from image_analysis.ephemeral import run_document_ephemeral
-
-    assert run_document_ephemeral.__module__.startswith("image_analysis.")
-
     path = tmp_path / "dark.npy"
     if state == "loaded":
         np.save(path, np.arange(64).reshape(8, 8) / 10)
@@ -49,10 +42,6 @@ def test_file_backgrounds_and_fallbacks_match_old_backend(
     files = {p: p.read_bytes() for p in tmp_path.iterdir()}
     raw = np.random.default_rng(7).integers(100, 200, (10, 10), dtype=np.uint16)
 
-    def legacy():
-        (old,) = run_document_ephemeral(doc, [raw])
-        return old.processed_image, old.scalars
-
     prepared = core_inputs.prepare_v2(doc)
     result = analyze_v2(raw, prepared.recipe, inputs=prepared.inputs)
     assert all(np.isfinite(v) for v in result.scalars.values())
@@ -60,7 +49,6 @@ def test_file_backgrounds_and_fallbacks_match_old_backend(
         f"inputs/file_background_{state}",
         result.frame.data,
         dict(result.scalars),
-        oracle=legacy,
     )
     assert doc.model_dump_json() == before
     assert {p: p.read_bytes() for p in tmp_path.iterdir()} == files
@@ -137,21 +125,3 @@ def test_compile_refusal_happens_before_reading_any_file(monkeypatch):
     monkeypatch.setattr(core_inputs, "read_imaq_image", forbid_read)
     with pytest.raises(UnsupportedRecipe):
         core_inputs.prepare_v2(doc)
-
-
-def test_preparation_has_no_legacy_analyzer_imports(tmp_path):
-    path = tmp_path / "dark.npy"
-    np.save(path, np.ones((8, 8)))
-    code = f"""
-import builtins
-original = builtins.__import__
-def guarded(name, *args, **kwargs):
-    if name.startswith('image_analysis'):
-        raise AssertionError(name)
-    return original(name, *args, **kwargs)
-builtins.__import__ = guarded
-from geecs_schemas.analysis import AnalysisDiagnostic
-from scan_analysis.core_inputs import prepare_v2
-assert prepare_v2(AnalysisDiagnostic.model_validate_json({document(path).model_dump_json()!r})).inputs
-"""
-    subprocess.run([sys.executable, "-c", code], check=True)

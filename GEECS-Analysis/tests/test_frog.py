@@ -161,14 +161,8 @@ def test_v2_frog_diagnostic_compiles_to_the_frog_measure_with_its_parameters():
     assert recipe.analysis.steps == ()
 
 
-def test_the_v2_route_matches_the_legacy_grenouille_analyzer(monkeypatch, expected):
+def test_the_v2_route_matches_the_legacy_grenouille_analyzer(expected):
     """The legacy GrenouilleAnalyzer, on the same fake DLL, was the oracle."""
-    from geecs_schemas.analysis import FrogRetrievalSpec
-    from image_analysis.algorithms.frog_dll_retrieval import FrogDllRetrieval
-    from image_analysis.analyzers.grenouille_analyzer import GrenouilleAnalyzer
-
-    assert GrenouilleAnalyzer.__module__.startswith("image_analysis.")
-
     image = {
         "bit_depth": 16,
         "background": {"method": "constant", "constant_level": 1.0},
@@ -182,23 +176,6 @@ def test_the_v2_route_matches_the_legacy_grenouille_analyzer(monkeypatch, expect
         "pipeline": ["background", "filtering", "thresholding"],
     }
     document = diagnostic(**image)
-    legacy_retriever = FakeRetriever()
-    monkeypatch.setattr(
-        FrogDllRetrieval, "from_config", classmethod(lambda cls: legacy_retriever)
-    )
-
-    def legacy():
-        old = GrenouilleAnalyzer(
-            document.image, spec=FrogRetrievalSpec(**PARAMETERS)
-        ).analyze_image(trace())
-        return {
-            "retriever_input": legacy_retriever.calls[0][0],
-            "processed_image": old.processed_image,
-            "projection_x": old.render_data["horizontal_projection"],
-            "projection_y": old.render_data["vertical_projection"],
-            **{f"scalar_{k}": float(v) for k, v in old.scalars.items()},
-        }
-
     retriever = FakeRetriever()
     result = analyze_v2(trace(), compile_v2(document), inputs={"frog": retriever})
     projections = {o.id: o.frame.data for o in result.overlays}
@@ -211,7 +188,6 @@ def test_the_v2_route_matches_the_legacy_grenouille_analyzer(monkeypatch, expect
             "projection_y": projections["projection_y"],
             **{f"scalar_{k}": v for k, v in result.scalars.items()},
         },
-        oracle=legacy,
     )
     assert retriever.calls[0][1] == PARAMETERS
 

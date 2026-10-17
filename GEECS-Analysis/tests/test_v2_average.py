@@ -27,23 +27,6 @@ def recipe(kind="camera", storage="float32"):
     return doc, compile_v2(doc)
 
 
-def legacy_summary(old, mode, kind, average):
-    """The legacy ImageAnalyzerResult summary, flattened for storage."""
-    if mode == "bin":
-        summary = average(old)
-        out = {"data": summary.get_primary_data()}
-        out.update({f"scalar__{k}": v for k, v in summary.scalars.items()})
-        if kind == "camera":
-            out["projection_x"] = summary.render_data["horizontal_projection"]
-            out["projection_y"] = summary.render_data["vertical_projection"]
-        return out
-    out = {"data": np.mean([r.get_primary_data() for r in old], axis=0)}
-    out.update(
-        {f"scalar__{k}": np.mean([r.scalars[k] for r in old]) for k in old[0].scalars}
-    )
-    return out
-
-
 @pytest.mark.parametrize(
     "kind,storage", [("camera", "float64"), ("line", "float32"), ("line", "float64")]
 )
@@ -51,12 +34,6 @@ def legacy_summary(old, mode, kind, average):
 def test_saved_averages_match_old_results_without_reanalysis(
     kind, storage, mode, expected, request
 ):
-    from image_analysis.ephemeral import run_document_ephemeral
-    from image_analysis.types import ImageAnalyzerResult
-
-    assert run_document_ephemeral.__module__.startswith("image_analysis.")
-    assert ImageAnalyzerResult.__module__.startswith("image_analysis.")
-
     doc, compiled = recipe(kind, storage)
     raw = []
     for shift in (0.2, 0.9, 1.7):
@@ -85,9 +62,6 @@ def test_saved_averages_match_old_results_without_reanalysis(
     expected(
         f"average_{request.node.callspec.id}",
         actual=actual,
-        oracle=lambda: legacy_summary(
-            run_document_ephemeral(doc, raw), mode, kind, ImageAnalyzerResult.average
-        ),
     )
     assert result.frame.shot is None
     if mode == "noscan":

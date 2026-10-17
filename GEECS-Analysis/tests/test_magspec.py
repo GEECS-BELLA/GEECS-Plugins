@@ -26,7 +26,6 @@ from geecs_analysis.registry import MeasureSpec, measure
 #: The s-file column of the per-shot field in these tests (a test name; the
 #: legacy analyzer hardcoded the facility's, which stays in its code).
 COLUMN = "Dipole Field"
-LEGACY_COLUMN = "HTT-MagTeslameter-DTM141 Field"
 PIPELINE = {
     "pipeline": ["background", "roi", "filtering"],
     "background": {"method": "constant", "constant_level": 5},
@@ -160,27 +159,11 @@ def frame(seed: int) -> np.ndarray:
     return np.clip(img, 0, 65535).astype(np.uint16)
 
 
-def legacy(doc: AnalysisDiagnostic, raw: np.ndarray, aux: dict | None = None):
-    from image_analysis.analyzers.magspec_manual_calib_analyzer import (
-        MagSpecManualCalibAnalyzer,
-    )
-
-    assert MagSpecManualCalibAnalyzer.__module__.startswith("image_analysis.")
-    old = MagSpecManualCalibAnalyzer(doc.image, spec=doc.analyzer).analyze_image(
-        raw, aux
-    )
-    return {
-        **{f"scalar_{k}": float(v) for k, v in old.scalars.items()},
-        "frame": old.processed_image,
-        "energy_axis": old.render_data["energy_axis"],
-    }
-
-
 def bound_tables(compiled) -> dict[str, Table]:
     return {request.key: read_table(request.path) for request in compiled.tables}
 
 
-def assert_same_result(check, name: str, core, oracle=None) -> None:
+def assert_same_result(check, name: str, core) -> None:
     """Scalars, the resampled frame, its energy axis and the spectrum, vs ``name``."""
     assert set(core.scalars) == MagspecSpec.scalar_docs.keys()
     stored = check(
@@ -190,7 +173,6 @@ def assert_same_result(check, name: str, core, oracle=None) -> None:
             "frame": core.frame.data,
             "energy_axis": core.frame.axes[1].values,
         },
-        oracle=oracle,
     )
     assert (core.frame.axes[1].unit, core.frame.axes[1].label) == ("MeV", "Energy")
     spectrum = core.extras["spectrum"]
@@ -216,7 +198,6 @@ def test_polynomial_route_equals_the_legacy_analyzer(seed, expected):
         expected,
         f"polynomial_{seed}",
         core,
-        oracle=lambda: legacy(doc, raw),
     )
     assert core.frame.unit == "counts/MeV" and core.overlays == ()
 
@@ -230,7 +211,6 @@ def test_array_calibration_is_inline_only(expected):
         expected,
         "array",
         analyze_v2(raw, compiled),
-        oracle=lambda: legacy(doc, raw),
     )
     with pytest.raises(UnsupportedRecipe, match="file"):
         compile_v2(
@@ -268,7 +248,6 @@ def test_dnn_route_equals_the_legacy_analyzer_on_the_same_tables(
         expected,
         f"dnn_{request.node.callspec.id}",
         core,
-        oracle=lambda: legacy(doc, raw),
     )
     assert core.frame.unit == ("fC/MeV" if lanex else "counts/MeV")
     if energy_range[0] < 2:
@@ -286,7 +265,6 @@ def test_lanex_row_falls_back_to_position_without_a_setting_column(tmp_path, exp
         expected,
         "lanex_by_position",
         analyze_v2(raw, compiled, inputs=bound_tables(compiled)),
-        oracle=lambda: legacy(doc, raw),
     )
 
 
@@ -322,7 +300,6 @@ def test_cells_the_legacy_reader_never_converted_may_be_blank(
         expected,
         f"blank_cells_{camera}",
         analyze_v2(raw, compiled, inputs=bound_tables(compiled)),
-        oracle=lambda: legacy(doc, raw),
     )
 
 
@@ -346,7 +323,6 @@ def test_the_per_shot_field_equals_the_legacy_override_and_never_leaks(
         expected,
         "per_shot_field",
         with_field,
-        oracle=lambda: legacy(doc, raw, {LEGACY_COLUMN: 0.25}),
     )
     # A second shot without the column: the recipe's field, as a fresh
     # legacy analyzer would give — not the previous shot's reading.
@@ -355,19 +331,8 @@ def test_the_per_shot_field_equals_the_legacy_override_and_never_leaks(
         expected,
         "recipe_field",
         without,
-        oracle=lambda: legacy(doc, raw),
     )
     assert without.scalars["peak_energy_MeV"] != with_field.scalars["peak_energy_MeV"]
-    # The legacy analyzer leaked the previous shot's field (oracle-only).
-    from image_analysis.analyzers.magspec_manual_calib_analyzer import (
-        MagSpecManualCalibAnalyzer,
-    )
-
-    leaky = MagSpecManualCalibAnalyzer(doc.image, spec=doc.analyzer)
-    leaky.analyze_image(raw, {LEGACY_COLUMN: 0.25})
-    leaked = leaky.analyze_image(raw, None)
-    assert leaked.scalars["peak_energy_MeV"] == with_field.scalars["peak_energy_MeV"]
-    assert leaked.scalars["peak_energy_MeV"] != without.scalars["peak_energy_MeV"]
 
 
 def test_the_field_rides_through_the_runner_on_shot_metadata(tmp_path):
@@ -394,9 +359,7 @@ def test_the_field_rides_through_the_runner_on_shot_metadata(tmp_path):
 
 
 def real_tables() -> dict[str, Path]:
-    import image_analysis
-
-    root = Path(image_analysis.__file__).parent / "data" / "HTT-MagSpce-Calibrations"
+    root = Path(__file__).parent / "data" / "HTT-MagSpce-Calibrations"
     return {
         "camera": root / "260224DnnVarianCam.txt",
         "trajectory": root / "170925DnnVarianTrj.txt",
@@ -408,14 +371,6 @@ def real_tables() -> dict[str, Path]:
 def test_the_real_calibration_equals_the_legacy_axis_and_charge_factor(
     camera, expected
 ):
-    from image_analysis.algorithms.axis_interpolation import interpolate_image_axis
-    from image_analysis.analyzers.magspec_manual_calib_analyzer import (
-        DnnAxisCalibration,
-    )
-
-    assert DnnAxisCalibration.__module__.startswith("image_analysis.")
-    assert interpolate_image_axis.__module__.startswith("image_analysis.")
-
     paths = real_tables()
     tables = {key: read_table(path) for key, path in paths.items()}
     row = calibration.camera_row(tables["camera"], camera)
@@ -431,23 +386,6 @@ def test_the_real_calibration_equals_the_legacy_axis_and_charge_factor(
     resampled, grid = calibration.resample_columns(image, axis, 1000, 1.2, 1501.3)
     assert (grid[0], grid[-1]) == (axis.min(), axis.max())
 
-    def legacy_calibration() -> dict:
-        oracle = DnnAxisCalibration(
-            camera_calibration_file=str(paths["camera"]),
-            trajectory_calibration_file=str(paths["trajectory"]),
-            lanex_calibration_file=str(paths["lanex"]),
-            camera_number=camera,
-            magnetic_field_t=0.2008,
-        )
-        old_axis = oracle.build_axis(geometry.width)
-        old, old_grid = interpolate_image_axis(image, old_axis, 1, 1000, 1.2, 1501.3)
-        return {
-            "axis": old_axis,
-            "charge_factor": oracle.get_charge_factor(),
-            "resampled": old,
-            "grid": old_grid,
-        }
-
     expected(
         f"real_calibration_{camera}",
         actual={
@@ -456,7 +394,6 @@ def test_the_real_calibration_equals_the_legacy_axis_and_charge_factor(
             "resampled": resampled,
             "grid": grid,
         },
-        oracle=legacy_calibration,
     )
 
 
@@ -645,8 +582,6 @@ def test_calibration_refusals_match_the_legacy_ones(tmp_path, change, needle):
     compiled = compile_v2(doc, allow_table_inputs=True)
     with pytest.raises(ValueError, match=needle):
         analyze_v2(frame(0), compiled, inputs=bound_tables(compiled))
-    with pytest.raises(ValueError, match=needle):
-        legacy(doc, frame(0))
 
 
 # ------------------------------------------------------------ conversion
@@ -733,12 +668,6 @@ def polynomial_measure() -> dict:
 @pytest.mark.parametrize("mode", ["noscan", "bin"])
 def test_an_average_folds_moving_energy_grids_index_wise(tmp_path, mode, expected):
     """A per-shot field moves the grid; the average is the legacy nanmean of frames and axes."""
-    from image_analysis.analyzers.magspec_manual_calib_analyzer import (
-        MagSpecManualCalibAnalyzer,
-    )
-    from image_analysis.types import ImageAnalyzerResult
-
-    assert ImageAnalyzerResult.__module__.startswith("image_analysis.")
 
     from geecs_analysis.compat.v2_average import RunningAverage
 
@@ -758,26 +687,12 @@ def test_an_average_folds_moving_energy_grids_index_wise(tmp_path, mode, expecte
     assert not np.array_equal(grids[0], grids[2]), "the field moves the grid"
     average = running.result()
 
-    def legacy_average() -> dict:
-        olds = [
-            MagSpecManualCalibAnalyzer(doc.image, spec=doc.analyzer).analyze_image(
-                frame(n), {LEGACY_COLUMN: field}
-            )
-            for n, field in enumerate(fields, start=1)
-        ]
-        mean = ImageAnalyzerResult.average(olds)
-        return {
-            "frame": mean.processed_image,
-            "energy_axis": mean.render_data["energy_axis"],
-        }
-
     expected(
         f"average_{mode}",
         actual={
             "frame": average.frame.data,
             "energy_axis": average.frame.axes[1].values,
         },
-        oracle=legacy_average,
     )
 
 

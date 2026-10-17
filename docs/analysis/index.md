@@ -19,18 +19,16 @@ sense of what's in it, start here.
     [:octicons-arrow-right-24: Recipe reference](../sites/analysis_recipes/index.html) ·
     [Analysis without the portal](examples/analysis_without_the_portal.ipynb)
 
--   :material-image-filter-center-focus:{ .lg .middle } **Image Analysis**
+-   :material-image-filter-center-focus:{ .lg .middle } **Analysis core**
 
     ---
 
-    Per-shot image processing: YAML-described pipelines (background,
-    masking, filtering, geometric transforms, thresholding) and
-    specialised analyzers for beam profile, FROG, magspec and 1D
-    traces. The HASO wavefront runs on the analysis core through
-    WaveKit — see [HASO wavefront](haso.md).
+    Per-shot processing in GEECS-Analysis: a recipe's ordered steps
+    (background, masking, filtering, geometric transforms,
+    thresholding) and a measure for beam profile, FROG, magspec, HASO
+    and 1D traces.
 
-    [:octicons-arrow-right-24: Overview](../image_analysis/overview.md) ·
-    [Analyzer index](../image_analysis/analyzer_index.md)
+    [:octicons-arrow-right-24: HASO wavefront](haso.md)
 
 -   :material-chart-areaspline:{ .lg .middle } **Scan Analysis**
 
