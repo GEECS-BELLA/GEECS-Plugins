@@ -36,7 +36,7 @@ from typing import Any, Optional
 from geecs_data_utils.analysis_status import read_analysis_statuses
 
 from geecs_mcp import errors, runtime, tool_names
-from geecs_mcp.scans.read_tools import _run_guarded
+from geecs_mcp.guard import run_guarded as _run_guarded
 from geecs_mcp.server import mcp
 
 logger = logging.getLogger("geecs_mcp.analysis.read")

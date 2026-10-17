@@ -21,6 +21,11 @@ anyio = ">=4.0"
 # Figure downscaling (analysis domain) — imported directly, declared.
 pillow = ">=10.0"
 
+# The HTTP client every tool speaks through: the scanner (:8300), the
+# portal (:8200) and the logbook (:8400) are the only things this server
+# talks to (DESIGN.md).  Async, one client per service.
+httpx = ">=0.27"
+
 # YAML: since 0.8.1 the analysis_status parsing lives in
 # geecs_data_utils.analysis_status (#682) and geecs_mcp/ imports yaml
 # nowhere — kept declared for the test fixtures that write status files
@@ -33,7 +38,7 @@ pyyaml = ">=6.0"
 # import is light (PEP 562) — the heavy stacks load only when tools run.
 geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["qs-client", "ca"] }
 
-# Completed-run lookup (get_scan_result): TiledScanCatalog over the archive.
+# The analysis domain's share reads (until PR E moves it onto the portal).
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true, extras = ["tiled"] }
 
 # On-demand ScanAnalysis execution (#686: run_scan_analysis + the
@@ -48,6 +53,12 @@ analysis-run = ["scananalysis"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"
+pytest-asyncio = ">=0.23"
+# The contract tests mount the scanner's own FastAPI app in process (its
+# --demo manager behind an httpx ASGI transport), so a route or model
+# change there fails this suite in the same PR.  Dev-only: nothing under
+# geecs_mcp/ imports it (DESIGN.md §7).
+geecs-scanner = { path = "../GeecsScanner", develop = true }
 ruff = ">=0.9"
 pydocstyle = ">=6.3"
 # Test-only: nothing under geecs_mcp/ imports geecs_schemas (the listing
@@ -62,3 +73,4 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"

@@ -1,214 +1,129 @@
 # GEECS-MCP — Developer Context for Claude
 
-The **general GEECS MCP server** — AI-agent access to GEECS, one server
-process with domains as subpackages.  Renamed from `GEECS-Scan-MCP`
-(owner decision 2026-08-22, before anything reached master): scans are
-the first domain, not the identity.  **The spec for the scans domain is
-this file plus the owner decisions recorded in the CHANGELOG** — the
-verb surface, the safety classes and the phasing all live here now.
-
-Domain roadmap (add as they earn their keep, never speculatively):
-`scans/` (built: read + halt; the write verbs were deleted in 0.9.0),
-then candidates in rough value order — `health/` (gateway/Tiled/DB probes, read-only), `db/`
-(device-variable metadata lookups), `logs/` (the /triage analysis as a
-tool), `analysis/` (READ + EXECUTION BUILT — the #675 figure/results verbs
-over the ScanAnalysis output tree, and the #686 `run_scan_analysis`
-execution slice (0.7.0) with ScanAnalysis-as-is as the backend by owner
-decision; deeper analysis-over-Tiled later — the verb surface is
-backend-neutral so it slots in behind the same tools;
-pure-numpy analysis is cross-platform; capabilities needing **Windows-only acquisition SDKs**
-do NOT force this server onto Windows — they become a small *satellite
-MCP server* on a Windows box (the PVA-gateway camera-server precedent),
-registered as a second `profile.yml` entry with the same envelope
-conventions), `archiver/` when that project reactivates.
+The **GEECS facility MCP server** — the one entry point for every write an
+AI agent (OSPREY's htu-assistant) makes to the machine, and the reads a
+closed loop needs: submit a scan, wait for it, run analysis, read the
+numbers, post to the logbook.  **A thin HTTP client of three services**
+and nothing else: the web scanner (GeecsScanner, :8300), the Data Portal
+(:8200) and the logbook (GeecsLogbook, :8400).  The design is
+`DESIGN.md` (merged #1099) — read it first; this file is the state of
+the package between its PRs.
 
 ## Boundaries (load-bearing)
 
-- **A client, never an engine.**  Everything goes through the shared
-  seams: `geecs_bluesky.qs_client` (queue verbs + preflight),
-  `geecs_bluesky.config_resolver` (config resolution + listings, #666),
-  `geecs_data_utils.tiled_catalog` (results).  This package must never
-  import engine internals (`scan_request_runner`, `session`, `plans/*`,
-  `devices/*`) — when a tool needs something private, promote it into a
-  small public module in GeecsBluesky instead (the #668 discipline: the
-  engine splits emerge from real seams, not guesses).
-- **This server has no write path** (2026-09-16, owner ruling).  The
-  native-Bluesky rebuild retired the `qs_client` calls behind
-  `submit_scan`, `run_action`, `describe_action` and
-  `move_scan_variable` (`submit_scan`, `submit_action`,
-  `describe_action`, `move_variable` are all gone; the submission
-  surface is `submit_plan`/`submit_preset` over `count`/`sweep`/
-  `optimize`), and `run_submit_preflight` now takes a preset rather
-  than a `ScanRequest`, which broke `validate_scan_request` too.  All
-  five verbs were **deleted** in 0.9.0 rather than rewired: **this
-  server is an experiment, not an operator surface**, so it never gates
-  a client-seam change — scans are submitted from `GeecsScanner`.  If a
-  write path is ever wanted back (#727), the reference implementation
-  to copy is `GeecsScanner/geecs_scanner/service/scanner.py` — the
-  `build_submission_record` → `md={"geecs": {"submission": ...}}` →
-  `submit_plan` shape.  What survives is read + observe + halt.
-- **Write-surface doctrine, for whenever that day comes** (2026-07-23,
-  amended 2026-08-25 to match deployed practice — owner correction):
-  GEECS-*semantic* writes (scans, actions, manual moves, analysis) go
-  through MCP verbs only; scans stay in the GEECS engine — the MCP
-  submits plans, never drives devices shot-by-shot, and does no raw PV
-  I/O of its own.  Channel-level
-  setpoint writes (`caput` to `:SP` PVs) are NOT MCP territory: osprey's
-  own EPICS write tool performs them, bounded by osprey's limits database
-  and its own gating.  That raw path bypasses the GEECS client-side
-  hardening (put-failure visibility, wire conventions, confirm/pseudo
-  semantics, mid-scan refusals — only device limits + gateway atomicity
-  hold server-side), which is why anything with GEECS semantics still
-  belongs behind an MCP verb.
-- **No osprey imports.**  The integration surface is `profile.yml` +
-  stdio or HTTP (`deploy/DEPLOYMENT.md` — central HTTP on the qserver
-  box is the multi-machine mode; stdio is the dev loop);
-  `tool_names.py` exists so osprey permission lists import symbols,
-  not strings.
-- **Never duplicate osprey's raw-PV channel tools** — this server
-  exposes GEECS-semantic surfaces (scan service, config catalogs,
-  archived results, DB metadata) that raw EPICS access cannot provide.
-- Configuration is ONLY the standard
-  `~/.config/geecs_python_api/config.ini` (the fleet contract — no new
-  config format).  **`deploy/DEPLOYMENT.md` is the one full key
-  inventory** — don't duplicate it here.  Every unconfigured piece
-  degrades honestly and the server always starts.
+- **No engine, no seams, no re-implementation.**  The server imports
+  nothing from GeecsBluesky, ScanAnalysis, GEECS-Core or the services'
+  code; it speaks their HTTP APIs through `httpx`.  Preflight, limits,
+  ownership, config resolution and the analysis job queue stay where an
+  operator already sees them — the scanner page and the portal's
+  Analysis tab — so what the agent does is what an operator does.  The
+  import contract `mcp-is-a-client` (`.importlinter`) is switched on in
+  PR E, once the analysis domain has moved off its old imports.
+- **Rebuild in progress (DESIGN.md §9).**  PR D (this state): the
+  `scans/` domain is on the scanner's HTTP API — kept verbs plus
+  `submit_preset`, `move`, `wait_for_scan`; the old queue-client scans
+  modules and the progress stream are deleted.  The `analysis/` domain
+  is UNCHANGED until PR E (it still reads the share through
+  `runtime.py` and `geecs_data_utils`, and `run_scan_analysis` still
+  spawns ScanAnalysis), which is why `geecs-bluesky`, `geecs-data-utils`
+  and the `analysis-run` extra are still declared.  PR F adds the
+  logbook domain; PR G the deploy.
+- **The agent never acknowledges a preflight question itself.**
+  `submit_preset` returns the scanner's questions verbatim under
+  `needs_acknowledgement`; the skill shows them to the supervising person
+  and passes the `check` names back.  Nothing here fills `acknowledged`
+  in.
+- **Identity.**  Every write verb takes `operator` (the supervising
+  person's name) and sends `agent, admin supervision (<operator>)`
+  (`identity.py`) — the scanner records it on the run; the logbook will
+  record it as the author.  The halt family records it when given and
+  is never blocked on a missing name.
+- **No osprey imports.**  The integration surface is `profile.yml` + HTTP
+  (or stdio for the dev loop); `tool_names.py` exists so permission lists
+  import symbols, not strings — its import path is stable and the HTU
+  profile derives `allow` / `ask` / `write_tools` from its three tuples.
+- **Configuration is ONLY `~/.config/geecs_python_api/config.ini`**:
+  `[mcp] scanner_url / portal_url / logbook_url` (`config.py`; rendered
+  from `site.env` by `deploy/bootstrap_host.sh` in PR G).  An unset URL
+  makes that service's verbs answer `service_unreachable` naming the key;
+  the server always starts.  `deploy/DEPLOYMENT.md` is the one full key
+  inventory.
 
 ## Layout
 
 ```
 geecs_mcp/
-  server.py       # module-level FastMCP ("geecs") + create_server()
-  __main__.py     # python -m geecs_mcp → stdio (default) or
-                  #   --transport http (the central service mode)
-  tool_names.py   # THE tool-name constants (profile lists import these)
-  runtime.py      # lazy cached singletons: experiment, queue client
-                  #   (user=CLIENT_IDENTITY — how runs trace back to this
-                  #   server), resolver, Tiled catalog.  Tools call
-                  #   runtime.get_*() through the module attribute — that
-                  #   is the test patch seam; never from-import the getters
-  errors.py       # the JSON envelope: make_ok / make_error(error_kind)
-                  #   — taxonomy in the module docstring; tools NEVER
-                  #   raise to the agent; engine text preserved verbatim
-  scans/          # THE scans domain (future domains = sibling packages)
-    read_tools.py # the v0 read tools: async wrappers (anyio.to_thread)
-                  #   over sync _*_impl functions — the impls are the
-                  #   tested surface
-    control_tools.py # stop (ownership), clear_queue, scan_progress,
-                  #   pause_scan/resume_scan (ownership like stop).
-                  #   NO SUBMIT VERB since 0.9.0 — see the write-surface
-                  #   note below
-    progress_stream.py # the process-wide qs_client ProgressStream behind
-                  #   scan_progress + stream_view, its tool-contract keys
-                  #   (shots_total = the shared planned_total)
-  analysis/       # the analysis domain (#675)
-    read_tools.py # get_scan_analysis (task statuses from
-                  #   analysis_status/ — read through the SHARED
-                  #   geecs_data_utils.analysis_status reader (#682),
-                  #   never a local parser; ScanAnalysis's suite pins
-                  #   its TaskStatus.to_dict() writer against that
-                  #   reader — + the output tree, payload-budgeted
-                  #   with explicit *_truncated flags) and
-                  #   get_scan_figure — a figure REFERENCE by default
-                  #   (label, dims, bytes, share-relative path,
-                  #   server-relative figure_url), 0.6.0 payload
-                  #   doctrine: a 247 KB inline PNG blew a haiku-tier
-                  #   agent context in the first web-UI integration, so
-                  #   image bytes ride model context ONLY via the
-                  #   opt-in thumbnail=true (≤768 px JPEG).  The
-                  #   /figures/{day}/{scan}/{label} custom route on the
-                  #   same server streams the ORIGINAL bytes (bounded
-                  #   by the tool's own candidate set + a byte cap) for
-                  #   clients to fetch-and-save as artifacts.
-                  #   STRICTLY read-only over the data share: pure
-                  #   ScanPaths static builders ONLY (a ScanPaths
-                  #   instance raises on a missing folder); pinned by
-                  #   a nothing-created test.  Needs [Paths] geecs_data + the share
-                  #   mounted on the serving host (degrades honestly)
-    run_tools.py  # the execution slice (#686, 0.7.0): run_scan_analysis
-                  #   (Q — validate-then-refuse BEFORE side effects:
-                  #   exactly-one selector, configs root, scan folder
-                  #   EXISTS (never created), analyzers construct on
-                  #   this host so Windows-SDK diagnostics refuse up
-                  #   front; statuses initialized server-side; then a
-                  #   detached run_worker subprocess drives ScanAnalysis's
-                  #   own task queue) + list_analyzers /
-                  #   list_analysis_groups (R).  ScanAnalysis-as-is is
-                  #   the backend BY OWNER DECISION 2026-08-24 — verb
-                  #   surface backend-neutral, analysis_status/ = the
-                  #   progress contract, so the Tiled stack can slot in
-                  #   later.  Rides the optional analysis-run extra;
-                  #   Google Docs uploads retired
-    run_worker.py # the detached worker: one JSON argv payload ->
-                  #   build_worklist + run_worklist for one scan; stdio
-                  #   dropped — the status YAMLs are the observable
-                  #   surface
+  server.py        module-level FastMCP("geecs") + create_server()
+  __main__.py      python -m geecs_mcp → stdio (default) or --transport http
+  tool_names.py    THE tool-name constants and the three tuples
+                   (READ_TOOLS / WRITE_TOOLS / STOP_TOOLS) the profile imports
+  config.py        the three service URLs from config.ini [mcp]
+  identity.py      identity_for(operator) → "agent, admin supervision (<operator>)"
+  clients.py       one httpx.AsyncClient per service; call() → JSON or
+                   ServiceRefusal (a 4xx, the service's kind + words) /
+                   ServiceUnavailable (no answer or 5xx); transport_for()
+                   is the test seam
+  guard.py         run_async(): refusals/outages/bugs → envelopes (every
+                   async tool); run_guarded(): the sync-impl wrapper the
+                   analysis domain keeps until PR E
+  errors.py        make_ok / make_error; the five kinds (module docstring)
+  runtime.py       config singletons the ANALYSIS domain still uses
+                   (experiment, catalog, resolver) — deleted in PR E
+  scans/tools.py   the scans domain over the scanner's HTTP API
+  analysis/        read_tools.py (get_scan_analysis, get_scan_figure,
+                   the /figures route), run_tools.py (run_scan_analysis,
+                   list_analyzers, list_analysis_groups), run_worker.py —
+                   unchanged until PR E
+tests/
+  conftest.py              the scanner's own app, in process, behind the tools
+  test_scanner_contract.py every scans verb against the scanner's real routes
+  test_registration.py     the tool groups partition the registered set; identity
+  test_analysis_*.py       the analysis domain's suite (unchanged)
 ```
 
 ## Conventions
 
-- Every tool: `async def` wrapper → `anyio.to_thread.run_sync(_impl)`;
-  the impl returns a JSON string envelope.  No tool blocks on scan
-  completion — everything is request/response; `stop_scan` is the one
-  bounded-blocking verb and caps at the client's own ≤120 s budget.
-- Result payloads are context-sized: `get_scan_result` returns metadata
-  + column names + capped stats, never the full event table.
-- Field-tolerant reads of the manager's shapes (`.get` everywhere in
-  history mapping) — the queueserver's payload fields are not a contract
-  we own.
+- Every tool is `async def` and returns a JSON string envelope through
+  `guard.run_async(impl, …)`; the `_impl` sibling is the tested surface
+  and may raise `ServiceRefusal` / `ServiceUnavailable` / `ValueError`
+  (an argument check) — the guard maps them.  Tools never raise to the
+  agent.
+- The services' words are preserved verbatim in `message`; the kinds are
+  the scanner's own vocabulary (`policy_refusal`, `invalid_request`,
+  `not_found`) plus `service_unreachable` and `internal_error`.
+- No tool re-derives a service's rule.  `move` reads back with a
+  `Device:Variable` or the scan-variable listing's `target` (the scanner's
+  readback route takes only the canonical form); `wait_for_scan`
+  correlates on `item_uid` through `/api/queue`.
+- The wait verbs' timeouts are **results** (`finished: false` with the
+  latest progress), never errors; the budget is capped at `MAX_WAIT_S`
+  (600 s, pending the OSPREY team's word).
+- Payloads are context-sized: the scanner's own shapes are small; the
+  portal's job log is bounded in PR E.
 
-## Verb surface
+## Verb surface (PR D state)
 
-**Built and live: read + observe + halt.**  `scan_status`,
-`scan_history`, `get_scan_result`, `list_scan_configs`, `scan_progress`
-(R, auto-allow); `clear_queue` and `resume_scan` (Q); `stop_scan` and
-`pause_scan` (S — the halt family); the analysis domain's
-`get_scan_analysis` / `get_scan_figure` / `list_analyzers` /
-`list_analysis_groups` (R) and `run_scan_analysis` (Q).
+| Verb | Class | Behind |
+|---|---|---|
+| `scan_status`, `scan_progress`, `scan_history`, `list_scan_configs`, `wait_for_scan` | R | scanner |
+| `get_scan_analysis`, `get_scan_figure`, `list_analyzers`, `list_analysis_groups` | R | the share / configs tree (old path, until E) |
+| `submit_preset`, `move`, `resume_scan`, `clear_queue` | W | scanner |
+| `run_scan_analysis` | W | ScanAnalysis subprocess (old path; → `run_analysis` in E) |
+| `stop_scan`, `pause_scan` | S | scanner |
 
-**Deleted in 0.9.0** (see the boundaries section): `submit_scan`,
-`run_action`, `describe_action`, `move_scan_variable`,
-`validate_scan_request`.  The standing doctrine they carried — the
-acknowledge-warnings loop, `clear_pending=False` always, the agent shot
-cap — went with them.  Re-derive it from the deleted code's own history
-(`git log -- GEECS-MCP/geecs_mcp/scans/`) if a submit verb is ever
-rebuilt, and do not assume the old code was right about the new seam.
-
-**Ownership etiquette still binds what is left**: `stop_scan`,
-`pause_scan` and `resume_scan` compare the running item's submitted-as
-identity against `[mcp] client_identity` and refuse a foreign scan
-without `force=true`.  `resume_scan` is Q (it restarts motion);
-`pause_scan` joins `stop_scan` in the halt family.
-
-**Gating semantics (VERIFIED against osprey 2026-08-22)**:
-profile-level custom-server `hooks:` keys are silently ignored, and the
-interactive writes kill switch does not cover custom-server tools (deny
-augmentation walks the framework's own servers only).  The interactive
-gate is the native `ask` prompt on every control verb (arguments
-visible); the headless gate is `hook_config.json`'s `write_tools` (from
-the profile's `config:`) — list `QUEUE_TOOLS` and deliberately NOT the
-halt family, so a halt is never blocked on any path.  Two osprey-side
-issues to be filed from that side: silent unknown-key acceptance, and
-custom servers excluded from the interactive kill switch.  See
-`deploy/DEPLOYMENT.md`.
-
-`scan_progress` carries the best-effort `stream` picture from
-`scans/progress_stream.py` (the reduction is `geecs_bluesky.qs_client.progress`,
-shared with the web scanner): start-doc totals, row-stream (`primary`
-and a gated run's `shots`) `seq_num` → shots done, stop-doc exit status, and the console-text stream's
-failed-move line as the paused reason (surfaced only while actually
-paused).  The manager poll stays authoritative; `stream.available=false`
-names why.  The HTTP entry point warms the consumer threads at startup
-(#685) — a long-lived service must be consuming before its first start
-document passes.  Stdio starts them lazily on the first `scan_progress`
-call (owner scope on #685); dropping the transport gate in
-`__main__.main` is the one-line remedy if that bites.
+Deleted in D: `get_scan_result` (its numeric reads return as
+`get_analysis_artifact` + `get_scan_scalars` in E), the `QUEUE_TOOLS`
+tuple (now `WRITE_TOOLS`), the progress-stream consumer and its HTTP-mode
+warm-up, `[mcp] client_identity` (the queue item's `user` is the
+scanner's identity for every submitter; the operator rides in
+`md.geecs.operator`).
 
 ## Testing
 
-`poetry run pytest` — hermetic: the impls are tested against fakes
-patched on `runtime`; no manager, no Tiled, no configs repo.  The
-registration test asserts every `tool_names.READ_TOOLS` entry is on the
-server.  Live verification for v0: listings match the scanner page's
-dropdowns, status agrees with its Now chip, and a known scan number
-resolves from the archive.
+`poetry install --with dev -E analysis-run`, `poetry run pytest`.  The
+scans domain is tested **against the scanner's real FastAPI app**, built
+from `geecs_scanner`'s demo manager (`period=0`, stepped by hand) and
+mounted on an `httpx.ASGITransport` through `clients.transport_for` — a
+route or model change in GeecsScanner fails this suite in the same PR
+(`scripts/ci_select.py` adds the leg through the dev path dependency).
+The analysis domain's tests are unchanged (fakes on `runtime`).

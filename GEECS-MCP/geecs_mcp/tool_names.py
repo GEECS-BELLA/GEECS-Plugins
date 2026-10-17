@@ -2,67 +2,71 @@
 
 The osprey ``bluesky_tool_names.py`` pattern: profile permission lists and
 hook matchers import these symbols instead of retyping strings, so a
-rename cannot silently strand a permission entry.
+rename cannot silently strand a permission entry.  The import path
+``geecs_mcp.tool_names`` is stable: the HTU profile derives its allow /
+ask lists and its ``write_tools`` from the three tuples below.
 
-Safety classes: **R** read-only
-(auto-allow), **Q** queueing (`ask`), **S** stop direction (`ask`; see
-the verified gating semantics on ``STOP_TOOLS``).
+Safety classes: **R** read (auto-allow), **W** write (the tier decides:
+on allow at the admin tier only, per the deployment's DEVIATION marker),
+**S** the halt family (allow wherever the server renders, never behind
+the headless gate).
 """
 
 from __future__ import annotations
 
+# reads
 SCAN_STATUS = "scan_status"
-SCAN_HISTORY = "scan_history"
-GET_SCAN_RESULT = "get_scan_result"
-LIST_SCAN_CONFIGS = "list_scan_configs"
 SCAN_PROGRESS = "scan_progress"
+SCAN_HISTORY = "scan_history"
+LIST_SCAN_CONFIGS = "list_scan_configs"
+WAIT_FOR_SCAN = "wait_for_scan"
 GET_SCAN_ANALYSIS = "get_scan_analysis"
 GET_SCAN_FIGURE = "get_scan_figure"
 LIST_ANALYZERS = "list_analyzers"
 LIST_ANALYSIS_GROUPS = "list_analysis_groups"
-RUN_SCAN_ANALYSIS = "run_scan_analysis"
-STOP_SCAN = "stop_scan"
-CLEAR_QUEUE = "clear_queue"
-PAUSE_SCAN = "pause_scan"
-RESUME_SCAN = "resume_scan"
 
-#: Read-only tools (R) — safe to auto-allow in profile.yml.
+# writes
+SUBMIT_PRESET = "submit_preset"
+MOVE = "move"
+RESUME_SCAN = "resume_scan"
+CLEAR_QUEUE = "clear_queue"
+#: Retired by DESIGN.md (→ ``run_analysis`` over the portal); registered
+#: until PR E lands the analysis domain's rewrite.
+RUN_SCAN_ANALYSIS = "run_scan_analysis"
+
+# the halt family
+STOP_SCAN = "stop_scan"
+PAUSE_SCAN = "pause_scan"
+
+#: Read-only tools (R) — safe to auto-allow in profile.yml.  ``wait_for_scan``
+#: is a read: it polls the queue and changes nothing.
 READ_TOOLS = (
     SCAN_STATUS,
-    SCAN_HISTORY,
-    GET_SCAN_RESULT,
-    LIST_SCAN_CONFIGS,
     SCAN_PROGRESS,
+    SCAN_HISTORY,
+    LIST_SCAN_CONFIGS,
+    WAIT_FOR_SCAN,
     GET_SCAN_ANALYSIS,
     GET_SCAN_FIGURE,
     LIST_ANALYZERS,
     LIST_ANALYSIS_GROUPS,
 )
 
-#: The server has no submission verb: the native-Bluesky rebuild retired
-#: the client calls behind submit_scan / run_action / move_scan_variable,
-#: and they were deleted rather than rewired (#727).
-#:
-#: Queueing tools (Q) — `ask` interactively; listed in `write_tools`
-#: (hook_config.json, from the profile's `config:`) for the headless
-#: gate (hook presets do NOT attach to custom servers — see STOP_TOOLS
-#: below / DEPLOYMENT.md).  resume_scan is Q, not S: it *restarts*
-#: motion/acquisition (and retries the failed move), so it belongs
-#: behind the headless gate like any other go verb.
-#: run_scan_analysis is Q by effect, not by queueing semantics: it writes
-#: to the data share (analysis outputs + analysis_status/ inside an
-#: EXISTING scan folder) and burns CPU on the box shared with the
-#: production manager (#686).
-QUEUE_TOOLS = (
-    CLEAR_QUEUE,
+#: Write tools (W) — every verb that queues work, moves hardware or
+#: writes a record: the deployment lists these in ``write_tools`` (the
+#: headless gate) and decides their interactive posture per tier.
+#: ``resume_scan`` is a write, not a halt: it restarts motion.
+WRITE_TOOLS = (
+    SUBMIT_PRESET,
+    MOVE,
     RESUME_SCAN,
+    CLEAR_QUEUE,
     RUN_SCAN_ANALYSIS,
 )
 
-#: Stop direction (S) — `ask` only, and NEVER listed in `write_tools`:
-#: exempt by omission from the headless gate BY DESIGN, and outside the
-#: interactive kill switch because it does not cover custom servers
-#: (upstream gap) — so a halt is never blocked on any path.  VERIFIED
-#: osprey semantics 2026-08-22; see deploy/DEPLOYMENT.md.  pause_scan
-#: joins stop_scan here: a pause makes the machine strictly quieter.
+#: The halt family (S) — NEVER listed in ``write_tools``: exempt by
+#: omission from the headless gate BY DESIGN, so a halt is never blocked
+#: on any path (verified osprey semantics 2026-08-22; deploy/DEPLOYMENT.md).
+#: ``pause_scan`` sits here with ``stop_scan``: a pause makes the machine
+#: strictly quieter.
 STOP_TOOLS = (STOP_SCAN, PAUSE_SCAN)

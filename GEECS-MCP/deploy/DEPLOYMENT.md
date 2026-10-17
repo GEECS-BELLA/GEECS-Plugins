@@ -17,17 +17,33 @@ mcp_servers:
     url: http://192.168.6.14:8100/mcp
     transport: http
     permissions:
-      allow: [scan_status, scan_history, get_scan_result,
-              list_scan_configs, scan_progress,
-              get_scan_analysis, get_scan_figure,
-              list_analyzers, list_analysis_groups]
-      ask:   [stop_scan, clear_queue, pause_scan, resume_scan,
+      allow: [scan_status, scan_progress, scan_history, list_scan_configs,
+              wait_for_scan, get_scan_analysis, get_scan_figure,
+              list_analyzers, list_analysis_groups,
+              stop_scan, pause_scan]
+      ask:   [submit_preset, move, resume_scan, clear_queue,
               run_scan_analysis]
 ```
 
-(The lists mirror `geecs_mcp/tool_names.py` — `READ_TOOLS` under
-`allow`, `QUEUE_TOOLS` + `STOP_TOOLS` under `ask`; update both together
-when a verb lands.)
+(The lists mirror `geecs_mcp/tool_names.py` — `READ_TOOLS` and
+`STOP_TOOLS` under `allow`, `WRITE_TOOLS` under `ask` here; the HTU
+deployment's posture — the write verbs on `allow` at the admin tier only,
+with a DEVIATION marker — is the profile owner's call, derived from the
+same tuples.  Update both together when a verb lands.)
+
+Since the HTTP-client rebuild (DESIGN.md) the server reaches the lab
+through three services, named in the service account's `config.ini`:
+
+```ini
+[mcp]
+scanner_url = http://<services host>:8300
+portal_url  = http://<services host>:8200
+logbook_url = http://<services host>:8400
+```
+
+An unset key leaves that service's verbs answering `service_unreachable`
+with the key's name; the server always starts.  `bootstrap_host.sh`
+renders them from `site.env` (PR G of the arc).
 
 **Hook/kill-switch semantics (VERIFIED against osprey, 2026-08-22)**:
 a `hooks:` key on a profile-level custom-server block is **silently
@@ -38,8 +54,8 @@ either (the framework's deny augmentation walks its own
 
 - **Interactive**: the native `ask` permission prompt on every control
   verb — a human sees each `stop_scan`/`clear_queue`/`pause_scan`/
-  `resume_scan`/`run_scan_analysis` call with its arguments. The
-  server has no submission verb to gate (see the note below). The
+  `resume_scan`/`run_scan_analysis` call with its arguments — and, since the rebuild,
+  `submit_preset` and `move`. The
   halt family (`stop_scan`,
   `pause_scan`) is NOT behind the kill switch on either path:
   interactively because the kill switch does not cover custom servers
@@ -47,12 +63,13 @@ either (the framework's deny augmentation walks its own
   below — halts are never blocked.
 - **Headless** (`osprey query`): the framework reads
   `hook_config.json`'s `write_tools` (populated from the profile's
-  `config:`) — list every `tool_names.QUEUE_TOOLS` entry there
-  (`clear_queue`, `resume_scan` — resume restarts motion, so it gates
-  like a submission — and `run_scan_analysis`) and **deliberately NOT
-  the halt family** (`stop_scan`, `pause_scan`): exempt by omission, so
-  a halt is never blocked on any path. E.g.
-  `write_tools: [mcp__geecs__clear_queue, mcp__geecs__resume_scan,
+  `config:`) — list every `tool_names.WRITE_TOOLS` entry there
+  (`submit_preset`, `move`, `resume_scan` — resume restarts motion, so
+  it gates like a submission — `clear_queue`, `run_scan_analysis`) and
+  **deliberately NOT the halt family** (`stop_scan`, `pause_scan`):
+  exempt by omission, so a halt is never blocked on any path. E.g.
+  `write_tools: [mcp__geecs__submit_preset, mcp__geecs__move,
+  mcp__geecs__resume_scan, mcp__geecs__clear_queue,
   mcp__geecs__run_scan_analysis]`.  **A profile deployed before 0.9.0
   names removed tools** (`submit_scan`, `run_action`,
   `move_scan_variable`, `describe_action`, `validate_scan_request`):
@@ -108,10 +125,12 @@ sudo systemctl daemon-reload && sudo systemctl enable --now geecs-mcp
 ```
 
 Config is the standard `~/.config/geecs_python_api/config.ini` of the
-service user: `[Experiment] expt`, `[qserver] host`, `[tiled]`, the
-configs-repo path, and `[mcp] client_identity` (e.g.
-`osprey-htu-assistant`).  `[mcp] max_shots` is no longer read — it
-capped agent submissions, and 0.9.0 removed the submit verb.
+service user: `[mcp] scanner_url / portal_url / logbook_url` (above)
+and, for the analysis domain until PR E, `[Experiment] expt`, `[tiled]`
+and the configs-repo path.  `[mcp] client_identity` is no longer read:
+the queue item's `user` is the scanner's identity for every submitter
+and the operator rides in the run's `md.geecs.operator`.  `[mcp]
+max_shots` is no longer read either (0.9.0).
 
 Update ritual: `git pull` in the checkout, re-run the pip install (the
 install is non-editable by design — a pull never mutates code under the

@@ -38,10 +38,11 @@ class _DiagInfo:
     #: the tab asks for the scan number first and the start endpoint
     #: refuses without it.
     destructive: bool = False
-    #: Which document this is — ``recipe`` (the v3 ``AnalysisRecipe``),
-    #: ``diagnostic`` (the v2 ``AnalysisDiagnostic``) or ``job`` (an
-    #: ``.himg`` job) — so a catalog reader can tell a measurement from
-    #: a data-management step without opening the YAML.
+    #: Which document this is — ``recipe`` (an ``AnalysisRecipe``; a
+    #: version-2 file loads as one since the v2 document was deleted,
+    #: #1039) or ``job`` (an ``.himg`` job) — so a catalog reader can
+    #: tell a measurement from a data-management step without opening
+    #: the YAML.
     kind: str = "unknown"
 
     @classmethod
@@ -59,7 +60,6 @@ class _DiagInfo:
 #: imports no schema class).
 _DOCUMENT_KINDS = {
     "AnalysisRecipe": "recipe",
-    "AnalysisDiagnostic": "diagnostic",
     "HimgJob": "job",
 }
 

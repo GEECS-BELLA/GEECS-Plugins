@@ -19,32 +19,6 @@ import logging
 logger = logging.getLogger("geecs_mcp.main")
 
 
-def warm_progress_stream() -> None:
-    """Start the ``scan_progress`` stream consumers before the first run (#685).
-
-    HTTP mode only: a long-lived service must be consuming BEFORE its
-    first run's start document passes — the lazy start behind
-    ``scan_progress`` (stdio keeps it — see ``_stream_snapshot``) left
-    the first scan after a service restart with no scan number or counts.
-    Best-effort like the cache itself: nothing here can stop the server
-    from coming up.  The cache logs what it did (consuming from which
-    address, or latched unconfigured); the guard below only covers a
-    client that will not build — a path the seams underneath promise not
-    to take, kept so the boot can never die on it.
-    """
-    try:
-        from geecs_mcp import runtime
-        from geecs_mcp.scans import progress_stream
-
-        progress_stream.start_for_client(runtime.get_queue_client())
-    except Exception as exc:  # noqa: BLE001 — warm-up is optional
-        logger.warning(
-            "progress stream not warmed at startup (%s) — scan_progress "
-            "will start it lazily on first call",
-            exc,
-        )
-
-
 def main() -> None:
     """Parse transport options and run the server."""
     parser = argparse.ArgumentParser(description="GEECS MCP server")
@@ -62,7 +36,6 @@ def main() -> None:
 
     server = create_server()
     if args.transport == "http":
-        warm_progress_stream()
         server.run(transport="http", host=args.host, port=args.port)
     else:
         server.run()
