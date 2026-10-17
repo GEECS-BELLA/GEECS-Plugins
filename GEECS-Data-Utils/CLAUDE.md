@@ -27,7 +27,7 @@ geecs_data_utils/
   type_defs.py                 # ScanTag, ScanMode, ECSDump Pydantic models
   geecs_paths_config.py        # GeecsPathsConfig: base path + experiment resolution
   config_base.py               # ConfigDirManager: generic config directory management
-  config_roots.py              # Singleton instances for image/scan analysis config dirs
+  config_roots.py              # Singleton `scan_analysis_config` manager for the unified analysis config dir
   utils.py                     # month_to_int, SysPath, ConfigurationError
   io/                          # generic path->ndarray readers (images, 1D,
                                #   IMAQ decode) + arrays.py: the three array
