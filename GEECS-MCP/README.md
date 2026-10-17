@@ -24,6 +24,13 @@ Analysis-tab route), `get_scan_analysis` (the per-scan picture),
 numbers, `get_scan_figure` (a reference to the portal's artifact URL;
 `thumbnail=true` for a bounded JPEG as an MCP image block).
 
+**Logbook (over the logbook, figures through the portal).**
+`post_logbook_entry` writes an `agent_analysis` **draft** in the scans
+book, authored `agent, admin supervision (<operator>)`; figures are
+references to a run's artifacts that the portal attaches. Every
+reference is checked before anything is written; once the entry exists
+the result is ok, with one outcome row per figure — never post twice.
+
 Permission lists import `geecs_mcp.tool_names` (`READ_TOOLS`,
 `WRITE_TOOLS`, `STOP_TOOLS`); `deploy/DEPLOYMENT.md` has the profile
 shape and the gating semantics.

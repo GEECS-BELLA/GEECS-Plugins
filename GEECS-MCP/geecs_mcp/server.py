@@ -1,7 +1,8 @@
 """The GEECS MCP server — FastMCP instance + tool registration.
 
 One general server, domains as subpackages: ``scans/`` (the scanner's
-HTTP API), ``analysis/`` (the portal's), ``logbook/`` (PR F).
+HTTP API), ``analysis/`` (the portal's), ``logbook/`` (the logbook's,
+with figures sent through the portal).
 
 The osprey house pattern (its native bluesky server): a module-level
 :class:`FastMCP`, tool modules that self-register via ``@mcp.tool()``,
@@ -15,11 +16,15 @@ permission lists import :mod:`geecs_mcp.tool_names` symbols.
 
 from __future__ import annotations
 
+import importlib
 import logging
 
 from fastmcp import FastMCP
 
 logger = logging.getLogger("geecs_mcp")
+
+#: The domain subpackages whose ``tools`` modules carry the verbs.
+DOMAINS = ("scans", "analysis", "logbook")
 
 mcp = FastMCP(
     "geecs",
@@ -37,7 +42,10 @@ mcp = FastMCP(
         "them to the operator, then pass the check names back), move (the "
         "scanner's mv plan, idle-only, returns the readback), resume_scan, "
         "clear_queue, run_analysis (one analysis document on one scan "
-        "through the portal; wait_for_analysis follows it). Numbers come "
+        "through the portal; wait_for_analysis follows it), "
+        "post_logbook_entry (a draft in the scans book; figures are artifact "
+        "references the portal attaches — ok once the entry exists, so never "
+        "post twice). Numbers come "
         "from get_analysis_artifact (a run's JSON/text sidecar, bounded) "
         "and get_scan_scalars (per-bin statistics of up to four columns); "
         "figures from get_scan_figure (a reference, thumbnail=true for a "
@@ -50,8 +58,8 @@ mcp = FastMCP(
 
 def create_server() -> FastMCP:
     """Register every tool module and return the server."""
-    from geecs_mcp.analysis import tools as analysis_tools  # noqa: F401 — self-register
-    from geecs_mcp.scans import tools as scans_tools  # noqa: F401 — self-register
+    for domain in DOMAINS:  # each tools module self-registers on import
+        importlib.import_module(f"geecs_mcp.{domain}.tools")
 
     logger.info(
         "geecs MCP server initialised (a client of the scanner, the portal and the logbook)"

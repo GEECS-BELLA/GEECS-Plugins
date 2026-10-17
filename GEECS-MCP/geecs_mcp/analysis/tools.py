@@ -16,12 +16,11 @@ from __future__ import annotations
 
 import io
 import json
-from datetime import date
 from typing import Any, Optional
 
 import anyio
 
-from geecs_mcp import clients, config, errors, guard, tool_names
+from geecs_mcp import clients, errors, guard, portal, tool_names
 from geecs_mcp.clients import ServiceRefusal
 from geecs_mcp.identity import InvalidArgument
 from geecs_mcp.server import mcp
@@ -43,62 +42,11 @@ FIGURE_FETCH_MAX_BYTES = 50_000_000
 THUMBNAIL_EDGE_PX = 768
 THUMBNAIL_JPEG_QUALITY = 80
 MAX_FIGURE_PIXELS = 80_000_000
-#: The MCP's own routing rule between its two readers: a raster suffix is
-#: a figure (get_scan_figure), anything else an artifact — the same set the
-#: portal renders inline.
-IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 
 
 async def _sleep(seconds: float) -> None:
     """The wait verb's pause — a module attribute so tests can replace it."""
     await anyio.sleep(seconds)
-
-
-# ---------------------------------------------------------------------------
-# resolving a scan
-# ---------------------------------------------------------------------------
-
-
-def _day_or_today(day: Optional[str]) -> str:
-    text = str(day or "").strip()
-    return text or date.today().isoformat()
-
-
-async def _resolve_uid(scan_number: Any, day: Optional[str]) -> tuple[str, str, int]:
-    """``(uid, day, scan_number)`` through the portal's jump route, or a refusal."""
-    try:
-        number = int(scan_number)
-    except (TypeError, ValueError):
-        raise InvalidArgument(
-            f"scan_number {scan_number!r} is not an integer"
-        ) from None
-    if number < 1:
-        raise InvalidArgument("scan_number must be positive")
-    iso = _day_or_today(day)
-    jump = await clients.call(
-        "portal", "GET", f"/api/run/jump/{iso}", params={"prefer": number}
-    )
-    if not jump.get("matched") or not jump.get("uid"):
-        raise ServiceRefusal(
-            "not_found",
-            f"no scan {number} on {iso} in the portal's catalog "
-            f"({jump.get('runs', 0)} run(s) that day)",
-            day=iso,
-            scan_number=number,
-        )
-    return str(jump["uid"]), iso, number
-
-
-def _portal_base() -> str:
-    return config.service_url("portal") or ""
-
-
-def _artifact_url(uid: str, path: str, day: str) -> str:
-    from urllib.parse import urlencode
-
-    return (
-        f"{_portal_base()}/run/{uid}/artifact?{urlencode({'path': path, 'day': day})}"
-    )
 
 
 def _bounded_job(job: Any) -> Any:
@@ -168,18 +116,9 @@ async def list_analysis_groups() -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _analysis_listing(uid: str, day: str) -> dict:
-    return (
-        await clients.call(
-            "portal", "GET", f"/api/run/{uid}/analysis", params={"day": day}
-        )
-        or {}
-    )
-
-
 async def _get_scan_analysis(scan_number: Any, day: Optional[str]) -> str:
-    uid, iso, number = await _resolve_uid(scan_number, day)
-    listing = await _analysis_listing(uid, iso)
+    uid, iso, number = await portal.resolve_uid(scan_number, day)
+    listing = await portal.analysis_listing(uid, iso)
     analyzers = []
     for entry in listing.get("analyzers") or []:
         row = dict(entry)
@@ -220,7 +159,7 @@ async def _run_analysis(
     analyzer = str(analyzer or "").strip()
     if not analyzer:
         return errors.make_error("invalid_request", "name an analyzer (list_analyzers)")
-    uid, iso, number = await _resolve_uid(scan_number, day)
+    uid, iso, number = await portal.resolve_uid(scan_number, day)
     params: dict[str, Any] = {"analyzer": analyzer, "day": iso}
     if confirm is not None:
         try:
@@ -275,10 +214,10 @@ async def _wait_for_analysis(
     analyzer = str(analyzer or "").strip()
     if not analyzer:
         return errors.make_error("invalid_request", "name the analyzer you started")
-    uid, iso, number = await _resolve_uid(scan_number, day)
+    uid, iso, number = await portal.resolve_uid(scan_number, day)
     deadline = anyio.current_time() + bounded_wait(timeout_s)
     while True:
-        listing = await _analysis_listing(uid, iso)
+        listing = await portal.analysis_listing(uid, iso)
         entry, job = _job_for(listing, analyzer)
         if entry is None:
             return errors.make_error(
@@ -344,7 +283,7 @@ async def _get_analysis_artifact(
         return errors.make_error(
             "invalid_request", "name an artifact path from get_scan_analysis"
         )
-    if path.lower().endswith(IMAGE_SUFFIXES):
+    if path.lower().endswith(portal.IMAGE_SUFFIXES):
         return errors.make_error(
             "invalid_request", f"{path!r} is an image — use get_scan_figure for figures"
         )
@@ -353,7 +292,7 @@ async def _get_analysis_artifact(
     except (TypeError, ValueError):
         cap = ARTIFACT_DEFAULT_BYTES
     cap = max(1, min(cap, ARTIFACT_MAX_BYTES))
-    uid, iso, number = await _resolve_uid(scan_number, day)
+    uid, iso, number = await portal.resolve_uid(scan_number, day)
     body, content_type, truncated, total = await clients.get_bytes(
         "portal",
         f"/run/{uid}/artifact",
@@ -420,7 +359,7 @@ async def _get_scan_scalars(
     if not cols:
         return errors.make_error("invalid_request", "name at least one scalar column")
     # the column cap is the portal's (400 above its four): forwarded, not restated
-    uid, iso, number = await _resolve_uid(scan_number, day)
+    uid, iso, number = await portal.resolve_uid(scan_number, day)
     params: dict[str, Any] = {"cols": cols, "day": iso}
     params.update(
         {k: v for k, v in (("x", x), ("bincfg", bincfg), ("filters", filters)) if v}
@@ -462,29 +401,6 @@ async def get_scan_scalars(
 # ---------------------------------------------------------------------------
 
 
-def _is_image(path: str) -> bool:
-    return str(path).lower().endswith(IMAGE_SUFFIXES)
-
-
-def _figure_entries(listing: dict, uid: str, day: str) -> list[dict]:
-    entries = []
-    for analyzer in listing.get("analyzers") or []:
-        for artifact in analyzer.get("artifacts") or []:
-            path = artifact.get("path")
-            if not isinstance(path, str) or not _is_image(path):
-                continue
-            entries.append(
-                {
-                    "figure": path,
-                    "analyzer": analyzer.get("id"),
-                    "kind": artifact.get("kind"),
-                    "bin": artifact.get("bin"),
-                    "figure_url": _artifact_url(uid, path, day),
-                }
-            )
-    return entries
-
-
 def _thumbnail_jpeg(data: bytes) -> tuple[bytes, int, int]:
     from PIL import Image as PILImage
 
@@ -508,9 +424,9 @@ def _thumbnail_jpeg(data: bytes) -> tuple[bytes, int, int]:
 async def _get_scan_figure(
     scan_number: Any, label: Optional[str], day: Optional[str], thumbnail: bool
 ) -> str:
-    uid, iso, number = await _resolve_uid(scan_number, day)
-    listing = await _analysis_listing(uid, iso)
-    figures = _figure_entries(listing, uid, iso)
+    uid, iso, number = await portal.resolve_uid(scan_number, day)
+    listing = await portal.analysis_listing(uid, iso)
+    figures = portal.figure_entries(listing, uid, iso)
     wanted = str(label or "").strip()
     if not wanted:
         summaries = [f for f in figures if f.get("kind") == "summary"]

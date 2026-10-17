@@ -34,6 +34,7 @@ MOVE = "move"
 RESUME_SCAN = "resume_scan"
 CLEAR_QUEUE = "clear_queue"
 RUN_ANALYSIS = "run_analysis"
+POST_LOGBOOK_ENTRY = "post_logbook_entry"
 
 # the halt family
 STOP_SCAN = "stop_scan"
@@ -60,13 +61,15 @@ READ_TOOLS = (
 #: writes a record: the deployment lists these in ``write_tools`` (the
 #: headless gate) and decides their interactive posture per tier.
 #: ``resume_scan`` is a write, not a halt: it restarts motion;
-#: ``run_analysis`` writes the analysis tree and burns the portal's CPU.
+#: ``run_analysis`` writes the analysis tree and burns the portal's CPU;
+#: ``post_logbook_entry`` writes a (draft) record in the scans book.
 WRITE_TOOLS = (
     SUBMIT_PRESET,
     MOVE,
     RESUME_SCAN,
     CLEAR_QUEUE,
     RUN_ANALYSIS,
+    POST_LOGBOOK_ENTRY,
 )
 
 #: The halt family (S) — NEVER listed in ``write_tools``: exempt by

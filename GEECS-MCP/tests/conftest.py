@@ -3,10 +3,13 @@
 The scanner is built the way its own suite builds it (``DemoQueueClient``
 with ``period=0`` — a manager in memory that moves only when the test
 calls ``step()``); the portal the way its suite builds it (a fake
-``ScanCatalog`` over a temp scan tree, an injected fake analyzer factory).
-Both are mounted on ``httpx.ASGITransport``s that :mod:`geecs_mcp.clients`
-is pointed at, so a route or model change in either service fails these
-tests in the same PR (DESIGN.md §7).
+``ScanCatalog`` over a temp scan tree, an injected fake analyzer factory);
+the logbook the way its suite builds it (the same temp share, a temp
+SQLite store).  All three are mounted on ``httpx.ASGITransport``s that
+:mod:`geecs_mcp.clients` is pointed at, and the portal's own figure send
+reaches the same logbook through a ``TestClient`` (it drives a sync
+client), so a route or model change in any of them fails these tests in
+the same PR (DESIGN.md §7).
 """
 
 from __future__ import annotations
@@ -65,6 +68,19 @@ def scanner(tmp_path: Path):
         heartbeat_path=tmp_path / "scanner-heartbeat.json",
     )
     return service, manager, create_app(service)
+
+
+# ----------------------------------------------------------------- logbook
+
+
+@pytest.fixture
+def logbook(tmp_path: Path):
+    """The logbook app over the portal fixture's share, with a temp store."""
+    from geecs_logbook.app import create_app
+
+    return create_app(
+        "Undulator", base_directory=tmp_path, notes_db=tmp_path / "notes.sqlite"
+    )
 
 
 # ------------------------------------------------------------------ portal
@@ -176,9 +192,13 @@ class FakeAnalyzer:
 
 
 @pytest.fixture
-def portal(tmp_path: Path):
-    """The portal app over a temp scan tree and a two-document configs tree."""
+def portal(tmp_path: Path, logbook):
+    """The portal app over a temp scan tree and a two-document configs tree.
+
+    Its figure send talks to the in-process logbook (``logbook_client``).
+    """
     import yaml
+    from fastapi.testclient import TestClient
     from geecs_data_utils.scan_info import analysis_folder_for
     from geecs_portal.app import create_app
 
@@ -233,6 +253,8 @@ def portal(tmp_path: Path):
         default_experiment="Undulator",
         processing_config_dir=tree,
         analysis_factory=factory,
+        logbook_url="http://logbook",
+        logbook_client=TestClient(logbook, base_url="http://logbook"),
     )
     return app, scan_folder, analysis_folder
 
@@ -253,15 +275,20 @@ def portal_fakes():
 
 
 @pytest.fixture
-def wired(scanner, portal, monkeypatch):
-    """Point the clients at the in-process scanner and portal; the logbook stays unconfigured."""
+def wired(scanner, portal, logbook, monkeypatch):
+    """Point the clients at the in-process scanner, portal and logbook."""
     _, manager, scanner_app = scanner
     portal_app, _, _ = portal
     transports = {
         "scanner": httpx.ASGITransport(app=scanner_app),
         "portal": httpx.ASGITransport(app=portal_app),
+        "logbook": httpx.ASGITransport(app=logbook),
     }
-    urls = {"scanner": "http://scanner", "portal": "http://portal", "logbook": None}
+    urls = {
+        "scanner": "http://scanner",
+        "portal": "http://portal",
+        "logbook": "http://logbook",
+    }
     monkeypatch.setattr(config, "service_url", lambda service: urls[service])
     monkeypatch.setattr(
         clients, "transport_for", lambda service: transports.get(service)

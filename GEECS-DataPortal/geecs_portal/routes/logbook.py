@@ -50,11 +50,17 @@ class PlotToLogbook(BaseModel):
     #: value becomes a path segment in the URLs we build, and a ``/`` or a
     #: ``..`` in it would address some other route under that base.
     entry: str = Field("", max_length=64, pattern=r"^[0-9a-f]*$")
+    #: ``entry`` must exist: a missing one is a 404, not a fresh entry.
+    #: For a client that made the entry itself (the MCP server's agent
+    #: draft); the page's own memory of an entry may go stale, its default.
+    entry_required: bool = False
 
     @model_validator(mode="after")
     def _one_source(self) -> "PlotToLogbook":
         if bool(self.image) == bool(self.path):
             raise ValueError("give exactly one of 'image' (a data URL) or 'path'")
+        if self.entry_required and not self.entry:
+            raise ValueError("entry_required needs an 'entry'")
         return self
 
 
@@ -108,7 +114,8 @@ def run_logbook_send(
     malformed image → 400 · an artifact path that does not resolve →
     404, one that is not a raster image → 400 · the logbook unreachable
     → 503 · the logbook refusing → its own status for the verdicts that
-    are about this payload (409/413/415), else 502.  The reply carries
+    are about this payload (409/413/415, and 404 for an ``entry_required``
+    entry that is gone — never a fresh one), else 502.  The reply carries
     the attachment ``link`` the body now shows, so a caller appending
     more can cite it.
     """
@@ -155,6 +162,7 @@ def run_logbook_send(
             filename=filename,
             content_type=content_type,
             client=portal.logbook_client,
+            entry_required=payload.entry_required,
         )
     except ValueError as exc:  # the image itself: too big, or empty
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -163,8 +171,10 @@ def run_logbook_send(
     except logbook_send.LogbookRefused as exc:
         # 409/413/415 are verdicts on what we sent and mean the same
         # to our caller; anything else is the peer's own trouble, and
-        # a peer's 500 must not read as ours.
-        status = exc.status if exc.status in (409, 413, 415) else 502
+        # a peer's 500 must not read as ours. A missing required entry is
+        # the caller's own entry not being there: its 404.
+        verdicts = (404, 409, 413, 415) if payload.entry_required else (409, 413, 415)
+        status = exc.status if exc.status in verdicts else 502
         raise HTTPException(status_code=status, detail=exc.detail) from exc
     return JSONResponse(
         {

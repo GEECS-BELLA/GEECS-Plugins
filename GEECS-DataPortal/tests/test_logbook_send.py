@@ -287,6 +287,16 @@ class TestSendAppends:
         assert result.appended is False
         assert len(book.created) == 2
 
+    def test_a_required_entry_that_is_gone_is_refused_never_replaced(self) -> None:
+        """A caller that made the entry itself gets a 404, not a stand-in ``kept`` note."""
+        book = FakeLogbook()
+        first = _send(book)
+        book.gone.add(first.entry_id)
+        with pytest.raises(logbook_send.LogbookRefused) as caught:
+            _send(book, entry_id=first.entry_id, entry_required=True)
+        assert caught.value.status == 404
+        assert len(book.created) == 1
+
 
 class TestSendRefusals:
     """What comes back when the send cannot happen."""
@@ -962,3 +972,13 @@ class TestArtifactSource:
         assert entry["scan"] == 2
         assert "![fit](attachments/e0001/plot-1.png)" in entry["body_md"]
         assert _PNG in book.uploads[0]
+
+    def test_a_required_entry_that_is_gone_is_the_callers_404(self, tmp_path) -> None:
+        book = FakeLogbook()
+        book.gone.add("e0042")
+        client = _analysis_client(tmp_path, logbook_client=book.client())
+        response = _post_path(client, entry="e0042", entry_required=True)
+        assert response.status_code == 404
+        assert not book.created
+        without = _post_path(client, entry_required=True)
+        assert without.status_code == 422  # entry_required needs an entry

@@ -220,6 +220,7 @@ def send_plot(
     filename: str = "plot.png",
     client: Optional[httpx.Client] = None,
     content_type: str = "image/png",
+    entry_required: bool = False,
 ) -> SendResult:
     """Put one PNG into the scans book, on ``day`` against ``scan``.
 
@@ -245,7 +246,13 @@ def send_plot(
     entry_id : str, optional
         Append to this entry instead of creating one. An entry that has
         since been deleted is not an error — a fresh one is created, and
-        the result says so.
+        the result says so — unless ``entry_required``.
+    entry_required : bool, optional
+        The caller made ``entry_id`` itself and wants the image there or
+        nowhere: a missing entry is :class:`LogbookRefused` (404), never a
+        fresh one. A fresh one is a ``note`` born ``kept`` — wrong for an
+        agent's draft, and one per figure when the caller's logbook is not
+        this one.
     filename : str, optional
         The name offered to the store, which may claim a different one.
     client : httpx.Client, optional
@@ -288,6 +295,7 @@ def send_plot(
             entry_id=entry_id,
             filename=filename,
             content_type=content_type,
+            entry_required=entry_required,
         )
     except httpx.HTTPError as exc:
         raise LogbookUnreachable(f"no answer from the logbook at {base}") from exc
@@ -329,6 +337,7 @@ def _send(
     entry_id: Optional[str],
     filename: str,
     content_type: str = "image/png",
+    entry_required: bool = False,
 ) -> SendResult:
     """The four calls, with the create skipped when appending."""
     # The link goes in at creation, above the images: a paragraph
@@ -349,7 +358,7 @@ def _send(
             )
         )
     except LogbookRefused as exc:
-        if not (appended and exc.status == 404):
+        if not (appended and exc.status == 404) or entry_required:
             raise
         # The entry the browser remembered is gone (discarded, deleted).
         # That is a stale pointer, not a failure to send: start a new one.
