@@ -70,7 +70,9 @@ extending this package.
   artifact named as the run listing names it — read off the analysis
   tree under the artifact route's containment rule, raster images only,
   so a client holding only a reference (the MCP server posting an
-  agent's figures) moves no bytes.  The reply carries the attachment
+  agent's figures) moves no bytes; it posts to the RESOLVED folder's
+  tag (day + number), not the start document's day, so across midnight
+  a figure joins the scan it came from.  The reply carries the attachment
   `link` the body now shows.  `create_app(logbook_client=…)` injects the
   httpx client the send uses (tests: an in-process logbook); production
   makes one per send.

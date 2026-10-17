@@ -865,6 +865,11 @@ class TestArtifactSource:
         assert call["filename"] == "scan002-summary.png"
         assert call["content_type"] == "image/png"
         assert call["author"] == "agent, admin supervision (Ada)"
+        # The fixture's folder is 26_0713 while the start doc says 2026-07-12
+        # (claimed before midnight, started after): the entry joins the
+        # FOLDER's scan, the one the artifact belongs to.
+        assert call["day"] == "2026-07-13"
+        assert call["scan"] == 2
 
     def test_a_path_that_escapes_or_is_missing_is_404(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path
@@ -951,5 +956,9 @@ class TestArtifactSource:
         assert body["link"] == "attachments/e0001/plot-1.png"
         entry = book.only_entry()
         assert entry["author"] == "agent, admin supervision (Ada)"
+        assert (
+            entry["day"] == "2026-07-13"
+        )  # the resolved folder's day, not the start doc's
+        assert entry["scan"] == 2
         assert "![fit](attachments/e0001/plot-1.png)" in entry["body_md"]
         assert _PNG in book.uploads[0]

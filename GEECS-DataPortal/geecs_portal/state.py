@@ -136,14 +136,24 @@ class PortalState:
         )
         return f"{base}/day/{run_day.isoformat()}#Scan{summary.scan_number:03d}"
 
-    def logbook_sendable(self, detail, run_day) -> bool:
-        """Whether this run can receive a plot — the link's rule, plus an address."""
-        summary = detail.summary
+    def logbook_send_allowed(self, detail) -> bool:
+        """Whether a send to the logbook is possible for this run at all.
+
+        An absolute address to dial, and a run of this portal's experiment
+        (the logbook serves one experiment's share; scan numbers restart
+        per experiment). The destination day and scan are the caller's:
+        the start document's for a rendered plot, the resolved folder's
+        tag for an artifact (see the send route).
+        """
         return bool(
             self.logbook_send_base
-            and run_day
-            and summary.scan_number
-            and summary.experiment == self.default_experiment
+            and detail.summary.experiment == self.default_experiment
+        )
+
+    def logbook_sendable(self, detail, run_day) -> bool:
+        """Whether this run can receive a plot — the link's rule, plus an address."""
+        return bool(
+            self.logbook_send_allowed(detail) and run_day and detail.summary.scan_number
         )
 
     def load_run(self, uid: str):
