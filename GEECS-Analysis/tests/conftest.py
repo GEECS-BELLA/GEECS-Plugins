@@ -63,16 +63,22 @@ def _stored(array: np.ndarray) -> np.ndarray:
 
 
 @pytest.fixture
-def expected(request):
+def expected_root() -> Path:
+    """Where :func:`expected` keeps its files (a test of the fixture overrides it)."""
+    return EXPECTED_ROOT
+
+
+@pytest.fixture
+def expected(request, expected_root):
     """Check ``actual`` against the stored value for ``name`` and return it.
 
     ``expected(name, actual=None, oracle=None)``: with ``GEECS_UPDATE_GOLDENS``
     set, the oracle's value (or ``actual`` when there is none) is stored
-    first. A dict is compared key by key; its stored values come back as
+    first; a call with neither only reads, and an object array is refused. A dict is compared key by key; its stored values come back as
     arrays (0-d for scalars). Without ``actual`` only the stored value (and
     the oracle against it) is checked, for tests that compare part of it.
     """
-    folder = EXPECTED_ROOT / Path(request.node.path).stem
+    folder = expected_root / Path(request.node.path).stem
 
     def check(
         name: str,
@@ -81,17 +87,17 @@ def expected(request):
     ) -> dict[str, np.ndarray] | np.ndarray:
         path = folder / (re.sub(r"[^A-Za-z0-9_.-]+", "_", name) + ".npz")
         reference = oracle() if oracle is not None else None
-        if os.environ.get(UPDATE_GOLDENS):
+        value = reference if oracle is not None else actual
+        # A read-only call (no oracle, no actual) never writes, whatever the env.
+        if value is not None and os.environ.get(UPDATE_GOLDENS):
+            arrays = {key: _stored(array) for key, array in _arrays(value).items()}
+            for key, array in arrays.items():
+                if array.dtype == object:
+                    raise TypeError(
+                        f"{name}: {key!r} is an object array; not storing it"
+                    )
             folder.mkdir(parents=True, exist_ok=True)
-            np.savez_compressed(
-                path,
-                **{
-                    key: _stored(array)
-                    for key, array in _arrays(
-                        reference if oracle is not None else actual
-                    ).items()
-                },
-            )
+            np.savez_compressed(path, **arrays)
         with np.load(path) as handle:
             stored = {key: handle[key] for key in handle.files}
         if oracle is not None:
