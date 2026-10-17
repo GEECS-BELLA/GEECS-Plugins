@@ -255,7 +255,6 @@ geecs_data = $GEECS_DATA_ROOT
 GEECS_DATA_LOCAL_BASE_PATH = $GEECS_DATA_ROOT
 scanner_config_root_path = $GEECS_CONFIGS_ROOT
 scan_analysis_configs_path = $GEECS_CONFIGS_ROOT/scan_analysis_configs
-image_analysis_configs_path = $GEECS_CONFIGS_ROOT/image_analysis_configs
 
 [Experiment]
 expt = $GEECS_EXPERIMENT

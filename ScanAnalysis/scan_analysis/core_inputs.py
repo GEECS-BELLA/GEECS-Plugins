@@ -1,4 +1,4 @@
-"""Prepare the pure v2 core's file inputs through shared data-utils readers.
+"""Prepare the analysis core's file inputs through shared data-utils readers.
 
 This is source orchestration, shared by explicit scan runs and portal previews.
 Numerical execution stays in geecs-analysis; no files are written here.
@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Mapping
 
 import numpy as np
-from geecs_analysis.compat.v2 import UnsupportedRecipe, V2Recipe
+from geecs_analysis.engine.compiled import UnsupportedRecipe, CompiledRecipe
 from geecs_analysis.pipeline import bind_inputs
 from geecs_analysis.registry import measure_definition
 from geecs_analysis.recipe import AnalysisDocument, compile_document
@@ -50,7 +50,7 @@ class PreparedRecipe:
     plain mapping and are rebound as a read-only view.
     """
 
-    recipe: V2Recipe
+    recipe: CompiledRecipe
     inputs: Mapping[str, object]
 
     def __getstate__(self) -> dict:
@@ -81,7 +81,7 @@ class ScanContextRequired(UnsupportedRecipe):
     """
 
 
-def prepare_v2(
+def prepare_recipe(
     document: AnalysisDocument,
     *,
     data_dir: Path | None = None,

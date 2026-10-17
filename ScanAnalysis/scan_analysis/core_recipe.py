@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from geecs_analysis.compat.v2 import V2Recipe
+from geecs_analysis.engine.compiled import CompiledRecipe
 from geecs_analysis.recipe import (
     AnalysisDocument,
     compile_document,
@@ -37,7 +37,7 @@ class ScanRecipe:
     against the summary registry.
     """
 
-    recipe: V2Recipe
+    recipe: CompiledRecipe
     device: str
     folder: str
     output_name: str

@@ -40,7 +40,6 @@ from geecs_data_utils.native_files import (
 from geecs_data_utils.type_defs import ScanMode, ScanTag
 from geecs_data_utils.config_base import ConfigDirManager
 from geecs_data_utils.config_roots import (
-    image_analysis_config,
     scan_analysis_config,
 )
 from geecs_data_utils.scan_log_loader import (
@@ -92,7 +91,6 @@ __all__ = [
     "legacy_filename_regex",
     "ScanMode",
     "ConfigDirManager",
-    "image_analysis_config",
     "scan_analysis_config",
     # scan log loader
     "LogEntry",

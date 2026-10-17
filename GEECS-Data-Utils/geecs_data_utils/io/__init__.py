@@ -1,10 +1,9 @@
 """Low-level readers and decoders for native GEECS data.
 
 This subpackage owns generic ``path -> numpy.ndarray`` file readers that are not
-tied to any analysis logic. They provide a shared foundation for ImageAnalysis,
+tied to any analysis logic. They provide a shared foundation for ScanAnalysis,
 post-run analysis tools and the web surfaces, none of which
-should depend on the higher-level ``image_analysis`` package just to load a
-file from disk. It also provides :func:`decode_imaq_image_string`, which decodes
+should depend on an analysis package just to load a file from disk. It also provides :func:`decode_imaq_image_string`, which decodes
 an in-memory NI IMAQ "Flatten Image to String" payload received live over the
 device TCP stream (not a file), and — in :mod:`geecs_data_utils.io.arrays` — the
 decoders for the three array payload shapes devices push the same way.

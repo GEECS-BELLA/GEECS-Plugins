@@ -39,7 +39,7 @@ from scan_analysis.config.diagnostic_factory import (
 )
 from scan_analysis.task_queue import load_analyzers_from_config
 from scan_analysis.core_analyzer import CoreScanAnalyzer
-from geecs_analysis.compat.v2 import UnsupportedRecipe
+from geecs_analysis.engine.compiled import UnsupportedRecipe
 
 TAG = ScanTag(year=2026, month=3, day=10, number=12, experiment="Test")
 DEVICE = "U_HasoLift"

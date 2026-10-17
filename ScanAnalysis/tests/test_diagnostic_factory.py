@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 import yaml
-from geecs_analysis.compat.v2 import UnsupportedRecipe
+from geecs_analysis.engine.compiled import UnsupportedRecipe
 from geecs_analysis.recipe import RecipeError
 from geecs_schemas.analysis import AnalysisRecipe
 

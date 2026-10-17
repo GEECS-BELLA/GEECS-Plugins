@@ -54,7 +54,7 @@ def stack_required(device_dir: Path) -> Path:
 
 
 @dataclass(frozen=True)
-class V2ShotSource:
+class RecipeShotSource:
     """Resolved shot references and a snapshotted native-reader configuration.
 
     Native arrays remain in their original dtype until the v2 evaluator has
@@ -77,7 +77,7 @@ class V2ShotSource:
     stitcher joined them. A shot a sibling lacks is stitched without it,
     with a warning.
 
-    ``channels`` are the recipe's auxiliary channels (``V2Recipe.channels``,
+    ``channels`` are the recipe's auxiliary channels (``CompiledRecipe.channels``,
     named columns of the trace file's ``auxiliary_columns``): each loaded
     trace carries them as columns 2, 3, … in that order, row-aligned with
     x and y, so they reach the core with the trace and are averaged with it
@@ -132,7 +132,7 @@ class V2ShotSource:
         object.__setattr__(self, "_stacks", {})
         object.__setattr__(self, "_entered", False)
 
-    def __enter__(self) -> V2ShotSource:
+    def __enter__(self) -> RecipeShotSource:
         """Start keeping stack handles open across reads."""
         object.__setattr__(self, "_entered", True)
         return self
@@ -211,7 +211,7 @@ def source_directory(recipe: ScanRecipe | AnalysisDocument, scan_folder: Path) -
 
 def prepare_source(
     recipe: ScanRecipe | AnalysisDocument, scan_folder: Path, rows: pd.DataFrame
-) -> V2ShotSource:
+) -> RecipeShotSource:
     """Resolve a completed scan using the existing v2 wrapper's source rules.
 
     Keep device identity separate from the optional folder/file-device override.
@@ -252,7 +252,7 @@ def prepare_source(
         (folder, _sibling_references(spec, folder, scan_folder, rows, stacks_only))
         for folder in spec.siblings
     )
-    return V2ShotSource(
+    return RecipeShotSource(
         device_dir, references, loading_json, siblings, spec.recipe.channels
     )
 

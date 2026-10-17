@@ -1,7 +1,7 @@
 """Readers and decoders for images written/streamed by GEECS / NI IMAQ.
 
 Most functions here map a file path to a NumPy array and contain no analysis
-logic; higher-level packages (ImageAnalysis, ScanAnalysis, Bluesky
+logic; higher-level packages (ScanAnalysis, Bluesky,
 the portal's shot viewer) wrap them. One writer, :func:`write_png16`, is the
 16-bit greyscale PNG an analysis product is saved as. Two exceptions operate
 on in-memory data: :func:`decode_imaq_image_string` decodes an NI IMAQ "Flatten Image to

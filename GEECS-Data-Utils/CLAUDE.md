@@ -27,7 +27,7 @@ geecs_data_utils/
   type_defs.py                 # ScanTag, ScanMode, ECSDump Pydantic models
   geecs_paths_config.py        # GeecsPathsConfig: base path + experiment resolution
   config_base.py               # ConfigDirManager: generic config directory management
-  config_roots.py              # Singleton instances for image/scan analysis config dirs
+  config_roots.py              # Singleton `scan_analysis_config` manager for the unified analysis config dir
   utils.py                     # month_to_int, SysPath, ConfigurationError
   io/                          # generic path->ndarray readers (images, 1D,
                                #   IMAQ decode) + arrays.py: the three array
@@ -238,9 +238,9 @@ consumers should share this boundary.
 YAML config files. ScanAnalysis resolves through the unified analysis config tree.
 
 ```python
-from geecs_data_utils.config_roots import image_analysis_config, scan_analysis_config
+from geecs_data_utils.config_roots import scan_analysis_config
 
-# These are pre-built singletons. Path resolved from:
+# A pre-built singleton. Path resolved from:
 # 1. SCAN_ANALYSIS_CONFIG_DIR
 # 2. config.ini Paths.scan_analysis_configs_path
 # 3. Raises ValueError when no base directory is available
@@ -481,7 +481,7 @@ read back from Linux.  Three rules hold on this side, and the writer's half
    over SMB (~2 ms of a 5 ms per-frame read), so a consumer reading every
    frame of one stack opens it once and reads through `read_frame(f, i)`
    — the read behind `read_shot`, same bounds check — rather than
-   `read_shot` per frame. ScanAnalysis's `V2ShotSource` does this per run
+   `read_shot` per frame. ScanAnalysis's `RecipeShotSource` does this per run
    and per pool worker.
 
 ## Key Dependency

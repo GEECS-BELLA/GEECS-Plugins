@@ -29,7 +29,7 @@ from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET
 from .live_frames import FrameSource, LiveFrameSource
 
 if TYPE_CHECKING:
-    from geecs_analysis.compat.v2 import V2Recipe
+    from geecs_analysis.engine.compiled import CompiledRecipe
     from geecs_bluesky.config_resolver import ConfigsRepoResolver
     from geecs_bluesky.namespace import GeecsNamespace
 
@@ -45,7 +45,7 @@ class CompiledMeasurement:
     device: str
     event_key: str
     keys: frozenset[str]
-    recipe: V2Recipe | None = None
+    recipe: CompiledRecipe | None = None
     readable: object | None = None
 
 
@@ -90,7 +90,7 @@ class CompiledMeasurements:
         frames: Mapping[str, Mapping[float, NDArray]],
     ) -> BinResult:
         """Reduce valid measurements, then evaluate derived outputs in order."""
-        from geecs_analysis.compat.v2 import analyze_v2
+        from geecs_analysis.engine.compiled import analyze_compiled
 
         outputs: dict[str, float] = {}
         counts: dict[str, int] = {}
@@ -121,7 +121,7 @@ class CompiledMeasurements:
                     ]
                 for stamp, frame in selected:
                     try:
-                        result = analyze_v2(
+                        result = analyze_compiled(
                             frame,
                             m.recipe,
                             shot=ShotMeta(device=m.device, acq_timestamp=stamp),

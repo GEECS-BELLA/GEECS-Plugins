@@ -8,8 +8,8 @@ import pytest
 from geecs_data_utils.frames import Axis, Frame, ShotMeta
 from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.v2 import analyze_v2
-from geecs_analysis.compat.v2_average import RunningAverage, average_results
+from geecs_analysis.engine.compiled import analyze_compiled
+from geecs_analysis.engine.average import RunningAverage, average_results
 from geecs_analysis.measurement import Marker, Measurement, Projection
 from geecs_analysis.recipe import compile_recipe
 
@@ -46,7 +46,7 @@ def test_saved_averages_match_old_results_without_reanalysis(
             array = np.column_stack((x + shift, np.exp(-((x - 7 - shift) ** 2) / 4)))
         raw.append(array)
     new = [
-        analyze_v2(array, compiled, shot=ShotMeta("Detector", n))
+        analyze_compiled(array, compiled, shot=ShotMeta("Detector", n))
         for n, array in enumerate(raw, 1)
     ]
     result = average_results(new, compiled, mode=mode)
@@ -68,7 +68,7 @@ def test_saved_averages_match_old_results_without_reanalysis(
     if mode == "noscan":
         assert not result.overlays
     # Summary means are statistics of measurements, not a fresh nonlinear fit.
-    rerun = analyze_v2(np.mean(raw, axis=0), compiled)
+    rerun = analyze_compiled(np.mean(raw, axis=0), compiled)
     width = "x_rms" if kind == "camera" else "rms"
     assert result.scalars[width] != pytest.approx(rerun.scalars[width])
 
