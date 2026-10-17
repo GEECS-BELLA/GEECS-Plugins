@@ -84,6 +84,8 @@ profile's existing entries survive.
 | `list_scan_configs` | R | scanner | `GET /api/configs/{kind}`; `name=` → `GET /api/configs/presets/{name}` | keep (+`name`) |
 | `get_scan_analysis` | R | portal | `GET /api/run/jump/{day}?prefer=N` → `GET /api/run/{uid}/analysis` | keep |
 | `get_scan_figure` | R | portal | same + `GET /run/{uid}/artifact?path=` | keep |
+| `get_analysis_artifact` | R | portal | jump → `GET /run/{uid}/artifact?path=` (JSON/text sidecars, bounded) | **new** (§4.9) |
+| `get_scan_scalars` | R | portal | jump → `GET /api/run/{uid}/binned?cols=&x=&bincfg=&filters=` | **new** (§4.9) |
 | `list_analyzers` | R | portal | `GET /api/analysis/catalog` (**new portal route**, §4.8) | keep |
 | `list_analysis_groups` | R | portal | same route, `groups` | keep (see §8) |
 | `stop_scan` | W (halt) | scanner | `POST /api/stop {force, operator}` | keep |
@@ -97,7 +99,7 @@ profile's existing entries survive.
 | `wait_for_analysis` | R | portal | `GET /api/run/{uid}/analysis` (poll) | **new** |
 | `post_logbook_entry` | W | logbook + portal | logbook `POST /api/entries`; per figure, portal `POST /api/run/{uid}/logbook` (`path` source, §4.6) | **new** |
 | `run_scan_analysis` | — | — | — | **drop** (→ `run_analysis`) |
-| `get_scan_result` | — | — | — | **drop** — not in the keep list; the portal's run routes carry the same picture (confirm, §8) |
+| `get_scan_result` | — | — | — | **drop** — its numeric reads are replaced by `get_analysis_artifact` + `get_scan_scalars` (§4.9), which read what the loop actually decides on |
 
 `tool_names.py` groups: `READ_TOOLS` (R rows), `WRITE_TOOLS` (W rows
 except the halt family), `STOP_TOOLS` (`stop_scan`, `pause_scan`). The
@@ -295,6 +297,42 @@ and is useful to the tab too. The second is the `path` image source on
 `POST /api/run/{uid}/logbook` (§4.6). One portal PR, ~100 lines with
 tests.
 
+### 4.9 Reading numbers: `get_analysis_artifact` and `get_scan_scalars`
+
+The analysis listing (§4.7) returns job status and artifact descriptors
+only — no measured values — and `get_scan_figure` returns images. The
+loop decides on numbers, so two bounded reads cover them; both are what
+the PMQ campaigns read by hand.
+
+- `get_analysis_artifact(scan_number, path, day=None, max_bytes=65536)`
+  → jump → `GET /run/{uid}/artifact?path=`. For a non-image artifact
+  (the analyzer's `*_summary_*.json` sidecars, per-shot `.txt`/`.csv`,
+  anything `kind: summary|other` in the listing): if the body parses as
+  JSON it is returned as `data` (an object, not a string); otherwise as
+  `text`. The read is capped at `max_bytes` (server ceiling 256 KiB)
+  with `truncated: true` and `size_bytes` when cut, so a large per-shot
+  table never floods the context. An inline-image suffix is refused
+  (`invalid_request`, "use get_scan_figure"); a path outside the scan's
+  analysis folder is the portal's 404 → `not_found`. ok:
+  `{uid, scan_number, path, content_type, size_bytes, truncated, data | text}`.
+- `get_scan_scalars(scan_number, columns, day=None, x="", bincfg="", filters="")`
+  → jump → `GET /api/run/{uid}/binned?cols=…&x=&bincfg=&filters=`: the
+  portal's own data contract for per-bin centres and error bands over
+  the union frame (Tiled event table + the s-file's appended columns),
+  at most 4 columns per call (the portal's cap, 400 above it →
+  `invalid_request`; an unknown column is its 404 → `not_found`). The
+  MCP returns the numeric keys verbatim (`bins`, `x_centers`, the
+  per-column centres/bands/counts) and **drops `figure` and `code`** —
+  the plot and the notebook snippet are for browsers. `bincfg` and
+  `filters` are the portal's JSON strings, passed through unparsed, so
+  a binning an operator set up in the Plot tab is reproducible from the
+  URL. With no `bincfg` the portal's default binning applies (the scan
+  variable's steps on a stepped scan).
+
+Neither read interprets a column or a file: column semantics stay in
+`geecs_data_utils.tiled_schema` behind the portal, and the sidecar's
+meaning is the recipe's.
+
 ## 5. Error envelope
 
 Unchanged shape: `{"ok": true, ...}` or
@@ -358,7 +396,10 @@ server and nothing else is.
 
 ## 8. Open points for Sam (short)
 
-1. `get_scan_result` is absent from the keep list — dropped as read here.
+1. `get_scan_result` is absent from the keep list — dropped; its
+   numeric reads come back as `get_analysis_artifact` + `get_scan_scalars`
+   (§4.9, review finding on this PR). Two verb names added to the
+   contract — the htu-assistant session has been told.
 2. `list_analysis_groups`: keep via the new portal catalog route (§4.8),
    or drop since the portal runs single diagnostics?
 3. `operator` as a required argument on every write verb (§6) rather
@@ -375,9 +416,13 @@ server and nothing else is.
 | A | GEECS-MCP | this note (`DESIGN.md`) |
 | B | GEECS-DataPortal | `GET /api/analysis/catalog`; `path` artifact source on `POST /api/run/{uid}/logbook` (+ tests) |
 | C | GeecsScanner | stamp `md.geecs.operator` on idle-only items (if §8.6 is yes) |
-| D | GEECS-MCP | the client core: `config.py`, `clients.py`, `errors.py` kinds, scans domain over the scanner (kept verbs + `submit_preset`, `move`, `wait_for_scan`), deletions (`runtime.py` singletons, `progress_stream.py`, the bluesky/data-utils deps), `.importlinter` contract, scanner contract tests, CLAUDE.md/README rewrite |
-| E | GEECS-MCP | analysis domain over the portal (`get_scan_analysis`, `get_scan_figure`, `list_*`, `run_analysis`, `wait_for_analysis`), deletions (`run_tools.py`, `run_worker.py`, `/figures/`, the `analysis-run` extra), portal contract tests |
+| D | GEECS-MCP | the client core: `config.py`, `clients.py`, `errors.py` kinds, scans domain over the scanner (kept verbs + `submit_preset`, `move`, `wait_for_scan`), `progress_stream.py` deleted, scanner contract tests. **Dependencies, `runtime.py` and the old analysis modules stay**: today's `analysis/read_tools.py` and `run_tools.py` import `runtime`, `geecs_data_utils.analysis_status` and `_run_guarded` from `scans/read_tools.py`, and `create_server()` imports both unconditionally — so D moves `_run_guarded` to a small `geecs_mcp/guard.py` and repoints those two imports, and the server starts with the scans domain on HTTP and the analysis domain unchanged. The import contract is **not** enabled yet. CLAUDE.md gets the scans half |
+| E | GEECS-MCP | analysis domain over the portal (`get_scan_analysis`, `get_scan_figure`, `get_analysis_artifact`, `get_scan_scalars`, `list_*`, `run_analysis`, `wait_for_analysis`), then the deletions that D could not make: `run_tools.py`, `run_worker.py`, `/figures/`, `runtime.py`, `guard.py`, the `analysis-run` extra, the `geecs-bluesky` / `geecs-data-utils` / `scananalysis` / `imageanalysis` / `pyyaml` dependencies; the `mcp-is-a-client` import contract switched on; portal contract tests; CLAUDE.md/README rewrite finished |
 | F | GEECS-MCP | logbook domain (`post_logbook_entry`) + logbook contract tests; GeecsLogbook CLAUDE.md deferred-decisions row updated (§4.6) |
+
+D and E are each useful alone: after D the agent can submit, move and
+wait over HTTP while analysis still runs through the old path; after E
+the package is the thin client of §2.
 | G | deploy + docs | unit template (no extra; `After=` the three services; `MemoryMax=512M`), `bootstrap_host.sh` (`extras_of mcp` empty), `site.env.example` + `bootstrap_host.sh` rendering `[mcp] scanner_url/portal_url/logbook_url` from one `GEECS_SERVICES_HOST` key (ports are fleet constants, the archiver's `17665` precedent; `site.env.example` already cites the key in a comment without defining it — G defines it), `DEPLOYMENT.md`, `fleet_map.md`, `docs/geecs_mcp/*`, `agentic/index.md` ("no submit verb" prose goes) — then the host install (Sam's sudo block), kill the nohup process, live check from an osprey machine |
 
 Version bump (`0.9.3 → 0.10.0`, or whatever the fleet rule says at the
