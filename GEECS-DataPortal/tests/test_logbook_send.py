@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import dataclasses
 import json
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -908,6 +909,11 @@ class TestArtifactSource:
         big = analysis_folder_for(scan_folder) / "UC_Crop" / "huge.png"
         with big.open("wb") as handle:  # sparse: the size without the bytes
             handle.truncate(logbook_send.MAX_PLOT_BYTES + 1)
+
+        def never(self):  # read-first would land here and answer 503, not 400
+            raise AssertionError("the oversized artifact was read")
+
+        monkeypatch.setattr(Path, "read_bytes", never)
         response = _post_path(client, "UC_Crop/huge.png")
         assert response.status_code == 400
         assert "send cap" in response.json()["detail"]
