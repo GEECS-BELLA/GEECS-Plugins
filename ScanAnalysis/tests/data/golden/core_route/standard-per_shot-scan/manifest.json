@@ -1,0 +1,60 @@
+{
+ "extra": {
+  "display": [
+   "Scan001/Diag/Array2DScanAnalyzer/Camera_averaged_image_grid.png"
+  ]
+ },
+ "files": {
+  "Scan001/Diag/Array2DScanAnalyzer/Camera_1_processed.h5": {
+   "array": "a0",
+   "dtype": "<f8",
+   "key": "image",
+   "kind": "h5"
+  },
+  "Scan001/Diag/Array2DScanAnalyzer/Camera_1_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/Diag/Array2DScanAnalyzer/Camera_2_processed.h5": {
+   "array": "a1",
+   "dtype": "<f8",
+   "key": "image",
+   "kind": "h5"
+  },
+  "Scan001/Diag/Array2DScanAnalyzer/Camera_2_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/Diag/Array2DScanAnalyzer/Camera_3_processed.h5": {
+   "array": "a2",
+   "dtype": "<f8",
+   "key": "image",
+   "kind": "h5"
+  },
+  "Scan001/Diag/Array2DScanAnalyzer/Camera_3_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/Diag/Array2DScanAnalyzer/Camera_averaged_image_grid.png": {
+   "kind": "file"
+  },
+  "s1.txt": {
+   "columns": [
+    {
+     "array": "a3",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a4",
+     "name": "Bin #"
+    },
+    {
+     "array": "a5",
+     "name": "U_Motor Position Alias:motor"
+    },
+    {
+     "array": "a6",
+     "name": "U_Charge Value"
+    }
+   ],
+   "kind": "table"
+  }
+ }
+}

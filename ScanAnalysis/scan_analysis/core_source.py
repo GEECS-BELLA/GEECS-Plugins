@@ -178,9 +178,11 @@ class V2ShotSource:
                     continue
                 segments.append(read_1d_data(refs[shot], loading).data)
             combined = np.concatenate(segments, axis=0)
-            # The legacy stitcher's sort (numpy's default kind): same order
-            # of equal-x samples, so the processed trace is identical.
-            return combined[combined[:, 0].argsort()]
+            # A stable sort: equal-x samples (two cameras sharing a grid
+            # point) keep segment order on every platform, where numpy's
+            # default quicksort broke ties differently between machines
+            # (#1039 goldens: a 3 % difference after the median filter).
+            return combined[combined[:, 0].argsort(kind="stable")]
         if isinstance(path, ShotRef):
             if not self._entered:
                 return read_shot(path)

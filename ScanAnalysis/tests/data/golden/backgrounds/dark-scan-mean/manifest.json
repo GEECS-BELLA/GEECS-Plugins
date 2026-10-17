@@ -1,0 +1,205 @@
+{
+ "extra": {},
+ "files": {
+  "Scan002/Diag/Array2DScanAnalyzer/Camera_1_processed.h5": {
+   "array": "a0",
+   "dtype": "<f8",
+   "key": "image",
+   "kind": "h5"
+  },
+  "Scan002/Diag/Array2DScanAnalyzer/Camera_1_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan002/Diag/Array2DScanAnalyzer/Camera_2_processed.h5": {
+   "array": "a1",
+   "dtype": "<f8",
+   "key": "image",
+   "kind": "h5"
+  },
+  "Scan002/Diag/Array2DScanAnalyzer/Camera_2_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan002/Diag/Array2DScanAnalyzer/Camera_3_processed.h5": {
+   "array": "a2",
+   "dtype": "<f8",
+   "key": "image",
+   "kind": "h5"
+  },
+  "Scan002/Diag/Array2DScanAnalyzer/Camera_3_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan002/Diag/Array2DScanAnalyzer/Camera_averaged_image_grid.png": {
+   "kind": "file"
+  },
+  "Scan002/Scan002_Diag.txt": {
+   "columns": [
+    {
+     "array": "a3",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a4",
+     "name": "Diag_image_total"
+    },
+    {
+     "array": "a5",
+     "name": "Diag_image_peak_value"
+    },
+    {
+     "array": "a6",
+     "name": "Diag_x_CoM"
+    },
+    {
+     "array": "a7",
+     "name": "Diag_x_rms"
+    },
+    {
+     "array": "a8",
+     "name": "Diag_x_fwhm"
+    },
+    {
+     "array": "a9",
+     "name": "Diag_x_peak_location"
+    },
+    {
+     "array": "a10",
+     "name": "Diag_y_CoM"
+    },
+    {
+     "array": "a11",
+     "name": "Diag_y_rms"
+    },
+    {
+     "array": "a12",
+     "name": "Diag_y_fwhm"
+    },
+    {
+     "array": "a13",
+     "name": "Diag_y_peak_location"
+    },
+    {
+     "array": "a14",
+     "name": "Diag_x_45_CoM"
+    },
+    {
+     "array": "a15",
+     "name": "Diag_x_45_rms"
+    },
+    {
+     "array": "a16",
+     "name": "Diag_x_45_fwhm"
+    },
+    {
+     "array": "a17",
+     "name": "Diag_x_45_peak_location"
+    },
+    {
+     "array": "a18",
+     "name": "Diag_y_45_CoM"
+    },
+    {
+     "array": "a19",
+     "name": "Diag_y_45_rms"
+    },
+    {
+     "array": "a20",
+     "name": "Diag_y_45_fwhm"
+    },
+    {
+     "array": "a21",
+     "name": "Diag_y_45_peak_location"
+    }
+   ],
+   "kind": "table"
+  },
+  "s2.txt": {
+   "columns": [
+    {
+     "array": "a22",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a23",
+     "name": "Bin #"
+    },
+    {
+     "array": "a24",
+     "name": "U_Motor Position Alias:motor"
+    },
+    {
+     "array": "a25",
+     "name": "Diag_image_peak_value"
+    },
+    {
+     "array": "a26",
+     "name": "Diag_image_total"
+    },
+    {
+     "array": "a27",
+     "name": "Diag_x_45_CoM"
+    },
+    {
+     "array": "a28",
+     "name": "Diag_x_45_fwhm"
+    },
+    {
+     "array": "a29",
+     "name": "Diag_x_45_peak_location"
+    },
+    {
+     "array": "a30",
+     "name": "Diag_x_45_rms"
+    },
+    {
+     "array": "a31",
+     "name": "Diag_x_CoM"
+    },
+    {
+     "array": "a32",
+     "name": "Diag_x_fwhm"
+    },
+    {
+     "array": "a33",
+     "name": "Diag_x_peak_location"
+    },
+    {
+     "array": "a34",
+     "name": "Diag_x_rms"
+    },
+    {
+     "array": "a35",
+     "name": "Diag_y_45_CoM"
+    },
+    {
+     "array": "a36",
+     "name": "Diag_y_45_fwhm"
+    },
+    {
+     "array": "a37",
+     "name": "Diag_y_45_peak_location"
+    },
+    {
+     "array": "a38",
+     "name": "Diag_y_45_rms"
+    },
+    {
+     "array": "a39",
+     "name": "Diag_y_CoM"
+    },
+    {
+     "array": "a40",
+     "name": "Diag_y_fwhm"
+    },
+    {
+     "array": "a41",
+     "name": "Diag_y_peak_location"
+    },
+    {
+     "array": "a42",
+     "name": "Diag_y_rms"
+    }
+   ],
+   "kind": "table"
+  }
+ }
+}

@@ -1,4 +1,4 @@
-"""Core adoption, explicit legacy fallback and the portal's display contract."""
+"""Every portal draw is the core's; refusals are 400s, and the display contract."""
 
 import builtins
 
@@ -31,21 +31,24 @@ def recipe_tree(tmp_path):
     return tmp_path, path, document
 
 
-def test_supported_processing_and_unsaved_preview_do_not_import_legacy(
-    recipe_tree, monkeypatch
-):
-    root, path, document = recipe_tree
-    before = path.read_bytes()
-    data = np.arange(400, dtype=np.uint16).reshape(20, 20)
-    original = data.copy()
+def forbid_image_analysis(monkeypatch):
+    """ImageAnalysis is no route of the portal's (#1039): any import of it is a failure."""
     imported = builtins.__import__
 
     def without_legacy(name, *args, **kwargs):
         if name.startswith("image_analysis"):
-            raise AssertionError("ported recipe imported legacy analysis")
+            raise AssertionError("the portal imported the retired legacy analysis")
         return imported(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", without_legacy)
+
+
+def test_processing_and_unsaved_preview_run_on_the_core(recipe_tree, monkeypatch):
+    root, path, document = recipe_tree
+    before = path.read_bytes()
+    data = np.arange(400, dtype=np.uint16).reshape(20, 20)
+    original = data.copy()
+    forbid_image_analysis(monkeypatch)
     assert processing.list_diagnostics(config_dir=root) == ["beam"]
     (array,) = processing.process_images("beam", [data], config_dir=root)
     np.testing.assert_array_equal(array, data[3:17, 2:15].astype(float) - 5)
@@ -70,38 +73,37 @@ def test_supported_processing_and_unsaved_preview_do_not_import_legacy(
     np.testing.assert_array_equal(data, original)
 
 
-def test_only_capability_refusal_selects_legacy(recipe_tree, monkeypatch):
-    from image_analysis import ephemeral
-
+def test_a_document_the_core_declines_is_refused_not_rerouted(recipe_tree, monkeypatch):
+    """A compilation-time refusal is the portal's 400, in every view (#1039)."""
     root, path, document = recipe_tree
     document["image"]["pipeline"].append("transforms")
     document["image"]["transforms"] = {"flip_horizontal": True}
     path.write_text(yaml.safe_dump(document))
+    forbid_image_analysis(monkeypatch)
     array = np.arange(400, dtype=float).reshape(20, 20)
     doc = AnalysisDiagnostic.model_validate(document)
-    (legacy,) = ephemeral.run_document_ephemeral(doc, [array])
-    (actual,) = processing.process_images("beam", [array], config_dir=root)
-    np.testing.assert_array_equal(actual, legacy.processed_image)
-    (fig,) = processing.render_document_ephemeral(doc, [array])
-    np.testing.assert_array_equal(
-        fig.axes[0].images[0].get_array(), legacy.processed_image
-    )
+    with pytest.raises(ValueError, match="cannot be drawn here"):
+        processing.process_images("beam", [array], config_dir=root)
+    with pytest.raises(ValueError, match="cannot be drawn here"):
+        processing.render_document_ephemeral(doc, [array])
+    with pytest.raises(ValueError, match="cannot be drawn here"):
+        processing.render_document_as_run(doc, [array])
+    with pytest.raises(ValueError, match="no summary preview"):
+        processing.render_summary_as_run(doc, [array], [None], "shot", 0)
 
-    document["image"]["pipeline"].remove("transforms")
-    path.write_text(yaml.safe_dump(document))
+
+def test_a_core_failure_propagates_without_a_second_backend(recipe_tree, monkeypatch):
+    root, path, document = recipe_tree
+    array = np.arange(400, dtype=float).reshape(20, 20)
 
     def fail_core(*args, **kwargs):
         raise RuntimeError("core failure")
 
-    def forbid_retry(*args, **kwargs):
-        raise AssertionError("unexpected legacy retry")
-
     import scan_analysis.core_preview as core_preview
 
-    # every route analyses through ScanAnalysis' preview seam
+    # every view analyses through ScanAnalysis' preview seam
     monkeypatch.setattr(core_preview, "analyze_v2", fail_core)
-    monkeypatch.setattr(ephemeral, "run_document_ephemeral", forbid_retry)
-    monkeypatch.setattr(ephemeral, "render_document_ephemeral", forbid_retry)
+    forbid_image_analysis(monkeypatch)
     with pytest.raises(RuntimeError, match="core failure"):
         processing.process_images("beam", [array], config_dir=root)
     with pytest.raises(RuntimeError, match="core failure"):
@@ -121,14 +123,8 @@ def test_display_window_and_bin_average_have_no_shot_overlays():
 
 
 def test_bad_core_render_is_a_render_error_without_fallback(recipe_tree, monkeypatch):
-    from image_analysis import ephemeral
-
     _, _, document = recipe_tree
-
-    def forbid_retry(*args, **kwargs):
-        raise AssertionError("unexpected legacy retry")
-
-    monkeypatch.setattr(ephemeral, "render_document_ephemeral", forbid_retry)
+    forbid_image_analysis(monkeypatch)
     with pytest.raises(processing.RenderError):
         processing.render_document_ephemeral(
             AnalysisDiagnostic.model_validate(document),
@@ -179,14 +175,7 @@ def test_file_background_processing_and_unsaved_preview_use_core(
     }
     path.write_text(yaml.safe_dump(document))
     before = path.read_bytes()
-    imported = builtins.__import__
-
-    def without_legacy(name, *args, **kwargs):
-        if name.startswith("image_analysis"):
-            raise AssertionError("file background imported legacy analysis")
-        return imported(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", without_legacy)
+    forbid_image_analysis(monkeypatch)
     data = np.arange(400, dtype=np.uint16).reshape(20, 20)
     expected = data[3:17, 2:15].astype(float) - (9 if available else 13)
     arrays = processing.process_images("beam", [data, data], config_dir=root)
@@ -201,8 +190,6 @@ def test_file_background_processing_and_unsaved_preview_use_core(
 
 
 def test_file_background_geometry_error_does_not_retry_legacy(recipe_tree, monkeypatch):
-    from image_analysis import ephemeral
-
     root, path, document = recipe_tree
     background_path = root / "wrong-shape.npy"
     np.save(background_path, np.ones((1, 1)))
@@ -212,12 +199,7 @@ def test_file_background_geometry_error_does_not_retry_legacy(recipe_tree, monke
         "constant_level": 11,
     }
     path.write_text(yaml.safe_dump(document))
-
-    def forbid_retry(*args, **kwargs):
-        raise AssertionError("unexpected legacy retry")
-
-    monkeypatch.setattr(ephemeral, "run_document_ephemeral", forbid_retry)
-    monkeypatch.setattr(ephemeral, "render_document_ephemeral", forbid_retry)
+    forbid_image_analysis(monkeypatch)
     with pytest.raises(ValueError, match="shape"):
         processing.process_images("beam", [np.ones((20, 20))], config_dir=root)
     with pytest.raises(ValueError, match="shape"):
@@ -226,8 +208,8 @@ def test_file_background_geometry_error_does_not_retry_legacy(recipe_tree, monke
         )
 
 
-def test_a_v3_recipe_the_core_declines_is_a_clear_refusal_not_a_legacy_error():
-    """A v3 recipe has no legacy route: a scan background no run computed is a 400."""
+def test_a_v3_recipe_the_core_declines_is_a_clear_refusal():
+    """A scan background no run computed is a 400 naming the reason."""
     from geecs_schemas.analysis import AnalysisRecipe
 
     from geecs_portal import processing

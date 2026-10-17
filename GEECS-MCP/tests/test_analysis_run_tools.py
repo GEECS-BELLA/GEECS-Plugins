@@ -21,8 +21,6 @@ pytest.importorskip("scan_analysis")
 from geecs_mcp import runtime
 from geecs_mcp.analysis import read_tools, run_tools
 
-_BEAM = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
-
 DAY = "2026-08-22"
 
 
@@ -69,16 +67,15 @@ def configs(tmp_path, monkeypatch):
             }
         )
     )
-    (diag_dir / "windows_only.yaml").write_text(
+    (diag_dir / "unrunnable.yaml").write_text(
         yaml.safe_dump(
             {
                 "schema_version": 2,
-                "name": "windows_only",
-                # A legacy-route recipe (the flip keeps it off the core) of a
-                # kind whose class this host cannot import (the registry
-                # entry is pointed at a module that does not exist below),
-                # standing in for a vendor-SDK analyzer.
-                "analyzer": {"kind": "hi_res_mag_cam"},
+                "name": "unrunnable",
+                # A document the analysis core refuses at compilation (the
+                # flip is a step it never ported): there is no other route
+                # (#1039), so the builder fails before anything is enqueued.
+                "analyzer": {"kind": "beam"},
                 "image": {
                     "type": "camera",
                     "bit_depth": 16,
@@ -88,13 +85,6 @@ def configs(tmp_path, monkeypatch):
                 "scan": {},
             }
         )
-    )
-    from image_analysis.config import registry
-
-    monkeypatch.setitem(
-        registry.ANALYZER_CLASS_PATHS,
-        "hi_res_mag_cam",
-        "no.such.vendor.module.Analyzer",
     )
     group_dir = root / "groups" / "HTU"
     group_dir.mkdir(parents=True)
@@ -166,18 +156,16 @@ class TestRefusals:
         assert result["error_kind"] == "not_found"
         assert spawned == []
 
-    def test_unimportable_diagnostic_refused_before_enqueue(
+    def test_a_document_the_core_refuses_is_refused_before_enqueue(
         self, share, configs, spawned
     ):
         before = _tree_snapshot(share)
         result = _load(
-            run_tools._run_scan_analysis_impl(
-                7, DAY, "windows_only", None, False, False
-            )
+            run_tools._run_scan_analysis_impl(7, DAY, "unrunnable", None, False, False)
         )
         assert not result["ok"]
         assert result["error_kind"] == "invalid_request"
-        assert "cannot run on this host" in result["message"]
+        assert "could not build the analyzer" in result["message"]
         assert _tree_snapshot(share) == before
         assert spawned == []
 
@@ -463,7 +451,7 @@ class TestListings:
     def test_list_analyzers(self, configs):
         result = _load(run_tools._list_analyzers_impl())
         assert result["ok"]
-        assert result["analyzers"] == ["test_diag", "windows_only"]
+        assert result["analyzers"] == ["test_diag", "unrunnable"]
         assert result["count"] == 2
         assert result["truncated"] is False
 

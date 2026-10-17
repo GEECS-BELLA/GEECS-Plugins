@@ -123,24 +123,20 @@ reference before building; each is deliberately small.
    notebooks under `docs/geecs_data_utils/examples/` and
    `docs/analysis/examples/analysis_without_the_portal.ipynb`; run with
    `poetry run jupyter lab` from the repo root.
-3. **A scalar scatter analyzer.** Subclass `ScatterPlotterAnalysis`;
-   the reference is
-   `ScanAnalysis/scan_analysis/analyzers/Undulator/ict_plot_analysis.py`
-   — about 30 lines of real production code.
-4. **A new image analyzer.** Subclass `StandardAnalyzer` (2D) or
+3. **A new image analyzer.** Subclass `StandardAnalyzer` (2D) or
    `Standard1DAnalyzer` (1D); copy-pasteable template in
    `ImageAnalysis/CLAUDE.md` § "Adding a New Analyzer"; small
    references: `analyzers/beam_analyzer.py`, `analyzers/ict_1d_analyzer.py`.
    Tests are hermetic via `image_analysis/tools/synthetic_generators.py`.
-5. **A live image-streaming viewer.** A small GUI subscribing to a
+4. **A live image-streaming viewer.** A small GUI subscribing to a
    camera's PVA `NTNDArray` PV (a few lines of `p4p`) and displaying
    frames. Orientation: `docs/geecs_gateway/image_pvs.md`; authority:
    `GeecsPvaGateway/CLAUDE.md`. Needs the lab network.
-6. **A small single-purpose GUI.** Template: `ScanAnalysis/LiveWatchGUI/`
+5. **A small single-purpose GUI.** Template: `ScanAnalysis/LiveWatchGUI/`
    (six files — window, worker thread, log pane). For a web surface,
    the template is `GeecsScanner/` on the surface kit (`GeecsWebTheme`):
    a pure-Python service layer under a thin FastAPI + Jinja page.
-7. **A small CLI/report tool**, shaped like `GEECS-LogTriage`
+6. **A small CLI/report tool**, shaped like `GEECS-LogTriage`
    (Pydantic models → deterministic core → thin CLI; its `CLAUDE.md`
    is the most digestible package doc in the repo).
 

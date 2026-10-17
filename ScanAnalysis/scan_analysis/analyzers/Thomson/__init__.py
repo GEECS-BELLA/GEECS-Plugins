@@ -1,1 +1,0 @@
-"""Thomson scan analyzers."""

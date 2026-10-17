@@ -1,0 +1,75 @@
+{
+ "extra": {},
+ "files": {
+  "Scan001/TestCam/TestCam_background_avg.npy": {
+   "kind": "file"
+  },
+  "Scan002/Scan002_Diag.txt": {
+   "columns": [
+    {
+     "array": "a0",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a1",
+     "name": "TestCam_peak_energy_MeV"
+    },
+    {
+     "array": "a2",
+     "name": "TestCam_mean_energy_MeV"
+    },
+    {
+     "array": "a3",
+     "name": "TestCam_total_charge_au"
+    },
+    {
+     "array": "a4",
+     "name": "TestCam_max_intensity"
+    }
+   ],
+   "kind": "table"
+  },
+  "Scan002/TestCam/Array2DScanAnalyzer/TestCam_average_processed.h5": {
+   "array": "a5",
+   "dtype": "<f8",
+   "key": "image",
+   "kind": "h5"
+  },
+  "Scan002/TestCam/Array2DScanAnalyzer/TestCam_average_processed_visual.png": {
+   "kind": "file"
+  },
+  "s2.txt": {
+   "columns": [
+    {
+     "array": "a6",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a7",
+     "name": "Bin #"
+    },
+    {
+     "array": "a8",
+     "name": "HTT-MagTeslameter-DTM141 Field"
+    },
+    {
+     "array": "a9",
+     "name": "TestCam_max_intensity"
+    },
+    {
+     "array": "a10",
+     "name": "TestCam_mean_energy_MeV"
+    },
+    {
+     "array": "a11",
+     "name": "TestCam_peak_energy_MeV"
+    },
+    {
+     "array": "a12",
+     "name": "TestCam_total_charge_au"
+    }
+   ],
+   "kind": "table"
+  }
+ }
+}

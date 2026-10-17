@@ -19,7 +19,7 @@ from geecs_analysis.compat.convert import to_v3
 from geecs_analysis.measures.beam import BeamSpec
 from geecs_analysis.measures.frog import FrogSpec
 from scan_analysis import core_services, core_workers
-from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
+from scan_analysis.core_analyzer import CoreScanAnalyzer
 from scan_analysis.core_sink import shot_table_path
 
 TAG = ScanTag(year=2026, month=1, day=1, number=1, experiment="Test")
@@ -127,8 +127,10 @@ def run(monkeypatch, base_dir: Path, doc) -> Path:
     return scan
 
 
-def test_a_frog_diagnostic_runs_on_the_core_route():
-    assert core_supports(document())
+def test_a_frog_diagnostic_builds_on_the_core():
+    from scan_analysis.config import create_scan_analyzer
+
+    assert isinstance(create_scan_analyzer(document()), CoreScanAnalyzer)
 
 
 def test_scalars_persist_and_each_shot_gets_its_legacy_lineout_table(

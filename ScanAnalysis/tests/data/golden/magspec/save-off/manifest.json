@@ -1,0 +1,180 @@
+{
+ "extra": {},
+ "files": {
+  "Scan001/TestCam/TestCam_background_avg.npy": {
+   "kind": "file"
+  },
+  "Scan002/Scan002_Diag.txt": {
+   "columns": [
+    {
+     "array": "a0",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a1",
+     "name": "TestCam_peak_energy_MeV"
+    },
+    {
+     "array": "a2",
+     "name": "TestCam_mean_energy_MeV"
+    },
+    {
+     "array": "a3",
+     "name": "TestCam_total_charge_au"
+    },
+    {
+     "array": "a4",
+     "name": "TestCam_max_intensity"
+    }
+   ],
+   "kind": "table"
+  },
+  "Scan002/TestCam-interp/Scan002_TestCam_001.png": {
+   "array": "a5",
+   "dtype": "<u2",
+   "key": "pixels",
+   "kind": "h5"
+  },
+  "Scan002/TestCam-interp/Scan002_TestCam_002.png": {
+   "array": "a6",
+   "dtype": "<u2",
+   "key": "pixels",
+   "kind": "h5"
+  },
+  "Scan002/TestCam-interp/Scan002_TestCam_003.png": {
+   "array": "a7",
+   "dtype": "<u2",
+   "key": "pixels",
+   "kind": "h5"
+  },
+  "Scan002/TestCam-interp/Scan002_TestCam_004.png": {
+   "array": "a8",
+   "dtype": "<u2",
+   "key": "pixels",
+   "kind": "h5"
+  },
+  "Scan002/TestCam-interp/Scan002_TestCam_005.png": {
+   "array": "a9",
+   "dtype": "<u2",
+   "key": "pixels",
+   "kind": "h5"
+  },
+  "Scan002/TestCam-interp/Scan002_TestCam_006.png": {
+   "array": "a10",
+   "dtype": "<u2",
+   "key": "pixels",
+   "kind": "h5"
+  },
+  "Scan002/TestCam-interpSpec/Scan002_TestCam_001.tsv": {
+   "columns": [
+    {
+     "array": "a11",
+     "name": "Energy [MeV]"
+    },
+    {
+     "array": "a12",
+     "name": "Charge Density [pC/MeV]"
+    }
+   ],
+   "kind": "table"
+  },
+  "Scan002/TestCam-interpSpec/Scan002_TestCam_002.tsv": {
+   "columns": [
+    {
+     "array": "a13",
+     "name": "Energy [MeV]"
+    },
+    {
+     "array": "a14",
+     "name": "Charge Density [pC/MeV]"
+    }
+   ],
+   "kind": "table"
+  },
+  "Scan002/TestCam-interpSpec/Scan002_TestCam_003.tsv": {
+   "columns": [
+    {
+     "array": "a15",
+     "name": "Energy [MeV]"
+    },
+    {
+     "array": "a16",
+     "name": "Charge Density [pC/MeV]"
+    }
+   ],
+   "kind": "table"
+  },
+  "Scan002/TestCam-interpSpec/Scan002_TestCam_004.tsv": {
+   "columns": [
+    {
+     "array": "a17",
+     "name": "Energy [MeV]"
+    },
+    {
+     "array": "a18",
+     "name": "Charge Density [pC/MeV]"
+    }
+   ],
+   "kind": "table"
+  },
+  "Scan002/TestCam-interpSpec/Scan002_TestCam_005.tsv": {
+   "columns": [
+    {
+     "array": "a19",
+     "name": "Energy [MeV]"
+    },
+    {
+     "array": "a20",
+     "name": "Charge Density [pC/MeV]"
+    }
+   ],
+   "kind": "table"
+  },
+  "Scan002/TestCam-interpSpec/Scan002_TestCam_006.tsv": {
+   "columns": [
+    {
+     "array": "a21",
+     "name": "Energy [MeV]"
+    },
+    {
+     "array": "a22",
+     "name": "Charge Density [pC/MeV]"
+    }
+   ],
+   "kind": "table"
+  },
+  "s2.txt": {
+   "columns": [
+    {
+     "array": "a23",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a24",
+     "name": "Bin #"
+    },
+    {
+     "array": "a25",
+     "name": "HTT-MagTeslameter-DTM141 Field"
+    },
+    {
+     "array": "a26",
+     "name": "TestCam_max_intensity"
+    },
+    {
+     "array": "a27",
+     "name": "TestCam_mean_energy_MeV"
+    },
+    {
+     "array": "a28",
+     "name": "TestCam_peak_energy_MeV"
+    },
+    {
+     "array": "a29",
+     "name": "TestCam_total_charge_au"
+    }
+   ],
+   "kind": "table"
+  }
+ }
+}

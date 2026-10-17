@@ -38,7 +38,8 @@ from scan_analysis.config.diagnostic_factory import (
     create_scan_analyzer,
 )
 from scan_analysis.task_queue import load_analyzers_from_config
-from scan_analysis.core_analyzer import core_supports
+from scan_analysis.core_analyzer import CoreScanAnalyzer
+from geecs_analysis.compat.v2 import UnsupportedRecipe
 
 TAG = ScanTag(year=2026, month=3, day=10, number=12, experiment="Test")
 DEVICE = "U_HasoLift"
@@ -121,14 +122,14 @@ class TestFactory:
         )
 
     @pytest.mark.parametrize("kind", ["himg_to_stack", "himg_compact", "himg_restore"])
-    def test_the_kinds_have_no_core_or_injected_route(self, kind):
-        assert core_supports(document(kind)) is False
-        with pytest.raises(ValueError, match="no core route"):
-            create_scan_analyzer(document(kind), route="core", allow_destructive=True)
-        with pytest.raises(ValueError, match="injected-data"):
-            create_scan_analyzer(
-                document(kind), use_injected_data=True, allow_destructive=True
-            )
+    def test_the_kinds_never_reach_the_core(self, kind):
+        """Every core entry point refuses a job; the factory never builds one on the core."""
+        with pytest.raises(UnsupportedRecipe):
+            CoreScanAnalyzer(document(kind), id="Job", priority=1)
+        assert not isinstance(
+            create_scan_analyzer(document(kind), allow_destructive=True),
+            CoreScanAnalyzer,
+        )
 
     def test_every_job_kind_has_a_scan_analysis_class(self):
         assert set(get_args(HimgJobKind)) == set(HIMG_JOB_CLASSES)

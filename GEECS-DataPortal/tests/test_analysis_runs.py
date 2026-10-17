@@ -371,7 +371,7 @@ class TestRunner:
 
 class TestFeatureGates:
     def test_shutdown_turns_posts_into_503(self, scan_folder, configs_tree):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         client = _client(scan_folder, configs_tree, behaviour="ok")
         with client:  # runs the lifespan: startup … shutdown
             assert (
@@ -396,7 +396,7 @@ class TestFeatureGates:
         assert "processing-configs" in response.json()["detail"]
 
     def test_real_factory_needs_the_extra(self, scan_folder, configs_tree, monkeypatch):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         monkeypatch.setitem(__import__("sys").modules, "scan_analysis", None)
         client = _client(scan_folder, configs_tree, analysis_factory=None)
         response = client.get("/api/run/uid-002/analysis")
@@ -404,7 +404,7 @@ class TestFeatureGates:
         assert "analysis" in response.json()["detail"]
 
     def test_folder_unresolvable(self, configs_tree):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         catalog = FakeCatalog()  # uid-002 has no scan_folder; daily path is stubbed
         client = TestClient(
             create_app(
@@ -423,7 +423,7 @@ class TestFeatureGates:
 
 class TestListing:
     def test_applicability_and_empty_records(self, scan_folder, configs_tree):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         client = _client(scan_folder, configs_tree)
         body = client.get("/api/run/uid-002/analysis").json()
         by_id = {a["id"]: a for a in body["analyzers"]}
@@ -442,7 +442,7 @@ class TestListing:
 
     def test_files_on_disk_survive_without_a_record(self, scan_folder, configs_tree):
         """A page loaded after a portal restart still lists earlier outputs."""
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         analysis = analysis_folder_for(scan_folder)
         (analysis / "UC_Crop" / "Array2DScanAnalyzer").mkdir(parents=True)
         (analysis / "UC_Crop" / "Array2DScanAnalyzer" / "old.png").write_bytes(b"x")
@@ -553,7 +553,7 @@ class TestListing:
 
 class TestRun:
     def test_done_artifacts_and_serving(self, scan_folder, configs_tree, caplog):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         # Capture respects the process's logging levels (no global level
         # mutation): the analyzer's INFO line is seen only when its
         # logger admits INFO — the portal runs at INFO by default.
@@ -615,7 +615,7 @@ class TestRun:
         assert served.headers["content-type"].startswith("image/png")
 
     def test_failure_is_a_record_not_a_500(self, scan_folder, configs_tree):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         client = _client(scan_folder, configs_tree, behaviour="fail")
         assert (
             client.post(
@@ -632,7 +632,7 @@ class TestRun:
 
     @pytest.mark.parametrize("behaviour", ["none", "no_data"])
     def test_skips_are_no_data(self, scan_folder, configs_tree, behaviour):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         client = _client(scan_folder, configs_tree, behaviour=behaviour)
         client.post("/api/run/uid-002/analysis", params={"analyzer": "UC_Crop"})
         job = _wait(client)
@@ -641,7 +641,7 @@ class TestRun:
         assert job["error"]
 
     def test_second_post_409_while_running(self, scan_folder, configs_tree):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         client = _client(scan_folder, configs_tree, behaviour="block")
         first = client.post("/api/run/uid-002/analysis", params={"analyzer": "UC_Crop"})
         assert first.status_code == 202
@@ -667,7 +667,7 @@ class TestRun:
     def test_unknown_or_unloadable_diagnostic_404(
         self, scan_folder, configs_tree, analyzer
     ):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         client = _client(scan_folder, configs_tree)
         response = client.post(
             "/api/run/uid-002/analysis", params={"analyzer": analyzer}
@@ -693,7 +693,7 @@ class TestArtifactEndpoint:
 
     def test_only_raster_images_render_inline(self, scan_folder, configs_tree):
         """A planted HTML/SVG on the share must never execute in the portal's origin."""
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         analysis = analysis_folder_for(scan_folder)
         (analysis / "UC_Crop").mkdir(parents=True)
         (analysis / "UC_Crop" / "fig.png").write_bytes(b"\x89PNG")
@@ -716,7 +716,7 @@ class TestArtifactEndpoint:
             assert response.headers["x-content-type-options"] == "nosniff"
 
     def test_containment(self, scan_folder, configs_tree):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         analysis = analysis_folder_for(scan_folder)
         analysis.mkdir(parents=True)
         sfile = analysis.parent / "s2.txt"
@@ -730,7 +730,7 @@ class TestArtifactEndpoint:
 class TestRealFactory:
     def test_builds_a_scan_analyzer_from_the_tree(self, configs_tree):
         """The default factory = load_diagnostic + create_scan_analyzer."""
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         pytest.importorskip("scan_analysis")
         from scan_analysis.core_analyzer import CoreScanAnalyzer
 
@@ -747,7 +747,7 @@ class TestAnalysisTab:
     """The scan page offers the Analysis tab only when runs are possible."""
 
     def test_tab_present_and_sticky_when_enabled(self, scan_folder, configs_tree):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         client = _client(scan_folder, configs_tree)
         page = client.get("/run/uid-002", params={"tab": "analysis"})
         assert page.status_code == 200
@@ -779,7 +779,7 @@ class TestAnalysisTab:
         assert 'if (!document.getElementById("pane-" + tab)) tab = "plot";' in page.text
 
     def test_tab_absent_when_folder_unresolvable(self, configs_tree):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         client = TestClient(
             create_app(
                 FakeCatalog(),
@@ -794,7 +794,7 @@ class TestAnalysisTab:
     def test_tab_absent_when_extra_missing(
         self, scan_folder, configs_tree, monkeypatch
     ):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         monkeypatch.setitem(__import__("sys").modules, "scan_analysis", None)
         client = _client(scan_folder, configs_tree, analysis_factory=None)
         page = client.get("/run/uid-002")
@@ -809,7 +809,7 @@ class TestDestructiveGate:
     def test_without_the_scan_number_nothing_runs(
         self, scan_folder, configs_tree, params
     ):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         client = _client(scan_folder, configs_tree)
         response = client.post(
             "/api/run/uid-002/analysis", params={"analyzer": "UC_Compact", **params}
@@ -823,7 +823,7 @@ class TestDestructiveGate:
         )
 
     def test_with_the_scan_number_it_runs(self, scan_folder, configs_tree):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         client = _client(scan_folder, configs_tree)
         response = client.post(
             "/api/run/uid-002/analysis",
@@ -838,7 +838,7 @@ class TestDestructiveGate:
     def test_the_opt_in_never_reaches_a_non_destructive_build(
         self, scan_folder, configs_tree
     ):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         client = _client(scan_folder, configs_tree)
         client.post(
             "/api/run/uid-002/analysis", params={"analyzer": "UC_Crop", "confirm": "2"}
@@ -850,7 +850,7 @@ class TestDestructiveGate:
     def test_the_listing_carries_the_number_the_gate_accepts(
         self, scan_folder, configs_tree
     ):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         client = _client(scan_folder, configs_tree)
         body = client.get("/api/run/uid-002/analysis").json()
         assert body["scan_number"] == 2  # from the resolved folder, like the tag
@@ -871,7 +871,7 @@ class TestDestructiveGate:
     def test_a_non_destructive_kind_needs_no_confirmation(
         self, scan_folder, configs_tree
     ):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         client = _client(scan_folder, configs_tree)
         response = client.post(
             "/api/run/uid-002/analysis", params={"analyzer": "UC_Crop"}
@@ -884,7 +884,7 @@ class TestProgress:
     """What an analyzer reports mid-run reaches the record the tab polls."""
 
     def test_frames_done_of_total_show_while_running(self, scan_folder, configs_tree):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         client = _client(scan_folder, configs_tree, behaviour="progress")
         assert (
             client.post(
@@ -913,7 +913,7 @@ class TestProgress:
     def test_an_analyzer_that_never_reports_has_no_progress(
         self, scan_folder, configs_tree
     ):
-        pytest.importorskip("image_analysis")
+        pytest.importorskip("scan_analysis")
         client = _client(scan_folder, configs_tree)
         client.post("/api/run/uid-002/analysis", params={"analyzer": "UC_Crop"})
         assert _wait(client)["progress"] is None

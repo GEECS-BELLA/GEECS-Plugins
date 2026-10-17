@@ -6,7 +6,6 @@ import functools
 import logging
 from pathlib import Path
 
-import numpy as np
 from fastapi import FastAPI, HTTPException
 
 from geecs_portal import resources
@@ -34,24 +33,22 @@ def _preview_scan(portal: PortalState, uid: str, device: str, day: str):
 
 
 def _line_trace(diag, detail, folder, device: str, shot: int):
-    """One shot's trace as a scan run reads it: ``(Nx2 array, auxiliary)``.
+    """One shot's trace as a scan run reads it (an ``N x 2`` array, or wider).
 
     The shot resolves through the run path's own source rules
     (:func:`scan_analysis.core_source.prepare_source` — file tail,
     ``data_format``, the stack-only rule for ``pva_stack``) over
-    ``device``, the recipe's own data folder; the reference is
-    read with the document's loading, auxiliary columns handed over the
-    way ``analyze_image_file`` hands them to line analyzers. A stitched
-    input (``sibling_folders``) is the source's own joined trace, as the
-    run reads it, and carries no auxiliary columns (the legacy stitcher
-    passed none either). A recipe whose measure reads auxiliary channels
-    (``frog_spectral_phase``'s weights) gets the source's trace too, the
-    channels appended as the run appends them.
+    ``device``, the recipe's own data folder; the reference is read with
+    the document's loading. A stitched input (``sibling_folders``) is the
+    source's own joined trace, as the run reads it, and a recipe whose
+    measure reads auxiliary channels (``frog_spectral_phase``'s weights)
+    gets the source's trace too, the channels appended as columns the way
+    the run appends them.
     """
     from dataclasses import replace
 
     import pandas as pd
-    from image_analysis.data_1d_utils import read_1d_data
+    from geecs_data_utils.io.array1d import Data1DConfig, read_1d_data
     from scan_analysis.core_recipe import scan_recipe
     from scan_analysis.core_source import prepare_source
 
@@ -76,19 +73,14 @@ def _line_trace(diag, detail, folder, device: str, shot: int):
     if source.siblings or source.channels:
         # The core's own trace: joined siblings, or the auxiliary channels
         # the measure reads appended as columns (x, y, channels…).
-        return source.load(shot), None
-    trace = read_1d_data(reference, diag.line_loading)
-    aux = (
-        {
-            "_aux_columns": {
-                name: np.asarray(values, dtype=float)
-                for name, values in trace.auxiliary_column_data.items()
-            }
-        }
-        if trace.auxiliary_column_data
-        else None
+        return source.load(shot)
+    # The schema's Data1DLoading mirrors the reader's Data1DConfig field for
+    # field (pinned by the data-utils mirror test): a dump/validate converts.
+    trace = read_1d_data(
+        reference,
+        Data1DConfig.model_validate(diag.line_loading.model_dump(mode="json")),
     )
-    return trace.data, aux
+    return trace.data
 
 
 def _camera_frame(
@@ -125,10 +117,8 @@ def _line_preview(
     """A LINE document's preview: the shot's trace drawn as the run draws it."""
     ephemeral = portal.ephemeral_module()
     detail, folder = _preview_scan(portal, uid, device, day)
-    data, aux = _line_trace(diag, detail, folder, device, shot)
-    figures = ephemeral.render_document_as_run(
-        diag, [data], scan_folder=folder, auxiliary_data=aux
-    )
+    data = _line_trace(diag, detail, folder, device, shot)
+    figures = ephemeral.render_document_as_run(diag, [data], scan_folder=folder)
     if not figures:
         raise ValueError("this analyzer draws no figure for a single trace")
     return resources.figure_png(figures[0], tight=True)
@@ -186,7 +176,7 @@ def _config_editor_summary_preview(
     for shot in range(1, shots + 1):
         try:
             if is_line(diag):
-                array, _aux = _line_trace(diag, detail, folder, device, shot)
+                array = _line_trace(diag, detail, folder, device, shot)
             else:
                 array = _camera_frame(portal, detail, folder, uid, device, shot)
         except LookupError as exc:

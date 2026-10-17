@@ -1,4 +1,4 @@
-"""Scan backgrounds on the core route: exact strip statistics, the legacy wrapper's outputs, no stray writes."""
+"""Scan backgrounds on the core route: exact strip statistics, the golden trees, no stray writes."""
 
 from __future__ import annotations
 
@@ -14,15 +14,15 @@ from geecs_schemas.analysis import AnalysisDiagnostic
 import scan_analysis.base as base
 import scan_analysis.core_backgrounds as core_backgrounds
 from geecs_analysis.compat.v2 import ScanBackground
-from scan_analysis.analyzers.common.single_device_scan_analyzer import (
-    SingleDeviceScanAnalyzer,
-)
-from scan_analysis.config import create_scan_analyzer
-from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
+from scan_analysis.core_analyzer import CoreScanAnalyzer
 from scan_analysis.core_backgrounds import resolve_scan_background, scan_statistic
 from scan_analysis.core_inputs import ScanContextRequired
 from scan_analysis.core_preview import prepare_document
-from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
+from scan_analysis.route_compare import (
+    GOLDEN_RTOL,
+    compare_snapshots,
+    snapshot_analysis_tree,
+)
 
 DEVICE = "Camera"
 SHOTS = 6
@@ -31,6 +31,21 @@ SHOTS = 6
 def stack(n: int = 7, shape=(13, 9), seed: int = 2) -> list[np.ndarray]:
     rng = np.random.default_rng(seed)
     return [rng.integers(0, 4000, size=shape).astype(np.uint16) for _ in range(n)]
+
+
+def whole_stack_statistic(frames, statistic: str, percentile=None) -> np.ndarray:
+    """The retired legacy aggregation, verbatim: one float64 stack, one numpy call.
+
+    What ImageAnalysis' ``_aggregate_image_stack`` computed (mean over the
+    raw stack; median / percentile over the stack cast to float64) — the
+    strip statistic must reproduce it bit for bit.
+    """
+    if statistic == "mean":
+        return np.mean(np.stack(frames), axis=0)
+    cast = np.stack([f.astype(np.float64) for f in frames], axis=0)
+    if statistic == "median":
+        return np.median(cast, axis=0)
+    return np.percentile(cast, percentile, axis=0)
 
 
 @pytest.mark.parametrize(
@@ -42,10 +57,8 @@ def test_the_strip_statistic_is_the_legacy_whole_stack_one_bit_for_bit(
     statistic, percentile, budget, tmp_path
 ):
     """Tiny budgets force one-row strips over the on-disk copy; a big one stays in memory."""
-    from image_analysis.processing.array2d.background import _aggregate_image_stack
-
     frames = stack()
-    expected = _aggregate_image_stack(frames, method=statistic, percentile=percentile)
+    expected = whole_stack_statistic(frames, statistic, percentile)
     loaders = [lambda f=f: f for f in frames]
     actual = scan_statistic(
         loaders, statistic, percentile, budget_bytes=budget, scratch_dir=tmp_path
@@ -55,8 +68,6 @@ def test_the_strip_statistic_is_the_legacy_whole_stack_one_bit_for_bit(
 
 
 def test_an_unreadable_frame_is_skipped_and_a_mismatched_one_refused():
-    from image_analysis.processing.array2d.background import _aggregate_image_stack
-
     frames = stack(5)
 
     def broken():
@@ -69,7 +80,7 @@ def test_an_unreadable_frame_is_skipped_and_a_mismatched_one_refused():
     )
     np.testing.assert_array_equal(
         scan_statistic(loaders, "percentile", 20.0, budget_bytes=1),
-        _aggregate_image_stack(frames, method="percentile", percentile=20.0),
+        whole_stack_statistic(frames, "percentile", 20.0),
     )
     odd = [lambda: frames[0], lambda: frames[1][:4]]
     with pytest.raises(ValueError, match="differ in shape"):
@@ -159,22 +170,10 @@ def build_day(base_dir: Path, *, dark: bool = True) -> Path:
     return scan2
 
 
-def run(monkeypatch, base_dir: Path, doc, route: str = "core") -> Path:
+def run(monkeypatch, base_dir: Path, doc) -> Path:
     scan = build_day(base_dir)
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=base_dir))
-    if route == "legacy":
-        analyzer = create_scan_analyzer(doc, id="Diag", priority=1, route="legacy")
-        assert isinstance(analyzer, SingleDeviceScanAnalyzer)
-        # The legacy wrapper resolves the dark scan through ScanPaths itself.
-        import scan_analysis.analyzers.common.single_device_scan_analyzer as sdsa
-        import geecs_data_utils
-
-        monkeypatch.setattr(
-            geecs_data_utils, "ScanPaths", partial(ScanPaths, base_directory=base_dir)
-        )
-        assert sdsa  # imported for its lazy ScanPaths lookup
-    else:
-        analyzer = CoreScanAnalyzer(doc, id="Diag", priority=1)
+    analyzer = CoreScanAnalyzer(doc, id="Diag", priority=1)
     try:
         analyzer.run_analysis(tag(2))
     finally:
@@ -183,7 +182,7 @@ def run(monkeypatch, base_dir: Path, doc, route: str = "core") -> Path:
 
 
 def outputs(scan: Path) -> dict:
-    """The analysis tree, less the cached backgrounds (named per route)."""
+    """The analysis tree, less the cached backgrounds."""
     tree = snapshot_analysis_tree(scan.parent.parent / "analysis")
     return {k: v for k, v in tree.items() if "background" not in Path(k).name}
 
@@ -199,18 +198,18 @@ SOURCES = [
 
 
 @pytest.mark.parametrize("source", SOURCES)
-def test_the_core_route_matches_the_legacy_wrapper(tmp_path, monkeypatch, source):
-    doc = document(**source)
-    assert core_supports(doc)
-    # Each route gets its own document: the legacy wrapper rewrites the
-    # background section of the one it is given (to a from_file background
-    # pointing at its cache), which would feed the core a pre-resolved file.
-    legacy = run(monkeypatch, tmp_path / "legacy", document(**source), "legacy")
-    core = run(monkeypatch, tmp_path / "core", doc)
-    old, new = outputs(legacy), outputs(core)
+def test_the_core_route_writes_the_golden_tree(
+    tmp_path, monkeypatch, golden, request, source
+):
+    """The tree the retired legacy wrapper wrote with this background, exact (#1039)."""
+    core = run(monkeypatch, tmp_path / "core", document(**source))
+    new = outputs(core)
+    expected = golden(f"backgrounds/{request.node.callspec.id}", new)
     assert any(name.endswith(".h5") for name in new)
-    assert sorted(old) == sorted(new)
-    assert compare_snapshots(old, new) == []
+    assert sorted(new) == sorted(expected.files)
+    assert (
+        compare_snapshots(expected.files, new, average_ulps=0, rtol=GOLDEN_RTOL) == []
+    )
 
 
 def test_a_dark_scan_is_averaged_once_and_shared(tmp_path, monkeypatch):

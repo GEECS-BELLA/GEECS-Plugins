@@ -91,8 +91,8 @@ def scan_analysis_factory(
     """Build the real ScanAnalysis analyzer for one diagnostic ID.
 
     The single-analyzer path the group loader runs in a loop:
-    :func:`image_analysis.config.load_diagnostic` (the unified
-    diagnostic YAML under ``<config_dir>/analyzers/``) wrapped by
+    :func:`scan_analysis.config.load_diagnostic` (the document YAML under
+    ``<config_dir>/analyzers/``) handed to
     :func:`scan_analysis.config.create_scan_analyzer`.
 
     Parameters
@@ -108,23 +108,21 @@ def scan_analysis_factory(
     Returns
     -------
     ScanAnalyzerLike
-        A runnable ``Array1DScanAnalyzer`` / ``Array2DScanAnalyzer``.
+        A runnable ``CoreScanAnalyzer`` (or a ``.himg`` job's analyzer).
 
     Raises
     ------
     ImportError
-        When the ``analysis`` extra (ImageAnalysis + ScanAnalysis) is
-        not installed.
+        When the ``analysis`` extra (ScanAnalysis) is not installed.
     """
     import matplotlib
 
-    # The contract travels with the behaviour: ScanAnalysis's renderers
-    # use pyplot, and a GUI backend picked lazily on a worker thread is
+    # The contract travels with the behaviour: ScanAnalysis's base class
+    # uses pyplot, and a GUI backend picked lazily on a worker thread is
     # a crash — pin Agg (idempotent) before the import that needs it,
     # whatever the entry point (``__main__`` pins it too, earlier).
     matplotlib.use("Agg")
-    from image_analysis.config import load_diagnostic
-    from scan_analysis.config import create_scan_analyzer
+    from scan_analysis.config import create_scan_analyzer, load_diagnostic
 
     diag = load_diagnostic(analyzer_id, config_dir=config_dir)
     return create_scan_analyzer(diag, allow_destructive=allow_destructive)
@@ -172,8 +170,8 @@ class RunInProgress(RuntimeError):
 _CAPTURE_EXCLUDE = ("geecs_portal", "uvicorn", "httpx", "httpcore", "asyncio")
 #: Thread-name prefixes that serve requests / warm caches in this
 #: process — a record from one of them during a run is a concurrent
-#: browser's (the Images tab's ephemeral path logs under
-#: ``image_analysis.*`` too), not the run's. Analyzer pool threads are
+#: browser's (the Images tab's processing path logs under
+#: ``scan_analysis.*`` too), not the run's. Analyzer pool threads are
 #: ``ThreadPoolExecutor-*``; the worker itself is ``portal-analysis_*``.
 _CAPTURE_EXCLUDE_THREADS = ("AnyIO worker thread", "MainThread", "warm-", "uvicorn")
 
@@ -471,13 +469,13 @@ def classify_artifact(artifact: str) -> tuple[str, Optional[int]]:
     The tab shows summaries automatically and steps through bins one
     at a time (owner ruling 2026-09-02). The split is ScanAnalysis's
     own output-name contract, parsed by ITS
-    ``renderers.config.parse_output_filename`` (next to the code that
+    ``core_sink.parse_output_filename`` (next to the code that
     builds the names) — imported lazily, like the factory, so this
     module stays importable without the extra; without it everything
     is ``other`` (the run feature is off anyway).
     """
     try:
-        from scan_analysis.analyzers.renderers.config import parse_output_filename
+        from scan_analysis.core_sink import parse_output_filename
     except ImportError:
         return "other", None
     return parse_output_filename(artifact)

@@ -1,0 +1,109 @@
+{
+ "extra": {},
+ "files": {
+  "Scan001/MagSpec1-interpSpec/Array1DScanAnalyzer/MagSpec1-interpSpec_1_processed.h5": {
+   "array": "a0",
+   "dtype": "<f4",
+   "key": "data",
+   "kind": "h5"
+  },
+  "Scan001/MagSpec1-interpSpec/Array1DScanAnalyzer/MagSpec1-interpSpec_1_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/MagSpec1-interpSpec/Array1DScanAnalyzer/MagSpec1-interpSpec_2_processed.h5": {
+   "array": "a1",
+   "dtype": "<f4",
+   "key": "data",
+   "kind": "h5"
+  },
+  "Scan001/MagSpec1-interpSpec/Array1DScanAnalyzer/MagSpec1-interpSpec_2_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/MagSpec1-interpSpec/Array1DScanAnalyzer/MagSpec1-interpSpec_3_processed.h5": {
+   "array": "a2",
+   "dtype": "<f4",
+   "key": "data",
+   "kind": "h5"
+  },
+  "Scan001/MagSpec1-interpSpec/Array1DScanAnalyzer/MagSpec1-interpSpec_3_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/MagSpec1-interpSpec/Array1DScanAnalyzer/MagSpec1-interpSpec_summary_waterfall.png": {
+   "kind": "file"
+  },
+  "Scan001/Scan001_Stitch.txt": {
+   "columns": [
+    {
+     "array": "a3",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a4",
+     "name": "MagSpec1-interpSpec_CoM"
+    },
+    {
+     "array": "a5",
+     "name": "MagSpec1-interpSpec_rms"
+    },
+    {
+     "array": "a6",
+     "name": "MagSpec1-interpSpec_fwhm"
+    },
+    {
+     "array": "a7",
+     "name": "MagSpec1-interpSpec_peak_location"
+    },
+    {
+     "array": "a8",
+     "name": "MagSpec1-interpSpec_integrated_intensity"
+    },
+    {
+     "array": "a9",
+     "name": "MagSpec1-interpSpec_peak_value"
+    }
+   ],
+   "kind": "table"
+  },
+  "s1.txt": {
+   "columns": [
+    {
+     "array": "a10",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a11",
+     "name": "Bin #"
+    },
+    {
+     "array": "a12",
+     "name": "U_Motor Position Alias:motor"
+    },
+    {
+     "array": "a13",
+     "name": "MagSpec1-interpSpec_CoM"
+    },
+    {
+     "array": "a14",
+     "name": "MagSpec1-interpSpec_fwhm"
+    },
+    {
+     "array": "a15",
+     "name": "MagSpec1-interpSpec_integrated_intensity"
+    },
+    {
+     "array": "a16",
+     "name": "MagSpec1-interpSpec_peak_location"
+    },
+    {
+     "array": "a17",
+     "name": "MagSpec1-interpSpec_peak_value"
+    },
+    {
+     "array": "a18",
+     "name": "MagSpec1-interpSpec_rms"
+    }
+   ],
+   "kind": "table"
+  }
+ }
+}

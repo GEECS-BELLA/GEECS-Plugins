@@ -14,7 +14,7 @@ from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
 
 from scan_analysis.config.diagnostic_factory import create_scan_analyzer
 from scan_analysis.config_store import ConfigStore
-from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
+from scan_analysis.core_analyzer import CoreScanAnalyzer
 from scan_analysis.core_products import Product, ProductPlan
 from scan_analysis.core_recipe import scan_recipe
 from scan_analysis.core_sink import save_products
@@ -86,17 +86,12 @@ def test_converted_recipe_gives_the_same_run_facts(doc):
     assert v2.line == v3.line
 
 
-def test_factory_routes_a_recipe_to_the_core_only():
+def test_factory_routes_a_recipe_to_the_core():
     doc = recipe(summaries=[{"kind": "average"}])
-    assert core_supports(doc)
     analyzer = create_scan_analyzer(doc, priority=None)
     assert isinstance(analyzer, CoreScanAnalyzer)
     assert analyzer.id == "Device" and analyzer.priority == 100
     assert analyzer.spec.summaries == tuple(doc.summaries)
-    with pytest.raises(ValueError, match="no legacy route"):
-        create_scan_analyzer(doc, route="legacy")
-    with pytest.raises(ValueError, match="injected"):
-        create_scan_analyzer(doc, use_injected_data=True)
     with pytest.raises(RecipeError, match="does not bind"):
         create_scan_analyzer(recipe(steps=[{"step": "sharpen"}]))
 

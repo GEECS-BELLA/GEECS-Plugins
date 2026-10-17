@@ -1,4 +1,4 @@
-"""FROG spectral phase on the core route: the legacy wrapper's tree, the weights as a channel."""
+"""FROG spectral phase on the core route: the golden tree, the weights as a channel."""
 
 from __future__ import annotations
 
@@ -7,17 +7,19 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 from geecs_data_utils import ScanPaths, ScanTag
 from geecs_schemas.analysis import AnalysisDiagnostic
 
 import scan_analysis.base as base
 from geecs_analysis.compat.v2 import analyze_v2, compile_v2
-from scan_analysis.analyzers.common.single_device_scan_analyzer import (
-    SingleDeviceScanAnalyzer,
-)
 from scan_analysis.config import create_scan_analyzer
-from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
-from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
+from scan_analysis.core_analyzer import CoreScanAnalyzer
+from scan_analysis.route_compare import (
+    GOLDEN_RTOL,
+    compare_snapshots,
+    snapshot_analysis_tree,
+)
 
 TAG = ScanTag(year=2026, month=1, day=1, number=1, experiment="Test")
 SHOTS = 6
@@ -115,14 +117,10 @@ def build_scan(base_dir: Path) -> Path:
     return scan
 
 
-def run(monkeypatch, base_dir: Path, doc, route: str) -> Path:
+def run(monkeypatch, base_dir: Path, doc) -> Path:
     scan = build_scan(base_dir)
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=base_dir))
-    if route == "legacy":
-        analyzer = create_scan_analyzer(doc, id="FSP", priority=1, route="legacy")
-        assert isinstance(analyzer, SingleDeviceScanAnalyzer)
-    else:
-        analyzer = CoreScanAnalyzer(doc, id="FSP", priority=1)
+    analyzer = CoreScanAnalyzer(doc, id="FSP", priority=1)
     try:
         analyzer.run_analysis(TAG)
     finally:
@@ -130,18 +128,32 @@ def run(monkeypatch, base_dir: Path, doc, route: str) -> Path:
     return scan
 
 
-def test_a_frog_spectral_phase_diagnostic_runs_on_the_core_route():
-    assert core_supports(document())
+def test_the_diagnostic_builds_on_the_core():
+    assert isinstance(create_scan_analyzer(document()), CoreScanAnalyzer)
 
 
-def test_the_core_route_writes_the_legacy_tree(tmp_path, monkeypatch):
-    legacy = run(monkeypatch, tmp_path / "legacy", document(), "legacy")
-    core = run(monkeypatch, tmp_path / "core", document(), "core")
-    old = snapshot_analysis_tree(legacy.parent.parent / "analysis")
+@pytest.mark.parametrize("storage", ["float64", "float32"])
+def test_the_core_route_writes_the_golden_tree(tmp_path, monkeypatch, golden, storage):
+    """The retired legacy wrapper's tree at float64 storage, exact.
+
+    At float32 the same tree at the declared storage dtype: the wrapper
+    saved the float64 fit ignoring ``storage_dtype`` (as it did for ICT),
+    the core stores the declared float32, and every product of this scanned
+    run is a bin average taken at that dtype — a few float32 ulps from the
+    wrapper's (measured: 2.1 eps) when the two were compared.
+    """
+    core = run(monkeypatch, tmp_path / "core", document(storage))
     new = snapshot_analysis_tree(core.parent.parent / "analysis")
-    assert any(name.endswith(".h5") for name in old)
-    # float64 storage: products, bin averages and scalars equal exactly.
-    assert compare_snapshots(old, new, average_ulps=0) == []
+    expected = golden(f"frog_spectral_phase/{storage}", new)
+    assert sorted(new) == sorted(expected.files)
+    assert any(name.endswith(".h5") for name in new)
+    assert (
+        compare_snapshots(expected.files, new, average_ulps=0, rtol=GOLDEN_RTOL) == []
+    )
+
+
+def test_the_weights_reach_the_fit(tmp_path, monkeypatch):
+    core = run(monkeypatch, tmp_path / "core", document())
     rows = pd.read_csv(
         core.parent.parent / "analysis" / "s1.txt",
         sep="\t",
@@ -151,38 +163,6 @@ def test_the_core_route_writes_the_legacy_tree(tmp_path, monkeypatch):
         assert rows[f"{DEVICE}_{key}"].notna().all(), key
     # The weights reached the fit: the shots' GDDs alternate as built.
     assert rows[f"{DEVICE}_gdd_fs2"].diff().abs().min() > 10.0
-
-
-def test_float32_storage_differs_only_by_the_stored_product_dtype(
-    tmp_path, monkeypatch
-):
-    doc = document("float32")
-    legacy = run(monkeypatch, tmp_path / "legacy", doc, "legacy")
-    core = run(monkeypatch, tmp_path / "core", doc, "core")
-    old = snapshot_analysis_tree(legacy.parent.parent / "analysis")
-    new = snapshot_analysis_tree(core.parent.parent / "analysis")
-    assert sorted(old) == sorted(new)
-    # The legacy wrapper saved the float64 fit ignoring storage_dtype (as it
-    # did for ICT); the core stores the declared float32. The fit itself is
-    # float64 on both routes. Every product of this scanned run is a bin
-    # average, which the core takes at the storage dtype (float32
-    # accumulation, the GEECS-Analysis convention) and the wrapper in
-    # float64: a few float32 ulps (measured: 2.1 eps).
-    rtol = 4 * float(np.finfo(np.float32).eps)
-    products = [name for name in old if name.endswith(".h5")]
-    assert products
-    for name in products:
-        _, key, legacy_data, legacy_dtype = old[name]
-        _, key2, core_data, core_dtype = new[name]
-        assert (key, legacy_dtype, core_dtype) == (key2, "float64", "float32"), name
-        np.testing.assert_allclose(
-            core_data, legacy_data, rtol=rtol, atol=0, err_msg=name
-        )
-    # The scalars are computed from identically rounded inputs: exact.
-    tables = [name for name in old if old[name][0] == "table"]
-    rest_old = {name: old[name] for name in tables}
-    rest_new = {name: new[name] for name in tables}
-    assert compare_snapshots(rest_old, rest_new) == []
 
 
 def test_a_raw_bin_run_fits_the_bin_mean_with_the_bin_mean_weights(
@@ -195,7 +175,7 @@ def test_a_raw_bin_run_fits_the_bin_mean_with_the_bin_mean_weights(
     averages the weights row for row with the trace.
     """
     doc = document(mode="per_bin")
-    core = run(monkeypatch, tmp_path, doc, "core")
+    core = run(monkeypatch, tmp_path, doc)
     rows = pd.read_csv(
         core.parent.parent / "analysis" / "s1.txt",
         sep="\t",

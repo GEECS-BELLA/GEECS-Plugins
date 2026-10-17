@@ -1,4 +1,4 @@
-"""Run analysis recipes (v3) and supported v2 diagnostics on the core behind the ScanAnalyzer contract."""
+"""Run analysis documents on the core behind the ScanAnalyzer contract."""
 
 from __future__ import annotations
 
@@ -8,15 +8,13 @@ from pathlib import Path
 from typing import Optional, Union
 
 import pandas as pd
-from geecs_analysis.compat.v2 import UnsupportedRecipe
-from geecs_analysis.recipe import compile_document
 from geecs_analysis.registry import (
     MeasureDefinition,
     SiblingOutput,
     measure_definition,
 )
 from geecs_data_utils.shot_files import StackMappingUnavailable
-from geecs_schemas.analysis import AnalysisRecipe, WaterfallSummary
+from geecs_schemas.analysis import WaterfallSummary
 
 from scan_analysis.base import DataUnavailableWarning, ScanAnalyzer
 from scan_analysis.core_products import ProductCollector, ProductPlan
@@ -34,7 +32,7 @@ from scan_analysis.core_workers import effective_workers
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["CoreScanAnalyzer", "core_supports", "write_scalars_into_rows"]
+__all__ = ["CoreScanAnalyzer", "write_scalars_into_rows"]
 
 
 def write_scalars_into_rows(rows: pd.DataFrame, records: list[dict]) -> None:
@@ -68,26 +66,6 @@ def write_scalars_into_rows(rows: pd.DataFrame, records: list[dict]) -> None:
             rows.loc[hit, key] = next(iter(given.values()))
 
 
-def core_supports(document: AnalysisDocument) -> bool:
-    """Whether the recipe runs on the core route, decided without any reads.
-
-    An analysis recipe (v3) always does: it has no other route, and one that
-    does not bind to the registry fails when the analyzer is built. For a v2
-    diagnostic, scan-context backgrounds, unported analyzer kinds and
-    unported processing operations all fail compilation with
-    ``UnsupportedRecipe``; those recipes keep the legacy wrappers. File
-    backgrounds are only declared here; the prepared run loads them later
-    through data-utils.
-    """
-    if isinstance(document, AnalysisRecipe):
-        return True
-    try:
-        compile_document(document, allow_file_backgrounds=True)
-    except UnsupportedRecipe:
-        return False
-    return True
-
-
 class CoreScanAnalyzer(ScanAnalyzer):
     """Explicit scan execution of one analysis document on ``geecs_analysis``.
 
@@ -98,10 +76,13 @@ class CoreScanAnalyzer(ScanAnalyzer):
     ``cleanup()`` drops per-scan state. Scan-tag handling, s-file reading and
     scalar persistence are inherited unchanged from :class:`ScanAnalyzer`.
 
-    Deliberate differences from the legacy wrappers: scalars are persisted
-    before products are written, so a product write failure — or a result
-    the products cannot fold, raised after the persist — never loses them,
-    and the output directory is created only when a product is saved.
+    Compiling the document at construction surfaces one that does not bind
+    to the registry (``RecipeError``) or asks for what the core does not do
+    (``UnsupportedRecipe``) before any scan is touched. Scalars are
+    persisted before products are written, so a product write failure — or
+    a result the products cannot fold, raised after the persist — never
+    loses them, and the output directory is created only when a product is
+    saved.
 
     The run streams: each outcome's scalars are queued and its measurement
     folded into the products (``ProductCollector``) as it arrives, so a

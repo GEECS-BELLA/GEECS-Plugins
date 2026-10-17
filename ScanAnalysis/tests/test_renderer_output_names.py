@@ -1,10 +1,10 @@
-"""The renderer output-name contract: ``parse_output_filename`` inverts ``get_filename``."""
+"""The product output-name contract: ``parse_output_filename`` inverts the sink's names."""
 
 from __future__ import annotations
 
 import pytest
 
-from scan_analysis.analyzers.renderers.config import parse_output_filename
+from scan_analysis.core_sink import parse_output_filename
 
 
 @pytest.mark.parametrize(
@@ -31,14 +31,14 @@ def test_parse_output_filename(name, expected):
     assert parse_output_filename(name) == expected
 
 
-def test_round_trips_get_filename_shape():
-    """The parser must invert the exact string get_filename builds."""
+def test_round_trips_the_sinks_product_name_shape():
+    """The parser must invert the exact string the sink builds (the legacy shape, kept)."""
     device, identifier = "UC_TestCam", 7
     for suffix, ext, kind in (
         ("processed", "h5", ("bin", 7)),
         ("processed_visual", "png", ("bin", 7)),
     ):
-        # RenderContext.get_filename: f"{device_name}_{identifier}_{suffix}.{extension}"  # noqa: ERA001 — format doc, not code
+        # The sink's product name: f"{device}_{identifier}_{suffix}.{extension}"  # — format doc, not code
         assert parse_output_filename(f"{device}_{identifier}_{suffix}.{ext}") == kind
     assert parse_output_filename(f"{device}_average_processed_visual.png") == (
         "summary",

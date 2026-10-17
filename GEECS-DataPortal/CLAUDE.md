@@ -35,8 +35,9 @@ extending this package.
   (`POST /configs/api/preview/summary`, `render_summary_as_run` →
   `core_preview.preview_summary`) draws each summary over the scan's first
   shots (`params.shots`, at most 8 — never a whole scan on the shared
-  host), one panel per shot. Kinds the core does not serve fall back to
-  the legacy write-free route for the frame and have no summary preview.
+  host), one panel per shot. A document the core declines at compilation
+  is a 400 naming the reason, in every view (the legacy ImageAnalysis
+  fallback was retired in #1039).
   The Images tab's processing selector keeps `render_document_ephemeral`
   and the portal's own window, analysing through the same seam.
   The other is `POST /api/run/{uid}/analysis`, which
@@ -186,7 +187,7 @@ geecs_portal/
                  #   common = stateless request helpers
   analysis.py    # /api boundary chores: filters/bincfg/display parsing,
                  #   JSON shaping (NaN→null), "show the code" snippets
-  processing.py  # core compilation/execution and legacy fallback for unported recipes
+  processing.py  # core compilation/execution and previews (every draw is the core's)
   analysis_runs.py  # analysis runs: AnalysisRunner (one worker thread,
                  #   one job per scan, thread-scoped log capture), the
                  #   ScanAnalysis factory seam, artifact containment
@@ -289,20 +290,17 @@ mode is a broken link, not a cosmetic) and
 `?processing=<diagnostic id>` (the `processing` URL state): the named ImageAnalysis diagnostic runs
 **ephemerally** on the served pixels via
 `geecs_portal.processing.process_images` — the write-free
-router: supported v2 recipes compile once per request batch and run on
-`geecs-analysis`; only `UnsupportedRecipe` at compilation selects the legacy
-ImageAnalysis ephemeral route. Runtime or rendering errors never retry on a
-second backend. The legacy structural no-writes contract remains in
-ImageAnalysis CLAUDE.md "Ephemeral runs"; the core accepts arrays only.  Per-shot renders the `processed_image`; per-bin
+router: the document compiles once per request batch and runs on
+`geecs-analysis`; `UnsupportedRecipe` at compilation is a 400 naming the
+reason (no second backend since #1039), and runtime or rendering errors
+never retry either. The core accepts arrays only.  Per-shot renders the `processed_image`; per-bin
 processes each member THEN averages (nonlinear-correct).  The feature
 is **explicit-opt-in**: `--processing-configs <tree>` /
 `create_app(processing_config_dir=…)` names the configs tree — the
 portal deliberately never falls back to the global config resolution
 (two competing resolution paths exist, so the portal names its tree
-explicitly). The `analysis` extra installs the core and legacy runtime. A
+explicitly). The `analysis` extra installs the core runtime. A
 missing config root or core runtime hides the selector and 404s the param.
-Supported recipes need no legacy import; unported recipes require ImageAnalysis
-for fallback and report a processing failure if it is unavailable.
 Errors map honestly: unknown diagnostic 404,
 denylisted/miswired 400, analyzer failure 400 — never a 500.
 **Analysis runs** (0.16.0): `GET /api/run/{uid}/analysis`
@@ -381,7 +379,7 @@ ladder without ScanAnalysis; the default is `load_diagnostic` +
 `create_scan_analyzer`, needing the `analysis` extra (which since
 0.16.0 also carries ScanAnalysis).  The factory (and `__main__`,
 earlier) pins `matplotlib.use("Agg")` before importing ScanAnalysis:
-its renderers use pyplot, and the one worker thread is what
+its base class uses pyplot, and the one worker thread is what
 serialises pyplot *in this process* — never add a second pyplot user
 on a request thread.  Known and accepted: the 2D wrapper's per-shot
 stage forks a `ProcessPoolExecutor` from this thread-rich process

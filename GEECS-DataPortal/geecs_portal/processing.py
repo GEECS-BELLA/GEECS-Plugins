@@ -1,9 +1,10 @@
-"""Portal processing/preview routing during the analysis-core migration.
+"""Portal processing and previews: every draw is the analysis core's.
 
-Analysis recipes (v3) and supported v2 recipes use geecs-analysis. Only a v2
-compilation-time capability refusal selects the legacy write-free route;
-numerical/render failures never retry against another backend. Configuration
-reads use an explicit tree.
+A document the core declines at compilation (a scan background no run has
+computed yet, a view without a scan folder, a ``.himg`` job) is refused as a
+``ValueError`` — the portal's 400 — naming the reason; numerical and render
+failures are never retried against another backend. Configuration reads use
+an explicit tree.
 """
 
 from __future__ import annotations
@@ -14,17 +15,11 @@ from typing import TYPE_CHECKING, Callable, Sequence
 import numpy as np
 from geecs_data_utils.analysis_configs import discover_diagnostics, read_diagnostic
 from geecs_data_utils.frames import Frame
-from geecs_schemas.analysis import (
-    AnalysisDiagnostic,
-    AnalysisDocument,
-    AnalysisRecipe,
-    load_analysis_document,
-)
+from geecs_schemas.analysis import AnalysisDocument, load_analysis_document
 from pydantic import ValidationError
 
 from geecs_analysis.compat.v2 import UnsupportedRecipe
 from geecs_analysis.measurement import Measurement
-from geecs_analysis.recipe import figure_of
 from geecs_analysis.render import RenderError, single
 from geecs_analysis.render.specs import FigureSpec
 
@@ -32,20 +27,9 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
 
-def _no_legacy_route(document: AnalysisDocument, exc: UnsupportedRecipe) -> None:
-    """Refuse clearly when the core declines anything but a v2 diagnostic.
-
-    A v2 diagnostic the core declines falls back to the legacy write-free
-    route. A v3 recipe has none, so a refusal (a scan background no run has
-    computed yet, a view without a scan folder) is reported as a
-    ``ValueError`` — the portal's 400 — naming the reason, instead of the
-    legacy route's "no ephemeral ImageAnalyzer route"; a ``.himg`` job
-    draws nothing at all.
-    """
-    if isinstance(document, AnalysisRecipe):
-        raise ValueError(f"this recipe cannot be drawn here: {exc}") from exc
-    if not isinstance(document, AnalysisDiagnostic):
-        raise ValueError(f"this document draws nothing: {exc}") from exc
+def _refuse(exc: UnsupportedRecipe) -> ValueError:
+    """The core's compilation-time refusal as the portal's 400, naming the reason."""
+    return ValueError(f"this document cannot be drawn here: {exc}")
 
 
 def list_diagnostics(*, config_dir: Path) -> list[str]:
@@ -54,7 +38,7 @@ def list_diagnostics(*, config_dir: Path) -> list[str]:
 
 
 def load_diagnostic(name: str, *, config_dir: Path) -> AnalysisDocument:
-    """Read and validate a fresh document (either format) without importing legacy analyzers."""
+    """Read and validate a fresh document from the portal's explicitly configured tree."""
     path, data = read_diagnostic(name, config_dir=Path(config_dir))
     try:
         document = load_analysis_document(data)
@@ -76,13 +60,7 @@ def process_images(
         # keep their placeholder here (fallback level, or an error), as before
         prepared = prepare_document(document)
     except UnsupportedRecipe as exc:
-        _no_legacy_route(document, exc)
-        from image_analysis.ephemeral import run_document_ephemeral
-
-        return [
-            getattr(result, "processed_image", None)
-            for result in run_document_ephemeral(document, arrays)
-        ]
+        raise _refuse(exc) from exc
     results = [measure_frame(prepared, array) for array in arrays]
     return [r.frame.data if r.frame.data.ndim == 2 else None for r in results]
 
@@ -123,46 +101,27 @@ def _render(
     style_for: Callable[[Measurement], FigureSpec],
     *,
     scan_folder: Path | None = None,
-    auxiliary_data: dict | None = None,
-    legacy: dict | None = None,
 ) -> list[Figure]:
-    """Draw each frame through the run's own analysis, or the legacy route.
+    """Draw each frame through the run's own analysis.
 
     The analysis is ScanAnalysis' (``core_preview.prepare_document`` +
     ``measure_frame``: the run's compile, frame inputs resolved under
     *scan_folder*, the run's per-frame measure); only the style differs
-    per caller. Only a compilation-time capability refusal
-    (``UnsupportedRecipe``: a v2 kind the core has not ported) selects the
-    legacy write-free route, with ``legacy`` as its keyword arguments;
-    numerical and render failures never retry against another backend.
+    per caller. A compilation-time refusal (``UnsupportedRecipe``) is the
+    portal's 400; numerical and render failures are never retried against
+    another backend.
     """
     from scan_analysis.core_preview import measure_frame, prepare_document
 
     try:
         prepared = prepare_document(document, scan_folder=scan_folder)
     except UnsupportedRecipe as exc:
-        _no_legacy_route(document, exc)
-        from image_analysis import ephemeral
-
-        try:
-            return ephemeral.render_document_ephemeral(
-                document, arrays, auxiliary_data=auxiliary_data, **(legacy or {})
-            )
-        except ephemeral.RenderError as exc:
-            raise RenderError(str(exc)) from exc
+        raise _refuse(exc) from exc
     figures = []
     for array in arrays:
         result = measure_frame(prepared, array)
         figures.append(single(result, style_for(result)))
     return figures
-
-
-def _legacy_palette(document: AnalysisDocument) -> dict | None:
-    """The v2 renderer's palette for the legacy route; a recipe never takes it."""
-    if not isinstance(document, AnalysisDiagnostic):
-        return None
-    opts = document.scan.renderer
-    return {"cmap": opts.cmap, "vmin": opts.vmin, "vmax": opts.vmax}
 
 
 def render_document_ephemeral(
@@ -173,22 +132,18 @@ def render_document_ephemeral(
     cmap: str | None = None,
     vmin: float | None = None,
     vmax: float | None = None,
-    auxiliary_data: dict | None = None,
 ) -> list[Figure]:
     """Draw the supplied (possibly unsaved) document with the portal's own styling.
 
     The Images tab's processing view: the portal's finite-pixel window and
-    palette over the processed frame. ``auxiliary_data`` reaches only the
-    legacy fallback (a line trace's ``_aux_columns``); on the core route a
-    measure's auxiliary channels travel inside the array itself, appended
-    as columns the way its scan run's source appends them (``V2Recipe.channels``).
+    palette over the processed frame. A measure's auxiliary channels travel
+    inside the array itself, appended as columns the way its scan run's
+    source appends them (``V2Recipe.channels``).
     """
     return _render(
         document,
         arrays,
         lambda r: _style(r.frame.data, window=window, cmap=cmap, vmin=vmin, vmax=vmax),
-        auxiliary_data=auxiliary_data,
-        legacy={"window": window, "cmap": cmap, "vmin": vmin, "vmax": vmax},
     )
 
 
@@ -197,7 +152,6 @@ def render_document_as_run(
     arrays: Sequence[np.ndarray],
     *,
     scan_folder: Path | None = None,
-    auxiliary_data: dict | None = None,
 ) -> list[Figure]:
     """Draw each frame the way a scan run of *document* draws its products.
 
@@ -205,9 +159,7 @@ def render_document_as_run(
     call with the document's own figure block, the recipe's frame inputs
     loaded from its device folder under *scan_folder* as the run loads
     them — so the editor's preview IS the product image; no portal palette
-    or window reaches it. Kinds the core does not serve fall back to the
-    legacy write-free route, which draws its own figure from the
-    diagnostic's renderer fields.
+    or window reaches it. A document the core declines is the portal's 400.
     """
     from scan_analysis.core_preview import preview_frame
 
@@ -216,15 +168,7 @@ def render_document_as_run(
             preview_frame(document, array, scan_folder=scan_folder) for array in arrays
         ]
     except UnsupportedRecipe as exc:
-        _no_legacy_route(document, exc)
-        return _render(
-            document,
-            arrays,
-            lambda _r: figure_of(document),
-            scan_folder=scan_folder,
-            auxiliary_data=auxiliary_data,
-            legacy=_legacy_palette(document),
-        )
+        raise _refuse(exc) from exc
 
 
 def render_summary_as_run(
@@ -240,9 +184,8 @@ def render_summary_as_run(
 
     ScanAnalysis' ``core_preview.preview_summary``: one panel per array at
     its position for a kind that consumes panels, the arrays' average for
-    the ``average`` kind. A v2 kind the core does not serve has no summary
-    preview (``ValueError``): the legacy route draws no scan figure from a
-    handful of frames.
+    the ``average`` kind. A document the core declines has no summary
+    preview (``ValueError``).
     """
     from scan_analysis.core_preview import preview_summary
 
@@ -251,10 +194,7 @@ def render_summary_as_run(
             document, arrays, positions, label, index, scan_folder=scan_folder
         )
     except UnsupportedRecipe as exc:
-        raise ValueError(
-            "no summary preview for an analyzer kind the analysis core does not "
-            f"run yet: {exc}"
-        ) from exc
+        raise ValueError(f"no summary preview for this document: {exc}") from exc
 
 
 def render_diagnostic_ephemeral(

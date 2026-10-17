@@ -7,11 +7,10 @@ from geecs_analysis.measurement import Measurement
 from geecs_data_utils.frames import Frame
 from geecs_schemas.analysis import AnalysisDiagnostic
 
-from scan_analysis.analyzers.renderers.config import parse_output_filename
 from scan_analysis.core_products import Product, ProductPlan
 from scan_analysis.core_recipe import scan_recipe
 from geecs_data_utils.scan_info import analysis_folder_for
-from scan_analysis.core_sink import save_products
+from scan_analysis.core_sink import parse_output_filename, save_products
 
 
 def document(line=False, **kwargs):

@@ -1,4 +1,4 @@
-"""magspec on the core route: the legacy analyzer's scalars, products and -interp files, byte for byte."""
+"""magspec on the core route: the golden scalars, products and -interpSpec spectra."""
 
 from __future__ import annotations
 
@@ -18,11 +18,12 @@ from geecs_schemas.analysis import AnalysisDiagnostic
 import geecs_data_utils
 import scan_analysis.base as base
 from scan_analysis.config import create_scan_analyzer
-from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
+from scan_analysis.core_analyzer import CoreScanAnalyzer
 from scan_analysis.core_inputs import load_table
 from scan_analysis.core_scan import shot_metadata
 from scan_analysis.core_sink import write_sibling_outputs
 from scan_analysis.route_compare import (
+    GOLDEN_RTOL,
     compare_snapshots,
     snapshot_analysis_tree,
     snapshot_scan_products,
@@ -198,28 +199,19 @@ def private_scan_paths(monkeypatch, base_dir: Path) -> None:
             kwargs.setdefault("base_directory", base_dir)
             super().__init__(*args, **kwargs)
 
-    # The legacy wrapper looks the dark scan up through a call-time import.
     monkeypatch.setattr(base, "ScanPaths", PrivateScanPaths)
     monkeypatch.setattr(geecs_data_utils, "ScanPaths", PrivateScanPaths)
 
 
-def run(
-    monkeypatch, base_dir: Path, document, route: str, *, workers=1, **scan
-) -> Path:
-    """One route over a fresh scan under ``base_dir``; the legacy one shot at a time."""
+def run(monkeypatch, base_dir: Path, document, *, workers=1, **scan) -> Path:
+    """The converted recipe over a fresh scan under ``base_dir``."""
     scan_folder = build_scan(base_dir, **scan)
     private_scan_paths(monkeypatch, base_dir)
-    if route == "legacy":
-        analyzer = create_scan_analyzer(document, id="Diag", priority=1, route="legacy")
-        # The legacy analyzer writes each shot's field into one shared
-        # calibration; its thread pool could measure a shot with another's.
-        analyzer.max_workers = 1
-    else:
-        converted = recipe(document)
-        converted = converted.model_copy(
-            update={"scan": converted.scan.model_copy(update={"workers": workers})}
-        )
-        analyzer = CoreScanAnalyzer(converted, id="Diag", priority=1)
+    converted = recipe(document)
+    converted = converted.model_copy(
+        update={"scan": converted.scan.model_copy(update={"workers": workers})}
+    )
+    analyzer = CoreScanAnalyzer(converted, id="Diag", priority=1)
     try:
         analyzer.run_analysis(TAG)
     finally:
@@ -233,21 +225,28 @@ def snapshot(scan: Path) -> dict[str, tuple]:
     return tree
 
 
-def test_a_v2_magspec_document_keeps_its_legacy_route(configs):
-    """Only the converted recipe opts in; the v2 document never reaches the core."""
-    assert not core_supports(diagnostic(configs))
-    assert core_supports(recipe(diagnostic(configs)))
+def test_a_converted_magspec_recipe_builds_on_the_core(configs):
+    analyzer = create_scan_analyzer(recipe(diagnostic(configs)))
+    assert isinstance(analyzer, CoreScanAnalyzer)
 
 
-@pytest.mark.parametrize("save", [True, False])
-def test_the_core_route_matches_the_legacy_analyzer_byte_for_byte(
-    tmp_path, monkeypatch, configs, save
+@pytest.mark.parametrize("save", [True, False], ids=["save-on", "save-off"])
+def test_the_core_route_writes_the_golden_tree_byte_for_byte(
+    tmp_path, monkeypatch, configs, golden, request, save
 ):
-    document = diagnostic(configs, save=save)
-    legacy = run(monkeypatch, tmp_path / "legacy", document, "legacy")
-    core = run(monkeypatch, tmp_path / "core", document, "core")
-    old, new = snapshot(legacy), snapshot(core)
-    assert compare_snapshots(old, new) == []
+    """The retired legacy analyzer's scalars, products and -interp files (#1039).
+
+    The ``-interpSpec`` spectra are compared as numbers, the ``-interp``
+    images as their 16-bit pixels, exactly (a PNG's bytes depend on the
+    zlib build; its pixels do not).
+    """
+    core = run(monkeypatch, tmp_path / "core", diagnostic(configs, save=save))
+    new = snapshot(core)
+    expected = golden(f"magspec/{request.node.callspec.id}", new)
+    assert sorted(new) == sorted(expected.files)
+    assert (
+        compare_snapshots(expected.files, new, average_ulps=0, rtol=GOLDEN_RTOL) == []
+    )
     for suffix, tail in (("-interp", ".png"), ("-interpSpec", ".tsv")):
         written = sorted(n for n in new if f"/{DEVICE}{suffix}/" in n)
         assert written == [
@@ -265,43 +264,63 @@ def test_a_pooled_run_writes_the_identical_tree(tmp_path, monkeypatch, configs, 
     from scan_analysis import core_workers
 
     monkeypatch.setattr(core_workers, "MIN_UNITS_FOR_POOL", 1)
-    serial = run(monkeypatch, tmp_path / "serial", diagnostic(configs), "core")
+    serial = run(monkeypatch, tmp_path / "serial", diagnostic(configs))
     with caplog.at_level(logging.INFO, logger="scan_analysis.core_analyzer"):
-        pooled = run(
-            monkeypatch, tmp_path / "pooled", diagnostic(configs), "core", workers=2
-        )
+        pooled = run(monkeypatch, tmp_path / "pooled", diagnostic(configs), workers=2)
     assert any(r.getMessage().endswith("units, 2 workers") for r in caplog.records)
     assert compare_snapshots(snapshot(serial), snapshot(pooled), average_ulps=0) == []
 
 
-def test_per_bin_runs_write_no_sibling_outputs(tmp_path, monkeypatch, configs):
-    """The legacy per-bin path had no file to name them by; neither route writes them."""
-    document = diagnostic(None, mode="per_bin")
-    bins = dict(bins=[1, 1, 2, 2, 3, 4])  # bin 4: one shot, still a bin
-    legacy = run(monkeypatch, tmp_path / "legacy", document, "legacy", **bins)
-    core = run(monkeypatch, tmp_path / "core", document, "core", **bins)
-    old, new = snapshot(legacy), snapshot(core)
-    assert compare_snapshots(old, new) == []
+PER_BIN = dict(bins=[1, 1, 2, 2, 3, 4])  # bin 4: one shot, still a bin
+
+
+def test_per_bin_runs_write_no_sibling_outputs(tmp_path, monkeypatch, golden):
+    """The legacy per-bin path had no file to name them by; the core writes none."""
+    core = run(
+        monkeypatch,
+        tmp_path / "core",
+        diagnostic(None, mode="per_bin"),
+        **PER_BIN,
+    )
+    new = snapshot(core)
+    expected = golden("magspec/per-bin", new)
+    assert sorted(new) == sorted(expected.files)
+    assert (
+        compare_snapshots(expected.files, new, average_ulps=0, rtol=GOLDEN_RTOL) == []
+    )
     assert not [name for name in new if "-interp" in name]
     assert any(name.endswith(".h5") for name in new)
 
 
+#: One field reading missing; the shot reads the document's ``magnetic_field_t``.
+MISSING_FIELDS = (0.29, float("nan"), 0.31, 0.30, 0.295, 0.305)
+
+
+def without_field_column(tree: dict[str, tuple]) -> dict[str, tuple]:
+    """The snapshot less the recorded field column, which differs by construction."""
+    return {**tree, "s2.txt": ("table", tree["s2.txt"][1].drop(columns=[COLUMN]))}
+
+
 def test_a_missing_field_reading_takes_the_documents_field(
-    tmp_path, monkeypatch, configs
+    tmp_path, monkeypatch, configs, golden
 ):
-    """A NaN cell is left out of the shot's metadata: that shot uses magnetic_field_t."""
-    fields = (0.29, float("nan"), 0.31, 0.30, 0.295, 0.305)
+    """A NaN cell is left out of the shot's metadata: that shot uses magnetic_field_t.
+
+    The golden is the run with that reading recorded as the document's field
+    (the legacy analyzer's, on steady fields, when the two were compared).
+    """
     core = run(
-        monkeypatch, tmp_path / "core", diagnostic(configs), "core", fields=fields
+        monkeypatch,
+        tmp_path / "core",
+        diagnostic(configs),
+        fields=MISSING_FIELDS,
     )
-    steady = (0.29, 0.3, 0.31, 0.30, 0.295, 0.305)
-    legacy = run(
-        monkeypatch, tmp_path / "legacy", diagnostic(configs), "legacy", fields=steady
+    new = without_field_column(snapshot(core))
+    expected = golden("magspec/missing-field", new)
+    assert sorted(new) == sorted(expected.files)
+    assert (
+        compare_snapshots(expected.files, new, average_ulps=0, rtol=GOLDEN_RTOL) == []
     )
-    old, new = snapshot(legacy), snapshot(core)
-    for tree in (old, new):  # the recorded column itself differs by construction
-        tree["s2.txt"] = ("table", tree["s2.txt"][1].drop(columns=[COLUMN]))
-    assert compare_snapshots(old, new) == []
 
 
 def test_shot_metadata_carries_finite_cells_only():
@@ -496,7 +515,7 @@ def test_a_sibling_write_failure_keeps_the_runs_scalars(
 
     monkeypatch.setattr(sys.modules[__name__], "build_scan", blocked)
     with caplog.at_level(logging.WARNING):
-        scan = run(monkeypatch, tmp_path, diagnostic(configs), "core")
+        scan = run(monkeypatch, tmp_path, diagnostic(configs))
     rows = pd.read_csv(scan.parent.parent / "analysis" / "s2.txt", sep="\t")
     assert rows[f"{DEVICE}_peak_energy_MeV"].notna().all()
     assert caplog.text.count("sibling outputs not written") == SHOTS

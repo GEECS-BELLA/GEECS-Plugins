@@ -1,4 +1,4 @@
-"""Downramp phase on the core route: the legacy wrapper's tree, its PDF no longer in the scan folder."""
+"""Downramp phase on the core route: the golden tree, no PDF in the scan folder."""
 
 from __future__ import annotations
 
@@ -12,12 +12,13 @@ from geecs_data_utils import ScanPaths, ScanTag
 from geecs_schemas.analysis import AnalysisDiagnostic
 
 import scan_analysis.base as base
-from scan_analysis.analyzers.common.single_device_scan_analyzer import (
-    SingleDeviceScanAnalyzer,
-)
 from scan_analysis.config import create_scan_analyzer
-from scan_analysis.core_analyzer import CoreScanAnalyzer, core_supports
-from scan_analysis.route_compare import compare_snapshots, snapshot_analysis_tree
+from scan_analysis.core_analyzer import CoreScanAnalyzer
+from scan_analysis.route_compare import (
+    GOLDEN_RTOL,
+    compare_snapshots,
+    snapshot_analysis_tree,
+)
 
 TAG = ScanTag(year=2026, month=1, day=1, number=1, experiment="Test")
 SHOTS = 6
@@ -81,14 +82,10 @@ def build_scan(base_dir: Path) -> Path:
     return scan
 
 
-def run(monkeypatch, base_dir: Path, doc, route: str) -> Path:
+def run(monkeypatch, base_dir: Path, doc) -> Path:
     scan = build_scan(base_dir)
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=base_dir))
-    if route == "legacy":
-        analyzer = create_scan_analyzer(doc, id="Diag", priority=1, route="legacy")
-        assert isinstance(analyzer, SingleDeviceScanAnalyzer)
-    else:
-        analyzer = CoreScanAnalyzer(doc, id="Diag", priority=1)
+    analyzer = CoreScanAnalyzer(doc, id="Diag", priority=1)
     try:
         analyzer.run_analysis(TAG)
     finally:
@@ -96,29 +93,21 @@ def run(monkeypatch, base_dir: Path, doc, route: str) -> Path:
     return scan
 
 
-def test_a_downramp_phase_diagnostic_runs_on_the_core_route():
-    assert core_supports(document("per_shot"))
+def test_the_diagnostic_builds_on_the_core():
+    assert isinstance(create_scan_analyzer(document("per_shot")), CoreScanAnalyzer)
 
 
 @pytest.mark.parametrize("mode", ["per_shot", "per_bin"])
-def test_the_core_route_matches_the_legacy_wrapper(tmp_path, monkeypatch, mode):
-    legacy = run(monkeypatch, tmp_path / "legacy", document(mode), "legacy")
-    core = run(monkeypatch, tmp_path / "core", document(mode), "core")
-    old = snapshot_analysis_tree(legacy.parent.parent / "analysis")
+def test_the_core_route_writes_the_golden_tree(tmp_path, monkeypatch, golden, mode):
+    """The retired legacy wrapper's tree (its phase product as the core's float64), exact."""
+    core = run(monkeypatch, tmp_path / "core", document(mode))
     new = snapshot_analysis_tree(core.parent.parent / "analysis")
-    assert sorted(old) == sorted(new)
-    products = [name for name in old if name.endswith(".h5")]
-    assert products
-    for name in products:
-        _, key, legacy_data, legacy_dtype = old[name]
-        _, key2, core_data, core_dtype = new[name]
-        # The wrapper stored the analyzer's uint16 phase product; the core
-        # stores its frame, the same values as float64.
-        assert (key, core_dtype) == (key2, np.float64), name
-        np.testing.assert_array_equal(core_data, legacy_data, err_msg=name)
-    rest_old = {name: old[name] for name in old if not name.endswith(".h5")}
-    rest_new = {name: new[name] for name in new if not name.endswith(".h5")}
-    assert compare_snapshots(rest_old, rest_new) == []
+    expected = golden(f"downramp_phase/{mode}", new)
+    assert sorted(new) == sorted(expected.files)
+    assert any(name.endswith(".h5") for name in new)
+    assert (
+        compare_snapshots(expected.files, new, average_ulps=0, rtol=GOLDEN_RTOL) == []
+    )
     rows = pd.read_csv(
         core.parent.parent / "analysis" / "s1.txt",
         sep="\t",
@@ -127,10 +116,8 @@ def test_the_core_route_matches_the_legacy_wrapper(tmp_path, monkeypatch, mode):
     for key in SCALARS:
         assert rows[f"Diag_{key}"].notna().all(), key
     location = rows["Diag_Plasma downramp shock location (pixel)"]
-    expected = [SHOCK_COLUMNS[(shot - 1) // 2] for shot in rows["Shotnumber"]]
-    np.testing.assert_allclose(location, expected, atol=3)
-    # The wrapper's analyzer drew its PDF into the raw device folder (per
+    shock = [SHOCK_COLUMNS[(shot - 1) // 2] for shot in rows["Shotnumber"]]
+    np.testing.assert_allclose(location, shock, atol=3)
+    # The legacy analyzer drew its PDF into the raw device folder (per
     # shot, where it had a file path); the core route writes nothing there.
-    pdfs = list((legacy / DEVICE).glob("*_combined_shock_analysis.pdf"))
-    assert bool(pdfs) == (mode == "per_shot")
     assert not list((core / DEVICE).glob("*.pdf"))

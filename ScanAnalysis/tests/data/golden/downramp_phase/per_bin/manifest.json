@@ -1,0 +1,133 @@
+{
+ "extra": {},
+ "files": {
+  "Scan001/Diag/Array2DScanAnalyzer/U_HasoLift_1_processed.h5": {
+   "array": "a0",
+   "dtype": "<f8",
+   "key": "image",
+   "kind": "h5"
+  },
+  "Scan001/Diag/Array2DScanAnalyzer/U_HasoLift_1_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/Diag/Array2DScanAnalyzer/U_HasoLift_2_processed.h5": {
+   "array": "a1",
+   "dtype": "<f8",
+   "key": "image",
+   "kind": "h5"
+  },
+  "Scan001/Diag/Array2DScanAnalyzer/U_HasoLift_2_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/Diag/Array2DScanAnalyzer/U_HasoLift_3_processed.h5": {
+   "array": "a2",
+   "dtype": "<f8",
+   "key": "image",
+   "kind": "h5"
+  },
+  "Scan001/Diag/Array2DScanAnalyzer/U_HasoLift_3_processed_visual.png": {
+   "kind": "file"
+  },
+  "Scan001/Diag/Array2DScanAnalyzer/U_HasoLift_averaged_image_grid.png": {
+   "kind": "file"
+  },
+  "Scan001/Scan001_Diag.txt": {
+   "columns": [
+    {
+     "array": "a3",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a4",
+     "name": "Diag_Plasma downramp shock_angle"
+    },
+    {
+     "array": "a5",
+     "name": "Diag_Plasma downramp shock slope (phase/pixel)"
+    },
+    {
+     "array": "a6",
+     "name": "Diag_Plasma downramp shock location (pixel)"
+    },
+    {
+     "array": "a7",
+     "name": "Diag_Plasma downramp plateau avg (phase)"
+    },
+    {
+     "array": "a8",
+     "name": "Diag_Plasma downramp peak to plateau (phase)"
+    },
+    {
+     "array": "a9",
+     "name": "Diag_image_com_slope_x"
+    },
+    {
+     "array": "a10",
+     "name": "Diag_image_com_slope_y"
+    },
+    {
+     "array": "a11",
+     "name": "Diag_image_peak_slope_x"
+    },
+    {
+     "array": "a12",
+     "name": "Diag_image_peak_slope_y"
+    }
+   ],
+   "kind": "table"
+  },
+  "s1.txt": {
+   "columns": [
+    {
+     "array": "a13",
+     "name": "Shotnumber"
+    },
+    {
+     "array": "a14",
+     "name": "Bin #"
+    },
+    {
+     "array": "a15",
+     "name": "U_Motor Position Alias:motor"
+    },
+    {
+     "array": "a16",
+     "name": "Diag_Plasma downramp peak to plateau (phase)"
+    },
+    {
+     "array": "a17",
+     "name": "Diag_Plasma downramp plateau avg (phase)"
+    },
+    {
+     "array": "a18",
+     "name": "Diag_Plasma downramp shock location (pixel)"
+    },
+    {
+     "array": "a19",
+     "name": "Diag_Plasma downramp shock slope (phase/pixel)"
+    },
+    {
+     "array": "a20",
+     "name": "Diag_Plasma downramp shock_angle"
+    },
+    {
+     "array": "a21",
+     "name": "Diag_image_com_slope_x"
+    },
+    {
+     "array": "a22",
+     "name": "Diag_image_com_slope_y"
+    },
+    {
+     "array": "a23",
+     "name": "Diag_image_peak_slope_x"
+    },
+    {
+     "array": "a24",
+     "name": "Diag_image_peak_slope_y"
+    }
+   ],
+   "kind": "table"
+  }
+ }
+}

@@ -216,6 +216,5 @@ class TestLoadAnalysisGroup:
             load_analysis_group("nope", config_dir=configs_tree)
 
 
-# NB: single-diagnostic loading moved to ``image_analysis.config.load_diagnostic``
-# (returns ``AnalysisDiagnostic`` directly). See
-# ``ImageAnalysis/tests/test_config_factory.py::TestLoadDiagnostic``.
+# NB: single-document loading is ``scan_analysis.config.load_diagnostic``;
+# see ``tests/test_config_loader.py``.

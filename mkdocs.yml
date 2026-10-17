@@ -75,8 +75,6 @@ nav:
           - Overview: scan_analysis/overview.md
           - API Reference:
               - Core Modules: scan_analysis/api/base.md
-          - Examples:
-              - Scatter Plot Analysis: scan_analysis/examples/scatter_plot_analysis.ipynb
       - Data Utils:
           - Overview: geecs_data_utils/overview.md
           - API Reference:
@@ -130,9 +128,6 @@ exclude_docs: |
   # ...). Kept in the repo for one-off analysis, off the published site:
   # analysis/examples/analysis_without_the_portal.ipynb is the current path.
   image_analysis/examples/
-  scan_analysis/examples/basic_usage.ipynb
-  scan_analysis/examples/basic_usage_1D.ipynb
-  scan_analysis/examples/HTT-magspec.ipynb
   development_guidelines.md
   docstring_templates.md
 
