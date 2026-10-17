@@ -101,7 +101,7 @@ def test_average_tolerance_is_a_few_ulps_of_the_stored_dtype():
     assert compare_snapshots(entry(base), entry(one_ulp), average_ulps=0) != []
 
 
-def test_scan_products_decode_spectra_count_images_and_skip_inputs(tmp_path):
+def test_scan_products_decode_spectra_and_skip_inputs(tmp_path):
     trees = {}
     for route, (payload, charge) in (
         ("legacy", (b"\x00\x01", "1.5")),
@@ -111,8 +111,6 @@ def test_scan_products_decode_spectra_count_images_and_skip_inputs(tmp_path):
         (scan / "Cam").mkdir(parents=True)
         (scan / "Cam" / "raw.png").write_bytes(route.encode())  # an input
         (scan / "ScanInfoScan003.ini").write_text(route)
-        (scan / "Cam-interp").mkdir()
-        (scan / "Cam-interp" / "raw.png").write_bytes(payload)
         (scan / "Cam-interpSpec").mkdir()
         (scan / "Cam-interpSpec" / "raw.tsv").write_text(
             f"Energy [MeV]\tCharge\n10.0\t{charge}\n"
@@ -121,13 +119,11 @@ def test_scan_products_decode_spectra_count_images_and_skip_inputs(tmp_path):
         (scan / "Cam-other" / "blob.bin").write_bytes(payload)
         trees[route] = snapshot_scan_products(scan, {"Cam", "ScanInfoScan003.ini"})
     assert sorted(trees["core"]) == [
-        "Scan003/Cam-interp/raw.png",
         "Scan003/Cam-interpSpec/raw.tsv",
         "Scan003/Cam-other/blob.bin",
     ]
-    assert trees["core"]["Scan003/Cam-interp/raw.png"][0] == "file"
     assert trees["core"]["Scan003/Cam-interpSpec/raw.tsv"][0] == "table"
-    # the image by presence, the spectrum as numbers, raw bytes exactly
+    # the spectrum as numbers, raw bytes exactly
     problems = compare_snapshots(trees["legacy"], trees["core"])
     assert problems == [
         'Scan003/Cam-interpSpec/raw.tsv: column "Charge": Series are different',
@@ -220,3 +216,44 @@ def test_a_golden_round_trips_every_kind_bit_for_bit(tmp_path):
         image.dtype,
     )
     assert compare_snapshots(stored.files, nudged) != []
+
+
+def test_a_corrupted_interp_image_is_a_difference(tmp_path):
+    """Review repro (#1098): an all-zero replacement of a 16-bit -interp PNG must differ.
+
+    The images are decoded to pixels (``read_imaq_png_image``, the core's own
+    16-bit reader) and compared exactly — integer arrays get no tolerance —
+    so a corrupted payload with the same name never passes by presence.
+    """
+    from geecs_data_utils.io.images import write_png16
+
+    trees = {}
+    for route, level in (("golden", 1000), ("core", 0)):
+        scan = tmp_path / route / "Scan003"
+        (scan / "Cam").mkdir(parents=True)
+        (scan / "Cam-interp").mkdir()
+        write_png16(
+            scan / "Cam-interp" / "raw.png", np.full((4, 6), level, dtype=np.uint16)
+        )
+        trees[route] = snapshot_scan_products(scan, {"Cam"})
+    problems = compare_snapshots(trees["golden"], trees["core"])
+    assert problems, "an all-zero image passed as the golden's (review, #1098)"
+    assert problems[0].startswith("Scan003/Cam-interp/raw.png: arrays differ")
+    kind, key, pixels, dtype = trees["golden"]["Scan003/Cam-interp/raw.png"]
+    assert (kind, key, dtype) == ("h5", "pixels", np.dtype("uint16"))
+    np.testing.assert_array_equal(pixels, np.full((4, 6), 1000, dtype=np.uint16))
+    # the golden tolerance never applies to an integer payload
+    loose = compare_snapshots(trees["golden"], trees["core"], rtol=0.5)
+    assert len(loose) == 1 and loose[0].startswith(problems[0].split(" (")[0])
+    one_off = {**trees["golden"]}
+    one_off["Scan003/Cam-interp/raw.png"] = (
+        "h5",
+        "pixels",
+        pixels + np.uint16(1),
+        dtype,
+    )
+    assert compare_snapshots(trees["golden"], one_off, rtol=1e-6) != []
+    # and the goldens store the pixels, dtype kept
+    write_golden(trees["golden"], tmp_path / "g")
+    stored = read_golden(tmp_path / "g").files["Scan003/Cam-interp/raw.png"]
+    assert stored[3] == np.dtype("uint16") and stored[2].dtype == np.uint16

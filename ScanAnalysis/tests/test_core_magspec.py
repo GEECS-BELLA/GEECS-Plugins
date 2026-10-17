@@ -237,7 +237,8 @@ def test_the_core_route_writes_the_golden_tree_byte_for_byte(
     """The retired legacy analyzer's scalars, products and -interp files (#1039).
 
     The ``-interpSpec`` spectra are compared as numbers, the ``-interp``
-    images by presence (a 16-bit PNG's bytes depend on the zlib build).
+    images as their 16-bit pixels, exactly (a PNG's bytes depend on the
+    zlib build; its pixels do not).
     """
     core = run(monkeypatch, tmp_path / "core", diagnostic(configs, save=save))
     new = snapshot(core)

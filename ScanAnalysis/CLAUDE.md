@@ -212,7 +212,7 @@ payloads and numeric table columns) and read back with `read_golden`. The
 differential tests (`tests/test_core_{analyzer,backgrounds,downramp_phase,
 frog_spectral_phase,hi_res_mag_cam,ict,magspec,stitch}.py`) run the core on
 synthetic scans and compare file lists, HDF5 payloads, s-file columns,
-sidecars, decoded sibling spectra and the display-file list against
+sidecars, decoded sibling spectra and images and the display-file list against
 `tests/data/golden/<case>/` to `route_compare.GOLDEN_RTOL` (1e-6, relative
 to each array's or column's scale — cross-platform float drift between the
 macOS where they were generated and Linux CI; a ×1.0001 change still

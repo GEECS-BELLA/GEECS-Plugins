@@ -6,9 +6,10 @@ serial one), so none drifts when a product kind or a tolerance changes. HDF5
 payloads and tab-separated scalar tables are decoded and compared; every
 other file (the PNG figures) counts by presence only, because figures are the
 operator's review, not a pin. The files a run adds inside the scan folder
-itself (a measure's sibling outputs, the magspec ``-interpSpec`` spectra)
-are decoded and compared like the analysis tree's tables; the ``-interp``
-images, like every PNG, by presence.
+itself (a measure's sibling outputs) are no figures: the magspec
+``-interpSpec`` spectra are decoded and compared like the analysis tree's
+tables, the ``-interp`` 16-bit images as their pixels (the core's own
+reader; integer arrays are always compared exactly).
 
 Exact is the default. A golden generated on one platform and checked on
 another sees float drift (BLAS/SIMD summation order, scipy builds): a
@@ -36,6 +37,7 @@ from typing import Any, Iterable
 import h5py
 import numpy as np
 import pandas as pd
+from geecs_data_utils.io.images import read_imaq_png_image
 
 #: Noscan averages carry this marker in their file name; see ``compare_snapshots``.
 AVERAGE_MARKER = "_average_processed"
@@ -72,10 +74,12 @@ def snapshot_scan_products(scan: Path, inputs: Iterable[str]) -> dict[str, tuple
 
     Keyed by path relative to the scan folder's parent (``ScanNNN/...``, so
     the keys never collide with an analysis tree's). A ``.tsv`` / ``.txt``
-    is ``("table", DataFrame)``, a PNG ``("file", size)`` (presence only),
-    anything else ``("bytes", sha256 hex)``. ``inputs`` names the top-level
-    entries that were there before the run (the copied device folder, the
-    ScanInfo ini) and are skipped.
+    is ``("table", DataFrame)``, a PNG its decoded pixels
+    ``("h5", "pixels", array, dtype)`` (a data product, never a figure:
+    ``read_imaq_png_image`` keeps the 16-bit depth), anything else
+    ``("bytes", sha256 hex)``. ``inputs`` names the top-level entries that
+    were there before the run (the copied device folder, the ScanInfo ini)
+    and are skipped.
     """
     scan = Path(scan)
     skipped = set(inputs)
@@ -88,7 +92,8 @@ def snapshot_scan_products(scan: Path, inputs: Iterable[str]) -> dict[str, tuple
         if path.suffix in {".tsv", ".txt"}:
             files[name] = ("table", pd.read_csv(path, sep="\t"))
         elif path.suffix.lower() == ".png":
-            files[name] = ("file", path.stat().st_size)
+            pixels = read_imaq_png_image(path)
+            files[name] = ("h5", "pixels", pixels, pixels.dtype)
         else:
             files[name] = ("bytes", hashlib.sha256(path.read_bytes()).hexdigest())
     return files
@@ -101,8 +106,14 @@ def _close(expected: np.ndarray, actual: np.ndarray, rtol: float) -> tuple[bool,
     (``rtol * max|expected|``, so a zero beside large values is held to the
     same absolute margin as its neighbours), NaNs match NaNs, and the
     returned delta is ``max|actual - expected| / max|expected|`` (0 when
-    both are all zero), whatever the verdict.
+    both are all zero), whatever the verdict. An integer array (a 16-bit
+    image product) is exact whatever ``rtol`` says: integers do not drift.
     """
+    if (
+        np.asarray(expected).dtype.kind in "iub"
+        and np.asarray(actual).dtype.kind in "iub"
+    ):
+        rtol = 0.0
     a = np.asarray(expected, dtype=float)
     b = np.asarray(actual, dtype=float)
     if a.shape != b.shape:
@@ -148,7 +159,8 @@ def compare_snapshots(  # noqa: C901, PLR0912
     bounds every array and numeric table column to ``rtol`` of its own
     scale (``_close``; the pooled-vs-serial pins keep the default 0, they
     run on one machine). Every array or column difference reports the max
-    relative delta seen, so the margin is visible. Scan-folder products
+    relative delta seen, so the margin is visible; an integer array (a
+    16-bit image product) is exact regardless. Scan-folder products
     (``snapshot_scan_products``) follow the same rules by kind; raw bytes
     must be identical; other files are compared by presence only.
     """
