@@ -486,9 +486,33 @@ def test_a_pre_rebuild_mcp_section_is_not_edited_but_the_keys_are_named(
     r = _run(tmp_path, REDIS_ENABLED, "--only", "mcp")
     assert r.returncode == 0, r.stderr
     assert "would append [mcp]" not in r.stdout
-    assert "without the service URLs" in r.stdout
+    assert "lacks scanner_url portal_url logbook_url" in r.stdout
     assert "scanner_url = http://192.168.6.14:8300" in r.stdout
     assert cfg.read_text() == "[mcp]\nclient_identity = geecs-mcp\n"
+
+
+def test_a_partial_mcp_section_names_only_the_missing_keys(tmp_path: Path) -> None:
+    """Keys are read INSIDE [mcp]: a scanner_url elsewhere in the file does not count."""
+    _existing_config(
+        tmp_path,
+        "[other]\nportal_url = http://x\n[mcp]\nscanner_url = http://h:8300\n",
+    )
+    r = _run(tmp_path, REDIS_ENABLED, "--only", "mcp")
+    assert r.returncode == 0, r.stderr
+    assert "lacks portal_url logbook_url" in r.stdout
+    assert "portal_url = http://192.168.6.14:8200" in r.stdout
+
+
+def test_an_mcp_header_with_a_comment_is_not_duplicated(tmp_path: Path) -> None:
+    """A second [mcp] would be configparser's DuplicateSectionError — every URL lost."""
+    _existing_config(
+        tmp_path,
+        "[mcp]  ; the agent server\nscanner_url = a\nportal_url = b\nlogbook_url = c\n",
+    )
+    r = _run(tmp_path, REDIS_ENABLED, "--only", "mcp")
+    assert r.returncode == 0, r.stderr
+    assert "would append [mcp]" not in r.stdout
+    assert "lacks" not in r.stdout
 
 
 def test_a_site_without_the_services_host_renders_no_mcp_section(
@@ -517,3 +541,14 @@ def test_a_site_without_the_services_host_renders_no_mcp_section(
     )
     assert r.returncode == 0, r.stderr
     assert "[mcp]" not in r.stdout
+    assert "mcp: not wanted" in r.stdout
+    assert "enable --now geecs-mcp" not in r.stdout
+    only = subprocess.run(
+        ["bash", str(BOOTSTRAP), str(site), "--dry-run", "--only", "mcp"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=REPO_ROOT,
+    )
+    assert only.returncode != 0
+    assert "GEECS_SERVICES_HOST" in only.stderr + only.stdout

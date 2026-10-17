@@ -386,10 +386,10 @@ svg.has-sel .step:not(.on){opacity:.25}
 <section>
   <h2>Where OSPREY plugs in</h2>
   <ul class="plain">
-    <li><b>One door.</b> OSPREY reaches GEECS only through GEECS-MCP, which runs next to the queueserver and reads the same config truth the worker uses. Since geecs-mcp 0.9.0 that door is read-and-halt only — the submit verbs were deleted, not rewired.</li>
-    <li><b>Read freely, halt through verbs.</b> Read tools cover scan status, history, progress, results and config listings. Control is limited to stop and pause on scans it owns, resume, and clear queue — no submission verb exists.</li>
-    <li><b>Same standing as the scanner.</b> MCP is a peer client of the queueserver, never an engine internal. Anything an agent does shows up in the queue like an operator's scan.</li>
-    <li><b>Two write paths, one rule.</b> Anything with GEECS semantics — for this server, a halt — goes through MCP verbs. A single setpoint can still be written to an <code>:SP</code> PV by OSPREY's own EPICS write tool, bounded by a limits database extracted from GEECS device limits, the same way any EPICS client would.</li>
+    <li><b>One door.</b> OSPREY reaches GEECS only through GEECS-MCP, a thin HTTP client of the web scanner, the Data Portal and the logbook. It re-implements no preflight, limit or check: what an agent does is what an operator does on those pages.</li>
+    <li><b>Reads, writes, halts.</b> Reads cover scan status, history, progress, config listings, analysis listings and the numbers (artifacts, binned scalars). Writes — submit a preset, move a scan variable, resume, clear the queue, run an analysis, post a logbook draft — sit in the server's <code>WRITE_TOOLS</code>, which the profile gates (<code>write_tools</code> headless, the hooks interactively). Stop and pause are never gated.</li>
+    <li><b>Same standing as an operator.</b> A submission goes through the scanner's own preflight; its questions come back to the supervising person and are never acknowledged by the agent. It shows up in the queue like an operator's scan, with the supervisor's name on the run.</li>
+    <li><b>Two write paths, one rule.</b> Anything with GEECS semantics — a scan, a move, an analysis, a logbook entry — goes through MCP verbs. A single setpoint can still be written to an <code>:SP</code> PV by OSPREY's own EPICS write tool, bounded by a limits database extracted from GEECS device limits, the same way any EPICS client would.</li>
   </ul>
   <h2 style="margin-top:22px">Why EPICS in the middle</h2>
   <ul class="plain">
@@ -624,13 +624,13 @@ const INFO = {
  },
  "mcp": {
   "name": "GEECS-MCP",
-  "role": "The read-and-halt tool surface AI agents use to observe GEECS. Submission is the scanner's job.",
+  "role": "The tool surface AI agents use to run the closed loop: submit, wait, analyse, read the numbers, document — through the scanner, the portal and the logbook.",
   "status": "developing",
-  "does": "Exposes GEECS to agents as a fixed, reviewable set of tools: read scan status, history, progress, results and config listings; stop, pause, resume and clear the queue; read and run post-scan analysis. No submit verb.",
+  "does": "Exposes GEECS to agents as a fixed, reviewable set of tools: submit a preset (the scanner's preflight questions relayed to a person), move a scan variable, wait for a scan; run an analysis on the portal and read its numbers; post a draft to the scans logbook; stop, pause, resume and clear the queue.",
   "how": [
-   "A client, never an engine. Every tool goes through the same queue client, config resolver and Tiled catalog the scanner uses, never engine internals.",
-   "Runs as a systemd HTTP service on port 8100 next to the queueserver, installed non-editably from the worker's own clone so its config validation matches worker truth exactly. A stdio mode exists for single-machine use.",
-   "Control verbs carry etiquette: stop, pause and resume are limited to scans the caller owns, with an approval-gated force for a foreign run, compared against the configured client identity."
+   "A client, never an engine. Every tool is one of the scanner's, the portal's or the logbook's HTTP routes; the server imports nothing in the repo at runtime.",
+   "Runs as a systemd HTTP service on port 8100 on the services box, installed non-editably into its own venv. A stdio mode exists for single-machine use.",
+   "Every write that takes an operator records 'agent, admin supervision (name)' — a record of who supervised, not a permission: access is the OSPREY profile's lists and hooks."
   ],
   "now": "Deployed on the interim host. Scans are the first domain. geecs-mcp 0.9.0 (2026-09-16) deleted every write verb: the native-Bluesky rebuild retired the queue-client calls behind them, and this server is an experiment rather than an operator surface, so they were removed rather than rewired.",
   "next": [

@@ -26,8 +26,8 @@ logbook_url = http://<services host>:8400
 `GEECS_SERVICES_HOST` (ports are fleet constants), and appends it to an
 existing `config.ini` that has none.  A file that already has a
 pre-0.10 `[mcp]` section (`client_identity`, `max_shots`) is not edited:
-the bootstrap prints the three lines to add by hand, and the old keys
-are ignored.  An unset key leaves that service's verbs answering
+the bootstrap prints the missing lines to add by hand, and the old keys
+are ignored.  A `site.env` without the key deploys no `geecs-mcp`.  An unset key leaves that service's verbs answering
 `service_unreachable` with the key's name; the server always starts.
 
 The server needs no data share, no configs root, no Tiled key and no
@@ -126,8 +126,8 @@ of this — see `docs/platform/site_profile.md`):
 python3.11 -m venv <root>/geecs-mcp-venv
 <root>/geecs-mcp-venv/bin/pip install "<root>/qs-checkout/GEECS-MCP"   # non-editable:
                                                                        # code bakes into the venv
-<root>/qs-checkout/deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging
-sudo install -m 0644 ~/deploy-staging/geecs-mcp.service /etc/systemd/system/
+<root>/qs-checkout/deploy/render_units.sh /etc/geecs/site.env <root>/deploy-staging
+sudo install -m 0644 <root>/deploy-staging/geecs-mcp.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now geecs-mcp
 ```
 
