@@ -3,6 +3,36 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.41.0] - 2026-10-17
+
+### Added
+
+- `GET /api/analysis/catalog`: every runnable analysis document (`id`,
+  `device`, `output_dir`, `destructive`, `kind`) and the resolved groups,
+  independent of a scan — GEECS-MCP's `list_analyzers` (#1100).
+- `POST /api/run/{uid}/logbook` takes a `path` (a run's artifact, read off
+  the share under the artifact route's containment) as an alternative to
+  the `image` data URL, and its reply carries the attachment `link`;
+  `create_app(logbook_client=)` injects the send's HTTP client (#1100).
+- `entry_required` on the same route: a missing `entry` is the caller's
+  404 and nothing is created — for a client that made the entry itself
+  (GEECS-MCP's agent drafts); the Plot tab's fresh-entry default is
+  unchanged (#1108).
+
+### Changed
+
+- Analysis runs and listings follow the v2-document deletion: the v3
+  recipes and the `.himg` `HimgJob` kind only; v2 analyzer YAML is refused
+  (#1097, #1098, #1103, #1105).
+- Scan-mode files join rows by `announced_shot` (#1089).
+- Declared dependencies match imports; Data-Utils 0.52.0 (#1071, #1074).
+
+### Deploy
+
+- Reinstall the service env (`poetry install --extras analysis` in the
+  portal checkout) and restart `geecs-data-portal` — before GEECS-MCP
+  0.10.0 posts figures.
+
 ## [0.40.1] - 2026-10-07
 
 ### Changed
