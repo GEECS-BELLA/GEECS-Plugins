@@ -19,10 +19,10 @@ from scan_analysis.config_store import ConfigStore  # noqa: E402
 
 def _doc(name="UC_A"):
     return {
-        "schema_version": 2,
-        "name": name,
-        "analyzer": {"kind": "beam"},
-        "image": {"type": "camera", "bit_depth": 16},
+        "schema_version": 3,
+        "device": name,
+        "input": {"kind": "camera"},
+        "measure": {"kind": "beam"},
         "scan": {"priority": 5},
     }
 
@@ -96,7 +96,7 @@ class TestApi:
         assert steps["propertyName"] == "step" and "median" in steps["mapping"]
         assert client.get("/api/schema/nope").status_code == 404
 
-    def test_recipe_roundtrip_and_a_v2_file_still_reads(self, client):
+    def test_recipe_roundtrip_and_a_v2_file_lists_invalid(self, client):
         recipe = {
             "schema_version": 3,
             "device": "UC_New",
@@ -120,18 +120,23 @@ class TestApi:
         assert loaded["valid"] and loaded["document"]["schema_version"] == 3
         listing = client.get("/api/list").json()["analyzers"]
         versions = {a["id"]: a["schema_version"] for a in listing}
-        assert versions == {"UC_A": 2, "UC_New": 3}
-        # the v2 file: still read and valid (the page shows it read-only)
-        old = client.get("/api/analyzers/UC_A").json()
-        assert old["valid"] and old["document"]["schema_version"] == 2
+        assert versions == {"UC_A": 3, "UC_New": 3}
+
+    def test_a_v2_file_lists_invalid(self, client, tree):
+        (tree / "analyzers" / "HTU" / "Old.yaml").write_text(
+            yaml.safe_dump({"name": "x", "analyzer": {"kind": "beam"}, "image": {}})
+        )
+        listing = {a["id"]: a for a in client.get("/api/list").json()["analyzers"]}
+        assert not listing["Old"]["valid"]
+        assert not client.get("/api/analyzers/Old").json()["valid"]
 
     def test_read_validate_save_roundtrip(self, client):
         loaded = client.get("/api/analyzers/UC_A").json()
         assert loaded["etag"] and loaded["valid"]
         doc = loaded["document"]
-        doc["analyzer"] = {"kind": "beam", "compute_slopes": True}
+        doc["steps"] = [{"step": "median", "kernel": 5}]
         report = client.post("/api/validate/analyzer", json={"document": doc}).json()
-        assert report["ok"] and "compute_slopes: true" in report["yaml"]
+        assert report["ok"] and "step: median" in report["yaml"]
         saved = client.put(
             "/api/analyzers/HTU/UC_A", json={"document": doc, "etag": loaded["etag"]}
         )
@@ -144,7 +149,7 @@ class TestApi:
 
     def test_invalid_document_is_422_with_locations(self, client):
         loaded = client.get("/api/analyzers/UC_A").json()
-        bad = dict(loaded["document"], analyzer={"kind": "beam", "compute_slope": True})
+        bad = dict(loaded["document"], measure={"kind": "beam", "compute_slope": True})
         r = client.put(
             "/api/analyzers/HTU/UC_A", json={"document": bad, "etag": loaded["etag"]}
         )
@@ -196,7 +201,7 @@ class TestHostedRouter:
         calls = []
 
         def preview(document, params):
-            calls.append((document["name"], dict(params)))
+            calls.append((document["device"], dict(params)))
             if params.get("shot") == 99:
                 raise LookupError("no such shot")
             if params.get("device") == "bad":
@@ -330,8 +335,7 @@ class TestSidebarCollapseState:
 def test_retired_upload_fields_are_hidden_and_preserved():
     """Run the actual object form: no upload control, no loss on save.
 
-    The group form only: a v2 diagnostic (the other document with a retired
-    upload field) is shown read-only, never rendered as a form.
+    The group form only: it is the one document with a retired upload field.
     """
     from geecs_web_theme.testing import node_available
 

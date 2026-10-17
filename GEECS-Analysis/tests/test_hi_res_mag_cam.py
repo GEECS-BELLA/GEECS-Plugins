@@ -8,14 +8,13 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from geecs_schemas.analysis import AnalysisDiagnostic, HiResMagCamSpec as V2Spec
+from geecs_schemas.analysis import (
+    AnalysisRecipe,
+)
 
 from geecs_analysis.algorithms.bowtie_fit import BowtieFitAlgorithm
-from geecs_analysis.compat.convert import to_v3
-from geecs_analysis.compat.v2 import analyze_v2, compile_v2
-from geecs_analysis.measures.beam import BeamSpec
+from geecs_analysis.compat.v2 import V2Recipe, analyze_v2
 from geecs_analysis.measures.hi_res_mag_cam import (
-    BOWTIE_SCALARS,
     REJECTED,
     HiResMagCamSpec,
 )
@@ -69,13 +68,17 @@ def frame(case: str, seed: int) -> np.ndarray:
 CASES = ("bowtie", "off-centre", "left arm", "waist blanked")
 
 
-def diagnostic(analyzer: dict | None = None, **image) -> AnalysisDiagnostic:
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": "UC_HiResMagCam",
-            "analyzer": {"kind": "hi_res_mag_cam", **(analyzer or {})},
-            "image": {"type": "camera", "pipeline": [], **image},
-        }
+def recipe(*steps: dict, **measure) -> V2Recipe:
+    return compile_recipe(
+        AnalysisRecipe.model_validate(
+            {
+                "schema_version": 3,
+                "device": "UC_HiResMagCam",
+                "input": {"kind": "camera"},
+                "steps": list(steps),
+                "measure": {"kind": "hi_res_mag_cam", **measure},
+            }
+        )
     )
 
 
@@ -128,34 +131,21 @@ def test_the_differential_cases_cover_an_accepted_fit_and_both_rejections():
 
 
 # ---------------------------------------------------------------------------
-# The measure through the v2 route
+# The measure through the core route
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("seed", range(4))
 @pytest.mark.parametrize(
-    "image",
+    "steps",
     [
-        {},
-        {
-            "pipeline": ["roi"],
-            "roi": {"x_min": 10, "x_max": 120, "y_min": 4, "y_max": 60},
-        },
-        {
-            "pipeline": ["background", "filtering"],
-            "background": {"method": "constant", "constant_level": 20},
-            "filtering": {"median_kernel_size": 3},
-        },
+        [],
+        [{"step": "roi", "bounds": [[4, 60], [10, 120]]}],
+        [{"step": "background_constant", "level": 20}, {"step": "median"}],
         # The waist (column 64) lies 4 columns PAST the crop on either side:
         # the fit still accepts it, and legacy reports it beyond the edge.
-        {
-            "pipeline": ["roi"],
-            "roi": {"x_min": 0, "x_max": 60, "y_min": 0, "y_max": 64},
-        },
-        {
-            "pipeline": ["roi"],
-            "roi": {"x_min": 68, "x_max": 128, "y_min": 0, "y_max": 64},
-        },
+        [{"step": "roi", "bounds": [[0, 64], [0, 60]]}],
+        [{"step": "roi", "bounds": [[0, 64], [68, 128]]}],
     ],
     ids=[
         "plain",
@@ -165,15 +155,13 @@ def test_the_differential_cases_cover_an_accepted_fit_and_both_rejections():
         "waist past left edge",
     ],
 )
-def test_the_v2_route_matches_the_legacy_analyzer(seed, image, expected, request):
+def test_the_core_route_matches_the_legacy_analyzer(seed, steps, expected, request):
     """Same frame and config through HiResMagCamAnalyzer and through the core."""
 
-    document = diagnostic(
-        {"n_beam_size_clearance": 3, "min_total_counts": 1500}, **image
-    )
+    compiled = recipe(*steps, n_beam_size_clearance=3, min_total_counts=1500)
     raw = bowtie(seed, energy_center=70, vertical_offset=3)
 
-    core = analyze_v2(raw, compile_v2(document))
+    core = analyze_v2(raw, compiled)
     weights = {o.id: o for o in core.overlays}["bowtie_weights"]
     stored = expected(
         f"route_{request.node.callspec.id}",
@@ -182,7 +170,6 @@ def test_the_v2_route_matches_the_legacy_analyzer(seed, image, expected, request
             "bowtie_weights": weights.frame.data,
         },
     )
-    assert set(core.scalars) == V2Spec().emitted_scalars()
     assert set(core.scalars) == HiResMagCamSpec().emitted_scalars()
     assert float(stored["scalar_emittance_proxy"]) != REJECTED
     assert core.notes == ()
@@ -193,29 +180,27 @@ def test_the_v2_route_matches_the_legacy_analyzer(seed, image, expected, request
 
 
 @pytest.mark.parametrize(
-    "roi,side",
+    "columns,side",
     [
-        ({"x_min": 0, "x_max": 60, "y_min": 0, "y_max": 64}, "right"),
-        ({"x_min": 68, "x_max": 128, "y_min": 0, "y_max": 64}, "left"),
+        ((0, 60), "right"),
+        ((68, 128), "left"),
     ],
 )
-def test_a_waist_past_the_crop_reads_past_the_edge_not_clamped_to_it(roi, side):
+def test_a_waist_past_the_crop_reads_past_the_edge_not_clamped_to_it(columns, side):
     """The fit accepts a waist within ten columns of data; x0 must say where it is."""
-    core = analyze_v2(bowtie(1), compile_v2(diagnostic(pipeline=["roi"], roi=roi)))
+    roi = {"step": "roi", "bounds": [[0, 64], list(columns)]}
+    core = analyze_v2(bowtie(1), recipe(roi))
     assert core.scalars["emittance_proxy"] != REJECTED
     x0 = core.scalars["bowtie_x0"]
     assert x0 == pytest.approx(64, abs=4)
     # A clamped value would sit exactly on the last (first) column.
-    assert x0 > roi["x_max"] - 1 if side == "right" else x0 < roi["x_min"]
+    assert x0 > columns[1] - 1 if side == "right" else x0 < columns[0]
 
 
 def test_the_waist_column_is_in_sensor_pixels_like_the_centroid():
-    document = diagnostic(
-        pipeline=["roi"], roi={"x_min": 20, "x_max": 128, "y_min": 0, "y_max": 64}
-    )
     raw = bowtie(1, energy_center=70)
-    cropped = analyze_v2(raw, compile_v2(document))
-    local = analyze_v2(raw[:, 20:], compile_v2(diagnostic()))
+    cropped = analyze_v2(raw, recipe({"step": "roi", "bounds": [[0, 64], [20, 128]]}))
+    local = analyze_v2(raw[:, 20:], recipe())
     assert cropped.scalars["bowtie_x0"] == pytest.approx(
         local.scalars["bowtie_x0"] + 20
     )
@@ -231,7 +216,7 @@ def test_the_waist_column_is_in_sensor_pixels_like_the_centroid():
     ],
 )
 def test_a_rejected_fit_keeps_the_sentinel_and_blanks_the_fit_parameters(raw, reason):
-    core = analyze_v2(raw, compile_v2(diagnostic()))
+    core = analyze_v2(raw, recipe())
     assert core.scalars["emittance_proxy"] == REJECTED
     for key in ("bowtie_x0", "bowtie_w0", "bowtie_theta", "bowtie_r_squared"):
         assert math.isnan(core.scalars[key]), key
@@ -241,19 +226,15 @@ def test_a_rejected_fit_keeps_the_sentinel_and_blanks_the_fit_parameters(raw, re
 
 def test_the_measure_never_mutates_the_frame_it_floors():
     """The fit sees the frame floored at 10 counts; the measured frame does not."""
-    document = diagnostic(
-        pipeline=["background"],
-        background={"method": "constant", "constant_level": 0},
-    )
     raw = bowtie(3)
-    core = analyze_v2(raw, compile_v2(document))
+    core = analyze_v2(raw, recipe())
     assert (core.frame.data > 0).sum() > (core.frame.data >= 10).sum()
     assert core.scalars["total_counts"] == core.frame.data[core.frame.data >= 10].sum()
     assert core.scalars["image_total"] == core.frame.data.sum()
 
 
 def test_overlays_render_the_fit_weights_as_a_lineout():
-    core = analyze_v2(bowtie(4), compile_v2(diagnostic()))
+    core = analyze_v2(bowtie(4), recipe())
     assert {o.id for o in core.overlays} == {
         "projection_x",
         "projection_y",
@@ -270,28 +251,3 @@ def test_overlays_render_the_fit_weights_as_a_lineout():
 # ---------------------------------------------------------------------------
 # The vocabulary
 # ---------------------------------------------------------------------------
-
-
-def test_the_spec_mirrors_the_v2_spec_except_the_unused_threshold_factor():
-    v2, core = V2Spec.model_fields, HiResMagCamSpec.model_fields
-    assert set(v2) - {"kind"} - set(core) == {"threshold_factor"}
-    assert set(core) - {"kind"} <= set(v2)
-    for name in set(core) - {"kind"}:
-        assert core[name].default == v2[name].default, name
-        assert core[name].metadata == v2[name].metadata, name
-    assert HiResMagCamSpec().emitted_scalars() == BeamSpec().emitted_scalars() | set(
-        BOWTIE_SCALARS
-    )
-
-
-def test_a_diagnostic_converts_to_a_recipe_that_compiles_identically():
-    document = diagnostic({"n_beam_size_clearance": 5})
-    conversion = to_v3(document)
-    assert conversion.recipe.measure.model_dump()["kind"] == "hi_res_mag_cam"
-    assert compile_recipe(conversion.recipe) == compile_v2(document)
-    assert not any("threshold_factor" in note for note in conversion.notes)
-    spoken = to_v3(diagnostic({"threshold_factor": 5.0}))
-    assert any(
-        note.startswith("analyzer.threshold_factor dropped") for note in spoken.notes
-    )
-    assert compile_recipe(spoken.recipe) == compile_v2(diagnostic())

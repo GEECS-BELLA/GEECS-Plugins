@@ -21,7 +21,7 @@ def canonical_document(model: BaseModel) -> dict[str, Any]:
     Parameters
     ----------
     model : pydantic.BaseModel
-        A validated document (``AnalysisDiagnostic``, ``AnalysisGroup``).
+        A validated document (``AnalysisRecipe``, ``AnalysisGroup``).
 
     Returns
     -------

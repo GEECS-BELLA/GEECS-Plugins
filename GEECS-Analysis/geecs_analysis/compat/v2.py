@@ -1,9 +1,11 @@
-"""Compile supported v2 documents without loading configs or input files.
+"""The core's runtime: the in-memory compiled recipe and the evaluator that runs it.
 
-Unsupported recipes fail explicitly so callers can keep their existing route.
-No fallback executes here. Compatibility quirks stay at this boundary: trace
-storage rounding before measurement, float64 trace-result negative clipping,
-and the legacy beam ROI-origin convention (even for inactive/repeated ROIs).
+``geecs_analysis.recipe.compile_recipe`` produces a :class:`V2Recipe`;
+:func:`analyze_v2` runs it on already-loaded samples, without loading
+configs or input files. The legacy conventions the ported analyzers pinned
+stay at this boundary: trace storage rounding before measurement, float64
+trace-result negative clipping, and the beam ROI-origin convention. (The
+module keeps its historical name until the rename that closes #1039.)
 """
 
 from __future__ import annotations
@@ -11,19 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal, Mapping, Sequence
 
-from geecs_schemas.analysis import AnalysisDiagnostic
-from geecs_schemas.analysis.processing_1d import Line1DConfig
-from geecs_schemas.analysis.processing_2d import CameraConfig
 
-from geecs_analysis.measures.beam import BeamSpec
-from geecs_analysis.measures.downramp_phase import DownrampPhaseSpec
-from geecs_analysis.measures.frog import FrogSpec
-from geecs_analysis.measures.frog_spectral_phase import FrogSpectralPhaseSpec
-from geecs_analysis.measures.hi_res_mag_cam import HiResMagCamSpec
-from geecs_analysis.measures.ict import IctSpec
-from geecs_analysis.measures.line import LineSpec
-from geecs_analysis.measures.magspec import MagspecSpec
-from geecs_analysis.measures.none import NoneSpec
 from geecs_analysis.pipeline import (
     apply_measure,
     apply_step,
@@ -32,29 +22,17 @@ from geecs_analysis.pipeline import (
 )
 from geecs_analysis.registry import MeasureSpec, StepSpec, measure_definition
 from geecs_analysis.specs import Analysis
-from geecs_analysis.steps.background_constant import BackgroundConstantSpec
-from geecs_analysis.steps.background_frame import BackgroundFrameSpec
-from geecs_analysis.steps.circular_mask import CircularMaskSpec
-from geecs_analysis.steps.clip_above import ClipAboveSpec
-from geecs_analysis.steps.clip_below import ClipBelowSpec
-from geecs_analysis.steps.crosshair_mask import CrosshairMaskSpec
-from geecs_analysis.steps.gaussian import GaussianSpec
 from geecs_analysis.steps.interpolate import InterpolateSpec
-from geecs_analysis.steps.median import MedianSpec
 from geecs_analysis.steps.roi import RoiSpec
-from geecs_analysis.steps.rotate import RotateSpec
-from geecs_analysis.steps.vignette import VignetteSpec
-from geecs_analysis.steps.zero_below import ZeroBelowSpec
 
 if TYPE_CHECKING:
     import numpy as np
     from geecs_data_utils.frames import Frame, ShotMeta
-    from geecs_schemas.analysis.analyzers import MagSpecAnalyzerSpec
     from geecs_analysis.measurement import Measurement
 
 
 class UnsupportedRecipe(ValueError):
-    """The v2 recipe needs a capability not yet ported to the new core."""
+    """A document the core cannot run (a ``.himg`` job, an unloadable trace channel)."""
 
 
 @dataclass(frozen=True)
@@ -121,16 +99,6 @@ class V2Recipe:
     tables: tuple[TableInput, ...] = ()
 
 
-#: Ported v2 kinds whose measure takes the analyzer's own parameters, by name.
-_PARAMETERIZED = {
-    "ict": IctSpec,
-    "frog_retrieval": FrogSpec,
-    "hi_res_mag_cam": HiResMagCamSpec,
-    "frog_spectral_phase": FrogSpectralPhaseSpec,
-    "downramp_phase": DownrampPhaseSpec,
-}
-
-
 def trace_channels(
     measure: MeasureSpec, auxiliary_columns: Mapping[str, int], steps: Sequence
 ) -> tuple[str, ...]:
@@ -148,390 +116,6 @@ def trace_channels(
             f"Auxiliary channels {list(channels)} cannot follow interpolation"
         )
     return channels
-
-
-def compile_v2(  # noqa: C901, PLR0912
-    document: AnalysisDiagnostic,
-    *,
-    allow_file_backgrounds: bool = False,
-    allow_table_inputs: bool = False,
-) -> V2Recipe:
-    """Translate supported beam/line/standard/trace/frog_retrieval recipes, without file access.
-
-    Currently covers constant backgrounds, ROI, circular/crosshair masks, trace
-    interpolation, Gaussian/median filtering, fixed-canvas rotation,
-    absolute trace clipping and non-inverted constant image thresholds
-    (to_zero/truncate/truncate_inv), and the radial-polynomial vignette when
-    it comes before any active ROI (a ``map_file`` vignette, or one after the
-    crop, is refused). Trace processing must be float64 and
-    storage float32/float64. Other active features are refused before execution.
-    A trace ROI that selects no samples of a shot fails that shot explicitly
-    ("ROI selects no samples"), as it already did for ``line``; the legacy
-    preprocessing-only analyzer returned an empty trace. Inactive sections
-    are ignored as before.
-    File backgrounds require explicit source-layer opt-in; the compiled recipe
-    then declares requests and expects loaded Frame inputs at execution time.
-    So do scan backgrounds (``scan.background_source``: ``scan_number`` and
-    ``from_current_scan``, declared as ``ScanBackground`` requests the host
-    computes); ``autodetect`` is refused.
-    ``frog_retrieval`` compiles to the ``frog`` measure, which needs the host
-    to bind its retriever service at execution time; ``ict`` to the ``ict``
-    measure. ``line_stitcher`` compiles to the ``line`` measure; joining the
-    sibling devices' traces is the source's job (the document's
-    ``sibling_folders``). ``hi_res_mag_cam`` compiles to the measure of
-    that name (its ``threshold_factor`` is not carried: the fit never read
-    it). ``frog_spectral_phase`` compiles to the measure of that name; its
-    ``weights`` auxiliary column becomes the input's ``weights`` channel.
-    ``downramp_phase`` compiles to the measure of that name at its legacy
-    constants (the v2 spec has no parameters).
-    ``magspec`` compiles to the ``magspec`` measure only under a source
-    host's opt-in (``allow_table_inputs=True``, set by ``to_v3`` and the
-    corpus converter only): a ``dnn_axis`` calibration declares its three
-    survey files as table requests, paths as written, and every v2 magspec
-    document keeps its legacy route everywhere else.
-    """
-    kind = document.analyzer.kind
-    if kind not in {
-        "beam",
-        "line",
-        "line_stitcher",
-        "standard",
-        "trace",
-        "frog_retrieval",
-        "ict",
-        "hi_res_mag_cam",
-        "frog_spectral_phase",
-        "downramp_phase",
-        "magspec",
-    }:
-        raise UnsupportedRecipe(f"Analyzer not ported: {kind}")
-    config = document.image
-    scan_background = _scan_background(document, allow_file_backgrounds)
-    if not isinstance(config, (CameraConfig, Line1DConfig)):
-        raise UnsupportedRecipe("A camera or line processing section is required")
-    if kind in {
-        "beam",
-        "standard",
-        "frog_retrieval",
-        "hi_res_mag_cam",
-        "downramp_phase",
-        "magspec",
-    } and not isinstance(config, CameraConfig):
-        raise UnsupportedRecipe(f"{kind} requires a camera input")
-    line_kinds = {"line", "line_stitcher", "trace", "ict", "frog_spectral_phase"}
-    if kind in line_kinds and not isinstance(config, Line1DConfig):
-        raise UnsupportedRecipe(f"{kind} requires a line input")
-    active = [n.value for n in config.pipeline if getattr(config, n.value) is not None]
-    if "roi" in active and "vignette" in active[active.index("roi") + 1 :]:
-        # Legacy rebuilt the map on the cropped shape; the step keeps the
-        # crop's sensor pixels, so the two disagree in this order.
-        raise UnsupportedRecipe("Vignette after roi is not ported")
-    steps = []
-    for name in config.pipeline:
-        section = getattr(config, name.value)
-        if section is None:
-            continue
-        steps.extend(
-            _camera_steps(
-                name.value,
-                config,
-                allow_file_backgrounds=allow_file_backgrounds,
-                scan_background=scan_background is not None,
-            )
-            if isinstance(config, CameraConfig)
-            else _line_steps(name.value, config)
-        )
-    tables: tuple[TableInput, ...] = ()
-    if kind == "beam":
-        measure = BeamSpec(
-            enabled_stats=document.analyzer.enabled_stats,
-            compute_slopes=document.analyzer.compute_slopes,
-        )
-    elif kind in {"line", "line_stitcher"}:
-        # A stitcher is a line analyzer over the joined trace; the source
-        # (the scan host) joins the sibling devices' segments before this.
-        measure = LineSpec()
-    elif kind == "magspec":
-        measure, tables = _magspec_measure(
-            document.analyzer, allow_table_inputs=allow_table_inputs
-        )
-    elif kind in _PARAMETERIZED:
-        spec = _PARAMETERIZED[kind]
-        measure = spec.model_validate(
-            document.analyzer.model_dump(include=set(spec.model_fields) - {"kind"})
-        )
-    else:
-        measure = NoneSpec()
-    common = dict(
-        analysis=Analysis(steps=tuple(steps), measure=measure),
-        input_kind=config.type,
-        device=document.name,
-        output_name=document.effective_output_name,
-        metric_suffix=document.metric_suffix,
-    )
-    if isinstance(config, CameraConfig):
-        origin = (
-            (config.roi.y_min, config.roi.x_min) if config.roi is not None else (0, 0)
-        )
-        requests = ()
-        scans = ()
-        if any(isinstance(spec, BackgroundFrameSpec) for spec in steps):
-            background = config.background
-            if scan_background is not None:
-                scans = (scan_background,)
-            else:
-                requests = (
-                    FileBackground(
-                        key="camera_background",
-                        path=str(background.file_path),
-                        fallback_level=background.constant_level,
-                    ),
-                )
-        return V2Recipe(
-            **common,
-            camera_origin=origin,
-            file_backgrounds=requests,
-            scan_backgrounds=scans,
-            tables=tables,
-        )
-    if config.processing_dtype != "float64" or config.storage_dtype not in {
-        "float32",
-        "float64",
-    }:
-        raise UnsupportedRecipe(
-            "Trace adapter requires float64 processing and float32/float64 storage"
-        )
-    return V2Recipe(
-        **common,
-        channels=trace_channels(measure, config.data_loading.auxiliary_columns, steps),
-        storage_dtype=config.storage_dtype,
-        x_scale=config.x_scale_factor,
-        y_scale=config.y_scale_factor,
-        x_unit=config.x_units or "",
-        y_unit=config.y_units or "",
-        label=config.label,
-    )
-
-
-def _magspec_measure(
-    spec: MagSpecAnalyzerSpec, *, allow_table_inputs: bool
-) -> tuple[MagspecSpec, tuple[TableInput, ...]]:
-    """The v2 magspec analyzer as the ``magspec`` measure plus its table requests.
-
-    The whole kind needs the host's opt-in (``allow_table_inputs``), whatever
-    its calibration: a magspec run has products beyond its scalars (the
-    stitcher chain's ``-interp`` folders) that only a host serving the kind
-    writes, so every v2 magspec document keeps its legacy route until then.
-    A ``dnn_axis`` calibration's three files become table inputs keyed by
-    the measure's own field names (``camera_table``, ``trajectory_table``,
-    ``lanex_table``), paths as written in the document. The ``array``
-    calibration's ``.npy`` file is not ported; inline ``values`` is.
-    """
-    if not allow_table_inputs:
-        raise UnsupportedRecipe(
-            "magspec needs a source host that binds its tables and writes its products"
-        )
-    calibration = spec.calibration
-    common = dict(
-        energy_range=spec.energy_range, num_energy_points=spec.num_energy_points
-    )
-    if calibration.kind == "dnn_axis":
-        tables = [
-            TableInput("camera_table", calibration.camera_calibration_file),
-            TableInput("trajectory_table", calibration.trajectory_calibration_file),
-        ]
-        if calibration.lanex_calibration_file is not None:
-            tables.append(TableInput("lanex_table", calibration.lanex_calibration_file))
-        measure = MagspecSpec(
-            calibration={
-                "kind": "dnn_axis",
-                "camera_number": calibration.camera_number,
-                "magnetic_field_t": calibration.magnetic_field_t,
-            },
-            camera_table="camera_table",
-            trajectory_table="trajectory_table",
-            lanex_table="lanex_table" if len(tables) == 3 else None,
-            **common,
-        )
-        return measure, tuple(tables)
-    if calibration.kind == "array":
-        if calibration.file is not None:
-            raise UnsupportedRecipe("Array calibration not ported: file")
-        values = {"kind": "array", "values": calibration.values}
-        return MagspecSpec(calibration=values, **common), ()
-    coefficients = {"kind": "polynomial", "coeffs": calibration.coeffs}
-    return MagspecSpec(calibration=coefficients, **common), ()
-
-
-def _scan_background(
-    document: AnalysisDiagnostic, allow_file_backgrounds: bool
-) -> ScanBackground | None:
-    """The v2 ``scan.background_source`` as a host request; unported variants refuse.
-
-    ``scan_number`` is that scan's mean frame, ``from_current_scan`` this
-    scan's median or percentile — the legacy wrapper's two computations.
-    ``autodetect`` (a precomputed ``_averaged`` file) is not ported.
-    """
-    source = document.scan.background_source
-    if source is None:
-        return None
-    if not allow_file_backgrounds:
-        raise UnsupportedRecipe("Scan backgrounds must be resolved by a source")
-    if not isinstance(document.image, CameraConfig):
-        raise UnsupportedRecipe("Scan backgrounds apply to camera recipes only")
-    if source.scan_number is not None:
-        return ScanBackground("camera_background", source.scan_number, "mean")
-    if source.from_current_scan is not None:
-        spec = source.from_current_scan
-        return ScanBackground("camera_background", None, spec.method, spec.percentile)
-    raise UnsupportedRecipe("Scan background not ported: autodetect")
-
-
-def _camera_steps(  # noqa: C901, PLR0912
-    name: str,
-    config: CameraConfig,
-    *,
-    allow_file_backgrounds: bool,
-    scan_background: bool = False,
-) -> list[StepSpec]:
-    section = getattr(config, name)
-    if name == "transforms":
-        if (
-            section.flip_horizontal
-            or section.flip_vertical
-            or section.distortion_correction
-        ):
-            raise UnsupportedRecipe(
-                "Camera processing step not ported: transforms (flip/distortion)"
-            )
-        return (
-            [RotateSpec(angle=section.rotation_angle)]
-            if section.rotation_angle != 0
-            else []
-        )
-    if name == "crosshair_masking":
-        return [
-            CrosshairMaskSpec(
-                center=(cross.center[1], cross.center[0]),
-                width=cross.width,
-                height=cross.height,
-                thickness=cross.thickness,
-                angle=cross.angle,
-                value=section.mask_value,
-            )
-            for cross in section.crosshairs
-        ]
-    if name == "background":
-        if scan_background:
-            # The legacy wrapper rewrote the section to a from_file background
-            # pointing at the computed frame; the constant level no longer
-            # applies, the additional constant still does.
-            steps = [
-                BackgroundFrameSpec(source="camera_background", alignment="samples")
-            ]
-            if section.additional_constant != 0:
-                steps.append(BackgroundConstantSpec(level=section.additional_constant))
-            return steps
-        if section.method not in {None, "constant"} and not (
-            section.method == "from_file" and allow_file_backgrounds
-        ):
-            raise UnsupportedRecipe(f"Camera background not ported: {section.method}")
-        steps = []
-        if section.method == "from_file":
-            steps.append(
-                BackgroundFrameSpec(source="camera_background", alignment="samples")
-            )
-        if section.method == "constant" and section.constant_level > 0:
-            steps.append(BackgroundConstantSpec(level=section.constant_level))
-        if section.additional_constant != 0:
-            steps.append(BackgroundConstantSpec(level=section.additional_constant))
-        return steps
-    if name == "roi":
-        return [
-            RoiSpec(
-                bounds=((section.y_min, section.y_max), (section.x_min, section.x_max))
-            )
-        ]
-    if name == "circular_mask":
-        return [
-            CircularMaskSpec(
-                center=(section.center[1], section.center[0]),
-                radius=section.radius,
-                mask_outside=section.mask_outside,
-                value=section.mask_value,
-            )
-        ]
-    if name == "filtering":
-        steps = []
-        if section.gaussian_sigma is not None:
-            steps.append(GaussianSpec(sigma=section.gaussian_sigma))
-        if section.median_kernel_size is not None:
-            steps.append(MedianSpec(kernel=section.median_kernel_size))
-        return steps
-    if name == "vignette":
-        if section.method != "radial_polynomial":
-            raise UnsupportedRecipe(
-                f"Vignette method not ported: {section.method.value}"
-            )
-        return [
-            VignetteSpec(
-                full_width=section.full_width,
-                full_height=section.full_height,
-                x_offset=section.x_offset,
-                y_offset=section.y_offset,
-                vgnt4=section.vgnt4,
-                vgnt2=section.vgnt2,
-                vgnt0=section.vgnt0,
-                min_model_value=section.min_model_value,
-            )
-        ]
-    if name == "thresholding":
-        if section.method != "constant" or section.invert:
-            raise UnsupportedRecipe(
-                "Only non-inverted constant camera thresholds are ported"
-            )
-        specs = {
-            "to_zero": ZeroBelowSpec,
-            "truncate": ClipAboveSpec,
-            "truncate_inv": ClipBelowSpec,
-        }
-        if section.mode not in specs:
-            raise UnsupportedRecipe(f"Camera threshold mode not ported: {section.mode}")
-        return [specs[section.mode](level=section.value)]
-    raise UnsupportedRecipe(f"Camera processing step not ported: {name}")
-
-
-def _line_steps(name: str, config: Line1DConfig) -> list[StepSpec]:  # noqa: C901
-    section = getattr(config, name)
-    if name == "background":
-        if section.method == "none":
-            return []
-        if section.method == "constant":
-            return [BackgroundConstantSpec(level=section.constant_level)]
-    elif name == "roi":
-        return [RoiSpec(bounds=((section.x_min, section.x_max),), units="axis")]
-    elif name == "interpolation":
-        return [
-            InterpolateSpec(
-                count=section.num_points, lower=section.x_min, upper=section.x_max
-            )
-        ]
-    elif name == "filtering":
-        if section.method == "none":
-            return []
-        if section.method == "median":
-            return [MedianSpec(kernel=section.kernel_size)]
-        if section.method == "gaussian":
-            return [GaussianSpec(sigma=section.sigma)]
-    elif name == "thresholding":
-        if section.method == "none":
-            return []
-        if section.method == "absolute":
-            spec = ClipBelowSpec if section.clip_below else ClipAboveSpec
-            return [spec(level=section.threshold_value)]
-    raise UnsupportedRecipe(
-        f"Line processing step not ported: {name}/{getattr(section, 'method', '')}"
-    )
 
 
 def analyze_v2(

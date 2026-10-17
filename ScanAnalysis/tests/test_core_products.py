@@ -3,28 +3,36 @@
 import numpy as np
 import pandas as pd
 import pytest
-from geecs_analysis.compat.v2 import compile_v2
 from geecs_analysis.compat.v2_run import ShotGroup, UnitResult
 from geecs_analysis.measurement import Measurement
 from geecs_data_utils.frames import Frame
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_analysis.recipe import compile_recipe
+from geecs_schemas.analysis import AnalysisRecipe
 
 from scan_analysis.core_products import plan_products
 
 
-def recipe(line=False):
-    image = (
-        {"type": "line", "data_loading": {"data_type": "npy"}}
-        if line
-        else {"type": "camera"}
-    )
-    return compile_v2(
-        AnalysisDiagnostic.model_validate(
-            {
-                "name": "Device",
-                "analyzer": {"kind": "line" if line else "beam"},
-                "image": image,
-            }
+CAMERA = {
+    "input": {"kind": "camera"},
+    "measure": {"kind": "beam"},
+    "figure": {"imshow": {"vmin": 0}, "fig": {"dpi": 150}},
+    "summaries": [
+        {"kind": "image_grid", "panel_size": [6.0, 6.0]},
+        {"kind": "average"},
+    ],
+}
+LINE = {
+    "input": {"kind": "line", "loading": {"data_type": "npy"}, "label": "x vs y"},
+    "measure": {"kind": "line"},
+    "figure": {"fig": {"dpi": 150}},
+    "summaries": [{"kind": "waterfall"}, {"kind": "average"}],
+}
+
+
+def recipe(line=False, **patch):
+    return compile_recipe(
+        AnalysisRecipe.model_validate(
+            {"device": "Device", **(LINE if line else CAMERA), **patch}
         )
     )
 
@@ -216,18 +224,11 @@ LEGACY_BINS = {
 
 @pytest.mark.parametrize("averaged", [False, True])
 def test_scanned_products_match_the_legacy_bin_adapter(averaged):
-    doc = AnalysisDiagnostic.model_validate(
-        {
-            "name": "Device",
-            "analyzer": {"kind": "beam"},
-            "image": {"type": "camera", "pipeline": []},
-            "scan": {"mode": "per_bin" if averaged else "per_shot"},
-        }
-    )
+    scan = {"scan": {"average_frames_first": True}} if averaged else {}
     outcomes = [outcome(n, n * 3) for n in ((3, 1, 2) if averaged else (5, 1, 3))]
     expected = LEGACY_BINS[averaged]
     plan = plan_products(
-        compile_v2(doc),
+        recipe(**scan),
         outcomes,
         rows(),
         average_before_analysis=averaged,

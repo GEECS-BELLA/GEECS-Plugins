@@ -6,8 +6,6 @@ import io
 
 import numpy as np
 import pytest
-import yaml
-from geecs_analysis.compat.v2 import UnsupportedRecipe
 from geecs_schemas.analysis import load_analysis_document
 
 from scan_analysis.core_preview import (
@@ -109,19 +107,3 @@ def test_summary_preview_is_the_sinks_summary_figure(scan):
         preview_summary(document, frames, [1.0, 2.0, 3.0], "shot", 2, scan_folder=scan)
     with pytest.raises(ValueError, match="one position per frame"):
         preview_summary(document, frames, [1.0], "shot", 0, scan_folder=scan)
-
-
-def test_a_v2_document_the_core_does_not_serve_is_refused_not_drawn():
-    """An unported operation (a flip) raises at compile time; the host keeps its route."""
-    document = load_analysis_document(
-        yaml.safe_load(
-            """
-schema_version: 2
-name: cam
-analyzer: {kind: beam}
-image: {type: camera, transforms: {flip_horizontal: true}, pipeline: [transforms]}
-"""
-        )
-    )
-    with pytest.raises(UnsupportedRecipe):
-        preview_frame(document, _frames(1)[0])

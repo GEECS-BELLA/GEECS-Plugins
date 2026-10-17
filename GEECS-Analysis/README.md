@@ -78,7 +78,7 @@ result = analyze(Frame.from_array(image), recipe)
 
 `line` emits six trace statistics; `none` keeps only the processed frame.
 `recipe.measure.emitted_scalars()` discovers keys without numerical imports.
-Beam `enabled_stats` and `compute_slopes` preserve the v2 selection contract.
+Beam `enabled_stats` and `compute_slopes` preserve the legacy selection contract.
 
 Algorithms retain legacy conventions for this migration: line intensity is a
 sample sum (not quadrature); the centroid is computed in index space then
@@ -94,50 +94,39 @@ Scientific changes belong in a separately validated change, as #1029 was.
 Measurement runs own their scratch arrays and never mutate caller input,
 including when legacy RMS clips negative values internally.
 
-## Existing v2 documents
+## Running a recipe
 
 ```python
-from geecs_analysis.compat.v2 import compile_v2, analyze_v2
+from geecs_analysis.compat.v2 import analyze_v2
+from geecs_analysis.recipe import compile_recipe
 
-compiled = compile_v2(document)  # already-validated AnalysisDiagnostic
+compiled = compile_recipe(recipe)  # an already-validated AnalysisRecipe
 result = analyze_v2(raw_array, compiled)  # HxW camera or Nx2 trace
 ```
 
-Compilation is numpy-free and reads no files. It snapshots supported settings;
-subsequent editor mutations do not change a compiled run. Unsupported active
-features raise `UnsupportedRecipe`; this module does not invoke a fallback.
-Readers remain separate and supply native-dtype arrays so legacy trace scaling
-precision is preserved. Trace processing is currently restricted to float64,
-with float32/float64 storage rounding before measurement. A trace ROI that
-selects no samples fails that shot explicitly (legacy returned an empty
-array, which Frame intentionally cannot represent). Fixed-canvas image rotation is supported; camera flips and distortion
-correction remain unsupported. The optimizer
-compiles supported camera recipes once before acquisition.
+Compilation is numpy-free and reads no files. It snapshots the recipe;
+subsequent editor mutations do not change a compiled run. Readers remain
+separate and supply native-dtype arrays so legacy trace scaling precision is
+preserved. A trace ROI that selects no samples fails that shot explicitly.
+The optimizer compiles camera recipes once before acquisition.
 
-Source hosts can opt into camera file backgrounds with
-`compile_v2(document, allow_file_backgrounds=True)`. The resulting
-`file_backgrounds` tuple declares immutable binding names, path strings and
-fallback levels; compilation itself never loads them. `analyze_v2` accepts the
-same `inputs` mapping as pure analysis and refuses missing bindings. Default
-compilation still rejects file-dependent recipes, including in the live
-optimizer. Scan-context background aggregation remains unsupported.
+Source hosts opt into frame and table inputs with
+`compile_recipe(recipe, allow_file_backgrounds=True)`. The compiled recipe
+declares immutable binding names, path strings and fallback levels;
+compilation itself never loads them. `analyze_v2` accepts the same `inputs`
+mapping as pure analysis and refuses missing bindings. Default compilation
+still rejects file-dependent recipes, including in the live optimizer.
 
 `scan_analysis.core_inputs.prepare_v2` is the source adapter used by the portal.
 It loads each background once through data-utils, preserves load-failure
-constant fallback and additional-offset order, and returns a compiled recipe
-plus bound Frames. A successfully loaded shape mismatch remains an error.
-An explicit device `data_dir` resolves `{scan_dir}` for scan callers; previews
-leave it literal, preserving their previous fallback behavior. No files are
-written and the supplied document is unchanged.
+constant fallback, and returns a compiled recipe plus bound Frames. A
+successfully loaded shape mismatch remains an error. No files are written
+and the supplied document is unchanged.
 
-The v2 boundary explicitly preserves old camera ROI fallback/origin semantics
-and the old float64 line result's clipped negative values, without mutating
-inputs. Direct `Analysis` recipes retain the new coordinate-preserving,
-immutable-frame semantics. No schema file is rewritten.
-
-The migration harness accepts `capture --backend core` (legacy is the default)
-and compares these outputs against existing snapshots with exact equality.
-Readers and input fingerprints are identical for both backend paths.
+The runtime preserves old camera ROI fallback/origin semantics and the old
+float64 line result's clipped negative values, without mutating inputs.
+Direct `Analysis` recipes retain the coordinate-preserving, immutable-frame
+semantics.
 
 ## Figures
 

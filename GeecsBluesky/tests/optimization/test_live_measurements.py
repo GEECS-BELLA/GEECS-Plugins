@@ -1,15 +1,14 @@
 """Timestamp joins and reductions use owned live arrays, never scan files."""
 
 from types import SimpleNamespace
-import builtins
 
 import numpy as np
 import pytest
 import yaml
-from geecs_analysis.compat.v2 import compile_v2
+from geecs_analysis.recipe import compile_recipe
 from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET
 from geecs_schemas import OptimizerConfig
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 from geecs_schemas.optimizer_config import DiagnosticMeasurement
 
 from geecs_bluesky.exceptions import GeecsDeviceDownError
@@ -49,12 +48,12 @@ def test_source_never_connects():
 
 @pytest.mark.parametrize("mode", ["per_shot", "per_bin"])
 def test_real_beam_analysis_join_counts_and_minimum(mode):
-    diagnostic = AnalysisDiagnostic.model_validate(
+    diagnostic = AnalysisRecipe.model_validate(
         {
-            "schema_version": 2,
-            "name": "Camera",
-            "image": {"type": "camera"},
-            "analyzer": {"kind": "beam"},
+            "schema_version": 3,
+            "device": "Camera",
+            "input": {"kind": "camera"},
+            "measure": {"kind": "beam"},
         }
     )
     spec = DiagnosticMeasurement(diagnostic="Camera", frames=mode, min_shots=2)
@@ -63,8 +62,8 @@ def test_real_beam_analysis_join_counts_and_minimum(mode):
         spec,
         "Camera",
         "stamp",
-        diagnostic.analyzer.emitted_scalars(),
-        compile_v2(diagnostic),
+        compile_recipe(diagnostic).analysis.measure.emitted_scalars(),
+        compile_recipe(diagnostic),
     )
     seen = []
     axis = np.arange(64)
@@ -118,13 +117,11 @@ def diagnostic_setup(tmp_path, monkeypatch):
     path = tmp_path / "analyzers" / "Camera.yaml"
     path.parent.mkdir()
     document = {
-        "name": "Camera",
-        "image": {
-            "type": "camera",
-            "pipeline": ["thresholding"],
-            "thresholding": {"method": "constant", "value": 5, "mode": "to_zero"},
-        },
-        "analyzer": {"kind": "beam", "enabled_stats": ["image_total"]},
+        "schema_version": 3,
+        "device": "Camera",
+        "input": {"kind": "camera"},
+        "steps": [{"step": "zero_below", "level": 5}],
+        "measure": {"kind": "beam", "enabled_stats": ["image_total"]},
     }
     path.write_text(yaml.safe_dump(document))
     monkeypatch.setattr(
@@ -204,7 +201,10 @@ def test_compiled_recipe_survives_source_removal_and_preserves_reduction(
         raise AssertionError("evaluation must not reopen configuration or compile")
 
     monkeypatch.setattr(resolver, "resolve_diagnostic", forbidden)
-    monkeypatch.setattr(v2, "compile_v2", forbidden)
+    import geecs_analysis.recipe as recipe_module
+
+    monkeypatch.setattr(recipe_module, "compile_document", forbidden)
+    monkeypatch.setattr(recipe_module, "compile_recipe", forbidden)
     result = compiled.evaluate_bin(rows, {"Camera": frames})
     assert result.outputs == {"cam.image_total": expected}
     assert result.valid_shots == {"cam": 2}  # duplicate and absent frames don't count
@@ -221,7 +221,7 @@ def test_compiled_recipe_survives_source_removal_and_preserves_reduction(
 @pytest.mark.parametrize("mode", ["per_shot", "per_bin"])
 def test_failed_and_nonfinite_frames_do_not_meet_minimum(diagnostic_setup, mode):
     compile, _, _, _, _ = diagnostic_setup
-    compiled = compile(mode, overrides={"image": {"pipeline": []}})
+    compiled = compile(mode, overrides={"steps": []})
     rows = [{"stamp": stamp + LABVIEW_EPOCH_OFFSET} for stamp in (101, 102)]
     result = compiled.evaluate_bin(
         rows, {"Camera": {101: np.full((8, 8), 8), 102: np.full((8, 8), np.nan)}}
@@ -230,21 +230,16 @@ def test_failed_and_nonfinite_frames_do_not_meet_minimum(diagnostic_setup, mode)
     assert np.isnan(result.outputs["cam.image_total"])
 
 
-def test_overrides_discover_compiled_scalars_and_never_import_legacy(
-    diagnostic_setup, monkeypatch
-):
+def test_overrides_discover_compiled_scalars(diagnostic_setup):
     compile, resolver, path, _, _ = diagnostic_setup
-    original_import = builtins.__import__
-
-    def import_without_legacy(name, *args, **kwargs):
-        if name.startswith("image_analysis"):
-            raise AssertionError("optimizer must use geecs-analysis directly")
-        return original_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", import_without_legacy)
     before = path.read_bytes()
     compiled = compile(
-        overrides={"analyzer": {"enabled_stats": ["image_total", "image_peak_value"]}}
+        overrides={
+            "measure": {
+                "kind": "beam",
+                "enabled_stats": ["image_total", "image_peak_value"],
+            }
+        }
     )
     assert compiled.output_names == ("cam.image_peak_value", "cam.image_total")
     assert path.read_bytes() == before
@@ -258,13 +253,6 @@ def test_overrides_discover_compiled_scalars_and_never_import_legacy(
 
 def test_unsupported_recipe_is_refused_before_frame_source_creation(diagnostic_setup):
     compile, _, _, _, sources = diagnostic_setup
-    with pytest.raises(GeecsConfigurationError, match="not ported: transforms"):
-        compile(
-            overrides={
-                "image": {
-                    "pipeline": ["transforms"],
-                    "transforms": {"flip_horizontal": True},
-                }
-            }
-        )
+    with pytest.raises(GeecsConfigurationError, match="does not bind to the registry"):
+        compile(overrides={"steps": [{"step": "flip_horizontal"}]})
     assert sources == []

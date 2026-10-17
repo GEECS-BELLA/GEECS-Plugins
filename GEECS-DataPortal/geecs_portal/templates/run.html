@@ -416,7 +416,7 @@
     <span class="t" id="cetitle">edit recipe</span>
     <label class="dim">recipe
       <select id="cediag" title="switch the recipe under edit; recipes for this scan's devices are listed first"></select></label>
-    <span class="dup"><input id="cedup" placeholder="new id" title="copy the open recipe under this id (same namespace, same device); the copy's output_name is set to the new id so the two write distinct columns and folders; Save then writes it (a format 2 diagnostic cannot be copied here)"><button class="act" onclick="ceDuplicate()">duplicate as</button></span>
+    <span class="dup"><input id="cedup" placeholder="new id" title="copy the open recipe under this id (same namespace, same device); the copy's output_name is set to the new id so the two write distinct columns and folders; Save then writes it (a read-only .himg job cannot be copied here)"><button class="act" onclick="ceDuplicate()">duplicate as</button></span>
     <label class="dim" title="the preview reads this shot of the recipe's own device">shot <input type="number" id="ceshot" min="1" value="{{ shot }}"></label>
     <a href="{{ root }}/configs/" target="_blank">full editor ↗</a>
     <button class="act" onclick="closeConfigEditor()">close</button>
@@ -1006,7 +1006,7 @@ function ceDuplicate() {
   // a variant recipe for the same device (the editor gives the copy its
   // own output_name); retarget it by editing its device field
   CE.duplicate(cur.namespace, id).then((copied) => {
-    if (!copied) return;  // a read-only (format 2) document: nothing was copied
+    if (!copied) return;  // a read-only document (a .himg job): nothing was copied
     document.getElementById("cetitle").textContent = `${id} (new — Save to create)`;
     input.value = "";
   });

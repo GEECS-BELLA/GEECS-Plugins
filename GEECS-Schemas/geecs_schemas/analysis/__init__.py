@@ -1,80 +1,20 @@
-"""Analysis-config schemas: the two analysis documents, the ``.himg`` job, the group document, and their parts.
+"""Analysis-config schemas: the analysis recipe, the ``.himg`` job, the group document, and their parts.
 
 Everything the analysis stack loads from ``scan_analysis_configs/`` is
 described here — pydantic only, so editors, the data portal, MCP and CI
-can validate a document without the analysis stack installed.  Two formats
-share the ``analyzers/`` tree: the v3 :class:`AnalysisRecipe` (the analysis
-core's native shape: input, ordered steps, a measure, the per-frame draw,
-the summary kinds) and the v2 :class:`AnalysisDiagnostic` (kept for the
-analyzer kinds the core has not ported); a third document, the
-:class:`HimgJob`, carries the ``.himg`` data-management jobs that sit in
-the same tree.  :func:`load_analysis_document` dispatches on a top-level
-``kind`` (a job), else ``schema_version``.
+can validate a document without the analysis stack installed.  Two
+documents share the ``analyzers/`` tree: the :class:`AnalysisRecipe` (the
+analysis core's native shape: input, ordered steps, a measure, the
+per-frame draw, the summary kinds) and the :class:`HimgJob`, which carries
+the ``.himg`` data-management jobs.  :func:`load_analysis_document`
+dispatches on a top-level ``kind`` (a job), else reads a recipe.
 """
 
 from geecs_schemas.analysis.canonical import canonical_document
-from geecs_schemas.analysis.analyzers import (
-    ANALYZER_SPECS,
-    AnalyzerSpec,
-    AnalyzerSpecBase,
-    ArrayCalibrationSpec,
-    BeamAnalyzerSpec,
-    CalibrationSpec,
-    DnnAxisCalibrationSpec,
-    DownrampPhaseSpec,
-    FrogRetrievalSpec,
-    FrogSpectralPhaseSpec,
-    HiResMagCamSpec,
-    IctAnalyzerSpec,
-    ImageKind,
-    LineAnalyzerSpec,
-    LineStitcherSpec,
-    MagSpecAnalyzerSpec,
-    PolynomialCalibrationSpec,
-    StandardAnalyzerSpec,
-    TraceAnalyzerSpec,
-)
-from geecs_schemas.analysis.diagnostic import (
-    CURRENT_SCHEMA_VERSION,
-    AnalysisDiagnostic,
-    ImageSection,
-)
 from geecs_schemas.analysis.document import AnalysisDocument, load_analysis_document
 from geecs_schemas.analysis.himg import HimgJob, HimgJobKind, HimgJobRuntime
 from geecs_schemas.analysis.group import AnalysisGroup, AnalyzerRef
-from geecs_schemas.analysis.processing_1d import (
-    Data1DLoading,
-    Data1DType,
-    Line1DConfig,
-    LineBackgroundConfig,
-    LineBackgroundMethod,
-    LineFilterMethod,
-    LineFilteringConfig,
-    LineInterpolationConfig,
-    LinePipelineStepType,
-    LineROIConfig,
-    LineThresholdMethod,
-    LineThresholdingConfig,
-)
-from geecs_schemas.analysis.processing_2d import (
-    BackgroundConfig,
-    BackgroundMethod,
-    CameraConfig,
-    CircularMaskConfig,
-    CrosshairConfig,
-    CrosshairMaskingConfig,
-    FilteringConfig,
-    NormalizationConfig,
-    NormalizationMethod,
-    ProcessingStepType,
-    ROIConfig,
-    ThresholdMethod,
-    ThresholdMode,
-    ThresholdingConfig,
-    TransformConfig,
-    VignetteConfig,
-    VignetteMethod,
-)
+from geecs_schemas.analysis.processing_1d import Data1DLoading, Data1DType
 from geecs_schemas.analysis.recipe import (
     CURRENT_RECIPE_VERSION,
     SUMMARY_KINDS,
@@ -94,21 +34,11 @@ from geecs_schemas.analysis.recipe import (
     Summary,
     WaterfallSummary,
 )
-from geecs_schemas.analysis.renderer import RendererOptions
 from geecs_schemas._base import declared_schema_version
-from geecs_schemas.analysis.scan_runtime import (
-    AutodetectBackgroundSpec,
-    BackgroundSource,
-    FromCurrentScanSpec,
-    ScanRuntime,
-)
 
 __all__ = [
-    "ANALYZER_SPECS",
     "CURRENT_RECIPE_VERSION",
-    "CURRENT_SCHEMA_VERSION",
     "SUMMARY_KINDS",
-    "AnalysisDiagnostic",
     "AnalysisDocument",
     "HimgJob",
     "HimgJobKind",
@@ -117,71 +47,20 @@ __all__ = [
     "AnalysisRecipe",
     "AverageSummary",
     "AnalyzerRef",
-    "AnalyzerSpec",
-    "AnalyzerSpecBase",
-    "ArrayCalibrationSpec",
-    "AutodetectBackgroundSpec",
-    "BackgroundConfig",
-    "BackgroundMethod",
-    "BackgroundSource",
-    "BeamAnalyzerSpec",
-    "CalibrationSpec",
-    "CameraConfig",
     "CameraInput",
-    "CircularMaskConfig",
-    "CrosshairConfig",
-    "CrosshairMaskingConfig",
     "Data1DLoading",
     "Data1DType",
-    "DnnAxisCalibrationSpec",
-    "DownrampPhaseSpec",
     "FigureStyle",
-    "FilteringConfig",
     "FrameInput",
     "ScanStatistic",
-    "FrogRetrievalSpec",
-    "FrogSpectralPhaseSpec",
-    "FromCurrentScanSpec",
-    "HiResMagCamSpec",
-    "IctAnalyzerSpec",
     "ImageGridSummary",
-    "ImageKind",
-    "ImageSection",
-    "Line1DConfig",
-    "LineAnalyzerSpec",
-    "LineBackgroundConfig",
-    "LineBackgroundMethod",
-    "LineFilterMethod",
-    "LineFilteringConfig",
     "LineInput",
-    "LineInterpolationConfig",
-    "LinePipelineStepType",
-    "LineROIConfig",
-    "LineStitcherSpec",
-    "LineThresholdMethod",
-    "LineThresholdingConfig",
-    "MagSpecAnalyzerSpec",
     "MeasureRef",
-    "NormalizationConfig",
-    "NormalizationMethod",
-    "PolynomialCalibrationSpec",
-    "ProcessingStepType",
-    "ROIConfig",
     "RecipeInput",
     "RecipeRuntime",
-    "RendererOptions",
     "ScalarFitSummary",
-    "ScanRuntime",
-    "StandardAnalyzerSpec",
     "StepRef",
     "Summary",
-    "ThresholdMethod",
-    "ThresholdMode",
-    "ThresholdingConfig",
-    "TraceAnalyzerSpec",
-    "TransformConfig",
-    "VignetteConfig",
-    "VignetteMethod",
     "WaterfallSummary",
     "canonical_document",
     "declared_schema_version",

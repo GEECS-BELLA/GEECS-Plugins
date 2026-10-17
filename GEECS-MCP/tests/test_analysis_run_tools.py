@@ -59,10 +59,10 @@ def configs(tmp_path, monkeypatch):
     (diag_dir / "test_diag.yaml").write_text(
         yaml.safe_dump(
             {
-                "schema_version": 2,
-                "name": "test_diag",
-                "analyzer": {"kind": "beam"},
-                "image": {"type": "camera", "bit_depth": 16},
+                "schema_version": 3,
+                "device": "test_diag",
+                "input": {"kind": "camera"},
+                "measure": {"kind": "beam"},
                 "scan": {"priority": 5},
             }
         )
@@ -70,19 +70,14 @@ def configs(tmp_path, monkeypatch):
     (diag_dir / "unrunnable.yaml").write_text(
         yaml.safe_dump(
             {
-                "schema_version": 2,
-                "name": "unrunnable",
-                # A document the analysis core refuses at compilation (the
-                # flip is a step it never ported): there is no other route
-                # (#1039), so the builder fails before anything is enqueued.
-                "analyzer": {"kind": "beam"},
-                "image": {
-                    "type": "camera",
-                    "bit_depth": 16,
-                    "pipeline": ["transforms"],
-                    "transforms": {"flip_horizontal": True},
-                },
-                "scan": {},
+                "schema_version": 3,
+                "device": "unrunnable",
+                # A document the analysis core refuses (a step it never
+                # ported): there is no other route (#1039), so the builder
+                # fails before anything is enqueued.
+                "input": {"kind": "camera"},
+                "steps": [{"step": "flip_horizontal"}],
+                "measure": {"kind": "beam"},
             }
         )
     )
@@ -334,11 +329,10 @@ class TestExistingStatusRows:
         (configs / "analyzers" / "HTU" / "test_diag_b.yaml").write_text(
             yaml.safe_dump(
                 {
-                    "schema_version": 2,
-                    "name": "test_diag_b",
-                    "analyzer": {"kind": "beam"},
-                    "image": {"type": "camera", "bit_depth": 16},
-                    "scan": {},
+                    "schema_version": 3,
+                    "device": "test_diag_b",
+                    "input": {"kind": "camera"},
+                    "measure": {"kind": "beam"},
                 }
             )
         )

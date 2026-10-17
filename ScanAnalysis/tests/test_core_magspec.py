@@ -9,11 +9,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
-from geecs_analysis.compat.convert import to_v3
 from geecs_data_utils import ScanPaths, ScanTag
 from geecs_data_utils.config_roots import scan_analysis_config
 from geecs_data_utils.io.images import write_png16
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 
 import geecs_data_utils
 import scan_analysis.base as base
@@ -29,31 +28,26 @@ from scan_analysis.route_compare import (
     snapshot_scan_products,
 )
 
-#: The column the legacy analyzer hardcoded; the converted recipe names it.
+#: The column the legacy analyzer hardcoded; the recipe names it.
 COLUMN = "HTT-MagTeslameter-DTM141 Field"
 DEVICE = "TestCam"
 TAG = ScanTag(year=2026, month=1, day=1, number=2, experiment="Test")
 FIELDS = (0.29, 0.30, 0.31, 0.30, 0.295, 0.305)
 SHOTS = len(FIELDS)
-IMAGE = {
-    "type": "camera",
-    "background": {"additional_constant": 1.0},
-    "vignette": {
-        "method": "radial_polynomial",
+STEPS = [
+    {"step": "background_constant", "level": 1},
+    {
+        "step": "vignette",
         "full_width": 160,
         "full_height": 64,
-        "x_offset": 0,
         "y_offset": 3,
-        "vgnt4": -4.0e-9,
-        "vgnt2": -6.0e-5,
-        "vgnt0": 1.0,
-        "min_model_value": 1.0e-9,
+        "vgnt4": -4e-09,
+        "vgnt2": -6e-05,
     },
-    "roi": {"x_min": 10, "x_max": 138, "y_min": 4, "y_max": 60},
-    "thresholding": {"method": "constant", "value": 0.0, "mode": "to_zero"},
-    "filtering": {"median_kernel_size": 3},
-    "pipeline": ["background", "vignette", "roi", "thresholding", "filtering"],
-}
+    {"step": "roi", "bounds": [[4, 60], [10, 138]]},
+    {"step": "zero_below", "level": 0},
+    {"step": "median"},
+]
 
 
 def write_tsv(path: Path, columns: list[str], rows: list[list]) -> Path:
@@ -101,44 +95,62 @@ def calibrations(root: Path) -> dict[str, Path]:
 
 def diagnostic(
     tables: dict[str, Path] | None, *, mode="per_shot", save=True, dark=True
-) -> AnalysisDiagnostic:
-    """The HTT-MagCam document's shape: dark scan, vignette, roi, threshold, median."""
+) -> AnalysisRecipe:
+    """The HTT-MagCam recipe's shape: dark scan, vignette, roi, threshold, median.
+
+    With ``tables`` its tables sit under calibrations/HTT and the field column is named.
+    """
+    inputs, steps = {}, list(STEPS)
+    if dark:
+        inputs["camera_background"] = {"from_scan": {"scan": 1}}
+        steps.insert(
+            0,
+            {
+                "step": "background_frame",
+                "source": "camera_background",
+                "alignment": "samples",
+            },
+        )
     if tables is None:
-        calibration = {"kind": "polynomial", "coeffs": [20.0, 0.5, 2e-3]}
+        measure = {"calibration": {"kind": "polynomial", "coeffs": [20, 0.5, 0.002]}}
     else:
-        calibration = {
-            "kind": "dnn_axis",
-            "camera_calibration_file": str(tables["camera"]),
-            "trajectory_calibration_file": str(tables["trajectory"]),
-            "lanex_calibration_file": str(tables["lanex"]),
-            "camera_number": 1,
-            "magnetic_field_t": 0.3,
+        for name, file in (
+            ("camera", "cam"),
+            ("trajectory", "trj"),
+            ("lanex", "lanex"),
+        ):
+            inputs[f"{name}_table"] = {"table": f"calibrations/HTT/{file}.txt"}
+        measure = {
+            "calibration": {
+                "kind": "dnn_axis",
+                "camera_number": 1,
+                "magnetic_field_t": 0.3,
+            },
+            "camera_table": "camera_table",
+            "trajectory_table": "trajectory_table",
+            "lanex_table": "lanex_table",
+            "magnetic_field_column": COLUMN,
         }
-    return AnalysisDiagnostic.model_validate(
+    return AnalysisRecipe.model_validate(
         {
-            "schema_version": 2,
-            "name": DEVICE,
-            "analyzer": {
+            "device": DEVICE,
+            "input": {"kind": "camera"},
+            "inputs": inputs,
+            "steps": steps,
+            "measure": {
                 "kind": "magspec",
-                "calibration": calibration,
                 "energy_range": [1.2, 1501.3],
                 "num_energy_points": 300,
+                **measure,
             },
-            "image": IMAGE,
-            "scan": {
-                "mode": mode,
-                "save": save,
-                "renderer": {"dpi": 30},
-                **({"background_source": {"scan_number": 1}} if dark else {}),
-            },
+            "scan": {"save": save, "average_frames_first": mode == "per_bin"},
+            "figure": {"imshow": {"vmin": 0}, "fig": {"dpi": 30}},
+            "summaries": [
+                {"kind": "image_grid", "panel_size": [6.0, 6.0]},
+                {"kind": "average"},
+            ],
         }
     )
-
-
-def recipe(document: AnalysisDiagnostic):
-    """The converted v3 recipe, its tables under calibrations/HTT and the field column named."""
-    column = COLUMN if document.analyzer.calibration.kind == "dnn_axis" else None
-    return to_v3(document, table_namespace="HTT", magnetic_field_column=column).recipe
 
 
 def frame(seed: int) -> np.ndarray:
@@ -204,14 +216,13 @@ def private_scan_paths(monkeypatch, base_dir: Path) -> None:
 
 
 def run(monkeypatch, base_dir: Path, document, *, workers=1, **scan) -> Path:
-    """The converted recipe over a fresh scan under ``base_dir``."""
+    """The recipe over a fresh scan under ``base_dir``."""
     scan_folder = build_scan(base_dir, **scan)
     private_scan_paths(monkeypatch, base_dir)
-    converted = recipe(document)
-    converted = converted.model_copy(
-        update={"scan": converted.scan.model_copy(update={"workers": workers})}
+    document = document.model_copy(
+        update={"scan": document.scan.model_copy(update={"workers": workers})}
     )
-    analyzer = CoreScanAnalyzer(converted, id="Diag", priority=1)
+    analyzer = CoreScanAnalyzer(document, id="Diag", priority=1)
     try:
         analyzer.run_analysis(TAG)
     finally:
@@ -226,7 +237,7 @@ def snapshot(scan: Path) -> dict[str, tuple]:
 
 
 def test_a_converted_magspec_recipe_builds_on_the_core(configs):
-    analyzer = create_scan_analyzer(recipe(diagnostic(configs)))
+    analyzer = create_scan_analyzer(diagnostic(configs))
     assert isinstance(analyzer, CoreScanAnalyzer)
 
 
@@ -368,26 +379,23 @@ def test_a_stitcher_reads_the_core_written_spectra_on_a_timestamp_named_scan(
     pd.DataFrame(rows).to_csv(analysis / "s2.txt", sep="\t", index=False)
     private_scan_paths(monkeypatch, root)
     for camera in (DEVICE, "TestCam2"):
-        document = recipe(diagnostic(configs, dark=False))
+        document = diagnostic(configs, dark=False)
         _run_core(document.model_copy(update={"device": camera}))
-    stitcher = AnalysisDiagnostic.model_validate(
+    stitcher = AnalysisRecipe.model_validate(
         {
-            "schema_version": 2,
-            "name": DEVICE,
-            "analyzer": {
-                "kind": "line_stitcher",
-                "sibling_devices": ["TestCam2-interpSpec"],
-            },
-            "image": {
-                "type": "line",
-                "data_loading": {"data_type": "tsv"},
-                "pipeline": [],
-            },
-            "scan": {
-                "device": f"{DEVICE}-interpSpec",
+            "device": DEVICE,
+            "input": {
+                "kind": "line",
+                "folder": f"{DEVICE}-interpSpec",
                 "file_tail": ".tsv",
-                "save": False,
+                "loading": {"data_type": "tsv"},
+                "label": "x vs y",
+                "siblings": ["TestCam2-interpSpec"],
             },
+            "measure": {"kind": "line"},
+            "scan": {"save": False},
+            "figure": {"fig": {"dpi": 150}},
+            "summaries": [{"kind": "waterfall"}, {"kind": "average"}],
         }
     )
     with caplog.at_level(logging.WARNING):
@@ -441,9 +449,9 @@ def test_stack_frames_name_their_outputs_by_the_announced_shot(
     private_scan_paths(monkeypatch, root)
     document = diagnostic(configs, dark=False)
     document = document.model_copy(
-        update={"scan": document.scan.model_copy(update={"data_format": "device_hdf5"})}
+        update={"input": document.input.model_copy(update={"format": "device_hdf5"})}
     )
-    _run_core(recipe(document))
+    _run_core(document)
     spectra = scan / f"{DEVICE}-interpSpec"
     mapped = map_shot_files(spectra, rows, device=DEVICE, file_tail=".tsv")
     assert {shot: path.name for shot, path in mapped.items()} == {

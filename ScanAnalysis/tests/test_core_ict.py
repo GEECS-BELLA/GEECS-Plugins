@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
 from scan_analysis.config import create_scan_analyzer
@@ -26,21 +26,22 @@ DT = 4e-9
 SCALARS = ("U_BCaveICT_charge_pC", "U_BCaveICT_ICT Signal Peak_us")
 
 
-def document(dt: float | None = DT) -> AnalysisDiagnostic:
-    analyzer = {"kind": "ict", "calibration_factor": 0.2}
+def document(dt: float | None = DT) -> AnalysisRecipe:
+    measure = {"kind": "ict", "calibration_factor": 0.2}
     if dt is not None:
-        analyzer["dt"] = dt
-    return AnalysisDiagnostic.model_validate(
+        measure["dt"] = dt
+    return AnalysisRecipe.model_validate(
         {
-            "name": "U_BCaveICT",
-            "analyzer": analyzer,
-            "image": {
-                "type": "line",
-                "data_loading": {"data_type": "npy"},
-                "storage_dtype": "float32",
-                "pipeline": [],
+            "device": "U_BCaveICT",
+            "input": {
+                "kind": "line",
+                "file_tail": ".npy",
+                "loading": {"data_type": "npy"},
+                "label": "x vs y",
             },
-            "scan": {"mode": "per_shot", "file_tail": ".npy", "renderer": {"dpi": 30}},
+            "measure": measure,
+            "figure": {"fig": {"dpi": 30}},
+            "summaries": [{"kind": "waterfall"}, {"kind": "average"}],
         }
     )
 

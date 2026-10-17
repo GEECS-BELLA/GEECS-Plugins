@@ -332,7 +332,7 @@ configured + extra installed + folder resolvable) — a bookmarked
 **Destructive kinds and progress** (0.38.0): each listed analyzer
 carries `destructive` (the document's `destructive` — true only for the
 `.himg` compaction job, a `HimgJob` with `kind: himg_compact`; a recipe
-or a v2 diagnostic is never destructive).  For such a kind the tab's row says *deletes files*
+is never destructive).  For such a kind the tab's row says *deletes files*
 and its run button opens a real `<dialog>` (`showModal()`: focus trap,
 `Esc`, inert background; focus on the input, never the delete button)
 that asks the user to type **this scan's number** (`const SCAN_NUMBER`);

@@ -9,10 +9,11 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
-from geecs_analysis.compat.v2 import analyze_v2, compile_v2
+from geecs_analysis.compat.v2 import analyze_v2
+from geecs_analysis.recipe import compile_recipe
 from scan_analysis.config import create_scan_analyzer
 from scan_analysis.core_analyzer import CoreScanAnalyzer
 from scan_analysis.route_compare import (
@@ -35,30 +36,29 @@ COLUMNS = [
 SCALARS = ("phi0_rad", "gd_fs", "gdd_fs2", "tod_fs3", "flipped")
 
 
-def document(storage: str = "float64", mode: str = "per_shot") -> AnalysisDiagnostic:
+def document(storage: str = "float64", mode: str = "per_shot") -> AnalysisRecipe:
     """The acceptance document's shape: the frog step's TSV, weights at column 4."""
-    return AnalysisDiagnostic.model_validate(
+    return AnalysisRecipe.model_validate(
         {
-            "name": DEVICE,
-            "analyzer": {"kind": "frog_spectral_phase", "fit_order": 3},
-            "image": {
-                "type": "line",
-                "storage_dtype": storage,
-                "data_loading": {
+            "device": DEVICE,
+            "input": {
+                "kind": "line",
+                "file_tail": "_retrieved_lineouts.tsv",
+                "loading": {
                     "data_type": "tsv",
                     "delimiter": "\t",
                     "x_column": 3,
                     "y_column": 5,
                     "auxiliary_columns": {"weights": 4},
                 },
-                "roi": {"x_min": 750.0, "x_max": 850.0},
-                "pipeline": ["roi"],
+                "label": "x vs y",
+                "storage_dtype": storage,
             },
-            "scan": {
-                "mode": mode,
-                "file_tail": "_retrieved_lineouts.tsv",
-                "renderer": {"dpi": 30},
-            },
+            "steps": [{"step": "roi", "bounds": [[750, 850]], "units": "axis"}],
+            "measure": {"kind": "frog_spectral_phase"},
+            "scan": {"average_frames_first": mode == "per_bin"},
+            "figure": {"fig": {"dpi": 30}},
+            "summaries": [{"kind": "waterfall"}, {"kind": "average"}],
         }
     )
 
@@ -181,7 +181,7 @@ def test_a_raw_bin_run_fits_the_bin_mean_with_the_bin_mean_weights(
         sep="\t",
         float_precision="round_trip",
     )
-    recipe = compile_v2(doc)
+    recipe = compile_recipe(doc)
     for first in (1, 3, 5):
         raw = [
             lineout(shot).iloc[:, [3, 5, 4]].to_numpy() for shot in (first, first + 1)

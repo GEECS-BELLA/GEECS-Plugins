@@ -17,10 +17,10 @@ from scan_analysis.config_store import (
 
 def _doc(name="UC_A", **scan):
     return {
-        "schema_version": 2,
-        "name": name,
-        "analyzer": {"kind": "beam"},
-        "image": {"type": "camera", "bit_depth": 16},
+        "schema_version": 3,
+        "device": name,
+        "input": {"kind": "camera"},
+        "measure": {"kind": "beam"},
         "scan": {"priority": 5, **scan},
     }
 
@@ -31,11 +31,16 @@ def tree(tmp_path: Path) -> Path:
     a.mkdir(parents=True)
     (a / "UC_A.yaml").write_text(yaml.safe_dump(_doc("UC_A")))
     (a / "Broken.yaml").write_text(
-        yaml.safe_dump({"name": "x", "analyzer": {"kind": "nope"}})
+        yaml.safe_dump(
+            {"device": "x", "input": {"kind": "camera"}, "measure": {"kind": "nope"}}
+        )
     )
     (a / "Tabbed.yaml").write_text(
         "name: Tabbed\n\tanalyzer: {kind: beam}\n"
     )  # a tab: not YAML
+    (a / "OldV2.yaml").write_text(
+        yaml.safe_dump({"name": "x", "analyzer": {"kind": "beam"}, "image": {}})
+    )  # the retired v2 format: listed, invalid
     (a / "Listy.yaml").write_text("- not\n- a mapping\n")
     (tmp_path / "analyzers" / "PW").mkdir()
     (tmp_path / "analyzers" / "PW" / "PW_B.yaml").write_text(
@@ -63,12 +68,23 @@ class TestListing:
     def test_lists_valid_and_invalid_with_summaries(self, tree):
         store = ConfigStore(tree)
         entries = {e.id: e for e in store.list("analyzer")}
-        assert set(entries) == {"UC_A", "Broken", "PW_B", "Tabbed", "Listy", "Deep"}
+        assert set(entries) == {
+            "UC_A",
+            "Broken",
+            "OldV2",
+            "PW_B",
+            "Tabbed",
+            "Listy",
+            "Deep",
+        }
         assert (
             entries["UC_A"].valid and entries["UC_A"].summary["analyzer_kind"] == "beam"
         )
         assert entries["UC_A"].summary["device"] == "UC_A"
         assert not entries["Broken"].valid and "kind" in (entries["Broken"].error or "")
+        assert not entries["OldV2"].valid and "retired" in (
+            entries["OldV2"].error or ""
+        )
         # malformed files are entries, not a crash of the whole listing
         assert not entries["Tabbed"].valid and "cannot start any token" in (
             entries["Tabbed"].error or ""
@@ -86,6 +102,7 @@ class TestListing:
             "Broken",
             "Deep",
             "Listy",
+            "OldV2",
             "PW_B",
             "Tabbed",
             "UC_A",
@@ -100,7 +117,7 @@ class TestListing:
         job = entries["Job"].summary
         assert job["document"] == "job" and job["analyzer_kind"] == "himg_restore"
         assert job["device"] == "U_HasoLift" and job["image_type"] is None
-        assert entries["UC_A"].summary["document"] in ("recipe", "diagnostic")
+        assert entries["UC_A"].summary["document"] == "recipe"
 
     def test_groups_list(self, tree):
         (entry,) = ConfigStore(tree).list("group")
@@ -113,7 +130,7 @@ class TestReadValidate:
         assert loaded.namespace == "HTU" and loaded.valid
         assert loaded.document["scan"]["priority"] == 5
         assert loaded.etag and "-" in loaded.etag
-        assert "name: UC_A" in loaded.yaml
+        assert "device: UC_A" in loaded.yaml
 
     def test_read_malformed_file_is_an_invalid_document(self, tree):
         """The editor gets the file as it is plus the parse error — never a 500."""
@@ -134,17 +151,15 @@ class TestReadValidate:
             ConfigStore(tree).read("analyzer", "Nope")
 
     def test_validate_reports_locations(self, tree):
-        report = ConfigStore(tree).validate(
-            "analyzer", {"name": "x", "analyzer": {"kind": "beam", "compute_slope": 1}}
-        )
+        report = ConfigStore(tree).validate("analyzer", _doc("x", compute_slope=1))
         assert not report.ok
         assert any("compute_slope" in e["loc"] for e in report.errors)
 
     def test_validate_canonical_yaml(self, tree):
         report = ConfigStore(tree).validate("analyzer", _doc("UC_A"))
         assert report.ok
-        assert report.yaml.startswith("schema_version: 2\n")
-        assert report.canonical["analyzer"] == {"kind": "beam"}
+        assert report.yaml.startswith("schema_version: 3\n")
+        assert report.canonical["measure"] == {"kind": "beam"}
 
     def test_group_refs_are_cross_checked(self, tree):
         report = ConfigStore(tree).validate(
@@ -303,7 +318,6 @@ def test_pending_changes_is_none_outside_git(tree):
 @pytest.mark.parametrize(
     "kind, document, expected",
     [
-        ("analyzer", _doc(gdoc_slot=2), {"gdoc_slot": 2}),
         (
             "group",
             {"name": "old", "upload_to_scanlog": False},

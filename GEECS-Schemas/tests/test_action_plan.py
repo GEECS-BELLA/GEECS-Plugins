@@ -126,7 +126,7 @@ class TestCorpusDocument:
         """No converter: the old shape is refused by the schema itself.
 
         The guard lives here (a ``before`` validator, the pattern
-        ``AnalysisDiagnostic._refuse_v1_layout`` set) so every consumer —
+        ``AnalysisRecipe._refuse_other_versions`` follows) so every consumer —
         the worker's resolver, the Console's store, a listing — gets the
         same message from ``model_validate`` and none carries its own.
         """

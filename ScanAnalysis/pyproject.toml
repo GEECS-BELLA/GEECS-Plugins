@@ -11,7 +11,7 @@ packages = [
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
 geecs-analysis = { path = "../GEECS-Analysis", develop = true }
-# the config documents (AnalysisDiagnostic / AnalysisGroup / ScanRuntime) —
+# the config documents (AnalysisRecipe / AnalysisGroup / HimgJob) —
 # pydantic-only, shared with the portal and MCP
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }

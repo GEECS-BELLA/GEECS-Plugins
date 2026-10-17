@@ -1,7 +1,5 @@
 """Every portal draw is the core's; refusals are 400s, and the display contract."""
 
-import builtins
-
 import numpy as np
 import pytest
 import yaml
@@ -9,7 +7,7 @@ import yaml
 from geecs_portal.resources import figure_png
 
 processing = pytest.importorskip("geecs_portal.processing")
-AnalysisDiagnostic = pytest.importorskip("geecs_schemas.analysis").AnalysisDiagnostic
+AnalysisRecipe = pytest.importorskip("geecs_schemas.analysis").AnalysisRecipe
 
 
 @pytest.fixture
@@ -18,29 +16,17 @@ def recipe_tree(tmp_path):
     folder.mkdir()
     path = folder / "beam.yaml"
     document = {
-        "name": "Camera",
-        "image": {
-            "type": "camera",
-            "pipeline": ["roi", "background"],
-            "roi": {"x_min": 2, "x_max": 15, "y_min": 3, "y_max": 17},
-            "background": {"method": "constant", "constant_level": 5},
-        },
-        "analyzer": {"kind": "beam"},
+        "schema_version": 3,
+        "device": "Camera",
+        "input": {"kind": "camera"},
+        "steps": [
+            {"step": "roi", "bounds": [[3, 17], [2, 15]]},
+            {"step": "background_constant", "level": 5},
+        ],
+        "measure": {"kind": "beam"},
     }
     path.write_text(yaml.safe_dump(document))
     return tmp_path, path, document
-
-
-def forbid_image_analysis(monkeypatch):
-    """ImageAnalysis is no route of the portal's (#1039): any import of it is a failure."""
-    imported = builtins.__import__
-
-    def without_legacy(name, *args, **kwargs):
-        if name.startswith("image_analysis"):
-            raise AssertionError("the portal imported the retired legacy analysis")
-        return imported(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", without_legacy)
 
 
 def test_processing_and_unsaved_preview_run_on_the_core(recipe_tree, monkeypatch):
@@ -48,13 +34,12 @@ def test_processing_and_unsaved_preview_run_on_the_core(recipe_tree, monkeypatch
     before = path.read_bytes()
     data = np.arange(400, dtype=np.uint16).reshape(20, 20)
     original = data.copy()
-    forbid_image_analysis(monkeypatch)
     assert processing.list_diagnostics(config_dir=root) == ["beam"]
     (array,) = processing.process_images("beam", [data], config_dir=root)
     np.testing.assert_array_equal(array, data[3:17, 2:15].astype(float) - 5)
-    document["image"]["roi"]["x_min"] = 4
+    document["steps"][0]["bounds"][1][0] = 4
     (figure,) = processing.render_document_ephemeral(
-        AnalysisDiagnostic.model_validate(document),
+        AnalysisRecipe.model_validate(document),
         [data],
         cmap="viridis",
         vmin=10,
@@ -76,12 +61,12 @@ def test_processing_and_unsaved_preview_run_on_the_core(recipe_tree, monkeypatch
 def test_a_document_the_core_declines_is_refused_not_rerouted(recipe_tree, monkeypatch):
     """A compilation-time refusal is the portal's 400, in every view (#1039)."""
     root, path, document = recipe_tree
-    document["image"]["pipeline"].append("transforms")
-    document["image"]["transforms"] = {"flip_horizontal": True}
+    document["inputs"] = {"bg": {"from_scan": {"statistic": "median"}}}
+    document["steps"].append({"step": "background_frame", "source": "bg"})
+    document["summaries"] = [{"kind": "average"}]
     path.write_text(yaml.safe_dump(document))
-    forbid_image_analysis(monkeypatch)
     array = np.arange(400, dtype=float).reshape(20, 20)
-    doc = AnalysisDiagnostic.model_validate(document)
+    doc = AnalysisRecipe.model_validate(document)
     with pytest.raises(ValueError, match="cannot be drawn here"):
         processing.process_images("beam", [array], config_dir=root)
     with pytest.raises(ValueError, match="cannot be drawn here"):
@@ -103,12 +88,11 @@ def test_a_core_failure_propagates_without_a_second_backend(recipe_tree, monkeyp
 
     # every view analyses through ScanAnalysis' preview seam
     monkeypatch.setattr(core_preview, "analyze_v2", fail_core)
-    forbid_image_analysis(monkeypatch)
     with pytest.raises(RuntimeError, match="core failure"):
         processing.process_images("beam", [array], config_dir=root)
     with pytest.raises(RuntimeError, match="core failure"):
         processing.render_document_ephemeral(
-            AnalysisDiagnostic.model_validate(document), [array]
+            AnalysisRecipe.model_validate(document), [array]
         )
 
 
@@ -124,26 +108,26 @@ def test_display_window_and_bin_average_have_no_shot_overlays():
 
 def test_bad_core_render_is_a_render_error_without_fallback(recipe_tree, monkeypatch):
     _, _, document = recipe_tree
-    forbid_image_analysis(monkeypatch)
     with pytest.raises(processing.RenderError):
         processing.render_document_ephemeral(
-            AnalysisDiagnostic.model_validate(document),
+            AnalysisRecipe.model_validate(document),
             [np.ones((20, 20))],
             cmap="missing-colormap",
         )
 
 
 def test_trace_preview_retains_physical_axis_and_never_mutates_input():
-    document = AnalysisDiagnostic.model_validate(
+    document = AnalysisRecipe.model_validate(
         {
-            "name": "Spectrum",
-            "analyzer": {"kind": "line"},
-            "image": {
-                "type": "line",
-                "data_loading": {"data_type": "tsv"},
-                "x_scale_factor": 1000,
-                "x_units": "MeV",
+            "schema_version": 3,
+            "device": "Spectrum",
+            "input": {
+                "kind": "line",
+                "loading": {"data_type": "tsv"},
+                "x_scale": 1000,
+                "x_unit": "MeV",
             },
+            "measure": {"kind": "line"},
         }
     )
     data = np.column_stack(
@@ -166,24 +150,22 @@ def test_file_background_processing_and_unsaved_preview_use_core(
     background_path = root / "dark.npy"
     if available:
         np.save(background_path, np.full((20, 20), 7))
-    document["image"]["pipeline"] = ["background", "roi"]
-    document["image"]["background"] = {
-        "method": "from_file",
-        "file_path": str(background_path),
-        "constant_level": 11,
-        "additional_constant": 2,
-    }
+    document["inputs"] = {"dark": {"path": str(background_path), "fallback_level": 11}}
+    document["steps"] = [
+        {"step": "background_frame", "source": "dark", "alignment": "samples"},
+        {"step": "background_constant", "level": 2},
+        document["steps"][0],
+    ]
     path.write_text(yaml.safe_dump(document))
     before = path.read_bytes()
-    forbid_image_analysis(monkeypatch)
     data = np.arange(400, dtype=np.uint16).reshape(20, 20)
     expected = data[3:17, 2:15].astype(float) - (9 if available else 13)
     arrays = processing.process_images("beam", [data, data], config_dir=root)
     for array in arrays:
         np.testing.assert_array_equal(array, expected)
-    document["image"]["background"]["additional_constant"] = 4
+    document["steps"][1]["level"] = 4
     (figure,) = processing.render_document_ephemeral(
-        AnalysisDiagnostic.model_validate(document), [data]
+        AnalysisRecipe.model_validate(document), [data]
     )
     np.testing.assert_array_equal(figure.axes[0].images[0].get_array(), expected - 2)
     assert path.read_bytes() == before
@@ -193,18 +175,16 @@ def test_file_background_geometry_error_does_not_retry_legacy(recipe_tree, monke
     root, path, document = recipe_tree
     background_path = root / "wrong-shape.npy"
     np.save(background_path, np.ones((1, 1)))
-    document["image"]["background"] = {
-        "method": "from_file",
-        "file_path": str(background_path),
-        "constant_level": 11,
-    }
+    document["inputs"] = {"dark": {"path": str(background_path), "fallback_level": 11}}
+    document["steps"].insert(
+        0, {"step": "background_frame", "source": "dark", "alignment": "samples"}
+    )
     path.write_text(yaml.safe_dump(document))
-    forbid_image_analysis(monkeypatch)
     with pytest.raises(ValueError, match="shape"):
         processing.process_images("beam", [np.ones((20, 20))], config_dir=root)
     with pytest.raises(ValueError, match="shape"):
         processing.render_document_ephemeral(
-            AnalysisDiagnostic.model_validate(document), [np.ones((20, 20))]
+            AnalysisRecipe.model_validate(document), [np.ones((20, 20))]
         )
 
 

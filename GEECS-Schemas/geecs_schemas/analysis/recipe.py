@@ -20,11 +20,8 @@ input's dimensionality.  A schema-only consumer (a listing, MCP, this
 package's corpus walk) therefore validates a recipe's frame without the
 core; the editor lists the step vocabulary from the core's registry.
 
-This is format version 3, the shape the analysis core reads natively.  The
-version 2 document (:class:`~geecs_schemas.analysis.diagnostic.AnalysisDiagnostic`)
-is still read for the analyzer kinds the core has not ported; a v2
-recipe the core serves converts to this shape once through
-``geecs_analysis.compat.convert``.
+This is format version 3, the shape the analysis core reads natively; the
+retired version 2 document (``analyzer:`` + ``image:``) is refused.
 """
 
 from __future__ import annotations
@@ -602,9 +599,8 @@ class AnalysisRecipe(VersionedSchemaModel):
     def _refuse_other_versions(cls, data: object) -> object:
         """Refuse a document of another format; nothing is lifted here.
 
-        A v2 diagnostic (``analyzer:`` + ``image:``) is a different document
-        read by :class:`AnalysisDiagnostic`; ``load_analysis_document``
-        dispatches on ``schema_version``.
+        The retired v2 diagnostic (``analyzer:`` + ``image:``) is refused
+        with a message that names it.
         """
         if not isinstance(data, dict):
             return data
@@ -612,13 +608,13 @@ class AnalysisRecipe(VersionedSchemaModel):
         if version is not None and version != CURRENT_RECIPE_VERSION:
             raise ValueError(
                 f"schema_version {version} is not an analysis recipe (format "
-                f"{CURRENT_RECIPE_VERSION}); a v2 diagnostic is read by "
-                "AnalysisDiagnostic — use load_analysis_document to dispatch"
+                f"{CURRENT_RECIPE_VERSION}); the v2 diagnostic format is retired — "
+                "rewrite it as a v3 recipe"
             )
         if version is None and ("analyzer" in data or "image" in data):
             raise ValueError(
                 "this is a v2 analysis diagnostic (analyzer: + image:), not an "
-                "analysis recipe; use load_analysis_document to dispatch"
+                "analysis recipe; the v2 format is retired — rewrite it as a v3 recipe"
             )
         return data
 

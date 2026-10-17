@@ -85,7 +85,8 @@ independently:
 | `action_plan` | `ActionPlan` | one entry of the action library |
 | `action_plan_library` | `ActionPlanLibrary` | `action_library/actions.yaml` — regenerated once from the legacy `actions:` dialect (0.22.0) and authored new-schema only since; there is no converter |
 | `experiment_defaults` | `ExperimentDefaults` | (new — legacy kept these choices in GUI state) per-experiment fallbacks where a scan request is silent; defaults run first, then the scan's own |
-| `analysis_diagnostic` | `AnalysisDiagnostic` | the unified analysis diagnostic (`scan_analysis_configs/analyzers/<ns>/<id>.yaml`) — format v2: `analyzer:` is a closed discriminated union on `kind` (one spec model per analyzer the suite ships), `image:` is the camera / line processing section, `scan:` the typed scan-runtime section. pre-v2 files are refused — the corpus was regenerated in v2 once (0.19.0) and is authored v2-only since; there is no converter |
+| `analysis_recipe` | `AnalysisRecipe` | the analysis recipe (`scan_analysis_configs/analyzers/<ns>/<id>.yaml`) — format 3: `input`, ordered `steps` and a `measure` (registry references the analysis core binds), `figure`, `summaries`, `scan`. The retired v2 diagnostic (`analyzer:` + `image:`) is refused |
+| `himg_job` | `HimgJob` | a `.himg` data-management job in the same tree (top-level `kind:`) |
 | `analysis_group` | `AnalysisGroup` | analysis groups (`scan_analysis_configs/groups/<ns>/<name>.yaml`) — unchanged shape plus the `schema_version` stamp |
 
 `SCHEMA_REGISTRY` in `geecs_schemas/__init__.py` maps the kind strings to the
@@ -101,16 +102,13 @@ schema-side only in M1), `PositionRange` / `PositionList`, `ActionBindings`
 the four action step types.
 
 The analysis documents live in the `geecs_schemas.analysis` subpackage:
-`processing_2d` (`CameraConfig` + its sections), `processing_1d`
-(`Line1DConfig`, the `Line*` sections, `Data1DLoading` — a field-for-field
-mirror of GEECS-Data-Utils' `Data1DConfig` to keep data/analysis runtime
-dependencies outside this vocabulary package), `analyzers` (the `AnalyzerSpec` union and the
-`ANALYZER_SPECS` kind → model table), `renderer` (`RendererOptions`, one
-typed option set for both summary renderers), `scan_runtime`
-(`ScanRuntime`, `BackgroundSource`), `diagnostic` and `group`.  The class
-path left the document in v2: the analysis core maps each kind onto its
-steps and measure (`geecs_analysis.compat.v2`), so adding an analyzer means
-one spec model here and one mapping there. The `.himg` data-management jobs (`himg_to_stack`,
+`recipe` (`AnalysisRecipe` and its parts), `processing_1d`
+(`Data1DType`, `Data1DLoading` — a field-for-field mirror of
+GEECS-Data-Utils' `Data1DConfig` to keep data/analysis runtime
+dependencies outside this vocabulary package), `document`
+(`load_analysis_document`), `himg` and `group`. A recipe's steps and
+measure are the analysis core's registry vocabulary, so adding an
+analyzer happens in GEECS-Analysis alone. The `.himg` data-management jobs (`himg_to_stack`,
 `himg_compact`, `himg_restore`: one step over the device folder, no
 ImageAnalyzer) are not analyzer kinds but a document of their own,
 `himg.HimgJob` (top-level `kind:`, `schema_version: 1`), which

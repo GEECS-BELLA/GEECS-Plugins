@@ -12,7 +12,6 @@ from pydantic import ValidationError
 from geecs_schemas import SCHEMA_REGISTRY
 from geecs_schemas.analysis import (
     SUMMARY_KINDS,
-    AnalysisDiagnostic,
     AnalysisRecipe,
     AverageSummary,
     CameraInput,
@@ -233,53 +232,35 @@ class TestRefusals:
         )
 
     def test_a_v2_document_is_refused_with_a_pointer(self):
-        with pytest.raises(ValidationError, match="load_analysis_document"):
+        with pytest.raises(ValidationError, match="v2 format is retired"):
             AnalysisRecipe.model_validate(V2)
 
 
 class TestLoader:
-    def test_dispatches_on_schema_version(self):
+    def test_reads_a_recipe_and_refuses_any_other_version(self):
         assert isinstance(load_analysis_document(CAMERA), AnalysisRecipe)
-        assert isinstance(load_analysis_document(V2), AnalysisDiagnostic)
-        assert isinstance(
-            load_analysis_document({**V2, "schema_version": "2"}), AnalysisDiagnostic
-        )
         assert isinstance(
             load_analysis_document({**CAMERA, "schema_version": "3"}), AnalysisRecipe
         )
+        for retired in (V2, {**V2, "schema_version": "2"}):
+            with pytest.raises(ValidationError, match="retired"):
+                load_analysis_document(retired)
 
-    def test_a_v3_file_handed_to_the_v2_model_is_refused(self):
+    def test_the_v1_layout_is_refused(self):
         with pytest.raises(ValidationError):
-            AnalysisDiagnostic.model_validate(CAMERA)
-
-    def test_the_v1_layout_is_still_refused(self):
-        with pytest.raises(ValidationError, match="pre-v2"):
             load_analysis_document({"image_analyzer": "x.y:Z", "name": "D"})
 
 
-class TestNeutralNames:
-    """Both formats answer device / input_kind / data_folder / line_loading the same way."""
-
-    def test_recipe_and_diagnostic_agree(self):
+class TestNames:
+    def test_device_input_kind_data_folder_and_line_loading(self):
         recipe = AnalysisRecipe.model_validate(LINE)
-        diagnostic = AnalysisDiagnostic.model_validate(
-            {
-                "name": "Spec",
-                "output_name": "Spec-interp",
-                "analyzer": {"kind": "line"},
-                "image": {"type": "line", "data_loading": {"data_type": "tsv"}},
-                "scan": {"device": "Spec-interp"},
-            }
-        )
-        for doc in (recipe, diagnostic):
-            assert doc.device == "Spec"
-            assert doc.input_kind == "line"
-            assert doc.data_folder == "Spec-interp"
-            assert doc.effective_output_name == "Spec-interp"
-            assert doc.line_loading.data_type.value == "tsv"
+        assert recipe.device == "Spec"
+        assert recipe.input_kind == "line"
+        assert recipe.data_folder == "Spec-interp"
+        assert recipe.effective_output_name == "Spec-interp"
+        assert recipe.line_loading.data_type.value == "tsv"
         camera = AnalysisRecipe.model_validate(CAMERA)
         assert camera.data_folder == "UC_Test" and camera.line_loading is None
-        assert AnalysisDiagnostic.model_validate(V2).line_loading is None
 
     def test_declared_version_is_the_base_parse(self):
         from geecs_schemas._base import declared_schema_version, stale_schema_version

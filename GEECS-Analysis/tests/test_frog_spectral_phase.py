@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
-from geecs_schemas.analysis import FrogSpectralPhaseSpec as V2Spec
+from geecs_schemas.analysis import AnalysisRecipe
 
 from geecs_analysis.algorithms import polynomial_fit as ported
-from geecs_analysis.compat.convert import to_v3
-from geecs_analysis.compat.v2 import UnsupportedRecipe, analyze_v2, compile_v2
+from geecs_analysis.compat.v2 import analyze_v2
 from geecs_analysis.measures.frog_spectral_phase import (
     FrogSpectralPhaseSpec,
     wavelength_nm_to_omega_rad_per_fs,
@@ -26,24 +24,26 @@ LOADING = {
 }
 
 
-def document(
-    *, storage="float64", loading=None, analyzer=None, image=None
-) -> AnalysisDiagnostic:
-    return AnalysisDiagnostic.model_validate(
+def recipe(*, storage="float64", loading=None, measure=None) -> AnalysisRecipe:
+    """The FROG temporal-lineout recipe."""
+    return AnalysisRecipe.model_validate(
         {
-            "name": "U_FROG_Grenouille-Temporal",
-            "analyzer": {"kind": "frog_spectral_phase", **(analyzer or {})},
-            "image": {
-                "type": "line",
+            "device": "U_FROG_Grenouille-Temporal",
+            "input": {
+                "kind": "line",
+                "file_tail": "_retrieved_lineouts.tsv",
+                "loading": LOADING if loading is None else loading,
+                "label": "x vs y",
                 "storage_dtype": storage,
-                "data_loading": LOADING if loading is None else loading,
-                "roi": {"x_min": 750.0, "x_max": 850.0},
-                "pipeline": ["roi"],
-                **(image or {}),
             },
-            "scan": {"mode": "per_shot", "file_tail": "_retrieved_lineouts.tsv"},
+            "steps": [{"step": "roi", "bounds": [[750, 850]], "units": "axis"}],
+            "measure": {"kind": "frog_spectral_phase", **(measure or {})},
         }
     )
+
+
+def compiled(**kwargs):
+    return compile_recipe(recipe(**kwargs))
 
 
 def lineout(seed: int, *, gdd: float = 300.0, n: int = 256) -> np.ndarray:
@@ -134,28 +134,26 @@ def test_the_fit_refuses_what_the_legacy_fit_refuses():
             )
 
 
-# ------------------------------------------------------------ the v2 route
+# ---------------------------------------------------------- the core route
 
 
 @pytest.mark.parametrize("storage", ["float64", "float32"])
 @pytest.mark.parametrize("seed", range(3))
-def test_the_v2_route_equals_the_legacy_analyzer(storage, seed, expected, request):
-    doc = document(storage=storage)
+def test_the_core_route_equals_the_legacy_analyzer(storage, seed, expected, request):
     data = lineout(seed)
-    result = analyze_v2(data, compile_v2(doc))
+    result = analyze_v2(data, compiled(storage=storage))
     # The fit is float64 on both routes whatever the storage dtype: the
     # stored input is rounded identically, the fit computed in float64.
     expected(
         f"route_{request.node.callspec.id}",
         actual=core_values(result),
     )
-    assert set(result.scalars) == doc.analyzer.emitted_scalars()
+    assert set(result.scalars) == FrogSpectralPhaseSpec().emitted_scalars()
 
 
 def test_a_sign_flip_matches_the_legacy_flip(expected):
-    doc = document()
     data = lineout(1, gdd=-300.0)
-    result = analyze_v2(data, compile_v2(doc))
+    result = analyze_v2(data, compiled())
     stored = expected(
         "sign_flip",
         actual=core_values(result),
@@ -172,9 +170,8 @@ def test_a_sign_flip_matches_the_legacy_flip(expected):
     ],
 )
 def test_options_match_the_legacy_analyzer(analyzer, expected, request):
-    doc = document(analyzer=analyzer)
     data = lineout(2)
-    result = analyze_v2(data, compile_v2(doc))
+    result = analyze_v2(data, compiled(measure=analyzer))
     expected(
         f"options_{request.node.callspec.id}",
         actual=core_values(result),
@@ -182,12 +179,11 @@ def test_options_match_the_legacy_analyzer(analyzer, expected, request):
 
 
 def test_the_weights_channel_weights_the_fit_and_follows_the_roi(expected):
-    doc = document()
     data = lineout(0)
-    weighted = analyze_v2(data, compile_v2(doc))
+    weighted = analyze_v2(data, compiled())
     # Same trace, no channel declared: the unweighted legacy fit.
-    unweighted_doc = document(loading={**LOADING, "auxiliary_columns": {}})
-    plain = analyze_v2(data[:, :2], compile_v2(unweighted_doc))
+    unweighted = compiled(loading={**LOADING, "auxiliary_columns": {}})
+    plain = analyze_v2(data[:, :2], unweighted)
     expected(
         "unweighted",
         actual=core_values(plain),
@@ -202,18 +198,18 @@ def test_the_weights_channel_weights_the_fit_and_follows_the_roi(expected):
 
 
 def test_the_channel_is_the_declared_column_not_a_neighbour():
-    doc = document()
+    core = compiled()
     data = lineout(0)
     swapped = data.copy()
     swapped[:, 2] = np.roll(data[:, 2], 7)
-    assert dict(analyze_v2(swapped, compile_v2(doc)).scalars) != dict(
-        analyze_v2(data, compile_v2(doc)).scalars
+    assert dict(analyze_v2(swapped, core).scalars) != dict(
+        analyze_v2(data, core).scalars
     )
 
 
 def test_a_trace_without_its_declared_channel_is_refused():
     with pytest.raises(ValueError, match=r"Nx3 \(x, y, weights\)"):
-        analyze_v2(lineout(0)[:, :2], compile_v2(document()))
+        analyze_v2(lineout(0)[:, :2], compiled())
 
 
 def test_too_few_points_above_the_mask_fails_the_shot():
@@ -221,75 +217,32 @@ def test_too_few_points_above_the_mask_fails_the_shot():
     data[:, 2] = 0.0
     data[128, 2] = 1.0
     with pytest.raises(ValueError, match="valid points"):
-        analyze_v2(data, compile_v2(document()))
+        analyze_v2(data, compiled())
 
 
 # --------------------------------------------------------------- compiling
 
 
 def test_compiles_to_the_measure_with_its_parameters_and_channel():
-    doc = document(analyzer={"fit_order": 4, "mask_threshold": 0.3})
-    recipe = compile_v2(doc)
-    assert recipe.analysis.measure == FrogSpectralPhaseSpec(
+    core = compiled(measure={"fit_order": 4, "mask_threshold": 0.3})
+    assert core.analysis.measure == FrogSpectralPhaseSpec(
         fit_order=4, mask_threshold=0.3
     )
-    assert recipe.channels == ("weights",)
-    assert recipe.input_kind == "line"
+    assert core.channels == ("weights",)
+    assert core.input_kind == "line"
 
 
 def test_a_column_no_measure_reads_is_not_a_channel():
-    line = AnalysisDiagnostic.model_validate(
+    loading = {**LOADING, "auxiliary_columns": {"other": 4}}
+    line = AnalysisRecipe.model_validate(
         {
-            "name": "Dev",
-            "analyzer": {"kind": "line"},
-            "image": {
-                "type": "line",
-                "data_loading": {**LOADING, "auxiliary_columns": {"other": 4}},
-                "pipeline": [],
-            },
+            "device": "Dev",
+            "input": {"kind": "line", "loading": loading, "label": "x vs y"},
+            "measure": {"kind": "line"},
         }
     )
-    assert compile_v2(line).channels == ()
-    other = document(loading={**LOADING, "auxiliary_columns": {"other": 4}})
-    assert compile_v2(other).channels == ()
-
-
-def test_interpolation_with_a_channel_is_refused_as_legacy_refused_it():
-    interpolated = {
-        "pipeline": ["roi", "interpolation"],
-        "interpolation": {"num_points": 100, "x_min": 750.0, "x_max": 850.0},
-    }
-    with pytest.raises(UnsupportedRecipe, match="interpolation"):
-        compile_v2(document(image=interpolated))
-    no_channel = document(
-        image=interpolated, loading={**LOADING, "auxiliary_columns": {}}
-    )
-    assert compile_v2(no_channel).channels == ()
-
-
-def test_the_spec_mirrors_the_v2_analyzer_spec():
-    assert set(FrogSpectralPhaseSpec.model_fields) == set(V2Spec.model_fields)
-    for name, field in V2Spec.model_fields.items():
-        if name != "kind":
-            assert FrogSpectralPhaseSpec.model_fields[name].default == field.default
-    for order in (0, 3, 6):
-        assert (
-            FrogSpectralPhaseSpec(fit_order=order).emitted_scalars()
-            == V2Spec(fit_order=order).emitted_scalars()
-        )
-
-
-def test_converts_to_v3_and_recompiles_identically():
-    doc = document(analyzer={"fit_order": 4})
-    conversion = to_v3(doc)
-    assert conversion.notes == ()
-    assert conversion.recipe.input.loading.auxiliary_columns == {"weights": 4}
-    recompiled = compile_recipe(conversion.recipe, allow_file_backgrounds=True)
-    assert recompiled == compile_v2(doc, allow_file_backgrounds=True)
-    data = lineout(0)
-    assert dict(analyze_v2(data, recompiled).scalars) == dict(
-        analyze_v2(data, compile_v2(doc)).scalars
-    )
+    assert compile_recipe(line).channels == ()
+    assert compiled(loading=loading).channels == ()
 
 
 def _v3(**input_fields) -> AnalysisRecipe:

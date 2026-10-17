@@ -2,10 +2,11 @@
 
 import numpy as np
 import pytest
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.v2 import UnsupportedRecipe, analyze_v2, compile_v2
+from geecs_analysis.compat.v2 import analyze_v2
 from geecs_analysis.pipeline import apply_pipeline
+from geecs_analysis.recipe import compile_recipe
 from geecs_analysis.specs import Pipeline
 from geecs_data_utils.frames import Axis, Frame, ShotMeta
 
@@ -66,34 +67,26 @@ def test_non_pixel_axes_are_refused():
         run(frame, **MODEL)
 
 
-def camera(pipeline, **sections):
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": "diagnostic",
-            "output_name": "output",
-            "analyzer": {"kind": "standard"},
-            "image": {"type": "camera", "pipeline": pipeline, **sections},
-        }
-    )
-
-
-SECTIONS = dict(
-    background={"method": "constant", "constant_level": 3, "additional_constant": 1},
-    vignette={"x_offset": 25, "y_offset": 170, **MODEL},
-    roi={"x_min": 4, "x_max": 40, "y_min": 2, "y_max": 27},
-    thresholding={"method": "constant", "value": 0, "mode": "to_zero"},
-    filtering={"median_kernel_size": 5},
-    transforms={"rotation_angle": 0.2},
-)
-
-
 def test_the_htt_magcam_chain_matches_the_legacy_pipeline(expected):
     # The HTT-MagCam documents' order: background, vignette, roi, ...
-
-    pipeline = ["background", "vignette", "roi", "thresholding", "filtering"]
-    doc = camera([*pipeline, "transforms"], **SECTIONS)
+    steps = [
+        {"step": "background_constant", "level": 3},
+        {"step": "background_constant", "level": 1},
+        {"step": "vignette", "x_offset": 25, "y_offset": 170, **MODEL},
+        {"step": "roi", "bounds": [[2, 27], [4, 40]]},
+        {"step": "zero_below", "level": 0},
+        {"step": "median", "kernel": 5},
+        {"step": "rotate", "angle": 0.2},
+    ]
+    document = {
+        "schema_version": 3,
+        "device": "diagnostic",
+        "output_name": "output",
+        "input": {"kind": "camera"},
+        "steps": steps,
+    }
     data = np.random.default_rng(5).integers(0, 4000, (31, 45), dtype=np.uint16)
-    recipe = compile_v2(doc)
+    recipe = compile_recipe(AnalysisRecipe.model_validate(document))
     assert [s.step for s in recipe.analysis.steps][:3] == [
         "background_constant",
         "background_constant",
@@ -104,18 +97,3 @@ def test_the_htt_magcam_chain_matches_the_legacy_pipeline(expected):
         "htt_magcam_chain",
         actual=result.frame.data,
     )
-
-
-def test_a_vignette_after_an_active_roi_is_refused():
-    for pipeline in (["roi", "vignette"], ["vignette", "roi", "vignette"]):
-        with pytest.raises(UnsupportedRecipe, match="after roi"):
-            compile_v2(camera(pipeline, **SECTIONS))
-    # An inactive roi is no crop: the order compiles.
-    sections = {**SECTIONS, "roi": None}
-    compile_v2(camera(["roi", "vignette"], **sections))
-
-
-def test_a_map_file_vignette_is_refused():
-    vignette = {"method": "map_file", "map_file_path": "never-opened.npy"}
-    with pytest.raises(UnsupportedRecipe, match="map_file"):
-        compile_v2(camera(["vignette"], vignette=vignette))
