@@ -96,7 +96,6 @@ geecs_data = Z:/data/
 GEECS_DATA_LOCAL_BASE_PATH = Z:/data/
 scanner_config_root_path = C:/path/to/GEECS-Plugins-Configs
 scan_analysis_configs_path = C:/path/to/GEECS-Plugins-Configs/scan_analysis_configs
-image_analysis_configs_path = C:/path/to/GEECS-Plugins-Configs/image_analysis_configs
 
 [Experiment]
 expt = Undulator
@@ -132,7 +131,6 @@ What each section is for, and who reads it:
 | `[Paths] GEECS_DATA_LOCAL_BASE_PATH` | The data share as mounted on *this* machine (scan-folder resolution; `scripts/lab_status.sh`'s mount probe) | GEECS-Data-Utils `GeecsPathsConfig`, the fleet scripts |
 | `[Paths] geecs_tiled_host_data_base_path` | The data share as mounted on the **Tiled host**, only when that differs from this machine's mount: the Tiled writer registers each stream's Parquet table by the Tiled host's path. Unset = same mount | GeecsBluesky `geecs-tiled-writer` |
 | `[Paths] scan_analysis_configs_path` | Analyzer/diagnostic YAMLs in the configs repo | ScanAnalysis, the data portal config editor |
-| `[Paths] image_analysis_configs_path` | Camera/1D analyzer configs in the configs repo (legacy key) | No current package; only GEECS-Data-Utils' path resolution reads it |
 | `[Paths] scanner_config_root_path` | The configs repo root (scanner configs, derived channels, experiment defaults) | GEECS Scanner, GeecsBluesky, the CA gateway, GEECS-MCP |
 | `[Paths] frog_dll_path`, `frog_python32_path`, `frog_launcher` | Grenouille/FROG retrieval (optional): Kane's 32-bit `FROG.dll`, the 32-bit (embeddable) Windows Python that loads it, and — on Linux only — the command that runs that Python, e.g. `env WINEDEBUG=-all wine` (needs 32-bit Wine; unset runs it directly, as on Windows) | ScanAnalysis `scan_analysis.services.frog_dll_retrieval.FrogDllRetrieval`; ScanAnalysis builds it for `frog` recipes (the Data Portal, the task queue) |
 | `[Paths] wavekit_sdk_path`, `wavekit_python_path`, `wavekit_configs_path`, `wavekit_launcher` | HASO wavefront reconstruction (optional, the `haso` measure): Imagine Optic's WaveKit 4.3 directory on the software share (`wavekit_py/` + `dlls/x64/`), the 64-bit Windows Python 3.8 (with the SDK's numpy 1.19) that imports it, the directory of per-sensor `.dat`/`.lift` files a recipe's `sensor_config` names, and — on Linux only — the command that runs that Python in a **64-bit** Wine prefix, e.g. `env WINEDEBUG=-all wine` (Wine's default prefix, win64 on Ubuntu, shared with the FROG worker) or with `WINEPREFIX=<dir>` for one of its own. `geecs-wavekit-doctor` checks all four; the runbook is [HASO](../analysis/haso.md) | ScanAnalysis `scan_analysis.services.haso_wavekit.HasoWaveKit`; ScanAnalysis builds it for `haso` recipes (the Data Portal, the task queue) |

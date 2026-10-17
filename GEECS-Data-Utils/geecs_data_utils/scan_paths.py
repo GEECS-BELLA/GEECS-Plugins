@@ -126,7 +126,6 @@ class ScanPaths:
         config_path: Optional[Path] = None,
         default_experiment: Optional[str] = None,
         set_base_path: Optional[Union[Path, str]] = None,
-        image_analysis_configs_path: Optional[Union[Path, str]] = None,
     ):
         """Use by GEECS Scanner to fix scan_data_manager in case experiment name has changed."""
         try:
@@ -136,14 +135,12 @@ class ScanPaths:
                 cls.paths_config = GeecsPathsConfig(
                     default_experiment=default_experiment,
                     set_base_path=set_base_path,
-                    image_analysis_configs_path=image_analysis_configs_path,
                 )
             else:
                 cls.paths_config = GeecsPathsConfig(
                     config_path=config_path,
                     default_experiment=default_experiment,
                     set_base_path=set_base_path,
-                    image_analysis_configs_path=image_analysis_configs_path,
                 )
         except ConfigurationError as e:
             logger.error("Configuration Error in ScanData: %s", e)  # noqa: TRY400 — expected config state

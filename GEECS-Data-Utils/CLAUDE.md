@@ -238,9 +238,9 @@ consumers should share this boundary.
 YAML config files. ScanAnalysis resolves through the unified analysis config tree.
 
 ```python
-from geecs_data_utils.config_roots import image_analysis_config, scan_analysis_config
+from geecs_data_utils.config_roots import scan_analysis_config
 
-# These are pre-built singletons. Path resolved from:
+# A pre-built singleton. Path resolved from:
 # 1. SCAN_ANALYSIS_CONFIG_DIR
 # 2. config.ini Paths.scan_analysis_configs_path
 # 3. Raises ValueError when no base directory is available
