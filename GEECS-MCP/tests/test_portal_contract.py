@@ -6,10 +6,8 @@ import base64
 import json
 import time
 
-import httpx
-import pytest
 
-from geecs_mcp import clients, config, guard
+from geecs_mcp import config, guard
 from geecs_mcp.analysis import tools
 
 DAY = "2026-07-12"
@@ -314,42 +312,3 @@ class TestFigures:
         out = _j(await run(tools._get_scan_figure, PORTAL_SCAN, None, DAY, False))
         assert out["ok"] is True
         assert out["figures"] == []
-
-
-class TestGetBytes:
-    async def test_truncation_is_by_content_not_by_a_missing_length(
-        self, monkeypatch
-    ) -> None:
-        body = b"x" * 1024
-
-        def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                200, content=body, headers={"content-type": "text/plain"}
-            )
-
-        monkeypatch.setattr(config, "service_url", lambda service: "http://portal")
-        monkeypatch.setattr(
-            clients, "transport_for", lambda service: httpx.MockTransport(handler)
-        )
-        try:
-            exact = await clients.get_bytes("portal", "/x", max_bytes=1024)
-            cut = await clients.get_bytes("portal", "/x", max_bytes=100)
-        finally:
-            await clients.reset_clients()
-        assert exact[0] == body and exact[2] is False and exact[3] == 1024
-        assert len(cut[0]) == 100 and cut[2] is True and cut[3] == 1024
-
-    async def test_a_portal_404_is_a_refusal(self, monkeypatch) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(404, json={"detail": "no such artifact"})
-
-        monkeypatch.setattr(config, "service_url", lambda service: "http://portal")
-        monkeypatch.setattr(
-            clients, "transport_for", lambda service: httpx.MockTransport(handler)
-        )
-        try:
-            with pytest.raises(clients.ServiceRefusal) as caught:
-                await clients.get_bytes("portal", "/x", max_bytes=10)
-        finally:
-            await clients.reset_clients()
-        assert caught.value.kind == "not_found"

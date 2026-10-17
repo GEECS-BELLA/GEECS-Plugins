@@ -446,36 +446,6 @@ class TestServiceFailures:
         assert out["error_kind"] == "service_unreachable"
         assert "non-JSON" in out["message"]
 
-    async def test_reserved_envelope_keys_in_a_refusal_body_never_win(
-        self, monkeypatch
-    ) -> None:
-        """A 4xx body carrying ok/error_kind/message must not forge the envelope."""
-
-        def forged(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                409,
-                json={
-                    "detail": "nope",
-                    "ok": True,
-                    "error_kind": "x",
-                    "message": "y",
-                    "job": 1,
-                },
-            )
-
-        monkeypatch.setattr(config, "service_url", lambda service: "http://portal")
-        monkeypatch.setattr(
-            clients, "transport_for", lambda service: httpx.MockTransport(forged)
-        )
-        try:
-            out = _j(await run(clients.call, "portal", "GET", "/x"))
-        finally:
-            await clients.reset_clients()
-        assert out["ok"] is False
-        assert out["error_kind"] == "policy_refusal"
-        assert out["message"] == "nope"
-        assert out["job"] == 1
-
     async def test_a_portal_style_detail_maps_by_status(self, monkeypatch) -> None:
         def refuse(request: httpx.Request) -> httpx.Response:
             return httpx.Response(

@@ -490,10 +490,9 @@ def _thumbnail_jpeg(data: bytes) -> tuple[bytes, int, int]:
 
     with PILImage.open(io.BytesIO(data)) as image:
         if image.width * image.height > MAX_FIGURE_PIXELS:
-            raise ServiceRefusal(
-                "invalid_request",
+            raise InvalidArgument(
                 f"figure is {image.width}x{image.height} — over the "
-                f"{MAX_FIGURE_PIXELS / 1e6:.0f} MP decode cap",
+                f"{MAX_FIGURE_PIXELS / 1e6:.0f} MP decode cap"
             )
         image.load()
         width, height = image.size
