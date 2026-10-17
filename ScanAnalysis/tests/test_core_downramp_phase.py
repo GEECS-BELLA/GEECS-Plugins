@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
 from scan_analysis.config import create_scan_analyzer
@@ -35,14 +35,19 @@ SCALARS = (
 )
 
 
-def document(mode: str) -> AnalysisDiagnostic:
-    return AnalysisDiagnostic.model_validate(
+def document(mode: str) -> AnalysisRecipe:
+    return AnalysisRecipe.model_validate(
         {
-            "name": DEVICE,
+            "device": DEVICE,
             "output_name": "Diag",
-            "analyzer": {"kind": "downramp_phase"},
-            "image": {"type": "camera", "pipeline": []},
-            "scan": {"mode": mode, "file_tail": ".npy", "renderer": {"dpi": 30}},
+            "input": {"kind": "camera", "file_tail": ".npy"},
+            "measure": {"kind": "downramp_phase"},
+            "scan": {"average_frames_first": mode == "per_bin"},
+            "figure": {"imshow": {"vmin": 0}, "fig": {"dpi": 30}},
+            "summaries": [
+                {"kind": "image_grid", "panel_size": [6.0, 6.0]},
+                {"kind": "average"},
+            ],
         }
     )
 

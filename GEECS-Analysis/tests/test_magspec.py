@@ -149,6 +149,68 @@ def polynomial(**analyzer) -> AnalysisDiagnostic:
     )
 
 
+#: The converter's v3 form of ``PIPELINE``.
+STEPS = [
+    {"step": "background_constant", "level": 5},
+    {"step": "roi", "bounds": [[4, 60], [10, 138]]},
+    {"step": "median"},
+]
+
+
+def dnn(
+    paths,
+    *,
+    camera=1,
+    field=0.3,
+    lanex=True,
+    energy_range=(1.0, 1500.0),
+    steps=None,
+    field_column=None,
+) -> AnalysisRecipe:
+    """The v3 dnn_axis recipe, its tables bound by absolute path."""
+    keys = ["camera", "trajectory", *(["lanex"] if lanex else [])]
+    measure_ = {
+        "kind": "magspec",
+        "calibration": {
+            "kind": "dnn_axis",
+            "camera_number": camera,
+            "magnetic_field_t": field,
+        },
+        **{f"{key}_table": f"{key}_table" for key in keys},
+        "energy_range": list(energy_range),
+        "num_energy_points": 300,
+    }
+    if field_column is not None:
+        measure_["magnetic_field_column"] = field_column
+    return AnalysisRecipe.model_validate(
+        {
+            "device": "TestCam",
+            "input": {"kind": "camera"},
+            "inputs": {f"{key}_table": {"table": str(paths[key])} for key in keys},
+            "steps": STEPS if steps is None else steps,
+            "measure": measure_,
+        }
+    )
+
+
+def poly(**measure_) -> AnalysisRecipe:
+    """The v3 polynomial recipe; ``measure_`` overrides measure fields."""
+    return AnalysisRecipe.model_validate(
+        {
+            "device": "TestCam",
+            "input": {"kind": "camera"},
+            "steps": STEPS,
+            "measure": {
+                "kind": "magspec",
+                "calibration": {"kind": "polynomial", "coeffs": [20.0, 0.5, 2e-3]},
+                "energy_range": [30, 90],
+                "num_energy_points": 200,
+                **measure_,
+            },
+        }
+    )
+
+
 def frame(seed: int) -> np.ndarray:
     """A dispersed beam: two vertical stripes on noise, 64 x 160 uint16."""
     rng = np.random.default_rng(seed)
@@ -188,12 +250,8 @@ def assert_same_result(check, name: str, core) -> None:
 
 @pytest.mark.parametrize("seed", range(3))
 def test_polynomial_route_equals_the_legacy_analyzer(seed, expected):
-    doc = polynomial()
     raw = frame(seed)
-    # The whole kind waits for a host that serves it, whatever the calibration.
-    with pytest.raises(UnsupportedRecipe, match="source host"):
-        compile_v2(doc)
-    core = analyze_v2(raw, compile_v2(doc, allow_table_inputs=True))
+    core = analyze_v2(raw, compile_recipe(poly(), allow_file_backgrounds=True))
     assert_same_result(
         expected,
         f"polynomial_{seed}",
@@ -204,14 +262,19 @@ def test_polynomial_route_equals_the_legacy_analyzer(seed, expected):
 
 def test_array_calibration_is_inline_only(expected):
     values = [20.0 + 0.5 * i for i in range(128)]
-    doc = polynomial(calibration={"kind": "array", "values": values})
     raw = frame(0)
-    compiled = compile_v2(doc, allow_table_inputs=True)
+    compiled = compile_recipe(
+        poly(calibration={"kind": "array", "values": values}),
+        allow_file_backgrounds=True,
+    )
     assert_same_result(
         expected,
         "array",
         analyze_v2(raw, compiled),
     )
+
+
+def test_v2_array_calibration_file_is_refused():
     with pytest.raises(UnsupportedRecipe, match="file"):
         compile_v2(
             polynomial(calibration={"kind": "array", "file": "axis.npy"}),
@@ -228,15 +291,15 @@ def test_array_calibration_is_inline_only(expected):
 def test_dnn_route_equals_the_legacy_analyzer_on_the_same_tables(
     tmp_path, camera, lanex, energy_range, expected, request
 ):
-    doc = diagnostic(
+    doc = dnn(
         synthetic_tables(tmp_path),
         camera=camera,
         lanex=lanex,
         energy_range=energy_range,
     )
-    with pytest.raises(UnsupportedRecipe, match="tables"):
-        compile_v2(doc)
-    compiled = compile_v2(doc, allow_table_inputs=True)
+    with pytest.raises(RecipeError, match="source host"):
+        compile_recipe(doc)
+    compiled = compile_recipe(doc, allow_file_backgrounds=True)
     assert [t.key for t in compiled.tables] == (
         ["camera_table", "trajectory_table", "lanex_table"]
         if lanex
@@ -258,8 +321,8 @@ def test_dnn_route_equals_the_legacy_analyzer_on_the_same_tables(
 
 
 def test_lanex_row_falls_back_to_position_without_a_setting_column(tmp_path, expected):
-    doc = diagnostic(synthetic_tables(tmp_path, lanex_by_setting=False), camera=3)
-    compiled = compile_v2(doc, allow_table_inputs=True)
+    doc = dnn(synthetic_tables(tmp_path, lanex_by_setting=False), camera=3)
+    compiled = compile_recipe(doc, allow_file_backgrounds=True)
     raw = frame(3)
     assert_same_result(
         expected,
@@ -293,8 +356,8 @@ def test_cells_the_legacy_reader_never_converted_may_be_blank(
         if index > split:
             row[logic] = ""
     write_tsv(paths["trajectory"], list(table.columns), rows)
-    doc = diagnostic(paths, camera=camera)
-    compiled = compile_v2(doc, allow_table_inputs=True)
+    doc = dnn(paths, camera=camera)
+    compiled = compile_recipe(doc, allow_file_backgrounds=True)
     raw = frame(camera)
     assert_same_result(
         expected,
@@ -306,10 +369,8 @@ def test_cells_the_legacy_reader_never_converted_may_be_blank(
 def test_the_per_shot_field_equals_the_legacy_override_and_never_leaks(
     tmp_path, expected
 ):
-    doc = diagnostic(synthetic_tables(tmp_path), field=0.3)
-    compiled = compile_recipe(
-        to_v3(doc, magnetic_field_column=COLUMN).recipe, allow_file_backgrounds=True
-    )
+    doc = dnn(synthetic_tables(tmp_path), field=0.3, field_column=COLUMN)
+    compiled = compile_recipe(doc, allow_file_backgrounds=True)
     assert shot_scalar_columns(compiled.analysis.measure) == (COLUMN,)
     tables = bound_tables(compiled)
     raw = frame(5)
@@ -336,10 +397,8 @@ def test_the_per_shot_field_equals_the_legacy_override_and_never_leaks(
 
 
 def test_the_field_rides_through_the_runner_on_shot_metadata(tmp_path):
-    doc = diagnostic(synthetic_tables(tmp_path))
-    compiled = compile_recipe(
-        to_v3(doc, magnetic_field_column=COLUMN).recipe, allow_file_backgrounds=True
-    )
+    doc = dnn(synthetic_tables(tmp_path), field_column=COLUMN)
+    compiled = compile_recipe(doc, allow_file_backgrounds=True)
     tables = bound_tables(compiled)
     raw = frame(6)
     shot = ShotMeta("TestCam", 1, 10.0, {COLUMN: 0.22})
@@ -540,8 +599,8 @@ def test_a_per_shot_column_needs_per_shot_units(tmp_path):
 
 
 def test_execution_refuses_a_missing_or_mistyped_table(tmp_path):
-    compiled = compile_v2(
-        diagnostic(synthetic_tables(tmp_path)), allow_table_inputs=True
+    compiled = compile_recipe(
+        dnn(synthetic_tables(tmp_path)), allow_file_backgrounds=True
     )
     tables = bound_tables(compiled)
     with pytest.raises(ValueError, match="Missing table input: lanex_table"):
@@ -562,7 +621,13 @@ def test_execution_refuses_a_missing_or_mistyped_table(tmp_path):
     "change, needle",
     [
         (
-            {"image": {**PIPELINE, "roi": {**PIPELINE["roi"], "x_max": 100}}},
+            {
+                "steps": [
+                    *STEPS[:1],
+                    {"step": "roi", "bounds": [[4, 60], [10, 100]]},
+                    *STEPS[2:],
+                ]
+            },
             "doesn't match image width",
         ),
         ({"camera": 2}, "Camera number 2 not found"),
@@ -578,8 +643,8 @@ def test_calibration_refusals_match_the_legacy_ones(tmp_path, change, needle):
     if change.pop("far", False):
         text = paths["camera"].read_text().replace("\t150.0\t", "\t900.0\t")
         paths["camera"].write_text(text)
-    doc = diagnostic(paths, **change)
-    compiled = compile_v2(doc, allow_table_inputs=True)
+    doc = dnn(paths, **change)
+    compiled = compile_recipe(doc, allow_file_backgrounds=True)
     with pytest.raises(ValueError, match=needle):
         analyze_v2(frame(0), compiled, inputs=bound_tables(compiled))
 
@@ -671,10 +736,8 @@ def test_an_average_folds_moving_energy_grids_index_wise(tmp_path, mode, expecte
 
     from geecs_analysis.compat.v2_average import RunningAverage
 
-    doc = diagnostic(synthetic_tables(tmp_path))
-    compiled = compile_recipe(
-        to_v3(doc, magnetic_field_column=COLUMN).recipe, allow_file_backgrounds=True
-    )
+    doc = dnn(synthetic_tables(tmp_path), field_column=COLUMN)
+    compiled = compile_recipe(doc, allow_file_backgrounds=True)
     tables = bound_tables(compiled)
     running = RunningAverage(compiled, mode=mode)
     grids = []
@@ -701,19 +764,19 @@ def test_a_steady_grid_keeps_the_first_axes_and_other_measures_still_refuse():
 
     from geecs_analysis.compat.v2_average import RunningAverage
 
-    compiled = compile_v2(polynomial(), allow_table_inputs=True)
+    compiled = compile_recipe(poly(), allow_file_backgrounds=True)
     first = analyze_v2(frame(1), compiled)
     running = RunningAverage(compiled, mode="bin")
     for n in (1, 2, 3):
         running.add(analyze_v2(frame(n), compiled))
     for kept, axis in zip(running.result().frame.axes, first.frame.axes, strict=True):
         assert np.array_equal(kept.values, axis.values)
-    beam = compile_v2(
-        AnalysisDiagnostic.model_validate(
+    beam = compile_recipe(
+        AnalysisRecipe.model_validate(
             {
-                "name": "TestCam",
-                "analyzer": {"kind": "beam"},
-                "image": {"type": "camera", "pipeline": []},
+                "device": "TestCam",
+                "input": {"kind": "camera"},
+                "measure": {"kind": "beam"},
             }
         )
     )

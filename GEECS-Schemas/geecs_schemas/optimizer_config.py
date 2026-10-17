@@ -169,7 +169,7 @@ class DiagnosticMeasurement(MeasurementOptions):
     @field_validator("overrides")
     @classmethod
     def _overrides(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
-        if set(value) - {"analyzer", "image"}:
+        if set(value) - {"analyzer", "image", "steps", "measure"}:
             raise ValueError(
                 "diagnostic overrides may change analyzer or image settings only"
             )

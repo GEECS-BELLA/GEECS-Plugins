@@ -155,7 +155,16 @@ def test_store_lists_validates_and_writes_a_recipe(tmp_path):
     (root / "analyzers" / "HTU").mkdir(parents=True)
     (root / "groups").mkdir()
     v2 = diagnostic("beam")
-    v3 = to_v3(v2).recipe
+    v3 = recipe(
+        output_name="Output",
+        scalar_suffix="_s",
+        steps=[{"step": "roi", "bounds": [[0, 2], [1, 3]]}],
+        figure={"imshow": {"vmin": 0}, "fig": {"dpi": 30}},
+        summaries=[
+            {"kind": "image_grid", "panel_size": [6.0, 6.0]},
+            {"kind": "average"},
+        ],
+    )
     (root / "analyzers" / "HTU" / "Old.yaml").write_text(
         yaml.safe_dump(v2.model_dump(mode="json", exclude_none=True))
     )

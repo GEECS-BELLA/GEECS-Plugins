@@ -9,10 +9,10 @@ import textwrap
 
 import numpy as np
 import pytest
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.v2 import compile_v2
 from geecs_analysis.compat.v2_run import ShotGroup, run_units
+from geecs_analysis.recipe import compile_recipe
 
 # A spawned worker imports the loader's module by name, so the loader lives
 # in a real module on sys.path (the test module itself is not importable
@@ -80,16 +80,13 @@ def source(tmp_path, monkeypatch):
 
 
 def recipe():
-    return compile_v2(
-        AnalysisDiagnostic.model_validate(
+    return compile_recipe(
+        AnalysisRecipe.model_validate(
             {
-                "name": "Camera",
-                "analyzer": {"kind": "beam"},
-                "image": {
-                    "type": "camera",
-                    "pipeline": ["roi"],
-                    "roi": {"x_min": 1, "x_max": 5, "y_min": 0, "y_max": 4},
-                },
+                "device": "Camera",
+                "input": {"kind": "camera"},
+                "steps": [{"step": "roi", "bounds": [[0, 4], [1, 5]]}],
+                "measure": {"kind": "beam"},
             }
         )
     )
@@ -220,16 +217,16 @@ DRIVER = textwrap.dedent(
     import sys
     from pathlib import Path
 
-    from geecs_schemas.analysis import AnalysisDiagnostic
+    from geecs_schemas.analysis import AnalysisRecipe
 
-    from geecs_analysis.compat.v2 import compile_v2
+    from geecs_analysis.recipe import compile_recipe
     from geecs_analysis.compat.v2_run import ShotGroup, run_units
     from pool_helper import Source
 
     if __name__ == "__main__":
-        compiled = compile_v2(
-            AnalysisDiagnostic.model_validate(
-                {"name": "Camera", "analyzer": {"kind": "beam"}, "image": {"type": "camera"}}
+        compiled = compile_recipe(
+            AnalysisRecipe.model_validate(
+                {"device": "Camera", "input": {"kind": "camera"}, "measure": {"kind": "beam"}}
             )
         )
         source = Source((4, 6), Path(sys.argv[1]), delay=0.5)

@@ -32,28 +32,52 @@ def document(source, *, pipeline=("background",), image_type="camera", **backgro
     )
 
 
+def recipe(from_scan=None, steps=()):
+    """A v3 camera recipe binding ``camera_background`` to a scan when given."""
+    document = {
+        "schema_version": 3,
+        "device": "Cam",
+        "input": {"kind": "camera"},
+        "steps": list(steps),
+        "measure": {"kind": "beam"},
+    }
+    if from_scan is not None:
+        document["inputs"] = {"camera_background": {"from_scan": from_scan}}
+    return compile_recipe(
+        AnalysisRecipe.model_validate(document), allow_file_backgrounds=True
+    )
+
+
 @pytest.mark.parametrize(
     "source,expected",
     [
-        ({"scan_number": 4}, ScanBackground("camera_background", 4, "mean")),
+        ({"scan": 4}, ScanBackground("camera_background", 4, "mean")),
         (
-            {"from_current_scan": {"method": "median"}},
+            {"statistic": "median"},
             ScanBackground("camera_background", None, "median"),
         ),
         (
-            {"from_current_scan": {"method": "percentile", "percentile": 12.5}},
+            {"statistic": "percentile", "percentile": 12.5},
             ScanBackground("camera_background", None, "percentile", 12.5),
         ),
     ],
 )
 def test_a_scan_background_compiles_to_a_request_and_a_frame_step(source, expected):
     """The legacy wrapper made the section a from_file background on the computed frame."""
-    recipe = compile_v2(
-        document(source, additional_constant=1.5), allow_file_backgrounds=True
+    compiled = recipe(
+        source,
+        steps=[
+            {
+                "step": "background_frame",
+                "source": "camera_background",
+                "alignment": "samples",
+            },
+            {"step": "background_constant", "level": 1.5},
+        ],
     )
-    assert recipe.scan_backgrounds == (expected,)
-    assert recipe.file_backgrounds == ()
-    assert recipe.analysis.steps == (
+    assert compiled.scan_backgrounds == (expected,)
+    assert compiled.file_backgrounds == ()
+    assert compiled.analysis.steps == (
         BackgroundFrameSpec(source="camera_background", alignment="samples"),
         BackgroundConstantSpec(level=1.5),
     )
@@ -73,10 +97,8 @@ def test_scan_backgrounds_need_a_host_and_autodetect_stays_unported():
 
 def test_no_background_step_means_no_request():
     """A background section outside the pipeline was never applied, as before."""
-    recipe = compile_v2(
-        document({"scan_number": 1}, pipeline=()), allow_file_backgrounds=True
-    )
-    assert recipe.scan_backgrounds == () and recipe.analysis.steps == ()
+    compiled = recipe()
+    assert compiled.scan_backgrounds == () and compiled.analysis.steps == ()
 
 
 @pytest.mark.parametrize(

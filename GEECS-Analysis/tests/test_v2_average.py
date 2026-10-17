@@ -6,25 +6,26 @@ import warnings
 import numpy as np
 import pytest
 from geecs_data_utils.frames import Axis, Frame, ShotMeta
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.v2 import analyze_v2, compile_v2
+from geecs_analysis.compat.v2 import analyze_v2
 from geecs_analysis.compat.v2_average import RunningAverage, average_results
 from geecs_analysis.measurement import Marker, Measurement, Projection
+from geecs_analysis.recipe import compile_recipe
 
 
 def recipe(kind="camera", storage="float32"):
-    data = {"type": kind, "pipeline": []}
+    data = {"kind": kind}
     if kind == "line":
-        data.update(data_loading={"data_type": "npy"}, storage_dtype=storage)
-    doc = AnalysisDiagnostic.model_validate(
+        data.update(loading={"data_type": "npy"}, label="x vs y", storage_dtype=storage)
+    doc = AnalysisRecipe.model_validate(
         {
-            "name": "Detector",
-            "analyzer": {"kind": "beam" if kind == "camera" else "line"},
-            "image": data,
+            "device": "Detector",
+            "input": data,
+            "measure": {"kind": "beam" if kind == "camera" else "line"},
         }
     )
-    return doc, compile_v2(doc)
+    return doc, compile_recipe(doc)
 
 
 @pytest.mark.parametrize(

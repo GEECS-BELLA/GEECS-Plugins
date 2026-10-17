@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 from geecs_analysis.compat.v2 import UnsupportedRecipe, analyze_v2
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
 
 from scan_analysis import core_inputs
 
@@ -28,6 +28,37 @@ def document(path):
     )
 
 
+def recipe(path) -> AnalysisRecipe:
+    frame = {
+        "step": "background_frame",
+        "source": "camera_background",
+        "alignment": "samples",
+    }
+    constant = {"step": "background_constant", "level": -2}
+    return AnalysisRecipe.model_validate(
+        {
+            "device": "Camera",
+            "input": {"kind": "camera"},
+            "inputs": {
+                "camera_background": {"path": str(path), "fallback_level": 13.0}
+            },
+            "steps": [
+                {"step": "roi", "bounds": [[1, 9], [1, 9]]},
+                frame,
+                constant,
+                frame,
+                constant,
+            ],
+            "measure": {"kind": "beam"},
+            "figure": {"imshow": {"vmin": 0}, "fig": {"dpi": 150}},
+            "summaries": [
+                {"kind": "image_grid", "panel_size": [6.0, 6.0]},
+                {"kind": "average"},
+            ],
+        }
+    )
+
+
 @pytest.mark.parametrize("state", ["loaded", "missing", "corrupt"])
 def test_file_backgrounds_and_fallbacks_match_old_backend(
     tmp_path, state, caplog, measurement_golden
@@ -37,7 +68,7 @@ def test_file_backgrounds_and_fallbacks_match_old_backend(
         np.save(path, np.arange(64).reshape(8, 8) / 10)
     elif state == "corrupt":
         path.write_bytes(b"not an array")
-    doc = document(path)
+    doc = recipe(path)
     before = doc.model_dump_json()
     files = {p: p.read_bytes() for p in tmp_path.iterdir()}
     raw = np.random.default_rng(7).integers(100, 200, (10, 10), dtype=np.uint16)
@@ -63,7 +94,7 @@ def test_device_directory_resolution_and_single_load_are_explicit(
     device = tmp_path / "scans" / "Scan001" / "Camera"
     device.mkdir(parents=True)
     np.save(device / "dark.npy", np.full((8, 8), 3))
-    doc = document("{scan_dir}/dark.npy")
+    doc = recipe("{scan_dir}/dark.npy")
     calls = []
     reader = core_inputs.read_imaq_image
 
@@ -80,14 +111,14 @@ def test_device_directory_resolution_and_single_load_are_explicit(
         )
         np.testing.assert_array_equal(result.frame.data, np.full((8, 8), 98))
     assert calls == [device / "dark.npy"]
-    assert doc.image.background.file_path == "{scan_dir}/dark.npy"
+    assert doc.inputs["camera_background"].path == "{scan_dir}/dark.npy"
     with pytest.raises(TypeError):
         prepared.inputs["camera_background"] = None
 
 
 def test_context_free_preview_keeps_placeholder_fallback(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    doc = document("{scan_dir}/dark.npy")
+    doc = recipe("{scan_dir}/dark.npy")
     prepared = core_inputs.prepare_v2(doc)
     assert not prepared.inputs
     result = analyze_v2(np.full((10, 10), 100), prepared.recipe)
@@ -97,9 +128,7 @@ def test_context_free_preview_keeps_placeholder_fallback(tmp_path, monkeypatch):
 
 def test_missing_scan_tree_is_not_created_by_background_resolution(tmp_path):
     data_dir = tmp_path / "scans" / "Scan999" / "Camera"
-    prepared = core_inputs.prepare_v2(
-        document("{scan_dir}/dark.npy"), data_dir=data_dir
-    )
+    prepared = core_inputs.prepare_v2(recipe("{scan_dir}/dark.npy"), data_dir=data_dir)
     assert not prepared.inputs
     assert not (tmp_path / "scans").exists()
 
@@ -107,7 +136,7 @@ def test_missing_scan_tree_is_not_created_by_background_resolution(tmp_path):
 def test_loaded_shape_mismatch_raises_without_constant_fallback(tmp_path, caplog):
     path = tmp_path / "dark.npy"
     np.save(path, np.ones((1, 8)))
-    prepared = core_inputs.prepare_v2(document(path))
+    prepared = core_inputs.prepare_v2(recipe(path))
     with pytest.raises(ValueError, match="shape"):
         analyze_v2(np.ones((10, 10)), prepared.recipe, inputs=prepared.inputs)
     assert "Falling back" not in caplog.text

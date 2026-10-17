@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from geecs_schemas.analysis import AnalysisDiagnostic, IctAnalyzerSpec
+from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe, IctAnalyzerSpec
 
 from geecs_analysis.algorithms.ict import apply_ict_analysis
 from geecs_analysis.compat.convert import to_v3
-from geecs_analysis.compat.v2 import analyze_v2, compile_v2
+from geecs_analysis.compat.v2 import V2Recipe, analyze_v2, compile_v2
 from geecs_analysis.measures.ict import SCALARS, IctSpec
 from geecs_analysis.recipe import compile_recipe
 
@@ -23,6 +23,26 @@ def scope_trace(seed: int, *, n: int = 2500, pulse_at: int | None = None) -> np.
     pulse = -0.05 * rng.uniform(0.5, 2.0) * np.exp(-(((i - at) / 25.0) ** 2))
     pickup = 0.004 * np.sin(2 * np.pi * i / rng.uniform(150, 400) + rng.uniform(0, 6))
     return pulse + pickup + rng.normal(0, 0.0015, n) + 0.0005
+
+
+def recipe(dt: float | None = DT) -> V2Recipe:
+    measure = {"kind": "ict", "calibration_factor": 0.2, "butterworth_crit_f": 0.1}
+    if dt is not None:
+        measure["dt"] = dt
+    return compile_recipe(
+        AnalysisRecipe.model_validate(
+            {
+                "schema_version": 3,
+                "device": "U_BCaveICT",
+                "input": {
+                    "kind": "line",
+                    "loading": {"data_type": "npy"},
+                    "label": "volts (V) vs time (s)",
+                },
+                "measure": measure,
+            }
+        )
+    )
 
 
 def diagnostic(dt: float | None = DT, **image) -> AnalysisDiagnostic:
@@ -60,16 +80,15 @@ def test_the_algorithm_is_the_legacy_one_bit_for_bit(seed, pulse_at, expected, r
 
 @pytest.mark.parametrize("dt", [DT, None])
 @pytest.mark.parametrize("seed", range(4))
-def test_the_v2_route_matches_the_legacy_ict_analyzer(seed, dt, expected, request):
+def test_the_core_route_matches_the_legacy_ict_analyzer(seed, dt, expected, request):
     """Same trace and config through ICT1DAnalyzer and through the core."""
 
-    document = diagnostic(dt=dt)
     time = np.arange(2500) * DT
     raw = np.column_stack([time, scope_trace(seed)])
     legacy = expected(
         f"v2_route_{request.node.callspec.id}",
     )
-    core = analyze_v2(raw, compile_v2(document))
+    core = analyze_v2(raw, recipe(dt=dt))
     # Legacy low-pass-filtered the float32 stored trace in float32; the core
     # filters the same samples at float64. Stated tolerance, not equality.
     assert set(core.scalars) == set(legacy)
@@ -82,7 +101,7 @@ def test_the_v2_route_matches_the_legacy_ict_analyzer(seed, dt, expected, reques
 def test_a_trace_the_algorithm_cannot_analyze_is_nan_with_a_note():
     """Legacy wrote 0 pC here; the core keeps the failure visible."""
     raw = np.column_stack([np.arange(5) * DT, -np.ones(5)])
-    result = analyze_v2(raw, compile_v2(diagnostic()))
+    result = analyze_v2(raw, recipe())
     assert all(np.isnan(v) for v in result.scalars.values())
     assert any(n.startswith("ICT analysis failed") for n in result.notes)
 

@@ -4,20 +4,25 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_analysis.compat.v2 import UnsupportedRecipe
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
 
 from scan_analysis.core_scan import group_shots, prepare_scan
 
 
 def document(mode="per_shot"):
-    return AnalysisDiagnostic.model_validate(
+    return AnalysisRecipe.model_validate(
         {
-            "name": "Camera",
+            "device": "Camera",
             "output_name": "Variant",
-            "metric_suffix": "_roi",
-            "analyzer": {"kind": "beam"},
-            "image": {"type": "camera", "pipeline": []},
-            "scan": {"mode": mode, "file_tail": ".npy"},
+            "scalar_suffix": "_roi",
+            "input": {"kind": "camera", "file_tail": ".npy"},
+            "measure": {"kind": "beam"},
+            "scan": {"average_frames_first": mode == "per_bin"},
+            "figure": {"imshow": {"vmin": 0}, "fig": {"dpi": 150}},
+            "summaries": [
+                {"kind": "image_grid", "panel_size": [6.0, 6.0]},
+                {"kind": "average"},
+            ],
         }
     )
 
@@ -108,7 +113,7 @@ def test_prepared_run_is_lazy_and_survives_caller_edits(tmp_path, monkeypatch):
     monkeypatch.setattr(core_source, "read_imaq_image", counted)
     scan = prepare_scan(doc, tmp_path, rows)
     doc.output_name = "Changed"
-    doc.scan.mode = "per_bin"
+    doc.scan.average_frames_first = True
     rows.loc[:, "Shotnumber"] = 99
     iterator = scan.run()
     assert not calls
@@ -145,8 +150,14 @@ def test_unsupported_recipe_fails_before_background_or_shot_reads(
 ):
     from scan_analysis import core_inputs, core_source
 
-    doc = document()
-    data = doc.model_dump(mode="json")
+    data = {
+        "name": "Camera",
+        "output_name": "Variant",
+        "metric_suffix": "_roi",
+        "analyzer": {"kind": "beam"},
+        "image": {"type": "camera", "pipeline": []},
+        "scan": {"mode": "per_shot", "file_tail": ".npy"},
+    }
     data["image"]["pipeline"] = ["transforms"]
     data["image"]["transforms"] = {"flip_horizontal": True}
     doc = AnalysisDiagnostic.model_validate(data)
@@ -170,16 +181,19 @@ def test_missing_scan_is_not_created(tmp_path):
 def test_native_line_execution_keeps_scaled_axis_and_finite_metrics(
     tmp_path, mode, measurement_golden
 ):
-    doc = AnalysisDiagnostic.model_validate(
+    doc = AnalysisRecipe.model_validate(
         {
-            "name": "Spectrum",
-            "analyzer": {"kind": "line"},
-            "image": {
-                "type": "line",
-                "data_loading": {"data_type": "npy"},
-                "pipeline": [],
+            "device": "Spectrum",
+            "input": {
+                "kind": "line",
+                "file_tail": ".npy",
+                "loading": {"data_type": "npy"},
+                "label": "x vs y",
             },
-            "scan": {"mode": mode, "file_tail": ".npy"},
+            "measure": {"kind": "line"},
+            "scan": {"average_frames_first": mode == "per_bin"},
+            "figure": {"fig": {"dpi": 150}},
+            "summaries": [{"kind": "waterfall"}, {"kind": "average"}],
         }
     )
     directory = tmp_path / "Spectrum"

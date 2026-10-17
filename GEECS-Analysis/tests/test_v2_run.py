@@ -4,33 +4,23 @@ import numpy as np
 import weakref
 import pytest
 from geecs_data_utils.frames import ShotMeta
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.v2 import analyze_v2, compile_v2
+from geecs_analysis.compat.v2 import analyze_v2
 from geecs_analysis.compat.v2_run import ShotGroup, run_units
+from geecs_analysis.recipe import compile_recipe
 
 
-def recipe(**image):
-    return compile_v2(
-        AnalysisDiagnostic.model_validate(
-            {
-                "name": "Camera",
-                "analyzer": {"kind": "standard"},
-                "image": {"type": "camera", **image},
-            }
+def recipe(*steps):
+    return compile_recipe(
+        AnalysisRecipe.model_validate(
+            {"device": "Camera", "input": {"kind": "camera"}, "steps": list(steps)}
         )
     )
 
 
 def test_average_before_nonlinear_processing_is_not_average_of_processed_shots():
-    compiled = recipe(
-        pipeline=["thresholding"],
-        thresholding={
-            "method": "constant",
-            "value": 15,
-            "mode": "to_zero",
-        },
-    )
+    compiled = recipe({"step": "zero_below", "level": 15})
     arrays = {
         1: np.array([[0, 20]], dtype=np.uint16),
         2: np.array([[20, 0]], dtype=np.uint16),
@@ -123,19 +113,7 @@ def test_bad_geometry_is_an_explicit_outcome_and_does_not_block_later_groups():
 
 
 def test_trace_raw_average_preserves_float32_precision_before_scaling():
-    doc = AnalysisDiagnostic.model_validate(
-        {
-            "name": "Spectrum",
-            "analyzer": {"kind": "line"},
-            "image": {
-                "type": "line",
-                "data_loading": {"data_type": "npy"},
-                "x_scale_factor": 1000,
-                "storage_dtype": "float32",
-            },
-        }
-    )
-    compiled = compile_v2(doc)
+    compiled = _trace_recipe(x_scale=1000.0)
     arrays = [
         np.column_stack(
             (
@@ -160,18 +138,23 @@ def test_trace_raw_average_preserves_float32_precision_before_scaling():
 
 
 def test_background_binding_failure_precedes_every_source_read():
-    doc = AnalysisDiagnostic.model_validate(
+    doc = AnalysisRecipe.model_validate(
         {
-            "name": "Camera",
-            "analyzer": {"kind": "standard"},
-            "image": {
-                "type": "camera",
-                "pipeline": ["background"],
-                "background": {"method": "from_file", "file_path": "dark.npy"},
+            "device": "Camera",
+            "input": {"kind": "camera"},
+            "inputs": {
+                "camera_background": {"path": "dark.npy", "fallback_level": 0.0}
             },
+            "steps": [
+                {
+                    "step": "background_frame",
+                    "source": "camera_background",
+                    "alignment": "samples",
+                }
+            ],
         }
     )
-    compiled = compile_v2(doc, allow_file_backgrounds=True)
+    compiled = compile_recipe(doc, allow_file_backgrounds=True)
 
     def load(shot):
         raise AssertionError("preflight failed to stop source reads")
@@ -263,17 +246,18 @@ class _Tracked(np.ndarray):
         _Tracked.live.append(weakref.ref(self))
 
 
-def _trace_recipe():
-    return compile_v2(
-        AnalysisDiagnostic.model_validate(
+def _trace_recipe(**input_fields):
+    return compile_recipe(
+        AnalysisRecipe.model_validate(
             {
-                "name": "Spectrum",
-                "analyzer": {"kind": "line"},
-                "image": {
-                    "type": "line",
-                    "data_loading": {"data_type": "npy"},
-                    "storage_dtype": "float32",
+                "device": "Spectrum",
+                "input": {
+                    "kind": "line",
+                    "loading": {"data_type": "npy"},
+                    "label": "x vs y",
+                    **input_fields,
                 },
+                "measure": {"kind": "line"},
             }
         )
     )

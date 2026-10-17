@@ -43,7 +43,34 @@ def trace(device: str, shot: int) -> np.ndarray:
     return np.column_stack([x, y])
 
 
-def document(**scan) -> AnalysisDiagnostic:
+def document(device=None, **inp) -> AnalysisRecipe:
+    if device is not None:
+        inp["folder"] = device
+    return AnalysisRecipe.model_validate(
+        {
+            "device": f"MagSpec1{SUFFIX}",
+            "input": {
+                "kind": "line",
+                "file_tail": ".tsv",
+                "loading": {"data_type": "tsv"},
+                "x_unit": "MeV",
+                "label": "Charge density vs Energy",
+                "siblings": [f"MagSpec2{SUFFIX}", f"MagSpec3{SUFFIX}"],
+                **inp,
+            },
+            "steps": [
+                {"step": "roi", "bounds": [[4, 26]], "units": "axis"},
+                {"step": "median"},
+                {"step": "clip_below", "level": 0},
+            ],
+            "measure": {"kind": "line"},
+            "figure": {"fig": {"dpi": 30}},
+            "summaries": [{"kind": "waterfall"}, {"kind": "average"}],
+        }
+    )
+
+
+def v2_document(**scan) -> AnalysisDiagnostic:
     return AnalysisDiagnostic.model_validate(
         {
             "name": f"MagSpec1{SUFFIX}",
@@ -176,13 +203,13 @@ def test_the_joined_trace_is_every_segment_sorted_by_x(tmp_path):
 def test_siblings_join_by_their_own_timestamps_on_native_file_names(tmp_path):
     """Every camera stamps its own files: the legacy filename swap finds none.
 
-    The device-named shape (``name`` the device, ``scan.device`` its folder)
+    The device-named shape (``device`` the device, ``input.folder`` its folder)
     joins the input by its timestamp column; each sibling's device is its
     folder less the same suffix, so its own column joins it.
     """
     scan = build_scan(tmp_path, native=True)
     doc = document(device=f"MagSpec1{SUFFIX}")
-    doc = doc.model_copy(update={"name": "MagSpec1"})
+    doc = doc.model_copy(update={"device": "MagSpec1"})
     joined = stitched(scan, 2, doc)
     assert len(joined) == 3 * 25
     np.testing.assert_array_equal(np.sort(joined[:, 0]), joined[:, 0])
@@ -219,11 +246,11 @@ def test_the_source_pickles_with_its_siblings(tmp_path):
 def test_the_converted_recipe_stitches_and_writes_what_the_v2_route_writes(
     tmp_path, monkeypatch
 ):
-    conversion = to_v3(document())
+    conversion = to_v3(v2_document())
     recipe = conversion.recipe
     assert recipe.input.siblings == [f"MagSpec2{SUFFIX}", f"MagSpec3{SUFFIX}"]
     assert any("output_label dropped" in note for note in conversion.notes)
-    v2 = run(monkeypatch, tmp_path / "v2", document())
+    v2 = run(monkeypatch, tmp_path / "v2", v2_document())
     v3 = run(monkeypatch, tmp_path / "v3", recipe)
     assert compare_snapshots(snapshot(v2), snapshot(v3), average_ulps=0) == []
 
@@ -231,7 +258,7 @@ def test_the_converted_recipe_stitches_and_writes_what_the_v2_route_writes(
 def test_a_pooled_stitch_writes_the_serial_tree(tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(core_workers, "MIN_UNITS_FOR_POOL", 1)
     monkeypatch.setattr(CoreScanAnalyzer, "worker_cap", 2)
-    recipe = to_v3(document()).recipe
+    recipe = document()
     pooled = recipe.model_copy(
         update={"scan": recipe.scan.model_copy(update={"workers": 2})}
     )

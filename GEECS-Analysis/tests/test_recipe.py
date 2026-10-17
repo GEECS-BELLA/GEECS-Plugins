@@ -246,7 +246,7 @@ def test_frame_inputs_need_a_loading_host_and_camera_frames():
         compile_recipe(line, allow_file_backgrounds=True)
 
 
-def test_v3_figure_and_summaries_are_as_declared_and_v2_are_translated():
+def test_v3_figure_and_summaries_are_as_declared():
     declared = recipe(
         figure={"imshow": {"cmap": "gray"}, "overlays": {"com": {"hidden": True}}},
         summaries=[{"kind": "average"}],
@@ -254,6 +254,9 @@ def test_v3_figure_and_summaries_are_as_declared_and_v2_are_translated():
     assert figure_of(declared).imshow == {"cmap": "gray"}
     assert figure_of(declared).overlays == {"com": {"hidden": True}}
     assert [s.kind for s in summaries_of(declared)] == ["average"]
+
+
+def test_v2_figure_and_summaries_are_translated():
     v2 = diagnostic("beam", scan={"renderer": {"cmap": "gray", "figsize": [2, 3]}})
     assert figure_of(v2).imshow == {"cmap": "gray", "vmin": 0}
     assert figure_of(v2).fig == {"figsize": (4, 4), "dpi": 150}

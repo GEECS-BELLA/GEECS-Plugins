@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 from geecs_data_utils.frames import Frame
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
 
 from geecs_analysis.compat.convert import to_v3
 from geecs_analysis.compat.v2 import analyze_v2, compile_v2
@@ -100,6 +100,17 @@ def diagnostic(**image) -> AnalysisDiagnostic:
     )
 
 
+def recipe(*steps) -> AnalysisRecipe:
+    return AnalysisRecipe.model_validate(
+        {
+            "device": "U_FROG_Grenouille-Temporal",
+            "input": {"kind": "camera"},
+            "steps": list(steps),
+            "measure": {"kind": "frog", **PARAMETERS},
+        }
+    )
+
+
 def test_measure_calls_the_bound_retriever_and_packages_its_result():
     retriever = FakeRetriever()
     data = trace()
@@ -161,23 +172,15 @@ def test_v2_frog_diagnostic_compiles_to_the_frog_measure_with_its_parameters():
     assert recipe.analysis.steps == ()
 
 
-def test_the_v2_route_matches_the_legacy_grenouille_analyzer(expected):
+def test_the_core_route_matches_the_legacy_grenouille_analyzer(expected):
     """The legacy GrenouilleAnalyzer, on the same fake DLL, was the oracle."""
-    image = {
-        "bit_depth": 16,
-        "background": {"method": "constant", "constant_level": 1.0},
-        "thresholding": {
-            "method": "constant",
-            "value": 0.0,
-            "mode": "to_zero",
-            "invert": False,
-        },
-        "filtering": {"median_kernel_size": 5},
-        "pipeline": ["background", "filtering", "thresholding"],
-    }
-    document = diagnostic(**image)
+    document = recipe(
+        {"step": "background_constant", "level": 1},
+        {"step": "median", "kernel": 5},
+        {"step": "zero_below", "level": 0},
+    )
     retriever = FakeRetriever()
-    result = analyze_v2(trace(), compile_v2(document), inputs={"frog": retriever})
+    result = analyze_v2(trace(), compile_recipe(document), inputs={"frog": retriever})
     projections = {o.id: o.frame.data for o in result.overlays}
     expected(
         "grenouille_route",
@@ -255,7 +258,7 @@ def test_a_pooled_frog_run_equals_the_serial_run(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
     helper = importlib.import_module("frog_pool_helper")
-    recipe = compile_v2(diagnostic(pipeline=[]))
+    compiled = compile_recipe(recipe())
     groups = [ShotGroup(n, (n,)) for n in range(1, 9)]
     inputs = {"frog": helper.Retriever()}
 
@@ -263,7 +266,7 @@ def test_a_pooled_frog_run_equals_the_serial_run(tmp_path, monkeypatch):
         return [
             (o.group.key, dict(o.measurement.scalars), o.measurement.frame.data)
             for o in run_units(
-                recipe, groups, helper.load, inputs=inputs, workers=workers
+                compiled, groups, helper.load, inputs=inputs, workers=workers
             )
         ]
 
