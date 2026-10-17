@@ -6,7 +6,7 @@ import anyio
 import pytest
 
 from geecs_mcp import __version__, tool_names
-from geecs_mcp.identity import identity_for
+from geecs_mcp.identity import InvalidArgument, identity_for
 from geecs_mcp.server import create_server
 
 
@@ -53,7 +53,7 @@ class TestIdentity:
 
     @pytest.mark.parametrize("bad", ["", "   ", None])
     def test_a_blank_operator_is_refused(self, bad):
-        with pytest.raises(ValueError, match="operator is required"):
+        with pytest.raises(InvalidArgument, match="operator is required"):
             identity_for(bad)
 
     def test_the_logbook_author_cap_holds(self):

@@ -43,6 +43,11 @@ MAX_WAIT_S = 600.0
 STOP_READ_TIMEOUT_S = 130.0
 #: How deep into the manager's history the wait verbs look.
 HISTORY_DEPTH = 50
+#: The scanner reads the running item, the waiting items and the history
+#: in separate manager round trips, so an item moving waiting → running
+#: (or running → finished) can be in none of the three for one read.  An
+#: item seen nowhere is re-read this many times before it is "not found".
+VANISHED_REREADS = 3
 
 
 async def _sleep(seconds: float) -> None:
@@ -61,8 +66,9 @@ def _clock() -> float:
 
 async def _scan_status() -> str:
     status = await clients.call("scanner", "GET", "/api/status")
-    health = await clients.call("scanner", "GET", "/health")
-    return errors.make_ok(**status, scanner_version=health.get("version"))
+    # /api (not /health): the version without a second manager round trip
+    about = await clients.call("scanner", "GET", "/api")
+    return errors.make_ok(**status, scanner_version=(about or {}).get("version"))
 
 
 @mcp.tool(name=tool_names.SCAN_STATUS)
@@ -195,6 +201,13 @@ async def pause_scan(force: bool = False, operator: str = "") -> str:
     return await guard.run_async(_verb, "/api/pause", _verb_body(force, operator))
 
 
+async def _resume(operator: str, force: bool) -> str:
+    identity_for(
+        operator
+    )  # required on a go verb — inside the guard, so → invalid_request
+    return await _verb("/api/resume", _verb_body(force, operator))
+
+
 @mcp.tool(name=tool_names.RESUME_SCAN)
 async def resume_scan(operator: str, force: bool = False) -> str:
     """Resume a paused scan — restarts motion and acquisition, so it is a WRITE.
@@ -202,8 +215,7 @@ async def resume_scan(operator: str, force: bool = False) -> str:
     ``operator`` names the person supervising; the scanner records it.
     Refused (``policy_refusal``) when nothing is paused.
     """
-    identity_for(operator)  # required on a go verb; raises → invalid_request
-    return await guard.run_async(_verb, "/api/resume", _verb_body(force, operator))
+    return await guard.run_async(_resume, operator, force)
 
 
 @mcp.tool(name=tool_names.CLEAR_QUEUE)
@@ -337,13 +349,21 @@ async def _wait_for_item(
     history no longer holds it, or it never existed).
     """
     deadline = _clock() + timeout_s
+    vanished = 0
     while True:
         queue = await clients.call(
             "scanner", "GET", "/api/queue", params={"history": HISTORY_DEPTH}
         )
         where, row = _find_item(queue, item_uid)
-        if where in ("finished", ""):
+        if where == "finished":
             return where, row, None
+        if not where:
+            vanished += 1
+            if vanished > VANISHED_REREADS:
+                return where, row, None
+            await _sleep(poll_s)
+            continue
+        vanished = 0
         if _clock() >= deadline:
             progress = await clients.call("scanner", "GET", "/api/progress")
             return where, row, progress

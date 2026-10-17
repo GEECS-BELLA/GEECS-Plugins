@@ -14,17 +14,25 @@ MAX_IDENTITY_LENGTH = 120
 _PREFIX = "agent, admin supervision ("
 
 
+class InvalidArgument(ValueError):
+    """An argument this server checks itself — the guard's ``invalid_request``.
+
+    A subclass so the guard maps exactly these, never every ``ValueError``
+    an impl might raise (a non-finite float in a payload, say, is a bug).
+    """
+
+
 def identity_for(operator: str) -> str:
-    """``agent, admin supervision (<operator>)``, or ``ValueError`` for a blank name."""
+    """``agent, admin supervision (<operator>)``, or ``InvalidArgument`` for a blank name."""
     name = " ".join(str(operator or "").split())
     if not name:
-        raise ValueError(
+        raise InvalidArgument(
             "operator is required: the name of the person supervising this "
             "agent, as the submission and the logbook entry will record it"
         )
     composed = f"{_PREFIX}{name})"
     if len(composed) > MAX_IDENTITY_LENGTH:
-        raise ValueError(
+        raise InvalidArgument(
             f"operator name too long: the identity string must stay within "
             f"{MAX_IDENTITY_LENGTH} characters"
         )

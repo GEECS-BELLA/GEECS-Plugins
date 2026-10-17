@@ -38,7 +38,7 @@ pyyaml = ">=6.0"
 # import is light (PEP 562) — the heavy stacks load only when tools run.
 geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["qs-client", "ca"] }
 
-# Completed-run lookup (get_scan_result): TiledScanCatalog over the archive.
+# The analysis domain's share reads (until PR E moves it onto the portal).
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true, extras = ["tiled"] }
 
 # On-demand ScanAnalysis execution (#686: run_scan_analysis + the

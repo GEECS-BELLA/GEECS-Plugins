@@ -14,6 +14,7 @@ import anyio
 
 from geecs_mcp import errors
 from geecs_mcp.clients import ServiceRefusal, ServiceUnavailable
+from geecs_mcp.identity import InvalidArgument
 
 logger = logging.getLogger("geecs_mcp.guard")
 
@@ -28,7 +29,7 @@ async def run_async(impl, *args, **kwargs) -> str:
         return errors.make_error(
             "service_unreachable", exc.message, service=exc.service, url=exc.url
         )
-    except ValueError as exc:  # an argument check (identity_for, finiteness)
+    except InvalidArgument as exc:  # an argument this server checks itself
         return errors.make_error("invalid_request", str(exc))
     except Exception as exc:
         logger.exception("tool %s failed", getattr(impl, "__name__", impl))

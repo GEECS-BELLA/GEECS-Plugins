@@ -204,61 +204,15 @@ async def call(
         raise _refusal(service, response)
     if response.status_code == 204 or not response.content:
         return None
-    return response.json()
-
-
-async def get_bytes(
-    service: str,
-    path: str,
-    *,
-    params: Optional[dict[str, Any]] = None,
-    max_bytes: int,
-    read_timeout_s: Optional[float] = None,
-) -> tuple[bytes, str, bool]:
-    """``(body, content type, truncated)`` of one GET, capped at *max_bytes*.
-
-    For the portal's artifact route (PR E): the body is streamed and cut
-    at the cap, so a large sidecar never lands whole in this process.
-    """
-    client = get_client(service)
-    clean_params = {k: v for k, v in (params or {}).items() if v is not None}
-    timeout = (
-        httpx.Timeout(read_timeout_s, connect=CONNECT_TIMEOUT_S)
-        if read_timeout_s is not None
-        else httpx.USE_CLIENT_DEFAULT
-    )
     try:
-        async with client.stream(
-            "GET", path, params=clean_params, timeout=timeout
-        ) as response:
-            if response.status_code >= 500:
-                await response.aread()
-                raise ServiceUnavailable(
-                    service, str(client.base_url), f"HTTP {response.status_code}"
-                )
-            if response.status_code >= 400:
-                await response.aread()
-                raise _refusal(service, response)
-            chunks: list[bytes] = []
-            total = 0
-            truncated = False
-            async for chunk in response.aiter_bytes():
-                room = max_bytes - total
-                if len(chunk) >= room:
-                    chunks.append(chunk[:room])
-                    total += room
-                    truncated = (
-                        total < int(response.headers.get("content-length", total + 1))
-                        or len(chunk) > room
-                    )
-                    break
-                chunks.append(chunk)
-                total += len(chunk)
-            content_type = response.headers.get(
-                "content-type", "application/octet-stream"
-            )
-    except httpx.HTTPError as exc:
+        return response.json()
+    except ValueError as exc:
+        # A 200 that is not JSON is the wrong thing answering on that
+        # port (a proxy page, another service) — the deployment's fault,
+        # never the request's.
         raise ServiceUnavailable(
-            service, str(client.base_url), f"{type(exc).__name__}: {exc}"
+            service,
+            str(client.base_url),
+            f"answered {response.status_code} with a non-JSON body "
+            f"({response.headers.get('content-type', '?')})",
         ) from exc
-    return b"".join(chunks), content_type, truncated

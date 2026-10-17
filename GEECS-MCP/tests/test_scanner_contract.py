@@ -43,7 +43,9 @@ class TestReads:
         assert out["connected"] is True
         assert out["re_state"] == "idle"
         assert out["identity"] == "geecs-scanner test"
-        assert out["scanner_version"] == "0.0.0+test"
+        # /api reports the scanner PACKAGE's version (the service's injected
+        # string is /health's, which costs a second manager round trip)
+        assert isinstance(out["scanner_version"], str) and out["scanner_version"]
 
     async def test_scan_progress_before_any_scan(self, wired) -> None:
         out = _j(await run(tools._scan_progress))
@@ -177,6 +179,50 @@ class TestWaitForScan:
         assert out["progress"]["shots_done"] == 1
         assert out["progress"]["scan_number"]
 
+    async def test_an_item_between_two_queue_reads_is_re_read_not_lost(
+        self, monkeypatch
+    ) -> None:
+        """The scanner reads running/waiting/history in separate round trips.
+
+        An item moving waiting → running can be in none of them for one
+        read; the wait must re-read before it says not_found.
+        """
+        reads = {"n": 0}
+        empty = {"running": None, "waiting": [], "finished": []}
+        running = {
+            "running": {"item_uid": "it-1", "plan": "sweep"},
+            "waiting": [],
+            "finished": [],
+        }
+        done = {
+            "running": None,
+            "waiting": [],
+            "finished": [
+                {
+                    "item_uid": "it-1",
+                    "state": "ok",
+                    "word": "ok",
+                    "scan_numbers": [9],
+                    "run_uids": ["u"],
+                }
+            ],
+        }
+
+        async def fake_call(service, method, path, **kwargs):
+            if path == "/api/queue":
+                reads["n"] += 1
+                return [empty, empty, running, done][min(reads["n"] - 1, 3)]
+            return {"state": "done", "scan_number": 9}
+
+        async def no_sleep(_s):
+            return None
+
+        monkeypatch.setattr(clients, "call", fake_call)
+        monkeypatch.setattr(tools, "_sleep", no_sleep)
+        out = _j(await run(tools._wait_for_scan, "it-1", 60))
+        assert out["ok"] is True and out["finished"] is True
+        assert out["scan_numbers"] == [9]
+
     async def test_an_unknown_item_is_not_found(self, wired) -> None:
         out = _j(await run(tools._wait_for_scan, "no-such-item", 1))
         assert out["error_kind"] == "not_found"
@@ -276,6 +322,15 @@ class TestHaltsAndQueue:
         assert "removed" in out["message"]
         assert _j(await run(tools._scan_history, 5))["waiting"] == []
 
+    async def test_resume_with_a_blank_operator_is_an_envelope_not_a_raise(
+        self, wired
+    ) -> None:
+        """Through the WRAPPER: the identity check must sit inside the guard."""
+        out = _j(await tools.resume_scan(operator="   "))
+        assert out["ok"] is False
+        assert out["error_kind"] == "invalid_request"
+        assert "operator" in out["message"]
+
     def test_the_verb_body_carries_the_identity_string_only_when_named(self) -> None:
         assert tools._verb_body(True, "") == {"force": True}
         assert tools._verb_body(False, OPERATOR) == {
@@ -326,6 +381,25 @@ class TestServiceFailures:
             await clients.reset_clients()
         assert out["error_kind"] == "service_unreachable"
         assert "500" in out["message"]
+
+    async def test_a_non_json_success_body_is_the_service_fault(
+        self, monkeypatch
+    ) -> None:
+        """A proxy page on the scanner's port is a deployment fault, not a bad request."""
+
+        def html(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text="<html>maintenance</html>")
+
+        monkeypatch.setattr(config, "service_url", lambda service: "http://scanner")
+        monkeypatch.setattr(
+            clients, "transport_for", lambda service: httpx.MockTransport(html)
+        )
+        try:
+            out = _j(await run(tools._scan_status))
+        finally:
+            await clients.reset_clients()
+        assert out["error_kind"] == "service_unreachable"
+        assert "non-JSON" in out["message"]
 
     async def test_a_portal_style_detail_maps_by_status(self, monkeypatch) -> None:
         def refuse(request: httpx.Request) -> httpx.Response:
