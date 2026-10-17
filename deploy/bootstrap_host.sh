@@ -323,13 +323,15 @@ if [ -s "$CFG" ]; then   # -s: an empty placeholder file counts as absent
     if [ -n "${GEECS_SERVICES_HOST:-}" ]; then
         # Any [mcp] header counts as present (a trailing comment included):
         # a second section would be configparser's DuplicateSectionError.
-        if ! grep -qiE '^[[:space:]]*\[mcp\]' "$CFG"; then
+        if ! grep -qE '^[[:space:]]*\[mcp\]' "$CFG"; then
             if [ "$DRY" -eq 1 ]; then echo "  [dry] would append [mcp] scanner_url/portal_url/logbook_url (http://$GEECS_SERVICES_HOST:8300/8200/8400) to $CFG"
             else render_mcp_section >> "$CFG"; echo "  appended [mcp] scanner_url/portal_url/logbook_url (http://$GEECS_SERVICES_HOST:8300/8200/8400) to $CFG"; fi
         else
             # The keys the existing [mcp] section holds, read inside it only.
-            have="$(awk '/^[[:space:]]*\[/ { insec = (tolower($0) ~ /^[[:space:]]*\[mcp\]/) }
-                         insec && /=/ { k = $0; sub(/=.*/, "", k); gsub(/[[:space:]]/, "", k); print tolower(k) }' "$CFG")"
+            # configparser: section names are case-sensitive, keys are not,
+            # and a key ends at its first '=' or ':'.
+            have="$(awk '/^[[:space:]]*\[/ { insec = ($0 ~ /^[[:space:]]*\[mcp\]/) }
+                         insec && /[=:]/ { k = $0; sub(/[=:].*/, "", k); gsub(/[[:space:]]/, "", k); print tolower(k) }' "$CFG")"
             missing=""
             for key in scanner_url portal_url logbook_url; do
                 printf '%s\n' "$have" | grep -qx "$key" || missing="$missing $key"

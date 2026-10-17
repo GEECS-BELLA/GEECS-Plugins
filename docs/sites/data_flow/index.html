@@ -136,7 +136,7 @@ svg.has-sel .step:not(.on){opacity:.25}
 </header>
 
 <figure>
-<svg viewBox="0 0 1220 716" role="img" aria-label="Left to right: GEECS LabVIEW devices and cameras feed the CA and PVA gateways, which feed the Bluesky queueserver. The PVA gateway writes each camera's frames straight to the share as HDF5 stacks. Scan requests come from the web scanner; OSPREY reads and halts through GEECS-MCP but cannot submit. Results flow down into Tiled and the NAS scan folder, and are read back by the Data Portal, notebooks, ScanAnalysis and MCP.">
+<svg viewBox="0 0 1220 716" role="img" aria-label="Left to right: GEECS LabVIEW devices and cameras feed the CA and PVA gateways, which feed the Bluesky queueserver. The PVA gateway writes each camera's frames straight to the share as HDF5 stacks. Scan requests come from the web scanner; OSPREY submits, analyses and documents through GEECS-MCP, a client of the scanner, the portal and the logbook. Results flow down into Tiled and the NAS scan folder, and are read back by the Data Portal, notebooks, ScanAnalysis and MCP.">
   <defs>
     <marker id="ah-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="m-teal"/></marker>
     <marker id="ah-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="m-amber"/></marker>
@@ -174,8 +174,8 @@ svg.has-sel .step:not(.on){opacity:.25}
   <text data-n="scanner queueserver schemas" class="t-lbl l-amber" x="835" y="81" text-anchor="middle">submit a preset → queue API :60615</text>
   <path class="e e-amber" d="M580,170 H500" data-n="queueserver ca-gateway" marker-end="url(#ah-amber)"/>
   <text data-n="queueserver ca-gateway" class="t-lbl l-amber" x="540" y="186" text-anchor="middle">:SP setpoints</text>
-  <path class="e e-amber" d="M920,236 H900 V170 H800" data-n="mcp queueserver schemas" marker-end="url(#ah-amber)"/>
-  <text data-n="mcp queueserver schemas" class="t-lbl l-amber" x="850" y="163" text-anchor="middle">queue API</text>
+  <path class="e e-amber" d="M920,236 H900 V170 H800" data-n="mcp scanner" marker-end="url(#ah-amber)"/>
+  <text data-n="mcp scanner" class="t-lbl l-amber" x="850" y="163" text-anchor="middle">via the scanner :8300</text>
   <path class="e e-amber" d="M1050,330 V286" data-n="osprey mcp" marker-end="url(#ah-amber)"/>
   <text data-n="osprey mcp" class="t-lbl l-amber" x="1062" y="312">MCP tools · HTTP :8100</text>
 
@@ -558,7 +558,7 @@ const INFO = {
   "status": "hardening",
   "does": "Runs every scan. Clients submit a typed `ScanRequest`; the engine drives hardware through the gateway's PVs, records each shot as Bluesky documents, and owns the scan folder on the NAS.",
   "how": [
-   "A bluesky-queueserver RE Manager whose profile serves one funnel plan, `geecs_scan_request_plan`. The scanner and MCP are peer clients of the same queue.",
+   "A bluesky-queueserver RE Manager whose profile serves one funnel plan, `geecs_scan_request_plan`. The scanner is its client; GEECS-MCP submits through the scanner, never to the queue directly.",
    "Two acquisition modes: free-run time sync, where the first sync device paces and every other device fills its row with a derived shot id; and strict shot control (arm, confirm quiescent, fire, await all). Both emit the same versioned event schema.",
    "Devices are ophyd-async objects over the CA gateway. Redis holds the queue; a doc-stream proxy on port 5568 republishes documents to any panel."
   ],
@@ -632,9 +632,9 @@ const INFO = {
    "Runs as a systemd HTTP service on port 8100 on the services box, installed non-editably into its own venv. A stdio mode exists for single-machine use.",
    "Every write that takes an operator records 'agent, admin supervision (name)' — a record of who supervised, not a permission: access is the OSPREY profile's lists and hooks."
   ],
-  "now": "Deployed on the interim host. Scans are the first domain. geecs-mcp 0.9.0 (2026-09-16) deleted every write verb: the native-Bluesky rebuild retired the queue-client calls behind them, and this server is an experiment rather than an operator surface, so they were removed rather than rewired.",
+  "now": "geecs-mcp 0.10.0 (2026-10-17) rebuilt it as a thin HTTP client of the scanner, the portal and the logbook, so the closed loop the PMQ campaigns ran by hand — submit, wait, analyse, read the numbers, document — is a set of tools.",
   "next": [
-   "Live checks against the deployed queueserver from an agent session.",
+   "Live checks from an OSPREY machine: the loop end to end, a denied write with writes off, allow-listed reads passing silently.",
    "Domains added as they earn their keep: health, DB, logs (the triage report as a tool), deeper analysis over Tiled, archiver when that project reactivates.",
    "Windows-only acquisition SDKs would become a satellite MCP server rather than pull this one onto Windows."
   ],

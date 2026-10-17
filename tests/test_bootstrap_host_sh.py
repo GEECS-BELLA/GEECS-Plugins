@@ -507,7 +507,7 @@ def test_an_mcp_header_with_a_comment_is_not_duplicated(tmp_path: Path) -> None:
     """A second [mcp] would be configparser's DuplicateSectionError — every URL lost."""
     _existing_config(
         tmp_path,
-        "[mcp]  ; the agent server\nscanner_url = a\nportal_url = b\nlogbook_url = c\n",
+        "[mcp]  ; the agent server\nscanner_url = a\nportal_url: b\nLOGBOOK_URL = c\n",
     )
     r = _run(tmp_path, REDIS_ENABLED, "--only", "mcp")
     assert r.returncode == 0, r.stderr
