@@ -28,10 +28,10 @@ def _write_diagnostic(path: Path, name: str, *, priority: int = 100) -> None:
     path.write_text(
         yaml.safe_dump(
             {
-                "schema_version": 2,
-                "name": name,
-                "analyzer": {"kind": "beam"},
-                "image": {"type": "camera", "bit_depth": 16},
+                "schema_version": 3,
+                "device": name,
+                "input": {"kind": "camera"},
+                "measure": {"kind": "beam"},
                 "scan": {"priority": priority},
             }
         )
@@ -156,9 +156,9 @@ class TestResolveGroup:
             resolve_group(group, idx)
 
     def test_invalid_diagnostic_yaml_surfaces_path(self, configs_tree):
-        # Corrupt a diagnostic by omitting the required ``name`` field.
+        # Corrupt a diagnostic: no recipe (nor job) shape at all.
         (configs_tree / "analyzers" / "HTU" / "GaiaMode.yaml").write_text(
-            yaml.safe_dump({"analyzer": {"kind": "beam"}})
+            yaml.safe_dump({"measure": {"kind": "beam"}})
         )
         idx = discover_analyzers(configs_tree)
         group = AnalysisGroup(name="test", analyzers=["GaiaMode"])
@@ -185,6 +185,14 @@ class TestLoadAnalysisGroup:
         assert isinstance(result, LoadedAnalysisGroup)
         assert result.name == "HTU_laser"
         assert [r.id for r in result.analyzers] == ["OAPin2", "GaiaMode"]
+
+    def test_malformed_group_yaml_is_a_value_error(self, configs_tree):
+        """The documented contract: invalid YAML is ValueError, not a parser error."""
+        group_path = configs_tree / "groups" / "HTU" / "broken.yaml"
+        group_path.parent.mkdir(parents=True, exist_ok=True)
+        group_path.write_text("name: [unclosed\nanalyzers:\n  - GaiaMode\n")
+        with pytest.raises(ValueError, match="Malformed YAML"):
+            load_analysis_group(group_path)
 
     def test_load_by_path_infers_config_root(self, configs_tree):
         group_path = configs_tree / "groups" / "PW" / "frog.yaml"

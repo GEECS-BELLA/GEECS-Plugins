@@ -2,18 +2,15 @@
 
 The schema types the recipe's frame; this module binds its ``steps`` and
 ``measure`` to the builtin registry, checks that each can process the
-input's frames, and produces the same in-memory compiled recipe the v2
-adapter produces, so both document formats run through one evaluator
-(``compat.v2.analyze_v2``) and a converted recipe is identical to its
-source by construction. Reading a v2 diagnostic alongside is the
-transition's convenience: consumers call :func:`compile_document`,
-:func:`figure_of` and :func:`summaries_of` and never ask which format they
-hold. No file access and no numerical imports happen here.
+input's frames, and produces the in-memory compiled recipe the evaluator
+(``compat.v2.analyze_v2``) runs. Consumers call :func:`compile_document`,
+:func:`figure_of` and :func:`summaries_of`. No file access and no numerical
+imports happen here.
 """
 
 from __future__ import annotations
 
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisDocument, AnalysisRecipe
+from geecs_schemas.analysis import AnalysisDocument, AnalysisRecipe
 from geecs_schemas.analysis.recipe import LineInput
 from pydantic import ValidationError
 
@@ -24,7 +21,6 @@ from geecs_analysis.compat.v2 import (
     TableInput,
     UnsupportedRecipe,
     V2Recipe,
-    compile_v2,
     trace_channels,
 )
 from geecs_analysis.pipeline import measure_input, measure_tables, shot_scalar_columns
@@ -46,8 +42,8 @@ RECIPE_REFERENCE_URL = (
     "https://geecs-plugins.readthedocs.io/en/latest/sites/analysis_recipes/index.html"
 )
 
-# ``AnalysisDocument`` is the schemas' one alias, re-exported: either
-# analysis format, or a .himg job (``compile_document`` refuses the job).
+# ``AnalysisDocument`` is the schemas' one alias, re-exported: a recipe or
+# a .himg job (``compile_document`` refuses the job).
 
 
 class RecipeError(ValueError):
@@ -248,7 +244,7 @@ def _check_declarations(
 def compile_document(
     document: AnalysisDocument, *, allow_file_backgrounds: bool = False
 ) -> V2Recipe:
-    """Compile either document format to the one in-memory recipe.
+    """Compile a recipe to the in-memory recipe the evaluator runs.
 
     Anything else from the analyzers tree (a ``.himg`` job: no frames, no
     measure) raises ``UnsupportedRecipe``, the refusal every caller of the
@@ -256,8 +252,6 @@ def compile_document(
     """
     if isinstance(document, AnalysisRecipe):
         return compile_recipe(document, allow_file_backgrounds=allow_file_backgrounds)
-    if isinstance(document, AnalysisDiagnostic):
-        return compile_v2(document, allow_file_backgrounds=allow_file_backgrounds)
     raise UnsupportedRecipe(
         f"a {type(document).__name__} is not an analysis: it has no frames to analyze"
     )
@@ -268,22 +262,14 @@ def is_line(document: AnalysisDocument) -> bool:
     return document.input_kind == "line"
 
 
-def figure_of(document: AnalysisDocument) -> FigureSpec:
-    """The per-frame draw: the recipe's ``figure``, or the v2 renderer's translation."""
-    if isinstance(document, AnalysisRecipe):
-        return FigureSpec.model_validate(document.figure.model_dump())
-    from geecs_analysis.compat.v2_render import figure_v2
-
-    return figure_v2(document.scan.renderer, line=is_line(document))
+def figure_of(document: AnalysisRecipe) -> FigureSpec:
+    """The per-frame draw: the recipe's ``figure``."""
+    return FigureSpec.model_validate(document.figure.model_dump())
 
 
-def summaries_of(document: AnalysisDocument) -> tuple:
-    """The summary kinds to draw: as declared, or the v2 renderer's fixed pair."""
-    if isinstance(document, AnalysisRecipe):
-        return tuple(document.summaries)
-    from geecs_analysis.compat.v2_render import summaries_v2
-
-    return summaries_v2(document.scan.renderer, line=is_line(document))
+def summaries_of(document: AnalysisRecipe) -> tuple:
+    """The summary kinds to draw, as declared."""
+    return tuple(document.summaries)
 
 
 def recipe_schema() -> dict:

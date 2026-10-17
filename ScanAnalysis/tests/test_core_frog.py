@@ -12,10 +12,9 @@ import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
 from geecs_data_utils.io.scan_stack import ShotRef
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
-from geecs_analysis.compat.convert import to_v3
 from geecs_analysis.measures.beam import BeamSpec
 from geecs_analysis.measures.frog import FrogSpec
 from scan_analysis import core_services, core_workers
@@ -80,18 +79,18 @@ def helper(tmp_path, monkeypatch):
     monkeypatch.delitem(importlib.sys.modules, "frog_host_helper", raising=False)
 
 
-def document(**scan) -> AnalysisDiagnostic:
-    return AnalysisDiagnostic.model_validate(
+def document(**scan) -> AnalysisRecipe:
+    return AnalysisRecipe.model_validate(
         {
-            "name": "Camera",
-            "analyzer": {"kind": "frog_retrieval", "max_iterations": 300},
-            "image": {"type": "camera", "pipeline": []},
-            "scan": {
-                "mode": "per_shot",
-                "file_tail": ".npy",
-                "save": False,
-                **scan,
-            },
+            "device": "Camera",
+            "input": {"kind": "camera", "file_tail": ".npy"},
+            "measure": {"kind": "frog", "max_iterations": 300},
+            "scan": {"save": False, **scan},
+            "figure": {"imshow": {"vmin": 0}, "fig": {"dpi": 150}},
+            "summaries": [
+                {"kind": "image_grid", "panel_size": [6.0, 6.0]},
+                {"kind": "average"},
+            ],
         }
     )
 
@@ -182,7 +181,7 @@ def test_a_pooled_frog_run_writes_what_the_serial_run_writes(
 
     monkeypatch.setattr(core_workers, "MIN_UNITS_FOR_POOL", 1)
     monkeypatch.setattr(CoreScanAnalyzer, "worker_cap", 2)
-    recipe = to_v3(document()).recipe
+    recipe = document()
     pooled = recipe.model_copy(
         update={"scan": recipe.scan.model_copy(update={"workers": 2})}
     )

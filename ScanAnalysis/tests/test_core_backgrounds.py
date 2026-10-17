@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
 import scan_analysis.core_backgrounds as core_backgrounds
@@ -108,23 +108,26 @@ def test_a_capture_stack_is_read_frame_by_frame(tmp_path):
 # --------------------------------------------------------------- scan route
 
 
-def document(**source) -> AnalysisDiagnostic:
-    return AnalysisDiagnostic.model_validate(
+def document(**from_scan) -> AnalysisRecipe:
+    return AnalysisRecipe.model_validate(
         {
-            "name": DEVICE,
+            "device": DEVICE,
             "output_name": "Diag",
-            "analyzer": {"kind": "beam"},
-            "image": {
-                "type": "camera",
-                "background": {"method": "constant", "constant_level": 2.0},
-                "pipeline": ["background"],
-            },
-            "scan": {
-                "mode": "per_shot",
-                "file_tail": ".npy",
-                "renderer": {"dpi": 30},
-                "background_source": source,
-            },
+            "input": {"kind": "camera", "file_tail": ".npy"},
+            "inputs": {"camera_background": {"from_scan": from_scan}},
+            "steps": [
+                {
+                    "step": "background_frame",
+                    "source": "camera_background",
+                    "alignment": "samples",
+                }
+            ],
+            "measure": {"kind": "beam"},
+            "figure": {"imshow": {"vmin": 0}, "fig": {"dpi": 30}},
+            "summaries": [
+                {"kind": "image_grid", "panel_size": [6.0, 6.0]},
+                {"kind": "average"},
+            ],
         }
     )
 
@@ -188,12 +191,12 @@ def outputs(scan: Path) -> dict:
 
 
 SOURCES = [
-    pytest.param({"scan_number": 1}, id="dark-scan-mean"),
+    pytest.param({"scan": 1, "statistic": "mean"}, id="dark-scan-mean"),
     pytest.param(
-        {"from_current_scan": {"method": "percentile", "percentile": 20}},
+        {"statistic": "percentile", "percentile": 20.0},
         id="this-scan-p20",
     ),
-    pytest.param({"from_current_scan": {"method": "median"}}, id="this-scan-median"),
+    pytest.param({"statistic": "median"}, id="this-scan-median"),
 ]
 
 
@@ -213,7 +216,7 @@ def test_the_core_route_writes_the_golden_tree(
 
 
 def test_a_dark_scan_is_averaged_once_and_shared(tmp_path, monkeypatch):
-    doc = document(scan_number=1)
+    doc = document(scan=1, statistic="mean")
     scan = run(monkeypatch, tmp_path, doc)
     cache = (
         scan.parent.parent
@@ -234,7 +237,7 @@ def test_a_dark_scan_is_averaged_once_and_shared(tmp_path, monkeypatch):
 
 
 def test_a_missing_dark_scan_fails_and_creates_nothing(tmp_path, monkeypatch):
-    doc = document(scan_number=7)
+    doc = document(scan=7, statistic="mean")
     scan = build_day(tmp_path)
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=tmp_path))
     before = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*"))
@@ -251,7 +254,7 @@ def test_a_missing_dark_scan_fails_and_creates_nothing(tmp_path, monkeypatch):
 def test_a_preview_uses_a_computed_background_and_never_computes_one(
     tmp_path, monkeypatch
 ):
-    doc = document(from_current_scan={"method": "percentile", "percentile": 20})
+    doc = document(statistic="percentile", percentile=20.0)
     scan = build_day(tmp_path)
     with pytest.raises(ScanContextRequired):
         prepare_document(doc, scan_folder=scan)

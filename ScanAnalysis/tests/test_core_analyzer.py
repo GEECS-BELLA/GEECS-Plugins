@@ -9,13 +9,12 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis import core_workers
 from scan_analysis.core_analyzer import CoreScanAnalyzer, write_scalars_into_rows
-from geecs_analysis.compat.convert import to_v3
 from geecs_analysis.recipe import is_line
 from scan_analysis.route_compare import (
     GOLDEN_RTOL,
@@ -29,29 +28,27 @@ SORT_COLUMN = "U_Charge Value"
 SHOTS = 6
 
 
-def document(kind="beam", *, mode="per_shot", renderer=None, **scan):
+def recipe(kind="beam", *, mode="per_shot", sort=None, **scan) -> AnalysisRecipe:
+    """The v3 recipe: ``beam``/``line`` measure; ``standard``/``trace`` none."""
     line = kind in {"line", "trace"}
-    image = (
+    if line:
+        source = {"kind": "line", "loading": {"data_type": "npy"}, "label": "x vs y"}
+        figure, first = {"fig": {"dpi": 30}}, {"kind": "waterfall"}
+    else:
+        source = {"kind": "camera"}
+        figure = {"imshow": {"vmin": 0}, "fig": {"dpi": 30}}
+        first = {"kind": "image_grid", "panel_size": [6.0, 6.0]}
+    if mode == "per_bin":
+        scan["average_frames_first"] = True
+    return AnalysisRecipe.model_validate(
         {
-            "type": "line",
-            "data_loading": {"data_type": "npy"},
-            "storage_dtype": "float32",
-        }
-        if line
-        else {"type": "camera", "pipeline": []}
-    )
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": "Spec" if line else "Camera",
+            "device": "Spec" if line else "Camera",
             "output_name": "Diag",
-            "analyzer": {"kind": kind},
-            "image": image,
-            "scan": {
-                "mode": mode,
-                "file_tail": ".npy",
-                "renderer": renderer or {"dpi": 30},
-                **scan,
-            },
+            "input": {**source, "file_tail": ".npy"},
+            "measure": {"kind": kind if kind in {"beam", "line"} else "none"},
+            "scan": scan,
+            "figure": figure,
+            "summaries": [{**first, **(sort or {})}, {"kind": "average"}],
         }
     )
 
@@ -144,15 +141,15 @@ CASES = [
         "line",
         "per_shot",
         True,
-        {"waterfall_sort_key": "U_Charge", "dpi": 30},
+        {"sort_key": "U_Charge"},
         id="line-noscan-sorted",
     ),
 ]
 
 
-@pytest.mark.parametrize("kind,mode,noscan,renderer", CASES)
+@pytest.mark.parametrize("kind,mode,noscan,sort", CASES)
 def test_the_core_route_writes_the_golden_tree(
-    tmp_path, monkeypatch, golden, request, kind, mode, noscan, renderer
+    tmp_path, monkeypatch, golden, request, kind, mode, noscan, sort
 ):
     """Every file, HDF5 payload, s-file column, sidecar and display file: exact.
 
@@ -161,7 +158,7 @@ def test_the_core_route_writes_the_golden_tree(
     state is tag ``legacy-analysis-final``); the core sums in scalar-row
     order, so against its golden even the noscan average is exact.
     """
-    doc = document(kind, mode=mode, renderer=renderer)
+    doc = recipe(kind, mode=mode, sort=sort)
     core_scan, core_display, plan = run(
         monkeypatch, tmp_path, "core", doc, noscan=noscan
     )
@@ -183,7 +180,7 @@ def test_the_core_route_writes_the_golden_tree(
 
 def test_single_bin_scan_keeps_the_cleaned_parameter_label(tmp_path, monkeypatch):
     _, _, plan = run(
-        monkeypatch, tmp_path, "core", document(), noscan=False, single_bin=True
+        monkeypatch, tmp_path, "core", recipe(), noscan=False, single_bin=True
     )
     assert [p.identifier for p in plan.singles] == [1] and not plan.summary
     assert plan.position_label == "U_Motor Position"
@@ -192,7 +189,7 @@ def test_single_bin_scan_keeps_the_cleaned_parameter_label(tmp_path, monkeypatch
 def test_scalars_persist_without_products_when_save_is_off(
     tmp_path, monkeypatch, golden
 ):
-    doc = document(save=False)
+    doc = recipe(save=False)
     core_scan, core_display, _ = run(monkeypatch, tmp_path, "core", doc, noscan=False)
     core = snapshot(core_scan)
     expected = golden("core_route/save-off", core)
@@ -208,7 +205,7 @@ def test_scalars_persist_without_products_when_save_is_off(
 
 def test_missing_device_folder_is_no_data(tmp_path, monkeypatch):
     with pytest.raises(DataUnavailableWarning):
-        run(monkeypatch, tmp_path, "core", document(), noscan=False, device_files=False)
+        run(monkeypatch, tmp_path, "core", recipe(), noscan=False, device_files=False)
     assert not list(tmp_path.rglob("*.h5"))
 
 
@@ -216,7 +213,7 @@ def test_missing_sfile_returns_none(tmp_path, monkeypatch):
     scan = build_scan(tmp_path, line=False, noscan=False)
     (scan.parent.parent / "analysis" / "s1.txt").unlink()
     monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=tmp_path))
-    analyzer = CoreScanAnalyzer(document(), id="Diag", priority=1)
+    analyzer = CoreScanAnalyzer(recipe(), id="Diag", priority=1)
     assert analyzer.run_analysis(TAG) is None
     assert not list(tmp_path.rglob("*.h5"))
 
@@ -224,11 +221,9 @@ def test_missing_sfile_returns_none(tmp_path, monkeypatch):
 # Sort values by shot: 30, 10, 50, 20, 60, 40 (mean 35, population std 17.08).
 SORT_CASES = [
     pytest.param({}, [2, 4, 1, 6, 3, 5], id="sigma-default-3-keeps-all"),
+    pytest.param({"sort_sigma": 1.0}, [4, 1, 6, 3], id="sigma-1-drops-10-and-60"),
     pytest.param(
-        {"waterfall_sort_sigma": 1.0}, [4, 1, 6, 3], id="sigma-1-drops-10-and-60"
-    ),
-    pytest.param(
-        {"waterfall_sort_sigma": 1.0, "waterfall_sort_bounds": [15, 45]},
+        {"sort_sigma": 1.0, "sort_bounds": [15, 45]},
         [4, 1, 6],
         id="bounds-override-sigma",
     ),
@@ -239,9 +234,7 @@ SORT_CASES = [
 def test_sorted_waterfall_rows_follow_legacy_sigma_and_bounds_rules(
     tmp_path, monkeypatch, options, expected_shots
 ):
-    doc = document(
-        "line", renderer={"waterfall_sort_key": "U_Charge", "dpi": 30, **options}
-    )
+    doc = recipe("line", sort={"sort_key": "U_Charge", **options})
     _, display, plan = run(monkeypatch, tmp_path, "core", doc, noscan=True)
     assert [p.identifier for p in plan.summary] == expected_shots
     assert [p.position for p in plan.summary] == sorted(
@@ -259,7 +252,7 @@ def test_sorting_by_an_own_output_column_survives_a_refused_merge(
     """Legacy wrote its scalars into the in-memory rows before rendering."""
     if merge_refused:
         monkeypatch.setattr(base, "merge_sfile", lambda *args, **kwargs: None)
-    doc = document("line", renderer={"waterfall_sort_key": "Diag_CoM", "dpi": 30})
+    doc = recipe("line", sort={"sort_key": "Diag_CoM"})
     scan, _, plan = run(monkeypatch, tmp_path, "core", doc, noscan=True)
     assert plan.position_label == "Diag_CoM"
     positions = [p.position for p in plan.summary]
@@ -271,7 +264,7 @@ def test_sorting_by_an_own_output_column_survives_a_refused_merge(
 
 
 def test_contract_attributes_and_cleanup():
-    analyzer = CoreScanAnalyzer(document(), id="MyDiag", priority=7)
+    analyzer = CoreScanAnalyzer(recipe(), id="MyDiag", priority=7)
     assert (analyzer.id, analyzer.priority, analyzer.device_name) == (
         "MyDiag",
         7,
@@ -284,39 +277,20 @@ def test_contract_attributes_and_cleanup():
     assert analyzer.last_plan is None
 
 
-@pytest.mark.parametrize("kind,mode,noscan,renderer", CASES)
-def test_converted_recipe_matches_its_v2_source_on_the_core(
-    tmp_path, monkeypatch, kind, mode, noscan, renderer
-):
-    """A v3 recipe converted from a v2 diagnostic writes the identical tree."""
-    doc = document(kind, mode=mode, renderer=renderer)
-    v2_scan, v2_display, _ = run(monkeypatch, tmp_path, "v2", doc, noscan=noscan)
-    v3_scan, v3_display, _ = run(
-        monkeypatch, tmp_path, "v3", to_v3(doc).recipe, noscan=noscan
-    )
-    v2, v3 = snapshot(v2_scan), snapshot(v3_scan)
-    assert sorted(v2) == sorted(v3)
-    # One evaluator, one shot order: exact, the noscan average included.
-    assert compare_snapshots(v2, v3, average_ulps=0) == []
-    assert relative_display(v2_scan, v2_display) == relative_display(
-        v3_scan, v3_display
-    )
-
-
-@pytest.mark.parametrize("kind,mode,noscan,renderer", CASES[:4])
+@pytest.mark.parametrize("kind,mode,noscan,sort", CASES[:4])
 def test_pooled_run_writes_the_identical_tree(
-    tmp_path, monkeypatch, caplog, kind, mode, noscan, renderer
+    tmp_path, monkeypatch, caplog, kind, mode, noscan, sort
 ):
     """workers > 1 is a throughput knob: every file equals the serial run's, exactly."""
     import logging
 
     monkeypatch.setattr(core_workers, "MIN_UNITS_FOR_POOL", 1)
-    recipe = to_v3(document(kind, mode=mode, renderer=renderer)).recipe
+    doc = recipe(kind, mode=mode, sort=sort)
     serial_scan, serial_display, _ = run(
-        monkeypatch, tmp_path, "serial", recipe, noscan=noscan
+        monkeypatch, tmp_path, "serial", doc, noscan=noscan
     )
-    pooled_recipe = recipe.model_copy(
-        update={"scan": recipe.scan.model_copy(update={"workers": 2})}
+    pooled_recipe = doc.model_copy(
+        update={"scan": doc.scan.model_copy(update={"workers": 2})}
     )
     with caplog.at_level(logging.INFO, logger="scan_analysis.core_analyzer"):
         pooled_scan, pooled_display, _ = run(
@@ -336,12 +310,9 @@ def test_host_cap_bounds_the_recipe_request(tmp_path, monkeypatch, caplog):
 
     monkeypatch.setattr(core_workers, "MIN_UNITS_FOR_POOL", 1)
     monkeypatch.setattr(CoreScanAnalyzer, "worker_cap", 1)
-    recipe = to_v3(document()).recipe
-    recipe = recipe.model_copy(
-        update={"scan": recipe.scan.model_copy(update={"workers": 8})}
-    )
+    doc = recipe(workers=8)
     with caplog.at_level(logging.INFO, logger="scan_analysis.core_analyzer"):
-        run(monkeypatch, tmp_path, "capped", recipe, noscan=True)
+        run(monkeypatch, tmp_path, "capped", doc, noscan=True)
     assert any(
         r.getMessage().endswith(f"{SHOTS} units, 1 worker") for r in caplog.records
     )
@@ -356,7 +327,7 @@ def test_a_fold_error_raises_only_after_the_scalars_persist(tmp_path, monkeypatc
 
     monkeypatch.setattr(core_analyzer.ProductCollector, "add", refuse)
     with pytest.raises(ValueError, match="matching units"):
-        run(monkeypatch, tmp_path, "core", document(), noscan=False)
+        run(monkeypatch, tmp_path, "core", recipe(), noscan=False)
     scan = next(
         p for p in (tmp_path / "core").rglob("Scan001") if p.parent.name == "scans"
     )

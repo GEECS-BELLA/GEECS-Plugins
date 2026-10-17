@@ -45,9 +45,9 @@ logger = logging.getLogger(__name__)
 class ResolvedDiagnosticConfig(BaseModel):
     """A diagnostic loaded from disk and resolved against a group reference.
 
-    Pairs the on-disk document (a v3
-    :class:`~geecs_schemas.analysis.AnalysisRecipe` or a v2
-    :class:`~geecs_schemas.analysis.AnalysisDiagnostic`)
+    Pairs the on-disk document (an
+    :class:`~geecs_schemas.analysis.AnalysisRecipe` or a ``.himg``
+    :class:`~geecs_schemas.analysis.HimgJob`)
     with its filename-derived ID and the group's effective priority — what
     :func:`scan_analysis.config.create_scan_analyzer` consumes.  Not a
     document anyone writes.
@@ -62,7 +62,7 @@ class ResolvedDiagnosticConfig(BaseModel):
     priority : int
         The group's override if given, else the diagnostic's own
         ``scan.priority``; the loader sorts ascending by it.
-    diagnostic : AnalysisRecipe or AnalysisDiagnostic
+    diagnostic : AnalysisRecipe or HimgJob
         The validated on-disk document.
     """
 
@@ -345,7 +345,12 @@ def load_analysis_group(
     analyzer_index = discover_analyzers(base_dir)
 
     with open(group_path, "r") as f:
-        data = yaml.safe_load(f) or {}
+        try:
+            data = yaml.safe_load(f) or {}
+        except yaml.YAMLError as exc:
+            raise ValueError(
+                f"Malformed YAML in group config {group_path}: {exc}"
+            ) from exc
 
     try:
         group_cfg = AnalysisGroup.model_validate(data)

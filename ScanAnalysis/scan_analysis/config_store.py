@@ -7,8 +7,8 @@ Qt ``ConfigFileGUI`` (deleted in 1.21.0).
 
 Rules the store enforces:
 
-- Documents are the GEECS-Schemas models (``AnalysisRecipe`` v3, ``AnalysisDiagnostic`` v2
-  and the ``.himg`` ``HimgJob`` in the analyzers tree, ``AnalysisGroup``); a document that does not validate is never written.
+- Documents are the GEECS-Schemas models (``AnalysisRecipe`` and the ``.himg``
+  ``HimgJob`` in the analyzers tree, ``AnalysisGroup``); a document that does not validate is never written.
 - Writes are atomic (temp file + rename in the same directory) and
   optimistic: a save carries the etag the file had when it was read, and a
   changed file refuses the save (:class:`ConflictError`) — two editors
@@ -37,7 +37,6 @@ from typing import Any, Literal, Mapping, Optional
 
 import yaml
 from geecs_schemas.analysis import (
-    AnalysisDiagnostic,
     AnalysisGroup,
     AnalysisRecipe,
     HimgJob,
@@ -180,9 +179,8 @@ class Saved:
 
 #: The model per kind, for the kinds with one. An ``analyzer`` file is any
 #: document of that tree: the recipe (format 3) is what the editor writes; a
-#: v2 diagnostic or a ``.himg`` job still loads and validates
-#: (``load_analysis_document`` dispatches on what the file declares) but is
-#: shown read-only.
+#: ``.himg`` job still loads and validates (``load_analysis_document``
+#: dispatches on what the file declares) but is shown read-only.
 _MODELS: dict[str, type[BaseModel]] = {"group": AnalysisGroup}
 _FOLDERS: dict[str, str] = {"analyzer": "analyzers", "group": "groups"}
 
@@ -366,12 +364,10 @@ class ConfigStore:
 
     @staticmethod
     def _summary(doc: BaseModel) -> dict[str, Any]:
-        if isinstance(doc, (AnalysisRecipe, AnalysisDiagnostic, HimgJob)):
-            # what runs: the recipe's measure, the diagnostic's analyzer, the job
+        if isinstance(doc, (AnalysisRecipe, HimgJob)):
+            # what runs: the recipe's measure, or the job
             if isinstance(doc, AnalysisRecipe):
                 document, runs = "recipe", doc.measure.kind
-            elif isinstance(doc, AnalysisDiagnostic):
-                document, runs = "diagnostic", doc.analyzer.kind
             else:
                 document, runs = "job", doc.kind
             return {

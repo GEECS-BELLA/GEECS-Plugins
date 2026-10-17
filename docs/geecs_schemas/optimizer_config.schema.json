@@ -46,7 +46,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/JsonValue"
           },
-          "description": "Processing/analyzer overrides deep-merged into the diagnostic.",
+          "description": "Steps/measure overrides deep-merged into the diagnostic's recipe.",
           "title": "Overrides",
           "type": "object"
         }

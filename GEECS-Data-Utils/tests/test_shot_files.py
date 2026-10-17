@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 class BlockAnalysis(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.split('.')[0] in {'image_analysis', 'scan_analysis', 'geecs_analysis', 'geecs_schemas'}:
+        if fullname.split('.')[0] in {'scan_analysis', 'geecs_analysis', 'geecs_schemas'}:
             raise AssertionError('upward dependency: ' + fullname)
 sys.meta_path.insert(0, BlockAnalysis())
 import pandas as pd

@@ -992,15 +992,10 @@ class TestProcessingSelector:
         diag.write_text(
             yaml.safe_dump(
                 {
-                    "name": "UC_Crop",
-                    "schema_version": 2,
-                    "analyzer": {"kind": "standard"},
-                    "image": {
-                        "type": "camera",
-                        "bit_depth": 16,
-                        "pipeline": ["roi"],
-                        "roi": {"x_min": 1, "x_max": 4, "y_min": 0, "y_max": 2},
-                    },
+                    "schema_version": 3,
+                    "device": "UC_Crop",
+                    "input": {"kind": "camera"},
+                    "steps": [{"step": "roi", "bounds": [[0, 2], [1, 4]]}],
                     "scan": {"priority": 100},
                 }
             )
@@ -1009,23 +1004,16 @@ class TestProcessingSelector:
         thresh.write_text(
             yaml.safe_dump(
                 {
-                    "name": "UC_CropThresh",
-                    "schema_version": 2,
-                    "analyzer": {"kind": "standard"},
-                    "image": {
-                        "type": "camera",
-                        "bit_depth": 16,
-                        "pipeline": ["roi", "thresholding"],
-                        "roi": {"x_min": 1, "x_max": 4, "y_min": 0, "y_max": 2},
+                    "schema_version": 3,
+                    "device": "UC_CropThresh",
+                    "input": {"kind": "camera"},
+                    "steps": [
+                        {"step": "roi", "bounds": [[0, 2], [1, 4]]},
                         # Cutoff between the raw marker (1000) and the
                         # bin average of two markers (500): only
                         # process-THEN-average keeps both markers alive.
-                        "thresholding": {
-                            "method": "constant",
-                            "value": 600.0,
-                            "mode": "to_zero",
-                        },
-                    },
+                        {"step": "zero_below", "level": 600.0},
+                    ],
                     "scan": {"priority": 100},
                 }
             )
@@ -1048,10 +1036,10 @@ class TestProcessingSelector:
         frog.write_text(
             yaml.safe_dump(
                 {
-                    "schema_version": 2,
-                    "name": "U_FROG",
-                    "analyzer": {"kind": "frog_retrieval"},
-                    "image": {"type": "camera"},
+                    "schema_version": 3,
+                    "device": "U_FROG",
+                    "input": {"kind": "camera"},
+                    "measure": {"kind": "frog"},
                     "scan": {"priority": 100},
                 }
             )

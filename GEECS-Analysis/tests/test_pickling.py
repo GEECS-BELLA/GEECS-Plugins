@@ -5,11 +5,11 @@ import pickle
 import numpy as np
 import pytest
 from geecs_data_utils.frames import Axis, Frame, ShotMeta
-from geecs_schemas.analysis import AnalysisDiagnostic, AnalysisRecipe
+from geecs_schemas.analysis import AnalysisRecipe
 
-from geecs_analysis.compat.v2 import analyze_v2, compile_v2
+from geecs_analysis.compat.v2 import analyze_v2
 from geecs_analysis.measurement import Marker, Measurement, Projection
-from geecs_analysis.recipe import compile_document
+from geecs_analysis.recipe import compile_document, compile_recipe
 
 
 def same_measurement(copy: Measurement, original: Measurement) -> None:
@@ -66,19 +66,19 @@ def test_camera_measurement_round_trips_with_overlays_and_notes():
 
 
 def test_line_measurement_from_the_evaluator_round_trips():
-    doc = AnalysisDiagnostic.model_validate(
+    doc = AnalysisRecipe.model_validate(
         {
-            "name": "Spectrum",
-            "analyzer": {"kind": "line"},
-            "image": {
-                "type": "line",
-                "data_loading": {"data_type": "npy"},
-                "x_scale_factor": 2.0,
-                "storage_dtype": "float32",
+            "device": "Spectrum",
+            "input": {
+                "kind": "line",
+                "loading": {"data_type": "npy"},
+                "x_scale": 2.0,
+                "label": "x vs y",
             },
+            "measure": {"kind": "line"},
         }
     )
-    compiled = compile_v2(doc)
+    compiled = compile_recipe(doc)
     x = np.linspace(0.0, 10.0, 40)
     trace = np.column_stack([x, np.exp(-((x - 4) ** 2))])
     original = analyze_v2(trace, compiled, shot=ShotMeta("Spectrum", 2))
@@ -87,22 +87,8 @@ def test_line_measurement_from_the_evaluator_round_trips():
     assert copy.frame.shot == ShotMeta("Spectrum", 2)
 
 
-def test_compiled_recipes_of_both_formats_round_trip():
-    v2 = compile_v2(
-        AnalysisDiagnostic.model_validate(
-            {
-                "name": "Camera",
-                "analyzer": {"kind": "beam", "compute_slopes": True},
-                "image": {
-                    "type": "camera",
-                    "pipeline": ["roi", "filtering"],
-                    "roi": {"x_min": 1, "x_max": 5, "y_min": 0, "y_max": 4},
-                    "filtering": {"gaussian_sigma": 1.5},
-                },
-            }
-        )
-    )
-    v3 = compile_document(
+def test_a_compiled_recipe_round_trips():
+    compiled = compile_document(
         AnalysisRecipe.model_validate(
             {
                 "device": "Camera",
@@ -112,5 +98,4 @@ def test_compiled_recipes_of_both_formats_round_trip():
             }
         )
     )
-    for compiled in (v2, v3):
-        assert pickle.loads(pickle.dumps(compiled)) == compiled
+    assert pickle.loads(pickle.dumps(compiled)) == compiled

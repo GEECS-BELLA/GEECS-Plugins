@@ -5,7 +5,7 @@
  * core's registry, the figure, the summaries, the scan runtime) and the
  * group, plus the list, YAML preview, save and (when the host provides one)
  * a live preview of the document under edit drawn as a scan run draws it.
- * A format 2 diagnostic (a kind the core has not ported) is shown read-only.
+ * A .himg job, or a file that is not a recipe, is shown read-only.
  *
  *   ConfigEditor.mount(container, {
  *     base,                 // URL of the editor router mount ("" | "/configs" | proxied)
@@ -648,13 +648,12 @@
     right.append(el("h4", {}, "yaml"), yamlBox, okBox, errBox);
 
     // the scan subfolder a document reads: a recipe's input.folder or
-    // device, a format 2 diagnostic's scan.device or name, a .himg job's device
+    // device, a .himg job's device
     function dataFolder(doc) {
       if (!doc) return "";
-      if (doc.schema_version === 3) return (doc.input && doc.input.folder) || doc.device || "";
-      return (doc.scan && doc.scan.device) || doc.name || doc.device || "";
+      return (doc.input && doc.input.folder) || doc.device || "";
     }
-    // a .himg job (top-level kind): read-only like a v2 diagnostic, but never ported
+    // a .himg job (top-level kind): data management, read-only here
     function isHimgJob(doc) { return !!(doc && typeof doc.kind === "string"); }
     function hasSummaryPreview() { return hasPreview && !!(state.listing && state.listing.summary_preview); }
     // the host's own cap on shots per summary preview (its listing says)
@@ -738,10 +737,8 @@
             el("span", { class: "ce-count" }, bad ? `${byNs[ns].length} · ${bad} bad` : String(byNs[ns].length))));
           trackOpen(grp, key);
           for (const e of byNs[ns]) grp.append(el("a", { href: "#", class: (state.kind === kind && state.id === e.id ? "sel" : "") + (e.valid ? "" : " bad"), title: e.error || (e.analyzer_kind ? `${e.analyzer_kind} / ${e.device}` : ""), onclick: (ev) => { ev.preventDefault(); open(kind, e.id); } }, e.id,
-            kind === "analyzer" && e.valid && e.schema_version !== 3
-              ? (e.document === "job"
-                ? el("span", { class: "tag", title: ".himg job: data management, read-only here" }, "job")
-                : el("span", { class: "tag", title: "format 2 diagnostic: read-only until its kind is ported" }, "v2"))
+            kind === "analyzer" && e.valid && e.document === "job"
+              ? el("span", { class: "tag", title: ".himg job: data management, read-only here" }, "job")
               : null));
           sec.append(grp);
         }
@@ -766,9 +763,9 @@
       // drops unknown keys, so Save stays off until the user edits on purpose.
       state.loadError = loaded.valid ? null : (loaded.errors || []).map((e) => (e.loc ? `${e.loc}: ` : "") + e.msg).join("\n");
       state.loadYaml = loaded.valid ? null : loaded.yaml;
-      // The form is the recipe's (format 3). A format 2 diagnostic - a kind
-      // the analysis core has not ported - is shown as the file it is, read
-      // only; it converts to a recipe when its kind is ported.
+      // The form is the recipe's (format 3). Anything else in the tree - a
+      // .himg job, or a file of the retired v2 format - is shown as the file
+      // it is, read only.
       state.readOnlyDoc = kind === "analyzer" && !(loaded.document && loaded.document.schema_version === 3) ? loaded : null;
       await buildForm(kind, loaded.document, loaded.errors);
       if (side) renderSide();
@@ -793,26 +790,24 @@
       // sidebar highlight cannot say whether this is a diagnostic or a group.
       const ro = state.readOnlyDoc;
       const title = el("span", { class: "title" },
-        el("span", { class: "ce-kind" }, kind === "analyzer" ? (ro ? (isHimgJob(ro.document) ? ".himg job" : "diagnostic \u00b7 format 2") : "recipe") : "group"),
+        el("span", { class: "ce-kind" }, kind === "analyzer" ? (ro ? (isHimgJob(ro.document) ? ".himg job" : "not a recipe") : "recipe") : "group"),
         `${state.namespace}/${state.id}`);
       const dirty = el("span", { class: "dirty" });
       const bar = el("div", { class: "ce-bar" }, title, dirty);
       if (ro) {
         const d = ro.document || {};
-        const kindName = isHimgJob(d) ? d.kind : d.analyzer && d.analyzer.kind ? d.analyzer.kind : "unknown";
+        const kindName = isHimgJob(d) ? d.kind : "unknown";
         if (!readOnly && state.etag) bar.append(el("button", { type: "button", onclick: remove }, "Delete"));
         main.append(bar);
         main.append(el("p", { class: "ce-readonly-note", html: isHimgJob(d)
           ? `This is a .himg job (<code>${esc(kindName)}</code>): data management over the device folder, not an analysis, so it has no form and draws nothing. Edit it in the configs repository.`
-          : `This is a format 2 diagnostic (kind <code>${esc(kindName)}</code>). The analysis core does not run this kind yet, so the file is shown as saved; it converts to a recipe when the kind is ported. Edit it in the configs repository.` }));
+          : `This file is not a format 3 recipe (the v2 diagnostic format is retired), so it is shown as saved. Rewrite it as a recipe in the configs repository.` }));
         if (!ro.valid) main.append(el("div", { class: "ce-errors" }, (ro.errors || []).map((e) => (e.loc ? `${e.loc}: ` : "") + e.msg).join("\n")));
         main.append(el("pre", { class: "ce-yaml" }, ro.yaml || ""));
         state.form = null; state.formRoot = null; state.dirtyEl = dirty; state.saveBtn = null;
         errBox.textContent = ""; okBox.textContent = ""; previewBox.innerHTML = ""; summaryBox.innerHTML = ""; yamlBox.textContent = "";
-        // the saved document still previews: the pane shows what its run draws
-        // a .himg job draws nothing: no preview to offer
-        state.get = ro.valid && !isHimgJob(d) ? () => d : null;
-        if (state.get) await validate();
+        // a .himg job draws nothing, and a non-recipe does not run: no preview
+        state.get = null;
         return;
       }
       if (!readOnly) {
@@ -954,8 +949,8 @@
       if (!base_params) { summaryBox.innerHTML = '<div class="msg">open a scan to preview the summaries</div>'; return; }
       const shots = Math.max(1, Math.min(shotsMax(), Number(shotsInput.value) || 4));
       const params = Object.assign({}, base_params, { shots });
-      // a recipe lists its summaries; a format 2 diagnostic draws the fixed pair
-      const count = Array.isArray(doc.summaries) ? doc.summaries.length : 2;
+      // a recipe lists its summaries
+      const count = Array.isArray(doc.summaries) ? doc.summaries.length : 0;
       const seq = ++summarySeq;
       summaryBox.innerHTML = ""; summaryBox.classList.remove("stale");
       if (!count) { summaryBox.append(el("div", { class: "msg" }, "the document lists no summaries")); return; }
@@ -997,9 +992,7 @@
       const url = URL.createObjectURL(blob);
       previewBox.innerHTML = ""; previewBox.classList.remove("stale"); previewStale = false;
       const img = el("img", { src: url, alt: "preview" }); img.onload = () => URL.revokeObjectURL(url);
-      previewBox.append(img, el("div", { class: "msg" }, state.readOnlyDoc
-        ? `${dataFolder(doc)} / shot ${params.shot} - drawn by the saved diagnostic's own analyzer (format 2)`
-        : `${dataFolder(doc)} / shot ${params.shot} - drawn as a scan run of the document above draws it (unsaved)`));
+      previewBox.append(img, el("div", { class: "msg" }, `${dataFolder(doc)} / shot ${params.shot} - drawn as a scan run of the document above draws it (unsaved)`));
     }
     const previewDebounced = debounce(preview, 300);
     function markPreviewStale() {

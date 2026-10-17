@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
 from scan_analysis.config import create_scan_analyzer
@@ -39,14 +39,20 @@ BOWTIE = [
 ]
 
 
-def document(mode: str) -> AnalysisDiagnostic:
-    return AnalysisDiagnostic.model_validate(
+def document(mode: str) -> AnalysisRecipe:
+    return AnalysisRecipe.model_validate(
         {
-            "name": "UC_HiResMagCam",
+            "device": "UC_HiResMagCam",
             "output_name": "Diag",
-            "analyzer": {"kind": "hi_res_mag_cam", "min_total_counts": 1500},
-            "image": {"type": "camera", "pipeline": ["roi"], "roi": ROI},
-            "scan": {"mode": mode, "file_tail": ".npy", "renderer": {"dpi": 30}},
+            "input": {"kind": "camera", "file_tail": ".npy"},
+            "steps": [{"step": "roi", "bounds": [[0, 64], [0, 100]]}],
+            "measure": {"kind": "hi_res_mag_cam", "min_total_counts": 1500},
+            "scan": {"average_frames_first": mode == "per_bin"},
+            "figure": {"imshow": {"vmin": 0}, "fig": {"dpi": 30}},
+            "summaries": [
+                {"kind": "image_grid", "panel_size": [6.0, 6.0]},
+                {"kind": "average"},
+            ],
         }
     )
 

@@ -420,7 +420,7 @@ class ConfigsRepoResolver:
     def resolve_diagnostic(
         self, stem: str, *, overrides: dict[str, JsonValue] | None = None
     ) -> AnalysisDocument:
-        """Read and validate a diagnostic (either format) fresh using the shared read-only source."""
+        """Read and validate a diagnostic (a recipe, or a .himg job) fresh from the shared read-only source."""
         from geecs_data_utils.analysis_configs import read_diagnostic
         from geecs_schemas.analysis import load_analysis_document
 

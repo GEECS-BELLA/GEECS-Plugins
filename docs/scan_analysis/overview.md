@@ -51,10 +51,9 @@ analysis service has not yet been designed.
 The configuration model post-PR-E is two-tier:
 
 * **Per-diagnostic configs** under `scan_analysis_configs/analyzers/`. One
-  YAML per camera or 1D signal. Each is a
-  `AnalysisDiagnostic`
-  bundling the typed `analyzer:` spec (`kind` + its parameters), the
-  `image:` block and the ScanAnalysis-owned `scan:` block.
+  YAML per camera or 1D signal. Each is an `AnalysisRecipe` (format 3):
+  the `input:`, ordered `steps:`, the `measure:`, the `figure:` and
+  `summaries:`, and the `scan:` runtime block.
 
 * **Per-group configs** under `scan_analysis_configs/groups/`. One YAML
   per analyzer group — a named collection of analyzer refs that get run

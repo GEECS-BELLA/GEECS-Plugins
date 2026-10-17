@@ -188,7 +188,7 @@ class TestStackOnlyLoader:
     Its loader takes a ShotRef and refuses a plain per-shot path by
     construction, so the fallback cannot produce data — it produces one
     caught-and-logged exception per shot and an empty analysis. The
-    document-level check in `AnalysisDiagnostic` catches the authoring
+    document-level check in `AnalysisRecipe` catches the authoring
     mistake; this catches the RUNTIME case, where the config is right and
     the stack is simply absent, unreadable, or joins nothing.
     """

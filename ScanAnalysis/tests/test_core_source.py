@@ -11,24 +11,34 @@ from geecs_data_utils.io.scan_stack import (
     ShotRef,
 )
 from geecs_data_utils.shot_files import StackMappingUnavailable
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 
 from scan_analysis.core_source import V2ShotSource, prepare_source
 
 
-def document(*, line=False, data_type="csv", **scan):
-    return AnalysisDiagnostic.model_validate(
-        {
-            "name": "Detector",
-            "analyzer": {"kind": "line" if line else "beam"},
-            "image": (
-                {"type": "line", "data_loading": {"data_type": data_type}}
-                if line
-                else {"type": "camera"}
-            ),
-            "scan": scan,
+def document(*, line=False, data_type="csv", device=None, data_format=None, **inp):
+    if device is not None:
+        inp["folder"] = device
+    if data_format is not None:
+        inp["format"] = data_format
+    if line:
+        inp.update(kind="line", loading={"data_type": data_type}, label="x vs y")
+        rest = {
+            "measure": {"kind": "line"},
+            "figure": {"fig": {"dpi": 150}},
+            "summaries": [{"kind": "waterfall"}, {"kind": "average"}],
         }
-    )
+    else:
+        inp["kind"] = "camera"
+        rest = {
+            "measure": {"kind": "beam"},
+            "figure": {"imshow": {"vmin": 0}, "fig": {"dpi": 150}},
+            "summaries": [
+                {"kind": "image_grid", "panel_size": [6.0, 6.0]},
+                {"kind": "average"},
+            ],
+        }
+    return AnalysisRecipe.model_validate({"device": "Detector", "input": inp, **rest})
 
 
 @pytest.mark.parametrize("line", [False, True])
@@ -64,8 +74,8 @@ def test_trace_settings_are_snapshotted_before_document_edits(tmp_path):
     path.write_text("1,10,100\n2,20,200\n")
     doc = document(line=True)
     source = prepare_source(doc, tmp_path, pd.DataFrame({"Shotnumber": [1]}))
-    doc.image.data_loading.y_column = 2
-    doc.scan.device = "Other"
+    doc.input.loading.y_column = 2
+    doc.input.folder = "Other"
     np.testing.assert_array_equal(source.load(1), [[1, 10], [2, 20]])
 
 

@@ -2,10 +2,9 @@
 
 The replacement analysis core, developed on `codex/analysis-refactor`.
 Read `../Planning/analysis_refactor.md` for scope, acceptance gates and migration.
-The optimizer uses this core directly for supported v2 camera recipes. Portal
-image processing and unsaved-document rendering use it for supported recipes,
-with compilation-time fallback for unported recipes. Explicit scan execution
-still uses ScanAnalysis until its runner/sinks and acceptance tests land.
+The optimizer uses this core directly for camera recipes; portal image
+processing, unsaved-document rendering and ScanAnalysis' scan runs all
+compile and run v3 recipes through it.
 
 ## Boundaries
 
@@ -67,7 +66,7 @@ still uses ScanAnalysis until its runner/sinks and acceptance tests land.
   lacks it — no shared state between shots. Such a column cannot be read
   on averaged frames: `compile_recipe` refuses it with
   `scan.average_frames_first` (the legacy per-bin override used the bin's
-  mean field; `to_v3` says so instead of carrying it). One measure does
+  mean field). One measure does
   both: `magspec`. A measure whose host writes per-shot files beside the raw
   folder declares them: `sibling_outputs=(SiblingOutput(suffix, source,
   "png16"|"tsv", scale), ...)` (magspec's `-interp` frame × 1000 and
@@ -126,7 +125,7 @@ sample-index coordinates, as before.
 
 LineBasicStats owns scratch because its RMS helper mutates samples. Measures
 never mutate the processed Frame; the old float64 LineAnalyzer result could
-alias that scratch, while its float32 result did not. The v2 adapter must
+alias that scratch, while its float32 result did not. The runtime (`analyze_v2`) must
 explicitly handle any output-array compatibility needed by float64 recipes;
 this core preserves the input Frame and scalar math. Do not silently use a
 mutable Frame to reproduce the old accidental aliasing.
@@ -159,47 +158,40 @@ form shows it as help (pinned), and every scalar a measure can emit a
 one-line `scalar_docs` meaning (pinned both ways by `test_scalar_docs`).
 A new step, measure or summary also needs
 `docs/sites/analysis_recipes/make_examples.py` rerun (pinned by
-`test_recipe_reference_page`). Both formats
-compile to the one in-memory
-recipe (`V2Recipe`, renamed at A5) and run through `analyze_v2`; consumers
-call `compile_document` / `figure_of` / `summaries_of` / `is_line` and
-never ask which format they hold. `compat.convert.to_v3` converts a v2
-diagnostic the core serves, built on the adapter's compile output and
-checked by recompiling; it reports what v3 does not carry instead of
-dropping it. A v3 recipe has no inactive sections: coordinates start where
-the first crop starts.
+`test_recipe_reference_page`). A recipe
+compiles to the one in-memory
+recipe (`V2Recipe`, renamed at A5) and runs through `analyze_v2`; consumers
+call `compile_document` / `figure_of` / `summaries_of` / `is_line`. A
+recipe has no inactive sections: coordinates start where the first crop
+starts. (The v2 `AnalysisDiagnostic` and its compile bridge were deleted
+in #1039; the runtime keeps the module name `compat` until its rename.)
 
-## v2 compatibility
+## The runtime and the ported measures
 
-`compat.v2.compile_v2` compiles an already-validated schema document, without
-I/O or numerical imports. `analyze_v2` takes loaded native-dtype arrays;
-retaining native trace precision until axis scaling is deliberate. Active
-unsupported operations raise UnsupportedRecipe before processing. Callers
-choose whether to retain their old route; no hidden fallback lives here.
+`compat.v2` is the runtime: `V2Recipe`, the request types and
+`analyze_v2`, which takes loaded native-dtype arrays; retaining native
+trace precision until axis scaling is deliberate.
 `allow_file_backgrounds=True` declares camera file requests without reading
 them; only a source host that can bind those requests should opt in. Default
 compilation still refuses them, including for the live optimizer. The source
-adapter in `scan_analysis.core_inputs` loads via data-utils and applies the v2
+adapter in `scan_analysis.core_inputs` loads via data-utils and applies the
 constant fallback on reader/conversion failure. `analyze_v2(inputs=...)` never
-loads a file or chooses fallback. Scan backgrounds (`scan.background_source`
-`scan_number` / `from_current_scan`, a recipe's `from_scan` input) compile
-the same way to `ScanBackground` requests on the compiled recipe — the host
-computes the frame (ScanAnalysis `core_backgrounds`) and binds it for
-`background_frame`; the core never reads a scan. `autodetect` is refused.
-`ict` compiles to the `ict` measure (`algorithms.ict`, ported bit for bit
+loads a file or chooses fallback. Scan backgrounds (a recipe's `from_scan`
+input) compile the same way to `ScanBackground` requests on the compiled
+recipe — the host computes the frame (ScanAnalysis `core_backgrounds`) and
+binds it for `background_frame`; the core never reads a scan.
+The `ict` measure (`algorithms.ict`, ported bit for bit
 from the retired ImageAnalysis). Its charge filters the stored trace at float64
 where legacy filtered the float32 array in float32 (~1e-7 relative, up to
 ~1e-5 on sub-pC charges), and a
 trace the algorithm cannot analyze is NaN with a note, not legacy's 0 pC.
-`line_stitcher` compiles to the `line` measure: joining the sibling
+A stitched line (`input.siblings`) runs the `line` measure: joining the sibling
 devices' segments is the scan host's source (ScanAnalysis `core_source`),
-so the core sees one trace. `hi_res_mag_cam` compiles to the measure of
-that name (`algorithms.bowtie_fit`, ported bit for bit): the beam
+so the core sees one trace. The `hi_res_mag_cam` measure (`algorithms.bowtie_fit`, ported bit for bit): the beam
 statistics, then the fit on the frame floored at 10 counts as the legacy
 analyzer did; `emittance_proxy` keeps its `1e6` sentinel for the optimizer,
 the fit parameters (`bowtie_x0` in sensor pixels, `w0`, `theta`, `r²`) are
-NaN with a note on a rejected fit. The v2 `threshold_factor` is dropped
-(never read). `frog_spectral_phase` compiles to the measure of that name
+NaN with a note on a rejected fit. The `frog_spectral_phase` measure
 (`algorithms.polynomial_fit`, ported bit for bit): sign canonicalisation,
 phi0 removal and the fixed-length fit resample as before. Its spectral
 intensity is a **channel**: a line measure registered with
@@ -211,7 +203,7 @@ to the function as a `{name: Frame}` mapping after every other argument.
 Columns no measure reads are not loaded; `interpolate` (and, in v3, a
 stitched input) with a channel is refused. A raw-bin unit averages the
 channel with its trace (the legacy per-bin path dropped the weights).
-`downramp_phase` compiles to the measure of that name
+The `downramp_phase` measure
 (`algorithms.downramp_shock`, ported bit for bit): the legacy inversion,
 median subtraction and binarised Gaussian mask, the laser-axis rotation
 (`scipy.ndimage.rotate` on a reshaped canvas), the row-wise shock angle,
@@ -225,8 +217,8 @@ rotation geometry inverted; on a nonuniform axis they are omitted with
 a note), the two projections beside them; a map with
 no signal after masking, or no steepest window, is NaN with a note where
 the legacy class raised. The spec's four parameters are the legacy
-constants (the v2 spec has none).
-`magspec` compiles to the measure of that name (`algorithms.magspec_calibration`,
+constants.
+The `magspec` measure (`algorithms.magspec_calibration`,
 ported bit for bit: the 1-based `X Start`/`X End` slice, `argsort` +
 `CubicSpline(extrapolate=False)` over screen position (only the
 camera's screen rows converted — a survey may leave the other screen's
@@ -234,27 +226,20 @@ cells blank), the `1.98/146`
 lanex factors, `np.gradient` + row-wise `np.interp` onto a grid clipped to
 the calibration's reach — the two per-shot clip warnings are gone, not
 the clip; `energy_range` is a request). A `dnn_axis` calibration's three
-files become table requests (`V2Recipe.tables`) under
-`compile_v2(allow_table_inputs=True)`, set only by `to_v3` and the corpus
-converter, so a v2 magspec document stays on its legacy route everywhere
-else; `to_v3(table_namespace=, magnetic_field_column=)` moves the paths
-under `calibrations/<namespace>/` and turns the legacy per-shot
+files are table inputs (`V2Recipe.tables`, paths under
+`calibrations/<namespace>/` in the configs root), and the legacy per-shot
 teslameter override — a column name hardcoded in the analyzer, which
 wrote the live value into the shared calibration so later shots without
-a reading used it — into the document's `magnetic_field_column`, read per
+a reading used it — is the recipe's `magnetic_field_column`, read per
 shot from `ShotMeta.scalars` with the spec's `magnetic_field_t` as the
-fallback. The `array` calibration's `.npy` file is refused; inline
-`values` stays. The resampled image replaces the processed frame (rows as
+fallback. The `array` calibration is inline `values` only. The resampled image replaces the processed frame (rows as
 they were, `Energy` in MeV across; `fC/MeV` with a lanex table) and the
-`spectrum` extra is the legacy `-interpSpec` column (pC/MeV). The compiler's supported subset is documented
-in its docstring and pinned by differential tests. Never silently skip an active unported operation.
-Explicit identity transforms compile to no steps; fixed-canvas rotation is
-supported. Flips and distortion correction still raise UnsupportedRecipe.
+`spectrum` extra is the legacy `-interpSpec` column (pC/MeV).
 
 Legacy camera ROI empty selections keep the full image, and beam coordinates
 use the configured origin once even when ROI is inactive/repeated. Legacy
 float64 line result values reflect RMS negative clipping; float32 results do
-not. Preserve these values at the v2 boundary with private copies. Do not
+not. Preserve these values at the runtime boundary with private copies. Do not
 propagate these quirks into pure steps or general Frame semantics.
 
 ## Rendering
@@ -304,20 +289,12 @@ scope recording per row would hold the whole scan; the equal-length
 check runs on the recordings first. Shorter traces are drawn as recorded.
 The summary is a picture; never reduce a measurement or a saved average.
 
-`compat.v2_render` translates v2 `RendererOptions` into a `FigureSpec`
-(`figure_v2`: the image palette rule as static keywords, a centred norm for
-the diverging mode) and the fixed v2 summary pair (`summaries_v2`); its
-`single_v2` / `image_grid_v2` / `waterfall_v2` draw through the kinds, so v2
-and v3 documents share one layout per kind. Palette rules mirror the old
-`_get_colormap_params_1d` and are pinned by a differential test that imports
-ScanAnalysis as an oracle; production code must not.
-
 ## Mask and interpolation conventions
 
 `circular_mask` defaults to local sample indices, with center in numpy `(y, x)`
-order. `units="axis"` uses the existing Frame coordinates. The v2 adapter
-reverses the legacy `(x, y)` center once and deliberately keeps index units,
-including after a crop. Masking retains axes and provenance.
+order. `units="axis"` uses the existing Frame coordinates (the legacy
+`(x, y)` centers were reversed once when the corpus was converted).
+Masking retains axes and provenance.
 
 `interpolate` replaces the trace axis with a uniform grid and uses the legacy
 `numpy.interp` convention with zero padding. It does not sort, deduplicate or
@@ -332,14 +309,12 @@ warp and strict >0.5 mask threshold. Multiplicative masking deliberately retains
 legacy nonfinite propagation. Numerical imports, including cv2, stay lazy.
 `rotate` moves samples on a fixed output grid: SciPy cubic interpolation with
 prefilter=False, reshape=False. It preserves axes, shape and metadata; its angle
-is in sample-index space, not a transformation of world coordinates. The v2
-adapter reverses crosshair centers once and retains every mask/rotation order.
+is in sample-index space, not a transformation of world coordinates.
 
 `vignette` is the legacy radial-polynomial map bit for bit (`1.0 / model`,
 then multiply), evaluated on the frame's `px` axis values plus the sensor
 offsets, so it is the same correction before or after `roi`. The legacy map
-was built on the cropped shape instead; `compile_v2` therefore refuses a v2
-vignette after an active roi, and the `map_file` method.
+was built on the cropped shape instead.
 
 ## Execution units
 

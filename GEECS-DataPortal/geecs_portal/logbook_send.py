@@ -219,6 +219,7 @@ def send_plot(
     entry_id: Optional[str] = None,
     filename: str = "plot.png",
     client: Optional[httpx.Client] = None,
+    content_type: str = "image/png",
 ) -> SendResult:
     """Put one PNG into the scans book, on ``day`` against ``scan``.
 
@@ -286,6 +287,7 @@ def send_plot(
             source_url=source_url,
             entry_id=entry_id,
             filename=filename,
+            content_type=content_type,
         )
     except httpx.HTTPError as exc:
         raise LogbookUnreachable(f"no answer from the logbook at {base}") from exc
@@ -326,6 +328,7 @@ def _send(
     source_url: str,
     entry_id: Optional[str],
     filename: str,
+    content_type: str = "image/png",
 ) -> SendResult:
     """The four calls, with the create skipped when appending."""
     # The link goes in at creation, above the images: a paragraph
@@ -342,7 +345,7 @@ def _send(
         uploaded = _checked(
             http.post(
                 f"{base}/api/entries/{entry_id}/attachments",
-                files={"file": (filename, png, "image/png")},
+                files={"file": (filename, png, content_type)},
             )
         )
     except LogbookRefused as exc:
@@ -362,6 +365,7 @@ def _send(
             source_url=source_url,
             entry_id=None,
             filename=filename,
+            content_type=content_type,
         )
 
     link = str(_field(uploaded, "link"))

@@ -21,11 +21,11 @@ def configs_tree(tmp_path) -> Path:
     (tree / "analyzers" / "HTU" / "UC_Crop.yaml").write_text(
         yaml.safe_dump(
             {
-                "schema_version": 2,
-                "name": "UC_Crop",
-                "analyzer": {"kind": "standard"},
-                "image": {"type": "camera", "bit_depth": 16},
-                "scan": {"priority": 100, "device": "cam"},
+                "schema_version": 3,
+                "device": "cam",
+                "output_name": "UC_Crop",
+                "input": {"kind": "camera"},
+                "scan": {"priority": 100},
             }
         )
     )
@@ -79,8 +79,7 @@ class TestOptIn:
         client = _client(scan_folder, configs_tree, config_editor=True)
         loaded = client.get("/configs/api/analyzers/UC_Crop").json()
         doc = loaded["document"]
-        doc["image"]["roi"] = {"x_min": 0, "x_max": 4, "y_min": 0, "y_max": 4}
-        doc["image"]["pipeline"] = ["roi"]
+        doc["steps"] = [{"step": "roi", "bounds": [[0, 4], [0, 4]]}]
         assert (
             client.put(
                 "/configs/api/analyzers/HTU/UC_Crop",
@@ -91,7 +90,7 @@ class TestOptIn:
         on_disk = yaml.safe_load(
             (configs_tree / "analyzers" / "HTU" / "UC_Crop.yaml").read_text()
         )
-        assert on_disk["image"]["pipeline"] == ["roi"]
+        assert [s["step"] for s in on_disk["steps"]] == ["roi"]
         assert "UC_Crop" in client.get("/api/run/uid-002").json()["processing_options"]
 
     def test_nothing_touches_the_scan_folder(self, scan_folder, configs_tree):
@@ -101,9 +100,10 @@ class TestOptIn:
             "/configs/api/analyzers/HTU/UC_New",
             json={
                 "document": {
-                    "name": "UC_New",
-                    "analyzer": {"kind": "beam"},
-                    "image": {"type": "camera"},
+                    "schema_version": 3,
+                    "device": "UC_New",
+                    "input": {"kind": "camera"},
+                    "measure": {"kind": "beam"},
                 },
                 "etag": None,
             },
@@ -154,8 +154,7 @@ class TestPreview:
         Image.fromarray(frame).save(scan_folder / "cam" / "Scan002_cam_001.png")
         client = _client(scan_folder, configs_tree, config_editor=True)
         doc = client.get("/configs/api/analyzers/UC_Crop").json()["document"]
-        doc["image"]["roi"] = {"x_min": 1, "x_max": 5, "y_min": 1, "y_max": 3}
-        doc["image"]["pipeline"] = ["roi"]
+        doc["steps"] = [{"step": "roi", "bounds": [[1, 3], [1, 5]]}]
         r = client.post(
             "/configs/api/preview",
             json={
@@ -167,12 +166,9 @@ class TestPreview:
         assert r.headers["content-type"] == "image/png"
         assert r.content[:4] == b"\x89PNG"
         # the file on disk is untouched: the preview is the UNSAVED document
-        assert (
-            "roi"
-            not in yaml.safe_load(
-                (configs_tree / "analyzers" / "HTU" / "UC_Crop.yaml").read_text()
-            )["image"]
-        )
+        assert not yaml.safe_load(
+            (configs_tree / "analyzers" / "HTU" / "UC_Crop.yaml").read_text()
+        ).get("steps")
 
     def test_the_preview_reads_the_recipes_own_device(self, scan_folder, configs_tree):
         """No host-picked device: the frame is the recipe's folder, whatever the params say.
@@ -483,11 +479,16 @@ class TestSummaryPreview:
 
 
 _LINE_DOC = {
-    "schema_version": 2,
-    "name": "U_Scope",
-    "analyzer": {"kind": "line"},
-    "image": {"type": "line", "data_loading": {"data_type": "tsv"}},
-    "scan": {"priority": 100, "device": "scope", "file_tail": ".tsv"},
+    "schema_version": 3,
+    "device": "U_Scope",
+    "input": {
+        "kind": "line",
+        "folder": "scope",
+        "file_tail": ".tsv",
+        "loading": {"data_type": "tsv"},
+    },
+    "measure": {"kind": "line"},
+    "scan": {"priority": 100},
 }
 
 
@@ -542,9 +543,9 @@ class TestLinePreview:
         # the DOCUMENT's loader decides the columns: y from column 2; an
         # auxiliary column the measure does not read travels nowhere (a
         # measure that reads channels gets them appended to the array)
-        doc["image"] = {
-            "type": "line",
-            "data_loading": {
+        doc["input"] = {
+            **_LINE_DOC["input"],
+            "loading": {
                 "data_type": "tsv",
                 "y_column": 2,
                 "auxiliary_columns": {"other": 1},
@@ -581,8 +582,12 @@ class TestLinePreview:
             create_app(catalog, processing_config_dir=configs_tree, config_editor=True)
         )
         doc = dict(_LINE_DOC)
-        doc["image"] = {"type": "line", "data_loading": {"data_type": "pva_stack"}}
-        doc["scan"] = {"device": "scope", "data_format": "device_hdf5"}
+        doc["input"] = {
+            "kind": "line",
+            "folder": "scope",
+            "format": "device_hdf5",
+            "loading": {"data_type": "pva_stack"},
+        }
         r = self._post(client, doc, shot=2)
         assert r.status_code == 200, r.text
         ((frames, _),) = seen
@@ -602,7 +607,7 @@ class TestLinePreview:
             )
         client = _client(scan_folder, configs_tree, config_editor=True)
         doc = dict(_LINE_DOC)
-        doc["analyzer"] = {"kind": "line_stitcher", "sibling_devices": ["scope2"]}
+        doc["input"] = {**_LINE_DOC["input"], "siblings": ["scope2"]}
         assert self._post(client, doc).status_code == 200
         ((frames, kwargs),) = seen
         np.testing.assert_array_equal(frames[0], np.concatenate([low, high]))
@@ -643,8 +648,12 @@ class TestLinePreview:
             create_app(catalog, processing_config_dir=configs_tree, config_editor=True)
         )
         doc = dict(_LINE_DOC)
-        doc["image"] = {"type": "line", "data_loading": {"data_type": "pva_stack"}}
-        doc["scan"] = {"device": "scope", "data_format": "device_hdf5"}
+        doc["input"] = {
+            "kind": "line",
+            "folder": "scope",
+            "format": "device_hdf5",
+            "loading": {"data_type": "pva_stack"},
+        }
         assert self._post(client, doc, shot=1).status_code == 200
         r = self._post(client, doc, shot=2)
         assert r.status_code == 404, r.text

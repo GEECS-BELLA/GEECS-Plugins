@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from geecs_analysis.measurement import Measurement
 from geecs_data_utils.frames import Frame
-from geecs_schemas.analysis import AnalysisDiagnostic
+from geecs_schemas.analysis import AnalysisRecipe
 
 from scan_analysis.core_products import Product, ProductPlan
 from scan_analysis.core_recipe import scan_recipe
@@ -14,21 +14,31 @@ from scan_analysis.core_sink import parse_output_filename, save_products
 
 
 def document(line=False, **kwargs):
-    return AnalysisDiagnostic.model_validate(
+    kind = (
         {
-            "name": "Device",
-            "output_name": "Output",
-            "analyzer": {"kind": "line" if line else "beam"},
-            "image": {
-                "type": "line",
-                "data_loading": {"data_type": "npy"},
+            "input": {
+                "kind": "line",
+                "loading": {"data_type": "npy"},
                 "storage_dtype": "float32",
-            }
-            if line
-            else {"type": "camera"},
-            "scan": {"renderer": {"dpi": 30}},
-            **kwargs,
+                "label": "x vs y",
+            },
+            "measure": {"kind": "line"},
+            "figure": {"fig": {"dpi": 30}},
+            "summaries": [{"kind": "waterfall"}, {"kind": "average"}],
         }
+        if line
+        else {
+            "input": {"kind": "camera"},
+            "measure": {"kind": "beam"},
+            "figure": {"imshow": {"vmin": 0}, "fig": {"dpi": 30}},
+            "summaries": [
+                {"kind": "image_grid", "panel_size": [6.0, 6.0]},
+                {"kind": "average"},
+            ],
+        }
+    )
+    return AnalysisRecipe.model_validate(
+        {"device": "Device", "output_name": "Output", **kind, **kwargs}
     )
 
 
@@ -160,7 +170,7 @@ def test_missing_raw_folder_is_never_created(tmp_path):
     assert not list(tmp_path.iterdir())
 
 
-@pytest.mark.parametrize("field", ["name", "output_name"])
+@pytest.mark.parametrize("field", ["device", "output_name"])
 def test_traversal_refused_before_output_creation(tmp_path, field):
     scan = tmp_path / "scans" / "Scan001"
     scan.mkdir(parents=True)
@@ -210,8 +220,6 @@ def test_bad_waterfall_skips_only_summary_and_reports_reason(tmp_path):
 
 
 def fit_recipe(*summaries):
-    from geecs_schemas.analysis import AnalysisRecipe
-
     return AnalysisRecipe.model_validate(
         {
             "device": "Device",

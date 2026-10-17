@@ -1,4 +1,4 @@
-"""HimgJob: the ``.himg`` job document, and how the loader tells it from the analysis formats."""
+"""HimgJob: the ``.himg`` job document, and how the loader tells it from a recipe."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ from pydantic import ValidationError
 
 from geecs_schemas import SCHEMA_REGISTRY
 from geecs_schemas.analysis import (
-    AnalysisDiagnostic,
     AnalysisRecipe,
     HimgJob,
     canonical_document,
@@ -15,12 +14,6 @@ from geecs_schemas.analysis import (
 )
 
 JOB = {"schema_version": 1, "kind": "himg_compact", "device": "U_HasoLift"}
-V2 = {
-    "schema_version": 2,
-    "name": "Cam",
-    "analyzer": {"kind": "beam"},
-    "image": {"type": "camera"},
-}
 V3 = {
     "schema_version": 3,
     "device": "Cam",
@@ -35,7 +28,6 @@ def test_registered_as_its_own_document_kind():
 
 def test_each_document_of_the_tree_loads_as_itself():
     assert type(load_analysis_document(JOB)) is HimgJob
-    assert type(load_analysis_document(V2)) is AnalysisDiagnostic
     assert type(load_analysis_document(V3)) is AnalysisRecipe
 
 
@@ -58,14 +50,6 @@ def test_the_kind_is_read_first_so_a_typo_names_the_job():
         load_analysis_document({**JOB, "kind": "himg_compactt"})
     with pytest.raises(ValidationError, match="Extra inputs"):
         load_analysis_document({**JOB, "file_tail": ".himg"})
-
-
-def test_the_v2_kinds_are_gone():
-    """No second way to run a job: the diagnostic no longer knows the kinds."""
-    with pytest.raises(ValidationError):
-        AnalysisDiagnostic.model_validate(
-            {"name": "U_HasoLift", "analyzer": {"kind": "himg_compact"}}
-        )
 
 
 def test_the_canonical_form_round_trips():

@@ -45,7 +45,7 @@ wrappers wrote (see "Goldens" below).
 
 `core_inputs.prepare_v2` prepares a document for the numerical core. It is
 shared with portal processing/unsaved previews. Compile capabilities before any reads, then load backgrounds once via
-data-utils and bind immutable Frames. Failed file loads retain the v2 constant
+data-utils and bind immutable Frames. Failed file loads retain the constant
 fallback; loaded shape errors propagate. `data_dir` means the device directory
 when resolving `{scan_dir}`. Context-free previews leave that placeholder
 literal. This adapter never mutates the caller's config. A scan background
@@ -87,7 +87,7 @@ timestamp columns; `scan.device` selects the folder/native filename stem.
 Camera stack preference may fall back to native files; stack-only traces cannot.
 The source never creates folders or writes files. Hosts must wait for scan
 completion before discovering HDF5 stacks over SMB. Reader metadata is not
-returned by this raw-array adapter; v2 recipes supply configured labels/units.
+returned by this raw-array adapter; recipes supply configured labels/units.
 The source is the run's loader (callable per shot) **and a context manager**:
 `PreparedScan.run` enters it once, and a pooled run enters it once in every
 worker, so one capture stack is opened once per run/worker and read through
@@ -232,20 +232,15 @@ Scan analysis is driven by YAML config files stored in the
 **GEECS-Plugins-configs** repository (not this repo). The documents are
 **GEECS-Schemas'** (`geecs_schemas.analysis`): one YAML per diagnostic
 under `analyzers/<namespace>/<id>.yaml`, read by `load_analysis_document`
-(beside the `.himg` jobs' `HimgJob`, below) in one of two formats by its
-`schema_version` — the v3 `AnalysisRecipe`
-(the analysis core's native shape: `input:`, ordered `steps:`, `measure:`,
-the per-frame `figure:`, the `summaries:` kinds; the whole corpus since
-2026-10-16) or the v2 `AnalysisDiagnostic` (`analyzer:` + `image:` + the
-typed `scan:` section; compiled onto the same core by `compile_v2` until
-the v2 document is deleted — #1039, PR C). Diagnostics are assembled into
+(beside the `.himg` jobs' `HimgJob`, below) as the `AnalysisRecipe`
+(format 3, the analysis core's native shape: `input:`, ordered `steps:`,
+`measure:`, the per-frame `figure:`, the `summaries:` kinds; the whole
+corpus since 2026-10-16). Diagnostics are assembled into
 `AnalysisGroup` files under `groups/<namespace>/<group>.yaml`, which
-explicit runners and the task queue consume directly. A pre-v2 file is
-refused at load; `scripts/analysis_convert_corpus.py` (repo root) converts
-a v2 diagnostic the core serves into a recipe, and nothing lifts the other
-way. `core_recipe.ScanRecipe` is the one host-side view of either format;
-the source, runner, planner and sink read it and never ask which document
-they serve.
+explicit runners and the task queue consume directly. A file of the
+retired v2 format (`analyzer:` + `image:`) is refused at load (#1039).
+`core_recipe.ScanRecipe` is the one host-side view of a recipe; the
+source, runner, planner and sink read it.
 
 ### Public loader / factory API
 
@@ -276,11 +271,10 @@ the client `config.ini` default root, which neither of those packages may
 read — used by the group loader, the portal's Analysis tab, MCP's worker
 and notebooks alike.
 
-The other route: a `.himg` job — the third document of the
+The other route: a `.himg` job — the second document of the
 analyzers tree, `geecs_schemas.analysis.HimgJob` (top-level `kind:`
 `himg_to_stack` / `himg_compact` / `himg_restore`, `device`,
-`output_name`, `scan.priority`; not an analysis, so neither a recipe nor
-a v2 diagnostic) — is one step over the device folder with no
+`output_name`, `scan.priority`; not an analysis, so not a recipe) — is one step over the device folder with no
 ImageAnalyzer, no per-frame results and no products under `analysis/`.
 `create_scan_analyzer` maps it through `himg_kinds.HIMG_JOB_CLASSES`
 (kind → ScanAnalysis class) before anything reaches the core, and every
@@ -324,38 +318,25 @@ thin wrapper around the same two calls.
 ### The documents (`geecs_schemas.analysis`)
 
 ```
-AnalysisRecipe | AnalysisDiagnostic   # One YAML per diagnostic (schema_version 3, or 2 for unported kinds)
-  name: str                       # Device/channel name for input-data discovery
-  output_name: Optional[str]      # Output stem override (defaults to name)
-  metric_suffix: Optional[str]    # Scalar-key-only suffix (no dir/file effect)
-  analyzer: AnalyzerSpec          # kind-discriminated union: beam | magspec | ict | ...
-                                  #   with the analyzer's OWN parameters as fields
-  image: CameraConfig | Line1DConfig | None   # routed by `type: camera | line`
-  scan: ScanRuntime               # typed in-document (below)
-
-ScanRuntime                       # the scan: section
-  priority: int                   # Lower = runs first (100 default)
-  mode: Literal["per_shot", "per_bin"]  # default per_shot
-  save: bool                      # Write per-shot/bin outputs to the analysis tree
-  gdoc_slot: Optional[int]        # Retired, accepted but ignored
-  device: Optional[str]           # Data-subfolder override (defaults to name)
-  file_tail: Optional[str]        # Filename suffix matching this device's files
-  data_format: Optional[...]      # "device_hdf5" opts in to the capture frame
-                                  #   stack. A CAMERA analyzer auto-falls back
-                                  #   to per-shot files when no stack maps; a
-                                  #   1D analyzer loading "pva_stack" does NOT
-                                  #   (that loader takes a ShotRef and cannot
-                                  #   read a per-shot path) — it raises
-                                  #   DataUnavailableWarning, so the task
-                                  #   records no_data rather than done with no
-                                  #   artifacts;
-                                  #   WARNING: only for analyzers that use base
-                                  #   load_image and don't derive per-shot
-                                  #   output names from file_path (line_stitcher
-                                  #   is refused outright by the schema)
-  renderer: RendererOptions       # typed figure options; unset = renderer default
-  background_source: Optional[BackgroundSource]
-                                  # scan_number | from_current_scan | autodetect
+AnalysisRecipe                    # One YAML per diagnostic (schema_version 3)
+  device: str                     # Device name; stems the products
+  output_name: Optional[str]      # Output stem override (defaults to device)
+  scalar_suffix: Optional[str]    # Scalar-key-only suffix (no dir/file effect)
+  input: CameraInput | LineInput  # kind: camera | line; folder (data-subfolder
+                                  #   override), file_tail, format
+                                  #   ("device_hdf5" opts in to the capture
+                                  #   frame stack; a camera falls back to
+                                  #   per-shot files, a "pva_stack" line does
+                                  #   not and records no_data), a line's
+                                  #   loading / scales / units / siblings
+  inputs: {name: FrameInput}      # frames/tables the host loads and binds:
+                                  #   path | from_scan | table
+  steps: [StepRef]                # ordered registry references
+  measure: MeasureRef             # the registry's measure kind + parameters
+  scan: RecipeRuntime             # priority (100 default; lower runs first),
+                                  #   average_frames_first, save, workers
+  figure: FigureStyle             # the per-frame draw
+  summaries: [Summary]            # image_grid | waterfall | average | scalar_fit
 
 AnalysisGroup                     # One YAML per group under groups/
   analyzers: List[AnalyzerRef]    # bare stems or {ref, enabled, priority}
@@ -364,7 +345,7 @@ ResolvedDiagnosticConfig          # What the loader hands the factory (this pack
   id: str                         # Diagnostic filename stem (task-queue ID)
   enabled: bool                   # Refs with enabled: false are excluded
   priority: int                   # Group override, else the diagnostic's own
-  diagnostic: AnalysisRecipe | AnalysisDiagnostic | HimgJob   # whichever the file declares
+  diagnostic: AnalysisRecipe | HimgJob   # whichever the file declares
 ```
 
 `scan_analysis.config` exports only its own things — `load_diagnostic`,
@@ -380,17 +361,6 @@ applies the document's `output_name` prefix (defaults to the device) and
 camera with distinct output trees and s-file columns
 (`output_name: UC_TopView_left` / `UC_TopView_right`). The suffix affects
 scalar keys only, never directory or file names.
-
-### The v2 `analyzer:` section
-
-Which analyzer runs, and its parameters, in one typed block chosen by
-`kind`; `geecs_analysis.compat.v2.compile_v2` maps it onto the core's
-steps and measure:
-
-```yaml
-analyzer: {kind: beam, compute_slopes: false}
-analyzer: {kind: trace}                      # a 1D kind; image: {type: line, ...}
-```
 
 ### The config editor (`config_store.py` + `config_editor/`)
 
@@ -446,10 +416,9 @@ The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
   (matplotlib keyword rows: numbers, true/false, [lists] typed, other text
   a string; overlay styles by id) → Summaries → Scan. Reorder and remove
   rebuild the list from its current values so every field path
-  (`steps.2.bounds`) stays true. A **format 2 diagnostic** (a kind the
-  core has not ported) opens read-only — note, the file as saved, Delete,
-  and the preview of the saved document — until its kind is ported and it
-  converts. The preview is **the run's own draw**: the host renders the
+  (`steps.2.bounds`) stays true. A `.himg` job, or a file that is not a
+  recipe (the retired v2 format lists as invalid), opens read-only — a
+  note, the file as saved, Delete. The preview is **the run's own draw**: the host renders the
   document through `scan_analysis.core_preview` — `preview_frame`, the
   sink's per-frame call with the document's `figure` block, frame inputs
   resolved from the document's device folder under the scan — cropped

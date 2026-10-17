@@ -36,6 +36,7 @@ import ctypes
 import dataclasses
 import gc
 import logging
+import mimetypes
 import threading
 import time
 from collections import deque
@@ -461,6 +462,35 @@ def contained_artifact(analysis_folder: Path, relative: str) -> Optional[Path]:
 #: Artifact types the artifact endpoint renders inline (raster only —
 #: SVG can carry script and is served as a download like everything else).
 INLINE_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
+
+
+def read_inline_artifact(
+    analysis_folder: Path, relative: str, *, max_bytes: int
+) -> Optional[tuple[bytes, str, str]]:
+    """``(bytes, filename, content type)`` of one inline-raster artifact.
+
+    The read half of the artifact contract, for a route that forwards an
+    artifact rather than serving it (the logbook send): the same
+    containment as :func:`contained_artifact` (``None`` when the path
+    does not resolve to a file inside the folder), the same inline set
+    as the artifact route, and the content type from the suffix. Raises
+    ``ValueError`` for an artifact that is not a raster image or is over
+    *max_bytes* — checked by ``stat`` BEFORE the read, so a huge file is
+    refused without loading it into this memory-capped process.
+    """
+    file = contained_artifact(analysis_folder, relative)
+    if file is None:
+        return None
+    if file.suffix.lower() not in INLINE_IMAGE_SUFFIXES:
+        raise ValueError(f"{relative!r} is not a raster image artifact")
+    size = file.stat().st_size
+    if size > max_bytes:
+        raise ValueError(
+            f"{relative!r} is {size // 1024} KiB, over the "
+            f"{max_bytes // (1024 * 1024)} MiB send cap"
+        )
+    content_type = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
+    return file.read_bytes(), file.name, content_type
 
 
 def classify_artifact(artifact: str) -> tuple[str, Optional[int]]:

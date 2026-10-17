@@ -156,7 +156,7 @@ class DiagnosticMeasurement(MeasurementOptions):
     )
     overrides: dict[str, JsonValue] = Field(
         default_factory=dict,
-        description="Processing/analyzer overrides deep-merged into the diagnostic.",
+        description="Steps/measure overrides deep-merged into the diagnostic's recipe.",
     )
 
     @field_validator("diagnostic")
@@ -169,9 +169,9 @@ class DiagnosticMeasurement(MeasurementOptions):
     @field_validator("overrides")
     @classmethod
     def _overrides(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
-        if set(value) - {"analyzer", "image"}:
+        if set(value) - {"steps", "measure"}:
             raise ValueError(
-                "diagnostic overrides may change analyzer or image settings only"
+                "diagnostic overrides may change the recipe's steps or measure only"
             )
         return value
 
