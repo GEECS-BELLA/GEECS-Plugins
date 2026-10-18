@@ -60,7 +60,9 @@ kill switch's deny list covers framework servers only.  So:
   so a tier cannot take a verb back out of the base profile's `allow`.
   The write verbs go on `claude_code.permissions.deny` in the base
   profile and `remove_deny` in the admin persona (or a tier drops the
-  whole server with `exclude: {mcp_servers: [geecs]}`), with the
+  whole server with `exclude: {mcp_servers: [geecs]}` — which takes the
+  halt family with it, so only for a tier that should not reach the
+  machine at all), with the
   DEVIATION marker.  Interactive sessions only — never dispatch or a
   headless runner.
 - **Optional, until osprey closes the gap: a facility PreToolUse hook**
@@ -81,7 +83,9 @@ mcp_servers:
     url: http://192.168.6.14:8100/mcp
     transport: http
     permissions:
-      allow: [<READ_TOOLS>, <STOP_TOOLS>]
+      # The write verbs are on allow AND (below) on deny: deny wins at every
+      # tier until the admin persona removes it, so admin gets them unprompted.
+      allow: [<READ_TOOLS>, <STOP_TOOLS>, <WRITE_TOOLS>]
       # DEVIATION 2026-10-18: write verbs allowed at admin, interactive sessions only;
       # approval lives in the conversation (goal + stopping conditions stated up front).
 claude_code:
@@ -121,11 +125,24 @@ register is inert, but it misreads as a capability that exists.
 Claude Code, not osprey, sets the ceilings a tool call lives under: an
 interactive call still running after 2 minutes moves to a background
 task, an HTTP server's call is dropped after 5 minutes without traffic
-(30 minutes over stdio), and HTTP calls run a first-byte timer.  So the
-wait verbs default to 90 s and cap at 110 s, answer `finished: false`
-when the budget ends (the skill calls again), and every blocking call —
-the waits' polls, and a halt the scanner holds open until the pause
-lands — sends MCP progress notifications, which reset those timers.
+(30 minutes over stdio), and HTTP calls run a first-byte timer.  The
+2-minute rule counts from the call's start, whatever the call sends, so
+the server holds every blocking call under it:
+
+- a whole call has 110 s of wall clock, every HTTP read inside it cut to
+  what is left; a wait polls for at most 90 s (a `move` for 60 s) and
+  answers `finished: false` when that ends — the skill calls again;
+- `stop_scan` waits at most 100 s for the scanner to confirm (the
+  scanner itself holds a stop up to 120 s); unconfirmed by then, it
+  answers `ok` with `landed: false` — the stop is in, check
+  `scan_status`;
+- a `move` the scanner accepted keeps its `item_uid` if the scanner
+  stops answering while it is followed.
+
+The waits' polls and the scanner verbs also send MCP progress
+notifications, which reset the **idle** timer.  Whether they satisfy the
+first-byte timer depends on the client sending a progress token over
+HTTP — live check 4 records it.
 
 ### Identity is a record, not an authorization
 
@@ -140,7 +157,7 @@ has no field for one).
 
 The string records who the agent says supervised; it proves nothing.
 Who may call which verb is decided by the profile's permission lists
-and osprey's hooks above, never by this server.
+and `write_tools` above, never by this server.
 
 OSPREY's own rule goes further: a name arrives only through one of its
 two doors (the terminal proxy or a sidecar login gate, as

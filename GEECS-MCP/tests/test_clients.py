@@ -87,3 +87,26 @@ class TestGetBytes:
         finally:
             await clients.reset_clients()
         assert caught.value.kind == "not_found"
+
+
+async def test_a_read_timeout_is_a_service_timeout_and_still_an_outage(
+    monkeypatch,
+) -> None:
+    """Sent but unanswered: its own subclass for verbs that ask, service_unreachable for the rest."""
+
+    def slow(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("no answer", request=request)
+
+    monkeypatch.setattr(config, "service_url", lambda service: "http://scanner")
+    monkeypatch.setattr(
+        clients, "transport_for", lambda service: httpx.MockTransport(slow)
+    )
+    await clients.reset_clients()
+    try:
+        with pytest.raises(clients.ServiceTimeout):
+            await clients.call("scanner", "GET", "/api/status")
+        out = _j(await run(clients.call, "scanner", "GET", "/api/status"))
+    finally:
+        await clients.reset_clients()
+    assert out["error_kind"] == "service_unreachable"
+    assert out["service"] == "scanner"

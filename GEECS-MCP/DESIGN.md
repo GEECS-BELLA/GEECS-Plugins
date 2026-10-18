@@ -110,7 +110,9 @@ stable: the HTU profile derives its allow/ask lists and
 `control_system.write_tools` from the three tuples, never retyped.
 The deployment's posture (htu-assistant session, 2026-10-16):
 `READ_TOOLS` on allow everywhere; `STOP_TOOLS` on allow wherever the
-server renders; `WRITE_TOOLS` on allow at the admin tier only, with the
+server renders; `WRITE_TOOLS` unprompted at the admin tier only — on
+allow and on deny in the base profile, the deny removed by the admin
+persona (lists only union across tiers; corrected 2026-10-18) — with the
 profile's DEVIATION marker; the readonly and knowledge renders drop the
 write verbs. The headless gate is the profile's `write_tools` list
 derived from `WRITE_TOOLS`, as `deploy/DEPLOYMENT.md` describes today.
@@ -188,12 +190,13 @@ On timeout: `{finished: false, where: "running"|"waiting", position?, progress}`
 An item in none of the three lists → `not_found` (the manager's history
 is bounded and clearable; the message says so).
 
-`timeout_s` defaults to 90 s and is capped at 110 s server-side — the
-OSPREY team's answer to their Q3 (2026-10-18): Claude Code moves an
-interactive call past 2 minutes to the background, drops an HTTP
-server's call after 5 minutes without traffic and runs a first-byte
-timer, so a wait is short and the skill calls again. Every poll sends an
-MCP progress notification, which resets those timers (`waits.py`).
+`timeout_s` defaults to and is capped at 90 s of polling, inside a
+110 s wall clock for the whole call — the OSPREY team's answer to their
+Q3 (2026-10-18): Claude Code moves an interactive call to the background
+2 minutes after it started, drops an HTTP server's call after 5 minutes
+without traffic and runs a first-byte timer, so a wait is short and the
+skill calls again. Every poll sends an MCP progress notification, which
+resets the idle timer only (`waits.py`).
 `scan_numbers`/`run_uids` are the keys the agent carries into
 `run_analysis` and `post_logbook_entry`.
 
@@ -420,7 +423,7 @@ server and nothing else is.
 3. `operator` as a required argument on every write verb (§6) rather
    than a per-deployment config value.
 4. ~~Wait-verb default 240 s / cap 600 s until OSPREY answers their Q3.~~
-   Answered 2026-10-18: 90 s default, 110 s cap, progress notifications (§4.3).
+   Answered 2026-10-18: 90 s of polling inside 110 s per call, progress notifications (§4.3).
 5. Logbook figures = portal artifact references only; no inline bytes.
 6. The scanner's move route does not stamp the operator on the item
    (§6) — include the two-line change in this arc?

@@ -9,13 +9,34 @@ from geecs_mcp import waits
 from geecs_mcp.clients import ServiceRefusal
 
 
-def test_the_budget_is_capped_under_the_clients_timers() -> None:
-    assert (
-        waits.DEFAULT_WAIT_S <= waits.MAX_WAIT_S < 120.0
-    )  # the 2-minute auto-background
+def test_every_blocking_verb_fits_under_the_two_minute_auto_background() -> None:
+    """The arithmetic the module docstring promises: a whole call stays under 120 s."""
+    from geecs_mcp import clients
+    from geecs_mcp.scans import tools as scans
+
+    limit = 120.0
+    assert waits.CALL_BUDGET_S + clients.CONNECT_TIMEOUT_S < limit
+    assert waits.DEFAULT_WAIT_S <= waits.MAX_WAIT_S < waits.CALL_BUDGET_S
+    assert scans.MOVE_MAX_WAIT_S < waits.MAX_WAIT_S
+    # The stop: one request, its read bounded on its own.
+    assert scans.STOP_READ_TIMEOUT_S + clients.CONNECT_TIMEOUT_S < limit
     assert waits.bounded_wait(600) == waits.MAX_WAIT_S
     assert waits.bounded_wait(-5) == 0.0
     assert waits.bounded_wait("soon") == 0.0
+
+
+def test_a_call_budget_hands_each_read_what_is_left(monkeypatch) -> None:
+    from geecs_mcp import clients
+
+    now = {"t": 1000.0}
+    monkeypatch.setattr(waits.time, "monotonic", lambda: now["t"])
+    budget = waits.CallBudget(30.0)
+    assert budget.read_timeout() == clients.READ_TIMEOUT_S  # plenty left: the default
+    now["t"] += 25.0
+    assert budget.read_timeout() == pytest.approx(5.0)  # cut to what is left
+    now["t"] += 60.0
+    assert budget.left() == 0.0
+    assert budget.read_timeout() == waits.MIN_READ_S  # late: still sent, fails fast
 
 
 async def test_keepalive_beats_while_the_call_runs_and_returns_its_value(

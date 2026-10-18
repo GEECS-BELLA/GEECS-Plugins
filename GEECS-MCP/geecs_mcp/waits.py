@@ -1,32 +1,62 @@
 """The one budget rule for the verbs that block, in every domain.
 
 Sized to the MCP client, not to the scan (the OSPREY team's answer,
-2026-10-18): Claude Code moves an interactive call still running after
-2 minutes to a background task, drops an HTTP server's call after 5
-minutes without traffic, and starts a first-byte timer on HTTP servers.
-So a wait is short and repeatable — ``DEFAULT_WAIT_S`` by default,
-``MAX_WAIT_S`` at most, ``finished: false`` when it ends, call again —
-and every blocking call reports MCP progress while it runs
-(:func:`heartbeat`, :func:`keepalive`), which is what resets those
-timers.  A client that sends no progress token gets no notifications;
-nothing else changes.
+2026-10-18).  Claude Code moves an interactive call still running after
+**2 minutes** to a background task — counted from the call's start,
+whatever it sends — drops an HTTP server's call after 5 minutes without
+traffic, and runs a first-byte timer on HTTP servers.  So:
+
+- a whole call is held under ``CALL_BUDGET_S`` of wall clock
+  (:class:`CallBudget` bounds every HTTP read inside it), and a wait's
+  own polling under ``MAX_WAIT_S``, leaving room for its trailing reads;
+  a wait that ends is ``finished: false`` and the skill calls again;
+- every wait poll and every scanner verb reports MCP progress
+  (:func:`heartbeat`, :func:`keepalive`), which resets the **idle** timer
+  — not the 2-minute one, which only the budget above respects.  Whether
+  progress also satisfies the first-byte timer depends on the client
+  sending a progress token over its transport; a client that sends none
+  gets no notifications.
 """
 
 from __future__ import annotations
 
 import builtins
+import time
 from typing import Any, Awaitable, Callable, Optional, TypeVar
 
 import anyio
 
-#: A wait verb's default budget, and the cap on any one call — under the
-#: client's 2-minute auto-background, so a call answers in the turn.
+from geecs_mcp import clients
+
+#: Wall clock one blocking call may take, all reads included — under the
+#: client's 2-minute auto-background, with margin for connects.
+CALL_BUDGET_S = 110.0
+#: A wait verb's polling budget (default and cap): CALL_BUDGET_S less
+#: room for the reads that follow the last poll.
 DEFAULT_WAIT_S = 90.0
-MAX_WAIT_S = 110.0
+MAX_WAIT_S = 90.0
 #: How often a blocking service call reports that it is still running.
 HEARTBEAT_S = 10.0
+#: The shortest read a budget hands out, so a late call fails as a
+#: timeout rather than never being sent.
+MIN_READ_S = 1.0
 
 T = TypeVar("T")
+
+
+class CallBudget:
+    """One blocking call's wall clock: hands each HTTP read what is left of it."""
+
+    def __init__(self, seconds: float = CALL_BUDGET_S) -> None:
+        self._end = time.monotonic() + seconds
+
+    def left(self) -> float:
+        """Seconds remaining (never negative)."""
+        return max(0.0, self._end - time.monotonic())
+
+    def read_timeout(self) -> float:
+        """The read budget for the next request: the client default, cut to what is left."""
+        return max(MIN_READ_S, min(clients.READ_TIMEOUT_S, self.left()))
 
 
 def bounded_wait(timeout_s: Any) -> float:

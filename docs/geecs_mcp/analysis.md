@@ -21,7 +21,7 @@ hold is `not_found` — never the day's newest run by mistake.
 | `list_analysis_groups` | R | The analysis groups as written, with their members in run order. Not runnable as one unit: run the members in turn |
 | `get_scan_analysis(scan_number, day?)` | R | The portal's analysis picture of one scan: per analyzer, whether it applies, its job record (log cut to a 40-line tail), its files and artifacts |
 | `run_analysis(scan_number, analyzer, day?, confirm?)` | W | Start one analyzer on one scan. Returns at once with the portal's job record (usually `queued`) |
-| `wait_for_analysis(scan_number, analyzer, day?, timeout_s=90)` | R | Block until that job leaves `queued` / `running` (cap 110 s); returns `state` (`done` / `failed` / `no_data` / `unknown`), the error, artifacts and files |
+| `wait_for_analysis(scan_number, analyzer, day?, timeout_s=90)` | R | Block until that job leaves `queued` / `running` (at most 90 s; call again while `finished` is false); returns `state` (`done` / `failed` / `no_data` / `unknown`), the error, artifacts and files |
 | `get_analysis_artifact(scan_number, path, day?, max_bytes=65536)` | R | Read one non-image artifact: a `*_summary_*.json` sidecar comes back parsed as `data`, a text table as `text`. Capped (ceiling 256 KiB) with `truncated` and `size_bytes` when cut |
 | `get_scan_scalars(scan_number, columns, day?, x?, bincfg?, filters?)` | R | Per-bin centres, error bands and counts for up to four scalar columns — the Plot tab's numbers, without its figure or notebook snippet |
 | `get_scan_figure(scan_number, label?, day?, thumbnail=false)` | R | A figure **reference**: the figure path, analyzer, kind and the portal's artifact URL. `thumbnail=true` adds a ≤768 px JPEG as an MCP image block |

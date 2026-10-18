@@ -65,11 +65,17 @@ async def resolve_uid(scan_number: Any, day: Optional[str]) -> tuple[str, str, i
     return str(jump["uid"]), iso, number
 
 
-async def analysis_listing(uid: str, day: str) -> dict:
+async def analysis_listing(
+    uid: str, day: str, *, read_timeout_s: Optional[float] = None
+) -> dict:
     """The portal's analysis picture of one run (its Analysis tab's listing)."""
     return (
         await clients.call(
-            "portal", "GET", f"/api/run/{uid}/analysis", params={"day": day}
+            "portal",
+            "GET",
+            f"/api/run/{uid}/analysis",
+            params={"day": day},
+            read_timeout_s=read_timeout_s,
         )
         or {}
     )

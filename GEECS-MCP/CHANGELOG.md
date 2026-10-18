@@ -12,13 +12,17 @@ Aligned with the OSPREY team's reply to the closed-loop approach page
 ### Changed
 
 - The blocking verbs fit the MCP client's timers (Claude Code moves an
-  interactive call past 2 minutes to the background, drops an HTTP
-  server's call after 5 quiet minutes, and runs a first-byte timer):
-  `wait_for_scan` and `wait_for_analysis` default to 90 s and cap at
-  110 s (were 240 / 600 s) — call again while `finished` is false — and
-  every blocking call sends MCP progress notifications while it runs,
-  the waits on each poll and the scanner verbs (a stop holds up to 120 s
-  for the pause) every 10 s.
+  interactive call past 2 minutes to the background, counted from its
+  start; drops an HTTP server's call after 5 quiet minutes; runs a
+  first-byte timer). A whole call has 110 s of wall clock, every read cut
+  to what is left; `wait_for_scan` / `wait_for_analysis` poll for at most
+  90 s (were 240 / 600 s; call again while `finished` is false), a
+  `move` for 60 s. `stop_scan` waits at most 100 s for the scanner (were
+  130 s) and answers `landed: false` when it has not confirmed — never
+  `service_unreachable` for a stop that is in. A `move` the scanner
+  accepted keeps its `item_uid` if the scanner stops answering while it
+  is followed. The waits' polls and the scanner verbs send MCP progress
+  notifications, which reset the client's idle timer.
 - `deploy/DEPLOYMENT.md`: the gates are what OSPREY actually enforces for
   a profile-declared server — every `WRITE_TOOLS` verb in
   `control_system.write_tools`, tiers by `deny` + `remove_deny`, and an

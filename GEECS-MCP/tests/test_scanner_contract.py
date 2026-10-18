@@ -488,3 +488,42 @@ async def test_a_wait_reports_progress_to_an_mcp_client(stepping) -> None:
     assert seen, "no progress notification reached the client"
     assert all(total == 60 for _, total, _ in seen)
     assert item_uid in seen[0][2]
+
+
+async def test_a_stop_the_scanner_has_not_confirmed_is_reported_not_landed(
+    wired, monkeypatch
+) -> None:
+    """Past the stop's read budget the request is in: ok, landed false — never an outage."""
+    from geecs_mcp import clients as clients_mod
+
+    async def unanswered(service, method, path, **kwargs):
+        assert path == "/api/stop"
+        assert kwargs["read_timeout_s"] == tools.STOP_READ_TIMEOUT_S
+        raise clients_mod.ServiceTimeout(service, "http://scanner", "no answer")
+
+    monkeypatch.setattr(clients_mod, "call", unanswered)
+    out = _j(await run(tools._stop, False, OPERATOR))
+    assert out["ok"] is True, out
+    assert out["landed"] is False
+    assert "scan_status" in out["message"]
+
+
+async def test_an_accepted_move_keeps_its_handle_when_the_scanner_stops_answering(
+    stepping, monkeypatch
+) -> None:
+    """The move is queued: losing the scanner while following it still returns the item_uid."""
+    from geecs_mcp import clients as clients_mod
+
+    real = clients_mod.call
+
+    async def queue_down(service, method, path, **kwargs):
+        if path == "/api/queue":
+            raise clients_mod.ServiceUnavailable(service, "http://scanner", "gone")
+        return await real(service, method, path, **kwargs)
+
+    monkeypatch.setattr(clients_mod, "call", queue_down)
+    out = _j(await run(tools._move, "U_Hexapod:xpos", 1.25, OPERATOR, True, 60))
+    assert out["ok"] is True, out
+    assert out["item_uid"]
+    assert out["finished"] is False and out["where"] == "unknown"
+    assert out["item_uid"] in out["readback_detail"]

@@ -67,6 +67,15 @@ class ServiceUnavailable(Exception):
         self.message = message
 
 
+class ServiceTimeout(ServiceUnavailable):
+    """The request was sent and the answer did not come within the read budget.
+
+    Still an outage to every caller that does not ask (the guard maps it
+    as ``service_unreachable``); a verb whose request may have taken
+    effect — a stop the scanner is still landing — catches it and says so.
+    """
+
+
 class ServiceRefusal(Exception):
     """A 4xx: the service's verdict on the request, kind and words verbatim."""
 
@@ -201,6 +210,10 @@ async def call(
         response = await client.request(
             method, path, params=clean_params, json=json, timeout=timeout
         )
+    except httpx.ReadTimeout as exc:
+        raise ServiceTimeout(
+            service, str(client.base_url), f"no answer within the read budget: {exc}"
+        ) from exc
     except httpx.HTTPError as exc:
         raise ServiceUnavailable(
             service, str(client.base_url), f"{type(exc).__name__}: {exc}"

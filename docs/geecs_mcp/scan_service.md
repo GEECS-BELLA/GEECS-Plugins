@@ -20,7 +20,7 @@ gated headless), **S** the halt family (never blockable).
 | `list_scan_configs(kind, name?)` | R | The experiment's catalog by kind (`presets`, `trigger_profiles`, `scan_variables`, …), with the scanner's `unavailable` reasons; `name` on `presets` returns that preset's document |
 | `submit_preset(name, operator, acknowledged?)` | W | Queue one scan from a saved preset, through the scanner's preflight (below). Returns `item_uid` |
 | `move(variable, value, operator, wait=true, timeout_s=60)` | W | One move through the scanner's `mv` plan, **idle-only**; with `wait`, returns once the move finished, with the readback |
-| `wait_for_scan(item_uid, timeout_s=90)` | R | Block until the queue item finishes (cap 110 s; call again while `finished` is false); returns its state, `scan_numbers` and `run_uids` |
+| `wait_for_scan(item_uid, timeout_s=90)` | R | Block until the queue item finishes (at most 90 s; call again while `finished` is false); returns its state, `scan_numbers` and `run_uids` |
 | `pause_scan(force?, operator?)` | S | Deferred pause — lands at the next step boundary; `scan_status` says `paused` once it has |
 | `resume_scan(operator, force?)` | W | Resume a paused scan. It *restarts motion*, so it is a write, not a halt. Refused when nothing is paused |
 | `stop_scan(force?, operator?)` | S | Graceful stop after the current shot (partial data is kept); blocks until the scanner reports it landed (the scanner's budget is 120 s) |

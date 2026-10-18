@@ -76,9 +76,10 @@ geecs_mcp/
   guard.py           run_async(): refusals / outages / argument errors /
                      bugs → envelopes; every tool wrapper goes through it
                      (DESIGN §9 planned its deletion; the async half stays)
-  waits.py           DEFAULT_WAIT_S / MAX_WAIT_S (90 / 110 s) and bounded_wait();
-                     heartbeat() + keepalive(): MCP progress while a call
-                     blocks — the one budget rule for every blocking verb
+  waits.py           CALL_BUDGET_S (110 s wall clock per call) + CallBudget
+                     (each read cut to what is left), MAX_WAIT_S (90 s of
+                     polling), heartbeat() + keepalive() (MCP progress) —
+                     the one budget rule for every blocking verb
   errors.py          make_ok / make_error; the five kinds (module docstring)
   scans/tools.py     the scans domain over the scanner's HTTP API
   analysis/tools.py  the analysis domain over the portal's HTTP API
@@ -127,13 +128,16 @@ tests/
   The entry is an `agent_analysis` **draft**: the logbook refuses a
   non-note kind born `kept`, and no verb here keeps one.
 - The wait verbs' timeouts are **results** (`finished: false`), never
-  errors.  The budget is the MCP client's, not the scan's: 90 s by
-  default, 110 s at most (under Claude Code's 2-minute auto-background),
-  and every blocking call reports MCP progress while it runs — the wait
-  polls through `waits.heartbeat`, the scanner verbs (a stop holds up to
-  120 s for the pause) through `waits.keepalive` — which resets the
-  client's idle and first-byte timers (the OSPREY team's answer,
-  2026-10-18).
+  errors.  The budget is the MCP client's, not the scan's (the OSPREY
+  team's answer, 2026-10-18): Claude Code backgrounds an interactive
+  call 2 minutes after it STARTED, whatever it sends, so a whole call
+  holds 110 s of wall clock (`waits.CallBudget` cuts every read to what
+  is left), a wait polls for at most 90 s (a move 60 s), and
+  `stop_scan` waits 100 s for the scanner then answers `landed: false`
+  (`clients.ServiceTimeout`: sent, unanswered).  Progress notifications
+  (`waits.heartbeat` per poll, `waits.keepalive` around the scanner
+  verbs) reset only the client's idle timer.  `test_waits.py` pins the
+  arithmetic.
 - Payloads are context-sized: the scanner's shapes are small; the
   portal's job log is cut to a 40-line tail; `get_analysis_artifact` is
   byte-capped (64 KiB default, 256 KiB ceiling), refuses images and
