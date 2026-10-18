@@ -25,7 +25,13 @@ from geecs_mcp import clients, errors, guard, portal, tool_names
 from geecs_mcp.clients import ServiceRefusal
 from geecs_mcp.identity import InvalidArgument
 from geecs_mcp.server import mcp
-from geecs_mcp.waits import DEFAULT_WAIT_S, CallBudget, bounded_wait, heartbeat
+from geecs_mcp.waits import (
+    BUDGET_SPENT,
+    DEFAULT_WAIT_S,
+    CallBudget,
+    bounded_wait,
+    heartbeat,
+)
 
 #: Job states the portal's analysis runner reports.
 ACTIVE_STATES = ("queued", "running")
@@ -216,6 +222,25 @@ async def _wait_for_analysis(
     if not analyzer:
         return errors.make_error("invalid_request", "name the analyzer you started")
     call_budget = CallBudget()
+    with call_budget.scope():
+        return await _wait_within(scan_number, analyzer, day, timeout_s, call_budget)
+    # Only on expiry: the scope ended the wait mid-request.
+    return errors.make_ok(
+        finished=False,
+        scan_number=scan_number,
+        analyzer=analyzer,
+        state=None,
+        note=BUDGET_SPENT,
+    )
+
+
+async def _wait_within(
+    scan_number: Any,
+    analyzer: str,
+    day: Optional[str],
+    timeout_s: Any,
+    call_budget: CallBudget,
+) -> str:
     uid, iso, number = await portal.resolve_uid(scan_number, day)
     # The jump lookup has already spent some of the call's clock.
     budget = min(bounded_wait(timeout_s), call_budget.left())

@@ -44,11 +44,25 @@ MIN_READ_S = 1.0
 T = TypeVar("T")
 
 
-class CallBudget:
-    """One blocking call's wall clock: hands each HTTP read what is left of it."""
+#: What a bounded result says when the call's own clock ran out.
+BUDGET_SPENT = (
+    "this call's wall-clock budget ran out before the service answered "
+    "(a slow or stalled peer); nothing was cancelled on the service — call again"
+)
 
-    def __init__(self, seconds: float = CALL_BUDGET_S) -> None:
-        self._end = time.monotonic() + seconds
+
+class CallBudget:
+    """One blocking call's wall clock.
+
+    :meth:`scope` is the guarantee — an absolute cancel scope around the
+    whole operation, every await inside it included; :meth:`read_timeout`
+    hands each HTTP request what is left, so a request inside the scope
+    times out on its own no later than the scope does.
+    """
+
+    def __init__(self, seconds: Optional[float] = None) -> None:
+        budget = CALL_BUDGET_S if seconds is None else seconds
+        self._end = time.monotonic() + budget
 
     def left(self) -> float:
         """Seconds remaining (never negative)."""
@@ -57,6 +71,14 @@ class CallBudget:
     def read_timeout(self) -> float:
         """The read budget for the next request: the client default, cut to what is left."""
         return max(MIN_READ_S, min(clients.READ_TIMEOUT_S, self.left()))
+
+    def scope(self) -> anyio.CancelScope:
+        """A cancel scope that ends the operation when the budget is spent.
+
+        Leaving it by expiry is silent (``cancelled_caught``): the caller
+        answers with its bounded result after the ``with`` block.
+        """
+        return anyio.move_on_after(self.left())
 
 
 def bounded_wait(timeout_s: Any) -> float:

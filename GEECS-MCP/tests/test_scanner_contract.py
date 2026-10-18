@@ -527,3 +527,77 @@ async def test_an_accepted_move_keeps_its_handle_when_the_scanner_stops_answerin
     assert out["item_uid"]
     assert out["finished"] is False and out["where"] == "unknown"
     assert out["item_uid"] in out["readback_detail"]
+
+
+def _trickling_scanner(monkeypatch, scanner_app, slow_paths):
+    """The real scanner, except *slow_paths*, which answer one byte every 30 ms."""
+    import anyio
+    import httpx
+
+    from geecs_mcp import clients as clients_mod
+
+    asgi = httpx.ASGITransport(app=scanner_app)
+
+    async def trickle():
+        for byte in b'{"running": null, "waiting": [], "finished": []}' * 20:
+            await anyio.sleep(0.03)
+            yield bytes([byte])
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path in slow_paths:
+            return httpx.Response(
+                200, headers={"content-type": "application/json"}, content=trickle()
+            )
+        return await asgi.handle_async_request(request)
+
+    previous = clients_mod.transport_for
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(
+        clients_mod,
+        "transport_for",
+        lambda service: transport if service == "scanner" else previous(service),
+    )
+
+
+async def test_a_wait_is_bounded_by_its_wall_clock_against_a_trickling_scanner(
+    wired, scanner, monkeypatch
+) -> None:
+    """The call budget is absolute: a peer that keeps bytes coming cannot hold the call."""
+    import time
+
+    from geecs_mcp import clients as clients_mod
+    from geecs_mcp import waits
+
+    _, _, scanner_app = scanner
+    _trickling_scanner(monkeypatch, scanner_app, {"/api/queue"})
+    monkeypatch.setattr(waits, "CALL_BUDGET_S", 0.4)
+    monkeypatch.setattr(clients_mod, "CONNECT_TIMEOUT_S", 0.05)
+    await clients_mod.reset_clients()
+    started = time.monotonic()
+    out = _j(await run(tools._wait_for_scan, "some-item", 60))
+    assert time.monotonic() - started < 1.5
+    assert out["ok"] is True and out["finished"] is False, out
+    assert out["where"] == "unknown"
+    assert "budget ran out" in out["note"]
+
+
+async def test_an_accepted_move_keeps_its_handle_when_its_budget_runs_out(
+    wired, scanner, monkeypatch
+) -> None:
+    """The POST lands; following it against a trickling queue ends at the clock with the item_uid."""
+    import time
+
+    from geecs_mcp import clients as clients_mod
+    from geecs_mcp import waits
+
+    _, _, scanner_app = scanner
+    _trickling_scanner(monkeypatch, scanner_app, {"/api/queue"})
+    monkeypatch.setattr(waits, "CALL_BUDGET_S", 0.6)
+    monkeypatch.setattr(clients_mod, "CONNECT_TIMEOUT_S", 0.05)
+    await clients_mod.reset_clients()
+    started = time.monotonic()
+    out = _j(await run(tools._move, "U_Hexapod:xpos", 1.25, OPERATOR, True, 60))
+    assert time.monotonic() - started < 1.5
+    assert out["ok"] is True, out
+    assert out["item_uid"] and out["where"] == "unknown"
+    assert out["item_uid"] in out["readback_detail"]

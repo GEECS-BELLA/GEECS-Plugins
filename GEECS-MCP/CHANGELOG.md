@@ -14,8 +14,9 @@ Aligned with the OSPREY team's reply to the closed-loop approach page
 - The blocking verbs fit the MCP client's timers (Claude Code moves an
   interactive call past 2 minutes to the background, counted from its
   start; drops an HTTP server's call after 5 quiet minutes; runs a
-  first-byte timer). A whole call has 110 s of wall clock, every read cut
-  to what is left; `wait_for_scan` / `wait_for_analysis` poll for at most
+  first-byte timer). A whole call has 110 s of wall clock — an absolute
+  cancel scope, and every request's whole answer bounded too (httpx's
+  read timeout bounds only the gap between chunks) — `wait_for_scan` / `wait_for_analysis` poll for at most
   90 s (were 240 / 600 s; call again while `finished` is false), a
   `move` for 60 s. `stop_scan` waits at most 100 s for the scanner (were
   130 s) and answers `landed: false` when it has not confirmed — never

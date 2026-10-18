@@ -129,8 +129,9 @@ task, an HTTP server's call is dropped after 5 minutes without traffic
 2-minute rule counts from the call's start, whatever the call sends, so
 the server holds every blocking call under it:
 
-- a whole call has 110 s of wall clock, every HTTP read inside it cut to
-  what is left; a wait polls for at most 90 s (a `move` for 60 s) and
+- a whole call has 110 s of wall clock — an absolute cancel scope, so a
+  peer that keeps trickling bytes cannot hold it, with every request
+  inside cut to what is left; a wait polls for at most 90 s (a `move` for 60 s) and
   answers `finished: false` when that ends — the skill calls again;
 - `stop_scan` waits at most 100 s for the scanner to confirm (the
   scanner itself holds a stop up to 120 s); unconfirmed by then, it

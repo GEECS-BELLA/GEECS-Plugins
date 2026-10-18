@@ -131,8 +131,10 @@ tests/
   errors.  The budget is the MCP client's, not the scan's (the OSPREY
   team's answer, 2026-10-18): Claude Code backgrounds an interactive
   call 2 minutes after it STARTED, whatever it sends, so a whole call
-  holds 110 s of wall clock (`waits.CallBudget` cuts every read to what
-  is left), a wait polls for at most 90 s (a move 60 s), and
+  holds 110 s of wall clock (`waits.CallBudget`: an absolute cancel
+  scope around the operation, every request cut to what is left — and
+  `clients.call` bounds each request's whole answer, since httpx's read
+  timeout only bounds the gap between chunks), a wait polls for at most 90 s (a move 60 s), and
   `stop_scan` waits 100 s for the scanner then answers `landed: false`
   (`clients.ServiceTimeout`: sent, unanswered).  Progress notifications
   (`waits.heartbeat` per poll, `waits.keepalive` around the scanner

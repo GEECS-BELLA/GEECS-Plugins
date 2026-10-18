@@ -110,3 +110,36 @@ async def test_a_read_timeout_is_a_service_timeout_and_still_an_outage(
         await clients.reset_clients()
     assert out["error_kind"] == "service_unreachable"
     assert out["service"] == "scanner"
+
+
+async def test_a_trickled_answer_is_cut_at_the_wall_clock_not_the_read_gap(
+    monkeypatch,
+) -> None:
+    """httpx's read timeout bounds the gap between chunks; one byte every 30 ms never trips it."""
+    import time
+
+    import anyio
+
+    async def trickle():
+        for byte in b'{"ok": true, "padding": "' + b"x" * 200 + b'"}':
+            await anyio.sleep(0.03)
+            yield bytes([byte])
+
+    def slow(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"content-type": "application/json"}, content=trickle()
+        )
+
+    monkeypatch.setattr(config, "service_url", lambda service: "http://scanner")
+    monkeypatch.setattr(
+        clients, "transport_for", lambda service: httpx.MockTransport(slow)
+    )
+    monkeypatch.setattr(clients, "CONNECT_TIMEOUT_S", 0.05)
+    await clients.reset_clients()
+    started = time.monotonic()
+    try:
+        with pytest.raises(clients.ServiceTimeout):
+            await clients.call("scanner", "GET", "/api/queue", read_timeout_s=0.25)
+    finally:
+        await clients.reset_clients()
+    assert time.monotonic() - started < 1.0  # the trickle alone takes ~7 s

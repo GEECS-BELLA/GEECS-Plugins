@@ -23,7 +23,13 @@ from geecs_mcp import clients, errors, guard, tool_names
 from geecs_mcp.clients import ServiceRefusal, ServiceTimeout, ServiceUnavailable
 from geecs_mcp.identity import InvalidArgument, identity_for
 from geecs_mcp.server import mcp
-from geecs_mcp.waits import DEFAULT_WAIT_S, CallBudget, heartbeat, keepalive
+from geecs_mcp.waits import (
+    BUDGET_SPENT,
+    DEFAULT_WAIT_S,
+    CallBudget,
+    heartbeat,
+    keepalive,
+)
 from geecs_mcp.waits import bounded_wait as _bounded_wait
 
 #: The scanner's ``GET /api/configs/{kind}`` kinds (the page's dropdowns).
@@ -453,6 +459,20 @@ async def _wait_for_scan(item_uid: str, timeout_s: float) -> str:
             "invalid_request", "item_uid is the handle submit_preset returned"
         )
     budget = CallBudget()
+    with budget.scope():
+        return await _wait_within(item_uid, timeout_s, budget)
+    # Only on expiry: the scope ended the wait mid-request.
+    return errors.make_ok(
+        finished=False,
+        item_uid=item_uid,
+        where="unknown",
+        progress=None,
+        live_scan=None,
+        note=BUDGET_SPENT,
+    )
+
+
+async def _wait_within(item_uid: str, timeout_s: float, budget: CallBudget) -> str:
     where, row, progress = await _wait_for_item(
         item_uid, _bounded_wait(timeout_s), poll_s=SCAN_POLL_S, budget=budget
     )
@@ -584,18 +604,22 @@ async def _move(
     if not wait or not item_uid:
         payload["readback_detail"] = "not waited for"
         return errors.make_ok(**payload)
-    try:
-        return await _follow_move(payload, variable, timeout_s, budget)
-    except ServiceUnavailable as exc:
-        # The move is ACCEPTED (item_uid): an outage while following it is
-        # not a failed move, and the handle must reach the agent.
-        payload["where"] = "unknown"
-        payload["readback_detail"] = (
-            f"the scanner accepted the move but stopped answering while it was "
-            f"followed ({exc.message}); wait_for_scan({payload['item_uid']!r}) "
-            "follows it"
-        )
-        return errors.make_ok(**payload)
+    # The move is ACCEPTED (item_uid): an outage or a spent budget while it
+    # is followed is not a failed move, and the handle must reach the agent.
+    follow = f"wait_for_scan({payload['item_uid']!r}) follows it"
+    with budget.scope():
+        try:
+            return await _follow_move(payload, variable, timeout_s, budget)
+        except ServiceUnavailable as exc:
+            payload["where"] = "unknown"
+            payload["readback_detail"] = (
+                f"the scanner accepted the move but stopped answering while it "
+                f"was followed ({exc.message}); {follow}"
+            )
+            return errors.make_ok(**payload)
+    payload["where"] = "unknown"
+    payload["readback_detail"] = f"{BUDGET_SPENT}; {follow}"
+    return errors.make_ok(**payload)
 
 
 async def _follow_move(
