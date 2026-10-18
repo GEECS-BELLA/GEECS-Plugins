@@ -23,6 +23,7 @@ from geecs_mcp import clients, errors, guard, tool_names
 from geecs_mcp.clients import ServiceRefusal
 from geecs_mcp.identity import InvalidArgument, identity_for
 from geecs_mcp.server import mcp
+from geecs_mcp.waits import DEFAULT_WAIT_S, heartbeat, keepalive
 from geecs_mcp.waits import bounded_wait as _bounded_wait
 
 #: The scanner's ``GET /api/configs/{kind}`` kinds (the page's dropdowns).
@@ -177,8 +178,11 @@ async def _verb(
     read_timeout_s=None,
     note: str = "",
 ) -> str:
-    out = await clients.call(
-        "scanner", "POST", path, json=body, read_timeout_s=read_timeout_s
+    out = await keepalive(
+        lambda: clients.call(
+            "scanner", "POST", path, json=body, read_timeout_s=read_timeout_s
+        ),
+        message=f"waiting for the scanner's {path}",
     )
     if not out.get("ok", False):
         # The scanner answers 200 {ok:false} for a verb that does not apply
@@ -389,9 +393,11 @@ async def _wait_for_item(
     ``running``, ``waiting`` or ``""`` (nowhere — the manager's bounded
     history no longer holds it, or it never existed).
     """
-    deadline = _clock() + timeout_s
+    start = _clock()
+    deadline = start + timeout_s
     vanished = 0
     while True:
+        await heartbeat(_clock() - start, timeout_s, f"waiting for {item_uid}")
         queue = await clients.call(
             "scanner", "GET", "/api/queue", params={"history": HISTORY_DEPTH}
         )
@@ -457,8 +463,11 @@ async def _wait_for_scan(item_uid: str, timeout_s: float) -> str:
 
 
 @mcp.tool(name=tool_names.WAIT_FOR_SCAN)
-async def wait_for_scan(item_uid: str, timeout_s: float = 240.0) -> str:
-    """Block until the queue item finishes, up to ``timeout_s`` (cap 600 s).
+async def wait_for_scan(item_uid: str, timeout_s: float = DEFAULT_WAIT_S) -> str:
+    """Block until the queue item finishes, up to ``timeout_s`` (default 90 s, cap 110 s).
+
+    Short by design: a scan outlasts one call, so call again until
+    ``finished`` — each call is bounded under the client's own timers.
 
     Finished: ``{finished: true, state, word, scan_numbers, run_uids,
     detail, progress}`` — ``scan_numbers``/``run_uids`` are the keys for

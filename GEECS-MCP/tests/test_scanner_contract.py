@@ -464,3 +464,27 @@ class TestServiceFailures:
         assert caught.value.kind == "policy_refusal"
         assert caught.value.message == "busy"
         assert caught.value.extra == {"job": {"state": "running"}}
+
+
+async def test_a_wait_reports_progress_to_an_mcp_client(stepping) -> None:
+    """The heartbeat reaches the client: what resets its idle and first-byte timers."""
+    from fastmcp import Client
+
+    from geecs_mcp.server import create_server
+
+    item_uid = (await _submit())["item_uid"]
+    seen = []
+
+    async def on_progress(progress, total, message):
+        seen.append((progress, total, message))
+
+    async with Client(create_server()) as client:
+        result = await client.call_tool(
+            "wait_for_scan",
+            {"item_uid": item_uid, "timeout_s": 60},
+            progress_handler=on_progress,
+        )
+    assert json.loads(result.content[0].text)["finished"] is True
+    assert seen, "no progress notification reached the client"
+    assert all(total == 60 for _, total, _ in seen)
+    assert item_uid in seen[0][2]

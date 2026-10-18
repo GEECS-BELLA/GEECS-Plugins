@@ -25,7 +25,7 @@ from geecs_mcp import clients, errors, guard, portal, tool_names
 from geecs_mcp.clients import ServiceRefusal
 from geecs_mcp.identity import InvalidArgument
 from geecs_mcp.server import mcp
-from geecs_mcp.waits import bounded_wait
+from geecs_mcp.waits import DEFAULT_WAIT_S, bounded_wait, heartbeat
 
 #: Job states the portal's analysis runner reports.
 ACTIVE_STATES = ("queued", "running")
@@ -216,8 +216,15 @@ async def _wait_for_analysis(
     if not analyzer:
         return errors.make_error("invalid_request", "name the analyzer you started")
     uid, iso, number = await portal.resolve_uid(scan_number, day)
-    deadline = anyio.current_time() + bounded_wait(timeout_s)
+    budget = bounded_wait(timeout_s)
+    start = anyio.current_time()
+    deadline = start + budget
     while True:
+        await heartbeat(
+            anyio.current_time() - start,
+            budget,
+            f"waiting for {analyzer} on scan {number}",
+        )
         listing = await portal.analysis_listing(uid, iso)
         entry, job = _job_for(listing, analyzer)
         if entry is None:
@@ -257,9 +264,9 @@ async def wait_for_analysis(
     scan_number: int,
     analyzer: str,
     day: Optional[str] = None,
-    timeout_s: float = 240.0,
+    timeout_s: float = DEFAULT_WAIT_S,
 ) -> str:
-    """Block until the analyzer's job on this scan leaves ``queued``/``running`` (cap 600 s).
+    """Block until the analyzer's job on this scan leaves ``queued``/``running`` (default 90 s, cap 110 s).
 
     ``{finished, state, error, artifacts, files, job}`` — ``state`` is
     ``done``/``failed``/``no_data``, or ``unknown`` when the portal has no
