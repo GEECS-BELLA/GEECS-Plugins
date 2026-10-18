@@ -4,6 +4,59 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.0] - 2026-10-17
+
+The closed-loop rebuild (`DESIGN.md`): the server is a thin HTTP client of
+the web scanner (:8300), the Data Portal (:8200) and the logbook (:8400),
+and imports nothing in the repo at runtime (the `mcp-is-a-client` import
+contract). What an agent does is what an operator does on those pages.
+
+### Added
+
+- Scans over the scanner's HTTP API: `submit_preset` (the scanner's
+  preflight; its questions come back verbatim under
+  `needs_acknowledgement` and are never acknowledged by the server),
+  `move` (the scanner's idle-only `mv`, with the readback),
+  `wait_for_scan` (a timeout is a result, `finished: false`) (#1102).
+- Analysis over the portal: `run_analysis` / `wait_for_analysis` (the
+  Analysis tab's job), `get_analysis_artifact` and `get_scan_scalars` (the
+  numbers), `list_analyzers` / `list_analysis_groups` from the portal's
+  catalog; `get_scan_figure(thumbnail=true)` returns an MCP image block
+  (#1106).
+- `post_logbook_entry`: an `agent_analysis` draft in the scans book;
+  figures are artifact references the portal attaches; every reference is
+  checked before anything is written, and once the entry exists the result
+  is ok with one outcome row per figure (#1108).
+- Error kind `service_unreachable` (`service`, `url`).
+
+### Changed
+
+- Configuration is only `[mcp] scanner_url / portal_url / logbook_url` in
+  the service account's `config.ini`, rendered by `bootstrap_host.sh` from
+  `site.env`'s new `GEECS_SERVICES_HOST`.
+- The `geecs-mcp` unit orders after the three services (its `MemoryMax`
+  stays 1G: a thumbnail decode at the 80 Mpx cap peaks near 0.8 GB, and
+  `get_scan_figure` now decodes one figure at a time).
+
+### Removed
+
+- `get_scan_result` (→ the two numeric reads), `run_scan_analysis` (→
+  `run_analysis`), the `/figures/` route, the progress-stream consumer,
+  `runtime.py`, `[mcp] client_identity` and `max_shots`, the
+  `analysis-run` extra and every intra-repo runtime dependency.
+- Error kinds `manager_unreachable`, `worker_refused`, `tiled_unreachable`,
+  `task_timeout` (no producer left).
+
+### Deploy
+
+- Deploy GEECS-DataPortal 0.41.0 first (the figure sends' `entry_required`).
+- Stop the hand-started 0.9 process holding `:8100`, then install and
+  enable the unit (`deploy/DEPLOYMENT.md`); an existing `config.ini` with a
+  pre-0.10 `[mcp]` section needs the three URL lines added by hand (the
+  bootstrap prints them).
+- Profiles: drop the retired verb names; for osprey's hooks, declare the
+  server under `claude_code.servers.geecs` (DEPLOYMENT.md).
+
 ## [0.9.3] - 2026-09-29
 
 ### Changed

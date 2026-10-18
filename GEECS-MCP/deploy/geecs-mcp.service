@@ -7,28 +7,36 @@
 # EnvironmentFile=.
 #
 # The venv is NON-EDITABLE by design: the code is baked from the worker's
-# clone (qs-checkout — config-truth parity with the queueserver) into
-# @CHECKOUT_ROOT@/geecs-mcp-venv, so a pull in the clone never mutates code
-# under the running server. Update ritual (DEPLOYMENT.md): pull, re-run the
-# pip install, restart.
+# clone (qs-checkout) into @CHECKOUT_ROOT@/geecs-mcp-venv, so a pull in the
+# clone never mutates code under the running server. Update ritual
+# (DEPLOYMENT.md): pull, re-run the pip install, restart.
+#
+# The server is a thin HTTP client of the web scanner, the Data Portal and
+# the logbook (GEECS-MCP/DESIGN.md): it imports nothing from the repo at
+# runtime, so the venv holds fastmcp + httpx + pillow and no extra.
 
 [Unit]
-Description=GEECS MCP server (agent access to the scan service)
-After=network-online.target
+Description=GEECS MCP server (an agent's client of the scanner, portal and logbook)
+# Ordering only, when they share this host: the server starts (and every
+# verb answers service_unreachable) without them.
+After=network-online.target geecs-scanner.service geecs-data-portal.service geecs-logbook.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=@SERVICE_USER@
-# The server reads the service account's config.ini ([Experiment], [qserver],
-# [tiled], [mcp]) under $HOME.
+# The server reads only [mcp] scanner_url / portal_url / logbook_url from the
+# service account's config.ini under $HOME.
 Environment=HOME=@SERVICE_HOME@
 EnvironmentFile=@SITE_ENV@
 ExecStart=@CHECKOUT_ROOT@/geecs-mcp-venv/bin/python -m geecs_mcp --transport http --host 0.0.0.0 --port 8100
 Restart=on-failure
 RestartSec=5
 # The MCP shares the box with the production manager/gateway/Tiled —
-# cap it so even a pathological failure cannot starve them.
+# cap it so even a pathological failure cannot starve them. The one large
+# allocation is get_scan_figure's opt-in thumbnail: a figure up to the 80 Mpx
+# decode cap peaks near 0.8 GB resident (an RGBA one, measured), and decodes
+# run one at a time, so 1G holds the worst accepted request.
 MemoryMax=1G
 CPUQuota=50%
 

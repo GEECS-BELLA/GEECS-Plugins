@@ -91,6 +91,9 @@ units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "gee
 wanted() {
     if [ -z "$ONLY" ]; then
         if [ "$1" = "archiver" ] && [ -z "${GEECS_ARCHIVER_HOST:-}" ]; then return 1; fi
+        # geecs-mcp likewise: without the services' host it could only
+        # answer service_unreachable, so a site without the key deploys none.
+        if [ "$1" = "mcp" ] && [ -z "${GEECS_SERVICES_HOST:-}" ]; then return 1; fi
         return 0
     fi
     case ",$ONLY," in *",$1,"*) return 0;; *) return 1;; esac
@@ -113,10 +116,15 @@ fi
 # lives, the JVM heap): required when the archiver is wanted — render_conf.sh
 # would refuse later, but a missing key must fail here, before anything runs.
 if wanted archiver; then require_site_keys GEECS_ARCHIVER_HOST GEECS_ARCHIVER_DATA_ROOT GEECS_ARCHIVER_JAVA_OPTS; fi
+# geecs-mcp reaches the scanner, portal and logbook at this host ([mcp] in config.ini).
+if wanted mcp; then require_site_keys GEECS_SERVICES_HOST; fi
 
 say "site '${GEECS_SITE:-?}' experiment '$GEECS_EXPERIMENT' — ref $REF — root $GEECS_CHECKOUT_ROOT"
 if [ -z "$ONLY" ] && [ -z "${GEECS_ARCHIVER_HOST:-}" ]; then
     echo "  archiver: not wanted — site.env has no GEECS_ARCHIVER_HOST (this site runs no Archiver Appliance; set the three GEECS_ARCHIVER_* keys to deploy one)"
+fi
+if [ -z "$ONLY" ] && [ -z "${GEECS_SERVICES_HOST:-}" ]; then
+    echo "  mcp: not wanted — site.env has no GEECS_SERVICES_HOST (set it to the host of the scanner, portal and logbook to deploy geecs-mcp)"
 fi
 if [ "$(id -un)" != "$GEECS_SERVICE_USER" ]; then
     echo "WARNING: running as $(id -un), site.env says the service account is $GEECS_SERVICE_USER;" >&2
@@ -232,7 +240,8 @@ for s in $SERVICES; do
         [ -d "$venv" ] || run python3.11 -m venv "$venv"
         # Non-editable by design: the running code is baked into the venv, so a
         # pull in qs-checkout never mutates code under the running MCP server.
-        run "$venv/bin/pip" install --quiet --upgrade "$dir[$(extras_of mcp)]"
+        extras="$(extras_of mcp)"
+        run "$venv/bin/pip" install --quiet --upgrade "$dir${extras:+[$extras]}"
         continue
     fi
     extras="$(extras_of "$s")"
@@ -279,6 +288,13 @@ EOF
         if [ -n "${GEECS_ARCHIVER_HOST:-}" ]; then
             printf '\n[archiver]\nurl = http://%s:17665\n' "$GEECS_ARCHIVER_HOST"
         fi
+        # The three services geecs-mcp is a client of, when this site names
+        # their host. Ports are fleet constants (GEECS-MCP/DESIGN.md § 10).
+        if [ -n "${GEECS_SERVICES_HOST:-}" ]; then render_mcp_section; fi
+}
+render_mcp_section() {
+        printf '\n[mcp]\nscanner_url = http://%s:8300\nportal_url = http://%s:8200\nlogbook_url = http://%s:8400\n' \
+            "$GEECS_SERVICES_HOST" "$GEECS_SERVICES_HOST" "$GEECS_SERVICES_HOST"
 }
 if [ -s "$CFG" ]; then   # -s: an empty placeholder file counts as absent
     # Never overwritten (it also holds the hand-entered Tiled api_key), but
@@ -300,6 +316,31 @@ if [ -s "$CFG" ]; then   # -s: an empty placeholder file counts as absent
     if [ -n "${GEECS_ARCHIVER_HOST:-}" ] && ! grep -qE '^[[:space:]]*\[archiver\][[:space:]]*$' "$CFG"; then
         if [ "$DRY" -eq 1 ]; then echo "  [dry] would append [archiver] url = http://$GEECS_ARCHIVER_HOST:17665 to $CFG"
         else printf '\n[archiver]\nurl = http://%s:17665\n' "$GEECS_ARCHIVER_HOST" >> "$CFG"; echo "  appended [archiver] url = http://$GEECS_ARCHIVER_HOST:17665 to $CFG (the only change made to an existing file)"; fi
+    fi
+    # The same additive migration for geecs-mcp's three service URLs. A file
+    # that already has an [mcp] section (a pre-0.10 MCP host: client_identity,
+    # max_shots) is not edited — the keys are printed to add by hand.
+    if [ -n "${GEECS_SERVICES_HOST:-}" ]; then
+        # Any [mcp] header counts as present (a trailing comment included):
+        # a second section would be configparser's DuplicateSectionError.
+        if ! grep -qE '^[[:space:]]*\[mcp\]' "$CFG"; then
+            if [ "$DRY" -eq 1 ]; then echo "  [dry] would append [mcp] scanner_url/portal_url/logbook_url (http://$GEECS_SERVICES_HOST:8300/8200/8400) to $CFG"
+            else render_mcp_section >> "$CFG"; echo "  appended [mcp] scanner_url/portal_url/logbook_url (http://$GEECS_SERVICES_HOST:8300/8200/8400) to $CFG"; fi
+        else
+            # The keys the existing [mcp] section holds, read inside it only.
+            # configparser: section names are case-sensitive, keys are not,
+            # and a key ends at its first '=' or ':'.
+            have="$(awk '/^[[:space:]]*\[/ { insec = ($0 ~ /^[[:space:]]*\[mcp\]/) }
+                         insec && /[=:]/ { k = $0; sub(/[=:].*/, "", k); gsub(/[[:space:]]/, "", k); print tolower(k) }' "$CFG")"
+            missing=""
+            for key in scanner_url portal_url logbook_url; do
+                printf '%s\n' "$have" | grep -qx "$key" || missing="$missing $key"
+            done
+            if [ -n "$missing" ]; then
+                echo "  NOTE: $CFG's [mcp] section lacks$missing — those verbs answer service_unreachable until these lines are added under [mcp] by hand:"
+                for key in $missing; do render_mcp_section | grep "^$key = " | sed 's/^/      /'; done
+            fi
+        fi
     fi
 elif [ "$DRY" -eq 1 ]; then echo "  [dry] would write $CFG:"; render_config_ini | sed 's/^/      /'
 else

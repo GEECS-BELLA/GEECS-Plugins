@@ -1,88 +1,88 @@
 # The analysis domain
 
 The analysis domain closes the loop the scan service opens: after a scan
-runs, an agent can see what the
-[ScanAnalysis](../scan_analysis/overview.md) pipeline produced, fetch the
-summary figures, and — since GEECS-MCP 0.7.0 — trigger the analysis
-itself. The backend is the existing ScanAnalysis framework, used as-is:
-the same diagnostic YAMLs, analyzers, and task-queue bookkeeping that the
-explicit scan runner drives, now callable on demand.
+runs, an agent can start the standard analysis on it, wait for the job,
+and read what it produced — the numbers and the figures. All of it goes
+through the [Data Portal](../web_services/data_portal.md)'s HTTP API
+(`:8200`): `run_analysis` is the same job the portal's **Analysis tab**
+starts, on the same [ScanAnalysis](../scan_analysis/overview.md) documents,
+so an operator watching the tab sees the agent's run as it happens. The
+server runs no analysis of its own.
 
-## Reading results (R)
+A scan is named by **scan number and day** (ISO, today when omitted). The
+portal's jump route turns that into the run; a number the day does not
+hold is `not_found` — never the day's newest run by mistake.
 
-| Tool | What it returns |
-|---|---|
-| `get_scan_analysis` | Per-scan task statuses (from the scan's `analysis_status/` files: queued / claimed / done / failed / no_data, with errors and heartbeat ages) plus a capped map of the analysis output tree |
-| `get_scan_figure` | A figure **reference**: label, dimensions, byte size, and a fetch URL served by this same server. `thumbnail=true` opts into a small bounded inline preview |
-| `list_analyzers` | Every diagnostic ID in the configs repo's `analyzers/` tree — the names `run_scan_analysis` accepts |
-| `list_analysis_groups` | Every analysis-group name (`groups/` tree); both bare stems and namespace-qualified forms resolve |
+## The verbs
+
+| Tool | Class | What it does |
+|---|---|---|
+| `list_analyzers` | R | Every analysis document the portal can run: `id`, `device`, `output_dir`, `destructive`, `kind`. The ids are what `run_analysis` takes |
+| `list_analysis_groups` | R | The analysis groups as written, with their members in run order. Not runnable as one unit: run the members in turn |
+| `get_scan_analysis(scan_number, day?)` | R | The portal's analysis picture of one scan: per analyzer, whether it applies, its job record (log cut to a 40-line tail), its files and artifacts |
+| `run_analysis(scan_number, analyzer, day?, confirm?)` | W | Start one analyzer on one scan. Returns at once with the portal's job record (usually `queued`) |
+| `wait_for_analysis(scan_number, analyzer, day?, timeout_s=240)` | R | Block until that job leaves `queued` / `running` (cap 600 s); returns `state` (`done` / `failed` / `no_data` / `unknown`), the error, artifacts and files |
+| `get_analysis_artifact(scan_number, path, day?, max_bytes=65536)` | R | Read one non-image artifact: a `*_summary_*.json` sidecar comes back parsed as `data`, a text table as `text`. Capped (ceiling 256 KiB) with `truncated` and `size_bytes` when cut |
+| `get_scan_scalars(scan_number, columns, day?, x?, bincfg?, filters?)` | R | Per-bin centres, error bands and counts for up to four scalar columns — the Plot tab's numbers, without its figure or notebook snippet |
+| `get_scan_figure(scan_number, label?, day?, thumbnail=false)` | R | A figure **reference**: the figure path, analyzer, kind and the portal's artifact URL. `thumbnail=true` adds a ≤768 px JPEG as an MCP image block |
+
+## Running analysis
+
+The portal runs **one job per scan at a time**: a second request while
+one is active is `policy_refusal` carrying the active job. An analyzer id
+the scan has no diagnostic for is `not_found` with the catalog's ids. A
+**destructive** kind needs `confirm=<scan_number>` — the same typed
+confirmation the Analysis tab asks a person for. The agent passes it; the
+server never fills it in, and without it the portal's refusal comes back
+as `invalid_request`.
+
+`wait_for_analysis` polls the same listing. A timeout is a result
+(`finished: false`) — the agent calls again. If the portal restarted and
+has no job record, the state is `unknown` with the files on disk listed,
+never guessed as done.
+
+`run_analysis` takes no `operator` argument: the portal's analysis route
+has no field for one, so the job is not attributed to the supervising
+person today.
+
+## Reading results
+
+The analysis listing gives job status and artifact descriptors, not
+measured values. The loop decides on numbers, so two bounded reads cover
+them:
+
+- `get_analysis_artifact` reads what an analyzer wrote — the summary
+  sidecar, a per-shot table — by the `path` the listing shows. Images are
+  refused (use `get_scan_figure`); a path outside the scan's analysis
+  folder is the portal's `not_found`.
+- `get_scan_scalars` asks the portal for binned statistics over the
+  scan's scalar data. `bincfg` and `filters` are the portal's own JSON
+  strings, passed through unparsed, so a binning an operator set up in
+  the Plot tab is reproducible from its URL; without `bincfg` the
+  portal's default binning applies (the scan variable's steps on a
+  stepped scan). More than four columns, or an unknown one, is the
+  portal's refusal.
+
+Neither read interprets a column or a file: the meaning stays with the
+portal and with the analysis recipe.
 
 Figures follow the payload doctrine strictly: image bytes never ride the
-agent's context by default (a single full-size PNG can swamp a model's
-context window — a real integration finding). The reference's URL points
-at a `/figures/{day}/{scan}/{label}` route on the server, so a client
-fetches the original bytes out-of-band and saves them as an artifact.
+agent's context by default (a single full-size PNG once swamped a
+model's context window). A reference's URL is the portal's own artifact
+URL, so a client fetches the original bytes directly; the opt-in
+thumbnail is the only image the model sees, and it is returned as an
+image block rather than text. The same `figure` path is what
+[`post_logbook_entry`](logbook.md) takes to attach the figure to an
+entry.
 
-## Running analysis (Q)
-
-`run_scan_analysis(scan_number, day?, analyzer|group, rerun_failed,
-rerun_completed)` executes one diagnostic or a whole group for one scan,
-submit-and-poll style: the call returns as soon as the tasks are enqueued
-and a detached worker process is started; `get_scan_analysis` is the
-poll. The tool validates *everything refusable before any side effect*:
-
-- exactly one of `analyzer` / `group`, with names from the listing tools
-  (unknown names are refused with the known-names list);
-- the scan folder **must already exist** — analysis is a consumer of
-  scan folders, never a producer (the repo-wide invariant: a missing
-  folder is a refusal naming the path, never an auto-create);
-- the analyzers must actually construct **on this host** — a diagnostic
-  whose image-analyzer class cannot be imported here (a vendor SDK this
-  host lacks) is refused up front instead of half-running. The FROG and
-  HASO recipes run on the analysis core, with their vendor programs
-  under Wine on the Linux host (see [HASO](../analysis/haso.md)).
-
-The execution itself is the ScanAnalysis task queue's own machinery:
-statuses are initialized before the worker spawns (so a worker that dies
-is *visible* as a stuck row, never a silent nothing), the worker claims
-each task through an atomic cross-process claim gate (two near-
-simultaneous requests can never double-run one analyzer into the same
-output files), heartbeats tick every 30 s, and a dead worker's claim goes
-stale after 180 s so a repeat call re-runs it.
-
-Rerun semantics are explicit: by default only never-run tasks execute —
-a repeat call is a cheap, honest no-op that reports the already-`done`
-tasks as `skipped`. `rerun_failed` / `rerun_completed` re-queue those
-states server-side before the worker starts. Google-Doc upload stays
-hard-off: publishing figures to the experiment log is an outward-facing
-action that would need its own explicitly gated verb.
-
-## A worked example
-
-A real first-contact run, on archived data (Undulator, 2026-05-01,
-Scan 1, the `Amp2Input` diagnostic over the `UC_Amp2_IR_input` camera):
+## A typical sequence
 
 ```text
-list_analyzers                             → 82 diagnostics, incl. Amp2Input
-run_scan_analysis(1, "2026-05-01",
-                  analyzer="Amp2Input")    → ok, started: false —
-                                             skipped: {Amp2Input: done}
-                                             (this scan was analyzed in May)
-run_scan_analysis(..., rerun_completed=True)
-                                           → ok, started: true, worker pid
-get_scan_analysis(1, "2026-05-01")         → Amp2Input: claimed → done,
-                                             display_files: [...visual.png]
-get_scan_figure(1, day="2026-05-01")       → figure reference with
-                                             /figures/2026-05-01/1/... URL
-run_scan_analysis(999, "2026-05-01", ...)  → not_found: scan folder does
-                                             not exist (nothing created)
+list_analyzers                                → ids, incl. "Amp2Input"
+run_analysis(12, "Amp2Input")                 → ok, job: queued
+wait_for_analysis(12, "Amp2Input")            → finished, state: done, artifacts
+get_analysis_artifact(12, "<summary>.json")   → data: {...}
+get_scan_scalars(12, ["<column>"])            → bins, centres, bands
+get_scan_figure(12)                           → figure reference (portal URL)
+run_analysis(999, "Amp2Input")                → not_found (the day has no scan 999)
 ```
-
-## The longer arc
-
-Using ScanAnalysis as-is is a deliberate owner decision, not an endpoint.
-The verb surface is backend-neutral (it names a diagnostic, a scan, a
-day) and the `analysis_status/` files are the progress contract — so the
-Tiled-based analysis stack in GeecsBluesky (provenance-tracked results
-published back into the archive) can slot in behind the same tools later
-without the agent-facing surface changing.

@@ -9,8 +9,8 @@ MCP server is how that assistant reaches GEECS.
 
 ## The division of labour
 
-The integration deliberately splits along the
-[write-surface doctrine](overview.md#where-it-sits-in-the-architecture):
+The integration splits along the
+[architecture](overview.md#where-it-sits-in-the-architecture):
 
 - **Raw EPICS channels — OSPREY's own tools.** BELLA is an EPICS
   facility as far as OSPREY is concerned, via the
@@ -19,46 +19,47 @@ The integration deliberately splits along the
   and can set individual setpoints by writing the `:SP` PVs through
   OSPREY's own write tool — bounded by a limits database (extracted from
   the GEECS device limits) and OSPREY's own permission gating.
-- **GEECS-semantic operations — this MCP server.** Scans, actions,
-  manual moves with scan-identical completion semantics, configs,
-  results, analysis: anything that needs the GEECS vocabulary goes
-  through the server's gated verbs. The raw `:SP` path deliberately
-  stays a simple bounded knob — it bypasses the GEECS client-side
-  hardening (put-failure visibility, confirm/pseudo semantics, mid-scan
-  refusals), so the richer the operation, the more it belongs behind an
-  MCP verb.
+- **GEECS-semantic operations — this MCP server.** Scans from presets,
+  single moves through the scanner, analysis on the portal, numbers,
+  figures, logbook drafts: anything that needs the GEECS vocabulary goes
+  through the server's verbs, and through the same services an operator
+  uses. The raw `:SP` path stays a simple bounded knob — it bypasses the
+  scanner's preflight and the GEECS client-side hardening (put-failure
+  visibility, confirm/pseudo semantics, mid-scan refusals), so the
+  richer the operation, the more it belongs behind an MCP verb.
 
 The GEECS MCP server never imports OSPREY and OSPREY never imports GEECS
 code — the entire integration surface is configuration.
 
 ## How the connection works
 
-OSPREY registers the server as a *custom MCP server* in its build profile
-(`profile.yml`): either a `command:` that launches the server over stdio,
-or the URL of the central HTTP service — one server process on the lab
+OSPREY registers the server as a custom MCP server in its build profile
+(`profile.yml`): either a command that launches it over stdio, or the URL
+of the central HTTP service (`:8100/mcp`) — one server process on the lab
 server that every OSPREY machine shares. The profile's permission lists
-mirror the server's `geecs_mcp/tool_names.py` constants — the two are
-kept in sync by hand when a verb lands (the deployment doc carries the
-update-both warning), and Python-side consumers import the constants
-directly so a rename cannot silently strand an entry there.
+are derived from the server's `geecs_mcp/tool_names.py` tuples
+(`READ_TOOLS`, `WRITE_TOOLS`, `STOP_TOOLS`), never retyped. The exact
+profile shape and the verified gating semantics live in
+`GEECS-MCP/deploy/DEPLOYMENT.md`; in outline:
 
-Gating has two layers, and the distinction matters (the semantics were
-verified against OSPREY directly; details and the exact `write_tools`
-list live in `GEECS-MCP/deploy/DEPLOYMENT.md`):
+- **Interactive sessions.** Declared under OSPREY's `claude_code.servers`
+  keys, the server gets OSPREY's write-check and approval hooks on every
+  call. Reads and the halt family sit on *allow*; the write verbs are on
+  *allow* only at the admin tier and are dropped from the read-only
+  renders.
+- **Headless runs.** The profile's `write_tools` list is the gate: every
+  `WRITE_TOOLS` verb is listed there, and the halt family is
+  deliberately omitted, so a halt is never blocked on any path.
 
-- **Interactive sessions**: every control verb surfaces OSPREY's native
-  *ask* prompt — a human sees the tool name and its arguments and
-  approves each call.
-- **Headless runs**: the profile's `write_tools` list is the gate — a
-  tool *listed* there is gated for unattended operation; a tool omitted
-  is ungated. The design lists every queueing verb and deliberately
-  omits the stop family, so a halt is never blocked on any path (the
-  exact current list lives in `deploy/DEPLOYMENT.md` — keep it in step
-  as verbs land).
-
-Each deployment sets a client identity (for the HTU assistant:
-`osprey-htu-assistant`) that is stamped onto every queue item and
-submission record — the machine's history shows *which agent* ran what.
+**Identity is a record, not an authorization.** The write verbs that
+take `operator` — `submit_preset`, `move`, `resume_scan`,
+`post_logbook_entry` — send `agent, admin supervision (<operator>)`: the
+scanner records it on a submitted run, the logbook as the entry's
+author. (The scanner's move does not yet stamp it on the queued item;
+`clear_queue` and `run_analysis` carry no operator today.) The string
+says who the agent reports as supervising; it proves nothing. What the
+assistant may call is decided by OSPREY's permission lists and hooks,
+never by this server.
 
 ## What an operator can ask
 
@@ -66,19 +67,21 @@ With the server connected, the assistant can carry conversations like:
 
 - *"Is anything running right now? What's in the queue?"* —
   `scan_status`, `scan_history`.
-- *"Run a no-scan with the Amp4In preset, 20 shots."* — **not this
-  server's job.** There is no submit verb (0.9.0); the agent reads the
-  real names from `list_scan_configs` and an operator starts the scan
-  from the web scanner.
-- *"How is it going?"* — `scan_progress`, per-shot counts from the
-  worker's document stream.
-- *"What did scan 12 measure?"* — `get_scan_result` from the Tiled
-  archive.
-- *"Run the standard analysis on it and show me the beam profile."* —
-  `run_scan_analysis`, polled via `get_scan_analysis`, figure fetched
-  through its `/figures/…` URL.
+- *"Run the Amp4In preset."* — `submit_preset`, after `list_scan_configs`
+  for the real name. The scanner's preflight questions come back to the
+  operator word for word; the agent submits only once they are answered.
+- *"How is it going?"* — `wait_for_scan`, or `scan_progress` for the live
+  shot counts.
+- *"Move the screen to 12 mm and tell me where it ended up."* — `move`,
+  idle-only, with the readback.
+- *"Run the standard analysis on it. What's the centroid?"* —
+  `run_analysis`, `wait_for_analysis`, then `get_analysis_artifact` or
+  `get_scan_scalars` for the numbers and `get_scan_figure` for the plot.
+- *"Write it up in the logbook."* — `post_logbook_entry`: a draft on the
+  scan's card, with the figures attached, for a person to keep.
 - *"Stop the scan."* — `stop_scan`, gracefully, always available.
 
-Each step is an auditable tool call with its own gate — which is exactly
-the trade the whole design makes: flexible language in front, a fixed and
-reviewable machine surface behind.
+Each step is an auditable tool call with its own gate, against the same
+scanner page, Analysis tab and logbook an operator watches — which is
+exactly the trade the whole design makes: flexible language in front, a
+fixed and reviewable machine surface behind.

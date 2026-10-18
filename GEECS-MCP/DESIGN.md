@@ -1,9 +1,11 @@
 # GEECS-MCP as the agent's single write entry point — design note
 
-Status: **proposal, 2026-10-16** — the first deliverable of the closed-loop
-acquisition arc. Nothing below is built. The verb names are the contract
-the htu-assistant deployment imports (`tool_names.py`); the endpoint and
-envelope columns are what the contract tests will pin.
+Status: **built, 2026-10-17** (proposed 2026-10-16; PRs A–G of §9,
+geecs-mcp 0.10.0). `CLAUDE.md` is the package as built; where the two
+differ, the code and `CLAUDE.md` win and this note keeps the reasoning.
+The verb names are the contract the htu-assistant deployment imports
+(`tool_names.py`); the contract tests pin the endpoint and envelope
+columns.
 
 ## 1. Decisions this note builds on (settled, not reopened here)
 
@@ -126,9 +128,8 @@ matcher `mcp__geecs__.*` with both hook commands; no agent session
 run, so the denied-write and the allow-listed-read-passes-silently
 checks are still owed live). The headless gate is unchanged:
 `write_tools` → `hook_config.json` → the `osprey query` floor. PR G
-rewrites the gating sections of `DEPLOYMENT.md` and CLAUDE.md to this,
-and HTU's profile moves the server to the `claude_code.servers` route
-when the new verbs land.
+rewrote the gating sections of `DEPLOYMENT.md` to this; HTU's profile
+moves the server to the `claude_code.servers` route.
 
 ## 4. Verb by verb
 
@@ -438,7 +439,7 @@ server and nothing else is.
 D and E are each useful alone: after D the agent can submit, move and
 wait over HTTP while analysis still runs through the old path; after E
 the package is the thin client of §2.
-| G | deploy + docs | unit template (no extra; `After=` the three services; `MemoryMax=512M`), `bootstrap_host.sh` (`extras_of mcp` empty), `site.env.example` + `bootstrap_host.sh` rendering `[mcp] scanner_url/portal_url/logbook_url` from one `GEECS_SERVICES_HOST` key (ports are fleet constants, the archiver's `17665` precedent; `site.env.example` already cites the key in a comment without defining it — G defines it), `DEPLOYMENT.md`, `fleet_map.md`, `docs/geecs_mcp/*`, `agentic/index.md` ("no submit verb" prose goes) — then the host install (Sam's sudo block), kill the nohup process, live check from an osprey machine |
+| G | deploy + docs | unit template (no extra; `After=` the three services; `MemoryMax` stays 1G — the planned 512M could not hold one thumbnail decode at the 80 Mpx cap, review of #1109), `bootstrap_host.sh` (`extras_of mcp` empty), `site.env.example` + `bootstrap_host.sh` rendering `[mcp] scanner_url/portal_url/logbook_url` from one `GEECS_SERVICES_HOST` key (ports are fleet constants, the archiver's `17665` precedent; `site.env.example` already cites the key in a comment without defining it — G defines it), `DEPLOYMENT.md`, `fleet_map.md`, `docs/geecs_mcp/*`, `agentic/index.md` ("no submit verb" prose goes) — then the host install (Sam's sudo block), kill the nohup process, live check from an osprey machine |
 
 Version bump (`0.9.3 → 0.10.0`, or whatever the fleet rule says at the
 time) happens in G, at the deploy, per the release policy. The
