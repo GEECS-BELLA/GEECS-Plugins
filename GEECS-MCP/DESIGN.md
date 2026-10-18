@@ -370,7 +370,7 @@ kind to 504 but nothing raises it, and its stop budget expires as a 200
 `finished: false`). The CHANGELOG names them.
 
 HTTP budgets (httpx per client): connect 5 s; read 20 s, except
-`POST /api/stop` 130 s (the scanner blocks up to 120 s for the pause)
+`POST /api/stop` 100 s (then `landed: false`, §4.7) (the scanner blocks up to 120 s for the pause)
 and artifact fetches 60 s.
 
 ## 6. Identity

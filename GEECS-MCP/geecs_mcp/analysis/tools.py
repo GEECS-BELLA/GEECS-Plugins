@@ -217,7 +217,8 @@ async def _wait_for_analysis(
         return errors.make_error("invalid_request", "name the analyzer you started")
     call_budget = CallBudget()
     uid, iso, number = await portal.resolve_uid(scan_number, day)
-    budget = bounded_wait(timeout_s)
+    # The jump lookup has already spent some of the call's clock.
+    budget = min(bounded_wait(timeout_s), call_budget.left())
     start = anyio.current_time()
     deadline = start + budget
     while True:

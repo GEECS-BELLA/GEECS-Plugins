@@ -467,7 +467,7 @@ class TestServiceFailures:
 
 
 async def test_a_wait_reports_progress_to_an_mcp_client(stepping) -> None:
-    """The heartbeat reaches the client: what resets its idle and first-byte timers."""
+    """The heartbeat reaches the client: what resets its idle timer."""
     from fastmcp import Client
 
     from geecs_mcp.server import create_server
