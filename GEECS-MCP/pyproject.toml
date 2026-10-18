@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-mcp"
-version = "0.10.0"
+version = "0.10.1"
 description = "MCP server for AI agents (OSPREY): a thin HTTP client of the GEECS web scanner, Data Portal and logbook"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"

@@ -4,6 +4,29 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.1] - 2026-10-18
+
+Aligned with the OSPREY team's reply to the closed-loop approach page
+(2026-10-18), before the first deploy of 0.10.
+
+### Changed
+
+- The blocking verbs fit the MCP client's timers (Claude Code moves an
+  interactive call past 2 minutes to the background, drops an HTTP
+  server's call after 5 quiet minutes, and runs a first-byte timer):
+  `wait_for_scan` and `wait_for_analysis` default to 90 s and cap at
+  110 s (were 240 / 600 s) — call again while `finished` is false — and
+  every blocking call sends MCP progress notifications while it runs,
+  the waits on each poll and the scanner verbs (a stop holds up to 120 s
+  for the pause) every 10 s.
+- `deploy/DEPLOYMENT.md`: the gates are what OSPREY actually enforces for
+  a profile-declared server — every `WRITE_TOOLS` verb in
+  `control_system.write_tools`, tiers by `deny` + `remove_deny`, and an
+  optional facility PreToolUse hook for the kill switch. The
+  `claude_code.servers.<name>.hooks` route 0.10.0 documented does not
+  attach osprey's hooks to a profile-declared server, and the writes-off
+  deny skips custom servers.
+
 ## [0.10.0] - 2026-10-17
 
 The closed-loop rebuild (`DESIGN.md`): the server is a thin HTTP client of

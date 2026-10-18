@@ -114,22 +114,18 @@ server renders; `WRITE_TOOLS` on allow at the admin tier only, with the
 profile's DEVIATION marker; the readonly and knowledge renders drop the
 write verbs. The headless gate is the profile's `write_tools` list
 derived from `WRITE_TOOLS`, as `deploy/DEPLOYMENT.md` describes today.
-The writes-check and approval hooks attach to this server only when
-the profile declares it under osprey's `claude_code.servers.geecs`
-config keys (`transport`, `url`, `permissions`, `hooks.pre_tool_use:
-[writes_check, approval]`) **instead of** the `mcp_servers:` block: a
-`hooks:` key on an `mcp_servers` entry is dropped at load, and a dotted
-`claude_code.servers.geecs.hooks` key beside an `mcp_servers` entry is
-overwritten by the build — so `DEPLOYMENT.md`'s 2026-08-22 statement
-stands for the `mcp_servers` route, and both statements are about
-different keys. Verified structurally by the htu-assistant session on
-2026-10-16 (osprey build renders, three tiers carry a `PreToolUse`
-matcher `mcp__geecs__.*` with both hook commands; no agent session
-run, so the denied-write and the allow-listed-read-passes-silently
-checks are still owed live). The headless gate is unchanged:
-`write_tools` → `hook_config.json` → the `osprey query` floor. PR G
-rewrote the gating sections of `DEPLOYMENT.md` to this; HTU's profile
-moves the server to the `claude_code.servers` route.
+**Corrected 2026-10-18 by the OSPREY team's reply** (checked against
+their `main`): the writes-check and approval hooks do not attach to a
+profile-declared server by any route — a `hooks:` key on an
+`mcp_servers` entry is dropped, and `claude_code.servers.<name>.hooks`
+(which the htu-assistant render of 2026-10-16 appeared to wire) is
+rewritten by the build for a server the profile declares — and the
+writes-off deny skips custom servers. The levers today are
+`control_system.write_tools` (headless floor, writes-check hook and
+audit clamp), tiers by `deny` + `remove_deny`, and optionally a facility
+PreToolUse hook for the kill switch; osprey is adding
+`mcp_servers.<name>.hooks.pre_tool_use` and the custom-server deny.
+`deploy/DEPLOYMENT.md` carries the profile shape.
 
 ## 4. Verb by verb
 
@@ -182,7 +178,7 @@ claimed the scan).
    `readback_detail` saying why.
 3. ok: `{item_uid, reference, finished, state, word, detail, readback:{value, units, timestamp, age_s} | null, readback_detail}`.
 
-### 4.3 `wait_for_scan(item_uid, timeout_s=240)`
+### 4.3 `wait_for_scan(item_uid, timeout_s=90)`
 
 Polls `GET /api/queue?history=50` every 2 s (plus `GET /api/progress`
 for the live counts). Returns as soon as the item is in `finished[]`:
@@ -192,9 +188,12 @@ On timeout: `{finished: false, where: "running"|"waiting", position?, progress}`
 An item in none of the three lists → `not_found` (the manager's history
 is bounded and clearable; the message says so).
 
-`timeout_s` is capped server-side (proposed 600 s) pending the OSPREY
-team's answer on how long a tool call may block (their Q3); the default
-is sized so one PMQ-style 5-minute scan usually completes in one call.
+`timeout_s` defaults to 90 s and is capped at 110 s server-side — the
+OSPREY team's answer to their Q3 (2026-10-18): Claude Code moves an
+interactive call past 2 minutes to the background, drops an HTTP
+server's call after 5 minutes without traffic and runs a first-byte
+timer, so a wait is short and the skill calls again. Every poll sends an
+MCP progress notification, which resets those timers (`waits.py`).
 `scan_numbers`/`run_uids` are the keys the agent carries into
 `run_analysis` and `post_logbook_entry`.
 
@@ -214,7 +213,7 @@ is sized so one PMQ-style 5-minute scan usually completes in one call.
 Groups are not runnable here: the portal runs one diagnostic per job. The
 catalog route lists a group's members so the agent can run them in turn.
 
-### 4.5 `wait_for_analysis(scan_number, analyzer, day=None, timeout_s=240)`
+### 4.5 `wait_for_analysis(scan_number, analyzer, day=None, timeout_s=90)`
 
 Polls `GET /api/run/{uid}/analysis` every 2 s until
 `analyzers[id].job.state ∉ {queued, running}`. Returns
@@ -420,10 +419,19 @@ server and nothing else is.
    or drop since the portal runs single diagnostics?
 3. `operator` as a required argument on every write verb (§6) rather
    than a per-deployment config value.
-4. Wait-verb default 240 s / cap 600 s until OSPREY answers their Q3.
+4. ~~Wait-verb default 240 s / cap 600 s until OSPREY answers their Q3.~~
+   Answered 2026-10-18: 90 s default, 110 s cap, progress notifications (§4.3).
 5. Logbook figures = portal artifact references only; no inline bytes.
 6. The scanner's move route does not stamp the operator on the item
    (§6) — include the two-line change in this arc?
+
+7. **Identity, per the OSPREY team (2026-10-18):** a name should arrive
+   through osprey's own door (`OSPREY_CONTROL_OWNER`, set by the terminal
+   proxy), not as a string this server composes from an argument. For a
+   central HTTP server that variable lives in the agent's environment,
+   not the server's, and the `mcp_servers` loader keeps no `headers:`
+   key to forward it — so the route (a header osprey forwards, or
+   geecs-mcp over stdio per agent) is open, with them.
 
 ## 9. PR sequence (each small, each useful alone; /land ritual)
 

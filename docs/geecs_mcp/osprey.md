@@ -42,14 +42,19 @@ are derived from the server's `geecs_mcp/tool_names.py` tuples
 profile shape and the verified gating semantics live in
 `GEECS-MCP/deploy/DEPLOYMENT.md`; in outline:
 
-- **Interactive sessions.** Declared under OSPREY's `claude_code.servers`
-  keys, the server gets OSPREY's write-check and approval hooks on every
-  call. Reads and the halt family sit on *allow*; the write verbs are on
-  *allow* only at the admin tier and are dropped from the read-only
-  renders.
-- **Headless runs.** The profile's `write_tools` list is the gate: every
-  `WRITE_TOOLS` verb is listed there, and the halt family is
-  deliberately omitted, so a halt is never blocked on any path.
+- **Every `WRITE_TOOLS` verb in `control_system.write_tools`.** That one
+  list is what OSPREY's headless floor, its writes-check hook and its
+  audit clamp read. The halt family is deliberately omitted, so a halt
+  is never blocked on any path.
+- **Interactive sessions, by tier.** Reads and the halt family sit on
+  *allow*. The write verbs are *denied* in the base profile and the
+  deny is removed at the admin tier only (lists union across tiers, so
+  a tier cannot shrink *allow*); never in dispatch or a headless runner.
+- **No OSPREY hooks attach to this server yet.** A profile-declared
+  server cannot be put behind OSPREY's write-check or approval hooks
+  today, and the writes-off kill switch does not cover it; a facility
+  PreToolUse hook can make the kill switch bite until OSPREY's own fix
+  lands.
 
 **Identity is a record, not an authorization.** The write verbs that
 take `operator` — `submit_preset`, `move`, `resume_scan`,
@@ -58,8 +63,10 @@ scanner records it on a submitted run, the logbook as the entry's
 author. (The scanner's move does not yet stamp it on the queued item;
 `clear_queue` and `run_analysis` carry no operator today.) The string
 says who the agent reports as supervising; it proves nothing. What the
-assistant may call is decided by OSPREY's permission lists and hooks,
-never by this server.
+assistant may call is decided by OSPREY's permission lists, never by
+this server. (OSPREY would rather the name came from its own door — the
+terminal proxy's `OSPREY_CONTROL_OWNER` — than from an argument; that
+change is open.)
 
 ## What an operator can ask
 
