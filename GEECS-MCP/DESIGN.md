@@ -144,8 +144,10 @@ signatures; defaults are the contract.
    `name`: `GET /api/configs/presets/{name}` — 404 → `not_found` (with the
    `names` from `GET /api/configs/presets` so the agent picks from the
    catalog, never invents). `preflight_preset(name=None, preset=None)`
-   (0.11, a read) is steps 1–2 alone: the verdict, the questions and the
-   planned shots, nothing queued.
+   (0.11, a read) takes the document as step 1 does and returns the
+   preflight report itself as `ok` — `refusal`, `questions`, outcomes,
+   plan, planned shots — with nothing queued; it raises neither of
+   step 2's refusals.
 2. `POST /api/preflight` with the bare preset document. A `refusal` →
    `invalid_request` carrying `outcomes`. Any `questions` whose `check`
    is not in `acknowledged` → `policy_refusal` with

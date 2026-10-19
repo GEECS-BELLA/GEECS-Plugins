@@ -40,7 +40,9 @@ async def _submit(
 async def _composed() -> dict:
     """A scan no preset holds: the demo sweep, one scalar device, 3 shots/step."""
     doc = _j(await run(tools._list_scan_configs, "presets", "jet_pressure_sweep"))
-    preset = dict(doc["preset"], name="agent_composed")
+    preset = dict(
+        doc["preset"], name="agent_composed", description="U_ICT only, 3 shots/step"
+    )
     preset["devices"] = [{"device": "U_ICT", "save_images": False}]
     preset["plan"] = dict(
         preset["plan"], kwargs=dict(preset["plan"]["kwargs"], shots_per_step=3)
@@ -162,6 +164,9 @@ class TestSubmitPreset:
         item = wired.running_item() or wired.queue_items()[0]
         assert item["kwargs"]["shots_per_step"] == 3
         assert item["args"][0] == ["U_ICT.scalars"]  # the one device, scalars only
+        # the run records the document's own name and description
+        assert item["kwargs"]["md"]["geecs"]["preset"] == "agent_composed"
+        assert item["kwargs"]["md"]["description"] == "U_ICT only, 3 shots/step"
         names = _j(await run(tools._list_scan_configs, "presets", None))["names"]
         assert "agent_composed" not in names
 

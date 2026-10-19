@@ -165,9 +165,11 @@ async def list_scan_configs(kind: str, name: Optional[str] = None) -> str:
     ``kind`` is one of ``presets``, ``trigger_profiles``, ``scan_variables``,
     ``actions``, ``optimizer_configs`` → the names (+ ``unavailable`` with
     reasons).  With ``name`` on ``presets``, the preset document itself.
-    ``devices`` → the device names a preset's ``devices[].device`` takes
-    (the scanner page's add-device list).  Names must come from here —
-    never invent one.
+    ``devices`` → the scanner page's add-device list, the names a preset's
+    ``devices[].device`` takes (a pseudo scan variable can appear there
+    too: it belongs in the plan, not in ``devices``).  Names must come
+    from here — never invent one; a plan's scan variable may also be a
+    ``Device:Variable`` pair.
     """
     return await guard.run_async(_list_scan_configs, kind, name)
 
@@ -354,7 +356,8 @@ async def preflight_preset(
 
     Give a saved preset's ``name`` or a whole ``preset`` document (the
     shape ``list_scan_configs('presets', name=...)`` returns:
-    ``devices`` + ``plan``).  The answer is the scanner's verdict:
+    ``devices`` + ``plan``, with its own ``name`` and ``description`` —
+    see ``submit_preset``).  The answer is the scanner's verdict:
     ``refusal`` (why it cannot run, else null), ``questions`` it would
     ask before queueing, the per-check ``outcomes``, and for a runnable
     scan the expanded ``plan``, ``summary`` and ``planned_shots``.  Show
@@ -433,9 +436,13 @@ async def submit_preset(
     Give exactly one of ``name`` (a saved preset, from
     ``list_scan_configs('presets')``) or ``preset`` (a whole preset
     document, composed for this scan: ``devices`` from
-    ``list_scan_configs('devices')``, a ``plan`` whose scan variable comes
-    from ``list_scan_configs('scan_variables')``).  A document is never
-    saved; the scanner validates it exactly as it validates the page's.
+    ``list_scan_configs('devices')``, a ``plan`` whose scan variable is a
+    ``list_scan_configs('scan_variables')`` name or a ``Device:Variable``
+    pair).  A composed document carries its OWN ``name`` and
+    ``description``: the run records them (``md.geecs.preset``, the run's
+    description), so never leave a copied preset's there.  A document is
+    never saved; the scanner validates it exactly as it validates the
+    page's.
     ``operator`` is the supervising person (recorded on the run as
     ``agent, admin supervision (<operator>)``).  If preflight asks a
     question, the answer is ``policy_refusal`` with the questions under
