@@ -464,3 +464,140 @@ class TestServiceFailures:
         assert caught.value.kind == "policy_refusal"
         assert caught.value.message == "busy"
         assert caught.value.extra == {"job": {"state": "running"}}
+
+
+async def test_a_wait_reports_progress_to_an_mcp_client(stepping) -> None:
+    """The heartbeat reaches the client: what resets its idle timer."""
+    from fastmcp import Client
+
+    from geecs_mcp.server import create_server
+
+    item_uid = (await _submit())["item_uid"]
+    seen = []
+
+    async def on_progress(progress, total, message):
+        seen.append((progress, total, message))
+
+    async with Client(create_server()) as client:
+        result = await client.call_tool(
+            "wait_for_scan",
+            {"item_uid": item_uid, "timeout_s": 60},
+            progress_handler=on_progress,
+        )
+    assert json.loads(result.content[0].text)["finished"] is True
+    assert seen, "no progress notification reached the client"
+    assert all(total == 60 for _, total, _ in seen)
+    assert item_uid in seen[0][2]
+
+
+async def test_a_stop_the_scanner_has_not_confirmed_is_reported_not_landed(
+    wired, monkeypatch
+) -> None:
+    """Past the stop's read budget the request is in: ok, landed false — never an outage."""
+    from geecs_mcp import clients as clients_mod
+
+    async def unanswered(service, method, path, **kwargs):
+        assert path == "/api/stop"
+        assert kwargs["read_timeout_s"] == tools.STOP_READ_TIMEOUT_S
+        raise clients_mod.ServiceTimeout(service, "http://scanner", "no answer")
+
+    monkeypatch.setattr(clients_mod, "call", unanswered)
+    out = _j(await run(tools._stop, False, OPERATOR))
+    assert out["ok"] is True, out
+    assert out["landed"] is False
+    assert "scan_status" in out["message"]
+
+
+async def test_an_accepted_move_keeps_its_handle_when_the_scanner_stops_answering(
+    stepping, monkeypatch
+) -> None:
+    """The move is queued: losing the scanner while following it still returns the item_uid."""
+    from geecs_mcp import clients as clients_mod
+
+    real = clients_mod.call
+
+    async def queue_down(service, method, path, **kwargs):
+        if path == "/api/queue":
+            raise clients_mod.ServiceUnavailable(service, "http://scanner", "gone")
+        return await real(service, method, path, **kwargs)
+
+    monkeypatch.setattr(clients_mod, "call", queue_down)
+    out = _j(await run(tools._move, "U_Hexapod:xpos", 1.25, OPERATOR, True, 60))
+    assert out["ok"] is True, out
+    assert out["item_uid"]
+    assert out["finished"] is False and out["where"] == "unknown"
+    assert out["item_uid"] in out["readback_detail"]
+
+
+def _trickling_scanner(monkeypatch, scanner_app, slow_paths):
+    """The real scanner, except *slow_paths*, which answer one byte every 30 ms."""
+    import anyio
+    import httpx
+
+    from geecs_mcp import clients as clients_mod
+
+    asgi = httpx.ASGITransport(app=scanner_app)
+
+    async def trickle():
+        for byte in b'{"running": null, "waiting": [], "finished": []}' * 20:
+            await anyio.sleep(0.03)
+            yield bytes([byte])
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path in slow_paths:
+            return httpx.Response(
+                200, headers={"content-type": "application/json"}, content=trickle()
+            )
+        return await asgi.handle_async_request(request)
+
+    previous = clients_mod.transport_for
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(
+        clients_mod,
+        "transport_for",
+        lambda service: transport if service == "scanner" else previous(service),
+    )
+
+
+async def test_a_wait_is_bounded_by_its_wall_clock_against_a_trickling_scanner(
+    wired, scanner, monkeypatch
+) -> None:
+    """The call budget is absolute: a peer that keeps bytes coming cannot hold the call."""
+    import time
+
+    from geecs_mcp import clients as clients_mod
+    from geecs_mcp import waits
+
+    _, _, scanner_app = scanner
+    _trickling_scanner(monkeypatch, scanner_app, {"/api/queue"})
+    monkeypatch.setattr(waits, "CALL_BUDGET_S", 0.4)
+    monkeypatch.setattr(clients_mod, "CONNECT_TIMEOUT_S", 0.05)
+    await clients_mod.reset_clients()
+    started = time.monotonic()
+    out = _j(await run(tools._wait_for_scan, "some-item", 60))
+    assert time.monotonic() - started < 1.5
+    assert out["ok"] is True and out["finished"] is False, out
+    assert out["where"] == "unknown"
+    assert "budget ran out" in out["note"]
+
+
+async def test_an_accepted_move_keeps_its_handle_when_its_budget_runs_out(
+    wired, scanner, monkeypatch
+) -> None:
+    """The POST lands; following it against a trickling queue ends at the clock with the item_uid."""
+    import time
+
+    from geecs_mcp import clients as clients_mod
+    from geecs_mcp import waits
+
+    _, _, scanner_app = scanner
+    _trickling_scanner(monkeypatch, scanner_app, {"/api/queue"})
+    monkeypatch.setattr(waits, "CALL_BUDGET_S", 0.6)
+    monkeypatch.setattr(clients_mod, "CONNECT_TIMEOUT_S", 0.05)
+    await clients_mod.reset_clients()
+    started = time.monotonic()
+    out = _j(await run(tools._move, "U_Hexapod:xpos", 1.25, OPERATOR, True, 60))
+    assert time.monotonic() - started < 1.5
+    assert out["ok"] is True, out
+    assert out["item_uid"] and out["where"] == "unknown"
+    assert out["item_uid"] in out["readback_detail"]

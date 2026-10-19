@@ -42,53 +42,73 @@ The verb names and their classes come from `geecs_mcp/tool_names.py` —
 `READ_TOOLS`, `WRITE_TOOLS`, `STOP_TOOLS`.  A profile derives its lists
 from those tuples; never retype them.
 
-**Interactive gate — declare the server under `claude_code.servers`.**
-Osprey attaches its `writes_check` and `approval` pre-tool-use hooks to
-a custom server only when the profile declares it through the
-`claude_code.servers.<name>` config keys:
+**What gates a custom server today** (the OSPREY team's ruling,
+2026-10-18, checked against their `main`).  Osprey's `writes_check` and
+`approval` hooks do **not** attach to a server the profile declares: an
+`mcp_servers.<name>` entry keeps `command/args/env/url/transport/port` and
+`permissions.{allow,ask}`, a `hooks:` key there is dropped at load, and
+`claude_code.servers.<name>.hooks` does not reach a profile-declared
+server either (the build rewrites the entry wholesale).  The writes-off
+kill switch's deny list covers framework servers only.  So:
+
+- **`control_system.write_tools`** — every `WRITE_TOOLS` verb, as
+  `mcp__geecs__<verb>`.  It folds into `hook_config.json`'s
+  `write_tools`, which the headless disallow floor, the writes-check
+  hook and the audit middleware's clamp all read.  This is the lever a
+  facility server has today.
+- **Tiers by `deny` and `remove_deny`.**  Lists only union across tiers,
+  so a tier cannot take a verb back out of the base profile's `allow`.
+  The write verbs go on `claude_code.permissions.deny` in the base
+  profile and `remove_deny` in the admin persona (or a tier drops the
+  whole server with `exclude: {mcp_servers: [geecs]}` — which takes the
+  halt family with it, so only for a tier that should not reach the
+  machine at all), with the
+  DEVIATION marker.  Interactive sessions only — never dispatch or a
+  headless runner.
+- **Optional, until osprey closes the gap: a facility PreToolUse hook**
+  (`claude_code.hooks.PreToolUse`, `matcher: mcp__geecs__.*`, a hook file
+  the facility ships — osprey's built-in hooks are refused there) that
+  refuses a `WRITE_TOOLS` verb while the kill switch is thrown.  Without
+  it, `writes_enabled: false` does **not** stop these verbs in an
+  interactive session.
+- **Coming in osprey:** `mcp_servers.<name>.hooks.pre_tool_use:
+  [approval | writes_check | limits]`, and the kill-switch deny extended
+  to a custom server's declared write verbs.  When it lands, this
+  section moves to it.
 
 ```yaml
-# profile.yml on every osprey machine
+# profile.yml (base)
+mcp_servers:
+  geecs:
+    url: http://192.168.6.14:8100/mcp
+    transport: http
+    permissions:
+      # The write verbs are on allow AND (below) on deny: deny wins at every
+      # tier until the admin persona removes it, so admin gets them unprompted.
+      allow: [<READ_TOOLS>, <STOP_TOOLS>, <WRITE_TOOLS>]
+      # DEVIATION 2026-10-18: write verbs allowed at admin, interactive sessions only;
+      # approval lives in the conversation (goal + stopping conditions stated up front).
 claude_code:
-  servers:
-    geecs:
-      transport: http
-      url: http://192.168.6.14:8100/mcp
-      permissions:
-        allow: [<READ_TOOLS>, <STOP_TOOLS>]   # + WRITE_TOOLS at the admin tier only
-        ask:   [<WRITE_TOOLS>]
-      hooks:
-        pre_tool_use: [writes_check, approval]
+  permissions:
+    deny: [<WRITE_TOOLS>]
+control_system:
+  write_tools: [<WRITE_TOOLS>]
+
+# personas/admin.yml
+claude_code:
+  permissions:
+    remove_deny: [<WRITE_TOOLS>]
 ```
 
-Verified structurally by the htu-assistant deployment on 2026-10-16
-(osprey 2026.9.0b3): the build renders, and each tier carries a
-`PreToolUse` matcher `mcp__geecs__.*` with both hook commands.  The
-matcher covers the reads too.  **Owed live** (an agent session on an
-osprey machine): a write is denied with `writes_enabled` off, and an
-allow-listed read passes without a prompt.
+(`<WRITE_TOOLS>` is all six: `submit_preset`, `move`, `resume_scan`,
+`clear_queue`, `run_analysis`, `post_logbook_entry`, each as
+`mcp__geecs__<verb>`.)
 
-The older **`mcp_servers:` route carries no hooks**: a `hooks:` key on
-an `mcp_servers` entry is silently dropped at load, and a dotted
-`claude_code.servers.geecs.hooks` key beside an `mcp_servers` entry is
-overwritten by the build (VERIFIED against osprey, 2026-08-22, and again
-2026-10-16).  On that route the only interactive gate is the native
-`ask` prompt on each write verb.
-
-The HTU deployment's posture is the profile owner's call: `READ_TOOLS`
-on `allow` everywhere, `STOP_TOOLS` on `allow` wherever the server
-renders, `WRITE_TOOLS` on `allow` at the admin tier only with its
-DEVIATION marker, and the write verbs dropped from the readonly and
-knowledge renders.
-
-**Headless gate** (`osprey query`): the framework reads
-`hook_config.json`'s `write_tools` (populated from the profile's
-`config:`) — list every `WRITE_TOOLS` entry there as
-`mcp__geecs__<verb>`: `submit_preset`, `move`, `resume_scan` (resume
-restarts motion, so it gates like a submission), `clear_queue`,
-`run_analysis`, `post_logbook_entry`.  This is the ONLY headless gate —
-a profile missing these entries leaves an unattended agent's writes
-ungated.
+**Headless** (`osprey query`, dispatch): `write_tools` above is the
+floor — a profile missing an entry leaves an unattended agent's write
+ungated.  `resume_scan` is listed because it restarts motion; in
+dispatch a custom server's tools are further confined to a trigger's
+`allowed_tools`.
 
 **The halt family is never gated.**  `stop_scan` and `pause_scan` are
 deliberately absent from `write_tools` and sit on `allow`: a halt is
@@ -99,6 +119,31 @@ never blocked on any path.
 `move_scan_variable`, `describe_action`, `validate_scan_request`
 (0.9.0).  Drop them — a permission naming a tool the server does not
 register is inert, but it misreads as a capability that exists.
+
+### Blocking calls
+
+Claude Code, not osprey, sets the ceilings a tool call lives under: an
+interactive call still running after 2 minutes moves to a background
+task, an HTTP server's call is dropped after 5 minutes without traffic
+(30 minutes over stdio), and HTTP calls run a first-byte timer.  The
+2-minute rule counts from the call's start, whatever the call sends, so
+the server holds every blocking call under it:
+
+- a whole call has 110 s of wall clock — an absolute cancel scope, so a
+  peer that keeps trickling bytes cannot hold it, with every request
+  inside cut to what is left; a wait polls for at most 90 s (a `move` for 60 s) and
+  answers `finished: false` when that ends — the skill calls again;
+- `stop_scan` waits at most 100 s for the scanner to confirm (the
+  scanner itself holds a stop up to 120 s); unconfirmed by then, it
+  answers `ok` with `landed: false` — the stop is in, check
+  `scan_status`;
+- a `move` the scanner accepted keeps its `item_uid` if the scanner
+  stops answering while it is followed.
+
+The waits' polls and the scanner verbs also send MCP progress
+notifications, which reset the **idle** timer.  Whether they satisfy the
+first-byte timer depends on the client sending a progress token over
+HTTP — live check 4 records it.
 
 ### Identity is a record, not an authorization
 
@@ -113,7 +158,16 @@ has no field for one).
 
 The string records who the agent says supervised; it proves nothing.
 Who may call which verb is decided by the profile's permission lists
-and osprey's hooks above, never by this server.
+and `write_tools` above, never by this server.
+
+OSPREY's own rule goes further: a name arrives only through one of its
+two doors (the terminal proxy or a sidecar login gate, as
+`X-Osprey-Owner`), and a service reads it from `OSPREY_CONTROL_OWNER`
+in the agent's environment — never from a free string.  The composed
+string is the interim shape (osprey's bundled Bluesky server has it
+too); taking the owner from that door instead is open, because the
+variable lives in the agent's environment, not this central server's
+(`DESIGN.md` § 8).
 
 ### Host setup
 

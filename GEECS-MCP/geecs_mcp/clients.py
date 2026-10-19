@@ -28,6 +28,7 @@ import logging
 import threading
 from typing import Any, Optional
 
+import anyio
 import httpx
 
 from geecs_mcp import config
@@ -65,6 +66,15 @@ class ServiceUnavailable(Exception):
         self.service = service
         self.url = url
         self.message = message
+
+
+class ServiceTimeout(ServiceUnavailable):
+    """The request was sent and the whole answer did not come within its budget.
+
+    Still an outage to every caller that does not ask (the guard maps it
+    as ``service_unreachable``); a verb whose request may have taken
+    effect — a stop the scanner is still landing — catches it and says so.
+    """
 
 
 class ServiceRefusal(Exception):
@@ -171,6 +181,12 @@ def _refusal(service: str, response: httpx.Response) -> ServiceRefusal:
     return ServiceRefusal(kind, _detail_text(body, response), **_context(extra))
 
 
+def _wall_clock(read_timeout_s: Optional[float]) -> float:
+    """A request's whole budget: its read budget plus the connect."""
+    read = READ_TIMEOUT_S if read_timeout_s is None else read_timeout_s
+    return read + CONNECT_TIMEOUT_S
+
+
 def _context(extra: dict[str, Any]) -> dict[str, Any]:
     """A service's refusal context minus the envelope's reserved keys."""
     return {k: v for k, v in extra.items() if k not in _RESERVED_KEYS}
@@ -197,10 +213,21 @@ async def call(
         if read_timeout_s is not None
         else httpx.USE_CLIENT_DEFAULT
     )
+    # httpx's read timeout bounds the gap between chunks, not the answer: a
+    # peer trickling bytes would never trip it.  The read budget is also
+    # the whole request's wall clock.
+    limit = _wall_clock(read_timeout_s)
     try:
-        response = await client.request(
-            method, path, params=clean_params, json=json, timeout=timeout
-        )
+        with anyio.fail_after(limit):
+            response = await client.request(
+                method, path, params=clean_params, json=json, timeout=timeout
+            )
+    except (TimeoutError, httpx.ReadTimeout) as exc:
+        raise ServiceTimeout(
+            service,
+            str(client.base_url),
+            f"no complete answer within {limit:.0f} s: {type(exc).__name__}",
+        ) from exc
     except httpx.HTTPError as exc:
         raise ServiceUnavailable(
             service, str(client.base_url), f"{type(exc).__name__}: {exc}"
@@ -256,38 +283,58 @@ async def get_bytes(
         if read_timeout_s is not None
         else httpx.USE_CLIENT_DEFAULT
     )
+    limit = _wall_clock(read_timeout_s)
     try:
-        async with client.stream(
-            "GET", path, params=clean_params, timeout=timeout
-        ) as response:
-            if response.status_code >= 500:
-                await response.aread()
-                raise ServiceUnavailable(
-                    service, str(client.base_url), f"HTTP {response.status_code}"
-                )
-            if response.status_code >= 400:
-                await response.aread()
-                raise _refusal(service, response)
-            chunks: list[bytes] = []
-            total = 0
-            truncated = False
-            async for chunk in response.aiter_bytes():
-                room = max_bytes - total
-                if len(chunk) > room:
-                    chunks.append(chunk[:room])
-                    total += room
-                    truncated = True
-                    break
-                chunks.append(chunk)
-                total += len(chunk)
-            content_type = response.headers.get(
-                "content-type", "application/octet-stream"
+        with anyio.fail_after(limit):
+            return await _capped_read(
+                client, service, path, clean_params, timeout, max_bytes
             )
-            declared = response.headers.get("content-length")
+    except (TimeoutError, httpx.ReadTimeout) as exc:
+        raise ServiceTimeout(
+            service,
+            str(client.base_url),
+            f"no complete answer within {limit:.0f} s: {type(exc).__name__}",
+        ) from exc
     except httpx.HTTPError as exc:
         raise ServiceUnavailable(
             service, str(client.base_url), f"{type(exc).__name__}: {exc}"
         ) from exc
+
+
+async def _capped_read(
+    client: httpx.AsyncClient,
+    service: str,
+    path: str,
+    clean_params: dict[str, Any],
+    timeout: Any,
+    max_bytes: int,
+) -> tuple[bytes, str, bool, Optional[int]]:
+    """The streamed GET behind :func:`get_bytes`, inside its wall clock."""
+    async with client.stream(
+        "GET", path, params=clean_params, timeout=timeout
+    ) as response:
+        if response.status_code >= 500:
+            await response.aread()
+            raise ServiceUnavailable(
+                service, str(client.base_url), f"HTTP {response.status_code}"
+            )
+        if response.status_code >= 400:
+            await response.aread()
+            raise _refusal(service, response)
+        chunks: list[bytes] = []
+        total = 0
+        truncated = False
+        async for chunk in response.aiter_bytes():
+            room = max_bytes - total
+            if len(chunk) > room:
+                chunks.append(chunk[:room])
+                total += room
+                truncated = True
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        content_type = response.headers.get("content-type", "application/octet-stream")
+        declared = response.headers.get("content-length")
     size: Optional[int] = total
     if declared is not None and declared.isdigit():
         size = int(declared)

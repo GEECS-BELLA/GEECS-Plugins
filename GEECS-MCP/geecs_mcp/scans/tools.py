@@ -20,9 +20,16 @@ from typing import Any, Optional
 import anyio
 
 from geecs_mcp import clients, errors, guard, tool_names
-from geecs_mcp.clients import ServiceRefusal
+from geecs_mcp.clients import ServiceRefusal, ServiceTimeout, ServiceUnavailable
 from geecs_mcp.identity import InvalidArgument, identity_for
 from geecs_mcp.server import mcp
+from geecs_mcp.waits import (
+    BUDGET_SPENT,
+    DEFAULT_WAIT_S,
+    CallBudget,
+    heartbeat,
+    keepalive,
+)
 from geecs_mcp.waits import bounded_wait as _bounded_wait
 
 #: The scanner's ``GET /api/configs/{kind}`` kinds (the page's dropdowns).
@@ -37,8 +44,13 @@ CONFIG_KINDS = (
 #: Polling cadence (s): the scanner page itself polls at 1 Hz.
 SCAN_POLL_S = 2.0
 MOVE_POLL_S = 1.0
-#: The scanner's stop blocks up to 120 s for the pause to land.
-STOP_READ_TIMEOUT_S = 130.0
+#: A move's own wait cap: a move waits less than a scan, leaving its
+#: readback room inside waits.CALL_BUDGET_S.
+MOVE_MAX_WAIT_S = 60.0
+#: The scanner holds a stop up to 120 s for the pause to land; the MCP
+#: waits at most this long (under the client's 2-minute auto-background,
+#: waits.CALL_BUDGET_S) and then answers that the stop has not landed yet.
+STOP_READ_TIMEOUT_S = 100.0
 #: How deep into the manager's history the wait verbs look.
 HISTORY_DEPTH = 50
 #: The scanner reads the running item, the waiting items and the history
@@ -177,8 +189,11 @@ async def _verb(
     read_timeout_s=None,
     note: str = "",
 ) -> str:
-    out = await clients.call(
-        "scanner", "POST", path, json=body, read_timeout_s=read_timeout_s
+    out = await keepalive(
+        lambda: clients.call(
+            "scanner", "POST", path, json=body, read_timeout_s=read_timeout_s
+        ),
+        message=f"waiting for the scanner's {path}",
     )
     if not out.get("ok", False):
         # The scanner answers 200 {ok:false} for a verb that does not apply
@@ -200,14 +215,32 @@ async def _halt(path: str, force: bool, operator: str, *, read_timeout_s=None) -
 async def stop_scan(force: bool = False, operator: str = "") -> str:
     """Stop the running scan gracefully (after the current shot) — the halt family.
 
-    Blocks until the scanner reports the stop landed (its own budget is
-    120 s).  ``operator`` is recorded when given; a halt is never blocked
-    on a missing or malformed name.  ``force`` is passed through for the
-    scanner's ownership registry.
+    Waits for the scanner to report the stop landed, up to 100 s; if it
+    has not by then the answer is ``ok`` with ``landed: false`` — the
+    request is in and the scanner keeps landing it; check
+    ``scan_status``.  ``operator`` is recorded when given; a halt is never
+    blocked on a missing or malformed name.  ``force`` is passed through
+    for the scanner's ownership registry.
     """
-    return await guard.run_async(
-        _halt, "/api/stop", force, operator, read_timeout_s=STOP_READ_TIMEOUT_S
-    )
+    return await guard.run_async(_stop, force, operator)
+
+
+async def _stop(force: bool, operator: str) -> str:
+    try:
+        return await _halt(
+            "/api/stop", force, operator, read_timeout_s=STOP_READ_TIMEOUT_S
+        )
+    except ServiceTimeout as exc:
+        # Sent, not yet answered: the scanner is landing it (its own budget
+        # is 120 s) — say so rather than report an outage.
+        return errors.make_ok(
+            landed=False,
+            message=(
+                f"stop requested; the scanner had not confirmed it after "
+                f"{STOP_READ_TIMEOUT_S:.0f} s and keeps landing it — check "
+                f"scan_status before acting on it ({exc.message})"
+            ),
+        )
 
 
 @mcp.tool(name=tool_names.PAUSE_SCAN)
@@ -381,7 +414,7 @@ def _correlated_progress(
 
 
 async def _wait_for_item(
-    item_uid: str, timeout_s: float, *, poll_s: float
+    item_uid: str, timeout_s: float, *, poll_s: float, budget: CallBudget
 ) -> tuple[str, Optional[dict], Optional[dict]]:
     """Poll the queue until *item_uid* is finished or the budget is spent.
 
@@ -389,11 +422,17 @@ async def _wait_for_item(
     ``running``, ``waiting`` or ``""`` (nowhere — the manager's bounded
     history no longer holds it, or it never existed).
     """
-    deadline = _clock() + timeout_s
+    start = _clock()
+    deadline = start + timeout_s
     vanished = 0
     while True:
+        await heartbeat(_clock() - start, timeout_s, f"waiting for {item_uid}")
         queue = await clients.call(
-            "scanner", "GET", "/api/queue", params={"history": HISTORY_DEPTH}
+            "scanner",
+            "GET",
+            "/api/queue",
+            params={"history": HISTORY_DEPTH},
+            read_timeout_s=budget.read_timeout(),
         )
         where, row = _find_item(queue, item_uid)
         if where == "finished":
@@ -406,7 +445,9 @@ async def _wait_for_item(
             continue
         vanished = 0
         if _clock() >= deadline:
-            progress = await clients.call("scanner", "GET", "/api/progress")
+            progress = await clients.call(
+                "scanner", "GET", "/api/progress", read_timeout_s=budget.read_timeout()
+            )
             return where, row, progress
         await _sleep(poll_s)
 
@@ -417,11 +458,28 @@ async def _wait_for_scan(item_uid: str, timeout_s: float) -> str:
         return errors.make_error(
             "invalid_request", "item_uid is the handle submit_preset returned"
         )
+    budget = CallBudget()
+    with budget.scope():
+        return await _wait_within(item_uid, timeout_s, budget)
+    # Only on expiry: the scope ended the wait mid-request.
+    return errors.make_ok(
+        finished=False,
+        item_uid=item_uid,
+        where="unknown",
+        progress=None,
+        live_scan=None,
+        note=BUDGET_SPENT,
+    )
+
+
+async def _wait_within(item_uid: str, timeout_s: float, budget: CallBudget) -> str:
     where, row, progress = await _wait_for_item(
-        item_uid, _bounded_wait(timeout_s), poll_s=SCAN_POLL_S
+        item_uid, _bounded_wait(timeout_s), poll_s=SCAN_POLL_S, budget=budget
     )
     if where == "finished":
-        snapshot = await clients.call("scanner", "GET", "/api/progress")
+        snapshot = await clients.call(
+            "scanner", "GET", "/api/progress", read_timeout_s=budget.read_timeout()
+        )
         progress, live_scan = _correlated_progress(where, row, snapshot)
         return errors.make_ok(
             finished=True,
@@ -457,8 +515,11 @@ async def _wait_for_scan(item_uid: str, timeout_s: float) -> str:
 
 
 @mcp.tool(name=tool_names.WAIT_FOR_SCAN)
-async def wait_for_scan(item_uid: str, timeout_s: float = 240.0) -> str:
-    """Block until the queue item finishes, up to ``timeout_s`` (cap 600 s).
+async def wait_for_scan(item_uid: str, timeout_s: float = DEFAULT_WAIT_S) -> str:
+    """Block until the queue item finishes, up to ``timeout_s`` (at most 90 s).
+
+    Short by design: a scan outlasts one call, so call again until
+    ``finished`` — each call is bounded under the client's own timers.
 
     Finished: ``{finished: true, state, word, scan_numbers, run_uids,
     detail, progress}`` — ``scan_numbers``/``run_uids`` are the keys for
@@ -477,7 +538,9 @@ async def wait_for_scan(item_uid: str, timeout_s: float = 240.0) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _readback_target(variable: str) -> tuple[Optional[str], str]:
+async def _readback_target(
+    variable: str, budget: CallBudget
+) -> tuple[Optional[str], str]:
     """The canonical ``Device:Variable`` to read back, or why there is none.
 
     The scanner's readback route takes only the canonical form (never
@@ -487,7 +550,9 @@ async def _readback_target(variable: str) -> tuple[Optional[str], str]:
     """
     if ":" in variable:
         return variable, ""
-    listing = await clients.call("scanner", "GET", "/api/scan-variables")
+    listing = await clients.call(
+        "scanner", "GET", "/api/scan-variables", read_timeout_s=budget.read_timeout()
+    )
     for row in listing or []:
         if row.get("name") == variable:
             target = row.get("target")
@@ -517,11 +582,13 @@ async def _move(
     if not math.isfinite(number):
         return errors.make_error("invalid_request", f"value {value!r} is not finite")
 
+    budget = CallBudget()
     out = await clients.call(
         "scanner",
         "POST",
         "/api/move",
         json={"variable": variable, "value": number, "operator": identity},
+        read_timeout_s=budget.read_timeout(),
     )
     item_uid = out.get("item_uid")
     payload: dict[str, Any] = {
@@ -537,9 +604,33 @@ async def _move(
     if not wait or not item_uid:
         payload["readback_detail"] = "not waited for"
         return errors.make_ok(**payload)
+    # The move is ACCEPTED (item_uid): an outage or a spent budget while it
+    # is followed is not a failed move, and the handle must reach the agent.
+    follow = f"wait_for_scan({payload['item_uid']!r}) follows it"
+    with budget.scope():
+        try:
+            return await _follow_move(payload, variable, timeout_s, budget)
+        except ServiceUnavailable as exc:
+            payload["where"] = "unknown"
+            payload["readback_detail"] = (
+                f"the scanner accepted the move but stopped answering while it "
+                f"was followed ({exc.message}); {follow}"
+            )
+            return errors.make_ok(**payload)
+    payload["where"] = "unknown"
+    payload["readback_detail"] = f"{BUDGET_SPENT}; {follow}"
+    return errors.make_ok(**payload)
 
+
+async def _follow_move(
+    payload: dict[str, Any], variable: str, timeout_s: float, budget: CallBudget
+) -> str:
+    """Wait for an accepted move, then read back — the part that may outlive the scanner."""
     where, row, _ = await _wait_for_item(
-        str(item_uid), _bounded_wait(timeout_s), poll_s=MOVE_POLL_S
+        str(payload["item_uid"]),
+        min(_bounded_wait(timeout_s), MOVE_MAX_WAIT_S),
+        poll_s=MOVE_POLL_S,
+        budget=budget,
     )
     if where != "finished":
         payload["where"] = where or "unknown"
@@ -551,13 +642,17 @@ async def _move(
         word=row.get("word"),
         detail=row.get("detail", ""),
     )
-    target, why_not = await _readback_target(variable)
+    target, why_not = await _readback_target(variable, budget)
     if target is None:
         payload["readback_detail"] = why_not
         return errors.make_ok(**payload)
     try:
         readback = await clients.call(
-            "scanner", "GET", "/api/readback", params={"variable": target}
+            "scanner",
+            "GET",
+            "/api/readback",
+            params={"variable": target},
+            read_timeout_s=budget.read_timeout(),
         )
     except ServiceRefusal as exc:
         payload["readback_detail"] = exc.message

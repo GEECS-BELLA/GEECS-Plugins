@@ -25,7 +25,13 @@ from geecs_mcp import clients, errors, guard, portal, tool_names
 from geecs_mcp.clients import ServiceRefusal
 from geecs_mcp.identity import InvalidArgument
 from geecs_mcp.server import mcp
-from geecs_mcp.waits import bounded_wait
+from geecs_mcp.waits import (
+    BUDGET_SPENT,
+    DEFAULT_WAIT_S,
+    CallBudget,
+    bounded_wait,
+    heartbeat,
+)
 
 #: Job states the portal's analysis runner reports.
 ACTIVE_STATES = ("queued", "running")
@@ -215,10 +221,40 @@ async def _wait_for_analysis(
     analyzer = str(analyzer or "").strip()
     if not analyzer:
         return errors.make_error("invalid_request", "name the analyzer you started")
+    call_budget = CallBudget()
+    with call_budget.scope():
+        return await _wait_within(scan_number, analyzer, day, timeout_s, call_budget)
+    # Only on expiry: the scope ended the wait mid-request.
+    return errors.make_ok(
+        finished=False,
+        scan_number=scan_number,
+        analyzer=analyzer,
+        state=None,
+        note=BUDGET_SPENT,
+    )
+
+
+async def _wait_within(
+    scan_number: Any,
+    analyzer: str,
+    day: Optional[str],
+    timeout_s: Any,
+    call_budget: CallBudget,
+) -> str:
     uid, iso, number = await portal.resolve_uid(scan_number, day)
-    deadline = anyio.current_time() + bounded_wait(timeout_s)
+    # The jump lookup has already spent some of the call's clock.
+    budget = min(bounded_wait(timeout_s), call_budget.left())
+    start = anyio.current_time()
+    deadline = start + budget
     while True:
-        listing = await portal.analysis_listing(uid, iso)
+        await heartbeat(
+            anyio.current_time() - start,
+            budget,
+            f"waiting for {analyzer} on scan {number}",
+        )
+        listing = await portal.analysis_listing(
+            uid, iso, read_timeout_s=call_budget.read_timeout()
+        )
         entry, job = _job_for(listing, analyzer)
         if entry is None:
             return errors.make_error(
@@ -257,9 +293,9 @@ async def wait_for_analysis(
     scan_number: int,
     analyzer: str,
     day: Optional[str] = None,
-    timeout_s: float = 240.0,
+    timeout_s: float = DEFAULT_WAIT_S,
 ) -> str:
-    """Block until the analyzer's job on this scan leaves ``queued``/``running`` (cap 600 s).
+    """Block until the analyzer's job on this scan leaves ``queued``/``running`` (at most 90 s).
 
     ``{finished, state, error, artifacts, files, job}`` — ``state`` is
     ``done``/``failed``/``no_data``, or ``unknown`` when the portal has no

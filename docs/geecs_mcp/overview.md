@@ -157,8 +157,10 @@ Two rules sit on top of the classes:
   artifact URL). Image bytes reach the model only through an explicit
   thumbnail, returned as an MCP image block. Anything truncated says so.
 - **Waits are bounded and honest.** `wait_for_scan` and
-  `wait_for_analysis` block for at most 600 s; a timeout is a result
-  (`finished: false`), not an error, and the agent calls again.
+  `wait_for_analysis` block for at most 90 s, and no call outlasts the
+  MCP client's 2-minute limit (a stop the scanner has not confirmed
+  answers `landed: false`); a timeout is a result (`finished: false`),
+  not an error, and the agent calls again.
 - **A write is reported once it has happened.** A logbook post is ok as
   soon as the entry exists, with a row per figure saying what attached;
   the agent must not post again (that would make a second entry).
