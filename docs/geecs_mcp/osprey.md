@@ -55,6 +55,11 @@ profile shape and the verified gating semantics live in
   today, and the writes-off kill switch does not cover it; a facility
   PreToolUse hook can make the kill switch bite until OSPREY's own fix
   lands.
+- **One write route to the queue.** If the deployment also enables
+  OSPREY's bundled `bluesky` server against the same queue, deny its
+  queueing verbs at every tier and keep its reads and halts, so scans go
+  through this server's `submit_preset` and the scanner's preflight
+  (`GEECS-MCP/deploy/DEPLOYMENT.md`, "The profile and the gates").
 
 **Identity is a record, not an authorization.** The write verbs that
 take `operator` — `submit_preset`, `move`, `resume_scan`,
