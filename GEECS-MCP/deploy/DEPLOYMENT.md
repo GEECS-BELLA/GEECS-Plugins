@@ -114,6 +114,18 @@ dispatch a custom server's tools are further confined to a trigger's
 deliberately absent from `write_tools` and sit on `allow`: a halt is
 never blocked on any path.
 
+**One write route to the queue.**  A deployment that also enables
+OSPREY's bundled `bluesky` server against the same RE Manager (HTU's
+external-worker bridge and BLUESKY tab) gives the agent a second way to
+start a scan — `queue_add` / `queue_start` straight to the manager,
+past the scanner's preflight and with no operator on the run.  Put that
+server's queueing verbs (`queue_add`, `queue_start`, `queue_remove`,
+`write_plan`, `validate_plan`) on `claude_code.permissions.deny` at
+every tier and keep its reads and halts (`queue_list`, `queue_status`,
+the run reads, `queue_stop`, `stop_run`): scans and moves go through
+`submit_preset` / `move`, and the skill says so.  Lifting that deny is
+the switch when scans move onto connector-backed Bluesky plans.
+
 **Names a pre-0.10 profile may still carry**: `get_scan_result`,
 `run_scan_analysis` (0.10.0), and `submit_scan`, `run_action`,
 `move_scan_variable`, `describe_action`, `validate_scan_request`
