@@ -130,9 +130,22 @@ async def scan_history(limit: int = 10) -> str:
 
 async def _list_scan_configs(kind: str, name: Optional[str]) -> str:
     kind = str(kind).strip()
+    if kind == "devices":
+        if name:
+            return errors.make_error(
+                "invalid_request", "only a preset can be fetched by name"
+            )
+        # The manager lists a device and its children (U_S1H, U_S1H.current
+        # …); a preset names devices, so only the bare names are offered —
+        # the scanner page's add-device list does the same.
+        references = await clients.call("scanner", "GET", "/api/devices")
+        names = [n for n in references or [] if "." not in str(n)]
+        return errors.make_ok(kind=kind, names=names)
     if kind not in CONFIG_KINDS:
         return errors.make_error(
-            "not_found", f"unknown config kind {kind!r}", kinds=list(CONFIG_KINDS)
+            "not_found",
+            f"unknown config kind {kind!r}",
+            kinds=[*CONFIG_KINDS, "devices"],
         )
     if name:
         if kind != "presets":
@@ -152,7 +165,9 @@ async def list_scan_configs(kind: str, name: Optional[str] = None) -> str:
     ``kind`` is one of ``presets``, ``trigger_profiles``, ``scan_variables``,
     ``actions``, ``optimizer_configs`` → the names (+ ``unavailable`` with
     reasons).  With ``name`` on ``presets``, the preset document itself.
-    Names must come from here — never invent one.
+    ``devices`` → the device names a preset's ``devices[].device`` takes
+    (the scanner page's add-device list).  Names must come from here —
+    never invent one.
     """
     return await guard.run_async(_list_scan_configs, kind, name)
 
@@ -282,25 +297,86 @@ async def clear_queue() -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _submit_preset(name: str, acknowledged: list[str], operator: str) -> str:
-    identity = identity_for(operator)
-    name = str(name).strip()
-    if not name:
-        return errors.make_error(
-            "invalid_request", "name a preset (list_scan_configs('presets'))"
-        )
-    acknowledged = [str(a).strip() for a in (acknowledged or []) if str(a).strip()]
+async def _preset_document(
+    name: Optional[str], preset: Optional[dict[str, Any]]
+) -> tuple[Optional[dict[str, Any]], str]:
+    """The preset document to send, and an error envelope when there is none.
 
-    # 1. the document, by name — the scanner has no submit-by-name
+    Exactly one of a saved preset's ``name`` or a whole ``preset``
+    document.  A document goes to the scanner as given: its schema, its
+    names and its limits are the scanner's to check (preflight).
+    """
+    name = str(name or "").strip()
+    if bool(name) == (preset is not None):
+        raise InvalidArgument(
+            "give exactly one of `name` (a saved preset, list_scan_configs"
+            "('presets')) or `preset` (a whole preset document)"
+        )
+    if preset is not None:
+        if not isinstance(preset, dict):
+            raise InvalidArgument("`preset` must be a preset document (an object)")
+        return preset, ""
+    # the scanner has no submit-by-name: fetch the document first
     try:
-        preset = await clients.call("scanner", "GET", f"/api/configs/presets/{name}")
+        document = await clients.call("scanner", "GET", f"/api/configs/presets/{name}")
     except ServiceRefusal as exc:
         if exc.kind != "not_found":
             raise
         listing = await clients.call("scanner", "GET", "/api/configs/presets")
-        return errors.make_error(
+        return None, errors.make_error(
             "not_found", exc.message, names=list(listing.get("names") or [])
         )
+    return document, ""
+
+
+async def _preflight_preset(
+    name: Optional[str], preset: Optional[dict[str, Any]] = None
+) -> str:
+    document, refused = await _preset_document(name, preset)
+    if document is None:
+        return refused
+    report = await clients.call("scanner", "POST", "/api/preflight", json=document)
+    return errors.make_ok(
+        refusal=report.get("refusal"),
+        questions=list(report.get("questions") or []),
+        outcomes=report.get("outcomes") or [],
+        summary=report.get("summary", ""),
+        planned_shots=report.get("planned_shots"),
+        plan=report.get("plan"),
+    )
+
+
+@mcp.tool(name=tool_names.PREFLIGHT_PRESET)
+async def preflight_preset(
+    name: Optional[str] = None, preset: Optional[dict[str, Any]] = None
+) -> str:
+    """The scanner's preflight of a scan, with nothing submitted — a read.
+
+    Give a saved preset's ``name`` or a whole ``preset`` document (the
+    shape ``list_scan_configs('presets', name=...)`` returns:
+    ``devices`` + ``plan``).  The answer is the scanner's verdict:
+    ``refusal`` (why it cannot run, else null), ``questions`` it would
+    ask before queueing, the per-check ``outcomes``, and for a runnable
+    scan the expanded ``plan``, ``summary`` and ``planned_shots``.  Show
+    it to the operator before ``submit_preset``.
+    """
+    return await guard.run_async(_preflight_preset, name, preset)
+
+
+async def _submit_preset(
+    name: Optional[str],
+    acknowledged: list[str],
+    operator: str,
+    preset: Optional[dict[str, Any]] = None,
+) -> str:
+    identity = identity_for(operator)
+    acknowledged = [str(a).strip() for a in (acknowledged or []) if str(a).strip()]
+
+    # 1. the document — a saved preset's, or the one given
+    document, refused = await _preset_document(name, preset)
+    if document is None:
+        return refused
+    preset = document
 
     # 2. preflight — the scanner's checks, its questions verbatim
     report = await clients.call("scanner", "POST", "/api/preflight", json=preset)
@@ -347,12 +423,20 @@ async def _submit_preset(name: str, acknowledged: list[str], operator: str) -> s
 
 @mcp.tool(name=tool_names.SUBMIT_PRESET)
 async def submit_preset(
-    name: str, operator: str, acknowledged: Optional[list[str]] = None
+    operator: str,
+    name: Optional[str] = None,
+    preset: Optional[dict[str, Any]] = None,
+    acknowledged: Optional[list[str]] = None,
 ) -> str:
-    """Queue one scan from a saved preset, through the scanner's own preflight.
+    """Queue one scan, through the scanner's own preflight.
 
-    ``name`` comes from ``list_scan_configs('presets')``; ``operator`` is
-    the supervising person (recorded on the run as
+    Give exactly one of ``name`` (a saved preset, from
+    ``list_scan_configs('presets')``) or ``preset`` (a whole preset
+    document, composed for this scan: ``devices`` from
+    ``list_scan_configs('devices')``, a ``plan`` whose scan variable comes
+    from ``list_scan_configs('scan_variables')``).  A document is never
+    saved; the scanner validates it exactly as it validates the page's.
+    ``operator`` is the supervising person (recorded on the run as
     ``agent, admin supervision (<operator>)``).  If preflight asks a
     question, the answer is ``policy_refusal`` with the questions under
     ``needs_acknowledgement``: show them to the operator and call again
@@ -362,7 +446,7 @@ async def submit_preset(
     claims it.  Refused while anything is already queued (``pending_items``).
     """
     return await guard.run_async(
-        _submit_preset, name, list(acknowledged or []), operator
+        _submit_preset, name, list(acknowledged or []), operator, preset
     )
 
 

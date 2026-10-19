@@ -28,9 +28,24 @@ async def run(impl, *args, **kwargs) -> str:
 
 
 async def _submit(
-    acknowledged=("gateway_liveness",), name="jet_pressure_sweep"
+    acknowledged=("gateway_liveness",), name="jet_pressure_sweep", preset=None
 ) -> dict:
-    return _j(await run(tools._submit_preset, name, list(acknowledged), OPERATOR))
+    if preset is not None:
+        name = None
+    return _j(
+        await run(tools._submit_preset, name, list(acknowledged), OPERATOR, preset)
+    )
+
+
+async def _composed() -> dict:
+    """A scan no preset holds: the demo sweep, one scalar device, 3 shots/step."""
+    doc = _j(await run(tools._list_scan_configs, "presets", "jet_pressure_sweep"))
+    preset = dict(doc["preset"], name="agent_composed")
+    preset["devices"] = [{"device": "U_ICT", "save_images": False}]
+    preset["plan"] = dict(
+        preset["plan"], kwargs=dict(preset["plan"]["kwargs"], shots_per_step=3)
+    )
+    return preset
 
 
 # ----------------------------------------------------------------- reads
@@ -71,6 +86,13 @@ class TestReads:
         assert missing["error_kind"] == "not_found"
         by_name = _j(await run(tools._list_scan_configs, "actions", "x"))
         assert by_name["error_kind"] == "invalid_request"
+
+    async def test_devices_are_the_bare_names_a_preset_takes(self, wired) -> None:
+        out = _j(await run(tools._list_scan_configs, "devices", None))
+        assert out["ok"] is True
+        assert "U_ICT" in out["names"]
+        # the manager also lists children (U_ICT.scalars …): never offered
+        assert not [n for n in out["names"] if "." in n]
 
     async def test_scan_history_rows_carry_the_keys(self, stepping) -> None:
         submitted = await _submit()
@@ -131,6 +153,37 @@ class TestSubmitPreset:
         assert out["error_kind"] == "policy_refusal"
         assert out["pending_items"][0]["plan"] == "sweep"
 
+    async def test_a_composed_document_queues_as_given_and_is_never_saved(
+        self, wired
+    ) -> None:
+        out = await _submit(preset=await _composed())
+        assert out["ok"] is True, out
+        assert out["planned_shots"] == 21  # 7 positions × 3 shots
+        item = wired.running_item() or wired.queue_items()[0]
+        assert item["kwargs"]["shots_per_step"] == 3
+        assert item["args"][0] == ["U_ICT.scalars"]  # the one device, scalars only
+        names = _j(await run(tools._list_scan_configs, "presets", None))["names"]
+        assert "agent_composed" not in names
+
+    @pytest.mark.parametrize("both", [True, False])
+    async def test_exactly_one_of_name_or_document(self, wired, both) -> None:
+        preset = await _composed() if both else None
+        name = "jet_pressure_sweep" if both else None
+        out = _j(
+            await run(
+                tools._submit_preset, name, ["gateway_liveness"], OPERATOR, preset
+            )
+        )
+        assert out["error_kind"] == "invalid_request"
+        assert "exactly one" in out["message"]
+        assert _j(await run(tools._scan_history, 5))["waiting"] == []
+
+    async def test_an_unrunnable_document_is_the_scanner_s_refusal(self, wired) -> None:
+        preset = dict(await _composed(), plan={"name": "mv", "args": ["U_ICT", 1]})
+        out = await _submit(preset=preset)
+        assert out["error_kind"] == "invalid_request"
+        assert "mv" in out["message"]
+
     async def test_unknown_preset_lists_the_catalog(self, wired) -> None:
         out = await _submit(name="not_a_preset")
         assert out["error_kind"] == "not_found"
@@ -145,6 +198,31 @@ class TestSubmitPreset:
         assert out["error_kind"] == "invalid_request"
         assert "operator" in out["message"]
         assert _j(await run(tools._scan_history, 5))["waiting"] == []
+
+
+# ------------------------------------------------------- preflight_preset
+
+
+class TestPreflightPreset:
+    async def test_the_verdict_and_questions_and_nothing_queued(self, wired) -> None:
+        out = _j(await run(tools._preflight_preset, None, await _composed()))
+        assert out["ok"] is True
+        assert out["refusal"] is None
+        assert out["questions"][0]["check"] == "gateway_liveness"
+        assert out["planned_shots"] == 21
+        assert out["plan"]["kwargs"]["shots_per_step"] == 3
+        assert wired.running_item() is None and wired.queue_items() == []
+
+    async def test_a_refusal_is_the_answer_not_an_error(self, wired) -> None:
+        preset = dict(await _composed(), plan={"name": "mv", "args": ["U_ICT", 1]})
+        out = _j(await run(tools._preflight_preset, None, preset))
+        assert out["ok"] is True
+        assert "mv" in out["refusal"]
+        assert out["plan"] is None
+
+    async def test_by_name_too(self, wired) -> None:
+        out = _j(await run(tools._preflight_preset, "jet_pressure_sweep", None))
+        assert out["ok"] is True and out["planned_shots"]
 
 
 # ---------------------------------------------------------- wait_for_scan

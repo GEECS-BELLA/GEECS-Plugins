@@ -7,11 +7,13 @@ writes to the machine, built as a **thin HTTP client** of the web scanner
 describes the current state.
 
 **Scans (over the scanner).** Reads: `scan_status`, `scan_progress`,
-`scan_history`, `list_scan_configs`, `wait_for_scan` (blocks until a
-queue item finishes; a timeout is a result, not an error). Writes, each
-taking the supervising operator's name: `submit_preset` (the scanner's
-own preflight; its questions come back verbatim and are never
-acknowledged here), `move` (the scanner's `mv` plan, idle-only, with the
+`scan_history`, `list_scan_configs` (presets, scan variables, devices …),
+`preflight_preset` (the scanner's verdict on a scan, nothing queued),
+`wait_for_scan` (blocks until a queue item finishes; a timeout is a
+result, not an error). Writes, each taking the supervising operator's
+name: `submit_preset` (a saved preset by name, or a preset document the
+agent composed; the scanner's own preflight; its questions come back
+verbatim and are never acknowledged here), `move` (the scanner's `mv` plan, idle-only, with the
 readback), `resume_scan`, `clear_queue`. The halt family — `stop_scan`,
 `pause_scan` — is never behind the headless gate.
 

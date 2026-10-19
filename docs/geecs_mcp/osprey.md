@@ -82,6 +82,11 @@ With the server connected, the assistant can carry conversations like:
 - *"Run the Amp4In preset."* — `submit_preset`, after `list_scan_configs`
   for the real name. The scanner's preflight questions come back to the
   operator word for word; the agent submits only once they are answered.
+- *"Scan the jet X axis from 4 to 6 mm in 9 points, 10 shots each,
+  recording ALine1 with images."* — no saved preset needed: the agent
+  composes the preset document (`list_scan_configs` for the scan
+  variable and the device), shows `preflight_preset`'s verdict, then
+  `submit_preset(preset=…)`.
 - *"How is it going?"* — `wait_for_scan`, or `scan_progress` for the live
   shot counts.
 - *"Move the screen to 12 mm and tell me where it ended up."* — `move`,

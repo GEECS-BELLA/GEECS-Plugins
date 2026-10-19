@@ -156,7 +156,7 @@ tests/
 
 | Verb | Class | Behind |
 |---|---|---|
-| `scan_status`, `scan_progress`, `scan_history`, `list_scan_configs`, `wait_for_scan` | R | scanner |
+| `scan_status`, `scan_progress`, `scan_history`, `list_scan_configs`, `preflight_preset`, `wait_for_scan` | R | scanner |
 | `get_scan_analysis`, `get_scan_figure`, `get_analysis_artifact`, `get_scan_scalars`, `list_analyzers`, `list_analysis_groups`, `wait_for_analysis` | R | portal |
 | `submit_preset`, `move`, `resume_scan`, `clear_queue` | W | scanner |
 | `run_analysis` | W | portal (`POST /api/run/{uid}/analysis`: one document on one scan, one job per scan at a time) |
