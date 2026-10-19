@@ -4,6 +4,36 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.0] - 2026-10-19
+
+A scan no preset holds can be run: the agent composes the preset
+document (devices + plan) and the scanner checks it exactly as it checks
+the page's, so the closed loop can change the variable, the range, the
+devices and the shots between scans without a saved preset per step.
+
+### Added
+
+- `submit_preset(operator, name=None, preset=None, acknowledged=None)`:
+  exactly one of `name` (a saved preset) or `preset` (a whole preset
+  document, sent as given and never saved). Same preflight, questions
+  and refusals as before. `operator` is now the first parameter.
+- `preflight_preset(name=None, preset=None)` (a read, in `READ_TOOLS`):
+  the scanner's preflight with nothing queued — `refusal`, `questions`,
+  outcomes, the expanded `plan`, `summary`, `planned_shots`.
+- `list_scan_configs('devices')`: the bare device names a preset's
+  `devices[]` takes (the scanner page's add-device list).
+
+### Changed
+
+- `deploy/DEPLOYMENT.md`: one write route to the queue alongside
+  OSPREY's bluesky server (#1111).
+
+### Deploy
+
+Add `mcp__geecs__preflight_preset` to the profile's geecs `allow` list
+(it is a read). Reinstall the venv on the services box and restart
+`geecs-mcp` (DEPLOYMENT.md, "Host setup").
+
 ## [0.10.1] - 2026-10-18
 
 Aligned with the OSPREY team's reply to the closed-loop approach page

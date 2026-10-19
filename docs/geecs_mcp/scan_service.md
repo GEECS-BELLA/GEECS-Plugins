@@ -2,7 +2,8 @@
 
 The scans domain is the agent's way onto the machine: it reads the
 [web scanner](../web_services/scanner.md)'s state, queues scans from
-saved presets, makes single moves, waits for them, and halts — all over
+saved presets or from preset documents the agent composes, makes single
+moves, waits for them, and halts — all over
 the scanner's own HTTP API (`:8300`), so every request passes the same
 preflight and refusals as the operator's Start button.
 
@@ -17,8 +18,9 @@ gated headless), **S** the halt family (never blockable).
 | `scan_status` | R | The scanner's status snapshot: manager connection, RE state (`idle` / `running` / `paused`), queue depth, the running item, readiness, the Tiled writer's state, the scanner version |
 | `scan_progress` | R | The running (or last) scan: scan number, shots done of planned, state, exit status, the paused reason, scan folder and day |
 | `scan_history(limit=10)` | R | The queue as the scanner shows it: running, waiting and recently finished rows, each with `item_uid`, `scan_numbers`, `run_uids`, state and the submitter |
-| `list_scan_configs(kind, name?)` | R | The experiment's catalog by kind (`presets`, `trigger_profiles`, `scan_variables`, …), with the scanner's `unavailable` reasons; `name` on `presets` returns that preset's document |
-| `submit_preset(name, operator, acknowledged?)` | W | Queue one scan from a saved preset, through the scanner's preflight (below). Returns `item_uid` |
+| `list_scan_configs(kind, name?)` | R | The experiment's catalog by kind (`presets`, `trigger_profiles`, `scan_variables`, `devices`, …), with the scanner's `unavailable` reasons; `name` on `presets` returns that preset's document; `devices` are the bare names a preset's `devices[]` takes |
+| `preflight_preset(name? \| preset?)` | R | The scanner's preflight of a saved preset or a composed document, nothing queued: `refusal`, `questions`, outcomes, the expanded plan and `planned_shots` |
+| `submit_preset(operator, name? \| preset?, acknowledged?)` | W | Queue one scan — a saved preset by `name`, or a whole preset document as `preset` — through the scanner's preflight (below). Returns `item_uid` |
 | `move(variable, value, operator, wait=true, timeout_s=60)` | W | One move through the scanner's `mv` plan, **idle-only**; with `wait`, returns once the move finished, with the readback |
 | `wait_for_scan(item_uid, timeout_s=90)` | R | Block until the queue item finishes (at most 90 s; call again while `finished` is false); returns its state, `scan_numbers` and `run_uids` |
 | `pause_scan(force?, operator?)` | S | Deferred pause — lands at the next step boundary; `scan_status` says `paused` once it has |
@@ -34,8 +36,9 @@ with the catalog's names.
 
 `submit_preset` does what the scanner page does, in the same order:
 
-1. Fetch the preset document from the scanner (`not_found` if it is not
-   in the catalog).
+1. Take the document: the one given as `preset` (composed for this
+   scan, never saved), or the saved preset's, fetched by `name`
+   (`not_found` if it is not in the catalog). Exactly one of the two.
 2. Run the scanner's **preflight** on it. A hard refusal is
    `invalid_request` with the preflight outcomes. If preflight asks
    questions the call has not acknowledged, the result is

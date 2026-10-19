@@ -83,7 +83,8 @@ profile's existing entries survive.
 | `scan_status` | R | scanner | `GET /api/status`, `GET /health` | keep |
 | `scan_progress` | R | scanner | `GET /api/progress` | keep |
 | `scan_history` | R | scanner | `GET /api/queue?history=N` | keep |
-| `list_scan_configs` | R | scanner | `GET /api/configs/{kind}`; `name=` → `GET /api/configs/presets/{name}` | keep (+`name`) |
+| `list_scan_configs` | R | scanner | `GET /api/configs/{kind}`; `name=` → `GET /api/configs/presets/{name}`; `devices` → `GET /api/devices` (bare names) | keep (+`name`, +`devices`) |
+| `preflight_preset` | R | scanner | (`GET /api/configs/presets/{name}` →) `POST /api/preflight` | **new** (0.11) |
 | `get_scan_analysis` | R | portal | `GET /api/run/jump/{day}?prefer=N` → `GET /api/run/{uid}/analysis` | keep |
 | `get_scan_figure` | R | portal | same + `GET /run/{uid}/artifact?path=` | keep |
 | `get_analysis_artifact` | R | portal | jump → `GET /run/{uid}/artifact?path=` (JSON/text sidecars, bounded) | **new** (§4.9) |
@@ -94,7 +95,7 @@ profile's existing entries survive.
 | `pause_scan` | W (halt) | scanner | `POST /api/pause {force, operator}` | keep |
 | `resume_scan` | W | scanner | `POST /api/resume {force, operator}` | keep |
 | `clear_queue` | W | scanner | `POST /api/clear` | keep |
-| `submit_preset` | W | scanner | `GET /api/configs/presets/{name}` → `POST /api/preflight` → `POST /api/submit` | **new** |
+| `submit_preset` | W | scanner | (`GET /api/configs/presets/{name}` →) `POST /api/preflight` → `POST /api/submit` | **new** |
 | `move` | W | scanner | `POST /api/move` → `GET /api/queue` → `GET /api/readback` | **new** |
 | `wait_for_scan` | R | scanner | `GET /api/queue`, `GET /api/progress` (poll) | **new** |
 | `run_analysis` | W | portal | jump → `POST /api/run/{uid}/analysis?analyzer=&confirm=` | **new** |
@@ -134,11 +135,19 @@ PreToolUse hook for the kill switch; osprey is adding
 Every tool returns the JSON envelope of §5. Arguments shown as Python
 signatures; defaults are the contract.
 
-### 4.1 `submit_preset(name, acknowledged=(), operator)`
+### 4.1 `submit_preset(operator, name=None, preset=None, acknowledged=())`
 
-1. `GET /api/configs/presets/{name}` — 404 → `not_found` (with the
+1. Exactly one of `name` (a saved preset) or `preset` (a whole preset
+   document the agent composed: `devices` + `plan`, the shape the
+   scanner page builds). A document goes on as given, never saved; its
+   schema, names and limits are the scanner's to check in step 2. With
+   `name`: `GET /api/configs/presets/{name}` — 404 → `not_found` (with the
    `names` from `GET /api/configs/presets` so the agent picks from the
-   catalog, never invents).
+   catalog, never invents). `preflight_preset(name=None, preset=None)`
+   (0.11, a read) takes the document as step 1 does and returns the
+   preflight report itself as `ok` — `refusal`, `questions`, outcomes,
+   plan, planned shots — with nothing queued; it raises neither of
+   step 2's refusals.
 2. `POST /api/preflight` with the bare preset document. A `refusal` →
    `invalid_request` carrying `outcomes`. Any `questions` whose `check`
    is not in `acknowledged` → `policy_refusal` with
@@ -286,7 +295,9 @@ route accepts images and PDFs only.
   `waiting`, `finished` rows (`item_uid`, `scan_numbers`, `run_uids`,
   `state`/`word`, `user`, `detail`).
 - `list_scan_configs(kind, name=None)` → the names (+ `unavailable`
-  reasons); with `name` on `presets`, the document.
+  reasons); with `name` on `presets`, the document; `devices` → the
+  bare device names a preset's `devices[]` takes (the page's add-device
+  list: the manager's references without their children).
 - `get_scan_analysis(scan_number, day=None)` → jump → the analysis
   listing: per analyzer `id`, `device`, `applicable`, `job`, `files`,
   `artifacts`; the MCP bounds `job.log` to 40 lines.

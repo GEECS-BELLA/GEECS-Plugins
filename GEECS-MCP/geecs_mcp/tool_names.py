@@ -19,6 +19,7 @@ SCAN_STATUS = "scan_status"
 SCAN_PROGRESS = "scan_progress"
 SCAN_HISTORY = "scan_history"
 LIST_SCAN_CONFIGS = "list_scan_configs"
+PREFLIGHT_PRESET = "preflight_preset"
 WAIT_FOR_SCAN = "wait_for_scan"
 GET_SCAN_ANALYSIS = "get_scan_analysis"
 GET_SCAN_FIGURE = "get_scan_figure"
@@ -41,12 +42,15 @@ STOP_SCAN = "stop_scan"
 PAUSE_SCAN = "pause_scan"
 
 #: Read-only tools (R) — safe to auto-allow in profile.yml.  ``wait_for_scan``
-#: is a read: it polls the queue and changes nothing.
+#: is a read: it polls the queue and changes nothing; ``preflight_preset``
+#: runs the scanner's preflight (manager and gateway reads) and submits
+#: nothing.
 READ_TOOLS = (
     SCAN_STATUS,
     SCAN_PROGRESS,
     SCAN_HISTORY,
     LIST_SCAN_CONFIGS,
+    PREFLIGHT_PRESET,
     WAIT_FOR_SCAN,
     GET_SCAN_ANALYSIS,
     GET_SCAN_FIGURE,
