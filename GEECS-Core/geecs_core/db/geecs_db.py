@@ -45,6 +45,7 @@ class VariableMeta(TypedDict):
     description: str
     alias: str
     defaultvalue: str
+    archive_deadband: Optional[float]
 
 
 class ScanModeEndpoint(NamedTuple):
@@ -212,7 +213,7 @@ def _variable_row_to_meta(row: tuple) -> VariableMeta:
     """Map a ``devicetype_variable`` or ``variable`` (+ ``choice``) row onto the metadata dict.
 
     Row order: name, units, min, max, set, variabletype, choices, tolerance,
-    description, alias — the shared SELECT column order (after the leading
+    description, alias, defaultvalue, archive_deadband — the shared SELECT column order (after the leading
     id/link column) of :meth:`GeecsDb.get_device_variables` and
     :meth:`GeecsDb.get_experiment_device_variables`.  Both the type-default
     table (``devicetype_variable``) and the per-instance table (``variable``)
@@ -245,6 +246,10 @@ def _variable_row_to_meta(row: tuple) -> VariableMeta:
             if len(row) > 10
             else ""
         ),
+        # The archive deadband (DBE_LOG): the gateway posts a change to the
+        # archiver only when it exceeds this; None means every change is
+        # archived. Not inherited wholesale — see _merge_variable_rows.
+        "archive_deadband": _num(row[11]) if len(row) > 11 else None,
     }
 
 
@@ -277,6 +282,43 @@ def _is_missing_table_error(exc: Exception) -> bool:
     return getattr(exc, "errno", None) == 1146
 
 
+def _is_missing_column_error(exc: Exception) -> bool:
+    """Return whether *exc* is MySQL's ER_BAD_FIELD_ERROR (an unknown column)."""
+    return getattr(exc, "errno", None) == 1054
+
+
+def _fetch_variable_rows(cur, template: str, column: str, params: tuple) -> list[tuple]:
+    """Run a variable-metadata SELECT whose last column is ``{archive_deadband}``.
+
+    ``archive_deadband`` was added to the HTU database on 2026-10-19; another
+    facility's GEECS database may not have it yet.  There the query is re-run
+    with ``NULL`` in its place — every change archived, the behaviour before
+    the column existed — instead of failing the gateway's startup.
+    """
+    try:
+        cur.execute(template.format(archive_deadband=column), params)
+    except Exception as exc:
+        if not _is_missing_column_error(exc):
+            raise
+        logger.info("%s is absent; no archive deadbands", column)
+        cur.execute(template.format(archive_deadband="NULL"), params)
+    return cur.fetchall()
+
+
+def _with_type_archive_deadband(meta: VariableMeta, type_row: tuple) -> VariableMeta:
+    """Fill an instance row's unset ``archive_deadband`` from its type row.
+
+    The one field that does not inherit wholesale: the deadband is set per
+    device type, and an instance row that exists for other reasons (an
+    edited tolerance, a stale empty row from the LabVIEW editor) would
+    otherwise silently drop it.  An explicit instance value — ``0`` for
+    "archive every change" — still wins.
+    """
+    if meta["archive_deadband"] is None:
+        meta["archive_deadband"] = _variable_row_to_meta(type_row)["archive_deadband"]
+    return meta
+
+
 def _merge_variable_rows(
     type_rows: list[tuple], instance_rows: list[tuple]
 ) -> list[VariableMeta]:
@@ -288,7 +330,9 @@ def _merge_variable_rows(
     from the instance row, with no field-level fallback.  An instance row with
     NULL limits means that instance has *no* limits, even if the type row has
     them.  The link is explicit: ``variable.devicetype_variable_id →
-    devicetype_variable.id``.
+    devicetype_variable.id``.  The one exception is ``archive_deadband``,
+    which falls back to the type row when the instance row's is NULL
+    (:func:`_with_type_archive_deadband`).
 
     Parameters
     ----------
@@ -329,18 +373,27 @@ def _merge_variable_rows(
         instance = linked.get(row[0])
         if instance is not None:
             used_links.add(row[0])
-            result.append(_variable_row_to_meta(instance[1:]))
+            result.append(
+                _with_type_archive_deadband(
+                    _variable_row_to_meta(instance[1:]), row[1:]
+                )
+            )
         else:
             result.append(_variable_row_to_meta(row[1:]))
 
     # Dangling links (type row absent) behave like instance-only variables.
     unlinked.extend(row for link, row in linked.items() if link not in used_links)
+    type_by_name = {row[1]: row[1:] for row in type_rows}
     for row in unlinked:
         meta = _variable_row_to_meta(row[1:])
         replaced = False
         for i, existing in enumerate(result):
             if existing["name"] == meta["name"]:
-                result[i] = meta
+                result[i] = (
+                    _with_type_archive_deadband(meta, type_by_name[meta["name"]])
+                    if meta["name"] in type_by_name
+                    else meta
+                )
                 replaced = True
         if not replaced:
             result.append(meta)
@@ -565,34 +618,37 @@ class GeecsDb:
         (comma-separated option string from the ``choice`` table for ``choice``
         variables, else ``None``), ``tolerance`` (numeric, or ``None``),
         ``description`` and ``alias`` (the curated short name; ``""`` when
-        none).
+        none), ``defaultvalue`` and ``archive_deadband`` (numeric, or ``None``
+        for "archive every change").
 
         Metadata resolves the capability inheritance chain: type defaults come
         from ``devicetype_variable``; a per-instance row in ``variable``
         replaces its type row **wholesale** (see :func:`_merge_variable_rows`).
         """
         with _cursor() as cur:
-            cur.execute(
+            type_rows = _fetch_variable_rows(
+                cur,
                 "SELECT dtv.id, dtv.name, dtv.units, dtv.min, dtv.max, dtv.`set`, "
                 "dtv.variabletype, c.choices, dtv.tolerance, NULL, dtv.alias, "
-                "dtv.defaultvalue "
+                "dtv.defaultvalue, {archive_deadband} "
                 "FROM devicetype_variable dtv "
                 "JOIN device d ON d.devicetype = dtv.devicetype "
                 "LEFT JOIN choice c ON c.id = dtv.choice_id "
                 "WHERE d.name = %s ORDER BY dtv.name",
+                "dtv.archive_deadband",
                 (device_name,),
             )
-            type_rows = cur.fetchall()
-            cur.execute(
+            instance_rows = _fetch_variable_rows(
+                cur,
                 "SELECT v.devicetype_variable_id, v.name, v.units, v.min, v.max, "
                 "v.`set`, v.variabletype, c.choices, v.tolerance, v.description, "
-                "v.alias, v.defaultvalue "
+                "v.alias, v.defaultvalue, {archive_deadband} "
                 "FROM variable v "
                 "LEFT JOIN choice c ON c.id = v.choice_id "
                 "WHERE v.device = %s ORDER BY v.name",
+                "v.archive_deadband",
                 (device_name,),
             )
-            instance_rows = cur.fetchall()
 
         return _merge_variable_rows(type_rows, instance_rows)
 
@@ -711,7 +767,7 @@ class GeecsDb:
             type_query = (
                 "SELECT d.name, dtv.id, dtv.name, dtv.units, dtv.min, dtv.max, "
                 "dtv.`set`, dtv.variabletype, c.choices, dtv.tolerance, NULL, "
-                "dtv.alias, dtv.defaultvalue "
+                "dtv.alias, dtv.defaultvalue, {{archive_deadband}} "
                 "FROM (SELECT DISTINCT ed.device FROM expt_device ed "
                 "      WHERE ed.expt = %s{enabled}) sel "
                 "JOIN device d ON d.name = sel.device "
@@ -719,20 +775,22 @@ class GeecsDb:
                 "LEFT JOIN choice c ON c.id = dtv.choice_id "
                 "ORDER BY d.name, dtv.name"
             ).format(enabled=enabled)
-            cur.execute(type_query, (experiment,))
-            type_rows = cur.fetchall()
+            type_rows = _fetch_variable_rows(
+                cur, type_query, "dtv.archive_deadband", (experiment,)
+            )
             instance_query = (
                 "SELECT v.device, v.devicetype_variable_id, v.name, v.units, "
                 "v.min, v.max, v.`set`, v.variabletype, c.choices, v.tolerance, "
-                "v.description, v.alias, v.defaultvalue "
+                "v.description, v.alias, v.defaultvalue, {{archive_deadband}} "
                 "FROM (SELECT DISTINCT ed.device FROM expt_device ed "
                 "      WHERE ed.expt = %s{enabled}) sel "
                 "JOIN variable v ON v.device = sel.device "
                 "LEFT JOIN choice c ON c.id = v.choice_id "
                 "ORDER BY v.device, v.name"
             ).format(enabled=enabled)
-            cur.execute(instance_query, (experiment,))
-            instance_rows = cur.fetchall()
+            instance_rows = _fetch_variable_rows(
+                cur, instance_query, "v.archive_deadband", (experiment,)
+            )
 
         type_by_device: dict[str, list[tuple]] = {}
         for row in type_rows:

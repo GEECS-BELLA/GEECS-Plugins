@@ -244,8 +244,10 @@ which Hazelcast needs).
   real sub-tolerance motion from s-files — a shipped bug fixed in
   gateway 0.5.1). Archive-rate control is the appliance's: per-PV
   `samplingperiod` → the overlay's skip list → ETL decimation
-  (`firstSample_3600` and friends) — all archiver-side; later, if ever,
-  the `DBE_LOG`/ADEL split in the gateway (`DESIGN.md`).
+  (`firstSample_3600` and friends) — plus, since 2026-10, the
+  `DBE_LOG`/ADEL split in the gateway: the DB's `archive_deadband` column
+  (`PV_CONTRACT.md` §4). The appliance already subscribes `DBE_LOG`, so
+  nothing here changed for it.
 - **Disk is the metric that pages.** The ETL's
   `OutOfSpaceHandling` default deletes *source* streams when the
   destination is full; the alert threshold sits well before that.

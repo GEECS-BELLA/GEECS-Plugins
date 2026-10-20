@@ -600,7 +600,7 @@ A sampling rule for the PVs matching one glob.
 |---|---|---|---|---|
 | `match` | `str` | yes | — | fnmatch glob over the full lowercase PV name. |
 | `sampling_period` | `float (optional)` | no | None | Sampling period in seconds (the appliance's samplingperiod). |
-| `sampling_method` | `'MONITOR' \| 'SCAN' (optional)` | no | None | MONITOR (store on change, throttled to the period) or SCAN (poll). |
+| `sampling_method` | `'MONITOR' \| 'SCAN' (optional)` | no | None | MONITOR (store every change the appliance is sent; the period only sizes its buffer) or SCAN (store the latest value once per period). |
 
 ## `shot_offsets`
 

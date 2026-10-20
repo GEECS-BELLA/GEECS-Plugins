@@ -138,6 +138,12 @@ One asyncio event loop runs everything:
 - **DB `tolerance` is a set-convergence criterion, not a monitor deadband.**
   Wiring it as a deadband froze sub-tolerance motion out of readbacks, scan
   rows, and s-files (shipped bug, fixed 0.5.1). Deadband stays 0.0.
+  Archive volume has its own DB column, `archive_deadband`, applied to
+  `DBE_LOG` events only (PV_CONTRACT.md §4).
+- **caproto 1.3.0 ignores subscription masks** — every event reaches every
+  monitor, whatever flags the write passed. The archive deadband therefore
+  needs `channels.archive_gated`, which applies the mask match for flagged
+  writes only.
 - **Local-IP detection at connect time** — binding UDP to `""` raises
   `EADDRNOTAVAIL` on macOS PPP/VPN links; the client probes the OS route and
   binds explicitly. One device's bind failure must not abort the gateway

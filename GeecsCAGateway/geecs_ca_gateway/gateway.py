@@ -36,6 +36,8 @@ from geecs_core.transport.udp_client import GeecsUdpClient
 
 from geecs_core.db.alarms import AlarmLevel, AlarmSeverityName
 from .channels import (
+    ARCHIVE_EVENT,
+    LIVE_ONLY_EVENT,
     cast_value,
     enum_index,
     make_description_channel,
@@ -207,6 +209,9 @@ class GeecsCaGateway:
         self._supervisors: list[asyncio.Task] = []
         # device name -> {geecs_var -> last value written} for deadband suppression
         self._last_written: dict[str, dict[str, Any]] = {}
+        # device name -> {geecs_var -> last value flagged DBE_LOG}, for the
+        # archive deadband (only variables that have one appear here)
+        self._last_archived: dict[str, dict[str, float]] = {}
         # (device, geecs_var) that have already logged a coercion warning, so a
         # mistyped variable warns once instead of every ~5 Hz frame.
         self._coerce_warned: set[tuple[str, str]] = set()
@@ -562,6 +567,9 @@ class GeecsCaGateway:
             await channel.write(
                 value,
                 **extra,
+                **self._archive_flags(
+                    device_name, var, spec, value, channel, alarm_kwargs
+                ),
                 **alarm_kwargs,
                 verify_value=not bool(alarm_kwargs),
             )
@@ -572,6 +580,45 @@ class GeecsCaGateway:
                 f"{device_name}: failed to write PV {var}={value!r} "
                 f"(skipping this variable)",
             )
+
+    def _archive_flags(
+        self,
+        device_name: str,
+        var: str,
+        spec: VariableSpec,
+        value: float,
+        channel: ChannelData,
+        alarm_kwargs: dict[str, Any],
+    ) -> dict[str, int]:
+        """The ``flags`` write kwarg for one readback write (PV_CONTRACT.md §4).
+
+        Empty — a stock, unflagged write — unless the variable is a float
+        with an archive deadband.  Then ``DBE_LOG`` (the archiver's event)
+        when the value moved more than ``spec.archive_deadband`` from the
+        last archived value — or is the first since (re)connect, crosses
+        NaN, or carries an alarm change; otherwise ``DBE_VALUE`` alone, which
+        live clients still receive.
+        """
+        if spec.archive_deadband is None or spec.dtype != "float":
+            return {}
+        archived = self._last_archived.setdefault(device_name, {})
+        prev = archived.get(var)
+        current = channel.alarm
+        alarm_changed = bool(alarm_kwargs) and (
+            current is None
+            or alarm_kwargs.get("severity") != current.severity
+            or alarm_kwargs.get("status") != current.status
+        )
+        significant = (
+            prev is None
+            or alarm_changed
+            or math.isnan(value) != math.isnan(prev)
+            or abs(value - prev) > (spec.archive_deadband or 0.0)
+        )
+        if not significant:
+            return {"flags": LIVE_ONLY_EVENT}
+        archived[var] = value
+        return {"flags": ARCHIVE_EVENT}
 
     async def _write_derived_channels(
         self, device_name: str, update: dict[str, Any], extra: dict[str, Any]
@@ -859,6 +906,7 @@ class GeecsCaGateway:
                 # Clear the deadband cache so the first frame always posts (and
                 # clears any INVALID left from the drop), even if unchanged.
                 self._last_written[dev.name] = {}
+                self._last_archived[dev.name] = {}
                 for runtime in self._derived_by_source.get(dev.name, []):
                     self._derived_last_written.pop(runtime.pv, None)
                 for key in list(self._derived_input_cache):
