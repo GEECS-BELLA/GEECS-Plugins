@@ -493,6 +493,36 @@ async def test_alarm_change_inside_the_deadband_is_archived(monkeypatch) -> None
     )  # the transition, flagged DBE_ALARM
 
 
+async def test_reconnect_clearance_reaches_alarm_only_monitors() -> None:
+    """Without an alarm overlay, the reconnect frame's INVALID → NO_ALARM is still an alarm event.
+
+    The disconnect's INVALID/COMM is an unflagged write (every monitor sees
+    it); the first live frame after reconnect clears it through caproto's
+    native ``verify_value``, with no alarm kwargs from the gateway. That
+    clearance must be flagged ``DBE_ALARM`` — else an alarm-only monitor
+    shows the disconnect alarm forever (PR #1114 review).
+    """
+    gw = _gated_gateway(archive_deadband=0.01)
+    channel, _spec = gw._readbacks[DEVICE]["Pos"]
+    monitors = _Monitors(channel)
+    await monitors.start()
+    callback = gw._make_callback(gw.config.devices[0])
+
+    await callback({"Pos": 5.0})
+    await gw._mark_device_invalid(DEVICE)
+    # what _supervise does on a reconnect
+    gw._last_written[DEVICE] = {}
+    gw._last_archived[DEVICE] = {}
+    await callback({"Pos": 5.0})  # same value, alarm clears
+    await callback({"Pos": 5.001})  # no alarm change, inside the band
+
+    assert channel.alarm.severity == AlarmSeverity.NO_ALARM
+    got = monitors.received()
+    assert got["alarm_only"] == pytest.approx([5.0, 5.0])  # disconnect, recovery
+    assert got["archiver"] == pytest.approx([5.0, 5.0, 5.0])
+    assert got["live"] == pytest.approx([5.0, 5.0, 5.0, 5.001])
+
+
 async def test_no_archive_deadband_reaches_every_monitor() -> None:
     """``archive_deadband=None`` (DB NULL) is today's behaviour: every change archived."""
     gw = _gated_gateway(archive_deadband=None)

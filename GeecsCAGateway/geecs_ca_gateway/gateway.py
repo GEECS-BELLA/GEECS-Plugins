@@ -604,11 +604,16 @@ class GeecsCaGateway:
             return {}
         archived = self._last_archived.setdefault(device_name, {})
         prev = archived.get(var)
+        # The alarm this write leaves: the overlay's, or — without one —
+        # NO_ALARM, which caproto's verify_value sets on a plain write (no
+        # native alarm limits are served: the single-evaluator contract).
+        # So the reconnect frame that clears a disconnect's INVALID/COMM is
+        # an alarm transition too, overlay or not.
         current = channel.alarm
-        alarm_changed = bool(alarm_kwargs) and (
+        alarm_changed = (
             current is None
-            or alarm_kwargs.get("severity") != current.severity
-            or alarm_kwargs.get("status") != current.status
+            or alarm_kwargs.get("severity", AlarmSeverity.NO_ALARM) != current.severity
+            or alarm_kwargs.get("status", AlarmStatus.NO_ALARM) != current.status
         )
         significant = (
             prev is None
