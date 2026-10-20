@@ -62,9 +62,12 @@ deploy/
 - **Excluded by construction:** the timestamp variables — `acq_timestamp`,
   `systimestamp` and any device's own `…timestamp` (disk burn), image / array variables (not CA), `path` long-strings (the
   appliance cannot type the gateway's char arrays — pilot finding, PLAN §12).
-- **Archive-rate control is the appliance's** (sampling period / policy /
-  ETL decimation). The gateway's monitor deadband stays 0.0 — never reach
-  for it (`GeecsCAGateway/PV_CONTRACT.md` §6).
+- **Archive-rate control** is the appliance's (sampling period / policy /
+  ETL decimation) plus the DB's `archive_deadband` column, which the
+  gateway applies to `DBE_LOG` events only — the appliance's CA monitor
+  subscribes `DBE_LOG | DBE_ALARM`, so it needs no setting for it. The
+  gateway's *monitor* deadband stays 0.0 — never reach for it
+  (`GeecsCAGateway/PV_CONTRACT.md` §4).
 - **Scalars only, never in the scan path.** The archiver is history and
   trends; it is never a source of s-file columns (GeecsBluesky's rule) and
   never read while a scan runs.

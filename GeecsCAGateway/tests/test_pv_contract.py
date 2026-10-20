@@ -14,9 +14,21 @@ from __future__ import annotations
 
 from typing import Any
 
+import asyncio
+import math
+import struct
+
 import pytest
-from caproto import AlarmSeverity, AlarmStatus
+from caproto import (
+    AlarmSeverity,
+    AlarmStatus,
+    ChannelData,
+    ChannelType,
+    SubscriptionType,
+)
 from caproto._data import CannotExceedLimits
+from caproto._utils import ChannelFilter
+from caproto.server.common import SubscriptionSpec
 
 from geecs_ca_gateway.channels import make_readback_channel, make_setpoint_channel
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
@@ -359,6 +371,218 @@ async def test_zero_deadband_posts_changes_suppresses_exact_repeats() -> None:
     await callback({"Pos": 5.0001})  # exact repeat suppressed again
 
     assert posts == [pytest.approx(5.0), pytest.approx(5.0001)]
+
+
+# ---------------------------------------------------------------------------
+# PV_CONTRACT.md §4 — archive deadband (DBE_LOG)
+# ---------------------------------------------------------------------------
+
+#: The Archiver Appliance's CA monitor mask (its MonitorMask.ARCHIVE).
+ARCHIVER_MASK = SubscriptionType.DBE_LOG | SubscriptionType.DBE_ALARM
+#: A display/ophyd client's mask (caproto/pyepics/Phoebus default).
+LIVE_MASK = SubscriptionType.DBE_VALUE | SubscriptionType.DBE_ALARM
+
+
+class _Monitors:
+    """Two real caproto subscriptions on one channel: an archiver and a display."""
+
+    def __init__(self, channel: ChannelData) -> None:
+        self.channel = channel
+        self.queue: asyncio.Queue = asyncio.Queue()
+        no_filter = ChannelFilter(ts=False, dbnd=None, arr=None, sync=None)
+        self.specs = {
+            name: SubscriptionSpec(
+                db_entry=channel,
+                data_type_name=ChannelType.TIME_DOUBLE.name,
+                mask=mask,
+                channel_filter=no_filter,
+            )
+            for name, mask in (
+                ("archiver", ARCHIVER_MASK),
+                ("live", LIVE_MASK),
+                ("alarm_only", SubscriptionType.DBE_ALARM),
+            )
+        }
+
+    async def start(self) -> None:
+        for spec in self.specs.values():
+            await self.channel.subscribe(self.queue, spec, None)
+        self.received()  # drop the on-subscribe initial readings
+
+    def received(self) -> dict[str, list[float]]:
+        """Values each monitor was sent since the last call."""
+        out: dict[str, list[float]] = {name: [] for name in self.specs}
+        while not self.queue.empty():
+            specs, _metadata, values, _flags, _sub = self.queue.get_nowait()
+            for name, spec in self.specs.items():
+                if spec in specs:
+                    # caproto queues the wire (big-endian) encoding
+                    out[name].append(struct.unpack(">d", bytes(values))[0])
+        return out
+
+
+def _gated_gateway(archive_deadband: float | None) -> GeecsCaGateway:
+    return GeecsCaGateway(
+        GatewayConfig(
+            devices=[
+                DeviceSpec(
+                    name=DEVICE,
+                    host="127.0.0.1",
+                    port=1,
+                    variables=[
+                        VariableSpec(
+                            geecs_var="Pos",
+                            dtype="float",
+                            archive_deadband=archive_deadband,
+                        )
+                    ],
+                )
+            ]
+        )
+    )
+
+
+async def test_archive_deadband_gates_only_the_archivers_events() -> None:
+    """Live monitors see every change; the archiver only moves beyond the deadband.
+
+    Contract §4: the archive deadband is the EPICS ADEL — a ``DBE_LOG`` event
+    when the value left the band around the last *archived* value (so slow
+    drift still archives once it accumulates), plus the first frame and a
+    NaN crossing.  ``DBE_VALUE`` clients (displays, ophyd, scans) are never
+    throttled by it.  Uses real caproto subscriptions, so it fails if the
+    channel stops filtering by mask (caproto 1.3.0 does not do it itself).
+    """
+    gw = _gated_gateway(archive_deadband=0.01)
+    channel, _spec = gw._readbacks[DEVICE]["Pos"]
+    monitors = _Monitors(channel)
+    await monitors.start()
+    callback = gw._make_callback(gw.config.devices[0])
+
+    frames = [5.0, 5.004, 5.008, 5.012, 5.013, 5.0, math.nan, 5.0]
+    for value in frames:
+        await callback({"Pos": value})
+
+    got = monitors.received()
+    assert got["live"] == pytest.approx(frames, nan_ok=True)
+    # 5.004/5.008 inside the band; 5.012 drifted out of it; 5.013 inside the
+    # new band; 5.0 left it; NaN and the return from NaN always archive.
+    assert got["archiver"] == pytest.approx(
+        [5.0, 5.012, 5.0, math.nan, 5.0], nan_ok=True
+    )
+
+
+async def test_alarm_change_inside_the_deadband_is_archived(monkeypatch) -> None:
+    """An alarm transition reaches the archiver — and alarm-only monitors — inside the band."""
+    gw = _gated_gateway(archive_deadband=1.0)
+    channel, _spec = gw._readbacks[DEVICE]["Pos"]
+    monitors = _Monitors(channel)
+    await monitors.start()
+    callback = gw._make_callback(gw.config.devices[0])
+    alarm: dict[str, Any] = {}
+    monkeypatch.setattr(gw, "_alarm_write_kwargs", lambda *_args: dict(alarm))
+
+    await callback({"Pos": 5.0})
+    alarm.update(severity=AlarmSeverity.MAJOR_ALARM, status=AlarmStatus.HIHI)
+    await callback({"Pos": 5.1})  # alarm raised: archived
+    await callback({"Pos": 5.2})  # same alarm, inside the band: live only
+
+    got = monitors.received()
+    assert got["archiver"] == pytest.approx([5.0, 5.1])
+    assert got["alarm_only"] == pytest.approx(
+        [5.1]
+    )  # the transition, flagged DBE_ALARM
+
+
+async def test_reconnect_clearance_reaches_alarm_only_monitors() -> None:
+    """Without an alarm overlay, the reconnect frame's INVALID → NO_ALARM is still an alarm event.
+
+    The disconnect's INVALID/COMM is an unflagged write (every monitor sees
+    it); the first live frame after reconnect clears it through caproto's
+    native ``verify_value``, with no alarm kwargs from the gateway. That
+    clearance must be flagged ``DBE_ALARM`` — else an alarm-only monitor
+    shows the disconnect alarm forever (PR #1114 review).
+    """
+    gw = _gated_gateway(archive_deadband=0.01)
+    channel, _spec = gw._readbacks[DEVICE]["Pos"]
+    monitors = _Monitors(channel)
+    await monitors.start()
+    callback = gw._make_callback(gw.config.devices[0])
+
+    await callback({"Pos": 5.0})
+    await gw._mark_device_invalid(DEVICE)
+    # what _supervise does on a reconnect
+    gw._last_written[DEVICE] = {}
+    gw._last_archived[DEVICE] = {}
+    await callback({"Pos": 5.0})  # same value, alarm clears
+    await callback({"Pos": 5.001})  # no alarm change, inside the band
+
+    assert channel.alarm.severity == AlarmSeverity.NO_ALARM
+    got = monitors.received()
+    assert got["alarm_only"] == pytest.approx([5.0, 5.0])  # disconnect, recovery
+    assert got["archiver"] == pytest.approx([5.0, 5.0, 5.0])
+    assert got["live"] == pytest.approx([5.0, 5.0, 5.0, 5.001])
+
+
+async def test_no_archive_deadband_reaches_every_monitor() -> None:
+    """``archive_deadband=None`` (DB NULL) is today's behaviour: every change archived."""
+    gw = _gated_gateway(archive_deadband=None)
+    channel, _spec = gw._readbacks[DEVICE]["Pos"]
+    assert "ArchiveGated" not in type(channel).__name__  # a stock channel
+    monitors = _Monitors(channel)
+    await monitors.start()
+    callback = gw._make_callback(gw.config.devices[0])
+
+    for value in (5.0, 5.0001, 5.0002):
+        await callback({"Pos": value})
+
+    got = monitors.received()
+    assert got["archiver"] == got["live"] == pytest.approx([5.0, 5.0001, 5.0002])
+
+
+async def test_unflagged_writes_still_reach_the_archiver() -> None:
+    """A write without explicit flags (INVALID marking, …) reaches every monitor."""
+    gw = _gated_gateway(archive_deadband=0.01)
+    channel, _spec = gw._readbacks[DEVICE]["Pos"]
+    monitors = _Monitors(channel)
+    await monitors.start()
+
+    await channel.write(
+        5.0, severity=AlarmSeverity.INVALID_ALARM, status=AlarmStatus.COMM
+    )
+
+    got = monitors.received()
+    assert got["archiver"] == got["live"] == pytest.approx([5.0])
+
+
+def test_archive_deadband_comes_from_its_own_db_field() -> None:
+    """``archive_deadband`` maps through; ``tolerance`` still sets no deadband of any kind."""
+    meta = [
+        {
+            "name": "Voltage",
+            "units": "V",
+            "min": -10.0,
+            "max": 10.0,
+            "settable": False,
+            "variabletype": "numeric",
+            "choices": None,
+            "tolerance": 0.01,
+            "archive_deadband": 0.002,
+        },
+        {
+            "name": "Current",
+            "units": "A",
+            "min": -5.0,
+            "max": 5.0,
+            "settable": True,
+            "variabletype": "numeric",
+            "choices": None,
+            "tolerance": 0.05,
+        },
+    ]
+    voltage, current = DeviceSpec.from_db_metadata("U_S1H", "h", 1, meta).variables
+    assert voltage.archive_deadband == pytest.approx(0.002)
+    assert voltage.deadband == 0.0  # the monitor deadband is untouched
+    assert current.archive_deadband is None
 
 
 # ---------------------------------------------------------------------------

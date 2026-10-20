@@ -214,13 +214,12 @@ Recorded so the next build phase doesn't relitigate them.
   suppressed real sub-tolerance motion from every value monitor, i.e. from
   recorded scan rows and s-files (observed live on a magnet PSU; fixed in
   0.5.1 by defaulting the deadband to 0, with exact-repeat suppression
-  keeping static channels silent). The archiving concern remains valid and
-  has a standard EPICS answer: the MDEL/ADEL split. When the Archiver
-  Appliance lands, either (a) rely on its per-PV sampling policies +
-  retention decimation (zero source changes, the common practice), or
-  (b) post `DBE_LOG` events gated by the DB tolerance while `DBE_VALUE`
-  events carry every change — one PV, two audiences, both truthful for
-  their purpose.
+  keeping static channels silent). The archiving concern had the standard
+  EPICS answer, the MDEL/ADEL split, and that is what landed (2026-10): a
+  separate `archive_deadband` DB column gates `DBE_LOG` events while
+  `DBE_VALUE` events carry every change — one PV, two audiences, both
+  truthful for their purpose (PV_CONTRACT.md §4). Not the tolerance: a
+  set-convergence criterion is the wrong size for history.
 - **Sharding + systemd** for production fault isolation.
 - **A `GatewayConfig.from_geecs_experiment(name)`** that enumerates a whole
   experiment's devices from the DB dict.

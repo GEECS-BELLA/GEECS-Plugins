@@ -6,6 +6,8 @@ import logging
 import sys
 import types
 
+import pytest
+
 from geecs_core.db.alarms import AlarmLimits, AlarmSeverityName
 from geecs_core.db import geecs_db
 from geecs_core.db.geecs_db import GeecsDb
@@ -304,6 +306,7 @@ def test_get_device_variables_type_only_inherits_type_defaults(monkeypatch) -> N
         # gated channel in production while the per-device getter looked
         # right (review of #950).
         "defaultvalue": "",
+        "archive_deadband": None,
     }
     assert sorted(result[0]) == sorted(result[1]) == sorted(result[2])
     assert result[1]["choices"] == "on,off"
@@ -507,6 +510,7 @@ def test_get_experiment_device_variables_batches_metadata(monkeypatch) -> None:
         # it is what silently disabled every gated channel in production
         # (review of #950).
         "defaultvalue": "0",
+        "archive_deadband": None,
     }
     assert result["U_A"][1]["choices"] == "on,off"
     assert result["U_B"][0]["settable"] is False
@@ -591,6 +595,183 @@ def test_get_experiment_device_variables_reads_the_instance_alias(monkeypatch) -
     assert (
         GeecsDb.get_experiment_device_variables("Undulator")["U_Jet"][0]["alias"] == ""
     )
+
+
+# The archive deadband rides at the END of both variable SELECTs (index 11
+# after the link id): (id, name, units, min, max, set, variabletype, choices,
+# tolerance, description, alias, defaultvalue, archive_deadband).
+def _row(link, name, *, tolerance=None, archive_deadband=None) -> tuple:
+    return (
+        link, name, "V", "-10", "10", "no", "numeric", None, tolerance,
+        None, None, "", archive_deadband,
+    )  # fmt: skip
+
+
+def test_archive_deadband_is_read_from_the_type_row(monkeypatch) -> None:
+    """The type row's ``archive_deadband`` reaches the meta; NULL stays None."""
+    queries: list = []
+    type_rows = [_row(1, "Voltage", archive_deadband="0.002"), _row(2, "Other")]
+    _patch_query_sequence(monkeypatch, [type_rows, []], queries)
+
+    by_name = {m["name"]: m for m in GeecsDb.get_device_variables("U_S1H")}
+    assert by_name["Voltage"]["archive_deadband"] == pytest.approx(0.002)
+    assert by_name["Other"]["archive_deadband"] is None  # every change archived
+    assert "dtv.archive_deadband" in queries[0][0]
+    assert "v.archive_deadband" in queries[1][0]
+
+
+@pytest.mark.parametrize("raw", ["", " ", "nan", "inf", "-inf", "abc"])
+def test_an_empty_or_non_finite_archive_deadband_is_unset(monkeypatch, raw) -> None:
+    """'' (LabVIEW's empty instance cell) or a non-finite value is unset, not a deadband.
+
+    A NaN deadband would make every comparison false and archive only first
+    frames; '' on an instance row must fall back to the type value.
+    """
+    type_rows = [_row(1, "Voltage", archive_deadband="0.002")]
+    instance_rows = [_row(1, "Voltage", archive_deadband=raw)]
+    _patch_query_sequence(monkeypatch, [type_rows, instance_rows], [])
+
+    (voltage,) = GeecsDb.get_device_variables("U_S1H")
+    assert voltage["archive_deadband"] == pytest.approx(0.002)
+
+
+def test_archive_deadband_falls_back_to_the_type_row(monkeypatch) -> None:
+    """The one field NOT inherited wholesale: a NULL instance deadband takes the type's.
+
+    HTU's eight ``U_S*`` supplies carry instance ``Voltage`` rows (written by
+    the LabVIEW editor for their tolerance); wholesale inheritance would
+    silently drop the device-type deadband on exactly those PVs.
+    """
+    type_rows = [_row(1, "Voltage", tolerance="0.01", archive_deadband="0.002")]
+    instance_rows = [_row(1, "Voltage", tolerance="0.05")]
+    _patch_query_sequence(monkeypatch, [type_rows, instance_rows], [])
+
+    (voltage,) = GeecsDb.get_device_variables("U_S1H")
+    assert voltage["archive_deadband"] == pytest.approx(0.002)  # from the type
+    assert voltage["tolerance"] == pytest.approx(0.05)  # still wholesale
+
+
+def test_an_explicit_instance_archive_deadband_wins(monkeypatch) -> None:
+    """An instance value overrides the type's — ``0`` included (every change)."""
+    type_rows = [
+        _row(1, "RawField", archive_deadband="0.005"),
+        _row(2, "Field", archive_deadband="0.005"),
+    ]
+    instance_rows = [
+        _row(1, "RawField", archive_deadband="100"),
+        _row(2, "Field", archive_deadband="0"),
+    ]
+    _patch_query_sequence(monkeypatch, [type_rows, instance_rows], [])
+
+    by_name = {m["name"]: m for m in GeecsDb.get_device_variables("U_ACave")}
+    assert by_name["RawField"]["archive_deadband"] == pytest.approx(100.0)
+    assert by_name["Field"]["archive_deadband"] == 0.0
+
+
+def test_a_name_keyed_instance_row_also_keeps_the_type_deadband(monkeypatch) -> None:
+    """An unlinked instance row replacing a same-named type row inherits the deadband."""
+    type_rows = [_row(1, "Voltage", archive_deadband="0.002")]
+    instance_rows = [_row(None, "Voltage")]
+    _patch_query_sequence(monkeypatch, [type_rows, instance_rows], [])
+
+    (voltage,) = GeecsDb.get_device_variables("U_S1H")
+    assert voltage["archive_deadband"] == pytest.approx(0.002)
+
+
+def test_batch_query_applies_the_same_archive_deadband_rule(monkeypatch) -> None:
+    """The experiment-wide getter reads the column and falls back the same way."""
+    queries: list = []
+    type_rows = [("U_A", *_row(1, "Voltage", archive_deadband="0.002"))]
+    instance_rows = [("U_A", *_row(1, "Voltage"))]
+    _patch_query_sequence(monkeypatch, [type_rows, instance_rows], queries)
+
+    result = GeecsDb.get_experiment_device_variables("Undulator")
+    assert result["U_A"][0]["archive_deadband"] == pytest.approx(0.002)
+    assert all("archive_deadband" in q for q, _ in queries)
+    assert all("{" not in q for q, _ in queries)  # every placeholder filled
+
+
+@pytest.mark.parametrize("batch", [False, True])
+def test_a_database_without_the_column_reads_as_unset(
+    monkeypatch, caplog, batch
+) -> None:
+    """Another facility's DB lacks ``archive_deadband``: no deadbands, no failure."""
+
+    class _UnknownColumn(Exception):
+        errno = 1054
+
+    queries: list = []
+    rows = [_row(1, "Voltage")]
+    if batch:
+        rows = [("U_A", *rows[0])]
+
+    class _Cursor:
+        def __init__(self) -> None:
+            self._rows: list[tuple] = []
+
+        def execute(self, query: str, params: tuple) -> None:
+            queries.append(query)
+            if "archive_deadband" in query:
+                raise _UnknownColumn("Unknown column 'archive_deadband'")
+            self._rows = rows if len(queries) == 2 else []
+
+        def fetchall(self) -> list[tuple]:
+            return self._rows
+
+    class _Connection:
+        def __init__(self) -> None:
+            self._cursor = _Cursor()
+
+        def cursor(self) -> _Cursor:
+            return self._cursor
+
+        def close(self) -> None:
+            pass
+
+    mysql_pkg = types.ModuleType("mysql")
+    connector_mod = types.ModuleType("mysql.connector")
+    mysql_pkg.connector = connector_mod
+    monkeypatch.setitem(sys.modules, "mysql", mysql_pkg)
+    monkeypatch.setitem(sys.modules, "mysql.connector", connector_mod)
+    monkeypatch.setattr(geecs_db, "_connect_mysql", lambda _connector: _Connection())
+
+    with caplog.at_level("INFO", logger=geecs_db.logger.name):
+        if batch:
+            (voltage,) = GeecsDb.get_experiment_device_variables("Undulator")["U_A"]
+        else:
+            (voltage,) = GeecsDb.get_device_variables("U_S1H")
+    assert voltage["name"] == "Voltage"
+    assert voltage["archive_deadband"] is None
+    assert len(queries) == 4  # each SELECT retried once, with NULL
+    assert "absent" in caplog.text
+
+
+def test_other_query_errors_are_not_swallowed(monkeypatch) -> None:
+    """Only the unknown-column error is retried; anything else propagates."""
+
+    class _OtherError(Exception):
+        errno = 1064
+
+    class _Cursor:
+        def execute(self, query: str, params: tuple) -> None:
+            raise _OtherError("syntax")
+
+    class _Connection:
+        def cursor(self) -> _Cursor:
+            return _Cursor()
+
+        def close(self) -> None:
+            pass
+
+    mysql_pkg = types.ModuleType("mysql")
+    connector_mod = types.ModuleType("mysql.connector")
+    mysql_pkg.connector = connector_mod
+    monkeypatch.setitem(sys.modules, "mysql", mysql_pkg)
+    monkeypatch.setitem(sys.modules, "mysql.connector", connector_mod)
+    monkeypatch.setattr(geecs_db, "_connect_mysql", lambda _connector: _Connection())
+
+    with pytest.raises(_OtherError):
+        GeecsDb.get_device_variables("U_S1H")
 
 
 def test_get_all_experiment_variables_groups_and_dedupes(monkeypatch) -> None:

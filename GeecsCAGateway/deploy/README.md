@@ -113,6 +113,15 @@ For example, with `high=2.5`, `hihi=4.5`, and the default high severity of
 see the metadata or severity change, restart the gateway so it reloads the
 DB-backed config.
 
+## Archive deadband column
+
+`archive_deadband` on `devicetype_variable` and `variable` (beside
+`tolerance`) thins what the Archiver Appliance receives, never what live
+clients see (`PV_CONTRACT.md` §4). Optional: without it every change is
+archived. The migration, with how to size and set a value, is
+`deploy/archive_deadband.sql` (applied the same way as `ca_alarm_limits.sql`).
+After editing values, restart the gateway the same way so it reloads them.
+
 ## Changing what is served
 
 Edit `ExecStart` in the unit (`--all-variables`, `--no-settable`,

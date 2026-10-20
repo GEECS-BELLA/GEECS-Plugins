@@ -117,7 +117,8 @@ are configured once and never set live — a communications route, a channel
 enable on a scope — and those are not user settable. It is not a scan
 concept, and it has nothing to do with whether anything can *read* the
 variable. `variable` is the per-instance override and replaces its
-devicetype row **wholesale** (`_merge_variable_rows`).
+devicetype row **wholesale** (`_merge_variable_rows`) — every field except
+`archive_deadband`, whose unset instance value falls back to the type's.
 
 **`devicetype_variable` / `variable` — `defaultvalue` is the configured
 value.** For a variable that is not set live, this *is* the device's state:

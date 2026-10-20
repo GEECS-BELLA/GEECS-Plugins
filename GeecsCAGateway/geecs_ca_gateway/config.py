@@ -60,6 +60,12 @@ class VariableSpec(BaseModel):
     hi: float | None = None
     choices: list[str] = Field(default_factory=list)  # ordered options for enum
     deadband: float = 0.0  # float monitor deadband; only post when |Δ| > deadband
+    # Float archive deadband (the EPICS ADEL): a change is flagged DBE_LOG —
+    # what the Archiver Appliance subscribes to — only when it moves more than
+    # this from the last archived value. None: every change is archived.
+    # Live (DBE_VALUE) clients see every change either way. From the DB's
+    # `archive_deadband` column (PV_CONTRACT.md §4).
+    archive_deadband: float | None = None
     alarm_limits: AlarmLimits | None = None
     # One-line human description for the PV's .DESC field (Phoebus/archiver
     # label). Stable *identity* only — not a change log; time-varying
@@ -235,6 +241,9 @@ class DeviceSpec(BaseModel):
                     # it here froze sub-tolerance motion out of readbacks
                     # (shipped bug; see CLAUDE.md quirks).
                     deadband=0.0,
+                    # The archive-only deadband has its own DB column; it
+                    # never touches what live clients and scans see.
+                    archive_deadband=meta.get("archive_deadband"),
                 )
             )
         return cls(

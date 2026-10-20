@@ -17,6 +17,7 @@ string (:func:`enum_geecs_value`).
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 from typing import Any, Awaitable, Callable, TypeVar, cast
 
 from caproto import (
@@ -30,6 +31,7 @@ from caproto import (
     ChannelEnum,
     ChannelInteger,
     ChannelString,
+    SubscriptionType,
 )
 
 # Not re-exported at caproto top level; it is the exact class caproto's own
@@ -241,6 +243,54 @@ def read_only(channel_cls: type[_ChannelT]) -> type[_ChannelT]:
     return _READONLY_CACHE[channel_cls]
 
 
+# The event flags of the publish in progress, read by archive-gated channels'
+# `_is_eligible`. A ContextVar, not an attribute: two writes to one channel
+# from different tasks must not see each other's flags.
+_PUBLISH_FLAGS: ContextVar[int] = ContextVar("_publish_flags", default=0)
+_ARCHIVE_GATED_CACHE: dict[type, type] = {}
+
+#: Flags of a readback write the archiver should see / should not see.
+ARCHIVE_EVENT = SubscriptionType.DBE_VALUE | SubscriptionType.DBE_LOG
+LIVE_ONLY_EVENT = SubscriptionType.DBE_VALUE
+
+
+def archive_gated(channel_cls: type[_ChannelT]) -> type[_ChannelT]:
+    """Return a subclass of *channel_cls* that honours subscription masks.
+
+    caproto 1.3.0 never compares an event's flags with a subscriber's mask:
+    every write reaches every monitor, so a ``DBE_LOG``-only archive deadband
+    cannot be expressed with stock channels.  This subclass applies the EPICS
+    rule — deliver only when ``mask & flags`` — but **only for writes that
+    pass explicit flags**.  A write with ``flags=0`` (INVALID marking, any
+    caller that does not know about this) still reaches every subscriber, as
+    on a stock channel.  The gateway flags a readback write
+    :data:`ARCHIVE_EVENT` or :data:`LIVE_ONLY_EVENT`; the Archiver Appliance
+    subscribes ``DBE_LOG | DBE_ALARM`` and so skips the live-only ones, while
+    Phoebus/ophyd (``DBE_VALUE | DBE_ALARM``) get both.
+    """
+    if channel_cls not in _ARCHIVE_GATED_CACHE:
+
+        async def publish(self, flags: int, **kwargs: Any) -> None:
+            token = _PUBLISH_FLAGS.set(int(flags))
+            try:
+                await channel_cls.publish(self, flags, **kwargs)
+            finally:
+                _PUBLISH_FLAGS.reset(token)
+
+        def _is_eligible(self, ss: Any) -> bool:
+            flags = _PUBLISH_FLAGS.get()
+            if flags and not (int(ss.mask) & flags):
+                return False
+            return channel_cls._is_eligible(self, ss)  # type: ignore[attr-defined]
+
+        _ARCHIVE_GATED_CACHE[channel_cls] = type(
+            f"ArchiveGated{channel_cls.__name__}",
+            (channel_cls,),
+            {"publish": publish, "_is_eligible": _is_eligible},
+        )
+    return _ARCHIVE_GATED_CACHE[channel_cls]
+
+
 def _initial(dtype: DType) -> Any:
     """Placeholder value a channel holds before its first update."""
     if dtype == "float":
@@ -309,7 +359,11 @@ def make_readback_channel(
     initial_severity: AlarmSeverity | None = None,
     initial_status: AlarmStatus | None = None,
 ) -> ChannelData:
-    """Build a client-read-only channel populated by the subscription stream."""
+    """Build a client-read-only channel populated by the subscription stream.
+
+    A float readback with an ``archive_deadband`` is :func:`archive_gated`;
+    every other readback is a stock caproto channel.
+    """
     if spec.dtype == "enum":
         kwargs: dict[str, Any] = {"value": 0, "enum_strings": list(spec.choices)}
         if initial_severity is not None or initial_status is not None:
@@ -330,7 +384,10 @@ def make_readback_channel(
                 status=initial_status or AlarmStatus.NO_ALARM,
             )
         return read_only(ChannelChar)(**kwargs)
-    return read_only(_SCALAR_BASE[spec.dtype])(
+    base = _SCALAR_BASE[spec.dtype]
+    if spec.dtype == "float" and spec.archive_deadband is not None:
+        base = archive_gated(base)
+    return read_only(base)(
         **_metadata_kwargs(
             spec,
             initial_severity=initial_severity,

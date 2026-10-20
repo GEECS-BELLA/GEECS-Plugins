@@ -513,13 +513,38 @@ the historical coercion (int when integral and undotted, else float).
   deadband.** Through 0.5.0 it was wired as the deadband and suppressed real
   sub-tolerance motion from every value monitor — including recorded scan rows
   and s-files (observed live on a magnet PSU: it moved, the readback froze).
-  Fixed in 0.5.1; do not reintroduce. Archive-volume control belongs in an
-  archive event mask (MDEL/ADEL split) or the Archiver Appliance's sampling
-  policies — see DESIGN.md.
+  Fixed in 0.5.1; do not reintroduce. Archive-volume control is the separate
+  archive deadband below.
 - After a reconnect the suppression cache is cleared, so the **first frame
   always posts** even if unchanged (this also clears INVALID severity).
 - A non-zero deadband remains available per-variable (`VariableSpec.deadband`)
   as explicit curation; nothing DB-driven sets one.
+
+### Archive deadband — `DBE_LOG` only (the EPICS ADEL)
+
+- A float readback whose DB row carries **`archive_deadband`** (a column on
+  `devicetype_variable` and `variable`, beside `tolerance`) flags a change
+  `DBE_LOG` only when it moved **more than the deadband from the last
+  archived value**, or is the first frame since (re)connect, crosses NaN, or
+  carries an alarm transition. Every other change is flagged `DBE_VALUE`
+  alone. The Archiver Appliance subscribes `DBE_LOG | DBE_ALARM`, so it skips
+  those; displays, ophyd and scans (`DBE_VALUE | DBE_ALARM`) see **every**
+  change exactly as above — the archive deadband never touches them.
+- **NULL means no archive deadband**: every change is archived.
+- **Inheritance is per field for this column alone**: a `variable` (instance)
+  row whose `archive_deadband` is NULL takes the `devicetype_variable` value;
+  an explicit instance value — `0` for "archive every change" — wins. Every
+  other field still inherits wholesale.
+- Writes the gateway does not flag (INVALID marking on disconnect) reach every
+  subscriber, the archiver included. caproto 1.3.0 delivers every event to
+  every monitor regardless of mask, so deadbanded channels apply the mask
+  match themselves (`channels.archive_gated`), only for flagged writes.
+- An alarm transition is flagged `DBE_ALARM` too, so alarm-only monitors see it —
+  including the reconnect frame that clears a disconnect's INVALID/COMM on a
+  readback with no curated alarm limits.
+- A GEECS database without the column (another facility) reads it as NULL;
+  the migration is `deploy/archive_deadband.sql`. NULL, `''` and a non-finite
+  value are all "unset".
 
 ---
 
@@ -552,8 +577,8 @@ otherwise run a second independent limit evaluator on every write.
 **Not yet implemented** (be honest with your displays):
 
 - No enum/string bad-state alarms yet; v1 value alarms are scalar limits only.
-- No archive deadbands (MDEL/ADEL split) — planned with the Archiver Appliance
-  (DESIGN.md "Honest gaps").
+- The archive deadband (§4) covers float readbacks only; derived channels and
+  int/enum/string PVs archive every change.
 - A device merely going *quiet* raises no alarm and does not age severity —
   GEECS devices are legitimately silent for seconds (waiting on triggers, slow
   online analysis). Only an actual socket drop marks INVALID. The former gap —
@@ -727,6 +752,8 @@ that branch and are part of this contract's target behavior.
 | Deadband 0.0 from DB (`tolerance` never a deadband) | `test_pv_contract.py::test_db_tolerance_is_not_used_as_monitor_deadband` |
 | Zero deadband: every change posts, exact repeats suppressed | `test_pv_contract.py::test_zero_deadband_posts_changes_suppresses_exact_repeats` |
 | Explicit non-zero deadband suppression | `test_gateway.py::test_deadband_suppresses_small_changes` |
+| Archive deadband: `DBE_LOG` only beyond the band (drift, first frame, NaN, alarm transitions), live monitors unthrottled; NULL archives every change; unflagged writes reach every monitor; its own DB field, `tolerance` untouched | `test_pv_contract.py::test_archive_deadband_gates_only_the_archivers_events`, `::test_alarm_change_inside_the_deadband_is_archived`, `::test_reconnect_clearance_reaches_alarm_only_monitors`, `::test_no_archive_deadband_reaches_every_monitor`, `::test_unflagged_writes_still_reach_the_archiver`, `::test_archive_deadband_comes_from_its_own_db_field` |
+| `archive_deadband` per-field inheritance (NULL / `''` / non-finite = unset) (instance NULL → type value, explicit instance value wins); DB without the column reads NULL | `GEECS-Core/tests/test_geecs_db.py::test_archive_deadband_falls_back_to_the_type_row`, `::test_an_explicit_instance_archive_deadband_wins`, `::test_an_empty_or_non_finite_archive_deadband_is_unset`, `::test_a_database_without_the_column_reads_as_unset` |
 | Limits split by kind (readback display-only + NaN reported; `:SP` control limits) | `test_config_from_db.py::test_pvdb_built_from_db_spec_has_limits`; `test_gateway.py::test_nan_readback_accepted_despite_limits` |
 | Out-of-ctrl-limit put rejected pre-forward (no UDP, no alarm/`LAST_SET_ERROR`); degenerate spans stay unlimited; device backstop still alarms behind the gate | `test_pv_contract.py::test_out_of_ctrl_limit_put_rejected_before_forward`, `::test_missing_or_degenerate_db_span_stays_unlimited`; `test_gateway.py::test_ctrl_limit_gate_layers_with_device_side_rejection` |
 | Optional `ca_alarm_limits` table; curated scalar alarms attach only to served numeric readbacks | `test_geecs_db.py::test_get_ca_alarm_limits_returns_validated_rows`, `::test_get_ca_alarm_limits_missing_table_is_fail_open`; `test_config_from_db.py::test_alarm_limits_validate_order_and_presence`, `::test_from_geecs_experiment_attaches_numeric_alarm_limits` |

@@ -58,7 +58,10 @@ class SamplingOverride(SchemaModel):
     )
     sampling_method: SamplingMethod | None = Field(
         default=None,
-        description="MONITOR (store on change, throttled to the period) or SCAN (poll).",
+        description=(
+            "MONITOR (store every change the appliance is sent; the period only "
+            "sizes its buffer) or SCAN (store the latest value once per period)."
+        ),
     )
 
     @model_validator(mode="after")

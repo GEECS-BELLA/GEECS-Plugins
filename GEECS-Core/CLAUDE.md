@@ -25,7 +25,8 @@ it replaces the `devicetype_variable` row in full, with no field-level
 fallback — an instance row with NULL limits means that instance has *no*
 limits. Anything wanting a type-level default under an instance row needs a
 deliberate per-field coalesce, which is a departure from this rule, not an
-instance of it. What the gateways then serve from these rows —
+instance of it — `archive_deadband` is the one such field
+(`_with_type_archive_deadband`). What the gateways then serve from these rows —
 `.DESC` and its 40-character EPICS limit, enum resolution, control
 limits — is the gateway's contract: `GeecsCAGateway/PV_CONTRACT.md` and
 `GeecsCAGateway/deploy/variable_description.sql`.
