@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import configparser
 import logging
+import math
 import os
 from contextlib import contextmanager
 from pathlib import Path
@@ -209,6 +210,12 @@ def _num(value: object) -> Optional[float]:
         return None
 
 
+def _deadband(value: object) -> Optional[float]:
+    """A DB deadband as a float; ``None`` (unset) when empty or not finite."""
+    number = _num(value)
+    return number if number is not None and math.isfinite(number) else None
+
+
 def _variable_row_to_meta(row: tuple) -> VariableMeta:
     """Map a ``devicetype_variable`` or ``variable`` (+ ``choice``) row onto the metadata dict.
 
@@ -249,7 +256,7 @@ def _variable_row_to_meta(row: tuple) -> VariableMeta:
         # The archive deadband (DBE_LOG): the gateway posts a change to the
         # archiver only when it exceeds this; None means every change is
         # archived. Not inherited wholesale — see _merge_variable_rows.
-        "archive_deadband": _num(row[11]) if len(row) > 11 else None,
+        "archive_deadband": _deadband(row[11]) if len(row) > 11 else None,
     }
 
 

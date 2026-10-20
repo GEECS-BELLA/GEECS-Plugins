@@ -620,6 +620,21 @@ def test_archive_deadband_is_read_from_the_type_row(monkeypatch) -> None:
     assert "v.archive_deadband" in queries[1][0]
 
 
+@pytest.mark.parametrize("raw", ["", " ", "nan", "inf", "-inf", "abc"])
+def test_an_empty_or_non_finite_archive_deadband_is_unset(monkeypatch, raw) -> None:
+    """'' (LabVIEW's empty instance cell) or a non-finite value is unset, not a deadband.
+
+    A NaN deadband would make every comparison false and archive only first
+    frames; '' on an instance row must fall back to the type value.
+    """
+    type_rows = [_row(1, "Voltage", archive_deadband="0.002")]
+    instance_rows = [_row(1, "Voltage", archive_deadband=raw)]
+    _patch_query_sequence(monkeypatch, [type_rows, instance_rows], [])
+
+    (voltage,) = GeecsDb.get_device_variables("U_S1H")
+    assert voltage["archive_deadband"] == pytest.approx(0.002)
+
+
 def test_archive_deadband_falls_back_to_the_type_row(monkeypatch) -> None:
     """The one field NOT inherited wholesale: a NULL instance deadband takes the type's.
 

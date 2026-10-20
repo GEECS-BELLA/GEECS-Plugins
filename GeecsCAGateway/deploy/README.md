@@ -96,7 +96,15 @@ mysql --host=<db-host> --user=<db-user> --password <db-name> \
 ```
 
 The table is optional from the gateway's perspective: if it is absent, startup
-continues with no curated value alarms. After editing rows in `ca_alarm_limits`,
+continues with no curated value alarms.
+
+## Archive deadband column
+
+`archive_deadband` on `devicetype_variable` and `variable` (beside
+`tolerance`) thins what the Archiver Appliance receives, never what live
+clients see (`PV_CONTRACT.md` §4). Optional: without it every change is
+archived. The migration, with how to size and set a value, is
+`deploy/archive_deadband.sql` (applied the same way as the table above). After editing rows in `ca_alarm_limits`,
 restart through the service or `undulator:cagateway:restart` so the gateway
 reloads the DB-backed config.
 

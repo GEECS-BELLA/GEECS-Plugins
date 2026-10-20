@@ -397,7 +397,11 @@ class _Monitors:
                 mask=mask,
                 channel_filter=no_filter,
             )
-            for name, mask in (("archiver", ARCHIVER_MASK), ("live", LIVE_MASK))
+            for name, mask in (
+                ("archiver", ARCHIVER_MASK),
+                ("live", LIVE_MASK),
+                ("alarm_only", SubscriptionType.DBE_ALARM),
+            )
         }
 
     async def start(self) -> None:
@@ -407,7 +411,7 @@ class _Monitors:
 
     def received(self) -> dict[str, list[float]]:
         """Values each monitor was sent since the last call."""
-        out: dict[str, list[float]] = {"archiver": [], "live": []}
+        out: dict[str, list[float]] = {name: [] for name in self.specs}
         while not self.queue.empty():
             specs, _metadata, values, _flags, _sub = self.queue.get_nowait()
             for name, spec in self.specs.items():
@@ -468,7 +472,7 @@ async def test_archive_deadband_gates_only_the_archivers_events() -> None:
 
 
 async def test_alarm_change_inside_the_deadband_is_archived(monkeypatch) -> None:
-    """An alarm transition reaches the archiver even when the value barely moved."""
+    """An alarm transition reaches the archiver — and alarm-only monitors — inside the band."""
     gw = _gated_gateway(archive_deadband=1.0)
     channel, _spec = gw._readbacks[DEVICE]["Pos"]
     monitors = _Monitors(channel)
@@ -482,7 +486,11 @@ async def test_alarm_change_inside_the_deadband_is_archived(monkeypatch) -> None
     await callback({"Pos": 5.1})  # alarm raised: archived
     await callback({"Pos": 5.2})  # same alarm, inside the band: live only
 
-    assert monitors.received()["archiver"] == pytest.approx([5.0, 5.1])
+    got = monitors.received()
+    assert got["archiver"] == pytest.approx([5.0, 5.1])
+    assert got["alarm_only"] == pytest.approx(
+        [5.1]
+    )  # the transition, flagged DBE_ALARM
 
 
 async def test_no_archive_deadband_reaches_every_monitor() -> None:

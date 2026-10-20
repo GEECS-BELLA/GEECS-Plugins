@@ -27,6 +27,7 @@ from caproto import (
     ChannelEnum,
     ChannelInteger,
     ChannelString,
+    SubscriptionType,
 )
 from caproto.asyncio.server import start_server
 
@@ -618,6 +619,9 @@ class GeecsCaGateway:
         if not significant:
             return {"flags": LIVE_ONLY_EVENT}
         archived[var] = value
+        if alarm_changed:
+            # an alarm-only (DBE_ALARM) monitor must still see the transition
+            return {"flags": ARCHIVE_EVENT | SubscriptionType.DBE_ALARM}
         return {"flags": ARCHIVE_EVENT}
 
     async def _write_derived_channels(
