@@ -96,15 +96,7 @@ mysql --host=<db-host> --user=<db-user> --password <db-name> \
 ```
 
 The table is optional from the gateway's perspective: if it is absent, startup
-continues with no curated value alarms.
-
-## Archive deadband column
-
-`archive_deadband` on `devicetype_variable` and `variable` (beside
-`tolerance`) thins what the Archiver Appliance receives, never what live
-clients see (`PV_CONTRACT.md` §4). Optional: without it every change is
-archived. The migration, with how to size and set a value, is
-`deploy/archive_deadband.sql` (applied the same way as the table above). After editing rows in `ca_alarm_limits`,
+continues with no curated value alarms. After editing rows in `ca_alarm_limits`,
 restart through the service or `undulator:cagateway:restart` so the gateway
 reloads the DB-backed config.
 
@@ -120,6 +112,15 @@ For example, with `high=2.5`, `hihi=4.5`, and the default high severity of
 `MINOR_ALARM` in CA clients such as Phoebus. If you edit the DB row and do not
 see the metadata or severity change, restart the gateway so it reloads the
 DB-backed config.
+
+## Archive deadband column
+
+`archive_deadband` on `devicetype_variable` and `variable` (beside
+`tolerance`) thins what the Archiver Appliance receives, never what live
+clients see (`PV_CONTRACT.md` §4). Optional: without it every change is
+archived. The migration, with how to size and set a value, is
+`deploy/archive_deadband.sql` (applied the same way as `ca_alarm_limits.sql`).
+After editing values, restart the gateway the same way so it reloads them.
 
 ## Changing what is served
 
