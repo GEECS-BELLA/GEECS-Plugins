@@ -688,14 +688,19 @@ The rules:
   `paused: interlock <name>: <reason>` during a run (never between runs).
 - **The status stream** (`status_server.py`, started by the profile when
   `config.ini [interlocks] status_port` is set) keeps the retired
-  `geecs_python_api` server's wire format byte for byte, because a LabVIEW
-  VI reads it: every 0.1 s per client, a 4-byte big-endian length, then
-  `SAFE: <name> | WARNING! <name> UNSAFE - <reason> | …` (`WARNING:
-  <name> UNSAFE` with no reason, `WARNING! No monitors registered` with no
-  interlock; a `|` in a name or reason is sent as `/`).  It reads the
-  registry's cached verdicts, never a PV, and runs for the environment's
-  lifetime — between scans too.  A taken or malformed port logs ERROR and
-  the worker runs without it.  Never change the format without the VI.
+  `geecs_python_api` server's framing (every 0.1 s per client, a 4-byte
+  big-endian length, then UTF-8 parts joined by ` | `) but leads with the
+  overall verdict, because the master-control VI looks for the keyword
+  `SAFE`: `SAFE | OK: <name> | …` when every interlock is safe, else
+  `WARNING! TRIPPED | TRIPPED: <name> - <reason> | OK: <name> | NOT ARMED:
+  <name> - <why>` (`… | NO INTERLOCKS` with none).  **The word "safe", in
+  any case, appears only as the leading `SAFE` of an all-clear frame**
+  (names and reasons carry it as `sa-fe`) — pinned over every mix of
+  states; the retired parts (`SAFE: x`, `x UNSAFE`) broke it.  It reads
+  the registry's cached verdicts, never a PV, and runs for the
+  environment's lifetime — between scans too.  A taken or malformed port
+  logs ERROR and the worker runs without it.  Never change the format
+  without the VI.
 
 ## The worker (`qserver/`)
 

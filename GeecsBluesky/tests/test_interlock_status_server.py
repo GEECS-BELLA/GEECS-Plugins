@@ -9,34 +9,71 @@ import pytest
 
 from geecs_bluesky.interlocks.install import InterlockRegistry, InterlockStatus
 from geecs_bluesky.interlocks.status_server import (
-    NO_MONITORS,
     InterlockStatusServer,
     frame,
     render_status,
     start_status_server,
 )
 
+OK = InterlockStatus("cam1", unsafe=False)
+TRIP = InterlockStatus("vacuum", unsafe=True, diagnostic="Pressure=0.001")
+TRIP_BARE = InterlockStatus("gauge", unsafe=True)
+UNARMED = InterlockStatus(
+    "stamp", unsafe=True, diagnostic="not armed: not connected: U_Gauge", armed=False
+)
 
-def test_the_retired_servers_message_format() -> None:
-    message = render_status(
-        [
-            InterlockStatus("cam1", unsafe=False),
-            InterlockStatus("vacuum", unsafe=True, diagnostic="Pressure=0.001"),
-            InterlockStatus("gauge", unsafe=True),
-        ]
+
+def test_all_safe_leads_with_safe() -> None:
+    assert render_status([OK, InterlockStatus("vacuum", False)]) == (
+        "SAFE | OK: cam1 | OK: vacuum"
     )
-    assert message == (
-        "SAFE: cam1 | WARNING! vacuum UNSAFE - Pressure=0.001 | WARNING: gauge UNSAFE"
+
+
+def test_a_trip_leads_with_the_warning() -> None:
+    assert render_status([TRIP, OK, TRIP_BARE, UNARMED]) == (
+        "WARNING! TRIPPED | TRIPPED: vacuum - Pressure=0.001 | OK: cam1"
+        " | TRIPPED: gauge | NOT ARMED: stamp - not connected: U_Gauge"
     )
 
 
 def test_no_interlocks_is_a_warning() -> None:
-    assert render_status([]) == NO_MONITORS == "WARNING! No monitors registered"
+    assert render_status([]) == "WARNING! TRIPPED | NO INTERLOCKS"
 
 
 def test_a_pipe_never_reaches_the_wire() -> None:
-    message = render_status([InterlockStatus("a|b", True, "x | y")])
-    assert message == "WARNING! a/b UNSAFE - x / y"
+    assert render_status([InterlockStatus("a|b", True, "x | y")]) == (
+        "WARNING! TRIPPED | TRIPPED: a/b - x / y"
+    )
+
+
+# Every name and reason here carries the keyword in some case.
+_STATES = [
+    InterlockStatus("laser Safety", False),
+    InterlockStatus("SAFE gate", True, "SafeMode=1 (limit: <1)"),
+    InterlockStatus(
+        "shutter", True, "not armed: unknown plan 'safe_close'", armed=False
+    ),
+    InterlockStatus("unsafe-named", True),
+    InterlockStatus("plain", False),
+]
+
+
+@pytest.mark.parametrize("mask", range(1, 2 ** len(_STATES)))
+def test_the_keyword_appears_only_in_an_all_clear_frame(mask: int) -> None:
+    """The one rule, over every non-empty mix: 'safe' (any case) iff all safe, and only as the lead."""
+    statuses = [s for i, s in enumerate(_STATES) if mask >> i & 1]
+    message = render_status(statuses)
+    all_safe = not any(s.unsafe for s in statuses)
+    assert ("safe" in message.lower()) is all_safe
+    if all_safe:
+        assert message.startswith("SAFE | ")
+        assert "safe" not in message[len("SAFE") :].lower()
+
+
+def test_a_keyword_in_a_name_stays_readable() -> None:
+    assert render_status([InterlockStatus("laser Safety", False)]) == (
+        "SAFE | OK: laser Sa-fety"
+    )
 
 
 def test_frame_is_a_big_endian_length_then_utf8() -> None:
@@ -67,8 +104,8 @@ def test_clients_read_the_live_snapshot() -> None:
             socket.create_connection(server.address, timeout=2) as a,
             socket.create_connection(server.address, timeout=2) as b,
         ):
-            assert _read_frame(a) == "SAFE: vacuum"
-            assert _read_frame(b) == "SAFE: vacuum"
+            assert _read_frame(a) == "SAFE | OK: vacuum"
+            assert _read_frame(b) == "SAFE | OK: vacuum"
             statuses[0] = InterlockStatus("vacuum", True, "Pressure=0.001")
             for _ in range(50):  # within a few intervals
                 if _read_frame(a).startswith("WARNING!"):
@@ -85,7 +122,7 @@ def test_a_client_that_hangs_up_does_not_stop_the_server() -> None:
     try:
         socket.create_connection(server.address, timeout=2).close()
         with socket.create_connection(server.address, timeout=2) as again:
-            assert _read_frame(again) == NO_MONITORS
+            assert _read_frame(again) == "WARNING! TRIPPED | NO INTERLOCKS"
     finally:
         server.stop()
 
@@ -131,7 +168,7 @@ def test_configured_server_reports_the_registry(tmp_path) -> None:
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=2) as client:
             assert _read_frame(client) == (
-                "WARNING! vacuum UNSAFE - not armed: not connected: U_Gauge"
+                "WARNING! TRIPPED | NOT ARMED: vacuum - not connected: U_Gauge"
             )
     finally:
         server.stop()

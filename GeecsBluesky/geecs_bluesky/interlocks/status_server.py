@@ -1,30 +1,33 @@
 """The interlock status stream: the TCP feed the LabVIEW side reads.
 
-Kept byte-for-byte in the wire format of the retired
-``geecs_python_api.controls.interlocks`` server, so the VI that reads it
-needs no change.  Every :data:`SEND_INTERVAL_S` each connected client gets
-one frame: a 4-byte big-endian length, then a UTF-8 message joining one
-part per interlock with ``" | "``::
+The retired ``geecs_python_api.controls.interlocks`` server's framing (a
+4-byte big-endian length, then UTF-8; every :data:`SEND_INTERVAL_S` to
+each client; parts joined with ``" | "``), with the message led by the
+overall verdict, because the master-control VI decides by looking for the
+keyword ``SAFE``::
 
-    SAFE: <name>
-    WARNING! <name> UNSAFE - <diagnostic>
-    WARNING: <name> UNSAFE                    (no diagnostic)
+    SAFE | OK: <name> | OK: <name>                          every interlock safe
+    WARNING! TRIPPED | TRIPPED: <name> - <reason> | OK: <name>
+    WARNING! TRIPPED | NOT ARMED: <name> - <why>            could not be armed
+    WARNING! TRIPPED | NO INTERLOCKS                        none registered
 
-and ``WARNING! No monitors registered`` when there is no interlock at all.
-A ``|`` inside a name or diagnostic is sent as ``/``, so the separator
-stays unambiguous.
+**The one rule** (pinned by the tests over every mix of states): the word
+"safe", in any case, appears only as the leading ``SAFE`` of an all-clear
+frame — so any keyword search, however the VI does it, is right.  The
+retired server's ``SAFE: <name>`` / ``<name> UNSAFE`` parts broke that
+(``UNSAFE`` contains ``SAFE``; a mixed frame still carried ``SAFE:``),
+which is why the parts changed.  Inside a part a "safe" in a name or
+reason is sent as ``sa-fe``, and a ``|`` as ``/``.
 
-The server only reports: it reads the registry's cached verdicts
-(:meth:`~geecs_bluesky.interlocks.install.InterlockRegistry.snapshot`) and
-never touches a PV.  It runs for the worker environment's lifetime, so
-the VI stays connected between scans; an interlock that is not armed reads
-UNSAFE with the reason.  Bind address and port are facility values:
-``config.ini [interlocks] status_host / status_port``; no port, no server.
+It reads the registry's cached verdicts, never a PV, for the worker
+environment's lifetime; ``config.ini [interlocks] status_host /
+status_port`` say where (no port, no server).
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import socket
 import struct
 import threading
@@ -45,25 +48,39 @@ ACCEPT_POLL_S = 0.5
 #: The bind address when ``status_host`` is not set: every interface.
 DEFAULT_HOST = "0.0.0.0"
 
-NO_MONITORS = "WARNING! No monitors registered"
+#: The verdict that leads every frame.
+ALL_SAFE = "SAFE"
+TRIPPED = "WARNING! TRIPPED"
+NO_INTERLOCKS = "NO INTERLOCKS"
+
+_SAFE_WORD = re.compile("safe", re.IGNORECASE)
+_NOT_ARMED_PREFIX = "not armed: "
 
 
 def _clean(text: str) -> str:
-    return text.replace("|", "/")
+    """*text* safe to put in a part: no separator, no keyword ("Safety" → "Sa-fety")."""
+    text = text.replace("|", "/")
+    return _SAFE_WORD.sub(lambda m: f"{m.group(0)[:2]}-{m.group(0)[2:]}", text)
+
+
+def _part(status: InterlockStatus) -> str:
+    name = _clean(status.name)
+    if not status.unsafe:
+        return f"OK: {name}"
+    if not status.armed:
+        why = status.diagnostic.removeprefix(_NOT_ARMED_PREFIX)
+        return f"NOT ARMED: {name} - {_clean(why)}"
+    if status.diagnostic:
+        return f"TRIPPED: {name} - {_clean(status.diagnostic)}"
+    return f"TRIPPED: {name}"
 
 
 def render_status(statuses: Sequence[InterlockStatus]) -> str:
-    """The message one frame carries, in the retired server's format."""
-    parts = []
-    for status in statuses:
-        name = _clean(status.name)
-        if not status.unsafe:
-            parts.append(f"SAFE: {name}")
-        elif status.diagnostic:
-            parts.append(f"WARNING! {name} UNSAFE - {_clean(status.diagnostic)}")
-        else:
-            parts.append(f"WARNING: {name} UNSAFE")
-    return " | ".join(parts) if parts else NO_MONITORS
+    """The message one frame carries: the overall verdict, then one part per interlock."""
+    if not statuses:
+        return f"{TRIPPED} | {NO_INTERLOCKS}"
+    verdict = TRIPPED if any(s.unsafe for s in statuses) else ALL_SAFE
+    return " | ".join([verdict, *(_part(s) for s in statuses)])
 
 
 def frame(message: str) -> bytes:
@@ -173,8 +190,8 @@ def start_status_server(
 
     Never raises: a malformed port or a taken one is logged at ERROR and
     the worker runs without the stream.  With no registry (no
-    ``interlocks.yaml``) the stream still runs and says no monitors are
-    registered, which the VI reads as a warning.
+    ``interlocks.yaml``) the stream still runs and says ``NO INTERLOCKS``
+    under a ``WARNING! TRIPPED`` verdict — never ``SAFE``.
     """
     from geecs_core.configs_repo import read_config_entry
 
@@ -212,7 +229,9 @@ def start_status_server(
 
 
 __all__ = [
-    "NO_MONITORS",
+    "ALL_SAFE",
+    "NO_INTERLOCKS",
+    "TRIPPED",
     "SEND_INTERVAL_S",
     "InterlockStatusServer",
     "frame",
