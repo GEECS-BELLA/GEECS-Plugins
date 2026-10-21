@@ -50,6 +50,9 @@ geecs_ca_gateway/
                      #   classifier audit_subscribed_variables() (no DB) + CLI
                      #   (python -m geecs_ca_gateway.audit / geecs-ca-gateway-audit)
   demo.py            # offline self-checking demo over the fake server
+examples/
+  interlock_sandbox_machine.py  # the machine half of GeecsBluesky's interlock
+                     #   sandbox: fake devices behind the gateway + a prompt
 ```
 
 The access-layer modules this package used to own — `transport/`

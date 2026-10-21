@@ -304,3 +304,51 @@ def test_a_frozen_stamp_trips_a_stale_interlock(RE: RunEngine) -> None:
     assert "no new data" in suspender.verdict.diagnostic
     set_mock_value(gauge.acq_timestamp, 4.0)
     assert not suspender.tripped
+
+
+class _SilentSignal:
+    """A subscribable signal that never reports (a PV whose monitor never fires)."""
+
+    name = "silent"
+
+    def subscribe(self, callback) -> None:
+        pass
+
+    def clear_sub(self, callback) -> None:
+        pass
+
+
+def test_no_verdict_until_the_first_readings_then_fail_safe(
+    RE: RunEngine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Judged only once every signal reported; a silent one trips after the grace."""
+    from geecs_bluesky.interlocks import suspender as module
+
+    monkeypatch.setattr(module, "FIRST_READING_GRACE_S", 0.2)
+    gauge = _gauge(RE)
+    changes: list = []
+    suspender = GeecsInterlockSuspender(
+        _interlock(),
+        Watched(value=_SilentSignal(), connected={"U_Gauge": gauge.connected_status}),
+        on_change=lambda s: changes.append(s.verdict),
+    )
+    install_on_loop(RE, suspender)
+    assert suspender.verdict is None and not suspender.tripped
+    time.sleep(0.4)
+    assert suspender.tripped
+    assert suspender.verdict.diagnostic == "Pressure: no data"
+    assert len(changes) == 1  # no transient before it
+
+
+def test_readings_present_at_install_give_no_transient_trip(RE: RunEngine) -> None:
+    gauge = _gauge(RE)
+    changes: list = []
+    suspender = GeecsInterlockSuspender(
+        _interlock(),
+        Watched(value=gauge.pressure, connected={"U_Gauge": gauge.connected_status}),
+        on_change=lambda s: changes.append(s.verdict.unsafe),
+    )
+    install_on_loop(RE, suspender)
+    time.sleep(0.1)
+    assert suspender.verdict is not None and not suspender.verdict.unsafe
+    assert changes == []  # a first "safe" is not reported as a clear

@@ -44,6 +44,13 @@ logger = logging.getLogger(__name__)
 #: reads is past the limit rather than equal to it.
 STALE_SLACK_S = 0.05
 
+#: Seconds after install before an interlock whose signals have not all
+#: reported is judged anyway (and so fails safe on the missing reading).
+#: Until every signal has reported once, or this has passed, there is no
+#: verdict: a CA monitor's first value lands a moment after the
+#: subscription, and judging before it would trip on "no data" for nothing.
+FIRST_READING_GRACE_S = 1.0
+
 #: A reading as ophyd-async delivers it to a subscriber.
 ReadingCallback = Callable[[Mapping[str, Mapping[str, Any]]], None]
 
@@ -147,6 +154,7 @@ class GeecsInterlockSuspender(SuspenderBase):
         self._stamp_at: float | None = None
         self._timer: Any = None
         self._verdict: Verdict | None = None
+        self._grace_over = False
         handlers: list[tuple[Any, ReadingCallback]] = []
         if watched.value is not None:
             handlers.append((watched.value, self._sample_handler("value")))
@@ -156,6 +164,11 @@ class GeecsInterlockSuspender(SuspenderBase):
             handlers.append((watched.stamp, self._on_stamp))
         for device, signal in watched.connected.items():
             handlers.append((signal, self._connected_handler(device)))
+        self._unheard = set(range(len(handlers)))
+        handlers = [
+            (signal, self._first_heard(index, handler))
+            for index, (signal, handler) in enumerate(handlers)
+        ]
         super().__init__(
             WatchedSignals(interlock.name, handlers),
             sleep=interlock.settle_s,
@@ -173,7 +186,24 @@ class GeecsInterlockSuspender(SuspenderBase):
         """The latest verdict (``None`` before the first evaluation)."""
         return self._verdict
 
+    def __repr__(self) -> str:
+        """The interlock's name and settle time (bluesky prints it on resume)."""
+        return f"GeecsInterlockSuspender({self.name!r}, settle_s={self._sleep:g})"
+
     # -- the cached readings ------------------------------------------------
+
+    def _first_heard(self, index: int, handler: ReadingCallback) -> ReadingCallback:
+        def handle(reading):
+            handler(reading)
+            with self._cache_lock:
+                self._unheard.discard(index)
+
+        return handle
+
+    def _ready(self) -> bool:
+        """Whether there is a verdict to give: every signal heard, or the grace over."""
+        with self._cache_lock:
+            return not self._unheard or self._grace_over
 
     def _sample_handler(self, role: str) -> ReadingCallback:
         def handle(reading):
@@ -246,12 +276,24 @@ class GeecsInterlockSuspender(SuspenderBase):
     # -- the stock suspender hooks -----------------------------------------
 
     def install(self, RE: Any, *, event_type: Any = None) -> None:
-        """Install on *RE*; a stale condition's age counts from now."""
+        """Install on *RE*; a stale condition's age counts from now.
+
+        Judged once every watched signal has reported, and at the latest
+        :data:`FIRST_READING_GRACE_S` after install — a signal still silent
+        then is "no data", which is unsafe.
+        """
         with self._cache_lock:
             self._stamp_at = self._clock()
         super().install(RE, event_type=event_type)
         self._arm_stale_timer()
-        self(None)  # a condition with nothing cached yet is unsafe at once
+        loop = RE._loop
+
+        def end_grace() -> None:
+            with self._cache_lock:
+                self._grace_over = True
+            self(None)
+
+        loop.call_soon_threadsafe(loop.call_later, FIRST_READING_GRACE_S, end_grace)
 
     def remove(self) -> None:
         """Remove from the RunEngine and cancel the stale re-check."""
@@ -262,9 +304,14 @@ class GeecsInterlockSuspender(SuspenderBase):
         super().remove()
 
     def _should_suspend(self, value: Any) -> bool:
+        if not self._ready():
+            return False
         verdict = evaluate(self._condition, self._inputs(), tripped=self._tripped)
         previous, self._verdict = self._verdict, verdict
-        if previous != verdict and self._on_change is not None:
+        # A first verdict of "safe" is no change worth reporting (nothing
+        # was tripped); a first "unsafe" is.
+        changed = verdict != previous and (previous is not None or verdict.unsafe)
+        if changed and self._on_change is not None:
             try:
                 self._on_change(self)
             except Exception:

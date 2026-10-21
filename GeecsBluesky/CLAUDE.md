@@ -655,6 +655,11 @@ The rules:
   subscription out over the ophyd-async signals an entry reads, and
   `GeecsInterlockSuspender` is a `SuspenderBase` over it.  Install on the
   RE's loop (`install_on_loop`: an ophyd-async subscription needs it).
+- **No verdict before the first readings**: an interlock is judged once
+  every watched signal has reported, and at the latest
+  `FIRST_READING_GRACE_S` (1 s) after install — a CA monitor's first value
+  lands a moment after the subscription, and judging before it would trip
+  on "no data" for nothing; a signal still silent then trips.
 - **Stale is a timer on a free-running stamp**, never "monitor silence
   means dead": the gateway posts a stamp only on change, so
   `max_age_s` is a `call_later` re-check; liveness stays `CONNECTED`.  A
@@ -956,6 +961,12 @@ the command line overrides the `addopts` deselect.  The startup-profile
 tests run with `QS_DOC_PUBLISH_ADDR=OFF` — a peerless zmq PUB socket
 blocks the context's teardown for the next test's whole timeout.
 `conftest.py` stops the RunEngine loop threads a test leaves behind.
+**The interlock sandbox** runs the interlock stack over real CA, offline:
+`GeecsCAGateway/examples/interlock_sandbox_machine.py` (gateway env: fake
+GEECS devices behind the real gateway, a prompt to trip them) and
+`examples/interlock_sandbox_worker.py` (this env: the resolver, the
+suspenders on a `make_run_engine` RE, a `ShotControl`, the status stream,
+over a hand-written roster instead of the DB).
 `tests/test_epoch_contract.py` pins the epoch equality between Core's
 wire format and Data Utils' file format here because this package already
 depends on both; those foundational packages keep independent constants,
