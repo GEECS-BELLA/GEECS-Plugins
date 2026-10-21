@@ -1182,3 +1182,29 @@ class GeecsDetector(StandardDetector):
         if ctx is None or not self._hdf_ios:
             return
         await self._rewind_plugins(None, "last datum")
+
+    def pause(self) -> None:
+        """``Pausable``: nothing to do at the pause (the box quiets the shots)."""
+
+    async def resume(self) -> None:
+        """``Pausable``: drop the frames of a strict shot the pause cut short.
+
+        An immediate pause or a suspender can land after a strict shot fired
+        but before its row was saved; the RunEngine then replays the shot
+        from its checkpoint, firing again.  The interrupted shot's frame is
+        already in the stack, and the replayed row would reference it and
+        its own (a two-frame datum the bundler refuses), so every plugin is
+        rewound to its last datum first — :meth:`discard_uncollected`.
+        Never in fly mode: a gated batch keeps the frames its pause cut
+        short and records them itself.  Never raises: a resume
+        notification must not fail the resume.
+        """
+        if self._acquire.fly:
+            return
+        try:
+            await self.discard_uncollected()
+        except Exception:
+            logger.exception(
+                "%s: could not drop the interrupted shot's frames at resume",
+                self._geecs_device_name,
+            )

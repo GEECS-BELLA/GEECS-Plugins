@@ -42,6 +42,14 @@ from geecs_schemas.derived_channels import (
     DerivedInput,
 )
 from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
+from geecs_schemas.interlocks import (
+    AlignmentCondition,
+    Interlock,
+    InterlockCondition,
+    InterlockSet,
+    StaleCondition,
+    ThresholdCondition,
+)
 from geecs_schemas.preset import PlanCall, Preset, PresetDevice
 from geecs_schemas.log_entry import (
     AnalysisPayload,
@@ -141,6 +149,12 @@ __all__ = [
     "TriggerWrite",
     # experiment_defaults
     "ExperimentDefaults",
+    "AlignmentCondition",
+    "Interlock",
+    "InterlockCondition",
+    "InterlockSet",
+    "StaleCondition",
+    "ThresholdCondition",
     "DefaultActions",
     # action_plan
     "ActionPlan",
@@ -197,6 +211,7 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "action_plan": ActionPlan,
     "action_plan_library": ActionPlanLibrary,
     "experiment_defaults": ExperimentDefaults,
+    "interlocks": InterlockSet,
     "derived_channels": DerivedChannels,
     "archive_policy": ArchivePolicy,
     "shot_offsets": ShotOffsets,

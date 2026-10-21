@@ -185,6 +185,28 @@ actions:
 background_telemetry: true   # soft-log every live device not in the save set
 description: "HTU standing defaults"
 """,
+    "interlocks": """\
+schema_version: 1
+# each interlock pauses the scan while unsafe, runs on_trip once, and
+# resumes once safe for settle_s; a disconnected device is always unsafe
+interlocks:
+  - name: chamber vacuum
+    condition:
+      kind: threshold
+      device: U_HP_Vacuum
+      variable: Pressure
+      operator: ">"
+      limit: 1.0e-5
+      hysteresis: 2.0e-6
+    on_trip: close_shutters
+    before_resume: open_shutters
+    settle_s: 5
+  - name: gauge alive
+    condition:
+      kind: stale
+      device: U_HP_Vacuum
+      max_age_s: 3
+""",
     "archive_policy": """\
 schema_version: 1
 # the archive set is derived from the DB (monitored readbacks, :SP, connected,

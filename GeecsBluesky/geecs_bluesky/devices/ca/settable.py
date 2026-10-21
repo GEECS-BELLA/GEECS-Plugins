@@ -31,7 +31,12 @@ import asyncio
 import logging
 
 from bluesky.protocols import Location
-from ophyd_async.core import AsyncStatus, StandardReadable, soft_signal_r_and_setter
+from ophyd_async.core import (
+    AsyncStatus,
+    SignalR,
+    StandardReadable,
+    soft_signal_r_and_setter,
+)
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 
 from geecs_bluesky.devices.ca._pv import ca_pv, setpoint_pv
@@ -103,9 +108,14 @@ class CaSettable(StandardReadable):
         self._settle_time = settle_time
 
     @property
+    def readback_signal(self) -> SignalR:
+        """The streamed readback signal (``readback``, or a subclass's ``position``)."""
+        return getattr(self, self._readback_attr_name)
+
+    @property
     def reading_key(self) -> str:
         """Event column containing this movable's numeric readback."""
-        return getattr(self, self._readback_attr_name).name
+        return self.readback_signal.name
 
     @property
     def _column_headers(self) -> dict[str, str]:

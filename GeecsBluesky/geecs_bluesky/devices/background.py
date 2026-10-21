@@ -39,6 +39,7 @@ from event_model import DataKey
 from ophyd_async.core import AsyncStatus
 
 from geecs_bluesky.devices.ca._view import geecs_device_name, owner_of
+from geecs_bluesky.devices.ca.liveness import reading_invalid
 from geecs_bluesky.utils import is_connected
 
 logger = logging.getLogger(__name__)
@@ -61,17 +62,6 @@ WARM_UP_TIMEOUT_S = 20.0
 #: The probe's note on a member kept although every reading it gave was
 #: INVALID: served, but the gateway marks the device down.
 _STALE = "served but INVALID at the start"
-
-
-def _invalid(reading: Reading) -> bool:
-    """Whether the gateway marked *reading* INVALID.
-
-    The CA gateway sets INVALID severity on every readback of a device
-    whose stream to it is down (``GeecsCAGateway/PV_CONTRACT.md``): the
-    value served is stale.  The aioca backend maps CA's INVALID (3) to
-    ``-1``; NO_ALARM, MINOR and MAJOR (0, 1, 2) carry live values.
-    """
-    return reading.get("alarm_severity", 0) not in (0, 1, 2)
 
 
 def _blank(datakey: DataKey) -> Reading:
@@ -377,7 +367,9 @@ class BackgroundSnapshot:
                 await _call(member, "stage")
             keys = dict(await maybe_await(member.describe()))
             readings = await maybe_await(member.read())  # the first cached value
-            stale = bool(readings) and all(_invalid(r) for r in readings.values())
+            stale = bool(readings) and all(
+                reading_invalid(r) for r in readings.values()
+            )
             return keys, _STALE if stale else ""
 
         try:
@@ -423,7 +415,7 @@ class BackgroundSnapshot:
         for member, readings in zip(self._active, results):
             for key, datakey in self._datakeys[id(member)].items():
                 reading = None if readings is None else readings.get(key)
-                if reading is None or _invalid(reading):
+                if reading is None or reading_invalid(reading):
                     reading = _blank(datakey)
                 out[key] = reading
         return out
@@ -444,15 +436,21 @@ class BackgroundSnapshot:
 
 
 async def warm_up(
-    candidates: Sequence[Any], *, mock: bool = False, timeout: float = WARM_UP_TIMEOUT_S
+    candidates: Sequence[Any],
+    *,
+    mock: bool = False,
+    timeout: float = WARM_UP_TIMEOUT_S,
+    label: str = "background telemetry",
+    retry_note: str = "probed again at every run",
 ) -> list[str]:
     """Connect every candidate that is not yet, concurrently, within *timeout*.
 
     Returns the GEECS device names that did not connect (logged once, at
-    WARNING).  Nothing is dropped: a run's probe retries an unconnected
-    member every time, so a device the gateway starts serving later is
-    back at the next run.  A member already connected is left alone (a
-    mock's callbacks would be lost by a reconnect).
+    WARNING, under *label* with *retry_note*).  Nothing is dropped: a run's
+    probe retries an unconnected member every time, so a device the
+    gateway starts serving later is back at the next run.  A member
+    already connected is left alone (a mock's callbacks would be lost by a
+    reconnect).  The interlocks reuse it with their own label and note.
     """
     pending = [m for m in candidates if not is_connected(m)]
     started = time.monotonic()
@@ -467,16 +465,17 @@ async def warm_up(
             if name not in failed:
                 failed.append(name)
     logger.info(
-        "background telemetry: %d of %d candidate device(s) connected at "
-        "environment open in %.1f s",
+        "%s: %d of %d candidate device(s) connected at environment open in %.1f s",
+        label,
         len({geecs_device_name(m) for m in candidates}) - len(failed),
         len({geecs_device_name(m) for m in candidates}),
         time.monotonic() - started,
     )
     if failed:
         logger.warning(
-            "background telemetry: not connected at environment open (probed "
-            "again at every run): %s",
+            "%s: not connected at environment open (%s): %s",
+            label,
+            retry_note,
             ", ".join(failed),
         )
     return failed
@@ -488,10 +487,19 @@ def warm_up_on(
     *,
     mock: bool = False,
     timeout: float = WARM_UP_TIMEOUT_S,
+    label: str = "background telemetry",
+    retry_note: str = "probed again at every run",
 ) -> list[str]:
     """:func:`warm_up` on the RunEngine's loop, from the thread building the worker."""
     return asyncio.run_coroutine_threadsafe(
-        warm_up(candidates, mock=mock, timeout=timeout), run_engine._loop
+        warm_up(
+            candidates,
+            mock=mock,
+            timeout=timeout,
+            label=label,
+            retry_note=retry_note,
+        ),
+        run_engine._loop,
     ).result(timeout + 10.0)
 
 

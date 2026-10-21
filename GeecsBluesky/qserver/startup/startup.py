@@ -36,6 +36,7 @@ import geecs_bluesky  # noqa: F401
 from geecs_bluesky.config_resolver import ConfigsRepoResolver
 from geecs_bluesky.devices.background import warm_up_on
 from geecs_bluesky.devices.scan_mode import ScanModeControl
+from geecs_bluesky.interlocks import install_interlocks
 from geecs_bluesky.namespace import GeecsNamespace, motor_targets
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
@@ -201,6 +202,27 @@ if not _hermetic:
     # probe finds them connected (its 1 s budget then covers the stage and
     # the first reading alone).  Bounded, and never a drop for good.
     warm_up_on(RE, namespace.telemetry(), timeout=_connect_timeout())
+
+# The software interlocks (interlocks.yaml): one suspender each on RE, armed
+# for the environment's lifetime — a trip pauses the run, runs the entry's
+# on_trip action plan and resumes once safe.  Best-effort like the catalog:
+# an unreadable document arms nothing and says so loudly; a bad entry is
+# kept in the registry as not armed (the status stream reports it unsafe).
+_interlocks = None
+if not _hermetic:
+    try:
+        _interlock_set = _resolver.resolve_interlocks()
+    except Exception:
+        logger.error(
+            "interlocks not loaded — NO interlock is armed; fix interlocks.yaml "
+            "and reopen the environment",
+            exc_info=True,
+        )
+        _interlock_set = None
+    if _interlock_set is not None:
+        _interlocks = install_interlocks(
+            RE, _interlock_set, namespace, _resolver, timeout=_connect_timeout()
+        )
 
 # The plans the manager discovers (every generator function in this
 # namespace is a plan to it — profile_ops.plans_from_nspace): the stock

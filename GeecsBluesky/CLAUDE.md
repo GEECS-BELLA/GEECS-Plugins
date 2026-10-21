@@ -100,6 +100,9 @@ geecs_bluesky/
   plans/claim_scan.py       # the day-scoped claim (the ONE folder creator), the
                             #   claim_scan preprocessor, GeecsScanPathProvider
   actions/compiler.py       # ActionPlan → plan stubs; the namespace is its SettableFactory
+  interlocks/               # software interlocks: conditions.py (the pure verdict),
+                            #   suspender.py (GeecsInterlockSuspender, the ophyd-async
+                            #   adapter), install.py (install_interlocks, the registry)
   run_engine.py             # make_run_engine: RE + claim + headers + callbacks (+ the spool)
   preprocessors.py          # connect_on_demand (installed outermost), scalar_headers
   callbacks/                # the run's GEECS outputs, per run: scan_info.py (ScanInfo ini),
@@ -626,6 +629,55 @@ HTU experiment).  There is **no run-level baseline stream**: a strict
 open/close `SupplementalData` baseline fails a scan after its claim when
 one PV is unserved.  The archiver is for history and trends — never a
 source of s-file columns, never read in the scan path.
+
+## Interlocks (`interlocks/`)
+
+The experiment's `interlocks.yaml` (`geecs_schemas.InterlockSet`, read by
+`ConfigsRepoResolver.resolve_interlocks`) arms one **stock Bluesky
+suspender** per entry on the worker's `RE`, installed by the startup
+profile after the namespace and warm-up (`install_interlocks`), for the
+environment's lifetime.  A trip during a run suspends it: the RunEngine
+pauses every Pausable the run touched (the trigger box goes quiet: strict
+fires nothing, gated holds the batch as an immediate pause does), runs the
+entry's `on_trip` action plan, waits until the condition is safe, sleeps
+`settle_s`, runs `before_resume` and resumes.  Tripped while idle, the next
+plan waits at its start (no `on_trip` runs: nothing was running).
+Suspenders act on every queue item, `run_action` and `mv` included.
+
+The rules:
+- **Fail-safe**: `CONNECTED` reading `Disconnected`, an INVALID reading
+  (`devices/ca/liveness.reading_invalid`), no reading, NaN or a non-number
+  is unsafe.  The verdict is one pure function (`conditions.evaluate`);
+  hysteresis applies only while tripped.
+- **The adapter, not a second suspender stack**: a stock suspender
+  subscribes ophyd-v1 style to one signal; `WatchedSignals` fans that one
+  subscription out over the ophyd-async signals an entry reads, and
+  `GeecsInterlockSuspender` is a `SuspenderBase` over it.  Install on the
+  RE's loop (`install_on_loop`: an ophyd-async subscription needs it).
+- **Stale is a timer on a free-running stamp**, never "monitor silence
+  means dead": the gateway posts a stamp only on change, so
+  `max_age_s` is a `call_later` re-check; liveness stays `CONNECTED`.  A
+  shot-driven value freezes while the box is quiet, so an interlock on one
+  would never clear — interlock free-running variables.
+- **A bad entry never stops environment open**: unknown device or
+  variable, unknown action plan or a bad `set`/`check` target (checked at
+  install, as `run_action` does before its first write), a device that
+  did not connect — ERROR-logged and kept in the registry **not armed**,
+  which reports it unsafe.  An edit takes effect at the next environment
+  open.
+- **Connect the action plans' devices at install**: a suspender's plans
+  are pushed onto the plan stack directly and never pass through the
+  preprocessors, so `connect_on_demand` never sees them.  A failing
+  action plan (a `check` mismatch) fails the run.
+- **A mid-shot suspension replays the shot**: the RunEngine rewinds to the
+  shot's checkpoint and fires again (one extra physical shot, a native
+  file without a row).  `GeecsDetector` is `Pausable` for this: its
+  `resume()` drops the frames no row referenced (`discard_uncollected`)
+  so the replayed row references its own frame — outside fly mode only
+  (a gated batch keeps its cut frames itself).  The operator's immediate
+  pause takes the same path.
+- Trip and clear log at WARNING as `INTERLOCK TRIPPED: <name>: <reason>`
+  / `INTERLOCK CLEARED: <name>`.
 
 ## The worker (`qserver/`)
 

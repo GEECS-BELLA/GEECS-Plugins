@@ -35,6 +35,7 @@ from geecs_schemas import (
     ActionPlan,
     ActionPlanLibrary,
     ExperimentDefaults,
+    InterlockSet,
     Preset,
     OptimizerConfig,
     ScanVariables,
@@ -155,6 +156,15 @@ class ConfigResolver(Protocol):
         is recorded for provenance (see the client-side preset expansion,
         :mod:`geecs_bluesky.qs_client.presets`).
         Resolvers without this method are tolerated (no defaults).
+        """
+        ...
+
+    def resolve_interlocks(self) -> InterlockSet | None:
+        """Return the experiment's software interlocks, or ``None`` if none are declared.
+
+        Read once at environment open by the worker's startup profile
+        (:func:`geecs_bluesky.interlocks.install_interlocks`).  Resolvers
+        without this method are tolerated (no interlocks).
         """
         ...
 
@@ -598,6 +608,21 @@ class ConfigsRepoResolver:
             return None
         document = self._load_yaml(path, "experiment defaults", self.DEFAULTS_FILE)
         return ExperimentDefaults.model_validate(document)
+
+    INTERLOCKS_FILE = "interlocks.yaml"
+
+    def resolve_interlocks(self) -> InterlockSet | None:
+        """Load ``<experiment>/interlocks.yaml``; ``None`` if absent.
+
+        An empty file is the empty set.  An invalid document raises
+        (``pydantic.ValidationError``): the startup profile logs it loudly
+        and opens the environment with no interlock armed.
+        """
+        path = self._root / self.INTERLOCKS_FILE
+        if not path.exists():
+            return None
+        document = self._load_yaml(path, "interlocks", self.INTERLOCKS_FILE)
+        return InterlockSet.model_validate(document or {})
 
     SHOT_OFFSETS_FILE = "shot_offsets.yaml"
 

@@ -39,6 +39,17 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROBE_TIMEOUT_S = 2.0
 
 
+def reading_invalid(reading: Mapping[str, Any]) -> bool:
+    """Whether the gateway marked *reading* INVALID (the device is down).
+
+    The CA gateway sets INVALID severity on every readback of a device
+    whose stream to it is down (``GeecsCAGateway/PV_CONTRACT.md``): the
+    value served is stale.  The aioca backend maps CA's INVALID (3) to
+    ``-1``; NO_ALARM, MINOR and MAJOR (0, 1, 2) carry live values.
+    """
+    return reading.get("alarm_severity", 0) not in (0, 1, 2)
+
+
 def read_disconnected(
     signals: Mapping[str, Any], *, unreadable_level: int = logging.DEBUG
 ):

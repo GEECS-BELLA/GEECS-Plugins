@@ -500,6 +500,93 @@ The action plans every scan of the experiment runs by default.
 | `setup` | `list[str]` | no | empty | Names of action plans to run before every scan, ahead of any setup plans the scan itself lists. |
 | `closeout` | `list[str]` | no | empty | Names of action plans to run after every scan, after any closeout plans the scan itself lists (teardown mirrors setup: these are the outermost bracket). |
 
+## `interlocks`
+
+### InterlockSet
+
+The experiment's software interlocks, armed on the scan worker.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `interlocks` | `list[Interlock]` | no | empty | The interlocks, in display order. |
+
+Example:
+
+```yaml
+schema_version: 1
+# each interlock pauses the scan while unsafe, runs on_trip once, and
+# resumes once safe for settle_s; a disconnected device is always unsafe
+interlocks:
+  - name: chamber vacuum
+    condition:
+      kind: threshold
+      device: U_HP_Vacuum
+      variable: Pressure
+      operator: ">"
+      limit: 1.0e-5
+      hysteresis: 2.0e-6
+    on_trip: close_shutters
+    before_resume: open_shutters
+    settle_s: 5
+  - name: gauge alive
+    condition:
+      kind: stale
+      device: U_HP_Vacuum
+      max_age_s: 3
+```
+
+### Interlock
+
+One interlock: a condition, and what to do when it trips.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `name` | `str` | yes | — | Short name shown to operators and on the status stream. |
+| `description` | `str` | no | '' | Optional note on what this interlock protects. |
+| `enabled` | `bool` | no | True | Set false to keep the entry without arming it. |
+| `condition` | `ThresholdCondition \| AlignmentCondition \| StaleCondition` | yes | — | The condition that makes this interlock unsafe. |
+| `on_trip` | `str (optional)` | no | None | Action plan (from the experiment's action library) to run once when the interlock trips, e.g. 'close_shutters'. |
+| `before_resume` | `str (optional)` | no | None | Action plan to run once the condition is safe again, just before the scan resumes. |
+| `settle_s` | `float` | no | 0.0 | Seconds to wait after the condition is safe again before resuming. |
+
+### ThresholdCondition
+
+Unsafe when a variable crosses a limit.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'threshold'` | yes | — | Condition type. 'threshold' compares one variable to a limit. |
+| `device` | `str` | yes | — | Device to watch, e.g. 'U_HP_Vacuum'. |
+| `variable` | `str` | yes | — | Variable on the device, e.g. 'Pressure'. |
+| `operator` | `'<' \| '<=' \| '>' \| '>='` | yes | — | The reading is UNSAFE when 'value <operator> limit' holds, e.g. '>' trips above the limit. |
+| `limit` | `float` | yes | — | The limit the reading is compared against. |
+| `hysteresis` | `float` | no | 0.0 | How far back past the limit the reading must come before the interlock counts as safe again (0 = resume as soon as it is back). |
+
+### AlignmentCondition
+
+Unsafe when a variable strays from a target variable by ``tolerance`` or more.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'alignment'` | yes | — | Condition type. 'alignment' compares a variable with a target variable. |
+| `device` | `str` | yes | — | Device carrying the watched variable. |
+| `variable` | `str` | yes | — | The watched variable, e.g. 'CentroidX'. |
+| `target_device` | `str (optional)` | no | None | Device carrying the target variable (default: the same device). |
+| `target_variable` | `str` | yes | — | The target variable, e.g. 'TargetX'. |
+| `tolerance` | `float` | yes | — | UNSAFE when \|value - target\| is this large or larger (in the variable's units). |
+| `hysteresis` | `float` | no | 0.0 | How much closer than the tolerance the value must come before the interlock counts as safe again. |
+
+### StaleCondition
+
+Unsafe when a device stops publishing.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'stale'` | yes | — | Condition type. 'stale' trips when a device stops publishing. |
+| `device` | `str` | yes | — | Device to watch. |
+| `max_age_s` | `float (optional)` | no | None | Seconds without a new acq_timestamp before the device counts as stale. Leave empty to trip only on a disconnect. |
+
 ## `derived_channels`
 
 ### DerivedChannels

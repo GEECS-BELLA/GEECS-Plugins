@@ -28,9 +28,9 @@ from ophyd_async.core import (
 from geecs_bluesky.devices.background import (
     BackgroundSnapshot,
     _blank,
-    _invalid,
 )
 from geecs_bluesky.devices.ca import CaMotor, CaSnapshotReadable
+from geecs_bluesky.devices.ca.liveness import reading_invalid as _invalid
 from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.shot_control import ShotControl
 from geecs_bluesky.plans.registry import (

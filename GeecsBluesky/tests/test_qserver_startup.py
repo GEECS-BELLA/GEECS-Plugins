@@ -406,3 +406,65 @@ def test_startup_exports_the_device_namespace_and_installs_connect_last(
     assert logging.getLogger("geecs_bluesky").level == logging.INFO
     funcs = [getattr(p, "func", p) for p in ns["RE"].preprocessors]
     assert funcs[-1] is connect_on_demand and funcs.count(connect_on_demand) == 1
+
+
+def _run_with_interlocks(monkeypatch: pytest.MonkeyPatch, resolve) -> dict:
+    """Run the profile over the fixture roster with ``resolve_interlocks`` stubbed."""
+    from geecs_bluesky.config_resolver import ConfigsRepoResolver
+    from geecs_bluesky.namespace import GeecsNamespace
+
+    monkeypatch.setenv("QS_EXPERIMENT", "TestExp")
+    monkeypatch.setenv("QS_DEVICE_NAMESPACE", "db")
+    monkeypatch.setattr(
+        GeecsNamespace,
+        "from_experiment",
+        classmethod(
+            lambda cls, exp, **kw: cls(
+                _make_roster(), motor_targets=kw.get("motor_targets")
+            )
+        ),
+    )
+    monkeypatch.setattr(ConfigsRepoResolver, "resolve_interlocks", resolve)
+    return runpy.run_path(str(STARTUP_PATH), run_name="__not_main__")
+
+
+def test_startup_installs_the_interlocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every enabled entry is in the registry; with no gateway here it is not armed, by name."""
+    pytest.importorskip("aioca")
+    from geecs_schemas import InterlockSet
+
+    interlocks = InterlockSet.model_validate(
+        {
+            "interlocks": [
+                {
+                    "name": "magnet",
+                    "condition": {
+                        "kind": "threshold",
+                        "device": "U_S1H",
+                        "variable": "Current",
+                        "operator": ">",
+                        "limit": 5,
+                    },
+                }
+            ]
+        }
+    )
+    ns = _run_with_interlocks(monkeypatch, lambda self: interlocks)
+    registry = ns["_interlocks"]
+    assert list(registry.unarmed) == ["magnet"]
+    assert "not connected: U_S1H" in registry.unarmed["magnet"]
+    assert ns["RE"].suspenders == ()
+    assert "_interlocks" not in ns["__all__"]
+
+
+def test_an_unreadable_interlocks_document_arms_nothing_and_starts(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    pytest.importorskip("aioca")
+
+    def broken(self):
+        raise ValueError("bad interlocks.yaml")
+
+    ns = _run_with_interlocks(monkeypatch, broken)
+    assert ns["_interlocks"] is None and "RE" in ns
+    assert any("NO interlock is armed" in r.getMessage() for r in caplog.records)
