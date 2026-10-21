@@ -102,7 +102,8 @@ geecs_bluesky/
   actions/compiler.py       # ActionPlan → plan stubs; the namespace is its SettableFactory
   interlocks/               # software interlocks: conditions.py (the pure verdict),
                             #   suspender.py (GeecsInterlockSuspender, the ophyd-async
-                            #   adapter), install.py (install_interlocks, the registry)
+                            #   adapter), install.py (install_interlocks, the registry),
+                            #   status_server.py (the TCP status stream for LabVIEW)
   run_engine.py             # make_run_engine: RE + claim + headers + callbacks (+ the spool)
   preprocessors.py          # connect_on_demand (installed outermost), scalar_headers
   callbacks/                # the run's GEECS outputs, per run: scan_info.py (ScanInfo ini),
@@ -677,7 +678,19 @@ The rules:
   (a gated batch keeps its cut frames itself).  The operator's immediate
   pause takes the same path.
 - Trip and clear log at WARNING as `INTERLOCK TRIPPED: <name>: <reason>`
-  / `INTERLOCK CLEARED: <name>`.
+  / `INTERLOCK CLEARED: <name>` (`log_markers`); `qs_client.progress`
+  matches them in the console stream, so the scanner shows
+  `paused: interlock <name>: <reason>` during a run (never between runs).
+- **The status stream** (`status_server.py`, started by the profile when
+  `config.ini [interlocks] status_port` is set) keeps the retired
+  `geecs_python_api` server's wire format byte for byte, because a LabVIEW
+  VI reads it: every 0.1 s per client, a 4-byte big-endian length, then
+  `SAFE: <name> | WARNING! <name> UNSAFE - <reason> | …` (`WARNING:
+  <name> UNSAFE` with no reason, `WARNING! No monitors registered` with no
+  interlock; a `|` in a name or reason is sent as `/`).  It reads the
+  registry's cached verdicts, never a PV, and runs for the environment's
+  lifetime — between scans too.  A taken or malformed port logs ERROR and
+  the worker runs without it.  Never change the format without the VI.
 
 ## The worker (`qserver/`)
 
@@ -918,6 +931,9 @@ command) and never imports the gateway (circular).
 - `[Database]`: `GeecsDb`.
 - `[qserver]`: `qs_client`'s own reader, which falls back rather than raising
   on a malformed file (the client seam's manager addresses).
+- `[interlocks] status_port` / `status_host`: optional — the interlock
+  status stream's listen address (`interlocks.status_server`); no port, no
+  stream; the host defaults to every interface.
 - `[scan_mode] client_ip`: optional — the address *string* announced in
   `ScanStart`/`ScanEnd` when the devices know the worker's host by a name
   rather than its bare IP; it must resolve to the local IP (the startup

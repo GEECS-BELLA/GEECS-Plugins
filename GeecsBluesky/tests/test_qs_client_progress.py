@@ -65,6 +65,42 @@ def test_a_failed_move_pauses_until_the_next_row() -> None:
     assert snap.state == "running" and snap.paused_reason is None
 
 
+def test_an_interlock_trip_pauses_with_its_reason_until_the_next_row() -> None:
+    from geecs_bluesky.log_markers import (
+        INTERLOCK_CLEARED_LOG_PREFIX,
+        INTERLOCK_TRIPPED_LOG_PREFIX,
+    )
+
+    stream = ProgressStream()
+    _gated_run(stream)
+    stream.on_console_line(
+        f"WARNING geecs_bluesky.interlocks.install: {INTERLOCK_TRIPPED_LOG_PREFIX}: "
+        "vacuum: Pressure=0.001 (limit: >1e-05)",
+        FAILED_MOVE_LOG_PREFIX,
+    )
+    snap = stream.snapshot()
+    assert snap.state == "paused"
+    assert snap.paused_reason == "interlock vacuum: Pressure=0.001 (limit: >1e-05)"
+    stream.on_console_line(
+        f"{INTERLOCK_CLEARED_LOG_PREFIX}: vacuum", FAILED_MOVE_LOG_PREFIX
+    )
+    assert stream.snapshot().paused_reason == "interlock vacuum cleared — resuming"
+    stream.on_document("event", {"descriptor": "s", "seq_num": 10})
+    snap = stream.snapshot()
+    assert snap.state == "running" and snap.paused_reason is None
+
+
+def test_an_interlock_trip_between_runs_pauses_nothing() -> None:
+    from geecs_bluesky.log_markers import INTERLOCK_TRIPPED_LOG_PREFIX
+
+    stream = ProgressStream()
+    stream.on_console_line(
+        f"{INTERLOCK_TRIPPED_LOG_PREFIX}: vacuum: no data", FAILED_MOVE_LOG_PREFIX
+    )
+    snap = stream.snapshot()
+    assert snap.state != "paused" and snap.paused_reason is None
+
+
 def test_a_stop_for_another_run_is_ignored() -> None:
     stream = ProgressStream()
     _gated_run(stream)

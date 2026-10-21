@@ -4,7 +4,8 @@
 manager's console-output stream on daemon threads and reduces them to one
 :class:`RunProgress`: the start document seeds the scan number and the
 planned total, row events advance ``shots_done``, the stop document
-records the exit, and a failed-move console line is the paused reason.
+records the exit, and a failed-move or interlock console line is the
+paused reason.
 Clients render that snapshot in their own wire shape.
 
 Best-effort by design.  A zmq socket must never be touched from another
@@ -23,6 +24,11 @@ from collections.abc import Callable
 from typing import Any, Optional
 
 from pydantic import BaseModel
+
+from geecs_bluesky.log_markers import (
+    INTERLOCK_CLEARED_LOG_PREFIX,
+    INTERLOCK_TRIPPED_LOG_PREFIX,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,12 +110,28 @@ class ProgressStream:
             self._version += 1
 
     def on_console_line(self, text: str, failed_move_prefix: Optional[str]) -> None:
-        """Take one console line; a failed-move line pauses the picture."""
+        """Take one console line; a failed-move or interlock-trip line pauses the picture.
+
+        An interlock trip pauses only a running picture (a trip between
+        runs pauses nothing); its clear line updates the reason, and the
+        next row resumes the picture as after any pause.
+        """
         with self._lock:
             if failed_move_prefix and failed_move_prefix in text:
                 reason = text.split(failed_move_prefix, 1)[1].lstrip(" :-").strip()
                 self._progress.paused_reason = reason or text
                 self._progress.state = "paused"
+            elif INTERLOCK_TRIPPED_LOG_PREFIX in text:
+                if self._progress.state in ("running", "paused"):
+                    reason = _after(text, INTERLOCK_TRIPPED_LOG_PREFIX)
+                    self._progress.paused_reason = f"interlock {reason}"
+                    self._progress.state = "paused"
+            elif INTERLOCK_CLEARED_LOG_PREFIX in text:
+                if self._progress.state == "paused":
+                    name = _after(text, INTERLOCK_CLEARED_LOG_PREFIX)
+                    self._progress.paused_reason = (
+                        f"interlock {name} cleared — resuming"
+                    )
             self._version += 1
 
     def _reduce(self, name: str, doc: dict, now: float) -> None:
@@ -248,6 +270,11 @@ class ProgressStream:
                         self.on_console_line(line, FAILED_MOVE_LOG_PREFIX)
         except Exception as exc:  # noqa: BLE001 — best-effort by design
             logger.warning("console stream at %s unavailable: %s", info_addr, exc)
+
+
+def _after(text: str, prefix: str) -> str:
+    """What follows *prefix* in a log line, without the separating ``: ``."""
+    return text.split(prefix, 1)[1].lstrip(" :-").strip()
 
 
 def _planned_total(doc: dict) -> Optional[int]:

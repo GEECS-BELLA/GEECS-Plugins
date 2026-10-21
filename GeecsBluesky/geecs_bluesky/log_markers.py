@@ -18,3 +18,10 @@ from __future__ import annotations
 #: today; the clients keep matching it, so the spelling is pinned here and
 #: re-exported by ``geecs_bluesky.qs_client``.
 FAILED_MOVE_LOG_PREFIX = "FAILED MOVE - pausing for operator"
+
+#: An interlock's trip and clear lines, ``f"{INTERLOCK_TRIPPED_LOG_PREFIX}:
+#: <name>: <reason>"`` and ``f"{INTERLOCK_CLEARED_LOG_PREFIX}: <name>"``
+#: (WARNING, :mod:`geecs_bluesky.interlocks`), which the progress stream
+#: matches in the manager's console output to show why a run paused.
+INTERLOCK_TRIPPED_LOG_PREFIX = "INTERLOCK TRIPPED"
+INTERLOCK_CLEARED_LOG_PREFIX = "INTERLOCK CLEARED"

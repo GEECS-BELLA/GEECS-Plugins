@@ -37,6 +37,7 @@ from geecs_bluesky.config_resolver import ConfigsRepoResolver
 from geecs_bluesky.devices.background import warm_up_on
 from geecs_bluesky.devices.scan_mode import ScanModeControl
 from geecs_bluesky.interlocks import install_interlocks
+from geecs_bluesky.interlocks.status_server import start_status_server
 from geecs_bluesky.namespace import GeecsNamespace, motor_targets
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
@@ -223,6 +224,11 @@ if not _hermetic:
         _interlocks = install_interlocks(
             RE, _interlock_set, namespace, _resolver, timeout=_connect_timeout()
         )
+    # The status stream the LabVIEW side reads (the retired server's wire
+    # format), from config.ini [interlocks] status_host / status_port — off
+    # when no port is set.  Reports the registry's verdicts for the
+    # environment's lifetime, between scans too.
+    _interlock_status = start_status_server(_interlocks)
 
 # The plans the manager discovers (every generator function in this
 # namespace is a plan to it — profile_ops.plans_from_nspace): the stock

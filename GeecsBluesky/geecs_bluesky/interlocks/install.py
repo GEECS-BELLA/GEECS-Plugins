@@ -42,6 +42,10 @@ from geecs_bluesky.actions.steps import flatten_action_steps
 from geecs_bluesky.devices.background import WARM_UP_TIMEOUT_S, warm_up_on
 from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.exceptions import GeecsError
+from geecs_bluesky.log_markers import (
+    INTERLOCK_CLEARED_LOG_PREFIX,
+    INTERLOCK_TRIPPED_LOG_PREFIX,
+)
 from geecs_bluesky.interlocks.conditions import Verdict
 from geecs_bluesky.interlocks.suspender import (
     GeecsInterlockSuspender,
@@ -51,10 +55,10 @@ from geecs_bluesky.interlocks.suspender import (
 
 logger = logging.getLogger(__name__)
 
-#: The log line's prefixes for a trip and a clear (WARNING, the journal and
-#: the manager's console stream).
-TRIPPED_LOG_PREFIX = "INTERLOCK TRIPPED"
-CLEARED_LOG_PREFIX = "INTERLOCK CLEARED"
+# The trip / clear lines are a client-parsed contract (the progress
+# stream's paused reason), so their spelling lives in log_markers.
+TRIPPED_LOG_PREFIX = INTERLOCK_TRIPPED_LOG_PREFIX
+CLEARED_LOG_PREFIX = INTERLOCK_CLEARED_LOG_PREFIX
 
 
 @dataclass(frozen=True)
