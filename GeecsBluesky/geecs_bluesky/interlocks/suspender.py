@@ -154,6 +154,7 @@ class GeecsInterlockSuspender(SuspenderBase):
         self._stamp_at: float | None = None
         self._timer: Any = None
         self._verdict: Verdict | None = None
+        self._changed_at: float | None = None
         self._grace_over = False
         handlers: list[tuple[Any, ReadingCallback]] = []
         if watched.value is not None:
@@ -185,6 +186,15 @@ class GeecsInterlockSuspender(SuspenderBase):
     def verdict(self) -> Verdict | None:
         """The latest verdict (``None`` before the first evaluation)."""
         return self._verdict
+
+    @property
+    def changed_at(self) -> float | None:
+        """Wall-clock seconds (``time.time()``) of the latest verdict change."""
+        return self._changed_at
+
+    def latest_inputs(self) -> Inputs:
+        """The cached readings the next evaluation would read (the detail stream)."""
+        return self._inputs()
 
     def __repr__(self) -> str:
         """The interlock's name and settle time (bluesky prints it on resume)."""
@@ -308,6 +318,8 @@ class GeecsInterlockSuspender(SuspenderBase):
             return False
         verdict = evaluate(self._condition, self._inputs(), tripped=self._tripped)
         previous, self._verdict = self._verdict, verdict
+        if verdict != previous:
+            self._changed_at = time.time()
         # A first verdict of "safe" is no change worth reporting (nothing
         # was tripped); a first "unsafe" is.
         changed = verdict != previous and (previous is not None or verdict.unsafe)

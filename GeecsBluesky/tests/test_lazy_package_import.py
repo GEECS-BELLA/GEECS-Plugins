@@ -60,3 +60,31 @@ def test_package_and_qs_client_import_light() -> None:
         text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+_INTERLOCK_CLIENT_CODE = """
+import sys
+
+import geecs_bluesky.interlocks.wire
+
+try:
+    import PyQt6.QtWidgets
+except ImportError:
+    pass
+else:
+    import geecs_bluesky.interlocks.gui.client
+    import geecs_bluesky.interlocks.gui.server
+
+for heavy in ("aioca", "ophyd_async", "bluesky", "geecs_schemas"):
+    assert heavy not in sys.modules, f"interlock client import pulled {heavy}"
+"""
+
+
+def test_the_interlock_windows_import_light() -> None:
+    """The interlock wire format and windows run on a desktop without the device stack."""
+    result = subprocess.run(
+        [sys.executable, "-c", _INTERLOCK_CLIENT_CODE],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr

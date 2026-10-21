@@ -352,3 +352,15 @@ def test_readings_present_at_install_give_no_transient_trip(RE: RunEngine) -> No
     time.sleep(0.1)
     assert suspender.verdict is not None and not suspender.verdict.unsafe
     assert changes == []  # a first "safe" is not reported as a clear
+
+
+def test_the_cached_inputs_and_the_change_time_are_readable(RE: RunEngine) -> None:
+    """What the detail stream reads: the latest readings, and when the verdict last changed."""
+    gauge = _gauge(RE)
+    suspender = _install(RE, gauge, _interlock())
+    assert suspender.latest_inputs().value.value == SAFE
+    before = time.time()
+    set_mock_value(gauge.pressure, UNSAFE)
+    assert suspender.tripped
+    assert suspender.latest_inputs().value.value == UNSAFE
+    assert suspender.changed_at is not None and suspender.changed_at >= before

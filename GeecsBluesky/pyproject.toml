@@ -66,12 +66,17 @@ bluesky-queueserver-api = { version = "^0.0.13", optional = true }
 # clients", and the worker needs both.
 p4p = { version = ">=4.1", optional = true }
 
+# The interlock windows (geecs_bluesky.interlocks.gui): operator desktops
+# only, never the worker — the worker serves the streams they read.
+pyqt6 = { version = ">=6.5", optional = true }
+
 [tool.poetry.extras]
 tiled = ["tiled"]
 ca = ["aioca", "p4p"]
 optimize = ["xopt", "gest-api", "geecs-analysis"]
 qserver = ["bluesky-queueserver"]
 qs-client = ["bluesky-queueserver-api"]
+gui = ["pyqt6"]
 
 [tool.poetry.scripts]
 # The service-start readiness assertion (#793): the geecs-qserver-ready
@@ -81,6 +86,10 @@ geecs-qserver-ensure-ready = "geecs_bluesky.qs_client.ready:main"
 # engine thread (tiled/writer.py; the unit template beside the qserver's).
 # Needs the tiled extra.
 geecs-tiled-writer = "geecs_bluesky.tiled.writer:main"
+# The interlock windows over the worker's status / detail streams; need the
+# gui extra.
+geecs-interlock-client = "geecs_bluesky.interlocks.gui.client:main"
+geecs-interlock-server-gui = "geecs_bluesky.interlocks.gui.server:main"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"

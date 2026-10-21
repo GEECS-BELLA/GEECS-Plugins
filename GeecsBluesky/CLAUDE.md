@@ -701,6 +701,23 @@ The rules:
   environment's lifetime — between scans too.  A taken or malformed port
   logs ERROR and the worker runs without it.  Never change the format
   without the VI.
+- **The detail stream** (`detail.py`, on `[interlocks] detail_port`, same
+  host and framing) is the second, read-only feed: one JSON document per
+  frame every 0.25 s (`"v": 1`) — each interlock's condition, live value
+  and limit on one axis, action plans, settle and last-change time, the
+  status stream's address, clients and frame count, and `RE.state`.  Its
+  states come from the same `registry.snapshot()` as the status frame,
+  which it also carries verbatim (`"frame"`), so the two never disagree.
+- **The windows** (`interlocks/gui/`, the `gui` extra, PyQt6 with Qt's
+  default style — no style sheets; only the state colours are set, via
+  palette and item brushes): `geecs-interlock-client` reads the status
+  stream (full window + compact always-on-top strip) and
+  `geecs-interlock-server-gui` the detail stream.  Both judge silence as
+  **NO SIGNAL** (no frame for 1 s / 2 s), never as the last verdict seen.
+  They and `interlocks/wire.py` (framing + `parse_status`) are
+  import-light — no bluesky (`bluesky-client-side-is-light` contract and
+  `test_lazy_package_import.py`); `interlocks/__init__` re-exports lazily
+  for that.
 
 ## The worker (`qserver/`)
 
@@ -943,7 +960,9 @@ command) and never imports the gateway (circular).
   on a malformed file (the client seam's manager addresses).
 - `[interlocks] status_port` / `status_host`: optional — the interlock
   status stream's listen address (`interlocks.status_server`); no port, no
-  stream; the host defaults to every interface.
+  stream; the host defaults to every interface.  `detail_port`: optional —
+  the detail stream's port on the same host (`interlocks.detail`); no
+  port, no stream.  The two windows read the same keys for their defaults.
 - `[scan_mode] client_ip`: optional — the address *string* announced in
   `ScanStart`/`ScanEnd` when the devices know the worker's host by a name
   rather than its bare IP; it must resolve to the local IP (the startup

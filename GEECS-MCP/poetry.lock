@@ -1633,6 +1633,7 @@ p4p = {version = ">=4.1", optional = true}
 
 [package.extras]
 ca = ["aioca (>=1.7)", "p4p (>=4.1)"]
+gui = ["pyqt6 (>=6.5)"]
 optimize = ["geecs-analysis @ file:///GEECS-Plugins/GEECS-Analysis", "gest-api (>=0.1,<0.2)", "xopt (>=3.1,<4.0)"]
 qs-client = ["bluesky-queueserver-api (>=0.0.13,<0.0.14)"]
 qserver = ["bluesky-queueserver (>=0.0.25,<0.0.26)"]

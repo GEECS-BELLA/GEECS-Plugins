@@ -78,6 +78,9 @@ class InterlockRegistry:
     suspenders: list[GeecsInterlockSuspender] = field(default_factory=list)
     #: Interlock name → why it is not armed, in document order.
     unarmed: dict[str, str] = field(default_factory=dict)
+    #: Interlock name → its document entry, for every enabled interlock
+    #: (armed or not): what the detail stream describes.
+    entries: dict[str, Interlock] = field(default_factory=dict)
 
     def snapshot(self) -> list[InterlockStatus]:
         """Every interlock's current state, armed ones first, in document order.
@@ -157,6 +160,7 @@ def install_interlocks(
     for interlock in interlock_set.interlocks:
         if not interlock.enabled:
             continue
+        registry.entries[interlock.name] = interlock
         try:
             watched = _watch(interlock, namespace)
             pre_plan, pre_devices = _action(

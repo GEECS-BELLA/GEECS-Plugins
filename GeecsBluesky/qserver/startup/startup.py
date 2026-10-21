@@ -37,6 +37,7 @@ from geecs_bluesky.config_resolver import ConfigsRepoResolver
 from geecs_bluesky.devices.background import warm_up_on
 from geecs_bluesky.devices.scan_mode import ScanModeControl
 from geecs_bluesky.interlocks import install_interlocks
+from geecs_bluesky.interlocks.detail import start_detail_server
 from geecs_bluesky.interlocks.status_server import start_status_server
 from geecs_bluesky.namespace import GeecsNamespace, motor_targets
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
@@ -229,6 +230,10 @@ if not _hermetic:
     # when no port is set.  Reports the registry's verdicts for the
     # environment's lifetime, between scans too.
     _interlock_status = start_status_server(_interlocks)
+    # The detail stream the interlock server window reads (JSON: conditions,
+    # live values, the status stream's clients, the RunEngine's state), from
+    # [interlocks] detail_port — off when no port is set.  Read-only.
+    _interlock_detail = start_detail_server(_interlocks, _interlock_status, RE)
 
 # The plans the manager discovers (every generator function in this
 # namespace is a plan to it — profile_ops.plans_from_nspace): the stock
