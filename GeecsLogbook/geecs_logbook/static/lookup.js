@@ -55,7 +55,11 @@
       render();
     } catch (err) {
       if (seq !== L.seq) return;
-      $("lk-note").textContent = `Could not read the day: ${err.message}`;
+      // A first read that failed (a share blip, a 503) must not stick:
+      // reopening the panel tries again rather than needing a page reload.
+      if (!L.data) L.loaded = false;
+      $("lk-note").textContent = `Could not read the day: ${err.message}` +
+        (L.data ? "" : " — close and reopen this panel to try again.");
     }
   }
 

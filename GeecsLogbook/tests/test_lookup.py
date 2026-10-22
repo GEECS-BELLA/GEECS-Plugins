@@ -244,3 +244,60 @@ class TestTheDayPage:
         assert "data-lookup" in html and "/static/lookup.js" in html
         # Expand-all never opens the lookup: opening it reads every s-file.
         assert "details.scan:not(.lookup)" in html
+
+
+#: A DOM just big enough for lookup.js: the elements it looks up, listeners
+#: that tests can fire, and a fetch that fails once then answers.
+_HARNESS = r"""
+const listeners = {};
+const el = (id) => ({
+  id, hidden: false, textContent: "", value: "", dataset: { api: "/api", day: "2026-09-11" },
+  open: false, className: "", title: "",
+  setAttribute() {}, appendChild() {},
+  addEventListener(kind, fn) { (listeners[id + ":" + kind] = listeners[id + ":" + kind] || []).push(fn); },
+});
+const els = {};
+const panel = el("lookup");
+global.document = {
+  getElementById: (id) => (els[id] = els[id] || el(id)),
+  querySelector: () => panel,
+  createElement: () => el("x"),
+};
+global.location = { search: "", pathname: "/day/2026-09-11", hash: "" };
+global.history = { replaceState() {} };
+let calls = 0;
+global.fetch = async () => {
+  calls += 1;
+  if (calls === 1) throw new Error("share unavailable");
+  return { ok: true, json: async () => ({ columns: [], default_columns: [], shown: [], rows: [] }) };
+};
+const tick = () => new Promise((r) => setTimeout(r, 0));
+const toggle = async (open) => { panel.open = open; for (const fn of listeners["lookup:toggle"] || []) fn(); await tick(); await tick(); };
+(async () => {
+  require(process.argv[2]);
+  await toggle(true);            // first open: the read fails
+  await toggle(false);
+  await toggle(true);            // reopen: must try again
+  await toggle(false);
+  await toggle(true);            // and once it has data, never again
+  console.log(JSON.stringify({ calls }));
+})();
+"""
+
+
+def test_a_failed_first_read_is_retried_on_reopen(tmp_path: Path) -> None:
+    """A share blip on the first open must not leave the panel dead until a reload."""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:  # pragma: no cover - CI and dev machines have it
+        pytest.skip("node not available")
+    script = Path(__file__).parents[1] / "geecs_logbook" / "static" / "lookup.js"
+    harness = tmp_path / "harness.js"
+    harness.write_text(_HARNESS)
+    done = subprocess.run(
+        [node, str(harness), str(script)], capture_output=True, text=True, timeout=30
+    )
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout.strip().splitlines()[-1]) == {"calls": 2}
