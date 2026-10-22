@@ -234,6 +234,14 @@ description: "after the Amp4 server rebuild"
 # stamp before matching frames to rows, so adding a constant to every entry
 # changes nothing. A device absent here keeps 0.0.
 """,
+    "native_devices": """\
+schema_version: 1
+# Devices served by native EPICS IOCs (geecs-epics), not the GEECS DB.
+# The PV prefix is derived: <experiment>:<device>: (GEECS normalization).
+devices:
+  UC_ExampleCam: {kind: aravis_camera, trigger_source: software}
+  UC_OtherCam: {kind: aravis_camera, trigger_source: line1}
+""",
     "analysis_recipe": """\
 schema_version: 3
 device: UC_TopView               # the device folder under scans/ScanNNN/; stems the products

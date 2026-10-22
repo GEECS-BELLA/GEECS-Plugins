@@ -654,6 +654,37 @@ One device's measured edge-to-stamp latency, relative to the reference.
 | `shots` | `int` | no | 1 | How many complete shots were averaged into this offset. A shot counts only when every device in the set delivered, so this is the same for every device of one measurement; shots that some device missed were discarded and retaken, and appear only in the calibration plan's log. |
 | `geecs_device` | `str` | no | '' | GEECS device name this offset was measured for, e.g. 'UC_Amp3_IR_input'. Informational: the mapping key is the ophyd object name the runtime uses. |
 
+## `native_devices`
+
+### NativeDevices
+
+The experiment's devices served by native EPICS IOCs, by GEECS device name.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `devices` | `dict[str, AravisCamera]` | no | empty | GEECS device name (e.g. 'UC_ExampleCam') → its kind and settings. The IOC serves it under the derived prefix '<experiment>:<device>:'; the device must not also be enabled in the GEECS DB. |
+
+Example:
+
+```yaml
+schema_version: 1
+# Devices served by native EPICS IOCs (geecs-epics), not the GEECS DB.
+# The PV prefix is derived: <experiment>:<device>: (GEECS normalization).
+devices:
+  UC_ExampleCam: {kind: aravis_camera, trigger_source: software}
+  UC_OtherCam: {kind: aravis_camera, trigger_source: line1}
+```
+
+### AravisCamera
+
+A GigE Vision camera behind ADAravis, writing HDF5 through its IOC's own file plugin.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'aravis_camera'` | yes | — | Device kind: 'aravis_camera' (an areaDetector ADAravis camera). |
+| `trigger_source` | `'line1' \| 'software'` | yes | — | Where each frame comes from. 'line1': the camera's hardware input, wired to a timing-system output gated by the trigger box. 'software': the scan worker presses the camera's software trigger at each shot (exposed when the worker says go, not when the laser fires). |
+
 ## `analysis_recipe`
 
 ### AnalysisRecipe
