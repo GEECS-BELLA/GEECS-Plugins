@@ -61,7 +61,7 @@ devices:
   (`<experiment>:<device>:`, GEECS normalization), so it cannot drift from
   `ioc.yaml`; the record suffixes are fixed per kind (`cam:`, `hdf1:`).
   No hosts, no paths: facility values keep their one home.
-- Schema `geecs_schemas.epics.NativeDevices` (v1); `kind` a discriminated
+- Schema a new GEECS-Schemas model (proposed: NativeDevices in an epics module) (v1); `kind` a discriminated
   union. Read through `ConfigsRepoResolver` like every configs document.
 - geecs-epics CI checks every registry name has a `services/*/ioc.yaml`
   serving the derived prefix (it reads the configs repo; not the reverse).
@@ -81,7 +81,7 @@ devices:
   open, naming both owners. The existing check compares the roster only
   with itself.
 
-## 3. The device — `devices/native.py::NativeCamera`
+## 3. The device — the proposed NativeCamera (a new native module under devices/)
 
 A `StandardDetector` over stock AD IO (`AravisDriverIO`, `NDFileHDF5IO`)
 with GEECS logics:
@@ -120,7 +120,7 @@ with GEECS logics:
   camera's power-up clock). The per-frame wall clock is the EPICS
   timestamp pair the writer always stores, `NDArrayEpicsTSSec` +
   `NDArrayEpicsTSnSec` (1990 epoch). So **the reader computes it**:
-  `scan_stack.timestamps_dataset` / `read_stack_timestamps` learn the pair
+  `scan_stack.frame_stamps` reads the pair (`timestamps_dataset` stays GEECS-only)
   (Unix = `sec + 631152000 + nsec·1e-9`) beside the two GEECS spellings —
   any stock areaDetector stack becomes readable, and `is_stack_file`
   accepts it. `NativeCamera`'s event column reads the same pair from the
@@ -165,8 +165,8 @@ with GEECS logics:
 
 ## 5. Where the changes land
 
-- **GEECS-Schemas**: `geecs_schemas.epics.NativeDevices` + docgen.
-- **GeecsBluesky**: `devices/native.py`, the POSIX path provider, the
+- **GEECS-Schemas**: a new GEECS-Schemas model (proposed: NativeDevices in an epics module) + docgen.
+- **GeecsBluesky**: a new native module under devices/ (proposed), the POSIX path provider, the
   namespace merge + ownership check, the bind-time refusals, the stack
   check's `/entry` finalized read, `CLAUDE.md`.
 - **GEECS-Data-Utils**: `scan_stack` reads the stock EPICS timestamp pair.
