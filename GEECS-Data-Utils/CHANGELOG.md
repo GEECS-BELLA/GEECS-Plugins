@@ -3,6 +3,44 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.53.0] - 2026-10-22
+
+### Added
+
+- Stock areaDetector `NDFileHDF5` stacks are read: the per-frame stamp
+  from the `NDArrayEpicsTSSec`/`NDArrayEpicsTSnSec` pair (EPICS epoch) and
+  `finalized` on `/entry`; `io.scan_stack.frame_stamps` /
+  `stack_finalized` serve both the gateway's and the stock layout (#1116).
+- Scan-mode files join rows by `announced_shot`
+  (`tiled_schema.ANNOUNCED_SHOT_COLUMN`) instead of the row index (#1089).
+- `geecs_data_utils.scan_info`: the one home for the scan-folder facts
+  (folder-name parsing, the sibling `analysis/ScanNNN`, the ScanInfo record
+  and end verdict) (#1079).
+- Tables (`io.read_table`, `tables`), frame helpers and the 16-bit PNG
+  writer `io.images.write_png16` for the magspec port (#1091, #1095).
+
+### Fixed
+
+- `analysis_configs.read_yaml_mapping` raises `ValueError` for malformed
+  YAML too, so a consumer dropping invalid configs no longer crashes on a
+  hand-edit typo (#1100).
+
+### Removed
+
+- The legacy analysis config sources in `config_roots` /
+  `geecs_paths_config` (#1105).
+
+### Changed
+
+- Ruff bug-catching rule families on; doc and test updates from the v2
+  deletion (#1072, #1101, #1103, #1106).
+
+### Deploy
+
+- No service of its own: ships with GeecsBluesky (worker) and the Data
+  Portal. Pull + `poetry install` in both checkouts; restart
+  `geecs-qserver` and `geecs-data-portal`.
+
 ## [0.52.0] - 2026-10-07
 
 ### Removed

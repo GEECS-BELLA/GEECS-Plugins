@@ -5,6 +5,43 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.0] - 2026-10-22
+
+### Added
+
+- `NativeDevices` v1 (`geecs_schemas.epics`): the native EPICS device
+  registry, `<experiment>/native_devices.yaml` in the configs repo
+  (`devices: {Name: {kind: aravis_camera, trigger_source: software|line1}}`;
+  no hosts, paths or PV prefixes) (#1118).
+- `HimgJob` (`schema_version: 1`): the `.himg` data-management jobs
+  (`himg_to_stack`, `himg_compact`, `himg_restore`) as a document kind of
+  their own; `load_analysis_document` reads a top-level `kind` as a job
+  (#1097).
+- `TriggerProfile.use_scan_mode` (default off): a strict-only flag under
+  which the worker drives the devices in GEECS scan mode (#1086).
+- `AnalysisRecipe` table inputs (`tables`), for the magspec measure (#1091).
+- `ArchivePolicy` field docs for the gateway's heartbeat /
+  `devices_connected` PVs and the archive deadband (#1083, #1114).
+
+### Removed
+
+- The v2 `AnalysisDiagnostic` document, its analyzer/renderer/runtime
+  models and its published schema. The recipe refuses the v2 layout with a
+  "retired" message (#1103).
+- The `bcave_mag_opt` and `phase_downramp` analyzer kinds (#1087).
+
+### Changed
+
+- Ruff bug-catching rule families and pyright (basic) now run on this
+  package; no behaviour change (#1072, #1073).
+
+### Deploy
+
+- No service of its own: ships with GeecsBluesky (worker) and the Data
+  Portal. Pull + `poetry install` in those checkouts. This version is above
+  the 0.44.0 the hosts already had installed, so the
+  "Downgrading geecs-schemas (0.44.0 -> 0.43.1)" line ends.
+
 ## [0.44.0] - 2026-10-07
 
 ### Added
