@@ -32,6 +32,7 @@ from geecs_bluesky.devices.native import (
 )
 from geecs_bluesky.devices.shot_control import ShotControl
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsDeviceDownError
+from geecs_bluesky.native_scope import NOT_GATED, NOT_NON_ESSENTIAL, NOT_SCAN_MODE
 from geecs_bluesky.plan_names import (
     ACQUISITION_MODES,
     GEECS_PLAN_NAMES,
@@ -418,15 +419,11 @@ def refuse_native_run(
     GeecsConfigurationError
         Naming the native camera(s) and the reason.
     """
-    refuse_native_cameras(non_essential, "not as a non-essential stream")
+    refuse_native_cameras(non_essential, NOT_NON_ESSENTIAL)
     if acquisition == "gated":
-        refuse_native_cameras(detectors, "not in a gated batch")
+        refuse_native_cameras(detectors, NOT_GATED)
     if shot_control.use_scan_mode:
-        refuse_native_cameras(
-            detectors,
-            "not under a scan-mode profile (the IOC never acknowledges "
-            "ScanStart, and a box-less profile fires no edge)",
-        )
+        refuse_native_cameras(detectors, NOT_SCAN_MODE)
     plugin = [
         getattr(d, "name", str(d))
         for d in [*detectors, *non_essential]

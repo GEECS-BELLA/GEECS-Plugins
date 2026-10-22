@@ -44,6 +44,7 @@ from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.native import refuse_native_cameras
+from geecs_bluesky.native_scope import NOT_CALIBRATION
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plans.gated import TRIGGER_PERIOD_S, run_bracket
 from geecs_bluesky.plans.strict import fire_and_await_shot
@@ -659,9 +660,7 @@ def _stamp_views(detectors: Sequence[Any]) -> list[Any]:
     Passing the detector or its view is therefore the same request, and
     both normalise here.
     """
-    refuse_native_cameras(
-        detectors, "not in a shot-offset calibration (it reads GEECS stamps)"
-    )
+    refuse_native_cameras(detectors, NOT_CALIBRATION)
     views: list[Any] = []
     seen: set[int] = set()
     for device in separate_devices(list(detectors)):

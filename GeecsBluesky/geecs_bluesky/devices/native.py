@@ -77,6 +77,7 @@ from geecs_bluesky.devices.detector import (
     plugin_reason,
 )
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsTriggerTimeoutError
+from geecs_bluesky.native_scope import native_refusal
 from geecs_bluesky.utils import is_connected
 
 logger = logging.getLogger(__name__)
@@ -604,7 +605,6 @@ def refuse_native_cameras(devices: Iterable[Any], why: str) -> None:
         Naming every native camera among *devices* and *why*.
     """
     if found := native_cameras(devices):
-        names = ", ".join(c._geecs_device_name for c in found)
         raise GeecsConfigurationError(
-            f"{names}: native EPICS cameras run in strict scans only for now — {why}"
+            native_refusal((c._geecs_device_name for c in found), why)
         )

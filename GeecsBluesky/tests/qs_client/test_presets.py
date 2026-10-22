@@ -283,3 +283,89 @@ def test_generic_reference_resolution_preserves_literal_strings():
         "U_S1H.enable_output",
         "U_EMQTripletBipolar.current_limit_ch1",
     ]
+
+
+# -- a native EPICS camera's refused run shapes, in the worker's words ---------
+
+#: The worker's bind-time sentence (``devices/native.refuse_native_cameras``).
+STRICT_ONLY = "ADTEST_CAM1: native EPICS cameras run in strict scans only for now — "
+
+
+def _native_preset(device: dict, **kwargs) -> Preset:
+    return Preset.model_validate(
+        {
+            "name": "native",
+            "devices": [{"device": "UC_Other"}, device],
+            "plan": {"name": "count", "kwargs": {"num": 2, **kwargs}},
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("device", "kwargs", "why"),
+    [
+        ({"device": "ADTEST_CAM1"}, {"acquisition": "gated"}, "not in a gated batch"),
+        (
+            {"device": "ADTEST_CAM1", "essential": False},
+            {},
+            "not as a non-essential stream",
+        ),
+        (
+            {"device": "ADTEST_CAM1", "essential": False},
+            {"acquisition": "gated"},
+            "not as a non-essential stream",
+        ),
+    ],
+    ids=["gated-essential", "strict-non-essential", "gated-non-essential"],
+)
+def test_a_native_camera_in_a_refused_shape_is_refused_at_expansion(
+    device: dict, kwargs: dict, why: str
+) -> None:
+    """The worker's own sentence, before the preflight's device rules can misread it.
+
+    Those rules read a native camera as a device with no ``acq_timestamp``:
+    a gated run of one was refused as "no essential triggered device".
+    """
+    with pytest.raises(GeecsConfigurationError) as info:
+        expand_preset(_native_preset(device, **kwargs), native_devices={"adtest_cam1"})
+    assert str(info.value) == STRICT_ONLY + why
+
+
+def test_the_strict_essential_shape_of_a_native_camera_expands() -> None:
+    item = expand_preset(
+        _native_preset({"device": "ADTEST_CAM1"}), native_devices={"ADTEST_CAM1"}
+    )
+    assert item.args[0] == ["UC_Other", "ADTEST_CAM1"]
+    # unknown to the registry: a gated run is the preflight's to judge
+    gated = _native_preset({"device": "ADTEST_CAM1"}, acquisition="gated")
+    assert expand_preset(gated).kwargs["acquisition"] == "gated"
+
+
+def test_an_optimize_preset_with_a_native_camera_is_refused_at_expansion() -> None:
+    from types import SimpleNamespace
+
+    from geecs_schemas import OptimizerConfig
+
+    config = OptimizerConfig(
+        vocs={
+            "variables": {"Motor:Current": [-1, 1]},
+            "objectives": {"score": "MINIMIZE"},
+        },
+        measurements={"score": {"signal": "Meter:Value"}},
+        generator={"name": "random"},
+        run={"max_iterations": 3, "shots_per_step": 2},
+    )
+    resolver = SimpleNamespace(
+        resolve_optimizer_config=lambda _: config,
+        resolve_native_devices=lambda: SimpleNamespace(devices={"ADTEST_CAM1": None}),
+    )
+    preset = Preset(
+        name="opt",
+        devices=[{"device": "ADTEST_CAM1"}],
+        plan={"name": "optimize", "kwargs": {"optimizer_config": "test"}},
+    )
+    with pytest.raises(GeecsConfigurationError) as info:
+        expand_preset(preset, resolver=resolver)
+    assert str(info.value) == (
+        STRICT_ONLY + "not in optimize (its live frames are matched on gateway PVs)"
+    )

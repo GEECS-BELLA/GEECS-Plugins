@@ -133,6 +133,8 @@ geecs_bluesky/
                             #   import-light, the scanner imports it)
   # import-light modules the scanner imports (no bluesky, ophyd-async or aioca):
   plan_names.py             # GEECS_PLAN_NAMES and the roster's subsets, ACQUISITION_MODES
+  native_scope.py           # a native camera's refused run shapes, worded once for the
+                            #   worker's bind and the client's expansion
   log_markers.py            # log-line strings clients parse from the manager's text stream
   actions/steps.py          # flatten_action_steps: the one walk of an action plan
   utils.py                  # safe_name, identifier_name, resolve_annotations
@@ -435,7 +437,10 @@ gateway plugin camera in the run; every other shape is refused at bind,
 naming the camera, before the box moves and the claim
 (`registry.refuse_native_run`; `optimize` and the calibration plans
 through `devices/native.refuse_native_cameras`), and `expand_preset`
-refuses its `X.scalars` (`native_devices=`).
+refuses its `X.scalars` (`native_devices=`) and, in the worker's own
+words (`native_scope`), the shapes a preset alone shows — non-essential,
+gated, `optimize` — so the preflight's device rules never refuse a native
+camera for a reason that is not the real one.
 
 ### Sweep
 
