@@ -54,6 +54,7 @@ from ophyd_async.core import (
     derived_signal_r,
     set_and_wait_for_value,
     soft_signal_rw,
+    wait_for_value,
 )
 from ophyd_async.epics.adaravis import AravisDriverIO
 from ophyd_async.epics.adcore import (
@@ -80,6 +81,8 @@ logger = logging.getLogger(__name__)
 #: (the areaDetector / ophyd-async defaults; geecs-epics IOCs use them).
 DRIVER_SUFFIX = "cam1:"
 HDF_SUFFIX = "HDF1:"
+#: Seconds the trigger setup's readbacks get to settle before a refusal is declared.
+READBACK_TIMEOUT_S = 2.0
 
 
 class NativeTriggerSource(SubsetEnum):
@@ -192,18 +195,29 @@ class NativeTriggerLogic(DetectorTriggerLogic):
         await d.trigger_source.set(self.source)
         await d.image_mode.set(ADImageMode.CONTINUOUS)
         # A refused GenICam write completes the CA put anyway (#868's class):
-        # check the readbacks, or a camera still free-running would fill the
-        # stack with live-view frames and every shot would "succeed".
+        # wait for the readbacks, or a camera still free-running would fill
+        # the stack with live-view frames and every shot would "succeed".
+        # Waited for, not read once: the _RBV records update through asyn
+        # callbacks that can lag the put's completion.
         wanted = {
             "TriggerMode": (d.trigger_mode, OnOff.ON),
             "TriggerSource": (d.trigger_source, self.source),
             "ImageMode": (d.image_mode, ADImageMode.CONTINUOUS),
         }
-        got = await asyncio.gather(*(sig.get_value() for sig, _ in wanted.values()))
+
+        async def settled(name: str, sig: SignalR, want: Any) -> str | None:
+            try:
+                await wait_for_value(sig, want, timeout=READBACK_TIMEOUT_S)
+            except TimeoutError:
+                return f"{name}={await sig.get_value()} (wanted {want})"
+            return None
+
         refused = [
-            f"{name}={value} (wanted {want})"
-            for (name, (_, want)), value in zip(wanted.items(), got, strict=True)
-            if value != want
+            r
+            for r in await asyncio.gather(
+                *(settled(n, sig, want) for n, (sig, want) in wanted.items())
+            )
+            if r
         ]
         if refused:
             raise GeecsConfigurationError(
