@@ -354,13 +354,18 @@ The web scanner stamps its shared scan-log list into each scan's ini
 (`[Scan Log]`, one JSON key; GeecsBluesky writes it). A scan's card shows
 those variables' values at the first shot — **read from the s-file's first
 row**, never from the ini, because every logged variable is already in
-every row (`scan_reader.first_row`: `ScanDataScanNNN.txt`, else the day's
-`analysis/sNNN.txt`). The s-file is written in place at the run's close,
+every row (`scan_reader.first_row` on the first of Data-Utils'
+`sfile_candidates` the listings show — the day's `analysis/sNNN.txt`,
+which ScanAnalysis appends its scalars to, then `ScanDataScanNNN.txt`; the
+portal's catalog uses the same order). The s-file is written in place at the run's close,
 so the two-line read is cached on the file's `(mtime, size)` and copied
 onto the ini-keyed summary, never into it: a read that raced the write is
-replaced by the next request's. No s-file yet → "recording"; a listed name
-with no column → "not recorded" (background telemetry off, or a member the
-probe dropped).
+replaced by the next request's. `ScanSummary.values_state` says why values
+are missing: "recording" (no s-file, not finalised), "no_sfile" (finished
+without one), "no_shots" (a header and no row); a listed name with no
+column → "not recorded" (background telemetry off, or a member the probe
+dropped). The summary keeps the s-file's path, so the lookup re-stats it
+for freshness and never walks the folder again.
 
 The day page's **Look up a variable** panel (`lookup.py`,
 `GET /api/day/{day}/lookup?col=…`, `static/lookup.js`) is the same read

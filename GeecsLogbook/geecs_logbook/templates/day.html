@@ -141,16 +141,20 @@
     {# The scanner's scan-log list, as this scan recorded it; the values are
        the s-file's first row, which exists once the run has closed. #}
     <div class="derived startvals">
+      {% set note = {'recording': 'recording — the values arrive when the scan closes',
+                     'no_sfile': 'no s-file — this scan recorded no rows',
+                     'no_shots': 'no shots — the scan ended before its first',
+                     'ok': "from the scan's s-file"}[s.values_state] %}
       <div class="derived-label">
         <span>Start values · first shot</span>
-        <span>{{ 'recording — the values arrive when the scan closes' if s.start_values is none else 'from the scan\'s s-file' }}</span>
+        <span>{{ note }}</span>
       </div>
       <dl class="facts">
         {% for name in s.scan_log_variables %}
           {% set v = s.start_values[name] if s.start_values is not none else none %}
           <div class="fact"><dt title="{{ name }}">{{ name }}</dt>
             <dd{% if v is none %} class="none"{% endif %}>
-              {%- if s.start_values is none -%}…
+              {%- if s.values_state != 'ok' -%}—
               {%- elif v is none -%}not recorded
               {%- else -%}{{ v }}{%- endif -%}
             </dd></div>

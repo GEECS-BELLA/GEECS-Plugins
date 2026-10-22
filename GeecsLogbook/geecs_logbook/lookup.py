@@ -22,14 +22,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
-from geecs_data_utils.data.sfile import header_for_variable, sfile_column
+from geecs_data_utils.data.sfile import header_for_variable, plain_column, sfile_column
 from pydantic import BaseModel, Field
 
 from geecs_logbook.models import KIT_STATE, DaySummary, ScanStatus
-from geecs_logbook.scan_reader import _READ_WORKERS, first_row
-
-#: The suffix Master Control appends to an aliased variable's column.
-_ALIAS = " Alias:"
+from geecs_logbook.scan_reader import READ_WORKERS, first_row, values_state
 
 
 class LookupColumn(BaseModel):
@@ -51,7 +48,9 @@ class LookupRow(BaseModel):
     status: ScanStatus
     state: str = Field(description="The status as a kit word, for the page's dot")
     parameter: Optional[str] = None
-    recorded: bool = Field(description="Whether the scan has an s-file yet")
+    values_state: str = Field(
+        description='"ok", or why not: "recording", "no_sfile", "no_shots" (ScanSummary.values_state)'
+    )
     values: dict[str, Optional[str]] = Field(default_factory=dict)
 
 
@@ -68,11 +67,6 @@ class DayLookup(BaseModel):
     )
     shown: list[str] = Field(default_factory=list, description="The columns in rows")
     rows: list[LookupRow] = Field(default_factory=list)
-
-
-def _plain(column: str) -> str:
-    cut = column.find(_ALIAS)
-    return column[:cut] if cut >= 0 else column
 
 
 def day_lookup(summary: DaySummary, asked: Optional[list[str]] = None) -> DayLookup:
@@ -95,18 +89,23 @@ def day_lookup(summary: DaySummary, asked: Optional[list[str]] = None) -> DayLoo
     # An empty ?col= (every column removed) asks for none, not the defaults.
     shown = list(dict.fromkeys(c for c in asked if c)) if asked is not None else default
 
-    folder = Path(summary.folder)
-    targets = [folder / (s.folder_name or s.label) for s in summary.scans]
+    # read_day already found each scan's s-file from its listings; only the
+    # cached two-line read (one stat for freshness) is paid here.
+    def row_of(scan) -> Optional[dict[str, str]]:
+        return first_row(Path(scan.sfile)) if scan.sfile else None
+
     rows_by_scan: list[Optional[dict[str, str]]] = []
-    if targets:
-        with ThreadPoolExecutor(max_workers=min(_READ_WORKERS, len(targets))) as pool:
-            rows_by_scan = list(pool.map(first_row, targets))
+    if summary.scans:
+        with ThreadPoolExecutor(
+            max_workers=min(READ_WORKERS, len(summary.scans))
+        ) as pool:
+            rows_by_scan = list(pool.map(row_of, summary.scans))
 
     counts: dict[str, int] = {}
     rows = []
     for scan, row in zip(summary.scans, rows_by_scan):
         header = list(row) if row else []
-        for column in dict.fromkeys(_plain(c) for c in header):
+        for column in dict.fromkeys(plain_column(c) for c in header):
             counts[column] = counts.get(column, 0) + 1
         values: dict[str, Optional[str]] = {}
         for name in shown:
@@ -120,7 +119,7 @@ def day_lookup(summary: DaySummary, asked: Optional[list[str]] = None) -> DayLoo
                 status=scan.status,
                 state=KIT_STATE[scan.status],
                 parameter=scan.parameter,
-                recorded=row is not None,
+                values_state=values_state(row, scan.status),
                 values=values,
             )
         )

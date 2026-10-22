@@ -107,6 +107,20 @@ class TestStartValues:
             if s.number == 3
         )
         assert scan.scan_log_variables and scan.start_values is None
+        assert scan.values_state == "recording"
+
+    def test_a_failed_scan_without_an_sfile_does_not_promise_values(
+        self, tmp_path: Path
+    ) -> None:
+        ini = SUCCESS_INI.replace('"success"', '"fail: RuntimeError: boom"')
+        _scan(tmp_path, 8, listed=["U_A:x"], ini=ini)
+        scan = read_day(DAY, "Undulator", base_directory=tmp_path).scans[0]
+        assert scan.values_state == "no_sfile" and scan.start_values is None
+
+    def test_a_run_with_no_shots_says_so(self, tmp_path: Path) -> None:
+        _scan(tmp_path, 9, listed=["U_A:x"], sfile=[["Shotnumber", "U_A x"]])
+        scan = read_day(DAY, "Undulator", base_directory=tmp_path).scans[0]
+        assert scan.values_state == "no_shots" and scan.start_values is None
 
     def test_a_scan_before_the_feature_shows_nothing(self, day: Path) -> None:
         scan = next(
@@ -126,11 +140,7 @@ class TestStartValues:
             for s in read_day(DAY, "Undulator", base_directory=day).scans
             if s.number == 3
         )
-        assert scan.start_values == {
-            "U_Hexapod:ypos": None,
-            "U_S1H:Current": None,
-            "U_Gone:x": None,
-        }
+        assert scan.values_state == "no_shots"  # a header and no row yet
         sfile.write_text("U_Hexapod ypos\tU_S1H Current\n16.0\t1.4\n")
         scan = next(
             s
@@ -138,6 +148,19 @@ class TestStartValues:
             if s.number == 3
         )
         assert scan.start_values["U_Hexapod:ypos"] == "16.0"
+
+    def test_the_analysis_copy_is_preferred_like_the_portal(
+        self, tmp_path: Path
+    ) -> None:
+        """ScanAnalysis appends its scalars to analysis/sNNN.txt only."""
+        _scan(tmp_path, 5, listed=["U_A:x"], sfile=[["U_A x"], ["1.0"]])
+        analysis = _day(tmp_path) / "analysis"
+        analysis.mkdir()
+        (analysis / "s5.txt").write_text("U_A x\tUC_Cam peak\n1.0\t42\n")
+        summary = read_day(DAY, "Undulator", base_directory=tmp_path)
+        assert summary.scans[0].sfile.endswith("s5.txt")
+        table = day_lookup(summary, ["UC_Cam peak"])
+        assert table.rows[0].values == {"UC_Cam peak": "42"}
 
     def test_master_control_aliased_columns_and_analysis_sfile(
         self, tmp_path: Path
@@ -164,7 +187,10 @@ class TestDayLookup:
         assert offered["U_Hexapod ypos"] == (3, True)
         rows = {r.number: r for r in table.rows}
         assert rows[1].values["U_Hexapod ypos"] == "14.23"
-        assert rows[3].recorded is False and rows[3].values["U_Hexapod ypos"] is None
+        assert (
+            rows[3].values_state == "recording"
+            and rows[3].values["U_Hexapod ypos"] is None
+        )
         assert rows[4].values["U_S1H Current"] == "1.30"
         assert rows[1].status == "success" and rows[1].state == "ok"
 

@@ -17,6 +17,12 @@
   const DAY = host.dataset.day || "";
   const $ = (id) => document.getElementById(id);
   const MAX_SUGGESTIONS = 12;
+  // Why a scan has no values (ScanSummary.values_state), as a cell's tooltip.
+  const NOTE = {
+    recording: "No s-file yet: the scan has not closed",
+    no_sfile: "This scan wrote no s-file",
+    no_shots: "The scan ended before its first shot",
+  };
 
   const L = { data: null, cols: null, active: -1, shown: [], loaded: false, seq: 0 };
 
@@ -126,7 +132,7 @@
       tr.appendChild(sv);
       cells.forEach(({ v, changed }) => {
         const td = el("td", "v" + (v == null ? " na" : "") + (changed ? " chg" : ""), v == null ? "—" : v);
-        if (v == null && !row.recorded) td.title = "No s-file yet: the scan has not closed";
+        if (v == null && NOTE[row.values_state]) td.title = NOTE[row.values_state];
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
