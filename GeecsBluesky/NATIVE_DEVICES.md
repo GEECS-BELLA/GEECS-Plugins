@@ -355,9 +355,10 @@ maximum and the settle. The batch then has two kinds of camera:
   collected wherever `primary` is — the end of a batch and the settle of
   an interrupted one — so its datums run 0…n−1 with no gap.
 
-Stream name (*proposed*, open question 4): `<name>_frames`, a document
+Stream name (*proposed*, ruling 4): `<name>_frames`, a document
 constant beside `SHOTS_STREAM` and the non-essential suffix in
-`geecs_data_utils.shot_join`. The s-file needs nothing new — it joins
+`geecs_data_utils.shot_join` — `_stream` keeps meaning a non-essential,
+best-effort stream. The s-file needs nothing new — it joins
 every datum-only stack whatever its stream (`_RunStreams.datum_only_stacks`)
 — once `frame_columns_from_attributes` reads the EPICS pair (below).
 
@@ -430,7 +431,7 @@ join's answer, as for every gated stack.
 |---|---|---|
 | In-flight edge after the box went OFF (≤ 1 per batch end) | its stamp joins no row | keeps it (datum, Tiled); orphan in the stack check, INFO |
 | Edge between the pause and the box going OFF | same | same; at most one per pause |
-| One missed `Line1` edge mid-batch | the count lags: the box runs one more edge; that row's stamp finds no frame | **marks**: the row's native columns read `NaN`, the extra frame is an orphan; WARNING in the stack check — no retake (as LabVIEW natives) |
+| One missed `Line1` edge mid-batch | the count lags: the box runs one more edge; that row's stamp finds no frame | the **existing essential rule** (ruling 2): counted and warned, no retake — the row's native columns read `NaN`, the extra frame is an orphan, a WARNING in the stack check, as gated runs already do for LabVIEW native-saving essentials. A non-essential native's miss is a gap in its stamp join |
 | Camera stops producing frames (connected) | `complete`'s per-frame `exposure_timeout` (the run's `shot_timeout`, 3 s default) | **fails** the batch through the existing failure path: the kept shots recorded, the native stream collected (every frame referenced), then `GeecsTriggerTimeoutError` naming the camera and `WriteMessage` |
 | IOC dead or camera unreadable mid-batch | the count read fails — in `complete`, a progress collect's gate read, or the settle | **fails** the batch through the failure path, box OFF first; the failed gate leaves the sampler's gate set, the per-device settle leaves that camera out of K and skips its collect, and the rows up to K are released without re-reading it, so the other devices' kept shots are recorded; the error names the dead camera; its file holds frames no datum references — its Tiled view is short, never shifted |
 | Stray edge (miscabling: an edge outside SCAN) | an orphan or a contested frame in the stamp join | marked in the stack check; fixed by cabling (the rule in Acceptance) |
@@ -438,9 +439,11 @@ join's answer, as for every gated stack.
 | A frame after the last collect (before `unstage`) | file longer than the datums | trailing only: no shift; the stack check reports frames > datums |
 
 **Refuse, mark or re-fire:** a gated batch never re-fires anything (the
-box runs until every essential has its count); for a native camera
-nothing is refused at run time either — a single miss is **marked**, a
-stopped camera **fails** the batch. The one invariant enforced at run time
+box runs until every essential has its count); a native camera takes
+the existing essential / non-essential rules, no new choice — as an
+essential the batch waits on its frames, a single miss is counted and
+warned, a stopped camera **fails** the batch; as a non-essential a miss is
+a gap in the stamp join. The one invariant enforced at run time
 is the one that keeps Tiled right: every frame in the file before the last
 collect is referenced, in order.
 
@@ -448,29 +451,25 @@ The stack check (`callbacks/stack_check.py`) gets a fourth shape for an
 append-only stream: frames = Σ datum widths (else a hole — a WARNING
 saying Tiled is misaligned, the one real defect), every `shots` row joins
 one native frame within its window (else a WARNING with the count), and
-orphans counted and logged at INFO.
+orphans counted as expected (ruling 5: ≤ 1 per batch end and per pause),
+logged at INFO; more than that is a WARNING.
 
 ### Software trigger versus `Line1`
 
 | Question | `Line1` | `Software` |
 |---|---|---|
 | What fires a frame in a batch | the box-gated DG645 edge, every laser shot | nothing — the batch fires no command; the strict design presses inside `trigger()`, which a batch never calls |
-| v2 decision | admitted | **refused at bind** (named: "a software-triggered native camera has no edge in a gated batch") unless open question 1 says otherwise |
+| Decision | admitted | **refused at bind** — a known gap, strict only (ruling 1; named: "a software-triggered native camera has no edge in a gated batch") |
 | Pause | OFF stops edges; file open | — |
 | Missed / extra | as the table above | — |
 
-The software alternative (open question 1, *proposed*, a tick-follower):
-during a batch the camera presses `TriggerSoftware` on every advance of
-the run's shot clock (`shot_clock`'s stamp signal, already monitored by
-the sampler). **Its timing is poor**: the clock's stamp reaches the
-worker ~0.45 s after the edge at 1 Hz (the package `CLAUDE.md`'s ~550 ms
-from stamp to next edge), so the frame is exposed ≥ 0.45 s after the
-shot — it does not image the shot — and its EPICS stamp sits at the edge
-of the ±0.5 s join window: without a calibrated offset it joins the
-**next** row (a one-shot shift in the s-file) or nobody. Usable only for
-dry runs, and only with its own offset (~60 LOC plus the offset). Its one
-value: the gated path could be exercised on the bench before the `Line1`
-cable exists.
+Considered and not adopted (ruling 1): a **tick-follower** pressing
+`TriggerSoftware` on every advance of the shot clock — the clock's stamp
+reaches the worker ~0.45 s after the edge at 1 Hz, so the frame is
+exposed after the shot and its stamp sits at the edge of the ±0.5 s join
+window (it can join the next row). A **free-running** camera matched to
+the rows by timestamp gives a frame *about* each shot, not *of* it; that
+fallback exists in the join already and is not adopted as a gated mode.
 
 ### Liveness and timeouts
 
@@ -481,24 +480,29 @@ cable exists.
   `observe_signals_value` budget between count updates) is the run's
   `shot_timeout`. A disconnected camera or a dead IOC stops the count →
   the batch fails as above. A connected camera that misses one edge does
-  not time out (the next edge comes within a period) — it is marked.
+  not time out (the next edge comes within a period) — it is counted and warned.
 - **During a pause**: no timeout runs — the batch's `complete` was
   abandoned and settles quietly; the camera may sit armed indefinitely.
   An IOC that died during the pause is found on resume, at the settle's
   read of `NumCaptured_RBV`, before the box leaves OFF: the per-device
   settle records the others' kept shots, then the batch fails naming the
   camera.
-- **The drain offset** (edge → EPICS frame stamp) has no calibration
-  path today: the calibration plans refuse native cameras
-  (`plans/calibration.py`), so the only source is the namespace's
-  hand-entered `drain_offsets` (default 0.0). At 1 Hz the half-period
-  window absorbs an uncalibrated offset; at higher rates it does not.
-  v2 runs with a **hand-set** value; lifting the calibration refusal for
-  `Line1` natives is PR F (open question 6).
+- **The drain offset** (edge → EPICS frame stamp) is **hand-set per
+  camera** (ruling 6) in the namespace's `drain_offsets`, measured on the
+  bench when the `Line1` cable goes in; the calibration plans keep
+  refusing native cameras (`plans/calibration.py`). The EPICS frame stamp
+  is the IOC host's clock at frame arrival, not the camera's clock, so a
+  camera power cycle does not reset it; it shifts with camera settings
+  (exposure, ROI, pixel format, packet size) and with the host clock's
+  sync. So each gated run **measures it** (PR C, ~20 LOC + tests): the
+  median offset over its matched frames goes into the scan metadata, and
+  a WARNING fires when it differs materially from the configured value.
+  A calibration plan for natives is built only if that warning shows a
+  need.
 - **The shot clock** stays a GEECS triggered essential (`shot_clock`): a
   gated run whose only essentials are native cameras is refused (the
-  existing "nothing counts shots" error) until open question 3 is
-  answered.
+  existing "nothing counts shots" error) — deferred until a run needs
+  only native cameras (ruling 3).
 
 ### Non-essential streams fall out of the same design
 
@@ -524,8 +528,8 @@ noted in its docstring.
 Strict runs with a native **and** a gateway plugin camera (a strict
 refire still needs a rewind); scan-mode profiles; the calibration plans;
 `optimize`; `X.scalars` of a native camera; a gated run with a
-`Software` native (unless open question 1); a gated run with no GEECS
-shot clock. Gated runs mixing native and gateway plugin cameras are
+`Software` native (a known gap, ruling 1); a gated run with no GEECS
+shot clock (ruling 3). Gated runs mixing native and gateway plugin cameras are
 **admitted** — gated has no refire, each kind keeps its own trim rule.
 
 ### Tests
@@ -572,8 +576,9 @@ shot clock. Gated runs mixing native and gateway plugin cameras are
 
 1. Gated `count` of 50: one finalized stack of 50 + ≤ 1 frames; an s-file
    of 50 rows, each joined to its own native frame (the offset-corrected
-   stamps within a few ms with the hand-set offset — record the spread,
-   it is the calibration's first data); stack check clean (orphans ≤ 1, INFO); Tiled's array
+   stamps within a few ms with the hand-set offset; the run's measured
+   median offset in the scan metadata, close to the configured value —
+   this step is where the offset is measured and set); stack check clean (orphans ≤ 1, INFO); Tiled's array
    length = the stack's frame count and frame *j* identical to the stack's;
    the portal shows shot *k*'s frame.
 2. Gated `sweep`, 3 steps × 10: ≤ 33 frames, 30 rows each joined.
@@ -593,12 +598,10 @@ shot clock. Gated runs mixing native and gateway plugin cameras are
 |---|---|---|---|
 | A — the join reads the EPICS pair, live and in the Tiled re-export | GEECS-Data-Utils | ~70 | ~90 |
 | B — the fly path on `NativeCamera` (re-baselining kickoff) + the shared batch-completion helper | GeecsBluesky | ~140 | ~220 |
-| C — native classification and append-only streams in `gated_take_reading`, the per-device settle with tolerant sampler gates and a gate-free final collect, the stack check's fourth shape, bind-time refusals lifted for gated `Line1` | GeecsBluesky | ~240 | ~370 |
+| C — native classification and append-only streams in `gated_take_reading`, the per-device settle with tolerant sampler gates and a gate-free final collect, the stack check's fourth shape, the per-run measured drain offset, bind-time refusals lifted for gated `Line1` | GeecsBluesky | ~260 | ~400 |
 | D — non-essential `Line1` natives (refusal + wrapper classification) + the scanner preflight's gated message | GeecsBluesky, GeecsScanner | ~70 | ~120 |
-| (E — the software tick-follower, only if open question 1 says yes) | GeecsBluesky | ~80 | ~100 |
-| (F — the drain-offset calibration for `Line1` natives, open question 6) | GeecsBluesky | ~60 | ~100 |
 
-About 520 production + 800 test lines for A–D; A is independent, B
+About 540 production + 830 test lines for A–D; A is independent, B
 before C, D after B. The CLAUDE.md rule text moves with C.
 
 The re-export half of A: the stock `ADHDFDataLogic` declares no Tiled
@@ -614,31 +617,36 @@ re-export reads the stamps from the file the stream resource names. The
 build PR picks one; without either, an s-file rebuilt from Tiled loses
 the column the portal keys frames on.
 
-### Open questions for Sam (gated)
+### Rulings (2026-10-22)
 
-1. **Software trigger in gated batches**: refuse (recommended — the
-   frame is ≥ 0.45 s after the shot and joins at the window's edge), or
-   build the tick-follower (E) for bench dry runs before the `Line1`
-   cable?
-2. **A missed native frame**: mark and continue (proposed, as LabVIEW
-   natives), or fail the batch on the first native miss (the strict v1
-   rule)? Marking needs nothing from the writer; failing would need a
-   live stamp comparison per shot.
-3. **A native camera as the shot clock**: should a gated run of only
-   native cameras be possible (a derived stamp signal from
-   `EpicsTSSec_RBV` / `EpicsTSNsec_RBV`, ~40 LOC), or does every gated run
-   keep a GEECS triggered essential?
-4. **The stream name** for an essential append-only camera:
-   `<name>_frames` (proposed — honest that it is not a non-essential), or
-   reuse the non-essential `<name>_stream` suffix (no new document
-   constant, but the start document's `non_essential` list would no
-   longer say which streams were waited on)?
-5. **Surplus frames in the stack**: ≤ 1 per batch end and per pause,
-   kept and orphaned. Acceptable, or worth a driver-side count later
-   (blocked today by the `Multiple`-mode empty-frame quirk)?
-6. **The native drain offset**: run v2 with a hand-set value, or build F
-   (lift the calibration plans' refusal for `Line1` natives) before gated
-   runs above 1 Hz?
+1. **Software-triggered native cameras in gated runs**: a known gap,
+   refused — strict only. No tick-follower. A free-running camera matched
+   by timestamp gives a frame "about this shot"; not adopted.
+2. **A missed native frame**: not a new choice — a native camera takes
+   the existing rules. Essential: the batch waits on its frames, a miss
+   is counted and warned, no retake (as gated runs do for LabVIEW
+   native-saving essentials). Non-essential: a gap in the stamp join.
+3. **A native camera as the shot clock**: deferred until a run needs
+   only native cameras.
+4. **Stream name**: `<name>_frames`; `_stream` keeps meaning a
+   non-essential, best-effort stream.
+5. **Surplus frames**: ≤ 1 per batch end and per pause accepted; the
+   stack check counts them as expected.
+6. **Drain offset**: hand-set per camera, measured on the bench when the
+   `Line1` cable goes in; each run measures the median offset from its
+   matched frames into the scan metadata and warns on a material
+   difference (PR C). No calibration plan unless that warning shows a
+   need.
+
+### Direction (not built here)
+
+The append-only, stamp-joined model this design arrives at for native
+cameras could later replace much of the gated run's count
+reconciliation — quotas, trim-to-K, the settle — for every device: each
+camera writes what it sees, every frame is referenced, and the stamp join
+decides which shot it belongs to. That is a foundational change to the
+gated plan and its document contract; to be discussed, not built under
+this design.
 
 ## Open questions
 
