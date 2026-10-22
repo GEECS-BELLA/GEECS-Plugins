@@ -1,7 +1,8 @@
 # Native EPICS devices in the scan path — design note
 
-Status: **proposal, revised after red team** (2026-10-21). When it is
-built, the rules below move into `CLAUDE.md` and this note is deleted.
+Status: **built** — `NativeCamera` (#1117), the registry and the
+bind-time refusals (#1118); hardware acceptance pending. Once accepted,
+the rules below move into `CLAUDE.md` and this note is deleted.
 
 ## Why
 
@@ -59,7 +60,7 @@ devices:
 
 - **Names, kind and trigger source only.** The PV prefix is derived by decision 5
   (`<experiment>:<device>:`, GEECS normalization), so it cannot drift from
-  `ioc.yaml`; the record suffixes are fixed per kind (`cam:`, `hdf1:`).
+  `ioc.yaml`; the record suffixes are fixed per kind (`cam1:`, `HDF1:`).
   No hosts, no paths: facility values keep their one home.
 - Schema: a new GEECS-Schemas model (proposed: NativeDevices in an
   epics module), v1; `kind` a discriminated union. Read through `ConfigsRepoResolver` like every configs document.
@@ -76,8 +77,8 @@ devices:
   archive set. A checklist in geecs-epics `docs/` covers this and the
   configs that name the device's old variables (presets, catalog,
   actions, analysis).
-- `GeecsNamespace` gains an explicit check: a registry name (after
-  `identifier_name`) that is also an enabled roster device → refuse to
+- `GeecsNamespace` gains an explicit check: a registry name whose
+  `safe_name` is also a roster device's → refuse to
   open, naming both owners. The existing check compares the roster only
   with itself.
 

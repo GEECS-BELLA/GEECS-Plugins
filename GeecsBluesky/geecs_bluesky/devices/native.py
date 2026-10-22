@@ -27,6 +27,7 @@ import asyncio
 import logging
 import math
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Annotated as A
 from typing import Any
@@ -67,6 +68,7 @@ from ophyd_async.epics.core import PvSuffix
 
 from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET, epics_timestamp_to_unix
 
+from geecs_bluesky.devices.ca._view import owner_of
 from geecs_bluesky.devices.detector import (
     ACQ_TIMESTAMP,
     STRICT_TRIGGER_INFO,
@@ -532,3 +534,23 @@ class NativeCamera(StandardDetector):
                 f"{self._geecs_device_name} missed a shot: a native camera cannot "
                 "refire yet (its writer cannot rewind) — the step fails",
             )
+
+
+def native_cameras(devices: Iterable[Any]) -> list[NativeCamera]:
+    """The native cameras among *devices* (a ``.scalars`` view counts as its owner)."""
+    return [d for d in map(owner_of, devices) if isinstance(d, NativeCamera)]
+
+
+def refuse_native_cameras(devices: Iterable[Any], why: str) -> None:
+    """Refuse a run shape a native camera cannot take part in yet, before anything moves.
+
+    Raises
+    ------
+    GeecsConfigurationError
+        Naming every native camera among *devices* and *why*.
+    """
+    if found := native_cameras(devices):
+        names = ", ".join(c._geecs_device_name for c in found)
+        raise GeecsConfigurationError(
+            f"{names}: native EPICS cameras run in strict scans only for now — {why}"
+        )

@@ -151,6 +151,10 @@ else:
             else None
         ),
         motor_targets=motor_targets(_catalog),
+        # Devices served by native EPICS IOCs (native_devices.yaml).  NOT
+        # best-effort: an unreadable registry fails the environment open —
+        # configured but broken is not "no native devices".
+        native_devices=_resolver.resolve_native_devices(),
     )
     namespace.add_pseudos(_catalog)
     _DEVICE_NAMES = namespace.export_into(globals())

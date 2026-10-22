@@ -25,6 +25,7 @@ from geecs_bluesky.devices.background import BackgroundSnapshot
 from geecs_bluesky.devices.ca._view import owner_of
 from geecs_bluesky.devices.ca.liveness import read_disconnected
 from geecs_bluesky.devices.detector import GeecsDetector
+from geecs_bluesky.devices.native import native_cameras, refuse_native_cameras
 from geecs_bluesky.devices.shot_control import ShotControl
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsDeviceDownError
 from geecs_bluesky.plan_names import (
@@ -383,6 +384,48 @@ def native_image_save_wrapper(
     return (yield from bpp.finalize_wrapper(plan, restore()))
 
 
+def refuse_native_run(
+    detectors: Sequence[Any],
+    non_essential: Sequence[Any],
+    *,
+    acquisition: str,
+    shot_control: Any,
+) -> None:
+    """Refuse a scan verb's run shape a native camera cannot take part in yet.
+
+    Called before anything moves and before the claim (``NATIVE_DEVICES.md``,
+    "Scope of the first build"): a native camera is an essential detector of
+    a strict run under a box-fired profile, with no gateway plugin camera
+    beside it.  The camera's own fly refusals are the backstop, after the
+    claim.
+
+    Raises
+    ------
+    GeecsConfigurationError
+        Naming the native camera(s) and the reason.
+    """
+    refuse_native_cameras(non_essential, "not as a non-essential stream")
+    if acquisition == "gated":
+        refuse_native_cameras(detectors, "not in a gated batch")
+    if shot_control.use_scan_mode:
+        refuse_native_cameras(
+            detectors,
+            "not under a scan-mode profile (the IOC never acknowledges "
+            "ScanStart, and a box-less profile fires no edge)",
+        )
+    plugin = [
+        getattr(d, "name", str(d))
+        for d in [*detectors, *non_essential]
+        if getattr(d, "plugin_backed", False) and not native_cameras([d])
+    ]
+    if plugin:
+        refuse_native_cameras(
+            detectors,
+            f"not beside a gateway plugin camera ({', '.join(plugin)}): a "
+            "refired shot would need the native writer to rewind",
+        )
+
+
 def strict_plan(  # noqa: C901, PLR0915
     stock: Callable[..., Any],
     profiles: TriggerProfiles,
@@ -469,6 +512,12 @@ def strict_plan(  # noqa: C901, PLR0915
         )
         bound_args = signature.bind_partial(*args, **kwargs).arguments
         detectors = list(bound_args.get("detectors") or ())
+        refuse_native_run(
+            detectors,
+            non_essential,
+            acquisition=acquisition,
+            shot_control=shot_control,
+        )
         refuse_free_running_non_essentials(non_essential)
         # Compared by OWNER: ``X.scalars`` essential with ``X`` non-essential
         # is the same camera twice — its one acquire logic would be in fly
@@ -806,6 +855,7 @@ __all__ = [
     "bind_plans",
     "liveness_gate",
     "native_image_save_wrapper",
+    "refuse_native_run",
     "resolve_background_telemetry",
     "resolve_native_image_save",
     "strict_plan",

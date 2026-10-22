@@ -41,6 +41,12 @@ from geecs_schemas.derived_channels import (
     DerivedChannels,
     DerivedInput,
 )
+from geecs_schemas.epics import (
+    NATIVE_DEVICES_FILENAME,
+    AravisCamera,
+    NativeDevice,
+    NativeDevices,
+)
 from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
 from geecs_schemas.preset import PlanCall, Preset, PresetDevice
 from geecs_schemas.log_entry import (
@@ -139,6 +145,11 @@ __all__ = [
     "TriggerProfile",
     "TriggerState",
     "TriggerWrite",
+    # epics (native EPICS devices)
+    "NativeDevices",
+    "NativeDevice",
+    "AravisCamera",
+    "NATIVE_DEVICES_FILENAME",
     # experiment_defaults
     "ExperimentDefaults",
     "DefaultActions",
@@ -200,6 +211,7 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "derived_channels": DerivedChannels,
     "archive_policy": ArchivePolicy,
     "shot_offsets": ShotOffsets,
+    "native_devices": NativeDevices,
     "analysis_recipe": AnalysisRecipe,
     "analysis_group": AnalysisGroup,
     "himg_job": HimgJob,

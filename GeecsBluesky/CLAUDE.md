@@ -169,8 +169,8 @@ qserver/                    # the worker: launcher, startup profile, permissions
   stock prepare, the row stamp the frame's EPICS timestamp through
   `scan_stack.epics_timestamp_to_unix`.  **One frame per row**: its own
   miss fails the step (no rewind), and it is never rewindable, so a pause
-  never replays a shot.  Strict only: fly prepares are refused.  Not yet
-  in the namespace (the registry and bind-time refusals are the next PR).
+  never replays a shot.  Strict only: fly prepares are refused.  Built
+  by the namespace from the native device registry (below).
 - **`ShotControl`** — `Movable` over the trigger profile's states (`OFF`,
   `STANDBY`, `SCAN`, `ARMED`, `SINGLESHOT` — OFF is the only quiet
   state, STANDBY is the machine's idle and passes edges), replaying each
@@ -223,7 +223,13 @@ qserver/                    # the worker: launcher, startup profile, permissions
   binds every catalog `kind: pseudo` as a `CaPseudoPositioner` over those
   same children under its catalog name (`ALine_e_beam_angle_offset_x`) — a
   bad entry is ERROR-logged and skipped, never fatal to environment open.
-  `telemetry()` is the background-telemetry candidate set.
+  Each entry of the native device registry (`native_devices=`, below) is a
+  `NativeCamera` at the derived prefix `pv_name(experiment, device) + ":"`
+  with a POSIX `PluginPathProvider` through `data_paths.native_ioc_save_path`;
+  **one owner per device**: a registry name whose `safe_name` is also a DB
+  roster device's (enabled, built or not) refuses to open, naming both.
+  `telemetry()` is the background-telemetry candidate set (never a native
+  camera: no scalars, and a read would wait for a shot).
 - The scalar devices and children keep their contracts: `CaMotor` (readback
   convergence within the DB tolerance, no `stop()` — GEECS has no universal
   abort), `CaConfirmSettable` (writes one variable, confirms on another),
@@ -420,6 +426,14 @@ descriptor carries the device's `drain_offset` for the join.  A device
 that publishes nothing leaves an empty stream and a WARNING at the close.
 A device with **no** stamp (free-running) is refused at bind
 (`refuse_free_running_non_essentials`, and the preflight).
+
+**A native camera** (`NativeCamera`) is, for now, only an essential
+detector of a strict `count`/`sweep` under a box-fired profile with no
+gateway plugin camera in the run; every other shape is refused at bind,
+naming the camera, before the box moves and the claim
+(`registry.refuse_native_run`; `optimize` and the calibration plans
+through `devices/native.refuse_native_cameras`), and `expand_preset`
+refuses its `X.scalars` (`native_devices=`).
 
 ### Sweep
 
@@ -887,6 +901,14 @@ command) and never imports the gateway (circular).
   rather than its bare IP; it must resolve to the local IP (the startup
   profile reads it for `ScanModeControl`).  The multicast group, port,
   boundary rows and device-side root come from the GEECS DB.
+
+The configs repo's `<experiment>/native_devices.yaml` (GEECS-Schemas
+`NativeDevices`: device name → `kind` + `trigger_source`, no hosts, paths
+or prefixes) names the devices served by native EPICS IOCs;
+`ConfigsRepoResolver.resolve_native_devices` reads it (absent = none) and
+the startup profile passes it to the namespace **not** best-effort — an
+invalid registry fails the environment open (configured but broken is not
+"none").
 
 Facility values have one home (root `CLAUDE.md`); the worker's are in the
 host's `site.env`, rendered into the units.

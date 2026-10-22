@@ -406,3 +406,53 @@ def test_startup_exports_the_device_namespace_and_installs_connect_last(
     assert logging.getLogger("geecs_bluesky").level == logging.INFO
     funcs = [getattr(p, "func", p) for p in ns["RE"].preprocessors]
     assert funcs[-1] is connect_on_demand and funcs.count(connect_on_demand) == 1
+
+
+def _native_startup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, entry) -> dict:
+    """Run the profile against a configs root holding a native device registry."""
+    pytest.importorskip("aioca")
+    from geecs_bluesky.namespace import GeecsNamespace
+
+    (tmp_path / "TestExp").mkdir()
+    (tmp_path / "TestExp" / "native_devices.yaml").write_text(
+        f"schema_version: 1\ndevices:\n  UC_NativeCam: {entry}\n"
+    )
+    monkeypatch.setenv("GEECS_SCANNER_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("QS_EXPERIMENT", "TestExp")
+    monkeypatch.setenv("QS_DEVICE_NAMESPACE", "db")
+    monkeypatch.setattr(
+        GeecsNamespace,
+        "from_experiment",
+        classmethod(
+            lambda cls, exp, **kw: cls(
+                _make_roster(),
+                path_provider=kw["path_provider"],
+                native_devices=kw["native_devices"],
+            )
+        ),
+    )
+    return runpy.run_path(str(STARTUP_PATH), run_name="__not_main__")
+
+
+def test_startup_builds_the_native_registry_into_the_namespace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from geecs_bluesky.devices.native import NativeCamera
+
+    ns = _native_startup(
+        monkeypatch, tmp_path, "{kind: aravis_camera, trigger_source: line1}"
+    )
+    assert isinstance(ns["UC_NativeCam"], NativeCamera)
+    assert "UC_NativeCam" in ns["__all__"]
+
+
+def test_startup_refuses_a_broken_native_registry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Configured but broken is not "no native devices": the environment does not open."""
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    with pytest.raises(GeecsConfigurationError, match="native_devices.yaml"):
+        _native_startup(
+            monkeypatch, tmp_path, "{kind: aravis_camera, trigger_source: line2}"
+        )
