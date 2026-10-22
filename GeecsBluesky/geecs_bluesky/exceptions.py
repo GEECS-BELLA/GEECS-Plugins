@@ -32,6 +32,7 @@ __all__ = [
     "GeecsConfirmTimeoutError",
     "GeecsConfigurationError",
     "GeecsDeviceDownError",
+    "GeecsFrameCountReadError",
     "GeecsScanModeError",
     "PseudoComponentsDisagreeError",
     "PseudoRestorePendingError",
@@ -205,6 +206,20 @@ class GeecsDeviceDownError(GeecsError):
     """
 
     def __init__(self, message: str, device_name: str | None = None) -> None:
+        self.device_name = device_name
+        super().__init__(message)
+
+
+class GeecsFrameCountReadError(GeecsError):
+    """A gated batch could not read a plugin-backed essential's frame count.
+
+    Raised by :meth:`~geecs_bluesky.devices.sampler.ShotSampler.collect`
+    (chained to the read's own error) when a gate's count read fails; the
+    gated plan takes its failure path on it — box OFF, the rows already
+    out kept — and re-raises it.  ``device_name`` is the camera.
+    """
+
+    def __init__(self, device_name: str, message: str) -> None:
         self.device_name = device_name
         super().__init__(message)
 

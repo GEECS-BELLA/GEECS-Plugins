@@ -64,6 +64,7 @@ from geecs_bluesky.devices.detector import (
 from geecs_bluesky.devices.sampler import ShotSampler, StampStream
 from geecs_bluesky.exceptions import (
     GeecsConfigurationError,
+    GeecsFrameCountReadError,
     GeecsTriggerTimeoutError,
     failure_cause_text,
 )
@@ -277,7 +278,7 @@ def gated_take_reading(  # noqa: C901, PLR0915
 
             mark = shot_control.pause_count
             finished = False
-            failure: FailedStatus | None = None
+            failure: FailedStatus | GeecsFrameCountReadError | None = None
             shot_control.hold_for_batch(end_batch)
             try:
                 try:
@@ -308,6 +309,11 @@ def gated_take_reading(  # noqa: C901, PLR0915
                             break  # a deferred pause landed at the checkpoint
                 except FailedStatus as exc:
                     failure = exc
+                except GeecsFrameCountReadError as exc:
+                    # A progress collect could not read a gate's count:
+                    # the same failure path, even if the wait had finished.
+                    failure = exc
+                    finished = False
                 if not finished:
                     end_batch()
                 try:
@@ -342,10 +348,16 @@ def gated_take_reading(  # noqa: C901, PLR0915
                 yield from bps.wait_for([d.abandon_step for d in plugin])
             kept: dict[str, int] = {}
 
-            async def settle() -> None:
+            async def settle(
+                unreadable: bool = isinstance(failure, GeecsFrameCountReadError),
+            ) -> None:
                 await sampler.stop()
                 shots = sampler.sampled
-                if plugin:
+                if unreadable:
+                    # A gate's count is unreadable: the rows already out
+                    # (every gate held their frames) are the batch's record.
+                    shots = sampler.emitted
+                elif plugin:
                     frames = await asyncio.gather(
                         *(d.frames_this_batch() for d in plugin)
                     )
@@ -369,6 +381,8 @@ def gated_take_reading(  # noqa: C901, PLR0915
                         "gated batch failed; recording its kept shots failed too",
                         exc_info=True,
                     )
+                if isinstance(failure, GeecsFrameCountReadError):
+                    raise failure
                 cause = failure.__cause__
                 if isinstance(cause, GeecsTriggerTimeoutError):
                     raise cause
