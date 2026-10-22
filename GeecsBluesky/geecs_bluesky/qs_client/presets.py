@@ -27,7 +27,7 @@ A preset must name a scan verb; ``mv`` and ``run_action`` go through
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
@@ -163,6 +163,7 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     md: Mapping[str, Any] | None = None,
     required_devices: frozenset[str] = frozenset(),
     resolver: ConfigsRepoResolver | None = None,
+    native_devices: Collection[str] = frozenset(),
 ) -> QueueItem:
     """The queue item a preset submits.
 
@@ -177,11 +178,16 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
         Extra run metadata (the submission record under ``geecs``).
     resolver : ConfigsRepoResolver, optional
         Required for optimize presets; resolves defaults and required devices.
+    native_devices :
+        The experiment's native EPICS device names (its native-devices
+        registry): such a camera has no ``.scalars`` view, so a
+        ``save_images: false`` entry for one is refused here.
 
     Raises
     ------
     GeecsConfigurationError
-        No plan call, or a plan that is not a scan verb the worker registers.
+        No plan call, a plan that is not a scan verb the worker registers,
+        or ``save_images: false`` on a native camera.
     """
     if preset.plan is not None and preset.plan.name == "optimize":
         if resolver is None:
@@ -209,6 +215,16 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     detectors: list[str] = []
     non_essential: list[str] = []
     devices = merge_required_devices(preset, required_devices).devices
+    native = {n.casefold() for n in native_devices}
+    scalars_only = [
+        d.device for d in devices if not d.save_images and d.device.casefold() in native
+    ]
+    if scalars_only:
+        raise GeecsConfigurationError(
+            f"preset {preset.name!r}: {', '.join(scalars_only)} is a native EPICS "
+            "camera and has no scalars-only view — set save_images: true (its "
+            "frames and stamps go to its stack)"
+        )
     for d in devices:
         reference = (
             device_reference(d.device)

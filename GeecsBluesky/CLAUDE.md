@@ -427,6 +427,14 @@ that publishes nothing leaves an empty stream and a WARNING at the close.
 A device with **no** stamp (free-running) is refused at bind
 (`refuse_free_running_non_essentials`, and the preflight).
 
+**A native camera** (`NativeCamera`) is, for now, only an essential
+detector of a strict `count`/`sweep` under a box-fired profile with no
+gateway plugin camera in the run; every other shape is refused at bind,
+naming the camera, before the box moves and the claim
+(`registry.refuse_native_run`; `optimize` and the calibration plans
+through `devices/native.refuse_native_cameras`), and `expand_preset`
+refuses its `X.scalars` (`native_devices=`).
+
 ### Sweep
 
 `geecs_schemas.Sweep` carries the JSON trajectory; the client expansion

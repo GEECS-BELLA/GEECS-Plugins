@@ -16,6 +16,7 @@ from bluesky import plan_stubs as bps, preprocessors as bpp
 from bluesky.protocols import Movable
 from bluesky.utils import Msg
 from geecs_bluesky.devices.ca._view import owner_of
+from geecs_bluesky.devices.native import refuse_native_cameras
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.optimization.events import (
     OptimizationRole,
@@ -208,6 +209,12 @@ def optimize_plan(  # noqa: C901, PLR0915
             raise GeecsConfigurationError(
                 "optimize needs a configs resolver and device namespace"
             )
+        detectors = list(detectors)
+        non_essential = list(non_essential or ())
+        refuse_native_cameras(
+            [*detectors, *non_essential],
+            "not in optimize (its live frames are matched on gateway PVs)",
+        )
         cfg = resolver.resolve_optimizer_config(optimizer_config)
         iterations = (
             cfg.run.max_iterations if max_iterations is None else max_iterations
@@ -220,8 +227,6 @@ def optimize_plan(  # noqa: C901, PLR0915
             not math.isfinite(shot_period) or shot_period <= 0
         ):
             raise GeecsConfigurationError("shot_period must be finite and positive")
-        detectors = list(detectors)
-        non_essential = list(non_essential or ())
         refuse_free_running_non_essentials(non_essential)
         catalog = resolver.scan_variable_catalog().variables
         movables = {}
