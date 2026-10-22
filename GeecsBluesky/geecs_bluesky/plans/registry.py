@@ -28,7 +28,7 @@ from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.native import (
     native_cameras,
     refuse_native_cameras,
-    unreachable_native_cameras,
+    down_native_cameras,
 )
 from geecs_bluesky.devices.shot_control import ShotControl
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsDeviceDownError
@@ -171,8 +171,9 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
     :func:`~geecs_bluesky.devices.ca.liveness.read_disconnected` —
     fail-open, only the exact ``Disconnected`` string counts.
 
-    A native camera is judged by its IOC (connect its asyn connection PV
-    first; silent = down).  Runs before the bracket's first move and before
+    A native camera is judged by its IOC instead
+    (:func:`~geecs_bluesky.devices.native.down_native_cameras`: unreadable =
+    down).  Runs before the bracket's first move and before
     ``open_run``: nothing is driven and nothing is claimed for a run this
     refuses.
 
@@ -181,22 +182,21 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
     GeecsDeviceDownError
         Naming every device reported down.
     """
-    # A native camera's liveness is derived from its IOC's own PV, which
-    # must be connected before the read (an IOC that never answers is down).
-    unreachable = yield from unreachable_native_cameras(devices)
+    # A native camera is judged by its IOC, not by the gateway's rule.
+    natives = native_cameras(devices)
+    native_down = yield from down_native_cameras(natives)
     signals: dict[str, Any] = dict(getattr(shot_control, "liveness_signals", {}))
     for obj in devices:
+        if owner_of(obj) in natives:
+            continue
         signal = getattr(obj, "connected_status", None)
         if signal is None:
             continue
         signals.setdefault(geecs_name(obj), signal)
     # An unreadable CONNECTED before a run is abnormal (the gateway serves
     # it for every DB device) and cost the connect timeout: say so.
-    down = yield from read_disconnected(
-        {k: v for k, v in signals.items() if k not in unreachable},
-        unreadable_level=logging.WARNING,
-    )
-    down = [*unreachable, *down]
+    down = yield from read_disconnected(signals, unreadable_level=logging.WARNING)
+    down = [*native_down, *down]
     if down:
         names = ", ".join(down)
         raise GeecsDeviceDownError(

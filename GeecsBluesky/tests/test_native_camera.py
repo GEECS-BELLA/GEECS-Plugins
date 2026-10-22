@@ -326,6 +326,20 @@ def test_the_run_gate_refuses_a_camera_whose_ioc_never_answers(
         RE(liveness_gate(object(), [cam]))
 
 
+def test_the_run_gate_refuses_a_connected_camera_whose_ioc_died(
+    RE: RunEngine, tmp_path: Path, monkeypatch
+) -> None:
+    """A long-lived worker keeps the channel; a read that fails now is down, not live."""
+    cam, _ = _camera(RE, tmp_path)
+
+    async def silent():
+        raise TimeoutError("no reply")
+
+    monkeypatch.setattr(cam.driver.asyn_connect, "get_value", silent)
+    with pytest.raises(GeecsDeviceDownError, match="ADTEST_CAM1 DISCONNECTED"):
+        RE(liveness_gate(object(), [cam]))
+
+
 def test_column_header_is_the_device_stamp(RE: RunEngine, tmp_path: Path) -> None:
     cam, _ = _camera(RE, tmp_path)
     assert cam._column_headers == {

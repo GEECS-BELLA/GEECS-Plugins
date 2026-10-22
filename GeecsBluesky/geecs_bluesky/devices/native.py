@@ -32,11 +32,12 @@ from dataclasses import dataclass
 from typing import Annotated as A
 from typing import Any
 
+
+import bluesky.plan_stubs as bps
 from bluesky.protocols import Reading
 from event_model import DataKey
 from ophyd_async.core import (
     DEFAULT_TIMEOUT,
-    NotConnectedError,
     AsyncStatus,
     DetectorAcquireLogic,
     DetectorDataLogic,
@@ -66,7 +67,6 @@ from ophyd_async.epics.adcore import (
     NDFileHDF5IO,
 )
 from ophyd_async.epics.core import PvSuffix
-from ophyd_async.plan_stubs import ensure_connected
 
 from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET, epics_timestamp_to_unix
 
@@ -88,7 +88,7 @@ DRIVER_SUFFIX = "cam1:"
 HDF_SUFFIX = "HDF1:"
 #: Seconds the trigger setup's readbacks get to settle before a refusal is declared.
 READBACK_TIMEOUT_S = 2.0
-#: Seconds a native camera's IOC gets to answer the run's liveness gate.
+#: Seconds a native camera's IOC gets to connect, then to answer, at the run's liveness gate.
 LIVENESS_CONNECT_TIMEOUT_S = 5.0
 
 
@@ -546,30 +546,54 @@ def native_cameras(devices: Iterable[Any]) -> list[NativeCamera]:
     return [d for d in map(owner_of, devices) if isinstance(d, NativeCamera)]
 
 
-def unreachable_native_cameras(devices: Iterable[Any]):
-    """Plan: connect each native camera's liveness source; the names whose IOC is silent.
+async def _native_word(cam: NativeCamera) -> str:
+    """The camera's liveness word from its IOC: connect if needed, read, bounded."""
+    source = cam.driver.asyn_connect
+    if not is_connected(source):
+        await source.connect(timeout=LIVENESS_CONNECT_TIMEOUT_S)
+    cnct = await asyncio.wait_for(source.get_value(), LIVENESS_CONNECT_TIMEOUT_S)
+    return liveness_word(cnct)
 
-    ``connected_status`` is derived from the driver's ``AsynIO.CNCT``, and
-    connecting the derived signal (what ``connect_on_demand`` does before the
-    gate's read) leaves that source unconnected: the read raises and the
-    fail-open rule passes a camera nobody checked.  The run's liveness gate
-    connects the source first; an IOC that does not answer is down.
+
+def down_native_cameras(devices: Iterable[Any]):
+    """Plan: the native cameras among *devices* whose IOC reports or is down.
+
+    Judged here, not by the gateway's fail-open rule: the word comes from the
+    IOC's own ``AsynIO.CNCT``, so a read that fails (an IOC that never
+    answered, or died after an earlier run's connect — the channel stays
+    cached in a long-lived worker) means the IOC is down.  Concurrent, one
+    bounded wait (``LIVENESS_CONNECT_TIMEOUT_S`` for the connect, then the
+    read); ``connect_on_demand`` would connect only the derived
+    ``connected_status``, never this source.
 
     Returns
     -------
     list of str
-        The GEECS names of the cameras whose IOC did not answer.
+        The GEECS names of the cameras reported ``Disconnected`` or unreachable.
     """
-    unreachable: list[str] = []
-    for cam in native_cameras(devices):
-        source = cam.driver.asyn_connect
-        if is_connected(source):
-            continue
-        try:
-            yield from ensure_connected(source, timeout=LIVENESS_CONNECT_TIMEOUT_S)
-        except NotConnectedError:
-            unreachable.append(cam._geecs_device_name)
-    return unreachable
+    cams = native_cameras(devices)
+    if not cams:
+        return []
+
+    async def judge() -> list[str | BaseException]:
+        return await asyncio.gather(
+            *(_native_word(c) for c in cams), return_exceptions=True
+        )
+
+    (task,) = yield from bps.wait_for([judge])
+    words = task.result()
+    down: list[str] = []
+    for cam, word in zip(cams, words):
+        if isinstance(word, BaseException):
+            logger.warning(
+                "liveness: %s IOC did not answer (%s: %s) — down",
+                cam._geecs_device_name,
+                type(word).__name__,
+                " ".join(str(word).split()),
+            )
+        if isinstance(word, BaseException) or word == "Disconnected":
+            down.append(cam._geecs_device_name)
+    return down
 
 
 def refuse_native_cameras(devices: Iterable[Any], why: str) -> None:
