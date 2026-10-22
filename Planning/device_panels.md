@@ -30,7 +30,12 @@ restart must not take the camera views down.
 
 One panel per device **kind**, not per device. The camera panel serves
 every `aravis_camera` in the registry from its prefix; a new camera is a
-registry entry, never code. A new kind (a motor) is one new panel.
+registry entry, never code. A new kind is one new panel — but a kind
+whose writes *move* things (motors, stages) does not get direct CA puts:
+the scanner already moves settables through the queue (`POST /api/move`),
+serialized with scans, and such a panel submits through that API. Direct
+puts are for devices whose run ownership the device itself shows, as the
+camera does (§6).
 
 **The stock alternative, weighed.** EPICS already has a web path: the
 Phoebus Display Builder web runtime (dbwr) serving `.bob` screens, over
@@ -141,7 +146,7 @@ The LabVIEW GUI's everyday set, in areaDetector terms:
 | Feature | PVs | Notes |
 |---|---|---|
 | Image, zoom, colour map, contrast, autoscale | — | client-side |
-| Two crosshairs, labelled, drag to move, "set to centroid" | `OVER1:1:`, `OVER1:2:` (`CenterX/Y`, `SizeX/Y`, `Name`, `Use`) | burned into the stream by the IOC, so every viewer and tool sees them; autosaved. "Set to centroid" is a one-shot put of centroid + `ROI1` offset |
+| Two crosshairs, labelled, drag to move, "set to centroid" | `OVER1:1:`, `OVER1:2:` (`CenterX/Y`, `SizeX/Y`, `Name`, `Use`) | burned into the stream by the IOC, so every viewer and tool sees them; autosaved. "Set to centroid" is a one-shot put of the centroid converted to full-frame coordinates (§4) |
 | Centroid, max, mean, sigma | `STAT:` | live chips |
 | X/Y lineouts (average and through a clicked point) | `STAT:ProfileAverageX/Y_RBV`, `STAT:ProfileCursorX/Y_RBV`, `STAT:CursorX/Y` | full precision, from the IOC |
 | Histogram | `STAT:Histogram_RBV` | |
@@ -172,15 +177,19 @@ control:
 scanner: `HDF1:Capture_RBV` is `Capturing`. Capture alone covers the run
 in the right order: ophyd-async starts capture after NativeCamera's
 prepare, and unstage stops acquisition before it stops the writer.
-Trigger mode is *not* a signal: unstage restores the pre-run mode, and
-cameras normally run hardware-triggered between scans, so it would lock
-the panel permanently. The panel shows the acquisition group as `denied`
+Trigger mode is *not* a signal: unstage restores the pre-run mode, and a
+camera may run hardware-triggered between scans (the test IOC boots in
+free-run, a production camera need not), so it would lock the panel
+permanently. The panel shows the acquisition group as `denied`
 ("in a scan") rather than hiding it. No scanner API change, no dependency
 on the scanner being up.
 
 **A stuck capture** (a killed worker, a halted run) would hold the lock
 forever. The denied group offers an explicit override behind a `<dialog>`
-that names the condition, and the service logs who overrode it and when.
+that names the condition and asks for the operator's name (the web
+surfaces carry no user identity); the service logs the name and the time.
+The override **only unlocks the panel's own controls** — it never writes
+to `HDF1`, so misjudging a live run as stuck cannot end its stack file.
 
 This guard protects panel users only. A raw `caput` (or Phoebus, or an
 agent) is not stopped by it. The EPICS answer — access security in the
@@ -202,10 +211,22 @@ the first commit (`_SURFACES` in the theme's colour test). Plots
 tokens; if a plot component proves reusable it goes to the kit in its own
 PR against `kit.html`, not inline here.
 
-Facility values: the port, the bind interface, the CA environment
-(`EPICS_CA_ADDR_LIST` naming the IOC hosts, as the worker's site.env
-already does), the experiment and the configs path come from `site.env` /
-`config.ini` — none committed. The prefix rule and the configs base are
+Facility values: the port, the bind interface, the experiment and the
+configs path come from `site.env` / `config.ini` — none committed.
+
+**CA addressing.** Clients get the CA address list from `config.ini
+[epics] ca_addr_list`, applied to the environment by
+`geecs_bluesky.epics_env` at import — which GeecsPanels must not import.
+Without it the panel's CA client would search only the default list and
+find no IOC. So **the env bootstrap moves to GEECS-Core** (beside
+`geecs_core.configs_repo`, which it already reads) as part of build step
+1, and GeecsBluesky re-exports it. Its one GeecsBluesky dependency
+(`data_paths.pva_addr_tokens`, for the `[pva]` list) moves with it or
+stays behind as a Bluesky-only extension. The deployed list must name the
+IOC hosts as well as the gateway; at HTU it does today (a `site.env`
+override set when the test camera went live), but the committed
+`deploy/site.env.example` shows only the gateway — that example gains an
+IOC-hosts line in the same step. The prefix rule and the configs base are
 GEECS-Core's (`pv_name`, `configs_repo.scanner_configs_base`).
 
 ## Build order
@@ -213,8 +234,11 @@ GEECS-Core's (`pv_name`, `configs_repo.scanner_configs_base`).
 0. **Chain contract v2** (geecs-epics): add `STAT0` (raw stats); pin
    `MJPG1:ALWAYS_ON` if the no-client check needs it. Colour crosshairs
    (a `ColorConvert` before `OVER1`) only if the maintainer wants them.
-1. **Skeleton**: package, unit, landing page from the registry, camera
-   route with the frame loop and the live STAT chips (read-only).
+1. **Skeleton**: the CA env bootstrap moved to GEECS-Core (§7); package,
+   unit, landing page from the registry, camera route with the frame loop
+   and the live STAT chips (read-only). The package's registration rides
+   along: root `CLAUDE.md` map, dependency graph and CHANGELOG list,
+   `.importlinter` contract, the theme's `_SURFACES`.
 2. **Interaction**: crosshairs, analysis ROI, background, transform,
    lineouts/histogram/history, saturation.
 3. **Acquisition controls** behind the guard; driver ROI behind its dialog.
