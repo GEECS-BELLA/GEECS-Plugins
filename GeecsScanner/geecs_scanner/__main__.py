@@ -34,9 +34,11 @@ def build_service(
             DemoQueueClient,
             DemoReadback,
             DemoResolver,
+            DemoLoggedVariables,
             DemoSettables,
             demo_preflight,
         )
+        from geecs_scanner.service.scan_log_list import MemoryListStore, ScanLogList
 
         client = DemoQueueClient(streams, period=demo_period, user=identity)
         return ScannerService(
@@ -50,9 +52,20 @@ def build_service(
             portal_url=portal_url,
             settables=DemoSettables(),
             readback=DemoReadback(client),
+            scan_log_list=ScanLogList(
+                MemoryListStore(["U_Hexapod:ypos", "U_S1H:current"])
+            ),
+            logged_variables=DemoLoggedVariables(),
         )
     from geecs_bluesky.config_resolver import ConfigsRepoResolver
     from geecs_bluesky.qs_client import make_queue_client
+
+    from geecs_scanner.service.scan_log_list import (
+        FILE_NAME,
+        FileListStore,
+        ScanLogList,
+        default_state_dir,
+    )
 
     client = make_queue_client(experiment, user=identity)
     streams.ensure_started(client.doc_addr, client.info_addr)
@@ -64,6 +77,7 @@ def build_service(
         streams=streams,
         version=__version__,
         portal_url=portal_url,
+        scan_log_list=ScanLogList(FileListStore(default_state_dir() / FILE_NAME)),
     )
 
 

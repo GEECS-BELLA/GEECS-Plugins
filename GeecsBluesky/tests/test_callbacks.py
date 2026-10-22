@@ -297,6 +297,49 @@ def test_scan_info_callback_ignores_runs_without_a_folder(tmp_path, caplog):
     assert "does not exist" in caplog.text
 
 
+def test_a_scan_log_list_is_one_json_key_and_scan_info_still_parses(tmp_path):
+    import json
+    from configparser import ConfigParser
+
+    names = ["U_Hexapod:ypos", "U_ESP:Position.Axis 1", "U_X:a=b", "U_X:a=b"]
+    lines = scan_info_lines(
+        {"plan_name": "count", "num_points": 2, "geecs": {"scan_log_variables": names}}
+    )
+    path = tmp_path / "ScanInfoScan003.ini"
+    path.write_text("".join(lines))
+    # The legacy section is untouched by the new one (strict ConfigParser:
+    # a duplicate key would blank the whole file for every reader).
+    assert read_scan_info(path)["Plan"] == "count"
+    parser = ConfigParser(interpolation=None)
+    parser.optionxform = str
+    parser.read(path)
+    assert json.loads(parser["Scan Log"]["Variables"]) == names
+    # No list, no section.
+    plain = "".join(scan_info_lines({"plan_name": "count", "geecs": {}}))
+    assert "[Scan Log]" not in plain
+
+
+def test_scan_info_is_replaced_atomically_and_stays_readable(tmp_path):
+    folder = tmp_path / "Scan004"
+    folder.mkdir()
+    cb = ScanInfoCallback()
+    start = {
+        "uid": "u",
+        "scan_folder": str(folder),
+        "plan_name": "count",
+        "geecs": {"scan_log_variables": ["U_S1H:Current"]},
+    }
+    cb("start", start)
+    ini = folder / "ScanInfoScan004.ini"
+    first = ini.stat().st_ino
+    cb("stop", {"run_start": "u", "exit_status": "success"})
+    assert ini.stat().st_ino != first  # replaced, never truncated in place
+    assert ini.stat().st_mode & 0o777 == 0o644
+    assert read_scan_info(ini)["ScanEndInfo"] == "success"
+    assert "[Scan Log]" in ini.read_text()
+    assert sorted(p.name for p in folder.iterdir()) == ["ScanInfoScan004.ini"]
+
+
 def test_sfile_callback_skips_a_run_without_rows(tmp_path, caplog):
     folder = tmp_path / "scans" / "Scan002"
     folder.mkdir(parents=True)

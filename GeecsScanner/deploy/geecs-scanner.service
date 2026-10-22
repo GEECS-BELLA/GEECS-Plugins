@@ -42,9 +42,13 @@ ExecStart=@POETRY@ run geecs-scanner --experiment ${GEECS_EXPERIMENT} $GEECS_SCA
 # <GEECS_TILED_WRITER_STATE>/heartbeat.json for its "tiled writer" chip and
 # the tiled_writer field of /health (a warning, never a gate on submit) —
 # the same directory the geecs-qserver and geecs-tiled-writer units own
-# (their StateDirectory). Read-only here, so no StateDirectory= of its own.
+# (their StateDirectory). Read-only here.
 # Not a site value — the same path on every host.
 Environment=GEECS_TILED_WRITER_STATE=/var/lib/geecs-tiled-writer
+# The scanner's own state: the shared scan-log list
+# (/var/lib/geecs-scanner/scan_log_variables.json, read through
+# $STATE_DIRECTORY). systemd creates it owned by User=.
+StateDirectory=geecs-scanner
 Restart=on-failure
 RestartSec=5
 # Nothing in flight belongs to this process — a scan continues on the

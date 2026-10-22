@@ -334,6 +334,36 @@
 
     </div>
 
+    {# =================== SCAN LOG LIST =================== #}
+    <div class="grid trio thirds">
+
+      <section id="scanlog-list" class="panel" aria-labelledby="sl-h">
+        <header>
+          <span class="eyebrow" id="sl-h">scan log · start values</span>
+          <span class="chip" data-state="unknown" id="sl-chip">—</span>
+        </header>
+        <div class="body">
+          <div class="fields">
+            <div class="field wide">
+              <label for="sl-q">add a variable</label>
+              <div class="sl-box">
+                <input id="sl-q" placeholder="Search Device:Variable…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="sl-sugg">
+                <ul class="sl-sugg" id="sl-sugg" role="listbox" hidden></ul>
+              </div>
+              <span class="hint" id="sl-hint">Only logged variables (get = yes) can be picked — they are the ones every scan records.</span>
+            </div>
+          </div>
+          <ul class="sl-chips" id="sl-chips" data-empty="Nothing chosen: scans record no start values in the logbook."></ul>
+        </div>
+        <footer>
+          <div class="row">
+            <span class="dim note">One list for the whole experiment, shared by every operator. Saved as you edit; each scan's logbook entry shows these variables' values at its first shot.</span>
+          </div>
+        </footer>
+      </section>
+
+    </div>
+
     <p class="dim footnote">Keys: <kbd>P</kbd> pause / resume · <kbd>S</kbd> stop · <kbd>N</kbd> new scan · <kbd>Esc</kbd> closes a drawer.</p>
   </main>
 </div>
@@ -442,5 +472,6 @@
 <script src="{{ url_for('scanner_static', path='trajectory-view.js').path }}" defer></script>
 <script src="{{ url_for('scanner_static', path='sweep-composer.js').path }}" defer></script>
 <script src="{{ url_for('scanner_static', path='scanner.js').path }}" defer></script>
+<script src="{{ url_for('scanner_static', path='scan-log-list.js').path }}" defer></script>
 </body>
 </html>

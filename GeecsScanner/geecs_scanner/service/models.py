@@ -396,6 +396,39 @@ class SettablesOut(BaseModel):
     detail: str = Field(default="", description="Why the list is empty, when it is")
 
 
+class ScanLogListOut(BaseModel):
+    """The scan-log list: the variables every scan's logbook entry shows at its start."""
+
+    variables: list[str] = Field(
+        default_factory=list, description="Canonical Device:Variable names, in order"
+    )
+    version: str = Field(description="The list's content hash; a save must name it")
+
+
+class ScanLogListIn(BaseModel):
+    """A save of the whole list, made from the version the page loaded."""
+
+    variables: list[str]
+    version: str
+
+
+class LoggedVariableOut(BaseModel):
+    """One experiment variable as the scan-log picker lists it."""
+
+    name: str = Field(description="The canonical Device:Variable")
+    logged: bool = Field(
+        description="get='yes' in the DB — recorded in every scan, so pickable"
+    )
+
+
+class LoggedVariablesOut(BaseModel):
+    """Every variable of the experiment, logged ones first."""
+
+    items: list[LoggedVariableOut] = Field(default_factory=list)
+    source: str = Field(description="db or demo")
+    detail: str = Field(default="", description="Why the list is empty, when it is")
+
+
 class ReadbackOut(BaseModel):
     """One reading of a device variable over the gateway."""
 

@@ -2,12 +2,23 @@
 
 The ini is written at the start document (the ``[Scan Info]`` keys
 downstream readers parse) and rewritten at the stop document with
-``ScanEndInfo`` filled in.
+``ScanEndInfo`` filled in.  Both writes replace the file atomically: the
+logbook and the portal parse it while a scan runs, and a truncated file
+reads as a scan with no info.
+
+A run submitted with a scan-log list (``md["geecs"]["scan_log_variables"]``,
+stamped by the web scanner) also gets a ``[Scan Log]`` section naming it.
+The values are not written here: the logbook reads them from the s-file's
+first row, which already holds every logged column.
 """
 
 from __future__ import annotations
 
+import contextlib
+import json
 import logging
+import os
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -125,6 +136,26 @@ def scan_info_lines(start: Mapping[str, Any], *, end_info: str = "") -> list[str
         'Scanner = "bluesky"\n',
         f'Plan = "{start.get("plan_name", "")}"\n',
         f'Trigger profile = "{start.get("trigger_profile", "")}"\n',
+        *scan_log_lines(start),
+    ]
+
+
+def scan_log_lines(start: Mapping[str, Any]) -> list[str]:
+    """The ``[Scan Log]`` section: the run's scan-log list as one JSON value.
+
+    One key whose value is a JSON list of ``Device:Variable`` names — a
+    value may hold ``:`` and ``=``, a key may not (ConfigParser splits on
+    both), and one key can never collide with another.  No list, no
+    section.
+    """
+    geecs = start.get("geecs")
+    names = geecs.get("scan_log_variables") if isinstance(geecs, Mapping) else None
+    if not names:
+        return []
+    return [
+        "\n",
+        "[Scan Log]\n",
+        f"Variables = {json.dumps([str(n) for n in names])}\n",
     ]
 
 
@@ -148,7 +179,34 @@ class ScanInfoCallback(_RunCallback):
         if folder is None:
             return None
         path = folder / f"ScanInfo{folder.name}.ini"
-        with path.open("w", encoding="utf-8") as fh:
-            fh.writelines(scan_info_lines(start, end_info=end_info))
+        _replace_text(path, "".join(scan_info_lines(start, end_info=end_info)))
         logger.info("Scan info written to %s", path)
         return path
+
+
+def _replace_text(path: Path, text: str) -> None:
+    """Write *text* to *path* through a temp file beside it and ``os.replace``.
+
+    A reader sees the old file or the new one, never a truncated one.  No
+    fsync: the stop rewrite follows, and the scan's own data does not wait
+    on this file.  The temp file is created 0600; it gets the old file's
+    mode (0644 for a new one) so the logbook and the portal, which may run
+    as other accounts, can still read it — best-effort, as CIFS mounts
+    without unix extensions refuse chmod.
+    """
+    try:
+        mode = path.stat().st_mode & 0o777
+    except OSError:
+        mode = 0o644
+    fd, temporary = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.stem}-", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        with contextlib.suppress(OSError):
+            os.chmod(temporary, mode)
+        os.replace(temporary, path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise

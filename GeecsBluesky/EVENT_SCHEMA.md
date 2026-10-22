@@ -33,7 +33,7 @@ adds:
 | `background_probe_error` | the bound plan (`background_wrapper`) | Present only when the probe itself failed (an unexpected error, logged at ERROR — never a member's failure, which is its own drop): `Type: message`, and the run opened with no background columns |
 | `shots_per_step` | the bound plan | Rows per position (`1` for `count`, whose `num` is the shot count) |
 | `description`, `background` | the client (`md`) | The preset's description (ScanInfo's `ScanStartInfo`) and background flag |
-| `geecs` | the client (`md`) | Provenance only: `{preset, submission}` — never a worker instruction |
+| `geecs` | the client (`md`) | Provenance only: `{preset, submission, operator, scan_log_variables}` — never a worker instruction; `ScanInfoCallback` copies `scan_log_variables` (the web scanner's shared list) into the ini's `[Scan Log]` section as a record |
 
 Every run the worker opens claims a scan number; a run without one is not a
 GEECS scan.

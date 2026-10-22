@@ -83,3 +83,24 @@
 .kit #sweep-composer > .row { margin-bottom:var(--gap); }
 .kit #submit { scroll-margin-top:5rem; }
 @media(max-width:600px) { .kit #submit { scroll-margin-top:13rem; } }
+
+/* The scan-log list: a search with its own suggestion list, then one row per
+   chosen variable (name, the readback read when it was added, remove). */
+.kit .sl-box{position:relative}
+.kit .sl-box input{width:100%}
+.kit .sl-sugg{position:absolute;left:0;right:0;top:100%;z-index:5;list-style:none;margin:4px 0 0;padding:4px;border:var(--bw) solid var(--rule);border-radius:var(--r);background:var(--surface);box-shadow:var(--shadow);max-height:220px;overflow:auto}
+.kit .sl-sugg button{display:flex;width:100%;gap:8px;align-items:center;border:0;background:transparent;font:inherit;font-family:var(--ff-mono);font-size:12.5px;text-align:left;padding:6px 8px;border-radius:var(--r);color:var(--ink);cursor:pointer}
+.kit .sl-sugg button:hover, .kit .sl-sugg button[aria-selected="true"]{background:var(--accent-soft)}
+.kit .sl-sugg button[disabled]{color:var(--muted);cursor:not-allowed;background:transparent}
+.kit .sl-sugg .why{margin-left:auto;font-family:var(--ff-ui);font-size:11px;color:var(--muted)}
+.kit .sl-chips{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.kit .sl-chips:empty::before{content:attr(data-empty);color:var(--muted);font-size:12px}
+.kit .sl-chips li{display:flex;align-items:center;gap:8px;font-family:var(--ff-mono);font-size:12.5px;padding:3px 4px 3px 8px;border:var(--bw) solid var(--rule);border-radius:var(--r);background:var(--surface)}
+.kit .sl-chips .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kit .sl-chips .rb{color:var(--slate);font-variant-numeric:tabular-nums}
+.kit .sl-chips .x{border:0;background:transparent;color:var(--muted);font:inherit;font-size:14px;line-height:1;width:24px;height:24px;border-radius:var(--r);cursor:pointer}
+.kit .sl-chips .x:hover{background:var(--surface-2);color:var(--ink)}
+/* A row holding fewer than three panels keeps each one the width of a panel
+   in the trio above, instead of stretching (the kit grid's auto-fit). */
+.kit .grid.thirds{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:900px){.kit .grid.thirds{grid-template-columns:minmax(0,1fr)}}
