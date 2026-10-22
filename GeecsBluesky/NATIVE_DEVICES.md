@@ -6,7 +6,7 @@ built, the rules below move into `CLAUDE.md` and this note is deleted.
 ## Why
 
 A device can now be served by a native EPICS IOC instead of a LabVIEW
-device app (`GEECS-BELLA/geecs-epics`: a Basler on `htu-linux-camserv2`
+device app (`GEECS-BELLA/geecs-epics`: a Basler on a Linux camera host
 behind ADAravis, writing HDF5 through its own `NDFileHDF5` plugin). This
 note is how such a device takes part in a GEECS scan.
 
