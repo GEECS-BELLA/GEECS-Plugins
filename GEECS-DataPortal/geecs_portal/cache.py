@@ -184,14 +184,15 @@ class ShotDataCache:
         from geecs_data_utils.io.scan_stack import (
             FRAMES_DATASET,
             LABVIEW_EPOCH_OFFSET,
+            frame_stamps,
             open_stack,
+            stack_finalized,
             stack_frame_index_map,
-            timestamps_dataset,
         )
 
         # Lock-free: the stack was written on Windows and is read over SMB.
         with open_stack(stack_path) as f:
-            if not bool(f.attrs.get("finalized", False)):
+            if not stack_finalized(f):
                 return None
             dataset = f[FRAMES_DATASET]
             size = int(np.prod(dataset.shape)) * dataset.dtype.itemsize
@@ -203,7 +204,9 @@ class ShotDataCache:
                     size,
                 )
                 return None
-            stamps = np.asarray(f[timestamps_dataset(f)][:], dtype=float)
+            stamps = frame_stamps(f)
+            if stamps is None:
+                return None
             stamps = stamps + LABVIEW_EPOCH_OFFSET
             frames = np.asarray(dataset[:])
         index_map = stack_frame_index_map(stamps)

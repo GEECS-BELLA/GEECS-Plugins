@@ -251,3 +251,126 @@ def test_file_epoch_matches_utc_epoch_difference():
             - datetime(1904, 1, 1, tzinfo=timezone.utc)
         ).total_seconds()
     )
+
+
+class TestStockAreaDetectorStacks:
+    """A native EPICS camera's stock NDFileHDF5 stack (GeecsBluesky NATIVE_DEVICES.md).
+
+    No GEECS stamp: the per-frame wall clock is areaDetector's EPICS
+    timestamp pair, and ``finalized`` sits on ``/entry`` (written on close by
+    the IOC's layout).  The sec/nsec values are a real bench capture's
+    (a Linux camera IOC host, ADCore 3.14, 2026-10-22).
+    """
+
+    SEC = np.array([1161484182, 1161484183, 1161484183], dtype=np.uint32)
+    NSEC = np.array([872442764, 171490720, 447429895], dtype=np.uint32)
+
+    def _write(self, device_dir, *, finalized=None, camera_clock_only=False):
+        from geecs_data_utils.io.scan_stack import (
+            ATTRIBUTES_GROUP,
+            EPICS_TS_NSEC,
+            EPICS_TS_SEC,
+        )
+
+        device_dir.mkdir(parents=True, exist_ok=True)
+        path = device_dir / f"{device_dir.name}.h5"
+        with h5py.File(path, "w") as f:
+            f.create_dataset(
+                FRAMES_DATASET,
+                data=np.stack([np.full((4, 5), i, dtype=np.uint8) for i in range(3)]),
+                chunks=(1, 4, 5),
+            )
+            group = f.require_group(ATTRIBUTES_GROUP)
+            # ADAravis' NDArrayTimeStamp: the camera's power-up clock.
+            group.create_dataset("NDArrayTimeStamp", data=[9452.86, 9453.16, 9453.43])
+            if not camera_clock_only:
+                group.create_dataset(EPICS_TS_SEC, data=self.SEC)
+                group.create_dataset(EPICS_TS_NSEC, data=self.NSEC)
+            if finalized == "entry":
+                f["entry"].attrs["finalized"] = 1
+            elif finalized == "root":
+                f.attrs["finalized"] = True
+        return path
+
+    def test_is_a_stack_and_reads_unix_stamps(self, tmp_path) -> None:
+        from datetime import datetime, timezone
+
+        from geecs_data_utils.io.scan_stack import EPICS_EPOCH_OFFSET
+
+        device_dir = tmp_path / "ADTEST_CAM1"
+        path = self._write(device_dir)
+        assert is_stack_file(path) and find_stack_file(device_dir) == path
+        unix = read_stack_timestamps(path)
+        expected = self.SEC.astype(float) + EPICS_EPOCH_OFFSET + self.NSEC * 1e-9
+        np.testing.assert_allclose(unix, expected, rtol=0, atol=1e-6)
+        # The pair is the bench run's wall clock, not some other epoch.
+        assert (
+            datetime.fromtimestamp(unix[0], tz=timezone.utc)
+            .isoformat()
+            .startswith("2026-10-22T02:29:42")
+        )
+        np.testing.assert_allclose(
+            read_stack_timestamps(path, labview_epoch=True) - unix,
+            LABVIEW_EPOCH_OFFSET,
+        )
+
+    def test_a_row_stamp_from_the_same_conversion_joins_exactly(self, tmp_path) -> None:
+        """The row side (an IOC's EpicsTSSec/Nsec PVs) and the stack side share one function."""
+        from geecs_data_utils.io.scan_stack import (
+            epics_timestamp_to_unix,
+            frame_index_for_acq_timestamp,
+            read_shot_for_acq_timestamp,
+        )
+
+        path = self._write(tmp_path / "ADTEST_CAM1")
+        for index in range(3):
+            # PV reads are plain ints, not the stack's uint32 arrays.
+            row = float(
+                epics_timestamp_to_unix(int(self.SEC[index]), int(self.NSEC[index]))
+            )
+            row += LABVIEW_EPOCH_OFFSET
+            assert frame_index_for_acq_timestamp(path, row) == index
+            joined, frame = read_shot_for_acq_timestamp(path, row)
+            assert joined == index and frame[0, 0] == index
+
+    def test_the_geecs_stamp_wins_when_both_exist(self, tmp_path) -> None:
+        from geecs_data_utils.io.scan_stack import frame_stamps
+
+        path = self._write(tmp_path / "ADTEST_CAM1")
+        geecs = (
+            "/entry/instrument/NDAttributes/adtest_cam1-hdf-image-frame_acq_timestamp"
+        )
+        with h5py.File(path, "a") as f:
+            f.create_dataset(geecs, data=[1.0, 2.0, 3.0])
+        with open_stack(path) as f:
+            np.testing.assert_array_equal(frame_stamps(f), [1.0, 2.0, 3.0])
+
+    def test_the_camera_clock_alone_is_never_a_stamp(self, tmp_path) -> None:
+        """NDArrayTimeStamp is seconds since the camera powered up: no join key."""
+        from geecs_data_utils.io.scan_stack import frame_stamps
+
+        path = self._write(tmp_path / "ADTEST_CAM1", camera_clock_only=True)
+        assert not is_stack_file(path)
+        with open_stack(path) as f:
+            assert frame_stamps(f) is None
+        with pytest.raises(KeyError, match="EPICS timestamp pair"):
+            read_stack_timestamps(path)
+
+    @pytest.mark.parametrize(
+        ("where", "expected"), [(None, False), ("root", True), ("entry", True)]
+    )
+    def test_stack_finalized_reads_the_root_or_entry(self, tmp_path, where, expected):
+        from geecs_data_utils.io.scan_stack import stack_finalized
+
+        path = self._write(tmp_path / "ADTEST_CAM1", finalized=where)
+        with open_stack(path) as f:
+            assert stack_finalized(f) is expected
+
+    def test_a_zero_entry_flag_is_not_finalized(self, tmp_path) -> None:
+        from geecs_data_utils.io.scan_stack import stack_finalized
+
+        path = self._write(tmp_path / "ADTEST_CAM1")
+        with h5py.File(path, "a") as f:
+            f["entry"].attrs["finalized"] = 0
+        with open_stack(path) as f:
+            assert stack_finalized(f) is False

@@ -412,12 +412,12 @@ def _await_all_finalized(paths: Sequence[Path], timeout: float) -> list[bool]:
 
 
 def _is_finalized(path: Path) -> bool:
-    """Whether the plugin has marked the stack at *path* finalized."""
-    from geecs_data_utils.io.scan_stack import open_stack
+    """Whether the writer has marked the stack at *path* finalized (``stack_finalized``)."""
+    from geecs_data_utils.io.scan_stack import open_stack, stack_finalized
 
     try:
         with open_stack(path) as f:
-            return bool(f.attrs.get("finalized", False))
+            return stack_finalized(f)
     except OSError:
         return False
 

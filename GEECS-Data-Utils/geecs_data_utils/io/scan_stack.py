@@ -13,7 +13,10 @@ This module is the read side of that contract, deliberately small:
 
 - :func:`find_stack_file` — locate + validate a device's stack in a scan
   device folder (dispatch on the datasets, never the extension).
-- :func:`read_stack_timestamps` — the join key array, one read.
+- :func:`read_stack_timestamps` — the join key array, one read
+  (:func:`frame_stamps` against an open file: the GEECS stamp, or a stock
+  areaDetector stack's EPICS timestamp pair); :func:`stack_finalized` —
+  whether the writer closed the file.
 - :func:`read_stack_attributes` / :func:`parse_attribute_name` /
   :func:`stack_scalar_variables` — every per-frame attribute (the stamps
   and, since GeecsPvaGateway 0.9, the device's subscribed numeric
@@ -73,12 +76,24 @@ TIMESTAMP_SUFFIX = "frame_acq_timestamp"
 TIMESTAMPS_DATASET = f"{ATTRIBUTES_GROUP}/acq_timestamp"
 
 
+#: areaDetector's own per-frame wall clock, written by every stock
+#: NDFileHDF5 writer: seconds and nanoseconds past the EPICS epoch.  A
+#: native EPICS camera's stack carries these and no GEECS stamp
+#: (GeecsBluesky ``NATIVE_DEVICES.md``); :func:`frame_stamps` reads either.
+EPICS_TS_SEC = "NDArrayEpicsTSSec"
+EPICS_TS_NSEC = "NDArrayEpicsTSnSec"
+#: Unix seconds at the EPICS epoch, 1990-01-01T00:00:00Z.
+EPICS_EPOCH_OFFSET = 631_152_000
+
+
 def timestamps_dataset(f: "h5py.File") -> str | None:
-    """The path of the open stack's per-frame stamp dataset, or ``None``.
+    """The path of the open stack's GEECS per-frame stamp dataset, or ``None``.
 
     ``…-frame_acq_timestamp`` (the current layout) or the bare
     ``acq_timestamp`` (the layout before GeecsPvaGateway 0.8); the first
-    match in the attributes group.
+    match in the attributes group.  A stock areaDetector stack has none —
+    read stamps through :func:`frame_stamps`, which also takes the EPICS
+    timestamp pair.
     """
     group = f.get(ATTRIBUTES_GROUP)
     if group is None:
@@ -87,6 +102,60 @@ def timestamps_dataset(f: "h5py.File") -> str | None:
         if key == "acq_timestamp" or key.endswith(f"-{TIMESTAMP_SUFFIX}"):
             return f"{ATTRIBUTES_GROUP}/{key}"
     return None
+
+
+def epics_timestamp_to_unix(
+    sec: "np.ndarray | int", nsec: "np.ndarray | int"
+) -> "np.ndarray":
+    """Unix seconds (float64) from an EPICS timestamp's seconds and nanoseconds.
+
+    THE conversion: a row stamp taken from an IOC's ``EpicsTSSec`` /
+    ``EpicsTSNsec`` PVs and the stack's ``NDArrayEpicsTS*`` pair must go
+    through the same arithmetic, or the millisecond-key join can split
+    one instant across two keys.
+    """
+    return (
+        np.asarray(sec, dtype=float)
+        + EPICS_EPOCH_OFFSET
+        + np.asarray(nsec, dtype=float) * 1e-9
+    )
+
+
+def _has_epics_pair(f: "h5py.File") -> bool:
+    group = f.get(ATTRIBUTES_GROUP)
+    return group is not None and EPICS_TS_SEC in group and EPICS_TS_NSEC in group
+
+
+def frame_stamps(f: "h5py.File") -> "np.ndarray | None":
+    """The open stack's per-frame stamps in Unix seconds, or ``None``.
+
+    The GEECS stamp dataset when the stack has one (the PVA gateway's
+    plugin, the ``.himg`` converter); else areaDetector's EPICS timestamp
+    pair (a native EPICS camera's stock writer), converted by
+    :func:`epics_timestamp_to_unix`.  The GEECS stamp wins when both exist.
+    """
+    dataset = timestamps_dataset(f)
+    if dataset is not None:
+        return np.asarray(f[dataset][:], dtype=float)
+    if _has_epics_pair(f):
+        group = f[ATTRIBUTES_GROUP]
+        return epics_timestamp_to_unix(group[EPICS_TS_SEC][:], group[EPICS_TS_NSEC][:])
+    return None
+
+
+def stack_finalized(f: "h5py.File") -> bool:
+    """Whether the stack's writer marked it closed.
+
+    ``finalized`` on the root (the PVA gateway's plugin, the ``.himg``
+    converter) or on ``/entry`` (a native EPICS camera's NDFileHDF5
+    layout, written on file close — areaDetector cannot write a root
+    attribute from a layout).  Never inferred from the file opening: a
+    stock writer that flushes mid-capture leaves an openable, partial file.
+    """
+    if bool(f.attrs.get("finalized", False)):
+        return True
+    entry = f.get("entry")
+    return entry is not None and bool(entry.attrs.get("finalized", False))
 
 
 #: The plugin-child token in an attribute name: ``<device>-hdf-<variable>-<suffix>``.
@@ -158,8 +227,8 @@ def open_stack(path: "str | Path", mode: str = "r") -> "h5py.File":
 
     The stacks live on an SMB share written from Windows; the HDF5 lock is
     the known failure mode across it, so every reader in this module opens
-    through here.  Read only after the scan closed (the plugin's ``finalized``
-    root attribute).
+    through here.  Read only after the scan closed
+    (:func:`stack_finalized`).
     """
     return h5py.File(path, mode, locking=False)
 
@@ -212,27 +281,31 @@ class ShotRef(_PathBase):
         return f"ShotRef({str(self)!r}, shot_index={self.shot_index})"
 
 
-def _timestamps(f: "h5py.File") -> str:
-    dataset = timestamps_dataset(f)
-    if dataset is None:
+def _timestamps(f: "h5py.File") -> np.ndarray:
+    stamps = frame_stamps(f)
+    if stamps is None:
         raise KeyError(
-            f"{f.filename}: no acq_timestamp dataset under {ATTRIBUTES_GROUP}"
+            f"{f.filename}: no acq_timestamp dataset or EPICS timestamp pair "
+            f"under {ATTRIBUTES_GROUP}"
         )
-    return dataset
+    return stamps
 
 
 def is_stack_file(path: Path) -> bool:
     """Return whether *path* is a readable frame stack.
 
-    Dispatches on the two datasets of the layout, never on the extension;
-    a partially-written (un-finalized) stack still qualifies — its frames
+    Dispatches on the layout's datasets — the frames and a per-frame stamp
+    (GEECS or the EPICS pair) — never on the extension; a
+    partially-written (un-finalized) stack still qualifies — its frames
     tail is valid.
     """
     if not path.is_file():
         return False
     try:
         with open_stack(path) as f:
-            return FRAMES_DATASET in f and timestamps_dataset(f) is not None
+            return FRAMES_DATASET in f and (
+                timestamps_dataset(f) is not None or _has_epics_pair(f)
+            )
     except OSError:
         return False
 
@@ -263,7 +336,7 @@ def read_stack_timestamps(path: Path, *, labview_epoch: bool = False) -> np.ndar
         seconds (the convention of s-file columns and native filenames).
     """
     with open_stack(path) as f:
-        ts = np.asarray(f[_timestamps(f)][:], dtype=float)
+        ts = _timestamps(f)
     return ts + LABVIEW_EPOCH_OFFSET if labview_epoch else ts
 
 
@@ -465,7 +538,7 @@ def _joined_index(
     f: "h5py.File", acq_timestamp: float, labview_epoch: bool
 ) -> "int | None":
     """The join itself, against an open stack — ONE copy for both callers."""
-    stamps = np.asarray(f[_timestamps(f)][:], dtype=float)
+    stamps = _timestamps(f)
     if labview_epoch:
         stamps = stamps + LABVIEW_EPOCH_OFFSET
     return frame_index_for_timestamp(stack_frame_index_map(stamps), acq_timestamp)

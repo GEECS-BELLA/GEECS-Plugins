@@ -41,7 +41,11 @@ geecs_data_utils/
                                #   /entry/instrument/NDAttributes/<device>-hdf-
                                #   <variable>-frame_acq_timestamp, resolved by
                                #   timestamps_dataset — the bare acq_timestamp of
-                               #   older stacks reads too; plus the device's
+                               #   older stacks reads too; a stock areaDetector
+                               #   stack's EPICS timestamp pair (native EPICS
+                               #   cameras) through frame_stamps /
+                               #   epics_timestamp_to_unix, the one conversion
+                               #   both join sides use; plus the device's
                                #   subscribed scalars as <device>-hdf-<variable>-
                                #   <scalar> since GeecsPvaGateway 0.9, read by
                                #   read_stack_attributes / parse_attribute_name;
@@ -466,9 +470,14 @@ read back from Linux.  Three rules hold on this side, and the writer's half
 `GeecsPvaGateway/CLAUDE.md`:
 
 1. **Never read a stack while it is being written.**  Analysis reads after
-   the plugin closed the file — the `finalized` root attribute is the flag,
-   and the stop document precedes it.  Live use is the PVA stream, never
-   the file.  This is a contract, not best-effort.
+   the writer closed the file — `scan_stack.stack_finalized` is the flag:
+   `finalized` on the root (the gateway's plugin, the `.himg` converter) or
+   on `/entry` (a native EPICS camera's NDFileHDF5 layout, written on
+   close; areaDetector segfaults on a root layout attribute).  Never infer
+   it from the file opening: a stock writer that flushes mid-capture leaves
+   an openable partial file.  The stop document precedes the flag.  Live
+   use is the PVA stream, never the file.  This is a contract, not
+   best-effort.
 2. **Readers open lock-free**, through `scan_stack.open_stack`
    (`locking=False`): the HDF5 lock across SMB is the known failure mode.
    A service that reads these files (Tiled) also needs

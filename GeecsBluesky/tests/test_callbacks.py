@@ -1596,3 +1596,19 @@ def test_a_gated_run_with_a_non_essential_camera_joins_both_stream_shapes(
     assert list(table["UC_A MeanCounts"]) == [10.0, 20.0, 30.0]
     assert list(table["UC_B MeanCounts"]) == [11.0, 21.0, 31.0]
     assert 99.0 not in set(table["UC_B MeanCounts"])
+
+
+def test_is_finalized_reads_the_root_or_entry(tmp_path):
+    """A native EPICS camera's stack is finalized on /entry, the gateway's on the root."""
+    import h5py
+
+    from geecs_bluesky.callbacks._base import _is_finalized
+
+    path = tmp_path / "cam.h5"
+    with h5py.File(path, "w") as f:
+        f.create_group("entry")
+    assert _is_finalized(path) is False
+    with h5py.File(path, "a") as f:
+        f["entry"].attrs["finalized"] = 1
+    assert _is_finalized(path) is True
+    assert _is_finalized(tmp_path / "missing.h5") is False
