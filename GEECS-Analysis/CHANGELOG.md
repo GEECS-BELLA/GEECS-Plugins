@@ -13,7 +13,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `downramp_phase` as a pure measure on a phase map (#1092) and
   `frog_spectral_phase` with weights as a named auxiliary channel (#1088),
   both ported bit for bit.
-- The `.himg` jobs load as `HimgJob` documents (#1097).
 
 ### Removed
 
@@ -24,6 +23,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `compile_document` refuses a non-recipe document (a `HimgJob`) with
+  `UnsupportedRecipe`; `AnalysisDocument` is the GEECS-Schemas alias (#1097).
 - The test suite runs standalone (its own dev group and lock);
   `render` declares `__all__` (#1077). Ruff bug-catching rule families on
   (#1072).

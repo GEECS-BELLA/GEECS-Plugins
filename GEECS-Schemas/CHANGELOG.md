@@ -38,9 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Deploy
 
 - No service of its own: ships with GeecsBluesky (worker) and the Data
-  Portal. Pull + `poetry install` in those checkouts. This version is above
-  the 0.44.0 the hosts already had installed, so the
-  "Downgrading geecs-schemas (0.44.0 -> 0.43.1)" line ends.
+  Portal. Pull + `poetry install` in those checkouts. The worker's
+  "Downgrading geecs-schemas (0.44.0 -> 0.43.1)" line came from
+  GeecsBluesky's stale lock record, not from the version number; that lock
+  is relocked in this release. The GeecsScanner and GeecsLogbook locks
+  still record older versions and keep printing downgrade lines until their
+  own release relocks them.
 
 ## [0.44.0] - 2026-10-07
 

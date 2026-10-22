@@ -28,7 +28,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   group and push each shot's save path before every fire (#1086); the
   preflight reads the DB boundary rows per run, not once at open (#1093);
   quiet hosts are named at entry and the path channel keeps alive every
-  10 s (#1096); known oddities documented (#1094).
+  10 s (#1096); known oddities documented (#1094). Under scan mode the
+  stack check skips the native-files stream match, since scan-mode files
+  are shot-numbered, not stamp-named (#1089).
 - `geecs_bluesky.qs_client.progress`: the one live-progress reducer
   (`RunProgress`), shared by the scanner and GEECS-MCP; a gated run now
   counts shots, not steps (#1081).
