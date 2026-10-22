@@ -262,3 +262,51 @@ def test_theme_is_served_from_this_origin(client: TestClient) -> None:
     css = client.get("/theme/kit.css")
     assert css.status_code == 200 and ".kit .panel" in css.text
     assert client.get("/theme/kit.html").status_code == 200
+
+
+def test_a_gated_native_camera_is_refused_for_the_true_reason(
+    manager: DemoQueueClient, streams, tmp_path
+) -> None:
+    """The worker's strict-only sentence, from the real preflight; nothing queued.
+
+    The preflight's device rules read a native EPICS camera as a device with
+    no ``acq_timestamp``, so a gated preset of one was refused as "no
+    essential triggered device" (the expansion now says the true reason).
+    """
+    from types import SimpleNamespace
+
+    from geecs_bluesky.qs_client import run_submit_preflight
+
+    from geecs_scanner.service import ScannerService
+    from geecs_scanner.service.demo import DemoResolver
+    from geecs_scanner.web import create_app
+
+    class NativeResolver(DemoResolver):
+        def resolve_native_devices(self):
+            return SimpleNamespace(devices={"ADTEST_CAM1": None})
+
+    service = ScannerService(
+        manager,
+        NativeResolver(),
+        experiment="Demo",
+        identity="geecs-scanner test",
+        streams=streams,
+        preflight=run_submit_preflight,
+        heartbeat_path=tmp_path / "heartbeat.json",
+    )
+    client = TestClient(create_app(service))
+    preset = {
+        "name": "native_gated",
+        "devices": [{"device": "ADTEST_CAM1"}],
+        "plan": {"name": "count", "kwargs": {"num": 10, "acquisition": "gated"}},
+    }
+    expected = (
+        "ADTEST_CAM1: native EPICS cameras run in strict scans only for now "
+        "— not in a gated batch"
+    )
+    assert client.post("/api/preflight", json=preset).json()["refusal"] == expected
+    r = client.post("/api/submit", json={"preset": preset})
+    assert r.status_code == 400
+    assert r.json()["error"]["message"] == expected
+    queue = client.get("/api/queue").json()
+    assert queue["running"] is None and queue["waiting"] == []

@@ -374,13 +374,14 @@ forbidden_modules =
 # ---------------------------------------------------------------------------
 
 [importlinter:contract:bluesky-client-side-is-light]
-name = GeecsBluesky's client-side modules (qs_client, actions.steps, optimization.events, plan_names, log_markers, utils) never import bluesky, ophyd-async, aioca or xopt
+name = GeecsBluesky's client-side modules (qs_client, actions.steps, optimization.events, plan_names, native_scope, log_markers, utils) never import bluesky, ophyd-async, aioca or xopt
 type = forbidden
 source_modules =
     geecs_bluesky.qs_client
     geecs_bluesky.actions.steps
     geecs_bluesky.optimization.events
     geecs_bluesky.plan_names
+    geecs_bluesky.native_scope
     geecs_bluesky.log_markers
     geecs_bluesky.utils
 forbidden_modules =

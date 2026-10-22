@@ -36,6 +36,12 @@ if TYPE_CHECKING:
     from geecs_bluesky.config_resolver import ConfigsRepoResolver
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.native_scope import (
+    NOT_GATED,
+    NOT_NON_ESSENTIAL,
+    NOT_OPTIMIZE,
+    native_refusal,
+)
 from geecs_bluesky.plan_names import (
     ACQUISITION_MODES,
     GEECS_PLAN_NAMES,
@@ -188,7 +194,9 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     ------
     GeecsConfigurationError
         No plan call, a plan that is not a scan verb the worker registers,
-        or ``save_images: false`` on a native camera.
+        ``save_images: false`` on a native camera, or a native camera in a
+        run shape the worker refuses at bind (non-essential, gated,
+        optimize — :func:`_native_run_refusal`).
     """
     if preset.plan is not None and preset.plan.name == "optimize":
         if resolver is None:
@@ -230,6 +238,13 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
             "camera and has no scalars-only view — set save_images: true (its "
             "frames and stamps go to its stack)"
         )
+    refusal = _native_run_refusal(
+        plan.name,
+        plan.kwargs.get("acquisition", "strict"),
+        [d for d in devices if d.device.casefold() in native],
+    )
+    if refusal is not None:
+        raise GeecsConfigurationError(refusal)
     for d in devices:
         reference = (
             device_reference(d.device)
@@ -305,6 +320,33 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
         references=references,
         devices=tuple(d.device for d in devices),
     )
+
+
+def _native_run_refusal(
+    plan_name: str, acquisition: Any, natives: list[Any]
+) -> str | None:
+    """The worker's bind-time refusal of a native camera's run shape, said here first.
+
+    *natives* are the preset's device entries the registry names.  The
+    worker refuses these shapes at bind
+    (:func:`~geecs_bluesky.plans.registry.refuse_native_run`, ``optimize``)
+    in the same words (:mod:`geecs_bluesky.native_scope`); saying so at
+    expansion keeps the preflight's device rules — which read a native
+    camera as a device with no ``acq_timestamp`` — from refusing for a
+    reason that is not the real one.  The shapes needing the worker's
+    state (a scan-mode profile, a gateway plugin camera beside it) are
+    left to the bind.
+    """
+    if not natives:
+        return None
+    if plan_name == "optimize":
+        return native_refusal((d.device for d in natives), NOT_OPTIMIZE)
+    streamed = [d.device for d in natives if not getattr(d, "essential", True)]
+    if streamed:
+        return native_refusal(streamed, NOT_NON_ESSENTIAL)
+    if acquisition == "gated":
+        return native_refusal((d.device for d in natives), NOT_GATED)
+    return None
 
 
 def _resolve(

@@ -538,3 +538,44 @@ class TestAcquisitionRules:
         )
         report = run_submit_preflight(preset, "TestExp", client=client)
         assert report.refusal and "nothing counts shots" in report.refusal
+
+
+class TestNativeCamera:
+    """A native EPICS camera in a gated preset: the true reason, not the device rules'."""
+
+    #: A native camera's tree: a writer (``hdf``), no ``acq_timestamp``.
+    TREE = [
+        "UC_Plugin",
+        "UC_Plugin.hdf",
+        "UC_Plugin.acq_timestamp",
+        "ADTEST_CAM1",
+        "ADTEST_CAM1.hdf",
+    ]
+
+    def test_a_gated_native_camera_is_refused_in_the_workers_words(
+        self, engine, monkeypatch
+    ):
+        monkeypatch.setattr(
+            submit_preflight,
+            "_make_default_client",
+            lambda e: pytest.fail("the manager must not be asked about it"),
+        )
+        resolver = _FakeResolver()
+        resolver.resolve_native_devices = lambda: SimpleNamespace(
+            devices={"ADTEST_CAM1": None}
+        )
+        preset = _preset(
+            devices=[{"device": "ADTEST_CAM1"}],
+            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
+        )
+        report = run_submit_preflight(preset, "TestExp", resolver=resolver)
+        assert report.refusal == (
+            "ADTEST_CAM1: native EPICS cameras run in strict scans only for now "
+            "— not in a gated batch"
+        )
+        assert report.outcomes == [] and report.questions == []
+        # the device rules alone would have refused it for another reason
+        report = run_submit_preflight(
+            preset, "TestExp", client=_FakeQueueClient(devices=self.TREE)
+        )
+        assert report.refusal and "no essential triggered device" in report.refusal
