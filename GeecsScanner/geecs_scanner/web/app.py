@@ -13,8 +13,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
-from geecs_web_theme.web import ForwardedPrefixMiddleware, mount_theme
+from geecs_web_theme.web import (
+    ForwardedPrefixMiddleware,
+    RevalidatingStaticFiles,
+    mount_theme,
+)
 
 from geecs_scanner import __version__
 from geecs_scanner.service.errors import ScannerError
@@ -53,7 +56,9 @@ def create_app(service: ScannerService, *, root_path: str = "") -> FastAPI:
 
     # The page's own assets, named so templates can url_for(...).path them.
     app.mount(
-        "/static", StaticFiles(directory=str(pages.STATIC_DIR)), name="scanner_static"
+        "/static",
+        RevalidatingStaticFiles(directory=str(pages.STATIC_DIR)),
+        name="scanner_static",
     )
 
     app.include_router(create_scanner_router(service))

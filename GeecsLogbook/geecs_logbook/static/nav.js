@@ -168,8 +168,11 @@
   /** Any composer holding text: a keystroke must not throw it away. */
   const drafting = () => [...document.querySelectorAll("textarea")].some((t) => t.value.trim());
 
+  /** A kit drawer is open: its rows are buttons, and ← → t would leave the page under it. */
+  const drawerOpen = () => !!document.querySelector('.drawer[data-open="true"]');
+
   document.addEventListener("keydown", (ev) => {
-    if (ev.defaultPrevented || ev.metaKey || ev.ctrlKey || ev.altKey || typing(ev.target)) return;
+    if (ev.defaultPrevented || ev.metaKey || ev.ctrlKey || ev.altKey || typing(ev.target) || drawerOpen()) return;
     let url = "";
     if (ev.key === "ArrowLeft") url = host.dataset.prev;
     else if (ev.key === "ArrowRight") url = host.dataset.next;

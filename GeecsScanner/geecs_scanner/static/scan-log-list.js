@@ -2,22 +2,27 @@
  *
  * One shared list per experiment (GET/PUT /api/scan-log-variables): every
  * scan submitted from this scanner records it, and the logbook shows each
- * scan's start values for it. The picker lists the experiment's variables
- * (/api/logged-variables); only logged ones (get = yes) can be added, since
- * only those are in every scan's rows. Each edit saves at once, naming the
- * version it was made from; a stale one comes back 409 with the current
- * list, which replaces the page's. The value beside each name is one
- * readback taken when the list loads or the name is added — never polled.
+ * scan's start values for it. "Add variables…" opens the kit's drawer
+ * picker (GeecsKit.picker — the device picker's component: search, click,
+ * shift-click for a range, one Add for the lot) over the experiment's variables
+ * (/api/logged-variables); only logged ones (get = yes) can be picked,
+ * since only those are in every scan's rows. Each edit saves at once,
+ * naming the version it was made from; a stale one comes back 409 with the
+ * current list, which replaces the page's. The value beside each name is
+ * one readback taken when the list loads or the name is added — never polled.
  */
 (function () {
   "use strict";
 
   var ROOT = document.body.dataset.root || "";
   var $ = function (id) { return document.getElementById(id); };
-  var MAX_SUGGESTIONS = 12;
+  var MAX_SHOWN = 80;
+  // The server's bound (service/scan_log_list.MAX_VARIABLES): a batch that
+  // would pass it is refused whole, so the picker never selects past it.
+  var MAX_VARIABLES = 64;
   var K = { ok: "ok", failed: "failed", unknown: "unknown" };  // kit words only
 
-  var L = { variables: [], version: "", catalog: [], catalogNote: "", readings: {}, active: -1, shown: [] };
+  var L = { variables: [], version: "", catalog: [], catalogNote: "", catalogLoading: true, readings: {} };
 
   function api(path, opts) {
     return fetch(ROOT + path, opts).then(function (r) {
@@ -40,9 +45,9 @@
     el.textContent = word;
   }
 
-  function hint(text) {
-    $("sl-hint").textContent = text || "Only logged variables (get = yes) can be picked: every scan records them while background telemetry is on (the default).";
-  }
+  function hint(text) { $("sl-hint").textContent = text || ""; }
+
+  /* --------------------------------------------------------- the panel */
 
   function renderList() {
     var ul = $("sl-chips");
@@ -113,83 +118,79 @@
     }).catch(function () { L.readings[name] = "—"; renderList(); });
   }
 
-  function add(name) {
-    if (!name || L.variables.indexOf(name) >= 0) return;
-    $("sl-q").value = "";
-    closeSugg();
-    save(function (list) { return list.indexOf(name) >= 0 ? list : list.concat([name]); })
-      .then(function () { read(name); });
+  /* -------------------------------------------- the drawer: GeecsKit.picker */
+
+  /** Whether a catalog row may be picked: logged, and not in the list already. */
+  function isPickable(item, have) {
+    return !!item.logged && !have[item.name];
   }
 
-  function closeSugg() {
-    var ul = $("sl-sugg");
-    ul.hidden = true; ul.textContent = "";
-    $("sl-q").setAttribute("aria-expanded", "false");
-    L.active = -1; L.shown = [];
+  function rows(query) {
+    var needle = query.trim().toLowerCase();
+    var have = {};
+    L.variables.forEach(function (n) { have[n] = true; });
+    var items = L.catalog;
+    // With no catalog (the DB did not answer) a typed Device:Variable is
+    // offered as written; the server checks its shape.
+    if (!items.length) items = query.trim().indexOf(":") > 0 ? [{ name: query.trim(), logged: true }] : [];
+    return items
+      .filter(function (it) { return !needle || it.name.toLowerCase().indexOf(needle) !== -1; })
+      .map(function (it) {
+        return {
+          name: it.name,
+          pickable: isPickable(it, have),
+          sub: have[it.name] ? "in the list" : (it.logged ? "" : "not logged")
+        };
+      });
   }
 
-  function renderSugg() {
-    var q = $("sl-q").value.trim().toLowerCase();
-    var ul = $("sl-sugg");
-    ul.textContent = "";
-    if (!q) { closeSugg(); return; }
-    L.shown = L.catalog.filter(function (it) { return it.name.toLowerCase().indexOf(q) >= 0; }).slice(0, MAX_SUGGESTIONS);
-    if (!L.shown.length) { closeSugg(); return; }
-    L.shown.forEach(function (it, i) {
-      var chosen = L.variables.indexOf(it.name) >= 0;
-      var li = document.createElement("li");
-      var b = document.createElement("button");
-      b.type = "button"; b.setAttribute("role", "option");
-      b.disabled = chosen || !it.logged;
-      b.setAttribute("aria-selected", String(i === L.active));
-      var nm = document.createElement("span"); nm.textContent = it.name;
-      var why = document.createElement("span"); why.className = "why";
-      why.textContent = chosen ? "in the list" : (it.logged ? "" : "not logged");
-      b.appendChild(nm); b.appendChild(why);
-      b.addEventListener("mousedown", function (ev) { ev.preventDefault(); });
-      b.addEventListener("click", function () { add(it.name); });
-      li.appendChild(b); ul.appendChild(li);
-    });
-    ul.hidden = false;
-    $("sl-q").setAttribute("aria-expanded", "true");
-  }
-
-  function pickable(i) {
-    var it = L.shown[i];
-    return it && it.logged && L.variables.indexOf(it.name) < 0;
-  }
-
-  $("sl-q").addEventListener("input", function () { L.active = -1; renderSugg(); });
-  $("sl-q").addEventListener("blur", closeSugg);
-  $("sl-q").addEventListener("keydown", function (ev) {
-    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
-      if (!L.shown.length) return;
-      ev.preventDefault();
-      var step = ev.key === "ArrowDown" ? 1 : -1;
-      for (var k = 0, i = L.active; k < L.shown.length; k++) {
-        i = (i + step + L.shown.length) % L.shown.length;
-        if (pickable(i)) { L.active = i; break; }
-      }
-      renderSugg();
-    } else if (ev.key === "Enter") {
-      ev.preventDefault();
-      if (pickable(L.active)) { add(L.shown[L.active].name); return; }
-      var typed = $("sl-q").value.trim();
-      // With no catalog (the DB did not answer) a typed Device:Variable is
-      // taken as written; the server checks its shape.
-      if (!L.catalog.length && typed.indexOf(":") > 0) add(typed);
-    } else if (ev.key === "Escape") {
-      closeSugg();
+  var picker = window.GeecsKit && window.GeecsKit.picker({
+    drawer: $("drw-scanlog"),
+    opener: $("btn-sl-open"),
+    search: $("slq"),
+    list: $("sl-list"),
+    add: $("btn-sl-add"),
+    all: $("btn-sl-all"),
+    none: $("btn-sl-none"),
+    noun: ["variable", "variables"],
+    maxShown: MAX_SHOWN,
+    rows: rows,
+    // The server's bound: a batch that would pass it is refused whole.
+    room: function () { return MAX_VARIABLES - L.variables.length; },
+    // Typed rows are not a catalog: a pick of "U_A:po" must not survive the
+    // keystroke that makes it "U_A:pos".
+    shownOnly: function () { return !L.catalog.length; },
+    onRender: function (info) {
+      var logged = L.catalog.filter(function (it) { return it.logged; }).length;
+      $("slq-hint").textContent = L.catalog.length
+        ? info.matches + " of " + L.catalog.length + " variables · " + logged + " logged" + (info.matches > info.shown ? " · type to narrow" : "")
+        : (L.catalogLoading ? "Reading the variable list…" : (L.catalogNote || "No variable list from the DB") + " — type a Device:Variable");
+      $("btn-sl-room").textContent = info.full ? "The list is full (" + MAX_VARIABLES + " variables)." : "";
+    },
+    onAdd: function (names) {
+      save(function (list) {
+        names.forEach(function (n) { if (list.indexOf(n) < 0) list.push(n); });
+        return list;
+      }).then(function () { names.forEach(read); });
     }
   });
+
+  /* ------------------------------------------------------------- load */
 
   api("/api/scan-log-variables").then(function (doc) {
     adopt(doc);
     L.variables.forEach(read);
   }).catch(function (e) { setChip($("sl-chip"), K.failed, "unavailable"); hint("The list could not be read: " + e.message); });
 
+  // The drawer may already be open when the list lands (a cold DB query):
+  // refresh it then, keeping what is picked, rather than leaving it empty.
   api("/api/logged-variables").then(function (cat) {
     L.catalog = cat.items || [];
-    if (!L.catalog.length) hint("No variable list from the DB" + (cat.detail ? " (" + cat.detail + ")" : "") + " — type a Device:Variable and press Enter.");
-  }).catch(function (e) { hint("No variable list: " + e.message + " — type a Device:Variable and press Enter."); });
+    L.catalogNote = cat.detail ? "No variable list from the DB (" + cat.detail + ")" : "";
+  }).catch(function (e) {
+    L.catalogNote = "No variable list: " + e.message;
+  }).then(function () {
+    L.catalogLoading = false;
+    if (picker) picker.refresh();
+  });
 })();

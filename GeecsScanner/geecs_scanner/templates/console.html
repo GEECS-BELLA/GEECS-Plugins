@@ -343,15 +343,10 @@
           <span class="chip" data-state="unknown" id="sl-chip">—</span>
         </header>
         <div class="body">
-          <div class="fields">
-            <div class="field wide">
-              <label for="sl-q">add a variable</label>
-              <div class="sl-box">
-                <input id="sl-q" placeholder="Search Device:Variable…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="sl-sugg">
-                <ul class="sl-sugg" id="sl-sugg" role="listbox" hidden></ul>
-              </div>
-              <span class="hint" id="sl-hint">Only logged variables (get = yes) can be picked: every scan records them while background telemetry is on (the default).</span>
-            </div>
+          <div class="row">
+            <button class="btn sm" type="button" data-drawer-open="drw-scanlog" id="btn-sl-open">Add variables…</button>
+            <span class="spacer"></span>
+            <span class="dim note" id="sl-hint"></span>
           </div>
           <ul class="sl-chips" id="sl-chips" data-empty="Nothing chosen: scans record no start values in the logbook."></ul>
         </div>
@@ -387,6 +382,26 @@
     </div>
     <nav class="picklist" id="devlist" aria-label="Devices"></nav>
     <span class="dim note">A device the gateway does not serve does not appear. Added rows save images and are essential until you say otherwise.</span>
+  </div>
+</aside>
+
+<aside class="drawer" id="drw-scanlog" role="dialog" aria-modal="false" aria-labelledby="drw-scanlog-title" aria-hidden="true" data-open="false">
+  <header>
+    <span class="eyebrow" id="drw-scanlog-title">add to the scan log</span>
+    <button class="btn sm ghost" type="button" data-drawer-close>Close</button>
+  </header>
+  <div class="body">
+    <div class="field"><label for="slq">search</label><input id="slq" placeholder="Device or variable…" autocomplete="off"><span class="hint" id="slq-hint"></span></div>
+    <div class="row">
+      <button class="btn primary sm" type="button" id="btn-sl-add" disabled>Add</button>
+      <button class="btn sm ghost" type="button" id="btn-sl-all">Select all shown</button>
+      <button class="btn sm ghost" type="button" id="btn-sl-none" disabled>Clear</button>
+      <span class="spacer"></span>
+      <span class="dim note">click to select · shift-click for a range · Enter adds</span>
+    </div>
+    <span class="err-note" id="btn-sl-room" role="status"></span>
+    <nav class="picklist" id="sl-list" aria-label="Variables"></nav>
+    <span class="dim note">Only logged variables (get = yes) can be added: every scan records them while background telemetry is on (the default). The list is shared by every operator of this experiment.</span>
   </div>
 </aside>
 

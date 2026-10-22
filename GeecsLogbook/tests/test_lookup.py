@@ -252,7 +252,7 @@ _HARNESS = r"""
 const listeners = {};
 const el = (id) => ({
   id, hidden: false, textContent: "", value: "", dataset: { api: "/api", day: "2026-09-11" },
-  open: false, className: "", title: "",
+  open: false, className: "", title: "", children: [], disabled: false,
   setAttribute() {}, appendChild() {},
   addEventListener(kind, fn) { (listeners[id + ":" + kind] = listeners[id + ":" + kind] || []).push(fn); },
 });
@@ -263,6 +263,7 @@ global.document = {
   querySelector: () => panel,
   createElement: () => el("x"),
 };
+global.window = {};
 global.location = { search: "", pathname: "/day/2026-09-11", hash: "" };
 global.history = { replaceState() {} };
 let calls = 0;
@@ -287,12 +288,13 @@ const toggle = async (open) => { panel.open = open; for (const fn of listeners["
 
 def test_a_failed_first_read_is_retried_on_reopen(tmp_path: Path) -> None:
     """A share blip on the first open must not leave the panel dead until a reload."""
-    import shutil
     import subprocess
 
-    node = shutil.which("node")
-    if node is None:  # pragma: no cover - CI and dev machines have it
+    from geecs_web_theme.testing import node_available
+
+    if not node_available():  # pragma: no cover - CI and dev machines have it
         pytest.skip("node not available")
+    node = "node"
     script = Path(__file__).parents[1] / "geecs_logbook" / "static" / "lookup.js"
     harness = tmp_path / "harness.js"
     harness.write_text(_HARNESS)
@@ -301,3 +303,34 @@ def test_a_failed_first_read_is_retried_on_reopen(tmp_path: Path) -> None:
     )
     assert done.returncode == 0, done.stderr
     assert json.loads(done.stdout.strip().splitlines()[-1]) == {"calls": 2}
+
+
+def test_the_column_drawer_is_the_kit_picker() -> None:
+    """Selection is GeecsKit.picker's, pinned in GeecsWebTheme/tests/test_kit_picker.py."""
+    source = (
+        Path(__file__).parents[1] / "geecs_logbook" / "static" / "lookup.js"
+    ).read_text()
+    assert "window.GeecsKit.picker({" in source and "function pick(" not in source
+
+
+def test_the_panel_opens_a_drawer_not_a_combobox(day: Path) -> None:
+    html = (
+        TestClient(create_app("Undulator", base_directory=day))
+        .get(f"/day/{DAY.isoformat()}")
+        .text
+    )
+    assert 'data-drawer-open="drw-lookup"' in html and 'id="drw-lookup"' in html
+    assert 'class="picklist" id="lk-list"' in html
+    assert 'role="combobox"' not in html
+
+
+def test_page_shortcuts_are_off_while_a_drawer_is_open() -> None:
+    """The drawer's rows are buttons; ← → t on one must not leave the page under it."""
+    nav = (
+        Path(__file__).parents[1] / "geecs_logbook" / "static" / "nav.js"
+    ).read_text()
+    assert (
+        "const drawerOpen = () => !!document.querySelector('.drawer[data-open=\"true\"]');"
+        in nav
+    )
+    assert "typing(ev.target) || drawerOpen()) return;" in nav

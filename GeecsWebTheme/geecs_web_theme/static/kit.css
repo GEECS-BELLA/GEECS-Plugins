@@ -314,6 +314,10 @@ body.kit{
   background:var(--surface-2);color:var(--ink);text-decoration:none;
 }
 .kit .picklist [aria-current="page"], .kit .picklist [aria-pressed="true"]{
+/* A row's note (GeecsKit.picker: "in the table", "not logged", "in 6 of 7 scans"):
+   quiet, right-aligned, still readable on the selected row. */
+.kit .picklist .sub{color:var(--muted);font-size:12px;margin-left:auto;padding-left:12px;text-align:right;white-space:nowrap}
+.kit .picklist [aria-pressed="true"] .sub{color:inherit;opacity:.85}
   background:var(--accent);color:var(--on-accent);font-weight:600;
 }
 

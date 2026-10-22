@@ -36,8 +36,12 @@ from pathlib import Path
 from typing import Optional, Union
 
 from fastapi import APIRouter, FastAPI
-from fastapi.staticfiles import StaticFiles
-from geecs_web_theme.web import ForwardedPrefixMiddleware, make_templates, mount_theme
+from geecs_web_theme.web import (
+    ForwardedPrefixMiddleware,
+    RevalidatingStaticFiles,
+    make_templates,
+    mount_theme,
+)
 
 from geecs_logbook.attachments import AttachmentStore
 from geecs_logbook.mirror import ATTACHMENTS_DIR
@@ -110,7 +114,11 @@ def create_app(
     app.add_middleware(ForwardedPrefixMiddleware)
     mount_theme(app)
     # The page's own assets. A named mount, addressed as {{ root }}/static/…
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="logbook_static")
+    app.mount(
+        "/static",
+        RevalidatingStaticFiles(directory=str(STATIC_DIR)),
+        name="logbook_static",
+    )
 
     templates = make_templates(
         TEMPLATES_DIR,

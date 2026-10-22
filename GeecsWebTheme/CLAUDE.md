@@ -41,8 +41,18 @@ keyboard), so it sets the vocabulary rather than inheriting a compromise.
   still renders a plausible neutral chip — it survives review *and* the
   browser, which is why the pin runs both directions.
 - **`kit.js` is optional.** Every rule works with scripts off; the script
-  adds only the drawer, the dialog helper and the density control. Do not
-  make a component depend on it.
+  adds only the drawer, the dialog helper, the density control and the
+  drawer picker. Do not make a *styled* component depend on it.
+- **One drawer picker.** `GeecsKit.picker(opts)` is every "Add …" drawer
+  that adds several things to a list — the scanner's devices and scan-log
+  variables, the logbook's lookup columns: search, click to toggle,
+  shift-click for a range, Select all shown / Clear, one Add for the lot,
+  Enter adding the picks (or the one pickable row left), an optional
+  `room()` it never selects past, `refresh()` that keeps the picks when the
+  rows arrive late. A surface supplies the rows (`{name, sub, pickable}`)
+  and what Add does — never its own selection code (three copies existed
+  for a day; #1128). Pinned in `tests/test_kit_picker.py`, which runs the
+  real `kit.js` under node; specimen on `kit.html`.
 - **`theme-boot.js` is the one definition** of which themes and densities
   exist and what the defaults are. It loads in `<head>`, NOT deferred, so
   the palette and density are stamped before first paint. `theme.js` reads
@@ -59,7 +69,7 @@ the theme without being on the kit.
 |---|---|---|---|
 | GeecsLogbook | yes | yes | yes (0.10.0) |
 | GeecsScanner (web console, its branch) | yes | yes | yes |
-| GEECS-DataPortal | yes | **no** — its own rail, tabs, badges, overlay, a 125-line inline style block and a 971-line inline script | no (own middleware copy) |
+| GEECS-DataPortal | yes | **no** — its own rail, tabs, badges, overlay, a 125-line inline style block and a 971-line inline script | no (own middleware copy) — one exception: its `/static` and `/theme` mounts use `RevalidatingStaticFiles` (#1128), so a deploy is not hidden behind a cached asset. That is not the glue adoption below; the middleware copy and `root` processor stay until then |
 | ScanAnalysis config editor (`/configs`) | yes | no | no |
 
 **Portal onto the kit is deliberately LAST** — after the Qt console's
@@ -75,7 +85,11 @@ Do not start either early to "tidy up".
 
 `geecs_web_theme.web` (the `web` extra) is the one copy of what every
 FastAPI surface needs around the theme: `ForwardedPrefixMiddleware`,
-`clean_prefix`, `root_of`, `mount_theme`, `make_templates`. The portal,
+`clean_prefix`, `root_of`, `mount_theme`, `make_templates`, and
+`RevalidatingStaticFiles` (every `/static` and `/theme` answer says
+`Cache-Control: no-cache` — the ETag makes an unchanged file a 304; without
+it a browser kept an old stylesheet after a deploy and ran the new script
+against it). The portal,
 the logbook, the scanner and the analysis config editor each carried a
 copy and drifted (three mechanisms for `root`, one surface with none). **A new surface imports these; it does not copy
 them.** `geecs_web_theme.testing` is the same for the template guards —
@@ -112,7 +126,8 @@ four on every block is why dense screens go flat.
 ## `.picklist`
 
 A vertical list of selectable things — the rail's navigation, the
-inspector's item list, the scanner's device list. It is a
+inspector's item list, the drawer picker's rows (`.sub` is a row's quiet
+right-aligned note: "in the table", "in 6 of 7 scans"). It is a
 **named component, not a location**: the first cut styled `.rail nav`,
 which left the inspector on the reference page rendering native browser
 buttons and guaranteed a third use would need a third rule. Mark the

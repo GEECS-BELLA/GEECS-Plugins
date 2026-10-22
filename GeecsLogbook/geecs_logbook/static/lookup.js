@@ -4,8 +4,9 @@
  * /api/day/{day}/lookup, which reads two lines of each scan's s-file. The
  * table's columns are the day's scan-log lists (the scanner's shared list)
  * unless the URL names others (?col=…, kept in sync so a link to the table
- * can be pasted into a note); "add a column" searches every column any scan
- * recorded. A value that differs from the scan above it is marked. Reads
+ * can be pasted into a note); "Add columns…" opens the kit's drawer picker
+ * (GeecsKit.picker — the scanner's device picker) over every column any
+ * scan recorded. A value that differs from the scan above it is marked. Reads
  * its facts off <main id="logbook">; sets no colours (the theme guard).
  */
 (() => {
@@ -16,7 +17,7 @@
   const API = host.dataset.api || "";
   const DAY = host.dataset.day || "";
   const $ = (id) => document.getElementById(id);
-  const MAX_SUGGESTIONS = 12;
+  const MAX_SHOWN = 80;
   // Why a scan has no values (ScanSummary.values_state), as a cell's tooltip.
   const NOTE = {
     recording: "No s-file yet: the scan has not closed",
@@ -24,7 +25,7 @@
     no_shots: "The scan ended before its first shot",
   };
 
-  const L = { data: null, cols: null, active: -1, shown: [], loaded: false, seq: 0 };
+  const L = { data: null, cols: null, loaded: false, seq: 0 };
 
   const urlCols = () => new URLSearchParams(location.search).getAll("col");
 
@@ -53,11 +54,13 @@
       L.data = data;
       L.cols = data.shown.filter((c) => c);
       render();
+      renderPicker();  // a drawer opened while the day was being read fills now
     } catch (err) {
       if (seq !== L.seq) return;
       // A first read that failed (a share blip, a 503) must not stick:
       // reopening the panel tries again rather than needing a page reload.
       if (!L.data) L.loaded = false;
+      renderPicker();
       $("lk-note").textContent = `Could not read the day: ${err.message}` +
         (L.data ? "" : " — close and reopen this panel to try again.");
     }
@@ -144,70 +147,47 @@
     table.appendChild(tbody);
   }
 
-  function closeSugg() {
-    const ul = $("lk-sugg");
-    ul.hidden = true;
-    ul.textContent = "";
-    $("lk-q").setAttribute("aria-expanded", "false");
-    L.active = -1;
-    L.shown = [];
-  }
-
-  function renderSugg() {
-    const q = $("lk-q").value.trim().toLowerCase();
-    const ul = $("lk-sugg");
-    ul.textContent = "";
-    if (!q || !L.data) { closeSugg(); return; }
-    const total = L.data.rows.length;
-    L.shown = L.data.columns
-      .filter((c) => c.name.toLowerCase().includes(q) && !L.cols.includes(c.name))
-      .slice(0, MAX_SUGGESTIONS);
-    if (!L.shown.length) { closeSugg(); return; }
-    L.shown.forEach((c, i) => {
-      const li = el("li");
-      const b = el("button");
-      b.type = "button";
-      b.setAttribute("role", "option");
-      b.setAttribute("aria-selected", String(i === L.active));
-      b.appendChild(el("span", "", c.name));
-      b.appendChild(el("span", "why", c.listed ? "on the list" : `in ${c.scans} of ${total} scans`));
-      b.addEventListener("mousedown", (ev) => ev.preventDefault());
-      b.addEventListener("click", () => add(c.name));
-      li.appendChild(b);
-      ul.appendChild(li);
-    });
-    ul.hidden = false;
-    $("lk-q").setAttribute("aria-expanded", "true");
-  }
-
-  function add(name) {
-    $("lk-q").value = "";
-    closeSugg();
-    if (!L.cols.includes(name)) {
-      L.cols = L.cols.concat([name]);
+  /* ---- the column drawer: GeecsKit.picker, the scanner's device picker ---- */
+  const picker = window.GeecsKit && window.GeecsKit.picker({
+    drawer: $("drw-lookup"),
+    opener: $("lk-open"),
+    search: $("lkq"),
+    list: $("lk-list"),
+    add: $("lk-add"),
+    all: $("lk-all"),
+    none: $("lk-none"),
+    noun: ["column", "columns"],
+    maxShown: MAX_SHOWN,
+    rows: (query) => {
+      const needle = query.trim().toLowerCase();
+      const total = L.data ? L.data.rows.length : 0;
+      return (L.data ? L.data.columns : [])
+        .filter((c) => !needle || c.name.toLowerCase().includes(needle))
+        .map((c) => {
+          const have = (L.cols || []).includes(c.name);
+          return {
+            name: c.name,
+            pickable: !have,
+            sub: have ? "a column" : c.listed ? "on the list" : `in ${c.scans} of ${total} scans`,
+          };
+        });
+    },
+    onRender: (info) => {
+      $("lkq-hint").textContent = L.data
+        ? `${info.matches} of ${L.data.columns.length} columns` + (info.matches > info.shown ? " · type to narrow" : "")
+        : L.loaded ? "Reading the day's s-files…" : "The day could not be read — close the panel and reopen it to try again.";
+    },
+    onAdd: (names) => {
+      const fresh = names.filter((n) => !(L.cols || []).includes(n));
+      if (!fresh.length) return;
+      L.cols = (L.cols || []).concat(fresh);
       syncUrl();
       load();
-    }
-  }
-
-  $("lk-q").addEventListener("input", () => { L.active = -1; renderSugg(); });
-  $("lk-q").addEventListener("blur", closeSugg);
-  $("lk-q").addEventListener("keydown", (ev) => {
-    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
-      if (!L.shown.length) return;
-      ev.preventDefault();
-      const step = ev.key === "ArrowDown" ? 1 : -1;
-      L.active = (L.active + step + L.shown.length) % L.shown.length;
-      renderSugg();
-    } else if (ev.key === "Enter") {
-      ev.preventDefault();
-      if (L.active >= 0 && L.shown[L.active]) add(L.shown[L.active].name);
-    } else if (ev.key === "Escape") {
-      closeSugg();
-    }
-    // The page's keyboard stepping (nav.js) must not take keys typed here.
-    ev.stopPropagation();
+    },
   });
+  /** Refill an open drawer when the day's read lands (or fails). */
+  function renderPicker() { if (picker) picker.refresh(); }
+
   $("lk-scan").addEventListener("input", () => { if (L.data) render(); });
   $("lk-scan").addEventListener("keydown", (ev) => ev.stopPropagation());
 

@@ -146,3 +146,63 @@ def test_a_failed_db_read_is_reported_and_not_cached() -> None:
     out = source.logged_variables()
     assert out.items == [] and "down" in out.detail
     assert [i.name for i in source.logged_variables().items] == ["U_A:x"]
+
+
+def _scan_log_script() -> str:
+    return (
+        Path(__file__).parents[1] / "geecs_scanner" / "static" / "scan-log-list.js"
+    ).read_text()
+
+
+def _function(source: str, name: str) -> str:
+    """The body of one top-level ``function name() {...}`` of the panel's IIFE."""
+    import re
+
+    body = re.search(rf"\n  function {name}\([^)]*\) \{{\n(.*?)\n  \}}\n", source, re.S)
+    assert body, f"scan-log-list.js: no function {name}()"
+    return body.group(1)
+
+
+def _run_node(harness: str):
+    import json as _json
+    import subprocess
+
+    from geecs_web_theme.testing import node_available
+
+    if not node_available():  # pragma: no cover - CI and dev machines have it
+        pytest.skip("node not available")
+    done = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    return _json.loads(done.stdout)
+
+
+def test_the_panel_opens_a_drawer_not_a_combobox(client: TestClient) -> None:
+    html = client.get("/").text
+    assert 'data-drawer-open="drw-scanlog"' in html and 'id="drw-scanlog"' in html
+    assert 'id="sl-list"' in html and 'class="picklist" id="sl-list"' in html
+    assert 'role="combobox"' not in html
+
+
+def test_what_may_be_picked_is_logged_and_not_listed() -> None:
+    """The rule renderPicker applies to every row, run as the page runs it."""
+    source = _scan_log_script()
+    result = _run_node(
+        "function isPickable(item, have) {\n"
+        + _function(source, "isPickable")
+        + "\n}\nvar have = {'U_D:listed': true};\nconsole.log(JSON.stringify(["
+        "isPickable({name: 'U_A:x', logged: true}, have),"
+        "isPickable({name: 'U_C:x', logged: false}, have),"
+        "isPickable({name: 'U_D:listed', logged: true}, have)]));"
+    )
+    assert result == [True, False, False]
+    assert "pickable: isPickable(it, have)," in source
+
+
+def test_the_panel_is_the_kit_picker_and_refreshes_when_the_list_lands() -> None:
+    """GPT review of #1128: a drawer opened before /api/logged-variables answers fills when it does."""
+    source = _scan_log_script()
+    assert "window.GeecsKit.picker({" in source
+    assert "room: function () { return MAX_VARIABLES - L.variables.length; }," in source
+    tail = source[source.index('api("/api/logged-variables")') :]
+    assert "if (picker) picker.refresh();" in tail
