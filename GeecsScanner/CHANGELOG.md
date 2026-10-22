@@ -5,6 +5,28 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.14.7] - 2026-10-22
+
+### Changed
+
+- Live progress comes from GeecsBluesky's shared reducer
+  (`geecs_bluesky.qs_client.progress`): `ProgressCache` →
+  `StreamCache(ProgressStream)`, with `ProgressOut`'s wire keys unchanged
+  (byte-identical on every stream the worker emits). On streams the
+  worker never sends, a start doc without `shots_per_step` now plans
+  `num_points × 1` instead of `None`, and a stop naming a different run is
+  ignored (#1081).
+- Ruff bug-catching rule families on; no behaviour change (#1072). Lock
+  refreshed for Data-Utils 0.52.0's smaller dependency set (#1071), and
+  relocked here for GeecsBluesky 0.116.0, GEECS-Core 0.14.0,
+  GEECS-Schemas 0.45.0 and GEECS-Data-Utils 0.53.0 (ends the
+  "Downgrading geecs-schemas" line on install).
+
+### Deploy
+
+- Pull + `poetry install` in the scanner's checkout (the worker's
+  queueserver checkout); restart `geecs-scanner`.
+
 ## [0.14.6] - 2026-10-07
 
 ### Changed
