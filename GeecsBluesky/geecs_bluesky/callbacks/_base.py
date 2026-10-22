@@ -412,12 +412,12 @@ def _await_all_finalized(paths: Sequence[Path], timeout: float) -> list[bool]:
 
 
 def _is_finalized(path: Path) -> bool:
-    """Whether the plugin has marked the stack at *path* finalized."""
-    from geecs_data_utils.io.scan_stack import open_stack
+    """Whether the writer has marked the stack at *path* finalized (``stack_finalized``)."""
+    from geecs_data_utils.io.scan_stack import open_stack, stack_finalized
 
     try:
         with open_stack(path) as f:
-            return bool(f.attrs.get("finalized", False))
+            return stack_finalized(f)
     except OSError:
         return False
 
@@ -427,8 +427,9 @@ def await_finalized(path: Path, timeout: float) -> bool:
 
     The stop document precedes ``unstage`` (``Capture=0``, when the plugin
     closes the file), so a stack must never be read at the stop document
-    itself; the ``finalized`` root attribute is the plugin's "done" flag
-    (read through
+    itself; ``finalized`` (on the root, or ``/entry`` for a native EPICS
+    camera's stack — :func:`~geecs_data_utils.io.scan_stack.stack_finalized`)
+    is the writer's "done" flag (read through
     :func:`~geecs_data_utils.io.scan_stack.open_stack`, lock-free).
 
     Parameters

@@ -8,6 +8,7 @@ on the hit path, not just a faster one.
 from __future__ import annotations
 
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -210,6 +211,57 @@ class TestShotDataCache:
         )
         assert result.kind == "stack"  # still serves — from disk
         assert cache.stack_entry(key) is None  # but never cached
+
+    def test_stock_areadetector_stack_caches_once_entry_finalized(self, request):
+        # A native EPICS camera's stock stack: the EPICS timestamp pair, no
+        # GEECS stamp, ``finalized`` on /entry (the native EPICS devices design).
+        import h5py
+
+        folder = request.getfixturevalue("scan_folder")
+
+        from geecs_data_utils.io.scan_stack import (
+            ATTRIBUTES_GROUP,
+            EPICS_EPOCH_OFFSET,
+            EPICS_TS_NSEC,
+            EPICS_TS_SEC,
+            LABVIEW_EPOCH_OFFSET,
+            TIMESTAMPS_DATASET,
+        )
+
+        stack = folder / "UC_StackCam" / "UC_StackCam.h5"
+        with h5py.File(stack, "a") as handle:
+            unix = handle[TIMESTAMPS_DATASET][:]
+            del handle[TIMESTAMPS_DATASET]
+            del handle.attrs["finalized"]
+            whole = np.floor(unix)
+            handle[f"{ATTRIBUTES_GROUP}/{EPICS_TS_SEC}"] = (
+                whole - EPICS_EPOCH_OFFSET
+            ).astype(np.uint32)
+            handle[f"{ATTRIBUTES_GROUP}/{EPICS_TS_NSEC}"] = np.round(
+                (unix - whole) * 1e9
+            ).astype(np.uint32)
+        assert unix[2] + LABVIEW_EPOCH_OFFSET == _LV + 2.0
+        key = ("uid-002", "UC_StackCam")
+
+        def load(cache):
+            return resources.load_shot_image(
+                folder,
+                "UC_StackCam",
+                2,
+                acq_timestamp=_LV + 2.0,
+                data_cache=cache,
+                cache_key=key,
+            )
+
+        cache = ShotDataCache()
+        assert load(cache).kind == "stack"  # joined through the EPICS pair
+        assert cache.stack_entry(key) is None  # not finalized: never cached
+        with h5py.File(stack, "a") as handle:
+            handle["entry"].attrs["finalized"] = 1
+        cache = ShotDataCache()
+        assert load(cache).kind == "stack"
+        index_map, frames = cache.stack_entry(key)
+        assert frames.shape[0] == 4 and len(index_map) == 4
 
     def test_oversize_stack_serves_from_disk_uncached(self, scan_folder):  # noqa: F811
         cache = ShotDataCache(budget_bytes=8)  # cap far below the stack

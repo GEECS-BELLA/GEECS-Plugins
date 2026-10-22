@@ -77,7 +77,8 @@ class StackCheckCallback(_StreamCallback):
     The stop document precedes ``unstage`` (``Capture=0``, when the plugin
     finalizes and closes the file), and a run callback must not block the
     RunEngine — so the check runs on a small thread that waits, bounded,
-    for the ``finalized`` root attribute before reading (lock-free, via
+    for the writer's ``finalized`` flag (``scan_stack.stack_finalized``: the
+    root or ``/entry``) before reading (lock-free, via
     ``geecs_data_utils.io.scan_stack.open_stack``).  By then
     ``scan.log`` is closed, so the verdict is appended to it directly as
     well as logged.
