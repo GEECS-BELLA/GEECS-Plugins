@@ -2,22 +2,27 @@
  *
  * One shared list per experiment (GET/PUT /api/scan-log-variables): every
  * scan submitted from this scanner records it, and the logbook shows each
- * scan's start values for it. The picker lists the experiment's variables
- * (/api/logged-variables); only logged ones (get = yes) can be added, since
- * only those are in every scan's rows. Each edit saves at once, naming the
- * version it was made from; a stale one comes back 409 with the current
- * list, which replaces the page's. The value beside each name is one
- * readback taken when the list loads or the name is added — never polled.
+ * scan's start values for it. "Add variables…" opens a drawer shaped like
+ * the device picker's — search, click to select, shift-click for a range,
+ * one Add for the lot — over the experiment's variables
+ * (/api/logged-variables); only logged ones (get = yes) can be picked,
+ * since only those are in every scan's rows. Each edit saves at once,
+ * naming the version it was made from; a stale one comes back 409 with the
+ * current list, which replaces the page's. The value beside each name is
+ * one readback taken when the list loads or the name is added — never polled.
  */
 (function () {
   "use strict";
 
   var ROOT = document.body.dataset.root || "";
   var $ = function (id) { return document.getElementById(id); };
-  var MAX_SUGGESTIONS = 12;
+  var MAX_SHOWN = 80;
   var K = { ok: "ok", failed: "failed", unknown: "unknown" };  // kit words only
 
-  var L = { variables: [], version: "", catalog: [], catalogNote: "", readings: {}, active: -1, shown: [] };
+  var L = { variables: [], version: "", catalog: [], catalogNote: "", readings: {} };
+  var picked = {};   // name -> true, across searches, until Add or Clear
+  var shown = [];    // [{name, pickable}] in render order, for shift-ranges
+  var anchor = null; // the last row clicked, the other end of a range
 
   function api(path, opts) {
     return fetch(ROOT + path, opts).then(function (r) {
@@ -40,9 +45,9 @@
     el.textContent = word;
   }
 
-  function hint(text) {
-    $("sl-hint").textContent = text || "Only logged variables (get = yes) can be picked: every scan records them while background telemetry is on (the default).";
-  }
+  function hint(text) { $("sl-hint").textContent = text || ""; }
+
+  /* --------------------------------------------------------- the panel */
 
   function renderList() {
     var ul = $("sl-chips");
@@ -113,75 +118,89 @@
     }).catch(function () { L.readings[name] = "—"; renderList(); });
   }
 
-  function add(name) {
-    if (!name || L.variables.indexOf(name) >= 0) return;
-    $("sl-q").value = "";
-    closeSugg();
-    save(function (list) { return list.indexOf(name) >= 0 ? list : list.concat([name]); })
-      .then(function () { read(name); });
-  }
+  /* -------------------------------------------- the drawer (device picker's shape) */
 
-  function closeSugg() {
-    var ul = $("sl-sugg");
-    ul.hidden = true; ul.textContent = "";
-    $("sl-q").setAttribute("aria-expanded", "false");
-    L.active = -1; L.shown = [];
-  }
+  function pickedNames() { return Object.keys(picked); }
 
-  function renderSugg() {
-    var q = $("sl-q").value.trim().toLowerCase();
-    var ul = $("sl-sugg");
-    ul.textContent = "";
-    if (!q) { closeSugg(); return; }
-    L.shown = L.catalog.filter(function (it) { return it.name.toLowerCase().indexOf(q) >= 0; }).slice(0, MAX_SUGGESTIONS);
-    if (!L.shown.length) { closeSugg(); return; }
-    L.shown.forEach(function (it, i) {
-      var chosen = L.variables.indexOf(it.name) >= 0;
-      var li = document.createElement("li");
-      var b = document.createElement("button");
-      b.type = "button"; b.setAttribute("role", "option");
-      b.disabled = chosen || !it.logged;
-      b.setAttribute("aria-selected", String(i === L.active));
-      var nm = document.createElement("span"); nm.textContent = it.name;
-      var why = document.createElement("span"); why.className = "why";
-      why.textContent = chosen ? "in the list" : (it.logged ? "" : "not logged");
-      b.appendChild(nm); b.appendChild(why);
-      b.addEventListener("mousedown", function (ev) { ev.preventDefault(); });
-      b.addEventListener("click", function () { add(it.name); });
-      li.appendChild(b); ul.appendChild(li);
+  function renderPicks() {
+    var n = pickedNames().length;
+    $("btn-sl-add").disabled = !n;
+    $("btn-sl-add").textContent = n ? "Add " + n + " variable" + (n === 1 ? "" : "s") : "Add";
+    $("btn-sl-none").disabled = !n;
+    Array.prototype.forEach.call($("sl-list").children, function (b) {
+      b.setAttribute("aria-pressed", picked[b.dataset.variable] ? "true" : "false");
     });
-    ul.hidden = false;
-    $("sl-q").setAttribute("aria-expanded", "true");
   }
 
-  function pickable(i) {
-    var it = L.shown[i];
-    return it && it.logged && L.variables.indexOf(it.name) < 0;
-  }
-
-  $("sl-q").addEventListener("input", function () { L.active = -1; renderSugg(); });
-  $("sl-q").addEventListener("blur", closeSugg);
-  $("sl-q").addEventListener("keydown", function (ev) {
-    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
-      if (!L.shown.length) return;
-      ev.preventDefault();
-      var step = ev.key === "ArrowDown" ? 1 : -1;
-      for (var k = 0, i = L.active; k < L.shown.length; k++) {
-        i = (i + step + L.shown.length) % L.shown.length;
-        if (pickable(i)) { L.active = i; break; }
-      }
-      renderSugg();
-    } else if (ev.key === "Enter") {
-      ev.preventDefault();
-      if (pickable(L.active)) { add(L.shown[L.active].name); return; }
-      var typed = $("sl-q").value.trim();
-      // With no catalog (the DB did not answer) a typed Device:Variable is
-      // taken as written; the server checks its shape.
-      if (!L.catalog.length && typed.indexOf(":") > 0) add(typed);
-    } else if (ev.key === "Escape") {
-      closeSugg();
+  function pick(name, index, range) {
+    if (range && anchor !== null) {
+      var lo = Math.min(anchor, index), hi = Math.max(anchor, index);
+      // a range takes everything pickable in it: logged, and not already listed
+      for (var i = lo; i <= hi; i++) if (shown[i] && shown[i].pickable) picked[shown[i].name] = true;
+    } else {
+      if (picked[name]) delete picked[name]; else picked[name] = true;
+      anchor = index;
     }
+    renderPicks();
+  }
+
+  function renderPicker() {
+    var list = $("sl-list"); list.textContent = "";
+    var needle = $("slq").value.trim().toLowerCase();
+    var have = {};
+    L.variables.forEach(function (n) { have[n] = true; });
+    var items = L.catalog;
+    var typed = $("slq").value.trim();
+    // With no catalog (the DB did not answer) a typed Device:Variable is
+    // offered as written; the server checks its shape.
+    if (!items.length && typed.indexOf(":") > 0) items = [{ name: typed, logged: true }];
+    var matches = items.filter(function (it) { return !needle || it.name.toLowerCase().indexOf(needle) !== -1; });
+    shown = []; anchor = null;
+    matches.slice(0, MAX_SHOWN).forEach(function (it, i) {
+      var pickable = it.logged && !have[it.name];
+      shown.push({ name: it.name, pickable: pickable });
+      var b = document.createElement("button");
+      b.type = "button";
+      b.dataset.variable = it.name;
+      b.setAttribute("aria-pressed", picked[it.name] ? "true" : "false");
+      var a = document.createElement("span"); a.textContent = it.name;
+      var d = document.createElement("span"); d.className = "sub";
+      d.textContent = have[it.name] ? "in the list" : (it.logged ? "" : "not logged");
+      b.appendChild(a); b.appendChild(d);
+      b.disabled = !pickable;
+      b.addEventListener("click", function (ev) { pick(it.name, i, ev.shiftKey); });
+      list.appendChild(b);
+    });
+    var logged = L.catalog.filter(function (it) { return it.logged; }).length;
+    $("slq-hint").textContent = L.catalog.length
+      ? matches.length + " of " + L.catalog.length + " variables · " + logged + " logged" + (matches.length > MAX_SHOWN ? " · type to narrow" : "")
+      : (L.catalogNote || "No variable list from the DB") + " — type a Device:Variable";
+    renderPicks();
+  }
+
+  $("slq").addEventListener("input", renderPicker);
+  // Opening the drawer starts a fresh selection: Esc and the scrim are a
+  // cancel, so picks never committed with Add do not come back.
+  $("btn-sl-open").addEventListener("click", function () {
+    picked = {}; renderPicker(); setTimeout(function () { $("slq").focus(); }, 50);
   });
+  $("btn-sl-all").addEventListener("click", function () {
+    shown.forEach(function (s) { if (s.pickable) picked[s.name] = true; });
+    renderPicks();
+  });
+  $("btn-sl-none").addEventListener("click", function () { picked = {}; anchor = null; renderPicks(); });
+  $("btn-sl-add").addEventListener("click", function () {
+    var names = pickedNames();
+    if (!names.length) return;
+    picked = {}; anchor = null;
+    window.GeecsKit.drawer($("drw-scanlog")).close();
+    save(function (list) {
+      names.forEach(function (n) { if (list.indexOf(n) < 0) list.push(n); });
+      return list;
+    }).then(function () { names.forEach(read); });
+  });
+
+  /* ------------------------------------------------------------- load */
 
   api("/api/scan-log-variables").then(function (doc) {
     adopt(doc);
@@ -190,6 +209,6 @@
 
   api("/api/logged-variables").then(function (cat) {
     L.catalog = cat.items || [];
-    if (!L.catalog.length) hint("No variable list from the DB" + (cat.detail ? " (" + cat.detail + ")" : "") + " — type a Device:Variable and press Enter.");
-  }).catch(function (e) { hint("No variable list: " + e.message + " — type a Device:Variable and press Enter."); });
+    L.catalogNote = cat.detail ? "No variable list from the DB (" + cat.detail + ")" : "";
+  }).catch(function (e) { L.catalogNote = "No variable list: " + e.message; });
 })();

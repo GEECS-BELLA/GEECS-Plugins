@@ -277,13 +277,8 @@
       </summary>
       <div class="lk-body">
         <div class="lk-controls">
-          <div class="lk-add">
-            <label for="lk-q">add a column</label>
-            <input id="lk-q" placeholder="Search any recorded variable…" autocomplete="off"
-                   role="combobox" aria-expanded="false" aria-controls="lk-sugg">
-            <ul class="lk-sugg" id="lk-sugg" role="listbox" hidden></ul>
-          </div>
-          <div class="lk-scanf">
+          <button class="btn sm" type="button" data-drawer-open="drw-lookup" id="lk-open">Add columns…</button>
+          <div class="field lk-scanf">
             <label for="lk-scan">scan</label>
             <input id="lk-scan" placeholder="all" inputmode="numeric" autocomplete="off">
           </div>
@@ -375,6 +370,32 @@ document.querySelectorAll(".scanrow").forEach(a => a.addEventListener("click", (
   el.open = true;
 }));
 </script>
+{% if summary.scans %}
+{# The lookup's column picker: rung 2 of the kit's overlay ladder, the
+   scanner's device picker's shape — search, click to select, shift-click
+   for a range, one Add for the lot. #}
+<aside class="drawer" id="drw-lookup" role="dialog" aria-modal="false"
+       aria-labelledby="drw-lookup-title" aria-hidden="true" data-open="false">
+  <header>
+    <span class="eyebrow" id="drw-lookup-title">add columns</span>
+    <button class="btn sm ghost" type="button" data-drawer-close>Close</button>
+  </header>
+  <div class="body">
+    <div class="field"><label for="lkq">search</label>
+      <input id="lkq" placeholder="Device or variable…" autocomplete="off">
+      <span class="hint" id="lkq-hint"></span></div>
+    <div class="row">
+      <button class="btn primary sm" type="button" id="lk-add" disabled>Add</button>
+      <button class="btn sm ghost" type="button" id="lk-all">Select all shown</button>
+      <button class="btn sm ghost" type="button" id="lk-none" disabled>Clear</button>
+      <span class="spacer"></span>
+      <span class="dim note">click to select · shift-click for a range</span>
+    </div>
+    <nav class="picklist" id="lk-list" aria-label="Recorded columns"></nav>
+    <span class="dim note">Every column any of today's scans recorded in its s-file.</span>
+  </div>
+</aside>
+{% endif %}
 {{ shared.seeds_json(seeds) }}
 <script src="{{ root }}/static/editor.js" defer></script>
 <script src="{{ root }}/theme/kit.js" defer></script>

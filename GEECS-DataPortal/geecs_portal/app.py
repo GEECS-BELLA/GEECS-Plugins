@@ -34,7 +34,7 @@ from typing import Optional
 import httpx
 from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
-from starlette.staticfiles import StaticFiles
+from geecs_web_theme.web import RevalidatingStaticFiles
 
 from geecs_data_utils.tiled_catalog import ScanCatalog
 
@@ -199,7 +199,9 @@ def create_app(
     )
     # The one committed JS asset: the version-pinned vendored Plotly
     # bundle (doctrine amendment 2026-08-30 — still no npm, no CDN).
-    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+    app.mount(
+        "/static", RevalidatingStaticFiles(directory=str(_STATIC_DIR)), name="static"
+    )
 
     # The shared palette every GEECS web surface draws from. Mounted here
     # because the portal is the host: the config editor is a router inside
@@ -207,7 +209,9 @@ def create_app(
     # them between pages.
     from geecs_web_theme import static_dir as _theme_dir
 
-    app.mount("/theme", StaticFiles(directory=str(_theme_dir())), name="theme")
+    app.mount(
+        "/theme", RevalidatingStaticFiles(directory=str(_theme_dir())), name="theme"
+    )
     # Per-app pixel cache: completed runs' shot data kept in memory so
     # within-scan navigation never re-reads the share (owner doctrine,
     # 2026-08-29 — lazy stays the rule ACROSS scans only).

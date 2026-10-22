@@ -146,3 +146,64 @@ def test_a_failed_db_read_is_reported_and_not_cached() -> None:
     out = source.logged_variables()
     assert out.items == [] and "down" in out.detail
     assert [i.name for i in source.logged_variables().items] == ["U_A:x"]
+
+
+def _pick_variables(clicks: str) -> list[str]:
+    """Run the scan-log drawer's selection logic under node; return what is picked.
+
+    The list mirrors the device drawer's test: ``U_C:not_logged`` and
+    ``U_D:listed`` cannot be picked.
+    """
+    import json as _json
+    import re
+    import shutil
+    import subprocess
+
+    if shutil.which("node") is None:  # pragma: no cover - CI and dev machines have it
+        pytest.skip("node not available")
+    source = (
+        Path(__file__).parents[1] / "geecs_scanner" / "static" / "scan-log-list.js"
+    ).read_text()
+    body = re.search(r"\n  function pick\([^)]*\) \{\n(.*?)\n  \}\n", source, re.S)
+    assert body, "scan-log-list.js: no function pick()"
+    harness = (
+        """
+var shown = [
+  {name: 'U_A:x', pickable: true}, {name: 'U_B:y', pickable: true},
+  {name: 'U_C:not_logged', pickable: false}, {name: 'U_D:listed', pickable: false},
+  {name: 'U_E:z', pickable: true},
+];
+var picked = {}, anchor = null;
+function renderPicks() {}
+function pick(name, index, range) {
+"""
+        + body.group(1)
+        + "\n}\n"
+        + clicks
+        + "\nconsole.log(JSON.stringify(Object.keys(picked).sort()));"
+    )
+    done = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    return _json.loads(done.stdout)
+
+
+def test_the_drawer_picks_many_like_the_device_drawer() -> None:
+    """A click toggles a row; Add commits them all — the device picker's model."""
+    assert _pick_variables("pick('U_A:x', 0, false); pick('U_B:y', 1, false);") == [
+        "U_A:x",
+        "U_B:y",
+    ]
+    assert _pick_variables("pick('U_A:x', 0, false); pick('U_A:x', 0, false);") == []
+
+
+def test_a_shift_range_skips_unlogged_and_listed_variables() -> None:
+    picked = _pick_variables("pick('U_A:x', 0, false); pick('U_E:z', 4, true);")
+    assert picked == ["U_A:x", "U_B:y", "U_E:z"]
+
+
+def test_the_panel_opens_a_drawer_not_a_combobox(client: TestClient) -> None:
+    html = client.get("/").text
+    assert 'data-drawer-open="drw-scanlog"' in html and 'id="drw-scanlog"' in html
+    assert 'id="sl-list"' in html and 'class="picklist" id="sl-list"' in html
+    assert 'role="combobox"' not in html

@@ -127,3 +127,22 @@ def test_theme_mount_serves_the_kit_and_its_reference_page(client: TestClient) -
 def test_theme_mount_is_named_for_url_for(tmp_path: Path) -> None:
     app = _app(tmp_path)
     assert app.url_path_for("theme", path="kit.css") == "/theme/kit.css"
+
+
+def test_static_answers_say_revalidate_and_an_unchanged_file_is_a_304(
+    tmp_path: Path,
+) -> None:
+    """A deploy must reach the browser: no heuristic freshness on /theme or /static.
+
+    Without ``Cache-Control`` a browser kept the logbook's old stylesheet
+    after a deploy and ran the new script against it. ``no-cache`` keeps the
+    copy but asks every time; the ETag makes the answer a body-less 304.
+    """
+    client = TestClient(_app(tmp_path))
+    first = client.get("/theme/kit.css")
+    assert first.status_code == 200
+    assert first.headers["cache-control"] == "no-cache"
+    again = client.get(
+        "/theme/kit.css", headers={"If-None-Match": first.headers["etag"]}
+    )
+    assert again.status_code == 304

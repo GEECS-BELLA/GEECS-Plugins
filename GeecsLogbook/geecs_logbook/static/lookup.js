@@ -4,8 +4,8 @@
  * /api/day/{day}/lookup, which reads two lines of each scan's s-file. The
  * table's columns are the day's scan-log lists (the scanner's shared list)
  * unless the URL names others (?col=…, kept in sync so a link to the table
- * can be pasted into a note); "add a column" searches every column any scan
- * recorded. A value that differs from the scan above it is marked. Reads
+ * can be pasted into a note); "Add columns…" opens a drawer shaped like the
+ * scanner's device picker over every column any scan recorded. A value that differs from the scan above it is marked. Reads
  * its facts off <main id="logbook">; sets no colours (the theme guard).
  */
 (() => {
@@ -16,7 +16,7 @@
   const API = host.dataset.api || "";
   const DAY = host.dataset.day || "";
   const $ = (id) => document.getElementById(id);
-  const MAX_SUGGESTIONS = 12;
+  const MAX_SHOWN = 80;
   // Why a scan has no values (ScanSummary.values_state), as a cell's tooltip.
   const NOTE = {
     recording: "No s-file yet: the scan has not closed",
@@ -24,7 +24,7 @@
     no_shots: "The scan ended before its first shot",
   };
 
-  const L = { data: null, cols: null, active: -1, shown: [], loaded: false, seq: 0 };
+  const L = { data: null, cols: null, loaded: false, seq: 0 };
 
   const urlCols = () => new URLSearchParams(location.search).getAll("col");
 
@@ -144,69 +144,83 @@
     table.appendChild(tbody);
   }
 
-  function closeSugg() {
-    const ul = $("lk-sugg");
-    ul.hidden = true;
-    ul.textContent = "";
-    $("lk-q").setAttribute("aria-expanded", "false");
-    L.active = -1;
-    L.shown = [];
+  /* ---- the column drawer: the scanner device picker's shape ---------- */
+  let picked = {};   // name -> true, across searches, until Add or Clear
+  let shownCols = []; // [{name, pickable}] in render order, for shift-ranges
+  let anchor = null; // the last row clicked, the other end of a range
+
+  function renderPicks() {
+    const n = Object.keys(picked).length;
+    $("lk-add").disabled = !n;
+    $("lk-add").textContent = n ? `Add ${n} column${n === 1 ? "" : "s"}` : "Add";
+    $("lk-none").disabled = !n;
+    for (const b of $("lk-list").children) {
+      b.setAttribute("aria-pressed", picked[b.dataset.column] ? "true" : "false");
+    }
   }
 
-  function renderSugg() {
-    const q = $("lk-q").value.trim().toLowerCase();
-    const ul = $("lk-sugg");
-    ul.textContent = "";
-    if (!q || !L.data) { closeSugg(); return; }
-    const total = L.data.rows.length;
-    L.shown = L.data.columns
-      .filter((c) => c.name.toLowerCase().includes(q) && !L.cols.includes(c.name))
-      .slice(0, MAX_SUGGESTIONS);
-    if (!L.shown.length) { closeSugg(); return; }
-    L.shown.forEach((c, i) => {
-      const li = el("li");
+  function pick(name, index, range) {
+    if (range && anchor !== null) {
+      const lo = Math.min(anchor, index), hi = Math.max(anchor, index);
+      // a range takes everything in it that is not a column already
+      for (let i = lo; i <= hi; i++) if (shownCols[i] && shownCols[i].pickable) picked[shownCols[i].name] = true;
+    } else {
+      if (picked[name]) delete picked[name]; else picked[name] = true;
+      anchor = index;
+    }
+    renderPicks();
+  }
+
+  function renderPicker() {
+    const list = $("lk-list");
+    list.textContent = "";
+    const columns = L.data ? L.data.columns : [];
+    const total = L.data ? L.data.rows.length : 0;
+    const needle = $("lkq").value.trim().toLowerCase();
+    const matches = columns.filter((c) => !needle || c.name.toLowerCase().includes(needle));
+    shownCols = [];
+    anchor = null;
+    matches.slice(0, MAX_SHOWN).forEach((c, i) => {
+      const have = (L.cols || []).includes(c.name);
+      shownCols.push({ name: c.name, pickable: !have });
       const b = el("button");
       b.type = "button";
-      b.setAttribute("role", "option");
-      b.setAttribute("aria-selected", String(i === L.active));
+      b.dataset.column = c.name;
+      b.disabled = have;
+      b.setAttribute("aria-pressed", picked[c.name] ? "true" : "false");
       b.appendChild(el("span", "", c.name));
-      b.appendChild(el("span", "why", c.listed ? "on the list" : `in ${c.scans} of ${total} scans`));
-      b.addEventListener("mousedown", (ev) => ev.preventDefault());
-      b.addEventListener("click", () => add(c.name));
-      li.appendChild(b);
-      ul.appendChild(li);
+      b.appendChild(el("span", "sub", have ? "a column" : c.listed ? "on the list" : `in ${c.scans} of ${total} scans`));
+      b.addEventListener("click", (ev) => pick(c.name, i, ev.shiftKey));
+      list.appendChild(b);
     });
-    ul.hidden = false;
-    $("lk-q").setAttribute("aria-expanded", "true");
+    $("lkq-hint").textContent = L.data
+      ? `${matches.length} of ${columns.length} columns` + (matches.length > MAX_SHOWN ? " · type to narrow" : "")
+      : "The day has not been read yet.";
+    renderPicks();
   }
 
-  function add(name) {
-    $("lk-q").value = "";
-    closeSugg();
-    if (!L.cols.includes(name)) {
-      L.cols = L.cols.concat([name]);
-      syncUrl();
-      load();
-    }
-  }
-
-  $("lk-q").addEventListener("input", () => { L.active = -1; renderSugg(); });
-  $("lk-q").addEventListener("blur", closeSugg);
-  $("lk-q").addEventListener("keydown", (ev) => {
-    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
-      if (!L.shown.length) return;
-      ev.preventDefault();
-      const step = ev.key === "ArrowDown" ? 1 : -1;
-      L.active = (L.active + step + L.shown.length) % L.shown.length;
-      renderSugg();
-    } else if (ev.key === "Enter") {
-      ev.preventDefault();
-      if (L.active >= 0 && L.shown[L.active]) add(L.shown[L.active].name);
-    } else if (ev.key === "Escape") {
-      closeSugg();
-    }
-    // The page's keyboard stepping (nav.js) must not take keys typed here.
-    ev.stopPropagation();
+  $("lkq").addEventListener("input", renderPicker);
+  // Opening the drawer starts a fresh selection: Esc and the scrim are a
+  // cancel, so picks never committed with Add do not come back.
+  $("lk-open").addEventListener("click", () => {
+    picked = {};
+    renderPicker();
+    setTimeout(() => $("lkq").focus(), 50);
+  });
+  $("lk-all").addEventListener("click", () => {
+    shownCols.forEach((c) => { if (c.pickable) picked[c.name] = true; });
+    renderPicks();
+  });
+  $("lk-none").addEventListener("click", () => { picked = {}; anchor = null; renderPicks(); });
+  $("lk-add").addEventListener("click", () => {
+    const names = Object.keys(picked).filter((n) => !(L.cols || []).includes(n));
+    picked = {};
+    anchor = null;
+    if (window.GeecsKit) window.GeecsKit.drawer($("drw-lookup")).close();
+    if (!names.length) return;
+    L.cols = (L.cols || []).concat(names);
+    syncUrl();
+    load();
   });
   $("lk-scan").addEventListener("input", () => { if (L.data) render(); });
   $("lk-scan").addEventListener("keydown", (ev) => ev.stopPropagation());

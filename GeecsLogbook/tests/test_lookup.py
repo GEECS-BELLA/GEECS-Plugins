@@ -301,3 +301,54 @@ def test_a_failed_first_read_is_retried_on_reopen(tmp_path: Path) -> None:
     )
     assert done.returncode == 0, done.stderr
     assert json.loads(done.stdout.strip().splitlines()[-1]) == {"calls": 2}
+
+
+def _pick_columns(clicks: str) -> list[str]:
+    """Run the column drawer's ``pick`` under node over a fixed list; return the picks."""
+    import re
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:  # pragma: no cover - CI and dev machines have it
+        pytest.skip("node not available")
+    source = (
+        Path(__file__).parents[1] / "geecs_logbook" / "static" / "lookup.js"
+    ).read_text()
+    body = re.search(r"\n  function pick\([^)]*\) \{\n(.*?)\n  \}\n", source, re.S)
+    assert body, "lookup.js: no function pick()"
+    harness = (
+        "let shownCols = [{name: 'U_A x', pickable: true}, {name: 'U_B y', pickable: true},"
+        " {name: 'U_C z', pickable: false}, {name: 'U_D w', pickable: true}];\n"
+        "let picked = {}, anchor = null;\nfunction renderPicks() {}\n"
+        "function pick(name, index, range) {\n"
+        + body.group(1)
+        + "\n}\n"
+        + clicks
+        + "\nconsole.log(JSON.stringify(Object.keys(picked).sort()));"
+    )
+    done = subprocess.run(
+        [node, "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    return json.loads(done.stdout)
+
+
+def test_the_column_drawer_picks_many_like_the_device_drawer() -> None:
+    assert _pick_columns("pick('U_A x', 0, false); pick('U_A x', 0, false);") == []
+    # shift-click reaches across, skipping a column already in the table
+    assert _pick_columns("pick('U_A x', 0, false); pick('U_D w', 3, true);") == [
+        "U_A x",
+        "U_B y",
+        "U_D w",
+    ]
+
+
+def test_the_panel_opens_a_drawer_not_a_combobox(day: Path) -> None:
+    html = (
+        TestClient(create_app("Undulator", base_directory=day))
+        .get(f"/day/{DAY.isoformat()}")
+        .text
+    )
+    assert 'data-drawer-open="drw-lookup"' in html and 'id="drw-lookup"' in html
+    assert 'class="picklist" id="lk-list"' in html
+    assert 'role="combobox"' not in html

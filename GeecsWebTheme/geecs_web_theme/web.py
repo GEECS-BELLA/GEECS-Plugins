@@ -38,6 +38,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional, Union
 from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
+from starlette.responses import Response
 from starlette.staticfiles import StaticFiles
 
 from geecs_web_theme import static_dir
@@ -45,6 +46,7 @@ from geecs_web_theme import static_dir
 __all__ = [
     "FORWARDED_PREFIX_HEADER",
     "ForwardedPrefixMiddleware",
+    "RevalidatingStaticFiles",
     "clean_prefix",
     "make_templates",
     "mount_theme",
@@ -145,6 +147,26 @@ def root_of(request: Request) -> str:
     return request.scope.get("root_path", "").rstrip("/")
 
 
+class RevalidatingStaticFiles(StaticFiles):
+    """``StaticFiles`` whose answers say ``Cache-Control: no-cache``.
+
+    Without a freshness header a browser guesses one from ``Last-Modified``
+    and keeps serving its old copy without asking — so after a deploy a page
+    ran the new script against the old stylesheet (the logbook's lookup
+    panel, unstyled, until a hard reload). ``no-cache`` means *revalidate
+    every time*, not *never store*: the ETag starlette already sends makes
+    an unchanged file a 304 with no body. Every surface's ``/static`` and
+    the ``/theme`` mount use this.
+    """
+
+    # Any: passed through untouched to starlette's own file_response.
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        """Starlette's file response, with the revalidate header."""
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 def mount_theme(app: FastAPI, path: str = "/theme", *, name: str = "theme") -> None:
     """Serve this package's static directory from *app* at *path*.
 
@@ -161,7 +183,7 @@ def mount_theme(app: FastAPI, path: str = "/theme", *, name: str = "theme") -> N
     name : str, default "theme"
         The mount's route name, for ``url_for``.
     """
-    app.mount(path, StaticFiles(directory=str(static_dir())), name=name)
+    app.mount(path, RevalidatingStaticFiles(directory=str(static_dir())), name=name)
 
 
 def make_templates(
