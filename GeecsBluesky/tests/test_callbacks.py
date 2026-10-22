@@ -340,13 +340,19 @@ def test_scan_info_is_replaced_atomically_and_stays_readable(tmp_path):
     assert sorted(p.name for p in folder.iterdir()) == ["ScanInfoScan004.ini"]
 
 
-def test_a_refused_replace_falls_back_to_writing_in_place(tmp_path, monkeypatch):
-    """On SMB a rename over a file another client holds open is refused."""
+@pytest.mark.parametrize(
+    "refusal",
+    [PermissionError(13, "Permission denied"), OSError(16, "Device or resource busy")],
+)
+def test_a_refused_replace_falls_back_to_writing_in_place(
+    tmp_path, monkeypatch, refusal
+):
+    """On SMB a rename over the ini is refused: no DELETE access, or held open."""
     folder = tmp_path / "Scan005"
     folder.mkdir()
 
     def refuse(*args, **kwargs):
-        raise PermissionError(13, "Permission denied")
+        raise refusal
 
     monkeypatch.setattr("geecs_bluesky._fs.os.replace", refuse)
     cb = ScanInfoCallback()

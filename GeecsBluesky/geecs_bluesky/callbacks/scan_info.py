@@ -180,12 +180,15 @@ class ScanInfoCallback(_RunCallback):
         text = "".join(scan_info_lines(start, end_info=end_info))
         try:
             replace_text(path, text, fsync=False)
-        except PermissionError:
-            # A rename over the file needs DELETE access on SMB, and fails
-            # while another client holds it open without delete sharing.
-            # The in-place write it replaced still works then; a reader may
-            # catch it half-written, which beats losing ScanEndInfo.
-            logger.warning("atomic replace of %s refused; writing in place", path)
+        except OSError as exc:
+            # A rename over the file needs DELETE access on SMB (EACCES), and
+            # fails while another client holds it open without delete sharing
+            # (EBUSY from Linux CIFS). The in-place write it replaced may
+            # still work then; a reader may catch it half-written, which
+            # beats losing ScanEndInfo. If it fails too, the callback logs it.
+            logger.warning(
+                "atomic replace of %s refused (%s); writing in place", path, exc
+            )
             path.write_text(text, encoding="utf-8")
         logger.info("Scan info written to %s", path)
         return path
