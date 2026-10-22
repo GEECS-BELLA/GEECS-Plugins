@@ -328,7 +328,10 @@ gate (`plans/registry.py::liveness_gate`): one `CONNECTED` read for
 the trigger profile's device(s) (`ShotControl.liveness_signals`), every
 listed detector and every non-essential device, through the one verdict
 rule in `devices/ca/liveness.py` (`read_disconnected`, fail-open — only
-the exact `Disconnected` string counts).  A dead device refuses the run
+the exact `Disconnected` string counts; a native camera's word is derived
+from its IOC's `AsynIO.CNCT`, which the gate connects first —
+`devices/native.unreachable_native_cameras`, an IOC that does not answer
+is down).  A dead device refuses the run
 with `GeecsDeviceDownError` naming every dead one, before the box is
 driven and before `open_run` claims a scan number — so nothing is
 claimed and no folder exists.  The rule against reading quiescence in a

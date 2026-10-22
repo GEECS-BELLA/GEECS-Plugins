@@ -36,6 +36,7 @@ from bluesky.protocols import Reading
 from event_model import DataKey
 from ophyd_async.core import (
     DEFAULT_TIMEOUT,
+    NotConnectedError,
     AsyncStatus,
     DetectorAcquireLogic,
     DetectorDataLogic,
@@ -65,6 +66,7 @@ from ophyd_async.epics.adcore import (
     NDFileHDF5IO,
 )
 from ophyd_async.epics.core import PvSuffix
+from ophyd_async.plan_stubs import ensure_connected
 
 from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET, epics_timestamp_to_unix
 
@@ -76,6 +78,7 @@ from geecs_bluesky.devices.detector import (
     plugin_reason,
 )
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsTriggerTimeoutError
+from geecs_bluesky.utils import is_connected
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +88,8 @@ DRIVER_SUFFIX = "cam1:"
 HDF_SUFFIX = "HDF1:"
 #: Seconds the trigger setup's readbacks get to settle before a refusal is declared.
 READBACK_TIMEOUT_S = 2.0
+#: Seconds a native camera's IOC gets to answer the run's liveness gate.
+LIVENESS_CONNECT_TIMEOUT_S = 5.0
 
 
 class NativeTriggerSource(SubsetEnum):
@@ -539,6 +544,32 @@ class NativeCamera(StandardDetector):
 def native_cameras(devices: Iterable[Any]) -> list[NativeCamera]:
     """The native cameras among *devices* (a ``.scalars`` view counts as its owner)."""
     return [d for d in map(owner_of, devices) if isinstance(d, NativeCamera)]
+
+
+def unreachable_native_cameras(devices: Iterable[Any]):
+    """Plan: connect each native camera's liveness source; the names whose IOC is silent.
+
+    ``connected_status`` is derived from the driver's ``AsynIO.CNCT``, and
+    connecting the derived signal (what ``connect_on_demand`` does before the
+    gate's read) leaves that source unconnected: the read raises and the
+    fail-open rule passes a camera nobody checked.  The run's liveness gate
+    connects the source first; an IOC that does not answer is down.
+
+    Returns
+    -------
+    list of str
+        The GEECS names of the cameras whose IOC did not answer.
+    """
+    unreachable: list[str] = []
+    for cam in native_cameras(devices):
+        source = cam.driver.asyn_connect
+        if is_connected(source):
+            continue
+        try:
+            yield from ensure_connected(source, timeout=LIVENESS_CONNECT_TIMEOUT_S)
+        except NotConnectedError:
+            unreachable.append(cam._geecs_device_name)
+    return unreachable
 
 
 def refuse_native_cameras(devices: Iterable[Any], why: str) -> None:
