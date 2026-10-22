@@ -114,16 +114,25 @@ with GEECS logics:
   Refires come back when the Tiled writer registers native stacks through
   a consolidator that honours the seq_num→index map (a second
   substitution in `tiled/writer.py`, tested against real Tiled).
-- **Stamp, two epochs**: the IOC writes a per-frame `acq_timestamp`
-  attribute in **Unix** seconds (the frame's EPICS timestamp) through its
-  NDAttributes XML into the stack — the dataset `scan_stack.is_stack_file`
-  requires — and a root `finalized` attribute when the file closes (or the
-  stack check learns the stock writer's close signal). `NativeCamera`'s
-  event column carries the same stamp in the **LabVIEW** epoch (+
-  `LABVIEW_EPOCH_OFFSET`, the `test_epoch_contract.py` constant) with
-  `_column_headers`, as every row stamp does; one epoch for both and every
-  join reads `NaN` without an error. Requires the IOC host's clock
-  disciplined (chrony now, PTP later) — the stamp is the join key.
+- **Stamp, from the stock pair** (verified on ADCore 3.14, geecs-epics#2):
+  a stock IOC cannot write one Unix float per frame (no arithmetic in the
+  attribute XML, no `CONST` type; ADAravis' `NDArrayTimeStamp` is the
+  camera's power-up clock). The per-frame wall clock is the EPICS
+  timestamp pair the writer always stores, `NDArrayEpicsTSSec` +
+  `NDArrayEpicsTSnSec` (1990 epoch). So **the reader computes it**:
+  `scan_stack.timestamps_dataset` / `read_stack_timestamps` learn the pair
+  (Unix = `sec + 631152000 + nsec·1e-9`) beside the two GEECS spellings —
+  any stock areaDetector stack becomes readable, and `is_stack_file`
+  accepts it. `NativeCamera`'s event column reads the same pair from the
+  plugin's `EpicsTSSec_RBV` / `EpicsTSNsec_RBV` and carries it in the
+  **LabVIEW** epoch (+ `LABVIEW_EPOCH_OFFSET`, the `test_epoch_contract.py`
+  constant) with `_column_headers`, as every row stamp does; one epoch for
+  both and every join reads `NaN` without an error. Requires the IOC
+  host's clock NTP-disciplined (PTP later) — the stamp is the join key.
+- **Finalized** (verified, geecs-epics#2): the IOC's layout writes
+  `finalized = 1` on **`/entry`** when the file closes (a root-level layout
+  attribute segfaults the writer). The stack check's `_is_finalized`
+  learns to read `/entry` as well as the root.
 - **Path**: a POSIX variant of `PluginPathProvider` — `PurePosixPath`, the
   worker's path mapped through `config.ini [Paths]
   geecs_native_ioc_data_base_path` (unset = the worker's own root: the IOC
@@ -159,9 +168,10 @@ with GEECS logics:
 - **GEECS-Schemas**: `geecs_schemas.epics.NativeDevices` + docgen.
 - **GeecsBluesky**: `devices/native.py`, the POSIX path provider, the
   namespace merge + ownership check, the bind-time refusals, the stack
-  check's finalized signal if needed, `CLAUDE.md`.
+  check's `/entry` finalized read, `CLAUDE.md`.
+- **GEECS-Data-Utils**: `scan_stack` reads the stock EPICS timestamp pair.
 - **configs repo**: `<experiment>/native_devices.yaml`.
-- **geecs-epics**: the NDAttributes XML (stamp + finalized), the renamed
+- **geecs-epics**: the layout + attributes XML (finalized; done in #2), the renamed
   test IOC, the migration checklist, the CI name check.
 - **Deploy**: IOC hosts mount the share at the worker's path, run chrony.
 
@@ -184,6 +194,5 @@ after; a deliberately blocked edge fails the step naming the camera.
 1. **Refires for native cameras** — v1 has none (above). Worth the
    consolidator work, or is a failed step on a missed native shot
    acceptable? Decide after running with it.
-2. **Finalized signal** — root attribute written by the IOC's XML layout
-   vs the stack check reading the plugin's capture state; decided when
-   the XML is written.
+2. ~~Finalized signal~~ — settled: `/entry.finalized`, written on close
+   (geecs-epics#2).
