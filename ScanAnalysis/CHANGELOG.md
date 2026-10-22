@@ -3,6 +3,41 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.48.0] - 2026-10-22
+
+### Removed
+
+- The legacy analysis route: the single-device / Array1D / Array2D /
+  scatter scan analyzers, the renderers and the Undulator legacy
+  analyzers; the last parent is tagged `legacy-analysis-final` (#1098).
+  The v2 `AnalysisDiagnostic` is refused; recipes and `HimgJob` only
+  (#1097, #1103). Analysis no longer imports ImageAnalysis (#1101).
+
+### Added
+
+- Magspec on the core route: tables bound by the host, the per-shot
+  scalar field, and the `-interp` / `-interpSpec` sibling outputs (#1095,
+  with #1091).
+- `downramp_phase` and `frog_spectral_phase` on the core route (#1092,
+  #1088); the `.himg` jobs as `HimgJob` (#1097).
+- `scan_analysis.services`: the FROG.dll and WaveKit launchers and the
+  `geecs-wavekit-doctor` script, moved from ImageAnalysis (#1101).
+- The group loader raises `ValueError` for a malformed group YAML, so the
+  portal's `GET /api/analysis/catalog` drops it instead of crashing (#1100).
+
+### Changed
+
+- `prepare_v2` → `prepare_recipe`, `V2ShotSource` → `RecipeShotSource`
+  (#1105). Scan-folder facts from `geecs_data_utils.scan_info` (#1079);
+  Data-Utils 0.52.0 dependencies (#1071); ruff bug-catching rule families
+  on (#1072); the `bcave_mag_opt` / `phase_downramp` kinds dropped (#1087).
+
+### Deploy
+
+- Installed with the Data Portal's `analysis` extra: pull +
+  `poetry install --extras analysis` in the portal checkout; restart
+  `geecs-data-portal`.
+
 ## [1.47.0] - 2026-10-07
 
 ### Added

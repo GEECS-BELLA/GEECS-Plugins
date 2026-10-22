@@ -4,6 +4,37 @@ All notable changes to `geecs-analysis` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.29.0] - 2026-10-22
+
+### Added
+
+- The magspec measure, `table:` inputs and the per-shot scalar seam
+  (#1091); the `vignette` step (#1090).
+- `downramp_phase` as a pure measure on a phase map (#1092) and
+  `frog_spectral_phase` with weights as a named auxiliary channel (#1088),
+  both ported bit for bit.
+
+### Removed
+
+- The v2 compile bridge and the v2 names: `geecs_analysis.compat` is now
+  `geecs_analysis.engine`, `V2Recipe` → `CompiledRecipe`, `analyze_v2` →
+  `analyze_compiled`; no compatibility shim (#1103, #1105). The ImageAnalysis
+  differential oracles go with that package (#1098, #1101).
+
+### Changed
+
+- `compile_document` refuses a non-recipe document (a `HimgJob`) with
+  `UnsupportedRecipe`; `AnalysisDocument` is the GEECS-Schemas alias (#1097).
+- The test suite runs standalone (its own dev group and lock);
+  `render` declares `__all__` (#1077). Ruff bug-catching rule families on
+  (#1072).
+
+### Deploy
+
+- Installed with the Data Portal's `analysis` extra and, optionally, the
+  worker's `optimize` extra. Pull + `poetry install` in those checkouts;
+  restart `geecs-data-portal` (and `geecs-qserver` when the extra is in).
+
 ## [0.28.0] - 2026-10-07
 
 ### Added

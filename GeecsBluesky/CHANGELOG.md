@@ -6,6 +6,52 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.116.0] - 2026-10-22
+
+### Added
+
+- Native EPICS cameras in the scan path (design note `NATIVE_DEVICES.md`,
+  #1115):
+  - `devices.native.NativeCamera`: a native areaDetector camera (stock
+    ADAravis + `NDFileHDF5`) as a strict detector, armed once per run
+    (#1117).
+  - The native device registry (`<experiment>/native_devices.yaml`, GEECS-Schemas
+    `NativeDevices`) read by `ConfigsRepoResolver.resolve_native_devices()`,
+    and bind-time refusals of every run shape a native camera cannot take
+    part in yet — before the box moves and before a scan number is
+    claimed (#1118).
+  - The liveness gate connects a native camera's IOC before judging it; an
+    unreadable IOC is down, not "assumed live" (#1119).
+  - The stack check and callbacks read stock areaDetector stacks (#1116).
+- GEECS scan mode: under a trigger profile with `use_scan_mode`, the
+  strict plans send `ScanStart`/`ScanEnd` on the experiment's multicast
+  group and push each shot's save path before every fire (#1086); the
+  preflight reads the DB boundary rows per run, not once at open (#1093);
+  quiet hosts are named at entry and the path channel keeps alive every
+  10 s (#1096); known oddities documented (#1094). Under scan mode the
+  stack check skips the native-files stream match, since scan-mode files
+  are shot-numbered, not stamp-named (#1089).
+- `geecs_bluesky.qs_client.progress`: the one live-progress reducer
+  (`RunProgress`), shared by the scanner and GEECS-MCP; a gated run now
+  counts shots, not steps (#1081).
+
+### Changed
+
+- The CA served set comes from `geecs_core.db.served_set` (#1080).
+- The optimizer imports `geecs_analysis.engine` (#1105); the v2/ImageAnalysis
+  references are gone (#1097, #1101, #1103); docs for the scanner's HTTP
+  API consumers (#1102). Data-Utils 0.52.0 dependencies (#1071); ruff
+  bug-catching rule families on (#1072).
+- `poetry.lock` relocked: it recorded geecs-schemas 0.43.1 and
+  geecs-analysis 0.27.0 while the sources said 0.44.0 / 0.28.0, so every
+  `poetry install` re-installed them as a "downgrade".
+
+### Deploy
+
+- Pull + `poetry install` (with the extras in use) in the worker's
+  queueserver checkout; restart `geecs-qserver`. Native cameras need
+  `native_devices.yaml` in the configs repo checkout the worker reads.
+
 ## [0.115.3] - 2026-10-07
 
 ### Changed

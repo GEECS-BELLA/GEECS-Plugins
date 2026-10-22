@@ -4,6 +4,35 @@ All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
 
+## [0.14.0] - 2026-10-22
+
+### Added
+
+- GEECS scan mode, client side (#1085, #1086, #1096):
+  `geecs_core.transport.scan_mode` (the `ScanStart`/`ScanEnd` multicaster,
+  the ack listener, the port-6342 path server with a 10 s keepalive),
+  `GeecsDb.get_scan_mode_endpoint` / `get_shot_control_device` /
+  `get_root_path`, and `geecs_core.testing`'s fake scan-mode device.
+- `geecs_core.db.served_set` (`served_variables()`, `ServedVariable`): the
+  one home of the CA gateway's served-set rule, which had drifted across
+  three copies (#1080).
+- `VariableMeta.archive_deadband`, read from the DB's new
+  `archive_deadband` column with per-field inheritance (a NULL instance row
+  takes the type row's value); a DB without the column reads NULL (#1114).
+- `pv_naming` names for the gateway's heartbeat and `devices_connected`
+  PVs (#1083).
+
+### Changed
+
+- Ruff bug-catching rule families and pyright (basic) now run on this
+  package; no behaviour change (#1072, #1073).
+
+### Deploy
+
+- No service of its own: ships with GeecsBluesky on the worker. Pull +
+  `poetry install` in the queueserver checkout; restart `geecs-qserver`.
+  (The CA gateway takes it at its own next deploy.)
+
 ## [0.13.1] - 2026-10-07
 
 ### Changed

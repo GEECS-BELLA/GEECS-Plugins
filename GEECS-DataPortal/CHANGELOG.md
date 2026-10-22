@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.42.0] - 2026-10-22
+
+### Changed
+
+- The shot-data cache reads stock areaDetector stacks (a native EPICS
+  camera's `NDFileHDF5` files) through Data-Utils' `frame_stamps` /
+  `stack_finalized`, so their frames are served; an unreadable stamp set
+  is skipped rather than raised (#1116).
+
+### Deploy
+
+- Pull + `poetry install --extras analysis` in the portal checkout;
+  restart `geecs-data-portal`.
+
 ## [0.41.0] - 2026-10-17
 
 ### Added

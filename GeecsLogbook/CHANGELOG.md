@@ -5,6 +5,27 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.13.0] - 2026-10-22
+
+### Changed
+
+- The scan reader takes its folder facts from `geecs_data_utils.scan_info`
+  (one home, shared with the portal's folder catalog). Visible change: a
+  Master Control scan whose `ScanEndInfo` is empty, or a folder without
+  ScanInfo, reads **success** when the run closed (its scan-data file or
+  analysis s-file exists), where it read "not finalised" / `incomplete` —
+  matching the portal. `ScanSummary` is built from `ScanInfoRecord`;
+  numbers are finite only (#1079).
+- Ruff bug-catching rule families on; no behaviour change (#1072).
+  Documentation touch for the MCP's logbook domain (#1108).
+- Lock relocked for GEECS-Schemas 0.45.0 and GEECS-Data-Utils 0.53.0 (ends
+  the "Downgrading geecs-schemas" line on install).
+
+### Deploy
+
+- Pull + `poetry install` in the logbook's checkout (the portal
+  checkout); restart `geecs-logbook`.
+
 ## [0.12.2] - 2026-10-07
 
 ### Changed
