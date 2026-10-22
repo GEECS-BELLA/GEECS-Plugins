@@ -749,16 +749,11 @@ async function confirmSendToLogbook() {
     if (!res.ok) throw new Error(data.detail || res.statusText);
     remember(AUTHOR_KEY, author);
     remember(ENTRY_KEY, data.entry_id);
-    // Open the entry, because the words are written there — but a popup
-    // blocker may refuse a window this far past the click, so the link
-    // is shown either way rather than the send looking like it vanished.
-    const opened = window.open(data.url, "_blank", "noopener");
-    if (opened) { closeModals(); }
-    else {
-      document.getElementById("sl-form").hidden = true;
-      document.getElementById("sl-done").hidden = false;
-      document.getElementById("sl-open").href = data.url;
-    }
+    // Offer the entry rather than opening it: the user stays on the plot
+    // and follows the link only if they want to write there.
+    document.getElementById("sl-form").hidden = true;
+    document.getElementById("sl-done").hidden = false;
+    document.getElementById("sl-open").href = data.url;
     document.getElementById("sl-doneword").textContent =
       data.appended ? "Added to this scan's log entry." : "New log entry created for this scan.";
     flashNote(data.appended ? "added to the scan log entry" : "scan log entry created");
