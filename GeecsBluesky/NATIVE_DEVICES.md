@@ -99,7 +99,12 @@ with GEECS logics:
   own choices.
 - **Acquire model** (as GEECS cameras run): driver in `Continuous`,
   `TriggerMode On`, `TriggerSource` per the registry; **armed once per run** at the
-  first prepare, the HDF plugin capturing in Stream mode for the run;
+  first prepare, the HDF plugin capturing in Stream mode for the run. The
+  order matters: ophyd-async runs trigger logic → data logic (capture
+  starts) → acquire logic, so the trigger logic's first `prepare_edge`
+  **stops** a free-running camera and sets trigger mode *before* the
+  capture starts (no live-view frame reaches the stack), and the acquire
+  logic restarts it after (on its readback, not the put);
   `unstage` restores the driver's pre-run state (live view keeps working
   between scans). No per-shot `Acquire` writes — the stock model's
   per-shot AcquisitionStart is both too slow for 1 Hz and, in Continuous,
@@ -117,7 +122,18 @@ with GEECS logics:
   `GeecsDetector` avoids this by rewinding its plugin; stock `NDFileHDF5`
   cannot rewind. So, for v1:
   - a native camera that **misses a shot fails the step** (no refire —
-    `discard_uncollected` raises, naming the camera);
+    `discard_uncollected` raises, naming the camera); a frame it *did*
+    write survives another device's miss (strict calls
+    `discard_uncollected` on every plugin-backed device; with one external
+    key per event the frame's datum is valid);
+  - **a pause never replays a shot**: strict wraps each shot in
+    `rewindable_wrapper(all_safe_rewind(devices))`, and a device without a
+    `rewindable` attribute counts as safe — a pause after the frame landed
+    would replay trigger + fire on resume and the append-only writer would
+    hold two frames for one row (Bluesky then fails the run: "multiple
+    indices in a stream_datum for one event"). `NativeCamera` declares
+    `rewindable.get() → False`, so the resume continues where it stopped
+    (GPT review on #1115; pinned by a mid-shot pause test);
   - a run with a native camera **and** a gateway plugin camera is refused
     at bind (a refire of the other camera would need a native rewind);
   - a stray frame (an edge outside a shot) is the same fault — hence the
@@ -143,18 +159,26 @@ with GEECS logics:
 - **Finalized** (verified, geecs-epics#2): the IOC's layout writes
   `finalized = 1` on **`/entry`** when the file closes (a root-level layout
   attribute segfaults the writer). The stack check's `_is_finalized`
-  learns to read `/entry` as well as the root.
+  learns to read `/entry` as well as the root (#1116).
+- **The HDF data logic keeps that layout** (GPT review on #1115): the
+  stock `ADHDFDataLogic.prepare_unbounded` sets `XMLFileName` to `""` and
+  `SWMRMode` on before the capture — the layout, and with it the marker,
+  would be gone, and a SWMR file cannot take the attribute at close
+  anyway. A native data logic reads the IOC's `XMLFileName` before the
+  stock prepare and puts it back, with SWMR off, after it — before the
+  first frame (the writer opens the file lazily at the first frame, and a
+  triggered camera sends none before the first trigger).
 - **Path**: a POSIX variant of `PluginPathProvider` — `PurePosixPath`, the
   worker's path mapped through `config.ini [Paths]
   geecs_native_ioc_data_base_path` (unset = the worker's own root: the IOC
   hosts mount the share at the same path, bind-mounted unchanged into the
   container). `create_dir_depth=0`: the IOC creates nothing; the provider
   makes `<device>/` inside the claimed folder, as today.
-- **Liveness**: the asyn port's connection (`cam:AsynIO.CNCT`) through an
-  adapter signal rendering the verdict's `Disconnected` — including when
-  the read itself fails (IOC down), since `read_disconnected` is fail-open
-  and would otherwise call a dead IOC live. `devices/ca/liveness.py` stays
-  the one rule. (devIocStats' heartbeat only says the IOC is up, and a
+- **Liveness**: the asyn port's connection (`cam1:AsynIO.CNCT`,
+  `Connect`/`Disconnect`) through a derived signal rendering the verdict's
+  `Disconnected`. `devices/ca/liveness.py` stays the one rule and stays
+  fail-open: with the whole IOC down the read fails and the gate passes
+  it, and the run stops at the device's connect, still before the claim. (devIocStats' heartbeat only says the IOC is up, and a
   counter never reads `Disconnected`; a connected but stalled camera is
   caught by the strict timeout.)
 - **Facts strict reads**: `name = safe_name(device)`,
@@ -166,7 +190,8 @@ with GEECS logics:
 
 | Fault | What happens |
 |---|---|
-| IOC down / camera disconnected | liveness gate refuses before the claim, naming it |
+| Camera disconnected from its IOC | liveness gate refuses before the claim, naming it |
+| IOC down | the device's connect fails at stage, before the claim (the gate is fail-open) |
 | Share not mounted on the IOC host | `FilePathExists_RBV = 0`; prepare fails naming the path |
 | No edge for a shot | `GeecsTriggerTimeoutError` → the step fails naming the camera and the plugin's message (no refire in v1) |
 | Stray frame (edge outside a shot) | stack and datums disagree → the stack check reports it; fixed by cabling, not tolerated |
@@ -187,6 +212,12 @@ with GEECS logics:
 - **Deploy**: IOC hosts mount the share at the worker's path, run chrony.
 
 ## Acceptance
+
+**Bench, done** (2026-10-22, software trigger, the device in a strict-shaped
+plan from a client, not yet the queueserver): 5 shots → 5 frames, datums
+`0–1 … 4–5`; the IOC's layout still selected after prepare and
+`/entry.finalized == 1` after unstage; `find_stack_file` finds the stack
+and every row's stamp joins its own frame; the camera back in free-run.
 
 **Now, software trigger** (no cable): a strict 10-shot `count` of the
 registered camera (`trigger_source: software`) through the queueserver
