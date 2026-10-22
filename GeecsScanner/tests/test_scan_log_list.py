@@ -148,44 +148,64 @@ def test_a_failed_db_read_is_reported_and_not_cached() -> None:
     assert [i.name for i in source.logged_variables().items] == ["U_A:x"]
 
 
-def _pick_variables(clicks: str) -> list[str]:
-    """Run the scan-log drawer's selection logic under node; return what is picked.
-
-    The list mirrors the device drawer's test: ``U_C:not_logged`` and
-    ``U_D:listed`` cannot be picked.
-    """
-    import json as _json
-    import re
-    import shutil
-    import subprocess
-
-    if shutil.which("node") is None:  # pragma: no cover - CI and dev machines have it
-        pytest.skip("node not available")
-    source = (
+def _scan_log_script() -> str:
+    return (
         Path(__file__).parents[1] / "geecs_scanner" / "static" / "scan-log-list.js"
     ).read_text()
-    body = re.search(r"\n  function pick\([^)]*\) \{\n(.*?)\n  \}\n", source, re.S)
-    assert body, "scan-log-list.js: no function pick()"
-    harness = (
-        """
-var shown = [
-  {name: 'U_A:x', pickable: true}, {name: 'U_B:y', pickable: true},
-  {name: 'U_C:not_logged', pickable: false}, {name: 'U_D:listed', pickable: false},
-  {name: 'U_E:z', pickable: true},
-];
-var picked = {}, anchor = null;
-function renderPicks() {}
-function pick(name, index, range) {
-"""
-        + body.group(1)
-        + "\n}\n"
-        + clicks
-        + "\nconsole.log(JSON.stringify(Object.keys(picked).sort()));"
-    )
+
+
+def _function(source: str, name: str) -> str:
+    """The body of one top-level ``function name() {...}`` of the panel's IIFE."""
+    import re
+
+    body = re.search(rf"\n  function {name}\([^)]*\) \{{\n(.*?)\n  \}}\n", source, re.S)
+    assert body, f"scan-log-list.js: no function {name}()"
+    return body.group(1)
+
+
+def _run_node(harness: str):
+    import json as _json
+    import subprocess
+
+    from geecs_web_theme.testing import node_available
+
+    if not node_available():  # pragma: no cover - CI and dev machines have it
+        pytest.skip("node not available")
     done = subprocess.run(
         ["node", "-"], input=harness, text=True, capture_output=True, check=True
     )
     return _json.loads(done.stdout)
+
+
+def _pick_variables(clicks: str, *, listed: int = 0, cap: int = 64) -> list[str]:
+    """Run the scan-log drawer's selection logic under node; return what is picked.
+
+    The list mirrors the device drawer's test: ``U_C:not_logged`` and
+    ``U_D:listed`` cannot be picked. *listed* names already in the list and
+    *cap* the server's bound set how much room the picker has.
+    """
+    source = _scan_log_script()
+    return _run_node(
+        f"""
+var shown = [
+  {{name: 'U_A:x', pickable: true}}, {{name: 'U_B:y', pickable: true}},
+  {{name: 'U_C:not_logged', pickable: false}}, {{name: 'U_D:listed', pickable: false}},
+  {{name: 'U_E:z', pickable: true}},
+];
+var picked = {{}}, anchor = null, MAX_VARIABLES = {cap};
+var L = {{variables: new Array({listed}).fill('U_Q:q')}};
+function renderPicks() {{}}
+function pickedNames() {{ return Object.keys(picked); }}
+function room() {{
+{_function(source, "room")}
+}}
+function pick(name, index, range) {{
+{_function(source, "pick")}
+}}
+{clicks}
+console.log(JSON.stringify(Object.keys(picked).sort()));
+"""
+    )
 
 
 def test_the_drawer_picks_many_like_the_device_drawer() -> None:
@@ -207,3 +227,32 @@ def test_the_panel_opens_a_drawer_not_a_combobox(client: TestClient) -> None:
     assert 'data-drawer-open="drw-scanlog"' in html and 'id="drw-scanlog"' in html
     assert 'id="sl-list"' in html and 'class="picklist" id="sl-list"' in html
     assert 'role="combobox"' not in html
+
+
+def test_the_picker_never_selects_past_the_lists_bound() -> None:
+    """A batch past the server's bound is refused whole; the picker stops at the room left."""
+    # one slot left: the second click takes nothing, a range stops when full
+    assert _pick_variables(
+        "pick('U_A:x', 0, false); pick('U_B:y', 1, false);", listed=63
+    ) == ["U_A:x"]
+    assert _pick_variables(
+        "pick('U_A:x', 0, false); pick('U_E:z', 4, true);", listed=62
+    ) == [
+        "U_A:x",
+        "U_B:y",
+    ]
+
+
+def test_what_may_be_picked_is_logged_and_not_listed() -> None:
+    """The rule renderPicker applies to every row, run as the page runs it."""
+    source = _scan_log_script()
+    result = _run_node(
+        "function isPickable(item, have) {\n"
+        + _function(source, "isPickable")
+        + "\n}\nvar have = {'U_D:listed': true};\nconsole.log(JSON.stringify(["
+        "isPickable({name: 'U_A:x', logged: true}, have),"
+        "isPickable({name: 'U_C:x', logged: false}, have),"
+        "isPickable({name: 'U_D:listed', logged: true}, have)]));"
+    )
+    assert result == [True, False, False]
+    assert "var pickable = isPickable(it, have);" in source

@@ -97,3 +97,5 @@
    in the trio above, instead of stretching (the kit grid's auto-fit). */
 .kit .grid.thirds{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media(max-width:900px){.kit .grid.thirds{grid-template-columns:minmax(0,1fr)}}
+.kit #drw-scanlog .err-note{font-size:12px;color:var(--warn)}
+.kit #drw-scanlog .err-note:empty{display:none}

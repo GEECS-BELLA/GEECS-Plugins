@@ -252,7 +252,7 @@ _HARNESS = r"""
 const listeners = {};
 const el = (id) => ({
   id, hidden: false, textContent: "", value: "", dataset: { api: "/api", day: "2026-09-11" },
-  open: false, className: "", title: "",
+  open: false, className: "", title: "", children: [], disabled: false,
   setAttribute() {}, appendChild() {},
   addEventListener(kind, fn) { (listeners[id + ":" + kind] = listeners[id + ":" + kind] || []).push(fn); },
 });
@@ -352,3 +352,15 @@ def test_the_panel_opens_a_drawer_not_a_combobox(day: Path) -> None:
     assert 'data-drawer-open="drw-lookup"' in html and 'id="drw-lookup"' in html
     assert 'class="picklist" id="lk-list"' in html
     assert 'role="combobox"' not in html
+
+
+def test_page_shortcuts_are_off_while_a_drawer_is_open() -> None:
+    """The drawer's rows are buttons; ← → t on one must not leave the page under it."""
+    nav = (
+        Path(__file__).parents[1] / "geecs_logbook" / "static" / "nav.js"
+    ).read_text()
+    assert (
+        "const drawerOpen = () => !!document.querySelector('.drawer[data-open=\"true\"]');"
+        in nav
+    )
+    assert "typing(ev.target) || drawerOpen()) return;" in nav

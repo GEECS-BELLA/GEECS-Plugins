@@ -59,7 +59,7 @@ the theme without being on the kit.
 |---|---|---|---|
 | GeecsLogbook | yes | yes | yes (0.10.0) |
 | GeecsScanner (web console, its branch) | yes | yes | yes |
-| GEECS-DataPortal | yes | **no** — its own rail, tabs, badges, overlay, a 125-line inline style block and a 971-line inline script | no (own middleware copy) |
+| GEECS-DataPortal | yes | **no** — its own rail, tabs, badges, overlay, a 125-line inline style block and a 971-line inline script | no (own middleware copy) — one exception: its `/static` and `/theme` mounts use `RevalidatingStaticFiles` (#1128), so a deploy is not hidden behind a cached asset. That is not the glue adoption below; the middleware copy and `root` processor stay until then |
 | ScanAnalysis config editor (`/configs`) | yes | no | no |
 
 **Portal onto the kit is deliberately LAST** — after the Qt console's
@@ -75,7 +75,11 @@ Do not start either early to "tidy up".
 
 `geecs_web_theme.web` (the `web` extra) is the one copy of what every
 FastAPI surface needs around the theme: `ForwardedPrefixMiddleware`,
-`clean_prefix`, `root_of`, `mount_theme`, `make_templates`. The portal,
+`clean_prefix`, `root_of`, `mount_theme`, `make_templates`, and
+`RevalidatingStaticFiles` (every `/static` and `/theme` answer says
+`Cache-Control: no-cache` — the ETag makes an unchanged file a 304; without
+it a browser kept an old stylesheet after a deploy and ran the new script
+against it). The portal,
 the logbook, the scanner and the analysis config editor each carried a
 copy and drifted (three mechanisms for `root`, one surface with none). **A new surface imports these; it does not copy
 them.** `geecs_web_theme.testing` is the same for the template guards —

@@ -17,6 +17,9 @@
   var ROOT = document.body.dataset.root || "";
   var $ = function (id) { return document.getElementById(id); };
   var MAX_SHOWN = 80;
+  // The server's bound (service/scan_log_list.MAX_VARIABLES): a batch that
+  // would pass it is refused whole, so the picker never selects past it.
+  var MAX_VARIABLES = 64;
   var K = { ok: "ok", failed: "failed", unknown: "unknown" };  // kit words only
 
   var L = { variables: [], version: "", catalog: [], catalogNote: "", readings: {} };
@@ -121,12 +124,20 @@
   /* -------------------------------------------- the drawer (device picker's shape) */
 
   function pickedNames() { return Object.keys(picked); }
+  function room() {
+    return MAX_VARIABLES - L.variables.length - pickedNames().length;
+  }
+  /** Whether a catalog row may be picked: logged, and not in the list already. */
+  function isPickable(item, have) {
+    return !!item.logged && !have[item.name];
+  }
 
   function renderPicks() {
     var n = pickedNames().length;
     $("btn-sl-add").disabled = !n;
     $("btn-sl-add").textContent = n ? "Add " + n + " variable" + (n === 1 ? "" : "s") : "Add";
     $("btn-sl-none").disabled = !n;
+    $("btn-sl-room").textContent = room() > 0 ? "" : "The list is full (" + MAX_VARIABLES + " variables).";
     Array.prototype.forEach.call($("sl-list").children, function (b) {
       b.setAttribute("aria-pressed", picked[b.dataset.variable] ? "true" : "false");
     });
@@ -136,9 +147,9 @@
     if (range && anchor !== null) {
       var lo = Math.min(anchor, index), hi = Math.max(anchor, index);
       // a range takes everything pickable in it: logged, and not already listed
-      for (var i = lo; i <= hi; i++) if (shown[i] && shown[i].pickable) picked[shown[i].name] = true;
+      for (var i = lo; i <= hi && room() > 0; i++) if (shown[i] && shown[i].pickable) picked[shown[i].name] = true;
     } else {
-      if (picked[name]) delete picked[name]; else picked[name] = true;
+      if (picked[name]) delete picked[name]; else if (room() > 0) picked[name] = true;
       anchor = index;
     }
     renderPicks();
@@ -153,11 +164,16 @@
     var typed = $("slq").value.trim();
     // With no catalog (the DB did not answer) a typed Device:Variable is
     // offered as written; the server checks its shape.
-    if (!items.length && typed.indexOf(":") > 0) items = [{ name: typed, logged: true }];
+    if (!items.length) {
+      items = typed.indexOf(":") > 0 ? [{ name: typed, logged: true }] : [];
+      // Typed rows are not a catalog: a pick of "U_A:po" must not survive
+      // the keystroke that makes it "U_A:pos".
+      Object.keys(picked).forEach(function (n) { if (n !== typed) delete picked[n]; });
+    }
     var matches = items.filter(function (it) { return !needle || it.name.toLowerCase().indexOf(needle) !== -1; });
     shown = []; anchor = null;
     matches.slice(0, MAX_SHOWN).forEach(function (it, i) {
-      var pickable = it.logged && !have[it.name];
+      var pickable = isPickable(it, have);
       shown.push({ name: it.name, pickable: pickable });
       var b = document.createElement("button");
       b.type = "button";
@@ -185,8 +201,20 @@
     picked = {}; renderPicker(); setTimeout(function () { $("slq").focus(); }, 50);
   });
   $("btn-sl-all").addEventListener("click", function () {
-    shown.forEach(function (s) { if (s.pickable) picked[s.name] = true; });
+    shown.forEach(function (s) { if (s.pickable && !picked[s.name] && room() > 0) picked[s.name] = true; });
     renderPicks();
+  });
+  // Enter adds what is picked — or, with nothing picked, the one row the
+  // search leaves (the typed Device:Variable when the DB gave no list).
+  $("slq").addEventListener("keydown", function (ev) {
+    if (ev.key !== "Enter") return;
+    ev.preventDefault();
+    if (!pickedNames().length) {
+      var only = shown.filter(function (s) { return s.pickable; });
+      if (only.length !== 1 || room() <= 0) return;
+      picked[only[0].name] = true;
+    }
+    $("btn-sl-add").click();
   });
   $("btn-sl-none").addEventListener("click", function () { picked = {}; anchor = null; renderPicks(); });
   $("btn-sl-add").addEventListener("click", function () {

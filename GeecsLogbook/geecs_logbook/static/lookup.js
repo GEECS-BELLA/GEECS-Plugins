@@ -53,11 +53,13 @@
       L.data = data;
       L.cols = data.shown.filter((c) => c);
       render();
+      renderPicker();  // a drawer opened while the day was being read fills now
     } catch (err) {
       if (seq !== L.seq) return;
       // A first read that failed (a share blip, a 503) must not stick:
       // reopening the panel tries again rather than needing a page reload.
       if (!L.data) L.loaded = false;
+      renderPicker();
       $("lk-note").textContent = `Could not read the day: ${err.message}` +
         (L.data ? "" : " — close and reopen this panel to try again.");
     }
@@ -195,7 +197,7 @@
     });
     $("lkq-hint").textContent = L.data
       ? `${matches.length} of ${columns.length} columns` + (matches.length > MAX_SHOWN ? " · type to narrow" : "")
-      : "The day has not been read yet.";
+      : L.loaded ? "Reading the day's s-files…" : "The day could not be read — close the panel and reopen it to try again.";
     renderPicks();
   }
 
