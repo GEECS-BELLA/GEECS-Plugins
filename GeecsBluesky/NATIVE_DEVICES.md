@@ -54,15 +54,15 @@ per-experiment, already pulled on the worker; no deploy key):
 ```yaml
 schema_version: 1
 devices:
-  UC_ExampleCam: {kind: aravis_camera}
+  UC_ExampleCam: {kind: aravis_camera, trigger_source: software}
 ```
 
-- **Names and kind only.** The PV prefix is derived by decision 5
+- **Names, kind and trigger source only.** The PV prefix is derived by decision 5
   (`<experiment>:<device>:`, GEECS normalization), so it cannot drift from
   `ioc.yaml`; the record suffixes are fixed per kind (`cam:`, `hdf1:`).
   No hosts, no paths: facility values keep their one home.
-- Schema a new GEECS-Schemas model (proposed: NativeDevices in an epics module) (v1); `kind` a discriminated
-  union. Read through `ConfigsRepoResolver` like every configs document.
+- Schema: a new GEECS-Schemas model (proposed: NativeDevices in an
+  epics module), v1; `kind` a discriminated union. Read through `ConfigsRepoResolver` like every configs document.
 - geecs-epics CI checks every registry name has a `services/*/ioc.yaml`
   serving the derived prefix (it reads the configs repo; not the reverse).
 - The test IOC (`ADTEST:CAM1`) is renamed to the convention before it is
@@ -86,8 +86,19 @@ devices:
 A `StandardDetector` over stock AD IO (`AravisDriverIO`, `NDFileHDF5IO`)
 with GEECS logics:
 
+- **Trigger source** (per camera, the registry's `trigger_source`):
+  `line1` — the camera's hardware input, wired to a DG645 output (the
+  pulsed-event mode); `software` — `trigger()` executes the camera's
+  `TriggerSoftware` command, so the frame is exposed when the worker says
+  go, not when the laser fires. Software mode's timing is an accepted
+  caveat (Sam, 2026-10-22): right for continuous or slow signals,
+  shot-on-demand and dry runs; verified on the bench camera, one frame per
+  trigger and none while armed and idle. Both take the same path below;
+  only the source and that one command differ. ophyd-async's
+  `AravisTriggerSource` knows only `Line1`, so `NativeCamera` defines its
+  own choices.
 - **Acquire model** (as GEECS cameras run): driver in `Continuous`,
-  `TriggerMode On`, `TriggerSource Line1`; **armed once per run** at the
+  `TriggerMode On`, `TriggerSource` per the registry; **armed once per run** at the
   first prepare, the HDF plugin capturing in Stream mode for the run;
   `unstage` restores the driver's pre-run state (live view keeps working
   between scans). No per-shot `Acquire` writes — the stock model's
@@ -165,9 +176,9 @@ with GEECS logics:
 
 ## 5. Where the changes land
 
-- **GEECS-Schemas**: a new GEECS-Schemas model (proposed: NativeDevices in an epics module) + docgen.
-- **GeecsBluesky**: a new native module under devices/ (proposed), the POSIX path provider, the
-  namespace merge + ownership check, the bind-time refusals, the stack
+- **GEECS-Schemas**: the registry model (proposed above) + docgen.
+- **GeecsBluesky**: a new native module under devices/ (proposed), the
+  POSIX path provider, the namespace merge + ownership check, the bind-time refusals, the stack
   check's `/entry` finalized read, `CLAUDE.md`.
 - **GEECS-Data-Utils**: `scan_stack` reads the stock EPICS timestamp pair.
 - **configs repo**: `<experiment>/native_devices.yaml`.
@@ -177,17 +188,21 @@ with GEECS logics:
 
 ## Acceptance
 
-**Cabling rule**: `Line1` hangs off a DG645 output **gated by the trigger
+**Now, software trigger** (no cable): a strict 10-shot `count` of the
+registered camera (`trigger_source: software`) through the queueserver
+gives 10 frames in `ScanNNN/<device>/<device>.h5` that `find_stack_file`
+finds, an s-file of 10 rows joined by stamp, a clean stack check, the run
+in Tiled with frame *k* = shot *k*, the frames in the portal; the live
+view runs before and after.
+
+**Later, `line1`** — **cabling rule**: `Line1` hangs off a DG645 output **gated by the trigger
 box's states**, as a GEECS camera's input does — the camera captures every
 edge it sees all run long, so a free-running channel puts a stray frame
 in the stack on every edge.
 
-With the camera cabled that way: a strict 10-shot `count` of the
-registered camera through the queueserver gives 10 frames in
-`ScanNNN/<device>/<device>.h5` that `find_stack_file` finds, an s-file of
-10 rows joined by stamp, a clean stack check, the run in Tiled with frame
-*k* = shot *k*, the frames in the portal; the live view runs before and
-after; a deliberately blocked edge fails the step naming the camera.
+With the camera cabled that way: the same 10-shot run with
+`trigger_source: line1`, and a deliberately blocked edge fails the step
+naming the camera.
 
 ## Open questions
 
@@ -196,3 +211,7 @@ after; a deliberately blocked edge fails the step naming the camera.
    acceptable? Decide after running with it.
 2. ~~Finalized signal~~ — settled: `/entry.finalized`, written on close
    (geecs-epics#2).
+3. **`Action1`** (later) — the camera's GigE Vision action-command
+   trigger: a network-broadcast trigger that, on PTP-synchronized cameras,
+   can be scheduled for a precise time — software-initiated with
+   hardware-grade timing. Ties into the PTP plan; not in v1.
