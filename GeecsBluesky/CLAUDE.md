@@ -383,7 +383,8 @@ is not rewindable (a resume replays nothing).  A stalled camera fails
 `complete` with the GEECS timeout and the box goes OFF; a camera whose
 frame count stops reading mid-batch fails it the same way
 (`GeecsFrameCountReadError`, naming it), the `shots` rows already out
-being the batch's record.  A gated step
+being the batch's record (its stacks' datums best effort: the dead
+camera's count fails their trim and collect).  A gated step
 needs an essential triggered device (the clock).
 
 A **LabVIEW-native saving device without a file plugin may be essential**

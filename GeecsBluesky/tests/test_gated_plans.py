@@ -706,10 +706,12 @@ def test_a_gate_read_failure_turns_the_box_off_and_keeps_the_shots_out(
     """A gate's frame count that stops reading mid-batch takes the failure path.
 
     The progress collect re-reads every gate; when one read raises (a
-    camera's count PV timing out) the box goes OFF, the rows already out
-    stay the batch's record (the stacks trimmed to them, never re-reading
-    the dead gate), and the run fails naming the camera, chained to the
-    read's own error.
+    camera's count PV timing out) the box goes OFF, the ``shots`` rows
+    already out stay the batch's record (the dead gate never re-read), and
+    the run fails naming the camera, chained to the read's own error.  The
+    dead PV fails the camera's trim too (the real fault, review of #1123):
+    the stacks then go unrecorded, best effort, and the batch's own error
+    still wins.
     """
     monkeypatch.setattr(gated, "PROGRESS_PERIOD_S", 0.1)
     a, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.5)
@@ -723,7 +725,11 @@ def test_a_gate_read_failure_turns_the_box_off_and_keeps_the_shots_out(
             raise TimeoutError("uc_b-hdf-num_captured: no reply")
         return await real()
 
+    async def dead_trim(frames: int) -> None:
+        raise TimeoutError("uc_b-hdf-num_captured: no reply")
+
     monkeypatch.setattr(b, "frames_this_batch", dies_after_the_first_progress_read)
+    monkeypatch.setattr(b, "truncate_to", dead_trim)
     col = DocCollector()
     RE.subscribe(col)
     with pytest.raises(GeecsFrameCountReadError, match="UC_B") as info:
@@ -741,8 +747,6 @@ def test_a_gate_read_failure_turns_the_box_off_and_keeps_the_shots_out(
     rows = _events_from_pages(col, "shots")
     assert 0 < len(rows) < 40
     assert [r["seq_num"] for r in rows] == list(range(1, len(rows) + 1))
-    datums = _datums_by_key(col)  # the stacks trimmed to the rows out
-    assert datums["uc_a"] == datums["uc_b"] == [{"start": 0, "stop": len(rows)}]
     assert shot_control.standing_state == "OFF"
 
 
