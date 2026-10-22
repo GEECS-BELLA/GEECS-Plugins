@@ -214,7 +214,7 @@ class TestShotDataCache:
 
     def test_stock_areadetector_stack_caches_once_entry_finalized(self, request):
         # A native EPICS camera's stock stack: the EPICS timestamp pair, no
-        # GEECS stamp, ``finalized`` on /entry (GeecsBluesky NATIVE_DEVICES.md).
+        # GEECS stamp, ``finalized`` on /entry (the native EPICS devices design).
         import h5py
 
         folder = request.getfixturevalue("scan_folder")

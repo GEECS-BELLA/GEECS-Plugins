@@ -254,7 +254,7 @@ def test_file_epoch_matches_utc_epoch_difference():
 
 
 class TestStockAreaDetectorStacks:
-    """A native EPICS camera's stock NDFileHDF5 stack (GeecsBluesky NATIVE_DEVICES.md).
+    """A native EPICS camera's stock NDFileHDF5 stack (the native EPICS devices design).
 
     No GEECS stamp: the per-frame wall clock is areaDetector's EPICS
     timestamp pair, and ``finalized`` sits on ``/entry`` (written on close by

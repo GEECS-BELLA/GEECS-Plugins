@@ -509,6 +509,14 @@ def frame_columns_from_attributes(
     -------
     FrameColumns or None
         ``None`` when no attribute carries a frame stamp (nothing to join on).
+
+    Notes
+    -----
+    Stamps are recognised by GEECS attribute name only. A stock areaDetector
+    stack (a native EPICS camera) carries the EPICS pair instead —
+    ``io.scan_stack.frame_stamps`` reads it; teach this join the same rule
+    before native cameras are admitted to gated or non-essential runs
+    (refused in v1, so no such stack reaches it today).
     """
     from geecs_data_utils.io.arrays import WAVEFORM_ATTRIBUTE_SUFFIXES
     from geecs_data_utils.io.scan_stack import parse_attribute_name

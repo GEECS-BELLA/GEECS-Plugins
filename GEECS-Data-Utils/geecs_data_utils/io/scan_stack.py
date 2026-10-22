@@ -79,7 +79,7 @@ TIMESTAMPS_DATASET = f"{ATTRIBUTES_GROUP}/acq_timestamp"
 #: areaDetector's own per-frame wall clock, written by every stock
 #: NDFileHDF5 writer: seconds and nanoseconds past the EPICS epoch.  A
 #: native EPICS camera's stack carries these and no GEECS stamp
-#: (GeecsBluesky ``NATIVE_DEVICES.md``); :func:`frame_stamps` reads either.
+#: (the native EPICS devices design); :func:`frame_stamps` reads either.
 EPICS_TS_SEC = "NDArrayEpicsTSSec"
 EPICS_TS_NSEC = "NDArrayEpicsTSnSec"
 #: Unix seconds at the EPICS epoch, 1990-01-01T00:00:00Z.

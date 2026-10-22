@@ -427,8 +427,9 @@ def await_finalized(path: Path, timeout: float) -> bool:
 
     The stop document precedes ``unstage`` (``Capture=0``, when the plugin
     closes the file), so a stack must never be read at the stop document
-    itself; the ``finalized`` root attribute is the plugin's "done" flag
-    (read through
+    itself; ``finalized`` (on the root, or ``/entry`` for a native EPICS
+    camera's stack — :func:`~geecs_data_utils.io.scan_stack.stack_finalized`)
+    is the writer's "done" flag (read through
     :func:`~geecs_data_utils.io.scan_stack.open_stack`, lock-free).
 
     Parameters
