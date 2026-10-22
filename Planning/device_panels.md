@@ -34,8 +34,9 @@ registry entry, never code. A new kind is one new panel — but a kind
 whose writes *move* things (motors, stages) does not get direct CA puts:
 the scanner already moves settables through the queue (`POST /api/move`),
 serialized with scans, and such a panel submits through that API. Direct
-puts are for devices whose run ownership the device itself shows, as the
-camera does (§6).
+puts are for devices whose IOC enforces run ownership — for the camera,
+a lock the scan run sets and the IOC's access security enforces (§6),
+which takes a NativeCamera change in GeecsBluesky.
 
 **The stock alternative, weighed.** EPICS already has a web path: the
 Phoebus Display Builder web runtime (dbwr) serving `.bob` screens, over
@@ -129,10 +130,16 @@ value changes (no `MDEL=-1`), so a steady centroid would wrongly look
 stale. Each plugin's `ArrayCounter_RBV` increments on every frame it
 processes, so its monitor fires per frame: a value is fresh while its
 plugin's counter advances and its channel is connected, however long the
-value itself has been unchanged. The same tick drives the history (§5):
-on each `STAT:ArrayCounter_RBV` event the service records the current
-values, decimated to the history's rate, so a steady value still makes
-evenly spaced points.
+value itself has been unchanged — provided the plugin is computing it:
+with `STAT:ComputeCentroid` (or `ComputeStatistics`, `ComputeProfiles`,
+`ComputeHistogram`) off, the counter still advances but those values
+freeze, so the panel shows them as `off`, never fresh. The same tick
+drives the history (§5): on each `STAT:ArrayCounter_RBV` event the
+service records the current values, decimated to the history's rate, so a
+steady value still makes evenly spaced points. The counter and the values
+are separate records posted together, in no guaranteed order, so a sample
+may pair one frame's tick with the previous frame's values — harmless at
+the decimated rate.
 
 The bridge is ~150 lines of Python on the stack we already run. pvws is
 the stock equivalent (a Java/Tomcat service, writes switchable per
@@ -197,20 +204,32 @@ the run declares ownership itself, and the IOC enforces it:
 - **A lock record in every camera IOC** (chain contract):
   `<prefix>RUN:Lock` (`bo`) and `<prefix>RUN:Owner` (`stringout`, the
   run's scan id). NativeCamera sets them as the **first** step of
-  `prepare_edge`, before the snapshot, and clears them only after the
-  restore succeeds (when `session.restore` is cleared). A failed restore
-  leaves the lock set: the camera is not back.
-- **The IOC enforces it with access security**, so there is no
+  `prepare_edge`, before the snapshot, and clears them only once the
+  camera is back: after the restore succeeds (when `session.restore` is
+  cleared), **or** at unstage when this session set the lock but never
+  took a snapshot (a failed snapshot `gather` leaves `restore` None and
+  the camera untouched, so `ensure_stopped`'s early return must still
+  release the lock). A failed restore leaves the lock set: the camera is
+  not back.
+- **The IOC enforces it with access security**, which removes the panel's
   check-then-put race: the acquisition records the panel can write sit in
-  an ASG whose rule allows writes only while `RUN:Lock` is 0, or from the
-  scan worker's CA user (a UAG naming the worker's service account). The
-  panel's put during a run is rejected by the IOC at put time; the panel
-  shows the group `denied` from `RUN:Lock`/`RUN:Owner` and treats a
-  rejected put the same way. The panel's service must run as a different
-  account from the worker (separate units already); both names are
-  facility values in the IOC's own config. CA user names are not
+  an ASG whose rules allow writes while `RUN:Lock` is 0
+  (`RULE(1,WRITE){CALC("A=0")}`, `INPA` = the lock) or from the scan
+  worker's CA user (`RULE(1,WRITE){UAG(worker)}`); a disconnected `INPA`
+  denies everyone but the worker. The IOC checks each put; the rights
+  follow `RUN:Lock` through an internal CA monitor, a lag of milliseconds
+  after the lock is set — far below the prepare-to-capture window this
+  closes. The panel shows the group `denied` from `RUN:Lock`/`RUN:Owner`
+  and treats a rejected put the same way. CA user names are not
   authentication — this is coordination between our own clients, which
   is what is needed.
+- **GeecsPanels runs as its own service account.** Every unit today runs
+  as the one `GEECS_SERVICE_USER` (`deploy/site.env.example`), worker
+  included, so a panel on that account would pass the worker's UAG. The
+  panels unit gets its own account from step 1: a new `site.env` key
+  (`GEECS_PANELS_USER`), its unit's `User=`, and bootstrap support. Both
+  account names are facility values; the IOC's ACF gets the worker's from
+  its own config.
 - This also stops a raw `caput`, Phoebus or an agent during a run, which
   a panel-side check could not.
 - **A stuck lock** (a killed worker): the denied group offers an override
@@ -268,7 +287,7 @@ GEECS-Core's (`pv_name`, `configs_repo.scanner_configs_base`).
    and `OVER1` becomes the crosshair store (§5); pin `MJPG1:ALWAYS_ON` if
    the no-client check needs it.
 1. **Skeleton**: the CA env bootstrap moved to GEECS-Core (§7); package,
-   unit, landing page from the registry, camera route with the frame loop
+   unit (its own service account, §6), landing page from the registry, camera route with the frame loop
    and the live STAT chips (read-only). The package's registration rides
    along: root `CLAUDE.md` map, dependency graph and CHANGELOG list,
    `.importlinter` contract, the theme's `_SURFACES`.
@@ -277,7 +296,8 @@ GEECS-Core's (`pv_name`, `configs_repo.scanner_configs_base`).
 3. **Run lock + acquisition controls**: the `RUN:Lock`/`RUN:Owner`
    records and the ASG (geecs-epics), NativeCamera setting and clearing
    the lock (GeecsBluesky, with tests that the lock spans prepare through
-   restore and survives a failed restore), then the controls behind it;
+   restore, survives a failed restore, and is released after a failed
+   snapshot), then the controls behind it;
    driver ROI behind its dialog.
 
 Each one PR, each verified against `ADTEST_CAM1` in a browser.
