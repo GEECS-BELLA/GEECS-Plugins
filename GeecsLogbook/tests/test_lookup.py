@@ -287,12 +287,13 @@ const toggle = async (open) => { panel.open = open; for (const fn of listeners["
 
 def test_a_failed_first_read_is_retried_on_reopen(tmp_path: Path) -> None:
     """A share blip on the first open must not leave the panel dead until a reload."""
-    import shutil
     import subprocess
 
-    node = shutil.which("node")
-    if node is None:  # pragma: no cover - CI and dev machines have it
+    from geecs_web_theme.testing import node_available
+
+    if not node_available():  # pragma: no cover - CI and dev machines have it
         pytest.skip("node not available")
+    node = "node"
     script = Path(__file__).parents[1] / "geecs_logbook" / "static" / "lookup.js"
     harness = tmp_path / "harness.js"
     harness.write_text(_HARNESS)
@@ -306,12 +307,13 @@ def test_a_failed_first_read_is_retried_on_reopen(tmp_path: Path) -> None:
 def _pick_columns(clicks: str) -> list[str]:
     """Run the column drawer's ``pick`` under node over a fixed list; return the picks."""
     import re
-    import shutil
     import subprocess
 
-    node = shutil.which("node")
-    if node is None:  # pragma: no cover - CI and dev machines have it
+    from geecs_web_theme.testing import node_available
+
+    if not node_available():  # pragma: no cover - CI and dev machines have it
         pytest.skip("node not available")
+    node = "node"
     source = (
         Path(__file__).parents[1] / "geecs_logbook" / "static" / "lookup.js"
     ).read_text()
