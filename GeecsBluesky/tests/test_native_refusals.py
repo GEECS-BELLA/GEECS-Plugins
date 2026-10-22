@@ -16,6 +16,7 @@ pytest.importorskip("aioca")
 
 from bluesky import RunEngine
 
+from geecs_bluesky.config_resolver import ConfigsRepoResolver
 from geecs_bluesky.devices.native import NativeTriggerSource
 from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites
 from geecs_bluesky.exceptions import GeecsConfigurationError
@@ -175,3 +176,22 @@ def test_a_preset_asking_for_a_native_cameras_scalars_is_refused_at_expansion() 
     assert (
         expand_preset(saved, native_devices={"ADTEST_CAM1"}).args[0][1] == "ADTEST_CAM1"
     )
+
+
+def test_preset_expansion_reads_the_registry_from_the_resolver(tmp_path) -> None:
+    """The submit paths pass only a resolver: the registry comes from it."""
+    (tmp_path / "TestExp").mkdir()
+    (tmp_path / "TestExp" / "native_devices.yaml").write_text(
+        "schema_version: 1\n"
+        "devices:\n  ADTEST_CAM1: {kind: aravis_camera, trigger_source: software}\n"
+    )
+    preset = Preset.model_validate(
+        {
+            "name": "native",
+            "devices": [{"device": "ADTEST_CAM1", "save_images": False}],
+            "plan": {"name": "count", "kwargs": {"num": 2}},
+        }
+    )
+    resolver = ConfigsRepoResolver("TestExp", experiments_root=tmp_path)
+    with pytest.raises(GeecsConfigurationError, match="ADTEST_CAM1 is a native"):
+        expand_preset(preset, resolver=resolver)

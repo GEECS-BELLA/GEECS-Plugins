@@ -163,7 +163,7 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     md: Mapping[str, Any] | None = None,
     required_devices: frozenset[str] = frozenset(),
     resolver: ConfigsRepoResolver | None = None,
-    native_devices: Collection[str] = frozenset(),
+    native_devices: Collection[str] | None = None,
 ) -> QueueItem:
     """The queue item a preset submits.
 
@@ -181,7 +181,8 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     native_devices :
         The experiment's native EPICS device names (its native-devices
         registry): such a camera has no ``.scalars`` view, so a
-        ``save_images: false`` entry for one is refused here.
+        ``save_images: false`` entry for one is refused here.  Unset = the
+        resolver's registry (none without a resolver).
 
     Raises
     ------
@@ -215,6 +216,10 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     detectors: list[str] = []
     non_essential: list[str] = []
     devices = merge_required_devices(preset, required_devices).devices
+    if native_devices is None:
+        # A stand-in resolver (the scanner's demo) has no registry.
+        read = getattr(resolver, "resolve_native_devices", None)
+        native_devices = read().devices if read is not None else ()
     native = {n.casefold() for n in native_devices}
     scalars_only = [
         d.device for d in devices if not d.save_images and d.device.casefold() in native
