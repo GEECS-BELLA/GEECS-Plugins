@@ -34,7 +34,9 @@ from geecs_core.configs_repo import scanner_configs_base
 from geecs_schemas import (
     ActionPlan,
     ActionPlanLibrary,
+    NATIVE_DEVICES_FILENAME,
     ExperimentDefaults,
+    NativeDevices,
     Preset,
     OptimizerConfig,
     ScanVariables,
@@ -598,6 +600,37 @@ class ConfigsRepoResolver:
             return None
         document = self._load_yaml(path, "experiment defaults", self.DEFAULTS_FILE)
         return ExperimentDefaults.model_validate(document)
+
+    def resolve_native_devices(self) -> NativeDevices:
+        """Load ``<experiment>/native_devices.yaml``; no file = no native devices.
+
+        The registry of devices served by native EPICS IOCs
+        (``NATIVE_DEVICES.md``), read once at environment open.  No
+        resolvable configs root reads as no file (logged): such a worker
+        loads no trigger profile either.
+
+        Raises
+        ------
+        GeecsConfigurationError
+            The file exists but is unreadable, not a mapping, or not a valid
+            ``NativeDevices`` document — configured but broken is not "none".
+        """
+        try:
+            path = self._root / NATIVE_DEVICES_FILENAME
+        except RuntimeError as exc:
+            logger.warning("no native devices: %s", exc)
+            return NativeDevices()
+        if not path.exists():
+            return NativeDevices()
+        try:
+            document = self._load_yaml(
+                path, "native device registry", NATIVE_DEVICES_FILENAME
+            )
+            return NativeDevices.model_validate(document)
+        except (ValueError, OSError, yaml.YAMLError) as exc:
+            raise GeecsConfigurationError(
+                f"native device registry {path} is invalid: {exc}"
+            ) from exc
 
     SHOT_OFFSETS_FILE = "shot_offsets.yaml"
 

@@ -14,6 +14,10 @@ take devices by name: ``count([UC_Amp4_IR_input], 10)``,
   :class:`~geecs_bluesky.devices.ca.motor.CaMotor` when the DB gives it a
   tolerance or the catalog says ``kind: motor``, else
   :class:`~geecs_bluesky.devices.ca.settable.CaSettable`;
+* each entry of the experiment's native device registry
+  (``native_devices.yaml``) is a
+  :class:`~geecs_bluesky.devices.native.NativeCamera` at the derived prefix
+  ``<experiment>:<device>:`` — never also a DB device (one owner);
 * a catalog ``kind: pseudo`` entry becomes a
   :class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoPositioner` under the
   catalog name (:meth:`GeecsNamespace.add_pseudos`).
@@ -31,7 +35,8 @@ import logging
 import re
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from pathlib import PurePosixPath
+from typing import TYPE_CHECKING, Any
 
 from bluesky.protocols import Movable, Readable
 from ophyd_async.core import Device, PathProvider
@@ -42,6 +47,7 @@ from geecs_core.db.device_streams import (
     served_array_variables,
 )
 from geecs_core.db.served_set import served_variables
+from geecs_core.pv_naming import pv_name
 from geecs_core.db.variable_types import (
     VARTYPE_TO_DTYPE,
     effective_vartype,
@@ -49,6 +55,7 @@ from geecs_core.db.variable_types import (
     is_scalar_vartype,
 )
 
+from geecs_bluesky.data_paths import native_ioc_save_path
 from geecs_bluesky.db_runtime import GeecsDbDeviceTypes
 from geecs_bluesky.devices.ca.motor import DEFAULT_TOLERANCE, CaMotor
 from geecs_bluesky.devices.ca.pseudo import CaPseudoPositioner, build_pseudo
@@ -57,9 +64,13 @@ from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
 from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.hdf_plugin import PluginPathProvider
 from geecs_bluesky.devices.hdf_plugin import file_plugin_hosts as _hosts_from_config
+from geecs_bluesky.devices.native import NativeCamera, NativeTriggerSource
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.utils import identifier_name, safe_name, settable_attribute
+
+if TYPE_CHECKING:
+    from geecs_schemas import NativeDevices
 
 logger = logging.getLogger(__name__)
 
@@ -357,6 +368,11 @@ class GeecsNamespace:
         even where the DB tolerance is ``0``/NULL — with the class default
         tolerance and a WARNING naming the DB row to curate.  The
         catalog never *downgrades*: a DB tolerance still binds a motor.
+    native_devices :
+        The experiment's native device registry (``native_devices.yaml``,
+        ``ConfigsRepoResolver.resolve_native_devices``): one
+        :class:`~geecs_bluesky.devices.native.NativeCamera` per entry.  A
+        name that is also a DB roster device raises — one owner per device.
     """
 
     def __init__(
@@ -367,6 +383,7 @@ class GeecsNamespace:
         file_plugin_hosts: set[str] | None | object = _HOSTS_FROM_CONFIG,
         drain_offsets: Mapping[str, float] | None = None,
         motor_targets: Iterable[str] | None = None,
+        native_devices: NativeDevices | None = None,
     ) -> None:
         self.experiment = roster.experiment
         self.roster = roster
@@ -400,6 +417,7 @@ class GeecsNamespace:
                 )
             self._devices[ns_name] = dev
             self._by_geecs_name[device.lower()] = dev
+        natives = self._add_native_devices(native_devices) if native_devices else []
         detectors = [d for d in self._devices.values() if isinstance(d, GeecsDetector)]
         plugin = sorted(d._geecs_device_name for d in detectors if d.plugin_backed)
         saving = sorted(
@@ -424,7 +442,7 @@ class GeecsNamespace:
                 len(skipped),
                 ", ".join(sorted(skipped)),
             )
-        self._log_drain_offsets(detectors)
+        self._log_drain_offsets([*detectors, *natives])
         self._log_unhonoured_motor_targets()
 
     def _log_unhonoured_motor_targets(self) -> None:
@@ -492,6 +510,7 @@ class GeecsNamespace:
         file_plugin_hosts: set[str] | None | object = _HOSTS_FROM_CONFIG,
         drain_offsets: Mapping[str, float] | None = None,
         motor_targets: Iterable[str] | None = None,
+        native_devices: NativeDevices | None = None,
     ) -> GeecsNamespace:
         """Build from the GEECS DB (loud on failure)."""
         return cls(
@@ -500,7 +519,64 @@ class GeecsNamespace:
             file_plugin_hosts=file_plugin_hosts,
             drain_offsets=drain_offsets,
             motor_targets=motor_targets,
+            native_devices=native_devices,
         )
+
+    def _add_native_devices(self, registry: NativeDevices) -> list[NativeCamera]:
+        """One ``NativeCamera`` per registry entry; a DB-owned name refuses to open.
+
+        Names are compared after :func:`safe_name` — the normalization both
+        the PV prefix and the event keys use — so a registry entry differing
+        from a roster device only in case or punctuation is the same device.
+        """
+        owners = {safe_name(d): d for d in self.roster.variables}
+        built: list[NativeCamera] = []
+        for device, entry in registry.devices.items():
+            owner = owners.get(safe_name(device))
+            if owner is not None:
+                raise GeecsConfigurationError(
+                    f"device namespace: {device!r} is in native_devices.yaml and "
+                    f"{owner!r} is an enabled GEECS DB device of {self.experiment!r} "
+                    "— one owner per device: disable it in the DB or drop it "
+                    "from the registry"
+                )
+            twin = next((c for c in built if c.name == safe_name(device)), None)
+            if twin is not None:
+                raise GeecsConfigurationError(
+                    f"device namespace: native devices {twin._geecs_device_name!r} "
+                    f"and {device!r} both normalise to {safe_name(device)!r}"
+                )
+            if self._path_provider is None:
+                raise GeecsConfigurationError(
+                    f"device namespace: native camera {device!r} needs the "
+                    "run's path provider"
+                )
+            name = safe_name(device)
+            cam = NativeCamera(
+                device,
+                pv_name(self.experiment, device) + ":",
+                trigger_source=NativeTriggerSource[entry.trigger_source.upper()],
+                path_provider=PluginPathProvider(
+                    self._path_provider,
+                    device,
+                    plugin_path=native_ioc_save_path,
+                    path_type=PurePosixPath,
+                ),
+                name=name,
+                drain_offset=self._drain_offsets.get(name, 0.0),
+            )
+            cam._geecs_namespace_member = True  # connect_on_demand's marker
+            self._devices[identifier_name(device)] = cam
+            self._by_geecs_name[device.lower()] = cam
+            self._attrs[name] = {}  # no scalar children: variable() says so
+            built.append(cam)
+        if built:
+            logger.info(
+                "device namespace: %d native EPICS camera(s): %s",
+                len(built),
+                ", ".join(c._geecs_device_name for c in built),
+            )
+        return built
 
     # ------------------------------------------------------------------ build
     def _build(  # noqa: C901, PLR0912
@@ -880,8 +956,10 @@ class GeecsNamespace:
         for dev in self._devices.values():
             if isinstance(dev, GeecsDetector):
                 objects.extend(dev._scalar_signals())
-            elif isinstance(dev, CaPseudoPositioner):
-                continue  # derived from components the baseline already carries
+            elif isinstance(dev, (CaPseudoPositioner, NativeCamera)):
+                # a pseudo derives from components the baseline already
+                # carries; a native camera has no scalars and reads only per shot
+                continue
             else:
                 objects.append(dev)
         return objects
