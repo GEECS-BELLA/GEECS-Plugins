@@ -48,8 +48,8 @@ a registry landing page, the GEECS kit look — and dbwr's widget set is a
 subset of Phoebus's (image-widget interaction not verified). Both can
 coexist: the panel is the operator's window onto the everyday set; the
 stock `.bob` screens (desktop Phoebus, or dbwr later) remain the expert
-view of everything else, at no cost to us. **Decision for the maintainer**
-(§4): our own small PV bridge vs pvws under the panel.
+view of everything else, at no cost to us. Under the panel: our own small
+PV bridge, not pvws (§4; maintainer ruling).
 
 - `/` — the experiment's native devices from the registry, grouped by kind,
   each linking to its panel.
@@ -126,9 +126,10 @@ when its monitor stops updating — a frozen centroid must look frozen.
 
 The bridge is ~150 lines of Python on the stack we already run. pvws is
 the stock equivalent (a Java/Tomcat service, writes switchable per
-deployment, no per-PV allow-list). **Maintainer's call**; the note
-assumes our own bridge, and the panel's browser code is the same either
-way except for the transport.
+deployment, no per-PV allow-list). **Ruled: our own bridge** — the
+allow-list is the deciding difference. The panel's browser code would be
+the same either way except for the transport, so the choice is cheap to
+revisit.
 
 **Coordinates.** `STAT` centroid, profiles and `CursorX/Y` are in `ROI1`
 coordinates; the image and overlays are in `PROC1` (post-transform)
@@ -146,7 +147,7 @@ The LabVIEW GUI's everyday set, in areaDetector terms:
 | Feature | PVs | Notes |
 |---|---|---|
 | Image, zoom, colour map, contrast, autoscale | — | client-side |
-| Two crosshairs, labelled, drag to move, "set to centroid" | `OVER1:1:`, `OVER1:2:` (`CenterX/Y`, `SizeX/Y`, `Name`, `Use`) | burned into the stream by the IOC, so every viewer and tool sees them; autosaved. "Set to centroid" is a one-shot put of the centroid converted to full-frame coordinates (§4) |
+| Two crosshairs, labelled, coloured, drag to move, "set to centroid" | `OVER1:1:`, `OVER1:2:` (`CenterX/Y`, `SizeX/Y`, `Name`, `Use`, `Red/Green/Blue`) | the IOC **stores** them (shared by every viewer, autosaved, linkable to the centroid); the panel **draws** them, in their stored colour, over the colour-mapped image. "Set to centroid" is a one-shot put of the centroid converted to full-frame coordinates (§4) |
 | Centroid, max, mean, sigma | `STAT:` | live chips |
 | X/Y lineouts (average and through a clicked point) | `STAT:ProfileAverageX/Y_RBV`, `STAT:ProfileCursorX/Y_RBV`, `STAT:CursorX/Y` | full precision, from the IOC |
 | Histogram | `STAT:Histogram_RBV` | |
@@ -231,9 +232,11 @@ GEECS-Core's (`pv_name`, `configs_repo.scanner_configs_base`).
 
 ## Build order
 
-0. **Chain contract v2** (geecs-epics): add `STAT0` (raw stats); pin
-   `MJPG1:ALWAYS_ON` if the no-client check needs it. Colour crosshairs
-   (a `ColorConvert` before `OVER1`) only if the maintainer wants them.
+0. **Chain contract v2** (geecs-epics): add `STAT0` (raw stats); feed
+   `MJPG1` from `PROC1` and turn `OVER1`'s callbacks off — the stream is
+   plain greyscale so the client's colour map applies to the image alone,
+   and `OVER1` becomes the crosshair store (§5); pin `MJPG1:ALWAYS_ON` if
+   the no-client check needs it.
 1. **Skeleton**: the CA env bootstrap moved to GEECS-Core (§7); package,
    unit, landing page from the registry, camera route with the frame loop
    and the live STAT chips (read-only). The package's registration rides
@@ -254,6 +257,12 @@ Each one PR, each verified against `ADTEST_CAM1` in a browser.
 - **Host name resolution.** `JPG_URL_RBV` names the IOC host by its host
   name; the worker must resolve it (lab DNS or `/etc/hosts`), or the
   service rewrites the host to the IOC's CA server address.
-- **Crosshair colour.** Burned-in overlays are grey levels on a mono
-  camera. Drawing them client-side instead would give colour, at the cost
-  of tools other than the panel not seeing them. v1 burns in.
+
+## Rulings (maintainer, 2026-10-22)
+
+- PV bridge: our own, not pvws. Name `GeecsPanels`, port 8500.
+- Crosshairs in colour, and colour maps for the image. A client colour
+  map needs a greyscale image, so crosshairs burned into the stream would
+  be recoloured with it: the panel draws them, the IOC stores them
+  (`OVER1`), and the stream carries no overlays. Cost: a raw MJPEG viewer
+  outside the panel no longer sees crosshairs.
