@@ -42,13 +42,20 @@ from pathlib import Path
 from typing import NamedTuple, Optional, Union
 
 from geecs_data_utils import ScanPaths
-from geecs_data_utils.data.sfile import scan_data_txt_path_for, sfile_path_for_scan
+from geecs_data_utils.data.sfile import (
+    header_for_variable,
+    read_sfile_head,
+    scan_data_txt_path_for,
+    sfile_column,
+    sfile_path_for_scan,
+)
 from geecs_data_utils.scan_info import (
     ScanInfoRecord,
     classify_end_info,
     end_info_reason,
     parse_scan_folder_name,
-    read_scan_info_file,
+    read_scan_info_sections,
+    scan_log_variables,
 )
 from geecs_data_utils.scan_log_loader import first_log_timestamp
 
@@ -220,8 +227,69 @@ def read_scan(
         # The listing found the file but could not stat it — a flaky share.
         # Caching on the path alone would pin this scan's state for the life
         # of the process, so read it uncached instead.
-        return _summarize(*args)
-    return _read_scan_cached(*args)
+        summary = _summarize(*args)
+    else:
+        summary = _read_scan_cached(*args)
+    if not summary.scan_log_variables:
+        return summary
+    # The values live in the s-file, written at the run's close and in
+    # place — so they are keyed on that file, not on the ini, and copied
+    # onto the (cached, shared) summary rather than written into it.
+    row = first_row(scan_folder, scan_data=contents.scan_data, sfiles=sfiles)
+    if row is None:
+        return summary
+    values = {}
+    for name in summary.scan_log_variables:
+        column = sfile_column(header_for_variable(name), list(row))
+        values[name] = (row.get(column) or None) if column else None
+    return summary.model_copy(update={"start_values": values})
+
+
+def first_row(
+    scan_folder: Path,
+    *,
+    scan_data: Optional[bool] = None,
+    sfiles: Optional[frozenset[str]] = None,
+) -> Optional[dict[str, str]]:
+    """The scan's first s-file row as ``{column: value}``; ``None`` with no s-file.
+
+    The scanner's ``ScanDataScanNNN.txt`` when the folder has one, else the
+    day's ``analysis/sNNN.txt`` (Master Control's only copy). Two lines are
+    read, cached on the file's ``(mtime, size)`` — the file is written in
+    place at the close, so a read that raced the write is replaced by the
+    next request's. *scan_data* / *sfiles* are listings the caller already
+    holds (:func:`read_scan`, :func:`read_day`); without them it stats.
+    """
+    candidates = []
+    if scan_data is not False:
+        candidates.append(scan_data_txt_path_for(scan_folder))
+    try:
+        sfile = sfile_path_for_scan(scan_folder)
+    except ValueError:  # not a canonical scans/ScanNNN folder
+        sfile = None
+    if sfile is not None and (sfiles is None or sfile.name in sfiles):
+        candidates.append(sfile)
+    for path in candidates:
+        try:
+            info = path.stat()
+        except OSError:
+            continue
+        try:
+            header, first = _sfile_head_cached(str(path), info.st_mtime, info.st_size)
+        except OSError as exc:
+            logger.warning("cannot read %s: %s", path, exc)
+            continue
+        return dict(zip(header, first + ("",) * (len(header) - len(first))))
+    return None
+
+
+@lru_cache(maxsize=_CACHE_SIZE)
+def _sfile_head_cached(
+    path: str, mtime: float, size: int
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Memoise the two-line read on the file's identity (see :func:`first_row`)."""
+    header, first = read_sfile_head(Path(path))
+    return tuple(header), tuple(first)
 
 
 @lru_cache(maxsize=_CACHE_SIZE)
@@ -266,7 +334,8 @@ def _summarize(
     closed: bool,
 ) -> ScanSummary:
     """Build a summary from an already-listed scan folder, uncached."""
-    info = read_scan_info_file(ini_path) if ini_path else {}
+    sections = read_scan_info_sections(ini_path) if ini_path else {}
+    info = sections.get("Scan Info", {})
     record = ScanInfoRecord.from_ini(info)
     status = classify_end_info(record.end_info, closed=closed)
 
@@ -299,6 +368,8 @@ def _summarize(
         failure_reason=end_info_reason(record.end_info),
         devices=list(devices),
         has_scan_info=bool(info),
+        folder_name=Path(folder).name,
+        scan_log_variables=scan_log_variables(sections),
     )
 
 

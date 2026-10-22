@@ -104,6 +104,18 @@ class ScanSummary(BaseModel):
     has_scan_info : bool
         Whether ``ScanInfoScanNNN.ini`` exists. False is a normal state for
         a scan that is still running or that ended before writing it.
+    folder_name : str
+        The scan folder's own name (``Scan005``; a lenient parse may accept
+        another padding), for readers that go back to the folder.
+    scan_log_variables : list of str
+        The web scanner's scan-log list as the scan recorded it (the ini's
+        ``[Scan Log]`` section): ``Device:Variable`` names. Empty for a
+        scan without one.
+    start_values : dict or None
+        Each listed variable's value at the first shot, as the s-file
+        spells it — ``None`` for a listed name the s-file has no column
+        for. The whole field is ``None`` while there is no s-file yet (the
+        scanner writes it when the run closes).
     """
 
     number: int
@@ -124,6 +136,9 @@ class ScanSummary(BaseModel):
     failure_reason: Optional[str] = None
     devices: list[str] = Field(default_factory=list)
     has_scan_info: bool = False
+    folder_name: str = ""
+    scan_log_variables: list[str] = Field(default_factory=list)
+    start_values: Optional[dict[str, Optional[str]]] = None
 
     @property
     def label(self) -> str:

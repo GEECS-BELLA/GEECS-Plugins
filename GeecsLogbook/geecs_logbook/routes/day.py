@@ -5,6 +5,7 @@
 ``GET /day/{day}``                the day document
 ``GET /api/day/{day}``            the derived half (scan folders) as JSON
 ``GET /api/day/{day}/entries``    the commentary half as JSON (both books)
+``GET /api/day/{day}/lookup``     first-shot values per scan (``?col=`` repeats)
 
 The page's own assets are the app's named ``/static`` mount
 (:func:`geecs_logbook.app.create_app`), not a route here.
@@ -16,11 +17,12 @@ from datetime import date, timedelta
 
 from typing import Optional
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from geecs_schemas.log_entry import Book, LogEntry
 from geecs_web_theme.web import root_of
 
+from geecs_logbook.lookup import DayLookup, day_lookup
 from geecs_logbook.models import DaySummary
 from geecs_logbook.routes.attachments import ATTACHMENT_TYPES
 from geecs_logbook.routes._common import (
@@ -114,3 +116,21 @@ def register(router: APIRouter, ctx: Context) -> None:
         if ctx.store is None:
             return []
         return ctx.store.for_day(day, book=book)
+
+    _register_lookup(router, ctx)
+
+
+def _register_lookup(router: APIRouter, ctx: Context) -> None:
+    """Add the day's variable-lookup route (its own function: ``register`` is at its complexity budget)."""
+
+    @router.get("/api/day/{day}/lookup")
+    def _lookup_json(
+        response: Response, day: str, col: Optional[list[str]] = Query(default=None)
+    ) -> DayLookup:
+        """The day's lookup table: every recorded column, and the *col* ones' values.
+
+        No ``col`` means the day's scan-log lists. Two lines per scan's
+        s-file, read only when the page's panel asks.
+        """
+        response.headers["Cache-Control"] = "no-cache"
+        return day_lookup(ctx.load_day(parse_day(day)), col)

@@ -137,6 +137,27 @@
         {{ devices_fact(s.devices) }}
       </dl>
     </div>
+    {% if s.scan_log_variables %}
+    {# The scanner's scan-log list, as this scan recorded it; the values are
+       the s-file's first row, which exists once the run has closed. #}
+    <div class="derived startvals">
+      <div class="derived-label">
+        <span>Start values · first shot</span>
+        <span>{{ 'recording — the values arrive when the scan closes' if s.start_values is none else 'from the scan\'s s-file' }}</span>
+      </div>
+      <dl class="facts">
+        {% for name in s.scan_log_variables %}
+          {% set v = s.start_values[name] if s.start_values is not none else none %}
+          <div class="fact"><dt title="{{ name }}">{{ name }}</dt>
+            <dd{% if v is none %} class="none"{% endif %}>
+              {%- if s.start_values is none -%}…
+              {%- elif v is none -%}not recorded
+              {%- else -%}{{ v }}{%- endif -%}
+            </dd></div>
+        {% endfor %}
+      </dl>
+    </div>
+    {% endif %}
     {{ entries_block('scan-%04d' % s.number, s.number, none, entries, writable) }}
   </details>
 {% endmacro %}
@@ -241,6 +262,40 @@
       <p class="empty">The day folder exists but holds no scans yet.</p>
     {% endif %}
 
+    {% if summary.scans %}
+    {# Folded until asked: opening it is the only thing that reads the
+       day's s-files (two lines each). lookup.js fills it. #}
+    <details class="panel scan lookup" id="lookup" data-lookup>
+      <summary class="scanhead">
+        <span class="twisty" aria-hidden="true"></span>
+        <span class="scanid">Look up a variable</span>
+        <span class="scanpurpose">Start values across today's scans</span>
+      </summary>
+      <div class="lk-body">
+        <div class="lk-controls">
+          <div class="lk-add">
+            <label for="lk-q">add a column</label>
+            <input id="lk-q" placeholder="Search any recorded variable…" autocomplete="off"
+                   role="combobox" aria-expanded="false" aria-controls="lk-sugg">
+            <ul class="lk-sugg" id="lk-sugg" role="listbox" hidden></ul>
+          </div>
+          <div class="lk-scanf">
+            <label for="lk-scan">scan</label>
+            <input id="lk-scan" placeholder="all" inputmode="numeric" autocomplete="off">
+          </div>
+          <div class="lk-legend">
+            <span><span class="lk-dot" aria-hidden="true"></span>on the scanner's list</span>
+            <span><span class="lk-sw" aria-hidden="true"></span>changed since the scan above</span>
+          </div>
+        </div>
+        <p class="lk-note" id="lk-note">Loading…</p>
+        <div class="lk-scroll"><table class="lk-table" id="lk-table"></table></div>
+        <p class="lk-foot">Values are each scan's first recorded shot, read from its s-file.
+          “—” = not recorded in that scan, or the scan has not closed yet.</p>
+      </div>
+    </details>
+    {% endif %}
+
     {% if entries.get('day') or writable %}
     <section class="panel intro">
       <header class="scanhead" style="cursor:default">
@@ -280,8 +335,9 @@ const btn = document.getElementById("toggle-all");
 /* Scans, entries and a scan's device list alike. Collapse All means every
    collapsible thing on the page, which is what it says — an entry that could
    not be folded while the scan around it could was an accident of history,
-   not a decision. */
-const cards = () => [...document.querySelectorAll("details.scan, details.entry, details.devlist")];
+   not a decision. The lookup panel is the exception: opening it reads the
+   day's s-files, so only a click on it does — never a stored "expand all". */
+const cards = () => [...document.querySelectorAll("details.scan:not(.lookup), details.entry, details.devlist")];
 
 function applyAll(expand){
   cards().forEach(c => { c.open = expand; });
@@ -319,6 +375,7 @@ document.querySelectorAll(".scanrow").forEach(a => a.addEventListener("click", (
 <script src="{{ root }}/static/editor.js" defer></script>
 <script src="{{ root }}/theme/kit.js" defer></script>
 <script src="{{ root }}/static/nav.js" defer></script>
+<script src="{{ root }}/static/lookup.js" defer></script>
 <script src="{{ root }}/theme/theme.js" defer></script>
 </body>
 </html>
