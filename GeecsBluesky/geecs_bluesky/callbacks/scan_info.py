@@ -14,15 +14,13 @@ first row, which already holds every logged column.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
-import os
-import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from geecs_bluesky._fs import replace_text
 from geecs_bluesky.callbacks._base import Document, _RunCallback, _scan_folder
 
 logger = logging.getLogger(__name__)
@@ -179,34 +177,15 @@ class ScanInfoCallback(_RunCallback):
         if folder is None:
             return None
         path = folder / f"ScanInfo{folder.name}.ini"
-        _replace_text(path, "".join(scan_info_lines(start, end_info=end_info)))
+        text = "".join(scan_info_lines(start, end_info=end_info))
+        try:
+            replace_text(path, text, fsync=False)
+        except PermissionError:
+            # A rename over the file needs DELETE access on SMB, and fails
+            # while another client holds it open without delete sharing.
+            # The in-place write it replaced still works then; a reader may
+            # catch it half-written, which beats losing ScanEndInfo.
+            logger.warning("atomic replace of %s refused; writing in place", path)
+            path.write_text(text, encoding="utf-8")
         logger.info("Scan info written to %s", path)
         return path
-
-
-def _replace_text(path: Path, text: str) -> None:
-    """Write *text* to *path* through a temp file beside it and ``os.replace``.
-
-    A reader sees the old file or the new one, never a truncated one.  No
-    fsync: the stop rewrite follows, and the scan's own data does not wait
-    on this file.  The temp file is created 0600; it gets the old file's
-    mode (0644 for a new one) so the logbook and the portal, which may run
-    as other accounts, can still read it — best-effort, as CIFS mounts
-    without unix extensions refuse chmod.
-    """
-    try:
-        mode = path.stat().st_mode & 0o777
-    except OSError:
-        mode = 0o644
-    fd, temporary = tempfile.mkstemp(
-        dir=path.parent, prefix=f".{path.stem}-", suffix=".tmp"
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(text)
-        with contextlib.suppress(OSError):
-            os.chmod(temporary, mode)
-        os.replace(temporary, path)
-    except BaseException:
-        Path(temporary).unlink(missing_ok=True)
-        raise

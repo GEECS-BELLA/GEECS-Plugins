@@ -340,6 +340,23 @@ def test_scan_info_is_replaced_atomically_and_stays_readable(tmp_path):
     assert sorted(p.name for p in folder.iterdir()) == ["ScanInfoScan004.ini"]
 
 
+def test_a_refused_replace_falls_back_to_writing_in_place(tmp_path, monkeypatch):
+    """On SMB a rename over a file another client holds open is refused."""
+    folder = tmp_path / "Scan005"
+    folder.mkdir()
+
+    def refuse(*args, **kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr("geecs_bluesky._fs.os.replace", refuse)
+    cb = ScanInfoCallback()
+    cb("start", {"uid": "u", "scan_folder": str(folder), "plan_name": "count"})
+    cb("stop", {"run_start": "u", "exit_status": "abort", "reason": "stop"})
+    ini = folder / "ScanInfoScan005.ini"
+    assert read_scan_info(ini)["ScanEndInfo"] == "abort: stop"
+    assert sorted(p.name for p in folder.iterdir()) == ["ScanInfoScan005.ini"]
+
+
 def test_sfile_callback_skips_a_run_without_rows(tmp_path, caplog):
     folder = tmp_path / "scans" / "Scan002"
     folder.mkdir(parents=True)

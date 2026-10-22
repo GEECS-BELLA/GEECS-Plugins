@@ -41,7 +41,7 @@
   }
 
   function hint(text) {
-    $("sl-hint").textContent = text || "Only logged variables (get = yes) can be picked — they are the ones every scan records.";
+    $("sl-hint").textContent = text || "Only logged variables (get = yes) can be picked: every scan records them while background telemetry is on (the default).";
   }
 
   function renderList() {
@@ -57,7 +57,7 @@
       var x = document.createElement("button");
       x.type = "button"; x.className = "x"; x.textContent = "×";
       x.setAttribute("aria-label", "Remove " + name);
-      x.addEventListener("click", function () { save(L.variables.filter(function (n) { return n !== name; })); });
+      x.addEventListener("click", function () { save(function (list) { return list.filter(function (n) { return n !== name; }); }); });
       li.appendChild(nm); li.appendChild(rb); li.appendChild(x);
       ul.appendChild(li);
     });
@@ -71,23 +71,33 @@
     renderList();
   }
 
-  function save(next) {
-    return api("/api/scan-log-variables", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ variables: next, version: L.version })
-    }).then(function (doc) {
-      hint("");
-      adopt(doc);
-    }).catch(function (e) {
-      if (e.status === 409 && e.payload.current) {
-        adopt(e.payload.current);
-        hint("Someone else changed the list meanwhile — this is theirs now; make your change again.");
-        L.variables.forEach(read);
-      } else {
-        hint("Not saved: " + e.message);
-      }
+  // Edits run one after another: each is a change to the list as the last
+  // save left it, sent with that save's version. Two quick clicks are two
+  // queued changes, never two saves of the same version — which would make
+  // the page's own first save look like another operator's edit.
+  var pending = Promise.resolve();
+
+  function save(change) {
+    pending = pending.then(function () {
+      var next = change(L.variables.slice());
+      return api("/api/scan-log-variables", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ variables: next, version: L.version })
+      }).then(function (doc) {
+        hint("");
+        adopt(doc);
+      }).catch(function (e) {
+        if (e.status === 409 && e.payload.current) {
+          adopt(e.payload.current);
+          hint("Someone else changed the list meanwhile — this is theirs now; make your change again.");
+          L.variables.forEach(read);
+        } else {
+          hint("Not saved: " + e.message);
+        }
+      });
     });
+    return pending;
   }
 
   function fmt(v) {
@@ -107,7 +117,8 @@
     if (!name || L.variables.indexOf(name) >= 0) return;
     $("sl-q").value = "";
     closeSugg();
-    save(L.variables.concat([name])).then(function () { read(name); });
+    save(function (list) { return list.indexOf(name) >= 0 ? list : list.concat([name]); })
+      .then(function () { read(name); });
   }
 
   function closeSugg() {

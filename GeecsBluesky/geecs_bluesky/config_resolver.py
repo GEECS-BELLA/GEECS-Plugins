@@ -17,9 +17,7 @@ The client seam expands a preset into a plan queue item
 from __future__ import annotations
 
 import logging
-import os
 import re
-import tempfile
 from pathlib import Path
 from typing import Protocol, runtime_checkable, TYPE_CHECKING
 
@@ -29,6 +27,7 @@ from pydantic import JsonValue
 if TYPE_CHECKING:
     from geecs_schemas.analysis import AnalysisDocument
 
+from geecs_bluesky._fs import replace_text
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_core.configs_repo import scanner_configs_base
 from geecs_schemas import (
@@ -60,63 +59,14 @@ _PRESET_STEM = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
 
 
 def _write_yaml_atomically(path: Path, document: dict) -> None:
-    """Write *document* as YAML to *path*: temp file beside it, fsync, ``os.replace``.
+    """Write *document* as YAML to *path*, atomically and fsynced (:func:`replace_text`).
 
     The one write primitive of this module (``write_shot_offsets``,
     ``write_preset``): a reader — the worker reopening its environment,
     another host's resolver, the scanner listing presets — never sees a
-    half-written file, a failure part-way leaves the previous document
-    intact and no temporary behind, and the destination's mode is kept
-    (0644 for a new file) so the shared checkout stays readable to
-    whoever reviews and commits the change.
+    half-written file.
     """
-    payload = yaml.safe_dump(document, sort_keys=False)
-    # The destination's mode, or the default a normal umask would give:
-    # NamedTemporaryFile creates 0600 and os.replace keeps the temp
-    # inode's mode, so without this one write makes the file unreadable
-    # to the operator who has to review and commit it, to git run as
-    # anyone else, and to another host's resolver.
-    try:
-        mode = path.stat().st_mode & 0o777
-    except OSError:
-        mode = 0o644
-    temporary: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            "w",
-            dir=path.parent,
-            prefix=f".{path.stem}-",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            temporary = Path(handle.name)
-            handle.write(payload)
-            handle.flush()
-            # Durability before the rename: without it a crash can leave
-            # a zero-length file where a calibration used to be.
-            os.fsync(handle.fileno())
-        try:
-            os.chmod(temporary, mode)
-        except OSError:
-            # The configs repo usually lives on the data share, and CIFS
-            # mounts reject chmod unless mounted with unix extensions.
-            # A mode we could not set is cosmetic; losing the ten shots
-            # this document cost is not, so never fail the write for it.
-            logger.warning(
-                "could not set the mode of %s (the share may not support "
-                "it) — the file is written, but check it is readable by "
-                "whoever has to review and commit it",
-                path,
-                exc_info=True,
-            )
-        os.replace(temporary, path)
-        temporary = None
-    finally:
-        # Covers the write and the chmod as well as the replace: a full
-        # or disconnected share fails in `handle.write`, and a leftover
-        # dot-file in a git working tree is somebody's next puzzle.
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+    replace_text(path, yaml.safe_dump(document, sort_keys=False))
 
 
 @runtime_checkable
