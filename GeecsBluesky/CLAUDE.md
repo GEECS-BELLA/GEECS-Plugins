@@ -76,6 +76,8 @@ geecs_bluesky/
   devices/scan_mode.py      # ScanModeControl — GEECS scan mode's client side as one Movable
                             #   (enter / announce a shot / exit) + Readable (announced_shot);
                             #   the state file, release_stale at environment open
+  devices/native.py         # NativeCamera — a native EPICS areaDetector camera (geecs-epics
+                            #   IOC) as a strict detector; NATIVE_DEVICES.md is its design
   devices/hdf_plugin.py     # the file plugin's worker side: GeecsHdfIO (+Rewind),
                             #   PluginPathProvider (two paths per folder), file_plugin_hosts,
                             #   GeecsHdfDataLogic (the stock logic; the stream's geometry read
@@ -158,6 +160,17 @@ qserver/                    # the worker: launcher, startup profile, permissions
   costs ~0.7 s per row); cached reads are coherent because the gateway
   posts data before the stamp and caproto and aioca deliver FIFO, so when
   the stamp advance arrives every cache holds that frame or newer.
+- **`NativeCamera`** (`devices/native.py`, design in `NATIVE_DEVICES.md`) —
+  a camera served by its own EPICS IOC (stock ADAravis + `NDFileHDF5`),
+  with the GEECS camera contract: armed once per run (stopped and put in
+  trigger mode *before* the HDF capture starts, restored at `unstage`), a
+  shot is the writer's frame count, `Software` (pressed in `trigger()`) or
+  `Line1` triggering, the IOC's layout and SWMR-off restored after the
+  stock prepare, the row stamp the frame's EPICS timestamp through
+  `scan_stack.epics_timestamp_to_unix`.  **One frame per row**: its own
+  miss fails the step (no rewind), and it is never rewindable, so a pause
+  never replays a shot.  Strict only: fly prepares are refused.  Not yet
+  in the namespace (the registry and bind-time refusals are the next PR).
 - **`ShotControl`** — `Movable` over the trigger profile's states (`OFF`,
   `STANDBY`, `SCAN`, `ARMED`, `SINGLESHOT` — OFF is the only quiet
   state, STANDBY is the machine's idle and passes edges), replaying each

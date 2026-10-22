@@ -1,31 +1,24 @@
 """NativeCamera — a native EPICS areaDetector camera as a GEECS strict detector.
 
-A camera served by its own IOC (geecs-epics; ADAravis + the stock
-``NDFileHDF5`` plugin) instead of a LabVIEW device app behind the gateways.
-It is **not** ophyd-async's stock ``AravisDetector``: that one starts an
-acquisition per shot, clears the writer's layout and lets frames be
-skipped, none of which a GEECS strict scan tolerates.  It keeps the GEECS
-camera contract over stock areaDetector records (``NATIVE_DEVICES.md``):
+A camera served by its own IOC (geecs-epics: ADAravis + the stock
+``NDFileHDF5`` plugin), not ophyd-async's ``AravisDetector`` — that one
+starts an acquisition per shot, clears the writer's layout and lets frames
+be skipped.  The GEECS camera contract over stock records
+(``NATIVE_DEVICES.md``):
 
-- **armed once per run** — the first ``prepare`` stops the camera and puts
-  it in ``TriggerMode On`` / ``Continuous`` *before* the HDF capture starts
-  (no free-run frame reaches the stack), the acquire logic restarts it, and
-  ``unstage`` restores the camera's pre-run state (live view between scans);
-  every later ``prepare`` is a no-op on the camera;
-- **a shot is the plugin's frame count advancing**; ``trigger_source``
-  ``Software`` presses the camera's ``TriggerSoftware`` command inside
-  ``trigger()`` (exposed when the worker says go — the accepted caveat),
-  ``Line1`` waits for the timing system's edge;
-- **one frame per row, never a skipped or a doubled one**: a native camera
-  that misses a shot fails the step, and a pause never replays a shot (the
-  stock writer cannot rewind, and Bluesky's HDF5 consolidator reads frames
-  by datum count from 0);
-- **the row's stamp** is the frame's EPICS timestamp, converted by
-  ``scan_stack.epics_timestamp_to_unix`` — the reader's own conversion —
-  into the LabVIEW epoch every row stamp uses.
+- **armed once per run** — the first ``prepare`` stops the camera and sets
+  trigger mode *before* the HDF capture starts (no live-view frame reaches
+  the stack); ``unstage`` restores the camera (live view between scans);
+- **a shot is the writer's frame count advancing**: ``Software`` presses
+  ``TriggerSoftware`` inside ``trigger()`` (exposed when the worker says go
+  — the accepted caveat), ``Line1`` waits for the timing system's edge;
+- **one frame per row**: an own miss fails the step and a pause never
+  replays a shot (the writer cannot rewind; Bluesky's HDF5 consolidator
+  reads frames by datum count from 0);
+- **the row stamp** is the frame's EPICS timestamp through
+  ``scan_stack.epics_timestamp_to_unix``, in the LabVIEW epoch.
 
-Strict runs only: a fly prepare (gated batch, non-essential stream) is
-refused here as well as at bind.
+Strict runs only: fly prepares are refused here as well as at bind.
 """
 
 from __future__ import annotations
@@ -77,9 +70,9 @@ from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET, epics_timestamp
 from geecs_bluesky.devices.detector import (
     ACQ_TIMESTAMP,
     DEFAULT_SHOT_TIMEOUT,
-    PLUGIN_REASON_TIMEOUT_S,
     STRICT_TRIGGER_INFO,
     FlyTriggerInfo,
+    plugin_reason,
 )
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsTriggerTimeoutError
 
@@ -418,14 +411,9 @@ class NativeCamera(StandardDetector):
         return self._session.missed
 
     async def plugin_reasons(self) -> list[str]:
-        """The writer's non-empty ``WriteMessage``, bounded — a reason is best effort."""
-        try:
-            message = await asyncio.wait_for(
-                self.hdf.write_message.get_value(), PLUGIN_REASON_TIMEOUT_S
-            )
-        except Exception:  # noqa: BLE001 - a reason is best effort
-            return []
-        return [f"file plugin {self.hdf.name}: {message}"] if message else []
+        """The writer's non-empty ``WriteMessage`` (``detector.plugin_reason``, bounded)."""
+        reason = await plugin_reason(self.hdf)
+        return [reason] if reason else []
 
     @AsyncStatus.wrap
     async def prepare(self, value: TriggerInfo) -> None:

@@ -517,6 +517,22 @@ class LvNativeFileDataLogic(DetectorDataLogic):
         self.directory = None
 
 
+async def plugin_reason(io: Any) -> str:
+    """One file plugin's non-empty ``WriteMessage`` as ``file plugin <name>: <message>``, else ``""``.
+
+    Best effort and bounded by :data:`PLUGIN_REASON_TIMEOUT_S`: a reason
+    must never outlast the failure it explains.  Shared by every detector
+    with a file writer (the gateway's plugin, a native IOC's ``NDFileHDF5``).
+    """
+    try:
+        message = await asyncio.wait_for(
+            io.write_message.get_value(), PLUGIN_REASON_TIMEOUT_S
+        )
+    except Exception:  # noqa: BLE001 - a reason is best effort
+        return ""
+    return f"file plugin {io.name}: {message}" if message else ""
+
+
 def _with_reasons(text: str, reasons: Sequence[str]) -> str:
     """*text*, followed by the plugins' reasons when there are any (``" — a; b"``)."""
     return f"{text} — {'; '.join(reasons)}" if reasons else text
@@ -766,17 +782,7 @@ class GeecsDetector(StandardDetector):
         clears its message on the next frame it accepts, so a reason here is
         current, not a frame it refused shots ago.
         """
-
-        async def read(io: GeecsHdfIO) -> str:
-            try:
-                message = await asyncio.wait_for(
-                    io.write_message.get_value(), PLUGIN_REASON_TIMEOUT_S
-                )
-            except Exception:  # noqa: BLE001 - a reason is best effort
-                return ""
-            return f"file plugin {io.name}: {message}" if message else ""
-
-        texts = await asyncio.gather(*(read(io) for io in self._hdf_ios))
+        texts = await asyncio.gather(*(plugin_reason(io) for io in self._hdf_ios))
         return [text for text in texts if text]
 
     @property
