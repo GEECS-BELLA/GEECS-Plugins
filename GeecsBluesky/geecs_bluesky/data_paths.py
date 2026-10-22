@@ -141,19 +141,24 @@ def read_native_ioc_data_base_path() -> str | None:
 
 
 def native_ioc_save_path(save_path: str) -> str:
-    """Return the POSIX path to send to a native camera's ``FilePath`` control."""
+    """Return the POSIX path to send to a native camera's ``FilePath`` control.
+
+    The worker's own path unless ``[Paths] geecs_native_ioc_data_base_path``
+    is set; then the scan path rebased onto it by
+    :func:`translate_save_path_for_tiled_host` (the one POSIX rebase).
+    """
     remote = read_native_ioc_data_base_path()
-    local = _local_base_path()
-    if not remote or not local:
+    if not remote:
         return save_path
-    try:
-        relative = PurePosixPath(save_path).relative_to(PurePosixPath(local))
-    except ValueError:
+    local = _local_base_path()
+    if local is None:
         logger.warning(
-            "%s is not under the data root %s; sent unchanged", save_path, local
+            "ScanPaths.paths_config is not loaded; using local path for a native IOC"
         )
         return save_path
-    return str(PurePosixPath(remote) / relative)
+    return translate_save_path_for_tiled_host(
+        save_path, local_base_path=local, tiled_host_base_path=remote
+    )
 
 
 def read_tiled_host_data_base_path() -> str | None:

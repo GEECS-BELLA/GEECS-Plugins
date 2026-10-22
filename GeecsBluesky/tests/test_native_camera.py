@@ -79,7 +79,6 @@ def _camera(
         trigger_source=source,
         path_provider=provider,
         name="adtest_cam1",
-        shot_timeout=0.3,
         **kwargs,
     )
     connect_mock(RE, cam)
@@ -383,4 +382,36 @@ def test_native_ioc_save_path_is_the_identity_unless_configured(monkeypatch) -> 
         data_paths.native_ioc_save_path(scan)
         == "/data/Undulator/Y2026/10-Oct/26_1022/scans/Scan001/ADTEST_CAM1"
     )
-    assert data_paths.native_ioc_save_path("/elsewhere/x") == "/elsewhere/x"
+    with pytest.raises(ValueError, match="not under the local data root"):
+        data_paths.native_ioc_save_path("/elsewhere/x")
+
+
+def test_a_refused_trigger_setup_fails_the_prepare(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """A refused GenICam write completes its put: the readback check catches it."""
+    cam, _ = _camera(RE, tmp_path)
+    # A mock put callback's return value is what the record ends up holding.
+    callback_on_mock_put(cam.driver.trigger_mode, lambda value, **_: OnOff.OFF)
+    _run(RE, lambda: cam.stage())
+    with pytest.raises(GeecsConfigurationError, match="refused its trigger setup"):
+        _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert (
+        _run(RE, lambda: cam.hdf.capture.get_value()) is not True
+    )  # no capture opened
+
+
+def test_an_unclean_end_never_becomes_the_pre_run_state(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """A run without a completed unstage (halt, killed worker) leaves the camera armed;
+    the next run keeps the original pre-run state and restores live view."""
+    cam, _ = _camera(RE, tmp_path)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))  # armed; no unstage follows
+    _run(RE, lambda: cam.stage())  # the next run
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    _run(RE, lambda: cam.unstage())
+    d = cam.driver
+    assert _run(RE, lambda: d.trigger_mode.get_value()) == OnOff.OFF
+    assert _run(RE, lambda: d.acquire.get_value()) is True  # live view again

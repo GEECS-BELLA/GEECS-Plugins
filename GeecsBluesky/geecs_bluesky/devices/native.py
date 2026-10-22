@@ -27,7 +27,6 @@ import asyncio
 import logging
 import math
 import time
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Annotated as A
 from typing import Any
@@ -56,8 +55,8 @@ from ophyd_async.core import (
     set_and_wait_for_value,
     soft_signal_rw,
 )
+from ophyd_async.epics.adaravis import AravisDriverIO
 from ophyd_async.epics.adcore import (
-    ADBaseIO,
     ADHDFDataLogic,
     ADImageMode,
     NDArrayDescription,
@@ -69,7 +68,6 @@ from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET, epics_timestamp
 
 from geecs_bluesky.devices.detector import (
     ACQ_TIMESTAMP,
-    DEFAULT_SHOT_TIMEOUT,
     STRICT_TRIGGER_INFO,
     FlyTriggerInfo,
     plugin_reason,
@@ -98,11 +96,10 @@ class AsynConnect(StrictEnum):
     CONNECT = "Connect"
 
 
-class NativeDriverIO(ADBaseIO):
-    """An ADAravis driver: the stock base plus the trigger controls GEECS uses."""
+class NativeDriverIO(AravisDriverIO):
+    """ophyd-async's ADAravis driver, with ``Software`` among the trigger sources."""
 
-    trigger_mode: A[SignalRW[OnOff], PvSuffix.rbv("TriggerMode")]
-    trigger_source: A[SignalRW[NativeTriggerSource], PvSuffix.rbv("TriggerSource")]
+    trigger_source: A[SignalRW[NativeTriggerSource], PvSuffix.rbv("TriggerSource")]  # type: ignore[assignment]
     # Processing the command record fires it (verified on the bench camera).
     trigger_software: A[TriggerableCommand, PvSuffix("TriggerSoftware.PROC")]
     asyn_connect: A[SignalR[AsynConnect], PvSuffix("AsynIO.CNCT")]
@@ -170,20 +167,48 @@ class NativeTriggerLogic(DetectorTriggerLogic):
         if self.session.programmed:
             return
         d = self.driver
-        self.session.restore = tuple(
-            await asyncio.gather(
-                d.acquire.get_value(),
-                d.trigger_mode.get_value(),
-                d.trigger_source.get_value(),
-                d.image_mode.get_value(),
+        if self.session.restore is None:
+            # Captured once and kept until a restore succeeds: a run that
+            # ended without a completed unstage (a killed worker, a halt, a
+            # failed restore) must not make the armed state the "pre-run" one.
+            self.session.restore = tuple(
+                await asyncio.gather(
+                    d.acquire.get_value(),
+                    d.trigger_mode.get_value(),
+                    d.trigger_source.get_value(),
+                    d.image_mode.get_value(),
+                )
             )
-        )
+            if self.session.restore[1] == OnOff.ON:
+                logger.warning(
+                    "%s: already in trigger mode before the run (a previous run "
+                    "did not restore it?) — unstage will leave it in trigger mode",
+                    d.name,
+                )
         await d.acquire.set(False)
         # Trigger mode first and on its own: the Aravis firmware race
         # ophyd-async's AravisTriggerLogic documents (aravis#1045).
         await d.trigger_mode.set(OnOff.ON)
         await d.trigger_source.set(self.source)
         await d.image_mode.set(ADImageMode.CONTINUOUS)
+        # A refused GenICam write completes the CA put anyway (#868's class):
+        # check the readbacks, or a camera still free-running would fill the
+        # stack with live-view frames and every shot would "succeed".
+        wanted = {
+            "TriggerMode": (d.trigger_mode, OnOff.ON),
+            "TriggerSource": (d.trigger_source, self.source),
+            "ImageMode": (d.image_mode, ADImageMode.CONTINUOUS),
+        }
+        got = await asyncio.gather(*(sig.get_value() for sig, _ in wanted.values()))
+        refused = [
+            f"{name}={value} (wanted {want})"
+            for (name, (_, want)), value in zip(wanted.items(), got, strict=True)
+            if value != want
+        ]
+        if refused:
+            raise GeecsConfigurationError(
+                f"{d.name}: the camera refused its trigger setup: {', '.join(refused)}"
+            )
         self.session.programmed = True
 
     async def default_trigger_info(self) -> TriggerInfo:
@@ -199,7 +224,7 @@ class NativeAcquireLogic(DetectorAcquireLogic):
         self.session = session
 
     async def ensure_ready(self) -> None:
-        """At ``stage``: a fresh run state; the camera is not touched until the first prepare."""
+        """At ``stage``: a fresh run state (a held pre-run state is kept); the camera is not touched."""
         self.session.programmed = False
         self.session.acquiring = False
         self.session.fire_pending = False
@@ -225,7 +250,7 @@ class NativeAcquireLogic(DetectorAcquireLogic):
 
     async def ensure_stopped(self) -> None:
         """At ``unstage``: the camera back to its pre-run state (live view between scans)."""
-        restore, self.session.restore = self.session.restore, None
+        restore = self.session.restore
         self.session.programmed = False
         self.session.acquiring = False
         if restore is None:
@@ -240,6 +265,7 @@ class NativeAcquireLogic(DetectorAcquireLogic):
             await set_and_wait_for_value(
                 d.acquire, True, timeout=DEFAULT_TIMEOUT, wait_for_set_completion=False
             )
+        self.session.restore = None  # only once the camera is back
 
 
 @dataclass
@@ -339,8 +365,6 @@ class NativeCamera(StandardDetector):
         (``hdf_plugin.PluginPathProvider`` with POSIX paths).
     name :
         ophyd-async device name (event keys ``<name>``, ``<name>-acq_timestamp``).
-    shot_timeout :
-        Seconds a shot's frame may take after the fire.
     drain_offset :
         The calibration's edge-to-frame latency, seconds.
     """
@@ -359,12 +383,10 @@ class NativeCamera(StandardDetector):
         trigger_source: NativeTriggerSource,
         path_provider: PathProvider,
         name: str = "",
-        shot_timeout: float = DEFAULT_SHOT_TIMEOUT,
         drain_offset: float = 0.0,
     ) -> None:
         self._geecs_device_name = device
         self._source = NativeTriggerSource(trigger_source)
-        self._shot_timeout = shot_timeout
         self.driver = NativeDriverIO(prefix + DRIVER_SUFFIX)
         self.hdf = NativeHdfIO(prefix + HDF_SUFFIX)
         self.drain_offset = soft_signal_rw(float, float(drain_offset), units="s")
@@ -430,6 +452,11 @@ class NativeCamera(StandardDetector):
                 exc.add_note(reason)
             raise
 
+    def _frame_timeout(self) -> float:
+        """The frame wait's budget: the prepared ``TriggerInfo.exposure_timeout``."""
+        ctx = self._prepare_ctx
+        return (ctx.trigger_info if ctx else STRICT_TRIGGER_INFO).exposure_timeout
+
     def trigger(self) -> AsyncStatus:
         """Wait for one more frame in the stack (pressing the software trigger if that is the source)."""
         self._session.missed = False
@@ -442,11 +469,12 @@ class NativeCamera(StandardDetector):
         except TimeoutError as exc:
             self._session.missed = True
             reasons = await self.plugin_reasons()
+            timeout = self._frame_timeout()
             raise GeecsTriggerTimeoutError(
                 self._geecs_device_name,
-                self._shot_timeout,
+                timeout,
                 f"{self._geecs_device_name}: no frame written within "
-                f"{self._shot_timeout:.1f}s" + "".join(f"; {r}" for r in reasons),
+                f"{timeout:.1f}s" + "".join(f"; {r}" for r in reasons),
             ) from exc
 
     @AsyncStatus.wrap
@@ -469,12 +497,7 @@ class NativeCamera(StandardDetector):
         if self._session.missed:
             raise GeecsTriggerTimeoutError(
                 self._geecs_device_name,
-                self._shot_timeout,
+                self._frame_timeout(),
                 f"{self._geecs_device_name} missed a shot: a native camera cannot "
                 "refire yet (its writer cannot rewind) — the step fails",
             )
-
-
-def native_cameras(devices: Sequence[Any]) -> list[NativeCamera]:
-    """The native cameras among *devices* (for the bind-time refusals)."""
-    return [d for d in devices if isinstance(d, NativeCamera)]

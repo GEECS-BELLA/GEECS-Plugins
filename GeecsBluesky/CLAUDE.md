@@ -869,7 +869,10 @@ command) and never imports the gateway (circular).
   environment at import (`epics_env`).  `file_plugin_addr_list` is also the
   namespace's plugin rule: the camera servers whose gateway serves the file
   plugin.
-- `[Paths]`: the data root through `GeecsPathsConfig` (`ScanPaths`); the
+- `[Paths]`: `geecs_native_ioc_data_base_path` (optional) — the data root
+  as a native camera's IOC sees it, for `data_paths.native_ioc_save_path`
+  (unset = the worker's own path: the same-path mount).  Then the data root
+  through `GeecsPathsConfig` (`ScanPaths`); the
   device-server, file-plugin (`geecs_pva_plugin_data_base_path`, UNC, as
   the camera servers' plugin service sees it) and Tiled-host roots through
   `read_config_entry` (`data_paths`); the configs-repo root through
@@ -931,7 +934,9 @@ with no dependency edge between them.
   refused put comes back as success (#868).  Known exceptions still on
   `signal.set()`: the detector's `save` / `localsavingpath` puts
   (`LvNativeFileDataLogic`) and the HDF plugin's signals (`GeecsHdfIO`,
-  the stock `ADHDFDataLogic` puts) — a refused one reads as success there.
+  the stock `ADHDFDataLogic` puts) — a refused one reads as success there;
+  likewise `NativeCamera`'s driver and writer puts, except its trigger
+  setup, whose readbacks it checks before the capture starts.
 - Import anything from `geecs_scanner` (the web scanner depends on this
   package; the edge is one-way, pinned by `.importlinter` and
   `tests/test_dependency_direction.py`), the portal, the logbook or the
