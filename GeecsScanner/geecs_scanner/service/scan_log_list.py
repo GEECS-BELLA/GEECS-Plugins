@@ -102,11 +102,15 @@ class FileListStore:
     def load(self) -> list[str]:
         """The stored list; a missing file is an empty list, a broken one an error."""
         try:
-            text = self.path.read_text(encoding="utf-8")
+            raw = self.path.read_bytes()
         except FileNotFoundError:
             return []
         try:
-            document = json.loads(text)
+            # Decoding inside the guarded parse: a byte that is not UTF-8 (a
+            # hand edit in another encoding) is a broken list like bad JSON —
+            # UnicodeDecodeError is a ValueError — never an exception that
+            # escapes for_submission and refuses every scan.
+            document = json.loads(raw.decode("utf-8"))
             names = document["variables"]
             if not isinstance(names, list):
                 raise TypeError("variables is not a list")

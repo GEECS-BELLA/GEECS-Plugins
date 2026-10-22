@@ -73,9 +73,14 @@ def test_the_file_store_is_replaced_atomically_and_a_hand_edit_is_a_new_version(
     assert info.value.kind == "conflict"
 
 
-def test_a_broken_file_never_refuses_a_scan(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "content",
+    [b"{not json", b'{"variables": ["U_A:\xff"]}', b'["U_A:x"]', b'{"variables": 3}'],
+    ids=["bad json", "not utf-8", "not an object", "not a list"],
+)
+def test_a_broken_file_never_refuses_a_scan(tmp_path: Path, content: bytes) -> None:
     path = tmp_path / "scan_log_variables.json"
-    path.write_text("{not json")
+    path.write_bytes(content)
     lst = ScanLogList(FileListStore(path))
     with pytest.raises(ScannerError):
         lst.get()
