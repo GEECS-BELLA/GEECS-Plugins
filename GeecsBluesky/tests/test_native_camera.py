@@ -39,13 +39,19 @@ from geecs_bluesky.devices.detector import (
     UNBOUNDED_TRIGGER_INFO,
     gated_trigger_info,
 )
+from geecs_bluesky.devices import native
 from geecs_bluesky.devices.native import (
     AsynConnect,
     NativeCamera,
     NativeTriggerSource,
     liveness_word,
 )
-from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsTriggerTimeoutError
+from geecs_bluesky.exceptions import (
+    GeecsConfigurationError,
+    GeecsDeviceDownError,
+    GeecsTriggerTimeoutError,
+)
+from geecs_bluesky.plans.registry import liveness_gate
 from tests.ca_mock_helpers import connect_mock
 
 LAYOUT = "/epics/ioc/config/hdf5_layout.xml"
@@ -285,6 +291,53 @@ def test_liveness_reads_the_asyn_connection(RE: RunEngine, tmp_path: Path) -> No
     set_mock_value(cam.driver.asyn_connect, AsynConnect.DISCONNECT)
     assert _run(RE, lambda: cam.connected_status.get_value()) == "Disconnected"
     assert liveness_word(AsynConnect.CONNECT) == "Connected"
+
+
+@pytest.mark.parametrize(
+    ("word", "refused"), [(AsynConnect.CONNECT, False), (AsynConnect.DISCONNECT, True)]
+)
+def test_the_run_gate_judges_a_connected_camera_by_its_asyn_connection(
+    RE: RunEngine, tmp_path: Path, word, refused
+) -> None:
+    cam, _ = _camera(RE, tmp_path)
+    set_mock_value(cam.driver.asyn_connect, word)
+    if refused:
+        with pytest.raises(GeecsDeviceDownError, match="ADTEST_CAM1 DISCONNECTED"):
+            RE(liveness_gate(object(), [cam]))
+    else:
+        RE(liveness_gate(object(), [cam]))
+
+
+def test_the_run_gate_refuses_a_camera_whose_ioc_never_answers(
+    RE: RunEngine, tmp_path: Path, monkeypatch
+) -> None:
+    """Unconnected, its liveness read would raise and pass fail-open (the bug)."""
+    monkeypatch.setattr(native, "LIVENESS_CONNECT_TIMEOUT_S", 0.5)
+    cam = NativeCamera(
+        "ADTEST_CAM1",
+        "geecs_test_no_such_ioc:",
+        trigger_source=NativeTriggerSource.SOFTWARE,
+        path_provider=StaticPathProvider(
+            StaticFilenameProvider("ADTEST_CAM1"), PurePosixPath(tmp_path)
+        ),
+        name="adtest_cam1",
+    )
+    with pytest.raises(GeecsDeviceDownError, match="ADTEST_CAM1 DISCONNECTED"):
+        RE(liveness_gate(object(), [cam]))
+
+
+def test_the_run_gate_refuses_a_connected_camera_whose_ioc_died(
+    RE: RunEngine, tmp_path: Path, monkeypatch
+) -> None:
+    """A long-lived worker keeps the channel; a read that fails now is down, not live."""
+    cam, _ = _camera(RE, tmp_path)
+
+    async def silent():
+        raise TimeoutError("no reply")
+
+    monkeypatch.setattr(cam.driver.asyn_connect, "get_value", silent)
+    with pytest.raises(GeecsDeviceDownError, match="ADTEST_CAM1 DISCONNECTED"):
+        RE(liveness_gate(object(), [cam]))
 
 
 def test_column_header_is_the_device_stamp(RE: RunEngine, tmp_path: Path) -> None:

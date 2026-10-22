@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from typing import Annotated as A
 from typing import Any
 
+import bluesky.plan_stubs as bps
 from bluesky.protocols import Reading
 from event_model import DataKey
 from ophyd_async.core import (
@@ -76,6 +77,7 @@ from geecs_bluesky.devices.detector import (
     plugin_reason,
 )
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsTriggerTimeoutError
+from geecs_bluesky.utils import is_connected
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +87,8 @@ DRIVER_SUFFIX = "cam1:"
 HDF_SUFFIX = "HDF1:"
 #: Seconds the trigger setup's readbacks get to settle before a refusal is declared.
 READBACK_TIMEOUT_S = 2.0
+#: Seconds a native camera's IOC gets to connect, then to answer, at the run's liveness gate.
+LIVENESS_CONNECT_TIMEOUT_S = 5.0
 
 
 class NativeTriggerSource(SubsetEnum):
@@ -539,6 +543,56 @@ class NativeCamera(StandardDetector):
 def native_cameras(devices: Iterable[Any]) -> list[NativeCamera]:
     """The native cameras among *devices* (a ``.scalars`` view counts as its owner)."""
     return [d for d in map(owner_of, devices) if isinstance(d, NativeCamera)]
+
+
+async def _native_word(cam: NativeCamera) -> str:
+    """The camera's liveness word from its IOC: connect if needed, read, bounded."""
+    source = cam.driver.asyn_connect
+    if not is_connected(source):
+        await source.connect(timeout=LIVENESS_CONNECT_TIMEOUT_S)
+    cnct = await asyncio.wait_for(source.get_value(), LIVENESS_CONNECT_TIMEOUT_S)
+    return liveness_word(cnct)
+
+
+def down_native_cameras(devices: Iterable[Any]):
+    """Plan: the native cameras among *devices* whose IOC reports or is down.
+
+    Judged here, not by the gateway's fail-open rule: the word comes from the
+    IOC's own ``AsynIO.CNCT``, so a read that fails (an IOC that never
+    answered, or died after an earlier run's connect — the channel stays
+    cached in a long-lived worker) means the IOC is down.  Concurrent, one
+    bounded wait (``LIVENESS_CONNECT_TIMEOUT_S`` for the connect, then the
+    read); ``connect_on_demand`` would connect only the derived
+    ``connected_status``, never this source.
+
+    Returns
+    -------
+    list of str
+        The GEECS names of the cameras reported ``Disconnected`` or unreachable.
+    """
+    cams = native_cameras(devices)
+    if not cams:
+        return []
+
+    async def judge() -> list[str | BaseException]:
+        return await asyncio.gather(
+            *(_native_word(c) for c in cams), return_exceptions=True
+        )
+
+    (task,) = yield from bps.wait_for([judge])
+    words = task.result()
+    down: list[str] = []
+    for cam, word in zip(cams, words):
+        if isinstance(word, BaseException):
+            logger.warning(
+                "liveness: %s IOC did not answer (%s: %s) — down",
+                cam._geecs_device_name,
+                type(word).__name__,
+                " ".join(str(word).split()),
+            )
+        if isinstance(word, BaseException) or word == "Disconnected":
+            down.append(cam._geecs_device_name)
+    return down
 
 
 def refuse_native_cameras(devices: Iterable[Any], why: str) -> None:

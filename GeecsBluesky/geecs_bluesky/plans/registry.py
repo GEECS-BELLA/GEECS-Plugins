@@ -25,7 +25,11 @@ from geecs_bluesky.devices.background import BackgroundSnapshot
 from geecs_bluesky.devices.ca._view import owner_of
 from geecs_bluesky.devices.ca.liveness import read_disconnected
 from geecs_bluesky.devices.detector import GeecsDetector
-from geecs_bluesky.devices.native import native_cameras, refuse_native_cameras
+from geecs_bluesky.devices.native import (
+    native_cameras,
+    refuse_native_cameras,
+    down_native_cameras,
+)
 from geecs_bluesky.devices.shot_control import ShotControl
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsDeviceDownError
 from geecs_bluesky.plan_names import (
@@ -157,7 +161,7 @@ class TriggerProfiles:
 
 
 def liveness_gate(shot_control: Any, devices: Sequence[Any]):
-    """Plan: refuse the run if the gateway reports any of its devices Disconnected.
+    """Plan: refuse the run if any of its devices is reported Disconnected.
 
     One ``CONNECTED`` read each for the trigger box's device(s)
     (:attr:`~geecs_bluesky.devices.shot_control.ShotControl.liveness_signals`)
@@ -167,16 +171,24 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
     :func:`~geecs_bluesky.devices.ca.liveness.read_disconnected` —
     fail-open, only the exact ``Disconnected`` string counts.
 
-    Runs before the bracket's first move and before ``open_run``: nothing
-    is driven and nothing is claimed for a run this refuses.
+    A native camera is judged by its IOC instead
+    (:func:`~geecs_bluesky.devices.native.down_native_cameras`: unreadable =
+    down).  Runs before the bracket's first move and before
+    ``open_run``: nothing is driven and nothing is claimed for a run this
+    refuses.
 
     Raises
     ------
     GeecsDeviceDownError
         Naming every device reported down.
     """
+    # A native camera is judged by its IOC, not by the gateway's rule.
+    natives = native_cameras(devices)
+    native_down = yield from down_native_cameras(natives)
     signals: dict[str, Any] = dict(getattr(shot_control, "liveness_signals", {}))
     for obj in devices:
+        if owner_of(obj) in natives:
+            continue
         signal = getattr(obj, "connected_status", None)
         if signal is None:
             continue
@@ -184,12 +196,14 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
     # An unreadable CONNECTED before a run is abnormal (the gateway serves
     # it for every DB device) and cost the connect timeout: say so.
     down = yield from read_disconnected(signals, unreadable_level=logging.WARNING)
+    down = [*native_down, *down]
     if down:
         names = ", ".join(down)
         raise GeecsDeviceDownError(
-            f"the gateway reports {names} DISCONNECTED — the run was refused "
-            "before the trigger box was driven (nothing claimed, no scan "
-            "folder). Check the GEECS device(s), then resubmit.",
+            f"{names} DISCONNECTED (the gateway's CONNECTED, or a native "
+            "camera's IOC not answering) — the run was refused before the "
+            "trigger box was driven (nothing claimed, no scan folder). Check "
+            "the device(s), then resubmit.",
             device_name=down[0],
         )
 
