@@ -305,8 +305,10 @@ Unchanged from strict — **armed once per run**, nothing per batch:
   makes the stock kickoff raise "Kickoff requested … only prepared up
   to …" (`StandardDetector.kickoff`) — a gateway plugin is immune because
   its rewind set a stale watermark, a native writer has none. The native
-  kickoff re-baselines on the count it reads (the late frame belongs to
-  no batch's quota; its datum still covers it).
+  kickoff re-baselines on the count it reads — the **prepare** context's
+  baseline too, which `frames_this_batch` and the sampler's row gates
+  read, not only the kickoff's (the late frame belongs to no batch's
+  quota; its datum still covers it).
 - **The quota is enforced by the box, not the camera**: the box goes OFF
   once every essential holds its quota (`gated_take_reading`), exactly as
   today. Rejected alternatives: HDF `NumCapture = quota` (the writer
@@ -517,7 +519,8 @@ shot clock. Gated runs mixing native and gateway plugin cameras are
   trim to it; (d) a stalled native camera → the batch fails naming it,
   its frames collected; (e) a native IOC unreadable at the settle → the
   others' kept shots and the rows are still collected; (f) a native frame
-  landing between prepare and kickoff → no failure, datums contiguous; each test **mutation-checked** (break the
+  landing between prepare and kickoff → no failure, datums contiguous,
+  and `frames_this_batch` excludes it; each test **mutation-checked** (break the
   contiguity, include the native in the trim — the test fails).
 - **Join** (`GEECS-Data-Utils/tests/test_shot_join.py`): a stock stack's
   EPICS pair becomes the stamp column (LabVIEW epoch); a missed frame
@@ -571,7 +574,10 @@ part for the built-in `NDArrayEpicsTS*` pair, so
 `tiled_export.read_frame_columns` (which builds columns only from parts
 named `<device>-hdf-<variable>-<suffix>`) finds no native stamp. Either
 the native data logic declares the pair as two datasets of its stream
-(preferred — Tiled then carries it like any per-frame attribute), or the
+(preferred) **and** the reader learns it — `read_frame_columns` keeps
+only parts `parse_attribute_name` accepts and wants one stamp, not a
+sec/nsec pair, so the reader combines the pair through
+`epics_timestamp_to_unix` (A's ~70 LOC covers both halves); or the
 re-export reads the stamps from the file the stream resource names. The
 build PR picks one; without either, an s-file rebuilt from Tiled loses
 the column the portal keys frames on.
