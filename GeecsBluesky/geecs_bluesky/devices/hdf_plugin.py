@@ -24,7 +24,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
-from pathlib import Path, PureWindowsPath
+from pathlib import Path, PurePath, PureWindowsPath
 from typing import Annotated as A
 
 from bluesky.protocols import StreamAsset
@@ -187,6 +187,11 @@ class PluginPathProvider(PathProvider):
     plugin_path :
         Worker path → the path the plugin's host can write (the UNC root of
         the data share); defaults to the ``config.ini`` mapping.
+    path_type :
+        The flavour the writer's host expects: ``PureWindowsPath`` for the
+        gateway's plugin on the Windows camera servers (the default),
+        ``PurePosixPath`` for a native EPICS camera's IOC on Linux (with
+        ``data_paths.native_ioc_save_path`` as *plugin_path*).
     """
 
     def __init__(
@@ -196,8 +201,10 @@ class PluginPathProvider(PathProvider):
         *,
         variable: str | None = None,
         plugin_path: Callable[[str], str] = plugin_save_path,
+        path_type: type[PurePath] = PureWindowsPath,
     ) -> None:
         self._shared = shared
+        self._path_type = path_type
         self._stem = device if variable is None else f"{device}-{variable}"
         self._plugin_path = plugin_path
 
@@ -207,7 +214,7 @@ class PluginPathProvider(PathProvider):
         return self._stem
 
     def __call__(self, datakey_name: str | None = None) -> PathInfo:
-        """The device directory this run: Windows path for ``FilePath``, URI for Tiled.
+        """The device directory this run: the writer host's path for ``FilePath``, URI for Tiled.
 
         The directory is **created here**, inside the scan folder the
         scanner claimed (``mkdir(exist_ok=True)``, never ``parents``: a
@@ -225,7 +232,7 @@ class PluginPathProvider(PathProvider):
             )
         local_dir.mkdir(exist_ok=True)
         return PathInfo(
-            directory_path=PureWindowsPath(self._plugin_path(str(local_dir))),
+            directory_path=self._path_type(self._plugin_path(str(local_dir))),
             filename=self._stem,
             directory_uri=generate_directory_uri(local_dir),
         )

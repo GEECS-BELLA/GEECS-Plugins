@@ -130,6 +130,37 @@ def plugin_save_path(save_path: str) -> str:
     )
 
 
+def read_native_ioc_data_base_path() -> str | None:
+    """The data root as a native EPICS camera's IOC sees it (``[Paths] geecs_native_ioc_data_base_path``).
+
+    Absent = the worker's own root: the IOC hosts mount the share at the
+    worker's path and bind it unchanged into the container, so the
+    translation is the identity (``NATIVE_DEVICES.md``).
+    """
+    return _read_paths_entry("geecs_native_ioc_data_base_path")
+
+
+def native_ioc_save_path(save_path: str) -> str:
+    """Return the POSIX path to send to a native camera's ``FilePath`` control.
+
+    The worker's own path unless ``[Paths] geecs_native_ioc_data_base_path``
+    is set; then the scan path rebased onto it by
+    :func:`translate_save_path_for_tiled_host` (the one POSIX rebase).
+    """
+    remote = read_native_ioc_data_base_path()
+    if not remote:
+        return save_path
+    local = _local_base_path()
+    if local is None:
+        logger.warning(
+            "ScanPaths.paths_config is not loaded; using local path for a native IOC"
+        )
+        return save_path
+    return translate_save_path_for_tiled_host(
+        save_path, local_base_path=local, tiled_host_base_path=remote
+    )
+
+
 def read_tiled_host_data_base_path() -> str | None:
     """The data root as the **Tiled host** mounts it (``[Paths] geecs_tiled_host_data_base_path``).
 

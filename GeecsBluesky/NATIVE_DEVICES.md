@@ -112,9 +112,15 @@ with GEECS logics:
   Strict calls `prepare` **every shot** (`strict.py`), so the trigger and
   acquire logics make every prepare after the run's first a no-op: no
   `Acquire` put, the event count ignored.
-- **A shot** = the plugin's `NumCaptured` advancing. `trigger()` takes the
-  baseline synchronously (the `GeecsAcquireLogic` rule); the wait's
-  timeout raises `GeecsTriggerTimeoutError` and sets `missed_shot`.
+- **A shot** = the plugin's `NumCaptured` advancing past the baseline the
+  stock `trigger` task reads. With `Software` the press follows that read
+  in the same task, so the order is guaranteed; with `Line1` the read
+  races the plan's next message, the box fire, which is safe in practice
+  (the fire put alone takes ~200 ms, then exposure and the writer's lazy
+  open, against a ~1 ms read) but not by construction — unlike
+  `GeecsDetector`'s synchronous stamp baseline. The wait's timeout is the
+  prepared `exposure_timeout` and raises `GeecsTriggerTimeoutError`,
+  setting `missed_shot`.
 - **No orphan frames in v1.** The stack must hold exactly the frames the
   datums reference, in order: Bluesky's `HDF5Consolidator` sizes the array
   as the sum of datum widths and reads from frame 0, so a skipped frame
