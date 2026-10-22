@@ -13,6 +13,9 @@ own, and they disagreed (#1061 rows 3.6/3.7/3.8):
 - :func:`analysis_folder_for` — the sibling ``{day}/analysis/ScanNNN`` of a
   ``{day}/scans/ScanNNN`` folder: pure path arithmetic, nothing created.
 - :func:`read_scan_info_file` — the raw ``[Scan Info]`` parse;
+  :func:`read_scan_info_sections` — every section from the same one
+  parse; :func:`scan_log_variables` — the ``[Scan Log]`` list the web
+  scanner stamps;
   :class:`ScanInfoRecord` — the same facts typed (finite floats only);
   :func:`is_noscan` — "no variable was stepped".
 - :func:`classify_end_info` / :func:`end_info_reason` — the scan's outcome
@@ -24,9 +27,10 @@ nothing here creates, writes or deletes a path.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
-from configparser import ConfigParser, Error as ConfigParserError, NoSectionError
+from configparser import ConfigParser, Error as ConfigParserError
 from pathlib import Path
 from typing import Literal, Mapping, Optional, Union
 
@@ -133,16 +137,62 @@ def read_scan_info_file(ini_path: Union[Path, str]) -> dict[str, str]:
         missing, sectionless, or unreadable.  Never raises: one unparsable
         scan must not take down a caller iterating a whole day.
     """
-    parser = ConfigParser()
+    sections = read_scan_info_sections(ini_path)
+    if "Scan Info" not in sections and Path(ini_path).exists():
+        logger.warning('ScanInfo file %s has no "Scan Info" section', ini_path)
+    return sections.get("Scan Info", {})
+
+
+def read_scan_info_sections(ini_path: Union[Path, str]) -> dict[str, dict[str, str]]:
+    """Every section of a ``ScanInfoScanNNN.ini`` file, from one parse.
+
+    Interpolation is off: a ``%`` in a free-text value (an operator's
+    description) is text, not a ``ConfigParser`` reference — with it on,
+    one such value made every reader see an empty file.
+
+    Parameters
+    ----------
+    ini_path : Path or str
+        The ScanInfo file. Need not exist.
+
+    Returns
+    -------
+    dict of str to dict of str to str
+        Section name to its mapping (key case kept, quotes stripped); empty
+        when the file is missing or unreadable.  Never raises.
+    """
+    parser = ConfigParser(interpolation=None)
     parser.optionxform = str  # keep key case
     try:
         parser.read(ini_path)
-        return {key: value.strip("'\"") for key, value in parser.items("Scan Info")}
-    except NoSectionError:
-        logger.warning('ScanInfo file %s has no "Scan Info" section', ini_path)
+        return {
+            name: {key: value.strip("'\"") for key, value in parser.items(name)}
+            for name in parser.sections()
+        }
     except (ConfigParserError, OSError, UnicodeDecodeError) as exc:
         logger.warning("unreadable ScanInfo file %s: %s", ini_path, exc)
     return {}
+
+
+def scan_log_variables(sections: dict[str, dict[str, str]]) -> list[str]:
+    """The ``Device:Variable`` names of the ini's ``[Scan Log]`` section.
+
+    The web scanner's shared scan-log list as the worker recorded it for
+    this scan: one key, ``Variables``, holding a JSON list.  Empty when the
+    section is absent (any scan before the feature, or submitted without a
+    list) or malformed.
+    """
+    raw = sections.get("Scan Log", {}).get("Variables", "")
+    if not raw:
+        return []
+    try:
+        names = json.loads(raw)
+    except ValueError:
+        logger.warning("unreadable [Scan Log] Variables: %r", raw[:80])
+        return []
+    if not isinstance(names, list):
+        return []
+    return [str(n) for n in names if isinstance(n, str) and n]
 
 
 def finite_float(raw: Optional[str]) -> Optional[float]:

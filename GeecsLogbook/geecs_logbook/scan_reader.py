@@ -42,13 +42,21 @@ from pathlib import Path
 from typing import NamedTuple, Optional, Union
 
 from geecs_data_utils import ScanPaths
-from geecs_data_utils.data.sfile import scan_data_txt_path_for, sfile_path_for_scan
+from geecs_data_utils.data.sfile import (
+    header_for_variable,
+    read_sfile_head,
+    scan_data_txt_path_for,
+    sfile_candidates,
+    sfile_column,
+    sfile_path_for_scan,
+)
 from geecs_data_utils.scan_info import (
     ScanInfoRecord,
     classify_end_info,
     end_info_reason,
     parse_scan_folder_name,
-    read_scan_info_file,
+    read_scan_info_sections,
+    scan_log_variables,
 )
 from geecs_data_utils.scan_log_loader import first_log_timestamp
 
@@ -73,7 +81,7 @@ _NON_DEVICE_DIRS = {"analysis_status", "analysis"}
 #: pickling cost. Sixteen is the figure measured against a genuinely cold
 #: share; higher counts appeared better only because the OS page cache was
 #: warm from the previous run.
-_READ_WORKERS = 16
+READ_WORKERS = 16
 
 #: How many scan summaries to remember across requests.
 _CACHE_SIZE = 4096
@@ -220,8 +228,90 @@ def read_scan(
         # The listing found the file but could not stat it — a flaky share.
         # Caching on the path alone would pin this scan's state for the life
         # of the process, so read it uncached instead.
-        return _summarize(*args)
-    return _read_scan_cached(*args)
+        summary = _summarize(*args)
+    else:
+        summary = _read_scan_cached(*args)
+    # The s-file is found from listings already in hand and kept on the
+    # summary, so the day's lookup reads it without walking the folder again.
+    sfile = sfile_for(scan_folder, scan_data=contents.scan_data, sfiles=sfiles)
+    update: dict = {"sfile": str(sfile) if sfile else None}
+    if summary.scan_log_variables:
+        # The values live in the s-file, written at the run's close and in
+        # place — so they are keyed on that file, not on the ini, and copied
+        # onto the (cached, shared) summary rather than written into it.
+        row = first_row(sfile) if sfile else None
+        update["values_state"] = values_state(row, summary.status)
+        if update["values_state"] == "ok":
+            header = list(row)
+            values = {}
+            for name in summary.scan_log_variables:
+                column = sfile_column(header_for_variable(name), header)
+                values[name] = (row.get(column) or None) if column else None
+            update["start_values"] = values
+    return summary.model_copy(update=update)
+
+
+def values_state(row: Optional[dict[str, str]], status: str) -> str:
+    """Why a scan's first-shot values are or are not available (``ScanSummary.values_state``)."""
+    if row is None:
+        return "recording" if status == "incomplete" else "no_sfile"
+    return "ok" if row else "no_shots"
+
+
+def sfile_for(
+    scan_folder: Path,
+    *,
+    scan_data: Optional[bool] = None,
+    sfiles: Optional[frozenset[str]] = None,
+) -> Optional[Path]:
+    """The scan's s-file: the first of ``sfile_candidates`` that exists.
+
+    Answered from the listings the caller already holds — *sfiles* (the
+    day's ``analysis/`` names) and *scan_data* (``ScanDataScanNNN.txt`` in
+    the folder's own listing); a missing listing costs one stat.
+    """
+    for path in sfile_candidates(scan_folder):
+        known = (
+            (path.name in sfiles if sfiles is not None else None)
+            if path.parent.name == "analysis"
+            else scan_data
+        )
+        if known is None:
+            try:
+                known = path.is_file()
+            except OSError:
+                known = False
+        if known:
+            return path
+    return None
+
+
+def first_row(path: Path) -> Optional[dict[str, str]]:
+    """An s-file's first data row as ``{column: value}``.
+
+    ``{}`` when the file has a header and no row (the run ended before its
+    first shot); ``None`` when it cannot be read. Two lines, cached on the
+    file's ``(mtime, size)`` — the file is written in place at the close,
+    so a read that raced the write is replaced by the next request's.
+    """
+    try:
+        info = path.stat()
+        header, first = _sfile_head_cached(str(path), info.st_mtime, info.st_size)
+    except OSError as exc:
+        logger.warning("cannot read %s: %s", path, exc)
+        return None
+    if not first:
+        return {}
+    return dict(zip(header, first + ("",) * (len(header) - len(first))))
+
+
+@lru_cache(maxsize=_CACHE_SIZE)
+def _sfile_head_cached(
+    path: str, mtime: float, size: int
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Memoise the two-line read on the file's identity (see :func:`first_row`)."""
+    header, first = read_sfile_head(Path(path))
+    return tuple(header), tuple(first)
 
 
 @lru_cache(maxsize=_CACHE_SIZE)
@@ -266,7 +356,8 @@ def _summarize(
     closed: bool,
 ) -> ScanSummary:
     """Build a summary from an already-listed scan folder, uncached."""
-    info = read_scan_info_file(ini_path) if ini_path else {}
+    sections = read_scan_info_sections(ini_path) if ini_path else {}
+    info = sections.get("Scan Info", {})
     record = ScanInfoRecord.from_ini(info)
     status = classify_end_info(record.end_info, closed=closed)
 
@@ -299,6 +390,8 @@ def _summarize(
         failure_reason=end_info_reason(record.end_info),
         devices=list(devices),
         has_scan_info=bool(info),
+        folder_name=Path(folder).name,
+        scan_log_variables=scan_log_variables(sections),
     )
 
 
@@ -431,8 +524,8 @@ def read_day(
     except OSError:
         sfiles = None
 
-    # Concurrency on top of the leaner per-scan read: see _READ_WORKERS.
-    workers = min(_READ_WORKERS, len(targets))
+    # Concurrency on top of the leaner per-scan read: see READ_WORKERS.
+    workers = min(READ_WORKERS, len(targets))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         scans = list(pool.map(lambda item: read_scan(*item, sfiles=sfiles), targets))
 

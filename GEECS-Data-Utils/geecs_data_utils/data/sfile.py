@@ -18,6 +18,7 @@ out of scope.  Strictly read-only (repo scan-folder invariant).
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -53,6 +54,95 @@ def sfile_path_for_scan(scan_folder: Path) -> Path:
     if number is None or scan_folder.parent.name != "scans":
         raise ValueError(f"{scan_folder} is not a canonical scans/ScanNNN folder")
     return scan_folder.parent.parent / "analysis" / f"s{number}.txt"
+
+
+def read_sfile_head(path: Path) -> tuple[list[str], list[str]]:
+    """An s-file's header and first data row — two lines, never the file.
+
+    The column names and the first shot's values as the file spells them
+    (strings; a blank file gives empty lists).  The s-file is written in
+    place at the run's close, so a reader racing that write can see a
+    short first row; key any cache on the file's ``(mtime, size)``.
+
+    Raises
+    ------
+    OSError
+        When *path* cannot be opened.
+    """
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        header = handle.readline().rstrip("\r\n")
+        first = handle.readline().rstrip("\r\n")
+    return (header.split("\t") if header else []), (first.split("\t") if first else [])
+
+
+def sfile_candidates(scan_dir: Path) -> list[Path]:
+    """Where a scan's s-file may be, in the order to try: analysis copy first.
+
+    The day's ``analysis/sNNN.txt`` first — Master Control's only copy, and
+    the one ScanAnalysis appends its scalars to, so it holds every column
+    the scanner's ``ScanDataScanNNN.txt`` does and more — then
+    ``ScanDataScanNNN.txt``. The one order every first-row reader uses (the
+    portal's folder catalog, the logbook), so the columns a scan offers do
+    not depend on who asks.  Pure path construction; nothing is touched.
+    """
+    candidates = [scan_data_txt_path_for(scan_dir)]
+    with contextlib.suppress(ValueError):  # not a canonical scans/ScanNNN folder
+        candidates.insert(0, sfile_path_for_scan(scan_dir))
+    return candidates
+
+
+def sfile_head_for_scan(scan_dir: Path) -> tuple[list[str], list[str], bool]:
+    """A scan's s-file header and first row, from the first of :func:`sfile_candidates` it has.
+
+    Opening one is also the run-closed evidence
+    (:func:`run_closed_evidence` accepts either file), so the closure
+    verdict costs no extra stat.
+
+    Returns
+    -------
+    tuple
+        ``(header, first_row, closed)``; empty lists and ``False`` when
+        neither file is readable.
+    """
+    for path in sfile_candidates(scan_dir):
+        try:
+            header, first = read_sfile_head(path)
+        except OSError:
+            continue
+        return header, first, True
+    return [], [], False
+
+
+def header_for_variable(variable: str) -> str:
+    """The s-file column name of a ``Device:Variable``: ``"Device Variable"``."""
+    device, _, name = variable.partition(":")
+    return f"{device} {name}" if name else variable
+
+
+#: What Master Control appends to an aliased variable's column name.
+ALIAS_SEPARATOR = " Alias:"
+
+
+def plain_column(column: str) -> str:
+    """A column name without its LabVIEW alias suffix: ``"Device Variable"``."""
+    cut = column.find(ALIAS_SEPARATOR)
+    return column[:cut] if cut >= 0 else column
+
+
+def sfile_column(name: str, header: list[str]) -> Optional[str]:
+    """The column of *header* that records *name* (``"Device Variable"``), if any.
+
+    Master Control writes a variable that has an alias as
+    ``Device Variable Alias:<alias>``; the scanner writes it bare.  Both are
+    the same variable.
+    """
+    if name in header:
+        return name
+    prefix = f"{name}{ALIAS_SEPARATOR}"
+    for column in header:
+        if column.startswith(prefix):
+            return column
+    return None
 
 
 def scan_data_txt_path_for(scan_folder: Path) -> Path:

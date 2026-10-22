@@ -14,7 +14,10 @@ geecs_data_utils/
   scan_info.py                 # the scan-folder facts, path-free: ScanNNN name
                                #   (lenient parse, padded write), analysis_folder_for,
                                #   read_scan_info_file + ScanInfoRecord (finite
-                               #   floats), is_noscan, classify_end_info — the one
+                               #   floats), read_scan_info_sections (every section,
+                               #   one parse, interpolation off) + scan_log_variables
+                               #   (the web scanner's [Scan Log] list), is_noscan,
+                               #   classify_end_info — the one
                                #   home the portal, logbook, ScanAnalysis and
                                #   LogTriage share (#1061 3.6/3.7/3.8)
   scan_data.py                 # ScanData: ScanPaths + scalar DataFrame loading + binning

@@ -559,9 +559,11 @@ class TestLongDay:
         # <details> (the obvious next attempt, since the complaint was a
         # second *collapsible*), and a <details> whose class is not its
         # first attribute. Counting every <details> catches both.
-        assert html.count("<details") == 26, "25 scans + the calendar"
+        assert html.count("<details") == 27, (
+            "25 scans + the calendar + the lookup panel"
+        )
         outer = re.findall(r'<details[^>]*class="([^"]*)"', html)
-        assert set(outer) <= {"panel scan", "cal"}, outer
+        assert set(outer) <= {"panel scan", "cal", "panel scan lookup"}, outer
         # and nothing wraps the run. A regex cannot see this — consecutive
         # scan blocks legitimately sit next to each other — so parse, and
         # check each scan block's ancestors. A <section class="batch">

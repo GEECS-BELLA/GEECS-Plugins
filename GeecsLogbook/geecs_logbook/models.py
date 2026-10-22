@@ -11,7 +11,7 @@ Human commentary is a separate concern and does not appear here.
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from geecs_data_utils.scan_info import ScanEndStatus
 from pydantic import BaseModel, Field
@@ -19,6 +19,9 @@ from pydantic import BaseModel, Field
 #: A scan's outcome — Data-Utils' vocabulary, shared with the portal's
 #: folder catalog (:func:`geecs_data_utils.scan_info.classify_end_info`).
 ScanStatus = ScanEndStatus
+
+#: Why a scan's first-shot values are, or are not, on the page.
+ValuesState = Literal["ok", "recording", "no_sfile", "no_shots"]
 
 #: How a scan status maps onto the kit's shared status vocabulary
 #: (:data:`geecs_web_theme.STATES`), which is what drives the chip colour.
@@ -104,6 +107,27 @@ class ScanSummary(BaseModel):
     has_scan_info : bool
         Whether ``ScanInfoScanNNN.ini`` exists. False is a normal state for
         a scan that is still running or that ended before writing it.
+    folder_name : str
+        The scan folder's own name (``Scan005``; a lenient parse may accept
+        another padding), for readers that go back to the folder.
+    scan_log_variables : list of str
+        The web scanner's scan-log list as the scan recorded it (the ini's
+        ``[Scan Log]`` section): ``Device:Variable`` names. Empty for a
+        scan without one.
+    start_values : dict or None
+        Each listed variable's value at the first shot, as the s-file
+        spells it — ``None`` for a listed name the s-file has no column
+        for. ``None`` as a whole unless ``values_state`` is ``"ok"``.
+    values_state : str
+        Why the values are or are not there: ``"ok"``; ``"recording"`` (no
+        s-file yet and the scan is not finalised — it arrives at the close);
+        ``"no_sfile"`` (finished, failed or aborted without one);
+        ``"no_shots"`` (an s-file with a header and no row — the run ended
+        before its first shot).
+    sfile : str or None
+        The scan's s-file, the first of
+        :func:`geecs_data_utils.data.sfile.sfile_candidates` the folder
+        listings show; ``None`` when it has none.
     """
 
     number: int
@@ -124,6 +148,11 @@ class ScanSummary(BaseModel):
     failure_reason: Optional[str] = None
     devices: list[str] = Field(default_factory=list)
     has_scan_info: bool = False
+    folder_name: str = ""
+    scan_log_variables: list[str] = Field(default_factory=list)
+    start_values: Optional[dict[str, Optional[str]]] = None
+    values_state: ValuesState = "ok"
+    sfile: Optional[str] = None
 
     @property
     def label(self) -> str:

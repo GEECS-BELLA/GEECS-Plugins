@@ -36,7 +36,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-from geecs_data_utils.data.sfile import scan_data_txt_path_for, sfile_path_for_scan
+from geecs_data_utils.data.sfile import sfile_column, sfile_head_for_scan
 from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
 from geecs_data_utils.scan_info import (
     ScanInfoRecord,
@@ -126,32 +126,6 @@ def parse_folder_uid(uid: str) -> Optional[tuple[str, date, int]]:
         return None
 
 
-def _sfile_head(scan_dir: Path) -> tuple[list[str], list[str], bool]:
-    """Read an s-file's header and first data row — two lines, never the file.
-
-    Tries the analysis s-file first (the table the portal plots), then the
-    scanner's ``ScanDataScanNNN.txt`` — the two files
-    :func:`~geecs_data_utils.data.sfile.run_closed_evidence` accepts as
-    proof the run closed, in the same helpers' paths.  Opening one *is*
-    that evidence, so the closure verdict costs no extra stat.
-
-    Returns
-    -------
-    tuple
-        ``(header, first_row, closed)``; empty lists and ``False`` when
-        neither file is readable.
-    """
-    for path in (sfile_path_for_scan(scan_dir), scan_data_txt_path_for(scan_dir)):
-        try:
-            with open(path, encoding="utf-8", errors="replace") as handle:
-                header = handle.readline().rstrip("\r\n").split("\t")
-                first = handle.readline().rstrip("\r\n").split("\t")
-        except OSError:
-            continue
-        return header, first, True
-    return [], [], False
-
-
 def _on_day(epoch: Optional[float], day: date) -> bool:
     if epoch is None:
         return False
@@ -193,18 +167,8 @@ def _start_time(
 
 
 def _scan_variable_column(parameter: str, header: list[str]) -> str:
-    """The s-file column that records *parameter* (it may carry an alias).
-
-    Master Control writes the ini's ``Scan Parameter`` as ``Device Variable``
-    and the s-file column as ``Device Variable Alias:<alias>`` when the
-    variable has one.
-    """
-    if parameter in header:
-        return parameter
-    for column in header:
-        if column.startswith(f"{parameter} Alias:"):
-            return column
-    return parameter
+    """The s-file column that records *parameter* (it may carry an alias)."""
+    return sfile_column(parameter, header) or parameter
 
 
 def folder_start_doc(
@@ -232,7 +196,7 @@ def folder_start_doc(
     info = ScanInfoRecord.from_ini(
         read_scan_info_file(scan_dir / f"ScanInfo{scan_dir.name}.ini")
     )
-    header, first, closed = _sfile_head(scan_dir)
+    header, first, closed = sfile_head_for_scan(scan_dir)
     started, approximate = _start_time(scan_dir, header, first, day)
     start_doc: dict = {
         "scan_number": number,

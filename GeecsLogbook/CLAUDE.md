@@ -53,7 +53,8 @@ owns scan folders — one surface to fix when a format changes:
 
 | Need | Use | Never |
 |---|---|---|
-| Parse `ScanInfoScanNNN.ini` | `scan_info.read_scan_info_file(path)` → `ScanInfoRecord.from_ini` | a local `ConfigParser` or float parser |
+| Parse `ScanInfoScanNNN.ini` | `scan_info.read_scan_info_sections(path)` (one parse, every section) → `ScanInfoRecord.from_ini`, `scan_log_variables` | a local `ConfigParser` or float parser |
+| An s-file's columns / first row | `data.sfile.read_sfile_head`, `sfile_column` (bare or LabVIEW `Alias:`), `header_for_variable` | a local split or a full `read_sfile` |
 | A `ScanNNN` folder's number | `scan_info.parse_scan_folder_name(name)` | a local regex |
 | A scan's outcome | `scan_info.classify_end_info(end_info, closed=…)` | a local classifier |
 | When a scan ran | `scan_log_loader.first_log_timestamp(path)` | the folder's `st_mtime` |
@@ -346,6 +347,33 @@ anchored to a scan whose folder is not on the share is stored and counted
 but has no block to hang on. `reveal()` says so rather than leaving the
 reader at the top of an apparently ordinary day.
 Pinned by `tests/test_crosslinks.py`.
+
+## Start values and the variable lookup
+
+The web scanner stamps its shared scan-log list into each scan's ini
+(`[Scan Log]`, one JSON key; GeecsBluesky writes it). A scan's card shows
+those variables' values at the first shot — **read from the s-file's first
+row**, never from the ini, because every logged variable is already in
+every row (`scan_reader.first_row` on the first of Data-Utils'
+`sfile_candidates` the listings show — the day's `analysis/sNNN.txt`,
+which ScanAnalysis appends its scalars to, then `ScanDataScanNNN.txt`; the
+portal's catalog uses the same order). The s-file is written in place at the run's close,
+so the two-line read is cached on the file's `(mtime, size)` and copied
+onto the ini-keyed summary, never into it: a read that raced the write is
+replaced by the next request's. `ScanSummary.values_state` says why values
+are missing: "recording" (no s-file, not finalised), "no_sfile" (finished
+without one), "no_shots" (a header and no row); a listed name with no
+column → "not recorded" (background telemetry off, or a member the probe
+dropped). The summary keeps the s-file's path, so the lookup re-stats it
+for freshness and never walks the folder again.
+
+The day page's **Look up a variable** panel (`lookup.py`,
+`GET /api/day/{day}/lookup?col=…`, `static/lookup.js`) is the same read
+across the day: every column any scan recorded is offered, the day's lists
+are the default columns, the URL carries the chosen ones. It is a folded
+`<details class="panel scan lookup">` and the only thing that opens it is a
+click or a link naming columns — Collapse/Expand all skips it, because
+opening it reads every scan's s-file (pinned in `tests/test_lookup.py`).
 
 ## Status is reported, not inferred
 
