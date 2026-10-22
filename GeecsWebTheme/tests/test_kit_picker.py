@@ -68,7 +68,9 @@ let ROWS = [
   { name: "E", pickable: true },
 ];
 let ROOM = Infinity, SHOWN_ONLY = false;
+const notes = [];
 const p = window.GeecsKit.picker(Object.assign({}, el, {
+  onRender: (info) => notes.push(info.full),
   noun: ["thing", "things"],
   rows: (q) => ROWS.filter((r) => !q || r.name.toLowerCase().includes(q.toLowerCase())),
   room: () => ROOM,
@@ -79,7 +81,7 @@ const row = (name) => el.list.children.find((b) => b.getAttribute("data-name") =
 const click = (name, shift) => { if (!row(name).disabled) fire(row(name), "click", { shiftKey: !!shift }); };
 const type = (text) => { el.search.value = text; fire(el.search, "input"); };
 const enter = () => fire(el.search, "keydown", { key: "Enter", preventDefault() {} });
-const state = () => ({ added, label: el.add.textContent, addDisabled: el.add.disabled,
+const state = () => ({ added, full: notes[notes.length - 1], label: el.add.textContent, addDisabled: el.add.disabled,
                        pressed: el.list.children.filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.getAttribute("data-name")) });
 fire(el.opener, "click");
 """
@@ -168,3 +170,13 @@ def test_shown_only_drops_picks_that_left_the_rows() -> None:
 def test_opening_starts_a_fresh_selection() -> None:
     out = _run("click('A'); fire(el.opener, 'click'); click('B'); el.add.click();")
     assert out["added"] == [["B"]]
+
+
+def test_the_full_flag_follows_every_pick_and_clear() -> None:
+    """Review of #1128: a "list is full" note must appear on the filling pick and go on Clear."""
+    assert _run("ROOM = 2; click('A'); click('B');")["full"] is True
+    assert (
+        _run("ROOM = 2; click('A'); click('B'); fire(el.none, 'click');")["full"]
+        is False
+    )
+    assert _run("ROOM = 2; click('A');")["full"] is False

@@ -186,7 +186,8 @@
   //     shownOnly: function () { return b; },    // optional: drop picks no
   //                                              //   longer in the rows
   //     maxShown: 60,                            // rows drawn; type to narrow
-  //     onRender: function (info) {},            // {matches, shown, picked}
+  //     onRender: function (info) {},            // after every redraw and change:
+  //                                              //   {matches, shown, picked, full}
   //     opener: el,                              // optional: resets on open
   //   })
   //   → {open, refresh, pick, picked}
@@ -203,6 +204,7 @@
     var anchor = null;
     var maxShown = o.maxShown || 60;
     var noun = o.noun || ["item", "items"];
+    var matches = 0;   // rows the last refresh matched (shown may be fewer)
 
     function names() { return Object.keys(picked); }
     function room() { return (o.room ? o.room() : Infinity) - names().length; }
@@ -215,6 +217,9 @@
       Array.prototype.forEach.call(o.list.children, function (b) {
         b.setAttribute("aria-pressed", picked[b.getAttribute("data-name")] ? "true" : "false");
       });
+      // After every change, not only a redraw: a "list is full" note must
+      // appear on the pick that fills it and go on Clear.
+      if (o.onRender) o.onRender({ matches: matches, shown: shown.length, picked: n, full: room() <= 0 });
     }
 
     function pick(name, index, range) {
@@ -236,6 +241,7 @@
     function refresh() {
       var query = o.search ? o.search.value : "";
       var rows = o.rows(query);
+      matches = rows.length;
       if (o.shownOnly && o.shownOnly()) {
         var here = {};
         rows.forEach(function (r) { here[r.name] = true; });
@@ -261,7 +267,6 @@
         o.list.appendChild(b);
       });
       sync();
-      if (o.onRender) o.onRender({ matches: rows.length, shown: shown.length, picked: names().length, full: room() <= 0 });
     }
 
     function open() {
