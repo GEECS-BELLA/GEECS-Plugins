@@ -122,7 +122,17 @@ turns into CA puts, each one allow-listed: the panel can put only the PVs
 its controls name, never an arbitrary PV.
 
 Every live value carries its age and goes `stale` (the kit's `.live`)
-when its monitor stops updating — a frozen centroid must look frozen.
+when it stops being fresh — a frozen centroid must look frozen. **Fresh
+is judged by the producing plugin, not the value's own monitor**: a CA
+monitor fires on change, and NDStats' scalar records post only when the
+value changes (no `MDEL=-1`), so a steady centroid would wrongly look
+stale. Each plugin's `ArrayCounter_RBV` increments on every frame it
+processes, so its monitor fires per frame: a value is fresh while its
+plugin's counter advances and its channel is connected, however long the
+value itself has been unchanged. The same tick drives the history (§5):
+on each `STAT:ArrayCounter_RBV` event the service records the current
+values, decimated to the history's rate, so a steady value still makes
+evenly spaced points.
 
 The bridge is ~150 lines of Python on the stack we already run. pvws is
 the stock equivalent (a Java/Tomcat service, writes switchable per
@@ -151,7 +161,7 @@ The LabVIEW GUI's everyday set, in areaDetector terms:
 | Centroid, max, mean, sigma | `STAT:` | live chips |
 | X/Y lineouts (average and through a clicked point) | `STAT:ProfileAverageX/Y_RBV`, `STAT:ProfileCursorX/Y_RBV`, `STAT:CursorX/Y` | full precision, from the IOC |
 | Histogram | `STAT:Histogram_RBV` | |
-| Mean / centroid history | the bridge's own `STAT` monitors | kept in the service, per camera; the IOC's `STAT:TS` buffers are idle (`TSAcquire` Done) and IOC-global — not used |
+| Mean / centroid history | the bridge's `STAT` values, sampled on each `STAT:ArrayCounter_RBV` tick (§4) | kept in the service, per camera; the IOC's `STAT:TS` buffers are idle (`TSAcquire` Done) and IOC-global — not used |
 | Analysis ROI, drawn as a box | `ROI1:MinX/MinY/SizeX/SizeY` | changes stats only, never scan data |
 | Background: grab, on/off | `PROC1:SaveBackground`, `PROC1:EnableBackground` | grab with the beam blocked; lost on IOC restart (runbook) |
 | Flip / rotate 90° | `TRANS1:Type` | display + stats only |
@@ -174,28 +184,48 @@ control:
 - **Acquisition** (`cam1:` exposure, gain, rate, trigger, acquire, driver
   ROI) — refused while the camera belongs to a run.
 
-"Belongs to a run" is read **from the camera itself**, not from the
-scanner: `HDF1:Capture_RBV` is `Capturing`. Capture alone covers the run
-in the right order: ophyd-async starts capture after NativeCamera's
-prepare, and unstage stops acquisition before it stops the writer.
-Trigger mode is *not* a signal: unstage restores the pre-run mode, and a
-camera may run hardware-triggered between scans (the test IOC boots in
-free-run, a production camera need not), so it would lock the panel
-permanently. The panel shows the acquisition group as `denied`
-("in a scan") rather than hiding it. No scanner API change, no dependency
-on the scanner being up.
+**Run ownership spans preparation through restoration**, which no
+existing camera signal does. `HDF1:Capture_RBV` is false while
+NativeCamera's `prepare_edge` snapshots the pre-run settings, stops
+acquisition and sets trigger and image modes, and it drops before unstage
+restores the camera. A panel put in either window races the run (e.g.
+trigger mode set back after prepare's readback check leaves the capture
+free-running). Trigger mode is no signal either: unstage restores the
+pre-run mode, and a camera may run hardware-triggered between scans. So
+the run declares ownership itself, and the IOC enforces it:
 
-**A stuck capture** (a killed worker, a halted run) would hold the lock
-forever. The denied group offers an explicit override behind a `<dialog>`
-that names the condition and asks for the operator's name (the web
-surfaces carry no user identity); the service logs the name and the time.
-The override **only unlocks the panel's own controls** — it never writes
-to `HDF1`, so misjudging a live run as stuck cannot end its stack file.
+- **A lock record in every camera IOC** (chain contract):
+  `<prefix>RUN:Lock` (`bo`) and `<prefix>RUN:Owner` (`stringout`, the
+  run's scan id). NativeCamera sets them as the **first** step of
+  `prepare_edge`, before the snapshot, and clears them only after the
+  restore succeeds (when `session.restore` is cleared). A failed restore
+  leaves the lock set: the camera is not back.
+- **The IOC enforces it with access security**, so there is no
+  check-then-put race: the acquisition records the panel can write sit in
+  an ASG whose rule allows writes only while `RUN:Lock` is 0, or from the
+  scan worker's CA user (a UAG naming the worker's service account). The
+  panel's put during a run is rejected by the IOC at put time; the panel
+  shows the group `denied` from `RUN:Lock`/`RUN:Owner` and treats a
+  rejected put the same way. The panel's service must run as a different
+  account from the worker (separate units already); both names are
+  facility values in the IOC's own config. CA user names are not
+  authentication — this is coordination between our own clients, which
+  is what is needed.
+- This also stops a raw `caput`, Phoebus or an agent during a run, which
+  a panel-side check could not.
+- **A stuck lock** (a killed worker): the denied group offers an override
+  behind a `<dialog>` showing `RUN:Owner`, `HDF1:Capture_RBV` and the
+  last frame time, and asking for the operator's name (the web surfaces
+  carry no user identity). It puts `RUN:Lock` 0 (the lock record itself
+  is writable by anyone) and logs the name and time. It never writes to
+  `HDF1` or the driver, so misjudging a live run as stuck cannot end its
+  stack file — at worst it reopens the race this section closes, for that
+  run.
 
-This guard protects panel users only. A raw `caput` (or Phoebus, or an
-agent) is not stopped by it. The EPICS answer — access security in the
-IOC, a lock PV the run sets — is the right long-term fix for every client
-and is out of scope here.
+The lock and ASG are a prerequisite of build step 3 only: steps 0–2 make
+no acquisition writes. Their details (ibek support for the ASG file,
+setting the records' `ASG` field, the worker's CA user name) are verified
+in step 3's PR before the controls are built.
 
 ### 7. Package shape and dependencies
 
@@ -244,7 +274,11 @@ GEECS-Core's (`pv_name`, `configs_repo.scanner_configs_base`).
    `.importlinter` contract, the theme's `_SURFACES`.
 2. **Interaction**: crosshairs, analysis ROI, background, transform,
    lineouts/histogram/history, saturation.
-3. **Acquisition controls** behind the guard; driver ROI behind its dialog.
+3. **Run lock + acquisition controls**: the `RUN:Lock`/`RUN:Owner`
+   records and the ASG (geecs-epics), NativeCamera setting and clearing
+   the lock (GeecsBluesky, with tests that the lock spans prepare through
+   restore and survives a failed restore), then the controls behind it;
+   driver ROI behind its dialog.
 
 Each one PR, each verified against `ADTEST_CAM1` in a browser.
 
