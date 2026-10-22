@@ -32,7 +32,6 @@ from dataclasses import dataclass
 from typing import Annotated as A
 from typing import Any
 
-
 import bluesky.plan_stubs as bps
 from bluesky.protocols import Reading
 from event_model import DataKey
