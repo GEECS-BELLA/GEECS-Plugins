@@ -48,6 +48,13 @@ document names the folder, so the scanner runs on the worker host (same
 data-share mount); elsewhere the tail says the file is not readable and
 nothing else changes.
 
+The unit's `StateDirectory=geecs-scanner` holds the scanner's one piece of
+state, the shared scan-log list (`/var/lib/geecs-scanner/scan_log_variables.json`,
+edited from the page's "scan log · start values" panel). Losing it loses a
+list of names, never data. An upgrade from a unit without it must re-render
+and reinstall the unit (above) before the restart, or the list lives in the
+service user's `~/.local/state/geecs-scanner/` instead.
+
 ## Verify
 
 ```bash

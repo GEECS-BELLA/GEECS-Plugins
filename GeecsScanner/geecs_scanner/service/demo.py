@@ -831,6 +831,31 @@ class DemoQueueClient:
             self._start_next()
 
 
+class DemoLoggedVariables:
+    """The demo devices' variables, most of them logged (the scan-log picker)."""
+
+    def logged_variables(self) -> Any:
+        """A fixed list through the same builder the DB source uses."""
+        from geecs_scanner.service.models import LoggedVariablesOut
+        from geecs_scanner.service.scan_log_list import build_logged_variables
+
+        everything = {
+            "U_Hexapod": ["xpos", "ypos", "zpos", "state"],
+            "U_S1H": ["current", "readback"],
+            "U_HP_Daq": ["Jet pressure", "Gain"],
+            "UC_Cam": ["MeanCounts", "exposure"],
+        }
+        logged = {
+            "U_Hexapod": ["xpos", "ypos", "zpos"],
+            "U_S1H": ["current", "readback"],
+            "U_HP_Daq": ["Jet pressure"],
+            "UC_Cam": ["MeanCounts"],
+        }
+        return LoggedVariablesOut(
+            items=build_logged_variables(everything, logged), source="demo"
+        )
+
+
 class DemoSettables:
     """A fixed alias-first list over the demo devices (mirrors the demo catalog)."""
 

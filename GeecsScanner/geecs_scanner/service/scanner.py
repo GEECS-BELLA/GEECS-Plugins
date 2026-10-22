@@ -62,9 +62,12 @@ from geecs_scanner.service.models import (
     ProgressOut,
     QueueOut,
     QueueRow,
+    LoggedVariablesOut,
     ReadbackOut,
     SavePresetIn,
     SavePresetOut,
+    ScanLogListIn,
+    ScanLogListOut,
     ScanLogOut,
     ScanVariableOut,
     SettablesOut,
@@ -146,6 +149,8 @@ class ScannerService:
         settables: Any = None,
         readback: Any = None,
         heartbeat_path: Optional[Path] = None,
+        scan_log_list: Any = None,
+        logged_variables: Any = None,
     ) -> None:
         self.client = client
         self.resolver = resolver
@@ -159,6 +164,8 @@ class ScannerService:
         self._settables = settables
         self._readback = readback
         self._heartbeat_path = heartbeat_path
+        self._scan_log_list = scan_log_list
+        self._logged_variables = logged_variables
         self._lock = threading.Lock()
 
     # ----------------------------------------------------- settables + readback
@@ -170,6 +177,33 @@ class ScannerService:
 
             self._settables = DbSettables(self.experiment)
         return self._settables.settables()
+
+    # ------------------------------------------------------------ scan-log list
+
+    def _scan_log(self) -> Any:
+        # In memory unless the process injects the file store (__main__):
+        # a service built in a test never reads or writes a home directory.
+        if self._scan_log_list is None:
+            from geecs_scanner.service.scan_log_list import MemoryListStore, ScanLogList
+
+            self._scan_log_list = ScanLogList(MemoryListStore())
+        return self._scan_log_list
+
+    def scan_log_list(self) -> ScanLogListOut:
+        """The shared scan-log list and its version."""
+        return self._scan_log().get()
+
+    def save_scan_log_list(self, body: ScanLogListIn) -> ScanLogListOut:
+        """Replace the list; a stale *version* is a ``conflict`` carrying the current one."""
+        return self._scan_log().put(body.variables, body.version)
+
+    def logged_variables(self) -> LoggedVariablesOut:
+        """Every variable of the experiment with its ``get='yes'`` flag (the picker)."""
+        if self._logged_variables is None:
+            from geecs_scanner.service.scan_log_list import DbLoggedVariables
+
+            self._logged_variables = DbLoggedVariables(self.experiment)
+        return self._logged_variables.logged_variables()
 
     async def readback(self, variable: str, *, units: str = "") -> ReadbackOut:
         """The live value of one ``Device:Variable`` — the readback, not the setpoint.
@@ -425,6 +459,9 @@ class ScannerService:
         md: dict[str, Any] = {"geecs": {"submission": record.model_dump(mode="json")}}
         if body.operator:
             md["geecs"]["operator"] = body.operator
+        scan_log_variables = self._scan_log().for_submission()
+        if scan_log_variables:
+            md["geecs"]["scan_log_variables"] = scan_log_variables
         with self._lock:
             result = self.client.submit_preset(
                 preset,

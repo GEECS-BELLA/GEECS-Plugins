@@ -12,11 +12,13 @@ from typing import Any
 #: Error kinds → HTTP status.  ``policy_refusal`` is the operator-facing
 #: "not now / not like this" (an unacknowledged preflight question, a
 #: verb refused while a plan runs); ``invalid_request`` is a document
-#: that cannot become a plan call at all.
+#: that cannot become a plan call at all; ``conflict`` is an edit made
+#: from a stale version (the scan-log list), answered with the current one.
 HTTP_STATUS: dict[str, int] = {
     "invalid_request": 400,
     "not_found": 404,
     "policy_refusal": 409,
+    "conflict": 409,
     "manager_unreachable": 503,
     "task_timeout": 504,
     "internal_error": 500,

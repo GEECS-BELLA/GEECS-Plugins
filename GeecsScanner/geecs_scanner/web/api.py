@@ -25,6 +25,7 @@ from geecs_scanner.service.models import (
     ConfigListOut,
     HealthOut,
     ItemOut,
+    LoggedVariablesOut,
     MoveIn,
     OptimizationOut,
     OptimizerConfigOut,
@@ -35,6 +36,8 @@ from geecs_scanner.service.models import (
     ReadbackOut,
     SavePresetIn,
     SavePresetOut,
+    ScanLogListIn,
+    ScanLogListOut,
     ScanLogOut,
     ScanVariableOut,
     SettablesOut,
@@ -210,6 +213,23 @@ def register(router: APIRouter, service: ScannerService) -> None:  # noqa: C901,
         """Every numeric settable of the experiment, alias-first, from the GEECS DB."""
         response.headers.update(_NO_CACHE)
         return service.settables()
+
+    @router.get("/api/scan-log-variables", response_model=ScanLogListOut)
+    def scan_log_variables(response: Response) -> ScanLogListOut:
+        """The shared scan-log list every scan records (and its version)."""
+        response.headers.update(_NO_CACHE)
+        return service.scan_log_list()
+
+    @router.put("/api/scan-log-variables", response_model=ScanLogListOut)
+    def save_scan_log_variables(body: ScanLogListIn) -> ScanLogListOut:
+        """Replace the list; 409 ``conflict`` with the current list when *version* is stale."""
+        return service.save_scan_log_list(body)
+
+    @router.get("/api/logged-variables", response_model=LoggedVariablesOut)
+    def logged_variables(response: Response) -> LoggedVariablesOut:
+        """Every variable of the experiment and whether scans record it (the picker)."""
+        response.headers.update(_NO_CACHE)
+        return service.logged_variables()
 
     @router.get("/api/readback", response_model=ReadbackOut)
     async def readback(

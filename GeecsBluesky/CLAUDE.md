@@ -614,7 +614,10 @@ sees the messages the others inject).  Four callbacks
 (`callbacks.subscribe_scan_outputs`) write **into** the claimed folder,
 never creating it, each best-effort — a failure is logged, never raised
 into the RunEngine: `ScanInfoCallback` (the legacy `[Scan Info]` keys
-downstream parses, `ScanEndInfo` filled at the stop), `SFileCallback`
+downstream parses, `ScanEndInfo` filled at the stop, a `[Scan Log]`
+section — one key, a JSON list — naming the web scanner's scan-log list
+when the submission carried one; both writes replace the file atomically,
+because the logbook and the portal parse it mid-run), `SFileCallback`
 (`ScanDataScanNNN.txt` + `analysis/sNNN.txt` from the run's own per-shot
 rows joined to its stacks, for any exit status with rows — no Tiled round
 trip), `ScanLogCallback` (`scan.log`, start to stop), and

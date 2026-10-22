@@ -30,6 +30,7 @@ geecs_scanner/
     errors.py     ScannerError(kind, message, **extra); kind → HTTP status in one table
     actions.py    the action-plan preview: flatten nested runs over the schema models
     scanlog.py    read the run's scan.log from the folder the start document names
+    scan_log_list.py the shared scan-log list (state-dir JSON, optimistic save) + the picker's logged variables
     settables.py  the movable panel's list: GEECS-Core's numeric_settables over GeecsDb rows, cached per process
     readback.py   one aioca caget of the gateway's readback PV (geecs_core.pv_naming) — the service's one async path
     trajectory.py isolated hardware-free preview over shared Bluesky expansion
@@ -41,6 +42,7 @@ geecs_scanner/
     events.py     GET /api/events — SSE: status, progress, log (scan.log), console
   templates/console.html   the page; the kit's vocabulary, page-only classes from static/
   static/scanner.js        API + EventSource + capture/form → Preset
+  static/scan-log-list.js  the scan-log list panel (its own fetches; no SSE)
   static/sweep-composer.js trajectory editing → Sweep payload
   static/trajectory-view.js draws returned coordinates only
   static/scanner.css       page-only classes; never re-skins a kit class
@@ -81,7 +83,7 @@ deploy/           the unit template + DEPLOYMENT.md
 - **Imports.** `geecs_bluesky.qs_client`, `geecs_bluesky.config_resolver`,
   `geecs_bluesky.plan_names`, `geecs_bluesky.trajectory` (hardware-free
   numerical expansion only), `geecs_schemas`, `geecs_web_theme`,
-  `geecs_core.db` (the settables list), `geecs_core.pv_naming` + `aioca`
+  `geecs_core.db` (the settables list and the scan-log picker), `geecs_core.pv_naming` + `aioca`
   (the readback — the scanner reads gateway PVs directly, like the
   preflight does through the client seam), and
   `geecs_bluesky.tiled.spool` (the writer's heartbeat model and reader —
@@ -111,6 +113,21 @@ deploy/           the unit template + DEPLOYMENT.md
   reads `<folder>/scan.log` from an offset and never creates anything. The
   page's tail shows scan.log by default and the manager console behind a
   toggle — two narrations, never reconciled.
+- **The scan-log list is stamped, never resolved.** One list per
+  experiment of `Device:Variable` names, in the unit's `StateDirectory`
+  (`service/scan_log_list.py`; in memory unless `__main__` injects the
+  file store, so a test never touches a home directory). `submit` copies
+  it into `md["geecs"]["scan_log_variables"]`; the worker writes it into
+  the ini's `[Scan Log]` section and the logbook reads the values from the
+  s-file — the scanner reads no value for a scan. A save names the
+  version (a content hash) it was made from; a stale one is `conflict`
+  (409) with the current list. The list has its own lock, never the
+  client's, and an unreadable list stamps nothing rather than refusing a
+  scan. The picker (`/api/logged-variables`) lists every experiment
+  variable with its `get='yes'` flag, read once like the settables; the
+  page reads one readback per name when it loads or adds it, never polls.
+  Not the configs repo: a list edited daily would keep that checkout
+  dirty and, once committed, block `git pull` on the host.
 - **Portal links are URL only.** `--portal-url` (a site value) prefixes
   `/run/<uid>` and `/day/<iso>` links in the rail; nothing from the portal
   is imported.

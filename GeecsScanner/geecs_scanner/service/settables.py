@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Mapping, Sequence
-from typing import Any, Protocol
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, Generic, Protocol, TypeVar
 
 from geecs_scanner.service.models import SettableOut, SettablesOut
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 class SettablesSource(Protocol):
@@ -41,30 +43,50 @@ def build_settables(
     return [SettableOut(**asdict(row)) for row in numeric_settables(rows_by_device)]
 
 
-class DbSettables:
-    """The experiment's numeric settables from the GEECS DB, read once and kept."""
+class CachedDbRead(Generic[T]):
+    """One GEECS DB read, kept after the first success; a failure is reported, not kept.
 
-    def __init__(self, experiment: str, *, db: Any = None) -> None:
-        self._experiment = experiment
+    Shared by every DB-backed list the page shows (the settables, the
+    scan-log picker), so the caching and failure rule exist once.
+    """
+
+    def __init__(self, read: Callable[[Any], T], *, what: str, db: Any = None) -> None:
+        self._read = read
+        self._what = what
         self._db = db  # the GeecsDb class; tests inject a double
-        self._cache: list[SettableOut] | None = None
+        self._cache: T | None = None
         self._lock = threading.Lock()
 
-    def settables(self) -> SettablesOut:
-        """The cached list, or one DB read to fill it; a failed read is reported, not cached."""
+    def get(self) -> tuple[T | None, str]:
+        """``(value, "")`` — or ``(None, why)`` when the DB did not answer."""
         with self._lock:
             if self._cache is not None:
-                return SettablesOut(items=self._cache, source="db")
+                return self._cache, ""
             try:
                 db = self._db
                 if db is None:
                     from geecs_core.db import GeecsDb
 
                     db = GeecsDb
-                rows = db.get_experiment_device_variables(self._experiment)
-                items = build_settables(rows)
+                value = self._read(db)
             except Exception as exc:  # noqa: BLE001 — the DB is a remote service; say so, retry next time
-                logger.warning("settables unavailable from the GEECS DB: %s", exc)
-                return SettablesOut(items=[], source="db", detail=f"GEECS DB: {exc}")
-            self._cache = items
-            return SettablesOut(items=items, source="db")
+                logger.warning("%s unavailable from the GEECS DB: %s", self._what, exc)
+                return None, f"GEECS DB: {exc}"
+            self._cache = value
+            return value, ""
+
+
+class DbSettables:
+    """The experiment's numeric settables from the GEECS DB, read once and kept."""
+
+    def __init__(self, experiment: str, *, db: Any = None) -> None:
+        self._read = CachedDbRead(
+            lambda db: build_settables(db.get_experiment_device_variables(experiment)),
+            what="settables",
+            db=db,
+        )
+
+    def settables(self) -> SettablesOut:
+        """The cached list, or one DB read to fill it; a failed read is reported, not cached."""
+        items, detail = self._read.get()
+        return SettablesOut(items=items or [], source="db", detail=detail)

@@ -329,7 +329,7 @@ def test_a_failed_write_leaves_no_temp_file_and_keeps_the_calibration(
             return False
 
     monkeypatch.setattr(
-        "geecs_bluesky.config_resolver.tempfile.NamedTemporaryFile",
+        "geecs_bluesky._fs.tempfile.NamedTemporaryFile",
         lambda *a, **k: FullDisk(real_named_temporary(*a, **k)),
     )
     document = ShotOffsets(reference="a", devices={"a": DeviceOffset(offset_s=0.0)})
@@ -356,7 +356,7 @@ def test_a_share_that_refuses_chmod_still_gets_the_calibration(repo, monkeypatch
     def refuse(*args, **kwargs):
         raise PermissionError(1, "Operation not permitted")
 
-    monkeypatch.setattr("geecs_bluesky.config_resolver.os.chmod", refuse)
+    monkeypatch.setattr("geecs_bluesky._fs.os.chmod", refuse)
     document = ShotOffsets(reference="a", devices={"a": DeviceOffset(offset_s=0.0)})
     path = resolver.write_shot_offsets(document)
     assert path.exists()

@@ -2,16 +2,25 @@
 
 The ini is written at the start document (the ``[Scan Info]`` keys
 downstream readers parse) and rewritten at the stop document with
-``ScanEndInfo`` filled in.
+``ScanEndInfo`` filled in.  Both writes replace the file atomically: the
+logbook and the portal parse it while a scan runs, and a truncated file
+reads as a scan with no info.
+
+A run submitted with a scan-log list (``md["geecs"]["scan_log_variables"]``,
+stamped by the web scanner) also gets a ``[Scan Log]`` section naming it.
+The values are not written here: the logbook reads them from the s-file's
+first row, which already holds every logged column.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from geecs_bluesky._fs import replace_text
 from geecs_bluesky.callbacks._base import Document, _RunCallback, _scan_folder
 
 logger = logging.getLogger(__name__)
@@ -125,6 +134,26 @@ def scan_info_lines(start: Mapping[str, Any], *, end_info: str = "") -> list[str
         'Scanner = "bluesky"\n',
         f'Plan = "{start.get("plan_name", "")}"\n',
         f'Trigger profile = "{start.get("trigger_profile", "")}"\n',
+        *scan_log_lines(start),
+    ]
+
+
+def scan_log_lines(start: Mapping[str, Any]) -> list[str]:
+    """The ``[Scan Log]`` section: the run's scan-log list as one JSON value.
+
+    One key whose value is a JSON list of ``Device:Variable`` names — a
+    value may hold ``:`` and ``=``, a key may not (ConfigParser splits on
+    both), and one key can never collide with another.  No list, no
+    section.
+    """
+    geecs = start.get("geecs")
+    names = geecs.get("scan_log_variables") if isinstance(geecs, Mapping) else None
+    if not names:
+        return []
+    return [
+        "\n",
+        "[Scan Log]\n",
+        f"Variables = {json.dumps([str(n) for n in names])}\n",
     ]
 
 
@@ -148,7 +177,18 @@ class ScanInfoCallback(_RunCallback):
         if folder is None:
             return None
         path = folder / f"ScanInfo{folder.name}.ini"
-        with path.open("w", encoding="utf-8") as fh:
-            fh.writelines(scan_info_lines(start, end_info=end_info))
+        text = "".join(scan_info_lines(start, end_info=end_info))
+        try:
+            replace_text(path, text, fsync=False)
+        except OSError as exc:
+            # A rename over the file needs DELETE access on SMB (EACCES), and
+            # fails while another client holds it open without delete sharing
+            # (EBUSY from Linux CIFS). The in-place write it replaced may
+            # still work then; a reader may catch it half-written, which
+            # beats losing ScanEndInfo. If it fails too, the callback logs it.
+            logger.warning(
+                "atomic replace of %s refused (%s); writing in place", path, exc
+            )
+            path.write_text(text, encoding="utf-8")
         logger.info("Scan info written to %s", path)
         return path
