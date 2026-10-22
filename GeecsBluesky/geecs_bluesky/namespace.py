@@ -14,16 +14,12 @@ take devices by name: ``count([UC_Amp4_IR_input], 10)``,
   :class:`~geecs_bluesky.devices.ca.motor.CaMotor` when the DB gives it a
   tolerance or the catalog says ``kind: motor``, else
   :class:`~geecs_bluesky.devices.ca.settable.CaSettable`;
-* each entry of the experiment's native device registry
-  (``native_devices.yaml``) is a
-  :class:`~geecs_bluesky.devices.native.NativeCamera` at the derived prefix
-  ``<experiment>:<device>:`` — never also a DB device (one owner);
+* a native registry entry is a ``NativeCamera`` (one owner: never a DB device);
 * a catalog ``kind: pseudo`` entry becomes a
   :class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoPositioner` under the
   catalog name (:meth:`GeecsNamespace.add_pseudos`).
 
-Reads follow the device's ``get='yes'`` list; children follow
-:func:`geecs_core.db.served_set.served_variables`.
+Reads follow ``get='yes'``; children follow :func:`served_variables`.
 Construction touches no hardware (connection is
 :func:`geecs_bluesky.preprocessors.connect_on_demand`).  A DB failure at
 build raises: an empty roster would fail every plan with "unknown device".
