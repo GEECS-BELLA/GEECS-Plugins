@@ -40,7 +40,11 @@ from ophyd_async.core import AsyncStatus, SignalR, merge_gathered_dicts
 
 from geecs_bluesky.devices.ca._view import ScalarsView, owner_of
 from geecs_bluesky.devices.detector import DEFAULT_SHOT_TIMEOUT, GeecsDetector
-from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
+from geecs_bluesky.exceptions import (
+    GeecsFrameCountReadError,
+    GeecsTriggerTimeoutError,
+    failure_cause_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +114,19 @@ def _readers_for(obj: Any) -> list[tuple[Any, _Describe, _Read]]:
         return await maybe_await(obj.read())
 
     return [(obj, describe, read)]
+
+
+async def _frames(gate: GeecsDetector) -> int:
+    """*gate*'s frames this batch; a failed read is :exc:`GeecsFrameCountReadError`."""
+    try:
+        return await gate.frames_this_batch()
+    except Exception as exc:
+        device = getattr(gate, "_geecs_device_name", None) or gate.name
+        raise GeecsFrameCountReadError(
+            device,
+            f"{device}: frame count unreadable during the gated batch — "
+            f"{failure_cause_text(exc)}",
+        ) from exc
 
 
 class ShotSampler:
@@ -280,10 +297,15 @@ class ShotSampler:
         return await merge_gathered_dicts(describe() for describe in describes)
 
     async def collect(self):
-        """Yield the rows not yet yielded whose frame every gate holds, and forget them."""
+        """Yield the rows not yet yielded whose frame every gate holds, and forget them.
+
+        The gates are read only while a row is pending; a gate whose read
+        fails raises :exc:`~geecs_bluesky.exceptions.GeecsFrameCountReadError`
+        naming it, the rows kept for the next collect.
+        """
         ready = len(self._rows)
-        if self._gates:
-            frames = await asyncio.gather(*(g.frames_this_batch() for g in self._gates))
+        if self._gates and ready:
+            frames = await asyncio.gather(*(_frames(g) for g in self._gates))
             ready = min(ready, min(frames) - self.emitted)
         ready = max(0, ready)
         rows, self._rows = self._rows[:ready], self._rows[ready:]

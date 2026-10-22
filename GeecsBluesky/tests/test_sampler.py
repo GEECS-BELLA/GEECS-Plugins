@@ -15,7 +15,10 @@ from ophyd_async.core import set_mock_value, soft_signal_rw
 from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
 from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.sampler import ShotSampler
-from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
+from geecs_bluesky.exceptions import (
+    GeecsFrameCountReadError,
+    GeecsTriggerTimeoutError,
+)
 from geecs_bluesky.plans.strict import BinCounter
 from tests.ca_mock_helpers import connect_mock
 
@@ -196,6 +199,56 @@ def test_collect_waits_for_every_gate_to_hold_the_frame(RE: RunEngine) -> None:
     first, rest = _run(RE, scenario)
     assert [r["data"]["u_ict-acq_timestamp"] for r in first] == [101.0]
     assert [r["data"]["u_ict-acq_timestamp"] for r in rest] == [102.0, 103.0]
+
+
+def test_a_gate_that_cannot_be_read_is_named_and_its_rows_stay(RE: RunEngine) -> None:
+    """A failed count read raises naming the camera, chained; no row is lost or read idle."""
+    ict, gauge, _ = _members(RE)
+    good = _Gate()
+    reads = {"n": 0}
+
+    class _Dead:
+        name = "uc_dead"
+        _geecs_device_name = "UC_Dead"
+
+        async def frames_this_batch(self) -> int:
+            reads["n"] += 1
+            raise TimeoutError("uc_dead-hdf-num_captured: no reply")
+
+    sampler = ShotSampler(
+        [gauge],
+        ict.acq_timestamp,
+        clock_name="U_ICT",
+        shot_timeout=5.0,
+        gates=[good, _Dead()],  # type: ignore[list-item]
+    )
+
+    async def scenario():
+        await sampler.prepare(2)
+        idle = [row async for row in sampler.collect()]  # nothing pending: no read
+        await sampler.kickoff()
+        status = sampler.complete()
+        await asyncio.sleep(0.02)
+        for stamp in (101.0, 102.0):
+            set_mock_value(ict.acq_timestamp, stamp)
+            await asyncio.sleep(0.02)
+        await status
+        good.frames = 2
+        with pytest.raises(GeecsFrameCountReadError, match="UC_Dead") as info:
+            [row async for row in sampler.collect()]
+        return idle, info.value
+
+    idle, error = _run(RE, scenario)
+    assert idle == [] and reads["n"] == 1
+    assert error.device_name == "UC_Dead"
+    assert isinstance(error.__cause__, TimeoutError)
+    assert sampler.emitted == 0 and sampler.sampled == 2
+    sampler.keep(0)  # the plan's settle to the rows out: nothing to re-read
+    assert _run(RE, lambda: _drain(sampler)) == [] and reads["n"] == 1
+
+
+async def _drain(sampler: ShotSampler) -> list:
+    return [row async for row in sampler.collect()]
 
 
 def test_stop_settles_a_pending_complete_and_keep_trims_the_rows(

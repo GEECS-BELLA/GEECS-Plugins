@@ -32,6 +32,7 @@ from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites
 from geecs_bluesky.exceptions import (
     GeecsConfigurationError,
+    GeecsFrameCountReadError,
     GeecsTriggerTimeoutError,
 )
 from geecs_bluesky.plans import gated
@@ -693,6 +694,60 @@ def test_a_failed_batch_raises_its_own_error_when_recording_fails_too(
             )
         )
     assert box.states[-1] == "off"
+
+
+def test_a_gate_read_failure_turns_the_box_off_and_keeps_the_shots_out(
+    RE: RunEngine,
+    box: GatedBox,
+    shot_control: ShotControl,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A gate's frame count that stops reading mid-batch takes the failure path.
+
+    The progress collect re-reads every gate; when one read raises (a
+    camera's count PV timing out) the box goes OFF, the ``shots`` rows
+    already out stay the batch's record (the dead gate never re-read), and
+    the run fails naming the camera, chained to the read's own error.  The
+    dead PV fails the camera's trim too (the real fault, review of #1123):
+    the stacks then go unrecorded, best effort, and the batch's own error
+    still wins.
+    """
+    monkeypatch.setattr(gated, "PROGRESS_PERIOD_S", 0.1)
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.5)
+    b, _ = _plugin_camera(RE, box, "UC_B", tmp_path, shot_timeout=0.5)
+    real = b.frames_this_batch
+    reads = {"n": 0}
+
+    async def dies_after_the_first_progress_read() -> int:
+        reads["n"] += 1
+        if reads["n"] > 1:
+            raise TimeoutError("uc_b-hdf-num_captured: no reply")
+        return await real()
+
+    async def dead_trim(frames: int) -> None:
+        raise TimeoutError("uc_b-hdf-num_captured: no reply")
+
+    monkeypatch.setattr(b, "frames_this_batch", dies_after_the_first_progress_read)
+    monkeypatch.setattr(b, "truncate_to", dead_trim)
+    col = DocCollector()
+    RE.subscribe(col)
+    with pytest.raises(GeecsFrameCountReadError, match="UC_B") as info:
+        RE(
+            bp.count(
+                [a, b],
+                40,
+                per_shot=gated_per_shot(shot_control, quota=40, shot_timeout=0.5),
+            )
+        )
+    assert info.value.device_name == "UC_B"
+    assert isinstance(info.value.__cause__, TimeoutError)
+    assert box.states[-1] == "off"  # OFF on failure, not left free-running
+    assert reads["n"] == 2  # the failed gate is never re-read
+    rows = _events_from_pages(col, "shots")
+    assert 0 < len(rows) < 40
+    assert [r["seq_num"] for r in rows] == list(range(1, len(rows) + 1))
+    assert shot_control.standing_state == "OFF"
 
 
 def test_pause_resumed_inside_the_count_timeout_window_still_continues(
