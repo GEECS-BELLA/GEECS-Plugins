@@ -32,7 +32,6 @@ def _write(tmp_path: Path, document) -> ConfigsRepoResolver:
 
 # ---------------------------------------------------------------- resolver
 def test_no_registry_file_is_no_native_devices(tmp_path: Path) -> None:
-    (tmp_path / "TestExp").mkdir()
     resolver = ConfigsRepoResolver("TestExp", experiments_root=tmp_path)
     assert resolver.resolve_native_devices().devices == {}
 
@@ -40,6 +39,13 @@ def test_no_registry_file_is_no_native_devices(tmp_path: Path) -> None:
 def test_an_unresolvable_configs_root_is_no_native_devices(monkeypatch) -> None:
     monkeypatch.setattr(config_resolver, "scanner_configs_base", lambda: None)
     assert ConfigsRepoResolver("TestExp").resolve_native_devices().devices == {}
+
+
+def test_an_unreachable_configs_root_is_loud_not_empty(tmp_path: Path) -> None:
+    # A configured root whose share is not mounted must not drop the cameras.
+    resolver = ConfigsRepoResolver("TestExp", experiments_root=tmp_path / "unmounted")
+    with pytest.raises(GeecsConfigurationError, match="not reachable"):
+        resolver.resolve_native_devices()
 
 
 def test_the_registry_is_read_and_validated(tmp_path: Path) -> None:

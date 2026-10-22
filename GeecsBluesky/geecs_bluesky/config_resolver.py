@@ -612,14 +612,20 @@ class ConfigsRepoResolver:
         Raises
         ------
         GeecsConfigurationError
-            The file exists but is unreadable, not a mapping, or not a valid
-            ``NativeDevices`` document — configured but broken is not "none".
+            The experiments root is unreachable, or the file exists but is
+            unreadable, not a mapping, or not a valid ``NativeDevices``
+            document — configured but broken is not "none".
         """
         try:
             path = self._root / NATIVE_DEVICES_FILENAME
         except RuntimeError as exc:
             logger.warning("no native devices: %s", exc)
             return NativeDevices()
+        if not path.parent.parent.is_dir():
+            # An unmounted share must not read as "no native devices".
+            raise GeecsConfigurationError(
+                f"configs directory {path.parent.parent} is not reachable"
+            )
         if not path.exists():
             return NativeDevices()
         try:

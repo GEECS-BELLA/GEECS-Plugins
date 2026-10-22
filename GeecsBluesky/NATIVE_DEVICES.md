@@ -59,7 +59,7 @@ devices:
 
 - **Names, kind and trigger source only.** The PV prefix is derived by decision 5
   (`<experiment>:<device>:`, GEECS normalization), so it cannot drift from
-  `ioc.yaml`; the record suffixes are fixed per kind (`cam:`, `hdf1:`).
+  `ioc.yaml`; the record suffixes are fixed per kind (`cam1:`, `HDF1:`).
   No hosts, no paths: facility values keep their one home.
 - Schema: a new GEECS-Schemas model (proposed: NativeDevices in an
   epics module), v1; `kind` a discriminated union. Read through `ConfigsRepoResolver` like every configs document.
