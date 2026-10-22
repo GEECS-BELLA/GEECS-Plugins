@@ -382,7 +382,34 @@ shot and resumes at the shot it reached. With a native camera:
    camera whose IOC died would raise on its count read and cost every
    device's kept shots. A native whose count cannot be read is left out
    of K and its collect skipped (a WARNING naming it); the rows and the
-   other cameras' frames are recorded.
+   other cameras' frames are recorded. That alone is not enough, because
+   the native camera is also a **sampler gate**: `ShotSampler.collect`
+   re-reads every gate's `frames_this_batch` through one `asyncio.gather`
+   before it yields a row, so the dead IOC would raise again there and
+   the kept `shots` rows would never go out. The periodic progress
+   collect has the same read, and an exception from it escapes the batch
+   loop directly — the loop routes only `FailedStatus` into its settle
+   path, so the box would not even be driven OFF (it would keep firing
+   until the run's closing STANDBY). The gate handling is therefore
+   part of the design (PR C):
+   - **Gate reads are tolerant.** A gate whose count read raises is
+     recorded as failed (device and exception) and dropped from the
+     sampler's gate set for the rest of the batch; the read returns with
+     the healthy gates. This holds for every gate, gateway plugin
+     cameras included — today's code has the same exposure.
+   - **A failed gate is a batch failure.** After each progress collect
+     the plan checks the sampler's failed gates and, if there is one,
+     takes the existing failure path: `end_batch`, box OFF, drain,
+     settle, record the kept shots, raise.
+   - **The final collection reads no gate.** The settle computes K from
+     the healthy devices, `keep(K)` trims the rows, and the sampler then
+     releases its rows up to the committed K without re-reading any
+     gate. Every healthy gate already holds K frames by construction,
+     and the failed one is out of the run's frames anyway.
+   - **The original failure is what the operator sees.** The batch raises
+     the dead camera's error (`GeecsTriggerTimeoutError` naming it, the
+     read's exception chained), not a later error from the settle or
+     the collect. The WARNING in the log says how many shots were kept.
 3. The rewindable cameras are trimmed to K and the sampler keeps K rows,
    as today. A native camera that holds **more** than K keeps them: they
    are collected into its stream with the rest (datums contiguous) and
@@ -405,7 +432,7 @@ join's answer, as for every gated stack.
 | Edge between the pause and the box going OFF | same | same; at most one per pause |
 | One missed `Line1` edge mid-batch | the count lags: the box runs one more edge; that row's stamp finds no frame | **marks**: the row's native columns read `NaN`, the extra frame is an orphan; WARNING in the stack check — no retake (as LabVIEW natives) |
 | Camera stops producing frames (connected) | `complete`'s per-frame `exposure_timeout` (the run's `shot_timeout`, 3 s default) | **fails** the batch through the existing failure path: the kept shots recorded, the native stream collected (every frame referenced), then `GeecsTriggerTimeoutError` naming the camera and `WriteMessage` |
-| IOC dead or camera unreadable mid-batch | the count read fails | **fails** the batch; the per-device settle leaves that camera out of K and skips its collect, so the other devices' kept shots are still recorded; its file holds frames no datum references — its Tiled view is short, never shifted |
+| IOC dead or camera unreadable mid-batch | the count read fails — in `complete`, a progress collect's gate read, or the settle | **fails** the batch through the failure path, box OFF first; the failed gate leaves the sampler's gate set, the per-device settle leaves that camera out of K and skips its collect, and the rows up to K are released without re-reading it, so the other devices' kept shots are recorded; the error names the dead camera; its file holds frames no datum references — its Tiled view is short, never shifted |
 | Stray edge (miscabling: an edge outside SCAN) | an orphan or a contested frame in the stamp join | marked in the stack check; fixed by cabling (the rule in Acceptance) |
 | Late frame landing after a batch's collect | the native kickoff re-baselines past it (the stock kickoff would fail the run) | nothing to mark: the stamp join still gives it to its own row; only which batch's datum covers it changes |
 | A frame after the last collect (before `unstage`) | file longer than the datums | trailing only: no shift; the stack check reports frames > datums |
@@ -517,8 +544,13 @@ shot clock. Gated runs mixing native and gateway plugin cameras are
   native datums start where the settle's stopped, the surplus kept;
   (c) the native camera one frame behind → K follows it and the others
   trim to it; (d) a stalled native camera → the batch fails naming it,
-  its frames collected; (e) a native IOC unreadable at the settle → the
-  others' kept shots and the rows are still collected; (f) a native frame
+  its frames collected; (e) a native IOC that goes dead mid-batch,
+  exercised at both reads — the progress collect's gate read and the
+  settle — with the real `keep` / `collect`: the box is driven OFF, the
+  K retained `shots` events **are emitted** (K rows in the documents,
+  not 0), the healthy cameras' datums are emitted, and the raised error
+  is the dead camera's `GeecsTriggerTimeoutError` naming it, not a
+  settle or collect error; (f) a native frame
   landing between prepare and kickoff → no failure, datums contiguous,
   and `frames_this_batch` excludes it; each test **mutation-checked** (break the
   contiguity, include the native in the trim — the test fails).
@@ -561,12 +593,12 @@ shot clock. Gated runs mixing native and gateway plugin cameras are
 |---|---|---|---|
 | A — the join reads the EPICS pair, live and in the Tiled re-export | GEECS-Data-Utils | ~70 | ~90 |
 | B — the fly path on `NativeCamera` (re-baselining kickoff) + the shared batch-completion helper | GeecsBluesky | ~140 | ~220 |
-| C — native classification and append-only streams in `gated_take_reading`, the per-device settle, the stack check's fourth shape, bind-time refusals lifted for gated `Line1` | GeecsBluesky | ~200 | ~300 |
+| C — native classification and append-only streams in `gated_take_reading`, the per-device settle with tolerant sampler gates and a gate-free final collect, the stack check's fourth shape, bind-time refusals lifted for gated `Line1` | GeecsBluesky | ~240 | ~370 |
 | D — non-essential `Line1` natives (refusal + wrapper classification) + the scanner preflight's gated message | GeecsBluesky, GeecsScanner | ~70 | ~120 |
 | (E — the software tick-follower, only if open question 1 says yes) | GeecsBluesky | ~80 | ~100 |
 | (F — the drain-offset calibration for `Line1` natives, open question 6) | GeecsBluesky | ~60 | ~100 |
 
-About 480 production + 730 test lines for A–D; A is independent, B
+About 520 production + 800 test lines for A–D; A is independent, B
 before C, D after B. The CLAUDE.md rule text moves with C.
 
 The re-export half of A: the stock `ADHDFDataLogic` declares no Tiled
