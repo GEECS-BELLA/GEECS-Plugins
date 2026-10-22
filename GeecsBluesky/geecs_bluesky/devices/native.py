@@ -410,11 +410,12 @@ class NativeCamera(StandardDetector):
         self._session = _Session()
         #: Read by bluesky's ``all_safe_rewind``: a shot is never replayed.
         self.rewindable = _NotRewindable()
+        self._native_acquire = NativeAcquireLogic(self.driver, self._session)
         self.add_detector_logics(
             NativeTriggerLogic(
                 self.driver, self._source, self._session, self.drain_offset
             ),
-            NativeAcquireLogic(self.driver, self._session),
+            self._native_acquire,
             NativeHdfDataLogic(
                 array_description=NDArrayDescription(
                     shape_signals=[
@@ -435,6 +436,22 @@ class NativeCamera(StandardDetector):
         self._column_headers = {
             f"{self.name}-{ACQ_TIMESTAMP}": f"{device} {ACQ_TIMESTAMP}"
         }
+
+    @AsyncStatus.wrap
+    async def unstage(self) -> None:
+        """Stop the camera, then close the stack, then restore the camera — in that order.
+
+        The stock ``unstage`` gathers the writer's stop and the acquire
+        logic's restore concurrently: a slow writer stop would let the
+        restored live view append frames after the last shot (GPT review on
+        #1117).  If the writer's stop fails the restore is skipped (the
+        camera stays stopped, its pre-run state kept for the next run) and
+        the error raised.
+        """
+        if self._session.restore is not None:
+            await self.driver.acquire.set(False)  # no frame reaches the writer now
+        await asyncio.gather(*(logic.stop() for logic in self._data_logics))
+        await self._native_acquire.ensure_stopped()
 
     @property
     def trigger_source(self) -> NativeTriggerSource:

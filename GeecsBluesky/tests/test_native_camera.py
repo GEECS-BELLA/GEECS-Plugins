@@ -415,3 +415,28 @@ def test_an_unclean_end_never_becomes_the_pre_run_state(
     d = cam.driver
     assert _run(RE, lambda: d.trigger_mode.get_value()) == OnOff.OFF
     assert _run(RE, lambda: d.acquire.get_value()) is True  # live view again
+
+
+def test_live_view_restarts_only_after_the_stack_is_closed(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """A slow writer stop must not let the restored live view append frames (GPT on #1117)."""
+    from ophyd_async.core import set_mock_put_proceeds
+
+    cam, _ = _camera(RE, tmp_path)
+    _frames_on_software_trigger(cam)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    _run(RE, lambda: cam.trigger())
+    set_mock_put_proceeds(cam.hdf.capture, False)  # the writer's stop hangs
+
+    async def unstage_while_capture_open():
+        status = cam.unstage()
+        await asyncio.sleep(0.2)
+        assert not status.done
+        assert await cam.driver.acquire.get_value() is False  # stopped, not restarted
+        set_mock_put_proceeds(cam.hdf.capture, True)  # the stack closes
+        await status
+        assert await cam.driver.acquire.get_value() is True  # live view only now
+
+    _run(RE, unstage_while_capture_open)
