@@ -1,7 +1,8 @@
 # Native EPICS devices in the scan path — design note
 
-Status: **proposal, revised after red team** (2026-10-21). When it is
-built, the rules below move into `CLAUDE.md` and this note is deleted.
+Status: **built** — `NativeCamera` (#1117), the registry and the
+bind-time refusals (#1118); hardware acceptance pending. Once accepted,
+the rules below move into `CLAUDE.md` and this note is deleted.
 
 ## Why
 
@@ -76,8 +77,8 @@ devices:
   archive set. A checklist in geecs-epics `docs/` covers this and the
   configs that name the device's old variables (presets, catalog,
   actions, analysis).
-- `GeecsNamespace` gains an explicit check: a registry name (after
-  `identifier_name`) that is also an enabled roster device → refuse to
+- `GeecsNamespace` gains an explicit check: a registry name whose
+  `safe_name` is also a roster device's → refuse to
   open, naming both owners. The existing check compares the roster only
   with itself.
 

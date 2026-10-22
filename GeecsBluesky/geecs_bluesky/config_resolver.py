@@ -605,7 +605,8 @@ class ConfigsRepoResolver:
         """Load ``<experiment>/native_devices.yaml``; no file = no native devices.
 
         The registry of devices served by native EPICS IOCs
-        (``NATIVE_DEVICES.md``), read once at environment open.  No
+        (``NATIVE_DEVICES.md``), read at environment open and by each
+        preset expansion (the ``save_images`` refusal).  No
         resolvable configs root reads as no file (logged): such a worker
         loads no trigger profile either.
 
