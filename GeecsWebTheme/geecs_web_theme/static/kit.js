@@ -1,15 +1,18 @@
-/* GEECS surface kit — the three behaviours kit.css cannot express.
+/* GEECS surface kit — the behaviours kit.css cannot express.
  *
  * Load deferred, beside theme.js. Everything here is additive: with this
  * file absent the page still renders correctly, <details> still opens, and
  * the density stamped by theme-boot.js still applies — only the drawer,
- * the dialog helper and the density control go missing.
+ * the dialog helper, the density control and the drawer picker go missing.
  *
  *   <div data-density-picker></div>   the spacing control, built here
  *   GeecsKit.drawer(el)               rung 2 — open/close with Esc, scrim,
  *                                     focus return
  *   GeecsKit.confirm(el)              rung 3 — <dialog>.showModal() with a
  *                                     fallback for browsers without it
+ *   GeecsKit.picker(opts)             a multi-select .picklist in a drawer:
+ *                                     search, click / shift-click, select
+ *                                     all shown, clear, one Add for the lot
  *
  * Why a drawer needs script at all, when rungs 0 and 3 do not: the browser
  * gives us <details> and <dialog> outright, but there is no element for "a
@@ -164,6 +167,145 @@
     };
   }
 
+  /* ---- the drawer picker ------------------------------------------- */
+
+  // "Add device…" was the first: a drawer with a search, a .picklist where a
+  // click toggles a row and shift-click takes the range from the last row
+  // clicked, Select all shown / Clear, and one Add for the lot. Every
+  // drawer that adds several things to a list is this one component — the
+  // surface says what the rows are, how many more fit, and what Add does.
+  //
+  //   GeecsKit.picker({
+  //     drawer, search, list, add, all, none,   // elements
+  //     noun: ["device", "devices"],             // the Add button's count
+  //     rows: function (query) {                 // every row matching query:
+  //       return [{name, sub, pickable}];        //   sub = the row's note
+  //     },
+  //     onAdd: function (names) {},              // after Add; the drawer closes
+  //     room: function () { return n; },         // optional: how many more fit
+  //     shownOnly: function () { return b; },    // optional: drop picks no
+  //                                              //   longer in the rows
+  //     maxShown: 60,                            // rows drawn; type to narrow
+  //     onRender: function (info) {},            // {matches, shown, picked}
+  //     opener: el,                              // optional: resets on open
+  //   })
+  //   → {open, refresh, pick, picked}
+  //
+  // Selection is kept by name, so narrowing the search and picking more does
+  // not lose what is already ticked; opening the drawer starts afresh (Esc
+  // and the scrim are a cancel). A pick never passes `room()`: a list with a
+  // bound refuses a batch past it whole, so the picker stops at the bound.
+  // Enter in the search adds the picks — or, with none, the one pickable row
+  // the search leaves.
+  function picker(o) {
+    var picked = {};
+    var shown = [];
+    var anchor = null;
+    var maxShown = o.maxShown || 60;
+    var noun = o.noun || ["item", "items"];
+
+    function names() { return Object.keys(picked); }
+    function room() { return (o.room ? o.room() : Infinity) - names().length; }
+
+    function sync() {
+      var n = names().length;
+      o.add.disabled = !n;
+      o.add.textContent = n ? "Add " + n + " " + (n === 1 ? noun[0] : noun[1]) : "Add";
+      if (o.none) o.none.disabled = !n;
+      Array.prototype.forEach.call(o.list.children, function (b) {
+        b.setAttribute("aria-pressed", picked[b.getAttribute("data-name")] ? "true" : "false");
+      });
+    }
+
+    function pick(name, index, range) {
+      if (range && anchor !== null) {
+        var lo = Math.min(anchor, index), hi = Math.max(anchor, index);
+        for (var i = lo; i <= hi && room() > 0; i++) {
+          if (shown[i] && shown[i].pickable) picked[shown[i].name] = true;
+        }
+      } else if (picked[name]) {
+        delete picked[name];
+        anchor = index;
+      } else {
+        if (room() > 0) picked[name] = true;
+        anchor = index;
+      }
+      sync();
+    }
+
+    function refresh() {
+      var query = o.search ? o.search.value : "";
+      var rows = o.rows(query);
+      if (o.shownOnly && o.shownOnly()) {
+        var here = {};
+        rows.forEach(function (r) { here[r.name] = true; });
+        names().forEach(function (n) { if (!here[n]) delete picked[n]; });
+      }
+      o.list.textContent = "";
+      shown = [];
+      anchor = null;
+      rows.slice(0, maxShown).forEach(function (r, i) {
+        shown.push({ name: r.name, pickable: !!r.pickable });
+        var b = document.createElement("button");
+        b.type = "button";
+        b.setAttribute("data-name", r.name);
+        b.disabled = !r.pickable;
+        var a = document.createElement("span");
+        a.textContent = r.name;
+        var d = document.createElement("span");
+        d.className = "sub";
+        d.textContent = r.sub || "";
+        b.appendChild(a);
+        b.appendChild(d);
+        b.addEventListener("click", function (ev) { pick(r.name, i, ev.shiftKey); });
+        o.list.appendChild(b);
+      });
+      sync();
+      if (o.onRender) o.onRender({ matches: rows.length, shown: shown.length, picked: names().length, full: room() <= 0 });
+    }
+
+    function open() {
+      picked = {};
+      anchor = null;
+      refresh();
+      if (o.search) setTimeout(function () { try { o.search.focus(); } catch (e) { /* hidden */ } }, 50);
+    }
+
+    function commit() {
+      var chosen = names();
+      if (!chosen.length) return;
+      picked = {};
+      anchor = null;
+      if (o.drawer && openDrawer === o.drawer) closeDrawer();
+      o.onAdd(chosen);
+    }
+
+    if (o.search) {
+      o.search.addEventListener("input", refresh);
+      o.search.addEventListener("keydown", function (ev) {
+        if (ev.key !== "Enter") return;
+        ev.preventDefault();
+        if (!names().length) {
+          var only = shown.filter(function (s) { return s.pickable; });
+          if (only.length !== 1 || room() <= 0) return;
+          picked[only[0].name] = true;
+        }
+        commit();
+      });
+    }
+    if (o.all) {
+      o.all.addEventListener("click", function () {
+        shown.forEach(function (s) { if (s.pickable && !picked[s.name] && room() > 0) picked[s.name] = true; });
+        sync();
+      });
+    }
+    if (o.none) o.none.addEventListener("click", function () { picked = {}; anchor = null; sync(); });
+    o.add.addEventListener("click", commit);
+    if (o.opener) o.opener.addEventListener("click", open);
+
+    return { open: open, refresh: refresh, pick: pick, picked: names };
+  }
+
   /* ---- rung 3: dialog --------------------------------------------- */
 
   function confirmDialog(el) {
@@ -236,6 +378,7 @@
     setDensity: setDensity,
     drawer: drawer,
     confirm: confirmDialog,
-    closeDrawer: closeDrawer
+    closeDrawer: closeDrawer,
+    picker: picker
   };
 })();

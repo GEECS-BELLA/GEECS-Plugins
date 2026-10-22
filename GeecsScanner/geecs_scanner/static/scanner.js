@@ -399,7 +399,7 @@
       res[7].names.forEach(function (n) { optimizers.appendChild(option(n, n)); });
       renderOptimizerAvailability(res[7]);
       S.settables = res[6].items || []; S.settablesNote = res[6].detail || "";
-      renderMoveVars(); renderDeviceList(""); renderActions(res[4].error || null); renderCalibration();
+      renderMoveVars(); renderDeviceList(); renderActions(res[4].error || null); renderCalibration();
       renderPresetList();
       composer.variables(S.variables.filter(function (v) { return v.scannable; }).concat(S.settables));
       var tr = $("trig"); tr.textContent = "";
@@ -1073,72 +1073,40 @@
   /* ------------------------------------------------------------ drawers */
 
   /* ---- add device */
-  /* A trip to the drawer adds as many devices as you like: a click toggles a
-     row, shift-click takes the range, Add commits them all.  Selection is
-     kept by name, so narrowing the search and picking more does not lose
-     what is already ticked. */
-  var devPicked = {};        // name -> true, across re-renders and searches
-  var devShown = [];         // the names currently rendered, for shift-ranges
-  var devAnchor = null;      // the last row clicked, the other end of a range
-
-  function devPickedNames() { return Object.keys(devPicked); }
-  function renderDevicePicks() {
-    var n = devPickedNames().length;
-    $("btn-add-selected").disabled = !n;
-    $("btn-add-selected").textContent = n ? "Add " + n + " device" + (n === 1 ? "" : "s") : "Add";
-    $("btn-pick-none").disabled = !n;
-    Array.prototype.forEach.call($("devlist").children, function (b) {
-      b.setAttribute("aria-pressed", devPicked[b.dataset.device] ? "true" : "false");
-    });
-  }
-  function pickDevice(name, index, range) {
-    if (range && devAnchor !== null) {
-      var lo = Math.min(devAnchor, index), hi = Math.max(devAnchor, index);
-      // a range takes everything in it, skipping what is already in the table
-      for (var i = lo; i <= hi; i++) if (devShown[i] && !devShown[i].have) devPicked[devShown[i].name] = true;
-    } else {
-      if (devPicked[name]) delete devPicked[name]; else devPicked[name] = true;
-      devAnchor = index;
-    }
-    renderDevicePicks();
-  }
-  function renderDeviceList(q) {
-    var list = $("devlist"); list.textContent = "";
+  /* A trip to the drawer adds as many devices as you like: the kit's drawer
+     picker (GeecsKit.picker — click toggles, shift-click takes the range,
+     Add commits them all, picks kept by name across searches). This page
+     says only what the rows are and what Add does. */
+  function deviceRows(query) {
     var have = {};
     tableDevices().forEach(function (d) { have[d.device] = true; });
-    var needle = q.trim().toLowerCase();
+    var needle = query.trim().toLowerCase();
     // The manager lists a device and its children (U_S1H, U_S1H.current …);
     // a preset names devices, so only the bare names are offered.
-    var names = S.devices.filter(function (n) { return n.indexOf(".") === -1 && (!needle || n.toLowerCase().indexOf(needle) !== -1); });
-    devShown = []; devAnchor = null;
-    names.slice(0, 60).forEach(function (n, i) {
-      devShown.push({ name: n, have: !!have[n] });
-      var b = document.createElement("button");
-      b.type = "button";
-      b.dataset.device = n;
-      b.setAttribute("aria-pressed", devPicked[n] ? "true" : "false");
-      var a = document.createElement("span"); a.textContent = n;
-      var d = document.createElement("span"); d.className = "sub"; d.textContent = have[n] ? "in the table" : "";
-      b.appendChild(a); b.appendChild(d);
-      b.disabled = !!have[n];
-      b.addEventListener("click", function (ev) { pickDevice(n, i, ev.shiftKey); });
-      list.appendChild(b);
-    });
-    $("devq-hint").textContent = S.devices.length
-      ? names.length + " of " + S.devices.filter(function (n) { return n.indexOf(".") === -1; }).length + " devices" + (names.length > 60 ? " · type to narrow" : "")
-      : "the manager's device list is empty or unreachable";
-    renderDevicePicks();
+    return S.devices
+      .filter(function (n) { return n.indexOf(".") === -1 && (!needle || n.toLowerCase().indexOf(needle) !== -1); })
+      .map(function (n) { return { name: n, pickable: !have[n], sub: have[n] ? "in the table" : "" }; });
   }
-  $("devq").addEventListener("input", function () { renderDeviceList($("devq").value); });
-  // Opening the drawer starts a fresh selection: Esc and the scrim are a
-  // cancel, so picks that were never committed with Add do not come back.
-  $("btn-add-device").addEventListener("click", function () { devPicked = {}; renderDeviceList($("devq").value); setTimeout(function () { $("devq").focus(); }, 50); });
-  $("btn-pick-all").addEventListener("click", function () {
-    devShown.forEach(function (d) { if (!d.have) devPicked[d.name] = true; });
-    renderDevicePicks();
+  var devicePicker = window.GeecsKit && window.GeecsKit.picker({
+    drawer: $("drw-devices"),
+    opener: $("btn-add-device"),
+    search: $("devq"),
+    list: $("devlist"),
+    add: $("btn-add-selected"),
+    all: $("btn-pick-all"),
+    none: $("btn-pick-none"),
+    noun: ["device", "devices"],
+    maxShown: 60,
+    rows: deviceRows,
+    onRender: function (info) {
+      var total = S.devices.filter(function (n) { return n.indexOf(".") === -1; }).length;
+      $("devq-hint").textContent = S.devices.length
+        ? info.matches + " of " + total + " devices" + (info.matches > info.shown ? " · type to narrow" : "")
+        : "the manager's device list is empty or unreachable";
+    },
+    onAdd: addDevices
   });
-  $("btn-pick-none").addEventListener("click", function () { devPicked = {}; devAnchor = null; renderDevicePicks(); });
-  $("btn-add-selected").addEventListener("click", function () { addDevices(devPickedNames()); });
+  function renderDeviceList() { if (devicePicker) devicePicker.refresh(); }
   function addDevices(names) {
     if (!names.length) return;
     noDevicesNote();
@@ -1147,8 +1115,6 @@
     noDevicesNote();
     $("devices-eyebrow").textContent = "devices · " + (S.presetName ? "preset " + S.presetName + " + " : "") + "edited";
     recalc(); renderCalibration();
-    devPicked = {}; devAnchor = null;
-    window.GeecsKit.drawer($("drw-devices")).close();
   }
 
   /* ---- save as preset */

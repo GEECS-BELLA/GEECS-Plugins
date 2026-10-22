@@ -177,70 +177,11 @@ def _run_node(harness: str):
     return _json.loads(done.stdout)
 
 
-def _pick_variables(clicks: str, *, listed: int = 0, cap: int = 64) -> list[str]:
-    """Run the scan-log drawer's selection logic under node; return what is picked.
-
-    The list mirrors the device drawer's test: ``U_C:not_logged`` and
-    ``U_D:listed`` cannot be picked. *listed* names already in the list and
-    *cap* the server's bound set how much room the picker has.
-    """
-    source = _scan_log_script()
-    return _run_node(
-        f"""
-var shown = [
-  {{name: 'U_A:x', pickable: true}}, {{name: 'U_B:y', pickable: true}},
-  {{name: 'U_C:not_logged', pickable: false}}, {{name: 'U_D:listed', pickable: false}},
-  {{name: 'U_E:z', pickable: true}},
-];
-var picked = {{}}, anchor = null, MAX_VARIABLES = {cap};
-var L = {{variables: new Array({listed}).fill('U_Q:q')}};
-function renderPicks() {{}}
-function pickedNames() {{ return Object.keys(picked); }}
-function room() {{
-{_function(source, "room")}
-}}
-function pick(name, index, range) {{
-{_function(source, "pick")}
-}}
-{clicks}
-console.log(JSON.stringify(Object.keys(picked).sort()));
-"""
-    )
-
-
-def test_the_drawer_picks_many_like_the_device_drawer() -> None:
-    """A click toggles a row; Add commits them all — the device picker's model."""
-    assert _pick_variables("pick('U_A:x', 0, false); pick('U_B:y', 1, false);") == [
-        "U_A:x",
-        "U_B:y",
-    ]
-    assert _pick_variables("pick('U_A:x', 0, false); pick('U_A:x', 0, false);") == []
-
-
-def test_a_shift_range_skips_unlogged_and_listed_variables() -> None:
-    picked = _pick_variables("pick('U_A:x', 0, false); pick('U_E:z', 4, true);")
-    assert picked == ["U_A:x", "U_B:y", "U_E:z"]
-
-
 def test_the_panel_opens_a_drawer_not_a_combobox(client: TestClient) -> None:
     html = client.get("/").text
     assert 'data-drawer-open="drw-scanlog"' in html and 'id="drw-scanlog"' in html
     assert 'id="sl-list"' in html and 'class="picklist" id="sl-list"' in html
     assert 'role="combobox"' not in html
-
-
-def test_the_picker_never_selects_past_the_lists_bound() -> None:
-    """A batch past the server's bound is refused whole; the picker stops at the room left."""
-    # one slot left: the second click takes nothing, a range stops when full
-    assert _pick_variables(
-        "pick('U_A:x', 0, false); pick('U_B:y', 1, false);", listed=63
-    ) == ["U_A:x"]
-    assert _pick_variables(
-        "pick('U_A:x', 0, false); pick('U_E:z', 4, true);", listed=62
-    ) == [
-        "U_A:x",
-        "U_B:y",
-    ]
 
 
 def test_what_may_be_picked_is_logged_and_not_listed() -> None:
@@ -255,4 +196,13 @@ def test_what_may_be_picked_is_logged_and_not_listed() -> None:
         "isPickable({name: 'U_D:listed', logged: true}, have)]));"
     )
     assert result == [True, False, False]
-    assert "var pickable = isPickable(it, have);" in source
+    assert "pickable: isPickable(it, have)," in source
+
+
+def test_the_panel_is_the_kit_picker_and_refreshes_when_the_list_lands() -> None:
+    """GPT review of #1128: a drawer opened before /api/logged-variables answers fills when it does."""
+    source = _scan_log_script()
+    assert "window.GeecsKit.picker({" in source
+    assert "room: function () { return MAX_VARIABLES - L.variables.length; }," in source
+    tail = source[source.index('api("/api/logged-variables")') :]
+    assert "if (picker) picker.refresh();" in tail

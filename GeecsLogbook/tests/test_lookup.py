@@ -263,6 +263,7 @@ global.document = {
   querySelector: () => panel,
   createElement: () => el("x"),
 };
+global.window = {};
 global.location = { search: "", pathname: "/day/2026-09-11", hash: "" };
 global.history = { replaceState() {} };
 let calls = 0;
@@ -304,45 +305,12 @@ def test_a_failed_first_read_is_retried_on_reopen(tmp_path: Path) -> None:
     assert json.loads(done.stdout.strip().splitlines()[-1]) == {"calls": 2}
 
 
-def _pick_columns(clicks: str) -> list[str]:
-    """Run the column drawer's ``pick`` under node over a fixed list; return the picks."""
-    import re
-    import subprocess
-
-    from geecs_web_theme.testing import node_available
-
-    if not node_available():  # pragma: no cover - CI and dev machines have it
-        pytest.skip("node not available")
-    node = "node"
+def test_the_column_drawer_is_the_kit_picker() -> None:
+    """Selection is GeecsKit.picker's, pinned in GeecsWebTheme/tests/test_kit_picker.py."""
     source = (
         Path(__file__).parents[1] / "geecs_logbook" / "static" / "lookup.js"
     ).read_text()
-    body = re.search(r"\n  function pick\([^)]*\) \{\n(.*?)\n  \}\n", source, re.S)
-    assert body, "lookup.js: no function pick()"
-    harness = (
-        "let shownCols = [{name: 'U_A x', pickable: true}, {name: 'U_B y', pickable: true},"
-        " {name: 'U_C z', pickable: false}, {name: 'U_D w', pickable: true}];\n"
-        "let picked = {}, anchor = null;\nfunction renderPicks() {}\n"
-        "function pick(name, index, range) {\n"
-        + body.group(1)
-        + "\n}\n"
-        + clicks
-        + "\nconsole.log(JSON.stringify(Object.keys(picked).sort()));"
-    )
-    done = subprocess.run(
-        [node, "-"], input=harness, text=True, capture_output=True, check=True
-    )
-    return json.loads(done.stdout)
-
-
-def test_the_column_drawer_picks_many_like_the_device_drawer() -> None:
-    assert _pick_columns("pick('U_A x', 0, false); pick('U_A x', 0, false);") == []
-    # shift-click reaches across, skipping a column already in the table
-    assert _pick_columns("pick('U_A x', 0, false); pick('U_D w', 3, true);") == [
-        "U_A x",
-        "U_B y",
-        "U_D w",
-    ]
+    assert "window.GeecsKit.picker({" in source and "function pick(" not in source
 
 
 def test_the_panel_opens_a_drawer_not_a_combobox(day: Path) -> None:

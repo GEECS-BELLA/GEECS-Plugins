@@ -386,6 +386,16 @@
         </div>
 
         <div class="group">
+          <span class="eyebrow">rung 2 &middot; drawer picker &middot; add several things to a list</span>
+          <div class="row">
+            <button class="btn" type="button" data-drawer-open="k-picker" id="k-picker-open">Add devices&hellip;</button>
+            <span class="dim"><code>GeecsKit.picker</code>: search, click, shift-click for a
+              range, one Add for the lot. The scanner's devices and scan-log list and the
+              logbook's lookup columns are all this one component.</span>
+          </div>
+        </div>
+
+        <div class="group">
           <span class="eyebrow">rung 3 &middot; dialog &middot; must be answered now</span>
           <div class="row">
             <button class="btn danger" type="button" data-dialog-open="k-dialog">Clear queue&hellip;</button>
@@ -435,6 +445,28 @@
   </div>
 </aside>
 
+<aside class="drawer" id="k-picker" role="dialog" aria-modal="false"
+       aria-labelledby="k-picker-title" aria-hidden="true" data-open="false">
+  <header>
+    <span class="eyebrow" id="k-picker-title">add devices</span>
+    <button class="btn sm ghost" type="button" data-drawer-close>Close</button>
+  </header>
+  <div class="body">
+    <div class="field"><label for="k-picker-q">search</label>
+      <input id="k-picker-q" placeholder="UC_… or U_…" autocomplete="off">
+      <span class="hint" id="k-picker-hint"></span></div>
+    <div class="row">
+      <button class="btn primary sm" type="button" id="k-picker-add" disabled>Add</button>
+      <button class="btn sm ghost" type="button" id="k-picker-all">Select all shown</button>
+      <button class="btn sm ghost" type="button" id="k-picker-none" disabled>Clear</button>
+      <span class="spacer"></span>
+      <span class="dim">click to select &middot; shift-click for a range &middot; Enter adds</span>
+    </div>
+    <nav class="picklist" id="k-picker-list" aria-label="Devices"></nav>
+    <p class="dim" id="k-picker-added"></p>
+  </div>
+</aside>
+
 <dialog id="k-dialog" aria-labelledby="k-dialog-title">
   <div class="body">
     <h4 id="k-dialog-title">Clear the queue?</h4>
@@ -470,5 +502,25 @@
 
 <script src="theme.js" defer></script>
 <script src="kit.js" defer></script>
+<script>
+  // The picker specimen: the rows and what Add does are all a surface writes.
+  window.addEventListener("DOMContentLoaded", function () {
+    var $ = function (id) { return document.getElementById(id); };
+    var inTable = { U_Hexapod: true };
+    var all = ["UC_TC_Phosphor", "UC_ALineEBeam3", "U_ICT", "U_ChicaneSpec", "UC_HASO", "U_Hexapod", "U_S1H", "U_S1V"];
+    window.GeecsKit.picker({
+      drawer: $("k-picker"), opener: $("k-picker-open"), search: $("k-picker-q"), list: $("k-picker-list"),
+      add: $("k-picker-add"), all: $("k-picker-all"), none: $("k-picker-none"),
+      noun: ["device", "devices"],
+      rows: function (q) {
+        q = q.trim().toLowerCase();
+        return all.filter(function (n) { return !q || n.toLowerCase().indexOf(q) !== -1; })
+          .map(function (n) { return { name: n, pickable: !inTable[n], sub: inTable[n] ? "in the table" : "" }; });
+      },
+      onRender: function (info) { $("k-picker-hint").textContent = info.matches + " of " + all.length + " devices"; },
+      onAdd: function (names) { $("k-picker-added").textContent = "Added: " + names.join(", "); }
+    });
+  });
+</script>
 </body>
 </html>

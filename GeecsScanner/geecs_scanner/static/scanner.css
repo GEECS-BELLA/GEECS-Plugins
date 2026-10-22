@@ -45,9 +45,6 @@
 /* The three side-by-side panels stretch to one height; the footer stays at the bottom. */
 .kit .trio > .panel{display:flex;flex-direction:column}
 .kit .trio > .panel > .body{flex:1}
-/* Secondary text on a picklist row (step count, "in the table") that must stay readable on the selected row. */
-.kit .picklist .sub{color:var(--muted);font-size:12px;text-align:right}
-.kit .picklist [aria-pressed="true"] .sub{color:inherit;opacity:.85}
 .kit .steps li.prob{color:var(--warn)}
 .kit .rail h4 a{color:inherit}
 

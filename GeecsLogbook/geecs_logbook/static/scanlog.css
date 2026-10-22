@@ -349,8 +349,6 @@ details.lookup{overflow:visible}
 .lk-scanf{width:10ch;margin:0}
 .lk-scanf input{width:100%}
 #drw-lookup .note{font-size:12px}
-#lk-list .sub{color:var(--muted);font-size:12px;margin-left:auto;padding-left:12px;white-space:nowrap}
-#lk-list [aria-pressed="true"] .sub{color:inherit;opacity:.85}
 .lk-legend{margin-left:auto;display:flex;flex-wrap:wrap;gap:14px;font-size:11.5px;color:var(--muted)}
 .lk-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);vertical-align:1px;margin-right:5px}
 .lk-sw{display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--accent-soft);border:1px solid var(--accent);vertical-align:-1px;margin-right:5px}

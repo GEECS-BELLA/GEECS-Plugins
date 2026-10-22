@@ -4,8 +4,9 @@
  * /api/day/{day}/lookup, which reads two lines of each scan's s-file. The
  * table's columns are the day's scan-log lists (the scanner's shared list)
  * unless the URL names others (?col=…, kept in sync so a link to the table
- * can be pasted into a note); "Add columns…" opens a drawer shaped like the
- * scanner's device picker over every column any scan recorded. A value that differs from the scan above it is marked. Reads
+ * can be pasted into a note); "Add columns…" opens the kit's drawer picker
+ * (GeecsKit.picker — the scanner's device picker) over every column any
+ * scan recorded. A value that differs from the scan above it is marked. Reads
  * its facts off <main id="logbook">; sets no colours (the theme guard).
  */
 (() => {
@@ -146,84 +147,47 @@
     table.appendChild(tbody);
   }
 
-  /* ---- the column drawer: the scanner device picker's shape ---------- */
-  let picked = {};   // name -> true, across searches, until Add or Clear
-  let shownCols = []; // [{name, pickable}] in render order, for shift-ranges
-  let anchor = null; // the last row clicked, the other end of a range
-
-  function renderPicks() {
-    const n = Object.keys(picked).length;
-    $("lk-add").disabled = !n;
-    $("lk-add").textContent = n ? `Add ${n} column${n === 1 ? "" : "s"}` : "Add";
-    $("lk-none").disabled = !n;
-    for (const b of $("lk-list").children) {
-      b.setAttribute("aria-pressed", picked[b.dataset.column] ? "true" : "false");
-    }
-  }
-
-  function pick(name, index, range) {
-    if (range && anchor !== null) {
-      const lo = Math.min(anchor, index), hi = Math.max(anchor, index);
-      // a range takes everything in it that is not a column already
-      for (let i = lo; i <= hi; i++) if (shownCols[i] && shownCols[i].pickable) picked[shownCols[i].name] = true;
-    } else {
-      if (picked[name]) delete picked[name]; else picked[name] = true;
-      anchor = index;
-    }
-    renderPicks();
-  }
-
-  function renderPicker() {
-    const list = $("lk-list");
-    list.textContent = "";
-    const columns = L.data ? L.data.columns : [];
-    const total = L.data ? L.data.rows.length : 0;
-    const needle = $("lkq").value.trim().toLowerCase();
-    const matches = columns.filter((c) => !needle || c.name.toLowerCase().includes(needle));
-    shownCols = [];
-    anchor = null;
-    matches.slice(0, MAX_SHOWN).forEach((c, i) => {
-      const have = (L.cols || []).includes(c.name);
-      shownCols.push({ name: c.name, pickable: !have });
-      const b = el("button");
-      b.type = "button";
-      b.dataset.column = c.name;
-      b.disabled = have;
-      b.setAttribute("aria-pressed", picked[c.name] ? "true" : "false");
-      b.appendChild(el("span", "", c.name));
-      b.appendChild(el("span", "sub", have ? "a column" : c.listed ? "on the list" : `in ${c.scans} of ${total} scans`));
-      b.addEventListener("click", (ev) => pick(c.name, i, ev.shiftKey));
-      list.appendChild(b);
-    });
-    $("lkq-hint").textContent = L.data
-      ? `${matches.length} of ${columns.length} columns` + (matches.length > MAX_SHOWN ? " · type to narrow" : "")
-      : L.loaded ? "Reading the day's s-files…" : "The day could not be read — close the panel and reopen it to try again.";
-    renderPicks();
-  }
-
-  $("lkq").addEventListener("input", renderPicker);
-  // Opening the drawer starts a fresh selection: Esc and the scrim are a
-  // cancel, so picks never committed with Add do not come back.
-  $("lk-open").addEventListener("click", () => {
-    picked = {};
-    renderPicker();
-    setTimeout(() => $("lkq").focus(), 50);
+  /* ---- the column drawer: GeecsKit.picker, the scanner's device picker ---- */
+  const picker = window.GeecsKit && window.GeecsKit.picker({
+    drawer: $("drw-lookup"),
+    opener: $("lk-open"),
+    search: $("lkq"),
+    list: $("lk-list"),
+    add: $("lk-add"),
+    all: $("lk-all"),
+    none: $("lk-none"),
+    noun: ["column", "columns"],
+    maxShown: MAX_SHOWN,
+    rows: (query) => {
+      const needle = query.trim().toLowerCase();
+      const total = L.data ? L.data.rows.length : 0;
+      return (L.data ? L.data.columns : [])
+        .filter((c) => !needle || c.name.toLowerCase().includes(needle))
+        .map((c) => {
+          const have = (L.cols || []).includes(c.name);
+          return {
+            name: c.name,
+            pickable: !have,
+            sub: have ? "a column" : c.listed ? "on the list" : `in ${c.scans} of ${total} scans`,
+          };
+        });
+    },
+    onRender: (info) => {
+      $("lkq-hint").textContent = L.data
+        ? `${info.matches} of ${L.data.columns.length} columns` + (info.matches > info.shown ? " · type to narrow" : "")
+        : L.loaded ? "Reading the day's s-files…" : "The day could not be read — close the panel and reopen it to try again.";
+    },
+    onAdd: (names) => {
+      const fresh = names.filter((n) => !(L.cols || []).includes(n));
+      if (!fresh.length) return;
+      L.cols = (L.cols || []).concat(fresh);
+      syncUrl();
+      load();
+    },
   });
-  $("lk-all").addEventListener("click", () => {
-    shownCols.forEach((c) => { if (c.pickable) picked[c.name] = true; });
-    renderPicks();
-  });
-  $("lk-none").addEventListener("click", () => { picked = {}; anchor = null; renderPicks(); });
-  $("lk-add").addEventListener("click", () => {
-    const names = Object.keys(picked).filter((n) => !(L.cols || []).includes(n));
-    picked = {};
-    anchor = null;
-    if (window.GeecsKit) window.GeecsKit.drawer($("drw-lookup")).close();
-    if (!names.length) return;
-    L.cols = (L.cols || []).concat(names);
-    syncUrl();
-    load();
-  });
+  /** Refill an open drawer when the day's read lands (or fails). */
+  function renderPicker() { if (picker) picker.refresh(); }
+
   $("lk-scan").addEventListener("input", () => { if (L.data) render(); });
   $("lk-scan").addEventListener("keydown", (ev) => ev.stopPropagation());
 

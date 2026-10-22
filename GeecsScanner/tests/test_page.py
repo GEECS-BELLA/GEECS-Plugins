@@ -607,52 +607,15 @@ var composer={value(){return {trajectory:{kind:'axes',axes:[]}};}};
     assert json.loads(result.stdout)["background"] is (mode == "count")
 
 
-def _pick_devices(clicks: str) -> list[str]:
-    """Run the drawer's selection logic under node and return what is picked.
+def test_add_device_is_the_kit_drawer_picker() -> None:
+    """The device drawer's selection (toggle, shift-range, one Add) is GeecsKit.picker's.
 
-    ``clicks`` is JavaScript calling ``pickDevice(name, index, shift)`` over a
-    fixed list where ``U_Taken`` is already in the device table.
+    Its behaviour is pinned once, in GeecsWebTheme/tests/test_kit_picker.py;
+    this page only says what the rows are and what Add does.
     """
-    _need_node()
     source = (_PKG / "static/scanner.js").read_text()
-    harness = (
-        """
-var devShown = [
-  {name: 'UC_A', have: false}, {name: 'UC_B', have: false},
-  {name: 'U_Taken', have: true}, {name: 'UC_D', have: false},
-];
-var devPicked = {}, devAnchor = null;
-function renderDevicePicks() {}
-function pickDevice(name, index, range) {
-"""
-        + _script_function(source, "pickDevice")
-        + "\n}\n"
-        + clicks
-        + "\nconsole.log(JSON.stringify(Object.keys(devPicked).sort()));"
-    )
-    result = subprocess.run(
-        ["node", "-"], input=harness, text=True, capture_output=True, check=True
-    )
-    return json.loads(result.stdout)
-
-
-def test_a_device_click_toggles_rather_than_committing() -> None:
-    """Adding twenty devices is twenty clicks and one Add, not twenty trips to the drawer."""
-    assert _pick_devices("pickDevice('UC_A', 0, false);") == ["UC_A"]
-    assert _pick_devices(
-        "pickDevice('UC_A', 0, false); pickDevice('UC_B', 1, false);"
-    ) == ["UC_A", "UC_B"]
-    # clicking a picked row again lets it go
-    assert (
-        _pick_devices("pickDevice('UC_A', 0, false); pickDevice('UC_A', 0, false);")
-        == []
-    )
-
-
-def test_shift_click_takes_the_range_and_skips_what_is_already_added() -> None:
-    """A shift-click reaches from the last row clicked to this one; a device already in the table is not re-added."""
-    picked = _pick_devices("pickDevice('UC_A', 0, false); pickDevice('UC_D', 3, true);")
-    assert picked == ["UC_A", "UC_B", "UC_D"]  # U_Taken is in the table already
+    assert "window.GeecsKit.picker({" in source and "onAdd: addDevices" in source
+    assert "function pickDevice" not in source
 
 
 def test_the_move_variable_picker_can_be_typed_into(client: TestClient) -> None:
