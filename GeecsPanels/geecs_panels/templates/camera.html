@@ -117,6 +117,27 @@
       <div class="hint dim">Drag the box's edges or corners on the image. The statistics see only this region.</div>
     </section>
     <label class="dim"><input type="checkbox" id="roi-show" checked> show the analysis ROI</label>
+
+    {# Background and transform change what is shown and what STAT computes;
+       never what a scan saves (scans take raw frames from the driver). #}
+    <section class="group writes">
+      <h4>Processing</h4>
+      <div class="row">
+        <button class="btn sm" type="button" id="bg-grab"
+                title="Grab the next frame as the background: block the beam first">Grab background</button>
+        <label class="dim"><input type="checkbox" id="bg-on"> subtract</label>
+      </div>
+      <div class="hint dim"><span id="bg-state">no background grabbed</span>. Held in the IOC's
+        memory only: lost when the IOC restarts.</div>
+      <div class="field">
+        <label for="transform">Rotate / flip</label>
+        <select id="transform">
+          {% for t in transforms %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="hint dim" id="transform-warning" hidden>A transform is on: the image,
+        the crosshairs and the statistics are in transformed pixels, not the camera's.</div>
+    </section>
     <div id="write-error" role="status"></div>
 
     <section class="group">
@@ -150,6 +171,9 @@
         <span class="mono dim" id="zoom-level"></span>
         <button class="btn sm ghost" type="button" id="zoom-fit">Fit</button>
         <button class="btn sm ghost" type="button" id="zoom-one">1:1</button>
+        <span class="chip" id="saturation" data-state="unknown"
+              title="The raw frame's peak against the pixel format's full scale">peak —</span>
+        <label class="dim"><input type="checkbox" id="sat-sound"> sound</label>
         <span class="chip" id="image-state" data-state="unknown">waiting</span>
         <span class="mono dim" id="fps"></span>
       </header>
@@ -174,5 +198,6 @@
 <script src="{{ root }}/theme/kit.js" defer></script>
 <script src="{{ root }}/static/camera.js" defer></script>
 <script src="{{ root }}/static/overlay.js" defer></script>
+<script src="{{ root }}/static/processing.js" defer></script>
 </body>
 </html>

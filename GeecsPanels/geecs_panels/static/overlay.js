@@ -19,7 +19,6 @@
   const root = V.root;
   const $ = (id) => document.getElementById(id);
   const writable = root.dataset.writable === "true";
-  const putUrl = root.dataset.putUrl;
   // Per-crosshair routes: ".../crosshair/<n>/to-centroid" and ".../colour".
   const crosshairUrl = (n, verb) =>
     root.dataset.centroid1.replace(/\/1\/to-centroid$/, "/" + n + "/" + verb);
@@ -33,45 +32,7 @@
   let roi = null;
   const held = { xh: {}, roi: null };  // this viewer's edits, shown until stored
 
-  // ---- writes -------------------------------------------------------------
-  let errTimer = null;
-  function sayError(text) {
-    const el = $("write-error");
-    el.textContent = text;
-    clearTimeout(errTimer);
-    errTimer = setTimeout(() => { el.textContent = ""; }, 6000);
-  }
-
-  async function post(url, body) {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    if (!r.ok) {
-      let detail = "HTTP " + r.status;
-      try {
-        const d = (await r.json()).detail;
-        // A validation refusal is a list of {msg}; everything else a string.
-        detail = Array.isArray(d) ? d.map((x) => x.msg).join("; ") : (d || detail);
-      } catch (_) { /* not JSON */ }
-      throw new Error(detail);
-    }
-    return r.json();
-  }
-
-  async function put(pv, value) {
-    try {
-      await post(putUrl, { pv: pv, value: value });
-    } catch (e) {
-      sayError(pv + ": " + e.message);
-      throw e;
-    }
-  }
-
-  async function putAll(pairs) {
-    for (const [pv, value] of pairs) await put(pv, value);
-  }
+  const { post, put, putAll, sayError } = V.write;
 
   // ---- what to draw: the stored value, or this viewer's edit --------------
   function position(c) {
@@ -355,6 +316,8 @@
   $("roi-show").addEventListener("change", () => V.redraw());
 
   if (!writable) {
-    for (const el of root.querySelectorAll(".writes input, .writes button")) el.disabled = true;
+    for (const el of root.querySelectorAll(".writes input, .writes button, .writes select")) {
+      el.disabled = true;
+    }
   }
 })();

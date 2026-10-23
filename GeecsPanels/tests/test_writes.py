@@ -19,10 +19,14 @@ from tests.test_app import CAM, FakeCameras, _client
     [
         "cam1:AcquireTime",
         "cam1:Acquire",
+        "cam1:MinX",
         "HDF1:Capture",
+        "HDF1:EnableCallbacks",
+        "PVA:EnableCallbacks",
         "OVER1:3:CenterX",
         "ROI1:BinX",
-        "TRANS1:Type",
+        "PROC1:EnableFilter",
+        "MJPG1:ALWAYS_ON",
     ],
 )
 def test_nothing_outside_the_allow_list_is_writable(suffix: str) -> None:
@@ -32,7 +36,8 @@ def test_nothing_outside_the_allow_list_is_writable(suffix: str) -> None:
 
 
 def test_no_writable_pv_touches_scan_data() -> None:
-    assert all(s.split(":")[0] in {"OVER1", "ROI1"} for s in WRITABLE)
+    """Only the display/analysis branch (after the driver): never cam1 or the raw outputs."""
+    assert {s.split(":")[0] for s in WRITABLE} <= {"OVER1", "ROI1", "PROC1", "TRANS1"}
 
 
 @pytest.mark.parametrize(
@@ -216,3 +221,97 @@ def test_an_out_of_range_colour_writes_nothing() -> None:
         "/camera/ADTEST_CAM1/crosshair/1/colour", json={"r": 300, "g": 0, "b": 0}
     )
     assert r.status_code == 422 and cameras.puts == []
+
+
+@pytest.mark.parametrize(
+    ("suffix", "value", "ok"),
+    [
+        ("PROC1:SaveBackground", 1, True),
+        ("PROC1:SaveBackground", 0, False),  # the record's "Save" only
+        ("PROC1:SaveBackground", True, False),
+        ("PROC1:EnableBackground", 0, True),
+        ("TRANS1:Type", "Rot90", True),
+        ("TRANS1:Type", "Rot45", False),
+        ("TRANS1:Type", 1, False),
+    ],
+)
+def test_processing_writes(suffix, value, ok) -> None:
+    if ok:
+        assert check_write(suffix, value) == value
+    else:
+        with pytest.raises(NotWritable):
+            check_write(suffix, value)
+
+
+@pytest.mark.parametrize(
+    ("fmt", "raw", "state"),
+    [
+        ("Mono8", 255, "saturated"),
+        ("Mono8", 253, "saturated"),
+        ("Mono8", 240, "ok"),
+        ("Mono16", 65520, "saturated"),  # a Blackfly's 12 bits, left-aligned
+        ("Mono16", 1072, "ok"),
+        ("Mono12", 4095, "saturated"),
+        ("BayerRG8", 255, "unknown"),
+        ("Mono8", None, "unknown"),
+    ],
+)
+def test_saturation(fmt, raw, state) -> None:
+    from geecs_panels.camera import saturation
+
+    assert saturation(fmt, raw)["state"] == state
+
+
+def test_a_stale_raw_max_is_not_called_saturated_or_ok() -> None:
+    cameras = RecordingCameras()
+    feed = cameras.feed(CAM)
+    feed.update("STAT0:ComputeStatistics", 1)
+    feed.update("cam1:PixelFormat_RBV", "Mono8")
+    feed.update("STAT0:MaxValue_RBV", 255)
+    feed.update(counter_suffix("STAT0"), 1)  # a position, not a frame: stale
+    assert feed.snapshot(3.0)["saturation"]["state"] == "unknown"
+    feed.update(counter_suffix("STAT0"), 2)
+    assert feed.snapshot(3.0)["saturation"]["state"] == "saturated"
+
+
+def test_a_transform_change_stops_background_subtraction_first() -> None:
+    """The held background was grabbed in the old orientation."""
+    cameras = RecordingCameras()
+    r = _client(cameras=cameras).post(
+        "/camera/ADTEST_CAM1/put", json={"pv": "TRANS1:Type", "value": "Rot90"}
+    )
+    assert r.status_code == 200
+    assert cameras.puts == [("PROC1:EnableBackground", 0), ("TRANS1:Type", "Rot90")]
+
+
+def test_a_refused_transform_changes_nothing() -> None:
+    cameras = RecordingCameras()
+    r = _client(cameras=cameras).post(
+        "/camera/ADTEST_CAM1/put", json={"pv": "TRANS1:Type", "value": "Rot45"}
+    )
+    assert r.status_code == 422 and cameras.puts == []
+
+
+def test_a_rotation_makes_the_background_stale_for_every_viewer_until_a_grab() -> None:
+    """Shared, not per page: a reload or a second viewer keeps the guard (GPT P2 on #1134)."""
+    cameras = RecordingCameras()
+    feed = cameras.feed(CAM)
+    feed.update("TRANS1:Type", "None")
+    feed.update("PROC1:SaveBackground_RBV", 0)
+    feed.update("TRANS1:Type", "Rot180")  # rotated after the grab, by anyone
+    client = _client(cameras=cameras)  # a fresh viewer
+
+    def put(v: int):
+        return client.post(
+            "/camera/ADTEST_CAM1/put", json={"pv": "PROC1:EnableBackground", "value": v}
+        )
+
+    assert put(1).status_code == 409 and cameras.puts == []
+    assert feed.snapshot(3.0)["processing"]["background_stale"] is True
+    # A grab completes (the record goes 1, then back to 0): fresh again.
+    feed.update("PROC1:SaveBackground_RBV", 1)
+    feed.update("PROC1:SaveBackground_RBV", 0)
+    assert put(1).status_code == 200
+    # Switching subtraction OFF is always allowed.
+    feed.update("TRANS1:Type", "Rot90")
+    assert put(0).status_code == 200
