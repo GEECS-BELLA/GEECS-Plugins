@@ -92,23 +92,29 @@
     if (!p || panel.hidden || !panel.open) return;
     $("plots-error").textContent = p.error || "";
     if (p.error) return;
-    const off = !p.profiles_on ? "profiles are not computed (STAT:ComputeProfiles)" : null;
+    // A held array is not a live one: draw nothing, and say why, when its
+    // computation is off or STAT has stopped processing frames.
+    const why = (on, name, flag) => !p.stat_fresh ? "no fresh STAT frames — not live"
+      : !on ? name + " not computed (" + flag + ")" : null;
+    const profilesOff = why(p.profiles_on, "profiles are", "STAT:ComputeProfiles");
+    const histOff = why(p.histogram_on, "the histogram is", "STAT:ComputeHistogram");
+    const none = [];
     if (p.x_axis) {
-      drawLines($("plot-x"), [
+      drawLines($("plot-x"), profilesOff ? none : [
         { values: p.profile_x, colour: "--trace-1" },
         { values: p.cursor_x, colour: "--trace-2" },
-      ], { x: axisX(p.x_axis), empty: off });
-      drawLines($("plot-y"), [
+      ], { x: axisX(p.x_axis), empty: profilesOff || "no profile" });
+      drawLines($("plot-y"), profilesOff ? none : [
         { values: p.profile_y, colour: "--trace-1" },
         { values: p.cursor_y, colour: "--trace-2" },
-      ], { x: axisX(p.y_axis), empty: off });
+      ], { x: axisX(p.y_axis), empty: profilesOff || "no profile" });
     }
     const n = p.histogram.length || 1;
     const lo = p.hist_min || 0, step = ((p.hist_max || n) - lo) / n;
-    drawLines($("plot-hist"), [{ values: p.histogram, colour: "--trace-3" }], {
+    drawLines($("plot-hist"), histOff ? none : [{ values: p.histogram, colour: "--trace-3" }], {
       x: (i) => lo + (i + 0.5) * step,
       log: $("hist-log").checked,
-      empty: p.histogram_on ? "no histogram" : "histogram is not computed (STAT:ComputeHistogram)",
+      empty: histOff || "no histogram",
     });
     const t = p.history.map((r) => r[0]);
     const now = t.length ? t[t.length - 1] : 0;

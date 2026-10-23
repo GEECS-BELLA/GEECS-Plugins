@@ -59,6 +59,13 @@ HISTORY_SUFFIXES = (
     "STAT:MeanValue_RBV",
     "STAT:MaxValue_RBV",
 )
+#: The flag each history value needs on to be a measurement at all.
+HISTORY_FLAGS = (
+    "STAT:ComputeCentroid",
+    "STAT:ComputeCentroid",
+    "STAT:ComputeStatistics",
+    "STAT:ComputeStatistics",
+)
 #: One history point per this many seconds at most, and this many kept.
 HISTORY_EVERY_S = 0.2
 HISTORY_POINTS = 3000  # ten minutes at the decimated rate
@@ -162,9 +169,14 @@ class CameraFeed:
             return
         self._history_at = now
         point = [self.wall()]
-        for suffix in HISTORY_SUFFIXES:
+        for suffix, flag in zip(HISTORY_SUFFIXES, HISTORY_FLAGS):
+            # A value not computed (its flag off) or not connected is frozen,
+            # not measured: a gap, never a repeat of its last value.
             v = self.values.get(suffix)
-            point.append(float(v) if isinstance(v, (int, float)) else float("nan"))
+            live = self.connected.get(suffix) and self.values.get(flag)
+            point.append(
+                float(v) if live and isinstance(v, (int, float)) else float("nan")
+            )
         self._history.append(tuple(point))
 
     def history(self, seconds: float) -> list[tuple[float, ...]]:
@@ -475,11 +487,24 @@ def _finite(values: list[float], n: Optional[object]) -> list[Optional[float]]:
 
 
 def plot_payload(
-    feed: CameraFeed, arrays: dict[str, list[float]], history_s: float
+    feed: CameraFeed,
+    arrays: dict[str, list[float]],
+    history_s: float,
+    stale_after: float = 3.0,
 ) -> dict[str, object]:
-    """Everything the plots draw, in image pixels where it is a position."""
+    """Everything the plots draw, in image pixels where it is a position.
+
+    ``stat_fresh`` says whether STAT is processing frames: a read of its
+    arrays always succeeds, so held arrays must not pass for live ones.
+    """
     v = feed.values
+    age = feed.counter_ages().get("STAT")
     out: dict[str, object] = {
+        "stat_fresh": bool(
+            feed.connected.get(counter_suffix("STAT"))
+            and age is not None
+            and age <= stale_after
+        ),
         "profiles_on": bool(v.get(PLOT_FIELDS["profiles_on"])),
         "histogram_on": bool(v.get(PLOT_FIELDS["histogram_on"])),
         "histogram": _finite(arrays.get("histogram", []), None),

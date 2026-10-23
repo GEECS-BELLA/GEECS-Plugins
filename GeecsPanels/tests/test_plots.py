@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import time
 
 import pytest
@@ -95,6 +96,7 @@ def test_history_is_sampled_on_stat_frames_decimated() -> None:
     """A steady centroid still makes points (the tick, not the value's monitor, samples)."""
     clock = Clock()
     feed = _feed(clock)
+    feed.update("STAT:ComputeCentroid", 1)
     feed.update("STAT:CentroidX_RBV", 640.0)
     feed.update(counter_suffix("STAT"), 0)
     for n in range(1, 41):  # 40 frames at 20 Hz = 2 s
@@ -242,3 +244,35 @@ def test_a_nan_reading_travels_as_null_and_the_stream_lives() -> None:
     snap = json.loads(body.strip().split("\n", 1)[1].removeprefix("data: "))
     values = {x["key"]: x["value"] for x in snap["readings"]}
     assert values["cx"] is None and values["sx"] is None
+
+
+def test_history_leaves_a_gap_where_a_value_is_not_computed_or_connected() -> None:
+    """A frozen value never becomes fresh-looking points (GPT P2 on #1135)."""
+    clock = Clock()
+    feed = _feed(clock)
+    feed.update("STAT:ComputeCentroid", 0)  # centroid off
+    feed.update("STAT:ComputeStatistics", 1)
+    feed.update("STAT:CentroidX_RBV", 640.0)
+    feed.update("STAT:MeanValue_RBV", 3.0)
+    feed.update(counter_suffix("STAT"), 0)
+    for n in range(1, 6):
+        clock.now += 0.25
+        feed.update(counter_suffix("STAT"), n)
+    points = feed.history(60)
+    assert points and all(math.isnan(p[1]) for p in points)  # cx: a gap
+    assert all(p[3] == 3.0 for p in points)  # the mean keeps its history
+    feed.update("STAT:MeanValue_RBV", None)  # its channel drops
+    clock.now += 0.25
+    feed.update(counter_suffix("STAT"), 6)
+    assert math.isnan(feed.history(60)[-1][3])
+
+
+def test_held_arrays_are_not_live_once_stat_stops() -> None:
+    clock = Clock()
+    feed = _feed(clock)
+    feed.update(counter_suffix("STAT"), 0)
+    clock.now += 0.1
+    feed.update(counter_suffix("STAT"), 1)
+    assert plot_payload(feed, {}, 60, stale_after=3.0)["stat_fresh"] is True
+    clock.now += 10  # STAT stopped; a read of its arrays would still succeed
+    assert plot_payload(feed, {}, 60, stale_after=3.0)["stat_fresh"] is False

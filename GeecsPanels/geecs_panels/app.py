@@ -265,7 +265,9 @@ def _add_live_routes(
                 source = cameras.arrays(device)
                 source.kick()
                 try:
-                    snap["plots"] = plot_payload(feed, source.current(), HISTORY_S)
+                    snap["plots"] = plot_payload(
+                        feed, source.current(), HISTORY_S, stale_after
+                    )
                 except ArraysUnavailable as exc:  # said on the page, never fatal
                     snap["plots"] = {"error": str(exc)}
             return snap
