@@ -170,8 +170,8 @@ qserver/                    # the worker: launcher, startup profile, permissions
   hardware `Line0`/`Line1` triggering (the driver's `TriggerSource` a
   string signal, so connect never demands a line the camera lacks; the
   first prepare refuses one, before touching the camera), the IOC's
-  layout and SWMR-off restored after the stock prepare, the row stamp the frame's EPICS timestamp through
-  `scan_stack.epics_timestamp_to_unix`.  **One frame per row**: its own
+  layout and SWMR-off restored after the stock prepare, the row stamp
+  the frame's EPICS timestamp through `scan_stack.epics_timestamp_to_unix`.  **One frame per row**: its own
   miss fails the step (no rewind), and it is never rewindable, so a pause
   never replays a shot.  Strict only: fly prepares are refused.  Built
   by the namespace from the native device registry (below).
