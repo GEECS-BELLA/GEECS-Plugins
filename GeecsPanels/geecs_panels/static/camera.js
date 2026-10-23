@@ -105,7 +105,17 @@
 
   // ---- the frame: grey levels kept, colour-mapped into `frame` ------------
   let grey = null;  // the last frame's grey levels: recolouring, auto levels, cursor
-  let fw = 0, fh = 0;
+  // fw x fh: the JPEG as it arrives. iw x ih: the image in image (PROC1)
+  // pixels, from the IOC (MJPG1's input array) — larger than the JPEG when
+  // ffmpegServer scaled it to fit its MAXW x MAXH. The view, the cursor and
+  // every layer work in image pixels; the JPEG is stretched over them.
+  let fw = 0, fh = 0, iw = 0, ih = 0, trueW = 0, trueH = 0;
+  function imageSize() {
+    // The IOC's size only when it agrees with the JPEG's shape (it is read
+    // from a monitor and can lead or lag the frame by a moment).
+    const agree = trueW && trueH && Math.abs(trueW / trueH - fw / fh) < 0.02;
+    return agree ? [trueW, trueH] : [fw, fh];
+  }
 
   function autoLevels() {
     if (!grey) return;
@@ -145,7 +155,9 @@
     if (!grey || grey.length !== fw * fh) grey = new Uint8Array(fw * fh);
     for (let i = 0, j = 0; i < grey.length; i++, j += 4) grey[i] = px[j];
     if (autoLive.checked) autoLevels();
-    if (sized && !view.moved) fit();
+    const [nw, nh] = imageSize();
+    if (nw !== iw || nh !== ih) { iw = nw; ih = nh; if (!view.moved) fit(); }
+    else if (sized && !view.moved) fit();
     recolour();
   }
 
@@ -166,14 +178,14 @@
   // handles on them — sit inside the viewport where a pointer can reach.
   const FIT_MARGIN = 16;
   function fitScale() {
-    if (!fw || !fh) return 1;
-    return Math.max(0.01, Math.min((vw - 2 * FIT_MARGIN) / fw, (vh - 2 * FIT_MARGIN) / fh));
+    if (!iw || !ih) return 1;
+    return Math.max(0.01, Math.min((vw - 2 * FIT_MARGIN) / iw, (vh - 2 * FIT_MARGIN) / ih));
   }
 
   function fit() {
     view.scale = fitScale();
-    view.ox = (vw - fw * view.scale) / 2;
-    view.oy = (vh - fh * view.scale) / 2;
+    view.ox = (vw - iw * view.scale) / 2;
+    view.oy = (vh - ih * view.scale) / 2;
     view.moved = false;
     draw();
   }
@@ -208,7 +220,7 @@
     ctx.setTransform(dpr * view.scale, 0, 0, dpr * view.scale, dpr * view.ox, dpr * view.oy);
     // Magnified: show the pixels as squares, never blurred into each other.
     ctx.imageSmoothingEnabled = view.scale * dpr < 1;
-    ctx.drawImage(frame, 0, 0);
+    ctx.drawImage(frame, 0, 0, iw, ih);
     // Layers over the image (overlay.js) draw in view (CSS) pixels.
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     for (const layer of hooks.draw) layer(ctx);
@@ -279,8 +291,11 @@
   function showCursor(cx, cy) {
     if (!grey) return;
     const [ix, iy] = toImage(cx, cy).map(Math.floor);
-    $("cursor").textContent = ix < 0 || iy < 0 || ix >= fw || iy >= fh ? ""
-      : "x " + ix + "  y " + iy + "  level " + grey[iy * fw + ix];
+    if (ix < 0 || iy < 0 || ix >= iw || iy >= ih) { $("cursor").textContent = ""; return; }
+    // The level from the JPEG pixel under this image pixel.
+    const jx = Math.min(fw - 1, Math.floor(ix * fw / iw));
+    const jy = Math.min(fh - 1, Math.floor(iy * fh / ih));
+    $("cursor").textContent = "x " + ix + "  y " + iy + "  level " + grey[jy * fw + jx];
   }
 
   // ---- the frame loop -----------------------------------------------------
@@ -420,6 +435,8 @@
     } else {
       img.dataset.state = "failed"; img.textContent = "disconnected";
     }
+    trueW = snap.image.width || 0;
+    trueH = snap.image.height || 0;
     $("missing").hidden = !snap.missing.length;
     $("missing-list").textContent = snap.missing.join("  ");
     for (const f of hooks.snapshot) f(snap);
@@ -469,11 +486,53 @@
     blackIn.value = 0; whiteIn.value = 255; scaleSel.value = "linear";
     autoLive.checked = false; buildLut(); recolour(); save();
   });
+  // ---- writes, shared by the layers (overlay.js, processing.js) -----------
+  const putUrl = root.dataset.putUrl;
+  let errTimer = null;
+  function sayError(text) {
+    const el = $("write-error");
+    el.textContent = text;
+    clearTimeout(errTimer);
+    errTimer = setTimeout(() => { el.textContent = ""; }, 6000);
+  }
+
+  async function post(url, body) {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!r.ok) {
+      let detail = "HTTP " + r.status;
+      try {
+        const d = (await r.json()).detail;
+        // A validation refusal is a list of {msg}; everything else a string.
+        detail = Array.isArray(d) ? d.map((x) => x.msg).join("; ") : (d || detail);
+      } catch (_) { /* not JSON */ }
+      throw new Error(detail);
+    }
+    return r.json();
+  }
+
+  async function put(pv, value) {
+    try {
+      await post(putUrl, { pv: pv, value: value });
+    } catch (e) {
+      sayError(pv + ": " + e.message);
+      throw e;
+    }
+  }
+
+  async function putAll(pairs) {
+    for (const [pv, value] of pairs) await put(pv, value);
+  }
+
   // What the layers over the image may use. Assigned before the deferred
-  // overlay.js runs, which registers into `hooks`.
+  // layer scripts run, which register into `hooks`.
   window.GeecsCameraView = {
+    write: { post, put, putAll, sayError },
     root, hooks, toView, toImage, redraw: () => draw(),
-    frameSize: () => [fw, fh], scale: () => view.scale,
+    frameSize: () => [iw, ih], scale: () => view.scale,
   };
   resize();
   connect();

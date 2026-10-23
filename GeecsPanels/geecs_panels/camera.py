@@ -123,16 +123,60 @@ ROI_FIELDS = {
 }
 
 
+#: The image's true size in image (PROC1) pixels: MJPG1's input array. The
+#: stream itself may be smaller — ffmpegServer scales a frame down to fit
+#: MAXW x MAXH (1600 x 1200 by default; a rotated 1280 x 1024 frame arrives
+#: as 960 x 1200) — so the page stretches the JPEG to this size, and every
+#: position (crosshairs, ROI, cursor) stays in image pixels.
+IMAGE_SIZE_FIELDS = {"width": "MJPG1:ArraySize0_RBV", "height": "MJPG1:ArraySize1_RBV"}
+
+#: Processing state the panel shows and edits: the background (PROC1) and
+#: the transform (TRANS1, which has no readback record: the output record
+#: itself is monitored). Field → suffix.
+PROCESSING_FIELDS = {
+    "background_on": "PROC1:EnableBackground_RBV",
+    "background_valid": "PROC1:ValidBackground_RBV",
+    "transform": "TRANS1:Type",
+}
+#: NDTransform's choices, in the record's order.
+TRANSFORMS = (
+    "None",
+    "Rot90",
+    "Rot180",
+    "Rot270",
+    "Mirror",
+    "Rot90Mirror",
+    "Rot180Mirror",
+    "Rot270Mirror",
+)
+
+#: Each pixel format's full scale, as the driver's array carries it. A
+#: Blackfly's "Mono16" is 12 bits LEFT-aligned (multiples of 16, top 65520):
+#: the 99% threshold below catches it at the same full scale as true 16-bit.
+FULL_SCALE = {"Mono8": 255, "Mono10": 1023, "Mono12": 4095, "Mono16": 65535}
+#: Saturated at or above this fraction of full scale.
+SATURATION_FRACTION = 0.99
+
+
+def saturation(pixel_format: object, raw_max: object) -> dict[str, object]:
+    """Whether the raw frame's maximum (STAT0) is at the pixel format's top.
+
+    ``state`` is ``saturated``, ``ok``, or ``unknown`` (a format not in
+    :data:`FULL_SCALE`, or no reading yet); ``fraction`` is max / full scale.
+    """
+    full = FULL_SCALE.get(str(pixel_format)) if pixel_format is not None else None
+    if full is None or not isinstance(raw_max, (int, float)):
+        return {"state": "unknown", "fraction": None, "full_scale": full}
+    fraction = float(raw_max) / full
+    state = "saturated" if fraction >= SATURATION_FRACTION else "ok"
+    return {"state": state, "fraction": fraction, "full_scale": full}
+
+
 def crosshair_suffix(n: int, field: str) -> str:
     """``OVER1:<n>:<readback>`` for a crosshair field."""
     return f"OVER1:{n}:{CROSSHAIR_FIELDS[field]}"
 
 
-#: The PVs the panel may WRITE, and nothing else (design note §4). Each is
-#: display or analysis state: none changes what a scan saves (that is the
-#: camera driver's, behind the run lock of build step 3). Value kinds:
-#: ``int`` (a pixel or a 0..255 level), ``bool`` (0/1), ``str``, or a tuple of
-#: allowed choices (an enum, written by name).
 @dataclass(frozen=True)
 class Whole:
     """A whole number in ``lo..hi`` (a pixel, a size, a 0..255 level)."""
@@ -145,6 +189,11 @@ _PIXEL = Whole(0, 65535)
 _SIZE = Whole(1, 65535)
 _LEVEL = Whole(0, 255)
 
+#: The PVs the panel may WRITE, and nothing else (design note §4). Each is
+#: display or analysis state: none changes what a scan saves (that is the
+#: camera driver's, behind the run lock of build step 3). Value kinds:
+#: :class:`Whole` (a number in a range), ``bool`` (0/1), ``str``, or a tuple
+#: of allowed choices (an enum by name, or ``(1,)`` for a press-only record).
 WRITABLE: dict[str, object] = {
     **{
         f"OVER1:{n}:{field}": kind
@@ -166,6 +215,12 @@ WRITABLE: dict[str, object] = {
     "ROI1:MinY": _PIXEL,
     "ROI1:SizeX": _SIZE,
     "ROI1:SizeY": _SIZE,
+    # Background: grab one from the next frame (1 only — the record's "Save"),
+    # and subtract it or not. Display and statistics only: scans save raw
+    # frames from the driver.
+    "PROC1:SaveBackground": (1,),
+    "PROC1:EnableBackground": bool,
+    "TRANS1:Type": TRANSFORMS,
 }
 
 
@@ -208,8 +263,8 @@ def check_write(suffix: str, value: object) -> object:
     if kind is None:
         raise NotWritable(f"{suffix} is not writable from the panel")
     if isinstance(kind, tuple):
-        if value not in kind:
-            raise NotWritable(f"{suffix} takes one of {', '.join(kind)}")
+        if isinstance(value, bool) or value not in kind:
+            raise NotWritable(f"{suffix} takes one of {', '.join(map(str, kind))}")
         return value
     if isinstance(kind, Whole):
         return _as_whole(suffix, value, kind)
@@ -230,6 +285,10 @@ def monitored_suffixes() -> list[str]:
             seen[crosshair_suffix(n, field)] = None
     for suffix in ROI_FIELDS.values():
         seen[suffix] = None
+    for suffix in PROCESSING_FIELDS.values():
+        seen[suffix] = None
+    for suffix in IMAGE_SIZE_FIELDS.values():
+        seen[suffix] = None
     return list(seen)
 
 
@@ -238,6 +297,7 @@ def string_suffixes() -> frozenset[str]:
     return frozenset(
         [r.suffix for r in READINGS if r.as_string]
         + [crosshair_suffix(n, f) for n in CROSSHAIRS for f in _CROSSHAIR_STRINGS]
+        + [PROCESSING_FIELDS["transform"]]
     )
 
 

@@ -101,6 +101,7 @@ _SURFACES = [
     "GeecsPanels/geecs_panels/static/panels.css",
     "GeecsPanels/geecs_panels/static/camera.js",
     "GeecsPanels/geecs_panels/static/overlay.js",
+    "GeecsPanels/geecs_panels/static/processing.js",
 ]
 
 #: Selectors whose rules may carry a literal, each with its reason. This is

@@ -30,7 +30,9 @@ geecs_panels/
   templates/, static/   # on the GeecsWebTheme kit; colours through tokens only
                 #   camera.js = the viewer (frame loop, zoom/pan, colour map);
                 #   overlay.js = the crosshair + ROI layer, plugged in through
-                #   window.GeecsCameraView's hooks (draw, grab, hover, snapshot)
+                #   window.GeecsCameraView's hooks (draw, grab, hover, snapshot);
+                #   processing.js = background, rotate/flip, the saturation chip.
+                #   Writes go through window.GeecsCameraView.write (one copy)
 ```
 
 ## Rules this package keeps
@@ -44,6 +46,12 @@ geecs_panels/
 - **One upstream per camera.** Every viewer shares one feed and one frame
   source; the page pulls one frame at a time (never more than one in
   flight) and pauses while hidden.
+- **Image pixels, not JPEG pixels.** ffmpegServer scales a frame to fit
+  `MJPG1:MAXW/MAXH` (a rotated 1280x1024 frame arrives as 960x1200), so the
+  page stretches the JPEG to the true size (`MJPG1:ArraySize0/1_RBV`) and
+  every position is in image (PROC1) pixels.
+- **Saturation is judged on the raw frame** (STAT0, before background and
+  ROI) against the pixel format's full scale (`camera.saturation`).
 - **The stream URL is rehosted to the CA address** (`ca.with_ca_host`): the
   IOC names itself by hostname, which a laptop cannot resolve.
 - **Writes are allow-listed** (`camera.WRITABLE`): crosshairs (OVER1:1/2)

@@ -31,12 +31,15 @@ from geecs_panels.camera import (
     CROSSHAIR_FIELDS,
     CROSSHAIRS,
     IMAGE_PLUGIN,
+    IMAGE_SIZE_FIELDS,
+    PROCESSING_FIELDS,
     READINGS,
     ROI_FIELDS,
     counter_suffix,
     crosshair_suffix,
     judge,
     monitored_suffixes,
+    saturation,
     string_suffixes,
 )
 from geecs_panels.coords import Axis
@@ -161,11 +164,25 @@ class CameraFeed:
             image_state = "fresh"
         return {
             "readings": readings,
-            "image": {"state": image_state, "age": image_age},
+            "image": {
+                "state": image_state,
+                "age": image_age,
+                **{f: self.values.get(s) for f, s in IMAGE_SIZE_FIELDS.items()},
+            },
             "missing": self.missing(),
             "crosshairs": self.crosshairs(),
             "roi": self.roi(),
+            "processing": {f: self.values.get(s) for f, s in PROCESSING_FIELDS.items()},
+            "saturation": self._saturation(readings),
         }
+
+    def _saturation(self, readings: list[dict[str, object]]) -> dict[str, object]:
+        """The saturation check, on a FRESH raw max only (a stale one says unknown)."""
+        raw = next(r for r in readings if r["key"] == "raw_max")
+        fmt = next(r for r in readings if r["key"] == "pixel_format")
+        if raw["state"] != "fresh":
+            return saturation(None, None)
+        return saturation(fmt["value"], raw["value"])
 
     def crosshairs(self) -> list[dict[str, object]]:
         """Each crosshair's stored state (``None`` fields: not read yet)."""

@@ -34,7 +34,13 @@ from geecs_web_theme.web import (
     mount_theme,
 )
 
-from geecs_panels.camera import CROSSHAIRS, READINGS, NotWritable, check_write
+from geecs_panels.camera import (
+    CROSSHAIRS,
+    READINGS,
+    TRANSFORMS,
+    NotWritable,
+    check_write,
+)
 from geecs_panels.coords import to_image
 from geecs_panels.feed import CameraFeed, FrameSource, FrameUnavailable, WriteFailed
 from geecs_panels.registry import Device
@@ -176,6 +182,7 @@ def create_app(
                 "experiment": experiment,
                 "device": camera(name),
                 "readings": READINGS,
+                "transforms": TRANSFORMS,
                 "stale_after": stale_after,
                 "max_fps": max_fps,
                 "writable": writable,
