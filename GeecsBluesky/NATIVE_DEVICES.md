@@ -723,10 +723,11 @@ the readback is off by more than `.RDBD` — and the cause in the failure
 text (`_set_logged`'s job). A motor record **has** a stop: abort calls `motor_stop`.
 
 **Scanner and preflight**: the settables list, the readback (`<axis>.RBV`)
-and the move are §10's. A positioner is never a detector, so
-`acquisition_refusal` does not see it, and `_check_liveness` probes only
-the preset's device entries (`expand_preset`'s `devices`), never a sweep
-axis; the worker's gate judges it (below).
+and the move are §10's. As a detector a positioner is a per-row scalar
+device (§10), so `acquisition_refusal` sees it only as a non-essential or
+a gated run's sole essential; `_check_liveness` probes only the preset's
+device entries (`expand_preset`'s `devices`), never a sweep axis; the
+worker's gate judges it (below).
 
 **Catalogue entry**: `target: U_ESP_JetXYZ:x`; the `kind: motor` opt-in
 is redundant for a native axis, which counts as bound so
@@ -734,8 +735,7 @@ is redundant for a native axis, which counts as bound so
 needs `offset` and `set_current_position` (`build_pseudo`'s contract),
 provided as a soft signal as `CaSettable.offset` is — never the record's `.OFF`.
 
-**Row**: the scanned axis's readback as today; a device's other axes ride
-as scalar columns when it is in the preset; telemetry candidates (question 7).
+**Row**: the scanned axis's readback as today; other axes of a device in the preset ride as scalar columns (question 7 for telemetry).
 
 **Liveness**: a motor record has no CONNECTED; the axis's alarm severity
 is the verdict — INVALID (COMM/UDF, what an asyn motor driver sets when
@@ -1017,4 +1017,4 @@ setpoint devices admitted per row, refused as non-essential or sole gated
 essential; (3) prefix rule and suffix sets given one home; (4) the existing
 geecs-epics simulators named; (5) `_log_unhonoured_motor_targets` is the
 warning at stake; (6) #1136 marked open; (7) the scope contract pointed
-at, not restated; (8) `source` is list-level.
+at, not restated; (8) `source` is list-level; residual of (2) reconciled in §7.
