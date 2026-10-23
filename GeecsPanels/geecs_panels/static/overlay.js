@@ -50,7 +50,11 @@
     });
     if (!r.ok) {
       let detail = "HTTP " + r.status;
-      try { detail = (await r.json()).detail || detail; } catch (_) { /* not JSON */ }
+      try {
+        const d = (await r.json()).detail;
+        // A validation refusal is a list of {msg}; everything else a string.
+        detail = Array.isArray(d) ? d.map((x) => x.msg).join("; ") : (d || detail);
+      } catch (_) { /* not JSON */ }
       throw new Error(detail);
     }
     return r.json();
