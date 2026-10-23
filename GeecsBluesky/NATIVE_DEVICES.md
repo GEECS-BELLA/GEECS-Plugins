@@ -668,3 +668,349 @@ this design.
    trigger: a network-broadcast trigger that, on PTP-synchronized cameras,
    can be scheduled for a precise time — software-initiated with
    hardware-grade timing. Ties into the PTP plan; not in v1.
+
+## Kinds beyond the camera — design (not built)
+
+Status: **design for review.** The roster collapses to four kinds: the
+camera above, a positioner, a setpoint device and an array detector.
+Integration is per kind, never per device, so each kind is designed here
+first, developed against geecs-epics' simulators (decision 13: a
+device-level fake behind the real IOC image plus a PV-level replayer, the
+real prefixes on an isolated network) and accepted on its first real
+device. Decision 14 fixes the framework per class: array-like devices are
+areaDetector drivers, stages are motor records, setpoint devices are plain
+records. Names marked *proposed* do not exist yet and are not in
+backticks; proposed registry keys are written plain. Every kind maps onto
+the settable contract the CA gateway already teaches every client
+(`GeecsCAGateway/PV_CONTRACT.md`: a readback, a `:SP` request whose
+completion is the device's verdict, a status PV, limits as metadata)
+rather than inventing a second one.
+
+### 7. Positioner — the EPICS motor record
+
+The Newport ESP/SMC/CONEX, NewFocus and Zaber stages, the PI hexapod and
+the Thorlabs stages become motor records (`ioc-motion`; the catalogue is
+`geecs-epics/docs/device-catalogue.md`). A filter wheel is a discrete
+positioner: a motor record with integer positions, not a kind.
+
+**Registry entry** (*proposed* kind epics_motor): one device, several
+axes; the axes are the record names under the prefix, so the registry
+still carries names only. No tolerance, units or limits here — the record
+owns them (`.RDBD`, `.EGU`, `.HLM`/`.LLM`), the one home for device facts.
+
+```yaml
+U_ESP_JetXYZ: {kind: epics_motor, axes: [x, y, z]}
+```
+
+**Device**: stock ophyd-async `Motor` per axis — `user_setpoint` (`.VAL`),
+`user_readback` (`.RBV`), `motor_done_move` (`.DMOV`),
+`low_limit_travel`/`high_limit_travel`, `velocity`, `motor_stop` — under
+one parent noun per device (*proposed* NativeMotor) bound as
+`U_ESP_JetXYZ.x`, so `mv`, a sweep axis, `GeecsNamespace.variable`,
+`get_settable` and an action's `set` step find it as they find a `CaMotor`
+child. The parent carries `_geecs_device_name` and `_column_headers`
+(`<name>-x` → header `U_ESP_JetXYZ x`): the s-file row and
+`EVENT_SCHEMA.md`'s settable column shape are unchanged.
+
+**Move completion**: the stock `Motor.set` is a put-callback on `.VAL`,
+completed by the record when `.DMOV` returns to 1 — the device's own
+verdict, the analogue of the GEECS executed reply — with the readback
+observed meanwhile and a timeout from `.VELO` and `.ACCL`. The record
+retries to `.RDBD` itself, so no `within_tolerance` poll rides on top.
+Soft limits are checked before the put (`MotorLimitsError`, the gateway's
+pre-forward control-limit rejection). Two things the GEECS path has that
+the stock class lacks, added by the thin subclass: a **post-move readback
+check** — a limit switch (`high_limit_switch` / `low_limit_switch`) or a
+following error stops the record with `.DMOV` = 1 short of the target and
+the put completes "successfully" (the #868 class of fault), so the move
+fails naming the switch when the readback is off by more than `.RDBD`;
+and the cause in the failure text (`_set_logged`'s job on `CaSettable`).
+Unlike a GEECS device a motor record **has** a stop: abort calls `motor_stop`.
+
+**Scanner and preflight**: the settables list, the readback (`<axis>.RBV`)
+and the move are §10's. A positioner is never a detector, so
+`acquisition_refusal` does not see it; `_check_liveness` has no CONNECTED
+PV to probe and passes it (fail-open); the worker's gate judges it (§10).
+
+**Catalogue entry**: `target: U_ESP_JetXYZ:x`; the `kind: motor` opt-in
+is redundant for a native axis and `motor_targets` must not WARN about a
+missing DB tolerance for one. A pseudo over native axes needs `offset`
+and `set_current_position` (`build_pseudo`'s contract), provided as a soft
+signal as `CaSettable.offset` is — never the record's `.OFF`, which would
+rewrite the user frame on the IOC.
+
+**Row**: the scanned axis's readback column as today; the other axes of
+a device named in the preset ride as scalar columns; axes are
+background-telemetry candidates (open question 7).
+
+**Liveness**: a motor record has no CONNECTED. The axis's alarm severity
+is the verdict: INVALID (status COMM/UDF, what an asyn motor driver sets
+when the controller stops answering) reads down; the IOC itself down is
+the connect failure at stage, before the claim, as for the camera.
+
+**Simulator**: motorSim behind the `ioc-motion` image, the same `ioc.yaml`
+save for the controller port. **Acceptance** on the first real stage:
+`mv` lands within `.RDBD`; a 3 × 10 `sweep` has 30 rows with the axis at
+each target; a target past `.HLM` is refused before the put; a limit
+switch tripped mid-move fails the move naming it; the IOC down before the
+run refuses it with nothing claimed.
+
+### 8. Setpoint device — the EasyDriver pattern
+
+The CAEN ELS Easy-Driver (`eztest1`, StreamDevice over its Lantronix
+bridge) is the template for every scalar device with a readback and a
+request: supplies, delay generators, DAC outputs. Its records already
+spell the gateway contract — readback `<prefix>current`, request
+`<prefix>current:SP` with `DRVH`/`DRVL`, a refused write an alarm on the
+setpoint record, named status bits (`enable_output`, `fault`, `interlock`)
+raising MAJOR. That record shape becomes a geecs-epics contract document,
+as the scope's (§9); this note defines what GEECS consumes.
+
+**Registry entry** (*proposed* kind setpoint_device): the worker has no
+DB rows to enumerate the variables, so the entry names them — the
+settables (each with a tolerance, the one device fact an `ao` record
+cannot hold, and a timeout), extra readback columns, and the status bits.
+An enum settable (`enable_output`) matches exactly, no tolerance.
+
+```yaml
+U_EZ1: {kind: setpoint_device,
+        settables: {current: {tolerance: 0.005}, slewrate: {tolerance: 0.01}},
+        readbacks: [voltage, temperature], status: [fault, interlock]}
+```
+
+**Set semantics** — never on a "put ok": for StreamDevice put-completion
+means the device **accepted** the command (`#AK`), not that it converged
+— the opposite of the gateway, where put-completion *is* convergence — so
+the readback wait is mandatory. The set completes when the readback is
+within the tolerance (`within_tolerance`, ULP slack included); it fails
+at once when the `:SP` record goes INVALID after the put (a `#NAK`, the
+SEVR rule) or a status bit raises (`fault`, `interlock`), and on the
+timeout with `GeecsConfirmTimeoutError`'s words. This is
+`CaConfirmSettable`'s topology — set X, confirm on Y — with Y the readback
+record; the device (*proposed* NativeSettable) is that logic over two IOC PVs.
+
+**Out-of-range writes**: a native `ao` record **clamps** to `DRVH`/`DRVL`
+where the gateway rejects (`PV_CONTRACT.md` §2, on purpose); clamping
+would run a scan to 6 A at 5 A with every row "ok". The worker reads
+`DRVH`/`DRVL` (`DBR_CTRL`) and refuses before the put, as
+`Motor.check_motor_limit` does — pinned by a test asserting no put was made.
+
+**Row**: `Device variable` readback columns for the scanned settable and
+the listed readbacks, sampled per row as `CaSnapshotReadable` does; status
+bits are archived (§10), not row columns. **Liveness**: a StreamDevice
+readback whose device stops answering goes INVALID/TIMEOUT — any readback
+at INVALID reads down. **Panel**: readbacks, `:SP`s with limits, status bits.
+
+**Simulator**: a protocol fake answering the EasyDriver's ASCII set
+(`#MRI:`, `#AK`/`#NAK`) behind the real `ioc-streamdevice` image, the
+same template and `.proto`, only the asyn port address differing.
+**Acceptance** on `eztest1`: a 5-point `sweep` of `current`, each within
+tolerance; a value past `DRVH` refused before the put; a `#NAK` (output
+disabled) fails the set naming the alarm; the interlock bit raised
+mid-move fails the set naming the bit.
+
+### 9. Array detector — areaDetector, the camera's path end to end
+
+**Ruled 2026-10-23 in the PicoScope session**: the scope goes the
+areaDetector route with alias settings (geecs-epics decision 14). The
+PicoScope driver becomes an ADDriver on ADCSimDetector's pattern —
+address 0 an NDArray of `[channels × samples]` per capture, addresses 1..N
+one 1-D array per channel — behind a vendor-neutral **scope settings
+contract** (canonical records at the device root with `_RBV`s, every
+driver providing them as EPICS alias records; a non-areaDetector vendor
+driver feeds the chain through NDDriverStdArrays) and a documented chain:
+per-channel ROI → STAT, plus HDF5, PVA and StdArrays on the full array.
+**That contract is geecs-epics' own docs PR**; this note defines only what
+GEECS consumes: the stack, the stamp pair, which STAT values become
+columns, the refusals.
+
+**Reuse, stated**: the kind (*proposed* NativeArrayDetector) is
+`NativeCamera`'s path with the alias names in place of `cam1:`'s — armed
+once per run (`NativeTriggerLogic`'s stop → trigger setup → capture
+start, `NativeAcquireLogic`'s restore at unstage), the run lock taken
+first (#1136), a shot = `HDF1:NumCaptured_RBV` advancing, `Software`
+pressed in `trigger()` or an external edge on the scope's trigger input,
+box-gated like a camera's line; the stack `ScanNNN/<device>/<device>.h5`
+through `PluginPathProvider` and `native_ioc_save_path`; the row stamp
+from the writer's EPICS pair (`_StampProvider`, `epics_timestamp_to_unix`);
+the `/entry` finalized layout kept by `NativeHdfDataLogic`;
+`find_stack_file`, `StackCheckCallback` and Tiled's stock consolidator
+unchanged; one capture per row, its own miss fails the step, never
+rewindable, strict only in v1 with the camera's refusals. The two classes
+share a base (open question 8); `native_cameras()` and
+`refuse_native_cameras` become the base's helpers.
+
+**Where the waveform goes — decided by the reuse**: the stack, frames
+`(N, channels, samples)` in `/entry/data/data`, the capture atomic across
+channels, one datum per shot. Rejected: one HDF plugin per channel (N
+files and N arms per prepare for no gain); StdArrays into the row (a row
+is scalars). The reader learns the shape: `stack_content_kind` knows the
+PVA gateway's `(N, n)` waveform and `(N, n, 2)` lineout by their `wave_*`
+attributes (`WAVEFORM_ATTRIBUTE_SUFFIXES`); a native scope stack carries
+the contract's axis NDAttributes instead (sample interval, count,
+pre-trigger), so a third marker and a per-channel view in `read_1d_data`
+are the GEECS-Data-Utils change — the counterpart of the EPICS-pair read.
+
+**Derived scalars** (ICT charge, peak, baseline): the chain's STAT plugin
+on each channel's ROI gives Total, Net, Min, Max and Centroid per
+capture; a calc record applies a constant calibration. The registry
+names which PVs become columns, each `<name>-<column>` in the row with
+header `Device Column`:
+
+```yaml
+U_UndulatorExitICT: {kind: array_detector, trigger_source: external,
+                     scalars: {"Charge.ChA": "STAT1:Net_RBV"}}
+```
+
+Read **coherently**: a STAT value and the HDF count are separate plugin
+callbacks with no ordering between them, so the kind reads each scalar
+only when its plugin's `UniqueId_RBV` equals the written frame's (the
+`ShotSampler` rule for a member with a stamp of its own, by frame id) and
+writes `NaN` on timeout — never the previous shot's number. The
+analysis-grade charge (`apply_ict_analysis`) stays post-scan over the
+stack, as every per-shot derived number is today (open question 5).
+**Refusals** beyond the camera's: a scalar PV outside the device's prefix
+(bind); a STAT plugin with callbacks disabled (prepare, "declared scalar
+not computed"); `X.scalars` admitted only when the entry declares scalars.
+
+**Timestamp**: the EPICS pair stamps the capture's arrival at the driver,
+after the post-trigger samples; the hand-set drain offset absorbs that
+span per device, measured on the bench as for a camera (ruling 6).
+
+**Simulator**: ADCSimDetector, off the shelf, the same chain under the
+real prefix; it free-runs, so the sim entry says software triggering.
+**Acceptance**: the PicoScope 5242D after its driver rework — a strict
+10-shot `count` gives one finalized stack of 10 `(2, samples)` frames, 10
+rows each joined by stamp with the declared scalar columns coherent (a
+deliberately slowed STAT yields `NaN`, never a stale value), each
+channel's trace per shot in the portal, the panel running before and after.
+
+### 10. Cross-cutting
+
+**Registry union and options.** `NativeDevice` gains three members,
+discriminated by `kind`; `NativeDevices.devices` is unchanged; docgen follows.
+
+| kind | options | binds as |
+|---|---|---|
+| `aravis_camera` (built) | `trigger_source` | `NativeCamera` |
+| epics_motor | axes | a noun with one stock `Motor` per axis |
+| setpoint_device | settables (tolerance, timeout), readbacks, status | one confirm-on-readback Movable per settable |
+| array_detector | `trigger_source`, scalars | the camera's path over the alias records |
+
+**One owner** is unchanged: `GeecsNamespace._add_native_devices` compares
+`safe_name`s against the roster for every kind. Added: an axis or
+variable name colliding with a kind's fixed record suffixes refuses to
+open.
+
+**Bind-time refusals per kind.** The camera's list stands. A positioner
+or a setpoint device is refused as a detector or a non-essential — no
+shot stamp (`acquisition_refusal`'s existing sentence) — and admitted as a
+scan axis or an action target in every mode. The array detector takes the
+camera's list plus §9's. For these to fire on the right devices the
+client's native set must be **kind-aware**: `expand_preset`'s
+`native_devices` is a name collection today, and its `scalars_only` /
+`_native_run_refusal` rules apply to detector kinds only → names → kind.
+
+**The scanner's settables list.** `DbSettables` builds `numeric_settables`
+from DB rows; natives have none. A second source over `NativeDevices`
+(*proposed*, beside `DbSettables` in `service/settables.py`) yields a
+`NumericSettable` per motor axis and per numeric setpoint-device settable,
+appended after the DB list, `source` saying so. Units, min and max come
+from one `DBR_CTRL` read per PV (`.EGU`, `.HLM`/`.LLM` or `DRVH`/`DRVL`),
+cached per process like `CachedDbRead`. The readback (`service/readback.py`)
+gets a per-kind PV — `<axis>.RBV` for a motor, the readback record for a
+setpoint device — instead of `pv_name`'s gateway spelling. The move path
+is untouched: `MoveIn` → `scan_variable_reference` → the worker's `mv`.
+
+**Archive set.** `derive_candidates` reads only DB rows; a native device
+has none, so the archiver would silently drop a migrated device. A
+registry pass in `geecs_archiver.archive_set`, reading `NativeDevices`
+through the configs-repo wrappers in `config.py` (which already load
+`DerivedChannels`), derives per kind: a motor's `.RBV`, `.VAL` (under
+`include_setpoints`), `.DMOV` and the limit switches (status); a setpoint
+device's readbacks, `:SP`s and status bits; a detector's settings
+readbacks (`cam1:AcquireTime_RBV`, the scope contract's `_RBV`s),
+`AsynIO.CNCT` and the run lock; devIocStats' heartbeat per IOC as the
+analogue of `cagateway:heartbeat`. `exclude` globs apply; `include` keeps
+its gateway spelling rule (these are derived candidates). The appliance's
+never-connected list stays the drift alarm between registry and IOCs.
+
+**Liveness, per kind** — `devices/ca/liveness.py`'s fail-open shape:
+
+| kind | down when |
+|---|---|
+| camera / array detector | `AsynIO.CNCT` reads Disconnect, or the IOC does not answer (`down_native_cameras`'s rule) |
+| positioner | an axis at INVALID severity (COMM/UDF) |
+| setpoint device | a readback at INVALID severity (TIMEOUT/COMM) |
+
+**Panels** (GeecsPanels, #1131–#1138 open; `Planning/device_panels.md`):
+a kind whose writes move things submits through the scanner's
+`POST /api/move`, serialized with scans — the positioner and a setpoint
+device's numeric settables; non-motion controls (`enable_output`, `reset`)
+are direct, allow-listed puts; the scope's settings are direct puts
+behind the run lock, as the camera's. Needed from the PV surface: motor —
+`.RBV`, `.VAL`, `.DMOV`, `.HLM`/`.LLM`, the switches, `.STOP`; setpoint
+device — readbacks, `:SP`s with limits, status bits, `.SEVR`; array
+detector — the contract's `_RBV`s, the channel arrays, STAT, the run lock.
+
+**The simulator-first acceptance ladder**, per kind: (1) GeecsBluesky
+unit tests with a mocked IOC, as `tests/test_native_camera.py`; (2) the
+device fake on geecs-epics' sim host, the real prefix on the isolated
+network, driven by a **dev-box queueserver** — a worker whose `config.ini`
+names a test experiment's configs checkout, whose `EPICS_CA_ADDR_LIST` is
+the sim host and whose `[Paths]` root is a scratch tree (`claim_scan_number`
+is the one creator of scan folders and must never claim in the real data
+tree from a dev box); the kind's acceptance plans run there; (3) the
+PV-level replayer for readers and panels; (4) the first real device on the
+lab worker, the lists in §7–§9; (5) the rules move into `CLAUDE.md` and
+the section here is deleted.
+
+### 11. Where the changes land
+
+- **S** (first) — GEECS-Schemas + `qs_client/presets.py`: the three union
+  members and option models, docgen; names → kind in `expand_preset`.
+- **M**, **P**, **A** — GeecsBluesky, independent after S: the positioner
+  noun with the post-move check; the confirm-on-readback Movable with the
+  `DRVH`/`DRVL` refusal; the shared native-detector base, the scalar
+  columns by frame id, and (GEECS-Data-Utils) the scope stack shape in
+  `scan_stack` / `read_1d_data`.
+- **L** — GeecsScanner, after M and P: the registry settables source, the
+  `DBR_CTRL` read, the per-kind readback PV. **R** — GeecsArchiver, after
+  S: the registry pass in `archive_set`. geecs-epics: the two contract
+  docs, the sim host (#16), the motion image. Each PR lands against the
+  simulator and is accepted on its first real device.
+
+### Open questions — kinds beyond the camera
+
+1. **Registry kind names.** (a) epics_motor / setpoint_device /
+   array_detector; (b) motor / setpoint / scope; (c) by driver family
+   (motor_record, streamdevice, ad_scope). Recommend (a): (b) collides
+   with the catalogue's `kind: motor` / `kind: setpoint`, (c) leaks the driver.
+2. **Where a setpoint device's variables and tolerances live.** (a) the
+   registry entry (§8); (b) an IOC manifest record read at environment
+   open; (c) devicetype templates in GEECS-Schemas. Recommend (a) for
+   v1 — DB-free worker, stock IOC; revisit (b) if the list drifts.
+3. **Units and limits in the scanner's list.** (a) one `DBR_CTRL` read
+   per native PV, cached per process; (b) blank; (c) in the registry.
+   Recommend (a): device facts stay below the configs.
+4. **Filter wheels.** (a) a motor record with integer positions, under
+   the positioner kind; (b) an `mbbo` under the setpoint kind; (c) a kind
+   of their own. Recommend (a): one kind; `sweep` takes integers.
+5. **Scope derived scalars.** (a) IOC STAT/calc live plus the
+   analysis-grade number post-scan; (b) post-scan only; (c) IOC only.
+   Recommend (a): a number per shot in the row, the algorithm in analysis.
+6. **Out-of-range sets to a native `ao`.** (a) worker-side `DRVH`/`DRVL`
+   refusal before the put; (b) a rejecting `:SP` from geecs-epics (not
+   stock); (c) accept clamping. Recommend (a).
+7. **Native axes and readbacks in background telemetry.** (a) yes; (b) no.
+   Recommend (a): a read costs no shot; the baseline already carries
+   every DB scalar.
+8. **The native-detector base.** (a) a shared base for `NativeCamera` and
+   the array detector; (b) the array detector subclasses `NativeCamera`.
+   Recommend (a): `cam1:` names and alias names are peers.
+9. **Archive membership for natives.** (a) a per-kind rule in
+   `archive_set`; (b) policy `include` lists only; (c) EPICS `info(archive)`
+   tags. Recommend (a): (b) is silent when forgotten, (c) needs a tool.
+10. **The scope's stack shape.** (a) `(N, channels, samples)` from the
+    full-array HDF plugin; (b) one plugin and file per channel. Recommend
+    (a): one atomic capture per datum, one arm per prepare.
