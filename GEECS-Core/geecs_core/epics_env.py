@@ -20,8 +20,9 @@ is still found.  On a service host ``config.ini`` is rendered from
 ``site.env``.
 
 Import order: libca reads these variables when the CA context is created,
-which happens as soon as aioca is imported, so ``geecs_bluesky/__init__``
-calls :func:`apply_epics_address_config` before importing any submodule.
+which happens as soon as aioca is imported, so every CA client calls
+:func:`apply_epics_address_config` before importing aioca — GeecsBluesky's
+``__init__`` before any submodule, GeecsPanels before its PV bridge.
 Explicitly exported environment variables always win (``setdefault``).
 """
 
@@ -34,9 +35,16 @@ from typing import MutableMapping, Optional
 
 from geecs_core.configs_repo import CONFIG_PATH, read_config_entry
 
-from geecs_bluesky.data_paths import pva_addr_tokens
-
 logger = logging.getLogger(__name__)
+
+
+def pva_addr_tokens(raw: str | None) -> list[str]:
+    """The hosts of a ``[pva]`` address-list value: space- or comma-separated, in order, de-duplicated."""
+    tokens: list[str] = []
+    for token in (raw or "").replace(",", " ").split():
+        if token not in tokens:
+            tokens.append(token)
+    return tokens
 
 
 def apply_epics_address_config(

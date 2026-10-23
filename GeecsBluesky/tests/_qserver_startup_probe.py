@@ -12,7 +12,7 @@ the cache hides it either way. A subprocess starts with an empty
 watch the *live* first-import order and catch a real regression (e.g. some
 future import creeping in ahead of ``import geecs_bluesky`` that pulls in
 ``aioca`` before ``EPICS_CA_ADDR_LIST`` is set — see
-``geecs_bluesky/epics_env.py``).
+``geecs_core/epics_env.py``).
 
 Prints ``PROBE_OK`` and exits 0 on success; prints ``FAIL: <reason>`` and
 exits 1 otherwise. Never raises past ``main()`` — every failure mode is a

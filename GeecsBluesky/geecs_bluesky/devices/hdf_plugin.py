@@ -47,10 +47,9 @@ from ophyd_async.epics.core import PvSuffix
 
 from geecs_core.configs_repo import read_config_entry
 
-from geecs_bluesky.data_paths import (
-    plugin_save_path,
-    pva_addr_tokens,
-)
+from geecs_core.epics_env import pva_addr_tokens
+
+from geecs_bluesky.data_paths import plugin_save_path
 
 
 class GeecsHdfIO(NDFileHDF5IO):

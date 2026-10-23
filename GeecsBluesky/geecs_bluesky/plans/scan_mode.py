@@ -38,7 +38,9 @@ import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
 from geecs_schemas.trigger_profile import TriggerState
 
-from geecs_bluesky.data_paths import local_data_root, pva_addr_tokens
+from geecs_core.epics_env import pva_addr_tokens
+
+from geecs_bluesky.data_paths import local_data_root
 from geecs_bluesky.devices.ca._view import geecs_device_of
 from geecs_bluesky.devices.scan_mode import (
     EXIT,
