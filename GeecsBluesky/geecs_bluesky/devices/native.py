@@ -257,28 +257,9 @@ class NativeTriggerLogic(DetectorTriggerLogic):
         # A refused GenICam write completes the CA put anyway (#868's class):
         # wait for the readbacks, or a camera still free-running would fill
         # the stack with live-view frames and every shot would "succeed".
-        # Waited for, not read once: the _RBV records update through asyn
-        # callbacks that can lag the put's completion.
-        wanted = {
-            "TriggerMode": (d.trigger_mode, OnOff.ON),
-            "TriggerSource": (d.trigger_source, self.source),
-            "ImageMode": (d.image_mode, ADImageMode.CONTINUOUS),
-        }
-
-        async def settled(name: str, sig: SignalR, want: Any) -> str | None:
-            try:
-                await wait_for_value(sig, want, timeout=READBACK_TIMEOUT_S)
-            except TimeoutError:
-                return f"{name}={await sig.get_value()} (wanted {want})"
-            return None
-
-        refused = [
-            r
-            for r in await asyncio.gather(
-                *(settled(n, sig, want) for n, (sig, want) in wanted.items())
-            )
-            if r
-        ]
+        refused = await unsettled_readbacks(
+            d, OnOff.ON, self.source, ADImageMode.CONTINUOUS
+        )
         if refused:
             raise GeecsConfigurationError(
                 f"{d.name}: the camera refused its trigger setup: {', '.join(refused)}"
@@ -304,6 +285,34 @@ class NativeTriggerLogic(DetectorTriggerLogic):
     async def default_trigger_info(self) -> TriggerInfo:
         """One edge-triggered event: the strict shot."""
         return STRICT_TRIGGER_INFO
+
+
+async def unsettled_readbacks(
+    d: NativeDriverIO, trigger_mode: Any, trigger_source: Any, image_mode: Any
+) -> list[str]:
+    """The trigger readbacks that did not reach the wanted values, as ``name=got (wanted x)``.
+
+    A refused GenICam write completes the CA put anyway (#868's class), and
+    the ``_RBV`` records update through asyn callbacks that can lag the
+    put's completion: waited for, never read once.
+    """
+    wanted = {
+        "TriggerMode": (d.trigger_mode, trigger_mode),
+        "TriggerSource": (d.trigger_source, trigger_source),
+        "ImageMode": (d.image_mode, image_mode),
+    }
+
+    async def settled(name: str, sig: SignalR, want: Any) -> str | None:
+        try:
+            await wait_for_value(sig, want, timeout=READBACK_TIMEOUT_S)
+        except TimeoutError:
+            return f"{name}={await sig.get_value()} (wanted {want})"
+        return None
+
+    results = await asyncio.gather(
+        *(settled(n, sig, want) for n, (sig, want) in wanted.items())
+    )
+    return [r for r in results if r]
 
 
 async def take_run_lock(run_lock: RunLockIO, session: _Session) -> None:
@@ -384,6 +393,14 @@ class NativeAcquireLogic(DetectorAcquireLogic):
         await d.trigger_mode.set(trigger_mode)
         await d.trigger_source.set(trigger_source)
         await d.image_mode.set(image_mode)
+        # Checked like the arming: a silently refused restore must keep the
+        # saved state and the lock, not hand back a camera still armed.
+        refused = await unsettled_readbacks(d, trigger_mode, trigger_source, image_mode)
+        if refused:
+            raise GeecsConfigurationError(
+                f"{d.name}: the camera refused its restore: {', '.join(refused)} — "
+                "the run lock stays set until the camera is back"
+            )
         if acquire:
             await set_and_wait_for_value(
                 d.acquire, True, timeout=DEFAULT_TIMEOUT, wait_for_set_completion=False

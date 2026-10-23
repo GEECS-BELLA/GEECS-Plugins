@@ -639,6 +639,28 @@ def test_a_failed_restore_keeps_the_lock(RE: RunEngine, tmp_path: Path) -> None:
     assert _locked(RE, cam)
 
 
+def test_a_silently_refused_restore_keeps_the_lock(
+    RE: RunEngine, tmp_path: Path, monkeypatch
+) -> None:
+    """A refused put completes as success (#868): the readbacks decide, and the
+    saved state stays for the next unstage (GPT review on #1136)."""
+    monkeypatch.setattr(native, "READBACK_TIMEOUT_S", 0.1)
+    cam, _ = _camera(RE, tmp_path)
+    set_mock_value(cam.driver.trigger_mode, OnOff.OFF)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    callback_on_mock_put(cam.driver.trigger_mode, lambda value, **_: OnOff.ON)
+    with pytest.raises(GeecsConfigurationError, match="refused its restore"):
+        _run(RE, lambda: cam.unstage())
+    assert _locked(RE, cam)
+    assert cam._session.restore is not None
+    # The camera accepts the restore at the next unstage: then it is released.
+    callback_on_mock_put(cam.driver.trigger_mode, lambda value, **_: value)
+    _run(RE, lambda: cam.unstage())
+    assert not _locked(RE, cam)
+    assert _run(RE, lambda: cam.driver.trigger_mode.get_value()) == OnOff.OFF
+
+
 def test_a_failed_snapshot_still_releases_the_lock(
     RE: RunEngine, tmp_path: Path, monkeypatch
 ) -> None:
