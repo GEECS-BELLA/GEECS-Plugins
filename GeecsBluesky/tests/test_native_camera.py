@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -594,7 +595,8 @@ def test_the_lock_is_taken_before_the_camera_is_touched(
     assert log.index("lock=True") < log.index("capture=True")
     assert _locked(RE, cam)
     owner = _run(RE, lambda: cam.run_lock.owner.get_value())
-    assert owner.startswith("GEECS scan worker") and len(owner) <= 39  # a stringout
+    # host:pid @HH:MM — who and since when, whole within a stringout's 39 characters.
+    assert f":{os.getpid()} @" in owner and len(owner) <= 39
     # Strict prepares every shot: the lock is not written again.
     before = len(log)
     _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
@@ -666,3 +668,38 @@ def test_a_lock_the_ioc_does_not_take_refuses_the_run(
     with pytest.raises(GeecsConfigurationError, match="did not take the run lock"):
         _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
     assert "acquire=False" not in log  # the camera was never touched
+
+
+def test_an_unstage_during_an_arming_prepare_waits_for_it(
+    RE: RunEngine, tmp_path: Path, monkeypatch
+) -> None:
+    """A sibling's prepare failed fast and the plan unstages while this one is
+    still arming: the lock must never be released while the camera is armed."""
+    cam, log = _camera(RE, tmp_path)
+    _lock_log(cam, log)
+    release = asyncio.Event()
+    original = cam.driver.image_mode.get_value
+
+    async def slow_snapshot(*args, **kwargs):
+        await release.wait()  # the snapshot is still in flight
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(cam.driver.image_mode, "get_value", slow_snapshot)
+    _run(RE, lambda: cam.stage())
+
+    async def race():
+        prepare = asyncio.ensure_future(cam.prepare(STRICT_TRIGGER_INFO))
+        await asyncio.sleep(0.05)  # the lock is taken, the snapshot waits
+        unstage = asyncio.ensure_future(cam._native_acquire.ensure_stopped())
+        await asyncio.sleep(0.05)
+        release.set()
+        await prepare
+        await unstage
+
+    _run(RE, race)
+    # The release came after the camera was armed AND restored, never before.
+    released = log.index("lock=False")
+    assert released > log.index(f"trigger_mode={OnOff.ON}")
+    assert released > log.index(f"trigger_mode={OnOff.OFF}")
+    assert _run(RE, lambda: cam.driver.trigger_mode.get_value()) == OnOff.OFF
+    assert not _locked(RE, cam)

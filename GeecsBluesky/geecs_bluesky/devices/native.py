@@ -32,7 +32,7 @@ import os
 import socket
 import time
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated as A
 from typing import Any
 
@@ -153,11 +153,12 @@ class RunLockIO(Device):
 
 
 def run_owner() -> str:
-    """The lock's owner text: who holds the camera, and since when (for a stuck-lock judgement)."""
-    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    return f"GEECS scan worker {socket.gethostname()} pid {os.getpid()} since {stamp}"[
-        :39
-    ]
+    """The lock's owner text, ``host:pid @HH:MM`` — who holds the camera, and since when.
+
+    Within a ``stringout``'s 39 characters whatever the host's name (cut to
+    22): the override dialog shows it for a stuck-lock judgement.
+    """
+    return f"{socket.gethostname()[:22]}:{os.getpid()} @{time.strftime('%H:%M')}"
 
 
 def liveness_word(cnct: AsynConnect) -> str:
@@ -174,6 +175,11 @@ class _Session:
     restore: tuple[Any, ...] | None = None
     #: This session set the run lock and has not released it.
     locked: bool = False
+    #: Serialises the camera's arming (prepare_edge) with its restore
+    #: (ensure_stopped): an unstage sent while a prepare is still in flight
+    #: (a sibling detector's prepare failed fast; a halt's sweep) waits for
+    #: it, so the lock is never released while the camera is being armed.
+    guard: asyncio.Lock = field(default_factory=asyncio.Lock)
     fire_pending: bool = False
     missed: bool = False
 
@@ -215,6 +221,10 @@ class NativeTriggerLogic(DetectorTriggerLogic):
                 "a native camera's exposure is a camera setting, not a per-scan "
                 "TriggerInfo livetime"
             )
+        async with self.session.guard:
+            await self._arm(num)
+
+    async def _arm(self, num: int) -> None:
         if self.session.programmed:
             return
         d = self.driver
@@ -362,6 +372,10 @@ class NativeAcquireLogic(DetectorAcquireLogic):
 
     async def ensure_stopped(self) -> None:
         """At ``unstage``: the camera back to its pre-run state (live view between scans)."""
+        async with self.session.guard:  # after any prepare still in flight
+            await self._restore()
+
+    async def _restore(self) -> None:
         restore = self.session.restore
         self.session.programmed = False
         self.session.acquiring = False

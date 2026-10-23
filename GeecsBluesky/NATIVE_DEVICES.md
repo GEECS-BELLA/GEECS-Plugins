@@ -127,14 +127,18 @@ with GEECS logics:
   `Planning/device_panels.md` §6): the run owns the camera from the
   **first** step of the first `prepare_edge` — before the source check and
   the snapshot — until the camera is restored. `RunLockIO` sets
-  `RUN:Owner` (who and since when) and `RUN:Lock` 1, and **waits for the
+  `RUN:Owner` (`host:pid @HH:MM` — who and since when; the device does
+  not know the scan's number at prepare) and `RUN:Lock` 1, and **waits for the
   lock's readback** (a refused put can complete as success, #868): an IOC
   that does not take it refuses the run, the camera untouched. While it is
   set the IOC refuses acquisition writes from anyone but the worker's CA
   user (panels, Phoebus, an agent). It is released in `ensure_stopped`
   only once the camera is back — after the restore succeeds, or when this
   session took the lock but never snapshotted (nothing was touched). A
-  failed restore keeps it set: the camera is not back. Every camera IOC
+  failed restore keeps it set: the camera is not back. Arming and restore
+  are serialised (`_Session.guard`): an unstage sent while a prepare is
+  still in flight — a sibling detector's prepare failed fast, a halt's
+  sweep — waits for it, so the lock is never released mid-arming. Every camera IOC
   must serve the two records (the chain contract): a camera without them
   fails to connect.
 - **A shot** = the plugin's `NumCaptured` advancing past the baseline the
