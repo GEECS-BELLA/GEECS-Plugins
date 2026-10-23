@@ -177,12 +177,14 @@ def _add_live_routes(
     async def frame(name: str) -> Response:
         source = cameras.frames(camera(name))
         try:
-            jpeg = await source.latest()
+            frame = await source.latest()
         except FrameUnavailable as exc:
             return Response(str(exc), status_code=503, media_type="text/plain")
-        return Response(
-            jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"}
-        )
+        headers = {"Cache-Control": "no-store"}
+        if frame.tag is not None:
+            # The page skips decoding a frame it already shows.
+            headers["X-Frame-Counter"] = str(frame.tag)
+        return Response(frame.jpeg, media_type="image/jpeg", headers=headers)
 
     @app.get("/camera/{name}/events")
     async def events(request: Request, name: str, once: int = 0) -> StreamingResponse:

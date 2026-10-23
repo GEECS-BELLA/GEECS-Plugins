@@ -76,7 +76,11 @@ def main() -> None:
     app = create_app(
         experiment,
         devices,
-        LiveCameras(min_interval=1.0 / args.max_fps),
+        # Only used when the camera's frame counter is unknown (normally a
+        # frame is reused exactly while the counter stands still). Half the
+        # page's poll period, so timer jitter never hands a viewer its own
+        # previous frame.
+        LiveCameras(min_interval=0.5 / args.max_fps),
         registry_path=path,
         registry_error=error,
         stale_after=args.stale_after,
