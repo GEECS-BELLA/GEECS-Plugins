@@ -671,7 +671,11 @@ this design.
 
 ## Kinds beyond the camera — design (not built)
 
-Status: **design for review.** The roster collapses to four kinds: the
+Status: **design for review, provisional until built.** Everything in
+§7 to §11 is a starting point, not a contract: the first build of each kind
+may change it, and the maintainer's answers to the open questions below
+(2026-10-23) are starting points too, never a rule a later change must
+argue its way past. The roster collapses to four kinds: the
 camera above, a positioner, a setpoint device and an array detector.
 Integration is per kind, never per device: each kind is designed here
 first, developed against geecs-epics' simulators (decision 13: a
