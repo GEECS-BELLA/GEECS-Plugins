@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 from collections.abc import AsyncIterator, Callable
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -233,9 +234,10 @@ def centroid_in_image(feed: CameraFeed, stale_after: float) -> tuple[int, int]:
     if states["cx"]["state"] != "fresh" or states["cy"]["state"] != "fresh":
         raise LookupError("the centroid is not fresh: nothing to move to")
     ax, ay = feed.roi_axes()
+    # Half up, not Python's half-to-even: 120.5 and 121.5 both go up.
     return (
-        round(to_image(ax, float(states["cx"]["value"]))),
-        round(to_image(ay, float(states["cy"]["value"]))),
+        math.floor(to_image(ax, float(states["cx"]["value"])) + 0.5),
+        math.floor(to_image(ay, float(states["cy"]["value"])) + 0.5),
     )
 
 

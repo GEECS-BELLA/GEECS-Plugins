@@ -27,17 +27,24 @@ class Axis:
     reverse: bool = False
 
 
+def _span(axis: Axis) -> int:
+    """The image pixels the output covers: whole bins only (NDROI drops a remainder)."""
+    b = max(axis.bin, 1)
+    return (axis.size // b) * b
+
+
 def to_image(axis: Axis, roi: float) -> float:
     """An ROI output position → image pixels."""
     b = max(axis.bin, 1)
     offset = roi * b + (b - 1) / 2
     if axis.reverse:
-        return axis.min + axis.size - 1 - offset
+        return axis.min + _span(axis) - 1 - offset
     return axis.min + offset
 
 
 def to_roi(axis: Axis, image: float) -> float:
     """An image position → the ROI's output pixels (the inverse of :func:`to_image`)."""
     b = max(axis.bin, 1)
-    offset = (axis.min + axis.size - 1 - image) if axis.reverse else (image - axis.min)
+    far = axis.min + _span(axis) - 1
+    offset = (far - image) if axis.reverse else (image - axis.min)
     return (offset - (b - 1) / 2) / b

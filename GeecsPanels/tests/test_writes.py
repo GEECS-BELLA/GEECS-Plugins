@@ -60,6 +60,11 @@ def test_allowed_values_are_coerced_to_the_pv_type(suffix, value, expected) -> N
         ("OVER1:1:Use", 2),
         ("OVER1:1:Shape", "Ellipse"),
         ("OVER1:1:Name", "x" * 40),
+        ("ROI1:SizeX", 0),  # a cleared field must not collapse the ROI
+        ("ROI1:MinX", -1),
+        ("OVER1:1:CenterX", -5),
+        ("OVER1:1:Red", 256),
+        ("OVER1:1:CenterX", float("nan")),
     ],
 )
 def test_wrong_values_are_refused(suffix, value) -> None:
@@ -87,6 +92,9 @@ def test_the_crosshairs_and_roi_are_monitored() -> None:
             299.0,
         ),  # reversed: output 0 is the far edge
         (Axis(100, 200, bin=4, reverse=True), 1.0, 293.5),  # output 1 covers 295..292
+        # A size that is not whole bins: NDROI drops the remainder, so the
+        # reversed far edge is min + 100 - 1, not min + 101 - 1.
+        (Axis(100, 101, bin=2, reverse=True), 0.0, 198.5),
     ],
 )
 def test_roi_positions_map_to_image_pixels(axis, roi, image) -> None:
@@ -168,12 +176,12 @@ def _with_centroid(cameras: RecordingCameras, *, fresh: bool = True) -> None:
 
 
 def test_to_centroid_puts_the_centroid_in_image_pixels() -> None:
-    """ROI (100, 200), bin x2: centroid (10, 20) is image (120.5 → 120, 220)."""
+    """ROI (100, 200), bin x2: centroid (10, 20) is image (120.5 → 121, half up; 220)."""
     cameras = RecordingCameras()
     _with_centroid(cameras)
     r = _client(cameras=cameras).post("/camera/ADTEST_CAM1/crosshair/2/to-centroid")
     assert r.status_code == 200, r.text
-    assert cameras.puts == [("OVER1:2:CenterX", 120), ("OVER1:2:CenterY", 220)]
+    assert cameras.puts == [("OVER1:2:CenterX", 121), ("OVER1:2:CenterY", 220)]
 
 
 def test_to_centroid_refuses_a_stale_centroid() -> None:

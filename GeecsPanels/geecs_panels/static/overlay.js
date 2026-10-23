@@ -103,7 +103,8 @@
   function drawCrosshair(ctx, c) {
     if (!c.use || c.x === null || c.y === null) return;
     const p = position(c);
-    const [vx, vy] = V.toView(p.x, p.y);
+    // An overlay position is a pixel's index: draw on the pixel's centre.
+    const [vx, vy] = V.toView(p.x + 0.5, p.y + 0.5);
     const s = V.scale();
     // Arms in image pixels (the stored size), never shorter than 12 px on screen.
     const ax = Math.max(12, ((c.sx || 0) / 2) * s), ay = Math.max(12, ((c.sy || 0) / 2) * s);
@@ -167,7 +168,7 @@
     for (const c of crosshairs) {
       if (!c.use || c.x === null) continue;
       const p = position(c);
-      const [vx, vy] = V.toView(p.x, p.y);
+      const [vx, vy] = V.toView(p.x + 0.5, p.y + 0.5);
       if (Math.hypot(cx - vx, cy - vy) <= GRAB_PX) return c;
     }
     return null;
@@ -192,14 +193,17 @@
   const CURSORS = { n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize",
     nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize", sw: "nesw-resize" };
 
+  // Nothing is drawn before the first frame: nothing may be grabbed either.
+  const ready = () => V.frameSize()[0] > 0;
+
   V.hooks.hover.push((cx, cy) => {
-    if (!writable) return "";
+    if (!writable || !ready()) return "";
     if (crosshairAt(cx, cy)) return "move";
     return CURSORS[roiHandleAt(cx, cy)] || "";
   });
 
   V.hooks.grab.push((cx, cy) => {
-    if (!writable) return null;
+    if (!writable || !ready()) return null;
     const c = crosshairAt(cx, cy);
     if (c) return dragCrosshair(c);
     const handle = roiHandleAt(cx, cy);
@@ -212,7 +216,8 @@
     const h = held.xh[c.n] = { x: p.x, y: p.y, dragging: true, until: 0 };
     return {
       move(ix, iy) {
-        h.x = Math.round(ix); h.y = Math.round(iy);
+        // The pixel under the pointer, as the cursor readout names it.
+        h.x = Math.floor(ix); h.y = Math.floor(iy);
         V.redraw();
       },
       end() {
@@ -255,6 +260,14 @@
 
   // ---- the rail's controls -----------------------------------------------
   const focused = (el) => document.activeElement === el;
+  // A number field's value, or null for a cleared or non-numeric one — which
+  // writes nothing (an empty field would otherwise be Number("") = 0), and the
+  // next snapshot puts the stored value back in the field.
+  const whole = (input) => {
+    const raw = input.value.trim();
+    const n = Number(raw);
+    return raw === "" || !Number.isFinite(n) ? null : Math.round(n);
+  };
 
   function fillControls() {
     for (const c of crosshairs) {
@@ -319,7 +332,8 @@
     });
     for (const [cls, field] of [[".xh-x", "CenterX"], [".xh-y", "CenterY"]]) {
       box.querySelector(cls).addEventListener("change", (ev) => {
-        put(pv(field), Math.round(Number(ev.target.value))).catch(() => {});
+        const v = whole(ev.target);
+        if (v !== null) put(pv(field), v).catch(() => {});
       });
     }
     box.querySelector(".xh-centroid").addEventListener("click", () => {
@@ -330,7 +344,8 @@
   for (const k of ["minx", "miny", "sizex", "sizey"]) {
     $("roi-" + k).addEventListener("change", (ev) => {
       const field = { minx: "MinX", miny: "MinY", sizex: "SizeX", sizey: "SizeY" }[k];
-      put("ROI1:" + field, Math.round(Number(ev.target.value))).catch(() => {});
+      const v = whole(ev.target);
+      if (v !== null) put("ROI1:" + field, v).catch(() => {});
     });
   }
   $("roi-full").addEventListener("click", () => {

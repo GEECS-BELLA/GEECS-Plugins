@@ -133,27 +133,39 @@ def crosshair_suffix(n: int, field: str) -> str:
 #: camera driver's, behind the run lock of build step 3). Value kinds:
 #: ``int`` (a pixel or a 0..255 level), ``bool`` (0/1), ``str``, or a tuple of
 #: allowed choices (an enum, written by name).
+@dataclass(frozen=True)
+class Whole:
+    """A whole number in ``lo..hi`` (a pixel, a size, a 0..255 level)."""
+
+    lo: int
+    hi: int
+
+
+_PIXEL = Whole(0, 65535)
+_SIZE = Whole(1, 65535)
+_LEVEL = Whole(0, 255)
+
 WRITABLE: dict[str, object] = {
     **{
         f"OVER1:{n}:{field}": kind
         for n in CROSSHAIRS
         for field, kind in (
             ("Use", bool),
-            ("CenterX", int),
-            ("CenterY", int),
-            ("SizeX", int),
-            ("SizeY", int),
-            ("Red", int),
-            ("Green", int),
-            ("Blue", int),
+            ("CenterX", _PIXEL),
+            ("CenterY", _PIXEL),
+            ("SizeX", _PIXEL),  # an overlay may be a 0-wide line
+            ("SizeY", _PIXEL),
+            ("Red", _LEVEL),
+            ("Green", _LEVEL),
+            ("Blue", _LEVEL),
             ("Name", str),
             ("Shape", ("Cross", "Rectangle")),
         )
     },
-    "ROI1:MinX": int,
-    "ROI1:MinY": int,
-    "ROI1:SizeX": int,
-    "ROI1:SizeY": int,
+    "ROI1:MinX": _PIXEL,
+    "ROI1:MinY": _PIXEL,
+    "ROI1:SizeX": _SIZE,
+    "ROI1:SizeY": _SIZE,
 }
 
 
@@ -167,10 +179,12 @@ def _as_flag(suffix: str, value: object) -> object:
     raise NotWritable(f"{suffix} takes 0 or 1, not {value!r}")
 
 
-def _as_whole(suffix: str, value: object) -> object:
+def _as_whole(suffix: str, value: object, kind: Whole) -> object:
     whole = isinstance(value, int) or (isinstance(value, float) and value.is_integer())
     if isinstance(value, bool) or not whole:
         raise NotWritable(f"{suffix} takes a whole number, not {value!r}")
+    if not kind.lo <= int(value) <= kind.hi:
+        raise NotWritable(f"{suffix} takes {kind.lo}..{kind.hi}, not {value!r}")
     return int(value)
 
 
@@ -180,7 +194,7 @@ def _as_text(suffix: str, value: object) -> object:
     return value
 
 
-_COERCE = {bool: _as_flag, int: _as_whole, str: _as_text}
+_COERCE = {bool: _as_flag, str: _as_text}
 
 
 def check_write(suffix: str, value: object) -> object:
@@ -197,6 +211,8 @@ def check_write(suffix: str, value: object) -> object:
         if value not in kind:
             raise NotWritable(f"{suffix} takes one of {', '.join(kind)}")
         return value
+    if isinstance(kind, Whole):
+        return _as_whole(suffix, value, kind)
     return _COERCE[kind](suffix, value)
 
 
