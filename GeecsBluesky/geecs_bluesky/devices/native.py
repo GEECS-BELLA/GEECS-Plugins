@@ -175,13 +175,10 @@ class _Session:
     restore: tuple[Any, ...] | None = None
     #: This session set the run lock and has not released it.
     locked: bool = False
-    #: Serialises the camera's whole ``prepare`` (arming, the HDF capture,
-    #: the acquisition start) with its whole ``unstage`` (stop, close,
-    #: restore, release): an unstage sent while a prepare is still in flight
-    #: (a sibling detector's prepare failed fast; a halt's sweep) waits for
-    #: it, so the lock is never released while the camera is being armed or
-    #: its capture opened. Held by ``NativeCamera``, never by the logics
-    #: (``asyncio.Lock`` is not reentrant).
+    #: Serialises the camera's whole ``prepare`` with its whole ``unstage``:
+    #: an unstage sent mid-prepare (a sibling's prepare failed fast, a halt's
+    #: sweep) waits, so the lock is never released while the camera is armed
+    #: or its capture opening. Held by ``NativeCamera`` only (not reentrant).
     guard: asyncio.Lock = field(default_factory=asyncio.Lock)
     fire_pending: bool = False
     missed: bool = False
