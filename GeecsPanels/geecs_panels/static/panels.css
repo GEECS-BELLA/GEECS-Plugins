@@ -9,8 +9,14 @@
   background:var(--surface-2);border-radius:var(--r);overflow:hidden;
   touch-action:none;
 }
-.kit .viewport canvas{display:block;width:100%;height:100%;cursor:crosshair}
-.kit .viewport.panning canvas{cursor:grabbing}
+.kit .viewport{cursor:crosshair}
+.kit .viewport canvas{display:block;width:100%;height:100%;cursor:inherit}
+.kit .viewport.panning{cursor:grabbing}
+/* The crosshair and ROI controls in the rail. */
+.kit .crosshair{display:flex;flex-direction:column;gap:6px;padding-bottom:8px}
+.kit .crosshair input[type="color"]{width:30px;height:26px;padding:0;border:var(--bw) solid var(--rule);border-radius:var(--r);background:var(--surface)}
+.kit .field.coord{min-width:0;width:84px}
+.kit #write-error{color:var(--crit);font-size:11.5px;min-height:1em}
 .kit .live-strip .dbody{padding-top:8px}
 .kit .live-strip > summary #live-summary{margin-left:6px}
 .kit .readings{grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}

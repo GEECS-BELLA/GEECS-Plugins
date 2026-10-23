@@ -37,7 +37,10 @@
      data-events-url="{{ url_for('events', name=device.name).path }}"
      data-device="{{ device.name }}"
      data-stale-after="{{ stale_after }}"
-     data-max-fps="{{ max_fps }}">
+     data-max-fps="{{ max_fps }}"
+     data-writable="{{ 'true' if writable else 'false' }}"
+     data-put-url="{{ url_for('put_one', name=device.name).path }}"
+     data-centroid1="{{ url_for('to_centroid', name=device.name, n=1).path }}">
 
   <aside class="rail">
     <section class="group">
@@ -76,6 +79,45 @@
       </div>
       <div class="hint dim">8-bit stream: levels and scale stretch what the IOC sends; nothing is written to the camera.</div>
     </section>
+
+    {# Crosshairs and the analysis ROI live in the IOC (shared by every viewer,
+       autosaved); these controls write them through the allow-list. None of
+       them changes what a scan saves. #}
+    <section class="group writes">
+      <h4>Crosshairs</h4>
+      {% for n in (1, 2) %}
+        <div class="crosshair" data-n="{{ n }}">
+          <div class="row">
+            <label><input type="checkbox" class="xh-use"> <span class="xh-name mono">{{ n }}</span></label>
+            <input type="color" class="xh-colour" aria-label="Colour of crosshair {{ n }}">
+            <button class="btn sm ghost xh-centroid" type="button">To centroid</button>
+          </div>
+          <div class="row">
+            <div class="field coord"><label>x</label><input type="number" class="xh-x" aria-label="Crosshair {{ n }} x"></div>
+            <div class="field coord"><label>y</label><input type="number" class="xh-y" aria-label="Crosshair {{ n }} y"></div>
+          </div>
+        </div>
+      {% endfor %}
+      <div class="hint dim">Drag a crosshair's centre on the image to move it.</div>
+    </section>
+
+    <section class="group writes">
+      <h4>Analysis ROI</h4>
+      <div class="row">
+        <div class="field coord"><label for="roi-minx">x</label><input type="number" id="roi-minx" min="0"></div>
+        <div class="field coord"><label for="roi-miny">y</label><input type="number" id="roi-miny" min="0"></div>
+      </div>
+      <div class="row">
+        <div class="field coord"><label for="roi-sizex">width</label><input type="number" id="roi-sizex" min="1"></div>
+        <div class="field coord"><label for="roi-sizey">height</label><input type="number" id="roi-sizey" min="1"></div>
+      </div>
+      <div class="row">
+        <button class="btn sm" type="button" id="roi-full">Full frame</button>
+      </div>
+      <div class="hint dim">Drag the box's edges or corners on the image. The statistics see only this region.</div>
+    </section>
+    <label class="dim"><input type="checkbox" id="roi-show" checked> show the analysis ROI</label>
+    <div id="write-error" role="status"></div>
 
     <section class="group">
       <h4>View</h4>
@@ -131,5 +173,6 @@
 <script src="{{ root }}/theme/theme.js" defer></script>
 <script src="{{ root }}/theme/kit.js" defer></script>
 <script src="{{ root }}/static/camera.js" defer></script>
+<script src="{{ root }}/static/overlay.js" defer></script>
 </body>
 </html>

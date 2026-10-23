@@ -28,13 +28,18 @@ from typing import Optional, Protocol
 
 from geecs_panels.camera import (
     COUNTER_PLUGINS,
+    CROSSHAIR_FIELDS,
+    CROSSHAIRS,
     IMAGE_PLUGIN,
     READINGS,
+    ROI_FIELDS,
     counter_suffix,
+    crosshair_suffix,
     judge,
     monitored_suffixes,
     string_suffixes,
 )
+from geecs_panels.coords import Axis
 
 _COUNTER_SUFFIXES = frozenset(counter_suffix(p) for p in COUNTER_PLUGINS)
 
@@ -158,7 +163,35 @@ class CameraFeed:
             "readings": readings,
             "image": {"state": image_state, "age": image_age},
             "missing": self.missing(),
+            "crosshairs": self.crosshairs(),
+            "roi": self.roi(),
         }
+
+    def crosshairs(self) -> list[dict[str, object]]:
+        """Each crosshair's stored state (``None`` fields: not read yet)."""
+        return [
+            {
+                "n": n,
+                **{
+                    f: self.values.get(crosshair_suffix(n, f)) for f in CROSSHAIR_FIELDS
+                },
+            }
+            for n in CROSSHAIRS
+        ]
+
+    def roi(self) -> dict[str, object]:
+        """The analysis ROI's bounds, binning and direction."""
+        return {field: self.values.get(suffix) for field, suffix in ROI_FIELDS.items()}
+
+    def roi_axes(self) -> tuple[Axis, Axis]:
+        """ROI1's two axes for :mod:`geecs_panels.coords`; raises if not read yet."""
+        r = self.roi()
+        if any(r[k] is None for k in ("minx", "miny", "sizex", "sizey")):
+            raise LookupError("the analysis ROI has not been read yet")
+        return (
+            Axis(int(r["minx"]), int(r["sizex"]), int(r["binx"] or 1), bool(r["revx"])),
+            Axis(int(r["miny"]), int(r["sizey"]), int(r["biny"] or 1), bool(r["revy"])),
+        )
 
 
 #: () -> the URL of one JPEG frame from the IOC.
@@ -184,6 +217,10 @@ class Frame:
     def tag(self) -> str:
         """The page's identity for this frame."""
         return f"{'' if self.counter is None else self.counter}.{self.fetch}"
+
+
+class WriteFailed(RuntimeError):
+    """The IOC did not take a write; the message says why."""
 
 
 class FrameUnavailable(RuntimeError):

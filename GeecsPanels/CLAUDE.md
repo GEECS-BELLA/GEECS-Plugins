@@ -19,12 +19,18 @@ account) until the maintainer asks.
 geecs_panels/
   __main__.py   # CLI; applies geecs_core.epics_env BEFORE anything imports aioca
   registry.py   # native_devices.yaml → Device(name, kind, prefix)
-  camera.py     # the chain contract (PV suffixes) and the freshness rule — pure
+  camera.py     # the chain contract (PV suffixes), the freshness rule and the
+                #   write allow-list (WRITABLE, check_write) — pure
+  coords.py     # image pixels <-> the analysis ROI's output pixels — pure
   feed.py       # CameraFeed (monitored PVs → snapshot), FrameSource (shared JPEG)
                 #   — transports injected, so tests need no CA library or IOC
   ca.py         # the real transports: aioca monitors, stream URL, httpx
-  app.py        # routes: /, /camera/{device}, its frame.jpg and events (SSE)
+  app.py        # routes: /, /camera/{device}, its frame.jpg and events (SSE),
+                #   and the writes: put (allow-listed), crosshair colour, to-centroid
   templates/, static/   # on the GeecsWebTheme kit; colours through tokens only
+                #   camera.js = the viewer (frame loop, zoom/pan, colour map);
+                #   overlay.js = the crosshair + ROI layer, plugged in through
+                #   window.GeecsCameraView's hooks (draw, grab, hover, snapshot)
 ```
 
 ## Rules this package keeps
@@ -40,8 +46,14 @@ geecs_panels/
   flight) and pauses while hidden.
 - **The stream URL is rehosted to the CA address** (`ca.with_ca_host`): the
   IOC names itself by hostname, which a laptop cannot resolve.
-- **Read-only so far.** A write route must name its PV in an allow-list
-  (design note §4), and acquisition controls wait for the run lock (§6).
+- **Writes are allow-listed** (`camera.WRITABLE`): crosshairs (OVER1:1/2)
+  and the analysis ROI (ROI1) only — display and analysis state, never
+  what a scan saves. The page names an allow-listed suffix for a plain
+  put; anything that needs computing goes through its own route (the colour
+  route takes r/g/b — channel PV names in the script would also trip the
+  theme's colour-word guard — and to-centroid converts on the server with
+  `coords`). `--read-only` refuses every write. Acquisition controls (the driver) wait for the run lock
+  (design note §6).
 - Never imports GeecsBluesky, the scanner, the portal or the logbook
   (`.importlinter` `panels-edges`).
 
