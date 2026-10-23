@@ -459,6 +459,12 @@ def _add_lock_routes(app: FastAPI, cameras: Cameras, w: "_Writer") -> None:
         device = w.device(name)
         feed = cameras.feed(device)
         values = feed.values
+        # Directly, not through the allow-list: the lock is not a plain write
+        # (it is never in WRITABLE), only this named, logged release.
+        try:
+            await cameras.put(device, LOCK_FIELDS["lock"], 0)
+        except WriteFailed as exc:
+            raise HTTPException(502, str(exc)) from exc
         logger.warning(
             "run lock of %s released by %s (owner %r, HDF capture %s, image age %s)",
             device.name,
@@ -467,10 +473,4 @@ def _add_lock_routes(app: FastAPI, cameras: Cameras, w: "_Writer") -> None:
             values.get(LOCK_FIELDS["capture"]),
             feed.counter_ages().get("MJPG1"),
         )
-        # Directly, not through the allow-list: the lock is not a plain write
-        # (it is never in WRITABLE), only this named, logged release.
-        try:
-            await cameras.put(device, LOCK_FIELDS["lock"], 0)
-        except WriteFailed as exc:
-            raise HTTPException(502, str(exc)) from exc
         return {"ok": True}
