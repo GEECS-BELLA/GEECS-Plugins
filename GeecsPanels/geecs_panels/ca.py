@@ -21,7 +21,7 @@ from urllib.parse import urlsplit, urlunsplit
 import aioca
 import httpx
 
-from geecs_panels.camera import JPG_URL_SUFFIX
+from geecs_panels.camera import IMAGE_PLUGIN, JPG_URL_SUFFIX, counter_suffix
 from geecs_panels.feed import CameraFeed, FrameSource, ResolveUrl, Subscription
 from geecs_panels.registry import Device
 
@@ -118,8 +118,13 @@ class LiveCameras:
         """The camera's frame source."""
         source = self._frames.get(device.name)
         if source is None:
+            feed = self.feed(device)
+            counter = counter_suffix(IMAGE_PLUGIN)
             source = self._frames[device.name] = FrameSource(
-                url_resolver(device.prefix), self._fetch, self._min_interval
+                url_resolver(device.prefix),
+                self._fetch,
+                self._min_interval,
+                counter=lambda: feed.values.get(counter),
             )
         return source
 

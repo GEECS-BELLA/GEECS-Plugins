@@ -8,7 +8,10 @@ feed, so N open panels cost the IOC one set of subscriptions.
 
 A :class:`FrameSource` serves the latest JPEG with at most one upstream
 request in flight, reusing a frame for everyone who asks within
-``min_interval`` — N viewers cost the camera host one stream.
+``min_interval`` — N viewers cost the camera host one stream — and, when
+it is given the camera's frame counter, not fetching again until the
+counter moves (or ``max_reuse`` passes): a 1 Hz camera polled at 10 Hz
+costs one fetch a second.
 
 The transports are injected (``subscribe``, ``fetch``) so the logic runs in
 tests without a CA library or an IOC; :mod:`geecs_panels.ca` supplies the
@@ -164,6 +167,25 @@ ResolveUrl = Callable[[], Awaitable[str]]
 Fetch = Callable[[str], Awaitable[bytes]]
 
 
+@dataclass(frozen=True)
+class Frame:
+    """One JPEG, the frame counter it was fetched at, and its upstream fetch number.
+
+    ``tag`` names this exact fetch for the page (``"<counter>.<fetch>"``):
+    the page redraws exactly when the tag changes, so a safety refetch under
+    an unchanged counter is still drawn.
+    """
+
+    jpeg: bytes
+    counter: Optional[object] = None
+    fetch: int = 0
+
+    @property
+    def tag(self) -> str:
+        """The page's identity for this frame."""
+        return f"{'' if self.counter is None else self.counter}.{self.fetch}"
+
+
 class FrameUnavailable(RuntimeError):
     """No frame could be fetched; the message says why."""
 
@@ -175,21 +197,55 @@ class FrameSource:
     resolve_url: ResolveUrl
     fetch: Fetch
     min_interval: float
+    #: The camera's current frame counter (MJPG1's), ``None`` when unknown.
+    counter: Callable[[], Optional[object]] = lambda: None
+    #: The longest a frame is reused under an unchanged counter.
+    max_reuse: float = 1.0
     clock: Callable[[], float] = time.monotonic
+    _fetches: int = 0
     _url: Optional[str] = None
-    _frame: Optional[bytes] = None
+    _frame: Optional[Frame] = None
     _at: float = float("-inf")
-    _inflight: Optional[asyncio.Future[bytes]] = None
+    _inflight: Optional[asyncio.Future[Frame]] = None
 
-    async def latest(self) -> bytes:
-        """A frame no older than ``min_interval``, shared with concurrent callers."""
-        if self._frame is not None and self.clock() - self._at < self.min_interval:
-            return self._frame
+    async def latest(self) -> Frame:
+        """The newest frame, shared with concurrent callers.
+
+        Three rules, in order:
+
+        - **A floor for everyone:** within ``min_interval`` of the last
+          fetch, the cached frame is served — however many viewers poll and
+          however fast the camera, the IOC sees at most one fetch per
+          ``min_interval`` (N viewers cost one stream).
+        - **The counter:** past the floor, a frame is reused while the
+          camera's counter has not moved — a 1 Hz camera polled at 10 Hz is
+          fetched once a second.
+        - **A safety net:** a frame is never reused longer than
+          ``max_reuse``, counter or not — should a counter ever arrive
+          before its JPEG, the stale frame lasts this long, not a camera
+          period. (ffmpegServer stores the JPEG, then posts its counter.)
+
+        All ages are timed from the request, not the reply: timed from the
+        reply, a poll at the cap's period landed inside the window behind a
+        slow fetch and was handed the old frame again (a third of them).
+        """
+        counter = self.counter()
+        if self._frame is not None:
+            age = self.clock() - self._at
+            if age < self.min_interval:
+                return self._frame
+            unchanged = counter is not None and counter == self._frame.counter
+            if unchanged and age < self.max_reuse:
+                return self._frame
         if self._inflight is not None:
             return await asyncio.shield(self._inflight)
+        asked = self.clock()
         self._inflight = asyncio.get_running_loop().create_future()
         try:
-            frame = await self._fetch()
+            # Tagged with the counter read BEFORE the fetch: the JPEG is at
+            # least that new, so a later counter change always refetches.
+            self._fetches += 1
+            frame = Frame(await self._fetch(), counter, self._fetches)
         except BaseException as exc:
             self._inflight.set_exception(exc)
             # Mark it retrieved: a request with no concurrent waiter must
@@ -197,7 +253,7 @@ class FrameSource:
             self._inflight.exception()
             raise
         else:
-            self._frame, self._at = frame, self.clock()
+            self._frame, self._at = frame, asked
             self._inflight.set_result(frame)
             return frame
         finally:

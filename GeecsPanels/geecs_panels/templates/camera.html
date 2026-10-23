@@ -51,6 +51,14 @@
           <option value="jet">jet</option>
         </select>
       </div>
+      <div class="field">
+        <label for="scale">Scale</label>
+        <select id="scale">
+          <option value="linear">linear</option>
+          <option value="sqrt">square root</option>
+          <option value="log">log</option>
+        </select>
+      </div>
       <div class="row">
         <div class="field levels">
           <label for="level-lo">Black</label>
@@ -66,14 +74,21 @@
         <label class="dim"><input type="checkbox" id="auto-live"> every frame</label>
         <button class="btn sm ghost" type="button" id="reset-levels">Reset</button>
       </div>
-      <div class="hint dim">8-bit stream: levels stretch what the IOC sends, nothing is written to the camera.</div>
+      <div class="hint dim">8-bit stream: levels and scale stretch what the IOC sends; nothing is written to the camera.</div>
+    </section>
+
+    <section class="group">
+      <h4>View</h4>
+      <div class="hint dim">Scroll to zoom at the cursor, drag to pan, double-click to fit.</div>
     </section>
   </aside>
 
   <main class="pane">
-    <article class="panel">
-      <header><span class="eyebrow">live</span></header>
-      <div class="body">
+    {# Rung 0: a native disclosure. Folded, its summary still carries the
+       few numbers people glance at. #}
+    <details class="disc live-strip" id="live-strip" open>
+      <summary>Live <span class="mono dim" id="live-summary"></span></summary>
+      <div class="dbody">
         <div class="grid tight readings">
           {% for r in readings %}
             <div class="live" data-key="{{ r.key }}">
@@ -84,18 +99,21 @@
           {% endfor %}
         </div>
       </div>
-    </article>
+    </details>
 
     <article class="panel">
       <header>
         <span class="eyebrow">image</span>
         <span class="mono dim" id="cursor"></span>
+        <span class="mono dim" id="zoom-level"></span>
+        <button class="btn sm ghost" type="button" id="zoom-fit">Fit</button>
+        <button class="btn sm ghost" type="button" id="zoom-one">1:1</button>
         <span class="chip" id="image-state" data-state="unknown">waiting</span>
         <span class="mono dim" id="fps"></span>
       </header>
       <div class="body">
-        <div class="imagewrap">
-          <canvas id="image" width="1" height="1" aria-label="live camera image"></canvas>
+        <div class="viewport" id="viewport">
+          <canvas id="image" aria-label="live camera image"></canvas>
         </div>
         <div class="state" data-state="error" id="image-error" hidden>
           <div class="t">No frame from the IOC</div>
