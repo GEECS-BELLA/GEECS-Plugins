@@ -372,6 +372,11 @@ class FrameSource:
             self._inflight = asyncio.get_running_loop().create_task(
                 self._fetch_frame(counter, self.clock())
             )
+            # Every caller may have gone before a failure: retrieve it here,
+            # so asyncio does not log "Task exception was never retrieved".
+            self._inflight.add_done_callback(
+                lambda t: None if t.cancelled() else t.exception()
+            )
         return await asyncio.shield(self._inflight)
 
     async def _fetch_frame(self, counter: Optional[object], asked: float) -> Frame:

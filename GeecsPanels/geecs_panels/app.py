@@ -72,6 +72,17 @@ _SSE_HEADERS = {
 }
 
 
+def finite(value: object) -> object:
+    """*value* with every non-finite float (NaN, ±inf) replaced by ``None``, recursively."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: finite(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [finite(v) for v in value]
+    return value
+
+
 def _version() -> str:
     try:
         return version("geecs-panels")
@@ -261,8 +272,10 @@ def _add_live_routes(
 
         async def gen() -> AsyncIterator[str]:
             while True:
-                # allow_nan=False: a NaN or inf would be invalid JSON to the page.
-                payload = json.dumps(snapshot(), default=str, allow_nan=False)
+                # Any NaN or inf anywhere (a reading, a plot) becomes null: the
+                # page's JSON.parse rejects them, and one must not kill the
+                # stream. allow_nan=False is the backstop.
+                payload = json.dumps(finite(snapshot()), default=str, allow_nan=False)
                 yield f"event: state\ndata: {payload}\n\n"
                 if once or await request.is_disconnected():
                     return

@@ -244,7 +244,9 @@
   // A drag is either an edit a layer claimed (a crosshair, an ROI handle:
   // `hooks.grab` returns {move(ix, iy), end()}) or, failing that, a pan.
   let drag = null, edit = null, clickTimer = null;
-  const DBLCLICK_MS = 300;
+  // At least the usual OS double-click interval (often ~500 ms), so the
+  // first click of a slower double-click is still not a cursor write.
+  const DBLCLICK_MS = 500;
   const local = (ev) => {
     const r = viewport.getBoundingClientRect();
     return [ev.clientX - r.left, ev.clientY - r.top];

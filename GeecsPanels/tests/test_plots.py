@@ -227,3 +227,18 @@ def test_a_read_only_panel_does_not_move_the_cursor() -> None:
         "/camera/ADTEST_CAM1/cursor", json={"x": 1, "y": 1}
     )
     assert r.status_code == 403 and cameras.puts == []
+
+
+def test_a_nan_reading_travels_as_null_and_the_stream_lives() -> None:
+    """One non-finite value must not end the stream for every reading."""
+    cameras = RecordingCameras()
+    feed = cameras.feed(CAM)
+    feed.update("STAT:CentroidX_RBV", float("nan"))
+    feed.update("STAT:SigmaX_RBV", float("inf"))
+    with _client(cameras=cameras).stream(
+        "GET", "/camera/ADTEST_CAM1/events?once=1"
+    ) as r:
+        body = "".join(r.iter_text())
+    snap = json.loads(body.strip().split("\n", 1)[1].removeprefix("data: "))
+    values = {x["key"]: x["value"] for x in snap["readings"]}
+    assert values["cx"] is None and values["sx"] is None
