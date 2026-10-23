@@ -60,8 +60,7 @@ def test_a_lock_that_cannot_be_read_refuses_acquisition() -> None:
         ("cam1:TriggerMode", "On", True),
         ("cam1:TriggerMode", "Maybe", False),
         ("cam1:SizeX", 0, False),
-        ("RUN:Lock", 0, True),
-        ("RUN:Lock", 1, False),  # only a run sets it
+        ("RUN:Lock", 0, False),  # never a plain write: the override route only
     ],
 )
 def test_acquisition_values(suffix, value, ok) -> None:
@@ -110,3 +109,17 @@ def test_the_snapshot_carries_the_lock_and_the_acquisition() -> None:
     snap = json.loads(body.strip().split("\n", 1)[1].removeprefix("data: "))
     assert snap["lock"]["state"] == "locked" and snap["lock"]["owner"] == "run 7"
     assert snap["acquisition"]["trigger_mode"] == "On"
+
+
+def test_the_plain_write_route_cannot_release_the_lock() -> None:
+    """No name, no log, no dialog: refused (review F1 on #1137)."""
+    cameras = _cameras("Locked", owner="run 7")
+    r = _put(cameras, "RUN:Lock", 0)
+    assert r.status_code == 422 and cameras.puts == []
+
+
+@pytest.mark.parametrize("label", ["Lock", "1", "Locked "])
+def test_only_the_cleared_label_reads_as_free(label: str) -> None:
+    """Any lock value but the exact cleared label is held."""
+    cameras = _cameras(label)
+    assert _put(cameras, "cam1:Gain", 1.0).status_code == 423

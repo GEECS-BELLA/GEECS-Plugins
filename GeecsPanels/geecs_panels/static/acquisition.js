@@ -30,17 +30,24 @@
     if (!focused(el) && value !== null && value !== undefined) el.value = value;
   };
 
+  // The controls start disabled (template) and go back to disabled whenever
+  // the lock's state is not known to be free: a lost stream included.
+  function showLock() {
+    $("lock-denied").hidden = lock !== "locked";
+    $("lock-unknown").hidden = lock !== "unknown";
+    for (const el of controls()) el.disabled = !writable || lock !== "free";
+  }
+  V.hooks.streamLost.push(() => { lock = "unknown"; showLock(); });
+
   V.hooks.snapshot.push((snap) => {
     lock = (snap.lock && snap.lock.state) || "unknown";
     owner = (snap.lock && snap.lock.owner) || "";
     capture = (snap.lock && snap.lock.capture) || "";
     imageAge = snap.image ? snap.image.age : null;
     acq = snap.acquisition || {};
-    $("lock-denied").hidden = lock !== "locked";
-    $("lock-unknown").hidden = lock !== "unknown";
     $("lock-owner").textContent = owner || "(no owner recorded)";
     $("unlock-open").disabled = !writable;
-    for (const el of controls()) el.disabled = !writable || lock !== "free";
+    showLock();
     const exposure = snap.readings.find((r) => r.key === "exposure");
     if (exposure && typeof exposure.value === "number") {
       fill("cam-exposure", Number((exposure.value * 1000).toPrecision(6)));
@@ -84,7 +91,6 @@
   $("cam-roi-full").addEventListener("click", () => {
     if (acq.max_x && acq.max_y) askRoi({ x: 0, y: 0, w: acq.max_x, h: acq.max_y });
   });
-  $("roi-cancel").addEventListener("click", () => $("roi-dialog").close());
   $("roi-confirm").addEventListener("click", () => {
     $("roi-dialog").close();
     const r = pendingRoi;
@@ -104,7 +110,6 @@
     $("unlock-operator").value = "";
     $("unlock-dialog").showModal();
   });
-  $("unlock-cancel").addEventListener("click", () => $("unlock-dialog").close());
   $("unlock-confirm").addEventListener("click", () => {
     const operator = $("unlock-operator").value.trim();
     if (!operator) { $("unlock-operator").focus(); return; }

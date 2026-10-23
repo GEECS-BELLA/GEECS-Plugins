@@ -48,8 +48,8 @@ def test_no_writable_pv_touches_scan_data_unguarded() -> None:
     }
     assert prefixes <= {"OVER1", "ROI1", "PROC1", "TRANS1", "cam1"}
     assert all(s.startswith(LOCKED_PREFIXES) for s in WRITABLE if s.startswith("cam1:"))
-    # The lock itself only ever released here (a run sets it).
-    assert WRITABLE["RUN:Lock"] == (0,)
+    # The lock itself is never a plain write: only the override route releases it.
+    assert not [s for s in WRITABLE if s.startswith("RUN:")]
     # STAT only for the lineout cursor: never its callbacks, port or Compute*
     # flags, which change the statistics every other reader sees.
     assert {s for s in WRITABLE if s.startswith("STAT:")} == {

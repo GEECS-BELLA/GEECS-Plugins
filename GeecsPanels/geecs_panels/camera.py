@@ -239,7 +239,8 @@ def lock_state(values: dict[str, object], connected: dict[str, bool]) -> str:
     """``free``, ``locked`` or ``unknown`` (the lock not served or not read)."""
     if not connected.get(LOCK_FIELDS["lock"]):
         return "unknown"
-    return "locked" if values.get(LOCK_FIELDS["lock"]) == "Locked" else "free"
+    # Free only on the record's cleared label: any other value is held.
+    return "free" if values.get(LOCK_FIELDS["lock"]) == "Free" else "locked"
 
 
 def crosshair_suffix(n: int, field: str) -> str:
@@ -267,9 +268,10 @@ _PIXEL = Whole(0, 65535)
 _SIZE = Whole(1, 65535)
 _LEVEL = Whole(0, 255)
 
-#: The PVs the panel may WRITE, and nothing else (design note §4). Each is
-#: display or analysis state: none changes what a scan saves (that is the
-#: camera driver's, behind the run lock of build step 3). Value kinds:
+#: The PVs the panel may WRITE, and nothing else (design note §4). Display
+#: and analysis state freely; the camera driver's (``cam1:``, what scans
+#: save) only while the run lock is free (``LOCKED_PREFIXES``). The lock
+#: itself is never here: only the override route releases it. Value kinds:
 #: :class:`Whole` (a number in a range), ``bool`` (0/1), ``str``, or a tuple
 #: of allowed choices (an enum by name, or ``(1,)`` for a press-only record).
 WRITABLE: dict[str, object] = {
@@ -312,8 +314,6 @@ WRITABLE: dict[str, object] = {
     "cam1:MinY": _PIXEL,
     "cam1:SizeX": _SIZE,
     "cam1:SizeY": _SIZE,
-    # The stuck-lock override: release only, never set (a run sets it).
-    "RUN:Lock": (0,),
     "PROC1:SaveBackground": (1,),
     "PROC1:EnableBackground": bool,
     "TRANS1:Type": TRANSFORMS,
