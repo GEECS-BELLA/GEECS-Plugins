@@ -40,6 +40,8 @@ from geecs_panels.feed import (
     WriteFailed,
 )
 from geecs_panels.registry import Device
+from geecs_panels.scope import TIME_AXIS, WAVEFORM
+from geecs_panels.scope_feed import ScopeFeed
 
 #: Upstream frame timeout: the IOC answers a snapshot in ~50 ms.
 FETCH_TIMEOUT_S = 3.0
@@ -197,3 +199,54 @@ class LiveCameras:
         for feed in self._feeds.values():
             feed.close()
         await self._fetch.aclose()
+
+
+#: The traces are read at most this often (and only while a page asks).
+TRACES_EVERY_S = 0.25
+
+
+class LiveScopes:
+    """Each oscilloscope's feed and trace source, created on first use and shared by every viewer."""
+
+    def __init__(self) -> None:
+        self._feeds: dict[str, ScopeFeed] = {}
+        self._traces: dict[str, ArraysSource] = {}
+
+    def feed(self, device: Device) -> ScopeFeed:
+        """The scope's feed, subscribed on first use."""
+        feed = self._feeds.get(device.name)
+        if feed is None:
+            feed = self._feeds[device.name] = ScopeFeed(device.prefix, subscribe)
+            feed.start()
+        return feed
+
+    def traces(self, device: Device) -> ArraysSource:
+        """The time axis and every enabled channel's waveform, read together."""
+        source = self._traces.get(device.name)
+        if source is None:
+            feed = self.feed(device)
+
+            async def fetch() -> dict[str, list[float]]:
+                keys = ["t", *feed.enabled_channels()]
+                pvs = [
+                    device.prefix + (TIME_AXIS if k == "t" else f"{k}:{WAVEFORM}")
+                    for k in keys
+                ]
+                values = await aioca.caget(pvs, timeout=3.0)
+                return {k: [float(x) for x in v] for k, v in zip(keys, values)}
+
+            source = self._traces[device.name] = ArraysSource(fetch, TRACES_EVERY_S)
+        return source
+
+    async def put(self, device: Device, suffix: str, value: object) -> None:
+        """Write one setting and wait for the IOC to process it."""
+        pv = device.prefix + suffix
+        try:
+            await aioca.caput(pv, value, wait=True, timeout=PUT_TIMEOUT_S)
+        except Exception as exc:
+            raise WriteFailed(f"{pv}: {exc}") from exc
+
+    def close(self) -> None:
+        """Drop every subscription."""
+        for feed in self._feeds.values():
+            feed.close()
