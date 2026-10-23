@@ -40,7 +40,8 @@
      data-max-fps="{{ max_fps }}"
      data-writable="{{ 'true' if writable else 'false' }}"
      data-put-url="{{ url_for('put_one', name=device.name).path }}"
-     data-centroid1="{{ url_for('to_centroid', name=device.name, n=1).path }}">
+     data-centroid1="{{ url_for('to_centroid', name=device.name, n=1).path }}"
+     data-cursor-url="{{ url_for('cursor', name=device.name).path }}">
 
   <aside class="rail">
     <section class="group">
@@ -164,6 +165,7 @@
       </div>
     </details>
 
+    <div class="camera-main">
     <article class="panel">
       <header>
         <span class="eyebrow">image</span>
@@ -191,6 +193,41 @@
         </div>
       </div>
     </article>
+
+    {# The plots: STAT's full-precision numbers, never the picture's. Folded,
+       the arrays stop travelling. #}
+    <details class="disc plots" id="plots" open>
+      <summary>Plots <span class="dim">click the image to move the lineout cursor</span></summary>
+      <div class="dbody">
+        <div class="plot">
+          <div class="plot-head"><span class="eyebrow">x lineout</span>
+            <span class="key t1">ROI average</span><span class="key t2">through cursor</span></div>
+          <canvas id="plot-x"></canvas>
+        </div>
+        <div class="plot">
+          <div class="plot-head"><span class="eyebrow">y lineout</span>
+            <span class="key t1">ROI average</span><span class="key t2">through cursor</span></div>
+          <canvas id="plot-y"></canvas>
+        </div>
+        <div class="plot">
+          <div class="plot-head"><span class="eyebrow">histogram</span>
+            <label class="dim"><input type="checkbox" id="hist-log" checked> log</label></div>
+          <canvas id="plot-hist"></canvas>
+        </div>
+        <div class="plot">
+          <div class="plot-head"><span class="eyebrow">centroid</span>
+            <span class="key t1">x</span><span class="key t2">y</span><span class="dim">last 2 min</span></div>
+          <canvas id="plot-centroid"></canvas>
+        </div>
+        <div class="plot">
+          <div class="plot-head"><span class="eyebrow">mean</span>
+            <span class="key t4">mean</span><span class="dim">last 2 min</span></div>
+          <canvas id="plot-mean"></canvas>
+        </div>
+        <div id="plots-error" role="status"></div>
+      </div>
+    </details>
+    </div>
   </main>
 </div>
 
@@ -199,5 +236,6 @@
 <script src="{{ root }}/static/camera.js" defer></script>
 <script src="{{ root }}/static/overlay.js" defer></script>
 <script src="{{ root }}/static/processing.js" defer></script>
+<script src="{{ root }}/static/plots.js" defer></script>
 </body>
 </html>

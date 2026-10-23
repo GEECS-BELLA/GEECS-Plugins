@@ -21,7 +21,9 @@ real ones.
 from __future__ import annotations
 
 import asyncio
+import math
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Optional, Protocol
@@ -32,6 +34,7 @@ from geecs_panels.camera import (
     CROSSHAIRS,
     IMAGE_PLUGIN,
     IMAGE_SIZE_FIELDS,
+    PLOT_FIELDS,
     PROCESSING_FIELDS,
     READINGS,
     ROI_FIELDS,
@@ -42,9 +45,30 @@ from geecs_panels.camera import (
     saturation,
     string_suffixes,
 )
-from geecs_panels.coords import Axis
+from geecs_panels.coords import Axis, to_image
 
 _COUNTER_SUFFIXES = frozenset(counter_suffix(p) for p in COUNTER_PLUGINS)
+
+#: The statistics the service keeps a history of, in each point's order
+#: after its timestamp (the history lives here: STAT's own time-series
+#: buffers are IOC-global and idle).
+HISTORY_KEYS = ("cx", "cy", "mean", "max")
+HISTORY_SUFFIXES = (
+    "STAT:CentroidX_RBV",
+    "STAT:CentroidY_RBV",
+    "STAT:MeanValue_RBV",
+    "STAT:MaxValue_RBV",
+)
+#: The flag each history value needs on to be a measurement at all.
+HISTORY_FLAGS = (
+    "STAT:ComputeCentroid",
+    "STAT:ComputeCentroid",
+    "STAT:ComputeStatistics",
+    "STAT:ComputeStatistics",
+)
+#: One history point per this many seconds at most, and this many kept.
+HISTORY_EVERY_S = 0.2
+HISTORY_POINTS = 3000  # ten minutes at the decimated rate
 
 #: Seconds after subscribing before a never-connected PV counts as missing.
 CONNECT_GRACE_S = 5.0
@@ -75,6 +99,12 @@ class CameraFeed:
     _seen: set[str] = field(default_factory=set)
     #: The held background predates a transform change (see _track_background).
     background_stale: bool = False
+    #: Wall-clock time, for history timestamps (``clock`` is monotonic).
+    wall: Callable[[], float] = time.time
+    _history: deque[tuple[float, ...]] = field(
+        default_factory=lambda: deque(maxlen=HISTORY_POINTS)
+    )
+    _history_at: float = float("-inf")
     _started: Optional[float] = None
 
     def start(self) -> None:
@@ -122,6 +152,37 @@ class CameraFeed:
                 and value != previous
             ):
                 self._ticks[plugin] = self.clock()
+                if plugin == "STAT":
+                    self._sample_history()
+
+    def _sample_history(self) -> None:
+        """Record the statistics on a STAT frame, decimated to HISTORY_EVERY_S.
+
+        Sampled on the counter's tick, not the values' own monitors: a
+        steady value posts nothing but still makes evenly spaced points.
+        The counter and the values are separate records posted together, so
+        a sample can pair one frame's tick with the previous frame's values —
+        harmless at this rate.
+        """
+        now = self.clock()
+        if now - self._history_at < HISTORY_EVERY_S:
+            return
+        self._history_at = now
+        point = [self.wall()]
+        for suffix, flag in zip(HISTORY_SUFFIXES, HISTORY_FLAGS):
+            # A value not computed (its flag off) or not connected is frozen,
+            # not measured: a gap, never a repeat of its last value.
+            v = self.values.get(suffix)
+            live = self.connected.get(suffix) and self.values.get(flag)
+            point.append(
+                float(v) if live and isinstance(v, (int, float)) else float("nan")
+            )
+        self._history.append(tuple(point))
+
+    def history(self, seconds: float) -> list[tuple[float, ...]]:
+        """The recorded statistics of the last *seconds*, oldest first."""
+        since = self.wall() - seconds
+        return [p for p in self._history if p[0] >= since]
 
     def _track_background(
         self, suffix: str, previous: Optional[object], value: object
@@ -284,7 +345,7 @@ class FrameSource:
     _url: Optional[str] = None
     _frame: Optional[Frame] = None
     _at: float = float("-inf")
-    _inflight: Optional[asyncio.Future[Frame]] = None
+    _inflight: Optional[asyncio.Task[Frame]] = None
 
     async def latest(self) -> Frame:
         """The newest frame, shared with concurrent callers.
@@ -306,6 +367,10 @@ class FrameSource:
         All ages are timed from the request, not the reply: timed from the
         reply, a poll at the cap's period landed inside the window behind a
         slow fetch and was handed the old frame again (a third of them).
+
+        The fetch runs as a task of its own that every caller awaits through
+        a shield: one caller going away (its request cancelled) never cancels
+        the fetch the others are waiting for.
         """
         counter = self.counter()
         if self._frame is not None:
@@ -315,24 +380,24 @@ class FrameSource:
             unchanged = counter is not None and counter == self._frame.counter
             if unchanged and age < self.max_reuse:
                 return self._frame
-        if self._inflight is not None:
-            return await asyncio.shield(self._inflight)
-        asked = self.clock()
-        self._inflight = asyncio.get_running_loop().create_future()
+        if self._inflight is None:
+            self._inflight = asyncio.get_running_loop().create_task(
+                self._fetch_frame(counter, self.clock())
+            )
+            # Every caller may have gone before a failure: retrieve it here,
+            # so asyncio does not log "Task exception was never retrieved".
+            self._inflight.add_done_callback(
+                lambda t: None if t.cancelled() else t.exception()
+            )
+        return await asyncio.shield(self._inflight)
+
+    async def _fetch_frame(self, counter: Optional[object], asked: float) -> Frame:
         try:
             # Tagged with the counter read BEFORE the fetch: the JPEG is at
             # least that new, so a later counter change always refetches.
             self._fetches += 1
             frame = Frame(await self._fetch(), counter, self._fetches)
-        except BaseException as exc:
-            self._inflight.set_exception(exc)
-            # Mark it retrieved: a request with no concurrent waiter must
-            # not log "exception was never retrieved".
-            self._inflight.exception()
-            raise
-        else:
             self._frame, self._at = frame, asked
-            self._inflight.set_result(frame)
             return frame
         finally:
             self._inflight = None
@@ -349,3 +414,123 @@ class FrameSource:
             # Re-resolve next time: the IOC may have moved or restarted.
             self._url = None
             raise FrameUnavailable(f"frame fetch failed: {exc}") from exc
+
+
+class ArraysUnavailable(RuntimeError):
+    """STAT's arrays could not be read; the message says why."""
+
+
+#: () -> {ARRAYS key: list of numbers}, read from the IOC.
+FetchArrays = Callable[[], Awaitable[dict[str, list[float]]]]
+
+
+@dataclass
+class ArraysSource:
+    """STAT's arrays, read in the background and shared: at most one read per ``min_interval``.
+
+    The SSE stream never WAITS for a read: it asks for one (:meth:`kick`)
+    and sends whatever is held (:meth:`current`). A slow or failing read
+    (a PV not served, the VPN blinking: a 3 s CA timeout) would otherwise
+    hold back every push of the readings and turn the page stale. A failure
+    is held for ``min_interval`` like a result, so it is not retried on
+    every push either. The read runs as a task of its own: a viewer
+    closing its stream never cancels the read the others share.
+    """
+
+    fetch: FetchArrays
+    min_interval: float
+    clock: Callable[[], float] = time.monotonic
+    _arrays: Optional[dict[str, list[float]]] = None
+    _error: Optional[str] = None
+    _at: float = float("-inf")
+    _task: Optional[asyncio.Task[dict[str, list[float]]]] = None
+
+    def kick(self) -> None:
+        """Start a read if none is running and the last one is older than ``min_interval``."""
+        if self._task is not None or self.clock() - self._at < self.min_interval:
+            return
+        asked = self.clock()
+        self._task = asyncio.get_running_loop().create_task(self.fetch())
+        self._task.add_done_callback(lambda task: self._done(task, asked))
+
+    def _done(self, task: asyncio.Task[dict[str, list[float]]], asked: float) -> None:
+        self._task, self._at = None, asked
+        if task.cancelled():
+            return
+        exc = task.exception()  # retrieved here, so never "never retrieved"
+        if exc is not None:
+            self._error = f"plots unavailable: {exc}"
+        else:
+            self._arrays, self._error = task.result(), None
+
+    def current(self) -> dict[str, list[float]]:
+        """The arrays held now; :class:`ArraysUnavailable` if the last read failed."""
+        if self._error is not None:
+            raise ArraysUnavailable(self._error)
+        return self._arrays or {}
+
+
+def _axis_map(axis: Axis) -> dict[str, float]:
+    """An ROI output axis as image pixels: the first sample's position and the step."""
+    start = to_image(axis, 0)
+    return {"start": start, "step": to_image(axis, 1) - start}
+
+
+def _finite(values: list[float], n: Optional[object]) -> list[Optional[float]]:
+    """The first *n* values (the waveform's valid length); NaN and ±inf as ``None``.
+
+    Browsers' ``JSON.parse`` rejects ``NaN`` and ``Infinity``, which Python's
+    encoder writes by default: one would freeze the page.
+    """
+    count = int(n) if isinstance(n, (int, float)) else len(values)
+    return [round(v, 6) if math.isfinite(v) else None for v in values[:count]]
+
+
+def plot_payload(
+    feed: CameraFeed,
+    arrays: dict[str, list[float]],
+    history_s: float,
+    stale_after: float = 3.0,
+) -> dict[str, object]:
+    """Everything the plots draw, in image pixels where it is a position.
+
+    ``stat_fresh`` says whether STAT is processing frames: a read of its
+    arrays always succeeds, so held arrays must not pass for live ones.
+    """
+    v = feed.values
+    age = feed.counter_ages().get("STAT")
+    out: dict[str, object] = {
+        "stat_fresh": bool(
+            feed.connected.get(counter_suffix("STAT"))
+            and age is not None
+            and age <= stale_after
+        ),
+        "profiles_on": bool(v.get(PLOT_FIELDS["profiles_on"])),
+        "histogram_on": bool(v.get(PLOT_FIELDS["histogram_on"])),
+        "histogram": _finite(arrays.get("histogram", []), None),
+        "hist_min": v.get(PLOT_FIELDS["hist_min"]),
+        "hist_max": v.get(PLOT_FIELDS["hist_max"]),
+        "history_keys": list(HISTORY_KEYS),
+        "history": [
+            [p[0]] + [x if math.isfinite(x) else None for x in p[1:]]
+            for p in feed.history(history_s)
+        ],
+    }
+    nx, ny = v.get(PLOT_FIELDS["profile_size_x"]), v.get(PLOT_FIELDS["profile_size_y"])
+    out["profile_x"] = _finite(arrays.get("profile_x", []), nx)
+    out["profile_y"] = _finite(arrays.get("profile_y", []), ny)
+    out["cursor_x"] = _finite(arrays.get("cursor_x", []), nx)
+    out["cursor_y"] = _finite(arrays.get("cursor_y", []), ny)
+    try:
+        ax, ay = feed.roi_axes()
+    except LookupError:
+        out["x_axis"] = out["y_axis"] = out["cursor"] = None
+        return out
+    out["x_axis"], out["y_axis"] = _axis_map(ax), _axis_map(ay)
+    cx, cy = v.get(PLOT_FIELDS["cursor_x"]), v.get(PLOT_FIELDS["cursor_y"])
+    out["cursor"] = (
+        [to_image(ax, float(cx)), to_image(ay, float(cy))]
+        if isinstance(cx, (int, float)) and isinstance(cy, (int, float))
+        else None
+    )
+    return out

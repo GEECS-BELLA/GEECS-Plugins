@@ -41,8 +41,16 @@ from geecs_panels.camera import (
     NotWritable,
     check_write,
 )
-from geecs_panels.coords import to_image
-from geecs_panels.feed import CameraFeed, FrameSource, FrameUnavailable, WriteFailed
+from geecs_panels.coords import to_image, to_roi
+from geecs_panels.feed import (
+    ArraysSource,
+    ArraysUnavailable,
+    CameraFeed,
+    FrameSource,
+    FrameUnavailable,
+    WriteFailed,
+    plot_payload,
+)
 from geecs_panels.registry import Device
 
 _PKG = Path(__file__).resolve().parent
@@ -55,11 +63,24 @@ PANELS = {"aravis_camera": "camera"}
 
 #: Seconds between SSE pushes: ages tick on the page at this rate.
 PUSH_S = 0.5
+#: How much history the plots are sent.
+HISTORY_S = 120.0
 
 _SSE_HEADERS = {
     "Cache-Control": "no-cache",
     "X-Accel-Buffering": "no",  # nginx: never buffer this response
 }
+
+
+def finite(value: object) -> object:
+    """*value* with every non-finite float (NaN, ±inf) replaced by ``None``, recursively."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: finite(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [finite(v) for v in value]
+    return value
 
 
 def _version() -> str:
@@ -81,6 +102,9 @@ class Cameras(Protocol):
     async def put(self, device: Device, suffix: str, value: object) -> None:
         """Write one PV under the camera's prefix; :class:`WriteFailed` if the IOC refuses."""
 
+    def arrays(self, device: Device) -> ArraysSource:
+        """The camera's STAT arrays, read on request and shared."""
+
 
 class Colour(BaseModel):
     """A crosshair colour, 0..255 a channel (the IOC stores it per overlay)."""
@@ -88,6 +112,13 @@ class Colour(BaseModel):
     r: int = Field(ge=0, le=255)
     g: int = Field(ge=0, le=255)
     b: int = Field(ge=0, le=255)
+
+
+class Point(BaseModel):
+    """A point in image pixels."""
+
+    x: float
+    y: float
 
 
 class PutRequest(BaseModel):
@@ -219,12 +250,34 @@ def _add_live_routes(
         return Response(frame.jpeg, media_type="image/jpeg", headers=headers)
 
     @app.get("/camera/{name}/events")
-    async def events(request: Request, name: str, once: int = 0) -> StreamingResponse:
-        feed = cameras.feed(camera(name))
+    async def events(
+        request: Request, name: str, once: int = 0, plots: int = 0
+    ) -> StreamingResponse:
+        """The readings as SSE; ``?plots=1`` adds the plots' arrays and history."""
+        device = camera(name)
+        feed = cameras.feed(device)
+
+        def snapshot() -> dict[str, object]:
+            snap = feed.snapshot(stale_after)
+            if plots:
+                # Never awaited: the arrays are read in the background, and
+                # the readings go out on time whatever the read is doing.
+                source = cameras.arrays(device)
+                source.kick()
+                try:
+                    snap["plots"] = plot_payload(
+                        feed, source.current(), HISTORY_S, stale_after
+                    )
+                except ArraysUnavailable as exc:  # said on the page, never fatal
+                    snap["plots"] = {"error": str(exc)}
+            return snap
 
         async def gen() -> AsyncIterator[str]:
             while True:
-                payload = json.dumps(feed.snapshot(stale_after), default=str)
+                # Any NaN or inf anywhere (a reading, a plot) becomes null: the
+                # page's JSON.parse rejects them, and one must not kill the
+                # stream. allow_nan=False is the backstop.
+                payload = json.dumps(finite(snapshot()), default=str, allow_nan=False)
                 yield f"event: state\ndata: {payload}\n\n"
                 if once or await request.is_disconnected():
                     return
@@ -286,6 +339,7 @@ def _add_write_routes(
 ) -> None:
     """The panel's writes: one allow-listed PV at a time (design note §4)."""
     w = _Writer(cameras, camera, writable)
+    _add_plot_routes(app, cameras, w)
 
     @app.post("/camera/{name}/put")
     async def put_one(name: str, request: PutRequest) -> dict[str, object]:
@@ -341,3 +395,25 @@ def _add_write_routes(
         await w.put(device, f"OVER1:{n}:CenterX", x)
         await w.put(device, f"OVER1:{n}:CenterY", y)
         return {"ok": True, "x": x, "y": y}
+
+
+def _add_plot_routes(app: FastAPI, cameras: Cameras, w: "_Writer") -> None:
+    """The lineout cursor: a clicked image point, written in the ROI's pixels."""
+
+    @app.post("/camera/{name}/cursor")
+    async def cursor(name: str, point: Point) -> dict[str, object]:
+        device = w.device(name)
+        try:
+            ax, ay = cameras.feed(device).roi_axes()
+        except LookupError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        out = []
+        for axis, value in ((ax, point.x), (ay, point.y)):
+            # The page sends a position; pixel i covers [i, i+1), as the
+            # cursor readout names it. Its index, then the ROI pixel nearest.
+            index = math.floor(value)
+            last = max(axis.size // max(axis.bin, 1) - 1, 0)
+            out.append(min(max(math.floor(to_roi(axis, index) + 0.5), 0), last))
+        await w.put(device, "STAT:CursorX", out[0])
+        await w.put(device, "STAT:CursorY", out[1])
+        return {"ok": True, "x": out[0], "y": out[1]}

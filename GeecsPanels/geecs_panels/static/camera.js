@@ -171,7 +171,8 @@
   // ---- hooks for the layers over the image (overlay.js) ------------------
   // draw(ctx) in view pixels; grab(cx, cy) → an edit or null; hover(cx, cy)
   // → a CSS cursor or ""; snapshot(snap) with each SSE state.
-  const hooks = { draw: [], grab: [], hover: [], snapshot: [] };
+  // click(ix, iy) for a press released where it started (not a pan).
+  const hooks = { draw: [], grab: [], hover: [], snapshot: [], click: [] };
 
   // ---- the viewer: zoom and pan -------------------------------------------
   const view = { scale: 1, ox: 0, oy: 0, moved: false };
@@ -242,7 +243,10 @@
 
   // A drag is either an edit a layer claimed (a crosshair, an ROI handle:
   // `hooks.grab` returns {move(ix, iy), end()}) or, failing that, a pan.
-  let drag = null, edit = null;
+  let drag = null, edit = null, clickTimer = null;
+  // At least the usual OS double-click interval (often ~500 ms), so the
+  // first click of a slower double-click is still not a cursor write.
+  const DBLCLICK_MS = 500;
   const local = (ev) => {
     const r = viewport.getBoundingClientRect();
     return [ev.clientX - r.left, ev.clientY - r.top];
@@ -255,7 +259,8 @@
       edit = grab(cx, cy);
       if (edit) return;
     }
-    drag = { x: ev.clientX, y: ev.clientY, ox: view.ox, oy: view.oy };
+    drag = { x: ev.clientX, y: ev.clientY, ox: view.ox, oy: view.oy, cx: cx, cy: cy,
+      t: performance.now() };
     viewport.classList.add("panning");
   });
   viewport.addEventListener("pointermove", (ev) => {
@@ -274,15 +279,26 @@
     view.moved = true;
     draw();
   });
-  const endDrag = () => {
+  const endDrag = (ev) => {
     if (edit) { edit.end(); edit = null; }
+    // A short press released where it started is a click on the image, not
+    // a pan — and it fires only once a double-click (fit) is ruled out, so
+    // fitting never also moves the cursor. The point is the pixel's index:
+    // pixel i covers [i, i+1), as the cursor readout names it.
+    if (drag && ev && ev.type === "pointerup" &&
+        Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) < 4 &&
+        performance.now() - drag.t < 400) {
+      const [ix, iy] = toImage(drag.cx, drag.cy).map(Math.floor);
+      clearTimeout(clickTimer);
+      clickTimer = setTimeout(() => { for (const f of hooks.click) f(ix, iy); }, DBLCLICK_MS);
+    }
     drag = null;
     viewport.classList.remove("panning");
   };
   viewport.addEventListener("pointerup", endDrag);
   viewport.addEventListener("pointercancel", endDrag);
   viewport.addEventListener("pointerleave", () => { $("cursor").textContent = ""; });
-  viewport.addEventListener("dblclick", fit);
+  viewport.addEventListener("dblclick", () => { clearTimeout(clickTimer); fit(); });
   $("zoom-fit").addEventListener("click", fit);
   $("zoom-one").addEventListener("click", () => zoomAt(vw / 2, vh / 2, 1 / view.scale));
   new ResizeObserver(resize).observe(viewport);
@@ -468,17 +484,21 @@
     img.dataset.state = "unknown"; img.textContent = "no update";
   }
 
+  // The stream carries the plots' arrays only while a layer asks for them
+  // (setPlots): they are the heavy part of a snapshot.
+  let es = null, wantPlots = false;
   function connect() {
-    const es = new EventSource(eventsUrl);
+    if (es) es.close();
+    es = new EventSource(eventsUrl + (wantPlots ? "?plots=1" : ""));
     es.addEventListener("state", (ev) => {
       lastSnapshot = performance.now();
       apply(JSON.parse(ev.data));
     });
     es.onerror = streamLost;
-    setInterval(() => {
-      if (lastSnapshot && performance.now() - lastSnapshot > STREAM_STALE_MS) streamLost();
-    }, 1000);
   }
+  setInterval(() => {
+    if (lastSnapshot && performance.now() - lastSnapshot > STREAM_STALE_MS) streamLost();
+  }, 1000);
 
   // ---- wiring -------------------------------------------------------------
   restore();
@@ -538,6 +558,7 @@
   // layer scripts run, which register into `hooks`.
   window.GeecsCameraView = {
     write: { post, put, putAll, sayError },
+    setPlots: (on) => { if (on !== wantPlots) { wantPlots = on; connect(); } },
     root, hooks, toView, toImage, redraw: () => draw(),
     frameSize: () => [iw, ih], scale: () => view.scale,
   };
