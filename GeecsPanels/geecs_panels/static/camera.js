@@ -113,13 +113,15 @@
   function imageSize() {
     // The IOC's size only when it agrees with the JPEG's shape (it is read
     // from a monitor and can lead or lag the frame by a moment).
-    // Per axis: the JPEG is the true frame scaled by one factor, each side
-    // rounded — so within a pixel of trueW·s, trueH·s (a ratio tolerance
-    // failed on very wide frames, where rounding moves the ratio most).
+    // The JPEG is the true frame scaled by ONE factor, each side rounded:
+    // try each side's factor in turn (the short side's rounding, scaled by a
+    // wide aspect, can miss by several pixels on the long side). Agrees for
+    // 2448x200 -> 1600x130, 4096x300 -> 1600x117, 1024x1280 -> 960x1200,
+    // 2448x2048 -> 1434x1200; rejects 1280x1024 against a 960x1200 JPEG.
     if (!trueW || !trueH) return [fw, fh];
-    const s = Math.min(fw / trueW, fh / trueH, 1);
-    const agree = Math.abs(trueW * s - fw) <= 1.5 && Math.abs(trueH * s - fh) <= 1.5;
-    return agree ? [trueW, trueH] : [fw, fh];
+    const ok = (s) => s <= 1 + 1e-9 &&
+      Math.abs(trueW * s - fw) <= 1.5 && Math.abs(trueH * s - fh) <= 1.5;
+    return ok(fw / trueW) || ok(fh / trueH) ? [trueW, trueH] : [fw, fh];
   }
 
   function autoLevels() {

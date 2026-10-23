@@ -17,7 +17,11 @@
   const writable = V.root.dataset.writable === "true";
   const bgOn = $("bg-on"), transform = $("transform");
 
-  let beeping = false, audio = null, lastTransform = null;
+  // A transform change (from here or anywhere else — it is seen in the
+  // stream) leaves the held background in the old orientation: NDProcess
+  // still calls it valid, as it checks only the size. The background is
+  // "stale" until the next grab, and subtraction cannot be switched on.
+  let beeping = false, audio = null, lastTransform = null, stale = false;
   function beep() {
     // A short tone once a second while saturated, if the viewer asked for it.
     try {
@@ -34,20 +38,15 @@
 
   V.hooks.snapshot.push((snap) => {
     const p = snap.processing || {};
-    const valid = p.background_valid === 1;
+    if (lastTransform !== null && p.transform && p.transform !== lastTransform) stale = true;
+    if (p.transform) lastTransform = p.transform;
+    const valid = p.background_valid === 1 && !stale;
     if (document.activeElement !== bgOn) bgOn.checked = p.background_on === 1;
     bgOn.disabled = !writable || !valid;
-    if (lastTransform === null || p.transform === lastTransform) {
-      $("bg-state").textContent = valid ? "a background is held" : "no background grabbed";
-    }
+    $("bg-state").textContent = stale ? "orientation changed: grab a new background"
+      : valid ? "a background is held" : "no background grabbed";
     if (p.transform && document.activeElement !== transform) transform.value = p.transform;
     $("transform-warning").hidden = !p.transform || p.transform === "None";
-    // A transform change stops subtraction (the service does it): the held
-    // background was grabbed in the old orientation.
-    if (lastTransform !== null && p.transform !== lastTransform) {
-      $("bg-state").textContent = "orientation changed: grab a new background";
-    }
-    lastTransform = p.transform || null;
 
     const s = snap.saturation || {};
     const chip = $("saturation");
@@ -65,7 +64,7 @@
   });
 
   $("bg-grab").addEventListener("click", () => {
-    put("PROC1:SaveBackground", 1).catch(() => {});
+    put("PROC1:SaveBackground", 1).then(() => { stale = false; }).catch(() => {});
   });
   bgOn.addEventListener("change", () => {
     put("PROC1:EnableBackground", bgOn.checked ? 1 : 0).catch(() => {});
