@@ -40,7 +40,7 @@ from geecs_panels.feed import (
     WriteFailed,
 )
 from geecs_panels.registry import Device
-from geecs_panels.scope import TIME_AXIS, WAVEFORM
+from geecs_panels.scope import CHAR_STRING_SUFFIXES, TIME_AXIS, WAVEFORM
 from geecs_panels.scope_feed import ScopeFeed
 
 #: Upstream frame timeout: the IOC answers a snapshot in ~50 ms.
@@ -205,6 +205,21 @@ class LiveCameras:
 TRACES_EVERY_S = 0.25
 
 
+def subscribe_scope(
+    pv: str, as_string: bool, callback: Callable[[Optional[object]], None]
+) -> Subscription:
+    """:func:`subscribe`, except a char-array message (``LastError_RBV``) is read as its text."""
+    if not pv.endswith(CHAR_STRING_SUFFIXES):
+        return subscribe(pv, as_string, callback)
+
+    def on_update(value: object) -> None:
+        callback(str(value) if getattr(value, "ok", True) else None)
+
+    return aioca.camonitor(
+        pv, on_update, datatype=aioca.DBR_CHAR_STR, notify_disconnect=True
+    )
+
+
 class LiveScopes:
     """Each oscilloscope's feed and trace source, created on first use and shared by every viewer."""
 
@@ -216,7 +231,7 @@ class LiveScopes:
         """The scope's feed, subscribed on first use."""
         feed = self._feeds.get(device.name)
         if feed is None:
-            feed = self._feeds[device.name] = ScopeFeed(device.prefix, subscribe)
+            feed = self._feeds[device.name] = ScopeFeed(device.prefix, subscribe_scope)
             feed.start()
         return feed
 

@@ -78,6 +78,9 @@ STRING_KEYS = frozenset(
     }
 )
 
+#: Char-array records holding text (a message longer than a string record's 40).
+CHAR_STRING_SUFFIXES = ("LastError_RBV",)
+
 TIME_AXIS = "TimeAxis_RBV"
 WAVEFORM = "Waveform_RBV"
 
