@@ -670,36 +670,47 @@ def test_a_lock_the_ioc_does_not_take_refuses_the_run(
     assert "acquire=False" not in log  # the camera was never touched
 
 
-def test_an_unstage_during_an_arming_prepare_waits_for_it(
-    RE: RunEngine, tmp_path: Path, monkeypatch
+@pytest.mark.parametrize("window", ["arming", "after arming"])
+def test_an_unstage_during_a_prepare_waits_for_it(
+    RE: RunEngine, tmp_path: Path, monkeypatch, window: str
 ) -> None:
     """A sibling's prepare failed fast and the plan unstages while this one is
-    still arming: the lock must never be released while the camera is armed."""
+    still running — mid-arming, or armed with the capture still opening: the
+    lock is never released while the camera is not back, and the camera is
+    not left free-running into an open capture."""
     cam, log = _camera(RE, tmp_path)
     _lock_log(cam, log)
+    set_mock_value(cam.driver.acquire, False)  # idle before the run
     release = asyncio.Event()
-    original = cam.driver.image_mode.get_value
+    if window == "arming":
+        target, attr = cam.driver.image_mode, "get_value"  # the snapshot
+    else:
+        target, attr = cam.hdf.file_path_exists, "get_value"  # the capture's setup
+    original = getattr(target, attr)
 
-    async def slow_snapshot(*args, **kwargs):
-        await release.wait()  # the snapshot is still in flight
+    async def slow(*args, **kwargs):
+        await release.wait()
         return await original(*args, **kwargs)
 
-    monkeypatch.setattr(cam.driver.image_mode, "get_value", slow_snapshot)
+    monkeypatch.setattr(target, attr, slow)
     _run(RE, lambda: cam.stage())
 
     async def race():
         prepare = asyncio.ensure_future(cam.prepare(STRICT_TRIGGER_INFO))
-        await asyncio.sleep(0.05)  # the lock is taken, the snapshot waits
-        unstage = asyncio.ensure_future(cam._native_acquire.ensure_stopped())
+        await asyncio.sleep(0.05)  # the prepare is parked in its window
+        unstage = asyncio.ensure_future(cam.unstage())
         await asyncio.sleep(0.05)
         release.set()
         await prepare
         await unstage
 
     _run(RE, race)
-    # The release came after the camera was armed AND restored, never before.
     released = log.index("lock=False")
     assert released > log.index(f"trigger_mode={OnOff.ON}")
     assert released > log.index(f"trigger_mode={OnOff.OFF}")
-    assert _run(RE, lambda: cam.driver.trigger_mode.get_value()) == OnOff.OFF
     assert not _locked(RE, cam)
+    assert _run(RE, lambda: cam.driver.trigger_mode.get_value()) == OnOff.OFF
+    assert _run(RE, lambda: cam.driver.acquire.get_value()) is False  # back to idle
+    assert (
+        _run(RE, lambda: cam.hdf.capture.get_value()) is False
+    )  # no capture left open

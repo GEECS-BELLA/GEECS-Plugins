@@ -175,10 +175,13 @@ class _Session:
     restore: tuple[Any, ...] | None = None
     #: This session set the run lock and has not released it.
     locked: bool = False
-    #: Serialises the camera's arming (prepare_edge) with its restore
-    #: (ensure_stopped): an unstage sent while a prepare is still in flight
+    #: Serialises the camera's whole ``prepare`` (arming, the HDF capture,
+    #: the acquisition start) with its whole ``unstage`` (stop, close,
+    #: restore, release): an unstage sent while a prepare is still in flight
     #: (a sibling detector's prepare failed fast; a halt's sweep) waits for
-    #: it, so the lock is never released while the camera is being armed.
+    #: it, so the lock is never released while the camera is being armed or
+    #: its capture opened. Held by ``NativeCamera``, never by the logics
+    #: (``asyncio.Lock`` is not reentrant).
     guard: asyncio.Lock = field(default_factory=asyncio.Lock)
     fire_pending: bool = False
     missed: bool = False
@@ -221,10 +224,6 @@ class NativeTriggerLogic(DetectorTriggerLogic):
                 "a native camera's exposure is a camera setting, not a per-scan "
                 "TriggerInfo livetime"
             )
-        async with self.session.guard:
-            await self._arm(num)
-
-    async def _arm(self, num: int) -> None:
         if self.session.programmed:
             return
         d = self.driver
@@ -372,10 +371,6 @@ class NativeAcquireLogic(DetectorAcquireLogic):
 
     async def ensure_stopped(self) -> None:
         """At ``unstage``: the camera back to its pre-run state (live view between scans)."""
-        async with self.session.guard:  # after any prepare still in flight
-            await self._restore()
-
-    async def _restore(self) -> None:
         restore = self.session.restore
         self.session.programmed = False
         self.session.acquiring = False
@@ -577,10 +572,11 @@ class NativeCamera(StandardDetector):
         camera stays stopped, its pre-run state kept for the next run) and
         the error raised.
         """
-        if self._session.restore is not None:
-            await self.driver.acquire.set(False)  # no frame reaches the writer now
-        await asyncio.gather(*(logic.stop() for logic in self._data_logics))
-        await self._native_acquire.ensure_stopped()
+        async with self._session.guard:  # after any prepare still in flight
+            if self._session.restore is not None:
+                await self.driver.acquire.set(False)  # no frame reaches the writer now
+            await asyncio.gather(*(logic.stop() for logic in self._data_logics))
+            await self._native_acquire.ensure_stopped()
 
     @property
     def trigger_source(self) -> NativeTriggerSource:
@@ -606,7 +602,8 @@ class NativeCamera(StandardDetector):
                 "only for now (no gated batch, no non-essential stream)"
             )
         try:
-            await super().prepare(value)
+            async with self._session.guard:  # whole, so an unstage waits for it
+                await super().prepare(value)
         except Exception as exc:
             for reason in await self.plugin_reasons():
                 exc.add_note(reason)
