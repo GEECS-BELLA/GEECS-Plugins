@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from geecs_panels.camera import WRITABLE, NotWritable, check_write, monitored_suffixes
+from geecs_panels.camera import (
+    LOCKED_PREFIXES,
+    WRITABLE,
+    NotWritable,
+    check_write,
+    monitored_suffixes,
+)
 from geecs_panels.camera import counter_suffix
 from geecs_panels.coords import Axis, to_image, to_roi
 from geecs_panels.feed import WriteFailed
@@ -17,9 +23,9 @@ from tests.test_app import CAM, FakeCameras, _client
 @pytest.mark.parametrize(
     "suffix",
     [
-        "cam1:AcquireTime",
-        "cam1:Acquire",
-        "cam1:MinX",
+        "cam1:PixelFormat",  # the scan contract's: pinned at boot
+        "cam1:BinX",
+        "cam1:ImageMode",  # the worker's run shape
         "HDF1:Capture",
         "HDF1:EnableCallbacks",
         "PVA:EnableCallbacks",
@@ -30,15 +36,20 @@ from tests.test_app import CAM, FakeCameras, _client
     ],
 )
 def test_nothing_outside_the_allow_list_is_writable(suffix: str) -> None:
-    """Above all, nothing that changes what a scan saves (the driver, HDF1)."""
+    """Never the writer, the raw outputs or the run shape the worker sets."""
     with pytest.raises(NotWritable, match="not writable"):
         check_write(suffix, 1)
 
 
-def test_no_writable_pv_touches_scan_data() -> None:
-    """Only the display/analysis branch (after the driver): never cam1 or the raw outputs."""
-    prefixes = {s.split(":")[0] for s in WRITABLE if not s.startswith("STAT:")}
-    assert prefixes <= {"OVER1", "ROI1", "PROC1", "TRANS1"}
+def test_no_writable_pv_touches_scan_data_unguarded() -> None:
+    """The display/analysis branch freely; the driver only behind the run lock; never the raw outputs."""
+    prefixes = {
+        s.split(":")[0] for s in WRITABLE if not s.startswith(("STAT:", "RUN:"))
+    }
+    assert prefixes <= {"OVER1", "ROI1", "PROC1", "TRANS1", "cam1"}
+    assert all(s.startswith(LOCKED_PREFIXES) for s in WRITABLE if s.startswith("cam1:"))
+    # The lock itself only ever released here (a run sets it).
+    assert WRITABLE["RUN:Lock"] == (0,)
     # STAT only for the lineout cursor: never its callbacks, port or Compute*
     # flags, which change the statistics every other reader sees.
     assert {s for s in WRITABLE if s.startswith("STAT:")} == {
@@ -141,7 +152,7 @@ def test_an_allowed_write_is_put_under_the_cameras_prefix() -> None:
 def test_a_refused_write_is_a_422_and_puts_nothing() -> None:
     cameras = RecordingCameras()
     r = _client(cameras=cameras).post(
-        "/camera/ADTEST_CAM1/put", json={"pv": "cam1:AcquireTime", "value": 1}
+        "/camera/ADTEST_CAM1/put", json={"pv": "HDF1:Capture", "value": 1}
     )
     assert r.status_code == 422 and "not writable" in r.json()["detail"]
     assert cameras.puts == []
