@@ -208,8 +208,10 @@ class LiveCameras:
         await self._fetch.aclose()
 
 
-#: The traces are read at most this often (and only while a page asks).
-TRACES_EVERY_S = 0.25
+#: The traces are read at most this often, and only for a new capture while a
+#: page asks: a running scope is drawn at 2 Hz (4 x 100 k samples is ~1.6 MB
+#: a read over the VPN).
+TRACES_EVERY_S = 0.5
 
 
 def subscribe_scope(
@@ -280,13 +282,14 @@ class LiveScopes:
                     timeout=3.0,
                 )
                 return {
-                    "t": [float(x) for x in axis],
-                    "data": [float(x) for x in data],
+                    "t": list(map(float, axis)),
+                    "data": list(map(float, data)),
                     **{k: [float(v)] for k, v in zip(keys, meta)},
                 }
 
+            feed = self.feed(device)
             source = self._traces[device.name] = ScopeTraces(
-                ArraysSource(fetch, TRACES_EVERY_S)
+                fetch, feed.present_channels, TRACES_EVERY_S
             )
         return source
 

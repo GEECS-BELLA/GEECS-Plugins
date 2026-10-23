@@ -118,9 +118,15 @@ def _add_stream(
                 source = scopes.traces(device)
                 source.kick(feed.values.get("arr_uid"))
                 try:
-                    payload = source.payload(feed.present_channels(), feed.timebase_uid)
+                    payload = source.payload(feed.timebase_uid)
                 except ArraysUnavailable as exc:
-                    snap["traces"] = {"error": str(exc)}
+                    # ArraysSource words its failures for the camera's plots.
+                    message = str(exc).replace(
+                        "plots unavailable", "traces unavailable", 1
+                    )
+                    snap["traces"] = {"error": message}
+                    # The page now holds the error: the next capture is new to it.
+                    sent.pop("key", None)
                 else:
                     if payload.get("key") != sent.get("key"):
                         snap["traces"] = payload

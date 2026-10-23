@@ -14,8 +14,9 @@ The transport (``subscribe``) is injected, as for the camera.
 
 from __future__ import annotations
 
+import asyncio
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -30,6 +31,9 @@ from geecs_panels.scope import (
     monitored,
     split_channels,
 )
+
+#: Shown instead of a capture taken at an older timebase than the axis.
+WAITING = "the timebase changed: waiting for a capture at the new one"
 
 #: The page draws a trace at most this many min/max columns wide.
 TRACE_COLUMNS = 1500
@@ -156,12 +160,8 @@ def traces_payload(
     describes: no traces until a new one arrives.
     """
     uid = (arrays.get("uid") or [None])[0]
-    if taken_after is not None and (uid is None or uid <= taken_after):
-        return {
-            "traces": {},
-            "samples": 0,
-            "waiting": "the timebase changed: waiting for a capture at the new one",
-        }
+    if taken_after is not None and not _after(uid, taken_after):
+        return {"traces": {}, "samples": 0, "waiting": WAITING}
     times = arrays.get("t", [])
     channels = int((arrays.get("channels") or [0])[0])
     samples = int((arrays.get("samples") or [0])[0])
@@ -176,22 +176,36 @@ def traces_payload(
 
 @dataclass
 class ScopeTraces:
-    """The capture for the page: read once per new capture, decimated once, shared.
+    """The capture for the page: read once per new capture, built once, shared.
 
     :meth:`kick` starts a read only when the monitored capture identity
     differs from the one held (the :class:`ArraysSource` keeps one read in
-    flight, at most one per interval); :meth:`payload` decimates once per
-    capture for every viewer. An idle scope costs no reads at all.
+    flight, at most one per ``min_interval``), so an idle scope costs no
+    reads. Each read is split and decimated in a worker thread, off the
+    event loop (a 1 M-sample capture is half a second of Python), once for
+    every viewer; :meth:`payload` then only applies the timebase check.
     """
 
-    source: ArraysSource
-    _key: Optional[tuple[object, ...]] = None
-    _payload: Optional[dict[str, object]] = None
+    fetch_raw: Callable[[], Awaitable[dict[str, list[float]]]]
+    present: Callable[[], list[str]]
+    min_interval: float
+    source: ArraysSource = field(init=False)
 
-    def held_uid(self) -> Optional[float]:
+    def __post_init__(self) -> None:
+        """Wrap the raw read in the build, so the source holds built payloads."""
+
+        async def fetch() -> dict[str, list[float]]:
+            raw = await self.fetch_raw()
+            built = await asyncio.to_thread(traces_payload, raw, self.present())
+            built["uid"] = (raw.get("uid") or [None])[0]
+            return built  # type: ignore[return-value]  # the source holds the built payload
+
+        self.source = ArraysSource(fetch, self.min_interval)
+
+    def held_uid(self) -> Optional[object]:
         """The identity of the capture held (None before the first read or after a failure)."""
         try:
-            return (self.source.current().get("uid") or [None])[0]
+            return self.source.current().get("uid")
         except ArraysUnavailable:  # the last read failed: the next kick retries
             return None
 
@@ -200,15 +214,23 @@ class ScopeTraces:
         if uid is None or uid != self.held_uid():
             self.source.kick()
 
-    def payload(
-        self, present: list[str], taken_after: Optional[float]
-    ) -> dict[str, object]:
-        """The held capture as traces, decimated once; ``key`` names what it shows."""
-        arrays = self.source.current()  # ArraysUnavailable propagates
-        uid = (arrays.get("uid") or [None])[0]
-        key = (uid, tuple(present), taken_after)
-        if key != self._key or self._payload is None:
-            self._payload = traces_payload(arrays, present, taken_after)
-            self._payload["key"] = f"{uid}|{','.join(present)}|{taken_after}"
-            self._key = key
-        return self._payload
+    def payload(self, taken_after: Optional[float]) -> dict[str, object]:
+        """The held capture's traces, or "waiting" if it predates the timebase; ``key`` names it."""
+        built: dict[str, object] = dict(
+            self.source.current()
+        )  # ArraysUnavailable propagates
+        uid = built.get("uid")
+        if taken_after is not None and not _after(uid, taken_after):
+            return {
+                "traces": {},
+                "samples": 0,
+                "waiting": WAITING,
+                "key": f"waiting|{taken_after}",
+            }
+        built["key"] = f"{uid}"
+        return built
+
+
+def _after(uid: object, taken_after: float) -> bool:
+    """Whether capture *uid* was taken after the timebase change marked *taken_after*."""
+    return isinstance(uid, (int, float)) and uid > taken_after

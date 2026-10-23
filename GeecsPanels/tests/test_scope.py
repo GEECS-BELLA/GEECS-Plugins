@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from geecs_panels.app import create_app
-from geecs_panels.feed import ArraysSource, WriteFailed
+from geecs_panels.feed import WriteFailed
 from geecs_panels.registry import Device
 from geecs_panels.scope import (
     ENUM_SETTINGS,
@@ -88,7 +88,7 @@ class FakeScopes:
             async def fetch() -> dict[str, list[float]]:
                 return _capture()
 
-            self._traces = ScopeTraces(ArraysSource(fetch, 0.0))
+            self._traces = ScopeTraces(fetch, lambda: ["A", "B"], 0.0)
         return self._traces
 
     def refresh(self, device: Device) -> None:
@@ -205,17 +205,32 @@ def test_a_capture_is_read_once_and_decimated_once() -> None:
         return _capture(uid=7)
 
     async def run() -> tuple[object, object]:
-        traces = ScopeTraces(ArraysSource(fetch, 0.0))
+        traces = ScopeTraces(fetch, lambda: ["A", "B"], 0.0)
         traces.kick(7)
-        await asyncio.sleep(0.01)  # the background read lands
-        first = traces.payload(["A", "B"], None)
+        await asyncio.sleep(0.05)  # the read and its build (in a thread) land
+        first = traces.payload(None)
         for _ in range(5):  # the same capture, monitored again and again
             traces.kick(7)
             await asyncio.sleep(0.01)
-        return first, traces.payload(["A", "B"], None)
+        return first, traces.payload(None)
 
     first, again = asyncio.run(run())
-    assert len(reads) == 1 and first is again
+    assert len(reads) == 1
+    assert list(first["traces"]) == ["A"] and first["key"] == again["key"]
+
+
+def test_the_held_capture_waits_for_a_newer_one_after_a_timebase_change() -> None:
+    async def fetch() -> dict[str, list[float]]:
+        return _capture(uid=5)
+
+    async def run() -> dict[str, object]:
+        traces = ScopeTraces(fetch, lambda: ["A", "B"], 0.0)
+        traces.kick(5)
+        await asyncio.sleep(0.05)
+        return traces.payload(5.0)  # the timebase changed at capture 5
+
+    held = asyncio.run(run())
+    assert held["traces"] == {} and "waiting" in held
 
 
 def test_a_short_trace_is_returned_whole() -> None:
@@ -308,6 +323,40 @@ def test_a_viewer_is_sent_a_capture_once() -> None:
                     break
     sent = [s for s in snaps if "traces" in s and s["traces"].get("traces")]
     assert len(sent) == 1  # the same capture is not resent every push
+
+
+def test_a_trace_error_does_not_outlive_the_recovery() -> None:
+    # The scope idle at capture 7: sent, then a read fails (a VPN blink),
+    # then the same capture reads again: the page must get it back.
+    outcomes = iter([_capture(uid=7), OSError("timeout"), _capture(uid=7)])
+
+    async def fetch() -> dict[str, list[float]]:
+        outcome = next(outcomes, _capture(uid=7))
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    scopes = FakeScopes()
+    scopes._traces = ScopeTraces(fetch, lambda: ["A", "B"], 0.0)
+    with _client(scopes).stream("GET", "/scope/picotest1/events?traces=1") as r:
+        seen, pushes = [], 0
+        for line in r.iter_lines():
+            if not line.startswith("data: "):
+                continue
+            pushes += 1
+            tr = json.loads(line[6:]).get("traces")
+            if tr is not None:
+                seen.append(
+                    "error"
+                    if "error" in tr
+                    else "data"
+                    if tr.get("traces")
+                    else "empty"
+                )
+            if ("error" in seen and seen[-1] == "data") or pushes >= 10:
+                break
+    assert "error" in seen
+    assert seen[-1] == "data"  # resent after the error
 
 
 def test_run_settles_on_the_acquire_readback() -> None:
