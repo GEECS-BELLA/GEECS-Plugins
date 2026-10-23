@@ -94,7 +94,7 @@ def test_the_frame_route_serves_the_jpeg_uncached() -> None:
     assert response.headers["content-type"] == "image/jpeg"
     assert response.headers["cache-control"] == "no-store"
     # The page compares it to skip decoding a frame it already shows.
-    assert response.headers["x-frame-counter"] == "42"
+    assert response.headers["x-frame-tag"] == "42.1"
     assert response.content == b"\xff\xd8jpeg"
 
 

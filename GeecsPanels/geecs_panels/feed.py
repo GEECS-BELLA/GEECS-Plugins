@@ -168,10 +168,21 @@ Fetch = Callable[[str], Awaitable[bytes]]
 
 @dataclass(frozen=True)
 class Frame:
-    """One JPEG and the frame counter it was fetched at (``None``: not known)."""
+    """One JPEG, the frame counter it was fetched at, and its upstream fetch number.
+
+    ``tag`` names this exact fetch for the page (``"<counter>.<fetch>"``):
+    the page redraws exactly when the tag changes, so a safety refetch under
+    an unchanged counter is still drawn.
+    """
 
     jpeg: bytes
-    tag: Optional[object] = None
+    counter: Optional[object] = None
+    fetch: int = 0
+
+    @property
+    def tag(self) -> str:
+        """The page's identity for this frame."""
+        return f"{'' if self.counter is None else self.counter}.{self.fetch}"
 
 
 class FrameUnavailable(RuntimeError):
@@ -187,7 +198,10 @@ class FrameSource:
     min_interval: float
     #: The camera's current frame counter (MJPG1's), ``None`` when unknown.
     counter: Callable[[], Optional[object]] = lambda: None
+    #: The longest a frame is reused under an unchanged counter.
+    max_reuse: float = 1.0
     clock: Callable[[], float] = time.monotonic
+    _fetches: int = 0
     _url: Optional[str] = None
     _frame: Optional[Frame] = None
     _at: float = float("-inf")
@@ -196,19 +210,31 @@ class FrameSource:
     async def latest(self) -> Frame:
         """The newest frame, shared with concurrent callers.
 
-        With the camera's counter known, the cached frame is reused exactly
-        while the counter has not moved, so upstream fetches never outrun the
-        camera. Without it, a frame is reused for ``min_interval`` after it
-        was asked for — timed from the request, not the reply: timed from the
+        Three rules, in order:
+
+        - **A floor for everyone:** within ``min_interval`` of the last
+          fetch, the cached frame is served — however many viewers poll and
+          however fast the camera, the IOC sees at most one fetch per
+          ``min_interval`` (N viewers cost one stream).
+        - **The counter:** past the floor, a frame is reused while the
+          camera's counter has not moved — a 1 Hz camera polled at 10 Hz is
+          fetched once a second.
+        - **A safety net:** a frame is never reused longer than
+          ``max_reuse``, counter or not — should a counter ever arrive
+          before its JPEG, the stale frame lasts this long, not a camera
+          period. (ffmpegServer stores the JPEG, then posts its counter.)
+
+        All ages are timed from the request, not the reply: timed from the
         reply, a poll at the cap's period landed inside the window behind a
         slow fetch and was handed the old frame again (a third of them).
         """
-        tag = self.counter()
+        counter = self.counter()
         if self._frame is not None:
-            if tag is not None and self._frame.tag is not None:
-                if tag == self._frame.tag:
-                    return self._frame
-            elif self.clock() - self._at < self.min_interval:
+            age = self.clock() - self._at
+            if age < self.min_interval:
+                return self._frame
+            unchanged = counter is not None and counter == self._frame.counter
+            if unchanged and age < self.max_reuse:
                 return self._frame
         if self._inflight is not None:
             return await asyncio.shield(self._inflight)
@@ -217,7 +243,8 @@ class FrameSource:
         try:
             # Tagged with the counter read BEFORE the fetch: the JPEG is at
             # least that new, so a later counter change always refetches.
-            frame = Frame(await self._fetch(), tag)
+            self._fetches += 1
+            frame = Frame(await self._fetch(), counter, self._fetches)
         except BaseException as exc:
             self._inflight.set_exception(exc)
             # Mark it retrieved: a request with no concurrent waiter must

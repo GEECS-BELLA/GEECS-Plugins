@@ -4,7 +4,7 @@
 // Frames are PULLED one at a time (never more than one in flight), so the
 // picture lags by one frame whatever the network does; the loop pauses while
 // the tab is hidden, and a frame the camera has not replaced (the service's
-// X-Frame-Counter is unchanged) is not decoded again. Colour map, levels and
+// X-Frame-Tag is unchanged) is not decoded again. Colour map, levels and
 // scale are applied here, to the IOC's 8-bit greyscale stream: nothing is
 // written to the camera.
 //
@@ -169,7 +169,9 @@
 
   // Zoom by `factor` keeping the image point under (cx, cy) where it is.
   function zoomAt(cx, cy, factor) {
-    const next = Math.min(MAX_ZOOM, Math.max(fitScale() / 2, view.scale * factor));
+    // Down to half the fit, or to 100% for a frame smaller than the view.
+    const floor = Math.min(1, fitScale() / 2);
+    const next = Math.min(MAX_ZOOM, Math.max(floor, view.scale * factor));
     const [ix, iy] = toImage(cx, cy);
     view.scale = next;
     view.ox = cx - ix * next;
@@ -229,6 +231,13 @@
   $("zoom-fit").addEventListener("click", fit);
   $("zoom-one").addEventListener("click", () => zoomAt(vw / 2, vh / 2, 1 / view.scale));
   new ResizeObserver(resize).observe(viewport);
+  // Moving the window to a screen of another pixel density changes no CSS
+  // size, so the observer stays quiet: re-size on the density change itself
+  // (a media query for the current density, re-armed after each change).
+  (function watchDensity() {
+    const mq = matchMedia("(resolution: " + (window.devicePixelRatio || 1) + "dppx)");
+    mq.addEventListener("change", () => { resize(); watchDensity(); }, { once: true });
+  })();
 
   // Cursor readout in image pixels (PROC1 coordinates, after any transform).
   function showCursor(cx, cy) {
@@ -267,6 +276,12 @@
         takeFrame(await createImageBitmap(blob));
         shown.push(performance.now());
       }
+    } catch (e) {
+      // A reply that is not a decodable image: say so, and let the next
+      // frame (even one with the same tag) be tried rather than skipped.
+      errText.textContent = "frame could not be decoded: " + String(e.message || e);
+      errBox.hidden = false;
+      lastTag = null;
     } finally {
       drawing = false;
     }
@@ -279,7 +294,7 @@
       try {
         const r = await fetch(frameUrl, { cache: "no-store" });
         if (!r.ok) throw new Error((await r.text()) || ("HTTP " + r.status));
-        const tag = r.headers.get("X-Frame-Counter");
+        const tag = r.headers.get("X-Frame-Tag");
         const blob = await r.blob();
         // The same frame again (a camera slower than the poll): no redraw.
         if (tag === null || tag !== lastTag) {

@@ -180,10 +180,8 @@ def _add_live_routes(
             frame = await source.latest()
         except FrameUnavailable as exc:
             return Response(str(exc), status_code=503, media_type="text/plain")
-        headers = {"Cache-Control": "no-store"}
-        if frame.tag is not None:
-            # The page skips decoding a frame it already shows.
-            headers["X-Frame-Counter"] = str(frame.tag)
+        # The page skips decoding a frame it already shows.
+        headers = {"Cache-Control": "no-store", "X-Frame-Tag": frame.tag}
         return Response(frame.jpeg, media_type="image/jpeg", headers=headers)
 
     @app.get("/camera/{name}/events")

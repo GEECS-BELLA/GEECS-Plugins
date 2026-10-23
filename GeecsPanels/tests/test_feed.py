@@ -250,11 +250,11 @@ def test_an_unchanged_frame_counter_means_no_new_fetch() -> None:
         for _ in range(5):  # half a second of polling, the counter still
             clock.now += 0.1
             f = await source.latest()
-            out.append((f.jpeg, f.tag))
+            out.append((f.jpeg, f.counter))
         counter["n"] = 8  # the camera produced a frame
         clock.now += 0.1
         f = await source.latest()
-        out.append((f.jpeg, f.tag))
+        out.append((f.jpeg, f.counter))
         return out
 
     out = asyncio.run(run())
@@ -274,7 +274,7 @@ def test_without_a_counter_the_interval_alone_decides() -> None:
         source = FrameSource(lambda: _resolved(), fetch, 0.1, clock=clock)
         for _ in range(3):
             clock.now += 0.2
-            assert (await source.latest()).tag is None
+            assert (await source.latest()).counter is None
 
     asyncio.run(run())
     assert len(fetched) == 3
@@ -305,9 +305,10 @@ def test_the_reuse_window_is_timed_from_the_request_not_the_reply() -> None:
     assert len(fetched) == 4
 
 
-def test_a_changed_counter_refetches_even_inside_the_window() -> None:
+def test_every_viewer_shares_one_fetch_per_floor_interval() -> None:
+    """A fast camera and many viewers: the IOC sees one fetch per floor, not one per poll."""
     clock = Clock()
-    counter = {"n": 1}
+    counter = {"n": 0}
     fetched: list[int] = []
 
     async def fetch(url: str) -> bytes:
@@ -316,12 +317,42 @@ def test_a_changed_counter_refetches_even_inside_the_window() -> None:
 
     async def run() -> None:
         source = FrameSource(
-            lambda: _resolved(), fetch, 10.0, counter=lambda: counter["n"], clock=clock
+            lambda: _resolved(), fetch, 0.05, counter=lambda: counter["n"], clock=clock
         )
-        await source.latest()
-        counter["n"] = 2
-        clock.now += 0.01
-        await source.latest()
+        # 5 viewers out of step, a 100 Hz camera, one second.
+        for step in range(500):
+            clock.now = 100.0 + step * 0.002
+            counter["n"] = step // 5
+            await source.latest()
 
     asyncio.run(run())
-    assert fetched == [1, 2]
+    assert len(fetched) <= 21  # one per 50 ms floor, however many viewers
+
+
+def test_an_unchanged_counter_still_refetches_after_max_reuse() -> None:
+    """The safety net: a stale frame lasts max_reuse, never a whole camera period."""
+    clock = Clock()
+    fetched: list[float] = []
+
+    async def fetch(url: str) -> bytes:
+        fetched.append(clock.now)
+        return b"x"
+
+    async def run() -> list[str]:
+        source = FrameSource(
+            lambda: _resolved(),
+            fetch,
+            0.05,
+            counter=lambda: 7,
+            max_reuse=1.0,
+            clock=clock,
+        )
+        tags = []
+        for _ in range(25):  # 2.5 s of polling, the counter never moves
+            tags.append((await source.latest()).tag)
+            clock.now += 0.1
+        return tags
+
+    tags = asyncio.run(run())
+    assert len(fetched) == 3  # at 0, ~1 s and ~2 s
+    assert len(set(tags)) == 3  # each refetch is a new tag: the page redraws it
