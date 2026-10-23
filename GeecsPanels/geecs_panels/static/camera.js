@@ -264,7 +264,7 @@
   // the frame rate is limited by the cap, not by fetch time + draw time.
   // Still one request in flight; a frame that arrives while another is
   // being drawn replaces any frame waiting behind it (latest wins).
-  let waiting = null, drawing = false;
+  let waiting = null, drawing = false, lastCounter = null;
 
   async function drawLatest() {
     if (drawing) return;
@@ -273,8 +273,14 @@
       while (waiting) {
         const blob = waiting;
         waiting = null;
+        const tag = blob.tag;
         takeFrame(await createImageBitmap(blob));
-        shown.push(performance.now());
+        errBox.hidden = true;
+        // The fps counts camera frames: a safety refetch of the same
+        // counter (tag "<counter>.<fetch>") is redrawn but not counted.
+        const counter = tag === null ? null : tag.split(".")[0];
+        if (counter === null || counter === "" || counter !== lastCounter) shown.push(performance.now());
+        lastCounter = counter;
       }
     } catch (e) {
       // A reply that is not a decodable image: say so, and let the next
@@ -299,10 +305,10 @@
         // The same frame again (a camera slower than the poll): no redraw.
         if (tag === null || tag !== lastTag) {
           lastTag = tag;
+          blob.tag = tag;
           waiting = blob;
           drawLatest();
         }
-        errBox.hidden = true;
       } catch (e) {
         errText.textContent = String(e.message || e);
         errBox.hidden = false;

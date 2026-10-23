@@ -9,8 +9,9 @@ feed, so N open panels cost the IOC one set of subscriptions.
 A :class:`FrameSource` serves the latest JPEG with at most one upstream
 request in flight, reusing a frame for everyone who asks within
 ``min_interval`` — N viewers cost the camera host one stream — and, when
-it is given the camera's frame counter, never fetching again until the
-counter moves: a 1 Hz camera polled at 10 Hz costs one fetch a second.
+it is given the camera's frame counter, not fetching again until the
+counter moves (or ``max_reuse`` passes): a 1 Hz camera polled at 10 Hz
+costs one fetch a second.
 
 The transports are injected (``subscribe``, ``fetch``) so the logic runs in
 tests without a CA library or an IOC; :mod:`geecs_panels.ca` supplies the
