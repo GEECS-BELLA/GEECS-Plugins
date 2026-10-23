@@ -1,0 +1,14 @@
+/* GeecsPanels' own rules: only what the kit does not settle. Colours come
+   from theme.css tokens, never literals (GeecsWebTheme's guard). */
+
+.kit .imagewrap{
+  display:flex;justify-content:center;align-items:center;
+  background:var(--surface-2);border-radius:var(--r);
+  min-height:240px;overflow:hidden;
+}
+/* The whole frame stays on screen: bounded by the viewport's height too. */
+.kit #image{max-width:100%;max-height:calc(100vh - 320px);width:auto;height:auto;image-rendering:pixelated;cursor:crosshair}
+.kit .readings{grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}
+.kit .readings .live .v{font-size:16px}
+.kit .field.levels{min-width:0;width:84px}
+.kit .rail .hint{font-size:11.5px}

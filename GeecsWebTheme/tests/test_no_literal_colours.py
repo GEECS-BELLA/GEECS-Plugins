@@ -96,6 +96,10 @@ _SURFACES = [
     "GeecsScanner/geecs_scanner/templates/console.html",
     "GeecsScanner/geecs_scanner/static/scanner.css",
     "GeecsScanner/geecs_scanner/static/scanner.js",
+    "GeecsPanels/geecs_panels/templates/index.html",
+    "GeecsPanels/geecs_panels/templates/camera.html",
+    "GeecsPanels/geecs_panels/static/panels.css",
+    "GeecsPanels/geecs_panels/static/camera.js",
 ]
 
 #: Selectors whose rules may carry a literal, each with its reason. This is

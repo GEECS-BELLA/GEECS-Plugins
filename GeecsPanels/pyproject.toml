@@ -1,0 +1,40 @@
+[tool.poetry]
+name = "geecs-panels"
+version = "0.1.0"
+description = "Device panels: a browser GUI per native-device kind, first the areaDetector camera"
+authors = ["GEECS-BELLA"]
+readme = "README.md"
+packages = [{ include = "geecs_panels" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+fastapi = ">=0.110"
+uvicorn = ">=0.29"
+jinja2 = ">=3.1"
+pydantic = ">=2.7"
+pyyaml = ">=6.0"
+# The PV bridge: the CA client ophyd-async already uses. Ships wheels
+# (epicscorelibs bundles libca), so no system EPICS is needed.
+aioca = ">=1.7"
+# The frame proxy's upstream client (the IOC's ffmpegServer).
+httpx = ">=0.27"
+# config.ini addressing (epics_env), the PV prefix rule (pv_naming) and the
+# configs repository (configs_repo).
+geecs-core = { path = "../GEECS-Core", develop = true }
+# The registry document: NativeDevices.
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+# The kit and the FastAPI glue every surface shares. Imported, never copied.
+geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["web"] }
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+
+[tool.poetry.scripts]
+geecs-panels = "geecs_panels.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
