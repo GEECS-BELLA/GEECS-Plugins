@@ -11,7 +11,7 @@ scan number and leaves ScanInfo, the s-file, ``scan.log`` and the
 detectors' native files in its folder.
 
 **Import order is load-bearing**: ``geecs_bluesky`` is imported first; its
-``__init__`` (:func:`~geecs_bluesky.epics_env.apply_epics_address_config`)
+``__init__`` (:func:`~geecs_core.epics_env.apply_epics_address_config`)
 sets the EPICS address variables from ``config.ini`` before any device
 import creates libca's CA context, which reads them once.  They come from
 the config file, never the GEECS DB (an import-time round trip, circular).

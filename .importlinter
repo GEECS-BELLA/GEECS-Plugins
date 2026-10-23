@@ -340,7 +340,6 @@ forbidden_modules =
     geecs_bluesky.callbacks
     geecs_bluesky.preprocessors
     geecs_bluesky.db_runtime
-    geecs_bluesky.epics_env
     geecs_bluesky.actions.compiler
     geecs_bluesky.optimization.driver
     geecs_bluesky.optimization.generators

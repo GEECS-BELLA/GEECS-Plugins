@@ -136,8 +136,10 @@ EXPERIMENT="$EXPERIMENT" CA_TIMEOUT="$CA_TIMEOUT" poetry -C "$BLUESKY_DIR" run p
 import asyncio
 import os
 
-import geecs_bluesky.epics_env  # noqa: F401 — applies EPICS_CA_ADDR_LIST from config.ini
-import aioca
+from geecs_core.epics_env import apply_epics_address_config
+
+apply_epics_address_config()  # EPICS_CA_ADDR_LIST from config.ini, before aioca
+import aioca  # noqa: E402
 
 experiment = os.environ["EXPERIMENT"]
 timeout = float(os.environ["CA_TIMEOUT"])

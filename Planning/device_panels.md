@@ -266,17 +266,11 @@ configs path come from `site.env` / `config.ini` — none committed.
 
 **CA addressing.** Clients get the CA address list from `config.ini
 [epics] ca_addr_list`, applied to the environment by
-`geecs_bluesky.epics_env` at import — which GeecsPanels must not import.
-Without it the panel's CA client would search only the default list and
-find no IOC. So **the env bootstrap moves to GEECS-Core** (beside
-`geecs_core.configs_repo`, which it already reads) as part of build step
-1, and GeecsBluesky re-exports it. Its one GeecsBluesky dependency
-(`data_paths.pva_addr_tokens`, for the `[pva]` list) moves with it or
-stays behind as a Bluesky-only extension. The deployed list must name the
-IOC hosts as well as the gateway; at HTU it does today (a `site.env`
-override set when the test camera went live), but the committed
-`deploy/site.env.example` shows only the gateway — that example gains an
-IOC-hosts line in the same step. The prefix rule and the configs base are
+`geecs_core.epics_env` before aioca is imported (done in build step 1,
+#1130: it moved there from GeecsBluesky, with `pva_addr_tokens`, so
+GeecsPanels needs no GeecsBluesky import). The deployed list must name
+the IOC hosts — and an IOC on its own CA port as `host:port` — as well as
+the gateway; `deploy/site.env.example` shows the shape. The prefix rule and the configs base are
 GEECS-Core's (`pv_name`, `configs_repo.scanner_configs_base`).
 
 ## Build order

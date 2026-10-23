@@ -10,7 +10,7 @@ aioca/ophyd-async at import.  ``from geecs_bluesky import CaMotor`` still
 works; it just pays the device-family import at that moment.
 """
 
-from .epics_env import apply_epics_address_config
+from geecs_core.epics_env import apply_epics_address_config
 
 # Must run before any device import: the device family pulls in aioca (via
 # ophyd-async), and libca reads EPICS_CA_ADDR_LIST when the CA context is

@@ -16,6 +16,12 @@ geecs_core/
   pv_naming.py      # contract: GEECS→PV naming rules (stdlib-only) —
                     #   producer (gateways) and consumers (Bluesky) import
                     #   THIS module; naming must never drift by copy
+  configs_repo.py   # the client site profile (config.ini) and the configs
+                    #   repository's per-experiment files (stdlib-only)
+  epics_env.py      # config.ini [epics]/[pva] → EPICS_*_ADDR_LIST, applied
+                    #   before a CA client imports aioca (stdlib-only) —
+                    #   every CA client of the IOCs needs it, not only
+                    #   GeecsBluesky (GeecsPanels, scripts)
   transport/        # layer 1 — the UDP/TCP wire protocol, asyncio-native,
                     #   stdlib-only (GeecsUdpClient, GeecsTcpSubscriber) +
                     #   scan_mode (Master Control's scan-mode device

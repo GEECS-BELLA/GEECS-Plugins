@@ -59,8 +59,8 @@ annotations fail at `queue add`.
 
 ```
 geecs_bluesky/
-  __init__.py, epics_env.py # apply_epics_address_config at import: EPICS_CA/PVA_ADDR_LIST
-                            #   from config.ini before libca's context exists
+  __init__.py               # geecs_core.epics_env.apply_epics_address_config at import:
+                            #   EPICS_CA/PVA_ADDR_LIST from config.ini before libca's context exists
   namespace.py              # GeecsNamespace: every DB device as a long-lived noun;
                             #   capture_streams (the file-plugin rule), add_pseudos, telemetry()
   db_runtime.py             # the DB providers (served set, device types); the scalar
@@ -897,7 +897,7 @@ command) and never imports the gateway (circular).
 
 - `[epics] ca_addr_list`, `[pva] addr_list` + `file_plugin_addr_list`:
   `geecs_core.configs_repo.read_config_entry`, exported into the EPICS
-  environment at import (`epics_env`).  `file_plugin_addr_list` is also the
+  environment at import (`geecs_core.epics_env`).  `file_plugin_addr_list` is also the
   namespace's plugin rule: the camera servers whose gateway serves the file
   plugin.
 - `[Paths]`: `geecs_native_ioc_data_base_path` (optional) — the data root

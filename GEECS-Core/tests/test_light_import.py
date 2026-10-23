@@ -10,6 +10,7 @@ LIGHT_MODULES = (
     "geecs_core.pv_naming",
     "geecs_core.exceptions",
     "geecs_core.configs_repo",
+    "geecs_core.epics_env",
 )
 HEAVY_MODULES = ("pydantic", "mysql", "mysql.connector", "geecs_core.db")
 
