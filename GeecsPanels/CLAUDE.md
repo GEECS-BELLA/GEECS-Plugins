@@ -31,7 +31,9 @@ geecs_panels/
                 #   camera.js = the viewer (frame loop, zoom/pan, colour map);
                 #   overlay.js = the crosshair + ROI layer, plugged in through
                 #   window.GeecsCameraView's hooks (draw, grab, hover, snapshot);
-                #   processing.js = background, rotate/flip, the saturation chip.
+                #   processing.js = background, rotate/flip, the saturation chip;
+                #   plots.js = lineouts, histogram, history (one canvas drawer:
+                #   custom for now, a plotting library to be weighed later).
                 #   Writes go through window.GeecsCameraView.write (one copy)
 ```
 
@@ -50,6 +52,11 @@ geecs_panels/
   `MJPG1:MAXW/MAXH` (a rotated 1280x1024 frame arrives as 960x1200), so the
   page stretches the JPEG to the true size (`MJPG1:ArraySize0/1_RBV`) and
   every position is in image (PROC1) pixels.
+- **Arrays are read on request, never monitored.** STAT's profiles and
+  histogram would arrive at the camera's full rate (~0.6 MB/s over the VPN
+  at 18 Hz); `ArraysSource` reads them at most every 0.5 s, shared, and only
+  while a page has the plots open (`events?plots=1`). The history (centroid,
+  mean, max) is kept in the service, sampled on STAT's frame counter.
 - **Saturation is judged on the raw frame** (STAT0, before background and
   ROI) against the pixel format's full scale (`camera.saturation`).
 - **The stream URL is rehosted to the CA address** (`ca.with_ca_host`): the

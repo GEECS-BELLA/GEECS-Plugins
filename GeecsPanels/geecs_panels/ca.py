@@ -21,8 +21,9 @@ from urllib.parse import urlsplit, urlunsplit
 import aioca
 import httpx
 
-from geecs_panels.camera import IMAGE_PLUGIN, JPG_URL_SUFFIX, counter_suffix
+from geecs_panels.camera import ARRAYS, IMAGE_PLUGIN, JPG_URL_SUFFIX, counter_suffix
 from geecs_panels.feed import (
+    ArraysSource,
     CameraFeed,
     FrameSource,
     ResolveUrl,
@@ -33,6 +34,8 @@ from geecs_panels.registry import Device
 
 #: Upstream frame timeout: the IOC answers a snapshot in ~50 ms.
 FETCH_TIMEOUT_S = 3.0
+#: The plots' arrays are read at most this often (and only while asked for).
+ARRAYS_EVERY_S = 0.5
 #: A write waits for the IOC to process the record, at most this long.
 PUT_TIMEOUT_S = 3.0
 
@@ -113,6 +116,7 @@ class LiveCameras:
         self._fetch = Fetcher()
         self._feeds: dict[str, CameraFeed] = {}
         self._frames: dict[str, FrameSource] = {}
+        self._arrays: dict[str, ArraysSource] = {}
 
     def feed(self, device: Device) -> CameraFeed:
         """The camera's feed, subscribed on first use."""
@@ -134,6 +138,19 @@ class LiveCameras:
                 self._min_interval,
                 counter=lambda: feed.values.get(counter),
             )
+        return source
+
+    def arrays(self, device: Device) -> ArraysSource:
+        """The camera's STAT arrays: one read per ARRAYS_EVERY_S, shared by every viewer."""
+        source = self._arrays.get(device.name)
+        if source is None:
+            pvs = {key: device.prefix + suffix for key, suffix in ARRAYS.items()}
+
+            async def fetch() -> dict[str, list[float]]:
+                values = await aioca.caget(list(pvs.values()), timeout=3.0)
+                return {key: [float(x) for x in v] for key, v in zip(pvs, values)}
+
+            source = self._arrays[device.name] = ArraysSource(fetch, ARRAYS_EVERY_S)
         return source
 
     async def put(self, device: Device, suffix: str, value: object) -> None:

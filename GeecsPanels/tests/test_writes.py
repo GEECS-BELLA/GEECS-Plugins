@@ -37,7 +37,13 @@ def test_nothing_outside_the_allow_list_is_writable(suffix: str) -> None:
 
 def test_no_writable_pv_touches_scan_data() -> None:
     """Only the display/analysis branch (after the driver): never cam1 or the raw outputs."""
-    assert {s.split(":")[0] for s in WRITABLE} <= {"OVER1", "ROI1", "PROC1", "TRANS1"}
+    assert {s.split(":")[0] for s in WRITABLE} <= {
+        "OVER1",
+        "ROI1",
+        "PROC1",
+        "TRANS1",
+        "STAT",
+    }
 
 
 @pytest.mark.parametrize(

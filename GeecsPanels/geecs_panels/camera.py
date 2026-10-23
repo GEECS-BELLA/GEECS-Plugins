@@ -173,6 +173,30 @@ def saturation(pixel_format: object, raw_max: object) -> dict[str, object]:
     return {"state": state, "fraction": fraction, "full_scale": full}
 
 
+#: STAT's arrays for the plots. READ ON REQUEST, never monitored: monitored,
+#: they would arrive at the camera's full rate (~0.6 MB/s over the VPN at
+#: 18 Hz) for plots nobody reads that fast. Key → suffix.
+ARRAYS = {
+    "profile_x": "STAT:ProfileAverageX_RBV",
+    "profile_y": "STAT:ProfileAverageY_RBV",
+    "cursor_x": "STAT:ProfileCursorX_RBV",
+    "cursor_y": "STAT:ProfileCursorY_RBV",
+    "histogram": "STAT:Histogram_RBV",
+}
+#: The scalars the plots need (monitored). Profiles and the cursor are in
+#: the ROI's output pixels; :mod:`geecs_panels.coords` maps them.
+PLOT_FIELDS = {
+    "profile_size_x": "STAT:ProfileSizeX_RBV",
+    "profile_size_y": "STAT:ProfileSizeY_RBV",
+    "hist_min": "STAT:HistMin_RBV",
+    "hist_max": "STAT:HistMax_RBV",
+    "cursor_x": "STAT:CursorX_RBV",
+    "cursor_y": "STAT:CursorY_RBV",
+    "profiles_on": "STAT:ComputeProfiles",
+    "histogram_on": "STAT:ComputeHistogram",
+}
+
+
 def crosshair_suffix(n: int, field: str) -> str:
     """``OVER1:<n>:<readback>`` for a crosshair field."""
     return f"OVER1:{n}:{CROSSHAIR_FIELDS[field]}"
@@ -219,6 +243,10 @@ WRITABLE: dict[str, object] = {
     # Background: grab one from the next frame (1 only — the record's "Save"),
     # and subtract it or not. Display and statistics only: scans save raw
     # frames from the driver.
+    # The lineout cursor (ROI output pixels): the panel converts a clicked
+    # image point first. Analysis state only.
+    "STAT:CursorX": _PIXEL,
+    "STAT:CursorY": _PIXEL,
     "PROC1:SaveBackground": (1,),
     "PROC1:EnableBackground": bool,
     "TRANS1:Type": TRANSFORMS,
@@ -289,6 +317,8 @@ def monitored_suffixes() -> list[str]:
     for suffix in PROCESSING_FIELDS.values():
         seen[suffix] = None
     for suffix in IMAGE_SIZE_FIELDS.values():
+        seen[suffix] = None
+    for suffix in PLOT_FIELDS.values():
         seen[suffix] = None
     return list(seen)
 

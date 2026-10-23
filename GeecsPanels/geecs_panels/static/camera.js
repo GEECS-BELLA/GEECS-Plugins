@@ -171,7 +171,8 @@
   // ---- hooks for the layers over the image (overlay.js) ------------------
   // draw(ctx) in view pixels; grab(cx, cy) → an edit or null; hover(cx, cy)
   // → a CSS cursor or ""; snapshot(snap) with each SSE state.
-  const hooks = { draw: [], grab: [], hover: [], snapshot: [] };
+  // click(ix, iy) for a press released where it started (not a pan).
+  const hooks = { draw: [], grab: [], hover: [], snapshot: [], click: [] };
 
   // ---- the viewer: zoom and pan -------------------------------------------
   const view = { scale: 1, ox: 0, oy: 0, moved: false };
@@ -255,7 +256,7 @@
       edit = grab(cx, cy);
       if (edit) return;
     }
-    drag = { x: ev.clientX, y: ev.clientY, ox: view.ox, oy: view.oy };
+    drag = { x: ev.clientX, y: ev.clientY, ox: view.ox, oy: view.oy, cx: cx, cy: cy };
     viewport.classList.add("panning");
   });
   viewport.addEventListener("pointermove", (ev) => {
@@ -274,8 +275,14 @@
     view.moved = true;
     draw();
   });
-  const endDrag = () => {
+  const endDrag = (ev) => {
     if (edit) { edit.end(); edit = null; }
+    // A press released where it started is a click on the image, not a pan.
+    if (drag && ev && ev.type === "pointerup" &&
+        Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) < 4) {
+      const [ix, iy] = toImage(drag.cx, drag.cy);
+      for (const f of hooks.click) f(ix, iy);
+    }
     drag = null;
     viewport.classList.remove("panning");
   };
@@ -468,17 +475,21 @@
     img.dataset.state = "unknown"; img.textContent = "no update";
   }
 
+  // The stream carries the plots' arrays only while a layer asks for them
+  // (setPlots): they are the heavy part of a snapshot.
+  let es = null, wantPlots = false;
   function connect() {
-    const es = new EventSource(eventsUrl);
+    if (es) es.close();
+    es = new EventSource(eventsUrl + (wantPlots ? "?plots=1" : ""));
     es.addEventListener("state", (ev) => {
       lastSnapshot = performance.now();
       apply(JSON.parse(ev.data));
     });
     es.onerror = streamLost;
-    setInterval(() => {
-      if (lastSnapshot && performance.now() - lastSnapshot > STREAM_STALE_MS) streamLost();
-    }, 1000);
   }
+  setInterval(() => {
+    if (lastSnapshot && performance.now() - lastSnapshot > STREAM_STALE_MS) streamLost();
+  }, 1000);
 
   // ---- wiring -------------------------------------------------------------
   restore();
@@ -538,6 +549,7 @@
   // layer scripts run, which register into `hooks`.
   window.GeecsCameraView = {
     write: { post, put, putAll, sayError },
+    setPlots: (on) => { if (on !== wantPlots) { wantPlots = on; connect(); } },
     root, hooks, toView, toImage, redraw: () => draw(),
     frameSize: () => [iw, ih], scale: () => view.scale,
   };
