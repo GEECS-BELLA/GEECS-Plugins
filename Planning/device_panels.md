@@ -202,8 +202,9 @@ pre-run mode, and a camera may run hardware-triggered between scans. So
 the run declares ownership itself, and the IOC enforces it:
 
 - **A lock record in every camera IOC** (chain contract):
-  `<prefix>RUN:Lock` (`bo`) and `<prefix>RUN:Owner` (`stringout`, the
-  run's scan id). NativeCamera sets them as the **first** step of
+  `<prefix>RUN:Lock` (`bo`) and `<prefix>RUN:Owner` (`stringout`,
+  `host:pid @HH:MM` — who and since when; the device does not know the
+  scan's number when it takes the lock). NativeCamera sets them as the **first** step of
   `prepare_edge`, before the snapshot, and clears them only once the
   camera is back: after the restore succeeds (when `session.restore` is
   cleared), **or** at unstage when this session set the lock but never
