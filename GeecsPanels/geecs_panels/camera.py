@@ -320,6 +320,12 @@ WRITABLE: dict[str, object] = {
 }
 
 
+#: Writes whose put completes only when the work ends: a Continuous acquire's
+#: put returns when acquisition stops. Dispatched without waiting, then
+#: confirmed by the readback (as GeecsBluesky's NativeAcquireLogic does).
+SETTLED_BY_READBACK = {"cam1:Acquire": "cam1:Acquire_RBV"}
+
+
 class NotWritable(ValueError):
     """A write the allow-list refuses; the message says why."""
 

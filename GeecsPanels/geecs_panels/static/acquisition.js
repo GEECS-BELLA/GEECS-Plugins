@@ -56,8 +56,10 @@
     if (typeof acq.gain === "number") fill("cam-gain", Number(acq.gain.toPrecision(4)));
     fill("cam-trigger", acq.trigger_mode);
     $("cam-source").textContent = acq.trigger_source ? "source " + acq.trigger_source : "";
-    fill("cam-minx", acq.min_x); fill("cam-miny", acq.min_y);
-    fill("cam-sizex", acq.size_x); fill("cam-sizey", acq.size_y);
+    if (!roiDraft) {
+      fill("cam-minx", acq.min_x); fill("cam-miny", acq.min_y);
+      fill("cam-sizex", acq.size_x); fill("cam-sizey", acq.size_y);
+    }
   });
 
   // ---- exposure, period, gain, trigger, start/stop ------------------------
@@ -75,7 +77,21 @@
   $("cam-stop").addEventListener("click", () => put("cam1:Acquire", 0).catch(() => {}));
 
   // ---- the camera ROI: behind a dialog (it changes what scans save) -------
-  let pendingRoi = null;
+  // The four fields are one draft: once any is edited, none is refilled from
+  // the readbacks until it is applied or reverted (a snapshot every 0.5 s
+  // would otherwise reset the fields not in focus).
+  const ROI_FIELDS = ["cam-minx", "cam-miny", "cam-sizex", "cam-sizey"];
+  let pendingRoi = null, roiDraft = false;
+  function setDraft(on) {
+    roiDraft = on;
+    $("cam-roi-revert").hidden = !on;
+    if (!on) {  // the camera's values, even into a focused field: asked for
+      const keys = ["min_x", "min_y", "size_x", "size_y"];
+      ROI_FIELDS.forEach((id, i) => { if (acq[keys[i]] != null) $(id).value = acq[keys[i]]; });
+    }
+  }
+  for (const id of ROI_FIELDS) $(id).addEventListener("input", () => setDraft(true));
+  $("cam-roi-revert").addEventListener("click", () => setDraft(false));
   function askRoi(roi) {
     pendingRoi = roi;
     $("roi-dialog-text").textContent =
@@ -97,8 +113,9 @@
     if (!r) return;
     // Offsets, then sizes: the last size put is checked against the final
     // offset, so a clamp along the way never sticks.
+    // Applied: the readbacks (the camera's answer, clamped or not) take over.
     putAll([["cam1:MinX", r.x], ["cam1:MinY", r.y], ["cam1:SizeX", r.w], ["cam1:SizeY", r.h]])
-      .catch(() => {});
+      .then(() => setDraft(false), () => {});
   });
 
   // ---- the stuck-lock override -------------------------------------------

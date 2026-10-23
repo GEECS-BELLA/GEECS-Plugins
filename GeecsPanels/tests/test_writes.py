@@ -333,3 +333,63 @@ def test_a_rotation_makes_the_background_stale_for_every_viewer_until_a_grab() -
     # Switching subtraction OFF is always allowed.
     feed.update("TRANS1:Type", "Rot90")
     assert put(0).status_code == 200
+
+
+# ---- the real transport's put: a Continuous acquire is settled by its readback ----
+
+
+class FakeCa:
+    """aioca's caput/caget: records puts; the readback follows ``rb_after`` gets."""
+
+    def __init__(self, rb_after: int | None = 1, refuse: bool = False) -> None:
+        self.puts: list[tuple[str, object, bool]] = []
+        self.rb_after, self.refuse, self.gets, self.rb = rb_after, refuse, 0, 0
+
+    async def caput(self, pv, value, wait, timeout):
+        if self.refuse:
+            raise RuntimeError("Write access denied")
+        self.puts.append((pv, value, wait))
+        self.target = value
+
+    async def caget(self, pv, timeout):
+        self.gets += 1
+        if self.rb_after is not None and self.gets >= self.rb_after:
+            self.rb = self.target
+        return self.rb
+
+
+def _ca_put(monkeypatch, fake: FakeCa, suffix: str, value: object) -> None:
+    import asyncio
+
+    from geecs_panels import ca
+
+    monkeypatch.setattr(ca, "aioca", fake)
+    monkeypatch.setattr(ca, "PUT_TIMEOUT_S", 0.3)
+    monkeypatch.setattr(ca, "SETTLE_POLL_S", 0.01)
+    asyncio.run(ca.LiveCameras.put(object(), CAM, suffix, value))
+
+
+def test_start_does_not_wait_for_the_acquisition_to_end(monkeypatch) -> None:
+    """A Continuous acquire's put completes only when acquisition stops: the panel
+    dispatches it and waits on Acquire_RBV instead (GPT P2 on #1137)."""
+    fake = FakeCa(rb_after=3)
+    _ca_put(monkeypatch, fake, "cam1:Acquire", 1)
+    assert fake.puts == [(CAM.prefix + "cam1:Acquire", 1, False)]
+    assert fake.gets == 3
+
+
+def test_a_start_the_readback_never_shows_is_a_failed_write(monkeypatch) -> None:
+    with pytest.raises(WriteFailed, match="Acquire_RBV stayed 0"):
+        _ca_put(monkeypatch, FakeCa(rb_after=None), "cam1:Acquire", 1)
+
+
+def test_a_refused_start_is_a_failed_write(monkeypatch) -> None:
+    """The IOC's access security still refuses it (the run lock)."""
+    with pytest.raises(WriteFailed, match="access denied"):
+        _ca_put(monkeypatch, FakeCa(refuse=True), "cam1:Acquire", 1)
+
+
+def test_other_writes_still_wait_for_the_ioc(monkeypatch) -> None:
+    fake = FakeCa()
+    _ca_put(monkeypatch, fake, "cam1:Gain", 2.0)
+    assert fake.puts == [(CAM.prefix + "cam1:Gain", 2.0, True)] and fake.gets == 0
