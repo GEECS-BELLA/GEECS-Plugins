@@ -73,6 +73,8 @@ class CameraFeed:
     _ticks: dict[str, float] = field(default_factory=dict)
     _subs: list[Subscription] = field(default_factory=list)
     _seen: set[str] = field(default_factory=set)
+    #: The held background predates a transform change (see _track_background).
+    background_stale: bool = False
     _started: Optional[float] = None
 
     def start(self) -> None:
@@ -110,6 +112,7 @@ class CameraFeed:
         self._seen.add(suffix)
         self.connected[suffix] = True
         self.values[suffix] = value
+        self._track_background(suffix, previous, value)
         for plugin in COUNTER_PLUGINS:
             # The first value after (re)connecting is the counter's current
             # position, not an advance: only a change is a processed frame.
@@ -119,6 +122,24 @@ class CameraFeed:
                 and value != previous
             ):
                 self._ticks[plugin] = self.clock()
+
+    def _track_background(
+        self, suffix: str, previous: Optional[object], value: object
+    ) -> None:
+        """Mark the held background stale on a transform change; a grab clears it.
+
+        The background is grabbed AFTER the transform and NDProcess checks
+        only its size, so after a rotation it is subtracted in the wrong
+        orientation. Seen on the IOC's own records — a change from any client
+        — and kept here, for every viewer of this service; a grab completing
+        (``SaveBackground_RBV`` back from 1 to 0) clears it.
+        """
+        transform = suffix == PROCESSING_FIELDS["transform"]
+        if transform and previous is not None and value != previous:
+            self.background_stale = True
+        grabbed = suffix == PROCESSING_FIELDS["background_saving"]
+        if grabbed and previous == 1 and value == 0:
+            self.background_stale = False
 
     def counter_ages(self) -> dict[str, Optional[float]]:
         """Plugin → seconds since its counter last advanced (``None``: not seen to)."""
@@ -172,7 +193,10 @@ class CameraFeed:
             "missing": self.missing(),
             "crosshairs": self.crosshairs(),
             "roi": self.roi(),
-            "processing": {f: self.values.get(s) for f, s in PROCESSING_FIELDS.items()},
+            "processing": {
+                **{f: self.values.get(s) for f, s in PROCESSING_FIELDS.items()},
+                "background_stale": self.background_stale,
+            },
             "saturation": self._saturation(readings),
         }
 

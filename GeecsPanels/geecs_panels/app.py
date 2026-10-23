@@ -302,6 +302,15 @@ def _add_write_routes(
             except NotWritable as exc:
                 raise HTTPException(422, str(exc)) from exc
             await w.put(device, "PROC1:EnableBackground", 0)
+        if (
+            request.pv == "PROC1:EnableBackground"
+            and request.value
+            and cameras.feed(device).background_stale
+        ):
+            # For every viewer: the held background predates a rotation.
+            raise HTTPException(
+                409, "the background predates a transform change: grab a new one first"
+            )
         await w.put(device, request.pv, request.value)
         return {
             "ok": True,

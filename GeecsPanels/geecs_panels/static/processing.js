@@ -17,11 +17,11 @@
   const writable = V.root.dataset.writable === "true";
   const bgOn = $("bg-on"), transform = $("transform");
 
-  // A transform change (from here or anywhere else — it is seen in the
-  // stream) leaves the held background in the old orientation: NDProcess
-  // still calls it valid, as it checks only the size. The background is
-  // "stale" until the next grab, and subtraction cannot be switched on.
-  let beeping = false, audio = null, lastTransform = null, stale = false;
+  // A transform change leaves the held background in the old orientation
+  // (NDProcess checks only its size). The SERVICE tracks that for every
+  // viewer and refuses subtraction until a new grab (processing.
+  // background_stale); the page only shows it.
+  let beeping = false, audio = null;
   function beep() {
     // A short tone once a second while saturated, if the viewer asked for it.
     try {
@@ -38,8 +38,7 @@
 
   V.hooks.snapshot.push((snap) => {
     const p = snap.processing || {};
-    if (lastTransform !== null && p.transform && p.transform !== lastTransform) stale = true;
-    if (p.transform) lastTransform = p.transform;
+    const stale = !!p.background_stale;
     const valid = p.background_valid === 1 && !stale;
     if (document.activeElement !== bgOn) bgOn.checked = p.background_on === 1;
     bgOn.disabled = !writable || !valid;
@@ -64,7 +63,7 @@
   });
 
   $("bg-grab").addEventListener("click", () => {
-    put("PROC1:SaveBackground", 1).then(() => { stale = false; }).catch(() => {});
+    put("PROC1:SaveBackground", 1).catch(() => {});
   });
   bgOn.addEventListener("change", () => {
     put("PROC1:EnableBackground", bgOn.checked ? 1 : 0).catch(() => {});

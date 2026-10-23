@@ -290,3 +290,28 @@ def test_a_refused_transform_changes_nothing() -> None:
         "/camera/ADTEST_CAM1/put", json={"pv": "TRANS1:Type", "value": "Rot45"}
     )
     assert r.status_code == 422 and cameras.puts == []
+
+
+def test_a_rotation_makes_the_background_stale_for_every_viewer_until_a_grab() -> None:
+    """Shared, not per page: a reload or a second viewer keeps the guard (GPT P2 on #1134)."""
+    cameras = RecordingCameras()
+    feed = cameras.feed(CAM)
+    feed.update("TRANS1:Type", "None")
+    feed.update("PROC1:SaveBackground_RBV", 0)
+    feed.update("TRANS1:Type", "Rot180")  # rotated after the grab, by anyone
+    client = _client(cameras=cameras)  # a fresh viewer
+
+    def put(v: int):
+        return client.post(
+            "/camera/ADTEST_CAM1/put", json={"pv": "PROC1:EnableBackground", "value": v}
+        )
+
+    assert put(1).status_code == 409 and cameras.puts == []
+    assert feed.snapshot(3.0)["processing"]["background_stale"] is True
+    # A grab completes (the record goes 1, then back to 0): fresh again.
+    feed.update("PROC1:SaveBackground_RBV", 1)
+    feed.update("PROC1:SaveBackground_RBV", 0)
+    assert put(1).status_code == 200
+    # Switching subtraction OFF is always allowed.
+    feed.update("TRANS1:Type", "Rot90")
+    assert put(0).status_code == 200

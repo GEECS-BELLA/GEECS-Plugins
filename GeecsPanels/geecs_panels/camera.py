@@ -136,6 +136,7 @@ IMAGE_SIZE_FIELDS = {"width": "MJPG1:ArraySize0_RBV", "height": "MJPG1:ArraySize
 PROCESSING_FIELDS = {
     "background_on": "PROC1:EnableBackground_RBV",
     "background_valid": "PROC1:ValidBackground_RBV",
+    "background_saving": "PROC1:SaveBackground_RBV",
     "transform": "TRANS1:Type",
 }
 #: NDTransform's choices, in the record's order.
