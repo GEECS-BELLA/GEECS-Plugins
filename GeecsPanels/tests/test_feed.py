@@ -356,3 +356,24 @@ def test_an_unchanged_counter_still_refetches_after_max_reuse() -> None:
     tags = asyncio.run(run())
     assert len(fetched) == 3  # at 0, ~1 s and ~2 s
     assert len(set(tags)) == 3  # each refetch is a new tag: the page redraws it
+
+
+def test_a_viewer_going_away_does_not_cancel_anothers_frame() -> None:
+    """The fetch is a task of its own: one cancelled request leaves the shared fetch running."""
+    release = asyncio.Event()
+
+    async def fetch(url: str) -> bytes:
+        await release.wait()
+        return b"frame"
+
+    async def run() -> bytes:
+        source = _source(fetch)
+        first = asyncio.create_task(source.latest())
+        second = asyncio.create_task(source.latest())
+        await asyncio.sleep(0.01)
+        first.cancel()  # the first viewer closes its tab
+        await asyncio.sleep(0.01)
+        release.set()
+        return (await second).jpeg
+
+    assert asyncio.run(run()) == b"frame"

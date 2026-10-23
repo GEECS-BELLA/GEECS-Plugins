@@ -118,7 +118,9 @@ a 10-count beam, not to measure it. Measurement never comes from the image
 A PV bridge in the service: it monitors the camera's PVs over CA (aioca,
 the client ophyd-async already uses) and fans the values to each open panel
 over **SSE** (the scanner's pattern). Arrays (profiles, histogram) are
-throttled to the frame cap. Writes come back as `POST`s that the service
+**read on request, never monitored** — at most every 0.5 s, shared by
+viewers, only while a page has the plots open, and never awaited by the
+readings' stream (build step 2d). Writes come back as `POST`s that the service
 turns into CA puts, each one allow-listed: the panel can put only the PVs
 its controls name, never an arbitrary PV.
 

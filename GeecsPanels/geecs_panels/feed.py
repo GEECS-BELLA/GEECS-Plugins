@@ -333,7 +333,7 @@ class FrameSource:
     _url: Optional[str] = None
     _frame: Optional[Frame] = None
     _at: float = float("-inf")
-    _inflight: Optional[asyncio.Future[Frame]] = None
+    _inflight: Optional[asyncio.Task[Frame]] = None
 
     async def latest(self) -> Frame:
         """The newest frame, shared with concurrent callers.
@@ -355,6 +355,10 @@ class FrameSource:
         All ages are timed from the request, not the reply: timed from the
         reply, a poll at the cap's period landed inside the window behind a
         slow fetch and was handed the old frame again (a third of them).
+
+        The fetch runs as a task of its own that every caller awaits through
+        a shield: one caller going away (its request cancelled) never cancels
+        the fetch the others are waiting for.
         """
         counter = self.counter()
         if self._frame is not None:
@@ -364,24 +368,19 @@ class FrameSource:
             unchanged = counter is not None and counter == self._frame.counter
             if unchanged and age < self.max_reuse:
                 return self._frame
-        if self._inflight is not None:
-            return await asyncio.shield(self._inflight)
-        asked = self.clock()
-        self._inflight = asyncio.get_running_loop().create_future()
+        if self._inflight is None:
+            self._inflight = asyncio.get_running_loop().create_task(
+                self._fetch_frame(counter, self.clock())
+            )
+        return await asyncio.shield(self._inflight)
+
+    async def _fetch_frame(self, counter: Optional[object], asked: float) -> Frame:
         try:
             # Tagged with the counter read BEFORE the fetch: the JPEG is at
             # least that new, so a later counter change always refetches.
             self._fetches += 1
             frame = Frame(await self._fetch(), counter, self._fetches)
-        except BaseException as exc:
-            self._inflight.set_exception(exc)
-            # Mark it retrieved: a request with no concurrent waiter must
-            # not log "exception was never retrieved".
-            self._inflight.exception()
-            raise
-        else:
             self._frame, self._at = frame, asked
-            self._inflight.set_result(frame)
             return frame
         finally:
             self._inflight = None
@@ -410,38 +409,48 @@ FetchArrays = Callable[[], Awaitable[dict[str, list[float]]]]
 
 @dataclass
 class ArraysSource:
-    """STAT's arrays, read on request and shared: at most one read per ``min_interval``."""
+    """STAT's arrays, read in the background and shared: at most one read per ``min_interval``.
+
+    The SSE stream never WAITS for a read: it asks for one (:meth:`kick`)
+    and sends whatever is held (:meth:`current`). A slow or failing read
+    (a PV not served, the VPN blinking: a 3 s CA timeout) would otherwise
+    hold back every push of the readings and turn the page stale. A failure
+    is held for ``min_interval`` like a result, so it is not retried on
+    every push either. The read runs as a task of its own: a viewer
+    closing its stream never cancels the read the others share.
+    """
 
     fetch: FetchArrays
     min_interval: float
     clock: Callable[[], float] = time.monotonic
     _arrays: Optional[dict[str, list[float]]] = None
+    _error: Optional[str] = None
     _at: float = float("-inf")
-    _inflight: Optional[asyncio.Future[dict[str, list[float]]]] = None
+    _task: Optional[asyncio.Task[dict[str, list[float]]]] = None
 
-    async def latest(self) -> dict[str, list[float]]:
-        """The arrays, no older than ``min_interval``; concurrent callers share one read."""
-        if self._arrays is not None and self.clock() - self._at < self.min_interval:
-            return self._arrays
-        if self._inflight is not None:
-            return await asyncio.shield(self._inflight)
+    def kick(self) -> None:
+        """Start a read if none is running and the last one is older than ``min_interval``."""
+        if self._task is not None or self.clock() - self._at < self.min_interval:
+            return
         asked = self.clock()
-        self._inflight = asyncio.get_running_loop().create_future()
-        try:
-            try:
-                arrays = await self.fetch()
-            except Exception as exc:
-                raise ArraysUnavailable(f"plots unavailable: {exc}") from exc
-        except BaseException as exc:
-            self._inflight.set_exception(exc)
-            self._inflight.exception()
-            raise
+        self._task = asyncio.get_running_loop().create_task(self.fetch())
+        self._task.add_done_callback(lambda task: self._done(task, asked))
+
+    def _done(self, task: asyncio.Task[dict[str, list[float]]], asked: float) -> None:
+        self._task, self._at = None, asked
+        if task.cancelled():
+            return
+        exc = task.exception()  # retrieved here, so never "never retrieved"
+        if exc is not None:
+            self._error = f"plots unavailable: {exc}"
         else:
-            self._arrays, self._at = arrays, asked
-            self._inflight.set_result(arrays)
-            return arrays
-        finally:
-            self._inflight = None
+            self._arrays, self._error = task.result(), None
+
+    def current(self) -> dict[str, list[float]]:
+        """The arrays held now; :class:`ArraysUnavailable` if the last read failed."""
+        if self._error is not None:
+            raise ArraysUnavailable(self._error)
+        return self._arrays or {}
 
 
 def _axis_map(axis: Axis) -> dict[str, float]:
@@ -451,9 +460,13 @@ def _axis_map(axis: Axis) -> dict[str, float]:
 
 
 def _finite(values: list[float], n: Optional[object]) -> list[Optional[float]]:
-    """The first *n* values (the waveform's valid length), NaN as ``None`` for JSON."""
+    """The first *n* values (the waveform's valid length); NaN and ±inf as ``None``.
+
+    Browsers' ``JSON.parse`` rejects ``NaN`` and ``Infinity``, which Python's
+    encoder writes by default: one would freeze the page.
+    """
     count = int(n) if isinstance(n, (int, float)) else len(values)
-    return [None if math.isnan(v) else round(v, 6) for v in values[:count]]
+    return [round(v, 6) if math.isfinite(v) else None for v in values[:count]]
 
 
 def plot_payload(
@@ -469,7 +482,7 @@ def plot_payload(
         "hist_max": v.get(PLOT_FIELDS["hist_max"]),
         "history_keys": list(HISTORY_KEYS),
         "history": [
-            [p[0]] + [None if math.isnan(x) else x for x in p[1:]]
+            [p[0]] + [x if math.isfinite(x) else None for x in p[1:]]
             for p in feed.history(history_s)
         ],
     }

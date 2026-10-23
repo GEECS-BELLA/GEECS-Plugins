@@ -243,7 +243,8 @@
 
   // A drag is either an edit a layer claimed (a crosshair, an ROI handle:
   // `hooks.grab` returns {move(ix, iy), end()}) or, failing that, a pan.
-  let drag = null, edit = null;
+  let drag = null, edit = null, clickTimer = null;
+  const DBLCLICK_MS = 300;
   const local = (ev) => {
     const r = viewport.getBoundingClientRect();
     return [ev.clientX - r.left, ev.clientY - r.top];
@@ -256,7 +257,8 @@
       edit = grab(cx, cy);
       if (edit) return;
     }
-    drag = { x: ev.clientX, y: ev.clientY, ox: view.ox, oy: view.oy, cx: cx, cy: cy };
+    drag = { x: ev.clientX, y: ev.clientY, ox: view.ox, oy: view.oy, cx: cx, cy: cy,
+      t: performance.now() };
     viewport.classList.add("panning");
   });
   viewport.addEventListener("pointermove", (ev) => {
@@ -277,11 +279,16 @@
   });
   const endDrag = (ev) => {
     if (edit) { edit.end(); edit = null; }
-    // A press released where it started is a click on the image, not a pan.
+    // A short press released where it started is a click on the image, not
+    // a pan — and it fires only once a double-click (fit) is ruled out, so
+    // fitting never also moves the cursor. The point is the pixel's index:
+    // pixel i covers [i, i+1), as the cursor readout names it.
     if (drag && ev && ev.type === "pointerup" &&
-        Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) < 4) {
-      const [ix, iy] = toImage(drag.cx, drag.cy);
-      for (const f of hooks.click) f(ix, iy);
+        Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) < 4 &&
+        performance.now() - drag.t < 400) {
+      const [ix, iy] = toImage(drag.cx, drag.cy).map(Math.floor);
+      clearTimeout(clickTimer);
+      clickTimer = setTimeout(() => { for (const f of hooks.click) f(ix, iy); }, DBLCLICK_MS);
     }
     drag = null;
     viewport.classList.remove("panning");
@@ -289,7 +296,7 @@
   viewport.addEventListener("pointerup", endDrag);
   viewport.addEventListener("pointercancel", endDrag);
   viewport.addEventListener("pointerleave", () => { $("cursor").textContent = ""; });
-  viewport.addEventListener("dblclick", fit);
+  viewport.addEventListener("dblclick", () => { clearTimeout(clickTimer); fit(); });
   $("zoom-fit").addEventListener("click", fit);
   $("zoom-one").addEventListener("click", () => zoomAt(vw / 2, vh / 2, 1 / view.scale));
   new ResizeObserver(resize).observe(viewport);

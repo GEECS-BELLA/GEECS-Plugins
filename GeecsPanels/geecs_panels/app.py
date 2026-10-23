@@ -246,19 +246,23 @@ def _add_live_routes(
         device = camera(name)
         feed = cameras.feed(device)
 
-        async def snapshot() -> dict[str, object]:
+        def snapshot() -> dict[str, object]:
             snap = feed.snapshot(stale_after)
             if plots:
+                # Never awaited: the arrays are read in the background, and
+                # the readings go out on time whatever the read is doing.
+                source = cameras.arrays(device)
+                source.kick()
                 try:
-                    arrays = await cameras.arrays(device).latest()
-                    snap["plots"] = plot_payload(feed, arrays, HISTORY_S)
+                    snap["plots"] = plot_payload(feed, source.current(), HISTORY_S)
                 except ArraysUnavailable as exc:  # said on the page, never fatal
                     snap["plots"] = {"error": str(exc)}
             return snap
 
         async def gen() -> AsyncIterator[str]:
             while True:
-                payload = json.dumps(await snapshot(), default=str)
+                # allow_nan=False: a NaN or inf would be invalid JSON to the page.
+                payload = json.dumps(snapshot(), default=str, allow_nan=False)
                 yield f"event: state\ndata: {payload}\n\n"
                 if once or await request.is_disconnected():
                     return
@@ -390,8 +394,11 @@ def _add_plot_routes(app: FastAPI, cameras: Cameras, w: "_Writer") -> None:
             raise HTTPException(409, str(exc)) from exc
         out = []
         for axis, value in ((ax, point.x), (ay, point.y)):
+            # The page sends a position; pixel i covers [i, i+1), as the
+            # cursor readout names it. Its index, then the ROI pixel nearest.
+            index = math.floor(value)
             last = max(axis.size // max(axis.bin, 1) - 1, 0)
-            out.append(min(max(math.floor(to_roi(axis, value) + 0.5), 0), last))
+            out.append(min(max(math.floor(to_roi(axis, index) + 0.5), 0), last))
         await w.put(device, "STAT:CursorX", out[0])
         await w.put(device, "STAT:CursorY", out[1])
         return {"ok": True, "x": out[0], "y": out[1]}
