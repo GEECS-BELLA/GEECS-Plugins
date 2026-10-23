@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 from typing import Optional
@@ -14,15 +15,17 @@ from geecs_panels.feed import ArraysSource, WriteFailed
 from geecs_panels.registry import Device
 from geecs_panels.scope import (
     ENUM_SETTINGS,
+    SCOPE_KIND,
+    SETTLED_BY_READBACK,
     NotWritable,
     check_write,
     decimate,
     monitored,
     split_channels,
 )
-from geecs_panels.scope_feed import ScopeFeed, traces_payload
+from geecs_panels.scope_feed import ScopeFeed, ScopeTraces, traces_payload
 
-SCOPE = Device("picotest1", "picoscope", "undulator:picotest1:")
+SCOPE = Device("picotest1", SCOPE_KIND, "undulator:picotest1:")
 CAM = Device("ADTEST_CAM1", "aravis_camera", "undulator:adtest_cam1:")
 
 #: What a 2-channel PicoScope's enum PVs report.
@@ -55,26 +58,41 @@ def _feed() -> ScopeFeed:
     return feed
 
 
+def _capture(uid: float = 7.0) -> dict[str, list[float]]:
+    """A 2-channel, 2-sample capture with channel B off, as LiveScopes reads it."""
+    return {
+        "t": [0.0, 1.0],
+        "data": [0.1, math.nan, 0.3, math.nan],
+        "uid": [uid],
+        "channels": [2.0],
+        "samples": [2.0],
+    }
+
+
 class FakeScopes:
     def __init__(self, refuse: bool = False) -> None:
         self.feeds: dict[str, ScopeFeed] = {}
         self.puts: list[tuple[str, object]] = []
         self.refuse = refuse
+        self.refreshes = 0
+        self._traces: Optional[ScopeTraces] = None
 
     def feed(self, device: Device) -> ScopeFeed:
         if device.name not in self.feeds:
             self.feeds[device.name] = _feed()
         return self.feeds[device.name]
 
-    def traces(self, device: Device) -> ArraysSource:
-        async def fetch() -> dict[str, list[float]]:
-            return {
-                "t": [0.0, 1.0],
-                "data": [0.1, math.nan, 0.3, math.nan],
-                "shape": [2.0, 2.0],
-            }
+    def traces(self, device: Device) -> ScopeTraces:
+        if self._traces is None:
 
-        return ArraysSource(fetch, 0.0)
+            async def fetch() -> dict[str, list[float]]:
+                return _capture()
+
+            self._traces = ScopeTraces(ArraysSource(fetch, 0.0))
+        return self._traces
+
+    def refresh(self, device: Device) -> None:
+        self.refreshes += 1
 
     async def put(self, device: Device, suffix: str, value: object) -> None:
         if self.refuse:
@@ -149,14 +167,55 @@ def test_the_capture_splits_into_channels_fastest_first() -> None:
 
 
 def test_a_disabled_channel_is_left_out_of_the_traces() -> None:
-    payload = traces_payload(
-        {"t": [0.0, 1.0], "data": [1.0, math.nan, 2.0, math.nan], "shape": [2.0, 2.0]},
-        ["A", "B"],
-    )
+    payload = traces_payload(_capture(), ["A", "B"])
     assert payload == {
-        "traces": {"A": {"t": [0.0, 1.0], "v": [1.0, 2.0]}},
+        "traces": {"A": {"t": [0.0, 1.0], "v": [0.1, 0.3]}},
         "samples": 2,
     }
+
+
+def test_a_capture_older_than_a_timebase_change_is_not_drawn_on_the_new_axis() -> None:
+    # Stopped after capture 5, then the interval changes: the IOC's time axis
+    # is the new one, the held capture is still the old one.
+    feed = _feed()
+    feed.update("arr_uid", 5)
+    feed.update("interval_ns", 8.0)
+    feed.update("interval_ns", 20.0)
+    assert feed.timebase_uid == 5
+    old = traces_payload(_capture(uid=5), ["A", "B"], feed.timebase_uid)
+    assert old["traces"] == {} and "waiting" in old
+    new = traces_payload(_capture(uid=6), ["A", "B"], feed.timebase_uid)
+    assert list(new["traces"]) == ["A"]
+
+
+def test_an_ioc_restart_drops_the_timebase_marker() -> None:
+    feed = _feed()
+    feed.update("arr_uid", 50)
+    feed.update("samples", 1000)
+    feed.update("samples", 2000)
+    feed.update("arr_uid", None)  # disconnect: captures are renumbered from 0
+    assert feed.timebase_uid is None
+
+
+def test_a_capture_is_read_once_and_decimated_once() -> None:
+    reads = []
+
+    async def fetch() -> dict[str, list[float]]:
+        reads.append(1)
+        return _capture(uid=7)
+
+    async def run() -> tuple[object, object]:
+        traces = ScopeTraces(ArraysSource(fetch, 0.0))
+        traces.kick(7)
+        await asyncio.sleep(0.01)  # the background read lands
+        first = traces.payload(["A", "B"], None)
+        for _ in range(5):  # the same capture, monitored again and again
+            traces.kick(7)
+            await asyncio.sleep(0.01)
+        return first, traces.payload(["A", "B"], None)
+
+    first, again = asyncio.run(run())
+    assert len(reads) == 1 and first is again
 
 
 def test_a_short_trace_is_returned_whole() -> None:
@@ -223,6 +282,37 @@ def test_the_scope_page_renders_controls_without_a_vendors_choices() -> None:
 
 def test_a_camera_is_not_a_scope() -> None:
     assert _client().get("/scope/ADTEST_CAM1").status_code == 404
+
+
+def test_every_push_retries_what_the_feed_lacks() -> None:
+    # An IOC down when the page opened: its choices are read again on every
+    # push of the open stream, not only on a new request.
+    scopes = FakeScopes()
+    with _client(scopes).stream("GET", "/scope/picotest1/events") as r:
+        pushes = 0
+        for line in r.iter_lines():
+            if line.startswith("data: "):
+                pushes += 1
+                if pushes == 3:
+                    break
+    assert scopes.refreshes >= 3
+
+
+def test_a_viewer_is_sent_a_capture_once() -> None:
+    with _client().stream("GET", "/scope/picotest1/events?traces=1") as r:
+        snaps = []
+        for line in r.iter_lines():
+            if line.startswith("data: "):
+                snaps.append(json.loads(line[6:]))
+                if len(snaps) == 4:
+                    break
+    sent = [s for s in snaps if "traces" in s and s["traces"].get("traces")]
+    assert len(sent) == 1  # the same capture is not resent every push
+
+
+def test_run_settles_on_the_acquire_readback() -> None:
+    # An areaDetector Acquire put completes only when acquiring ends.
+    assert SETTLED_BY_READBACK == {"Acquire": "Acquire_RBV"}
 
 
 def test_the_stream_carries_settings_and_finite_traces() -> None:

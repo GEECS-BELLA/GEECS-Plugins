@@ -58,6 +58,7 @@ from geecs_panels.feed import (
     plot_payload,
 )
 from geecs_panels.registry import Device
+from geecs_panels.scope import SCOPE_KIND
 from geecs_panels.scope_app import Scopes, add_scope_routes
 
 logger = logging.getLogger(__name__)
@@ -68,7 +69,7 @@ STATIC_DIR = _PKG / "static"
 
 #: Device kind → the panel route that serves it. A kind without a panel is
 #: listed on the landing page, unlinked.
-PANELS = {"aravis_camera": "camera", "picoscope": "scope"}
+PANELS = {"aravis_camera": "camera", SCOPE_KIND: "scope"}
 
 #: Seconds between SSE pushes: ages tick on the page at this rate.
 PUSH_S = 0.5

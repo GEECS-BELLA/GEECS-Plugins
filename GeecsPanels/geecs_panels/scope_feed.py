@@ -19,12 +19,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Optional
 
-from geecs_panels.feed import Subscribe, Subscription
+from geecs_panels.feed import ArraysSource, ArraysUnavailable, Subscribe, Subscription
 from geecs_panels.scope import (
     CHANNEL_FIELDS,
     CHANNELS,
     SCOPE_FIELDS,
     STAT_FIELDS,
+    TIMEBASE_KEYS,
     decimate,
     monitored,
     split_channels,
@@ -45,6 +46,10 @@ class ScopeFeed:
     connected: dict[str, bool] = field(default_factory=dict)
     #: enum setting suffix → its PV's choices, as the transport read them
     enums: dict[str, list[str]] = field(default_factory=dict)
+    #: The capture identity when the timebase last changed: a capture with
+    #: this identity or older was taken at the old timebase (None: no change
+    #: since the feed connected).
+    timebase_uid: Optional[float] = None
     _subs: list[Subscription] = field(default_factory=list)
     _captured_at: Optional[float] = None
     _started: bool = False
@@ -74,12 +79,18 @@ class ScopeFeed:
         """Take one monitor event: a value, or ``None`` for a disconnect."""
         if value is None:
             self.connected[key] = False
+            if key == "arr_uid":
+                # An IOC restart renumbers captures: the marker means nothing now.
+                self.timebase_uid = None
             if key == "count":
                 self.values.pop(key, None)
             return
         previous = self.values.get(key)
         self.connected[key] = True
         self.values[key] = value
+        if key in TIMEBASE_KEYS and previous is not None and value != previous:
+            uid = self.values.get("arr_uid")
+            self.timebase_uid = float(uid) if isinstance(uid, (int, float)) else -1.0
         # The first value after (re)connecting is the count's position, not a capture.
         if key == "count" and previous is not None and value != previous:
             self._captured_at = self.clock()
@@ -129,22 +140,75 @@ class ScopeFeed:
 
 
 def traces_payload(
-    arrays: dict[str, list[float]], present: list[str], columns: int = TRACE_COLUMNS
+    arrays: dict[str, list[float]],
+    present: list[str],
+    taken_after: Optional[float] = None,
+    columns: int = TRACE_COLUMNS,
 ) -> dict[str, object]:
     """Each channel with data, against the time axis, decimated to *columns*.
 
     *arrays* holds ``t`` (the time axis), ``data`` (the capture,
-    [channels, samples]) and ``shape`` ([channels, samples]); *present* names
-    the capture's rows. A disabled channel's row is all NaN and is left out.
+    [channels, samples]) and ``uid``, ``channels``, ``samples`` (the
+    capture's identity and shape, read with it); *present* names the
+    capture's rows. A disabled channel's row is all NaN and is left out.
+    A capture whose identity is not after *taken_after* (the feed's
+    ``timebase_uid``) was taken at an older timebase than the axis
+    describes: no traces until a new one arrives.
     """
+    uid = (arrays.get("uid") or [None])[0]
+    if taken_after is not None and (uid is None or uid <= taken_after):
+        return {
+            "traces": {},
+            "samples": 0,
+            "waiting": "the timebase changed: waiting for a capture at the new one",
+        }
     times = arrays.get("t", [])
-    shape = arrays.get("shape", [])
-    if len(shape) != 2:
-        return {"traces": {}, "samples": 0}
-    rows = split_channels(arrays.get("data", []), int(shape[0]), int(shape[1]))
+    channels = int((arrays.get("channels") or [0])[0])
+    samples = int((arrays.get("samples") or [0])[0])
+    rows = split_channels(arrays.get("data", []), channels, samples)
     out: dict[str, object] = {}
     for ch, row in zip(present, rows):
         if any(v == v for v in row):  # not all NaN
             xs, ys = decimate(times, row, columns)
             out[ch] = {"t": xs, "v": ys}
-    return {"traces": out, "samples": int(shape[1])}
+    return {"traces": out, "samples": samples}
+
+
+@dataclass
+class ScopeTraces:
+    """The capture for the page: read once per new capture, decimated once, shared.
+
+    :meth:`kick` starts a read only when the monitored capture identity
+    differs from the one held (the :class:`ArraysSource` keeps one read in
+    flight, at most one per interval); :meth:`payload` decimates once per
+    capture for every viewer. An idle scope costs no reads at all.
+    """
+
+    source: ArraysSource
+    _key: Optional[tuple[object, ...]] = None
+    _payload: Optional[dict[str, object]] = None
+
+    def held_uid(self) -> Optional[float]:
+        """The identity of the capture held (None before the first read or after a failure)."""
+        try:
+            return (self.source.current().get("uid") or [None])[0]
+        except ArraysUnavailable:  # the last read failed: the next kick retries
+            return None
+
+    def kick(self, uid: Optional[object]) -> None:
+        """Read the capture if *uid* (the monitored identity) is not the one held."""
+        if uid is None or uid != self.held_uid():
+            self.source.kick()
+
+    def payload(
+        self, present: list[str], taken_after: Optional[float]
+    ) -> dict[str, object]:
+        """The held capture as traces, decimated once; ``key`` names what it shows."""
+        arrays = self.source.current()  # ArraysUnavailable propagates
+        uid = (arrays.get("uid") or [None])[0]
+        key = (uid, tuple(present), taken_after)
+        if key != self._key or self._payload is None:
+            self._payload = traces_payload(arrays, present, taken_after)
+            self._payload["key"] = f"{uid}|{','.join(present)}|{taken_after}"
+            self._key = key
+        return self._payload

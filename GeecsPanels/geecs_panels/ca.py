@@ -42,11 +42,13 @@ from geecs_panels.feed import (
 from geecs_panels.registry import Device
 from geecs_panels.scope import (
     ARRAY_DATA,
+    ARRAY_FIELDS,
     CHAR_STRING_SUFFIXES,
+    SETTLED_BY_READBACK as SCOPE_SETTLED_BY_READBACK,
     ENUM_SETTINGS,
     TIME_AXIS,
 )
-from geecs_panels.scope_feed import ScopeFeed
+from geecs_panels.scope_feed import ScopeFeed, ScopeTraces
 
 #: Upstream frame timeout: the IOC answers a snapshot in ~50 ms.
 FETCH_TIMEOUT_S = 3.0
@@ -240,7 +242,7 @@ class LiveScopes:
 
     def __init__(self) -> None:
         self._feeds: dict[str, ScopeFeed] = {}
-        self._traces: dict[str, ArraysSource] = {}
+        self._traces: dict[str, ScopeTraces] = {}
         self._enum_reads: dict[str, asyncio.Task[None]] = {}
 
     def feed(self, device: Device) -> ScopeFeed:
@@ -249,44 +251,71 @@ class LiveScopes:
         if feed is None:
             feed = self._feeds[device.name] = ScopeFeed(device.prefix, subscribe_scope)
             feed.start()
+        self.refresh(device)
+        return feed
+
+    def refresh(self, device: Device) -> None:
+        """Start a read of the choices if they are incomplete and none is running."""
+        feed = self._feeds.get(device.name)
+        if feed is None or len(feed.enums) >= len(ENUM_SETTINGS):
+            return
         task = self._enum_reads.get(device.name)
-        if len(feed.enums) < len(ENUM_SETTINGS) and (task is None or task.done()):
-            # Retried on every use until complete: the IOC may be down at first.
+        if task is None or task.done():
+            # The IOC may be down at first: retried until complete, one read at a time.
             self._enum_reads[device.name] = asyncio.get_running_loop().create_task(
                 read_enums(feed)
             )
-        return feed
 
-    def traces(self, device: Device) -> ArraysSource:
-        """The time axis and the whole capture (``ARR``), read together."""
+    def traces(self, device: Device) -> ScopeTraces:
+        """The time axis and the whole capture (``ARR``), read together, once per capture."""
         source = self._traces.get(device.name)
         if source is None:
-            feed = self.feed(device)
 
             async def fetch() -> dict[str, list[float]]:
-                axis, data = await aioca.caget(
-                    [device.prefix + TIME_AXIS, device.prefix + ARRAY_DATA], timeout=3.0
+                # One request: the samples with their identity and shape.
+                keys = list(ARRAY_FIELDS)
+                axis, data, *meta = await aioca.caget(
+                    [device.prefix + TIME_AXIS, device.prefix + ARRAY_DATA]
+                    + [device.prefix + ARRAY_FIELDS[k] for k in keys],
+                    timeout=3.0,
                 )
-                shape = [
-                    float(feed.values.get(k) or 0)
-                    for k in ("arr_channels", "arr_samples")
-                ]
                 return {
                     "t": [float(x) for x in axis],
                     "data": [float(x) for x in data],
-                    "shape": shape,
+                    **{k: [float(v)] for k, v in zip(keys, meta)},
                 }
 
-            source = self._traces[device.name] = ArraysSource(fetch, TRACES_EVERY_S)
+            source = self._traces[device.name] = ScopeTraces(
+                ArraysSource(fetch, TRACES_EVERY_S)
+            )
         return source
 
     async def put(self, device: Device, suffix: str, value: object) -> None:
-        """Write one setting and wait for the IOC to process it."""
+        """Write one setting and wait for the IOC to process it (Acquire: for its readback)."""
         pv = device.prefix + suffix
+        readback = SCOPE_SETTLED_BY_READBACK.get(suffix)
+        counter_pv = device.prefix + "ArrayCounter_RBV"
         try:
-            await aioca.caput(pv, value, wait=True, timeout=PUT_TIMEOUT_S)
+            before = (
+                await aioca.caget(counter_pv, timeout=PUT_TIMEOUT_S)
+                if readback
+                else None
+            )
+            await aioca.caput(pv, value, wait=readback is None, timeout=PUT_TIMEOUT_S)
         except Exception as exc:
             raise WriteFailed(f"{pv}: {exc}") from exc
+        if readback is None:
+            return
+        try:
+            await settle(device.prefix + readback, value)
+        except WriteFailed:
+            # A Single capture can start and finish between two polls: a new
+            # capture is the start having happened.
+            if (
+                not value
+                or await aioca.caget(counter_pv, timeout=PUT_TIMEOUT_S) == before
+            ):
+                raise
 
     def close(self) -> None:
         """Drop every subscription."""

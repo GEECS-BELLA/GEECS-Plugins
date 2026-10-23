@@ -22,6 +22,14 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Callable, Optional
 
+#: The registry kind the scope panel serves: one name for every vendor.
+SCOPE_KIND = "scope"
+
+#: Writes that complete only when the IOC is done, settled on a readback
+#: instead (as the camera's): an areaDetector Acquire put returns at the end
+#: of the acquisition, so waiting on it would time out while the scope runs.
+SETTLED_BY_READBACK = {"Acquire": "Acquire_RBV"}
+
 #: Channel letters the contract allows; a model's own are ``Present``.
 CHANNELS = ("A", "B", "C", "D")
 
@@ -85,11 +93,18 @@ CHAR_STRING_SUFFIXES = ("LastError_RBV", "StatusMessage_RBV")
 
 TIME_AXIS = "TimeAxis_RBV"
 ARRAY_DATA = "ARR:ArrayData"
-#: The whole capture's shape, monitored: [channels, samples].
-ARRAY_SHAPE = {
-    "arr_channels": "ARR:ArraySize0_RBV",
-    "arr_samples": "ARR:ArraySize1_RBV",
+#: Read with every capture, in the same request: its identity and shape
+#: belong to the samples they arrive with, not to a monitor.
+ARRAY_FIELDS = {
+    "uid": "ARR:UniqueId_RBV",
+    "channels": "ARR:ArraySize0_RBV",
+    "samples": "ARR:ArraySize1_RBV",
 }
+#: The capture identity, also monitored: the feed notes it when the timebase
+#: changes, and a trace is shown only from a later capture.
+ARRAY_UID = "ARR:UniqueId_RBV"
+#: Readbacks whose change makes the held capture's time axis wrong.
+TIMEBASE_KEYS = ("interval_ns", "samples", "pre_trigger")
 
 
 def stat_prefix(ch: str) -> str:
@@ -179,7 +194,7 @@ def check_write(
 def monitored() -> dict[str, tuple[str, bool]]:
     """Every monitored suffix → (snapshot key, read as string)."""
     out = {suffix: (key, key in STRING_KEYS) for key, suffix in SCOPE_FIELDS.items()}
-    out.update({suffix: (key, False) for key, suffix in ARRAY_SHAPE.items()})
+    out[ARRAY_UID] = ("arr_uid", False)
     for ch in CHANNELS:
         for key, suffix in CHANNEL_FIELDS.items():
             out[f"{ch}:{suffix}"] = (f"{ch}.{key}", key in STRING_KEYS)

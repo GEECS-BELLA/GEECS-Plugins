@@ -52,7 +52,7 @@ def main() -> None:
         action="append",
         default=[],
         metavar="NAME=PREFIX",
-        help="an oscilloscope IOC to give a panel, e.g. picotest1=undulator:picotest1: "
+        help="an oscilloscope IOC to give a panel, as NAME=PREFIX (e.g. scope1=<experiment>:scope1:) "
         "(repeatable; bench scopes are not in the native-device registry yet)",
     )
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
@@ -83,6 +83,7 @@ def main() -> None:
 
     from geecs_panels.app import create_app
     from geecs_panels.ca import LiveCameras, LiveScopes
+    from geecs_panels.scope import SCOPE_KIND
     from geecs_panels.registry import (
         Device,
         RegistryError,
@@ -100,7 +101,7 @@ def main() -> None:
         name, sep, prefix = spec.partition("=")
         if not sep or not name or not prefix:
             sys.exit(f"geecs-panels: --scope takes NAME=PREFIX, not {spec!r}")
-        devices.append(Device(name=name, kind="picoscope", prefix=prefix))
+        devices.append(Device(name=name, kind=SCOPE_KIND, prefix=prefix))
     app = create_app(
         experiment,
         devices,

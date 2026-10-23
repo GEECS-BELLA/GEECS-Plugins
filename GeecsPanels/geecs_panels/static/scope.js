@@ -25,6 +25,8 @@
   const token = (name) => getComputedStyle(document.body).getPropertyValue(name).trim();
   const CHANNELS = ["A", "B", "C", "D"];
   let snap = null, hoverX = null, source = null;
+  // The stream sends traces only when the capture changes: keep the last.
+  let held = null;
 
   // ---- values ---------------------------------------------------------------
   const volts = (range) => {
@@ -144,7 +146,8 @@
       const v = valueOf(el.dataset.from);
       if (v === null || v === undefined) continue;
       if (el.type === "checkbox") el.checked = v === "On";
-      else if (el.type === "number") el.value = typeof v === "number" ? +v.toPrecision(6) : v;
+      else if (el.type === "number")
+        el.value = typeof v === "number" && !Number.isInteger(v) ? +v.toPrecision(6) : v;
       else el.value = v;
     }
     for (const name of CHANNELS) {
@@ -211,9 +214,9 @@
     ctx.font = "10px " + (token("--ff-mono") || "monospace");
     ctx.fillStyle = token("--muted");
 
-    const tr = snap && snap.traces;
-    if (!tr || tr.error || !Object.keys(tr.traces || {}).length) {
-      ctx.fillText(tr && tr.error ? tr.error : "no traces yet", pad.l + 6, mid - 6);
+    const tr = held;
+    if (!tr || tr.error || tr.waiting || !Object.keys(tr.traces || {}).length) {
+      ctx.fillText((tr && (tr.error || tr.waiting)) || "no traces yet", pad.l + 6, mid - 6);
       return;
     }
     const traces = tr.traces;
@@ -304,6 +307,7 @@
     source = new EventSource(root.dataset.eventsUrl + "?traces=1");
     source.addEventListener("state", (ev) => {
       snap = JSON.parse(ev.data);
+      if (snap.traces) held = snap.traces;
       showState();
       showSettings();
       draw();

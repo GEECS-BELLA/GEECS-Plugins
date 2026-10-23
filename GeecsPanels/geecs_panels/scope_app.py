@@ -3,8 +3,8 @@
 - ``/scope/{device}`` — the panel: the traces on one time axis, the
   channel, timebase and trigger settings, the capture state.
 - ``/scope/{device}/events`` — the settings and status as SSE, one
-  ``state`` event every :data:`~geecs_panels.app.PUSH_S`; ``?traces=1``
-  adds the decimated traces; ``?once=1`` sends one and closes.
+  ``state`` event every :data:`PUSH_S`; ``?traces=1``
+  adds the decimated traces, sent to a viewer only when the capture changes; ``?once=1`` sends one and closes.
 - ``/scope/{device}/put`` — one allow-listed setting (:data:`geecs_panels.scope.WRITABLE`).
 
 The page speaks geecs-epics' scope contract only, so it fits any scope
@@ -27,10 +27,10 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from geecs_panels.feed import ArraysSource, ArraysUnavailable, WriteFailed
+from geecs_panels.feed import ArraysUnavailable, WriteFailed
 from geecs_panels.registry import Device
 from geecs_panels.scope import CHANNELS, NotWritable, check_write
-from geecs_panels.scope_feed import ScopeFeed, traces_payload
+from geecs_panels.scope_feed import ScopeFeed, ScopeTraces
 
 #: Seconds between SSE pushes.
 PUSH_S = 0.25
@@ -44,8 +44,11 @@ class Scopes(Protocol):
     def feed(self, device: Device) -> ScopeFeed:
         """The scope's started feed."""
 
-    def traces(self, device: Device) -> ArraysSource:
+    def traces(self, device: Device) -> ScopeTraces:
         """The scope's traces, read on request and shared."""
+
+    def refresh(self, device: Device) -> None:
+        """Without blocking, start reading whatever the feed still lacks (its choices)."""
 
     async def put(self, device: Device, suffix: str, value: object) -> None:
         """Write one setting; :class:`WriteFailed` if the IOC refuses."""
@@ -100,20 +103,28 @@ def _add_stream(
     ) -> StreamingResponse:
         device = scope(name)
         feed = scopes.feed(device)
+        sent: dict[str, object] = {}
 
         def snapshot() -> dict[str, object]:
+            # Every push: choices that failed to read (an IOC down at first)
+            # are retried for an open page, not only for new requests.
+            scopes.refresh(device)
             snap = feed.snapshot()
             if traces:
                 # Never awaited: the traces are read in the background and
                 # the settings go out on time whatever the read is doing.
+                # Read once per new capture; sent to this viewer only when it
+                # changes (the page keeps the last traces it was sent).
                 source = scopes.traces(device)
-                source.kick()
+                source.kick(feed.values.get("arr_uid"))
                 try:
-                    snap["traces"] = traces_payload(
-                        source.current(), feed.present_channels()
-                    )
+                    payload = source.payload(feed.present_channels(), feed.timebase_uid)
                 except ArraysUnavailable as exc:
                     snap["traces"] = {"error": str(exc)}
+                else:
+                    if payload.get("key") != sent.get("key"):
+                        snap["traces"] = payload
+                        sent["key"] = payload.get("key")
             return snap
 
         async def gen() -> AsyncIterator[str]:
