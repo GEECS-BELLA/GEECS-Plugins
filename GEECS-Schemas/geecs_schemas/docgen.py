@@ -241,6 +241,7 @@ schema_version: 1
 devices:
   UC_ExampleCam: {kind: aravis_camera, trigger_source: software}
   UC_OtherCam: {kind: aravis_camera, trigger_source: line1}
+  UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
 """,
     "analysis_recipe": """\
 schema_version: 3

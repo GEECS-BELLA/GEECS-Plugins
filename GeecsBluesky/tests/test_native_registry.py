@@ -121,6 +121,7 @@ def test_each_entry_is_a_native_camera_at_the_derived_prefix(
         **{
             "UC_NativeCam": ENTRY,
             "UC Line Cam": {"kind": "aravis_camera", "trigger_source": "line1"},
+            "UC_FlirCam": {"kind": "aravis_camera", "trigger_source": "line0"},
         }
     )
     ns = _namespace(registry, tmp_path, drain_offsets={"uc_nativecam": 0.012})
@@ -137,6 +138,7 @@ def test_each_entry_is_a_native_camera_at_the_derived_prefix(
     assert (
         line is ns["UC Line Cam"] and line.trigger_source == NativeTriggerSource.LINE1
     )
+    assert ns["UC_FlirCam"].trigger_source == NativeTriggerSource.LINE0
     # The writer's path: the run's folder, POSIX, through the native IOC mapping.
     (provider,) = {
         logic.path_provider

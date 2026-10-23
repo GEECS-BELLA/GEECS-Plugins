@@ -11,7 +11,8 @@ be skipped.  The GEECS camera contract over stock records
   the stack); ``unstage`` restores the camera (live view between scans);
 - **a shot is the writer's frame count advancing**: ``Software`` presses
   ``TriggerSoftware`` inside ``trigger()`` (exposed when the worker says go
-  — the accepted caveat), ``Line1`` waits for the timing system's edge;
+  — the accepted caveat), ``Line0`` / ``Line1`` wait for the timing
+  system's edge on that input;
 - **one frame per row**: an own miss fails the step and a pause never
   replays a shot (the writer cannot rewind; Bluesky's HDF5 consolidator
   reads frames by datum count from 0);
@@ -24,6 +25,7 @@ Strict runs only: fly prepares are refused here as well as at bind.
 from __future__ import annotations
 
 import asyncio
+import enum
 import logging
 import math
 import time
@@ -50,7 +52,6 @@ from ophyd_async.core import (
     StandardDetector,
     StreamableDataProvider,
     StrictEnum,
-    SubsetEnum,
     TriggerInfo,
     TriggerableCommand,
     derived_signal_r,
@@ -92,9 +93,17 @@ READBACK_TIMEOUT_S = 2.0
 LIVENESS_CONNECT_TIMEOUT_S = 5.0
 
 
-class NativeTriggerSource(SubsetEnum):
-    """Where a native camera's frame comes from (the registry's ``trigger_source``)."""
+class NativeTriggerSource(enum.StrEnum):
+    """Where a native camera's frame comes from (the registry's ``trigger_source``).
 
+    Not the driver signal's type: an enum-typed signal demands *every* member
+    among the PV's choices at connect, and the choices are the camera's own
+    (a Basler has no ``Line0``, a FLIR Blackfly's opto input is ``Line0``).
+    The signal is a plain string; the first prepare checks the configured
+    source against the camera's choices (:class:`NativeTriggerLogic`).
+    """
+
+    LINE0 = "Line0"
     LINE1 = "Line1"
     SOFTWARE = "Software"
 
@@ -107,9 +116,10 @@ class AsynConnect(StrictEnum):
 
 
 class NativeDriverIO(AravisDriverIO):
-    """ophyd-async's ADAravis driver, with ``Software`` among the trigger sources."""
+    """ophyd-async's ADAravis driver, its trigger source typed as the camera's own choices."""
 
-    trigger_source: A[SignalRW[NativeTriggerSource], PvSuffix.rbv("TriggerSource")]  # type: ignore[assignment]
+    # A string, not an enum: connect must not demand a line this camera lacks.
+    trigger_source: A[SignalRW[str], PvSuffix.rbv("TriggerSource")]  # type: ignore[assignment]
     # Processing the command record fires it (verified on the bench camera).
     trigger_software: A[TriggerableCommand, PvSuffix("TriggerSoftware.PROC")]
     asyn_connect: A[SignalR[AsynConnect], PvSuffix("AsynIO.CNCT")]
@@ -140,7 +150,7 @@ class _Session:
 
 
 class NativeTriggerLogic(DetectorTriggerLogic):
-    """External edges (Line1) or the software command; the camera is programmed once per run.
+    """External edges (Line0/Line1) or the software command; the camera is programmed once per run.
 
     ``prepare_edge`` runs before the data logic starts the HDF capture, so
     this is where a free-running camera is stopped and put in trigger mode:
@@ -177,6 +187,7 @@ class NativeTriggerLogic(DetectorTriggerLogic):
         if self.session.programmed:
             return
         d = self.driver
+        await self._refuse_a_source_the_camera_lacks()
         if self.session.restore is None:
             # Captured once and kept until a restore succeeds: a run that
             # ended without a completed unstage (a killed worker, a halt, a
@@ -231,6 +242,22 @@ class NativeTriggerLogic(DetectorTriggerLogic):
                 f"{d.name}: the camera refused its trigger setup: {', '.join(refused)}"
             )
         self.session.programmed = True
+
+    async def _refuse_a_source_the_camera_lacks(self) -> None:
+        """Refuse, before the camera is touched, a source not among its ``TriggerSource`` choices.
+
+        The choices are the PV's (the camera's GenICam enumeration); a PV that
+        reports none is not judged here — the readback wait is the backstop.
+        """
+        sig = self.driver.trigger_source
+        choices = (await sig.describe())[sig.name].get("choices") or []
+        if choices and self.source not in choices:
+            raise GeecsConfigurationError(
+                f"{self.driver.name}: trigger_source {self.source.name.lower()} "
+                f"({self.source.value!r}) is not one of this camera's TriggerSource "
+                f"choices ({', '.join(choices)}) — set its native_devices.yaml "
+                "entry to the line it is wired on"
+            )
 
     async def default_trigger_info(self) -> TriggerInfo:
         """One edge-triggered event: the strict shot."""
@@ -380,7 +407,8 @@ class NativeCamera(StandardDetector):
         The camera's PV prefix, ``<experiment>:<device>:`` (geecs-epics
         decision 5); the driver and writer are ``cam1:`` / ``HDF1:`` under it.
     trigger_source :
-        ``Line1`` (the timing system's edge) or ``Software`` (pressed per shot).
+        ``Line0`` / ``Line1`` (the timing system's edge on that input) or
+        ``Software`` (pressed per shot).
     path_provider :
         Where the writer puts the stack, as the IOC host sees it
         (``hdf_plugin.PluginPathProvider`` with POSIX paths).
@@ -462,7 +490,7 @@ class NativeCamera(StandardDetector):
 
     @property
     def trigger_source(self) -> NativeTriggerSource:
-        """``Line1`` or ``Software`` (the registry's choice)."""
+        """``Line0``, ``Line1`` or ``Software`` (the registry's choice)."""
         return self._source
 
     @property

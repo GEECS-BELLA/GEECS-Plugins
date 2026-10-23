@@ -16,12 +16,14 @@ def test_a_registry_validates_and_round_trips() -> None:
         "devices": {
             "UC_ExampleCam": {"kind": "aravis_camera", "trigger_source": "software"},
             "UC_Other": {"kind": "aravis_camera", "trigger_source": "line1"},
+            "UC_Flir": {"kind": "aravis_camera", "trigger_source": "line0"},
         },
     }
     registry = NativeDevices.model_validate(doc)
     cam = registry.devices["UC_ExampleCam"]
     assert isinstance(cam, AravisCamera) and cam.trigger_source == "software"
     assert registry.devices["UC_Other"].trigger_source == "line1"
+    assert registry.devices["UC_Flir"].trigger_source == "line0"
     assert registry.model_dump(mode="json") == doc
 
 

@@ -90,8 +90,10 @@ A `StandardDetector` over stock AD IO (`AravisDriverIO`, `NDFileHDF5IO`)
 with GEECS logics:
 
 - **Trigger source** (per camera, the registry's `trigger_source`):
-  `line1` — the camera's hardware input, wired to a DG645 output (the
-  pulsed-event mode); `software` — `trigger()` executes the camera's
+  `line1` / `line0` — the camera's hardware input on that line, wired to a
+  DG645 output (the pulsed-event mode; a Basler's opto-isolated input is
+  `Line1`, a FLIR Blackfly's `Line0` — the two behave identically here,
+  only the line differs); `software` — `trigger()` executes the camera's
   `TriggerSoftware` command, so the frame is exposed when the worker says
   go, not when the laser fires. Software mode's timing is an accepted
   caveat (Sam, 2026-10-22): right for continuous or slow signals,
@@ -99,7 +101,13 @@ with GEECS logics:
   trigger and none while armed and idle. Both take the same path below;
   only the source and that one command differ. ophyd-async's
   `AravisTriggerSource` knows only `Line1`, so `NativeCamera` defines its
-  own choices.
+  own sources — and types the driver's `TriggerSource` as a **string**,
+  not an enum: an enum signal demands every member among the PV's choices
+  at connect, and the choices are each camera's own (a Basler has no
+  `Line0`, a Blackfly no `Line1`). The first prepare checks the
+  configured source against the PV's choices **before the camera is
+  touched** and refuses a line the camera lacks, naming its choices and the
+  registry file.
 - **Acquire model** (as GEECS cameras run): driver in `Continuous`,
   `TriggerMode On`, `TriggerSource` per the registry; **armed once per run** at the
   first prepare, the HDF plugin capturing in Stream mode for the run. The
@@ -117,7 +125,7 @@ with GEECS logics:
   `Acquire` put, the event count ignored.
 - **A shot** = the plugin's `NumCaptured` advancing past the baseline the
   stock `trigger` task reads. With `Software` the press follows that read
-  in the same task, so the order is guaranteed; with `Line1` the read
+  in the same task, so the order is guaranteed; with a hardware line the read
   races the plan's next message, the box fire, which is safe in practice
   (the fire put alone takes ~200 ms, then exposure and the writer's lazy
   open, against a ~1 ms read) but not by construction — unlike
@@ -235,13 +243,14 @@ finds, an s-file of 10 rows joined by stamp, a clean stack check, the run
 in Tiled with frame *k* = shot *k*, the frames in the portal; the live
 view runs before and after.
 
-**Later, `line1`** — **cabling rule**: `Line1` hangs off a DG645 output **gated by the trigger
+**Later, a hardware line** (`line1` on a Basler, `line0` on a Blackfly) —
+**cabling rule**: the camera's input line hangs off a DG645 output **gated by the trigger
 box's states**, as a GEECS camera's input does — the camera captures every
 edge it sees all run long, so a free-running channel puts a stray frame
 in the stack on every edge.
 
 With the camera cabled that way: the same 10-shot run with
-`trigger_source: line1`, and a deliberately blocked edge fails the step
+`trigger_source: line1` (or `line0`), and a deliberately blocked edge fails the step
 naming the camera.
 
 ## 6. Gated runs — proposal (not built)
