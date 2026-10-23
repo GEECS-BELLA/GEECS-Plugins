@@ -47,6 +47,14 @@ def main() -> None:
         action="store_true",
         help="refuse every write (crosshairs, analysis ROI): a viewer only",
     )
+    parser.add_argument(
+        "--scope",
+        action="append",
+        default=[],
+        metavar="NAME=PREFIX",
+        help="an oscilloscope IOC to give a panel, as NAME=PREFIX (e.g. scope1=<experiment>:scope1:) "
+        "(repeatable; bench scopes are not in the native-device registry yet)",
+    )
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
     args = parser.parse_args()
 
@@ -74,8 +82,14 @@ def main() -> None:
     import uvicorn
 
     from geecs_panels.app import create_app
-    from geecs_panels.ca import LiveCameras
-    from geecs_panels.registry import RegistryError, load_devices, registry_path
+    from geecs_panels.ca import LiveCameras, LiveScopes
+    from geecs_panels.scope import SCOPE_KIND
+    from geecs_panels.registry import (
+        Device,
+        RegistryError,
+        load_devices,
+        registry_path,
+    )
 
     path = registry_path(experiment)
     error = None
@@ -83,6 +97,11 @@ def main() -> None:
         devices = load_devices(experiment, path)
     except RegistryError as exc:
         devices, error = [], str(exc)
+    for spec in args.scope:
+        name, sep, prefix = spec.partition("=")
+        if not sep or not name or not prefix:
+            sys.exit(f"geecs-panels: --scope takes NAME=PREFIX, not {spec!r}")
+        devices.append(Device(name=name, kind=SCOPE_KIND, prefix=prefix))
     app = create_app(
         experiment,
         devices,
@@ -96,6 +115,7 @@ def main() -> None:
         max_fps=args.max_fps,
         root_path=args.root_path,
         writable=not args.read_only,
+        scopes=LiveScopes(),
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level.lower())
 

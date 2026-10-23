@@ -1,0 +1,149 @@
+{#
+  The oscilloscope panel: every enabled channel's trace on one time axis,
+  each channel drawn against its own input range (the screen is its full
+  scale, eight divisions); the channel, timebase and trigger settings; the
+  capture state.
+
+  The page speaks geecs-epics' scope contract only:
+  enum choices are filled from the PVs (the stream's "enums"), channels the
+  model lacks are hidden, so one page fits any scope vendor. Settings show
+  the value in force (their readbacks); a setting the scope refuses snaps
+  back and the reason appears under the trace. Each channel shows the
+  chain's statistics (STAT_<CH>) for its time window. Values reach
+  scope.js through data attributes on #scope, never through an inline
+  script.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ device.name }} — Panels</title>
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
+<link rel="stylesheet" href="{{ root }}/theme/kit.css">
+<link rel="stylesheet" href="{{ root }}/static/panels.css">
+</head>
+<body class="kit">
+
+<header class="topbar">
+  <div class="topbar-in">
+    <span class="brand">{{ device.name }} <span class="sub">{{ device.prefix }}</span></span>
+    <span class="chip lg" id="scope-state" data-state="unknown">connecting</span>
+    <a class="btn ghost" href="{{ url_for('index').path }}">All devices</a>
+    <div data-density-picker></div>
+    <div data-theme-picker></div>
+  </div>
+</header>
+
+<div class="shell wide" id="scope"
+     data-events-url="{{ url_for('scope_events', name=device.name).path }}"
+     data-put-url="{{ url_for('scope_put', name=device.name).path }}"
+     data-writable="{{ 'true' if writable else 'false' }}">
+
+  <aside class="rail scope-rail">
+    <section class="group">
+      <h4>Acquisition</h4>
+      <div class="row">
+        <button class="btn sm primary" type="button" data-put="Acquire" data-value="1">Run</button>
+        <button class="btn sm" type="button" data-put="Acquire" data-value="0">Stop</button>
+      </div>
+      <div class="row">
+        <div class="field coord"><label for="trig-mode">mode</label>
+          <select id="trig-mode" data-setting="TriggerMode" data-from="trigger_mode"></select></div>
+        <div class="field coord"><label for="img-mode">captures</label>
+          <select id="img-mode" data-setting="ImageMode" data-from="image_mode"></select></div>
+      </div>
+      <div class="row">
+        <div class="field coord"><label for="img-num">number</label>
+          <input type="number" id="img-num" min="1" step="1" data-setting="NumImages" data-from="num_images"></div>
+        <span class="dim mono" id="capture-count"></span>
+      </div>
+    </section>
+
+    <section class="group">
+      <h4>Timebase</h4>
+      <div class="row">
+        <div class="field coord"><label for="tb-interval">interval ns</label>
+          <input type="number" id="tb-interval" min="0" step="any" data-setting="SampleInterval" data-from="interval_ns"></div>
+        <div class="field coord"><label for="tb-samples">samples</label>
+          <input type="number" id="tb-samples" min="1" step="1" data-setting="NumSamples" data-from="samples"></div>
+      </div>
+      <div class="row">
+        <div class="field coord"><label for="tb-pre">pre-trigger %</label>
+          <input type="number" id="tb-pre" min="0" max="100" step="any" data-setting="PreTrigger" data-from="pre_trigger"></div>
+        <div class="field coord"><label for="tb-res">resolution</label>
+          <select id="tb-res" data-setting="Resolution" data-from="resolution"></select></div>
+      </div>
+      <div class="hint dim mono" id="tb-window"></div>
+    </section>
+
+    <section class="group">
+      <h4>Trigger</h4>
+      <div class="row">
+        <div class="field coord"><label for="trig-source">source</label>
+          <select id="trig-source" data-setting="TriggerSource" data-from="trigger_source"></select></div>
+        <div class="field coord"><label for="trig-edge">edge</label>
+          <select id="trig-edge" data-setting="TriggerEdge" data-from="trigger_edge"></select></div>
+      </div>
+      <div class="row">
+        <div class="field coord"><label for="trig-level">level V</label>
+          <input type="number" id="trig-level" step="any" data-setting="TriggerLevel" data-from="trigger_level"></div>
+        <div class="field coord"><label for="trig-auto">auto ms</label>
+          <input type="number" id="trig-auto" min="1" max="32767" step="1" data-setting="AutoTriggerTime" data-from="auto_ms"></div>
+      </div>
+    </section>
+
+    <section class="group">
+      <h4>Channels</h4>
+      {% for ch in channels %}
+      <div class="channel" id="ch-{{ ch }}" data-channel="{{ ch }}" hidden>
+        <div class="row">
+          <label class="channel-key t{{ loop.index }}">
+            <input type="checkbox" data-setting="{{ ch }}:Enable" data-from="{{ ch }}.enable"> {{ ch }}</label>
+          <span class="chip" data-state="failed" id="ch-{{ ch }}-over" hidden>over range</span>
+        </div>
+        <div class="row">
+          <div class="field coord"><label for="ch-{{ ch }}-range">range ±</label>
+            <select id="ch-{{ ch }}-range" data-setting="{{ ch }}:Range" data-from="{{ ch }}.range"></select></div>
+          <div class="field coord"><label for="ch-{{ ch }}-coupling">coupling</label>
+            <select id="ch-{{ ch }}-coupling" data-setting="{{ ch }}:Coupling" data-from="{{ ch }}.coupling"></select></div>
+        </div>
+        <div class="row">
+          <div class="field coord"><label for="ch-{{ ch }}-offset">offset V</label>
+            <input type="number" id="ch-{{ ch }}-offset" step="any" data-setting="{{ ch }}:Offset" data-from="{{ ch }}.offset"></div>
+        </div>
+        <div class="stats mono" id="ch-{{ ch }}-stats" title="STAT_{{ ch }}: the chain's statistics over ROI_{{ ch }}"></div>
+      </div>
+      {% endfor %}
+    </section>
+  </aside>
+
+  <main class="pane">
+    <article class="panel">
+      <header>
+        <span class="eyebrow">Traces</span>
+        <span class="dim mono" id="trace-legend"></span>
+        <span class="dim mono" id="capture-age"></span>
+      </header>
+      <div class="body">
+        <div class="scope-screen"><canvas id="screen"></canvas></div>
+        <div class="row scope-readout">
+          <span class="mono dim" id="cursor-readout"></span>
+        </div>
+        <div class="scope-error mono" id="write-error"></div>
+        <div class="scope-error mono" id="last-error"></div>
+      </div>
+    </article>
+
+    <details class="disc live-strip">
+      <summary>Scope <span class="dim mono" id="identity"></span></summary>
+      <div class="dbody mono dim" id="identity-detail"></div>
+    </details>
+  </main>
+</div>
+
+<script src="{{ root }}/theme/theme.js" defer></script>
+<script src="{{ root }}/theme/kit.js" defer></script>
+<script src="{{ root }}/static/scope.js" defer></script>
+</body>
+</html>

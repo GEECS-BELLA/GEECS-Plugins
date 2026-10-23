@@ -37,3 +37,17 @@
 .kit .plot-head .key.t2{color:var(--trace-2)}
 .kit .plot-head .key.t4{color:var(--trace-4)}
 .kit #plots-error{color:var(--crit);font-size:11.5px}
+
+/* The oscilloscope panel: the screen fills most of the window's height;
+   each channel's controls carry its trace colour. */
+.kit .scope-screen{height:calc(100vh - 260px);min-height:320px;background:var(--surface-2);border-radius:var(--r)}
+.kit .scope-screen canvas{display:block;width:100%;height:100%;cursor:crosshair}
+.kit .scope-readout{min-height:1.4em;font-size:11.5px;padding-top:4px}
+.kit .scope-error{color:var(--crit);font-size:11.5px;min-height:1em}
+.kit .scope-rail .channel{display:flex;flex-direction:column;gap:6px;padding-bottom:8px}
+.kit .scope-rail .stats{font-size:11px;color:var(--muted);line-height:1.5}
+.kit .channel-key{font-weight:600;display:inline-flex;gap:6px;align-items:center}
+.kit .channel-key.t1{color:var(--trace-1)}
+.kit .channel-key.t2{color:var(--trace-2)}
+.kit .channel-key.t3{color:var(--trace-3)}
+.kit .channel-key.t4{color:var(--trace-4)}

@@ -50,7 +50,7 @@
             <nav class="picklist">
               {% for device in members %}
                 {% if panels.get(kind) %}
-                  <a href="{{ url_for('camera_page', name=device.name).path }}" target="_blank" rel="noopener">
+                  <a href="{{ url_for(panels[kind] ~ '_page', name=device.name).path }}" target="_blank" rel="noopener">
                     {{ device.name }} <span class="sub mono">{{ device.prefix }}</span></a>
                 {% else %}
                   <button type="button" disabled>{{ device.name }} <span class="sub">no panel for this kind yet</span></button>

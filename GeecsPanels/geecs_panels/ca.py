@@ -40,6 +40,15 @@ from geecs_panels.feed import (
     WriteFailed,
 )
 from geecs_panels.registry import Device
+from geecs_panels.scope import (
+    ARRAY_DATA,
+    ARRAY_FIELDS,
+    CHAR_STRING_SUFFIXES,
+    SETTLED_BY_READBACK as SCOPE_SETTLED_BY_READBACK,
+    ENUM_SETTINGS,
+    TIME_AXIS,
+)
+from geecs_panels.scope_feed import ScopeFeed, ScopeTraces
 
 #: Upstream frame timeout: the IOC answers a snapshot in ~50 ms.
 FETCH_TIMEOUT_S = 3.0
@@ -197,3 +206,121 @@ class LiveCameras:
         for feed in self._feeds.values():
             feed.close()
         await self._fetch.aclose()
+
+
+#: The traces are read at most this often, and only for a new capture while a
+#: page asks: a running scope is drawn at 2 Hz (4 x 100 k samples is ~1.6 MB
+#: a read over the VPN).
+TRACES_EVERY_S = 0.5
+
+
+def subscribe_scope(
+    pv: str, as_string: bool, callback: Callable[[Optional[object]], None]
+) -> Subscription:
+    """:func:`subscribe`, except a char-array message (``LastError_RBV``) is read as its text."""
+    if not pv.endswith(CHAR_STRING_SUFFIXES):
+        return subscribe(pv, as_string, callback)
+
+    def on_update(value: object) -> None:
+        callback(str(value) if getattr(value, "ok", True) else None)
+
+    return aioca.camonitor(
+        pv, on_update, datatype=aioca.DBR_CHAR_STR, notify_disconnect=True
+    )
+
+
+async def read_enums(feed: ScopeFeed) -> None:
+    """Fill *feed*'s ``enums`` with each enum setting's choices, from the PV itself."""
+    pvs = [feed.prefix + suffix for suffix in ENUM_SETTINGS]
+    values = await aioca.caget(pvs, format=aioca.FORMAT_CTRL, timeout=3.0, throw=False)
+    for suffix, value in zip(ENUM_SETTINGS, values):
+        names = getattr(value, "enums", None)
+        if getattr(value, "ok", False) and names:
+            feed.enums[suffix] = [str(n) for n in names]
+
+
+class LiveScopes:
+    """Each scope's feed and trace source, created on first use and shared by every viewer."""
+
+    def __init__(self) -> None:
+        self._feeds: dict[str, ScopeFeed] = {}
+        self._traces: dict[str, ScopeTraces] = {}
+        self._enum_reads: dict[str, asyncio.Task[None]] = {}
+
+    def feed(self, device: Device) -> ScopeFeed:
+        """The scope's feed, subscribed on first use; its choices read until they are known."""
+        feed = self._feeds.get(device.name)
+        if feed is None:
+            feed = self._feeds[device.name] = ScopeFeed(device.prefix, subscribe_scope)
+            feed.start()
+        self.refresh(device)
+        return feed
+
+    def refresh(self, device: Device) -> None:
+        """Start a read of the choices if they are incomplete and none is running."""
+        feed = self._feeds.get(device.name)
+        if feed is None or len(feed.enums) >= len(ENUM_SETTINGS):
+            return
+        task = self._enum_reads.get(device.name)
+        if task is None or task.done():
+            # The IOC may be down at first: retried until complete, one read at a time.
+            self._enum_reads[device.name] = asyncio.get_running_loop().create_task(
+                read_enums(feed)
+            )
+
+    def traces(self, device: Device) -> ScopeTraces:
+        """The time axis and the whole capture (``ARR``), read together, once per capture."""
+        source = self._traces.get(device.name)
+        if source is None:
+
+            async def fetch() -> dict[str, list[float]]:
+                # One request: the samples with their identity and shape.
+                keys = list(ARRAY_FIELDS)
+                axis, data, *meta = await aioca.caget(
+                    [device.prefix + TIME_AXIS, device.prefix + ARRAY_DATA]
+                    + [device.prefix + ARRAY_FIELDS[k] for k in keys],
+                    timeout=3.0,
+                )
+                return {
+                    "t": list(map(float, axis)),
+                    "data": list(map(float, data)),
+                    **{k: [float(v)] for k, v in zip(keys, meta)},
+                }
+
+            feed = self.feed(device)
+            source = self._traces[device.name] = ScopeTraces(
+                fetch, feed.present_channels, TRACES_EVERY_S
+            )
+        return source
+
+    async def put(self, device: Device, suffix: str, value: object) -> None:
+        """Write one setting and wait for the IOC to process it (Acquire: for its readback)."""
+        pv = device.prefix + suffix
+        readback = SCOPE_SETTLED_BY_READBACK.get(suffix)
+        counter_pv = device.prefix + "ArrayCounter_RBV"
+        try:
+            before = (
+                await aioca.caget(counter_pv, timeout=PUT_TIMEOUT_S)
+                if readback
+                else None
+            )
+            await aioca.caput(pv, value, wait=readback is None, timeout=PUT_TIMEOUT_S)
+        except Exception as exc:
+            raise WriteFailed(f"{pv}: {exc}") from exc
+        if readback is None:
+            return
+        try:
+            await settle(device.prefix + readback, value)
+        except WriteFailed:
+            # A Single capture can start and finish between two polls: a new
+            # capture is the start having happened.
+            if (
+                not value
+                or await aioca.caget(counter_pv, timeout=PUT_TIMEOUT_S) == before
+            ):
+                raise
+
+    def close(self) -> None:
+        """Drop every subscription."""
+        for feed in self._feeds.values():
+            feed.close()
