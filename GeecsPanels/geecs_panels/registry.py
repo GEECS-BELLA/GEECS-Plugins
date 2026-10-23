@@ -46,7 +46,12 @@ def load_devices(experiment: str, path: Path | None) -> list[Device]:
     exists but does not validate raises: configured-but-broken is not
     "none".
     """
-    if path is None or not path.exists():
+    if path is None:
+        return []
+    if not path.parent.parent.is_dir():
+        # An unmounted share must not read as "no native devices".
+        raise RegistryError(f"configs directory {path.parent.parent} is not reachable")
+    if not path.exists():
         return []
     try:
         document = yaml.safe_load(path.read_text()) or {}

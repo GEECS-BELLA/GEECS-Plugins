@@ -33,6 +33,8 @@ from geecs_panels.camera import (
     string_suffixes,
 )
 
+_COUNTER_SUFFIXES = frozenset(counter_suffix(p) for p in COUNTER_PLUGINS)
+
 #: Seconds after subscribing before a never-connected PV counts as missing.
 CONNECT_GRACE_S = 5.0
 
@@ -59,6 +61,7 @@ class CameraFeed:
     connected: dict[str, bool] = field(default_factory=dict)
     _ticks: dict[str, float] = field(default_factory=dict)
     _subs: list[Subscription] = field(default_factory=list)
+    _seen: set[str] = field(default_factory=set)
     _started: Optional[float] = None
 
     def start(self) -> None:
@@ -87,8 +90,13 @@ class CameraFeed:
         """Take one monitor event: a value, or ``None`` for a disconnect."""
         if value is None:
             self.connected[suffix] = False
+            if suffix in _COUNTER_SUFFIXES:
+                # The first value after reconnecting (an IOC restart, a VPN
+                # blip) is the counter's position again, not a frame.
+                self.values.pop(suffix, None)
             return
         previous = self.values.get(suffix)
+        self._seen.add(suffix)
         self.connected[suffix] = True
         self.values[suffix] = value
         for plugin in COUNTER_PLUGINS:
@@ -113,9 +121,7 @@ class CameraFeed:
         """Suffixes never connected once the grace period has passed."""
         if self._started is None or self.clock() - self._started < CONNECT_GRACE_S:
             return []
-        return [
-            s for s, ok in self.connected.items() if not ok and s not in self.values
-        ]
+        return [s for s, ok in self.connected.items() if not ok and s not in self._seen]
 
     def snapshot(self, stale_after: float) -> dict[str, object]:
         """The page's view: every reading with its state, the image's age, what is missing."""

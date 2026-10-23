@@ -53,13 +53,13 @@ def test_the_registry_lives_in_the_experiment_folder(tmp_path: Path) -> None:
     ("url", "ca_host", "expected"),
     [
         (
-            "http://htu-camserv:8081/CAM1.MJPG.jpg",
+            "http://camserv:8081/CAM1.MJPG.jpg",
             "192.168.7.166:5064",
             "http://192.168.7.166:8081/CAM1.MJPG.jpg",
         ),
         # An IOC on its own CA port: the CA port is dropped, the HTTP port kept.
         (
-            "http://htu-camserv:8082/CAM1.MJPG.jpg",
+            "http://camserv:8082/CAM1.MJPG.jpg",
             "192.168.7.166:5066",
             "http://192.168.7.166:8082/CAM1.MJPG.jpg",
         ),
@@ -68,3 +68,10 @@ def test_the_registry_lives_in_the_experiment_folder(tmp_path: Path) -> None:
 )
 def test_the_stream_url_is_rehosted_to_the_ca_address(url, ca_host, expected) -> None:
     assert with_ca_host(url, ca_host) == expected
+
+
+def test_an_unreachable_configs_tree_is_an_error_not_no_devices(tmp_path: Path) -> None:
+    """An unmounted share must not read as "no native devices"."""
+    path = tmp_path / "gone" / "Undulator" / "native_devices.yaml"
+    with pytest.raises(RegistryError, match="not reachable"):
+        load_devices("Undulator", path)

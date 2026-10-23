@@ -202,3 +202,29 @@ def test_an_unresolvable_url_is_a_frame_unavailable() -> None:
 
     with pytest.raises(FrameUnavailable, match="stream URL unavailable"):
         asyncio.run(run())
+
+
+def test_a_reconnect_is_a_position_not_a_frame() -> None:
+    """An IOC restart or a VPN blip on an idle camera must not look like a fresh frame."""
+    clock = Clock()
+    feed, _, _ = _feed(clock)
+    feed.update(counter_suffix("STAT"), 500)
+    feed.update(counter_suffix("STAT"), 501)
+    clock.now += 10
+    assert feed.counter_ages()["STAT"] == pytest.approx(10)
+    feed.update(counter_suffix("STAT"), None)  # the IOC goes away
+    feed.update(counter_suffix("STAT"), 0)  # and comes back, restarted, idle
+    assert feed.counter_ages()["STAT"] == pytest.approx(10)
+    clock.now += 1
+    feed.update(counter_suffix("STAT"), 1)  # a real frame
+    assert feed.counter_ages()["STAT"] == pytest.approx(0)
+
+
+def test_a_pv_that_dropped_after_connecting_is_not_missing() -> None:
+    """Missing means never served; a disconnect is shown on the reading instead."""
+    clock = Clock()
+    feed, _, _ = _feed(clock)
+    feed.update(counter_suffix("STAT"), 1)
+    feed.update(counter_suffix("STAT"), None)
+    clock.now += CONNECT_GRACE_S + 0.1
+    assert counter_suffix("STAT") not in feed.missing()

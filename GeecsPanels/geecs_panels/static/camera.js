@@ -163,7 +163,12 @@
 
   // ---- live readings ------------------------------------------------------
   const SCALE = { exposure: 1000 };  // seconds on the wire, ms on the page
-  const DETECTOR = { acquire: "running", idle: "paused", error: "failed" };
+  // ADDriver DetectorState words → kit words; anything else is "unknown".
+  const DETECTOR = {
+    acquire: "running", readout: "running", correct: "running", saving: "running",
+    waiting: "running", initializing: "running",
+    idle: "paused", error: "failed", aborted: "failed", disconnected: "failed",
+  };
 
   function fmt(key, value) {
     if (value === null || value === undefined) return "—";
@@ -202,7 +207,7 @@
         const chip = $("detector");
         const word = r.state === "disconnected" ? "disconnected" : String(r.value || "").toLowerCase();
         chip.textContent = word || "unknown";
-        chip.dataset.state = r.state === "disconnected" ? "unknown" : (DETECTOR[word] || "running");
+        chip.dataset.state = r.state === "disconnected" ? "unknown" : (DETECTOR[word] || "unknown");
       }
     }
     const img = $("image-state");
@@ -218,13 +223,34 @@
     $("missing-list").textContent = snap.missing.join("  ");
   }
 
+  // The readings are only as fresh as the stream that carries them: if no
+  // snapshot arrives for a while (the service restarted, the laptop slept),
+  // every value and the image chip go stale here rather than keep their
+  // last "fresh" look.
+  const STREAM_STALE_MS = 3000;
+  let lastSnapshot = 0;
+
+  function streamLost() {
+    for (const el of root.querySelectorAll(".live")) {
+      el.setAttribute("data-age", "stale");
+      el.querySelector(".age").textContent = "no stream";
+    }
+    const chip = $("detector");
+    chip.dataset.state = "unknown"; chip.textContent = "reconnecting";
+    const img = $("image-state");
+    img.dataset.state = "unknown"; img.textContent = "no update";
+  }
+
   function connect() {
     const es = new EventSource(eventsUrl);
-    es.addEventListener("state", (ev) => apply(JSON.parse(ev.data)));
-    es.onerror = () => {
-      const chip = $("detector");
-      chip.dataset.state = "unknown"; chip.textContent = "reconnecting";
-    };
+    es.addEventListener("state", (ev) => {
+      lastSnapshot = performance.now();
+      apply(JSON.parse(ev.data));
+    });
+    es.onerror = streamLost;
+    setInterval(() => {
+      if (lastSnapshot && performance.now() - lastSnapshot > STREAM_STALE_MS) streamLost();
+    }, 1000);
   }
 
   // ---- wiring -------------------------------------------------------------
