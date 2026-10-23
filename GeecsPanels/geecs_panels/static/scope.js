@@ -1,5 +1,10 @@
 // The oscilloscope panel: the traces, the settings, the capture state.
 //
+// It speaks geecs-epics' scope contract only, so
+// it fits any scope vendor: every select is filled from its PV's own enum
+// choices (the stream's "enums"), channels the model lacks are hidden, and
+// each channel shows the chain's statistics (STAT_<CH>) for its window.
+//
 // One stream (/scope/<name>/events?traces=1) carries the settings in force,
 // the status and the decimated traces. Each setting shows its readback
 // unless it has focus; changing it posts one allow-listed write, and the
@@ -88,7 +93,7 @@
   }
   for (const btn of root.querySelectorAll("[data-put]")) {
     btn.disabled = !writable;
-    btn.addEventListener("click", () => put(btn.dataset.put, btn.dataset.value));
+    btn.addEventListener("click", () => put(btn.dataset.put, Number(btn.dataset.value)));
   }
 
   // ---- render ---------------------------------------------------------------
@@ -97,18 +102,43 @@
     let state = "unknown", text = "connecting";
     if (snap && !snap.reachable) { state = "failed"; text = "IOC unreachable"; }
     else if (snap) {
+      // DetectorState_RBV (areaDetector's) and Acquire_RBV
       const s = snap.scope.state, acq = snap.scope.acquire === "Acquiring";
       if (s === "Disconnected") { state = "failed"; text = "scope disconnected"; }
       else if (s === "Error") { state = "failed"; text = snap.scope.status || "error"; }
-      else if (s === "Armed") { state = "running"; text = "armed"; }
-      else if (acq) { state = "running"; text = "acquiring"; }
+      // Armed and reading out alternate at the capture rate: one word for both.
+      else if (acq || s === "Acquire" || s === "Readout") { state = "running"; text = "acquiring"; }
       else { state = "queued"; text = "stopped"; }
     }
     chip.dataset.state = state;
     chip.textContent = text;
   }
 
+  // A select's options are its PV's enum choices: the scope's, not a list here.
+  function fillChoices() {
+    const enums = snap.enums || {};
+    for (const el of root.querySelectorAll("select[data-setting]")) {
+      const choices = enums[el.dataset.setting];
+      if (!choices) continue;
+      const have = Array.from(el.options, (o) => o.value);
+      if (have.length === choices.length && have.every((v, i) => v === choices[i])) continue;
+      el.replaceChildren(...choices.map((c) => new Option(c, c)));
+    }
+  }
+
+  function showStats(name, c) {
+    const el = $("ch-" + name + "-stats");
+    const st = c && c.stats;
+    if (!st || st.total === null || st.total === undefined) { el.textContent = ""; return; }
+    const dt = typeof snap.scope.interval_ns === "number" ? snap.scope.interval_ns * 1e-9 : null;
+    const integral = dt === null ? "" : ` · ∫ ${(st.total * dt).toExponential(3)} V·s`;
+    el.textContent =
+      `mean ${fmtVolts(st.mean)} · σ ${fmtVolts(st.sigma)} · min ${fmtVolts(st.min)} · ` +
+      `max ${fmtVolts(st.max)}${integral}`;
+  }
+
   function showSettings() {
+    fillChoices();
     for (const el of root.querySelectorAll("[data-setting]")) {
       if (document.activeElement === el) continue;
       const v = valueOf(el.dataset.from);
@@ -121,6 +151,7 @@
       const c = channel(name);
       $("ch-" + name).hidden = !(c && c.present === "Present");
       $("ch-" + name + "-over").hidden = !(c && c.overrange === "Over range");
+      showStats(name, c);
     }
     const s = snap.scope;
     $("capture-count").textContent = s.count === null ? "" : `${s.count} captures`;
@@ -131,10 +162,10 @@
         `${fmtTime(s.samples * s.interval_ns * 1e-9)} window · ${fmtTime(s.interval_ns * 1e-9)}/sample`;
     $("trace-legend").textContent = enabled()
       .map((n) => `${n} ±${channel(n).range}`).join(" · ");
-    $("identity").textContent = [s.model, s.serial].filter(Boolean).join(" ");
+    $("identity").textContent = [s.manufacturer, s.model, s.serial].filter(Boolean).join(" ");
     $("identity-detail").textContent =
-      `model ${s.model || "—"} · serial ${s.serial || "—"} · firmware ${s.firmware || "—"} · ` +
-      `driver ${s.driver || "—"} · status ${s.status || "—"}`;
+      `${s.manufacturer || "—"} ${s.model || "—"} · serial ${s.serial || "—"} · ` +
+      `firmware ${s.firmware || "—"} · ${s.num_channels || "?"} channels · status ${s.status || "—"}`;
     $("last-error").textContent = s.last_error ? `last error: ${s.last_error}` : "";
   }
 

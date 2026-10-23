@@ -40,7 +40,12 @@ from geecs_panels.feed import (
     WriteFailed,
 )
 from geecs_panels.registry import Device
-from geecs_panels.scope import CHAR_STRING_SUFFIXES, TIME_AXIS, WAVEFORM
+from geecs_panels.scope import (
+    ARRAY_DATA,
+    CHAR_STRING_SUFFIXES,
+    ENUM_SETTINGS,
+    TIME_AXIS,
+)
 from geecs_panels.scope_feed import ScopeFeed
 
 #: Upstream frame timeout: the IOC answers a snapshot in ~50 ms.
@@ -220,35 +225,57 @@ def subscribe_scope(
     )
 
 
+async def read_enums(feed: ScopeFeed) -> None:
+    """Fill *feed*'s ``enums`` with each enum setting's choices, from the PV itself."""
+    pvs = [feed.prefix + suffix for suffix in ENUM_SETTINGS]
+    values = await aioca.caget(pvs, format=aioca.FORMAT_CTRL, timeout=3.0, throw=False)
+    for suffix, value in zip(ENUM_SETTINGS, values):
+        names = getattr(value, "enums", None)
+        if getattr(value, "ok", False) and names:
+            feed.enums[suffix] = [str(n) for n in names]
+
+
 class LiveScopes:
-    """Each oscilloscope's feed and trace source, created on first use and shared by every viewer."""
+    """Each scope's feed and trace source, created on first use and shared by every viewer."""
 
     def __init__(self) -> None:
         self._feeds: dict[str, ScopeFeed] = {}
         self._traces: dict[str, ArraysSource] = {}
+        self._enum_reads: dict[str, asyncio.Task[None]] = {}
 
     def feed(self, device: Device) -> ScopeFeed:
-        """The scope's feed, subscribed on first use."""
+        """The scope's feed, subscribed on first use; its choices read until they are known."""
         feed = self._feeds.get(device.name)
         if feed is None:
             feed = self._feeds[device.name] = ScopeFeed(device.prefix, subscribe_scope)
             feed.start()
+        task = self._enum_reads.get(device.name)
+        if len(feed.enums) < len(ENUM_SETTINGS) and (task is None or task.done()):
+            # Retried on every use until complete: the IOC may be down at first.
+            self._enum_reads[device.name] = asyncio.get_running_loop().create_task(
+                read_enums(feed)
+            )
         return feed
 
     def traces(self, device: Device) -> ArraysSource:
-        """The time axis and every enabled channel's waveform, read together."""
+        """The time axis and the whole capture (``ARR``), read together."""
         source = self._traces.get(device.name)
         if source is None:
             feed = self.feed(device)
 
             async def fetch() -> dict[str, list[float]]:
-                keys = ["t", *feed.enabled_channels()]
-                pvs = [
-                    device.prefix + (TIME_AXIS if k == "t" else f"{k}:{WAVEFORM}")
-                    for k in keys
+                axis, data = await aioca.caget(
+                    [device.prefix + TIME_AXIS, device.prefix + ARRAY_DATA], timeout=3.0
+                )
+                shape = [
+                    float(feed.values.get(k) or 0)
+                    for k in ("arr_channels", "arr_samples")
                 ]
-                values = await aioca.caget(pvs, timeout=3.0)
-                return {k: [float(x) for x in v] for k, v in zip(keys, values)}
+                return {
+                    "t": [float(x) for x in axis],
+                    "data": [float(x) for x in data],
+                    "shape": shape,
+                }
 
             source = self._traces[device.name] = ArraysSource(fetch, TRACES_EVERY_S)
         return source

@@ -24,8 +24,9 @@ geecs_panels/
   coords.py     # image pixels <-> the analysis ROI's output pixels — pure
   feed.py       # CameraFeed (monitored PVs → snapshot), FrameSource (shared JPEG)
                 #   — transports injected, so tests need no CA library or IOC
-  scope.py      # the oscilloscope contract (ioc-picoscope's PV suffixes), its
-                #   write allow-list and min/max trace decimation — pure
+  scope.py      # geecs-epics' scope contract: its PV
+                #   suffixes, the write allow-list, splitting ARR's capture and
+                #   min/max trace decimation — pure, vendor-neutral
   scope_feed.py # ScopeFeed (monitored settings → snapshot), traces_payload
   scope_app.py  # /scope/{device}: page, events (SSE, ?traces=1), put
   ca.py         # the real transports: aioca monitors, stream URL, httpx
@@ -82,9 +83,11 @@ geecs_panels/
   camera ROI goes through a `<dialog>`: it changes what scans save. A stuck
   lock is released through the override dialog — it writes `RUN:Lock` 0
   and nothing else, and logs the operator's name.
-- **The oscilloscope panel writes every setting** (`scope.WRITABLE`):
-  driving the scope is the panel's point; capture products are never
-  writable. Its traces are read like the camera's arrays (on request,
+- **The scope panel speaks the scope contract only**, never a vendor's
+  records: every enum's choices are read from its PV (`ScopeFeed.enums`),
+  so one page fits any scope. It writes every setting (`scope.WRITABLE`):
+  driving the scope is the panel's point; capture products and the chain's
+  outputs are never writable. Its traces are read like the camera's arrays (on request,
   shared, ``ArraysSource``) and min/max-decimated to the screen's width,
   so a one-sample spike survives. A bench scope is not in the native-device
   registry yet: `--scope NAME=PREFIX` gives it a panel.

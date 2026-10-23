@@ -1,47 +1,54 @@
-"""The oscilloscope contract: the PicoScope IOC's PV suffixes, its write allow-list, trace decimation.
+"""The scope contract: PV suffixes, the write allow-list, trace decimation.
 
-Pure: no CA, no I/O. The suffixes are the records of geecs-epics'
-``ioc-picoscope`` (``PS5000A.template`` and ``PS5000A_channel.template``)
-under the device prefix; a channel's live under ``<prefix><CH>:``.
+Pure: no CA, no I/O. The suffixes are geecs-epics' **scope contract**:
+vendor-neutral settings names at the device
+prefix, aliased by each scope driver onto its own records, and the standard
+chain behind them (``ARR`` for the whole capture, ``STAT_<CH>`` per
+channel). Nothing here names a vendor: enum choices (ranges, sources,
+resolutions) are read from the PVs themselves, so one panel fits every
+scope.
 
 **Traces are read on request, never monitored** (as the camera's arrays):
-a 100 k-sample capture per channel at the scope's rate would flood the
-VPN. :func:`decimate` reduces a trace to min/max pairs per pixel column,
-so a narrow spike survives the reduction that a stride would drop.
+a 100 k-sample capture at the scope's rate would flood the VPN. The
+capture arrives as one ``ARR:ArrayData`` array, channels varying fastest;
+:func:`split_channels` takes it apart and :func:`decimate` reduces each
+trace to min/max pairs per screen column, so a one-sample spike survives
+the reduction that a stride would drop.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
-from typing import Optional
+from collections.abc import Mapping, Sequence
+from typing import Callable, Optional
 
-#: The channels a 5000 Series scope can have; a model's own are ``Present``.
+#: Channel letters the contract allows; a model's own are ``Present``.
 CHANNELS = ("A", "B", "C", "D")
 
 #: Scope-wide readbacks: snapshot key → suffix. Monitored.
 SCOPE_FIELDS: dict[str, str] = {
+    "manufacturer": "Manufacturer_RBV",
     "model": "Model_RBV",
-    "serial": "Serial_RBV",
-    "firmware": "Firmware_RBV",
-    "driver": "DriverVersion_RBV",
+    "serial": "SerialNumber_RBV",
+    "firmware": "FirmwareVersion_RBV",
     "num_channels": "NumChannels_RBV",
     "connected": "Connected_RBV",
-    "status": "Status_RBV",
+    "state": "DetectorState_RBV",
+    "status": "StatusMessage_RBV",
     "last_error": "LastError_RBV",
+    "acquire": "Acquire_RBV",
+    "image_mode": "ImageMode_RBV",
+    "num_images": "NumImages_RBV",
+    "count": "ArrayCounter_RBV",
     "resolution": "Resolution_RBV",
     "interval_ns": "SampleInterval_RBV",
     "samples": "NumSamples_RBV",
-    "max_samples": "MaxSamples_RBV",
     "pre_trigger": "PreTrigger_RBV",
     "trigger_mode": "TriggerMode_RBV",
     "trigger_source": "TriggerSource_RBV",
     "trigger_level": "TriggerLevel_RBV",
     "trigger_edge": "TriggerEdge_RBV",
     "auto_ms": "AutoTriggerTime_RBV",
-    "acquire": "Acquire_RBV",
-    "state": "State_RBV",
-    "count": "CaptureCount_RBV",
 }
 
 #: Per-channel readbacks: key → suffix under ``<CH>:``. Monitored.
@@ -54,62 +61,62 @@ CHANNEL_FIELDS: dict[str, str] = {
     "overrange": "Overrange_RBV",
 }
 
-#: Read as strings (enums by their state names; LastError is a char array).
+#: Per-channel statistics of the chain: key → suffix under ``STAT_<CH>:``.
+STAT_FIELDS: dict[str, str] = {
+    "total": "Total_RBV",
+    "mean": "MeanValue_RBV",
+    "min": "MinValue_RBV",
+    "max": "MaxValue_RBV",
+    "sigma": "Sigma_RBV",
+}
+
+#: Read as strings: enums by their state names, and the identity and messages.
 STRING_KEYS = frozenset(
     {
-        "model",
-        "serial",
-        "firmware",
-        "driver",
-        "connected",
-        "status",
-        "last_error",
-        "resolution",
-        "trigger_mode",
-        "trigger_source",
-        "trigger_edge",
-        "acquire",
-        "state",
-        "present",
-        "enable",
-        "range",
-        "coupling",
-        "overrange",
+        "manufacturer", "model", "serial", "firmware", "connected", "state",
+        "status", "last_error", "acquire", "image_mode", "resolution",
+        "trigger_mode", "trigger_source", "trigger_edge",
+        "present", "enable", "range", "coupling", "overrange",
     }
-)
+)  # fmt: skip
 
-#: Char-array records holding text (a message longer than a string record's 40).
-CHAR_STRING_SUFFIXES = ("LastError_RBV",)
+#: Char-array records holding text (longer than a string record's 40).
+CHAR_STRING_SUFFIXES = ("LastError_RBV", "StatusMessage_RBV")
 
 TIME_AXIS = "TimeAxis_RBV"
-WAVEFORM = "Waveform_RBV"
+ARRAY_DATA = "ARR:ArrayData"
+#: The whole capture's shape, monitored: [channels, samples].
+ARRAY_SHAPE = {
+    "arr_channels": "ARR:ArraySize0_RBV",
+    "arr_samples": "ARR:ArraySize1_RBV",
+}
 
-RESOLUTIONS = ("8 bit", "12 bit", "14 bit", "15 bit", "16 bit")
-RANGES = (
-    "10 mV",
-    "20 mV",
-    "50 mV",
-    "100 mV",
-    "200 mV",
-    "500 mV",
-    "1 V",
-    "2 V",
-    "5 V",
-    "10 V",
-    "20 V",
+
+def stat_prefix(ch: str) -> str:
+    """The chain's statistics plugin for channel *ch*."""
+    return f"STAT_{ch}:"
+
+
+#: Settings whose choices are the PV's own enum strings (read at start).
+ENUM_SETTINGS = (
+    "Resolution",
+    "ImageMode",
+    "TriggerMode",
+    "TriggerSource",
+    "TriggerEdge",
+    *(f"{ch}:{name}" for ch in CHANNELS for name in ("Enable", "Range", "Coupling")),
 )
-COUPLINGS = ("AC", "DC")
-TRIGGER_MODES = ("Free run", "Auto", "Normal", "Single")
-TRIGGER_SOURCES = ("A", "B", "C", "D", "External")
-EDGES = ("Rising", "Falling")
 
 
 class NotWritable(ValueError):
     """A write the allow-list refuses; the message says why."""
 
 
-def _real(lo: float, hi: float):
-    def check(suffix: str, value: object) -> float:
+Check = Callable[[str, object, Sequence[str]], object]
+
+
+def _real(lo: float, hi: float) -> Check:
+    def check(suffix: str, value: object, _choices: Sequence[str]) -> float:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise NotWritable(f"{suffix} takes a number, not {value!r}")
         if not (math.isfinite(value) and lo <= value <= hi):
@@ -119,8 +126,8 @@ def _real(lo: float, hi: float):
     return check
 
 
-def _whole(lo: int, hi: int):
-    def check(suffix: str, value: object) -> int:
+def _whole(lo: int, hi: int) -> Check:
+    def check(suffix: str, value: object, _choices: Sequence[str]) -> int:
         whole = isinstance(value, int) or (
             isinstance(value, float) and value.is_integer()
         )
@@ -131,57 +138,64 @@ def _whole(lo: int, hi: int):
     return check
 
 
-def _choice(names: Sequence[str]):
-    def check(suffix: str, value: object) -> str:
-        if value not in names:
-            raise NotWritable(f"{suffix} takes one of {', '.join(names)}")
-        return str(value)
+def _choice(suffix: str, value: object, choices: Sequence[str]) -> str:
+    if not choices:
+        raise NotWritable(
+            f"{suffix}: its choices have not been read from the scope yet"
+        )
+    if value not in choices:
+        raise NotWritable(f"{suffix} takes one of {', '.join(choices)}")
+    return str(value)
 
-    return check
 
-
-#: The panel's writes: every setting of the scope (it is the panel's whole
-#: point), nothing a capture produces. suffix → validator returning the
-#: value to put (an enum by its state name).
-WRITABLE = {
-    "Resolution": _choice(RESOLUTIONS),
+#: The panel's writes: every setting of the scope (driving it is the panel's
+#: point), nothing a capture or the chain produces. suffix → validator.
+WRITABLE: dict[str, Check] = {
+    "Acquire": _whole(0, 1),
+    "NumImages": _whole(1, 1_000_000),
     "SampleInterval": _real(0.0, 1e9),
     "NumSamples": _whole(1, 100_000_000),
     "PreTrigger": _real(0.0, 100.0),
-    "TriggerMode": _choice(TRIGGER_MODES),
-    "TriggerSource": _choice(TRIGGER_SOURCES),
-    "TriggerLevel": _real(-20.0, 20.0),
-    "TriggerEdge": _choice(EDGES),
+    "TriggerLevel": _real(-50.0, 50.0),
     "AutoTriggerTime": _whole(1, 32767),
-    "Acquire": _choice(("Stop", "Start")),
-    **{
-        f"{ch}:{name}": check
-        for ch in CHANNELS
-        for name, check in (
-            ("Enable", _choice(("Off", "On"))),
-            ("Range", _choice(RANGES)),
-            ("Coupling", _choice(COUPLINGS)),
-            ("Offset", _real(-20.0, 20.0)),
-        )
-    },
+    **{f"{ch}:Offset": _real(-50.0, 50.0) for ch in CHANNELS},
+    **{suffix: _choice for suffix in ENUM_SETTINGS},
 }
 
 
-def check_write(suffix: str, value: object) -> object:
-    """The value to put for an allowed write, or :class:`NotWritable`."""
+def check_write(
+    suffix: str, value: object, enums: Mapping[str, Sequence[str]]
+) -> object:
+    """The value to put for an allowed write, or :class:`NotWritable`.
+
+    *enums* maps each enum setting to the choices its PV reported.
+    """
     check = WRITABLE.get(suffix)
     if check is None:
         raise NotWritable(f"{suffix} is not writable from the panel")
-    return check(suffix, value)
+    return check(suffix, value, enums.get(suffix, ()))
 
 
 def monitored() -> dict[str, tuple[str, bool]]:
     """Every monitored suffix → (snapshot key, read as string)."""
     out = {suffix: (key, key in STRING_KEYS) for key, suffix in SCOPE_FIELDS.items()}
+    out.update({suffix: (key, False) for key, suffix in ARRAY_SHAPE.items()})
     for ch in CHANNELS:
         for key, suffix in CHANNEL_FIELDS.items():
             out[f"{ch}:{suffix}"] = (f"{ch}.{key}", key in STRING_KEYS)
+        for key, suffix in STAT_FIELDS.items():
+            out[stat_prefix(ch) + suffix] = (f"{ch}.stat.{key}", False)
     return out
+
+
+def split_channels(
+    data: Sequence[float], channels: int, samples: int
+) -> list[list[float]]:
+    """The capture's channels from ``ARR:ArrayData`` ([channels, samples], channels fastest)."""
+    if channels < 1 or samples < 1:
+        return []
+    n = min(samples, len(data) // channels)
+    return [list(data[ch : n * channels : channels]) for ch in range(channels)]
 
 
 def decimate(

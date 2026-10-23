@@ -4,8 +4,12 @@
   scale, eight divisions); the channel, timebase and trigger settings; the
   capture state.
 
-  Settings show the value in force (their readbacks); a setting the scope
-  refuses snaps back and the reason appears under the trace. Values reach
+  The page speaks geecs-epics' scope contract only:
+  enum choices are filled from the PVs (the stream's "enums"), channels the
+  model lacks are hidden, so one page fits any scope vendor. Settings show
+  the value in force (their readbacks); a setting the scope refuses snaps
+  back and the reason appears under the trace. Each channel shows the
+  chain's statistics (STAT_<CH>) for its time window. Values reach
   scope.js through data attributes on #scope, never through an inline
   script.
 #}<!doctype html>
@@ -40,13 +44,18 @@
     <section class="group">
       <h4>Acquisition</h4>
       <div class="row">
-        <button class="btn sm primary" type="button" data-put="Acquire" data-value="Start">Run</button>
-        <button class="btn sm" type="button" data-put="Acquire" data-value="Stop">Stop</button>
+        <button class="btn sm primary" type="button" data-put="Acquire" data-value="1">Run</button>
+        <button class="btn sm" type="button" data-put="Acquire" data-value="0">Stop</button>
       </div>
       <div class="row">
         <div class="field coord"><label for="trig-mode">mode</label>
-          <select id="trig-mode" data-setting="TriggerMode" data-from="trigger_mode">
-            {% for m in choices.trigger_mode %}<option>{{ m }}</option>{% endfor %}</select></div>
+          <select id="trig-mode" data-setting="TriggerMode" data-from="trigger_mode"></select></div>
+        <div class="field coord"><label for="img-mode">captures</label>
+          <select id="img-mode" data-setting="ImageMode" data-from="image_mode"></select></div>
+      </div>
+      <div class="row">
+        <div class="field coord"><label for="img-num">number</label>
+          <input type="number" id="img-num" min="1" step="1" data-setting="NumImages" data-from="num_images"></div>
         <span class="dim mono" id="capture-count"></span>
       </div>
     </section>
@@ -63,8 +72,7 @@
         <div class="field coord"><label for="tb-pre">pre-trigger %</label>
           <input type="number" id="tb-pre" min="0" max="100" step="any" data-setting="PreTrigger" data-from="pre_trigger"></div>
         <div class="field coord"><label for="tb-res">resolution</label>
-          <select id="tb-res" data-setting="Resolution" data-from="resolution">
-            {% for r in choices.resolution %}<option>{{ r }}</option>{% endfor %}</select></div>
+          <select id="tb-res" data-setting="Resolution" data-from="resolution"></select></div>
       </div>
       <div class="hint dim mono" id="tb-window"></div>
     </section>
@@ -73,11 +81,9 @@
       <h4>Trigger</h4>
       <div class="row">
         <div class="field coord"><label for="trig-source">source</label>
-          <select id="trig-source" data-setting="TriggerSource" data-from="trigger_source">
-            {% for s in choices.trigger_source %}<option>{{ s }}</option>{% endfor %}</select></div>
+          <select id="trig-source" data-setting="TriggerSource" data-from="trigger_source"></select></div>
         <div class="field coord"><label for="trig-edge">edge</label>
-          <select id="trig-edge" data-setting="TriggerEdge" data-from="trigger_edge">
-            {% for e in choices.edge %}<option>{{ e }}</option>{% endfor %}</select></div>
+          <select id="trig-edge" data-setting="TriggerEdge" data-from="trigger_edge"></select></div>
       </div>
       <div class="row">
         <div class="field coord"><label for="trig-level">level V</label>
@@ -89,7 +95,7 @@
 
     <section class="group">
       <h4>Channels</h4>
-      {% for ch in ["A", "B", "C", "D"] %}
+      {% for ch in channels %}
       <div class="channel" id="ch-{{ ch }}" data-channel="{{ ch }}" hidden>
         <div class="row">
           <label class="channel-key t{{ loop.index }}">
@@ -98,16 +104,15 @@
         </div>
         <div class="row">
           <div class="field coord"><label for="ch-{{ ch }}-range">range ±</label>
-            <select id="ch-{{ ch }}-range" data-setting="{{ ch }}:Range" data-from="{{ ch }}.range">
-              {% for r in choices.range %}<option>{{ r }}</option>{% endfor %}</select></div>
+            <select id="ch-{{ ch }}-range" data-setting="{{ ch }}:Range" data-from="{{ ch }}.range"></select></div>
           <div class="field coord"><label for="ch-{{ ch }}-coupling">coupling</label>
-            <select id="ch-{{ ch }}-coupling" data-setting="{{ ch }}:Coupling" data-from="{{ ch }}.coupling">
-              {% for c in choices.coupling %}<option>{{ c }}</option>{% endfor %}</select></div>
+            <select id="ch-{{ ch }}-coupling" data-setting="{{ ch }}:Coupling" data-from="{{ ch }}.coupling"></select></div>
         </div>
         <div class="row">
           <div class="field coord"><label for="ch-{{ ch }}-offset">offset V</label>
             <input type="number" id="ch-{{ ch }}-offset" step="any" data-setting="{{ ch }}:Offset" data-from="{{ ch }}.offset"></div>
         </div>
+        <div class="stats mono" id="ch-{{ ch }}-stats" title="STAT_{{ ch }}: the chain's statistics over ROI_{{ ch }}"></div>
       </div>
       {% endfor %}
     </section>

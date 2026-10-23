@@ -7,7 +7,10 @@
   adds the decimated traces; ``?once=1`` sends one and closes.
 - ``/scope/{device}/put`` — one allow-listed setting (:data:`geecs_panels.scope.WRITABLE`).
 
-Every setting of the scope is writable: the panel exists to drive it.
+The page speaks geecs-epics' scope contract only, so it fits any scope
+vendor: enum choices arrive in the stream (the PVs' own), the channels are
+the ones the model reports. Every setting of the scope is writable: the
+panel exists to drive it.
 The IOC applies or refuses each one; a refused setting snaps back (its
 setpoint follows the value in force) and the reason is ``LastError``.
 """
@@ -26,16 +29,7 @@ from pydantic import BaseModel
 
 from geecs_panels.feed import ArraysSource, ArraysUnavailable, WriteFailed
 from geecs_panels.registry import Device
-from geecs_panels.scope import (
-    COUPLINGS,
-    EDGES,
-    RANGES,
-    RESOLUTIONS,
-    TRIGGER_MODES,
-    TRIGGER_SOURCES,
-    NotWritable,
-    check_write,
-)
+from geecs_panels.scope import CHANNELS, NotWritable, check_write
 from geecs_panels.scope_feed import ScopeFeed, traces_payload
 
 #: Seconds between SSE pushes.
@@ -84,14 +78,7 @@ def add_scope_routes(
                 "experiment": experiment,
                 "device": scope(name),
                 "writable": writable,
-                "choices": {
-                    "resolution": RESOLUTIONS,
-                    "range": RANGES,
-                    "coupling": COUPLINGS,
-                    "trigger_mode": TRIGGER_MODES,
-                    "trigger_source": TRIGGER_SOURCES,
-                    "edge": EDGES,
-                },
+                "channels": CHANNELS,
             },
         )
 
@@ -122,7 +109,9 @@ def _add_stream(
                 source = scopes.traces(device)
                 source.kick()
                 try:
-                    snap["traces"] = traces_payload(source.current())
+                    snap["traces"] = traces_payload(
+                        source.current(), feed.present_channels()
+                    )
                 except ArraysUnavailable as exc:
                     snap["traces"] = {"error": str(exc)}
             return snap
@@ -151,7 +140,7 @@ def _add_write(
         if not writable:
             raise HTTPException(403, "this panel is read-only (--read-only)")
         try:
-            value = check_write(request.pv, request.value)
+            value = check_write(request.pv, request.value, scopes.feed(device).enums)
         except NotWritable as exc:
             raise HTTPException(422, str(exc)) from exc
         try:
