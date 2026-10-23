@@ -198,14 +198,17 @@ def test_software_shot_presses_once_and_stamps_the_row(
     assert not cam.missed_shot
 
 
-def test_line1_waits_for_the_edge_and_never_presses(
-    RE: RunEngine, tmp_path: Path
+@pytest.mark.parametrize(
+    "source", [NativeTriggerSource.LINE0, NativeTriggerSource.LINE1]
+)
+def test_a_hardware_line_waits_for_the_edge_and_never_presses(
+    RE: RunEngine, tmp_path: Path, source: NativeTriggerSource
 ) -> None:
-    cam, log = _camera(RE, tmp_path, source=NativeTriggerSource.LINE1)
+    cam, log = _camera(RE, tmp_path, source=source)
     presses = _frames_on_software_trigger(cam)
     _run(RE, lambda: cam.stage())
     _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
-    assert f"trigger_source={NativeTriggerSource.LINE1}" in log
+    assert f"trigger_source={source.value}" in log
 
     async def shot():
         status = cam.trigger()
@@ -216,6 +219,76 @@ def test_line1_waits_for_the_edge_and_never_presses(
 
     _run(RE, shot)
     assert presses == []
+
+
+#: TriggerSource choices as the cameras' GenICam enumerations offer them.
+BASLER_CHOICES = ("Software", "Line1", "Line3", "Line4", "Action1")
+BLACKFLY_CHOICES = ("Software", "Line0", "Line2", "Line3")
+
+
+def _offer_choices(signal, choices) -> None:
+    """Give a mock enum PV the choices a real IOC reports (the mock has no API for it)."""
+    signal._connector.backend.soft_backend.metadata["choices"] = list(choices)
+
+
+@pytest.mark.parametrize("choices", [BASLER_CHOICES, BLACKFLY_CHOICES])
+def test_the_trigger_source_signal_connects_whatever_lines_the_camera_has(
+    choices: tuple[str, ...],
+) -> None:
+    """Connect demands no line: a Basler (no Line0) and a Blackfly (no Line1) both connect.
+
+    The converter aioca builds at connect from the PV's enum choices, for the
+    signal's own datatype — an enum type there would refuse any camera
+    missing one of its members.
+    """
+    from types import SimpleNamespace
+
+    from aioca import DBR_ENUM
+    from ophyd_async.epics.core._aioca import make_converter
+
+    driver = native.NativeDriverIO("undulator:adtest_cam1:cam1:")
+    pv = SimpleNamespace(datatype=DBR_ENUM, element_count=1, enums=choices)
+    converter = make_converter(driver.trigger_source.datatype, {"TriggerSource": pv})
+    assert converter.metadata["choices"] == list(choices)
+
+
+@pytest.mark.parametrize(
+    ("source", "choices"),
+    [
+        (NativeTriggerSource.SOFTWARE, BASLER_CHOICES),
+        (NativeTriggerSource.LINE1, BASLER_CHOICES),
+        (NativeTriggerSource.SOFTWARE, BLACKFLY_CHOICES),
+        (NativeTriggerSource.LINE0, BLACKFLY_CHOICES),
+    ],
+)
+def test_a_source_among_the_cameras_choices_is_set(
+    RE: RunEngine, tmp_path: Path, source: NativeTriggerSource, choices
+) -> None:
+    cam, log = _camera(RE, tmp_path, source=source)
+    _offer_choices(cam.driver.trigger_source, choices)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert f"trigger_source={source.value}" in log
+    assert _run(RE, lambda: cam.driver.trigger_source.get_value()) == source.value
+
+
+def test_a_line_the_camera_lacks_is_refused_before_the_camera_is_touched(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """``line0`` on a Basler: a named refusal at the first prepare, no put, no capture."""
+    cam, log = _camera(RE, tmp_path, source=NativeTriggerSource.LINE0)
+    _offer_choices(cam.driver.trigger_source, BASLER_CHOICES)
+    _run(RE, lambda: cam.stage())
+    with pytest.raises(
+        GeecsConfigurationError,
+        match=r"trigger_source line0 \('Line0'\) is not one of this camera's "
+        r"TriggerSource choices \(Software, Line1, Line3, Line4, Action1\)"
+        r".*native_devices\.yaml",
+    ):
+        _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    # No driver put and no capture started (stage's capture=False is the stock disarm).
+    assert log == ["capture=False"]
+    assert _run(RE, lambda: cam.driver.acquire.get_value()) is True  # still live view
 
 
 def test_a_missed_frame_is_the_geecs_timeout_and_fails_the_step(

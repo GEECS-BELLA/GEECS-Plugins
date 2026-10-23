@@ -33,13 +33,15 @@ class AravisCamera(SchemaModel):
     kind: Literal["aravis_camera"] = Field(
         description="Device kind: 'aravis_camera' (an areaDetector ADAravis camera)."
     )
-    trigger_source: Literal["line1", "software"] = Field(
+    trigger_source: Literal["line0", "line1", "software"] = Field(
         description=(
-            "Where each frame comes from. 'line1': the camera's hardware "
-            "input, wired to a timing-system output gated by the trigger "
-            "box. 'software': the scan worker presses the camera's software "
-            "trigger at each shot (exposed when the worker says go, not when "
-            "the laser fires)."
+            "Where each frame comes from. 'line0' / 'line1': the camera's "
+            "hardware input on that line (a Basler's opto-isolated input is "
+            "Line1, a FLIR Blackfly's Line0), wired to a timing-system output "
+            "gated by the trigger box; the line must be one of the camera's "
+            "own TriggerSource choices. 'software': the scan worker presses "
+            "the camera's software trigger at each shot (exposed when the "
+            "worker says go, not when the laser fires)."
         )
     )
 

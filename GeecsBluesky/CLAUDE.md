@@ -162,17 +162,20 @@ qserver/                    # the worker: launcher, startup profile, permissions
   costs ~0.7 s per row); cached reads are coherent because the gateway
   posts data before the stamp and caproto and aioca deliver FIFO, so when
   the stamp advance arrives every cache holds that frame or newer.
-- **`NativeCamera`** (`devices/native.py`, design in `NATIVE_DEVICES.md`) —
-  a camera served by its own EPICS IOC (stock ADAravis + `NDFileHDF5`),
+- **`NativeCamera`** (`devices/native.py`, design in `NATIVE_DEVICES.md`)
+  — a camera served by its own EPICS IOC (stock ADAravis + `NDFileHDF5`),
   with the GEECS camera contract: armed once per run (stopped and put in
   trigger mode *before* the HDF capture starts, restored at `unstage`), a
   shot is the writer's frame count, `Software` (pressed in `trigger()`) or
-  `Line1` triggering, the IOC's layout and SWMR-off restored after the
-  stock prepare, the row stamp the frame's EPICS timestamp through
-  `scan_stack.epics_timestamp_to_unix`.  **One frame per row**: its own
-  miss fails the step (no rewind), and it is never rewindable, so a pause
-  never replays a shot.  Strict only: fly prepares are refused.  Built
-  by the namespace from the native device registry (below).
+  hardware `Line0`/`Line1` triggering (the driver's `TriggerSource` a
+  string signal, so connect never demands a line the camera lacks; the
+  first prepare refuses one, before touching the camera), the IOC's layout
+  and SWMR-off restored after the stock prepare, the row stamp the frame's
+  EPICS timestamp through `scan_stack.epics_timestamp_to_unix`.  **One
+  frame per row**: its own miss fails the step (no rewind), and it is
+  never rewindable, so a pause never replays a shot.  Strict only: fly
+  prepares are refused.  Built by the namespace from the native device
+  registry (below).
 - **`ShotControl`** — `Movable` over the trigger profile's states (`OFF`,
   `STANDBY`, `SCAN`, `ARMED`, `SINGLESHOT` — OFF is the only quiet
   state, STANDBY is the machine's idle and passes edges), replaying each

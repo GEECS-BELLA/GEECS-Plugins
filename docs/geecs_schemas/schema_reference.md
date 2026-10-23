@@ -674,6 +674,7 @@ schema_version: 1
 devices:
   UC_ExampleCam: {kind: aravis_camera, trigger_source: software}
   UC_OtherCam: {kind: aravis_camera, trigger_source: line1}
+  UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
 ```
 
 ### AravisCamera
@@ -683,7 +684,7 @@ A GigE Vision camera behind ADAravis, writing HDF5 through its IOC's own file pl
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'aravis_camera'` | yes | — | Device kind: 'aravis_camera' (an areaDetector ADAravis camera). |
-| `trigger_source` | `'line1' \| 'software'` | yes | — | Where each frame comes from. 'line1': the camera's hardware input, wired to a timing-system output gated by the trigger box. 'software': the scan worker presses the camera's software trigger at each shot (exposed when the worker says go, not when the laser fires). |
+| `trigger_source` | `'line0' \| 'line1' \| 'software'` | yes | — | Where each frame comes from. 'line0' / 'line1': the camera's hardware input on that line (a Basler's opto-isolated input is Line1, a FLIR Blackfly's Line0), wired to a timing-system output gated by the trigger box; the line must be one of the camera's own TriggerSource choices. 'software': the scan worker presses the camera's software trigger at each shot (exposed when the worker says go, not when the laser fires). |
 
 ## `analysis_recipe`
 
