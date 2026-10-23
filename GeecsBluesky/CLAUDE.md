@@ -171,7 +171,11 @@ qserver/                    # the worker: launcher, startup profile, permissions
   string signal, so connect never demands a line the camera lacks; the
   first prepare refuses one, before touching the camera), the IOC's layout
   and SWMR-off restored after the stock prepare, the row stamp the frame's
-  EPICS timestamp through `scan_stack.epics_timestamp_to_unix`.  **One
+  EPICS timestamp through `scan_stack.epics_timestamp_to_unix`.  **The run
+  lock**: the first prepare's first act sets the IOC's `RUN:Lock` (waiting
+  for its readback), and only a completed restore — or an unstage with
+  nothing to restore — releases it; meanwhile the IOC refuses acquisition
+  writes from anyone but the worker (`NATIVE_DEVICES.md` §3).  **One
   frame per row**: its own miss fails the step (no rewind), and it is
   never rewindable, so a pause never replays a shot.  Strict only: fly
   prepares are refused.  Built by the namespace from the native device
@@ -975,7 +979,9 @@ with no dependency edge between them.
   (`LvNativeFileDataLogic`) and the HDF plugin's signals (`GeecsHdfIO`,
   the stock `ADHDFDataLogic` puts) — a refused one reads as success there;
   likewise `NativeCamera`'s driver and writer puts, except its trigger
-  setup, whose readbacks it checks before the capture starts.
+  setup, whose readbacks it checks before the capture starts, and its
+  run-lock take, whose readback refuses the run (the release is unchecked:
+  a lock left set is the safe failure).
 - Import anything from `geecs_scanner` (the web scanner depends on this
   package; the edge is one-way, pinned by `.importlinter` and
   `tests/test_dependency_direction.py`), the portal, the logbook or the

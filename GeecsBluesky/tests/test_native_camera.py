@@ -566,3 +566,103 @@ def test_live_view_restarts_only_after_the_stack_is_closed(
         assert await cam.driver.acquire.get_value() is True  # live view only now
 
     _run(RE, unstage_while_capture_open)
+
+
+# ---- the run lock (geecs-epics run_lock.db + access.acf; device_panels.md §6) ----
+
+
+def _lock_log(cam: NativeCamera, log: list[str]) -> None:
+    for label, signal in (("lock", cam.run_lock.lock), ("owner", cam.run_lock.owner)):
+        callback_on_mock_put(
+            signal, lambda value, label=label, **_: log.append(f"{label}={value}")
+        )
+
+
+def _locked(RE: RunEngine, cam: NativeCamera) -> bool:
+    return _run(RE, lambda: cam.run_lock.lock.get_value())
+
+
+def test_the_lock_is_taken_before_the_camera_is_touched(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """Ownership starts before the snapshot and the stop: nothing can slip in between."""
+    cam, log = _camera(RE, tmp_path)
+    _lock_log(cam, log)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert log.index("lock=True") < log.index("acquire=False")
+    assert log.index("lock=True") < log.index("capture=True")
+    assert _locked(RE, cam)
+    owner = _run(RE, lambda: cam.run_lock.owner.get_value())
+    assert owner.startswith("GEECS scan worker") and len(owner) <= 39  # a stringout
+    # Strict prepares every shot: the lock is not written again.
+    before = len(log)
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert not [e for e in log[before:] if e.startswith(("lock", "owner"))]
+
+
+def test_the_lock_is_released_only_once_the_camera_is_back(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    cam, log = _camera(RE, tmp_path)
+    _lock_log(cam, log)
+    _frames_on_software_trigger(cam)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    _run(RE, lambda: cam.trigger())
+    _run(RE, lambda: cam.unstage())
+    assert not _locked(RE, cam)
+    assert _run(RE, lambda: cam.run_lock.owner.get_value()) == ""
+    # The live view restarted (the restore's last step) before the release.
+    assert log.index("lock=False") > len(log) - 3
+    assert log.index("lock=False") > max(
+        i for i, e in enumerate(log) if e == "acquire=True"
+    )
+
+
+def test_a_failed_restore_keeps_the_lock(RE: RunEngine, tmp_path: Path) -> None:
+    """The camera is not back: the run still owns it."""
+    cam, _ = _camera(RE, tmp_path)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+
+    def refuse_the_restore(value, **_):
+        if value == OnOff.OFF:
+            raise RuntimeError("trigger mode put timed out")
+        return value
+
+    callback_on_mock_put(cam.driver.trigger_mode, refuse_the_restore)
+    with pytest.raises(RuntimeError, match="timed out"):
+        _run(RE, lambda: cam.unstage())
+    assert _locked(RE, cam)
+
+
+def test_a_failed_snapshot_still_releases_the_lock(
+    RE: RunEngine, tmp_path: Path, monkeypatch
+) -> None:
+    """The snapshot failed before the camera was touched: unstage frees it."""
+    cam, log = _camera(RE, tmp_path)
+
+    async def unreadable(*_, **__):
+        raise TimeoutError("ImageMode_RBV did not answer")
+
+    monkeypatch.setattr(cam.driver.image_mode, "get_value", unreadable)
+    _run(RE, lambda: cam.stage())
+    with pytest.raises(TimeoutError):
+        _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert _locked(RE, cam) and "acquire=False" not in log
+    _run(RE, lambda: cam.unstage())
+    assert not _locked(RE, cam)
+
+
+def test_a_lock_the_ioc_does_not_take_refuses_the_run(
+    RE: RunEngine, tmp_path: Path, monkeypatch
+) -> None:
+    """A refused put can complete as success (#868): the readback decides."""
+    monkeypatch.setattr(native, "READBACK_TIMEOUT_S", 0.1)
+    cam, log = _camera(RE, tmp_path)
+    callback_on_mock_put(cam.run_lock.lock, lambda value, **_: False)
+    _run(RE, lambda: cam.stage())
+    with pytest.raises(GeecsConfigurationError, match="did not take the run lock"):
+        _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert "acquire=False" not in log  # the camera was never touched

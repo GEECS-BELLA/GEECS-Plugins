@@ -28,6 +28,8 @@ import asyncio
 import enum
 import logging
 import math
+import os
+import socket
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -43,6 +45,7 @@ from ophyd_async.core import (
     DetectorAcquireLogic,
     DetectorDataLogic,
     DetectorTriggerLogic,
+    Device,
     OnOff,
     PathProvider,
     ReadableDataProvider,
@@ -66,7 +69,7 @@ from ophyd_async.epics.adcore import (
     NDArrayDescription,
     NDFileHDF5IO,
 )
-from ophyd_async.epics.core import PvSuffix
+from ophyd_async.epics.core import PvSuffix, epics_signal_rw
 
 from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET, epics_timestamp_to_unix
 
@@ -87,6 +90,8 @@ logger = logging.getLogger(__name__)
 #: (the areaDetector / ophyd-async defaults; geecs-epics IOCs use them).
 DRIVER_SUFFIX = "cam1:"
 HDF_SUFFIX = "HDF1:"
+#: The run lock's records under the prefix (geecs-epics run_lock.db).
+RUN_LOCK_SUFFIX = "RUN:"
 #: Seconds the trigger setup's readbacks get to settle before a refusal is declared.
 READBACK_TIMEOUT_S = 2.0
 #: Seconds a native camera's IOC gets to connect, then to answer, at the run's liveness gate.
@@ -133,6 +138,28 @@ class NativeHdfIO(NDFileHDF5IO):
     epics_ts_nsec: A[SignalR[int], PvSuffix("EpicsTSNsec_RBV")]
 
 
+class RunLockIO(Device):
+    """The IOC's run lock: ``RUN:Lock`` and ``RUN:Owner``.
+
+    While ``lock`` is set, the IOC's access security refuses acquisition
+    writes from anyone but the scan worker (geecs-epics ``access.acf``;
+    ``Planning/device_panels.md`` §6).
+    """
+
+    def __init__(self, prefix: str, name: str = "") -> None:
+        self.lock = epics_signal_rw(bool, prefix + "Lock")
+        self.owner = epics_signal_rw(str, prefix + "Owner")
+        super().__init__(name=name)
+
+
+def run_owner() -> str:
+    """The lock's owner text: who holds the camera, and since when (for a stuck-lock judgement)."""
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    return f"GEECS scan worker {socket.gethostname()} pid {os.getpid()} since {stamp}"[
+        :39
+    ]
+
+
 def liveness_word(cnct: AsynConnect) -> str:
     """The liveness verdict's words: ``Disconnected`` only when the driver lost the camera."""
     return "Disconnected" if cnct == AsynConnect.DISCONNECT else "Connected"
@@ -145,6 +172,8 @@ class _Session:
     programmed: bool = False
     acquiring: bool = False
     restore: tuple[Any, ...] | None = None
+    #: This session set the run lock and has not released it.
+    locked: bool = False
     fire_pending: bool = False
     missed: bool = False
 
@@ -163,11 +192,13 @@ class NativeTriggerLogic(DetectorTriggerLogic):
         source: NativeTriggerSource,
         session: _Session,
         drain_offset: SignalR[float],
+        run_lock: RunLockIO,
     ) -> None:
         self.driver = driver
         self.source = source
         self.session = session
         self.drain_offset = drain_offset
+        self.run_lock = run_lock
 
     def config_sigs(self) -> set[SignalR]:
         """The drain offset rides in every descriptor, as on a GEECS camera."""
@@ -187,6 +218,11 @@ class NativeTriggerLogic(DetectorTriggerLogic):
         if self.session.programmed:
             return
         d = self.driver
+        # The run owns the camera from here until it is restored: the IOC
+        # refuses acquisition writes from anyone else (panels, Phoebus) while
+        # the lock is set. First, before the snapshot, so nothing can change
+        # the state being saved or set below.
+        await take_run_lock(self.run_lock, self.session)
         await self._refuse_a_source_the_camera_lacks()
         if self.session.restore is None:
             # Captured once and kept until a restore succeeds: a run that
@@ -264,12 +300,40 @@ class NativeTriggerLogic(DetectorTriggerLogic):
         return STRICT_TRIGGER_INFO
 
 
+async def take_run_lock(run_lock: RunLockIO, session: _Session) -> None:
+    """Set the IOC's run lock and its owner, and wait for the lock's readback.
+
+    Waited for, not trusted: a refused CA put can complete as success
+    (#868), and a run must not go on believing the camera is protected.
+    """
+    await run_lock.owner.set(run_owner())
+    await run_lock.lock.set(True)
+    session.locked = True
+    try:
+        await wait_for_value(run_lock.lock, True, timeout=READBACK_TIMEOUT_S)
+    except TimeoutError as exc:
+        raise GeecsConfigurationError(
+            f"{run_lock.name}: the IOC did not take the run lock "
+            "(RUN:Lock stayed Free) — is the camera's IOC on the run-lock chain?"
+        ) from exc
+
+
+async def release_run_lock(run_lock: RunLockIO, session: _Session) -> None:
+    """Clear the IOC's run lock (only ever after the camera is back)."""
+    await run_lock.lock.set(False)
+    await run_lock.owner.set("")
+    session.locked = False
+
+
 class NativeAcquireLogic(DetectorAcquireLogic):
     """Acquisition runs for the whole run; a software trigger is pressed per shot."""
 
-    def __init__(self, driver: NativeDriverIO, session: _Session) -> None:
+    def __init__(
+        self, driver: NativeDriverIO, session: _Session, run_lock: RunLockIO
+    ) -> None:
         self.driver = driver
         self.session = session
+        self.run_lock = run_lock
 
     async def ensure_ready(self) -> None:
         """At ``stage``: a fresh run state (a held pre-run state is kept); the camera is not touched."""
@@ -302,6 +366,11 @@ class NativeAcquireLogic(DetectorAcquireLogic):
         self.session.programmed = False
         self.session.acquiring = False
         if restore is None:
+            # Nothing to restore: the camera was never touched (a failed
+            # snapshot, a refused source). A lock this session took is
+            # released all the same — the camera is as it was.
+            if self.session.locked:
+                await release_run_lock(self.run_lock, self.session)
             return
         acquire, trigger_mode, trigger_source, image_mode = restore
         d = self.driver
@@ -314,6 +383,10 @@ class NativeAcquireLogic(DetectorAcquireLogic):
                 d.acquire, True, timeout=DEFAULT_TIMEOUT, wait_for_set_completion=False
             )
         self.session.restore = None  # only once the camera is back
+        # The run's ownership ends only with the camera back; a failed
+        # restore (raised above) leaves the lock set: the camera is not.
+        if self.session.locked:
+            await release_run_lock(self.run_lock, self.session)
 
 
 @dataclass
@@ -438,6 +511,7 @@ class NativeCamera(StandardDetector):
         self._source = NativeTriggerSource(trigger_source)
         self.driver = NativeDriverIO(prefix + DRIVER_SUFFIX)
         self.hdf = NativeHdfIO(prefix + HDF_SUFFIX)
+        self.run_lock = RunLockIO(prefix + RUN_LOCK_SUFFIX)
         self.drain_offset = soft_signal_rw(float, float(drain_offset), units="s")
         self.connected_status = derived_signal_r(
             liveness_word, cnct=self.driver.asyn_connect
@@ -445,10 +519,16 @@ class NativeCamera(StandardDetector):
         self._session = _Session()
         #: Read by bluesky's ``all_safe_rewind``: a shot is never replayed.
         self.rewindable = _NotRewindable()
-        self._native_acquire = NativeAcquireLogic(self.driver, self._session)
+        self._native_acquire = NativeAcquireLogic(
+            self.driver, self._session, self.run_lock
+        )
         self.add_detector_logics(
             NativeTriggerLogic(
-                self.driver, self._source, self._session, self.drain_offset
+                self.driver,
+                self._source,
+                self._session,
+                self.drain_offset,
+                self.run_lock,
             ),
             self._native_acquire,
             NativeHdfDataLogic(

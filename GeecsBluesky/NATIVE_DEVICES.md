@@ -123,6 +123,20 @@ with GEECS logics:
   Strict calls `prepare` **every shot** (`strict.py`), so the trigger and
   acquire logics make every prepare after the run's first a no-op: no
   `Acquire` put, the event count ignored.
+- **The run lock** (geecs-epics `run_lock.db` + `access.acf`;
+  `Planning/device_panels.md` §6): the run owns the camera from the
+  **first** step of the first `prepare_edge` — before the source check and
+  the snapshot — until the camera is restored. `RunLockIO` sets
+  `RUN:Owner` (who and since when) and `RUN:Lock` 1, and **waits for the
+  lock's readback** (a refused put can complete as success, #868): an IOC
+  that does not take it refuses the run, the camera untouched. While it is
+  set the IOC refuses acquisition writes from anyone but the worker's CA
+  user (panels, Phoebus, an agent). It is released in `ensure_stopped`
+  only once the camera is back — after the restore succeeds, or when this
+  session took the lock but never snapshotted (nothing was touched). A
+  failed restore keeps it set: the camera is not back. Every camera IOC
+  must serve the two records (the chain contract): a camera without them
+  fails to connect.
 - **A shot** = the plugin's `NumCaptured` advancing past the baseline the
   stock `trigger` task reads. With `Software` the press follows that read
   in the same task, so the order is guaranteed; with a hardware line the read
@@ -215,6 +229,8 @@ with GEECS logics:
 | Native + gateway plugin camera in one run | refused at bind |
 | Registry device enabled in the DB | namespace refuses to open |
 | Registry unreadable | environment open fails (configured but broken ≠ none) |
+| The IOC does not take the run lock (`RUN:Lock` stays Free) | prepare refuses, naming it, before the camera is touched |
+| Restore fails at unstage | the error is raised; the run lock stays set (cleared by hand: `RUN:Lock` 0, after checking no run holds the camera) |
 
 ## 5. Where the changes land
 
