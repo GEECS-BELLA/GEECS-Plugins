@@ -33,7 +33,8 @@ geecs_panels/
                 #   window.GeecsCameraView's hooks (draw, grab, hover, snapshot);
                 #   processing.js = background, rotate/flip, the saturation chip;
                 #   plots.js = lineouts, histogram, history (one canvas drawer:
-                #   custom for now, a plotting library to be weighed later).
+                #   custom for now, a plotting library to be weighed later);
+                #   acquisition.js = the camera's own controls behind the run lock.
                 #   Writes go through window.GeecsCameraView.write (one copy)
 ```
 
@@ -67,8 +68,16 @@ geecs_panels/
   put; anything that needs computing goes through its own route (the colour
   route takes r/g/b — channel PV names in the script would also trip the
   theme's colour-word guard — and to-centroid converts on the server with
-  `coords`). `--read-only` refuses every write. Acquisition controls (the driver) wait for the run lock
-  (design note §6).
+  `coords`). `--read-only` refuses every write.
+- **The camera's own controls sit behind the run lock** (design note §6;
+  geecs-epics `run_lock.db` + `access.acf`, GeecsBluesky's NativeCamera
+  sets it). Driver writes (`LOCKED_PREFIXES`: exposure, period, gain,
+  trigger mode, acquire, the camera ROI) are refused with a 423 while
+  `RUN:Lock` is Locked **or cannot be read**; the IOC refuses them too
+  (its access security), so the panel's check only says why first. The
+  camera ROI goes through a `<dialog>`: it changes what scans save. A stuck
+  lock is released through the override dialog — it writes `RUN:Lock` 0
+  and nothing else, and logs the operator's name.
 - Never imports GeecsBluesky, the scanner, the portal or the logbook
   (`.importlinter` `panels-edges`).
 

@@ -19,6 +19,7 @@ Nothing here touches the network: :mod:`geecs_panels.ca` feeds values in.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Literal, Optional
 
@@ -197,6 +198,51 @@ PLOT_FIELDS = {
 }
 
 
+#: Writes under these prefixes change what scans save: refused while a run
+#: holds the camera (RUN:Lock), or while the lock cannot be read.
+LOCKED_PREFIXES = ("cam1:",)
+
+#: The run lock and what the override dialog shows beside it.
+LOCK_FIELDS = {
+    "lock": "RUN:Lock",
+    "owner": "RUN:Owner",
+    "capture": "HDF1:Capture_RBV",
+}
+
+#: The camera's acquisition state for its controls (readbacks; the
+#: exposure is a reading already).
+ACQUISITION_FIELDS = {
+    "period": "cam1:AcquirePeriod_RBV",
+    "frame_rate": "cam1:FrameRate_RBV",
+    "gain": "cam1:Gain_RBV",
+    "trigger_mode": "cam1:TriggerMode_RBV",
+    "trigger_source": "cam1:TriggerSource_RBV",
+    "acquire": "cam1:Acquire_RBV",
+    "min_x": "cam1:MinX_RBV",
+    "min_y": "cam1:MinY_RBV",
+    "size_x": "cam1:SizeX_RBV",
+    "size_y": "cam1:SizeY_RBV",
+    "max_x": "cam1:MaxSizeX_RBV",
+    "max_y": "cam1:MaxSizeY_RBV",
+}
+_STRING_FIELDS = {
+    "RUN:Lock",
+    "RUN:Owner",
+    "HDF1:Capture_RBV",
+    "cam1:TriggerMode_RBV",
+    "cam1:TriggerSource_RBV",
+    "cam1:Acquire_RBV",
+}
+
+
+def lock_state(values: dict[str, object], connected: dict[str, bool]) -> str:
+    """``free``, ``locked`` or ``unknown`` (the lock not served or not read)."""
+    if not connected.get(LOCK_FIELDS["lock"]):
+        return "unknown"
+    # Free only on the record's cleared label: any other value is held.
+    return "free" if values.get(LOCK_FIELDS["lock"]) == "Free" else "locked"
+
+
 def crosshair_suffix(n: int, field: str) -> str:
     """``OVER1:<n>:<readback>`` for a crosshair field."""
     return f"OVER1:{n}:{CROSSHAIR_FIELDS[field]}"
@@ -210,13 +256,22 @@ class Whole:
     hi: int
 
 
+@dataclass(frozen=True)
+class Real:
+    """A finite number in ``lo..hi`` (an exposure in seconds, a gain)."""
+
+    lo: float
+    hi: float
+
+
 _PIXEL = Whole(0, 65535)
 _SIZE = Whole(1, 65535)
 _LEVEL = Whole(0, 255)
 
-#: The PVs the panel may WRITE, and nothing else (design note §4). Each is
-#: display or analysis state: none changes what a scan saves (that is the
-#: camera driver's, behind the run lock of build step 3). Value kinds:
+#: The PVs the panel may WRITE, and nothing else (design note §4). Display
+#: and analysis state freely; the camera driver's (``cam1:``, what scans
+#: save) only while the run lock is free (``LOCKED_PREFIXES``). The lock
+#: itself is never here: only the override route releases it. Value kinds:
 #: :class:`Whole` (a number in a range), ``bool`` (0/1), ``str``, or a tuple
 #: of allowed choices (an enum by name, or ``(1,)`` for a press-only record).
 WRITABLE: dict[str, object] = {
@@ -247,10 +302,28 @@ WRITABLE: dict[str, object] = {
     # image point first. Analysis state only.
     "STAT:CursorX": _PIXEL,
     "STAT:CursorY": _PIXEL,
+    # The camera itself (build step 3): what scans save. Every one is in the
+    # IOC's ACQUIRE access group — refused while a run holds RUN:Lock — and
+    # the panel refuses them itself first (LOCKED_PREFIXES).
+    "cam1:AcquireTime": Real(0.0, 60.0),
+    "cam1:AcquirePeriod": Real(0.0, 3600.0),
+    "cam1:Gain": Real(0.0, 100.0),
+    "cam1:TriggerMode": ("Off", "On"),
+    "cam1:Acquire": bool,
+    "cam1:MinX": _PIXEL,
+    "cam1:MinY": _PIXEL,
+    "cam1:SizeX": _SIZE,
+    "cam1:SizeY": _SIZE,
     "PROC1:SaveBackground": (1,),
     "PROC1:EnableBackground": bool,
     "TRANS1:Type": TRANSFORMS,
 }
+
+
+#: Writes whose put completes only when the work ends: a Continuous acquire's
+#: put returns when acquisition stops. Dispatched without waiting, then
+#: confirmed by the readback (as GeecsBluesky's NativeAcquireLogic does).
+SETTLED_BY_READBACK = {"cam1:Acquire": "cam1:Acquire_RBV"}
 
 
 class NotWritable(ValueError):
@@ -278,6 +351,14 @@ def _as_text(suffix: str, value: object) -> object:
     return value
 
 
+def _as_real(suffix: str, value: object, kind: Real) -> object:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise NotWritable(f"{suffix} takes a number, not {value!r}")
+    if not math.isfinite(value) or not kind.lo <= value <= kind.hi:
+        raise NotWritable(f"{suffix} takes {kind.lo}..{kind.hi}, not {value!r}")
+    return float(value)
+
+
 _COERCE = {bool: _as_flag, str: _as_text}
 
 
@@ -297,30 +378,26 @@ def check_write(suffix: str, value: object) -> object:
         return value
     if isinstance(kind, Whole):
         return _as_whole(suffix, value, kind)
+    if isinstance(kind, Real):
+        return _as_real(suffix, value, kind)
     return _COERCE[kind](suffix, value)
 
 
 def monitored_suffixes() -> list[str]:
     """Every PV suffix the panel monitors, without duplicates, in a stable order."""
-    seen: dict[str, None] = {}
-    for reading in READINGS:
-        seen[reading.suffix] = None
-        if reading.computed_by:
-            seen[reading.computed_by] = None
-    for plugin in COUNTER_PLUGINS:
-        seen[counter_suffix(plugin)] = None
-    for n in CROSSHAIRS:
-        for field in CROSSHAIR_FIELDS:
-            seen[crosshair_suffix(n, field)] = None
-    for suffix in ROI_FIELDS.values():
-        seen[suffix] = None
-    for suffix in PROCESSING_FIELDS.values():
-        seen[suffix] = None
-    for suffix in IMAGE_SIZE_FIELDS.values():
-        seen[suffix] = None
-    for suffix in PLOT_FIELDS.values():
-        seen[suffix] = None
-    return list(seen)
+    groups: list[list[str]] = [
+        [r.suffix for r in READINGS],
+        [r.computed_by for r in READINGS if r.computed_by],
+        [counter_suffix(p) for p in COUNTER_PLUGINS],
+        [crosshair_suffix(n, f) for n in CROSSHAIRS for f in CROSSHAIR_FIELDS],
+        list(ROI_FIELDS.values()),
+        list(PROCESSING_FIELDS.values()),
+        list(IMAGE_SIZE_FIELDS.values()),
+        list(PLOT_FIELDS.values()),
+        list(LOCK_FIELDS.values()),
+        list(ACQUISITION_FIELDS.values()),
+    ]
+    return list(dict.fromkeys(s for group in groups for s in group))
 
 
 def string_suffixes() -> frozenset[str]:
@@ -329,6 +406,7 @@ def string_suffixes() -> frozenset[str]:
         [r.suffix for r in READINGS if r.as_string]
         + [crosshair_suffix(n, f) for n in CROSSHAIRS for f in _CROSSHAIR_STRINGS]
         + [PROCESSING_FIELDS["transform"]]
+        + sorted(_STRING_FIELDS)
     )
 
 

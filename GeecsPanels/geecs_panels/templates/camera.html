@@ -41,9 +41,57 @@
      data-writable="{{ 'true' if writable else 'false' }}"
      data-put-url="{{ url_for('put_one', name=device.name).path }}"
      data-centroid1="{{ url_for('to_centroid', name=device.name, n=1).path }}"
-     data-cursor-url="{{ url_for('cursor', name=device.name).path }}">
+     data-cursor-url="{{ url_for('cursor', name=device.name).path }}"
+     data-unlock-url="{{ url_for('unlock', name=device.name).path }}">
 
   <aside class="rail">
+    {# The camera itself: what scans save. The IOC refuses these while a
+       run holds its lock (RUN:Lock); the panel shows the run instead. #}
+    <section class="group writes acquire" id="camera-controls">
+      <h4>Camera</h4>
+      <div class="state" data-state="denied" id="lock-denied" hidden>
+        <div class="t">A scan owns the camera</div>
+        <div class="m mono" id="lock-owner"></div>
+        <button class="btn sm" type="button" id="unlock-open">Override…</button>
+      </div>
+      <div class="state" data-state="denied" id="lock-unknown">
+        <div class="t">The run lock cannot be read</div>
+        <div class="m">Camera controls stay off until it can.</div>
+      </div>
+      <div class="row">
+        <div class="field coord"><label for="cam-exposure">exposure ms</label>
+          <input type="number" disabled id="cam-exposure" min="0" step="any"></div>
+        <div class="field coord"><label for="cam-period">period ms</label>
+          <input type="number" disabled id="cam-period" min="0" step="any"></div>
+      </div>
+      <div class="row">
+        <div class="field coord"><label for="cam-gain">gain</label>
+          <input type="number" disabled id="cam-gain" min="0" step="any"></div>
+        <div class="field coord"><label for="cam-trigger">trigger</label>
+          <select id="cam-trigger" disabled><option>Off</option><option>On</option></select></div>
+      </div>
+      <div class="row">
+        <button class="btn sm" type="button" disabled id="cam-start">Start</button>
+        <button class="btn sm" type="button" disabled id="cam-stop">Stop</button>
+        <span class="dim mono" id="cam-source"></span>
+      </div>
+      <h4>Camera ROI</h4>
+      <div class="row">
+        <div class="field coord"><label for="cam-minx">x</label><input type="number" disabled id="cam-minx" min="0"></div>
+        <div class="field coord"><label for="cam-miny">y</label><input type="number" disabled id="cam-miny" min="0"></div>
+      </div>
+      <div class="row">
+        <div class="field coord"><label for="cam-sizex">width</label><input type="number" disabled id="cam-sizex" min="1"></div>
+        <div class="field coord"><label for="cam-sizey">height</label><input type="number" disabled id="cam-sizey" min="1"></div>
+      </div>
+      <div class="row">
+        <button class="btn sm" type="button" disabled id="cam-roi-apply">Apply…</button>
+        <button class="btn sm ghost" type="button" disabled id="cam-roi-full">Full sensor</button>
+        <button class="btn sm ghost" type="button" disabled hidden id="cam-roi-revert">Revert</button>
+      </div>
+      <div class="hint dim">The camera ROI changes what scans save; the analysis ROI below does not.</div>
+    </section>
+
     <section class="group">
       <h4>Display</h4>
       <div class="field">
@@ -231,11 +279,35 @@
   </main>
 </div>
 
+{# Rung 3: questions answered before anything proceeds. #}
+<dialog id="roi-dialog">
+  <h3>Change the camera ROI?</h3>
+  <p>This changes what every scan with this camera saves, from its next frame.</p>
+  <p class="mono" id="roi-dialog-text"></p>
+  <div class="row end">
+    <button class="btn" type="button" id="roi-cancel" data-dialog-close autofocus>Cancel</button>
+    <button class="btn primary" type="button" id="roi-confirm">Apply</button>
+  </div>
+</dialog>
+<dialog id="unlock-dialog">
+  <h3>Release the run lock?</h3>
+  <p>Only if the scan that set it is gone (a killed worker). A running scan
+    keeps saving either way, but loses its protection against changes.</p>
+  <p class="mono" id="unlock-facts"></p>
+  <div class="field"><label for="unlock-operator">Your name (logged)</label>
+    <input type="text" id="unlock-operator" maxlength="60"></div>
+  <div class="row end">
+    <button class="btn" type="button" id="unlock-cancel" data-dialog-close autofocus>Cancel</button>
+    <button class="btn danger" type="button" id="unlock-confirm">Release</button>
+  </div>
+</dialog>
+
 <script src="{{ root }}/theme/theme.js" defer></script>
 <script src="{{ root }}/theme/kit.js" defer></script>
 <script src="{{ root }}/static/camera.js" defer></script>
 <script src="{{ root }}/static/overlay.js" defer></script>
 <script src="{{ root }}/static/processing.js" defer></script>
 <script src="{{ root }}/static/plots.js" defer></script>
+<script src="{{ root }}/static/acquisition.js" defer></script>
 </body>
 </html>

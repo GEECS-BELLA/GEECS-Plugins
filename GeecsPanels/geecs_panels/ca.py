@@ -18,10 +18,19 @@ from collections.abc import Callable
 from typing import Optional
 from urllib.parse import urlsplit, urlunsplit
 
+import asyncio
+import time
+
 import aioca
 import httpx
 
-from geecs_panels.camera import ARRAYS, IMAGE_PLUGIN, JPG_URL_SUFFIX, counter_suffix
+from geecs_panels.camera import (
+    ARRAYS,
+    IMAGE_PLUGIN,
+    JPG_URL_SUFFIX,
+    SETTLED_BY_READBACK,
+    counter_suffix,
+)
 from geecs_panels.feed import (
     ArraysSource,
     CameraFeed,
@@ -38,6 +47,8 @@ FETCH_TIMEOUT_S = 3.0
 ARRAYS_EVERY_S = 0.5
 #: A write waits for the IOC to process the record, at most this long.
 PUT_TIMEOUT_S = 3.0
+#: How often a readback-settled write re-reads its readback.
+SETTLE_POLL_S = 0.1
 
 
 def subscribe(
@@ -65,6 +76,22 @@ def subscribe(
         datatype=str if as_string else None,
         notify_disconnect=True,
     )
+
+
+async def settle(pv: str, want: object) -> None:
+    """Poll *pv* until it reads *want*, or raise ``WriteFailed`` after ``PUT_TIMEOUT_S``."""
+    deadline = time.monotonic() + PUT_TIMEOUT_S
+    got: object = None
+    while True:
+        try:
+            got = await aioca.caget(pv, timeout=PUT_TIMEOUT_S)
+        except Exception as exc:
+            raise WriteFailed(f"{pv}: {exc}") from exc
+        if got == want:
+            return
+        if time.monotonic() >= deadline:
+            raise WriteFailed(f"{pv} stayed {got!r} (wanted {want!r})")
+        await asyncio.sleep(SETTLE_POLL_S)
 
 
 def with_ca_host(url: str, ca_host: str) -> str:
@@ -154,12 +181,16 @@ class LiveCameras:
         return source
 
     async def put(self, device: Device, suffix: str, value: object) -> None:
-        """Write one PV and wait for the IOC to process it."""
+        """Write one PV and wait for the IOC to process it (or, for some, for its readback)."""
         pv = device.prefix + suffix
+        readback = SETTLED_BY_READBACK.get(suffix)
         try:
-            await aioca.caput(pv, value, wait=True, timeout=PUT_TIMEOUT_S)
+            # An access-security refusal raises here either way.
+            await aioca.caput(pv, value, wait=readback is None, timeout=PUT_TIMEOUT_S)
         except Exception as exc:
             raise WriteFailed(f"{pv}: {exc}") from exc
+        if readback is not None:
+            await settle(device.prefix + readback, value)
 
     async def aclose(self) -> None:
         """Drop every subscription and the HTTP client."""

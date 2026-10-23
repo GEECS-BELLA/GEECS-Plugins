@@ -32,8 +32,10 @@ from geecs_panels.camera import (
     COUNTER_PLUGINS,
     CROSSHAIR_FIELDS,
     CROSSHAIRS,
+    ACQUISITION_FIELDS,
     IMAGE_PLUGIN,
     IMAGE_SIZE_FIELDS,
+    LOCK_FIELDS,
     PLOT_FIELDS,
     PROCESSING_FIELDS,
     READINGS,
@@ -41,6 +43,7 @@ from geecs_panels.camera import (
     counter_suffix,
     crosshair_suffix,
     judge,
+    lock_state,
     monitored_suffixes,
     saturation,
     string_suffixes,
@@ -257,6 +260,15 @@ class CameraFeed:
             "processing": {
                 **{f: self.values.get(s) for f, s in PROCESSING_FIELDS.items()},
                 "background_stale": self.background_stale,
+            },
+            "lock": {
+                "state": lock_state(self.values, self.connected),
+                **{
+                    f: self.values.get(s) for f, s in LOCK_FIELDS.items() if f != "lock"
+                },
+            },
+            "acquisition": {
+                f: self.values.get(s) for f, s in ACQUISITION_FIELDS.items()
             },
             "saturation": self._saturation(readings),
         }

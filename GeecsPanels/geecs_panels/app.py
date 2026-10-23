@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 from collections.abc import AsyncIterator, Callable
 from importlib.metadata import PackageNotFoundError, version
@@ -36,10 +37,13 @@ from geecs_web_theme.web import (
 
 from geecs_panels.camera import (
     CROSSHAIRS,
+    LOCK_FIELDS,
+    LOCKED_PREFIXES,
     READINGS,
     TRANSFORMS,
     NotWritable,
     check_write,
+    lock_state,
 )
 from geecs_panels.coords import to_image, to_roi
 from geecs_panels.feed import (
@@ -52,6 +56,8 @@ from geecs_panels.feed import (
     plot_payload,
 )
 from geecs_panels.registry import Device
+
+logger = logging.getLogger(__name__)
 
 _PKG = Path(__file__).resolve().parent
 TEMPLATES_DIR = _PKG / "templates"
@@ -119,6 +125,12 @@ class Point(BaseModel):
 
     x: float
     y: float
+
+
+class Override(BaseModel):
+    """The stuck-lock override: who is releasing it (the surfaces carry no user identity)."""
+
+    operator: str = Field(min_length=1, max_length=60)
 
 
 class PutRequest(BaseModel):
@@ -302,7 +314,7 @@ def centroid_in_image(feed: CameraFeed, stale_after: float) -> tuple[int, int]:
 
 
 class _Writer:
-    """What every write route shares: the read-only refusal and the put."""
+    """What every write route shares: the read-only refusal, the run lock and the put."""
 
     def __init__(
         self, cameras: Cameras, camera: Callable[[str], Device], writable: bool
@@ -319,11 +331,24 @@ class _Writer:
         return device
 
     async def put(self, device: Device, suffix: str, value: object) -> None:
-        """One allow-listed write; the IOC refusing it is a 502."""
+        """One allow-listed write; a locked camera is a 423, the IOC refusing it a 502."""
         try:
             value = check_write(suffix, value)
         except NotWritable as exc:
             raise HTTPException(422, str(exc)) from exc
+        if suffix.startswith(LOCKED_PREFIXES):
+            # The IOC enforces this too (its access security); refusing here
+            # first says why, and covers an IOC whose lock is not served.
+            feed = self.cameras.feed(device)
+            state = lock_state(feed.values, feed.connected)
+            if state != "free":
+                owner = feed.values.get(LOCK_FIELDS["owner"]) or "unknown"
+                raise HTTPException(
+                    423,
+                    f"{suffix}: the camera belongs to a run ({owner})"
+                    if state == "locked"
+                    else f"{suffix}: the camera's run lock cannot be read",
+                )
         try:
             await self.cameras.put(device, suffix, value)
         except WriteFailed as exc:
@@ -340,6 +365,7 @@ def _add_write_routes(
     """The panel's writes: one allow-listed PV at a time (design note §4)."""
     w = _Writer(cameras, camera, writable)
     _add_plot_routes(app, cameras, w)
+    _add_lock_routes(app, cameras, w)
 
     @app.post("/camera/{name}/put")
     async def put_one(name: str, request: PutRequest) -> dict[str, object]:
@@ -417,3 +443,34 @@ def _add_plot_routes(app: FastAPI, cameras: Cameras, w: "_Writer") -> None:
         await w.put(device, "STAT:CursorX", out[0])
         await w.put(device, "STAT:CursorY", out[1])
         return {"ok": True, "x": out[0], "y": out[1]}
+
+
+def _add_lock_routes(app: FastAPI, cameras: Cameras, w: "_Writer") -> None:
+    """The stuck-lock override: release ``RUN:Lock``, never anything else."""
+
+    @app.post("/camera/{name}/unlock")
+    async def unlock(name: str, request: Override) -> dict[str, object]:
+        """Release a stuck run lock (a killed worker), naming who did, in the log.
+
+        Writes ``RUN:Lock`` 0 only — never the writer or the driver — so
+        misjudging a live run as stuck cannot end its stack file; at worst
+        it reopens, for that run, the race the lock closes.
+        """
+        device = w.device(name)
+        feed = cameras.feed(device)
+        values = feed.values
+        # Directly, not through the allow-list: the lock is not a plain write
+        # (it is never in WRITABLE), only this named, logged release.
+        try:
+            await cameras.put(device, LOCK_FIELDS["lock"], 0)
+        except WriteFailed as exc:
+            raise HTTPException(502, str(exc)) from exc
+        logger.warning(
+            "run lock of %s released by %s (owner %r, HDF capture %s, image age %s)",
+            device.name,
+            request.operator,
+            values.get(LOCK_FIELDS["owner"]),
+            values.get(LOCK_FIELDS["capture"]),
+            feed.counter_ages().get("MJPG1"),
+        )
+        return {"ok": True}

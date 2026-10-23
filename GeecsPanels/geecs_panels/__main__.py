@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 
 
@@ -59,6 +60,10 @@ def main() -> None:
 
     # Before anything imports aioca: libca reads the address list once.
     apply_epics_address_config()
+    # A laptop drops off the VPN: libca's searches for the lost channels back
+    # off to 5 min by default, and no IOC beacon crosses subnets to reset them.
+    # 60 s (libca's floor) bounds the reconnect; an explicit setting wins.
+    os.environ.setdefault("EPICS_CA_MAX_SEARCH_PERIOD", "60")
 
     experiment = args.experiment or read_config_entry("Experiment", "expt")
     if not experiment:

@@ -172,7 +172,9 @@
   // draw(ctx) in view pixels; grab(cx, cy) → an edit or null; hover(cx, cy)
   // → a CSS cursor or ""; snapshot(snap) with each SSE state.
   // click(ix, iy) for a press released where it started (not a pan).
-  const hooks = { draw: [], grab: [], hover: [], snapshot: [], click: [] };
+  // streamLost() when the readings stop arriving (layers must not keep
+  // trusting their last snapshot — a lock may have been taken meanwhile).
+  const hooks = { draw: [], grab: [], hover: [], snapshot: [], click: [], streamLost: [] };
 
   // ---- the viewer: zoom and pan -------------------------------------------
   const view = { scale: 1, ox: 0, oy: 0, moved: false };
@@ -482,6 +484,7 @@
     chip.dataset.state = "unknown"; chip.textContent = "reconnecting";
     const img = $("image-state");
     img.dataset.state = "unknown"; img.textContent = "no update";
+    for (const f of hooks.streamLost) f();
   }
 
   // The stream carries the plots' arrays only while a layer asks for them

@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from geecs_panels.camera import WRITABLE, NotWritable, check_write, monitored_suffixes
+from geecs_panels.camera import (
+    LOCKED_PREFIXES,
+    WRITABLE,
+    NotWritable,
+    check_write,
+    monitored_suffixes,
+)
 from geecs_panels.camera import counter_suffix
 from geecs_panels.coords import Axis, to_image, to_roi
 from geecs_panels.feed import WriteFailed
@@ -17,9 +23,9 @@ from tests.test_app import CAM, FakeCameras, _client
 @pytest.mark.parametrize(
     "suffix",
     [
-        "cam1:AcquireTime",
-        "cam1:Acquire",
-        "cam1:MinX",
+        "cam1:PixelFormat",  # the scan contract's: pinned at boot
+        "cam1:BinX",
+        "cam1:ImageMode",  # the worker's run shape
         "HDF1:Capture",
         "HDF1:EnableCallbacks",
         "PVA:EnableCallbacks",
@@ -30,15 +36,20 @@ from tests.test_app import CAM, FakeCameras, _client
     ],
 )
 def test_nothing_outside_the_allow_list_is_writable(suffix: str) -> None:
-    """Above all, nothing that changes what a scan saves (the driver, HDF1)."""
+    """Never the writer, the raw outputs or the run shape the worker sets."""
     with pytest.raises(NotWritable, match="not writable"):
         check_write(suffix, 1)
 
 
-def test_no_writable_pv_touches_scan_data() -> None:
-    """Only the display/analysis branch (after the driver): never cam1 or the raw outputs."""
-    prefixes = {s.split(":")[0] for s in WRITABLE if not s.startswith("STAT:")}
-    assert prefixes <= {"OVER1", "ROI1", "PROC1", "TRANS1"}
+def test_no_writable_pv_touches_scan_data_unguarded() -> None:
+    """The display/analysis branch freely; the driver only behind the run lock; never the raw outputs."""
+    prefixes = {
+        s.split(":")[0] for s in WRITABLE if not s.startswith(("STAT:", "RUN:"))
+    }
+    assert prefixes <= {"OVER1", "ROI1", "PROC1", "TRANS1", "cam1"}
+    assert all(s.startswith(LOCKED_PREFIXES) for s in WRITABLE if s.startswith("cam1:"))
+    # The lock itself is never a plain write: only the override route releases it.
+    assert not [s for s in WRITABLE if s.startswith("RUN:")]
     # STAT only for the lineout cursor: never its callbacks, port or Compute*
     # flags, which change the statistics every other reader sees.
     assert {s for s in WRITABLE if s.startswith("STAT:")} == {
@@ -141,7 +152,7 @@ def test_an_allowed_write_is_put_under_the_cameras_prefix() -> None:
 def test_a_refused_write_is_a_422_and_puts_nothing() -> None:
     cameras = RecordingCameras()
     r = _client(cameras=cameras).post(
-        "/camera/ADTEST_CAM1/put", json={"pv": "cam1:AcquireTime", "value": 1}
+        "/camera/ADTEST_CAM1/put", json={"pv": "HDF1:Capture", "value": 1}
     )
     assert r.status_code == 422 and "not writable" in r.json()["detail"]
     assert cameras.puts == []
@@ -322,3 +333,63 @@ def test_a_rotation_makes_the_background_stale_for_every_viewer_until_a_grab() -
     # Switching subtraction OFF is always allowed.
     feed.update("TRANS1:Type", "Rot90")
     assert put(0).status_code == 200
+
+
+# ---- the real transport's put: a Continuous acquire is settled by its readback ----
+
+
+class FakeCa:
+    """aioca's caput/caget: records puts; the readback follows ``rb_after`` gets."""
+
+    def __init__(self, rb_after: int | None = 1, refuse: bool = False) -> None:
+        self.puts: list[tuple[str, object, bool]] = []
+        self.rb_after, self.refuse, self.gets, self.rb = rb_after, refuse, 0, 0
+
+    async def caput(self, pv, value, wait, timeout):
+        if self.refuse:
+            raise RuntimeError("Write access denied")
+        self.puts.append((pv, value, wait))
+        self.target = value
+
+    async def caget(self, pv, timeout):
+        self.gets += 1
+        if self.rb_after is not None and self.gets >= self.rb_after:
+            self.rb = self.target
+        return self.rb
+
+
+def _ca_put(monkeypatch, fake: FakeCa, suffix: str, value: object) -> None:
+    import asyncio
+
+    from geecs_panels import ca
+
+    monkeypatch.setattr(ca, "aioca", fake)
+    monkeypatch.setattr(ca, "PUT_TIMEOUT_S", 0.3)
+    monkeypatch.setattr(ca, "SETTLE_POLL_S", 0.01)
+    asyncio.run(ca.LiveCameras.put(object(), CAM, suffix, value))
+
+
+def test_start_does_not_wait_for_the_acquisition_to_end(monkeypatch) -> None:
+    """A Continuous acquire's put completes only when acquisition stops: the panel
+    dispatches it and waits on Acquire_RBV instead (GPT P2 on #1137)."""
+    fake = FakeCa(rb_after=3)
+    _ca_put(monkeypatch, fake, "cam1:Acquire", 1)
+    assert fake.puts == [(CAM.prefix + "cam1:Acquire", 1, False)]
+    assert fake.gets == 3
+
+
+def test_a_start_the_readback_never_shows_is_a_failed_write(monkeypatch) -> None:
+    with pytest.raises(WriteFailed, match="Acquire_RBV stayed 0"):
+        _ca_put(monkeypatch, FakeCa(rb_after=None), "cam1:Acquire", 1)
+
+
+def test_a_refused_start_is_a_failed_write(monkeypatch) -> None:
+    """The IOC's access security still refuses it (the run lock)."""
+    with pytest.raises(WriteFailed, match="access denied"):
+        _ca_put(monkeypatch, FakeCa(refuse=True), "cam1:Acquire", 1)
+
+
+def test_other_writes_still_wait_for_the_ioc(monkeypatch) -> None:
+    fake = FakeCa()
+    _ca_put(monkeypatch, fake, "cam1:Gain", 2.0)
+    assert fake.puts == [(CAM.prefix + "cam1:Gain", 2.0, True)] and fake.gets == 0
