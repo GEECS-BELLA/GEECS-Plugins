@@ -862,12 +862,22 @@ U_UndulatorExitICT: {kind: array_detector, trigger_source: external,
 Read **coherently**: a STAT value and the HDF count are separate plugin
 callbacks with no ordering between them, so the kind reads each scalar
 only when its plugin's `UniqueId_RBV` equals the written frame's (the
-`ShotSampler` rule for a member with a stamp of its own, by frame id),
-`NaN` on timeout — never the previous shot's number. The analysis-grade
-charge (`apply_ict_analysis`) stays post-scan over the stack (open
-question 5). **Refusals** beyond the camera's: a scalar PV outside the
-prefix (bind); a STAT plugin with callbacks disabled (prepare, "declared
-scalar not computed"); `X.scalars` only when the entry declares scalars.
+`ShotSampler` rule for a member with a stamp of its own, by frame id)
+**and the computation that produces it is on**. NDPluginStats advances
+`UniqueId_RBV` for every array it receives but recomputes Total, Net, Min
+and Max only while `ComputeStatistics` is set, and the centroid family
+only while `ComputeCentroid` is (profiles and the histogram have flags of
+their own), so a matching frame id with the flag off retains the previous
+shot's values. Each declared scalar therefore maps to its flag; the flag
+is checked at prepare and read again with the value, and a scalar whose
+flag is off, or whose id does not match, is `NaN` with a note — never the
+previous shot's number. The camera panel already draws this distinction
+(its statistics freshness is the plugin counter plus the compute flags).
+The analysis-grade charge (`apply_ict_analysis`) stays post-scan over the
+stack (open question 5). **Refusals** beyond the camera's: a scalar PV
+outside the prefix (bind); a STAT plugin with callbacks disabled or the
+declared scalar's compute flag off (prepare, "declared scalar not
+computed"); `X.scalars` only when the entry declares scalars.
 
 **Timestamp**: the EPICS pair stamps the capture's arrival, after the
 post-trigger samples; the hand-set drain offset absorbs that span (ruling 6).
@@ -877,8 +887,10 @@ real prefix; it free-runs, so the sim entry says software triggering.
 **Acceptance**: the PicoScope 5242D after its driver rework — a strict
 10-shot `count` gives one finalized stack of 10 `(2, samples)` frames, 10
 rows each joined by stamp with the declared scalar columns coherent (a
-deliberately slowed STAT yields `NaN`, never a stale value), each
-channel's trace per shot in the portal, the panel running before and after.
+deliberately slowed STAT yields `NaN`, never a stale value; `ComputeStatistics`
+switched off mid-run while callbacks continue yields `NaN` from that shot
+on, never the retained value), each channel's trace per shot in the
+portal, the panel running before and after.
 
 ### 10. Cross-cutting
 
@@ -1022,3 +1034,12 @@ essential; (3) prefix rule and suffix sets given one home; (4) the existing
 geecs-epics simulators named; (5) `_log_unhonoured_motor_targets` is the
 warning at stake; (6) #1136 marked open; (7) the scope contract pointed
 at, not restated; (8) `source` is list-level; residual of (2) reconciled in §7.
+
+**Second pass (maintainer's reviewer, 2026-10-23), one P2.** Matching
+`UniqueId_RBV` with callbacks enabled did not prove a STAT scalar was
+computed for the shot: with `ComputeStatistics` off the plugin still
+advances its frame id and keeps the old Total/Net/Min/Max, and
+`ComputeCentroid` gates the centroid family separately. — Fixed in §9:
+each declared scalar maps to its compute flag, checked at prepare and read
+with the value, `NaN` with a note when off; the acceptance adds the
+flag-off-mid-run case.
