@@ -41,6 +41,11 @@ def main() -> None:
         default="",
         help="URL prefix behind a prefix-preserving reverse proxy",
     )
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="refuse every write (crosshairs, analysis ROI): a viewer only",
+    )
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
     args = parser.parse_args()
 
@@ -85,6 +90,7 @@ def main() -> None:
         stale_after=args.stale_after,
         max_fps=args.max_fps,
         root_path=args.root_path,
+        writable=not args.read_only,
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level.lower())
 

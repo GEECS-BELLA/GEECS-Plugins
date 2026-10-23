@@ -87,6 +87,134 @@ READINGS: tuple[Reading, ...] = (
 #: The URL of one JPEG frame, published by the IOC (read once, not monitored).
 JPG_URL_SUFFIX = "MJPG1:JPG_URL_RBV"
 
+#: The crosshairs the panel draws: OVER1's overlays 1 and 2. The IOC stores
+#: them (shared by every viewer, autosaved); the panel draws them, in their
+#: stored colour, over the colour-mapped image — the stream carries none.
+CROSSHAIRS = (1, 2)
+#: Field → readback suffix under ``OVER1:<n>:``; positions are image
+#: (PROC1) pixels. ``Center*`` is what the panel sets: the IOC derives
+#: ``Position*`` (the autosaved one) from it.
+CROSSHAIR_FIELDS = {
+    "use": "Use_RBV",
+    "x": "CenterX_RBV",
+    "y": "CenterY_RBV",
+    "sx": "SizeX_RBV",
+    "sy": "SizeY_RBV",
+    "r": "Red_RBV",
+    "g": "Green_RBV",
+    "b": "Blue_RBV",
+    "name": "Name_RBV",
+    "shape": "Shape_RBV",
+}
+_CROSSHAIR_STRINGS = frozenset({"name", "shape"})
+
+#: The analysis ROI (ROI1: STAT only sees this region), field → readback.
+#: Min/Size are in image (PROC1) pixels; STAT's results are in the ROI's own
+#: output pixels — :mod:`geecs_panels.coords` converts.
+ROI_FIELDS = {
+    "minx": "ROI1:MinX_RBV",
+    "miny": "ROI1:MinY_RBV",
+    "sizex": "ROI1:SizeX_RBV",
+    "sizey": "ROI1:SizeY_RBV",
+    "binx": "ROI1:BinX_RBV",
+    "biny": "ROI1:BinY_RBV",
+    "revx": "ROI1:ReverseX_RBV",
+    "revy": "ROI1:ReverseY_RBV",
+}
+
+
+def crosshair_suffix(n: int, field: str) -> str:
+    """``OVER1:<n>:<readback>`` for a crosshair field."""
+    return f"OVER1:{n}:{CROSSHAIR_FIELDS[field]}"
+
+
+#: The PVs the panel may WRITE, and nothing else (design note §4). Each is
+#: display or analysis state: none changes what a scan saves (that is the
+#: camera driver's, behind the run lock of build step 3). Value kinds:
+#: ``int`` (a pixel or a 0..255 level), ``bool`` (0/1), ``str``, or a tuple of
+#: allowed choices (an enum, written by name).
+@dataclass(frozen=True)
+class Whole:
+    """A whole number in ``lo..hi`` (a pixel, a size, a 0..255 level)."""
+
+    lo: int
+    hi: int
+
+
+_PIXEL = Whole(0, 65535)
+_SIZE = Whole(1, 65535)
+_LEVEL = Whole(0, 255)
+
+WRITABLE: dict[str, object] = {
+    **{
+        f"OVER1:{n}:{field}": kind
+        for n in CROSSHAIRS
+        for field, kind in (
+            ("Use", bool),
+            ("CenterX", _PIXEL),
+            ("CenterY", _PIXEL),
+            ("SizeX", _PIXEL),  # an overlay may be a 0-wide line
+            ("SizeY", _PIXEL),
+            ("Red", _LEVEL),
+            ("Green", _LEVEL),
+            ("Blue", _LEVEL),
+            ("Name", str),
+            ("Shape", ("Cross", "Rectangle")),
+        )
+    },
+    "ROI1:MinX": _PIXEL,
+    "ROI1:MinY": _PIXEL,
+    "ROI1:SizeX": _SIZE,
+    "ROI1:SizeY": _SIZE,
+}
+
+
+class NotWritable(ValueError):
+    """A write the allow-list refuses; the message says why."""
+
+
+def _as_flag(suffix: str, value: object) -> object:
+    if value in (0, 1, True, False):
+        return int(bool(value))
+    raise NotWritable(f"{suffix} takes 0 or 1, not {value!r}")
+
+
+def _as_whole(suffix: str, value: object, kind: Whole) -> object:
+    whole = isinstance(value, int) or (isinstance(value, float) and value.is_integer())
+    if isinstance(value, bool) or not whole:
+        raise NotWritable(f"{suffix} takes a whole number, not {value!r}")
+    if not kind.lo <= int(value) <= kind.hi:
+        raise NotWritable(f"{suffix} takes {kind.lo}..{kind.hi}, not {value!r}")
+    return int(value)
+
+
+def _as_text(suffix: str, value: object) -> object:
+    if not isinstance(value, str) or len(value) > 39:
+        raise NotWritable(f"{suffix} takes text of at most 39 characters")
+    return value
+
+
+_COERCE = {bool: _as_flag, str: _as_text}
+
+
+def check_write(suffix: str, value: object) -> object:
+    """The value to put for an allowed write, or :class:`NotWritable`.
+
+    Coerces JSON's types to the PV's: a pixel or level is an ``int`` (a
+    ``bool`` or a non-integral float is refused), a flag 0/1, a choice one of
+    its names, text a short string.
+    """
+    kind = WRITABLE.get(suffix)
+    if kind is None:
+        raise NotWritable(f"{suffix} is not writable from the panel")
+    if isinstance(kind, tuple):
+        if value not in kind:
+            raise NotWritable(f"{suffix} takes one of {', '.join(kind)}")
+        return value
+    if isinstance(kind, Whole):
+        return _as_whole(suffix, value, kind)
+    return _COERCE[kind](suffix, value)
+
 
 def monitored_suffixes() -> list[str]:
     """Every PV suffix the panel monitors, without duplicates, in a stable order."""
@@ -97,12 +225,20 @@ def monitored_suffixes() -> list[str]:
             seen[reading.computed_by] = None
     for plugin in COUNTER_PLUGINS:
         seen[counter_suffix(plugin)] = None
+    for n in CROSSHAIRS:
+        for field in CROSSHAIR_FIELDS:
+            seen[crosshair_suffix(n, field)] = None
+    for suffix in ROI_FIELDS.values():
+        seen[suffix] = None
     return list(seen)
 
 
 def string_suffixes() -> frozenset[str]:
     """The suffixes read as strings (enums shown by name)."""
-    return frozenset(r.suffix for r in READINGS if r.as_string)
+    return frozenset(
+        [r.suffix for r in READINGS if r.as_string]
+        + [crosshair_suffix(n, f) for n in CROSSHAIRS for f in _CROSSHAIR_STRINGS]
+    )
 
 
 def judge(

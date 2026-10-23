@@ -149,6 +149,11 @@
     recolour();
   }
 
+  // ---- hooks for the layers over the image (overlay.js) ------------------
+  // draw(ctx) in view pixels; grab(cx, cy) → an edit or null; hover(cx, cy)
+  // → a CSS cursor or ""; snapshot(snap) with each SSE state.
+  const hooks = { draw: [], grab: [], hover: [], snapshot: [] };
+
   // ---- the viewer: zoom and pan -------------------------------------------
   const view = { scale: 1, ox: 0, oy: 0, moved: false };
   const MAX_ZOOM = 40;
@@ -157,7 +162,13 @@
   const toView = (x, y) => [x * view.scale + view.ox, y * view.scale + view.oy];
   const toImage = (x, y) => [(x - view.ox) / view.scale, (y - view.oy) / view.scale];
 
-  function fitScale() { return fw && fh ? Math.min(vw / fw, vh / fh) : 1; }
+  // Fit leaves a margin, so the frame's edges — and a full-frame ROI's
+  // handles on them — sit inside the viewport where a pointer can reach.
+  const FIT_MARGIN = 16;
+  function fitScale() {
+    if (!fw || !fh) return 1;
+    return Math.max(0.01, Math.min((vw - 2 * FIT_MARGIN) / fw, (vh - 2 * FIT_MARGIN) / fh));
+  }
 
   function fit() {
     view.scale = fitScale();
@@ -198,6 +209,9 @@
     // Magnified: show the pixels as squares, never blurred into each other.
     ctx.imageSmoothingEnabled = view.scale * dpr < 1;
     ctx.drawImage(frame, 0, 0);
+    // Layers over the image (overlay.js) draw in view (CSS) pixels.
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    for (const layer of hooks.draw) layer(ctx);
     $("zoom-level").textContent = Math.round(view.scale * 100) + "%";
   }
 
@@ -207,23 +221,45 @@
     zoomAt(ev.clientX - r.left, ev.clientY - r.top, Math.exp(-ev.deltaY * 0.0015));
   }, { passive: false });
 
-  let drag = null;
+  // A drag is either an edit a layer claimed (a crosshair, an ROI handle:
+  // `hooks.grab` returns {move(ix, iy), end()}) or, failing that, a pan.
+  let drag = null, edit = null;
+  const local = (ev) => {
+    const r = viewport.getBoundingClientRect();
+    return [ev.clientX - r.left, ev.clientY - r.top];
+  };
   viewport.addEventListener("pointerdown", (ev) => {
     if (ev.button !== 0) return;
-    drag = { x: ev.clientX, y: ev.clientY, ox: view.ox, oy: view.oy };
+    const [cx, cy] = local(ev);
     viewport.setPointerCapture(ev.pointerId);
+    for (const grab of hooks.grab) {
+      edit = grab(cx, cy);
+      if (edit) return;
+    }
+    drag = { x: ev.clientX, y: ev.clientY, ox: view.ox, oy: view.oy };
     viewport.classList.add("panning");
   });
   viewport.addEventListener("pointermove", (ev) => {
-    const r = viewport.getBoundingClientRect();
-    showCursor(ev.clientX - r.left, ev.clientY - r.top);
-    if (!drag) return;
+    const [cx, cy] = local(ev);
+    showCursor(cx, cy);
+    if (edit) { edit.move(...toImage(cx, cy)); return; }
+    if (!drag) {
+      // Hover: a layer may name the cursor its grab would use.
+      let cursor = "";
+      for (const hover of hooks.hover) cursor = cursor || hover(cx, cy) || "";
+      viewport.style.cursor = cursor;
+      return;
+    }
     view.ox = drag.ox + (ev.clientX - drag.x);
     view.oy = drag.oy + (ev.clientY - drag.y);
     view.moved = true;
     draw();
   });
-  const endDrag = () => { drag = null; viewport.classList.remove("panning"); };
+  const endDrag = () => {
+    if (edit) { edit.end(); edit = null; }
+    drag = null;
+    viewport.classList.remove("panning");
+  };
   viewport.addEventListener("pointerup", endDrag);
   viewport.addEventListener("pointercancel", endDrag);
   viewport.addEventListener("pointerleave", () => { $("cursor").textContent = ""; });
@@ -386,6 +422,7 @@
     }
     $("missing").hidden = !snap.missing.length;
     $("missing-list").textContent = snap.missing.join("  ");
+    for (const f of hooks.snapshot) f(snap);
   }
 
   // The readings are only as fresh as the stream that carries them: if no
@@ -432,6 +469,12 @@
     blackIn.value = 0; whiteIn.value = 255; scaleSel.value = "linear";
     autoLive.checked = false; buildLut(); recolour(); save();
   });
+  // What the layers over the image may use. Assigned before the deferred
+  // overlay.js runs, which registers into `hooks`.
+  window.GeecsCameraView = {
+    root, hooks, toView, toImage, redraw: () => draw(),
+    frameSize: () => [fw, fh], scale: () => view.scale,
+  };
   resize();
   connect();
   loop();

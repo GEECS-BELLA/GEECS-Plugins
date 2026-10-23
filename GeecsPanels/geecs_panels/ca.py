@@ -22,11 +22,19 @@ import aioca
 import httpx
 
 from geecs_panels.camera import IMAGE_PLUGIN, JPG_URL_SUFFIX, counter_suffix
-from geecs_panels.feed import CameraFeed, FrameSource, ResolveUrl, Subscription
+from geecs_panels.feed import (
+    CameraFeed,
+    FrameSource,
+    ResolveUrl,
+    Subscription,
+    WriteFailed,
+)
 from geecs_panels.registry import Device
 
 #: Upstream frame timeout: the IOC answers a snapshot in ~50 ms.
 FETCH_TIMEOUT_S = 3.0
+#: A write waits for the IOC to process the record, at most this long.
+PUT_TIMEOUT_S = 3.0
 
 
 def subscribe(
@@ -127,6 +135,14 @@ class LiveCameras:
                 counter=lambda: feed.values.get(counter),
             )
         return source
+
+    async def put(self, device: Device, suffix: str, value: object) -> None:
+        """Write one PV and wait for the IOC to process it."""
+        pv = device.prefix + suffix
+        try:
+            await aioca.caput(pv, value, wait=True, timeout=PUT_TIMEOUT_S)
+        except Exception as exc:
+            raise WriteFailed(f"{pv}: {exc}") from exc
 
     async def aclose(self) -> None:
         """Drop every subscription and the HTTP client."""
