@@ -272,3 +272,21 @@ def test_a_stale_raw_max_is_not_called_saturated_or_ok() -> None:
     assert feed.snapshot(3.0)["saturation"]["state"] == "unknown"
     feed.update(counter_suffix("STAT0"), 2)
     assert feed.snapshot(3.0)["saturation"]["state"] == "saturated"
+
+
+def test_a_transform_change_stops_background_subtraction_first() -> None:
+    """The held background was grabbed in the old orientation."""
+    cameras = RecordingCameras()
+    r = _client(cameras=cameras).post(
+        "/camera/ADTEST_CAM1/put", json={"pv": "TRANS1:Type", "value": "Rot90"}
+    )
+    assert r.status_code == 200
+    assert cameras.puts == [("PROC1:EnableBackground", 0), ("TRANS1:Type", "Rot90")]
+
+
+def test_a_refused_transform_changes_nothing() -> None:
+    cameras = RecordingCameras()
+    r = _client(cameras=cameras).post(
+        "/camera/ADTEST_CAM1/put", json={"pv": "TRANS1:Type", "value": "Rot45"}
+    )
+    assert r.status_code == 422 and cameras.puts == []

@@ -290,6 +290,18 @@ def _add_write_routes(
     @app.post("/camera/{name}/put")
     async def put_one(name: str, request: PutRequest) -> dict[str, object]:
         device = w.device(name)
+        if request.pv == "TRANS1:Type":
+            # The background is grabbed AFTER the transform (cam1 → TRANS1 →
+            # PROC1) and NDProcess only checks its size: rotated frames minus
+            # an un-rotated background is silently wrong. Stop subtracting
+            # first; the page says to grab again.
+            try:
+                check_write(
+                    request.pv, request.value
+                )  # refuse before changing anything
+            except NotWritable as exc:
+                raise HTTPException(422, str(exc)) from exc
+            await w.put(device, "PROC1:EnableBackground", 0)
         await w.put(device, request.pv, request.value)
         return {
             "ok": True,

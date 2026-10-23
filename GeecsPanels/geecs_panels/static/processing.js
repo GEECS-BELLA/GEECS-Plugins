@@ -17,7 +17,7 @@
   const writable = V.root.dataset.writable === "true";
   const bgOn = $("bg-on"), transform = $("transform");
 
-  let beeping = false, audio = null;
+  let beeping = false, audio = null, lastTransform = null;
   function beep() {
     // A short tone once a second while saturated, if the viewer asked for it.
     try {
@@ -37,9 +37,17 @@
     const valid = p.background_valid === 1;
     if (document.activeElement !== bgOn) bgOn.checked = p.background_on === 1;
     bgOn.disabled = !writable || !valid;
-    $("bg-state").textContent = valid ? "a background is held" : "no background grabbed";
+    if (lastTransform === null || p.transform === lastTransform) {
+      $("bg-state").textContent = valid ? "a background is held" : "no background grabbed";
+    }
     if (p.transform && document.activeElement !== transform) transform.value = p.transform;
     $("transform-warning").hidden = !p.transform || p.transform === "None";
+    // A transform change stops subtraction (the service does it): the held
+    // background was grabbed in the old orientation.
+    if (lastTransform !== null && p.transform !== lastTransform) {
+      $("bg-state").textContent = "orientation changed: grab a new background";
+    }
+    lastTransform = p.transform || null;
 
     const s = snap.saturation || {};
     const chip = $("saturation");

@@ -113,7 +113,12 @@
   function imageSize() {
     // The IOC's size only when it agrees with the JPEG's shape (it is read
     // from a monitor and can lead or lag the frame by a moment).
-    const agree = trueW && trueH && Math.abs(trueW / trueH - fw / fh) < 0.02;
+    // Per axis: the JPEG is the true frame scaled by one factor, each side
+    // rounded — so within a pixel of trueW·s, trueH·s (a ratio tolerance
+    // failed on very wide frames, where rounding moves the ratio most).
+    if (!trueW || !trueH) return [fw, fh];
+    const s = Math.min(fw / trueW, fh / trueH, 1);
+    const agree = Math.abs(trueW * s - fw) <= 1.5 && Math.abs(trueH * s - fh) <= 1.5;
     return agree ? [trueW, trueH] : [fw, fh];
   }
 

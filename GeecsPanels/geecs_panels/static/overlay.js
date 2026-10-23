@@ -316,6 +316,8 @@
   $("roi-show").addEventListener("change", () => V.redraw());
 
   if (!writable) {
-    for (const el of root.querySelectorAll(".writes input, .writes button")) el.disabled = true;
+    for (const el of root.querySelectorAll(".writes input, .writes button, .writes select")) {
+      el.disabled = true;
+    }
   }
 })();
