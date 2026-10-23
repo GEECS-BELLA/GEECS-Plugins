@@ -1,0 +1,34 @@
+# GeecsPanels
+
+Device panels: a browser GUI per native-device kind, starting with the
+areaDetector camera. A **prototype** for looking at the cameras, trying
+things out and asking for features. Where it is deployed in the end is an
+open question (`Planning/device_panels.md`).
+
+- `/` lists the experiment's native devices (`native_devices.yaml` in the
+  configs repository), grouped by kind.
+- `/camera/<device>` is one camera's panel: the live image, with a colour
+  map and levels of your own, and the live statistics, each with its age.
+  Open several cameras in several tabs.
+
+This build is read-only: nothing on the page writes to a camera.
+
+## Run it on a laptop
+
+```
+cd GeecsPanels
+poetry install
+poetry run geecs-panels          # http://127.0.0.1:8500
+```
+
+It reads `~/.config/geecs_python_api/config.ini`:
+
+- `[Experiment] expt` — the experiment (or pass `--experiment`).
+- `[Paths] scanner_config_root_path` — the configs repository, for the
+  registry.
+- `[epics] ca_addr_list` — must name the camera IOC hosts as well as the
+  gateway. An IOC on its own CA port is written `host:port`, e.g.
+  `ca_addr_list = 192.168.6.14 192.168.7.166 192.168.7.166:5066`.
+
+Options: `--port`, `--host`, `--max-fps` (default 10), `--stale-after`
+(seconds without a new frame before a value is marked stale, default 3).

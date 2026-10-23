@@ -1,0 +1,117 @@
+{#
+  The camera panel (read-only build): the live image, pulled one frame at
+  a time, and the live readings from the IOC's statistics plugins.
+
+  The image is the IOC's 8-bit greyscale stream; colour map and levels are
+  this viewer's own (client-side, nothing written to the IOC). Numbers come
+  from PVs, never from the picture. Every value carries its age and goes
+  stale when its producing plugin stops processing frames.
+
+  Values reach camera.js through data attributes on #camera, never through
+  an inline script.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ device.name }} — Panels</title>
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
+<link rel="stylesheet" href="{{ root }}/theme/kit.css">
+<link rel="stylesheet" href="{{ root }}/static/panels.css">
+</head>
+<body class="kit">
+
+<header class="topbar">
+  <div class="topbar-in">
+    <span class="brand">{{ device.name }} <span class="sub">{{ device.prefix }}</span></span>
+    <span class="chip lg" id="detector" data-state="unknown">connecting</span>
+    <a class="btn ghost" href="{{ url_for('index').path }}">All devices</a>
+    <div data-density-picker></div>
+    <div data-theme-picker></div>
+  </div>
+</header>
+
+<div class="shell wide" id="camera"
+     data-frame-url="{{ url_for('frame', name=device.name).path }}"
+     data-events-url="{{ url_for('events', name=device.name).path }}"
+     data-device="{{ device.name }}"
+     data-stale-after="{{ stale_after }}"
+     data-max-fps="{{ max_fps }}">
+
+  <aside class="rail">
+    <section class="group">
+      <h4>Display</h4>
+      <div class="field">
+        <label for="cmap">Colour map</label>
+        <select id="cmap">
+          <option value="grey">grey</option>
+          <option value="viridis">viridis</option>
+          <option value="inferno">inferno</option>
+          <option value="jet">jet</option>
+        </select>
+      </div>
+      <div class="row">
+        <div class="field levels">
+          <label for="level-lo">Black</label>
+          <input id="level-lo" type="number" min="0" max="254" value="0">
+        </div>
+        <div class="field levels">
+          <label for="level-hi">White</label>
+          <input id="level-hi" type="number" min="1" max="255" value="255">
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn sm" type="button" id="auto-once">Auto levels</button>
+        <label class="dim"><input type="checkbox" id="auto-live"> every frame</label>
+        <button class="btn sm ghost" type="button" id="reset-levels">Reset</button>
+      </div>
+      <div class="hint dim">8-bit stream: levels stretch what the IOC sends, nothing is written to the camera.</div>
+    </section>
+  </aside>
+
+  <main class="pane">
+    <article class="panel">
+      <header><span class="eyebrow">live</span></header>
+      <div class="body">
+        <div class="grid tight readings">
+          {% for r in readings %}
+            <div class="live" data-key="{{ r.key }}">
+              <span class="k">{{ r.label }}</span>
+              <span class="v">&mdash;{% if r.unit %}<small>{{ r.unit }}</small>{% endif %}</span>
+              <span class="age"></span>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </article>
+
+    <article class="panel">
+      <header>
+        <span class="eyebrow">image</span>
+        <span class="mono dim" id="cursor"></span>
+        <span class="chip" id="image-state" data-state="unknown">waiting</span>
+        <span class="mono dim" id="fps"></span>
+      </header>
+      <div class="body">
+        <div class="imagewrap">
+          <canvas id="image" width="1" height="1" aria-label="live camera image"></canvas>
+        </div>
+        <div class="state" data-state="error" id="image-error" hidden>
+          <div class="t">No frame from the IOC</div>
+          <div class="m mono" id="image-error-text"></div>
+        </div>
+        <div class="state" data-state="error" id="missing" hidden>
+          <div class="t">This camera's IOC does not serve the full chain</div>
+          <div class="m">Not found: <span class="mono" id="missing-list"></span></div>
+        </div>
+      </div>
+    </article>
+  </main>
+</div>
+
+<script src="{{ root }}/theme/theme.js" defer></script>
+<script src="{{ root }}/theme/kit.js" defer></script>
+<script src="{{ root }}/static/camera.js" defer></script>
+</body>
+</html>

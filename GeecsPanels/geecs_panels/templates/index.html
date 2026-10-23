@@ -1,0 +1,70 @@
+{#
+  The landing page: the experiment's native devices from the registry,
+  grouped by kind, each linking to its panel. A kind with no panel yet is
+  listed, unlinked. Every camera opens in its own tab, so several stay
+  open side by side.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panels — {{ experiment }}</title>
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
+<link rel="stylesheet" href="{{ root }}/theme/kit.css">
+<link rel="stylesheet" href="{{ root }}/static/panels.css">
+</head>
+<body class="kit">
+
+<header class="topbar">
+  <div class="topbar-in">
+    <span class="brand">Device panels <span class="sub">{{ experiment }}</span></span>
+    <div data-density-picker></div>
+    <div data-theme-picker></div>
+  </div>
+</header>
+
+<div class="shell solo">
+  <main class="pane">
+    {% if registry_error %}
+      <div class="state" data-state="error">
+        <div class="t">The device registry could not be read</div>
+        <div class="m mono">{{ registry_error }}</div>
+      </div>
+    {% elif not kinds %}
+      <div class="state" data-state="empty">
+        <div class="t">No native devices in {{ experiment }}</div>
+        <div class="m">
+          {% if registry_path %}Nothing registered in <span class="mono">{{ registry_path }}</span>.
+          {% else %}No configs repository is configured (config.ini <span class="mono">[Paths] scanner_config_root_path</span>).{% endif %}
+        </div>
+      </div>
+    {% else %}
+      {% for kind, members in kinds.items() %}
+        <article class="panel">
+          <header>
+            <span class="eyebrow">{{ kind }}</span>
+            <span class="dim">{{ members | length }}</span>
+          </header>
+          <div class="body">
+            <nav class="picklist">
+              {% for device in members %}
+                {% if panels.get(kind) %}
+                  <a href="{{ url_for('camera_page', name=device.name).path }}" target="_blank" rel="noopener">
+                    {{ device.name }} <span class="sub mono">{{ device.prefix }}</span></a>
+                {% else %}
+                  <button type="button" disabled>{{ device.name }} <span class="sub">no panel for this kind yet</span></button>
+                {% endif %}
+              {% endfor %}
+            </nav>
+          </div>
+        </article>
+      {% endfor %}
+    {% endif %}
+  </main>
+</div>
+
+<script src="{{ root }}/theme/theme.js" defer></script>
+<script src="{{ root }}/theme/kit.js" defer></script>
+</body>
+</html>
