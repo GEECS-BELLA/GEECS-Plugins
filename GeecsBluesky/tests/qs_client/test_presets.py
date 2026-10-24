@@ -341,6 +341,36 @@ def test_the_strict_essential_shape_of_a_native_camera_expands() -> None:
     assert expand_preset(gated).kwargs["acquisition"] == "gated"
 
 
+def test_a_native_positioner_takes_none_of_the_cameras_rules() -> None:
+    """The registry judged by kind: a motor is a scan axis, never a stackless camera."""
+    from geecs_schemas import NativeDevices
+
+    registry = NativeDevices.model_validate(
+        {
+            "devices": {
+                "ADTEST_CAM1": {"kind": "aravis_camera", "trigger_source": "software"},
+                "SimMotor1": {"kind": "epics_motor", "axes": ["m1"]},
+            }
+        }
+    ).devices
+    # A per-row scalar device, with or without its scalars view, in any shape.
+    item = expand_preset(
+        _native_preset(
+            {"device": "SimMotor1", "save_images": False}, acquisition="gated"
+        ),
+        native_devices=registry,
+    )
+    assert item.args[0] == ["UC_Other", "SimMotor1.scalars"]
+    # And its axis is a scan variable spelled like a DB device's settable.
+    assert scan_variable_reference("SimMotor1:m1") == "SimMotor1.m1"
+    # The camera in the same registry keeps its refusals.
+    with pytest.raises(GeecsConfigurationError, match="no scalars-only view"):
+        expand_preset(
+            _native_preset({"device": "ADTEST_CAM1", "save_images": False}),
+            native_devices=registry,
+        )
+
+
 def test_an_optimize_preset_with_a_native_camera_is_refused_at_expansion() -> None:
     from types import SimpleNamespace
 

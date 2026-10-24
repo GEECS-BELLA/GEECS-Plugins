@@ -169,7 +169,7 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     md: Mapping[str, Any] | None = None,
     required_devices: frozenset[str] = frozenset(),
     resolver: ConfigsRepoResolver | None = None,
-    native_devices: Collection[str] | None = None,
+    native_devices: Collection[str] | Mapping[str, Any] | None = None,
 ) -> QueueItem:
     """The queue item a preset submits.
 
@@ -185,10 +185,12 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     resolver : ConfigsRepoResolver, optional
         Required for optimize presets; resolves defaults and required devices.
     native_devices :
-        The experiment's native EPICS device names (its native-devices
-        registry): such a camera has no ``.scalars`` view, so a
-        ``save_images: false`` entry for one is refused here.  Unset = the
-        resolver's registry (none without a resolver).
+        The experiment's native-devices registry — its ``devices`` (name →
+        entry, judged by kind: :func:`_detector_names`) or bare names (every
+        one a camera).  A native camera has no ``.scalars`` view, so a
+        ``save_images: false`` entry for one is refused here; a positioner
+        takes none of the camera's rules.  Unset = the resolver's registry
+        (none without a resolver).
 
     Raises
     ------
@@ -228,7 +230,7 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
         # A stand-in resolver (the scanner's demo) has no registry.
         read = getattr(resolver, "resolve_native_devices", None)
         native_devices = read().devices if read is not None else ()
-    native = {n.casefold() for n in native_devices}
+    native = _detector_names(native_devices)
     scalars_only = [
         d.device for d in devices if not d.save_images and d.device.casefold() in native
     ]
@@ -320,6 +322,25 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
         references=references,
         devices=tuple(d.device for d in devices),
     )
+
+
+def _detector_names(native_devices: Collection[str] | Mapping[str, Any]) -> set[str]:
+    """The registry names the native-camera rules bind, case-folded: detector kinds only.
+
+    A positioner (``epics_motor``) is a scan axis, never a detector — it
+    has no stack, no stamp and no run-shape refusal.  A bare collection of
+    names (a stand-in resolver without kinds, the tests) counts every name
+    as a camera, as does an entry without a ``kind``.
+    """
+    from geecs_schemas import DETECTOR_KINDS
+
+    if isinstance(native_devices, Mapping):
+        return {
+            name.casefold()
+            for name, entry in native_devices.items()
+            if getattr(entry, "kind", None) in (None, *DETECTOR_KINDS)
+        }
+    return {name.casefold() for name in native_devices}
 
 
 def _native_run_refusal(

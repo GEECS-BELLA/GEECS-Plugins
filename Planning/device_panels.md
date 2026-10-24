@@ -36,7 +36,12 @@ the scanner already moves settables through the queue (`POST /api/move`),
 serialized with scans, and such a panel submits through that API. Direct
 puts are for devices whose IOC enforces run ownership — for the camera,
 a lock the scan run sets and the IOC's access security enforces (§6),
-which takes a NativeCamera change in GeecsBluesky.
+which takes a NativeCamera change in GeecsBluesky. **Prototype exception
+(2026-10-23, GEECS-Plugins #1143):** the positioner panel writes the motor
+record directly behind an allow-list until the scanner can list native
+axes (`NATIVE_DEVICES.md` §10, slice L); meanwhile a move from the panel
+during a sweep of the same axis is the operator's to avoid (no lock, no
+refusal).
 
 **The stock alternative, weighed.** EPICS already has a web path: the
 Phoebus Display Builder web runtime (dbwr) serving `.bob` screens, over
@@ -70,6 +75,14 @@ PV bridge, not pvws (§4; maintainer ruling).
 
 No new registry fields. Hosts and ports stay out of the registry; the IOC
 says where its own stream is.
+
+**Bench devices and per-device actions (GEECS-Plugins #1144).** A second,
+panels-only source: the bench file (`--bench`) lists positioners on bench
+IOCs that the registry must not carry (a device the GEECS DB still owns),
+with an explicit prefix, and the panel's per-device `allow` (the actions it
+may take, e.g. no homing for actuators on mirror mounts) and `note`. It is
+the panel's policy, not the worker's document; whether `allow` joins the
+registry when a device migrates for real is open.
 
 **The chain contract.** The panel addresses plugins by suffix, so these
 names become a contract every camera IOC keeps (they are what
