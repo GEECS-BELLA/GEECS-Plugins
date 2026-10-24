@@ -37,9 +37,11 @@
      data-put-url="{{ url_for('motor_put', name=device.name).path }}"
      data-writable="{{ 'true' if writable else 'false' }}">
   <main class="pane">
-    {% if restricted %}
+    {% if not writable %}
+    <div class="banner" data-state="denied"><span><strong>Read-only panel</strong> (--read-only): nothing is written from here.</span></div>
+    {% elif restricted %}
     <div class="banner" data-state="denied">
-      <span><strong>From this panel: {{ actions | join(', ') }}.</strong>
+      <span><strong>From this panel: {{ actions | join(', ') if actions else 'nothing' }}.</strong>
         {% if held %}Held for this device: {{ held | join(', ') }}.{% endif %}</span>
     </div>
     {% endif %}

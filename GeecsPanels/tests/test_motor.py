@@ -392,3 +392,21 @@ def test_the_page_draws_only_the_permitted_controls_and_says_which_are_held() ->
     full = client.get("/motor/SimMotor1").text
     assert 'data-press=".HOMF"' in full and 'data-field=".VELO"' in full
     assert "Held for this device" not in full
+
+
+def test_the_banner_never_offers_what_the_panel_will_refuse() -> None:
+    nothing = Device("Viewer", MOTOR_KIND, "p:", axes=("m1",), allow=frozenset())
+    client = TestClient(
+        create_app("Undulator", [nothing], object(), motors=FakeMotors())
+    )
+    assert "From this panel: nothing." in client.get("/motor/Viewer").text
+    read_only = (
+        TestClient(
+            create_app(
+                "Undulator", [MIRRORS], object(), motors=FakeMotors(), writable=False
+            )
+        )
+        .get("/motor/U_ESP302_01")
+        .text
+    )
+    assert "Read-only panel" in read_only and "From this panel" not in read_only

@@ -116,8 +116,10 @@ geecs_panels/
   device's `allow` (the panel actions it permits, e.g. no homing for
   actuators on mirror mounts) and `note` are the panel's, so they live in
   the panels' own bench file (`registry.BenchFile`, `--bench`), which also
-  lists bench IOCs that the worker's `native_devices.yaml` must not carry (a
-  device the GEECS DB still owns). Each kind names its actions and the
+  lists bench positioners that the worker's `native_devices.yaml` must not
+  carry (a device the GEECS DB still owns); a bench entry is the registry's
+  `EpicsMotor` plus `prefix`, `allow` and `note`. Bench scopes still come
+  from `--scope NAME=PREFIX`. Each kind names its actions and the
   fields they write (`motor.ACTIONS`). A field outside them is a 403
   (`NotAllowed`), and the page leaves its control out. A device without
   `allow` keeps every action. Whether `allow` should move into the shared

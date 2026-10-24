@@ -76,6 +76,14 @@ PV bridge, not pvws (§4; maintainer ruling).
 No new registry fields. Hosts and ports stay out of the registry; the IOC
 says where its own stream is.
 
+**Bench devices and per-device actions (GEECS-Plugins #1144).** A second,
+panels-only source: the bench file (`--bench`) lists positioners on bench
+IOCs that the registry must not carry (a device the GEECS DB still owns),
+with an explicit prefix, and the panel's per-device `allow` (the actions it
+may take, e.g. no homing for actuators on mirror mounts) and `note`. It is
+the panel's policy, not the worker's document; whether `allow` joins the
+registry when a device migrates for real is open.
+
 **The chain contract.** The panel addresses plugins by suffix, so these
 names become a contract every camera IOC keeps (they are what
 geecs-epics#6 deployed): `cam1:` (driver), `TRANS1:`, `PROC1:`, `ROI1:`,

@@ -7,7 +7,7 @@ the scan worker reads. A device's PV prefix is derived, never stored:
 ports: the IOC publishes its own stream URL.
 
 **The bench file** (``--bench``) is the panels' own, beside the registry:
-bench IOCs the registry does not list (a bench prefix, a device the GEECS
+bench positioners the registry does not list (a bench prefix, a device the GEECS
 DB still owns, so the worker must not see it), each with its kind, its
 prefix and the kind's options, and the panel's per-device options —
 ``allow``, the actions the panel may take on the device (a subset of the
@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Optional
 
 import yaml
 from geecs_core.configs_repo import scanner_configs_base
@@ -89,14 +89,10 @@ def load_devices(experiment: str, path: Path | None) -> list[Device]:
     ]
 
 
-class BenchMotor(BaseModel):
-    """A positioner on a bench IOC: its prefix, its axes and the panel's options."""
+class BenchMotor(EpicsMotor):
+    """A positioner on a bench IOC: the registry entry's rules, plus its prefix and the panel's options."""
 
-    model_config = ConfigDict(extra="forbid")
-
-    kind: Literal["epics_motor"]
     prefix: str = Field(pattern=r"^[^\s:]+(:[^\s:]+)*:$")
-    axes: list[Annotated[str, Field(pattern=r"^\S+$")]] = Field(min_length=1)
     allow: Optional[list[str]] = None
     note: str = ""
 
@@ -104,9 +100,11 @@ class BenchMotor(BaseModel):
     def _actions_are_the_kinds(self) -> "BenchMotor":
         if self.allow is not None:
             check_actions(self.allow)
-        if len(set(self.axes)) != len(self.axes):
-            raise ValueError(f"axes {self.axes} repeat a name")
         return self
+
+
+#: A bench device's name: it is a URL path segment (no slash, no whitespace).
+BenchName = Annotated[str, Field(pattern=r"^[^/\s]+$")]
 
 
 class BenchFile(BaseModel):
@@ -114,7 +112,7 @@ class BenchFile(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    devices: dict[str, BenchMotor] = Field(default_factory=dict)
+    devices: dict[BenchName, BenchMotor] = Field(default_factory=dict)
 
 
 def load_bench(path: Path) -> list[Device]:

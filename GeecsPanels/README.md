@@ -19,7 +19,7 @@ open question (`Planning/device_panels.md`).
 
 ## Bench devices and per-device actions
 
-`--bench PATH` adds devices on bench IOCs that the registry does not list
+`--bench PATH` adds positioners on bench IOCs that the registry does not list
 (a bench prefix, or a device the GEECS DB still owns, which the scan worker
 must not see), and sets the panel's options per device:
 

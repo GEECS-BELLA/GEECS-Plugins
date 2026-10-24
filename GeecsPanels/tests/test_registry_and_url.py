@@ -151,3 +151,43 @@ def test_a_broken_bench_file_raises_naming_why(tmp_path: Path, entry, message) -
     path.write_text(f"devices:\n  D:\n    {entry}\n")
     with pytest.raises(RegistryError, match=message):
         load_bench(path)
+
+
+@pytest.mark.parametrize(
+    "name, axes, message",
+    [
+        ("ESP/mirrors", "[m1]", "devices"),  # a name is a URL path segment
+        ("ESP", "[X, x]", "same axis after normalization"),  # the registry's own rule
+    ],
+)
+def test_a_bench_entry_keeps_the_registrys_rules_and_routable_names(
+    tmp_path: Path, name, axes, message
+) -> None:
+    from geecs_panels.registry import load_bench
+
+    path = tmp_path / "bench.yaml"
+    path.write_text(
+        f"devices:\n  '{name}':\n    kind: epics_motor\n    prefix: 'p:'\n    axes: {axes}\n"
+    )
+    with pytest.raises(RegistryError, match=message):
+        load_bench(path)
+
+
+def test_a_registry_error_still_lists_the_bench_devices() -> None:
+    from fastapi.testclient import TestClient
+
+    from geecs_panels.app import create_app
+    from geecs_panels.registry import Device
+
+    bench = Device("U_ESP302_01", "epics_motor", "p:", axes=("m1",))
+    page = TestClient(
+        create_app(
+            "Undulator",
+            [bench],
+            object(),
+            registry_error="share not mounted",
+            motors=object(),
+        )
+    ).get("/")
+    assert "share not mounted" in page.text
+    assert 'href="/motor/U_ESP302_01"' in page.text
