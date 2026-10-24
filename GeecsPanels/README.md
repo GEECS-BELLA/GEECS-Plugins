@@ -10,8 +10,12 @@ open question (`Planning/device_panels.md`).
 - `/camera/<device>` is one camera's panel: the live image, with a colour
   map and levels of your own, and the live statistics, each with its age.
   Open several cameras in several tabs.
+- `/scope/<device>` is an oscilloscope's panel (geecs-epics' scope contract).
+- `/motor/<device>` is a positioner's panel: one card per axis — position
+  and setpoint, move and tweak, stop, the soft limits and switches, homing,
+  velocity — every word from the EPICS motor record.
 
-This build is read-only: nothing on the page writes to a camera.
+`--read-only` makes every page a viewer: nothing writes to a device.
 
 ## Run it on a laptop
 

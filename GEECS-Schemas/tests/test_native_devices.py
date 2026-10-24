@@ -3,7 +3,13 @@
 import pytest
 from pydantic import ValidationError
 
-from geecs_schemas import SCHEMA_REGISTRY, AravisCamera, NativeDevices
+from geecs_schemas import (
+    DETECTOR_KINDS,
+    SCHEMA_REGISTRY,
+    AravisCamera,
+    EpicsMotor,
+    NativeDevices,
+)
 
 
 def test_registered_as_a_document_kind() -> None:
@@ -25,6 +31,41 @@ def test_a_registry_validates_and_round_trips() -> None:
     assert registry.devices["UC_Other"].trigger_source == "line1"
     assert registry.devices["UC_Flir"].trigger_source == "line0"
     assert registry.model_dump(mode="json") == doc
+
+
+def test_a_motor_entry_names_its_axes_and_nothing_else() -> None:
+    doc = {
+        "schema_version": 1,
+        "devices": {"U_ESP_JetXYZ": {"kind": "epics_motor", "axes": ["x", "y", "z"]}},
+    }
+    registry = NativeDevices.model_validate(doc)
+    stage = registry.devices["U_ESP_JetXYZ"]
+    assert isinstance(stage, EpicsMotor) and stage.axes == ["x", "y", "z"]
+    assert registry.model_dump(mode="json") == doc
+
+
+def test_a_positioner_is_not_a_detector_kind() -> None:
+    assert "aravis_camera" in DETECTOR_KINDS and "epics_motor" not in DETECTOR_KINDS
+
+
+@pytest.mark.parametrize(
+    "entry, why",
+    [
+        ({"kind": "epics_motor"}, "axes"),  # axes are required
+        ({"kind": "epics_motor", "axes": []}, "at least 1"),  # and non-empty
+        ({"kind": "epics_motor", "axes": ["x", " "]}, "record name"),
+        ({"kind": "epics_motor", "axes": ["Axis 1"]}, "record name"),
+        ({"kind": "epics_motor", "axes": ["m1", "M1"]}, "same axis"),  # one attribute
+        ({"kind": "epics_motor", "axes": ["x"], "trigger_source": "line1"}, "extra"),
+        (
+            {"kind": "epics_motor", "axes": ["x"], "tolerance": 0.01},
+            "extra",
+        ),  # the record's
+    ],
+)
+def test_a_bad_motor_entry_is_refused(entry, why) -> None:
+    with pytest.raises(ValidationError, match=why):
+        NativeDevices.model_validate({"devices": {"U_Stage": entry}})
 
 
 def test_an_empty_document_is_no_devices() -> None:

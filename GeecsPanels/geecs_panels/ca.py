@@ -39,6 +39,8 @@ from geecs_panels.feed import (
     Subscription,
     WriteFailed,
 )
+from geecs_panels.motor import NO_WAIT as MOTOR_NO_WAIT
+from geecs_panels.motor_feed import MotorFeed
 from geecs_panels.registry import Device
 from geecs_panels.scope import (
     ARRAY_DATA,
@@ -319,6 +321,46 @@ class LiveScopes:
                 or await aioca.caget(counter_pv, timeout=PUT_TIMEOUT_S) == before
             ):
                 raise
+
+    def close(self) -> None:
+        """Drop every subscription."""
+        for feed in self._feeds.values():
+            feed.close()
+
+
+class LiveMotors:
+    """Each positioner's feed, created on first use and shared by every viewer."""
+
+    def __init__(self) -> None:
+        self._feeds: dict[str, MotorFeed] = {}
+
+    def feed(self, device: Device) -> MotorFeed:
+        """The positioner's feed, subscribed on first use."""
+        feed = self._feeds.get(device.name)
+        if feed is None:
+            feed = self._feeds[device.name] = MotorFeed(
+                device.prefix, device.axes, subscribe
+            )
+            feed.start()
+        return feed
+
+    async def put(self, device: Device, axis: str, field: str, value: object) -> None:
+        """Write one field of one axis.
+
+        A move's put (``.VAL``, a tweak, a home) completes only when the
+        motion ends — put-callback on a motor record — so it is dispatched
+        without waiting; the stream shows the move and ``.DMOV`` its end.
+        A setting (``.TWV``, ``.VELO``) and ``.STOP`` are awaited, so a
+        refused one surfaces: the record completes those at once, mid-move
+        too (simmotor1: 0.02 s, 0.04 s and 0.28 s during a 6 s move).
+        """
+        pv = device.prefix + axis + field
+        try:
+            await aioca.caput(
+                pv, value, wait=field not in MOTOR_NO_WAIT, timeout=PUT_TIMEOUT_S
+            )
+        except Exception as exc:
+            raise WriteFailed(f"{pv}: {exc}") from exc
 
     def close(self) -> None:
         """Drop every subscription."""

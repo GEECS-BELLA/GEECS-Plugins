@@ -242,6 +242,8 @@ devices:
   UC_ExampleCam: {kind: aravis_camera, trigger_source: software}
   UC_OtherCam: {kind: aravis_camera, trigger_source: line1}
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
+  # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
+  U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
 """,
     "analysis_recipe": """\
 schema_version: 3
