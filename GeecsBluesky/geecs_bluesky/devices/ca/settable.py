@@ -41,6 +41,33 @@ from geecs_bluesky.exceptions import failure_cause_text
 logger = logging.getLogger(__name__)
 
 
+def log_failed_set(
+    log: logging.Logger,
+    name: str,
+    variable: str,
+    value: object,
+    pv: str,
+    exc: BaseException,
+) -> None:
+    """The one ERROR line of a failed set: the PV and the cause, before the status fails.
+
+    Shared by every GEECS settable (:meth:`CaSettable._set_logged`) and the
+    native motor axis, so the scan log's parsers see one wording.  The
+    cause goes by ``str`` through
+    :func:`~geecs_bluesky.exceptions.failure_cause_text` — a refused
+    ``aioca.CANothing`` is falsy and carries the CA message only through
+    ``str``.
+    """
+    log.error(
+        "%s: set %s → %s failed (%s): %s",
+        name,
+        variable,
+        value,
+        pv,
+        failure_cause_text(exc),
+    )
+
+
 class CaSettable(StandardReadable):
     """A writable GEECS variable as a Bluesky ``Movable`` over CA.
 
@@ -138,13 +165,8 @@ class CaSettable(StandardReadable):
         try:
             await self._set_and_wait(value)
         except Exception as exc:
-            logger.error(  # noqa: TRY400 — re-raised, caller logs
-                "%s: set %s → %s failed (%s): %s",
-                self.name,
-                self._variable,
-                value,
-                self._setpoint_pv,
-                failure_cause_text(exc),
+            log_failed_set(
+                logger, self.name, self._variable, value, self._setpoint_pv, exc
             )
             raise
 

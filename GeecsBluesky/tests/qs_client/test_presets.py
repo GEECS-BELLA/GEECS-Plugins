@@ -369,6 +369,12 @@ def test_a_native_positioner_takes_none_of_the_cameras_rules() -> None:
             _native_preset({"device": "ADTEST_CAM1", "save_images": False}),
             native_devices=registry,
         )
+    # A raw mapping (the YAML's shape) is judged by its "kind" key the same way.
+    raw = {"SimMotor1": {"kind": "epics_motor", "axes": ["m1"]}}
+    assert expand_preset(
+        _native_preset({"device": "SimMotor1", "save_images": False}),
+        native_devices=raw,
+    ).args[0] == ["UC_Other", "SimMotor1.scalars"]
 
 
 def test_an_optimize_preset_with_a_native_camera_is_refused_at_expansion() -> None:
