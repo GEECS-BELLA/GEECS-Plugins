@@ -663,7 +663,7 @@ The experiment's devices served by native EPICS IOCs, by GEECS device name.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `schema_version` | `1` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `devices` | `dict[str, AravisCamera]` | no | empty | GEECS device name (e.g. 'UC_ExampleCam') → its kind and settings. The IOC serves it under the derived prefix '<experiment>:<device>:'; the device must not also be enabled in the GEECS DB. |
+| `devices` | `dict[str, AravisCamera \| EpicsMotor]` | no | empty | GEECS device name (e.g. 'UC_ExampleCam') → its kind and settings. The IOC serves it under the derived prefix '<experiment>:<device>:'; the device must not also be enabled in the GEECS DB. |
 
 Example:
 
@@ -675,6 +675,8 @@ devices:
   UC_ExampleCam: {kind: aravis_camera, trigger_source: software}
   UC_OtherCam: {kind: aravis_camera, trigger_source: line1}
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
+  # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
+  U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
 ```
 
 ### AravisCamera
@@ -685,6 +687,15 @@ A GigE Vision camera behind ADAravis, writing HDF5 through its IOC's own file pl
 |---|---|---|---|---|
 | `kind` | `'aravis_camera'` | yes | — | Device kind: 'aravis_camera' (an areaDetector ADAravis camera). |
 | `trigger_source` | `'line0' \| 'line1' \| 'software'` | yes | — | Where each frame comes from. 'line0' / 'line1': the camera's hardware input on that line (a Basler's opto-isolated input is Line1, a FLIR Blackfly's Line0), wired to a timing-system output gated by the trigger box; the line must be one of the camera's own TriggerSource choices. 'software': the scan worker presses the camera's software trigger at each shot (exposed when the worker says go, not when the laser fires). |
+
+### EpicsMotor
+
+A positioner: one device, one EPICS motor record per axis.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'epics_motor'` | yes | — | Device kind: 'epics_motor' (EPICS motor records, one per axis). |
+| `axes` | `list[str]` | yes | — | The axes, as the motor record names under the device's prefix (e.g. ['x', 'y', 'z'] for '<experiment>:<device>:x' …). Each is a scan axis 'Device:axis'. The record owns the axis's limits, units and deadband. |
 
 ## `analysis_recipe`
 
