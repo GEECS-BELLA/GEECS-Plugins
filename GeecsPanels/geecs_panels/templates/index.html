@@ -1,6 +1,8 @@
 {#
-  The landing page: the experiment's native devices from the registry,
-  grouped by kind, each linking to its panel. A kind with no panel yet is
+  The landing page: the experiment's native devices from the registry (and
+  the bench file), grouped by kind, each linking to its panel. A registry
+  that cannot be read is said above the list, which still shows the bench
+  devices. A kind with no panel yet is
   listed, unlinked. Every camera opens in its own tab, so several stay
   open side by side.
 #}<!doctype html>
@@ -31,6 +33,8 @@
         <div class="t">The device registry could not be read</div>
         <div class="m mono">{{ registry_error }}</div>
       </div>
+    {% endif %}
+    {% if registry_error and not kinds %}
     {% elif not kinds %}
       <div class="state" data-state="empty">
         <div class="t">No native devices in {{ experiment }}</div>

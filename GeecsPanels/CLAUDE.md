@@ -1,9 +1,9 @@
 # GeecsPanels — Developer Context for Claude
 
-Device panels: a browser GUI per native-device **kind** (first: the
-areaDetector camera), keyed by the experiment's `native_devices.yaml`. The
-design note is `Planning/device_panels.md`; read it before adding a panel
-or a control.
+Device panels: a browser GUI per native-device **kind** (the areaDetector
+camera, the oscilloscope, the positioner, the power supply), keyed by the experiment's
+`native_devices.yaml`. The design note is `Planning/device_panels.md`; read
+it before adding a panel or a control.
 
 **It is a prototype** (maintainer, 2026-10-22): something to look at, play
 with and ask for features on, run on a laptop over the VPN. Where it lives
@@ -18,7 +18,8 @@ account) until the maintainer asks.
 ```
 geecs_panels/
   __main__.py   # CLI; applies geecs_core.epics_env BEFORE anything imports aioca
-  registry.py   # native_devices.yaml → Device(name, kind, prefix)
+  registry.py   # native_devices.yaml → Device(name, kind, prefix); the bench
+                #   file (--bench): bench devices + per-device allow/note
   camera.py     # the chain contract (PV suffixes), the freshness rule and the
                 #   write allow-list (WRITABLE, check_write) — pure
   coords.py     # image pixels <-> the analysis ROI's output pixels — pure
@@ -29,6 +30,15 @@ geecs_panels/
                 #   min/max trace decimation — pure, vendor-neutral
   scope_feed.py # ScopeFeed (monitored settings → snapshot), traces_payload
   scope_app.py  # /scope/{device}: page, events (SSE, ?traces=1), put
+  motor.py      # the positioner: the motor record's fields, .MSTA by name, the
+                #   state words, the write allow-list (a move checked against the
+                #   soft limits first) — pure, every word the record's
+  motor_feed.py # MotorFeed (every axis's fields → snapshot)
+  motor_app.py  # /motor/{device}: page (one card per axis), events (SSE), put
+  power.py      # the power supply: roles → PVs, the write allow-list (a setpoint
+                #   inside DRVL/DRVH and below HIHI first), the state words — pure
+  supply_feed.py # SupplyFeed (every role's PV and fields, the bits → snapshot)
+  supply_app.py # /supply/{device}: page, events (SSE), put (by action)
   ca.py         # the real transports: aioca monitors, stream URL, httpx
   app.py        # routes: /, /camera/{device}, its frame.jpg and events (SSE),
                 #   and the writes: put (allow-listed), crosshair colour, to-centroid
@@ -40,7 +50,8 @@ geecs_panels/
                 #   plots.js = lineouts, histogram, history (one canvas drawer:
                 #   custom for now, a plotting library to be weighed later);
                 #   acquisition.js = the camera's own controls behind the run lock.
-                #   Writes go through window.GeecsCameraView.write (one copy)
+                #   Writes go through window.GeecsCameraView.write (one copy);
+                #   scope.js and motor.js are each their own page
 ```
 
 ## Rules this package keeps
@@ -91,6 +102,43 @@ geecs_panels/
   shared, ``ArraysSource``) and min/max-decimated to the screen's width,
   so a one-sample spike survives. A bench scope is not in the native-device
   registry yet: `--scope NAME=PREFIX` gives it a panel.
+- **The positioner panel speaks the motor record only** (`motor.py`): one
+  card per axis of a registry `epics_motor` device, every word from the
+  record (`.RBV`/`.VAL`, `.DMOV`, `.HLM`/`.LLM`, the switches, `.MSTA`
+  decoded by name, `.VELO`/`.VMAX`), so one page fits every motor driver.
+  It writes `.VAL`, the tweak (`.TWV`, `.TWF`/`.TWR`), `.STOP`, homing
+  (`.HOMF`/`.HOMR`) and `.VELO` behind an allow-list that refuses a target
+  outside the soft limits before the record sees it (the record refuses
+  it too, with `LVIO`); a move's put is dispatched without waiting (the
+  record completes it at the end of the motion; the stream shows the
+  move). **Direct puts are a prototype choice**: the design note (§1)
+  sends a moving kind's writes through the scanner's `POST /api/move`,
+  serialized with scans, which waits for the scanner to know native axes
+  (GeecsBluesky `NATIVE_DEVICES.md` §10, slice L). Never `.OFF`, never the
+  record's limits or `.SET`.
+- **The power-supply panel speaks roles** (`power.py`): a supply family has
+  no shared record set, so its bench entry maps roles (`current_sp`,
+  `current`, `voltage`, `output_sp`, `output`, `reset`, optional
+  `voltage_sp` and `loop_mode`) and labelled fault bits to its PVs. A
+  setpoint must sit inside the record's drive limits, read and distinct,
+  and below `HIHI` and above `LOLO` when their severity is INVALID: an `ao` CLAMPS a
+  put past `DRVH` and writes the limit, so this check is the gate that
+  refuses (the IOC's own refusal is HIHI + IVOA, set at load). A value
+  whose channel dropped is `None`, never a stale number. The live put waits
+  for the record and reads its alarm: a `#NAK` (INVALID) is a 502.
+- **Per-device actions live in the bench file, not the registry.** A
+  device's `allow` (the panel actions it permits, e.g. no homing for
+  actuators on mirror mounts) and `note` are the panel's, so they live in
+  the panels' own bench file (`registry.BenchFile`, `--bench`), which also
+  lists bench positioners and power supplies that the worker's
+  `native_devices.yaml` must not carry (a device the GEECS DB still owns); a
+  bench positioner is the registry's `EpicsMotor` plus `prefix`, `allow` and
+  `note`, a bench supply its roles and bits (`power_supply` exists only here). Bench scopes still come
+  from `--scope NAME=PREFIX`. Each kind names its actions and the
+  fields or roles they write (`motor.ACTIONS`, `power.ACTIONS`). A field outside them is a 403
+  (`NotAllowed`), and the page leaves its control out. A device without
+  `allow` keeps every action. Whether `allow` should move into the shared
+  registry when a device migrates for real is open.
 - Never imports GeecsBluesky, the scanner, the portal or the logbook
   (`.importlinter` `panels-edges`).
 

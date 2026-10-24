@@ -8,11 +8,14 @@ the configs repository::
 
 One owner per device: a name listed here must not also be an enabled device
 of the experiment in the GEECS DB (the scan worker refuses to open
-otherwise).  The registry carries names, kind and trigger source only — the
-PV prefix is derived from the experiment and device name
-(``<experiment>:<device>:``, GEECS normalization), and hosts and paths are
-facility values with a home of their own.  An absent file means the
-experiment has no native devices.
+otherwise).  The registry carries names, kind and the kind's few options
+only — the PV prefix is derived from the experiment and device name
+(``<experiment>:<device>:``, GEECS normalization), the record names under it
+are the kind's own, and hosts and paths are facility values with a home of
+their own.  An absent file means the experiment has no native devices.
+
+Two kinds so far: ``aravis_camera`` (an areaDetector camera, a detector of
+the scan) and ``epics_motor`` (one or more EPICS motor records, scan axes).
 """
 
 from __future__ import annotations
@@ -46,8 +49,61 @@ class AravisCamera(SchemaModel):
     )
 
 
+class EpicsMotor(SchemaModel):
+    """A positioner: one device, one EPICS motor record per axis.
+
+    The axes are the record names under the device's prefix
+    (``<experiment>:<device>:<axis>``), so the entry still carries names
+    only; tolerance, units and limits live in the record (``.RDBD``,
+    ``.EGU``, ``.HLM``/``.LLM``), the one home for device facts.  Each axis
+    binds as a scan axis ``Device:axis`` (the same spelling as a DB
+    device's settable), and the device as a whole is a per-row scalar
+    device (every axis's readback).
+    """
+
+    kind: Literal["epics_motor"] = Field(
+        description="Device kind: 'epics_motor' (EPICS motor records, one per axis)."
+    )
+    axes: list[str] = Field(
+        min_length=1,
+        description=(
+            "The axes, as the motor record names under the device's prefix "
+            "(e.g. ['x', 'y', 'z'] for '<experiment>:<device>:x' …). Each is "
+            "a scan axis 'Device:axis'. The record owns the axis's limits, "
+            "units and deadband."
+        ),
+    )
+
+    @field_validator("axes")
+    @classmethod
+    def _axes_are_distinct_names(cls, axes: list[str]) -> list[str]:
+        seen: dict[str, str] = {}
+        for axis in axes:
+            if not axis or axis != axis.strip() or any(c.isspace() for c in axis):
+                raise ValueError(
+                    f"axis {axis!r} is not a record name (no blanks, no whitespace)"
+                )
+            # The worker binds each axis to an attribute by the GEECS
+            # normalization (lowercase, punctuation runs → '_'): two axes
+            # that normalise alike would be one attribute.
+            key = "".join(c.lower() if c.isalnum() else "_" for c in axis)
+            if key in seen:
+                raise ValueError(
+                    f"axes {seen[key]!r} and {axis!r} are the same axis after "
+                    "normalization"
+                )
+            seen[key] = axis
+        return axes
+
+
 #: Every native device kind, discriminated by ``kind`` (a new kind is one more member).
-NativeDevice = Annotated[Union[AravisCamera], Field(discriminator="kind")]
+NativeDevice = Annotated[Union[AravisCamera, EpicsMotor], Field(discriminator="kind")]
+
+#: The kinds that are detectors of the scan — they acquire per shot (a
+#: stack, a stamp) and take the detector rules (``save_images``, the run
+#: shapes a native camera is refused in).  A positioner is a settable: never
+#: in this set.
+DETECTOR_KINDS: frozenset[str] = frozenset({"aravis_camera"})
 
 
 class NativeDevices(VersionedSchemaModel):
