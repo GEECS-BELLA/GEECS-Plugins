@@ -10,6 +10,8 @@
   ``state`` event every :data:`PUSH_S`; ``?once=1`` sends one and closes.
 - ``/scope/{device}`` and its stream and writes — the oscilloscope panel
   (:mod:`geecs_panels.scope_app`).
+- ``/motor/{device}`` and its stream and writes — the positioner panel
+  (:mod:`geecs_panels.motor_app`).
 - ``/health``.
 
 Read-only in this build: no route writes a PV. The web glue (prefix
@@ -57,6 +59,8 @@ from geecs_panels.feed import (
     WriteFailed,
     plot_payload,
 )
+from geecs_panels.motor import MOTOR_KIND
+from geecs_panels.motor_app import Motors, add_motor_routes
 from geecs_panels.registry import Device
 from geecs_panels.scope import SCOPE_KIND
 from geecs_panels.scope_app import Scopes, add_scope_routes
@@ -69,7 +73,7 @@ STATIC_DIR = _PKG / "static"
 
 #: Device kind → the panel route that serves it. A kind without a panel is
 #: listed on the landing page, unlinked.
-PANELS = {"aravis_camera": "camera", SCOPE_KIND: "scope"}
+PANELS = {"aravis_camera": "camera", SCOPE_KIND: "scope", MOTOR_KIND: "motor"}
 
 #: Seconds between SSE pushes: ages tick on the page at this rate.
 PUSH_S = 0.5
@@ -144,6 +148,20 @@ class PutRequest(BaseModel):
     value: Union[bool, int, float, str]
 
 
+def _panel_lookup(
+    by_name: dict[str, Device], panel: str, what: str, experiment: str
+) -> Callable[[str], Device]:
+    """A route's device lookup: the registered device *name* served by *panel*, else a 404 naming *what*."""
+
+    def lookup(name: str) -> Device:
+        device = by_name.get(name)
+        if device is None or PANELS.get(device.kind) != panel:
+            raise HTTPException(404, f"no {what} named {name!r} in {experiment}")
+        return device
+
+    return lookup
+
+
 def create_app(
     experiment: str,
     devices: list[Device],
@@ -156,6 +174,7 @@ def create_app(
     root_path: str = "",
     writable: bool = True,
     scopes: Optional[Scopes] = None,
+    motors: Optional[Motors] = None,
 ) -> FastAPI:
     """Build the panels application.
 
@@ -182,6 +201,8 @@ def create_app(
         every write is a 403 and the page draws its controls disabled.
     scopes : Scopes, optional
         The live state of each oscilloscope; without it no scope panel is served.
+    motors : Motors, optional
+        The live state of each positioner; without it no motor panel is served.
     """
     app = FastAPI(
         title="GEECS Panels",
@@ -199,12 +220,7 @@ def create_app(
     )
     templates = make_templates(TEMPLATES_DIR)
     by_name = {d.name: d for d in devices}
-
-    def camera(name: str) -> Device:
-        device = by_name.get(name)
-        if device is None or PANELS.get(device.kind) != "camera":
-            raise HTTPException(404, f"no camera named {name!r} in {experiment}")
-        return device
+    camera = _panel_lookup(by_name, "camera", "camera", experiment)
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request) -> HTMLResponse:
@@ -239,14 +255,12 @@ def create_app(
             },
         )
 
-    def scope(name: str) -> Device:
-        device = by_name.get(name)
-        if device is None or PANELS.get(device.kind) != "scope":
-            raise HTTPException(404, f"no oscilloscope named {name!r} in {experiment}")
-        return device
-
     if scopes is not None:
+        scope = _panel_lookup(by_name, "scope", "oscilloscope", experiment)
         add_scope_routes(app, templates, experiment, scopes, scope, writable, finite)
+    if motors is not None:
+        motor = _panel_lookup(by_name, "motor", "positioner", experiment)
+        add_motor_routes(app, templates, experiment, motors, motor, writable, finite)
 
     _add_live_routes(app, cameras, camera, stale_after)
     _add_write_routes(app, cameras, camera, stale_after, writable)

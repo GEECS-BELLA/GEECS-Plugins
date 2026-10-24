@@ -82,7 +82,7 @@ def main() -> None:
     import uvicorn
 
     from geecs_panels.app import create_app
-    from geecs_panels.ca import LiveCameras, LiveScopes
+    from geecs_panels.ca import LiveCameras, LiveMotors, LiveScopes
     from geecs_panels.scope import SCOPE_KIND
     from geecs_panels.registry import (
         Device,
@@ -116,6 +116,7 @@ def main() -> None:
         root_path=args.root_path,
         writable=not args.read_only,
         scopes=LiveScopes(),
+        motors=LiveMotors(),
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level.lower())
 

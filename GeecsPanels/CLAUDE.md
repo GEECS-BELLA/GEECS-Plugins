@@ -1,9 +1,9 @@
 # GeecsPanels — Developer Context for Claude
 
-Device panels: a browser GUI per native-device **kind** (first: the
-areaDetector camera), keyed by the experiment's `native_devices.yaml`. The
-design note is `Planning/device_panels.md`; read it before adding a panel
-or a control.
+Device panels: a browser GUI per native-device **kind** (the areaDetector
+camera, the oscilloscope, the positioner), keyed by the experiment's
+`native_devices.yaml`. The design note is `Planning/device_panels.md`; read
+it before adding a panel or a control.
 
 **It is a prototype** (maintainer, 2026-10-22): something to look at, play
 with and ask for features on, run on a laptop over the VPN. Where it lives
@@ -29,6 +29,11 @@ geecs_panels/
                 #   min/max trace decimation — pure, vendor-neutral
   scope_feed.py # ScopeFeed (monitored settings → snapshot), traces_payload
   scope_app.py  # /scope/{device}: page, events (SSE, ?traces=1), put
+  motor.py      # the positioner: the motor record's fields, .MSTA by name, the
+                #   state words, the write allow-list (a move checked against the
+                #   soft limits first) — pure, every word the record's
+  motor_feed.py # MotorFeed (every axis's fields → snapshot)
+  motor_app.py  # /motor/{device}: page (one card per axis), events (SSE), put
   ca.py         # the real transports: aioca monitors, stream URL, httpx
   app.py        # routes: /, /camera/{device}, its frame.jpg and events (SSE),
                 #   and the writes: put (allow-listed), crosshair colour, to-centroid
@@ -40,7 +45,8 @@ geecs_panels/
                 #   plots.js = lineouts, histogram, history (one canvas drawer:
                 #   custom for now, a plotting library to be weighed later);
                 #   acquisition.js = the camera's own controls behind the run lock.
-                #   Writes go through window.GeecsCameraView.write (one copy)
+                #   Writes go through window.GeecsCameraView.write (one copy);
+                #   scope.js and motor.js are each their own page
 ```
 
 ## Rules this package keeps
@@ -91,6 +97,20 @@ geecs_panels/
   shared, ``ArraysSource``) and min/max-decimated to the screen's width,
   so a one-sample spike survives. A bench scope is not in the native-device
   registry yet: `--scope NAME=PREFIX` gives it a panel.
+- **The positioner panel speaks the motor record only** (`motor.py`): one
+  card per axis of a registry `epics_motor` device, every word from the
+  record (`.RBV`/`.VAL`, `.DMOV`, `.HLM`/`.LLM`, the switches, `.MSTA`
+  decoded by name, `.VELO`/`.VMAX`), so one page fits every motor driver.
+  It writes `.VAL`, the tweak (`.TWV`, `.TWF`/`.TWR`), `.STOP`, homing
+  (`.HOMF`/`.HOMR`) and `.VELO` behind an allow-list that refuses a target
+  outside the soft limits before the record sees it (the record refuses
+  it too, with `LVIO`); a move's put is dispatched without waiting (the
+  record completes it at the end of the motion; the stream shows the
+  move). **Direct puts are a prototype choice**: the design note (§1)
+  sends a moving kind's writes through the scanner's `POST /api/move`,
+  serialized with scans, which waits for the scanner to know native axes
+  (GeecsBluesky `NATIVE_DEVICES.md` §10, slice L). Never `.OFF`, never the
+  record's limits or `.SET`.
 - Never imports GeecsBluesky, the scanner, the portal or the logbook
   (`.importlinter` `panels-edges`).
 
