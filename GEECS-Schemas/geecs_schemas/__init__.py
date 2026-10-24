@@ -42,8 +42,10 @@ from geecs_schemas.derived_channels import (
     DerivedInput,
 )
 from geecs_schemas.epics import (
+    DETECTOR_KINDS,
     NATIVE_DEVICES_FILENAME,
     AravisCamera,
+    EpicsMotor,
     NativeDevice,
     NativeDevices,
 )
@@ -149,6 +151,8 @@ __all__ = [
     "NativeDevices",
     "NativeDevice",
     "AravisCamera",
+    "EpicsMotor",
+    "DETECTOR_KINDS",
     "NATIVE_DEVICES_FILENAME",
     # experiment_defaults
     "ExperimentDefaults",

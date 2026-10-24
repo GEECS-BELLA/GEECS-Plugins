@@ -126,6 +126,55 @@ class GeecsMotorTimeoutError(GeecsError):
         )
 
 
+class GeecsMotorStoppedShortError(GeecsError):
+    """A motor record's move completed short of its target.
+
+    Raised by :class:`~geecs_bluesky.devices.native_motor.NativeMotorAxis`
+    after the record's put-callback completed: the record reports done
+    (``.DMOV``) when a limit switch stops it or on a following error, and
+    the put then completes "successfully" (the #868 class), so the readback
+    is checked against the record's own deadband (``.RDBD``).  The message
+    names the switch when one is set; with neither set the cause is a
+    following error or a refused put.  Do not auto-retry — a tripped switch
+    needs the operator.
+    """
+
+    def __init__(
+        self,
+        device_name: str,
+        variable: str,
+        *,
+        target: float,
+        current: float,
+        deadband: float,
+        high_limit_switch: bool = False,
+        low_limit_switch: bool = False,
+    ) -> None:
+        self.device_name = device_name
+        self.variable = variable
+        self.target = target
+        self.current = current
+        self.deadband = deadband
+        self.high_limit_switch = high_limit_switch
+        self.low_limit_switch = low_limit_switch
+        if high_limit_switch and low_limit_switch:
+            cause = "both limit switches set"
+        elif high_limit_switch:
+            cause = "the high limit switch is set"
+        elif low_limit_switch:
+            cause = "the low limit switch is set"
+        else:
+            cause = (
+                "no limit switch set: a following error, or the put was refused "
+                "and read as success"
+            )
+        super().__init__(
+            f"{device_name}/{variable}: the move stopped at {current:g}, "
+            f"{target:g} requested (off by {abs(current - target):g}, deadband "
+            f"{deadband:g}) — {cause}"
+        )
+
+
 class GeecsConfirmTimeoutError(GeecsError):
     """A confirming variable did not match the set target within ``timeout``.
 

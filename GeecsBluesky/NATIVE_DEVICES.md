@@ -709,6 +709,18 @@ every client (`GeecsCAGateway/PV_CONTRACT.md`) rather than inventing one.
 
 ### 7. Positioner — the EPICS motor record
 
+Status: **built** (2026-10-23) — the registry kind (`EpicsMotor`),
+`NativeMotor` / `NativeMotorAxis` (`devices/native_motor.py`), the
+namespace binding and the preset's kind-aware native set; proven on
+`simmotor1`.  Not yet: the gate grown by the movers, the scanner's
+settables list (§10, L), the archive pass (R), a pseudo over native axes.
+Found when built: the stock `Motor` already refuses an out-of-limit
+target before the put (`MotorMoveLogic.check_move`), so nothing was added
+for the limits; and it already carries `offset` as the record's own
+`.OFF` (a config signal), so the soft-signal `offset` below for a pseudo
+over native axes needs a renamed signal or a subclass, not a plain
+attribute.
+
 The Newport ESP/SMC/CONEX, NewFocus and Zaber stages, the PI hexapod and
 the Thorlabs stages become motor records (the motion image the catalogue
 plans, `geecs-epics/docs/device-catalogue.md`). A filter wheel is a

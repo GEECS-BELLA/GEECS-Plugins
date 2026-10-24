@@ -14,7 +14,8 @@ take devices by name: ``count([UC_Amp4_IR_input], 10)``,
   :class:`~geecs_bluesky.devices.ca.motor.CaMotor` when the DB gives it a
   tolerance or the catalog says ``kind: motor``, else
   :class:`~geecs_bluesky.devices.ca.settable.CaSettable`;
-* a native registry entry is a ``NativeCamera`` (one owner: never a DB device);
+* a native registry entry is a ``NativeCamera`` or a ``NativeMotor`` (one
+  owner: never a DB device);
 * a catalog ``kind: pseudo`` entry becomes a
   :class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoPositioner` under the
   catalog name (:meth:`GeecsNamespace.add_pseudos`).
@@ -61,6 +62,7 @@ from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.hdf_plugin import PluginPathProvider
 from geecs_bluesky.devices.hdf_plugin import file_plugin_hosts as _hosts_from_config
 from geecs_bluesky.devices.native import NativeCamera, NativeTriggerSource
+from geecs_bluesky.devices.native_motor import NativeMotor
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.utils import identifier_name, safe_name, settable_attribute
@@ -366,9 +368,13 @@ class GeecsNamespace:
         catalog never *downgrades*: a DB tolerance still binds a motor.
     native_devices :
         The experiment's native device registry (``native_devices.yaml``,
-        ``ConfigsRepoResolver.resolve_native_devices``): one
-        :class:`~geecs_bluesky.devices.native.NativeCamera` per entry.  A
-        name that is also a DB roster device raises — one owner per device.
+        ``ConfigsRepoResolver.resolve_native_devices``): per entry, by its
+        kind, a :class:`~geecs_bluesky.devices.native.NativeCamera`
+        (``aravis_camera``) or a
+        :class:`~geecs_bluesky.devices.native_motor.NativeMotor`
+        (``epics_motor``: one stock motor record per axis, each a Movable
+        child ``Device.axis``).  A name that is also a DB roster device
+        raises — one owner per device.
     """
 
     def __init__(
@@ -438,7 +444,9 @@ class GeecsNamespace:
                 len(skipped),
                 ", ".join(sorted(skipped)),
             )
-        self._log_drain_offsets([*detectors, *natives])
+        self._log_drain_offsets(
+            [*detectors, *(n for n in natives if isinstance(n, NativeCamera))]
+        )
         self._log_unhonoured_motor_targets()
 
     def _log_unhonoured_motor_targets(self) -> None:
@@ -518,15 +526,15 @@ class GeecsNamespace:
             native_devices=native_devices,
         )
 
-    def _add_native_devices(self, registry: NativeDevices) -> list[NativeCamera]:
-        """One ``NativeCamera`` per registry entry; a DB-owned name refuses to open.
+    def _add_native_devices(self, registry: NativeDevices) -> list[Any]:
+        """One noun per registry entry, by kind; a DB-owned name refuses to open.
 
         Names are compared after :func:`safe_name` — the normalization both
         the PV prefix and the event keys use — so a registry entry differing
         from a roster device only in case or punctuation is the same device.
         """
         owners = {safe_name(d): d for d in self.roster.variables}
-        built: list[NativeCamera] = []
+        built: list[Any] = []
         for device, entry in registry.devices.items():
             owner = owners.get(safe_name(device))
             if owner is not None:
@@ -542,35 +550,56 @@ class GeecsNamespace:
                     f"device namespace: native devices {twin._geecs_device_name!r} "
                     f"and {device!r} both normalise to {safe_name(device)!r}"
                 )
-            if self._path_provider is None:
-                raise GeecsConfigurationError(
-                    f"device namespace: native camera {device!r} needs the "
-                    "run's path provider"
-                )
             name = safe_name(device)
-            cam = NativeCamera(
-                device,
-                pv_name(self.experiment, device) + ":",
-                trigger_source=NativeTriggerSource[entry.trigger_source.upper()],
-                path_provider=PluginPathProvider(
-                    self._path_provider,
+            prefix = pv_name(self.experiment, device) + ":"
+            dev: Any
+            attrs: dict[str, str] = {}
+            if entry.kind == "epics_motor":
+                dev = NativeMotor(device, prefix, entry.axes, name=name)
+                for axis in entry.axes:
+                    attr = settable_attribute(axis)  # the Movable child
+                    attrs[axis.lower()] = attr
+                    attrs[attr.lower()] = attr
+                    # A catalog ``kind: motor`` opt-in on a native axis is
+                    # redundant, never unhonoured.
+                    self._bound_motors.add(f"{device}:{axis}".lower())
+            else:
+                if self._path_provider is None:
+                    raise GeecsConfigurationError(
+                        f"device namespace: native camera {device!r} needs the "
+                        "run's path provider"
+                    )
+                dev = NativeCamera(
                     device,
-                    plugin_path=native_ioc_save_path,
-                    path_type=PurePosixPath,
-                ),
-                name=name,
-                drain_offset=self._drain_offsets.get(name, 0.0),
-            )
-            cam._geecs_namespace_member = True  # connect_on_demand's marker
-            self._devices[identifier_name(device)] = cam
-            self._by_geecs_name[device.lower()] = cam
-            self._attrs[name] = {}  # no scalar children: variable() says so
-            built.append(cam)
+                    prefix,
+                    trigger_source=NativeTriggerSource[entry.trigger_source.upper()],
+                    path_provider=PluginPathProvider(
+                        self._path_provider,
+                        device,
+                        plugin_path=native_ioc_save_path,
+                        path_type=PurePosixPath,
+                    ),
+                    name=name,
+                    drain_offset=self._drain_offsets.get(name, 0.0),
+                )
+            dev._geecs_namespace_member = True  # connect_on_demand's marker
+            self._devices[identifier_name(device)] = dev
+            self._by_geecs_name[device.lower()] = dev
+            self._attrs[name] = attrs  # a camera has no scalar children
+            built.append(dev)
         if built:
+            cameras = [d for d in built if isinstance(d, NativeCamera)]
+            motors = [d for d in built if isinstance(d, NativeMotor)]
             logger.info(
-                "device namespace: %d native EPICS camera(s): %s",
-                len(built),
-                ", ".join(c._geecs_device_name for c in built),
+                "device namespace: %d native EPICS camera(s): %s; %d positioner(s): %s",
+                len(cameras),
+                ", ".join(c._geecs_device_name for c in cameras) or "none",
+                len(motors),
+                ", ".join(
+                    f"{m._geecs_device_name} ({', '.join(a._variable for a in m.axes)})"
+                    for m in motors
+                )
+                or "none",
             )
         return built
 
@@ -957,6 +986,8 @@ class GeecsNamespace:
                 # carries; a native camera has no scalars and reads only per shot
                 continue
             else:
+                # a scalar-only device, or a native positioner (its axes'
+                # readbacks: a read costs no shot)
                 objects.append(dev)
         return objects
 
