@@ -5,39 +5,19 @@ The second native device kind (``NATIVE_DEVICES.md`` §7; the registry's
 ``<experiment>:<device>:<axis>``.  The stock ophyd-async
 :class:`~ophyd_async.epics.motor.Motor` already speaks the record — the
 move is a put-callback on ``.VAL`` the record completes when ``.DMOV``
-returns to 1 (the device's own verdict, the analogue of the GEECS executed
-reply), the soft limits ``.HLM``/``.LLM`` are checked **before the put**
-(:class:`~ophyd_async.epics.motor.MotorLimitsError`, the worker-side
-refusal of an out-of-range target), the timeout comes from ``.VELO`` and
-``.ACCL``, and the record retries to its own ``.RDBD``, so no tolerance
-poll rides on top.  What GEECS adds is thin:
+returns to 1 (the device's own verdict), the soft limits ``.HLM``/``.LLM``
+are checked **before the put** (``MotorLimitsError``), the timeout comes
+from ``.VELO`` and ``.ACCL``, and the record retries to its own ``.RDBD``.
+What GEECS adds is thin: :class:`NativeMotorAxis` (the post-move readback
+check that names a tripped limit switch, the ERROR log of a failed set,
+the GEECS names and the s-file header) and :class:`NativeMotor` (the
+parent noun whose axes are the Movable children ``mv``, a sweep axis and an
+action's ``set`` step find; readable as one per-row scalar device).
 
-- :class:`NativeMotorAxis` — the stock ``Motor`` plus a **post-move
-  readback check**: a limit switch or a following error stops the record
-  with ``.DMOV`` = 1 short of the target and the put completes
-  "successfully" (the #868 class), so the move fails naming the switch
-  when the readback is off by more than ``.RDBD``
-  (:class:`~geecs_bluesky.exceptions.GeecsMotorStoppedShortError`); a
-  failed set is ERROR-logged with its cause first, as every GEECS settable
-  does.  It carries the GEECS names (``_geecs_device_name``, the axis as
-  the variable) and the s-file header of its readback column.
-- :class:`NativeMotor` — the parent noun the namespace binds under the
-  GEECS device name, each axis a child (``U_ESP_JetXYZ.x``), so ``mv``, a
-  sweep axis, ``GeecsNamespace.variable``, ``get_settable`` and an action's
-  ``set`` step find the axis as they find a ``CaMotor`` child.  A
-  ``StandardReadable`` over its axes: read as a device it is a per-row
-  scalar device (every axis's readback), exactly as a
-  :class:`~geecs_bluesky.devices.ca.snapshot.CaSnapshotReadable` is, with
-  the ``.scalars`` view every namespace device carries; it is a
-  background-telemetry candidate (a read costs no shot), the scanned axis
-  left out of the background by the run's own probe.
-
-A motor record has a stop: the stock ``stop()`` writes ``.STOP``, which
-the RunEngine calls on every pending mover at an abort.  Not here yet
-(the design's later slices): the liveness gate grown by the run's movers
-(an axis at INVALID severity reads down), a soft user offset for a pseudo
-positioner over native axes (the stock ``offset`` signal is the record's
-own ``.OFF``), the scanner's settables list and the archive set.
+Not here yet (the design's later slices): the liveness gate grown by the
+run's movers, a soft user offset for a pseudo positioner over native axes
+(the stock ``offset`` signal is the record's own ``.OFF``), the scanner's
+settables list and the archive set.
 """
 
 from __future__ import annotations

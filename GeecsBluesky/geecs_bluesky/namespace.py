@@ -14,8 +14,7 @@ take devices by name: ``count([UC_Amp4_IR_input], 10)``,
   :class:`~geecs_bluesky.devices.ca.motor.CaMotor` when the DB gives it a
   tolerance or the catalog says ``kind: motor``, else
   :class:`~geecs_bluesky.devices.ca.settable.CaSettable`;
-* a native registry entry is a ``NativeCamera`` or a ``NativeMotor`` (one
-  owner: never a DB device);
+* a native registry entry is a ``NativeCamera`` or ``NativeMotor`` (one owner);
 * a catalog ``kind: pseudo`` entry becomes a
   :class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoPositioner` under the
   catalog name (:meth:`GeecsNamespace.add_pseudos`).
