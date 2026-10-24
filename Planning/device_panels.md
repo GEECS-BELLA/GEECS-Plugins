@@ -82,7 +82,10 @@ IOCs that the registry must not carry (a device the GEECS DB still owns),
 with an explicit prefix, and the panel's per-device `allow` (the actions it
 may take, e.g. no homing for actuators on mirror mounts) and `note`. It is
 the panel's policy, not the worker's document; whether `allow` joins the
-registry when a device migrates for real is open.
+registry when a device migrates for real is open. Power supplies
+(`power_supply`, a panel kind with no registry kind yet) come from the bench
+file only: a role map per device, since fpstest1 and eztest1 name their PVs
+differently.
 
 **The chain contract.** The panel addresses plugins by suffix, so these
 names become a contract every camera IOC keeps (they are what

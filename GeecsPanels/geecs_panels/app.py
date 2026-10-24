@@ -12,11 +12,13 @@
   (:mod:`geecs_panels.scope_app`).
 - ``/motor/{device}`` and its stream and writes — the positioner panel
   (:mod:`geecs_panels.motor_app`).
+- ``/supply/{device}`` and its stream and writes — the power-supply panel
+  (:mod:`geecs_panels.supply_app`).
 - ``/health``.
 
 Every write is one allow-listed PV at a time (the camera's display state
 and its controls behind the run lock, the scope's settings, the
-positioner's moves). The web glue (prefix middleware, ``/theme``, ``root``
+positioner's moves, the power supply's setpoint, output and reset). The web glue (prefix middleware, ``/theme``, ``root``
 in every template) is GeecsWebTheme's.
 """
 
@@ -33,6 +35,7 @@ from typing import Optional, Protocol, Union
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from geecs_web_theme.web import (
     ForwardedPrefixMiddleware,
@@ -63,9 +66,11 @@ from geecs_panels.feed import (
 )
 from geecs_panels.motor import MOTOR_KIND
 from geecs_panels.motor_app import Motors, add_motor_routes
+from geecs_panels.power import POWER_KIND
 from geecs_panels.registry import Device
 from geecs_panels.scope import SCOPE_KIND
 from geecs_panels.scope_app import Scopes, add_scope_routes
+from geecs_panels.supply_app import Supplies, add_supply_routes
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +80,12 @@ STATIC_DIR = _PKG / "static"
 
 #: Device kind → the panel route that serves it. A kind without a panel is
 #: listed on the landing page, unlinked.
-PANELS = {"aravis_camera": "camera", SCOPE_KIND: "scope", MOTOR_KIND: "motor"}
+PANELS = {
+    "aravis_camera": "camera",
+    SCOPE_KIND: "scope",
+    MOTOR_KIND: "motor",
+    POWER_KIND: "supply",
+}
 
 #: Seconds between SSE pushes: ages tick on the page at this rate.
 PUSH_S = 0.5
@@ -177,6 +187,7 @@ def create_app(
     writable: bool = True,
     scopes: Optional[Scopes] = None,
     motors: Optional[Motors] = None,
+    supplies: Optional[Supplies] = None,
 ) -> FastAPI:
     """Build the panels application.
 
@@ -205,6 +216,8 @@ def create_app(
         The live state of each oscilloscope; without it no scope panel is served.
     motors : Motors, optional
         The live state of each positioner; without it no motor panel is served.
+    supplies : Supplies, optional
+        The live state of each power supply; without it no supply panel is served.
     """
     app = FastAPI(
         title="GEECS Panels",
@@ -226,10 +239,18 @@ def create_app(
     # The landing page links only the panels whose routes exist in this app:
     # a kind whose live state was not given is listed unlinked, not a 500.
     mounted = {"aravis_camera": PANELS["aravis_camera"]}
-    if scopes is not None:
-        mounted[SCOPE_KIND] = PANELS[SCOPE_KIND]
-    if motors is not None:
-        mounted[MOTOR_KIND] = PANELS[MOTOR_KIND]
+    mounted.update(
+        _add_kind_routes(
+            app,
+            templates,
+            experiment,
+            by_name,
+            writable,
+            scopes=scopes,
+            motors=motors,
+            supplies=supplies,
+        )
+    )
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request) -> HTMLResponse:
@@ -264,13 +285,6 @@ def create_app(
             },
         )
 
-    if scopes is not None:
-        scope = _panel_lookup(by_name, "scope", "oscilloscope", experiment)
-        add_scope_routes(app, templates, experiment, scopes, scope, writable, finite)
-    if motors is not None:
-        motor = _panel_lookup(by_name, "motor", "positioner", experiment)
-        add_motor_routes(app, templates, experiment, motors, motor, writable, finite)
-
     _add_live_routes(app, cameras, camera, stale_after)
     _add_write_routes(app, cameras, camera, stale_after, writable)
 
@@ -279,6 +293,36 @@ def create_app(
         return {"ok": True, "experiment": experiment, "devices": len(devices)}
 
     return app
+
+
+def _add_kind_routes(
+    app: FastAPI,
+    templates: Jinja2Templates,
+    experiment: str,
+    by_name: dict[str, Device],
+    writable: bool,
+    *,
+    scopes: Optional[Scopes],
+    motors: Optional[Motors],
+    supplies: Optional[Supplies],
+) -> dict[str, str]:
+    """Mount the panel of every kind whose live state was given; kind → panel for the landing page."""
+    mounted: dict[str, str] = {}
+    if scopes is not None:
+        scope = _panel_lookup(by_name, "scope", "oscilloscope", experiment)
+        add_scope_routes(app, templates, experiment, scopes, scope, writable, finite)
+        mounted[SCOPE_KIND] = PANELS[SCOPE_KIND]
+    if motors is not None:
+        motor = _panel_lookup(by_name, "motor", "positioner", experiment)
+        add_motor_routes(app, templates, experiment, motors, motor, writable, finite)
+        mounted[MOTOR_KIND] = PANELS[MOTOR_KIND]
+    if supplies is not None:
+        supply = _panel_lookup(by_name, "supply", "power supply", experiment)
+        add_supply_routes(
+            app, templates, experiment, supplies, supply, writable, finite
+        )
+        mounted[POWER_KIND] = PANELS[POWER_KIND]
+    return mounted
 
 
 def _add_live_routes(

@@ -1,0 +1,126 @@
+{#
+  The power-supply panel: one card for the device. The front-panel minimum
+  for a supply — the current and voltage readbacks with the setpoint beside
+  them, the output on/off, the fault and interlock bits — plus the fault
+  reset and the regulation loop (shown, never written). Every PV is named
+  by the device's bench entry (its roles), so one page fits every family.
+  A control whose action the device does not permit (Device.allow) is not
+  drawn, and the banner says which are held. Values reach supply.js
+  through data attributes on #supply and the stream, never an inline script.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ device.name }} — Panels</title>
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
+<link rel="stylesheet" href="{{ root }}/theme/kit.css">
+<link rel="stylesheet" href="{{ root }}/static/panels.css">
+</head>
+<body class="kit">
+
+<header class="topbar">
+  <div class="topbar-in">
+    <span class="brand">{{ device.name }} <span class="sub">{{ device.prefix }}</span></span>
+    <span class="chip lg" id="supply-state" data-state="unknown">connecting</span>
+    <a class="btn ghost" href="{{ url_for('index').path }}">All devices</a>
+    <div data-density-picker></div>
+    <div data-theme-picker></div>
+  </div>
+</header>
+
+<div class="shell solo" id="supply"
+     data-events-url="{{ url_for('supply_events', name=device.name).path }}"
+     data-put-url="{{ url_for('supply_put', name=device.name).path }}"
+     data-writable="{{ 'true' if writable else 'false' }}">
+  <main class="pane">
+    {% if restricted %}
+    <div class="banner" data-state="denied">
+      <span><strong>From this panel: {{ actions | join(', ') if actions else 'nothing' }}.</strong>
+        {% if held %}Held for this device: {{ held | join(', ') }}.{% endif %}</span>
+    </div>
+    {% endif %}
+    {% if device.note %}
+    <div class="banner"><span>{{ device.note }}</span></div>
+    {% endif %}
+
+    <article class="panel supply">
+      <header>
+        <span class="eyebrow">power supply</span>
+        <span class="dim" data-k="loop"></span>
+        <span class="chip" data-k="state" data-state="unknown">connecting</span>
+      </header>
+      <div class="body">
+        <div class="supply-main">
+          <div class="live pos" data-k="live-current">
+            <span class="k">current</span>
+            <span class="v"><span data-k="current">—</span><small data-k="current-egu"></small></span>
+          </div>
+          <div class="live pos" data-k="live-voltage">
+            <span class="k">voltage</span>
+            <span class="v"><span data-k="voltage">—</span><small data-k="voltage-egu"></small></span>
+          </div>
+          <div class="live">
+            <span class="k">output</span>
+            <span class="chip" data-k="output" data-state="unknown">—</span>
+          </div>
+        </div>
+
+        <div class="row">
+          {% if 'current' in actions %}
+          <div class="field setpoint">
+            <label for="current-sp">current setpoint</label>
+            <input type="number" id="current-sp" step="any" data-action="current">
+            <span class="hint" data-k="current-sp-hint">drive limits —</span>
+          </div>
+          <button class="btn sm primary" type="button" data-set="current">Set</button>
+          {% else %}
+          <div class="live"><span class="k">current setpoint</span><span class="v" data-k="current-sp">—</span></div>
+          {% endif %}
+          {% if 'voltage' in actions %}
+          <div class="field setpoint">
+            <label for="voltage-sp">voltage setpoint</label>
+            <input type="number" id="voltage-sp" step="any" data-action="voltage">
+            <span class="hint" data-k="voltage-sp-hint">drive limits —</span>
+          </div>
+          <button class="btn sm primary" type="button" data-set="voltage">Set</button>
+          {% elif roles.voltage_sp %}
+          <div class="live"><span class="k">voltage setpoint</span><span class="v" data-k="voltage-sp">—</span></div>
+          {% endif %}
+          <span class="spacer"></span>
+          {% if 'output' in actions %}
+          <button class="btn sm" type="button" data-press="output" data-value="1">Output on</button>
+          <button class="btn sm danger" type="button" data-press="output" data-value="0">Output off</button>
+          {% endif %}
+          {% if 'reset' in actions %}
+          <button class="btn sm" type="button" data-press="reset" data-value="1" title="clear latched faults">Reset faults</button>
+          {% endif %}
+        </div>
+
+        <div class="row chips" data-k="bits">
+          {% for label, _ in device.bits %}
+          <span class="chip" data-bit="{{ label }}" data-state="unknown">{{ label | replace('_', ' ') }}</span>
+          {% endfor %}
+          <span class="dim" data-k="status"></span>
+        </div>
+
+        <details class="disc">
+          <summary>Records <span class="mono dim">{{ device.prefix }}</span></summary>
+          <div class="dbody mono dim">
+            {% for role, suffix in device.roles %}<div>{{ role }} · {{ device.prefix }}{{ suffix }}</div>{% endfor %}
+            {% for label, suffix in device.bits %}<div>bit {{ label }} · {{ device.prefix }}{{ suffix }}</div>{% endfor %}
+            <div data-k="detail"></div>
+          </div>
+        </details>
+        <div class="motor-error mono" data-k="error"></div>
+      </div>
+    </article>
+  </main>
+</div>
+
+<script src="{{ root }}/theme/theme.js" defer></script>
+<script src="{{ root }}/theme/kit.js" defer></script>
+<script src="{{ root }}/static/supply.js" defer></script>
+</body>
+</html>

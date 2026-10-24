@@ -41,6 +41,7 @@ from geecs_panels.feed import (
 )
 from geecs_panels.motor import NO_WAIT as MOTOR_NO_WAIT
 from geecs_panels.motor_feed import MotorFeed
+from geecs_panels.supply_feed import SupplyFeed
 from geecs_panels.registry import Device
 from geecs_panels.scope import (
     ARRAY_DATA,
@@ -361,6 +362,46 @@ class LiveMotors:
             )
         except Exception as exc:
             raise WriteFailed(f"{pv}: {exc}") from exc
+
+    def close(self) -> None:
+        """Drop every subscription."""
+        for feed in self._feeds.values():
+            feed.close()
+
+
+class LiveSupplies:
+    """Each power supply's feed, created on first use and shared by every viewer."""
+
+    def __init__(self) -> None:
+        self._feeds: dict[str, SupplyFeed] = {}
+
+    def feed(self, device: Device) -> SupplyFeed:
+        """The supply's feed, subscribed on first use."""
+        feed = self._feeds.get(device.name)
+        if feed is None:
+            feed = self._feeds[device.name] = SupplyFeed(
+                device.prefix, dict(device.roles), dict(device.bits), subscribe
+            )
+            feed.start()
+        return feed
+
+    async def put(self, device: Device, role: str, value: object) -> None:
+        """Write one role's PV, waiting for the record to process, then read its alarm.
+
+        A StreamDevice record completes its put when the supply has answered,
+        and a refusal (``#NAK``, no reply) leaves the record INVALID: a put
+        CA accepted is not yet one the supply accepted, so INVALID afterwards
+        is a :class:`WriteFailed` naming the alarm.
+        """
+        pv = device.prefix + dict(device.roles)[role]
+        try:
+            await aioca.caput(pv, value, wait=True, timeout=PUT_TIMEOUT_S)
+            sevr = await aioca.caget(pv + ".SEVR", datatype=str, timeout=PUT_TIMEOUT_S)
+            stat = await aioca.caget(pv + ".STAT", datatype=str, timeout=PUT_TIMEOUT_S)
+        except Exception as exc:
+            raise WriteFailed(f"{pv}: {exc}") from exc
+        if str(sevr) == "INVALID":
+            raise WriteFailed(f"{pv}: the supply did not accept it (INVALID {stat})")
 
     def close(self) -> None:
         """Drop every subscription."""

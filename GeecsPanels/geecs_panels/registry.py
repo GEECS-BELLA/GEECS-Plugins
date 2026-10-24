@@ -7,7 +7,7 @@ the scan worker reads. A device's PV prefix is derived, never stored:
 ports: the IOC publishes its own stream URL.
 
 **The bench file** (``--bench``) is the panels' own, beside the registry:
-bench positioners the registry does not list (a bench prefix, a device the GEECS
+bench positioners and power supplies the registry does not list (a bench prefix, a device the GEECS
 DB still owns, so the worker must not see it), each with its kind, its
 prefix and the kind's options, and the panel's per-device options —
 ``allow``, the actions the panel may take on the device (a subset of the
@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional, Union
 
 import yaml
 from geecs_core.configs_repo import scanner_configs_base
@@ -30,6 +30,7 @@ from geecs_schemas import NATIVE_DEVICES_FILENAME, EpicsMotor, NativeDevices
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from geecs_panels.motor import MOTOR_KIND, check_actions
+from geecs_panels.power import POWER_KIND, check_roles
 
 
 class RegistryError(RuntimeError):
@@ -49,6 +50,10 @@ class Device:
     allow: Optional[frozenset[str]] = None
     #: A line the device's page shows (the bench file's ``note``).
     note: str = ""
+    #: A power supply's roles → PV suffixes (``(role, suffix)`` pairs); empty for other kinds.
+    roles: tuple[tuple[str, str], ...] = ()
+    #: A power supply's fault and interlock bits, ``(label, suffix)`` in the page's order.
+    bits: tuple[tuple[str, str], ...] = ()
 
 
 def registry_path(experiment: str, base: Path | None = None) -> Path | None:
@@ -107,12 +112,40 @@ class BenchMotor(EpicsMotor):
 BenchName = Annotated[str, Field(pattern=r"^[^/\s]+$")]
 
 
+#: A PV suffix under the device's prefix: no whitespace.
+Suffix = Annotated[str, Field(pattern=r"^\S+$")]
+
+
+class BenchSupply(BaseModel):
+    """A power supply on a bench IOC: its prefix, its roles' PVs, its bits and the panel's options."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["power_supply"]
+    prefix: str = Field(pattern=r"^[^\s:]+(:[^\s:]+)*:$")
+    roles: dict[str, Suffix]
+    #: label → the bit's ``bi`` (reads 1 when tripped); a label is a plain word, it keys the page.
+    bits: dict[Annotated[str, Field(pattern=r"^[A-Za-z0-9_]+$")], Suffix] = Field(
+        default_factory=dict
+    )
+    allow: Optional[list[str]] = None
+    note: str = ""
+
+    @model_validator(mode="after")
+    def _roles_and_actions_are_the_kinds(self) -> "BenchSupply":
+        check_roles(self.roles, self.allow)
+        return self
+
+
 class BenchFile(BaseModel):
     """The panels' bench file: bench devices by name."""
 
     model_config = ConfigDict(extra="forbid")
 
-    devices: dict[BenchName, BenchMotor] = Field(default_factory=dict)
+    devices: dict[
+        BenchName,
+        Annotated[Union[BenchMotor, BenchSupply], Field(discriminator="kind")],
+    ] = Field(default_factory=dict)
 
 
 def load_bench(path: Path) -> list[Device]:
@@ -122,14 +155,26 @@ def load_bench(path: Path) -> list[Device]:
         bench = BenchFile.model_validate(document)
     except (OSError, ValueError, yaml.YAMLError) as exc:
         raise RegistryError(f"bench file {path} is invalid: {exc}") from exc
-    return [
-        Device(
-            name=name,
-            kind=MOTOR_KIND,
-            prefix=entry.prefix,
+    return [_bench_device(name, entry) for name, entry in bench.devices.items()]
+
+
+def _bench_device(name: str, entry: Union[BenchMotor, BenchSupply]) -> Device:
+    allow = None if entry.allow is None else frozenset(entry.allow)
+    if isinstance(entry, BenchMotor):
+        return Device(
+            name,
+            MOTOR_KIND,
+            entry.prefix,
             axes=tuple(entry.axes),
-            allow=None if entry.allow is None else frozenset(entry.allow),
+            allow=allow,
             note=entry.note,
         )
-        for name, entry in bench.devices.items()
-    ]
+    return Device(
+        name,
+        POWER_KIND,
+        entry.prefix,
+        allow=allow,
+        note=entry.note,
+        roles=tuple(entry.roles.items()),
+        bits=tuple(entry.bits.items()),
+    )

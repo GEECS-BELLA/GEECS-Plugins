@@ -1,7 +1,7 @@
 # GeecsPanels — Developer Context for Claude
 
 Device panels: a browser GUI per native-device **kind** (the areaDetector
-camera, the oscilloscope, the positioner), keyed by the experiment's
+camera, the oscilloscope, the positioner, the power supply), keyed by the experiment's
 `native_devices.yaml`. The design note is `Planning/device_panels.md`; read
 it before adding a panel or a control.
 
@@ -35,6 +35,10 @@ geecs_panels/
                 #   soft limits first) — pure, every word the record's
   motor_feed.py # MotorFeed (every axis's fields → snapshot)
   motor_app.py  # /motor/{device}: page (one card per axis), events (SSE), put
+  power.py      # the power supply: roles → PVs, the write allow-list (a setpoint
+                #   inside DRVL/DRVH and below HIHI first), the state words — pure
+  supply_feed.py # SupplyFeed (every role's PV and fields, the bits → snapshot)
+  supply_app.py # /supply/{device}: page, events (SSE), put (by action)
   ca.py         # the real transports: aioca monitors, stream URL, httpx
   app.py        # routes: /, /camera/{device}, its frame.jpg and events (SSE),
                 #   and the writes: put (allow-listed), crosshair colour, to-centroid
@@ -112,15 +116,26 @@ geecs_panels/
   serialized with scans, which waits for the scanner to know native axes
   (GeecsBluesky `NATIVE_DEVICES.md` §10, slice L). Never `.OFF`, never the
   record's limits or `.SET`.
+- **The power-supply panel speaks roles** (`power.py`): a supply family has
+  no shared record set, so its bench entry maps roles (`current_sp`,
+  `current`, `voltage`, `output_sp`, `output`, `reset`, optional
+  `voltage_sp` and `loop_mode`) and labelled fault bits to its PVs. A
+  setpoint must sit inside the record's drive limits, read and distinct,
+  and below `HIHI`/`LOLO` when their severity is INVALID: an `ao` CLAMPS a
+  put past `DRVH` and writes the limit, so this check is the gate that
+  refuses (the IOC's own refusal is HIHI + IVOA, set at load). A value
+  whose channel dropped is `None`, never a stale number. The live put waits
+  for the record and reads its alarm: a `#NAK` (INVALID) is a 502.
 - **Per-device actions live in the bench file, not the registry.** A
   device's `allow` (the panel actions it permits, e.g. no homing for
   actuators on mirror mounts) and `note` are the panel's, so they live in
   the panels' own bench file (`registry.BenchFile`, `--bench`), which also
-  lists bench positioners that the worker's `native_devices.yaml` must not
-  carry (a device the GEECS DB still owns); a bench entry is the registry's
-  `EpicsMotor` plus `prefix`, `allow` and `note`. Bench scopes still come
+  lists bench positioners and power supplies that the worker's
+  `native_devices.yaml` must not carry (a device the GEECS DB still owns); a
+  bench positioner is the registry's `EpicsMotor` plus `prefix`, `allow` and
+  `note`, a bench supply its roles and bits (`power_supply` exists only here). Bench scopes still come
   from `--scope NAME=PREFIX`. Each kind names its actions and the
-  fields they write (`motor.ACTIONS`). A field outside them is a 403
+  fields or roles they write (`motor.ACTIONS`, `power.ACTIONS`). A field outside them is a 403
   (`NotAllowed`), and the page leaves its control out. A device without
   `allow` keeps every action. Whether `allow` should move into the shared
   registry when a device migrates for real is open.
