@@ -67,3 +67,4 @@
 .kit .supply .chips{min-height:1.6em;padding-top:6px;flex-wrap:wrap}
 .kit .supply .field.setpoint{min-width:0;width:22rem}
 .kit .supply .field.setpoint input{width:9rem}
+.kit .supply-error{color:var(--crit);font-size:11.5px;min-height:1em}

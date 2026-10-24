@@ -121,7 +121,7 @@ geecs_panels/
   `current`, `voltage`, `output_sp`, `output`, `reset`, optional
   `voltage_sp` and `loop_mode`) and labelled fault bits to its PVs. A
   setpoint must sit inside the record's drive limits, read and distinct,
-  and below `HIHI`/`LOLO` when their severity is INVALID: an `ao` CLAMPS a
+  and below `HIHI` and above `LOLO` when their severity is INVALID: an `ao` CLAMPS a
   put past `DRVH` and writes the limit, so this check is the gate that
   refuses (the IOC's own refusal is HIHI + IVOA, set at load). A value
   whose channel dropped is `None`, never a stale number. The live put waits

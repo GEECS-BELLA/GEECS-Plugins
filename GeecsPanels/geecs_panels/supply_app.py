@@ -23,8 +23,13 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from geecs_panels.feed import WriteFailed
-from geecs_panels.motor import NotAllowed, NotWritable
-from geecs_panels.power import ACTIONS, allowed_actions, check_write
+from geecs_panels.power import (
+    ACTIONS,
+    NotAllowed,
+    NotWritable,
+    allowed_actions,
+    check_write,
+)
 from geecs_panels.registry import Device
 from geecs_panels.supply_feed import SupplyFeed
 

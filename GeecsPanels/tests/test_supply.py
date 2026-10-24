@@ -12,9 +12,10 @@ from geecs_web_theme import STATES
 
 from geecs_panels.app import PANELS, create_app
 from geecs_panels.feed import WriteFailed
-from geecs_panels.motor import NotAllowed, NotWritable
 from geecs_panels.power import (
     ACTIONS,
+    NotAllowed,
+    NotWritable,
     POWER_KIND,
     REQUIRED_ROLES,
     allowed_actions,
@@ -26,9 +27,9 @@ from geecs_panels.power import (
 from geecs_panels.registry import Device, RegistryError, load_bench
 from geecs_panels.supply_feed import SupplyFeed
 
-#: fpstest1's roles (the FAST-PS): a loop mode, two interlocks.
+#: fpstest1's roles (the FAST-PS): the ramped setpoint, a loop mode, two interlocks.
 FPS_ROLES = {
-    "current_sp": "current:SP", "current": "current", "voltage": "voltage",
+    "current_sp": "current_ramp:SP", "current": "current", "voltage": "voltage",
     "output_sp": "enable_output:SP", "output": "enable_output", "reset": "reset:SP",
     "loop_mode": "loop_mode",
 }  # fmt: skip
@@ -121,9 +122,9 @@ def test_every_role_its_fields_and_every_bit_are_monitored_but_never_the_reset()
     None
 ):
     keys = monitored(FPS_ROLES, FPS_BITS)
-    assert keys["current_sp"] == ("current:SP", False)
-    assert keys["current_sp.drvh"] == ("current:SP.DRVH", False)
-    assert keys["current_sp.sevr"] == ("current:SP.SEVR", True)
+    assert keys["current_sp"] == ("current_ramp:SP", False)
+    assert keys["current_sp.drvh"] == ("current_ramp:SP.DRVH", False)
+    assert keys["current_sp.sevr"] == ("current_ramp:SP.SEVR", True)
     assert keys["loop_mode"] == ("loop_mode", True)
     assert keys["bit.interlock_2"] == ("interlock_2", False)
     assert not any(suffix.startswith("reset") for suffix, _ in keys.values())
@@ -254,7 +255,7 @@ devices:
   U_ChicaneInner:
     kind: power_supply
     prefix: "undulator:fpstest1:"
-    roles: {current_sp: "current:SP", current: current, voltage: voltage,
+    roles: {current_sp: "current_ramp:SP", current: current, voltage: voltage,
             output_sp: "enable_output:SP", output: enable_output, reset: "reset:SP",
             loop_mode: loop_mode}
     bits: {fault: fault, interlock_1: interlock_1}
@@ -366,7 +367,21 @@ def test_the_supply_refusing_is_a_502_and_read_only_a_403() -> None:
 
 
 def test_a_supply_is_not_a_positioner_and_unknown_is_404() -> None:
-    assert _client().get("/supply/NOPE").status_code == 404
+    from tests.test_motor import STAGE, FakeMotors
+
+    client = TestClient(
+        create_app(
+            "Undulator",
+            [FPS, STAGE],
+            object(),
+            supplies=FakeSupplies(),
+            motors=FakeMotors(),
+        )
+    )
+    assert client.get("/supply/NOPE").status_code == 404
+    assert client.get("/supply/SimMotor1").status_code == 404
+    assert client.get("/motor/U_ChicaneInner").status_code == 404
+    assert client.get("/supply/U_ChicaneInner").status_code == 200
 
 
 def test_the_live_put_reads_the_alarm_after_the_supply_answers(monkeypatch) -> None:
@@ -387,5 +402,5 @@ def test_the_live_put_reads_the_alarm_after_the_supply_answers(monkeypatch) -> N
     monkeypatch.setattr(ca.aioca, "caget", caget)
     with pytest.raises(WriteFailed, match="did not accept it"):
         asyncio.run(ca.LiveSupplies().put(FPS, "current_sp", 0.5))
-    assert calls[0] == ("put", "undulator:fpstest1:current:SP", 0.5, True)
-    assert ("get", "undulator:fpstest1:current:SP.SEVR") in calls
+    assert calls[0] == ("put", "undulator:fpstest1:current_ramp:SP", 0.5, True)
+    assert ("get", "undulator:fpstest1:current_ramp:SP.SEVR") in calls

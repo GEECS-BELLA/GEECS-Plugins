@@ -59,8 +59,8 @@ PVs), so its entry maps **roles** to PV suffixes under the prefix:
 ```
 
 A setpoint is refused unless it sits inside its record's drive limits
-(`DRVL`/`DRVH`, read and distinct) and below the IOC's own refusal (`HIHI`/
-`LOLO` with an INVALID severity): an `ao` clamps a put past `DRVH` and
+(`DRVL`/`DRVH`, read and distinct), below `HIHI` and above `LOLO` when
+their severity is INVALID (the IOC's own refusal): an `ao` clamps a put past `DRVH` and
 writes the limit, so the panel's check is the gate that refuses. After each
 put the panel reads the record's alarm, so a supply's `#NAK` is an error on
 the page, not a silent success.

@@ -50,7 +50,14 @@
 
   for (const input of card.querySelectorAll("[data-action]")) {
     input.disabled = !writable;
-    const set = () => { const n = number(input); if (n !== null) put(input.dataset.action, n); };
+    // Typed but not sent: the stream must not put the record's value back (a
+    // click on Set takes the focus off the field before it fires).
+    input.addEventListener("input", () => { input.dataset.dirty = "1"; });
+    input.addEventListener("keydown", (ev) => { if (ev.key === "Escape") { delete input.dataset.dirty; input.blur(); } });
+    const set = () => {
+      const n = number(input);
+      if (n !== null) { delete input.dataset.dirty; put(input.dataset.action, n); }
+    };
     // One set path: Set, or Enter here. Leaving the field sets nothing.
     input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { set(); input.blur(); } });
     const btn = card.querySelector(`[data-set="${input.dataset.action}"]`);
@@ -99,7 +106,7 @@
       text(key, typeof v[role] === "number" ? `${fmt(v[role], v[`${role}.prec`])} ${egu}` : "—");
       text(`${key}-hint`, limits(v, role));
       const input = card.querySelector(`[data-action="${role.replace("_sp", "")}"]`);
-      if (input && document.activeElement !== input && typeof v[role] === "number") input.value = v[role];
+      if (input && document.activeElement !== input && !input.dataset.dirty && typeof v[role] === "number") input.value = v[role];
     }
 
     for (const bit of snap.bits || []) {

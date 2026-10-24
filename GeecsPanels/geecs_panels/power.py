@@ -33,10 +33,18 @@ import math
 from collections.abc import Collection, Mapping
 from typing import Optional
 
-from geecs_panels.motor import NotAllowed, NotWritable
 
 #: The registry kind the power-supply panel serves.
 POWER_KIND = "power_supply"
+
+
+class NotWritable(ValueError):
+    """A write the allow-list refuses; the message says why."""
+
+
+class NotAllowed(NotWritable):
+    """An action the panel takes, but not on this device (its ``allow``)."""
+
 
 #: Roles every supply names.
 REQUIRED_ROLES = ("current_sp", "current", "voltage", "output_sp", "output", "reset")
