@@ -18,6 +18,7 @@
   let snap = null, source = null;
 
   const slot = (card, key) => card.querySelector(`[data-k="${key}"]`);
+  const text = (card, key, value) => { const el = slot(card, key); if (el) el.textContent = value; };
   const fmt = (v, prec) => {
     if (typeof v !== "number") return "—";
     const p = typeof prec === "number" && prec >= 0 && prec <= 10 ? prec : 3;
@@ -121,16 +122,21 @@
     slot(card, "homed").hidden = !(mstaKnown && a.flags.homed);
     slot(card, "not-homed").hidden = !(mstaKnown && !a.flags.homed);
 
-    slot(card, "val-hint").textContent = typeof a.val === "number" ? `setpoint ${fmt(a.val, a.prec)} ${a.egu || ""}` : "setpoint —";
+    // A control the device does not permit is not on the page (motor.html):
+    // its value, where the minimum asks for one, is a read-only slot instead.
+    const setpoint = typeof a.val === "number" ? `${fmt(a.val, a.prec)} ${a.egu || ""}` : "—";
+    text(card, "val-hint", `setpoint ${setpoint}`);
+    text(card, "val", setpoint);
     const valInput = card.querySelector('[data-field=".VAL"]');
-    if (document.activeElement !== valInput && typeof a.val === "number") valInput.value = +a.val.toFixed(a.prec ?? 3);
+    if (valInput && document.activeElement !== valInput && typeof a.val === "number") valInput.value = +a.val.toFixed(a.prec ?? 3);
     const twv = card.querySelector('[data-field=".TWV"]');
-    if (document.activeElement !== twv && typeof a.twv === "number") twv.value = a.twv;
+    if (twv && document.activeElement !== twv && typeof a.twv === "number") twv.value = a.twv;
     const velo = card.querySelector('[data-field=".VELO"]');
-    if (document.activeElement !== velo && typeof a.velo === "number") velo.value = a.velo;
+    if (velo && document.activeElement !== velo && typeof a.velo === "number") velo.value = a.velo;
     const unit = a.egu ? `${a.egu}/s` : "";
-    slot(card, "velo-hint").textContent =
-      typeof a.vmax === "number" && a.vmax > 0 ? `${unit} · max ${a.vmax}` : `${unit} · no maximum set`;
+    text(card, "velo-hint",
+      typeof a.vmax === "number" && a.vmax > 0 ? `${unit} · max ${a.vmax}` : `${unit} · no maximum set`);
+    text(card, "velo", typeof a.velo === "number" ? `${a.velo} ${unit}` : "—");
     slot(card, "accl").textContent = typeof a.accl === "number" ? `${a.accl} s` : "—";
     slot(card, "rdbd").textContent = typeof a.rdbd === "number" ? `${fmt(a.rdbd, a.prec)} ${a.egu || ""}` : "—";
 

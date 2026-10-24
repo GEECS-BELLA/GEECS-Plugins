@@ -17,6 +17,33 @@ open question (`Planning/device_panels.md`).
 
 `--read-only` makes every page a viewer: nothing writes to a device.
 
+## Bench devices and per-device actions
+
+`--bench PATH` adds devices on bench IOCs that the registry does not list
+(a bench prefix, or a device the GEECS DB still owns, which the scan worker
+must not see), and sets the panel's options per device:
+
+```yaml
+devices:
+  U_ESP302_01:                    # the page's name
+    kind: epics_motor
+    prefix: "undulator:esptest1:" # the bench IOC's prefix
+    axes: [m1, m2, m3]
+    allow: [move, tweak, stop]    # actuators on mirror mounts: no home, no velocity
+    note: >-
+      The ESP302's model-2 driver polls only during a move it started:
+      between moves the readback is the last reading, and a move made at
+      the controller's front panel is not seen until a record processes.
+```
+
+`allow` names the panel actions the device permits: for a positioner,
+`move` (`.VAL`), `tweak` (`.TWV`, `.TWF`/`.TWR`), `stop` (`.STOP`),
+`home` (`.HOMF`/`.HOMR`) and `velocity` (`.VELO`). A device that permits a
+motion must permit `stop`. The page leaves out the controls of the
+other actions and names them, and the server refuses their fields with a
+403. Without `allow`, a device keeps every action. The IOC's access
+security still has the last word.
+
 ## Run it on a laptop
 
 ```

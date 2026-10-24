@@ -6,7 +6,9 @@
   event every :data:`PUSH_S`; ``?once=1`` sends one and closes.
 - ``/motor/{device}/put`` — one allow-listed write to one axis
   (:func:`geecs_panels.motor.check_write`): a move is checked against the
-  soft limits the feed holds before it reaches the record.
+  soft limits the feed holds before it reaches the record; a field outside
+  the device's permitted actions (``Device.allow``) is a 403, and the page
+  does not draw its control.
 """
 
 from __future__ import annotations
@@ -22,7 +24,14 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from geecs_panels.feed import WriteFailed
-from geecs_panels.motor import NotWritable, check_write
+from geecs_panels.motor import (
+    ACTIONS,
+    NotAllowed,
+    NotWritable,
+    allowed_actions,
+    allowed_fields,
+    check_write,
+)
 from geecs_panels.motor_feed import MotorFeed
 from geecs_panels.registry import Device
 
@@ -63,10 +72,18 @@ def add_motor_routes(
 
     @app.get("/motor/{name}", response_class=HTMLResponse)
     def motor_page(request: Request, name: str) -> HTMLResponse:
+        device = motor(name)
         return templates.TemplateResponse(
             request,
             "motor.html",
-            {"experiment": experiment, "device": motor(name), "writable": writable},
+            {
+                "experiment": experiment,
+                "device": device,
+                "writable": writable,
+                "actions": allowed_actions(device.allow),
+                "held": [a for a in ACTIONS if a not in allowed_actions(device.allow)],
+                "restricted": device.allow is not None,
+            },
         )
 
     @app.get("/motor/{name}/events")
@@ -106,8 +123,13 @@ def _add_write(
             raise HTTPException(404, f"{device.name} has no axis {request.axis!r}")
         try:
             value = check_write(
-                request.field, request.value, motors.feed(device).axis(request.axis)
+                request.field,
+                request.value,
+                motors.feed(device).axis(request.axis),
+                allowed_fields(device.allow),
             )
+        except NotAllowed as exc:
+            raise HTTPException(403, f"{device.name}: {exc}") from exc
         except NotWritable as exc:
             raise HTTPException(422, str(exc)) from exc
         try:

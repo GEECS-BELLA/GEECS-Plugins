@@ -90,3 +90,64 @@ def test_an_unreachable_configs_tree_is_an_error_not_no_devices(tmp_path: Path) 
     path = tmp_path / "gone" / "Undulator" / "native_devices.yaml"
     with pytest.raises(RegistryError, match="not reachable"):
         load_devices("Undulator", path)
+
+
+# ---- the bench file -------------------------------------------------------------
+
+BENCH = """\
+devices:
+  U_ESP302_01:
+    kind: epics_motor
+    prefix: "undulator:esptest1:"
+    axes: [m1, m2, m3]
+    allow: [move, tweak, stop]
+    note: Between moves the readback is the last reading.
+  SimMotor2:
+    kind: epics_motor
+    prefix: "undulator:simmotor2:"
+    axes: [m1]
+"""
+
+
+def test_a_bench_device_carries_its_prefix_axes_and_permitted_actions(
+    tmp_path: Path,
+) -> None:
+    from geecs_panels.registry import load_bench
+
+    path = tmp_path / "bench.yaml"
+    path.write_text(BENCH)
+    esp, sim = load_bench(path)
+    assert (esp.name, esp.kind, esp.prefix, esp.axes) == (
+        "U_ESP302_01", "epics_motor", "undulator:esptest1:", ("m1", "m2", "m3")
+    )  # fmt: skip
+    assert esp.allow == {"move", "tweak", "stop"} and esp.note.startswith("Between")
+    assert sim.allow is None and sim.note == ""
+
+
+@pytest.mark.parametrize(
+    "entry, message",
+    [
+        (
+            "kind: epics_motor\n    prefix: 'p:'\n    axes: [m1]\n    allow: [move]",
+            "stop",
+        ),
+        (
+            "kind: epics_motor\n    prefix: 'p:'\n    axes: [m1]\n    allow: [jog, stop]",
+            "unknown",
+        ),
+        ("kind: epics_motor\n    prefix: 'p:'\n    axes: []", "axes"),
+        ("kind: epics_motor\n    prefix: 'p'\n    axes: [m1]", "prefix"),
+        (
+            "kind: epics_motor\n    prefix: 'p:'\n    axes: [m1]\n    alow: [stop]",
+            "alow",
+        ),
+        ("kind: toaster\n    prefix: 'p:'", "kind"),
+    ],
+)
+def test_a_broken_bench_file_raises_naming_why(tmp_path: Path, entry, message) -> None:
+    from geecs_panels.registry import load_bench
+
+    path = tmp_path / "bench.yaml"
+    path.write_text(f"devices:\n  D:\n    {entry}\n")
+    with pytest.raises(RegistryError, match=message):
+        load_bench(path)
