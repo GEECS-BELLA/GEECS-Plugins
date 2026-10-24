@@ -3,9 +3,11 @@
 // One stream (/motor/<name>/events) carries each axis's fields, its MSTA
 // flags by name and its state word (judged by the service, so the page
 // copies a kit word and never invents one). Each input shows the record's
-// value unless it has focus; a change posts one allow-listed write to the
-// axis, and the record's answer arrives on the stream (a target outside
-// the soft limits is refused by the service first, naming the limits).
+// value unless it has focus. A setting (step, velocity) posts on change;
+// a MOVE posts only on Move or Enter in its field — never on focus leaving
+// the field, because a move is physical. The record's answer arrives on
+// the stream (a target outside the soft limits is refused by the service
+// first, naming the limits).
 (() => {
   "use strict";
 
@@ -49,8 +51,17 @@
 
   for (const card of cards) {
     const axis = card.dataset.axis;
+    const move = () => {
+      const n = number(card.querySelector('[data-field=".VAL"]'));
+      if (n !== null) put(card, axis, ".VAL", n);
+    };
     for (const el of card.querySelectorAll("[data-field]")) {
       el.disabled = !writable;
+      if (el.dataset.field === ".VAL") {
+        // One move path: Move, or Enter here. Leaving the field moves nothing.
+        el.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { move(); el.blur(); } });
+        continue;
+      }
       el.addEventListener("change", () => {
         const n = number(el);
         if (n !== null) put(card, axis, el.dataset.field, n);
@@ -61,13 +72,8 @@
     for (const btn of card.querySelectorAll("[data-press]")) {
       btn.disabled = !writable;
       btn.addEventListener("click", () => {
-        const field = btn.dataset.press;
-        if (field === ".VAL") {
-          const n = number(card.querySelector('[data-field=".VAL"]'));
-          if (n !== null) put(card, axis, field, n);
-        } else {
-          put(card, axis, field, 1);
-        }
+        if (btn.dataset.press === ".VAL") move();
+        else put(card, axis, btn.dataset.press, 1);
       });
     }
   }
@@ -99,7 +105,7 @@
       meter.setAttribute("aria-valuemin", a.llm);
       meter.setAttribute("aria-valuemax", a.hlm);
       meter.setAttribute("aria-valuenow", a.rbv);
-      meter.dataset.state = a.state === "degraded" || a.state === "failed" ? "failed" : a.state === "running" ? "running" : "ok";
+      meter.dataset.state = a.state;
     } else {
       fillEl.style.width = "0%";
       meter.dataset.state = "unknown";
@@ -110,10 +116,11 @@
     slot(card, "lls").hidden = !(a.lls || (a.flags && a.flags.minus_ls));
     slot(card, "hls").hidden = !(a.hls || (a.flags && a.flags.plus_ls));
     slot(card, "lvio").hidden = !a.lvio;
-    slot(card, "homed").hidden = !(a.flags && a.flags.homed);
-    slot(card, "not-homed").hidden = !(a.reachable && a.flags && !a.flags.homed);
+    // Homing is read off .MSTA: say nothing about it until that field has connected.
+    const mstaKnown = a.reachable && !(a.missing || []).includes("msta");
+    slot(card, "homed").hidden = !(mstaKnown && a.flags.homed);
+    slot(card, "not-homed").hidden = !(mstaKnown && !a.flags.homed);
 
-    fill(card, "val-hint", null);
     slot(card, "val-hint").textContent = typeof a.val === "number" ? `setpoint ${fmt(a.val, a.prec)} ${a.egu || ""}` : "setpoint —";
     const valInput = card.querySelector('[data-field=".VAL"]');
     if (document.activeElement !== valInput && typeof a.val === "number") valInput.value = +a.val.toFixed(a.prec ?? 3);

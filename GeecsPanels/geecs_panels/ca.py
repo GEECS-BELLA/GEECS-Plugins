@@ -350,6 +350,9 @@ class LiveMotors:
         A move's put (``.VAL``, a tweak, a home) completes only when the
         motion ends — put-callback on a motor record — so it is dispatched
         without waiting; the stream shows the move and ``.DMOV`` its end.
+        A setting (``.TWV``, ``.VELO``) and ``.STOP`` are awaited, so a
+        refused one surfaces: the record completes those at once, mid-move
+        too (simmotor1: 0.02 s, 0.04 s and 0.28 s during a 6 s move).
         """
         pv = device.prefix + axis + field
         try:

@@ -14,8 +14,10 @@
   (:mod:`geecs_panels.motor_app`).
 - ``/health``.
 
-Read-only in this build: no route writes a PV. The web glue (prefix
-middleware, ``/theme``, ``root`` in every template) is GeecsWebTheme's.
+Every write is one allow-listed PV at a time (the camera's display state
+and its controls behind the run lock, the scope's settings, the
+positioner's moves). The web glue (prefix middleware, ``/theme``, ``root``
+in every template) is GeecsWebTheme's.
 """
 
 from __future__ import annotations
@@ -221,6 +223,13 @@ def create_app(
     templates = make_templates(TEMPLATES_DIR)
     by_name = {d.name: d for d in devices}
     camera = _panel_lookup(by_name, "camera", "camera", experiment)
+    # The landing page links only the panels whose routes exist in this app:
+    # a kind whose live state was not given is listed unlinked, not a 500.
+    mounted = {"aravis_camera": PANELS["aravis_camera"]}
+    if scopes is not None:
+        mounted[SCOPE_KIND] = PANELS[SCOPE_KIND]
+    if motors is not None:
+        mounted[MOTOR_KIND] = PANELS[MOTOR_KIND]
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request) -> HTMLResponse:
@@ -233,7 +242,7 @@ def create_app(
             {
                 "experiment": experiment,
                 "kinds": kinds,
-                "panels": PANELS,
+                "panels": mounted,
                 "registry_path": registry_path,
                 "registry_error": registry_error,
             },

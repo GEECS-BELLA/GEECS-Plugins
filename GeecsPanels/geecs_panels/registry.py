@@ -15,7 +15,7 @@ from pathlib import Path
 import yaml
 from geecs_core.configs_repo import scanner_configs_base
 from geecs_core.pv_naming import pv_name
-from geecs_schemas import NATIVE_DEVICES_FILENAME, NativeDevices
+from geecs_schemas import NATIVE_DEVICES_FILENAME, EpicsMotor, NativeDevices
 
 
 class RegistryError(RuntimeError):
@@ -65,7 +65,7 @@ def load_devices(experiment: str, path: Path | None) -> list[Device]:
             name=name,
             kind=entry.kind,
             prefix=pv_name(experiment, name) + ":",
-            axes=tuple(getattr(entry, "axes", ())),
+            axes=tuple(entry.axes) if isinstance(entry, EpicsMotor) else (),
         )
         for name, entry in registry.devices.items()
     ]

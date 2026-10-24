@@ -18,6 +18,12 @@ is checked against the record's soft limits here first (the record
 refuses it too, with ``LVIO``), the tweak step and velocity are checked
 for sense, and the press-only fields take 1. Nothing a scan records is
 written.
+
+The field table here is the kind's suffix table of ``NATIVE_DEVICES.md``
+§10, which that design places beside the kind models in
+``geecs_schemas.epics`` once the scanner's readback and the archive pass
+need it too; until then it lives with its one consumer, as the camera's
+and the scope's do.
 """
 
 from __future__ import annotations
@@ -91,22 +97,21 @@ def axis_state(axis: Mapping[str, object]) -> tuple[str, str]:
     """The kit state word and the words beside it for one axis's snapshot.
 
     Judged from the record, worst first: no communication (``.MSTA``
-    ``comm_err`` or ``.SEVR`` INVALID) and a controller problem are
-    ``failed``; a move in progress is ``running``; a limit switch, a
-    target refused by the soft limits (``.LVIO``) or an alarm is
-    ``degraded``; a stopped axis is ``ok``; an axis none of whose fields
-    has connected is ``unknown``.
+    ``comm_err``, or ``.SEVR`` INVALID with a COMM/TIMEOUT status), any
+    other INVALID (``UDF`` at an IOC start) and a controller problem are
+    ``failed``; motion held by ``.SPMG`` (Stop / Pause: a move request
+    moves nothing) is ``degraded``; a move in progress is ``running``; a
+    limit switch, a target refused by the soft limits (``.LVIO``) or an
+    alarm is ``degraded``; a stopped axis is ``ok``; an axis none of whose
+    fields has connected is ``unknown``.
     """
     if not axis.get("reachable"):
         return "unknown", "connecting"
     flags = axis.get("flags") or {}
-    sevr = axis.get("sevr")
-    if flags.get("comm_err") or sevr == "INVALID":
-        return "failed", "no communication"
-    if flags.get("problem"):
-        return "failed", "controller problem"
-    if flags.get("slip_stall"):
-        return "failed", "slip or stall"
+    sevr, stat = axis.get("sevr"), axis.get("stat")
+    fault = _fault(flags, sevr, stat, axis.get("spmg"))
+    if fault is not None:
+        return fault
     if axis.get("movn") or flags.get("moving") or axis.get("dmov") == 0:
         return "running", "moving"
     if axis.get("hls") or flags.get("plus_ls"):
@@ -118,6 +123,23 @@ def axis_state(axis: Mapping[str, object]) -> tuple[str, str]:
     if sevr in ("MINOR", "MAJOR"):
         return "degraded", f"alarm {axis.get('stat') or sevr}"
     return "ok", "stopped"
+
+
+def _fault(
+    flags: Mapping[str, bool], sevr: object, stat: object, spmg: object
+) -> tuple[str, str] | None:
+    """A state that overrides motion: no communication, invalid, a controller problem, motion held."""
+    if flags.get("comm_err") or (sevr == "INVALID" and stat in ("COMM", "TIMEOUT")):
+        return "failed", "no communication"
+    if sevr == "INVALID":
+        return "failed", f"invalid ({stat or 'no status'})"
+    if flags.get("problem"):
+        return "failed", "controller problem"
+    if flags.get("slip_stall"):
+        return "failed", "slip or stall"
+    if spmg in ("Stop", "Pause"):
+        return "degraded", f"motion held (SPMG {spmg})"
+    return None
 
 
 def device_state(states: list[str]) -> str:
@@ -162,9 +184,12 @@ def check_write(field: str, value: object, axis: Mapping[str, object]) -> object
     """The value to put for an allowed write, or :class:`NotWritable`.
 
     *axis* is the axis's snapshot: a ``.VAL`` target is checked against its
-    soft limits (``.LLM``/``.HLM``, when both have been read — the record
-    treats equal limits as no limit, and so does this), ``.VELO`` against
-    ``.VMAX`` when the record has one; a press-only field takes 1.
+    soft limits (``.LLM``/``.HLM``) when both have been read and differ.
+    Limits that read equal are left to the record: its own no-limit rule
+    is both *dial* limits zero, of which equal user limits are the usual
+    sign, and a one-point range is the record's to refuse (``LVIO``), as
+    it refuses anything this check lets through.  ``.VELO`` is checked
+    against ``.VMAX`` when the record has one; a press-only field takes 1.
     """
     if field not in WRITABLE:
         raise NotWritable(f"{field} is not writable from the panel")

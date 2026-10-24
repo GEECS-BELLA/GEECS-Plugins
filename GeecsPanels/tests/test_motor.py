@@ -106,7 +106,9 @@ def test_msta_decodes_the_records_status_bits() -> None:
         ({"lvio": 1}, ("degraded", "target outside the soft limits")),
         ({"sevr": "MAJOR", "stat": "HWLIMIT"}, ("degraded", "alarm HWLIMIT")),
         ({"sevr": "INVALID", "stat": "COMM"}, ("failed", "no communication")),
+        ({"sevr": "INVALID", "stat": "UDF"}, ("failed", "invalid (UDF)")),
         ({"msta": 16514 | (1 << 9)}, ("failed", "controller problem")),
+        ({"spmg": "Pause"}, ("degraded", "motion held (SPMG Pause)")),
     ],
 )
 def test_the_state_word_is_judged_worst_first(fields, want) -> None:
@@ -152,7 +154,7 @@ def test_a_move_outside_the_soft_limits_is_refused_naming_them() -> None:
         check_write(".VAL", 10.5, axis)
 
 
-def test_equal_limits_mean_no_limit_as_the_record_says() -> None:
+def test_limits_that_read_equal_are_left_to_the_record() -> None:
     assert check_write(".VAL", 1e6, _feed(hlm=0.0, llm=0.0).axis("m1")) == 1e6
     # Limits not read yet: the record is left to judge (LVIO), not refused here.
     assert check_write(".VAL", 1e6, {"reachable": True}) == 1e6
@@ -192,11 +194,39 @@ def test_moves_are_dispatched_without_waiting_for_the_motion() -> None:
     assert ".TWV" not in NO_WAIT and ".VELO" not in NO_WAIT
 
 
+def test_the_live_put_waits_on_a_setting_and_not_on_a_move(monkeypatch) -> None:
+    """``LiveMotors.put``: the one line that differs from the scope's, pinned on a fake aioca."""
+    import asyncio
+
+    from geecs_panels import ca
+    from tests.test_writes import FakeCa
+
+    fake = FakeCa()
+    monkeypatch.setattr(ca, "aioca", fake)
+    motors = ca.LiveMotors()
+    asyncio.run(motors.put(STAGE, "m1", ".VAL", 3.0))
+    asyncio.run(motors.put(STAGE, "m2", ".VELO", 2.0))
+    assert fake.puts == [
+        ("undulator:simmotor1:m1.VAL", 3.0, False),
+        ("undulator:simmotor1:m2.VELO", 2.0, True),
+    ]
+    monkeypatch.setattr(ca, "aioca", FakeCa(refuse=True))
+    with pytest.raises(WriteFailed, match="m1.STOP"):
+        asyncio.run(ca.LiveMotors().put(STAGE, "m1", ".STOP", 1))
+
+
 # ---- routes -----------------------------------------------------------------
 
 
 def test_the_landing_page_links_the_positioner() -> None:
     assert 'href="/motor/SimMotor1"' in _client().get("/").text
+
+
+def test_without_live_motors_the_positioner_is_listed_unlinked_not_a_500() -> None:
+    page = TestClient(create_app("Undulator", [STAGE, CAM], object())).get("/")
+    assert page.status_code == 200
+    assert "SimMotor1" in page.text and 'href="/motor/SimMotor1"' not in page.text
+    assert 'href="/camera/ADTEST_CAM1"' in page.text
 
 
 def test_the_page_renders_a_card_per_axis_from_the_registry() -> None:
