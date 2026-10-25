@@ -18,6 +18,9 @@ devices:
   UC_VisaEBeam6:
     kind: aravis_camera
     trigger_source: line0
+  SimMotor1:
+    kind: epics_motor
+    axes: [m1, m2]
 """
 
 
@@ -28,7 +31,19 @@ def test_devices_come_in_file_order_with_derived_prefixes(tmp_path: Path) -> Non
     assert [(d.name, d.kind, d.prefix) for d in devices] == [
         ("ADTEST_CAM1", "aravis_camera", "undulator:adtest_cam1:"),
         ("UC_VisaEBeam6", "aravis_camera", "undulator:uc_visaebeam6:"),
+        ("SimMotor1", "epics_motor", "undulator:simmotor1:"),
     ]
+
+
+def test_a_positioner_carries_its_axes_and_has_a_panel(tmp_path: Path) -> None:
+    """The registry's epics_motor entry reaches the panel: its axes, and the kind PANELS keys on."""
+    from geecs_panels.app import PANELS
+
+    path = tmp_path / "native_devices.yaml"
+    path.write_text(REGISTRY)
+    cam, _, stage = load_devices("Undulator", path)
+    assert stage.axes == ("m1", "m2") and cam.axes == ()
+    assert PANELS[stage.kind] == "motor"
 
 
 def test_an_absent_registry_is_no_devices(tmp_path: Path) -> None:

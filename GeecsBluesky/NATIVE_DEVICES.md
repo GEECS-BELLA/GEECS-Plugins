@@ -998,7 +998,9 @@ need — become data beside the kind models in `geecs_schemas.epics`.
 **Panels** (GeecsPanels, #1131–#1138 open; `Planning/device_panels.md`):
 a kind whose writes move things submits through the scanner's
 `POST /api/move`, serialized with scans — the positioner and a setpoint
-device's numeric settables; non-motion controls (`enable_output`, `reset`)
+device's numeric settables (the positioner panel, #1143, writes the record
+directly as a prototype until slice L gives the scanner native axes;
+`Planning/device_panels.md` §1); non-motion controls (`enable_output`, `reset`)
 are direct, allow-listed puts; the scope's settings are direct puts
 behind the run lock, as the camera's will be (#1136). Needed from the
 kind's suffix table: motor — `.RBV`, `.VAL`, `.DMOV`, `.HLM`/`.LLM`, the

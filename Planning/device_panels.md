@@ -36,7 +36,12 @@ the scanner already moves settables through the queue (`POST /api/move`),
 serialized with scans, and such a panel submits through that API. Direct
 puts are for devices whose IOC enforces run ownership — for the camera,
 a lock the scan run sets and the IOC's access security enforces (§6),
-which takes a NativeCamera change in GeecsBluesky.
+which takes a NativeCamera change in GeecsBluesky. **Prototype exception
+(2026-10-23, GEECS-Plugins #1143):** the positioner panel writes the motor
+record directly behind an allow-list until the scanner can list native
+axes (`NATIVE_DEVICES.md` §10, slice L); meanwhile a move from the panel
+during a sweep of the same axis is the operator's to avoid (no lock, no
+refusal).
 
 **The stock alternative, weighed.** EPICS already has a web path: the
 Phoebus Display Builder web runtime (dbwr) serving `.bob` screens, over

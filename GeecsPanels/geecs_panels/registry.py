@@ -15,7 +15,7 @@ from pathlib import Path
 import yaml
 from geecs_core.configs_repo import scanner_configs_base
 from geecs_core.pv_naming import pv_name
-from geecs_schemas import NATIVE_DEVICES_FILENAME, NativeDevices
+from geecs_schemas import NATIVE_DEVICES_FILENAME, EpicsMotor, NativeDevices
 
 
 class RegistryError(RuntimeError):
@@ -24,11 +24,13 @@ class RegistryError(RuntimeError):
 
 @dataclass(frozen=True)
 class Device:
-    """One native device: its GEECS name, its kind and its PV prefix."""
+    """One native device: its GEECS name, its kind, its PV prefix and, for a positioner, its axes."""
 
     name: str
     kind: str
     prefix: str
+    #: A positioner's axes — the motor record names under the prefix; empty for other kinds.
+    axes: tuple[str, ...] = ()
 
 
 def registry_path(experiment: str, base: Path | None = None) -> Path | None:
@@ -59,6 +61,11 @@ def load_devices(experiment: str, path: Path | None) -> list[Device]:
     except (OSError, ValueError, yaml.YAMLError) as exc:
         raise RegistryError(f"native device registry {path} is invalid: {exc}") from exc
     return [
-        Device(name=name, kind=entry.kind, prefix=pv_name(experiment, name) + ":")
+        Device(
+            name=name,
+            kind=entry.kind,
+            prefix=pv_name(experiment, name) + ":",
+            axes=tuple(entry.axes) if isinstance(entry, EpicsMotor) else (),
+        )
         for name, entry in registry.devices.items()
     ]
