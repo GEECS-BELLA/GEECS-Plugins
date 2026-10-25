@@ -8,11 +8,15 @@ packages = [{ include = "geecs_bluesky" }]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
-# Track the current ophyd-async 0.19.x API (init_devices, ophyd_async.epics.core,
-# observe_value) — kept consistent with the GeecsCAGateway env.  The solver can
-# struggle with pydantic-numpy's multi-Python markers; see INSTALL.md for the
-# pip-based bootstrap if `poetry install` fails.
-ophyd-async = ">=0.19.3,<1.0"
+# Pinned to the one release this package is tested and deployed on.  0.19.4
+# already reworks StandardMovable's stop (a stop cancels the move) and refuses
+# protocol names as attributes, which this suite's mocks set; 0.21 replaces
+# MotorMoveLogic, which the native motor (devices/native_motor.py) extends, so
+# a newer resolution breaks the worker namespace's import.  Moving up is its
+# own change: port the native motor's move logic, adapt those mocks, relock.
+# The solver can struggle with pydantic-numpy's multi-Python markers; see
+# INSTALL.md for the pip-based bootstrap if `poetry install` fails.
+ophyd-async = "==0.19.3"
 bluesky = ">=1.12"
 
 # Scan numbering (claim_scan_number) and the Tiled→s-file exporter
