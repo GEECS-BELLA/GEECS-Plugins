@@ -17,7 +17,11 @@ the contract; see :meth:`VersionedSchemaModel.from_path`).
 
 The contents were transcribed from GeecsPanels' per-kind tables
 (``motor.py``, ``camera.py``, ``scope.py``, ``power.py``); a pin in
-GeecsPanels' tests holds the two in step until those tables are deleted.
+GeecsPanels' tests (``tests/test_contracts.py``, web estate S2) holds the
+two in step until those tables are deleted.
+
+The installed families are shared by everything in the process, so the
+models are frozen and :func:`load_families` returns a read-only mapping.
 """
 
 from __future__ import annotations
@@ -26,9 +30,10 @@ import json
 from collections.abc import Mapping
 from functools import lru_cache
 from importlib import resources
+from types import MappingProxyType
 from typing import Annotated, Literal, Optional
 
-from pydantic import Field, ValidationInfo, model_validator
+from pydantic import AfterValidator, ConfigDict, Field, ValidationInfo, model_validator
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 
@@ -52,8 +57,23 @@ FamilyKind = Literal[
 #: A template's name: the family file's stem.
 TemplateName = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
 
+#: Words YAML 1.1 reads as a boolean or null: as a role name, an unquoted
+#: one in an override or a panel would arrive as ``False``, not the role.
+_YAML_WORDS = frozenset({"y", "n", "yes", "no", "on", "off", "true", "false", "null"})
+
+
+def _not_a_yaml_word(name: str) -> str:
+    if name in _YAML_WORDS:
+        raise ValueError(
+            f"{name!r} reads as a boolean or null in YAML; name it otherwise"
+        )
+    return name
+
+
 #: A role's (or an action's) name: a plain word, it keys the stream.
-RoleName = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
+RoleName = Annotated[
+    str, Field(pattern=r"^[a-z][a-z0-9_]*$"), AfterValidator(_not_a_yaml_word)
+]
 
 #: A PV suffix under the device's prefix: no whitespace.
 Suffix = Annotated[str, Field(pattern=r"^\S+$")]
@@ -61,6 +81,9 @@ Suffix = Annotated[str, Field(pattern=r"^\S+$")]
 #: Roles a write goes to; the others are read only.
 _ALWAYS_WRITABLE = frozenset({"setpoint", "command"})
 _NEVER_WRITABLE = frozenset({"readback", "counter", "array", "image"})
+
+#: Shared through the process-wide cache: never changed in place.
+_FROZEN = ConfigDict(extra="forbid", frozen=True)
 
 
 class Role(SchemaModel):
@@ -72,6 +95,8 @@ class Role(SchemaModel):
     readback in two records (areaDetector's ``X`` / ``X_RBV``), else at
     ``suffix`` itself.
     """
+
+    model_config = _FROZEN
 
     name: RoleName = Field(
         description="The role's name: a plain word, unique in the family; it keys the device stream."
@@ -259,6 +284,8 @@ class FamilyAction(SchemaModel):
     (``allow``); a family without actions permits every writable role.
     """
 
+    model_config = _FROZEN
+
     label: str = Field(min_length=1, description="What the page's control is called.")
     roles: list[RoleName] = Field(
         min_length=1, description="The writable roles the action writes."
@@ -279,6 +306,8 @@ class FamilyFile(VersionedSchemaModel):
     one file per template; read with :func:`load_families`. The order of
     ``roles`` is the page's order.
     """
+
+    model_config = _FROZEN
 
     schema_version: Literal[1] = Field(
         1,
@@ -312,7 +341,8 @@ class FamilyFile(VersionedSchemaModel):
         default_factory=dict,
         description=(
             "The page's actions and the roles each writes; a device may permit a "
-            "subset. Empty: every writable role is its own permission."
+            "subset. When there are actions, every writable role belongs to one. "
+            "Empty: every writable role is its own permission."
         ),
     )
 
@@ -344,6 +374,14 @@ class FamilyFile(VersionedSchemaModel):
             if missing:
                 raise ValueError(
                     f"action {action_name!r} requires unknown action(s) {missing}"
+                )
+        if self.actions:
+            acted = {name for action in self.actions.values() for name in action.roles}
+            loose = [r.name for r in self.roles if r.writable and r.name not in acted]
+            if loose:
+                raise ValueError(
+                    f"writable role(s) {loose} belong to no action: with actions, "
+                    "a device's allow decides every write"
                 )
         return self
 
@@ -418,7 +456,7 @@ def load_families() -> Mapping[str, FamilyFile]:
                 f"family file {entry.name} declares template {family.template!r}"
             )
         families[stem] = family
-    return families
+    return MappingProxyType(families)
 
 
 def families_from(info: ValidationInfo) -> Mapping[str, FamilyFile]:
