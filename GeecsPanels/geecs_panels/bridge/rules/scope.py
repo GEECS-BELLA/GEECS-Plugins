@@ -31,7 +31,9 @@ from geecs_panels.bridge.arrays import (
 from geecs_panels.bridge.feed import Channel, Feed
 from geecs_panels.bridge.rules import Rules
 from geecs_panels.feed import ArraysUnavailable
-from geecs_panels.scope import CHANNELS, TIMEBASE_KEYS
+from geecs_schemas.epics.family import Role
+
+from geecs_panels.scope import CHANNELS, TIMEBASE_KEYS, check_write
 from geecs_panels.scope_feed import ScopeTraces
 
 #: The roles whose change makes the held capture's time axis wrong: the
@@ -113,4 +115,12 @@ class Capture:
         )
 
 
-RULES = Rules(reader=Capture, on_update=watch)
+def check(
+    feed: Feed, role: Role, axis: str, value: object, choices: list[str]
+) -> object:
+    """``scope.check_write`` by the record written, an enum against the choices its record reported."""
+    suffix = role.write_suffix or role.suffix
+    return check_write(suffix, value, {suffix: choices})
+
+
+RULES = Rules(reader=Capture, on_update=watch, check=check)

@@ -37,7 +37,12 @@ TEMPLATES = [
     REPO_ROOT / "GeecsScanner/deploy/geecs-scanner.service",
     REPO_ROOT / "GeecsArchiver/deploy/geecs-archiver.service",
     REPO_ROOT / "deploy/front-door/geecs-front-door.service",
+    REPO_ROOT / "GeecsPanels/deploy/geecs-panels.service",
 ]
+#: The units that run as an account of their own, by the site.env key naming it.
+OWN_ACCOUNT = {
+    "geecs-panels.service": "geecs-panels"
+}  # the example's GEECS_PANELS_USER
 
 # The shape of a unit file from before the site profile: real-looking
 # directives, generic account, no placeholders anywhere in the directives.
@@ -104,7 +109,8 @@ def test_in_tree_templates_render(tmp_path: Path) -> None:
         assert not any(
             "@" in line and "@" in line.split("=", 1)[-1] for line in directives
         ), t.name
-        assert "User=geecs\n" in rendered  # the example's GEECS_SERVICE_USER
+        # the example's GEECS_SERVICE_USER, or the unit's own account
+        assert f"User={OWN_ACCOUNT.get(t.name, 'geecs')}\n" in rendered
         assert "EnvironmentFile=/etc/geecs/site.env" in rendered
 
 
@@ -116,3 +122,40 @@ def test_default_template_list_is_every_in_tree_template(tmp_path: Path) -> None
     assert result.returncode == 0, result.stderr
     rendered = sorted(p.name for p in (tmp_path / "out").glob("*.service"))
     assert rendered == sorted(t.name for t in TEMPLATES)
+
+
+def test_the_pv_bridge_never_runs_as_the_service_account(tmp_path: Path) -> None:
+    """The camera IOCs let the worker's CA user past the run lock: the bridge has its own account."""
+    result = _render(
+        tmp_path / "out", REPO_ROOT / "GeecsPanels/deploy/geecs-panels.service"
+    )
+    assert result.returncode == 0, result.stderr
+    rendered = (tmp_path / "out" / "geecs-panels.service").read_text(encoding="utf-8")
+    assert "User=geecs-panels\n" in rendered
+    assert "SupplementaryGroups=geecs\n" in rendered
+    assert "StateDirectory=geecs-panels\n" in rendered
+    assert " --pages-read-only " in rendered  # the pages' unjournaled writes are off
+
+
+def test_a_site_without_a_bridge_account_renders_no_bridge_unit(tmp_path: Path) -> None:
+    site = tmp_path / "site.env"
+    site.write_text(
+        "".join(
+            line
+            for line in SITE_ENV.read_text(encoding="utf-8").splitlines(keepends=True)
+            if not line.startswith("GEECS_PANELS_USER=")
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        ["bash", str(RENDER), str(site), str(tmp_path / "out")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "skipped geecs-panels.service" in result.stdout
+    rendered = sorted(p.name for p in (tmp_path / "out").glob("*.service"))
+    assert rendered == sorted(
+        t.name for t in TEMPLATES if t.name != "geecs-panels.service"
+    )

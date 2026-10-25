@@ -1,0 +1,58 @@
+# GEECS Panels / the PV bridge — systemd unit TEMPLATE.
+#
+# Do not copy this file to /etc/systemd/system by hand. Render it from the
+# host's site.env with `deploy/render_units.sh` — see
+# docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
+# time (paths + identity); ${VARIABLE} values come from site.env at start via
+# EnvironmentFile= (valid only in command arguments). A site.env without
+# GEECS_PANELS_USER renders no panels unit (the bridge is opt-in by site).
+#
+# Install and upgrade: GeecsPanels/deploy/DEPLOYMENT.md.
+
+[Unit]
+Description=GEECS Panels (the PV bridge: device streams and puts for the web pages)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Its OWN account, never the worker's (Planning/device_panels.md § 6): the
+# camera IOCs' access security lets the scan worker's CA user write a camera
+# a run holds, so a bridge on that account would pass the run lock. The IOC
+# sees this account as the CA user of every put the bridge makes; per-
+# operator policy is the bridge's (the journal names each operator).
+User=@PANELS_USER@
+# Reads the clone and its venv, which belong to the service account: the
+# service account's group (its primary group, same name) gives the panels
+# account read access without making it the worker.
+SupplementaryGroups=@SERVICE_USER@
+# The host's site profile: GEECS_EXPERIMENT, the CA address list, TZ, and
+# GEECS_CONFIGS_ROOT (the registry and panel_devices.yaml). This account has
+# no config.ini of its own: everything it needs comes from here and the
+# command line.
+EnvironmentFile=@SITE_ENV@
+WorkingDirectory=@CHECKOUT_ROOT@/panels-checkout/GeecsPanels
+# The venv inside the package (`poetry config virtualenvs.in-project true
+# --local`, DEPLOYMENT.md): this account has no poetry home of its own.
+# Behind geecs-front-door (/panels, stripped and named in X-Forwarded-Prefix)
+# no --root-path is needed; GEECS_PANELS_EXTRA_ARGS (unquoted: systemd
+# splits it, an empty key adds nothing) carries --bench, --read-only, or
+# --root-path behind a proxy that keeps the prefix and sends no header.
+# --pages-read-only: on the lab LAN every write goes through POST /api/put
+# (operator, journal, hazard confirm, the stale-page gate); the per-kind
+# prototype pages' own put routes carry none of them, so here they refuse.
+# The quotes matter — share paths carry spaces; systemd substitutes "${VAR}"
+# as one argument.
+ExecStart=@CHECKOUT_ROOT@/panels-checkout/GeecsPanels/.venv/bin/geecs-panels --experiment ${GEECS_EXPERIMENT} --configs-root "${GEECS_CONFIGS_ROOT}" --host 0.0.0.0 --port 8500 --pages-read-only $GEECS_PANELS_EXTRA_ARGS
+# The put journal: systemd creates /var/lib/geecs-panels, owns it to User=,
+# and exports it as $STATE_DIRECTORY, which the bridge takes as the default
+# --journal location (journal.db). Not a site value — the same path on
+# every host. Back it up: who wrote what to which device is recorded here
+# and nowhere else.
+StateDirectory=geecs-panels
+Restart=on-failure
+RestartSec=5
+SyslogIdentifier=geecs-panels
+
+[Install]
+WantedBy=multi-user.target

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 
 import pytest
 from geecs_schemas import FamilyFile, PanelDevice, load_families
@@ -256,3 +257,28 @@ def test_the_fpstest1_bench_entry_is_the_fastps_family_as_it_stands() -> None:
     }
     assert {r.name: r.suffix for r in family.roles if not r.fault} == bench_roles
     assert {r.name: r.suffix for r in family.roles if r.fault} == bench_bits
+
+
+@pytest.mark.parametrize(
+    "template, check",
+    [
+        ("ad_camera_chain", lambda suffix, v: camera.check_write(suffix, v)),
+        ("scope_contract", lambda suffix, v: scope.check_write(suffix, v, {})),
+    ],
+)
+def test_a_familys_write_limits_are_its_panels_table(
+    template: str, check: Callable[[str, object], object]
+) -> None:
+    """The bridge applies both bounds in turn: they must agree, edge for edge, or the narrower wins unseen."""
+    family = load_families()[template]
+    bounded = [r for r in family.roles if r.limits is not None]
+    assert bounded
+    for role in bounded:
+        low, high = role.limits
+        step = 1 if role.integer else max(abs(high), 1.0) * 1e-6
+        suffix = role.write_suffix
+        for inside in (low, high):
+            check(suffix, int(inside) if role.integer else float(inside))
+        for outside in (low - step, high + step):
+            with pytest.raises(ValueError):
+                check(suffix, int(outside) if role.integer else float(outside))

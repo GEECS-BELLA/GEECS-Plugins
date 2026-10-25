@@ -60,6 +60,7 @@ TEMPLATES=(
     GeecsScanner/deploy/geecs-scanner.service
     GeecsArchiver/deploy/geecs-archiver.service
     deploy/front-door/geecs-front-door.service
+    GeecsPanels/deploy/geecs-panels.service
 )
 if [ $# -gt 0 ]; then TEMPLATES=("$@"); fi
 
@@ -79,8 +80,16 @@ for t in "${TEMPLATES[@]}"; do
         echo "  bootstrap_host.sh --only <other services> renders the rest meanwhile" >&2
         exit 1
     fi
+    # The PV bridge runs as an account of its own (GEECS_PANELS_USER, never
+    # the worker's: the camera IOCs let the worker's CA user past the run
+    # lock). A site without the key has no bridge: its unit is skipped.
+    if unit_directives "$src" | grep -q '@PANELS_USER@' && [ -z "${GEECS_PANELS_USER:-}" ]; then
+        echo "skipped $(basename "$t"): site.env has no GEECS_PANELS_USER"
+        continue
+    fi
     dst="$OUT_DIR/$(basename "$t")"
     sed -e "s|@SERVICE_USER@|$GEECS_SERVICE_USER|g" \
+        -e "s|@PANELS_USER@|${GEECS_PANELS_USER:-}|g" \
         -e "s|@SERVICE_HOME@|$GEECS_SERVICE_HOME|g" \
         -e "s|@CHECKOUT_ROOT@|$GEECS_CHECKOUT_ROOT|g" \
         -e "s|@POETRY@|$GEECS_POETRY|g" \

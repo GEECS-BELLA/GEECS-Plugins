@@ -70,6 +70,27 @@ def main() -> None:
         default=0.25,
         help="seconds between a device stream's frames (/api/devices/{name}/events)",
     )
+    parser.add_argument(
+        "--pages-read-only",
+        action="store_true",
+        help="refuse the per-kind pages' own writes (/camera, /motor, /supply, /scope "
+        "put routes: no operator, no journal, no hazard confirm) while the bridge's "
+        "POST /api/put writes; the unit sets it",
+    )
+    parser.add_argument(
+        "--journal",
+        default=None,
+        metavar="PATH",
+        help="the put journal (SQLite; default: $STATE_DIRECTORY/journal.db under the "
+        "unit, else in memory)",
+    )
+    parser.add_argument(
+        "--configs-root",
+        default=None,
+        metavar="PATH",
+        help="the configs repository (the registry, panel_devices.yaml); default: "
+        "config.ini [Paths] scanner_config_root_path",
+    )
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
     args = parser.parse_args()
 
@@ -81,6 +102,10 @@ def main() -> None:
     from geecs_core.configs_repo import read_config_entry
     from geecs_core.epics_env import apply_epics_address_config
 
+    if args.configs_root:
+        # The resolver's own override (geecs_core.configs_repo): the unit's
+        # account has no config.ini of its own.
+        os.environ["GEECS_PLUGINS_CONFIGS"] = args.configs_root
     # Before anything imports aioca: libca reads the address list once.
     apply_epics_address_config()
     # A laptop drops off the VPN: libca's searches for the lost channels back
@@ -100,9 +125,12 @@ def main() -> None:
 
     from geecs_panels.app import create_app
     from geecs_panels.bridge.catalog import load_experiment
+    from geecs_panels.bridge.journal import Journal, default_path
+    from geecs_panels.bridge.puts import Puts
     from geecs_panels.bridge.routes import Bridge
     from geecs_panels.bridge.stream import DeviceStreams
     from geecs_panels.ca import (
+        CaPuts,
         LiveCameras,
         LiveMotors,
         LiveScopes,
@@ -122,18 +150,27 @@ def main() -> None:
         )
     except RegistryError as exc:
         sys.exit(f"geecs-panels: {exc}")
+    streams = DeviceStreams(
+        {d.name: d for d in loaded.served},
+        subscribe_reading,
+        read=read_pvs,
+        stale_after=args.stale_after,
+        push_s=args.push_period,
+    )
+    journal = Journal(Path(args.journal) if args.journal else default_path())
     bridge = Bridge(
         experiment,
         loaded.served,
         loaded.errors + loaded.unserved,
-        DeviceStreams(
-            {d.name: d for d in loaded.served},
-            subscribe_reading,
-            read=read_pvs,
-            stale_after=args.stale_after,
-            push_s=args.push_period,
-        ),
+        streams,
         families,
+        Puts(
+            streams,
+            CaPuts(),
+            journal,
+            writable=not args.read_only,
+            stale_after=args.stale_after,
+        ),
     )
     app = create_app(
         experiment,
@@ -147,7 +184,7 @@ def main() -> None:
         stale_after=args.stale_after,
         max_fps=args.max_fps,
         root_path=args.root_path,
-        writable=not args.read_only,
+        writable=not (args.read_only or args.pages_read_only),
         scopes=LiveScopes(),
         motors=LiveMotors(),
         supplies=LiveSupplies(),

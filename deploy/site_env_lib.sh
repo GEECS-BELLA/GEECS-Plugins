@@ -36,13 +36,14 @@ unit_directives() {  # unit_directives FILE — the non-comment, non-blank lines
 }
 
 # A unit file is a site-profile TEMPLATE only if its directives carry the
-# holes: User=@SERVICE_USER@ and an EnvironmentFile=@SITE_ENV@ line. A file
+# holes: User=@SERVICE_USER@ (the PV bridge: @PANELS_USER@, an account of
+# its own) and an EnvironmentFile=@SITE_ENV@ line. A file
 # from before the site profile (a hand-edit copy with the generic account) has
 # neither — and must never be installed as if it had been rendered (Phase 3
 # live incident 2026-09-04: portal unit from a pre-#777 clone, status=217/USER).
 # Comments are ignored: every template header mentions the placeholders in prose.
 is_unit_template() {  # is_unit_template FILE
-    unit_directives "$1" | grep -q '^User=@SERVICE_USER@$' && unit_directives "$1" | grep -q '^EnvironmentFile=@SITE_ENV@$'
+    unit_directives "$1" | grep -qE '^User=@(SERVICE_USER|PANELS_USER)@$' && unit_directives "$1" | grep -q '^EnvironmentFile=@SITE_ENV@$'
 }
 
 require_site_keys() {  # require_site_keys KEY... — exit 2 naming the first missing one

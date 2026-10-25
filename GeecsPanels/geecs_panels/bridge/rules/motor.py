@@ -14,7 +14,9 @@ from collections.abc import Mapping
 from geecs_panels.bridge.feed import Feed, HistorySpec
 from geecs_panels.bridge.rules import Rules
 from geecs_panels.contracts import DeviceState
-from geecs_panels.motor import axis_state, device_state, msta_flags
+from geecs_schemas.epics.family import Role
+
+from geecs_panels.motor import axis_state, check_write, device_state, msta_flags
 
 #: Each axis's readback, sampled on the stream's tick at most once a second
 #: (a quiet positioner then sends one small frame a second, its points).
@@ -43,4 +45,12 @@ def device(feed: Feed, axes: Mapping[str, DeviceState]) -> DeviceState:
     return DeviceState(word=word, status=status)  # type: ignore[arg-type]  # the kit's words
 
 
-RULES = Rules(history=HISTORY, axis_state=axis, state=device)
+def check(
+    feed: Feed, role: Role, axis: str, value: object, choices: list[str]
+) -> object:
+    """``motor.check_write``: a target inside the soft limits (when read and distinct), a velocity within VMAX."""
+    fields = {r.name: feed.value(r.name, axis) for r in feed.device.roles}
+    return check_write(role.suffix, value, fields)
+
+
+RULES = Rules(history=HISTORY, axis_state=axis, state=device, check=check)

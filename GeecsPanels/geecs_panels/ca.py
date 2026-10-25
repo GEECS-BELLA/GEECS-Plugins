@@ -25,6 +25,7 @@ import aioca
 import httpx
 
 from geecs_panels.bridge.feed import ReadAs, Sample
+from geecs_panels.bridge.puts import PUT_TIMEOUT_S, SETTLE_POLL_S
 from geecs_panels.camera import (
     ARRAYS,
     IMAGE_PLUGIN,
@@ -58,10 +59,6 @@ from geecs_panels.scope_feed import ScopeFeed, ScopeTraces
 FETCH_TIMEOUT_S = 3.0
 #: The plots' arrays are read at most this often (and only while asked for).
 ARRAYS_EVERY_S = 0.5
-#: A write waits for the IOC to process the record, at most this long.
-PUT_TIMEOUT_S = 3.0
-#: How often a readback-settled write re-reads its readback.
-SETTLE_POLL_S = 0.1
 
 
 def subscribe(
@@ -130,6 +127,32 @@ def subscribe_reading(
 async def read_pvs(pvs: list[str]) -> list[object]:
     """Read *pvs* in one request (the bridge's on-request arrays); raises if any fails."""
     return list(await aioca.caget(pvs, timeout=3.0))
+
+
+class CaPuts:
+    """The bridge's put transport (:class:`geecs_panels.bridge.puts.PutTransport`) over aioca."""
+
+    async def put(self, pv: str, value: object, wait: bool) -> None:
+        """Write *pv*; with *wait*, until the record processed (an access-security refusal raises)."""
+        await aioca.caput(pv, value, wait=wait, timeout=PUT_TIMEOUT_S)
+
+    async def get(self, pv: str, as_string: bool = False) -> object:
+        """Read *pv* once (an enum, a field such as SEVR, as text when asked)."""
+        value = await aioca.caget(
+            pv, datatype=str if as_string else None, timeout=PUT_TIMEOUT_S
+        )
+        if as_string:
+            return str(value)
+        if isinstance(value, float):
+            return float(value)
+        if isinstance(value, int):
+            return int(value)
+        return value
+
+    async def choices(self, pv: str) -> list[str]:
+        """An enum record's state names (``DBR_CTRL``)."""
+        value = await aioca.caget(pv, format=aioca.FORMAT_CTRL, timeout=PUT_TIMEOUT_S)
+        return [str(n) for n in getattr(value, "enums", ())]
 
 
 async def settle(pv: str, want: object) -> None:

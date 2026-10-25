@@ -38,6 +38,12 @@ The same process is the PV bridge the web repository's pages read
   histogram, a scope's traces), read on request and min/max-decimated.
 - `GET /api/frame/<device>` — a camera's latest JPEG (the camera page's
   frame route under its `/api` name: one upstream fetch for both).
+- `POST /api/put` — one write (`device`, `role`, `axis` for a motor,
+  `value`, `operator`, `confirm` for a hazard role) through the bridge's
+  gates, answered `accepted`, `refused` or `denied` and journaled either
+  way; a write needs the device's stream open (a stale page cannot write).
+  `POST /api/devices/<device>/unlock` releases a stuck run lock, naming who.
+- `GET /api/journal?entries=N` — the last puts, newest first.
 
 The models are `geecs_panels.contracts` (the stream's frames, published
 as `api/events.schema.json`) and `api/openapi.json`.

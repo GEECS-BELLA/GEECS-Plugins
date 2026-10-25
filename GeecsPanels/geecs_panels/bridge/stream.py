@@ -139,6 +139,9 @@ class DeviceHub:
     listeners: set[asyncio.Queue[object]] = field(default_factory=set)
     #: Monotonic time the last listener left (the hub's age without one).
     idle_since: Optional[float] = None
+    #: Monotonic time the device was last judged (a tick): a put refuses a
+    #: stream older than ``stale_after`` (a stale page cannot write).
+    ticked_at: float = -math.inf
     _content: Optional[Content] = None
     #: Wall time of the newest history point already in a frame.
     _history_mark: float = -math.inf
@@ -212,6 +215,7 @@ class DeviceHub:
         if self._content is None:
             self._content = self.content()
             self._history_mark = self.wall()
+            self.ticked_at = self.clock()
         return self._content
 
     def full_frame(self) -> DeviceFrame:
@@ -239,6 +243,7 @@ class DeviceHub:
             self._ensure_content()
             return None
         old, new = self._content, self.content()
+        self.ticked_at = self.clock()
         delta = _delta(old, new)
         now = self.wall()
         history = self._history(self._history_mark, now)
