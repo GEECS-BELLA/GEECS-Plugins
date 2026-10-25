@@ -334,11 +334,18 @@ def _detector_names(native_devices: Collection[str] | Mapping[str, Any]) -> set[
     """
     from geecs_schemas import DETECTOR_KINDS
 
+    def kind(entry: Any) -> Any:  # a model, a raw mapping, or a stand-in's None
+        return (
+            entry.get("kind")
+            if isinstance(entry, Mapping)
+            else getattr(entry, "kind", None)
+        )
+
     if isinstance(native_devices, Mapping):
         return {
             name.casefold()
             for name, entry in native_devices.items()
-            if getattr(entry, "kind", None) in (None, *DETECTOR_KINDS)
+            if kind(entry) in (None, *DETECTOR_KINDS)
         }
     return {name.casefold() for name in native_devices}
 
