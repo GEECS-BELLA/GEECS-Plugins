@@ -28,6 +28,13 @@ tooling. Each subdirectory is an independent Python package with its own
 
 Each subpackage has its own `CLAUDE.md` with deep architectural detail.
 
+The native EPICS IOCs GEECS drives directly — their instances, the
+decisions they follow, the device catalogue, the simulators and the
+hardware-test runbooks — live in the private repo `GEECS-BELLA/geecs-epics`;
+its `CLAUDE.md` is the entry point. This repo holds the GEECS side only
+(the kinds and registry, GeecsPanels, the gateways, the archiver). Refer to
+that repo by name only: its hosts and addresses stay there.
+
 The published mkdocs site lives under `docs/` and also has its own
 `CLAUDE.md` covering documentation conventions — content organisation,
 build commands, the headless-screenshot workflow for GUI pages, and
