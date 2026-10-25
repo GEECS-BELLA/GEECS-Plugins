@@ -136,7 +136,38 @@ def test_a_disconnect_marks_the_field_missing_not_the_axis_dead() -> None:
     feed = _feed()
     feed.update("m1.twv", None)
     axis = feed.axis("m1")
-    assert axis["missing"] == ["twv"] and axis["reachable"] and axis["twv"] == 1.0
+    assert axis["missing"] == ["twv"] and axis["reachable"]
+    assert axis["twv"] is None  # never the value from before the drop
+    assert axis["state"] == "ok"  # the state word is not judged from .TWV
+
+
+def test_a_dropped_readback_or_status_is_none_and_the_state_unknown() -> None:
+    """RBV, DMOV, MSTA and SEVR drop while DESC stays: no stale position, no "ok"."""
+    feed = _feed(rbv=1.0)
+    for key, value in AT_REST.items():
+        feed.update(f"m2.{key}", value)  # both axes live: the device chip is m1's
+    assert feed.snapshot()["state"] == "ok"
+    for key in ("rbv", "dmov", "msta", "sevr"):
+        feed.update(f"m1.{key}", None)
+    axis = feed.axis("m1")
+    assert axis["reachable"] and axis["desc"] == "Simulated axis 1"
+    assert axis["rbv"] is None and axis["dmov"] is None and axis["sevr"] is None
+    assert axis["msta"] is None and axis["flags"] is None
+    assert (axis["state"], axis["status"]) == (
+        "unknown",
+        "not connected: rbv dmov msta sevr",
+    )
+    assert feed.snapshot()["state"] == "unknown"
+    # Reconnected, the live values are back and so is the verdict.
+    for key in ("rbv", "dmov", "msta", "sevr"):
+        feed.update(f"m1.{key}", AT_REST[key])
+    assert feed.axis("m1")["state"] == "ok"
+
+
+def test_a_known_fault_outranks_a_dropped_field() -> None:
+    feed = _feed(sevr="INVALID", stat="COMM")
+    feed.update("m1.rbv", None)
+    assert feed.axis("m1")["state"] == "failed"
 
 
 # ---- the allow-list ---------------------------------------------------------

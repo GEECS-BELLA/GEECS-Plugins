@@ -93,25 +93,38 @@ def msta_flags(value: object) -> dict[str, bool]:
     return {name: bool(word & (1 << (bit - 1))) for name, bit in MSTA_BITS.items()}
 
 
+#: The fields an axis's state word is judged from, and its readback: while
+#: any is not connected (``None`` in the snapshot) a stopped, healthy axis
+#: cannot be told from one whose motion, switches or alarm go unheard.
+STATE_KEYS = ("rbv", "dmov", "movn", "msta", "sevr", "hls", "lls", "lvio", "spmg")
+
+
 def axis_state(axis: Mapping[str, object]) -> tuple[str, str]:
     """The kit state word and the words beside it for one axis's snapshot.
 
     Judged from the record, worst first: no communication (``.MSTA``
     ``comm_err``, or ``.SEVR`` INVALID with a COMM/TIMEOUT status), any
     other INVALID (``UDF`` at an IOC start) and a controller problem are
-    ``failed``; motion held by ``.SPMG`` (Stop / Pause: a move request
-    moves nothing) is ``degraded``; a move in progress is ``running``; a
-    limit switch, a target refused by the soft limits (``.LVIO``) or an
-    alarm is ``degraded``; a stopped axis is ``ok``; an axis none of whose
-    fields has connected is ``unknown``.
+    ``failed``; a field of :data:`STATE_KEYS` not connected is ``unknown``
+    (naming them), as is an axis none of whose fields has connected;
+    motion held by ``.SPMG`` (Stop / Pause: a move request moves nothing)
+    is ``degraded``; a move in progress is ``running``; a limit switch, a
+    target refused by the soft limits (``.LVIO``) or an alarm is
+    ``degraded``; a stopped axis is ``ok``.
     """
     if not axis.get("reachable"):
         return "unknown", "connecting"
     flags = axis.get("flags") or {}
     sevr, stat = axis.get("sevr"), axis.get("stat")
-    fault = _fault(flags, sevr, stat, axis.get("spmg"))
+    fault = _fault(flags, sevr, stat)
     if fault is not None:
         return fault
+    unread = [key for key in STATE_KEYS if axis.get(key) is None]
+    if unread:
+        return "unknown", "not connected: " + " ".join(unread)
+    spmg = axis.get("spmg")
+    if spmg in ("Stop", "Pause"):
+        return "degraded", f"motion held (SPMG {spmg})"
     if axis.get("movn") or flags.get("moving") or axis.get("dmov") == 0:
         return "running", "moving"
     if axis.get("hls") or flags.get("plus_ls"):
@@ -126,9 +139,9 @@ def axis_state(axis: Mapping[str, object]) -> tuple[str, str]:
 
 
 def _fault(
-    flags: Mapping[str, bool], sevr: object, stat: object, spmg: object
+    flags: Mapping[str, bool], sevr: object, stat: object
 ) -> tuple[str, str] | None:
-    """A state that overrides motion: no communication, invalid, a controller problem, motion held."""
+    """A known failure, which outranks everything: no communication, invalid, a controller problem."""
     if flags.get("comm_err") or (sevr == "INVALID" and stat in ("COMM", "TIMEOUT")):
         return "failed", "no communication"
     if sevr == "INVALID":
@@ -137,8 +150,6 @@ def _fault(
         return "failed", "controller problem"
     if flags.get("slip_stall"):
         return "failed", "slip or stall"
-    if spmg in ("Stop", "Pause"):
-        return "degraded", f"motion held (SPMG {spmg})"
     return None
 
 

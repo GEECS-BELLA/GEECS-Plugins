@@ -2,7 +2,8 @@
 
 A :class:`MotorFeed` subscribes to each axis's fields on first use and
 keeps the latest of each; :meth:`MotorFeed.snapshot` is the JSON the page
-renders — per axis the values, the ``.MSTA`` flags by name, whether any
+renders — per axis the values (``None`` for a field whose channel is not
+connected, never a stale value), the ``.MSTA`` flags by name, whether any
 of its fields has connected, which are missing, and the state word
 (:func:`geecs_panels.motor.axis_state`). Every viewer shares one feed.
 The transport (``subscribe``) is injected, as for the camera and the scope.
@@ -65,13 +66,18 @@ class MotorFeed:
         self.connected[key] = True
         self.values[key] = value
 
+    def value(self, key: str) -> object | None:
+        """*key*'s value, ``None`` while its channel is not connected (never a stale value)."""
+        return self.values.get(key) if self.connected.get(key) else None
+
     def axis(self, name: str) -> dict[str, object]:
         """One axis for the page: its fields, flags, reachability and state."""
         keys = [f"{name}.{key}" for key in AXIS_FIELDS]
+        fields = {key: self.value(f"{name}.{key}") for key in AXIS_FIELDS}
         out: dict[str, object] = {
             "name": name,
-            **{key: self.values.get(f"{name}.{key}") for key in AXIS_FIELDS},
-            "flags": msta_flags(self.values.get(f"{name}.msta")),
+            **fields,
+            "flags": None if fields["msta"] is None else msta_flags(fields["msta"]),
             "reachable": any(self.connected.get(k) for k in keys),
             "missing": [k.split(".", 1)[1] for k in keys if not self.connected.get(k)],
         }
