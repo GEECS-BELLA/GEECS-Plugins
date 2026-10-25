@@ -41,7 +41,7 @@ geecs_panels/
   supply_app.py # /supply/{device}: page, events (SSE), put (by action)
   ca.py         # the real transports: aioca monitors, stream URL, httpx
   contracts.py  # the PV bridge's wire models (device stream, put, journal,
-                #   raw PV stream) — models only; `python -m` prints their schemas
+                #   raw PV stream) — models only; `python -m` prints the events document
   app.py        # routes: /, /camera/{device}, its frame.jpg and events (SSE),
                 #   and the writes: put (allow-listed), crosshair colour, to-centroid
   templates/, static/   # on the GeecsWebTheme kit; colours through tokens only
@@ -63,8 +63,10 @@ geecs_panels/
 full after a connect, changed roles only after), `PutRequest` /
 `PutResult` / `JournalEntry`, `LockRelease` (the run-lock override; the device is the path's), and the raw PV stream
 (`SubscriptionRequest` / `SubscriptionAck` / `PvFrame`).
-`python -m geecs_panels.contracts` prints their JSON Schemas (name →
-schema), which the web repository generates its clients from. **A model
+`python -m geecs_panels.contracts` prints the events document (SSE
+events `device` and `pv` as `properties`, every contract in `$defs`),
+which `scripts/export_openapi.py` commits as `api/events.schema.json` and
+the web repository generates its clients from. **A model
 here changes only with the web repo's clients regenerated**: these are
 the frozen contracts the browser lanes code against. A reading is whole
 in every frame (a delta re-sends a changed role complete, never a part to

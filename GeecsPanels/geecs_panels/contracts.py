@@ -2,7 +2,9 @@
 
 Models only, no routes (``Planning/epics_estate.md`` §2.3; the bridge lane
 wires them). The web repository's typed clients are generated from these
-models' JSON Schemas (``python -m geecs_panels.contracts`` prints them), so
+models' JSON Schemas (``python -m geecs_panels.contracts`` prints the
+events document ``scripts/export_openapi.py`` commits as
+``GeecsPanels/api/events.schema.json``), so
 **a model here changes only together with those clients regenerated**.
 
 Rules the stream carries (Appendix A):
@@ -33,6 +35,7 @@ import math
 import re
 from typing import Any, Literal, Optional, Union
 
+from pydantic.json_schema import models_json_schema
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -216,7 +219,7 @@ class AxisFrame(Contract):
 
 
 class DeviceFrame(Contract):
-    """One event of ``GET /api/devices/{name}/events``: a device's live state.
+    """One ``event: device`` frame of ``GET /api/devices/{name}/events``: a device's live state.
 
     The first frame after a connect (or a reconnect) is **full**: every
     monitored role, the state (for a family that has one), and, for a
@@ -434,7 +437,7 @@ class SubscriptionAck(Contract):
 
 
 class PvFrame(Contract):
-    """One event of ``GET /api/stream/{handle}``: the handle's PVs, full first, then changed only.
+    """One ``event: pv`` frame of ``GET /api/stream/{handle}``: the handle's PVs, full first, then changed only.
 
     Examples
     --------
@@ -450,7 +453,7 @@ class PvFrame(Contract):
     pvs: dict[str, Reading] = Field(description="PV → reading.")
 
 
-#: Every published contract: name → model. The export prints these.
+#: Every published contract: name → model.
 CONTRACTS: dict[str, type[Contract]] = {
     "device_frame": DeviceFrame,
     "put_request": PutRequest,
@@ -462,15 +465,52 @@ CONTRACTS: dict[str, type[Contract]] = {
     "pv_frame": PvFrame,
 }
 
+#: The bridge's SSE ``event:`` names and the model each frame's ``data:`` is.
+EVENT_MODELS: dict[str, type[Contract]] = {"device": DeviceFrame, "pv": PvFrame}
+
+JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
+
 
 def json_schemas() -> dict[str, dict[str, Any]]:  # Any: JSON Schema documents
     """Every contract's JSON Schema, by name."""
     return {name: model.model_json_schema() for name, model in CONTRACTS.items()}
 
 
+def events_document() -> dict[str, Any]:  # Any: a JSON Schema document
+    """The bridge's events document, in the shape ``scripts/export_openapi.py`` commits.
+
+    ``properties`` maps each SSE event name to its frame's schema, as the
+    exporter's ``events_document`` builds it for every service; ``$defs``
+    also carries the request and response contracts, so the web repo
+    generates them before the bridge's routes (and their OpenAPI document)
+    exist.
+    """
+    keys, schema = models_json_schema(
+        [(model, "serialization") for model in CONTRACTS.values()],
+        ref_template="#/$defs/{model}",
+    )
+    return {
+        "$schema": JSON_SCHEMA_DIALECT,
+        "title": "GEECS PV bridge events",
+        "description": (
+            "Each property is one Server-Sent-Events `event:` name; its schema "
+            "is the JSON object that frame's `data:` carries. A map of the "
+            "stream's frames, not a payload. $defs also holds the bridge's "
+            "request and response contracts."
+        ),
+        "type": "object",
+        "properties": {
+            name: keys[(model, "serialization")] for name, model in EVENT_MODELS.items()
+        },
+        "required": sorted(EVENT_MODELS),
+        "additionalProperties": False,
+        "$defs": schema.get("$defs", {}),
+    }
+
+
 def main() -> None:
-    """Print every contract's JSON Schema as one JSON object (name → schema)."""
-    print(json.dumps(json_schemas(), indent=2, sort_keys=True))
+    """Print the events document (one JSON Schema) for ``scripts/export_openapi.py``."""
+    print(json.dumps(events_document(), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

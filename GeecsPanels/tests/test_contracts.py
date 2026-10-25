@@ -18,6 +18,7 @@ from geecs_panels.contracts import (
     RoleReading,
     SubscriptionRequest,
     docstring_examples,
+    events_document,
     json_schemas,
     main,
 )
@@ -45,10 +46,20 @@ def test_the_docstring_examples_validate(name: str) -> None:
         assert model.model_validate_json(parsed.model_dump_json()) == parsed
 
 
-def test_the_module_prints_every_schema(capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_module_prints_the_events_document(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The shape scripts/export_openapi.py commits: events as properties, every contract in $defs."""
     main()
     printed = json.loads(capsys.readouterr().out)
-    assert printed == json.loads(json.dumps(json_schemas()))
+    assert printed == json.loads(json.dumps(events_document()))
+    assert printed["$schema"].endswith("/draft/2020-12/schema")
+    assert printed["properties"] == {
+        "device": {"$ref": "#/$defs/DeviceFrame"},
+        "pv": {"$ref": "#/$defs/PvFrame"},
+    }
+    assert printed["required"] == ["device", "pv"]
+    assert {m.__name__ for m in CONTRACTS.values()} <= set(printed["$defs"])
 
 
 def test_nan_travels_as_null_everywhere() -> None:
