@@ -61,12 +61,15 @@ geecs_panels/
 `geecs_panels/contracts.py` holds the PV bridge's wire models
 (`Planning/epics_estate.md` §2.3): the device-stream frame (`DeviceFrame`:
 full after a connect, changed roles only after), `PutRequest` /
-`PutResult` / `JournalEntry`, and the raw PV stream
+`PutResult` / `JournalEntry`, `LockRelease` (the run-lock override), and the raw PV stream
 (`SubscriptionRequest` / `SubscriptionAck` / `PvFrame`).
 `python -m geecs_panels.contracts` prints their JSON Schemas (name →
 schema), which the web repository generates its clients from. **A model
 here changes only with the web repo's clients regenerated**: these are
-the frozen contracts the browser lanes code against. Every model's
+the frozen contracts the browser lanes code against. A reading is whole
+in every frame (a delta re-sends a changed role complete, never a part to
+merge) and carries `advanced_at`, not an age, so a steady value is never
+re-sent as it ages. Every model's
 docstring `Examples` are JSON that its test validates and that the
 schema carries. `tests/test_contracts.py` also pins GEECS-Schemas'
 family files (motor, camera, scope, the two supplies) to this package's

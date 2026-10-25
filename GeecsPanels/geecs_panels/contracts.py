@@ -14,7 +14,16 @@ Rules the stream carries (Appendix A):
 - NaN and infinities travel as ``null``, or the stream dies (rule 10).
 
 Times are Unix seconds (wall clock, the bridge's), so a page plots them
-without parsing.
+without parsing; an age is the page's to compute (``server_time`` or its
+own clock minus ``advanced_at``), so a steady value is never re-sent just
+because it got older.
+
+Two nulls, two meanings: inside a reading, a null ``value`` is a value
+that is not there (disconnected, never read, not finite); a frame-level
+optional block (``state``, ``lock``, ``saturation``, ``history``) that is
+null or absent is unchanged in a delta, and not applicable in a full
+frame. ``Freshness`` replaces ``camera.Freshness``'s ``disconnected`` with
+``unknown`` (rule 9): the bridge lane retires the old word.
 """
 
 from __future__ import annotations
@@ -52,9 +61,6 @@ Severity = Literal["NO_ALARM", "MINOR", "MAJOR", "INVALID"]
 
 #: A value on the wire: NaN and infinities become ``None`` before they get here.
 Value = Optional[Union[StrictBool, StrictInt, StrictFloat, StrictStr]]
-
-#: A full PV name: no whitespace.
-PvName = Field(pattern=r"^\S+$")
 
 
 def _finite(value: object) -> object:
@@ -96,7 +102,13 @@ class Contract(BaseModel):
 
 
 class Reading(Contract):
-    """One value as the stream carries it: the value, its alarm, its age, how fresh it is."""
+    """One value as the stream carries it, always whole: the value, its alarm, when its source last advanced, how fresh it is.
+
+    A reading is complete in every frame that carries it, full or delta:
+    a delta sends a changed role or PV whole (``fields`` included), never
+    a partial one to merge. It is re-sent when anything in it changes,
+    the freshness word included (fresh → stale), but not as it ages.
+    """
 
     value: Value = Field(
         None,
@@ -108,12 +120,12 @@ class Reading(Contract):
     severity: Optional[Severity] = Field(
         None, description="The record's alarm severity; null while unread."
     )
-    age: Optional[float] = Field(
+    advanced_at: Optional[float] = Field(
         None,
-        ge=0,
         description=(
-            "Seconds since its freshness source last advanced (the producing "
-            "plugin's counter, else the value's own monitor); null: not seen to."
+            "When its freshness source last advanced, Unix seconds (the producing "
+            "plugin's counter, else the value's own monitor); null: not seen to. "
+            "Its age is server_time (or the page's clock) minus this."
         ),
     )
     freshness: Freshness = Field(description="fresh, stale, off or unknown.")
@@ -125,7 +137,7 @@ class Reading(Contract):
 
 
 class RoleReading(Reading):
-    """One role of a device: its reading, and the record fields its family reads beside it."""
+    """One role of a device: its reading, and the record fields its family reads beside it (all of them, every time)."""
 
     fields: dict[str, Value] = Field(
         default_factory=dict,
@@ -210,18 +222,19 @@ class DeviceFrame(Contract):
     monitored role, the state, and, for a per-axis family, every axis. Later
     frames are **deltas**: ``roles`` / ``axes`` carry only what changed, and
     ``state``, ``lock``, ``saturation`` and ``history`` appear only when
-    they changed. A role that dropped arrives with ``value`` null and
-    freshness ``unknown``. ``seq`` is the SSE ``id:`` cursor.
+    they changed. Each role a frame carries is whole (:class:`Reading`).
+    A role that dropped arrives with ``value`` null and freshness
+    ``unknown``. ``seq`` is the SSE ``id:`` cursor.
 
     Examples
     --------
-    {"device": "U_ChicaneInner", "family": "fastps", "seq": 1, "server_time": 1761400000.0, "full": true, "connected": true, "roles": {"current": {"value": 0.25, "severity": "NO_ALARM", "age": 0.4, "freshness": "fresh", "fields": {"EGU": "A", "PREC": 3}}, "output": {"value": 1, "severity": "NO_ALARM", "age": 2.0, "freshness": "fresh"}, "interlock_1": {"value": null, "freshness": "unknown"}}, "state": {"word": "unknown", "status": "not connected: bit.interlock_1"}}
+    {"device": "U_ChicaneInner", "family": "fastps", "seq": 1, "server_time": 1761400000.0, "full": true, "connected": true, "roles": {"current": {"value": 0.25, "severity": "NO_ALARM", "advanced_at": 1761399999.6, "freshness": "fresh", "fields": {"EGU": "A", "PREC": 3}}, "output": {"value": 1, "severity": "NO_ALARM", "advanced_at": 1761399998.0, "freshness": "fresh"}, "interlock_1": {"value": null, "freshness": "unknown"}}, "state": {"word": "unknown", "status": "not connected: bit.interlock_1"}}
 
-    {"device": "U_ChicaneInner", "family": "fastps", "seq": 2, "server_time": 1761400000.5, "full": false, "connected": true, "roles": {"current": {"value": 0.31, "severity": "NO_ALARM", "age": 0.0, "freshness": "fresh"}}}
+    {"device": "U_ChicaneInner", "family": "fastps", "seq": 2, "server_time": 1761400000.5, "full": false, "connected": true, "roles": {"current": {"value": 0.31, "severity": "NO_ALARM", "advanced_at": 1761400000.5, "freshness": "fresh", "fields": {"EGU": "A", "PREC": 3}}}}
 
-    {"device": "U_ESP302_01", "family": "motor_record", "seq": 7, "server_time": 1761400001.0, "full": false, "connected": true, "axes": {"m1": {"roles": {"rbv": {"value": 1.25, "severity": "NO_ALARM", "age": 0.1, "freshness": "fresh"}}, "state": {"word": "running", "status": "moving"}}}, "state": {"word": "running", "status": "moving"}}
+    {"device": "U_ESP302_01", "family": "motor_record", "seq": 7, "server_time": 1761400001.0, "full": false, "connected": true, "axes": {"m1": {"roles": {"rbv": {"value": 1.25, "severity": "NO_ALARM", "advanced_at": 1761400000.9, "freshness": "fresh"}}, "state": {"word": "running", "status": "moving"}}}, "state": {"word": "running", "status": "moving"}}
 
-    {"device": "UC_ExampleCam", "family": "ad_camera_chain", "seq": 1, "server_time": 1761400000.0, "full": true, "connected": true, "roles": {"cx": {"value": 512.0, "severity": "NO_ALARM", "age": 0.05, "freshness": "fresh"}, "max": {"value": 4000, "age": 0.05, "freshness": "off"}}, "lock": {"state": "free"}, "saturation": {"state": "ok", "fraction": 0.61}, "history": {"keys": ["cx"], "points": [[1761399999.5, 511.9]]}}
+    {"device": "UC_ExampleCam", "family": "ad_camera_chain", "seq": 1, "server_time": 1761400000.0, "full": true, "connected": true, "roles": {"cx": {"value": 512.0, "severity": "NO_ALARM", "advanced_at": 1761399999.95, "freshness": "fresh"}, "max": {"value": 4000, "advanced_at": 1761399999.95, "freshness": "off"}}, "lock": {"state": "free"}, "saturation": {"state": "ok", "fraction": 0.61}, "history": {"keys": ["cx"], "points": [[1761399999.5, 511.9]]}}
     """
 
     device: str = Field(description="The device's GEECS name.")
@@ -246,7 +259,11 @@ class DeviceFrame(Contract):
     )
     state: Optional[DeviceState] = Field(
         None,
-        description="The device's state word (worst of its axes'); always in a full frame.",
+        description=(
+            "The device's state word (worst of its axes'), for a family that has "
+            "one (motor, supply); in a full frame whenever it does. A camera's "
+            "state is its lock and saturation."
+        ),
     )
     lock: Optional[RunLock] = Field(
         None, description="The run lock, for a family that has one."
@@ -354,6 +371,26 @@ class JournalEntry(Contract):
     )
 
 
+class LockRelease(Contract):
+    """``POST /api/devices/{name}/unlock``: release a stuck run lock (a killed worker), naming who.
+
+    Not a put: the lock is no writable role. The bridge writes the lock
+    free and nothing else, journals it like a put (role ``lock``) and
+    answers with a :class:`PutResult` (Appendix A rule 6).
+
+    Examples
+    --------
+    {"device": "UC_ExampleCam", "operator": "S. Barber"}
+    """
+
+    device: str = Field(
+        min_length=1, description="The device whose run lock is released."
+    )
+    operator: str = Field(
+        min_length=1, max_length=60, description="Who is releasing it, journaled."
+    )
+
+
 # ---- the raw PV stream ---------------------------------------------------------
 
 
@@ -402,7 +439,7 @@ class PvFrame(Contract):
 
     Examples
     --------
-    {"handle": "h-3f9c", "seq": 1, "server_time": 1761400000.0, "full": true, "pvs": {"undulator:chicane:field": {"value": 0.42, "severity": "NO_ALARM", "age": 0.2, "freshness": "fresh"}, "undulator:shutter:state": {"value": null, "freshness": "unknown"}}}
+    {"handle": "h-3f9c", "seq": 1, "server_time": 1761400000.0, "full": true, "pvs": {"undulator:chicane:field": {"value": 0.42, "severity": "NO_ALARM", "advanced_at": 1761399999.8, "freshness": "fresh"}, "undulator:shutter:state": {"value": null, "freshness": "unknown"}}}
     """
 
     handle: str = Field(description="The handle.")
@@ -420,6 +457,7 @@ CONTRACTS: dict[str, type[Contract]] = {
     "put_request": PutRequest,
     "put_result": PutResult,
     "journal_entry": JournalEntry,
+    "lock_release": LockRelease,
     "subscription_request": SubscriptionRequest,
     "subscription_ack": SubscriptionAck,
     "pv_frame": PvFrame,

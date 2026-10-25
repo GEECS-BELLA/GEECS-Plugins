@@ -39,7 +39,9 @@ def test_the_docstring_examples_validate(name: str) -> None:
     examples = docstring_examples(model)
     assert examples, f"{model.__name__} has no Examples section"
     for example in examples:
-        assert model.model_validate(example).model_dump(exclude_unset=True) == example
+        parsed = model.model_validate(example)
+        # The wire is the default serialization: what the bridge sends.
+        assert model.model_validate_json(parsed.model_dump_json()) == parsed
 
 
 def test_the_module_prints_every_schema(capsys: pytest.CaptureFixture[str]) -> None:
@@ -60,6 +62,18 @@ def test_nan_travels_as_null_everywhere() -> None:
          "connected": True, "roles": {"x": reading.model_dump()}}
     )  # fmt: skip
     json.loads(frame.model_dump_json())  # strict JSON: no NaN token
+
+
+def test_a_role_travels_whole_in_every_frame() -> None:
+    """A delta's role is complete on the wire: nothing in it is 'unchanged' to merge."""
+    frame = DeviceFrame.model_validate(
+        {"device": "d", "family": "f", "seq": 4, "server_time": 10.0, "full": False,
+         "connected": True, "roles": {"x": {"freshness": "stale", "value": 1.5}}}
+    )  # fmt: skip
+    wire = json.loads(frame.model_dump_json())
+    role = wire["roles"]["x"]
+    assert set(role) == {"value", "severity", "advanced_at", "freshness", "fields"}
+    assert role["value"] == 1.5  # a freshness change never reads as a disconnect
 
 
 def test_a_delta_frame_carries_only_what_changed() -> None:
