@@ -10,8 +10,75 @@ open question (`Planning/device_panels.md`).
 - `/camera/<device>` is one camera's panel: the live image, with a colour
   map and levels of your own, and the live statistics, each with its age.
   Open several cameras in several tabs.
+- `/scope/<device>` is an oscilloscope's panel (geecs-epics' scope contract).
+- `/motor/<device>` is a positioner's panel: one card per axis — position
+  and setpoint, move and tweak, stop, the soft limits and switches, homing,
+  velocity — every word from the EPICS motor record.
+- `/supply/<device>` is a power supply's panel: current and voltage
+  readbacks, the setpoint beside them, output on/off, the fault and
+  interlock bits, the fault reset and the regulation loop (shown only).
 
-This build is read-only: nothing on the page writes to a camera.
+`--read-only` makes every page a viewer: nothing writes to a device.
+
+## Bench devices and per-device actions
+
+`--bench PATH` adds positioners and power supplies on bench IOCs that the registry does not list
+(a bench prefix, or a device the GEECS DB still owns, which the scan worker
+must not see), and sets the panel's options per device:
+
+```yaml
+devices:
+  U_ESP302_01:                    # the page's name, its URL segment: no / ? # % \ or blanks
+    kind: epics_motor
+    prefix: "undulator:esptest1:" # the bench IOC's prefix
+    axes: [m1, m2, m3]
+    allow: [move, tweak, stop]    # actuators on mirror mounts: no home, no velocity
+    note: >-
+      The ESP302's model-2 driver polls only during a move it started:
+      between moves the readback is the last reading, and a move made at
+      the controller's front panel is not seen until a record processes.
+```
+
+A power supply has no shared record set (each family's IOC names its own
+PVs), so its entry maps **roles** to PV suffixes under the prefix:
+
+```yaml
+  U_ChicaneInner:
+    kind: power_supply
+    prefix: "undulator:fpstest1:"
+    roles:                        # required: current_sp current voltage output_sp output reset
+      current_sp: "current_ramp:SP"   # the ramped write; optional: voltage_sp, loop_mode (shown only)
+      current: current
+      voltage: voltage
+      output_sp: "enable_output:SP"
+      output: enable_output
+      reset: "reset:SP"
+      loop_mode: loop_mode
+    bits: {fault: fault, interlock_1: interlock_1, interlock_2: interlock_2}
+    allow: [current, output, reset]
+    note: >-                      # measured 2026-10-24 (PDT) at the unit's slew of 10 A/s
+      Steps ring: a 0.5 A step peaked at 0.75 A (+0.34 s) and settled
+      within 5 mA by +1.8 s; a step to 0 A undershot to -0.25 A. The
+      10 A/s ramp (50 ms for 0.5 A) is faster than the regulation loop,
+      so it does not tame small steps.
+```
+
+A setpoint is refused unless it sits inside its record's drive limits
+(`DRVL`/`DRVH`, read and distinct), below `HIHI` and above `LOLO` when
+their severity is INVALID (the IOC's own refusal; until the severities and
+an INVALID one's bound are read, refused): an `ao` clamps a put past `DRVH` and
+writes the limit, so the panel's check is the gate that refuses. After each
+put the panel reads the record's alarm, so a supply's `#NAK` is an error on
+the page, not a silent success.
+
+`allow` names the panel actions the device permits: for a positioner,
+`move` (`.VAL`), `tweak` (`.TWV`, `.TWF`/`.TWR`), `stop` (`.STOP`),
+`home` (`.HOMF`/`.HOMR`) and `velocity` (`.VELO`), and a device that
+permits a motion must permit `stop`; for a power supply, `current`,
+`voltage`, `output` and `reset` (each needs its role). The page leaves out the controls of the
+other actions and names them, and the server refuses their fields with a
+403. Without `allow`, a device keeps every action. The IOC's access
+security still has the last word.
 
 ## Run it on a laptop
 

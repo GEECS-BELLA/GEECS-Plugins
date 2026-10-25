@@ -78,6 +78,8 @@ geecs_bluesky/
                             #   the state file, release_stale at environment open
   devices/native.py         # NativeCamera — a native EPICS areaDetector camera (geecs-epics
                             #   IOC) as a strict detector; NATIVE_DEVICES.md is its design
+  devices/native_motor.py   # NativeMotor — a positioner's EPICS motor records (one stock
+                            #   ophyd-async Motor per axis) as Movable children of one noun
   devices/hdf_plugin.py     # the file plugin's worker side: GeecsHdfIO (+Rewind),
                             #   PluginPathProvider (two paths per folder), file_plugin_hosts,
                             #   GeecsHdfDataLogic (the stock logic; the stream's geometry read
@@ -182,6 +184,30 @@ qserver/                    # the worker: launcher, startup profile, permissions
   registry (below).  The IOCs themselves (instances, decisions, hardware
   runbooks) live in the private repo `GEECS-BELLA/geecs-epics`, whose
   `CLAUDE.md` is the entry point.
+- **`NativeMotor`** (`devices/native_motor.py`, `NATIVE_DEVICES.md` §7) —
+  a positioner served by EPICS motor records (the registry's
+  `epics_motor`): one noun per device, one stock ophyd-async `Motor` per
+  axis as a Movable child (`U_ESP_JetXYZ.x`, the record
+  `<experiment>:<device>:x`), found by `mv`, a sweep axis, `variable`,
+  `get_settable` and an action's `set` step exactly as a `CaMotor` child
+  is.  The record is the verdict: the move is the stock put-callback on
+  `.VAL`, done when `.DMOV` returns to 1; the soft limits `.HLM`/`.LLM`
+  refuse an out-of-range target **before the put** (stock
+  `MotorLimitsError`); the timeout comes from `.VELO`/`.ACCL`; no
+  tolerance poll rides on top (the record retries to its own `.RDBD`).
+  What GEECS adds is the **post-move readback check** — a limit switch
+  or a following error stops the record with `.DMOV` = 1 short of the
+  target and the put completes "successfully" (the #868 class), so the
+  move fails naming the switch when the readback is off by more than
+  `.RDBD` (`GeecsMotorStoppedShortError`) — the ERROR log of a failed
+  set, and the GEECS names (`_geecs_device_name`, the s-file header
+  `U_ESP_JetXYZ x` of the axis's readback column, keyed by the axis's own
+  name as a stock motor's is).  Read as a device it is a per-row scalar
+  device (every axis's readback) with the `.scalars` view; a telemetry
+  candidate (an axis read costs no shot).  `stop()` writes `.STOP`.  No
+  `connected_status`: the liveness gate does not judge it yet (the
+  design's grown gate is a later slice, with the scanner's settables
+  list and the archive pass).
 - **`ShotControl`** — `Movable` over the trigger profile's states (`OFF`,
   `STANDBY`, `SCAN`, `ARMED`, `SINGLESHOT` — OFF is the only quiet
   state, STANDBY is the machine's idle and passes edges), replaying each
@@ -235,12 +261,16 @@ qserver/                    # the worker: launcher, startup profile, permissions
   same children under its catalog name (`ALine_e_beam_angle_offset_x`) — a
   bad entry is ERROR-logged and skipped, never fatal to environment open.
   Each entry of the native device registry (`native_devices=`, below) is a
-  `NativeCamera` at the derived prefix `pv_name(experiment, device) + ":"`
-  with a POSIX `PluginPathProvider` through `data_paths.native_ioc_save_path`;
+  noun at the derived prefix `pv_name(experiment, device) + ":"`, by kind:
+  an `aravis_camera` a `NativeCamera` with a POSIX `PluginPathProvider`
+  through `data_paths.native_ioc_save_path`, an `epics_motor` a
+  `NativeMotor` whose axes bind by `settable_attribute` (the rule a
+  `Device:axis` reference expands by);
   **one owner per device**: a registry name whose `safe_name` is also a DB
   roster device's (enabled, built or not) refuses to open, naming both.
-  `telemetry()` is the background-telemetry candidate set (never a native
-  camera: no scalars, and a read would wait for a shot).
+  `telemetry()` is the background-telemetry candidate set (a native
+  positioner is one — its axes' readbacks; never a native camera: no
+  scalars, and a read would wait for a shot).
 - The scalar devices and children keep their contracts: `CaMotor` (readback
   convergence within the DB tolerance, no `stop()` — GEECS has no universal
   abort), `CaConfirmSettable` (writes one variable, confirms on another),
@@ -926,8 +956,9 @@ command) and never imports the gateway (circular).
   boundary rows and device-side root come from the GEECS DB.
 
 The configs repo's `<experiment>/native_devices.yaml` (GEECS-Schemas
-`NativeDevices`: device name → `kind` + `trigger_source`, no hosts, paths
-or prefixes) names the devices served by native EPICS IOCs;
+`NativeDevices`: device name → `kind` + the kind's options — a camera's
+`trigger_source`, a positioner's `axes` — no hosts, paths or prefixes)
+names the devices served by native EPICS IOCs;
 `ConfigsRepoResolver.resolve_native_devices` reads it (absent = none) and
 the startup profile passes it to the namespace **not** best-effort — an
 invalid registry fails the environment open (configured but broken is not
@@ -983,7 +1014,9 @@ with no dependency edge between them.
   likewise `NativeCamera`'s driver and writer puts, except its trigger
   setup, whose readbacks it checks before the capture starts, and its
   run-lock take, whose readback refuses the run (the release is unchecked:
-  a lock left set is the safe failure).
+  a lock left set is the safe failure); and `NativeMotor`'s `.VAL` put
+  (the stock `Motor` move), whose post-move readback check is the backstop
+  — a refused put reads as "stopped short" with no switch set.
 - Import anything from `geecs_scanner` (the web scanner depends on this
   package; the edge is one-way, pinned by `.importlinter` and
   `tests/test_dependency_direction.py`), the portal, the logbook or the

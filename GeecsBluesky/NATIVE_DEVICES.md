@@ -709,6 +709,20 @@ every client (`GeecsCAGateway/PV_CONTRACT.md`) rather than inventing one.
 
 ### 7. Positioner — the EPICS motor record
 
+Status: **built** (2026-10-23) — the registry kind (`EpicsMotor`),
+`NativeMotor` / `NativeMotorAxis` (`devices/native_motor.py`), the
+namespace binding and the preset's kind-aware native set; proven on
+`simmotor1`.  Not yet: the gate grown by the movers, the scanner's
+settables list (§10, L — until it lands the web scanner's readback panel
+reads a native axis's default field, `.VAL`, the setpoint, not `.RBV`), the
+archive pass (R), a pseudo over native axes.
+Found when built: the stock `Motor` already refuses an out-of-limit
+target before the put (`MotorMoveLogic.check_move`), so nothing was added
+for the limits; and it already carries `offset` as the record's own
+`.OFF` (a config signal), so the soft-signal `offset` below for a pseudo
+over native axes needs a renamed signal or a subclass, not a plain
+attribute.
+
 The Newport ESP/SMC/CONEX, NewFocus and Zaber stages, the PI hexapod and
 the Thorlabs stages become motor records (the motion image the catalogue
 plans, `geecs-epics/docs/device-catalogue.md`). A filter wheel is a
@@ -726,7 +740,7 @@ U_ESP_JetXYZ: {kind: epics_motor, axes: [x, y, z]}
 **Device**: stock ophyd-async `Motor` per axis — `user_setpoint` (`.VAL`),
 `user_readback` (`.RBV`), `motor_done_move` (`.DMOV`),
 `low_limit_travel`/`high_limit_travel`, `velocity`, `motor_stop` — under
-one parent noun per device (*proposed* NativeMotor) bound as
+one parent noun per device (`NativeMotor`) bound as
 `U_ESP_JetXYZ.x`, so `mv`, a sweep axis, `GeecsNamespace.variable`,
 `get_settable` and an action's `set` step find it as a `CaMotor` child.
 The parent carries `_geecs_device_name` and `_column_headers` (`<name>-x`
@@ -744,7 +758,8 @@ stock class lacks: a **post-move readback check** — a limit switch
 record with `.DMOV` = 1 short of the target and the put completes
 "successfully" (the #868 class), so the move fails naming the switch when
 the readback is off by more than `.RDBD` — and the cause in the failure
-text (`_set_logged`'s job). A motor record **has** a stop: abort calls `motor_stop`.
+text (the one failed-set log line, `log_failed_set`). A motor record
+**has** a stop: abort calls `motor_stop`.
 
 **Scanner and preflight**: the settables list, the readback (`<axis>.RBV`)
 and the move are §10's. As a detector a positioner is a per-row scalar
@@ -983,7 +998,9 @@ need — become data beside the kind models in `geecs_schemas.epics`.
 **Panels** (GeecsPanels, #1131–#1138 open; `Planning/device_panels.md`):
 a kind whose writes move things submits through the scanner's
 `POST /api/move`, serialized with scans — the positioner and a setpoint
-device's numeric settables; non-motion controls (`enable_output`, `reset`)
+device's numeric settables (the positioner panel, #1143, writes the record
+directly as a prototype until slice L gives the scanner native axes;
+`Planning/device_panels.md` §1); non-motion controls (`enable_output`, `reset`)
 are direct, allow-listed puts; the scope's settings are direct puts
 behind the run lock, as the camera's will be (#1136). Needed from the
 kind's suffix table: motor — `.RBV`, `.VAL`, `.DMOV`, `.HLM`/`.LLM`, the

@@ -51,3 +51,20 @@
 .kit .channel-key.t2{color:var(--trace-2)}
 .kit .channel-key.t3{color:var(--trace-3)}
 .kit .channel-key.t4{color:var(--trace-4)}
+
+/* The positioner panel: one card per axis; the position reads big, the
+   soft limits are a meter the readback sits in. */
+.kit .axis .axis-main{display:grid;grid-template-columns:minmax(180px,auto) minmax(0,1fr);gap:var(--gap);align-items:center;margin-bottom:8px}
+@media (max-width:720px){.kit .axis .axis-main{grid-template-columns:minmax(0,1fr)}}
+.kit .axis .live.pos .v{font-size:28px}
+.kit .axis .axis-range .lbl{font-size:11px}
+.kit .axis .chips{min-height:1.6em;padding-top:6px;flex-wrap:wrap}
+.kit .motor-error{color:var(--crit);font-size:11.5px;min-height:1em}
+
+/* The power-supply panel: one card; the readbacks read big, side by side. */
+.kit .supply .supply-main{display:flex;flex-wrap:wrap;gap:calc(var(--gap) * 3);align-items:flex-end;margin-bottom:8px}
+.kit .supply .live.pos .v{font-size:28px}
+.kit .supply .chips{min-height:1.6em;padding-top:6px;flex-wrap:wrap}
+.kit .supply .field.setpoint{min-width:0;width:22rem}
+.kit .supply .field.setpoint input{width:9rem}
+.kit .supply-error{color:var(--crit);font-size:11.5px;min-height:1em}

@@ -844,7 +844,7 @@ bluesky-queueserver-api = {version = "^0.0.13", optional = true}
 geecs-core = {path = "../GEECS-Core", develop = true}
 geecs_data_utils = {path = "../GEECS-Data-Utils", develop = true}
 geecs-schemas = {path = "../GEECS-Schemas", develop = true}
-ophyd-async = ">=0.19.3,<1.0"
+ophyd-async = "==0.19.3"
 p4p = {version = ">=4.1", optional = true}
 
 [package.extras]
@@ -2082,14 +2082,14 @@ dev = ["attrs (>=19.3.0)", "black (==22.3.0)", "bluesky (>=1.11.0)", "caproto[st
 
 [[package]]
 name = "ophyd-async"
-version = "0.21.2"
+version = "0.19.3"
 description = "Asynchronous Bluesky hardware abstraction code, compatible with control systems like EPICS and Tango"
 optional = false
 python-versions = ">=3.11"
 groups = ["main"]
 files = [
-    {file = "ophyd_async-0.21.2-py3-none-any.whl", hash = "sha256:eac362e897db1a3c667001c9a04f8b5b77e8716f040609887bd86c2e228841a4"},
-    {file = "ophyd_async-0.21.2.tar.gz", hash = "sha256:51b4163eae5a88339cbe8042ff153db26a32b97da4d7eef0e28c5f63ece5c64c"},
+    {file = "ophyd_async-0.19.3-py3-none-any.whl", hash = "sha256:ef6201edb52e5a54008d57cad1808626aa6493ba4a8fd015e08d14bcffbb697a"},
+    {file = "ophyd_async-0.19.3.tar.gz", hash = "sha256:9cb76a8a08794a26c619a0420012e7248542501d036f16f3314221869e989984"},
 ]
 
 [package.dependencies]
@@ -2100,13 +2100,13 @@ numpy = "*"
 pydantic = ">=2.0"
 pydantic-numpy = "*"
 pyyaml = "*"
-scanspec = ">=1.0.0"
+scanspec = ">=0.8"
 stamina = ">=23.1.0"
 velocity-profile = "*"
 
 [package.extras]
 ca = ["aioca (>=2.0a4)"]
-demo = ["ipython", "matplotlib", "pyqt6", "pytest"]
+demo = ["ipython", "matplotlib", "pyqt6"]
 pva = ["p4p (>=4.2.0)"]
 sim = ["h5py"]
 tango = ["pytango (>=10.1.3)"]

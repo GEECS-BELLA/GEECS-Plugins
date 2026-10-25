@@ -49,9 +49,13 @@ def test_an_unreachable_configs_root_is_loud_not_empty(tmp_path: Path) -> None:
 
 
 def test_the_registry_is_read_and_validated(tmp_path: Path) -> None:
-    resolver = _write(tmp_path, {"schema_version": 1, "devices": {"UC_Cam": ENTRY}})
+    motor = {"kind": "epics_motor", "axes": ["x", "y"]}
+    resolver = _write(
+        tmp_path, {"schema_version": 1, "devices": {"UC_Cam": ENTRY, "U_Stage": motor}}
+    )
     registry = resolver.resolve_native_devices()
     assert registry.devices["UC_Cam"].trigger_source == "software"
+    assert registry.devices["U_Stage"].axes == ["x", "y"]
 
 
 @pytest.mark.parametrize(
