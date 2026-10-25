@@ -56,6 +56,11 @@ PVs), so its entry maps **roles** to PV suffixes under the prefix:
       loop_mode: loop_mode
     bits: {fault: fault, interlock_1: interlock_1, interlock_2: interlock_2}
     allow: [current, output, reset]
+    note: >-                      # measured 2026-10-24 (PDT) at the unit's slew of 10 A/s
+      Steps ring: a 0.5 A step peaked at 0.75 A (+0.34 s) and settled
+      within 5 mA by +1.8 s; a step to 0 A undershot to -0.25 A. The
+      10 A/s ramp (50 ms for 0.5 A) is faster than the regulation loop,
+      so it does not tame small steps.
 ```
 
 A setpoint is refused unless it sits inside its record's drive limits
