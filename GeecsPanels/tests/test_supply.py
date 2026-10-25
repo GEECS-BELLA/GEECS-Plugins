@@ -245,10 +245,16 @@ def test_a_setpoint_is_refused_while_an_alarm_bound_or_severity_is_unread(
             check_write("current", value, feed.current(), FPS_ROLES)
 
 
-def test_an_alarm_bound_whose_severity_is_not_invalid_need_not_be_read() -> None:
-    feed = _feed(**{**ARMED, "current_sp.hhsv": "MAJOR"})
-    feed.update("current_sp.hihi", None)
-    assert check_write("current", 6.005, feed.current(), FPS_ROLES)[1] == 6.005
+@pytest.mark.parametrize(
+    "severity, bound, value",
+    [("hhsv", "hihi", 6.005), ("llsv", "lolo", -6.005)],
+)
+def test_an_alarm_bound_whose_severity_is_not_invalid_need_not_be_read(
+    severity, bound, value
+) -> None:
+    feed = _feed(**{**ARMED, f"current_sp.{severity}": "MAJOR"})
+    feed.update(f"current_sp.{bound}", None)
+    assert check_write("current", value, feed.current(), FPS_ROLES)[1] == value
 
 
 def test_an_action_the_device_does_not_permit_is_not_allowed() -> None:

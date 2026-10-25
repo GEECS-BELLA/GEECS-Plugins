@@ -6,7 +6,7 @@
   event every :data:`PUSH_S`; ``?once=1`` sends one and closes.
 - ``/supply/{device}/put`` — one allowed action
   (:func:`geecs_panels.power.check_write`): a setpoint is checked against its
-  record's drive limits before it reaches the IOC; an action the device does
+  record's drive limits and alarm limits before it reaches the IOC; an action the device does
   not permit (``Device.allow``) is a 403, and the page does not draw it.
 """
 

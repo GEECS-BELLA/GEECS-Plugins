@@ -17,7 +17,8 @@ the FAST-PS has a regulation loop). So a supply's bench entry maps
 **Writes energize things.** A setpoint is checked against its record's
 drive limits (``.DRVH``/``.DRVL``) here first, and refused while they are
 unread or the record sets none (equal limits: an ``ao`` then clamps
-nothing), or while the alarm severities, or an INVALID one's bound, are unread. This is the gate that refuses: an ``ao`` CLAMPS a put beyond its
+nothing), or while the alarm severities, or an INVALID one's bound, are
+unread. This is the gate that refuses: an ``ao`` CLAMPS a put beyond its
 drive limits and writes the limit, so the IOC alone would turn a 1.0 A
 request into DRVH on the wire (the IOC's own refusal is HIHI/LOLO inside
 them with IVOA "Don't drive outputs", set at load). The output takes 0 or
@@ -195,8 +196,10 @@ def check_write(
 
     *snap* is the supply's snapshot values (``current_sp.drvh`` …);
     *allow* the device's permitted actions (``None``: all it has). A
-    setpoint must sit within its record's drive limits, read and distinct;
-    the output takes 0 or 1 (or a bool); the reset takes 1.
+    setpoint must sit within its record's drive limits, read and distinct,
+    and short of the IOC's own HIHI/LOLO refusal, whose severities (and an
+    INVALID one's bound) must be read; the output takes 0 or 1 (or a
+    bool); the reset takes 1.
     """
     role = ACTIONS.get(action)
     if role is None:
