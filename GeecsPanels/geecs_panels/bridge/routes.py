@@ -147,7 +147,12 @@ def _add_stream_routes(
     async def device_arrays(
         name: str,
         columns: int = Query(
-            1500, ge=1, description="The screen columns a trace is decimated to."
+            1500,
+            ge=1,
+            description=(
+                "The screen columns a trace is decimated to (a scope's capture is "
+                "decimated once for every viewer, to 1500)."
+            ),
         ),
     ) -> ArraysReply:
         """The device's arrays (profiles, histogram, traces), read now or within the last half second."""

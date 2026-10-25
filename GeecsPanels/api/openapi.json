@@ -851,13 +851,13 @@
             }
           },
           {
-            "description": "The screen columns a trace is decimated to.",
+            "description": "The screen columns a trace is decimated to (a scope's capture is decimated once for every viewer, to 1500).",
             "in": "query",
             "name": "columns",
             "required": false,
             "schema": {
               "default": 1500,
-              "description": "The screen columns a trace is decimated to.",
+              "description": "The screen columns a trace is decimated to (a scope's capture is decimated once for every viewer, to 1500).",
               "minimum": 1,
               "title": "Columns",
               "type": "integer"

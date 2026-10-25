@@ -31,11 +31,12 @@ from geecs_panels.bridge.arrays import (
 from geecs_panels.bridge.feed import Channel, Feed
 from geecs_panels.bridge.rules import Rules
 from geecs_panels.feed import ArraysUnavailable
-from geecs_panels.scope import CHANNELS
+from geecs_panels.scope import CHANNELS, TIMEBASE_KEYS
 from geecs_panels.scope_feed import ScopeTraces
 
-#: The roles whose change makes the held capture's time axis wrong.
-TIMEBASE_ROLES = ("interval_ns", "samples", "pre_trigger")
+#: The roles whose change makes the held capture's time axis wrong: the
+#: per-kind scope page's keys, which the family names its roles after.
+TIMEBASE_ROLES = TIMEBASE_KEYS
 #: Read together with every capture: role → the key ``traces_payload`` reads.
 _CAPTURE = {
     "time_axis": "t",
