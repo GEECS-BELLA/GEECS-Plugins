@@ -71,6 +71,13 @@ def main() -> None:
         help="seconds between a device stream's frames (/api/devices/{name}/events)",
     )
     parser.add_argument(
+        "--pages-read-only",
+        action="store_true",
+        help="refuse the per-kind pages' own writes (/camera, /motor, /supply, /scope "
+        "put routes: no operator, no journal, no hazard confirm) while the bridge's "
+        "POST /api/put writes; the unit sets it",
+    )
+    parser.add_argument(
         "--journal",
         default=None,
         metavar="PATH",
@@ -177,7 +184,7 @@ def main() -> None:
         stale_after=args.stale_after,
         max_fps=args.max_fps,
         root_path=args.root_path,
-        writable=not args.read_only,
+        writable=not (args.read_only or args.pages_read_only),
         scopes=LiveScopes(),
         motors=LiveMotors(),
         supplies=LiveSupplies(),

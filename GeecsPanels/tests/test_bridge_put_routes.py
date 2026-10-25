@@ -12,6 +12,7 @@ from geecs_panels.bridge.puts import Puts
 from geecs_panels.bridge.routes import Bridge
 from geecs_panels.bridge.stream import DeviceStreams
 from geecs_panels.contracts import JournalEntry, PutResult
+from geecs_panels.registry import Device
 from tests._bridge import SUPPLY, FakeCA, devices, healthy_supply
 from tests.test_bridge_puts import FakeIO
 
@@ -155,3 +156,47 @@ def test_the_put_routes_have_stable_operation_ids() -> None:
         paths["/api/devices/{name}/unlock"]["post"]["operationId"]
         == "post_api_devices_name_unlock"
     )
+
+
+def test_the_pages_writes_can_be_off_while_the_bridges_are_on() -> None:
+    """--pages-read-only: the per-kind put routes (no operator, journal or confirm) refuse; /api/put still writes."""
+    ca, io = FakeCA(), FakeIO()
+    served = devices()
+    streams = DeviceStreams(served, ca.subscribe, push_s=0.01)
+    bridge = Bridge(
+        "expt", list(served.values()), [], streams, puts=Puts(streams, io, Journal())
+    )
+    supply = Device(
+        "PS1",
+        "power_supply",
+        SUPPLY,
+        roles=tuple(
+            (r, s)
+            for r, s in {
+                "current_sp": "current_ramp:SP",
+                "current": "current",
+                "voltage": "voltage",
+                "output_sp": "enable_output:SP",
+                "output": "enable_output",
+                "reset": "reset:SP",
+            }.items()
+        ),  # fmt: skip
+    )
+    app = create_app(
+        "expt", [supply], object(), writable=False, supplies=object(), bridge=bridge
+    )
+    with TestClient(app) as client:
+        _open_stream(streams, client, "PS1")
+        healthy_supply(ca)
+        page = client.post("/supply/PS1/put", json={"action": "output", "value": 1})
+        api = client.post(
+            "/api/put",
+            json={
+                "device": "PS1",
+                "role": "current_sp",
+                "value": 0.5,
+                "operator": OPERATOR,
+            },
+        )
+    assert page.status_code == 403
+    assert api.status_code == 200 and api.json()["outcome"] == "accepted"

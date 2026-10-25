@@ -25,6 +25,7 @@ import aioca
 import httpx
 
 from geecs_panels.bridge.feed import ReadAs, Sample
+from geecs_panels.bridge.puts import PUT_TIMEOUT_S, SETTLE_POLL_S
 from geecs_panels.camera import (
     ARRAYS,
     IMAGE_PLUGIN,
@@ -58,10 +59,6 @@ from geecs_panels.scope_feed import ScopeFeed, ScopeTraces
 FETCH_TIMEOUT_S = 3.0
 #: The plots' arrays are read at most this often (and only while asked for).
 ARRAYS_EVERY_S = 0.5
-#: A write waits for the IOC to process the record, at most this long.
-PUT_TIMEOUT_S = 3.0
-#: How often a readback-settled write re-reads its readback.
-SETTLE_POLL_S = 0.1
 
 
 def subscribe(

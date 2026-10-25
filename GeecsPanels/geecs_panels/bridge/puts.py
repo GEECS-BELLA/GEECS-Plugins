@@ -59,17 +59,17 @@ from geecs_panels.bridge.catalog import BridgeDevice
 from geecs_panels.bridge.journal import Journal
 from geecs_panels.bridge.rules import rules_for
 from geecs_panels.bridge.stream import DeviceHub, DeviceStreams, UnknownDevice
-from geecs_panels.camera import lock_word
+from geecs_panels.bridge.feed import SEVERITIES
+from geecs_panels.camera import MAX_TEXT, lock_word
 from geecs_panels.contracts import PutOutcome, PutRequest, PutResult, Severity, Value
 
 logger = logging.getLogger(__name__)
 
-#: A write waits for the IOC this long, and a readback-settled one this long to settle.
+#: A write waits for the IOC this long, and a readback-settled one this long to
+#: settle (the per-kind transports' too: :mod:`geecs_panels.ca` imports them).
 PUT_TIMEOUT_S = 3.0
 #: How often a readback-settled write re-reads its readback.
 SETTLE_POLL_S = 0.1
-#: Text records hold at most this many characters (an EPICS string).
-MAX_TEXT = 39
 
 
 class PutTransport(Protocol):
@@ -99,6 +99,10 @@ class Refused(Exception):
     def __init__(self, message: str, status: int = 422) -> None:
         super().__init__(message)
         self.status = status
+
+
+class _AlarmUnread(Exception):
+    """A written record's alarm could not be read after the put."""
 
 
 @dataclass
@@ -294,30 +298,52 @@ class Puts:
         self, hub: DeviceHub, role: Role, axis: str, value: object
     ) -> _Outcome:
         device = hub.device
-        pv = device.prefix + axis + (role.write_suffix or role.suffix)
+        suffix = role.write_suffix or role.suffix
+        pv = device.prefix + axis + suffix
         settle = role.settled_by
         try:
             if settle is None:
                 await self.transport.put(pv, value, wait=True)
-                sevr = await self.transport.get(pv + ".SEVR", as_string=True)
-                stat = await self.transport.get(pv + ".STAT", as_string=True)
             else:
                 ticks = _counter_ticks(hub, axis)
                 await self.transport.put(pv, value, wait=False)
         except Exception as exc:  # access security, a timeout: the IOC refused
             raise Refused(f"{pv}: {exc}", 502) from exc
         if settle is None:
-            if str(sevr) == "INVALID":
-                raise Refused(
-                    f"{role.name}: the IOC did not take it (INVALID {stat})", 502
-                )
-            return _Outcome("accepted", 200, value, str(sevr), "")  # type: ignore[arg-type]
+            return await self._alarm(
+                record_of(device.prefix + axis, suffix), role, value
+            )
         if settle != role.name:
             return _Outcome(
                 "accepted", 200, value, message=f"dispatched; done when {settle} says"
             )
         await self._settle(hub, role, axis, value, ticks)
         return _Outcome("accepted", 200, value, message="settled")
+
+    async def _alarm(self, record: str, role: Role, value: object) -> _Outcome:
+        """The written record's alarm (rule 11): INVALID is a refusal; unread, the put still took."""
+        try:
+            sevr, stat = await self._read_alarm(record)
+        except _AlarmUnread as exc:  # the value was written: never journal it refused
+            return _Outcome(
+                "accepted",
+                200,
+                value,
+                message=f"written; its alarm could not be read ({exc})",
+            )
+        if str(sevr) == "INVALID":
+            raise Refused(f"{role.name}: the IOC did not take it (INVALID {stat})", 502)
+        severity = str(sevr) if str(sevr) in SEVERITIES else None
+        return _Outcome("accepted", 200, value, severity)  # type: ignore[arg-type]
+
+    async def _read_alarm(self, record: str) -> tuple[object, object]:
+        try:
+            return (
+                await self.transport.get(record + ".SEVR", as_string=True),
+                await self.transport.get(record + ".STAT", as_string=True),
+            )
+        except Exception as exc:  # any CA failure: the alarm is unread
+            raise _AlarmUnread(str(exc)) from exc
 
     async def _settle(
         self,
@@ -362,6 +388,14 @@ class Puts:
             message=done.message,
             journal_id=entry.id,
         )
+
+
+def record_of(base: str, suffix: str) -> str:
+    """The record a suffix writes: a field suffix (``.VELO``) is a field of the record *base* names.
+
+    A record's alarm is ``<record>.SEVR``; ``<record>.VELO.SEVR`` is no channel.
+    """
+    return base if suffix.startswith(".") else base + suffix
 
 
 def _counter_ticks(hub: DeviceHub, axis: str) -> dict[str, Optional[float]]:

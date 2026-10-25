@@ -62,6 +62,16 @@ Each IOC's access file must grant this account where the bridge writes
 worker's while a run holds the lock. The bridge refuses those puts first
 (423), and the IOC refuses them too.
 
+## Writes
+
+Under the unit every write goes through `POST /api/put`, which carries
+the operator's name, the journal, the hazard confirm and the stale-page
+gate. The per-kind prototype pages (`/camera`, `/motor`, `/supply`,
+`/scope`) have their own put routes with none of these, so the unit runs
+with `--pages-read-only`. Their pages still show everything; only their
+controls are refused. `--read-only` (in `GEECS_PANELS_EXTRA_ARGS`) refuses
+every write, the bridge's included.
+
 ## State
 
 The put journal is `/var/lib/geecs-panels/journal.db`, the unit's

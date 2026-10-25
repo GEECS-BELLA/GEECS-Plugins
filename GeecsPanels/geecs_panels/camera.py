@@ -353,9 +353,13 @@ def _as_whole(suffix: str, value: object, kind: Whole) -> object:
     return int(value)
 
 
+#: An EPICS string record holds at most this many characters.
+MAX_TEXT = 39
+
+
 def _as_text(suffix: str, value: object) -> object:
-    if not isinstance(value, str) or len(value) > 39:
-        raise NotWritable(f"{suffix} takes text of at most 39 characters")
+    if not isinstance(value, str) or len(value) > MAX_TEXT:
+        raise NotWritable(f"{suffix} takes text of at most {MAX_TEXT} characters")
     return value
 
 

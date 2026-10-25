@@ -34,6 +34,8 @@ class FakeIO:
         self.values: dict[str, object] = {}
         self.enums: dict[str, list[str]] = {}
         self.fail: Optional[Exception] = None
+        self.gets: list[str] = []
+        self.alarm_fails = False
 
     async def put(self, pv: str, value: object, wait: bool) -> None:
         if self.fail is not None:
@@ -41,6 +43,13 @@ class FakeIO:
         self.puts.append((pv, value, wait))
 
     async def get(self, pv: str, as_string: bool = False) -> object:
+        self.gets.append(pv)
+        record, _, field = pv.rpartition(".")
+        if field and "." in record.rsplit(":", 1)[-1]:
+            # rec.FIELD.SEVR: a field of a field is no CA channel (it times out).
+            raise TimeoutError(f"{pv}: no such channel")
+        if self.alarm_fails:
+            raise TimeoutError(f"{pv}: timed out")
         if pv.endswith(".SEVR"):
             return self.values.get(pv, "NO_ALARM")
         if pv.endswith(".STAT"):
@@ -345,10 +354,29 @@ def test_a_move_is_dispatched_without_waiting() -> None:
     assert "dmov" in result.message
 
 
-def test_a_setting_is_waited_on() -> None:
+def test_a_setting_is_waited_on_and_its_records_alarm_read() -> None:
+    """A field's put reads the record's alarm (m1.SEVR), never m1.VELO.SEVR, which is no channel."""
     bench = _stage()
-    bench.put("Stage", "velo", 1.5, axis="m1")
+    status, result = bench.put("Stage", "velo", 1.5, axis="m1")
     assert bench.io.puts == [(MOTOR + "m1.VELO", 1.5, True)]
+    assert (status, result.outcome, result.severity) == (200, "accepted", "NO_ALARM")
+    assert bench.io.gets == [MOTOR + "m1.SEVR", MOTOR + "m1.STAT"]
+
+
+def test_stop_is_accepted_with_the_records_alarm() -> None:
+    bench = _stage()
+    status, result = bench.put("Stage", "stop", 1, axis="m1")
+    assert (status, result.outcome) == (200, "accepted")
+    assert bench.io.puts == [(MOTOR + "m1.STOP", 1, True)]
+
+
+def test_a_put_that_took_is_never_journaled_refused_for_an_unread_alarm() -> None:
+    bench = _supply()
+    bench.io.alarm_fails = True
+    status, result = bench.put("PS1", "current_sp", 0.5)
+    assert (status, result.outcome, result.severity) == (200, "accepted", None)
+    assert "could not be read" in result.message
+    assert bench.journal.last(1)[0].outcome == "accepted"
 
 
 def test_an_acquire_settles_on_its_readback() -> None:

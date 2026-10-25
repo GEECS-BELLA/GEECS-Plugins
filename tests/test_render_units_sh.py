@@ -134,6 +134,7 @@ def test_the_pv_bridge_never_runs_as_the_service_account(tmp_path: Path) -> None
     assert "User=geecs-panels\n" in rendered
     assert "SupplementaryGroups=geecs\n" in rendered
     assert "StateDirectory=geecs-panels\n" in rendered
+    assert " --pages-read-only " in rendered  # the pages' unjournaled writes are off
 
 
 def test_a_site_without_a_bridge_account_renders_no_bridge_unit(tmp_path: Path) -> None:
