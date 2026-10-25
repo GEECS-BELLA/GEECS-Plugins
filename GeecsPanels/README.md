@@ -44,6 +44,16 @@ The same process is the PV bridge the web repository's pages read
   way; a write needs the device's stream open (a stale page cannot write).
   `POST /api/devices/<device>/unlock` releases a stuck run lock, naming who.
 - `GET /api/journal?entries=N` — the last puts, newest first.
+- `POST /api/subscriptions` (`{"pvs": [...]}`) → a handle;
+  `GET /api/stream/<handle>` streams those PVs (`event: pv`): all of them
+  on connect, then the changed ones once per push period. Monitors are
+  shared across handles; a handle unread for 30 s is released.
+- `GET /api/pv/<name>` — one PV now, with its units, limits and choices
+  (the inspector).
+- `GET /api/panels` — the experiment's composed panels
+  (`<experiment>/panels/*.yaml` in the configs repository) and family
+  overrides (`panels/overrides/<family>.yaml`), validated against the
+  devices served; a panel that does not fit is named under `errors`.
 
 The models are `geecs_panels.contracts` (the stream's frames, published
 as `api/events.schema.json`) and `api/openapi.json`.

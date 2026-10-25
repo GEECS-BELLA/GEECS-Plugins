@@ -24,7 +24,7 @@ import time
 import aioca
 import httpx
 
-from geecs_panels.bridge.feed import ReadAs, Sample
+from geecs_panels.bridge.feed import ReadAs, Sample, severity_name
 from geecs_panels.bridge.puts import PUT_TIMEOUT_S, SETTLE_POLL_S
 from geecs_panels.camera import (
     ARRAYS,
@@ -102,8 +102,20 @@ def subscribe_reading(
             callback(None)
             return
         severity = getattr(value, "severity", None)
-        if read_as != "native":
-            plain: object = str(value)
+        enums = getattr(value, "enums", None)
+        size = getattr(value, "element_count", 1)
+        if read_as == "auto" and isinstance(size, int) and size > 1:
+            # A waveform, monitored one element deep: its size, never its data
+            # (the raw stream shows it; arrays are read on request, rule 3).
+            plain: object = f"[{size} values]"
+        elif read_as == "auto" and enums:
+            # An enum read with DBR_CTRL: its state name.
+            index = int(value)  # type: ignore[call-overload]  # an augmented int
+            plain = enums[index] if 0 <= index < len(enums) else index
+        elif read_as == "auto" and not isinstance(value, (int, float, str)):
+            plain = value  # an array: the raw stream says its size
+        elif read_as not in ("native", "auto"):
+            plain = str(value)
         elif isinstance(value, float):
             plain = float(value)
         elif isinstance(value, int):
@@ -112,16 +124,76 @@ def subscribe_reading(
             plain = str(value)
         callback(Sample(plain, severity if isinstance(severity, int) else None))
 
-    datatype = {"native": None, "string": str, "char_array": aioca.DBR_CHAR_STR}[
-        read_as
-    ]
+    datatype = {
+        "native": None,
+        "string": str,
+        "char_array": aioca.DBR_CHAR_STR,
+        "auto": None,
+    }[read_as]
     return aioca.camonitor(
         pv,
         on_update,
         datatype=datatype,
-        format=aioca.FORMAT_TIME,
+        # A bare PV's enum choices ride with DBR_CTRL; the rest need the time.
+        format=aioca.FORMAT_CTRL if read_as == "auto" else aioca.FORMAT_TIME,
+        # A bare PV may be a waveform: one element is enough to say its size.
+        count=1 if read_as == "auto" else 0,
         notify_disconnect=True,
     )
+
+
+def _limits(low: object, high: object) -> object:
+    """A pair of limits, or ``None`` when the record sets none (both zero)."""
+    if isinstance(low, (int, float)) and isinstance(high, (int, float)) and low != high:
+        return (float(low), float(high))
+    return None
+
+
+async def read_pv_info(pv: str) -> dict[str, object]:
+    """One PV for the inspector: the value with its alarm and timestamp (DBR_TIME), its DBR_CTRL fields."""
+    timed = await aioca.caget(pv, format=aioca.FORMAT_TIME, timeout=PUT_TIMEOUT_S)
+    ctrl = await aioca.caget(pv, format=aioca.FORMAT_CTRL, timeout=PUT_TIMEOUT_S)
+    enums = [str(e) for e in getattr(ctrl, "enums", ()) or ()]
+    # aioca's augmented values subclass the plain types: hand on plain ones.
+    value: object = timed
+    if enums and isinstance(timed, int):
+        value = enums[timed] if 0 <= timed < len(enums) else int(timed)
+    elif isinstance(timed, float):
+        value = float(timed)
+    elif isinstance(timed, int):
+        value = int(timed)
+    elif isinstance(timed, str):
+        value = str(timed)
+    severity = severity_name(getattr(timed, "severity", None))
+    units = getattr(ctrl, "units", None)
+    precision = getattr(ctrl, "precision", None)
+    return {
+        "value": value,
+        "severity": severity,
+        "timestamp": getattr(timed, "timestamp", None),
+        "units": str(units) if units else None,
+        "precision": int(precision) if isinstance(precision, int) else None,
+        "display_limits": _limits(
+            getattr(ctrl, "lower_disp_limit", None),
+            getattr(ctrl, "upper_disp_limit", None),
+        ),
+        "control_limits": _limits(
+            getattr(ctrl, "lower_ctrl_limit", None),
+            getattr(ctrl, "upper_ctrl_limit", None),
+        ),
+        "alarm_limits": None
+        if enums
+        else {
+            "lolo": getattr(ctrl, "lower_alarm_limit", None),
+            "low": getattr(ctrl, "lower_warning_limit", None),
+            "high": getattr(ctrl, "upper_warning_limit", None),
+            "hihi": getattr(ctrl, "upper_alarm_limit", None),
+        },
+        "choices": enums or None,
+        "count": len(timed)
+        if hasattr(timed, "__len__") and not isinstance(timed, str)
+        else 1,
+    }
 
 
 async def read_pvs(pvs: list[str]) -> list[object]:

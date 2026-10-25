@@ -50,11 +50,19 @@ from geecs_panels.contracts import Freshness, RoleReading, Severity
 from geecs_panels.feed import Subscription
 
 #: How a channel is read: its native type, as text (an enum by its state
-#: name, a string record), or a char array holding text.
-ReadAs = Literal["native", "string", "char_array"]
+#: name, a string record), a char array holding text, or (a bare PV, whose
+#: record type nobody named) as its record serves it, an enum by name.
+ReadAs = Literal["native", "string", "char_array", "auto"]
 
 #: Alarm severities by the record's number.
 SEVERITIES: tuple[Severity, ...] = ("NO_ALARM", "MINOR", "MAJOR", "INVALID")
+
+
+def severity_name(severity: object) -> Optional[Severity]:
+    """A record's alarm severity by name (0..3); ``None`` for anything else (unread)."""
+    known = isinstance(severity, int) and not isinstance(severity, bool)
+    return SEVERITIES[severity] if known and 0 <= severity < len(SEVERITIES) else None  # type: ignore[operator, index]
+
 
 #: Record fields read as text: units, the alarm words, a description.
 STRING_FIELDS = frozenset({"EGU", "SEVR", "STAT", "HHSV", "LLSV", "HSV", "LSV", "DESC"})
@@ -267,11 +275,7 @@ class Feed:
         severity = self._severity.get(channel) if connected else None
         return RoleReading(
             value=_wire(self.value(role.name, axis)),
-            severity=(
-                SEVERITIES[severity]
-                if isinstance(severity, int) and 0 <= severity < len(SEVERITIES)
-                else None
-            ),
+            severity=severity_name(severity),
             advanced_at=self.advanced_at(role, axis),
             freshness=self.freshness_of(role, axis, stale_after),
             fields={

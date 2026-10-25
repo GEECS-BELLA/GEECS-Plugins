@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Callable, Optional
 
 from geecs_schemas.epics.family import load_families
@@ -35,9 +36,14 @@ class Clock:
 
 
 class FakeCA:
-    """Records subscriptions; posts values and disconnects by PV."""
+    """Records subscriptions; posts values and disconnects by PV.
 
-    def __init__(self) -> None:
+    With *needs_loop*, subscribing off the running event loop raises, as
+    aioca's ``camonitor`` does (a threadpool route has no loop).
+    """
+
+    def __init__(self, needs_loop: bool = False) -> None:
+        self.needs_loop = needs_loop
         self.callbacks: dict[str, Callable[[Optional[Sample]], None]] = {}
         self.subscribed: list[tuple[str, ReadAs]] = []
         self.closed: list[str] = []
@@ -45,6 +51,8 @@ class FakeCA:
     def subscribe(
         self, pv: str, how: ReadAs, callback: Callable[[Optional[Sample]], None]
     ) -> "FakeCA._Sub":
+        if self.needs_loop:
+            asyncio.get_running_loop()  # RuntimeError off the loop, as aioca
         self.subscribed.append((pv, how))
         self.callbacks[pv] = callback
         return FakeCA._Sub(self, pv)

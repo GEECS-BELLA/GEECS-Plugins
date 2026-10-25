@@ -1,6 +1,161 @@
 {
   "components": {
     "schemas": {
+      "ActionWidget": {
+        "additionalProperties": false,
+        "description": "A button that runs an action plan through the scanner (idle only).",
+        "properties": {
+          "kind": {
+            "const": "action",
+            "description": "Widget kind: 'action'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "plan": {
+            "description": "The action plan's name.",
+            "minLength": 1,
+            "title": "Plan",
+            "type": "string"
+          },
+          "show_when": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShowWhen"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shown only while this PV reads this value."
+          },
+          "span": {
+            "default": 1,
+            "description": "Grid columns the widget spans.",
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Span",
+            "type": "integer"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A title above the widget.",
+            "title": "Title"
+          }
+        },
+        "required": [
+          "kind",
+          "plan"
+        ],
+        "title": "ActionWidget",
+        "type": "object"
+      },
+      "AlarmLimits": {
+        "additionalProperties": false,
+        "description": "A record's alarm limits (``LOLO``, ``LOW``, ``HIGH``, ``HIHI``); null where it sets none.",
+        "properties": {
+          "high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High"
+          },
+          "hihi": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hihi"
+          },
+          "lolo": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lolo"
+          },
+          "low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low"
+          }
+        },
+        "title": "AlarmLimits",
+        "type": "object"
+      },
+      "AlarmsWidget": {
+        "additionalProperties": false,
+        "description": "The alarm list, reduced from the device streams' severities.",
+        "properties": {
+          "kind": {
+            "const": "alarms",
+            "description": "Widget kind: 'alarms'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "show_when": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShowWhen"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shown only while this PV reads this value."
+          },
+          "span": {
+            "default": 1,
+            "description": "Grid columns the widget spans.",
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Span",
+            "type": "integer"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A title above the widget.",
+            "title": "Title"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "AlarmsWidget",
+        "type": "object"
+      },
       "ArraysReply": {
         "additionalProperties": false,
         "description": "``GET /api/devices/{name}/arrays``: the device's arrays, read on request and decimated.",
@@ -111,6 +266,104 @@
         "title": "Colour",
         "type": "object"
       },
+      "ComponentWidget": {
+        "additionalProperties": false,
+        "description": "A bespoke view of one device: the camera viewer, the scope traces.",
+        "properties": {
+          "component": {
+            "description": "Which component: 'camera_viewer' or 'scope_traces'.",
+            "enum": [
+              "camera_viewer",
+              "scope_traces"
+            ],
+            "title": "Component",
+            "type": "string"
+          },
+          "device": {
+            "description": "The device it shows.",
+            "title": "Device",
+            "type": "string"
+          },
+          "kind": {
+            "const": "component",
+            "description": "Widget kind: 'component'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "show_when": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShowWhen"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shown only while this PV reads this value."
+          },
+          "span": {
+            "default": 1,
+            "description": "Grid columns the widget spans.",
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Span",
+            "type": "integer"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A title above the widget.",
+            "title": "Title"
+          }
+        },
+        "required": [
+          "kind",
+          "component",
+          "device"
+        ],
+        "title": "ComponentWidget",
+        "type": "object"
+      },
+      "ComposedPanel": {
+        "additionalProperties": false,
+        "description": "A composed panel: named sections, each a grid of device pages, components, PVs, trends and buttons.\n\n``<experiment>/panels/<name>.yaml`` in the configs repository. Derived\nvalues are IOC records and multi-step buttons are action plans: the\nspec holds no expressions and no logic.",
+        "properties": {
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "description": "Format version of this config file. Leave at 1 — tools update this automatically when the file format changes.",
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "sections": {
+            "description": "The sections, in order.",
+            "items": {
+              "$ref": "#/components/schemas/PanelSection"
+            },
+            "minItems": 1,
+            "title": "Sections",
+            "type": "array"
+          },
+          "title": {
+            "description": "The panel's title.",
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "sections"
+        ],
+        "title": "ComposedPanel",
+        "type": "object"
+      },
       "DeviceCatalog": {
         "additionalProperties": false,
         "description": "``GET /api/devices``: the experiment's devices with a stream, and why any are missing.",
@@ -217,6 +470,76 @@
           "roles"
         ],
         "title": "DeviceInfo",
+        "type": "object"
+      },
+      "DeviceWidget": {
+        "additionalProperties": false,
+        "description": "A device's own page, embedded whole or reduced to some of its roles.",
+        "properties": {
+          "device": {
+            "description": "The device's GEECS name.",
+            "title": "Device",
+            "type": "string"
+          },
+          "kind": {
+            "const": "device",
+            "description": "Widget kind: 'device'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "roles": {
+            "anyOf": [
+              {
+                "items": {
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Show only these roles, in this order. Absent: the whole page.",
+            "title": "Roles"
+          },
+          "show_when": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShowWhen"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shown only while this PV reads this value."
+          },
+          "span": {
+            "default": 1,
+            "description": "Grid columns the widget spans.",
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Span",
+            "type": "integer"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A title above the widget.",
+            "title": "Title"
+          }
+        },
+        "required": [
+          "kind",
+          "device"
+        ],
+        "title": "DeviceWidget",
         "type": "object"
       },
       "FamilyAction": {
@@ -460,6 +783,62 @@
         "title": "JournalEntry",
         "type": "object"
       },
+      "JournalWidget": {
+        "additionalProperties": false,
+        "description": "The bridge's put journal: who wrote what, when, accepted or refused.",
+        "properties": {
+          "entries": {
+            "default": 10,
+            "description": "How many recent entries.",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Entries",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "journal",
+            "description": "Widget kind: 'journal'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "show_when": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShowWhen"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shown only while this PV reads this value."
+          },
+          "span": {
+            "default": 1,
+            "description": "Grid columns the widget spans.",
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Span",
+            "type": "integer"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A title above the widget.",
+            "title": "Title"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "JournalWidget",
+        "type": "object"
+      },
       "LockRelease": {
         "additionalProperties": false,
         "description": "``POST /api/devices/{name}/unlock``: release a stuck run lock (a killed worker), naming who.\n\nNot a put: the lock is no writable role. The bridge writes the lock\nfree and nothing else, journals it like a put (role ``lock``) and\nanswers with a :class:`PutResult` (Appendix A rule 6). The device is\nthe path's alone, so a body cannot name another.\n\nExamples\n--------\n{\"operator\": \"S. Barber\"}",
@@ -528,6 +907,174 @@
           "operator"
         ],
         "title": "Override",
+        "type": "object"
+      },
+      "PanelOverride": {
+        "additionalProperties": false,
+        "description": "One experiment's adjustments to a family's device page: hide roles, relabel, reorder — nothing else.\n\n``<experiment>/panels/overrides/<family>.yaml`` in the configs\nrepository. It may not add a field or logic.",
+        "properties": {
+          "family": {
+            "description": "The family whose page it adjusts (the file's stem).",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Family",
+            "type": "string"
+          },
+          "hide": {
+            "description": "Roles the page leaves out.",
+            "items": {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "title": "Hide",
+            "type": "array"
+          },
+          "labels": {
+            "description": "Role → what the page calls it here.",
+            "patternProperties": {
+              "^[a-z][a-z0-9_]*$": {
+                "type": "string"
+              }
+            },
+            "title": "Labels",
+            "type": "object"
+          },
+          "order": {
+            "description": "Roles drawn first, in this order; the rest follow in the family's order.",
+            "items": {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "title": "Order",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "description": "Format version of this config file. Leave at 1 — tools update this automatically when the file format changes.",
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "family"
+        ],
+        "title": "PanelOverride",
+        "type": "object"
+      },
+      "PanelSection": {
+        "additionalProperties": false,
+        "description": "A titled grid of widgets.",
+        "properties": {
+          "columns": {
+            "default": 2,
+            "description": "The grid's columns.",
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Columns",
+            "type": "integer"
+          },
+          "show_when": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShowWhen"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shown only while this PV reads this value."
+          },
+          "title": {
+            "description": "The section's title.",
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "widgets": {
+            "description": "The widgets, row by row.",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "action": "#/components/schemas/ActionWidget",
+                  "alarms": "#/components/schemas/AlarmsWidget",
+                  "component": "#/components/schemas/ComponentWidget",
+                  "device": "#/components/schemas/DeviceWidget",
+                  "journal": "#/components/schemas/JournalWidget",
+                  "pv": "#/components/schemas/PvWidget",
+                  "roster": "#/components/schemas/RosterWidget",
+                  "trend": "#/components/schemas/TrendWidget"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/DeviceWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/ComponentWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/PvWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/TrendWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/ActionWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/JournalWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/RosterWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/AlarmsWidget"
+                }
+              ]
+            },
+            "minItems": 1,
+            "title": "Widgets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "title",
+          "widgets"
+        ],
+        "title": "PanelSection",
+        "type": "object"
+      },
+      "PanelsReply": {
+        "additionalProperties": false,
+        "description": "``GET /api/panels``: the composed panels and family overrides that validate, and why the others do not.",
+        "properties": {
+          "errors": {
+            "description": "Files that could not be read or do not fit the devices served.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "overrides": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PanelOverride"
+            },
+            "description": "Family → its page's override for this experiment.",
+            "title": "Overrides",
+            "type": "object"
+          },
+          "panels": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ComposedPanel"
+            },
+            "description": "File stem → the panel.",
+            "title": "Panels",
+            "type": "object"
+          }
+        },
+        "title": "PanelsReply",
         "type": "object"
       },
       "Point": {
@@ -732,6 +1279,271 @@
           "journal_id"
         ],
         "title": "PutResult",
+        "type": "object"
+      },
+      "PvInfo": {
+        "additionalProperties": false,
+        "description": "``GET /api/pv/{name}``: one PV read now, with its record's ``DBR_CTRL`` fields.",
+        "properties": {
+          "alarm_limits": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AlarmLimits"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "LOLO … HIHI."
+          },
+          "choices": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An enum's state names.",
+            "title": "Choices"
+          },
+          "connected": {
+            "description": "Whether it answered.",
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "control_limits": {
+            "anyOf": [
+              {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DRVL, DRVH.",
+            "title": "Control Limits"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its element count (1: a scalar).",
+            "title": "Count"
+          },
+          "display_limits": {
+            "anyOf": [
+              {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "LOPR, HOPR.",
+            "title": "Display Limits"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it could not be read.",
+            "title": "Error"
+          },
+          "name": {
+            "description": "The PV.",
+            "title": "Name",
+            "type": "string"
+          },
+          "precision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "PREC.",
+            "title": "Precision"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NO_ALARM",
+                  "MINOR",
+                  "MAJOR",
+                  "INVALID"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its alarm severity.",
+            "title": "Severity"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record's own timestamp, Unix seconds.",
+            "title": "Timestamp"
+          },
+          "units": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EGU.",
+            "title": "Units"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its value (an enum by its state name; an array as its size).",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "name",
+          "connected"
+        ],
+        "title": "PvInfo",
+        "type": "object"
+      },
+      "PvWidget": {
+        "additionalProperties": false,
+        "description": "One bare PV, shown read-only as a role of the given type (for a PV no family names).",
+        "properties": {
+          "kind": {
+            "const": "pv",
+            "description": "Widget kind: 'pv'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "What the panel calls it.",
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "pv": {
+            "description": "The full PV name.",
+            "pattern": "^\\S+$",
+            "title": "Pv",
+            "type": "string"
+          },
+          "show_when": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShowWhen"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shown only while this PV reads this value."
+          },
+          "span": {
+            "default": 1,
+            "description": "Grid columns the widget spans.",
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Span",
+            "type": "integer"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A title above the widget.",
+            "title": "Title"
+          },
+          "type": {
+            "description": "Drawn as: readback, enum, bit or counter.",
+            "enum": [
+              "readback",
+              "enum",
+              "bit",
+              "counter"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "pv",
+          "type",
+          "label"
+        ],
+        "title": "PvWidget",
         "type": "object"
       },
       "Role": {
@@ -991,6 +1803,54 @@
         "title": "Role",
         "type": "object"
       },
+      "RosterWidget": {
+        "additionalProperties": false,
+        "description": "The experiment's devices with their IOC liveness.",
+        "properties": {
+          "kind": {
+            "const": "roster",
+            "description": "Widget kind: 'roster'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "show_when": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShowWhen"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shown only while this PV reads this value."
+          },
+          "span": {
+            "default": 1,
+            "description": "Grid columns the widget spans.",
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Span",
+            "type": "integer"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A title above the widget.",
+            "title": "Title"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "RosterWidget",
+        "type": "object"
+      },
       "ScopePut": {
         "description": "One allow-listed setting: a PV suffix under the scope's prefix and its value.",
         "properties": {
@@ -1018,6 +1878,111 @@
           "value"
         ],
         "title": "ScopePut",
+        "type": "object"
+      },
+      "ShowWhen": {
+        "additionalProperties": false,
+        "description": "Show the widget or section only while one PV reads one value.",
+        "properties": {
+          "equals": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "The value it must read: a number (a bit as 0 or 1), or an enum's state name, quoted ('On', not On: YAML reads a bare On as true).",
+            "title": "Equals"
+          },
+          "pv": {
+            "description": "The full PV name read.",
+            "pattern": "^\\S+$",
+            "title": "Pv",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pv",
+          "equals"
+        ],
+        "title": "ShowWhen",
+        "type": "object"
+      },
+      "SubscriptionAck": {
+        "additionalProperties": false,
+        "description": "The handle: stream it at ``GET /api/stream/{handle}`` until the grace period runs out unread.\n\nExamples\n--------\n{\"handle\": \"h-3f9c\", \"pvs\": [\"undulator:chicane:field\", \"undulator:shutter:state\"], \"grace_seconds\": 30.0}",
+        "examples": [
+          {
+            "grace_seconds": 30.0,
+            "handle": "h-3f9c",
+            "pvs": [
+              "undulator:chicane:field",
+              "undulator:shutter:state"
+            ]
+          }
+        ],
+        "properties": {
+          "grace_seconds": {
+            "description": "How long the handle outlives its last listener.",
+            "exclusiveMinimum": 0.0,
+            "title": "Grace Seconds",
+            "type": "number"
+          },
+          "handle": {
+            "description": "The handle's id.",
+            "minLength": 1,
+            "title": "Handle",
+            "type": "string"
+          },
+          "pvs": {
+            "description": "The PVs it streams, as asked.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Pvs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "handle",
+          "pvs",
+          "grace_seconds"
+        ],
+        "title": "SubscriptionAck",
+        "type": "object"
+      },
+      "SubscriptionRequest": {
+        "additionalProperties": false,
+        "description": "``POST /api/subscriptions``: a handle on a set of bare PVs (the inspector, a panel's ``pv`` widget).\n\nExamples\n--------\n{\"pvs\": [\"undulator:chicane:field\", \"undulator:shutter:state\"]}",
+        "examples": [
+          {
+            "pvs": [
+              "undulator:chicane:field",
+              "undulator:shutter:state"
+            ]
+          }
+        ],
+        "properties": {
+          "pvs": {
+            "description": "Full PV names; monitors are shared across handles.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Pvs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "pvs"
+        ],
+        "title": "SubscriptionRequest",
         "type": "object"
       },
       "SupplyPut": {
@@ -1079,6 +2044,165 @@
           "y"
         ],
         "title": "Trace",
+        "type": "object"
+      },
+      "TrendSeries": {
+        "additionalProperties": false,
+        "description": "One line of a trend: a device's role (from its stream's history), or a bare PV.",
+        "properties": {
+          "axis": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The device's axis, for a per-axis family (a motor's 'm1'); else absent.",
+            "title": "Axis"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The device whose role is plotted.",
+            "title": "Device"
+          },
+          "pv": {
+            "anyOf": [
+              {
+                "pattern": "^\\S+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A bare PV; or give device and role. The raw stream keeps no history, so a bare PV's line starts when the page opens.",
+            "title": "Pv"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The role plotted.",
+            "title": "Role"
+          },
+          "y_axis": {
+            "default": "left",
+            "description": "Which of the trend's two y axes it is drawn against.",
+            "enum": [
+              "left",
+              "right"
+            ],
+            "title": "Y Axis",
+            "type": "string"
+          }
+        },
+        "title": "TrendSeries",
+        "type": "object"
+      },
+      "TrendWidget": {
+        "additionalProperties": false,
+        "description": "A live trend: device roles over their streams' server-kept history, bare PVs from when the page opens.",
+        "properties": {
+          "kind": {
+            "const": "trend",
+            "description": "Widget kind: 'trend'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "left": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The left y axis's title.",
+            "title": "Left"
+          },
+          "minutes": {
+            "default": 10,
+            "description": "The last N minutes shown.",
+            "maximum": 120.0,
+            "minimum": 1.0,
+            "title": "Minutes",
+            "type": "integer"
+          },
+          "right": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The right y axis's title.",
+            "title": "Right"
+          },
+          "series": {
+            "description": "The lines plotted.",
+            "items": {
+              "$ref": "#/components/schemas/TrendSeries"
+            },
+            "minItems": 1,
+            "title": "Series",
+            "type": "array"
+          },
+          "show_when": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShowWhen"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shown only while this PV reads this value."
+          },
+          "span": {
+            "default": 1,
+            "description": "Grid columns the widget spans.",
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Span",
+            "type": "integer"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A title above the widget.",
+            "title": "Title"
+          }
+        },
+        "required": [
+          "kind",
+          "series"
+        ],
+        "title": "TrendWidget",
         "type": "object"
       },
       "ValidationError": {
@@ -1498,6 +2622,25 @@
         "summary": "Journal"
       }
     },
+    "/api/panels": {
+      "get": {
+        "description": "The experiment's composed panels and family overrides, validated against the devices served; the others named.",
+        "operationId": "get_api_panels",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PanelsReply"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Panels"
+      }
+    },
     "/api/put": {
       "post": {
         "description": "One write to one role, by a named operator, through the three gates; journaled whatever the outcome.",
@@ -1585,6 +2728,137 @@
           }
         },
         "summary": "Put"
+      }
+    },
+    "/api/pv/{name}": {
+      "get": {
+        "description": "One PV read now: value, alarm, timestamp, and its record's units, limits and choices.",
+        "operationId": "get_api_pv_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PvInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Inspect"
+      }
+    },
+    "/api/stream/{handle}": {
+      "get": {
+        "description": "The handle's PVs: all of them on connect, then once per push period those that changed.",
+        "operationId": "get_api_stream_handle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "title": "Handle",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Close after this many frames (0: never).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Close after this many frames (0: never).",
+              "minimum": 0,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Server-Sent Events, `event: pv`, `id:` the frame's seq; each `data:` is a PvFrame (api/events.schema.json)."
+          },
+          "404": {
+            "description": "No such handle (never made, or released)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream"
+      }
+    },
+    "/api/subscriptions": {
+      "post": {
+        "description": "A handle on bare PVs (monitors shared across handles), released after its grace period unread.\n\n``async``: aioca subscribes on the running event loop, which a\nthreadpool route has not (and the sweeper starts on it).",
+        "operationId": "post_api_subscriptions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionAck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Subscribe"
       }
     },
     "/camera/{name}": {

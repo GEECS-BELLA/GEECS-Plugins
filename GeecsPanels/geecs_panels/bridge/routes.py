@@ -8,6 +8,10 @@
   (:mod:`~geecs_panels.bridge.stream`); ``Last-Event-ID`` resumes.
 - ``GET /api/devices/{name}/arrays`` — its arrays, read on request and
   decimated (:mod:`~geecs_panels.bridge.arrays`).
+- ``POST /api/subscriptions`` / ``GET /api/stream/{handle}`` — the raw PV
+  stream (:mod:`~geecs_panels.bridge.pvstream`); ``GET /api/pv/{name}`` —
+  the inspector's read; ``GET /api/panels`` — the experiment's composed
+  panels (:mod:`~geecs_panels.bridge.panels`).
 - ``POST /api/put`` — one write through the three gates, journaled
   (:mod:`~geecs_panels.bridge.puts`); ``POST /api/devices/{name}/unlock``
   — a stuck run lock released, journaled; ``GET /api/journal`` — the
@@ -22,6 +26,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException, Query
@@ -31,9 +36,26 @@ from geecs_schemas.epics.family import FamilyFile, load_families
 from geecs_panels.bridge.arrays import ArraysReply
 from geecs_panels.bridge.catalog import BridgeDevice, DeviceCatalog, device_info
 from geecs_panels.bridge.journal import MAX_ENTRIES, Journal
+from geecs_panels.bridge.panels import PanelsReply, load_panels
+from geecs_panels.bridge.pvstream import (
+    PvInfo,
+    PvStreams,
+    ReadInfo,
+    TooManyHandles,
+    UnknownHandle,
+    pv_info,
+    pv_sse,
+)
 from geecs_panels.bridge.puts import Puts
 from geecs_panels.bridge.stream import DeviceStreams, UnknownDevice, sse
-from geecs_panels.contracts import JournalEntry, LockRelease, PutRequest, PutResult
+from geecs_panels.contracts import (
+    JournalEntry,
+    LockRelease,
+    PutRequest,
+    PutResult,
+    SubscriptionAck,
+    SubscriptionRequest,
+)
 
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
@@ -65,6 +87,12 @@ class Bridge:
     streams: Optional[DeviceStreams] = None
     families: Mapping[str, FamilyFile] = field(default_factory=load_families)
     puts: Optional[Puts] = None
+    #: The raw PV stream; ``None``: the bridge has no CA transport (503).
+    pvs: Optional[PvStreams] = None
+    #: The inspector's one-shot read; ``None``: no CA transport (503).
+    read_info: Optional[ReadInfo] = None
+    #: ``<experiment>/panels`` in the configs repository; ``None``: no panels.
+    panels_dir: Optional[Path] = None
 
     def __post_init__(self) -> None:
         """Give a bridge without a transport streams that refuse to subscribe and puts that deny (listings only)."""
@@ -116,6 +144,16 @@ def add_bridge_routes(app: FastAPI, bridge: Bridge) -> None:
     _add_stream_routes(app, streams, known)
     assert bridge.puts is not None
     _add_put_routes(app, bridge.puts)
+    _add_pv_routes(app, bridge)
+
+    @app.get("/api/panels", response_model=PanelsReply)
+    def panels() -> PanelsReply:
+        """The experiment's composed panels and family overrides, validated against the devices served; the others named."""
+        return load_panels(
+            bridge.panels_dir,
+            {d.name: d.family.template for d in bridge.devices},
+            bridge.families,
+        )
 
 
 #: Every status a put may answer, each with the PutResult body.
@@ -241,3 +279,86 @@ def _add_stream_routes(
         except UnknownDevice as exc:  # pragma: no cover - known() said otherwise
             raise HTTPException(404, str(exc)) from exc
         return await hub.arrays(columns)
+
+
+def _add_pv_routes(app: FastAPI, bridge: Bridge) -> None:
+    """The raw PV stream and the inspector's read."""
+
+    def live() -> PvStreams:
+        if bridge.pvs is None:
+            raise HTTPException(503, "this bridge has no CA transport")
+        return bridge.pvs
+
+    @app.post("/api/subscriptions", response_model=SubscriptionAck)
+    async def subscribe(request: SubscriptionRequest) -> SubscriptionAck:
+        """A handle on bare PVs (monitors shared across handles), released after its grace period unread.
+
+        ``async``: aioca subscribes on the running event loop, which a
+        threadpool route has not (and the sweeper starts on it).
+        """
+        try:
+            return live().open(request.pvs)
+        except TooManyHandles as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+    _add_raw_stream(app, live)
+
+    @app.get("/api/pv/{name}", response_model=PvInfo)
+    async def inspect(name: str) -> PvInfo:
+        """One PV read now: value, alarm, timestamp, and its record's units, limits and choices."""
+        if bridge.read_info is None:
+            raise HTTPException(503, "this bridge has no CA transport")
+        if not name or any(c.isspace() for c in name):
+            raise HTTPException(422, f"not a PV name: {name!r}")
+        return await pv_info(name, bridge.read_info)
+
+
+def _add_raw_stream(app: FastAPI, live: Callable[[], PvStreams]) -> None:
+    """``GET /api/stream/{handle}``: a handle's PVs as Server-Sent Events."""
+
+    @app.get(
+        "/api/stream/{handle}",
+        response_class=StreamingResponse,
+        responses={
+            200: {
+                "description": (
+                    "Server-Sent Events, `event: pv`, `id:` the frame's seq; each "
+                    "`data:` is a PvFrame (api/events.schema.json)."
+                ),
+                "content": {"text/event-stream": {}},
+            },
+            404: {"description": "No such handle (never made, or released)."},
+        },
+    )
+    async def stream(
+        handle: str,
+        limit: int = Query(
+            0, ge=0, description="Close after this many frames (0: never)."
+        ),
+    ) -> StreamingResponse:
+        """The handle's PVs: all of them on connect, then once per push period those that changed."""
+        streams = live()
+        streams.sweep()
+        if handle not in streams.handles:
+            raise HTTPException(404, f"no handle {handle!r}")
+
+        async def gen() -> AsyncIterator[str]:
+            frames = streams.listen(handle)
+            sent = 0
+            try:
+                async for frame in frames:
+                    if frame is None:
+                        yield ": keepalive\n\n"
+                        continue
+                    yield pv_sse(frame)
+                    sent += 1
+                    if limit and sent >= limit:
+                        return
+            except UnknownHandle:  # released between the check and the stream
+                return
+            finally:
+                await frames.aclose()
+
+        return StreamingResponse(
+            gen(), media_type="text/event-stream", headers=_SSE_HEADERS
+        )

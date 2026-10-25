@@ -126,7 +126,9 @@ def main() -> None:
     from geecs_panels.app import create_app
     from geecs_panels.bridge.catalog import load_experiment
     from geecs_panels.bridge.journal import Journal, default_path
+    from geecs_panels.bridge.panels import panels_dir
     from geecs_panels.bridge.puts import Puts
+    from geecs_panels.bridge.pvstream import PvStreams
     from geecs_panels.bridge.routes import Bridge
     from geecs_panels.bridge.stream import DeviceStreams
     from geecs_panels.ca import (
@@ -135,6 +137,7 @@ def main() -> None:
         LiveMotors,
         LiveScopes,
         LiveSupplies,
+        read_pv_info,
         read_pvs,
         subscribe_reading,
     )
@@ -171,6 +174,9 @@ def main() -> None:
             writable=not args.read_only,
             stale_after=args.stale_after,
         ),
+        pvs=PvStreams(subscribe_reading, push_s=args.push_period),
+        read_info=read_pv_info,
+        panels_dir=panels_dir(experiment),
     )
     app = create_app(
         experiment,
