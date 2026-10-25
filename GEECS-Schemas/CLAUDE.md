@@ -57,8 +57,7 @@ tests pass tiny ones through the validation context
 (`context={"families": ...}`). The installed families are frozen and
 shared process-wide; a family with actions puts every writable role in
 one, so `allow` decides every write. A family file changes when its IOC
-template does; GeecsPanels' `tests/test_contracts.py` (web estate S2)
-pins the camera, scope, motor and supply files to the panels' own suffix
+template does; a pin in GeecsPanels' tests (web estate S2) holds the camera, scope, motor and supply files to the panels' own suffix
 tables until those tables are deleted.
 
 ## Sweep payload
