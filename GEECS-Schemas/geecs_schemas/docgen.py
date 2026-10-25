@@ -294,7 +294,8 @@ sections:
         minutes: 10
         series:
           - {device: U_ChicaneInner, role: current}
-          - {pv: "undulator:chicane:field", axis: right}
+          - {device: U_ESP302_01, role: rbv, axis: m1}   # a motor names its axis
+          - {pv: "undulator:chicane:field", y_axis: right}
         right: field (T)
   - title: Camera
     show_when: {pv: "undulator:shutter:state", equals: Open}

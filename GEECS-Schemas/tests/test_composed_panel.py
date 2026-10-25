@@ -19,8 +19,9 @@ from test_family_file import TINY
 FAMILIES = {
     "tiny": FamilyFile.model_validate(TINY),
     "ad_camera_chain": load_families()["ad_camera_chain"],
+    "motor_record": load_families()["motor_record"],
 }
-DEVICES = {"U_Tiny": "tiny", "UC_Cam": "ad_camera_chain"}
+DEVICES = {"U_Tiny": "tiny", "UC_Cam": "ad_camera_chain", "U_Stage": "motor_record"}
 CONTEXT = {"families": FAMILIES, "devices": DEVICES}
 
 PANEL = {
@@ -39,7 +40,7 @@ PANEL = {
                     "span": 3,
                     "series": [
                         {"device": "U_Tiny", "role": "mean"},
-                        {"pv": "bench:flow", "axis": "right"},
+                        {"pv": "bench:flow", "y_axis": "right"},
                     ],
                 },
             ],
@@ -120,6 +121,48 @@ def test_a_component_draws_its_own_family() -> None:
     _refused(doc, "camera_viewer draws a ad_camera_chain device")
 
 
+@pytest.mark.parametrize("role", ["trace", "fire"])
+def test_a_trend_plots_a_monitored_role(role: str) -> None:
+    doc = panel()
+    widget(doc, 0, 3)["series"][0]["role"] = role
+    _refused(doc, "not trendable")
+
+
+def test_a_trend_of_a_per_axis_device_names_its_axis() -> None:
+    doc = panel()
+    widget(doc, 0, 3)["series"][0] = {"device": "U_Stage", "role": "rbv"}
+    _refused(doc, "names its axis")
+    widget(doc, 0, 3)["series"][0]["axis"] = "m1"
+    ComposedPanel.model_validate(doc, context=CONTEXT)
+    widget(doc, 0, 3)["series"][0] = {"device": "U_Tiny", "role": "mean", "axis": "m1"}
+    _refused(doc, "has no axis")
+
+
+@pytest.mark.parametrize("kind", ["setpoint", "command", "image", "array"])
+def test_a_bare_pv_is_read_only(kind: str) -> None:
+    doc = panel()
+    widget(doc, 0, 2)["type"] = kind
+    _refused(doc, "type", context=None)
+
+
+def test_a_device_widget_shows_a_role_once() -> None:
+    doc = panel()
+    widget(doc, 0, 0)["roles"] = ["level", "level"]
+    _refused(doc, "roles must be unique", context=None)
+
+
+def test_a_widget_fits_its_sections_grid() -> None:
+    doc = panel()
+    widget(doc, 0, 0)["span"] = 4  # the section has 3 columns
+    _refused(doc, "span more than its 3 columns", context=None)
+
+
+def test_a_device_name_is_one_url_segment() -> None:
+    doc = panel()
+    widget(doc, 0, 0)["device"] = "a/b"
+    _refused(doc, "not one URL path segment", context=None)
+
+
 def test_an_unknown_component_is_refused() -> None:
     doc = panel()
     widget(doc, 0, 1)["component"] = "plotter"
@@ -153,9 +196,12 @@ def test_the_spec_is_closed() -> None:
     _refused(doc, "does not match any of the expected tags", context=None)
 
 
-def test_show_when_takes_a_plain_value() -> None:
+@pytest.mark.parametrize("value", [["Run", "Idle"], True])
+def test_show_when_takes_a_number_or_a_name(value: object) -> None:
     doc = panel()
-    doc["sections"][1]["show_when"]["equals"] = ["Run", "Idle"]
+    doc["sections"][1]["show_when"]["equals"] = (
+        value  # True: YAML's reading of a bare On
+    )
     _refused(doc, "show_when.equals", context=None)
 
 
@@ -196,8 +242,13 @@ def test_an_override_names_the_familys_roles(key: str, value: object) -> None:
 
 
 def test_an_override_orders_a_role_once() -> None:
-    with pytest.raises(ValidationError, match="order names a role twice"):
+    with pytest.raises(ValidationError, match="ordered roles must be unique"):
         _override({**OVERRIDE, "order": ["level", "level"]})
+
+
+def test_an_override_does_not_hide_what_it_shows() -> None:
+    with pytest.raises(ValidationError, match="hidden and also relabelled or ordered"):
+        _override({**OVERRIDE, "hide": ["level"]})
 
 
 def test_an_override_names_a_family() -> None:

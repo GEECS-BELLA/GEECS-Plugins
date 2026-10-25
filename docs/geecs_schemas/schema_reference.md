@@ -849,7 +849,8 @@ sections:
         minutes: 10
         series:
           - {device: U_ChicaneInner, role: current}
-          - {pv: "undulator:chicane:field", axis: right}
+          - {device: U_ESP302_01, role: rbv, axis: m1}   # a motor names its axis
+          - {pv: "undulator:chicane:field", y_axis: right}
         right: field (T)
   - title: Camera
     show_when: {pv: "undulator:shutter:state", equals: Open}
@@ -895,7 +896,7 @@ Show the widget or section only while one PV reads one value.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `pv` | `str` | yes | — | The full PV name read. |
-| `equals` | `bool \| int \| float \| str` | yes | — | The value it must read (an enum by its state name). |
+| `equals` | `int \| float \| str` | yes | — | The value it must read: a number (a bit as 0 or 1), or an enum's state name, quoted ('On', not On: YAML reads a bare On as true). |
 
 ### ComponentWidget
 
@@ -912,7 +913,7 @@ A bespoke view of one device: the camera viewer, the scope traces.
 
 ### PvWidget
 
-One bare PV, drawn as a role of the given type (for a PV no family names).
+One bare PV, shown read-only as a role of the given type (for a PV no family names).
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
@@ -921,12 +922,12 @@ One bare PV, drawn as a role of the given type (for a PV no family names).
 | `show_when` | `ShowWhen (optional)` | no | None | Shown only while this PV reads this value. |
 | `kind` | `'pv'` | yes | — | Widget kind: 'pv'. |
 | `pv` | `str` | yes | — | The full PV name. |
-| `type` | `'readback' \| 'setpoint' \| 'enum' \| 'bit' \| 'command' \| 'array' \| 'image' \| 'counter'` | yes | — | The widget to draw it as, by role type. |
+| `type` | `'readback' \| 'enum' \| 'bit' \| 'counter'` | yes | — | Drawn as: readback, enum, bit or counter. |
 | `label` | `str` | yes | — | What the panel calls it. |
 
 ### TrendWidget
 
-A live trend over the device streams' server-kept history.
+A live trend: device roles over their streams' server-kept history, bare PVs from when the page opens.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
@@ -941,14 +942,15 @@ A live trend over the device streams' server-kept history.
 
 ### TrendSeries
 
-One line of a trend: a device's role, or a bare PV.
+One line of a trend: a device's role (from its stream's history), or a bare PV.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `pv` | `str (optional)` | no | None | A bare PV; or give device and role. |
+| `pv` | `str (optional)` | no | None | A bare PV; or give device and role. The raw stream keeps no history, so a bare PV's line starts when the page opens. |
 | `device` | `str (optional)` | no | None | The device whose role is plotted. |
 | `role` | `str (optional)` | no | None | The role plotted. |
-| `axis` | `'left' \| 'right'` | no | 'left' | Which of the trend's two y axes it is drawn against. |
+| `axis` | `str (optional)` | no | None | The device's axis, for a per-axis family (a motor's 'm1'); else absent. |
+| `y_axis` | `'left' \| 'right'` | no | 'left' | Which of the trend's two y axes it is drawn against. |
 
 ### ActionWidget
 

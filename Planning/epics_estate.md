@@ -163,9 +163,10 @@ becomes:
 
 So the spec never becomes a language:
 
-- **Layout**: named sections, each a grid; an `embed` widget places a whole
-  layer-1 device page or a layer-3 component (the camera viewer) inside a
-  composed panel. The LabVIEW composed panels mostly embedded device GUIs.
+- **Layout**: named sections, each a grid; a `device` widget embeds a whole
+  layer-1 device page and a `component` widget a layer-3 component (the
+  camera viewer) inside a composed panel (`geecs_schemas.epics.panels`).
+  The LabVIEW composed panels mostly embedded device GUIs.
 - **Derived values are IOC records** (calc, mbbi; the pneumatic-actuator
   note in `services/plctest1/README.md` is the pattern), never spec expressions.
 - **Multi-step buttons are an `action` widget naming an action plan**, run
