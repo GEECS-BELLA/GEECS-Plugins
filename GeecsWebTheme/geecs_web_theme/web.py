@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Optional, Union
 
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 from starlette.responses import Response
@@ -50,6 +51,7 @@ __all__ = [
     "clean_prefix",
     "make_templates",
     "mount_theme",
+    "operation_id",
     "root_of",
 ]
 
@@ -140,6 +142,36 @@ class ForwardedPrefixMiddleware:
                         scope["path"] = prefix + scope["path"]
                     break
         await self.app(scope, receive, send)
+
+
+def operation_id(route: APIRoute) -> str:
+    """A route's OpenAPI ``operationId``, from its method and path alone.
+
+    FastAPI's default names an operation after the route *function*
+    (``status_api_status_get``), so renaming a Python function renames the
+    operation in every client generated from the document. This one is the
+    method and the path's words — ``GET /api/run/{uid}/analysis`` is
+    ``get_api_run_uid_analysis`` — which changes only when the route does.
+    A multi-method route gets one id for all its operations (FastAPI's
+    default does the same, from whichever method a set yields first; this
+    takes the alphabetically first, so the id is the same in every
+    process) — register one route per method instead. Pass it as
+    ``FastAPI(generate_unique_id_function=operation_id)``; it also names
+    FastAPI's generated request-body schemas (``Body_<id>``).
+
+    Parameters
+    ----------
+    route : APIRoute
+        The route being registered.
+
+    Returns
+    -------
+    str
+        ``<method>_<path words>``, or ``<method>_root`` for ``/``.
+    """
+    method = sorted(route.methods)[0].lower()
+    words = re.findall(r"[A-Za-z0-9]+", route.path_format)
+    return "_".join([method, *(words or ["root"])])
 
 
 def root_of(request: Request) -> str:

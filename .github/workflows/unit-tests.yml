@@ -215,6 +215,24 @@ jobs:
               ;;
           esac
 
+      # A web service's committed OpenAPI document and SSE event schemas
+      # (<Package>/api/, what the browser clients are generated from) must
+      # match a fresh export, rendered in the leg's own env — the one that
+      # imports the service with its extras. A route or model change
+      # without a regenerated document fails here; so does a dependency's
+      # change that reshapes a model, since ci_select runs every dependent's
+      # leg. `--list` names the exported services (stdlib only), so this
+      # step carries no second copy of that list.
+      - name: Check the committed API documents
+        working-directory: ${{ steps.leg.outputs.dir }}
+        run: |
+          export_openapi="$GITHUB_WORKSPACE/scripts/export_openapi.py"
+          if python "$export_openapi" --list | grep -qx "${{ matrix.leg }}"; then
+            poetry run python "$export_openapi" --service "${{ matrix.leg }}" --check
+          else
+            echo "${{ matrix.leg }} exports no API documents"
+          fi
+
   # One stable check for the whole workflow. The matrix is dynamic, so its
   # job names come and go with the diff — a required status check can only
   # be set on something that always reports, and a skipped job never does.

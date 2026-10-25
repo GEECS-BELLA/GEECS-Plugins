@@ -41,6 +41,7 @@ from geecs_web_theme.web import (
     RevalidatingStaticFiles,
     make_templates,
     mount_theme,
+    operation_id,
 )
 
 from geecs_logbook.attachments import AttachmentStore
@@ -110,6 +111,7 @@ def create_app(
         root_path=root_path,
         docs_url=None,
         redoc_url=None,
+        generate_unique_id_function=operation_id,
     )
     app.add_middleware(ForwardedPrefixMiddleware)
     mount_theme(app)

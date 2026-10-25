@@ -1,10 +1,12 @@
 """``GET /api/events`` — the Server-Sent-Events stream the page lives on.
 
-One stream, three event types, each a JSON object:
+One stream, the event types of :data:`EVENT_MODELS`, each a JSON object:
 
 - ``status``   — the manager poll (:class:`~geecs_scanner.service.models.StatusOut`),
   sent every round so the page can show how long ago the manager answered;
 - ``progress`` — the latest-run picture from the document stream, sent
+  when it changes;
+- ``optimization`` — the latest observed optimization iteration, sent
   when it changes;
 - ``log``      — the run's ``scan.log`` lines (:mod:`geecs_scanner.service.scanlog`),
   one frame per chunk, from the folder the start document names; a new
@@ -33,7 +35,15 @@ from collections.abc import AsyncIterator
 import anyio
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
+from geecs_scanner.service.models import (
+    ConsoleLine,
+    OptimizationOut,
+    ProgressOut,
+    ScanLogOut,
+    StatusOut,
+)
 from geecs_scanner.service.scanner import ScannerService
 
 #: Seconds between polls of the manager while a page is connected.
@@ -45,6 +55,25 @@ _HEADERS = {
     "Cache-Control": "no-cache",
     "X-Accel-Buffering": "no",  # nginx: never buffer this response
     "Connection": "keep-alive",
+}
+
+
+class ConsoleEvent(ConsoleLine):
+    """A ``console`` frame: the line plus the stream's epoch (the resume key)."""
+
+    epoch: str
+
+
+#: Every event type the stream sends, and the model its ``data`` is. The
+#: stream's published JSON Schema (``scripts/export_openapi.py``,
+#: ``GeecsScanner/api/events.schema.json``) is built from this table, so a
+#: frame that changes shape changes the committed document.
+EVENT_MODELS: dict[str, type[BaseModel]] = {
+    "status": StatusOut,
+    "progress": ProgressOut,
+    "optimization": OptimizationOut,
+    "log": ScanLogOut,
+    "console": ConsoleEvent,
 }
 
 
@@ -128,9 +157,8 @@ def register(router: APIRouter, service: ScannerService) -> None:  # noqa: C901
                 for line in service.console_since(cursor):
                     cursor = line.seq
                     last_sent = time.monotonic()
-                    payload = line.model_dump()
-                    payload["epoch"] = epoch
-                    yield _frame("console", payload, f"{epoch}:{line.seq}")
+                    payload = ConsoleEvent(**line.model_dump(), epoch=epoch)
+                    yield _frame("console", payload.model_dump(), f"{epoch}:{line.seq}")
                 if once:
                     return
                 if time.monotonic() - last_sent > KEEPALIVE_S:

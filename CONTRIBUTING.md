@@ -137,7 +137,15 @@ layout; delete-when-executed is the whole discipline):
    the PR template — either live results or an explicit "owed:" note.
    Code-complete and hardware-verified are different states here, and PRs
    are expected to say which they are.
-4. **Adversarial review before merge** — this one applies to *all* PRs,
+4. **A web service's API changed → regenerate its documents.** The
+   scanner, the portal, the logbook and the panels each commit their
+   OpenAPI document (and SSE event schemas) under `<Package>/api/`; the
+   browser clients are generated from them. After changing a route, a
+   request or response model, or the package version (a release bump is
+   in `info.version`), run `python scripts/export_openapi.py` from the
+   repo root and commit what it wrote. CI's `--check` (and `check.sh`'s
+   suite for those packages) fails until you do.
+5. **Adversarial review before merge** — this one applies to *all* PRs,
    including tooling/docs-only ones that change no package. A review by
    someone (or, for AI-assisted work, a fresh-context agent) who did not
    write the diff, covering three lenses: correctness (concrete failure

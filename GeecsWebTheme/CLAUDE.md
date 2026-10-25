@@ -86,7 +86,10 @@ Do not start either early to "tidy up".
 
 `geecs_web_theme.web` (the `web` extra) is the one copy of what every
 FastAPI surface needs around the theme: `ForwardedPrefixMiddleware`,
-`clean_prefix`, `root_of`, `mount_theme`, `make_templates`, and
+`clean_prefix`, `root_of`, `mount_theme`, `make_templates`,
+`operation_id` (the `generate_unique_id_function` that names an
+operation by its method and path, so the committed OpenAPI documents
+survive a function rename), and
 `RevalidatingStaticFiles` (every `/static` and `/theme` answer says
 `Cache-Control: no-cache` — the ETag makes an unchanged file a 304; without
 it a browser kept an old stylesheet after a deploy and ran the new script

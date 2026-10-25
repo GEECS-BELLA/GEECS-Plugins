@@ -1,0 +1,652 @@
+{
+  "$defs": {
+    "ConsoleEvent": {
+      "description": "A ``console`` frame: the line plus the stream's epoch (the resume key).",
+      "properties": {
+        "at": {
+          "title": "At",
+          "type": "number"
+        },
+        "epoch": {
+          "title": "Epoch",
+          "type": "string"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "seq",
+        "text",
+        "at",
+        "epoch"
+      ],
+      "title": "ConsoleEvent",
+      "type": "object"
+    },
+    "OptimizationOut": {
+      "description": "Latest adaptive iteration; missing or nonfinite values are null.",
+      "properties": {
+        "best": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Best",
+          "type": "object"
+        },
+        "best_moves": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Best Moves",
+          "type": "object"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completed At"
+        },
+        "config": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config"
+        },
+        "exit_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exit Status"
+        },
+        "expired": {
+          "default": false,
+          "title": "Expired",
+          "type": "boolean"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "finished": {
+          "default": false,
+          "title": "Finished",
+          "type": "boolean"
+        },
+        "invalidated_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Invalidated Reason"
+        },
+        "iteration": {
+          "default": 0,
+          "title": "Iteration",
+          "type": "integer"
+        },
+        "max_iterations": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Iterations"
+        },
+        "measured": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Measured",
+          "type": "object"
+        },
+        "objectives": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Objectives",
+          "type": "array"
+        },
+        "outputs": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Outputs",
+          "type": "object"
+        },
+        "proposal": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Proposal",
+          "type": "object"
+        },
+        "run_uid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Uid"
+        },
+        "scan_number": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scan Number"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "valid_shots": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Valid Shots",
+          "type": "object"
+        }
+      },
+      "title": "OptimizationOut",
+      "type": "object"
+    },
+    "ProgressOut": {
+      "description": "The latest-run picture from the document and console streams.",
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "day": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The run's day, ISO (from the start document's scan_tag)",
+          "title": "Day"
+        },
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        },
+        "exit_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exit Status"
+        },
+        "paused_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paused Reason"
+        },
+        "plan_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Name"
+        },
+        "planned_total": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Planned Total"
+        },
+        "scan_folder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The run's folder as the start document names it",
+          "title": "Scan Folder"
+        },
+        "scan_number": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scan Number"
+        },
+        "shots_done": {
+          "default": 0,
+          "title": "Shots Done",
+          "type": "integer"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "running / paused / done / aborted from the documents",
+          "title": "State"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        }
+      },
+      "required": [
+        "available"
+      ],
+      "title": "ProgressOut",
+      "type": "object"
+    },
+    "ScanLogOut": {
+      "description": "A chunk of the running (or last) scan's ``scan.log``.",
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        },
+        "folder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Folder"
+        },
+        "lines": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Lines",
+          "type": "array"
+        },
+        "more": {
+          "default": false,
+          "description": "The file holds more beyond this chunk",
+          "title": "More",
+          "type": "boolean"
+        },
+        "offset": {
+          "default": 0,
+          "title": "Offset",
+          "type": "integer"
+        },
+        "scan_number": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scan Number"
+        }
+      },
+      "required": [
+        "available"
+      ],
+      "title": "ScanLogOut",
+      "type": "object"
+    },
+    "StatusOut": {
+      "description": "One poll of the manager, plus the readiness verdict over it.",
+      "properties": {
+        "connected": {
+          "title": "Connected",
+          "type": "boolean"
+        },
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        },
+        "experiment": {
+          "title": "Experiment",
+          "type": "string"
+        },
+        "identity": {
+          "description": "What this process submits as",
+          "title": "Identity",
+          "type": "string"
+        },
+        "items_in_queue": {
+          "default": 0,
+          "title": "Items In Queue",
+          "type": "integer"
+        },
+        "manager_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manager State"
+        },
+        "re_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Re State"
+        },
+        "readiness": {
+          "description": "The readiness verdict's state word",
+          "title": "Readiness",
+          "type": "string"
+        },
+        "readiness_detail": {
+          "default": "",
+          "title": "Readiness Detail",
+          "type": "string"
+        },
+        "running_item_uid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Running Item Uid"
+        },
+        "tiled_writer": {
+          "$ref": "#/$defs/TiledWriterOut",
+          "description": "The Tiled writer's heartbeat verdict (the page's chip); shown, never a gate"
+        },
+        "worker_environment_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Worker Environment State"
+        },
+        "worker_exists": {
+          "default": false,
+          "title": "Worker Exists",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "connected",
+        "readiness",
+        "experiment",
+        "identity",
+        "tiled_writer"
+      ],
+      "title": "StatusOut",
+      "type": "object"
+    },
+    "TiledWriterOut": {
+      "description": "The Tiled writer's heartbeat as one kit word (a warning, never a gate).\n\n``state`` is ``ok`` / ``degraded`` / ``failed`` (``unknown`` only while\nunset); the counts are the heartbeat's own.  Read by the page's chip,\n``/health`` (``scripts/fleet_status.sh``'s row) and nothing that\ndecides whether a scan runs.",
+      "properties": {
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        },
+        "failed": {
+          "default": 0,
+          "description": "Files set aside as .failed",
+          "title": "Failed",
+          "type": "integer"
+        },
+        "in_progress": {
+          "default": 0,
+          "description": "Runs still open (or unfinished files)",
+          "title": "In Progress",
+          "type": "integer"
+        },
+        "last_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Error"
+        },
+        "last_ok": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Last registration, epoch",
+          "title": "Last Ok"
+        },
+        "pending": {
+          "default": 0,
+          "description": "Complete spool files waiting",
+          "title": "Pending",
+          "type": "integer"
+        },
+        "stale": {
+          "default": false,
+          "description": "No heartbeat, or one older than three sweeps",
+          "title": "Stale",
+          "type": "boolean"
+        },
+        "state": {
+          "description": "A kit status word",
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "TiledWriterOut",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Each property is one Server-Sent-Events `event:` name; its schema is the JSON object that frame's `data:` carries. A map of the stream's frames, not a payload.",
+  "properties": {
+    "console": {
+      "$ref": "#/$defs/ConsoleEvent"
+    },
+    "log": {
+      "$ref": "#/$defs/ScanLogOut"
+    },
+    "optimization": {
+      "$ref": "#/$defs/OptimizationOut"
+    },
+    "progress": {
+      "$ref": "#/$defs/ProgressOut"
+    },
+    "status": {
+      "$ref": "#/$defs/StatusOut"
+    }
+  },
+  "required": [
+    "console",
+    "log",
+    "optimization",
+    "progress",
+    "status"
+  ],
+  "title": "GEECS Scanner events",
+  "type": "object"
+}

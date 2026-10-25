@@ -146,6 +146,11 @@ own nested worktrees under `.claude/worktrees/`.
   "..."`** (after `git add`): it applies the auto-fixes first, re-stages them,
   then commits, so the commit succeeds on the first try. Any `git commit` args
   pass through.
+- **API documents:** each web service (scanner, portal, logbook, panels)
+  commits its OpenAPI document and SSE event schemas under
+  `<Package>/api/`, the contract the `geecs-web` clients are generated
+  from; `python scripts/export_openapi.py` regenerates them (each service
+  in its own env), and every such package's CI leg runs `--check`
 - **Docs:** MkDocs (root `pyproject.toml`) — `mkdocs serve` from repo root
 
 ## Code Style Conventions
