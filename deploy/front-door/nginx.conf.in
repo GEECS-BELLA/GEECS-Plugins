@@ -1,0 +1,125 @@
+# GEECS front door — nginx config TEMPLATE.
+#
+# Do not copy this file by hand. deploy/front-door/render_conf.sh fills the
+# @PLACEHOLDER@ holes from the host's site.env into the staging directory;
+# root installs the result as /etc/geecs/front-door/nginx.conf, which the
+# geecs-front-door unit runs (see docs/platform/fleet_map.md).
+#
+# One origin for every GEECS web surface: each service under a path prefix,
+# the browser bundle (geecs-web, Planning/epics_estate.md §2.1) at /. Plain
+# HTTP on the lab LAN — TLS is decision 8 of that note, deferred.
+#
+# This is a whole nginx config, not a site file: the unit runs its own nginx
+# as the service account (the packaged nginx.service stays disabled), so
+# every path nginx writes is under the unit's RuntimeDirectory/StateDirectory.
+
+worker_processes auto;
+pid /run/geecs-front-door/nginx.pid;
+# journald, through the unit's stderr.
+error_log stderr;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    sendfile on;
+    server_tokens off;
+    # The services log their own requests; one more copy per request here
+    # would only be noise in the journal.
+    access_log off;
+
+    client_body_temp_path /var/lib/geecs-front-door/client_body;
+    proxy_temp_path /var/lib/geecs-front-door/proxy;
+    fastcgi_temp_path /var/lib/geecs-front-door/fastcgi;
+    uwsgi_temp_path /var/lib/geecs-front-door/uwsgi;
+    scgi_temp_path /var/lib/geecs-front-door/scgi;
+
+    # The logbook takes attachments up to 20 MiB (its own cap answers past
+    # that); nginx's default of 1 MiB would refuse a screenshot first.
+    client_max_body_size 25m;
+    # Redirects (/scan → /scan/) as paths, so they keep whatever host and
+    # port the operator typed.
+    absolute_redirect off;
+
+    server {
+        listen @FRONT_DOOR_BIND@:80 default_server;
+        server_name _;
+
+        # Each surface under its prefix. The trailing slash on proxy_pass
+        # strips the prefix, and X-Forwarded-Prefix names it: that is the
+        # prefix-stripping shape geecs_web_theme.web.ForwardedPrefixMiddleware
+        # (and the portal's copy of it) expects, so every link, asset, fetch
+        # and redirect the service builds carries the prefix. Never also set
+        # the service's --root-path: the two shapes are not interchangeable
+        # (GeecsLogbook/deploy/DEPLOYMENT.md § Behind a reverse proxy).
+        #
+        # Buffering is off for every surface: the scanner's /api/events and
+        # the panels' /events are Server-Sent Events, and a buffered stream
+        # arrives in lumps or not at all. The read timeout outlasts the
+        # streams' keepalive comments with room to spare.
+        #
+        # The ports are fleet constants; the host is the services host.
+
+        # The web scanner (GeecsScanner).
+        location /scan/ {
+            proxy_pass http://@SERVICES_HOST@:8300/;
+            proxy_set_header X-Forwarded-Prefix /scan;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_buffering off;
+            proxy_read_timeout 300s;
+        }
+
+        # The Data Portal (GEECS-DataPortal).
+        location /portal/ {
+            proxy_pass http://@SERVICES_HOST@:8200/;
+            proxy_set_header X-Forwarded-Prefix /portal;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_buffering off;
+            proxy_read_timeout 300s;
+        }
+
+        # The logbook (GeecsLogbook).
+        location /log/ {
+            proxy_pass http://@SERVICES_HOST@:8400/;
+            proxy_set_header X-Forwarded-Prefix /log;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_buffering off;
+            proxy_read_timeout 300s;
+        }
+
+        # The device panels (GeecsPanels; the PV bridge from phase 1 of the
+        # estate). No unit serves :8500 on the services host yet, so this
+        # answers 502 until the bridge's unit lands.
+        location /panels/ {
+            proxy_pass http://@SERVICES_HOST@:8500/;
+            proxy_set_header X-Forwarded-Prefix /panels;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_buffering off;
+            proxy_read_timeout 300s;
+        }
+
+        # The browser bundle: a release artifact unpacked into this
+        # directory, never a clone (the bootstrap's root steps create it with
+        # a placeholder index). Unknown paths fall back to the bundle's
+        # index.html, the single-page app's own router.
+        location / {
+            root /srv/geecs-web;
+            try_files $uri $uri/ /index.html;
+        }
+    }
+}

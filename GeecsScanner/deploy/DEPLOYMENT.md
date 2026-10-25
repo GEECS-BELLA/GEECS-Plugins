@@ -37,9 +37,10 @@ sudo systemctl enable --now geecs-scanner
 ```
 
 `site.env` keys the template reads: `GEECS_EXPERIMENT` (required),
-`GEECS_SCANNER_EXTRA_ARGS` (optional; `--root-path /scan` when the front
-door mounts the scanner under a prefix and does not send
-`X-Forwarded-Prefix`; `--portal-url <the portal's base URL>` so the rail's
+`GEECS_SCANNER_EXTRA_ARGS` (optional; `--root-path /scan` only behind a
+proxy that keeps the prefix and sends no `X-Forwarded-Prefix` — never behind
+`geecs-front-door`, which strips `/scan` and names it in the header;
+`--portal-url <the portal's base URL>` so the rail's
 scan links open the Data Portal's run pages — behind the front door that
 is the `/portal` prefix).
 

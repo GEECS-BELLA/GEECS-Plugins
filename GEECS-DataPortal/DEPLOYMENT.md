@@ -260,9 +260,11 @@ The logbook is **its own service** (GeecsLogbook 0.10.0: unit
 URL: `--logbook-url` is the logbook's base, and the run page links each
 scan to its card there (`<base>/day/YYYY-MM-DD#ScanNNN`; `GET
 /api/run/{uid}` carries the same URL as `logbook`). An absolute URL
-(`http://<host>:8400`) is used as given; a path (`/log`, once the fleet's
-front door routes it to the logbook) is same-origin and carries the
-portal's own proxy prefix. Without the flag there is no link. Set it on
+(`http://<host>:8400`) is used as given; a path is same-origin and carries
+the portal's own proxy prefix — so behind the fleet's front door
+(`geecs-front-door`, which serves the portal at `/portal` and the logbook
+at `/log`) a bare `/log` becomes `/portal/log/…`, a dead link: keep it
+absolute there, `http://<front door>/log`. Without the flag there is no link. Set it on
 the host through `GEECS_PORTAL_EXTRA_ARGS` in `site.env`. The link is
 built for runs of `--experiment` alone: the logbook serves one
 experiment's share and scan numbers restart per experiment.
