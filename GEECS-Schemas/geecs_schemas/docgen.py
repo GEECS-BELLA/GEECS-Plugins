@@ -279,6 +279,43 @@ devices:
     labels: {interlock_1: chiller flow}
     allow: [current, output, reset]
 """,
+    "composed_panel": """\
+schema_version: 1
+# <experiment>/panels/<name>.yaml: sections of widgets, no expressions, no logic.
+title: Chicane
+sections:
+  - title: Supplies
+    columns: 2
+    widgets:
+      - {kind: device, device: U_ChicaneInner}
+      - {kind: device, device: U_ESP302_01, roles: [rbv, val, dmov, stop]}
+      - kind: trend
+        span: 2
+        minutes: 10
+        series:
+          - {device: U_ChicaneInner, role: current}
+          - {pv: "undulator:chicane:field", axis: right}
+        right: field (T)
+  - title: Camera
+    show_when: {pv: "undulator:shutter:state", equals: Open}
+    widgets:
+      - {kind: component, component: camera_viewer, device: UC_ExampleCam}
+      - {kind: action, plan: insert_screen}
+  - title: Room
+    columns: 3
+    widgets:
+      - {kind: roster}
+      - {kind: alarms}
+      - {kind: journal, entries: 10}
+""",
+    "panel_override": """\
+schema_version: 1
+# <experiment>/panels/overrides/<family>.yaml: hide, relabel, reorder; nothing else.
+family: motor_record
+hide: [set, vbas]
+labels: {val: setpoint}
+order: [rbv, val, stop]
+""",
     "analysis_recipe": """\
 schema_version: 3
 device: UC_TopView               # the device folder under scans/ScanNNN/; stems the products

@@ -818,6 +818,207 @@ One device's panel data: its family and what differs from it on this device.
 | `note` | `str` | no | '' | A line the device's page shows. |
 | `archive` | `list[str]` | no | empty | Roles the archiver takes on this device beyond the family's own. |
 
+## `composed_panel`
+
+### ComposedPanel
+
+A composed panel: named sections, each a grid of device pages, components, PVs, trends and buttons.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `title` | `str` | yes | — | The panel's title. |
+| `sections` | `list[PanelSection]` | yes | — | The sections, in order. |
+
+Example:
+
+```yaml
+schema_version: 1
+# <experiment>/panels/<name>.yaml: sections of widgets, no expressions, no logic.
+title: Chicane
+sections:
+  - title: Supplies
+    columns: 2
+    widgets:
+      - {kind: device, device: U_ChicaneInner}
+      - {kind: device, device: U_ESP302_01, roles: [rbv, val, dmov, stop]}
+      - kind: trend
+        span: 2
+        minutes: 10
+        series:
+          - {device: U_ChicaneInner, role: current}
+          - {pv: "undulator:chicane:field", axis: right}
+        right: field (T)
+  - title: Camera
+    show_when: {pv: "undulator:shutter:state", equals: Open}
+    widgets:
+      - {kind: component, component: camera_viewer, device: UC_ExampleCam}
+      - {kind: action, plan: insert_screen}
+  - title: Room
+    columns: 3
+    widgets:
+      - {kind: roster}
+      - {kind: alarms}
+      - {kind: journal, entries: 10}
+```
+
+### PanelSection
+
+A titled grid of widgets.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `title` | `str` | yes | — | The section's title. |
+| `columns` | `int` | no | 2 | The grid's columns. |
+| `widgets` | `list[DeviceWidget \| ComponentWidget \| PvWidget \| TrendWidget \| ActionWidget \| JournalWidget \| RosterWidget \| AlarmsWidget]` | yes | — | The widgets, row by row. |
+| `show_when` | `ShowWhen (optional)` | no | None | Shown only while this PV reads this value. |
+
+### DeviceWidget
+
+A device's own page, embedded whole or reduced to some of its roles.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `span` | `int` | no | 1 | Grid columns the widget spans. |
+| `title` | `str (optional)` | no | None | A title above the widget. |
+| `show_when` | `ShowWhen (optional)` | no | None | Shown only while this PV reads this value. |
+| `kind` | `'device'` | yes | — | Widget kind: 'device'. |
+| `device` | `str` | yes | — | The device's GEECS name. |
+| `roles` | `list[str] (optional)` | no | None | Show only these roles, in this order. Absent: the whole page. |
+
+### ShowWhen
+
+Show the widget or section only while one PV reads one value.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `pv` | `str` | yes | — | The full PV name read. |
+| `equals` | `bool \| int \| float \| str` | yes | — | The value it must read (an enum by its state name). |
+
+### ComponentWidget
+
+A bespoke view of one device: the camera viewer, the scope traces.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `span` | `int` | no | 1 | Grid columns the widget spans. |
+| `title` | `str (optional)` | no | None | A title above the widget. |
+| `show_when` | `ShowWhen (optional)` | no | None | Shown only while this PV reads this value. |
+| `kind` | `'component'` | yes | — | Widget kind: 'component'. |
+| `component` | `'camera_viewer' \| 'scope_traces'` | yes | — | Which component: 'camera_viewer' or 'scope_traces'. |
+| `device` | `str` | yes | — | The device it shows. |
+
+### PvWidget
+
+One bare PV, drawn as a role of the given type (for a PV no family names).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `span` | `int` | no | 1 | Grid columns the widget spans. |
+| `title` | `str (optional)` | no | None | A title above the widget. |
+| `show_when` | `ShowWhen (optional)` | no | None | Shown only while this PV reads this value. |
+| `kind` | `'pv'` | yes | — | Widget kind: 'pv'. |
+| `pv` | `str` | yes | — | The full PV name. |
+| `type` | `'readback' \| 'setpoint' \| 'enum' \| 'bit' \| 'command' \| 'array' \| 'image' \| 'counter'` | yes | — | The widget to draw it as, by role type. |
+| `label` | `str` | yes | — | What the panel calls it. |
+
+### TrendWidget
+
+A live trend over the device streams' server-kept history.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `span` | `int` | no | 1 | Grid columns the widget spans. |
+| `title` | `str (optional)` | no | None | A title above the widget. |
+| `show_when` | `ShowWhen (optional)` | no | None | Shown only while this PV reads this value. |
+| `kind` | `'trend'` | yes | — | Widget kind: 'trend'. |
+| `series` | `list[TrendSeries]` | yes | — | The lines plotted. |
+| `minutes` | `int` | no | 10 | The last N minutes shown. |
+| `left` | `str (optional)` | no | None | The left y axis's title. |
+| `right` | `str (optional)` | no | None | The right y axis's title. |
+
+### TrendSeries
+
+One line of a trend: a device's role, or a bare PV.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `pv` | `str (optional)` | no | None | A bare PV; or give device and role. |
+| `device` | `str (optional)` | no | None | The device whose role is plotted. |
+| `role` | `str (optional)` | no | None | The role plotted. |
+| `axis` | `'left' \| 'right'` | no | 'left' | Which of the trend's two y axes it is drawn against. |
+
+### ActionWidget
+
+A button that runs an action plan through the scanner (idle only).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `span` | `int` | no | 1 | Grid columns the widget spans. |
+| `title` | `str (optional)` | no | None | A title above the widget. |
+| `show_when` | `ShowWhen (optional)` | no | None | Shown only while this PV reads this value. |
+| `kind` | `'action'` | yes | — | Widget kind: 'action'. |
+| `plan` | `str` | yes | — | The action plan's name. |
+
+### JournalWidget
+
+The bridge's put journal: who wrote what, when, accepted or refused.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `span` | `int` | no | 1 | Grid columns the widget spans. |
+| `title` | `str (optional)` | no | None | A title above the widget. |
+| `show_when` | `ShowWhen (optional)` | no | None | Shown only while this PV reads this value. |
+| `kind` | `'journal'` | yes | — | Widget kind: 'journal'. |
+| `entries` | `int` | no | 10 | How many recent entries. |
+
+### RosterWidget
+
+The experiment's devices with their IOC liveness.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `span` | `int` | no | 1 | Grid columns the widget spans. |
+| `title` | `str (optional)` | no | None | A title above the widget. |
+| `show_when` | `ShowWhen (optional)` | no | None | Shown only while this PV reads this value. |
+| `kind` | `'roster'` | yes | — | Widget kind: 'roster'. |
+
+### AlarmsWidget
+
+The alarm list, reduced from the device streams' severities.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `span` | `int` | no | 1 | Grid columns the widget spans. |
+| `title` | `str (optional)` | no | None | A title above the widget. |
+| `show_when` | `ShowWhen (optional)` | no | None | Shown only while this PV reads this value. |
+| `kind` | `'alarms'` | yes | — | Widget kind: 'alarms'. |
+
+## `panel_override`
+
+### PanelOverride
+
+One experiment's adjustments to a family's device page: hide roles, relabel, reorder — nothing else.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `family` | `str` | yes | — | The family whose page it adjusts (the file's stem). |
+| `hide` | `list[str]` | no | empty | Roles the page leaves out. |
+| `labels` | `dict[str, str]` | no | empty | Role → what the page calls it here. |
+| `order` | `list[str]` | no | empty | Roles drawn first, in this order; the rest follow in the family's order. |
+
+Example:
+
+```yaml
+schema_version: 1
+# <experiment>/panels/overrides/<family>.yaml: hide, relabel, reorder; nothing else.
+family: motor_record
+hide: [set, vbas]
+labels: {val: setpoint}
+order: [rbv, val, stop]
+```
+
 ## `analysis_recipe`
 
 ### AnalysisRecipe

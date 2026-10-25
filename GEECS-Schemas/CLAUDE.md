@@ -45,7 +45,13 @@ records by role; the files are **package data**,
 runtime stays free of PyYAML. `epics/panel_devices.py`: `PanelDevices`,
 the configs repo's `<experiment>/panel_devices.yaml` (per-device family,
 suffix overrides, labels, `allow`, `note`, archive opt-ins), read by the
-PV bridge only. Both validate against the installed families; tests pass
+PV bridge only. `epics/panels.py`: `ComposedPanel` (`<experiment>/panels/*.yaml`,
+§2.4) and `PanelOverride` (`panels/overrides/<family>.yaml`). The spec is
+**closed** so it never becomes a language: eight widget kinds, one
+`show_when: {pv, equals}`, no expressions; a new widget kind is a
+decision, not a convenience. A panel's roles are checked when the
+validation context carries `devices` (name → family). All of them
+validate against the installed families; tests pass
 tiny ones through the validation context (`context={"families": ...}`).
 A family file changes when its IOC template does; GeecsPanels' tests pin
 the camera, scope, motor and supply files to the panels' own suffix
