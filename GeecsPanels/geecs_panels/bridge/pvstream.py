@@ -19,6 +19,13 @@ confirm (``geecs_schemas.epics.panels.PvType``).
   (a bare PV names no producer to judge it by) and ``unknown`` when not;
   ``advanced_at`` is its last post.
 
+A bare PV is monitored one element deep: a waveform is sent as its size,
+never its data (arrays are read on request, rule 3). The CA library keeps
+every channel it was ever asked for (aioca's channel cache never evicts):
+a subscription's monitor closes with its last handle, but its channel,
+like a name typed into the inspector, stays searched for until the
+process restarts.
+
 ``GET /api/pv/{name}`` (:class:`PvInfo`) is the inspector's one-shot read:
 the value with its alarm and timestamp, and the record's ``DBR_CTRL``
 fields (units, precision, limits, an enum's choices).
@@ -36,7 +43,8 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from geecs_panels.bridge.feed import SEVERITIES, Sample, SubscribeReading
+from geecs_panels.bridge.feed import Sample, SubscribeReading, severity_name
+from geecs_panels.bridge.stream import GRACE_S, KEEPALIVE_S, PUSH_S
 from geecs_panels.contracts import (
     PvFrame,
     Reading,
@@ -47,14 +55,9 @@ from geecs_panels.contracts import (
 )
 from geecs_panels.feed import Subscription
 
-#: Seconds between a stream's frames.
-PUSH_S = 0.25
-#: Seconds a handle outlives its last listener (or its making, never read).
-GRACE_S = 30.0
 #: The most handles held at once: a page leaking handles cannot exhaust the IOCs.
+#: The push period, the grace period and the keepalive are the device streams'.
 MAX_HANDLES = 200
-#: Seconds without a frame before a keepalive comment.
-KEEPALIVE_S = 15.0
 
 
 class TooManyHandles(RuntimeError):
@@ -86,11 +89,19 @@ class PvMonitors:
     monitors: dict[str, _Monitor] = field(default_factory=dict)
 
     def acquire(self, pv: str) -> None:
-        """Count one more user of *pv*; the first subscribes."""
+        """Count one more user of *pv*; the first subscribes, and is kept only if that worked."""
         monitor = self.monitors.get(pv)
         if monitor is None:
-            monitor = self.monitors[pv] = _Monitor()
-            monitor.sub = self.subscribe(pv, "auto", lambda s: self._update(pv, s))
+            monitor = _Monitor()
+            # Registered before subscribing so the first post finds it, and
+            # dropped if the subscribe raises: a monitor without a
+            # subscription would leave the PV silently dead.
+            self.monitors[pv] = monitor
+            try:
+                monitor.sub = self.subscribe(pv, "auto", lambda s: self._update(pv, s))
+            except BaseException:
+                del self.monitors[pv]
+                raise
         monitor.refs += 1
 
     def release(self, pv: str) -> None:
@@ -120,12 +131,9 @@ class PvMonitors:
         monitor = self.monitors.get(pv)
         if monitor is None or not monitor.connected:
             return Reading(freshness="unknown")
-        sevr = monitor.severity
         return Reading(
             value=_scalar(monitor.value),
-            severity=SEVERITIES[sevr]
-            if isinstance(sevr, int) and 0 <= sevr < 4
-            else None,
+            severity=severity_name(monitor.severity),
             advanced_at=monitor.posted,
             freshness="fresh",
         )
@@ -176,8 +184,15 @@ class PvStreams:
         if len(self.handles) >= self.max_handles:
             raise TooManyHandles(f"the bridge holds {self.max_handles} handles already")
         handle = Handle(f"h-{secrets.token_hex(6)}", list(pvs), idle_since=self.clock())
-        for pv in handle.pvs:
-            self.monitors.acquire(pv)
+        acquired: list[str] = []
+        try:
+            for pv in handle.pvs:
+                self.monitors.acquire(pv)
+                acquired.append(pv)
+        except BaseException:
+            for pv in acquired:  # none of a failed handle's monitors outlives it
+                self.monitors.release(pv)
+            raise
         self.handles[handle.id] = handle
         self._start_sweeper()
         return SubscriptionAck(

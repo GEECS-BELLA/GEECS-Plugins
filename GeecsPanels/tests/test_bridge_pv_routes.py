@@ -44,9 +44,11 @@ def _client(ca: FakeCA, panels: Path | None = None) -> TestClient:
 
 
 def test_a_subscription_is_a_handle_and_its_stream_a_full_frame_first() -> None:
-    ca = FakeCA()
+    ca = FakeCA(needs_loop=True)
     with _client(ca) as client:
-        ack = client.post("/api/subscriptions", json={"pvs": [A]}).json()
+        response = client.post("/api/subscriptions", json={"pvs": [A]})
+        assert response.status_code == 200  # subscribed on the loop, as aioca needs
+        ack = response.json()
         ca.post(A, 0.5)
         with client.stream("GET", f"/api/stream/{ack['handle']}?limit=1") as r:
             lines = [line for line in r.iter_lines() if line]
@@ -121,3 +123,14 @@ def test_no_panels_folder_is_no_panels() -> None:
     with _client(FakeCA()) as client:
         body = client.get("/api/panels").json()
     assert body == {"panels": {}, "overrides": {}, "errors": []}
+
+
+def test_a_panel_file_that_is_not_utf8_is_named_not_a_500(tmp_path: Path) -> None:
+    (tmp_path / "chicane.yaml").write_text(PANEL)
+    (tmp_path / "windows.yaml").write_bytes("title: 5 \xb5m\n".encode("cp1252"))
+    with _client(FakeCA(), tmp_path) as client:
+        response = client.get("/api/panels")
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body["panels"]) == {"chicane"}
+    assert any("windows.yaml" in e for e in body["errors"])

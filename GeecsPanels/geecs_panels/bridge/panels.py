@@ -99,7 +99,7 @@ def load_panels(
 
 def _read(path: Path, errors: list[str]) -> Optional[object]:
     try:
-        return yaml.safe_load(path.read_text()) or {}
-    except (OSError, yaml.YAMLError) as exc:
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         errors.append(f"{path.name}: {exc}")
         return None

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import math
+from typing import Callable, Optional
 
 import pytest
 
+from geecs_panels.bridge.feed import ReadAs, Sample
 from geecs_panels.bridge.pvstream import (
     PvStreams,
     TooManyHandles,
@@ -177,3 +179,34 @@ def test_the_inspector_read_says_why_a_pv_did_not_answer() -> None:
     up = asyncio.run(pv_info(A, answering))
     assert not down.connected and "no answer" in (down.error or "")
     assert up.connected and up.units == "mm" and up.control_limits == (0.0, 10.0)
+
+
+def test_a_failed_subscribe_leaves_no_dead_monitor_and_no_half_handle() -> None:
+    """A subscribe that raises (aioca off the loop) must not leave the PV silently dead."""
+    ca, clock = FakeCA(needs_loop=True), Clock()
+    s = _streams(ca, clock)
+    with pytest.raises(RuntimeError):
+        s.open([A])  # no running loop: as a threadpool route
+    assert s.monitors.monitors == {} and s.handles == {}
+
+    async def on_the_loop() -> None:
+        s.open([A])
+
+    asyncio.run(on_the_loop())
+    assert [pv for pv, _ in ca.subscribed] == [A]
+
+
+def test_a_handle_that_fails_part_way_releases_what_it_took() -> None:
+    ca, clock = FakeCA(), Clock()
+
+    def subscribe(
+        pv: str, how: ReadAs, callback: Callable[[Optional[Sample]], None]
+    ) -> object:
+        if pv == B:
+            raise RuntimeError("no channel")
+        return ca.subscribe(pv, how, callback)
+
+    s = PvStreams(subscribe, clock=clock.mono, wall=clock.wall)
+    with pytest.raises(RuntimeError):
+        s.open([A, B])
+    assert s.monitors.monitors == {} and ca.closed == [A]

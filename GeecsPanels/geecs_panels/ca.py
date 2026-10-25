@@ -24,7 +24,7 @@ import time
 import aioca
 import httpx
 
-from geecs_panels.bridge.feed import ReadAs, Sample
+from geecs_panels.bridge.feed import ReadAs, Sample, severity_name
 from geecs_panels.bridge.puts import PUT_TIMEOUT_S, SETTLE_POLL_S
 from geecs_panels.camera import (
     ARRAYS,
@@ -103,14 +103,19 @@ def subscribe_reading(
             return
         severity = getattr(value, "severity", None)
         enums = getattr(value, "enums", None)
-        if read_as == "auto" and enums:
+        size = getattr(value, "element_count", 1)
+        if read_as == "auto" and isinstance(size, int) and size > 1:
+            # A waveform, monitored one element deep: its size, never its data
+            # (the raw stream shows it; arrays are read on request, rule 3).
+            plain: object = f"[{size} values]"
+        elif read_as == "auto" and enums:
             # An enum read with DBR_CTRL: its state name.
             index = int(value)  # type: ignore[call-overload]  # an augmented int
-            plain: object = enums[index] if 0 <= index < len(enums) else index
+            plain = enums[index] if 0 <= index < len(enums) else index
         elif read_as == "auto" and not isinstance(value, (int, float, str)):
             plain = value  # an array: the raw stream says its size
         elif read_as not in ("native", "auto"):
-            plain: object = str(value)
+            plain = str(value)
         elif isinstance(value, float):
             plain = float(value)
         elif isinstance(value, int):
@@ -131,6 +136,8 @@ def subscribe_reading(
         datatype=datatype,
         # A bare PV's enum choices ride with DBR_CTRL; the rest need the time.
         format=aioca.FORMAT_CTRL if read_as == "auto" else aioca.FORMAT_TIME,
+        # A bare PV may be a waveform: one element is enough to say its size.
+        count=1 if read_as == "auto" else 0,
         notify_disconnect=True,
     )
 
@@ -157,15 +164,12 @@ async def read_pv_info(pv: str) -> dict[str, object]:
         value = int(timed)
     elif isinstance(timed, str):
         value = str(timed)
-    severity = getattr(timed, "severity", None)
-    names = ("NO_ALARM", "MINOR", "MAJOR", "INVALID")
+    severity = severity_name(getattr(timed, "severity", None))
     units = getattr(ctrl, "units", None)
     precision = getattr(ctrl, "precision", None)
     return {
         "value": value,
-        "severity": names[severity]
-        if isinstance(severity, int) and 0 <= severity < 4
-        else None,
+        "severity": severity,
         "timestamp": getattr(timed, "timestamp", None),
         "units": str(units) if units else None,
         "precision": int(precision) if isinstance(precision, int) else None,

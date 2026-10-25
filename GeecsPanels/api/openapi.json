@@ -2824,7 +2824,7 @@
     },
     "/api/subscriptions": {
       "post": {
-        "description": "A handle on bare PVs (monitors shared across handles), released after its grace period unread.",
+        "description": "A handle on bare PVs (monitors shared across handles), released after its grace period unread.\n\n``async``: aioca subscribes on the running event loop, which a\nthreadpool route has not (and the sweeper starts on it).",
         "operationId": "post_api_subscriptions",
         "requestBody": {
           "content": {

@@ -290,8 +290,12 @@ def _add_pv_routes(app: FastAPI, bridge: Bridge) -> None:
         return bridge.pvs
 
     @app.post("/api/subscriptions", response_model=SubscriptionAck)
-    def subscribe(request: SubscriptionRequest) -> SubscriptionAck:
-        """A handle on bare PVs (monitors shared across handles), released after its grace period unread."""
+    async def subscribe(request: SubscriptionRequest) -> SubscriptionAck:
+        """A handle on bare PVs (monitors shared across handles), released after its grace period unread.
+
+        ``async``: aioca subscribes on the running event loop, which a
+        threadpool route has not (and the sweeper starts on it).
+        """
         try:
             return live().open(request.pvs)
         except TooManyHandles as exc:
