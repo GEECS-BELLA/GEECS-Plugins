@@ -44,12 +44,16 @@ records by role; the files are **package data**,
 `epics/families/<template>.json`, read by `load_families()` — JSON so the
 runtime stays free of PyYAML. `epics/panel_devices.py`: `PanelDevices`,
 the configs repo's `<experiment>/panel_devices.yaml` (per-device family,
-suffix overrides, labels, `allow`, `note`, archive opt-ins), read by the
-PV bridge only. Both validate against the installed families; tests pass
-tiny ones through the validation context (`context={"families": ...}`).
-A family file changes when its IOC template does; GeecsPanels' tests pin
-the camera, scope, motor and supply files to the panels' own suffix
-tables until those tables are deleted.
+suffix overrides, labels, `allow`, `note`, `omit`, `hazard`, archive
+opt-ins), read by the PV bridge (the archiver's registry pass reads
+`archive` alone). Both validate against the installed families; tests
+pass tiny ones through the validation context (`context={"families":
+...}`). The installed families are frozen and shared process-wide; a
+family with actions puts every writable role in one, so `allow` decides
+every write. A family file changes when its IOC template does;
+GeecsPanels' `tests/test_contracts.py` (web estate S2) pins the camera,
+scope, motor and supply files to the panels' own suffix tables until
+those tables are deleted.
 
 ## Sweep payload
 

@@ -9,8 +9,9 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from geecs_schemas import SCHEMA_REGISTRY, FamilyFile, load_families
+from geecs_schemas import SCHEMA_REGISTRY, FamilyFile, NativeDevice, load_families
 from geecs_schemas.epics import family as family_module
+from geecs_schemas.epics.family import FamilyKind
 
 #: A tiny family touching every link: a counter-judged statistic, a
 #: setpoint with its readback, a parameter written beside its _RBV that
@@ -22,9 +23,9 @@ TINY = {
     "description": "A family small enough to read.",
     "roles": [
         {"name": "counter", "suffix": "ArrayCounter_RBV", "type": "counter", "label": "frames"},
-        {"name": "on", "suffix": "Compute", "type": "bit", "label": "computing"},
+        {"name": "flag", "suffix": "Compute", "type": "bit", "label": "computing"},
         {"name": "mean", "suffix": "Mean_RBV", "type": "readback", "label": "mean",
-         "fresh_by": "counter", "computed_by": "on"},
+         "fresh_by": "counter", "computed_by": "flag"},
         {"name": "level", "suffix": "level", "type": "readback", "label": "level"},
         {"name": "level_sp", "suffix": "level:SP", "type": "setpoint", "label": "level setpoint",
          "writable": True, "readback": "level", "limits": [0, 10], "archive": True},
@@ -39,6 +40,8 @@ TINY = {
     "actions": {
         "fire": {"label": "fire", "roles": ["fire"], "requires": ["stop"]},
         "stop": {"label": "stop", "roles": ["stop"]},
+        "level": {"label": "level", "roles": ["level_sp"]},
+        "acquire": {"label": "acquire", "roles": ["acquire"]},
     },
 }  # fmt: skip
 
@@ -61,7 +64,7 @@ def test_a_tiny_family_round_trips() -> None:
     family = FamilyFile.model_validate(tiny())
     again = FamilyFile.model_validate_json(family.model_dump_json())
     assert again == family
-    assert family.role_names()[:3] == ["counter", "on", "mean"]
+    assert family.role_names()[:3] == ["counter", "flag", "mean"]
 
 
 def test_how_each_role_is_read_and_written() -> None:
@@ -127,7 +130,7 @@ def test_fresh_by_names_a_counter() -> None:
 
 def test_computed_by_names_a_role() -> None:
     doc = tiny()
-    role(doc, "mean")["computed_by"] = "off"
+    role(doc, "mean")["computed_by"] = "flg"
     _refused(doc, "computed_by names no role")
 
 
@@ -164,7 +167,7 @@ def test_readbacks_counters_and_arrays_are_never_writable(name: str) -> None:
 
 def test_a_separate_write_record_needs_writable() -> None:
     doc = tiny()
-    role(doc, "on").update(write="Compute:SP")
+    role(doc, "flag").update(write="Compute:SP")
     _refused(doc, "'write' needs writable")
 
 
@@ -190,6 +193,38 @@ def test_an_action_requires_known_actions() -> None:
     doc = tiny()
     doc["actions"]["fire"]["requires"] = ["halt"]
     _refused(doc, "requires unknown action")
+
+
+def test_with_actions_every_writable_role_belongs_to_one() -> None:
+    doc = tiny()
+    del doc["actions"]["level"]
+    _refused(doc, r"writable role\(s\) \['level_sp'\] belong to no action")
+    doc["actions"] = {}  # without actions, each writable role is its own permission
+    FamilyFile.model_validate(doc)
+
+
+@pytest.mark.parametrize("word", ["off", "on", "yes", "no", "true", "null"])
+def test_a_role_name_is_not_a_yaml_word(word: str) -> None:
+    doc = tiny()
+    role(doc, "level")["name"] = word
+    role(doc, "level_sp")["readback"] = word
+    _refused(doc, "reads as a boolean or null in YAML")
+
+
+def test_the_installed_families_cannot_be_changed_in_place() -> None:
+    families = load_families()
+    with pytest.raises(TypeError):
+        families["tiny"] = families["fastps"]  # type: ignore[index]
+    with pytest.raises(ValidationError, match="frozen"):
+        families["fastps"].role("current").label = "amps"
+
+
+def test_every_registry_kind_has_a_family_kind() -> None:
+    registry_kinds = {
+        member.model_fields["kind"].annotation.__args__[0]
+        for member in NativeDevice.__args__[0].__args__
+    }
+    assert registry_kinds <= set(FamilyKind.__args__)
 
 
 def test_an_unknown_key_is_refused() -> None:

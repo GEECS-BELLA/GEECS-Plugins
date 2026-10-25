@@ -711,7 +711,7 @@ The records of one IOC record template, by role: what every device of the family
 | `description` | `str` | yes | — | One line: what the template is and where it comes from. |
 | `per_axis` | `bool` | no | False | The records repeat per axis (the motor record): every suffix is under '<prefix><axis>' for each axis the device names. |
 | `roles` | `list[Role]` | yes | — | The template's records, by role, in the page's order. |
-| `actions` | `dict[str, FamilyAction]` | no | empty | The page's actions and the roles each writes; a device may permit a subset. Empty: every writable role is its own permission. |
+| `actions` | `dict[str, FamilyAction]` | no | empty | The page's actions and the roles each writes; a device may permit a subset. When there are actions, every writable role belongs to one. Empty: every writable role is its own permission. |
 
 Example:
 
@@ -816,6 +816,8 @@ One device's panel data: its family and what differs from it on this device.
 | `labels` | `dict[str, str]` | no | empty | Role → what this device's page calls it (a bit's label: 'chiller flow'). |
 | `allow` | `list[str] (optional)` | no | None | The family actions the page may take on this device (no homing for actuators on a mirror mount). Absent: every action. |
 | `note` | `str` | no | '' | A line the device's page shows. |
+| `omit` | `list[str]` | no | empty | Family roles this device does not have or use (an unwired interlock): never read, never shown, and their actions are unavailable. |
+| `hazard` | `list[str]` | no | empty | Writable roles that need the hazard confirm on this device, beyond the family's own (one stage's move). |
 | `archive` | `list[str]` | no | empty | Roles the archiver takes on this device beyond the family's own. |
 
 ## `analysis_recipe`
