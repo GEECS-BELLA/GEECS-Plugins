@@ -170,6 +170,14 @@ class PanelDevice(SchemaModel):
         self._check_roles(name, family)
         if self.allow is not None:
             self._check_allow(name, family)
+        available = set(self.allowed_actions(family))
+        for action in available:
+            missing = sorted(set(family.actions[action].requires) - available)
+            if missing:
+                raise ValueError(
+                    f"device {name!r}: {action!r} would be available without "
+                    f"{missing} (omitted or not allowed)"
+                )
         check_suffixes(f"{family.template} on {name}", self.resolve(family))
 
     def _check_roles(self, name: str, family: FamilyFile) -> None:
@@ -178,6 +186,13 @@ class PanelDevice(SchemaModel):
         if read_only:
             raise ValueError(
                 f"device {name!r}: hazard on read-only role(s) {read_only}"
+            )
+        both = sorted(
+            set(self.omit) & {*self.roles, *self.labels, *self.hazard, *self.archive}
+        )
+        if both:
+            raise ValueError(
+                f"device {name!r}: omits role(s) {both} it also configures"
             )
         split = sorted(r for r in self.roles if family.role(r).write is not None)
         if split:

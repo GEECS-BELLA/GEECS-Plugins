@@ -76,10 +76,12 @@ def test_allowed_actions_are_the_familys_within_allow() -> None:
 
 def test_an_omitted_role_is_gone_with_its_actions() -> None:
     d = doc()
-    d["devices"]["U_Tiny"].update(omit=["fault", "level_sp"], allow=["fire", "stop"])
+    d["devices"]["U_Tiny"].update(
+        omit=["trace", "level_sp"], allow=["fire", "stop"], roles={}
+    )
     device = validate(d).devices["U_Tiny"]
     names = [r.name for r in device.resolve(FAMILIES["tiny"])]
-    assert "fault" not in names and "level_sp" not in names
+    assert "trace" not in names and "level_sp" not in names
     unrestricted = device.model_copy(update={"allow": None})
     assert unrestricted.allowed_actions(FAMILIES["tiny"]) == ["fire", "stop", "acquire"]
 
@@ -132,7 +134,7 @@ def test_an_overridden_relabelled_or_archived_role_exists(
 
 def test_an_allowed_action_keeps_its_roles() -> None:
     d = doc()
-    d["devices"]["U_Tiny"]["omit"] = ["level_sp"]
+    d["devices"]["U_Tiny"].update(omit=["level_sp"], roles={})
     _refused(d, r"allows 'level' but omits its role\(s\) \['level_sp'\]")
 
 
@@ -152,6 +154,18 @@ def test_a_role_on_two_records_is_not_overridden() -> None:
     d = doc()
     d["devices"]["U_Tiny"]["roles"] = {"acquire": "cam2:Acquire_RBV"}
     _refused(d, "read and write two records")
+
+
+def test_an_omission_never_leaves_an_action_without_what_it_requires() -> None:
+    d = doc()
+    d["devices"]["U_Tiny"].update(omit=["stop"], allow=None)
+    _refused(d, r"'fire' would be available without \['stop'\]")
+
+
+def test_an_omitted_role_is_not_also_configured() -> None:
+    d = doc()
+    d["devices"]["U_Tiny"]["omit"] = ["fault"]
+    _refused(d, r"omits role\(s\) \['fault'\] it also configures")
 
 
 def test_an_allowed_action_exists() -> None:
