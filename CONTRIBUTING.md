@@ -141,10 +141,14 @@ layout; delete-when-executed is the whole discipline):
    scanner, the portal, the logbook and the panels each commit their
    OpenAPI document (and SSE event schemas) under `<Package>/api/`; the
    browser clients are generated from them. After changing a route, a
-   request or response model, or the package version (a release bump is
-   in `info.version`), run `python scripts/export_openapi.py` from the
-   repo root and commit what it wrote. CI's `--check` (and `check.sh`'s
-   suite for those packages) fails until you do.
+   request or response model, or the package version (the scanner's,
+   the logbook's and the panels' `info.version` is the installed package
+   version: after `poetry version`, `poetry install` in that package
+   first), run `python scripts/export_openapi.py` from the repo root and
+   commit what it wrote. Each service renders in its own env, so the
+   portal's needs its `analysis` extra (`poetry install --with dev
+   --extras analysis`, as CI installs it). CI's `--check` (and
+   `check.sh`'s suite for those packages) fails until you do.
 5. **Adversarial review before merge** — this one applies to *all* PRs,
    including tooling/docs-only ones that change no package. A review by
    someone (or, for AI-assisted work, a fresh-context agent) who did not

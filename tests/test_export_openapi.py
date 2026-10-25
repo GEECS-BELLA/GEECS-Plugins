@@ -131,7 +131,11 @@ def _export_and_dump(seed: str, tmp_path: Path) -> str:
 
 
 def test_the_export_is_deterministic_across_processes(tmp_path: Path) -> None:
-    """Two interpreters under different hash seeds render byte-identical files."""
+    """The pipeline itself (build, ``openapi()``, events schema, dump) adds no
+    hash-seed dependence: two interpreters under different seeds render
+    byte-identical files. A service whose own content leaks set order is
+    caught by ``--check``'s second render, pinned in
+    ``test_a_nondeterministic_export_fails_the_check``."""
     assert _export_and_dump("1", tmp_path) == _export_and_dump("2", tmp_path)
 
 
@@ -235,9 +239,13 @@ def test_the_events_document_maps_each_event_to_its_frame_schema(toy: Path) -> N
 
 
 def test_list_prints_the_services_without_importing_them() -> None:
-    """``--list`` is what CI and check.sh select the legs with: stdlib only."""
+    """``--list`` is what CI and check.sh select the legs with: stdlib only.
+
+    ``-I -S``: no site-packages, so a third-party import at the script's top
+    level fails this test rather than CI's selection step.
+    """
     out = subprocess.run(
-        [sys.executable, str(SCRIPT), "--list"],
+        [sys.executable, "-I", "-S", str(SCRIPT), "--list"],
         check=True,
         capture_output=True,
         text=True,

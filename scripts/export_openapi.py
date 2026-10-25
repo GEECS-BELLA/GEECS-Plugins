@@ -141,16 +141,22 @@ def _scanner_events() -> dict[str, Any]:
 def _portal_app(scratch: Path) -> Any:
     """The portal with its config editor mounted (as the deployed unit runs it).
 
-    The config editor needs a configs tree to exist; an empty one is enough
-    for its routes, and the factory's "no diagnostics in that tree" warning
-    is expected here, so it is silenced.
+    The editor needs a configs tree to exist; an empty one is enough for its
+    routes (the factory warns that it holds no diagnostics — expected here).
+    The portal mounts the editor only when ``scan_analysis`` imports, and
+    otherwise says so in a log line and carries on: a portal env installed
+    without the ``analysis`` extra would render a document silently missing
+    ``/configs``, so that is refused here as the env problem it is.
     """
-    import logging
-
     from geecs_portal.app import create_app
 
-    logging.getLogger("geecs_portal").setLevel(logging.ERROR)
-    return create_app(_NoCatalog(), processing_config_dir=scratch, config_editor=True)
+    app = create_app(_NoCatalog(), processing_config_dir=scratch, config_editor=True)
+    if not app.state.portal.config_editor_enabled:
+        raise ImportError(
+            "the portal mounted no config editor: this env lacks scan_analysis "
+            "(install the portal with `poetry install --with dev --extras analysis`)"
+        )
+    return app
 
 
 class _NoCatalog:

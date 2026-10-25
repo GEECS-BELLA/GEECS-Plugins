@@ -389,7 +389,10 @@ already shows per host.
 
 1. `poetry version patch|minor|major` inside the package — the largest
    kind among the PRs being released
-2. `scripts/release_notes.py <Package> --version <new>` prints the draft
+2. For the scanner, the logbook and the panels, `poetry install` there
+   and `python scripts/export_openapi.py <Package>`: their committed
+   OpenAPI document carries the version
+3. `scripts/release_notes.py <Package> --version <new>` prints the draft
    `CHANGELOG.md` entry: one bullet per merged PR that touched the package
    since its previous bump (from `gh pr list --state merged`). Edit it
    (group, cut noise, add the host deploy step) and paste it under the new
