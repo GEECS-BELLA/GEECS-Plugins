@@ -621,7 +621,7 @@ esac
 """
     r = _run_front_door(tmp_path, "--only", "front-door", systemctl_body=body)
     assert r.returncode == 0, r.stderr
-    assert "nginx.service is enabled" in r.stdout
+    assert "nginx.service is enabled/" in r.stdout
     assert "sudo systemctl disable --now nginx.service" in r.stdout
     assert "apt-get install -y nginx" not in r.stdout
 
@@ -655,3 +655,42 @@ def test_only_front_door_without_its_key_fails_loudly(tmp_path: Path) -> None:
     r = _run_front_door(tmp_path, "--only", "front-door", site=site)
     assert r.returncode == 2
     assert "missing GEECS_FRONT_DOOR_BIND" in r.stderr
+
+
+def test_a_running_but_disabled_packaged_nginx_is_stopped(tmp_path: Path) -> None:
+    """``systemctl disable`` without ``--now`` leaves it holding port 80."""
+    body = """\
+case "$*" in
+    "is-enabled nginx.service") echo disabled; exit 1 ;;
+    "is-active nginx.service") echo active ;;
+    *) exit 1 ;;
+esac
+"""
+    r = _run_front_door(tmp_path, "--only", "front-door", systemctl_body=body)
+    assert r.returncode == 0, r.stderr
+    assert "nginx.service is disabled/active" in r.stdout
+    assert "sudo systemctl disable --now nginx.service" in r.stdout
+
+
+def test_dropping_the_services_host_as_the_example_says_still_bootstraps(
+    tmp_path: Path,
+) -> None:
+    """The example's documented opt-out (no MCP, no front door) must run clean."""
+    site = _without(tmp_path, "GEECS_SERVICES_HOST")
+    site.write_text(
+        "\n".join(
+            ln
+            for ln in site.read_text().splitlines()
+            if not ln.startswith("GEECS_FRONT_DOOR_BIND=")
+        )
+        + "\n"
+    )
+    r = _run_front_door(tmp_path, site=site)
+    assert r.returncode == 0, r.stderr
+    assert "mcp: not wanted" in r.stdout and "front-door: not wanted" in r.stdout
+
+
+def test_a_front_door_without_the_services_host_names_the_key(tmp_path: Path) -> None:
+    r = _run_front_door(tmp_path, site=_without(tmp_path, "GEECS_SERVICES_HOST"))
+    assert r.returncode == 2
+    assert "missing GEECS_SERVICES_HOST" in r.stderr

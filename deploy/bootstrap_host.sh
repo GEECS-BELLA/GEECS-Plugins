@@ -196,18 +196,20 @@ fi
 
 # The front door runs the OS package's nginx under its own unit; the
 # package's own nginx.service would hold port 80 with Ubuntu's default site,
-# so it must be installed AND disabled. Judge both (the Redis pattern).
+# so it must be installed AND disabled and stopped. Judge each (the Redis
+# pattern): a `disable` without `--now` leaves it holding the port.
 NGINX_ROOT_STEP=""
 if wanted front-door; then
     nginx_enabled="$({ systemctl is-enabled nginx.service 2>/dev/null || true; } | head -1)"
+    nginx_active="$({ systemctl is-active nginx.service 2>/dev/null || true; } | head -1)"
     if ! command -v nginx >/dev/null; then
         echo "  WARNING: no nginx — the front door's unit runs the OS package's /usr/sbin/nginx; the root steps below install it"
         NGINX_ROOT_STEP="install"
-    elif [ "$nginx_enabled" = "enabled" ]; then
-        echo "  WARNING: nginx.service is enabled — it would hold port 80 with the package's default site; the root steps below disable it"
+    elif [ "$nginx_enabled" = "enabled" ] || [ "$nginx_active" = "active" ]; then
+        echo "  WARNING: nginx.service is ${nginx_enabled:-?}/${nginx_active:-?} — it would hold port 80 with the package's default site; the root steps below disable and stop it"
         NGINX_ROOT_STEP="disable"
     else
-        echo "  nginx ready for the front door: $(command -v nginx), the package's nginx.service not enabled"
+        echo "  nginx ready for the front door: $(command -v nginx), the package's nginx.service neither enabled nor running"
     fi
 fi
 

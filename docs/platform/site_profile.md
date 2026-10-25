@@ -125,7 +125,7 @@ in `site.env` may be paths, key by key — the test is who dials the URL:
 
 | Key | Behind the door | Why |
 |---|---|---|
-| `GEECS_PORTAL_EXTRA_ARGS`' `--logbook-url` | **absolute** (may name the logbook through the door, `http://<door>/log`; never the bare `/log`) | the portal dials it server-to-server to send a plot into a scan's entry; a path hides that button |
+| `GEECS_PORTAL_EXTRA_ARGS`' `--logbook-url` | **absolute** (may name the logbook through the door, `http://<door>/log`; never the bare `/log`) | a path is joined to the portal's own prefix (`/portal/log/…`, a dead link), and the portal dials it server-to-server to send a plot into a scan's entry |
 | `GEECS_SERVICES_HOST` → `config.ini [mcp]` | **absolute**, straight to the ports | geecs-mcp is a server-side client; the agent's writes should not depend on one more process |
 | `GEECS_SCANNER_EXTRA_ARGS`' `--portal-url` | **a path**: `/portal` | only ever a link in the operator's browser |
 
