@@ -422,7 +422,7 @@ def test_a_site_without_archiver_keys_skips_the_archiver_by_default(
     assert "archiver: not wanted" in r.stdout
     for marker in (
         "geecs-archiver",
-        "render_conf.sh",
+        "GeecsArchiver/deploy/render_conf.sh",
         "docker is not ready",
         "[archiver]",
     ):
@@ -523,7 +523,9 @@ def test_a_site_without_the_services_host_renders_no_mcp_section(
         "\n".join(
             ln
             for ln in site.read_text().splitlines()
-            if not ln.startswith("GEECS_SERVICES_HOST=")
+            # A site without the services' host has no front door either:
+            # the door's upstreams are that host (its key is required with it).
+            if not ln.startswith(("GEECS_SERVICES_HOST=", "GEECS_FRONT_DOOR_BIND="))
         )
         + "\n"
     )
@@ -552,3 +554,104 @@ def test_a_site_without_the_services_host_renders_no_mcp_section(
     )
     assert only.returncode != 0
     assert "GEECS_SERVICES_HOST" in only.stderr + only.stdout
+
+
+# --- the front door: nginx (the OS package) under geecs-front-door ---------
+
+
+def _run_front_door(
+    tmp_path: Path,
+    *extra: str,
+    nginx: bool = True,
+    systemctl_body: str = REDIS_ENABLED,
+    site: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Dry-run with a stub systemctl and, or not, a stub nginx on a PATH that
+    hides any real /usr/sbin/nginx (the CI runners ship one)."""
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    (stub_dir / "systemctl").write_text("#!/usr/bin/env bash\n" + systemctl_body)
+    (stub_dir / "systemctl").chmod(0o755)
+    if nginx:
+        (stub_dir / "nginx").write_text("#!/usr/bin/env bash\nexit 0\n")
+        (stub_dir / "nginx").chmod(0o755)
+    env = dict(os.environ, PATH=f"{stub_dir}:/usr/bin:/bin")
+    return subprocess.run(
+        ["bash", str(BOOTSTRAP), str(site or _site_env(tmp_path)), "--dry-run", *extra],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=REPO_ROOT,
+    )
+
+
+def test_front_door_renders_its_unit_and_conf_and_installs_before_enabling(
+    tmp_path: Path,
+) -> None:
+    r = _run_front_door(tmp_path, "--only", "front-door")
+    assert r.returncode == 0, r.stderr
+    assert "deploy/front-door/geecs-front-door.service" in r.stdout
+    assert "render_conf.sh" in r.stdout and "deploy-staging/front-door" in r.stdout
+    assert "front-door: no environment (the OS package)" in r.stdout
+    assert "nginx ready for the front door" in r.stdout
+    enable = r.stdout.index("sudo systemctl enable --now geecs-front-door")
+    assert r.stdout.index("/etc/geecs/front-door/nginx.conf") < enable
+    assert r.stdout.index("install -d -m 0755 /srv/geecs-web") < enable
+    assert "apt-get install -y nginx" not in r.stdout
+    assert "disable --now nginx.service" not in r.stdout
+
+
+def test_missing_nginx_is_installed_and_its_own_unit_disabled_first(
+    tmp_path: Path,
+) -> None:
+    r = _run_front_door(tmp_path, "--only", "front-door", nginx=False)
+    assert r.returncode == 0, r.stderr
+    enable = r.stdout.index("sudo systemctl enable --now geecs-front-door")
+    assert r.stdout.index("apt-get install -y nginx") < enable
+    assert r.stdout.index("sudo systemctl disable --now nginx.service") < enable
+    assert "nginx is not ready for the front door" in r.stderr
+
+
+def test_an_enabled_packaged_nginx_is_disabled_not_reinstalled(tmp_path: Path) -> None:
+    body = """\
+case "$*" in
+    "is-enabled nginx.service") echo enabled ;;
+    *) exit 1 ;;
+esac
+"""
+    r = _run_front_door(tmp_path, "--only", "front-door", systemctl_body=body)
+    assert r.returncode == 0, r.stderr
+    assert "nginx.service is enabled" in r.stdout
+    assert "sudo systemctl disable --now nginx.service" in r.stdout
+    assert "apt-get install -y nginx" not in r.stdout
+
+
+def _without(tmp_path: Path, key: str) -> Path:
+    site = _site_env(tmp_path)
+    site.write_text(
+        "\n".join(
+            ln for ln in site.read_text().splitlines() if not ln.startswith(f"{key}=")
+        )
+        + "\n"
+    )
+    return site
+
+
+def test_a_site_without_the_front_door_key_deploys_none(tmp_path: Path) -> None:
+    r = _run_front_door(tmp_path, site=_without(tmp_path, "GEECS_FRONT_DOOR_BIND"))
+    assert r.returncode == 0, r.stderr
+    assert "front-door: not wanted" in r.stdout
+    for marker in (
+        "enable --now geecs-front-door",
+        "deploy-staging/front-door",
+        "nginx",
+    ):
+        assert marker not in r.stdout, marker
+    assert "sudo systemctl enable --now geecs-data-portal" in r.stdout
+
+
+def test_only_front_door_without_its_key_fails_loudly(tmp_path: Path) -> None:
+    site = _without(tmp_path, "GEECS_FRONT_DOOR_BIND")
+    r = _run_front_door(tmp_path, "--only", "front-door", site=site)
+    assert r.returncode == 2
+    assert "missing GEECS_FRONT_DOOR_BIND" in r.stderr

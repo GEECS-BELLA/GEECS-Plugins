@@ -36,6 +36,7 @@ TEMPLATES = [
     REPO_ROOT / "GEECS-MCP/deploy/geecs-mcp.service",
     REPO_ROOT / "GeecsScanner/deploy/geecs-scanner.service",
     REPO_ROOT / "GeecsArchiver/deploy/geecs-archiver.service",
+    REPO_ROOT / "deploy/front-door/geecs-front-door.service",
 ]
 
 # The shape of a unit file from before the site profile: real-looking

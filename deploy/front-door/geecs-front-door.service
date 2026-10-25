@@ -1,0 +1,48 @@
+# GEECS front door — systemd unit TEMPLATE.
+#
+# Do not copy this file to /etc/systemd/system by hand. Render it from the
+# host's site.env with `deploy/render_units.sh` (or `deploy/bootstrap_host.sh`)
+# — see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
+# time (identity + the site.env path).
+#
+# One origin for every web surface: nginx (the OS package) serving each
+# service under a path prefix and the browser bundle at /. Its config is
+# rendered separately — deploy/front-door/render_conf.sh writes it into the
+# staging directory and root installs it as /etc/geecs/front-door/nginx.conf;
+# the unit never reads a clone.
+#
+# Change the config:
+#   deploy/front-door/render_conf.sh /etc/geecs/site.env ~/deploy-staging/front-door
+#   sudo install -m 0644 ~/deploy-staging/front-door/nginx.conf /etc/geecs/front-door/
+#   sudo systemctl reload geecs-front-door
+
+[Unit]
+Description=GEECS front door (one origin for the web surfaces; nginx)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+# nginx reads nothing from the profile at start (its values are rendered
+# into the config); the line keeps the unit a site-profile template like
+# every other, and puts TZ into its log timestamps.
+EnvironmentFile=@SITE_ENV@
+# Port 80 as the unprivileged service account.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+# The pid file and nginx's temp paths (the config names these two).
+RuntimeDirectory=geecs-front-door
+StateDirectory=geecs-front-door
+# A config that does not parse fails the start, not the first request.
+ExecStartPre=/usr/sbin/nginx -t -q -c /etc/geecs/front-door/nginx.conf
+ExecStart=/usr/sbin/nginx -c /etc/geecs/front-door/nginx.conf -g "daemon off;"
+ExecReload=/usr/sbin/nginx -t -q -c /etc/geecs/front-door/nginx.conf
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+SyslogIdentifier=geecs-front-door
+
+[Install]
+WantedBy=multi-user.target

@@ -8,7 +8,7 @@
 #   deploy/bootstrap_host.sh SITE_ENV [--ref REF] [--only svc,svc] [--dry-run] [--no-install]
 #
 #   --ref REF      git ref to check out in each clone (default: master)
-#   --only LIST    comma-separated subset of: gateway,portal,logbook,qserver,tiled-writer,mcp,scanner,archiver
+#   --only LIST    comma-separated subset of: gateway,portal,logbook,qserver,tiled-writer,mcp,scanner,archiver,front-door
 #                  (re-stages only these: the staging dir's units are cleared first,
 #                  so the printed install line covers exactly this run)
 #   --no-install   clone/fetch only; skip poetry/pip installs
@@ -73,16 +73,19 @@ say() { printf '\n== %s\n' "$1"; }
 # the conf templates; the unit itself runs docker compose from /etc/geecs/archiver
 # and never reads the clone. Its runtime prerequisite is Docker (checked below,
 # the Redis pattern); its conf is rendered by the package's own render_conf.sh.
-SERVICES="gateway portal logbook qserver tiled-writer mcp scanner archiver"
-clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal|logbook) echo "portal-checkout";; qserver|tiled-writer|mcp|scanner) echo "qs-checkout";; archiver) echo "archiver-checkout";; esac; }
-pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; logbook) echo "GeecsLogbook";; qserver|tiled-writer) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; scanner) echo "GeecsScanner";; archiver) echo "GeecsArchiver";; esac; }
-extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook) echo "";; qserver|tiled-writer) echo "ca tiled qserver optimize";; mcp) echo "";; scanner) echo "";; archiver) echo "";; esac; }
+# The front door (geecs-front-door) is nginx from the OS package: no poetry
+# env (empty package dir), its unit and its rendered nginx.conf from the web
+# viewers' clone, portal-checkout; the unit itself reads /etc/geecs/front-door.
+SERVICES="gateway portal logbook qserver tiled-writer mcp scanner archiver front-door"
+clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal|logbook|front-door) echo "portal-checkout";; qserver|tiled-writer|mcp|scanner) echo "qs-checkout";; archiver) echo "archiver-checkout";; esac; }
+pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; logbook) echo "GeecsLogbook";; qserver|tiled-writer) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; scanner) echo "GeecsScanner";; archiver) echo "GeecsArchiver";; front-door) echo "";; esac; }
+extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook) echo "";; qserver|tiled-writer) echo "ca tiled qserver optimize";; mcp) echo "";; scanner) echo "";; archiver) echo "";; front-door) echo "";; esac; }
 # The queueserver is two units: the manager and the geecs-qserver-ready oneshot
 # that opens its worker environment and asserts the plan list after every
 # (re)start (#793) — enabled together, rendered from the same clone. The
 # Tiled writer is its own service (own unit, own restart, no ordering
 # against the manager): the spool directory is the only thing they share.
-units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; tiled-writer) echo "geecs-tiled-writer";; mcp) echo "geecs-mcp";; scanner) echo "geecs-scanner";; archiver) echo "geecs-archiver";; esac; }
+units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; tiled-writer) echo "geecs-tiled-writer";; mcp) echo "geecs-mcp";; scanner) echo "geecs-scanner";; archiver) echo "geecs-archiver";; front-door) echo "geecs-front-door";; esac; }
 # The archiver is opt-in BY SITE: with no --only it is wanted only when
 # site.env names an appliance (GEECS_ARCHIVER_HOST set — the PVA "empty =
 # none" precedent), so a host without one keeps the smaller profile and a
@@ -94,6 +97,8 @@ wanted() {
         # geecs-mcp likewise: without the services' host it could only
         # answer service_unreachable, so a site without the key deploys none.
         if [ "$1" = "mcp" ] && [ -z "${GEECS_SERVICES_HOST:-}" ]; then return 1; fi
+        # The front door likewise: a site without GEECS_FRONT_DOOR_BIND runs none.
+        if [ "$1" = "front-door" ] && [ -z "${GEECS_FRONT_DOOR_BIND:-}" ]; then return 1; fi
         return 0
     fi
     case ",$ONLY," in *",$1,"*) return 0;; *) return 1;; esac
@@ -118,6 +123,8 @@ fi
 if wanted archiver; then require_site_keys GEECS_ARCHIVER_HOST GEECS_ARCHIVER_DATA_ROOT GEECS_ARCHIVER_JAVA_OPTS; fi
 # geecs-mcp reaches the scanner, portal and logbook at this host ([mcp] in config.ini).
 if wanted mcp; then require_site_keys GEECS_SERVICES_HOST; fi
+# The front door listens on its interface and proxies to the services' host.
+if wanted front-door; then require_site_keys GEECS_FRONT_DOOR_BIND GEECS_SERVICES_HOST; fi
 
 say "site '${GEECS_SITE:-?}' experiment '$GEECS_EXPERIMENT' — ref $REF — root $GEECS_CHECKOUT_ROOT"
 if [ -z "$ONLY" ] && [ -z "${GEECS_ARCHIVER_HOST:-}" ]; then
@@ -125,6 +132,9 @@ if [ -z "$ONLY" ] && [ -z "${GEECS_ARCHIVER_HOST:-}" ]; then
 fi
 if [ -z "$ONLY" ] && [ -z "${GEECS_SERVICES_HOST:-}" ]; then
     echo "  mcp: not wanted — site.env has no GEECS_SERVICES_HOST (set it to the host of the scanner, portal and logbook to deploy geecs-mcp)"
+fi
+if [ -z "$ONLY" ] && [ -z "${GEECS_FRONT_DOOR_BIND:-}" ]; then
+    echo "  front-door: not wanted — site.env has no GEECS_FRONT_DOOR_BIND (set it to the interface the front door serves on to deploy geecs-front-door)"
 fi
 if [ "$(id -un)" != "$GEECS_SERVICE_USER" ]; then
     echo "WARNING: running as $(id -un), site.env says the service account is $GEECS_SERVICE_USER;" >&2
@@ -184,6 +194,23 @@ if wanted archiver; then
     fi
 fi
 
+# The front door runs the OS package's nginx under its own unit; the
+# package's own nginx.service would hold port 80 with Ubuntu's default site,
+# so it must be installed AND disabled. Judge both (the Redis pattern).
+NGINX_ROOT_STEP=""
+if wanted front-door; then
+    nginx_enabled="$({ systemctl is-enabled nginx.service 2>/dev/null || true; } | head -1)"
+    if ! command -v nginx >/dev/null; then
+        echo "  WARNING: no nginx — the front door's unit runs the OS package's /usr/sbin/nginx; the root steps below install it"
+        NGINX_ROOT_STEP="install"
+    elif [ "$nginx_enabled" = "enabled" ]; then
+        echo "  WARNING: nginx.service is enabled — it would hold port 80 with the package's default site; the root steps below disable it"
+        NGINX_ROOT_STEP="disable"
+    else
+        echo "  nginx ready for the front door: $(command -v nginx), the package's nginx.service not enabled"
+    fi
+fi
+
 say "clones (one per service family, at $REF)"
 # Clone dirs that are NOT usable clones are recorded here; every later stage
 # (environments, units, root steps) skips their services, so the run cannot
@@ -230,6 +257,7 @@ for s in $SERVICES; do
     dir="$GEECS_CHECKOUT_ROOT/$(clone_of "$s")/$(pkgdir_of "$s")"
     skipped_clone "$(clone_of "$s")" && { echo "  $s: skipped — $(clone_of "$s") is not a usable clone (see the clones stage)"; continue; }
     [ "$INSTALL" -eq 1 ] || { echo "  $s: skipped (--no-install)"; continue; }
+    [ -n "$(pkgdir_of "$s")" ] || { echo "  $s: no environment (the OS package)"; continue; }
     if [ ! -d "$dir" ]; then
         echo "  $s: clone not present yet ($dir) — rerun after the clone step has run for real"; continue
     fi
@@ -361,7 +389,8 @@ templates_of() { case "$1" in
     tiled-writer) echo "GeecsBluesky/qserver/deploy/geecs-tiled-writer.service";;
     mcp) echo "GEECS-MCP/deploy/geecs-mcp.service";;
     scanner) echo "GeecsScanner/deploy/geecs-scanner.service";;
-    archiver) echo "GeecsArchiver/deploy/geecs-archiver.service";; esac; }
+    archiver) echo "GeecsArchiver/deploy/geecs-archiver.service";;
+    front-door) echo "deploy/front-door/geecs-front-door.service";; esac; }
 TEMPLATE_PATHS=()
 # Services whose clone predates the templated units: no unit is rendered or
 # enabled for them (pulling that clone forward is a deploy of that service,
@@ -417,6 +446,23 @@ if wanted archiver; then
     fi
 fi
 
+# The front door's nginx.conf is not a unit either: filled by its own
+# renderer from the portal clone (the archiver pattern), into
+# $STAGE/front-door beside the bundle's placeholder index.
+FRONT_DOOR_CONF=""
+if wanted front-door; then
+    say "front door conf (nginx.conf from site.env + the bundle placeholder, to the staging dir)"
+    if skipped_clone portal-checkout || skipped_service front-door; then
+        echo "  skipped — portal-checkout is not usable or predates the front door (see above)"
+    else
+        rc="$GEECS_CHECKOUT_ROOT/portal-checkout/deploy/front-door/render_conf.sh"
+        [ -x "$rc" ] || { echo "  clone absent — render_conf.sh from this clone ($REPO_ROOT)"; rc="$REPO_ROOT/deploy/front-door/render_conf.sh"; }
+        if [ "$DRY" -eq 1 ]; then echo "  [dry] $rc $SITE_ENV $STAGE/front-door"
+        else RENDER_QUIET=1 "$rc" "$SITE_ENV" "$STAGE/front-door" | sed 's/^/  /'; fi
+        FRONT_DOOR_CONF="yes"
+    fi
+fi
+
 say "root steps (a human runs these; nothing above needed sudo)"
 if [ -n "$REDIS_ROOT_STEP" ]; then
     # First: geecs-qserver.service is ordered After= this unit, and its
@@ -434,6 +480,14 @@ if [ -n "$DOCKER_ROOT_STEP" ]; then
     echo "  sudo usermod -aG docker $GEECS_SERVICE_USER   # the unit runs docker compose as the service account"
     echo "  sudo systemctl enable --now docker.service"
 fi
+if [ "$NGINX_ROOT_STEP" = "install" ]; then
+    # The package enables and starts its own nginx.service (the default site
+    # on :80); the front door's unit needs the port, so disable it at once.
+    echo "  sudo apt-get update && sudo apt-get install -y nginx   # the front door's server (the OS package; its own unit runs it)"
+fi
+if [ -n "$NGINX_ROOT_STEP" ]; then
+    echo "  sudo systemctl disable --now nginx.service   # the package's default site would hold port 80"
+fi
 echo "  sudo install -D -m 0644 \"$SITE_ENV\" \"$SITE_ENV_INSTALLED\""
 if [ "${#TEMPLATE_PATHS[@]}" -gt 0 ]; then
     echo "  sudo install -m 0644 \"$STAGE\"/*.service /etc/systemd/system/"
@@ -444,6 +498,10 @@ fi
 if [ -n "$ARCHIVER_CONF" ]; then
     echo "  sudo install -d -m 0755 /etc/geecs/archiver && sudo install -m 0644 \"$STAGE/archiver\"/* /etc/geecs/archiver/   # the appliance's rendered conf (compose.yaml, appliances.xml, policies.py, ...)"
     echo "  sudo install -d -o $GEECS_SERVICE_USER -g $GEECS_SERVICE_USER -m 0750 \"$GEECS_ARCHIVER_DATA_ROOT/sts\" \"$GEECS_ARCHIVER_DATA_ROOT/lts\"   # the archive: short-term and long-term stores"
+fi
+if [ -n "$FRONT_DOOR_CONF" ]; then
+    echo "  sudo install -D -m 0644 \"$STAGE/front-door/nginx.conf\" /etc/geecs/front-door/nginx.conf   # the front door's rendered config"
+    echo "  sudo install -d -m 0755 /srv/geecs-web && { [ -e /srv/geecs-web/index.html ] || sudo install -m 0644 \"$STAGE/front-door/index.html\" /srv/geecs-web/; }   # the bundle directory (a geecs-web release fills it; a placeholder until then)"
 fi
 for s in $SERVICES; do
     wanted "$s" || continue
@@ -466,6 +524,10 @@ fi
 if [ -n "$REDIS_ROOT_STEP" ]; then
     echo "WARNING: redis-server.service is not enabled on this host — run the Redis root step above BEFORE" >&2
     echo "         enabling geecs-qserver, or its launcher will start an unsupervised Redis (see the qserver runbook)." >&2
+    echo
+fi
+if [ -n "$NGINX_ROOT_STEP" ]; then
+    echo "WARNING: nginx is not ready for the front door — run the nginx root steps above BEFORE enabling geecs-front-door" >&2
     echo
 fi
 if [ -n "$DOCKER_ROOT_STEP" ]; then
