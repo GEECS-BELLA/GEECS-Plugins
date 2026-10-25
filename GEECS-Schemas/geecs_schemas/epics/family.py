@@ -17,7 +17,7 @@ the contract; see :meth:`VersionedSchemaModel.from_path`).
 
 The contents were transcribed from GeecsPanels' per-kind tables
 (``motor.py``, ``camera.py``, ``scope.py``, ``power.py``); a pin in
-GeecsPanels' tests (``tests/test_contracts.py``, web estate S2) holds the
+GeecsPanels' tests (web estate S2) holds the
 two in step until those tables are deleted.
 
 The installed families are shared by everything in the process, so the
