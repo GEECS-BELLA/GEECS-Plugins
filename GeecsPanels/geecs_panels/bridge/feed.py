@@ -50,8 +50,9 @@ from geecs_panels.contracts import Freshness, RoleReading, Severity
 from geecs_panels.feed import Subscription
 
 #: How a channel is read: its native type, as text (an enum by its state
-#: name, a string record), or a char array holding text.
-ReadAs = Literal["native", "string", "char_array"]
+#: name, a string record), a char array holding text, or (a bare PV, whose
+#: record type nobody named) as its record serves it, an enum by name.
+ReadAs = Literal["native", "string", "char_array", "auto"]
 
 #: Alarm severities by the record's number.
 SEVERITIES: tuple[Severity, ...] = ("NO_ALARM", "MINOR", "MAJOR", "INVALID")

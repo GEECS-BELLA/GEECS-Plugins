@@ -57,8 +57,14 @@ geecs_panels/
                 #   confirm, stale stream, run lock; refused: the value, then the
                 #   IOC's alarm), every answer journaled
     journal.py  #   the put journal (SQLite, $STATE_DIRECTORY/journal.db)
+    pvstream.py #   the raw PV stream: handles over ref-counted shared monitors,
+                #   released after a grace period unread; one coalesced frame per
+                #   tick; PvInfo (GET /api/pv, DBR_CTRL)
+    panels.py   #   GET /api/panels: <experiment>/panels/*.yaml + overrides,
+                #   validated against the device -> family map
     routes.py   #   /api/devices, /api/families, /api/devices/{name}/events|arrays|unlock,
-                #   /api/put, /api/journal
+                #   /api/put, /api/journal, /api/subscriptions, /api/stream/{handle},
+                #   /api/pv/{name}, /api/panels
   app.py        # routes: /, /camera/{device}, its frame.jpg and events (SSE),
                 #   and the writes: put (allow-listed), crosshair colour, to-centroid
   templates/, static/   # on the GeecsWebTheme kit; colours through tokens only
