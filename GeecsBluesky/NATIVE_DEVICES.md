@@ -713,7 +713,9 @@ Status: **built** (2026-10-23) — the registry kind (`EpicsMotor`),
 `NativeMotor` / `NativeMotorAxis` (`devices/native_motor.py`), the
 namespace binding and the preset's kind-aware native set; proven on
 `simmotor1`.  Not yet: the gate grown by the movers, the scanner's
-settables list (§10, L), the archive pass (R), a pseudo over native axes.
+settables list (§10, L — until it lands the web scanner's readback panel
+reads a native axis's default field, `.VAL`, the setpoint, not `.RBV`), the
+archive pass (R), a pseudo over native axes.
 Found when built: the stock `Motor` already refuses an out-of-limit
 target before the put (`MotorMoveLogic.check_move`), so nothing was added
 for the limits; and it already carries `offset` as the record's own
@@ -738,7 +740,7 @@ U_ESP_JetXYZ: {kind: epics_motor, axes: [x, y, z]}
 **Device**: stock ophyd-async `Motor` per axis — `user_setpoint` (`.VAL`),
 `user_readback` (`.RBV`), `motor_done_move` (`.DMOV`),
 `low_limit_travel`/`high_limit_travel`, `velocity`, `motor_stop` — under
-one parent noun per device (*proposed* NativeMotor) bound as
+one parent noun per device (`NativeMotor`) bound as
 `U_ESP_JetXYZ.x`, so `mv`, a sweep axis, `GeecsNamespace.variable`,
 `get_settable` and an action's `set` step find it as a `CaMotor` child.
 The parent carries `_geecs_device_name` and `_column_headers` (`<name>-x`
@@ -756,7 +758,8 @@ stock class lacks: a **post-move readback check** — a limit switch
 record with `.DMOV` = 1 short of the target and the put completes
 "successfully" (the #868 class), so the move fails naming the switch when
 the readback is off by more than `.RDBD` — and the cause in the failure
-text (`_set_logged`'s job). A motor record **has** a stop: abort calls `motor_stop`.
+text (the one failed-set log line, `log_failed_set`). A motor record
+**has** a stop: abort calls `motor_stop`.
 
 **Scanner and preflight**: the settables list, the readback (`<axis>.RBV`)
 and the move are §10's. As a detector a positioner is a per-row scalar

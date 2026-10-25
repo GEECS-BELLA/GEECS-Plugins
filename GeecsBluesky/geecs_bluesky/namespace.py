@@ -62,6 +62,7 @@ from geecs_bluesky.devices.hdf_plugin import PluginPathProvider
 from geecs_bluesky.devices.hdf_plugin import file_plugin_hosts as _hosts_from_config
 from geecs_bluesky.devices.native import NativeCamera, NativeTriggerSource
 from geecs_bluesky.devices.native_motor import NativeMotor
+from geecs_schemas import AravisCamera, EpicsMotor
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.utils import identifier_name, safe_name, settable_attribute
@@ -553,7 +554,7 @@ class GeecsNamespace:
             prefix = pv_name(self.experiment, device) + ":"
             dev: Any
             attrs: dict[str, str] = {}
-            if entry.kind == "epics_motor":
+            if isinstance(entry, EpicsMotor):
                 dev = NativeMotor(device, prefix, entry.axes, name=name)
                 for axis in entry.axes:
                     attr = settable_attribute(axis)  # the Movable child
@@ -562,7 +563,7 @@ class GeecsNamespace:
                     # A catalog ``kind: motor`` opt-in on a native axis is
                     # redundant, never unhonoured.
                     self._bound_motors.add(f"{device}:{axis}".lower())
-            else:
+            elif isinstance(entry, AravisCamera):
                 if self._path_provider is None:
                     raise GeecsConfigurationError(
                         f"device namespace: native camera {device!r} needs the "
@@ -580,6 +581,12 @@ class GeecsNamespace:
                     ),
                     name=name,
                     drain_offset=self._drain_offsets.get(name, 0.0),
+                )
+            else:  # a kind the schema knows and this namespace does not build yet
+                raise GeecsConfigurationError(
+                    f"device namespace: {device!r} is a native {entry.kind!r}, a "
+                    "kind this worker does not build — drop it from "
+                    "native_devices.yaml until its noun lands"
                 )
             dev._geecs_namespace_member = True  # connect_on_demand's marker
             self._devices[identifier_name(device)] = dev

@@ -176,12 +176,28 @@ def test_the_scalars_view_reads_the_axes_and_covers_each(RE: RunEngine) -> None:
     assert stage.scalars._column_headers == stage._column_headers
 
 
-def test_an_axis_that_would_shadow_the_noun_is_refused() -> None:
-    with pytest.raises(GeecsConfigurationError, match="'axes'"):
-        NativeMotor("S", "undulator:s:", ["axes"])
+@pytest.mark.parametrize("axis", ["axes", "scalars"])
+def test_an_axis_that_would_shadow_the_noun_is_refused(axis: str) -> None:
+    with pytest.raises(GeecsConfigurationError, match=repr(axis)):
+        NativeMotor("S", "undulator:s:", [axis])
     # A name the settable rule already dodges binds with its underscore.
     stage = NativeMotor("S", "undulator:s:", ["name"])
     assert isinstance(stage.name_, NativeMotorAxis)
+
+
+def test_a_kind_the_worker_does_not_build_refuses_to_open() -> None:
+    """A schema kind without a noun here fails loudly at environment open, not with a traceback."""
+    from types import SimpleNamespace
+
+    registry = SimpleNamespace(devices={"U_Scope": SimpleNamespace(kind="scope")})
+    with pytest.raises(GeecsConfigurationError, match="'scope'.*does not build"):
+        GeecsNamespace(ROSTER, file_plugin_hosts=None, native_devices=registry)
+
+
+def test_the_new_exception_is_exported() -> None:
+    from geecs_bluesky import exceptions
+
+    assert "GeecsMotorStoppedShortError" in exceptions.__all__
 
 
 # ------------------------------------------------------------------ the move
@@ -222,6 +238,39 @@ def test_a_readback_within_the_deadband_is_an_arrival(RE: RunEngine) -> None:
         lambda value, **_: set_mock_value(axis.user_readback, value - 0.009),
     )
     _run(RE, lambda: axis.set(5.0))  # 0.009 < RDBD 0.01
+
+
+def test_the_confirm_reads_the_record_not_the_monitor_cache(RE: RunEngine) -> None:
+    """``set`` observes the readback meanwhile, so a cached read could be the update before the last."""
+    axis = _axis(RE)
+    calls: list[dict] = []
+    real = axis.user_readback.get_value
+
+    async def spy(cached=None):
+        calls.append({"cached": cached})
+        return await real(cached=cached)
+
+    axis.user_readback.get_value = spy  # type: ignore[method-assign]
+    _run(RE, lambda: axis.set(5.0))
+    assert {"cached": False} in calls  # the post-move confirm, fresh from the record
+
+
+def test_an_operator_stop_is_reported_as_a_stop_not_a_fault(RE: RunEngine) -> None:
+    """A stop lands mid-move: the record completes short; the status says stopped."""
+    axis = _axis(RE)
+
+    def stopped_mid_move(value: float, **_) -> None:
+        # What ``StandardMovable.stop()`` does while the put is in flight.
+        axis._set_success = False
+        axis.movable_logic.stop_requested = True
+        set_mock_value(axis.user_readback, 1.0)
+
+    callback_on_mock_put(axis.user_setpoint, stopped_mid_move)
+    with pytest.raises(RuntimeError, match="was stopped"):
+        _run(RE, lambda: axis.set(5.0))
+    # And the device's own stop() is what sets the flag.
+    _run(RE, lambda: axis.stop())
+    assert axis.movable_logic.stop_requested is True
 
 
 def test_a_refused_put_read_as_success_is_caught_by_the_readback(RE) -> None:

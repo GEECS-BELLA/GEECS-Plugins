@@ -102,8 +102,11 @@ geecs_panels/
   card per axis of a registry `epics_motor` device, every word from the
   record (`.RBV`/`.VAL`, `.DMOV`, `.HLM`/`.LLM`, the switches, `.MSTA`
   decoded by name, `.VELO`/`.VMAX`), so one page fits every motor driver.
-  It writes `.VAL`, the tweak (`.TWV`, `.TWF`/`.TWR`), `.STOP`, homing
-  (`.HOMF`/`.HOMR`) and `.VELO` behind an allow-list that refuses a target
+  A field whose channel dropped is `None`, never a stale value; the axis
+  reads `unknown` while any field its state is judged from is unread (a
+  known failure still wins). It writes `.VAL`, the tweak (`.TWV`,
+  `.TWF`/`.TWR`), `.STOP`, homing (`.HOMF`/`.HOMR`) and `.VELO` behind an
+  allow-list that refuses a target
   outside the soft limits before the record sees it (the record refuses
   it too, with `LVIO`); a move's put is dispatched without waiting (the
   record completes it at the end of the motion; the stream shows the
