@@ -57,9 +57,11 @@ EZ = Device(
     bits=(("fault", "fault"), ("interlock", "interlock")),
 )
 
-#: At rest: output off, 0 A, drive limits 0..1 A, nothing tripped.
+#: At rest: output off, 0 A, drive limits 0..1 A, no alarm limits armed, nothing tripped.
 AT_REST = {
     "current_sp": 0.0, "current_sp.drvh": 1.0, "current_sp.drvl": 0.0,
+    "current_sp.hihi": 0.0, "current_sp.lolo": 0.0,
+    "current_sp.hhsv": "NO_ALARM", "current_sp.llsv": "NO_ALARM",
     "current_sp.egu": "A", "current_sp.prec": 4, "current_sp.sevr": "NO_ALARM",
     "current_sp.stat": "NO_ALARM", "current": 0.0, "current.egu": "A",
     "current.prec": 4, "current.sevr": "NO_ALARM", "current.stat": "NO_ALARM",
@@ -213,6 +215,39 @@ def test_hihi_and_lolo_refuse_only_with_an_invalid_severity() -> None:
         check_write(
             "current", -1.5, {**limited, "current_sp.llsv": "INVALID"}, FPS_ROLES
         )
+
+
+#: The IOC's refusal armed just inside the drive limits (the reviewer's case).
+ARMED = {"current_sp.drvh": 6.01, "current_sp.drvl": -6.01,
+         "current_sp.hihi": 6.0001, "current_sp.lolo": -6.0001,
+         "current_sp.hhsv": "INVALID", "current_sp.llsv": "INVALID"}  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "dropped, message",
+    [
+        ("current_sp.hihi", "HIHI"),
+        ("current_sp.hhsv", "HHSV"),
+        ("current_sp.lolo", "LOLO"),
+        ("current_sp.llsv", "LLSV"),
+    ],
+)
+def test_a_setpoint_is_refused_while_an_alarm_bound_or_severity_is_unread(
+    dropped, message
+) -> None:
+    """Like the drive limits, the HIHI/LOLO gate fails closed: a dropped channel refuses."""
+    feed = _feed(**ARMED)
+    assert check_write("current", 6.0, feed.current(), FPS_ROLES)[1] == 6.0
+    feed.update(dropped, None)
+    for value in (6.005, 0.5):  # past the IOC's HIHI, and well inside it
+        with pytest.raises(NotWritable, match=f"{message} has not been read"):
+            check_write("current", value, feed.current(), FPS_ROLES)
+
+
+def test_an_alarm_bound_whose_severity_is_not_invalid_need_not_be_read() -> None:
+    feed = _feed(**{**ARMED, "current_sp.hhsv": "MAJOR"})
+    feed.update("current_sp.hihi", None)
+    assert check_write("current", 6.005, feed.current(), FPS_ROLES)[1] == 6.005
 
 
 def test_an_action_the_device_does_not_permit_is_not_allowed() -> None:

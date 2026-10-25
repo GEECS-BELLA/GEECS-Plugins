@@ -17,7 +17,7 @@ the FAST-PS has a regulation loop). So a supply's bench entry maps
 **Writes energize things.** A setpoint is checked against its record's
 drive limits (``.DRVH``/``.DRVL``) here first, and refused while they are
 unread or the record sets none (equal limits: an ``ao`` then clamps
-nothing). This is the gate that refuses: an ``ao`` CLAMPS a put beyond its
+nothing), or while the alarm severities, or an INVALID one's bound, are unread. This is the gate that refuses: an ``ao`` CLAMPS a put beyond its
 drive limits and writes the limit, so the IOC alone would turn a 1.0 A
 request into DRVH on the wire (the IOC's own refusal is HIHI/LOLO inside
 them with IVOA "Don't drive outputs", set at load). The output takes 0 or
@@ -158,21 +158,30 @@ def _within_drive_limits(role: str, number: float, snap: Mapping[str, object]) -
             )
         )
     # The IOC's own refusal (HIHI/LOLO with an INVALID severity and IVOA
-    # "Don't drive outputs"): a value at or past either is not written.
-    for bound, severity, past in (("hihi", "hhsv", number >= _f(snap, role, "hihi")),
-                                  ("lolo", "llsv", number <= _f(snap, role, "lolo"))):  # fmt: skip
-        if snap.get(f"{role}.{severity}") == "INVALID" and past:
-            limit = snap.get(f"{role}.{bound}")
+    # "Don't drive outputs"): a value at or past either is not written. As
+    # for the drive limits, what it needs unread refuses: each severity, and
+    # the bound of an INVALID one.
+    armed: dict[str, float] = {}
+    for bound, severity in (("hihi", "hhsv"), ("lolo", "llsv")):
+        if not isinstance(snap.get(f"{role}.{severity}"), str):
+            raise NotWritable(
+                f"the setpoint's {severity.upper()} has not been read: refused"
+            )
+        if snap.get(f"{role}.{severity}") != "INVALID":
+            continue
+        limit = snap.get(f"{role}.{bound}")
+        if not isinstance(limit, (int, float)):
+            raise NotWritable(
+                f"the setpoint's {bound.upper()} has not been read: refused"
+            )
+        armed[bound] = float(limit)
+    for bound, limit in armed.items():
+        if number >= limit if bound == "hihi" else number <= limit:
             raise NotWritable(
                 f"{number:g} {egu} reaches the IOC's {bound.upper()} {limit:g} {egu}, "
                 "which it refuses to write".replace("  ", " ")
             )
     return number
-
-
-def _f(snap: Mapping[str, object], role: str, key: str) -> float:
-    value = snap.get(f"{role}.{key}")
-    return float(value) if isinstance(value, (int, float)) else math.nan
 
 
 def check_write(

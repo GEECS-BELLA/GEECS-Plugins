@@ -75,9 +75,16 @@
     const now = typeof v[role] === "number" ? ` · setpoint ${fmt(v[role], prec)} ${egu}` : "";
     if (typeof lo !== "number" || typeof hi !== "number") return `drive limits not read${now}`;
     if (lo >= hi) return `no drive limits: setting refused${now}`;
-    // The IOC refuses at HIHI/LOLO when their severity is INVALID (IVOA).
-    const hihi = v[`${role}.hhsv`] === "INVALID" ? ` · IOC refuses ≥ ${fmt(v[`${role}.hihi`], prec)}` : "";
-    const lolo = v[`${role}.llsv`] === "INVALID" ? ` · IOC refuses ≤ ${fmt(v[`${role}.lolo`], prec)}` : "";
+    // The IOC refuses at HIHI/LOLO when their severity is INVALID (IVOA);
+    // the panel refuses until each severity, and an INVALID one's bound, is read.
+    const hhsv = v[`${role}.hhsv`], llsv = v[`${role}.llsv`];
+    if (typeof hhsv !== "string" || typeof llsv !== "string" ||
+        (hhsv === "INVALID" && typeof v[`${role}.hihi`] !== "number") ||
+        (llsv === "INVALID" && typeof v[`${role}.lolo`] !== "number")) {
+      return `alarm limits not read: setting refused${now}`;
+    }
+    const hihi = hhsv === "INVALID" ? ` · IOC refuses ≥ ${fmt(v[`${role}.hihi`], prec)}` : "";
+    const lolo = llsv === "INVALID" ? ` · IOC refuses ≤ ${fmt(v[`${role}.lolo`], prec)}` : "";
     return `drive limits ${fmt(lo, prec)} to ${fmt(hi, prec)} ${egu}${hihi}${lolo}${now}`;
   }
 
