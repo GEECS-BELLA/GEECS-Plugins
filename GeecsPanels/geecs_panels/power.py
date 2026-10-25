@@ -223,7 +223,8 @@ def check_write(
 
 #: What a supply's state word is judged from: the readback and its alarm
 #: (no reply), the commands' alarms (a refusal), the output. Each bit too,
-#: and ``voltage_sp.sevr`` when the supply has that role.
+#: ``voltage_sp.sevr`` when the supply has that role, and the ``.stat`` of
+#: a command whose alarm is INVALID (UDF is no refusal).
 STATE_KEYS = ("current", "current.sevr", "current_sp.sevr", "output_sp.sevr", "output")
 
 
@@ -250,9 +251,12 @@ def supply_state(
     judged = [*STATE_KEYS, *(f"bit.{label}" for label in bits)]
     if "voltage_sp" in snap:  # the role is mapped (the feed carries its keys)
         judged.append("voltage_sp.sevr")
+    # An INVALID command is a refusal only if its STAT is not UDF: read it too.
+    judged += [key.removesuffix(".sevr") + ".stat" for key in judged
+               if key.endswith("_sp.sevr") and snap.get(key) == "INVALID"]  # fmt: skip
     unread = [key for key in judged if snap.get(key) is None]
     if unread:
-        return "unknown", "not read: " + " ".join(unread)
+        return "unknown", "not connected: " + " ".join(unread)
     for role, what in (("current_sp", "setpoint"), ("voltage_sp", "voltage setpoint"),
                        ("output_sp", "output command")):  # fmt: skip
         stat = snap.get(f"{role}.stat")

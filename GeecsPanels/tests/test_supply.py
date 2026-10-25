@@ -270,7 +270,7 @@ def test_an_action_the_device_does_not_permit_is_not_allowed() -> None:
         ({"bit.interlock_1": 1, "output": 1}, ("failed", "interlock 1")),
         ({"current.sevr": "INVALID", "current.stat": "TIMEOUT"}, ("failed", "no reply (TIMEOUT)")),
         ({"current_sp.sevr": "INVALID", "current_sp.stat": "CALC"}, ("degraded", "setpoint refused (CALC)")),
-        ({"output": None}, ("unknown", "not read: output")),
+        ({"output": None}, ("unknown", "not connected: output")),
         ({"current_sp.sevr": "INVALID", "current_sp.stat": "UDF"}, ("ok", "output off")),
     ],
 )  # fmt: skip
@@ -309,7 +309,18 @@ def test_a_channel_the_state_is_judged_from_dropped_is_unknown(dropped) -> None:
     snap = feed.snapshot()
     assert snap["reachable"] and (snap["state"], snap["status"]) == (
         "unknown",
-        f"not read: {dropped}",
+        f"not connected: {dropped}",
+    )
+
+
+def test_an_invalid_command_whose_status_is_unread_is_unknown_not_refused() -> None:
+    """UDF (never written) is not a refusal: until STAT is read, it cannot be told apart."""
+    feed = _feed(**{"current_sp.sevr": "INVALID", "current_sp.stat": "UDF"})
+    assert feed.snapshot()["state"] == "ok"
+    feed.update("current_sp.stat", None)
+    assert (feed.snapshot()["state"], feed.snapshot()["status"]) == (
+        "unknown",
+        "not connected: current_sp.stat",
     )
 
 
@@ -330,7 +341,7 @@ def test_a_supply_with_a_voltage_setpoint_waits_for_its_alarm_too() -> None:
     roles = {**FPS_ROLES, "voltage_sp": "voltage:SP"}
     device = Device(**{**FPS.__dict__, "roles": tuple(roles.items())})
     feed = _feed(device)
-    assert feed.snapshot()["status"] == "not read: voltage_sp.sevr"
+    assert feed.snapshot()["status"] == "not connected: voltage_sp.sevr"
     feed.update("voltage_sp.sevr", "NO_ALARM")
     assert feed.snapshot()["state"] == "ok"
 
