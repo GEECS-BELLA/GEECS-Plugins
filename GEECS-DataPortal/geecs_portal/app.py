@@ -34,7 +34,7 @@ from typing import Optional
 import httpx
 from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
-from geecs_web_theme.web import RevalidatingStaticFiles
+from geecs_web_theme.web import RevalidatingStaticFiles, operation_id
 
 from geecs_data_utils.tiled_catalog import ScanCatalog
 
@@ -188,7 +188,11 @@ def create_app(
             runner.shutdown()
 
     app = FastAPI(
-        title="GEECS Data Portal", docs_url=None, redoc_url=None, lifespan=_lifespan
+        title="GEECS Data Portal",
+        docs_url=None,
+        redoc_url=None,
+        lifespan=_lifespan,
+        generate_unique_id_function=operation_id,
     )
     app.add_middleware(_ForwardedPrefixMiddleware)
     # Every template gets `root`: the mount prefix each root-absolute

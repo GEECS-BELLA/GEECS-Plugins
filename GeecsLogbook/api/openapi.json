@@ -1,0 +1,2103 @@
+{
+  "components": {
+    "schemas": {
+      "AnalysisPayload": {
+        "additionalProperties": false,
+        "description": "Structured results an analysis wants to make queryable.\n\nRides alongside the prose so that \"show me every scan where the charge\nrolloff onset moved\" is a query rather than a reading exercise. The\nanalysis still writes prose in ``body_md``; this is the part a machine\nreads back.",
+        "properties": {
+          "analyzer": {
+            "description": "Which analyzer produced this, e.g. Array1DScanAnalyzer.",
+            "title": "Analyzer",
+            "type": "string"
+          },
+          "figures": {
+            "description": "Paths to figures in the analysis tree, referenced not copied.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Figures",
+            "type": "array"
+          },
+          "kind": {
+            "const": "analysis",
+            "default": "analysis",
+            "description": "Payload type tag.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Named scalar results. Free-form by design: an analyzer names its own.",
+            "title": "Metrics",
+            "type": "object"
+          }
+        },
+        "required": [
+          "analyzer"
+        ],
+        "title": "AnalysisPayload",
+        "type": "object"
+      },
+      "Attachment": {
+        "additionalProperties": false,
+        "description": "One file uploaded with an entry — a pasted screenshot, a PDF.\n\nThe bytes live on disk — in the logbook's attachment store beside its\ndatabase, and copied beside the mirrored markdown — never in the\ndatabase. This is the manifest: what was uploaded, so that \"stored but\nno longer referenced by any body\" is computable and orphans can be\nfound. The body stays authoritative for *display*; this is\nauthoritative for *what exists*.\n\nAttributes\n----------\nid : str\n    Opaque identifier of this upload. The files of one entry share a\n    directory named by the *entry's* id; this distinguishes uploads\n    within it, and survives a rename of the file.\nfilename : str\n    Name as stored, so the entry's relative link is derivable.\ncontent_type : str\n    The media type it is served as.\nsize_bytes : int\n    Stored size.\nuploaded_at : datetime\n    When it was stored.",
+        "properties": {
+          "content_type": {
+            "description": "Media type, e.g. image/png.",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "filename": {
+            "description": "Name as stored on disk.",
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "description": "Opaque id of this upload.",
+            "title": "Id",
+            "type": "string"
+          },
+          "size_bytes": {
+            "description": "Stored size in bytes.",
+            "minimum": 0.0,
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "uploaded_at": {
+            "description": "When the file was stored.",
+            "format": "date-time",
+            "title": "Uploaded At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "content_type",
+          "size_bytes",
+          "uploaded_at"
+        ],
+        "title": "Attachment",
+        "type": "object"
+      },
+      "Body_post_api_entries_entry_id_attachments": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_post_api_entries_entry_id_attachments",
+        "type": "object"
+      },
+      "ChangeFeed": {
+        "description": "A page of the change feed.",
+        "properties": {
+          "entries": {
+            "description": "Ordered by updated_at, then by row; tombstones included.",
+            "items": {
+              "$ref": "#/components/schemas/LogEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass back as ?cursor= to continue; null when this page was the last.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "title": "ChangeFeed",
+        "type": "object"
+      },
+      "DayLookup": {
+        "description": "The lookup table for one day.",
+        "properties": {
+          "columns": {
+            "description": "Every column any scan recorded",
+            "items": {
+              "$ref": "#/components/schemas/LookupColumn"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "day": {
+            "title": "Day",
+            "type": "string"
+          },
+          "default_columns": {
+            "description": "The scan-log lists' variables, in list order (the panel's first view)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Default Columns",
+            "type": "array"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/LookupRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "shown": {
+            "description": "The columns in rows",
+            "items": {
+              "type": "string"
+            },
+            "title": "Shown",
+            "type": "array"
+          }
+        },
+        "required": [
+          "day"
+        ],
+        "title": "DayLookup",
+        "type": "object"
+      },
+      "DayMarks": {
+        "description": "What a calendar shows for one day.",
+        "properties": {
+          "folder": {
+            "description": "A day folder exists on the share.",
+            "title": "Folder",
+            "type": "boolean"
+          },
+          "notes": {
+            "default": 0,
+            "description": "Live entries in the scans book.",
+            "title": "Notes",
+            "type": "integer"
+          },
+          "ops": {
+            "default": 0,
+            "description": "Live entries in the ops book.",
+            "title": "Ops",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "folder"
+        ],
+        "title": "DayMarks",
+        "type": "object"
+      },
+      "DaySummary": {
+        "description": "Every scan folder present for one date.\n\nAttributes\n----------\nday : date\n    The date this summary covers.\nexperiment : str\n    The experiment whose share was read.\nfolder : str\n    The ``scans/`` directory the summary was read from, for display and\n    for the \"derived — not stored here\" provenance line.\nexists : bool\n    Whether that directory exists. A date with no scans is a normal,\n    empty day rather than an error.\nscans : list of ScanSummary\n    Present scans, ordered by scan number.",
+        "properties": {
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          },
+          "exists": {
+            "default": false,
+            "title": "Exists",
+            "type": "boolean"
+          },
+          "experiment": {
+            "title": "Experiment",
+            "type": "string"
+          },
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          },
+          "scans": {
+            "items": {
+              "$ref": "#/components/schemas/ScanSummary"
+            },
+            "title": "Scans",
+            "type": "array"
+          }
+        },
+        "required": [
+          "day",
+          "experiment",
+          "folder"
+        ],
+        "title": "DaySummary",
+        "type": "object"
+      },
+      "EntryCreate": {
+        "description": "What a client sends to add an entry.\n\nTags are not a field: they are read out of ``body_md`` at save.",
+        "properties": {
+          "after": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Interscan: the scan it follows.",
+            "title": "After"
+          },
+          "author": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Author",
+            "type": "string"
+          },
+          "body_md": {
+            "maxLength": 200000,
+            "title": "Body Md",
+            "type": "string"
+          },
+          "book": {
+            "default": "scans",
+            "enum": [
+              "scans",
+              "ops"
+            ],
+            "title": "Book",
+            "type": "string"
+          },
+          "day": {
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "title": "Day",
+            "type": "string"
+          },
+          "kind": {
+            "default": "note",
+            "enum": [
+              "note",
+              "agent_analysis",
+              "agent_draft"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload"
+          },
+          "scan": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Scan number; omit both for a day-level entry.",
+            "title": "Scan"
+          },
+          "status": {
+            "default": "kept",
+            "enum": [
+              "kept",
+              "draft"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "template": {
+            "default": "blank",
+            "maxLength": 64,
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "day",
+          "author",
+          "body_md"
+        ],
+        "title": "EntryCreate",
+        "type": "object"
+      },
+      "EntryUpdate": {
+        "description": "What a client sends to edit an entry's text.\n\n``editor`` is who is making the edit; the entry's ``author`` is not\ntheirs to change.",
+        "properties": {
+          "body_md": {
+            "maxLength": 200000,
+            "title": "Body Md",
+            "type": "string"
+          },
+          "editor": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Editor",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "body_md",
+          "editor",
+          "expected_version"
+        ],
+        "title": "EntryUpdate",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HistoryItem": {
+        "description": "One earlier state, as served.",
+        "properties": {
+          "entry": {
+            "$ref": "#/components/schemas/LogEntry"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "recorded_at": {
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "reason",
+          "recorded_at",
+          "entry"
+        ],
+        "title": "HistoryItem",
+        "type": "object"
+      },
+      "LogEntry": {
+        "additionalProperties": false,
+        "description": "One entry in the scan logbook.\n\nAttributes\n----------\nschema_version : int\n    Format revision; see :data:`LOG_ENTRY_SCHEMA_VERSION`.\nentry_id : str\n    Stable identifier, also the attachment directory segment.\nday : str\n    The run day this entry belongs to, as ``YYYY-MM-DD``.\nbook : Book\n    ``scans`` (the campaign record, may be anchored to a scan) or\n    ``ops`` (operations; day-level only).\nscan : int or None\n    The scan it annotates, when the entry is about one. Mutually\n    exclusive with ``after``; an entry with neither is a **day-level**\n    entry — a note about the day rather than a scan, which is what a\n    general logbook is mostly made of.\nafter : int or None\n    For an interscan entry, the scan number it follows. ``0`` means\n    before the first scan of the day.\nauthor : str\n    Who wrote it. ``\"osprey\"`` for the agent.\nkind : EntryKind\n    Human note, agent analysis, or agent draft.\nstatus : EntryStatus\n    ``draft`` until a human keeps it.\ntags : list of str\n    Words the author marked with ``#`` in the body (``#laser``),\n    parsed at save and kept here so a month can be filtered without\n    reading every body. The body stays the truth: editing the tag out\n    drops it from here on the next save. Templates seed the common\n    ones, so a type button and a typed tag are the same thing.\ntemplate : str\n    Which seed template it started from. Metadata about provenance,\n    never structure: the body may have diverged completely, and the\n    entry keeps its template name because that is what the author\n    reached for.\nbody_md : str\n    The entry itself. Opaque markdown; only rendered and tag-scanned.\npayload : EntryPayload or None\n    Optional machine-authored structure. Never human prose.\nattachments : list of Attachment\n    Files uploaded with this entry.\ncreated_at : datetime\n    When it was first saved.\nedited_at : datetime or None\n    When its *text* was last changed, if ever. What a reader is shown.\nedited_by : str or None\n    Who last changed the text. ``author`` never changes — it is who\n    wrote the entry, and part of the mirror file's stable name — so a\n    colleague's typo fix is recorded here rather than by taking the\n    entry over.\nupdated_at : datetime\n    When *anything* about it last changed — text, status, attachments,\n    deletion. What a synchroniser asks for: \"everything since\" is a\n    query on this, and a promotion or an upload that left ``edited_at``\n    alone would otherwise be invisible to it.\ndeleted_at : datetime or None\n    Set instead of removing the row. A deleted entry is hidden from\n    every listing, but the fact that it existed and was deleted is\n    kept: a mirror or a downstream copy can only learn about a\n    deletion it is able to see, and an accidental delete is then a\n    field to clear rather than a loss.\nversion : int\n    Optimistic-lock counter, incremented on every save. A writer sends\n    the version it read; a mismatch means someone else saved first.",
+        "properties": {
+          "after": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For an interscan entry, the scan it follows.",
+            "title": "After"
+          },
+          "attachments": {
+            "description": "Files uploaded with the entry.",
+            "items": {
+              "$ref": "#/components/schemas/Attachment"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "author": {
+            "description": "Who wrote it.",
+            "minLength": 1,
+            "title": "Author",
+            "type": "string"
+          },
+          "body_md": {
+            "default": "",
+            "description": "The entry. Opaque markdown.",
+            "title": "Body Md",
+            "type": "string"
+          },
+          "book": {
+            "default": "scans",
+            "description": "Campaign record or operations.",
+            "enum": [
+              "scans",
+              "ops"
+            ],
+            "title": "Book",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "First saved.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "day": {
+            "description": "Run day, as YYYY-MM-DD.",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "title": "Day",
+            "type": "string"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tombstone.",
+            "title": "Deleted At"
+          },
+          "edited_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Text last changed.",
+            "title": "Edited At"
+          },
+          "edited_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who last changed the text.",
+            "title": "Edited By"
+          },
+          "entry_id": {
+            "description": "Stable id; also the attachment directory.",
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "kind": {
+            "default": "note",
+            "description": "Human note, or which agent output.",
+            "enum": [
+              "note",
+              "agent_analysis",
+              "agent_draft"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "analysis": "#/components/schemas/AnalysisPayload",
+                    "problem": "#/components/schemas/ProblemPayload"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/AnalysisPayload"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ProblemPayload"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Machine-authored structure, never human prose.",
+            "title": "Payload"
+          },
+          "scan": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Scan annotated; none for a day-level entry.",
+            "title": "Scan"
+          },
+          "schema_version": {
+            "default": 1,
+            "description": "Entry format revision.",
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "status": {
+            "default": "kept",
+            "description": "Drafts await a human.",
+            "enum": [
+              "kept",
+              "draft"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tags": {
+            "description": "#tags parsed from the body at save.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "template": {
+            "default": "blank",
+            "description": "Seed template it started from.",
+            "title": "Template",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Anything last changed.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "default": 1,
+            "description": "Optimistic-lock counter.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entry_id",
+          "day",
+          "author",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "LogEntry",
+        "type": "object"
+      },
+      "LookupColumn": {
+        "description": "One column some scan of the day recorded.",
+        "properties": {
+          "listed": {
+            "description": "On some scan's scan-log list (the scanner's shared list)",
+            "title": "Listed",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The s-file column, \"Device Variable\"",
+            "title": "Name",
+            "type": "string"
+          },
+          "scans": {
+            "description": "How many of the day's scans recorded it",
+            "title": "Scans",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "scans",
+          "listed"
+        ],
+        "title": "LookupColumn",
+        "type": "object"
+      },
+      "LookupRow": {
+        "description": "One scan of the day and its first-shot values for the asked columns.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "parameter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameter"
+          },
+          "started": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "HH:MM:SS",
+            "title": "Started"
+          },
+          "state": {
+            "description": "The status as a kit word, for the page's dot",
+            "title": "State",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "success",
+              "failed",
+              "aborted",
+              "incomplete",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Values",
+            "type": "object"
+          },
+          "values_state": {
+            "description": "\"ok\", or why not: \"recording\", \"no_sfile\", \"no_shots\" (ScanSummary.values_state)",
+            "title": "Values State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "label",
+          "status",
+          "state",
+          "values_state"
+        ],
+        "title": "LookupRow",
+        "type": "object"
+      },
+      "MonthMarks": {
+        "description": "Calendar marks for a month — the lazy fetch behind the rail's calendar.",
+        "properties": {
+          "days": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DayMarks"
+            },
+            "description": "Days with anything to mark, keyed ``YYYY-MM-DD``.",
+            "title": "Days",
+            "type": "object"
+          },
+          "month": {
+            "description": "``YYYY-MM``.",
+            "title": "Month",
+            "type": "string"
+          },
+          "share": {
+            "description": "Whether the share answered; when false, ``folder`` is unknown for every day and only the store's marks are real.",
+            "title": "Share",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "month",
+          "share",
+          "days"
+        ],
+        "title": "MonthMarks",
+        "type": "object"
+      },
+      "PreviewRequest": {
+        "description": "A body to render as the page would, before it is saved.",
+        "properties": {
+          "body_md": {
+            "maxLength": 200000,
+            "title": "Body Md",
+            "type": "string"
+          }
+        },
+        "required": [
+          "body_md"
+        ],
+        "title": "PreviewRequest",
+        "type": "object"
+      },
+      "ProblemPayload": {
+        "additionalProperties": false,
+        "description": "A problem worth finding again later.",
+        "properties": {
+          "devices": {
+            "description": "Devices implicated, by GEECS name.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "issue_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tracker link, when one was filed.",
+            "title": "Issue Url"
+          },
+          "kind": {
+            "const": "problem",
+            "default": "problem",
+            "description": "Payload type tag.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "severity": {
+            "default": "note",
+            "description": "How much it stopped the run.",
+            "enum": [
+              "note",
+              "degraded",
+              "blocked"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "title": "ProblemPayload",
+        "type": "object"
+      },
+      "ScanSummary": {
+        "description": "One scan, as its folder describes it.\n\nAttributes\n----------\nnumber : int\n    The scan number, i.e. ``NNN`` in ``ScanNNN``.\nstarted : datetime or None\n    When the scan ran, from the first record in its ``scan.log``.\n    Falls back to the ``ScanInfo`` file's own modification time for\n    archive scans that predate ``scan.log`` — approximate, and flagged\n    as such by ``started_approximate``. ``None`` when neither exists.\n    Never the scan *folder's* mtime: any later pass that writes into\n    the folder moves it, measured over an hour off the real start.\nstarted_approximate : bool\n    Whether ``started`` is the fallback rather than the log's own\n    timestamp, so the view can mark it rather than implying precision\n    it does not have.\nparameter : str or None\n    ``Scan Parameter`` — the scanned variable, or ``\"Shotnumber\"`` for\n    a no-scan acquisition.\nstart, end, step_size : float or None\n    The scan range, as written by the scanner.\nshots_per_step : int or None\n    ``Shots per step``.\nmode : str or None\n    ``ScanMode`` — typically ``\"standard\"`` or ``\"noscan\"``.\nplan, scanner : str or None\n    ``Plan`` and ``Scanner``, e.g. ``\"scan\"`` / ``\"bluesky\"``.\ntrigger_profile : str or None\n    ``Trigger profile``.\nbackground : bool or None\n    ``Background``.\npurpose : str or None\n    ``ScanStartInfo`` — the operator's stated reason for the scan,\n    captured at submission. This is the one human-authored field the\n    scanner already records, so the logbook displays it rather than\n    asking for it again.\nstatus : ScanStatus\n    Derived from ``ScanEndInfo`` and the run-closed evidence; see\n    :func:`geecs_data_utils.scan_info.classify_end_info`.\nfailure_reason : str or None\n    The text of ``ScanEndInfo`` with its ``fail:`` prefix stripped,\n    when the scan failed. ``None`` otherwise.\ndevices : list of str\n    Per-device subdirectory names found in the scan folder.\nhas_scan_info : bool\n    Whether ``ScanInfoScanNNN.ini`` exists. False is a normal state for\n    a scan that is still running or that ended before writing it.\nfolder_name : str\n    The scan folder's own name (``Scan005``; a lenient parse may accept\n    another padding), for readers that go back to the folder.\nscan_log_variables : list of str\n    The web scanner's scan-log list as the scan recorded it (the ini's\n    ``[Scan Log]`` section): ``Device:Variable`` names. Empty for a\n    scan without one.\nstart_values : dict or None\n    Each listed variable's value at the first shot, as the s-file\n    spells it — ``None`` for a listed name the s-file has no column\n    for. ``None`` as a whole unless ``values_state`` is ``\"ok\"``.\nvalues_state : str\n    Why the values are or are not there: ``\"ok\"``; ``\"recording\"`` (no\n    s-file yet and the scan is not finalised — it arrives at the close);\n    ``\"no_sfile\"`` (finished, failed or aborted without one);\n    ``\"no_shots\"`` (an s-file with a header and no row — the run ended\n    before its first shot).\nsfile : str or None\n    The scan's s-file, the first of\n    :func:`geecs_data_utils.data.sfile.sfile_candidates` the folder\n    listings show; ``None`` when it has none.",
+        "properties": {
+          "background": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Background"
+          },
+          "devices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "folder_name": {
+            "default": "",
+            "title": "Folder Name",
+            "type": "string"
+          },
+          "has_scan_info": {
+            "default": false,
+            "title": "Has Scan Info",
+            "type": "boolean"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "parameter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameter"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          },
+          "scan_log_variables": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scan Log Variables",
+            "type": "array"
+          },
+          "scanner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanner"
+          },
+          "sfile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sfile"
+          },
+          "shots_per_step": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shots Per Step"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "start_values": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Values"
+          },
+          "started": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started"
+          },
+          "started_approximate": {
+            "default": false,
+            "title": "Started Approximate",
+            "type": "boolean"
+          },
+          "status": {
+            "default": "unknown",
+            "enum": [
+              "success",
+              "failed",
+              "aborted",
+              "incomplete",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "step_size": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Size"
+          },
+          "trigger_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Profile"
+          },
+          "values_state": {
+            "default": "ok",
+            "enum": [
+              "ok",
+              "recording",
+              "no_sfile",
+              "no_shots"
+            ],
+            "title": "Values State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number"
+        ],
+        "title": "ScanSummary",
+        "type": "object"
+      },
+      "StatusUpdate": {
+        "description": "Keep or un-keep an entry — a human act on unchanged text.",
+        "properties": {
+          "status": {
+            "enum": [
+              "kept",
+              "draft"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "StatusUpdate",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "GEECS Logbook",
+    "version": "0.13.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "description": "Redirect to today's log.\n\nAn absolute Location under the request's prefix, not ``day/…``: a\nrelative one resolves against the browser's URL, which is right\nfor ``/log/`` and wrong for ``/log`` (what a person types) — that\none landed at the front door's root.",
+        "operationId": "get_root",
+        "responses": {
+          "307": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": " Today"
+      }
+    },
+    "/api/day/{day}": {
+      "get": {
+        "description": "Return one day's derived half as JSON.",
+        "operationId": "get_api_day_day",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DaySummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Day Json"
+      }
+    },
+    "/api/day/{day}/entries": {
+      "get": {
+        "description": "Return one day's commentary as JSON; ``?book=`` narrows to one book.",
+        "operationId": "get_api_day_day_entries",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "book",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "scans",
+                    "ops"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Book"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LogEntry"
+                  },
+                  "title": "Response Get Api Day Day Entries",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Entries Json"
+      }
+    },
+    "/api/day/{day}/lookup": {
+      "get": {
+        "description": "The day's lookup table: every recorded column, and the *col* ones' values.\n\nNo ``col`` means the day's scan-log lists. Two lines per scan's\ns-file, read only when the page's panel asks.",
+        "operationId": "get_api_day_day_lookup",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "col",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Col"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DayLookup"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Lookup Json"
+      }
+    },
+    "/api/entries": {
+      "get": {
+        "description": "List what changed after ``since``, oldest change first.\n\nThe synchroniser's endpoint. A promotion, an upload or a delete\nmoves ``updated_at`` like an edit does, so a copy that asks for\n\"everything since my last ``updated_at``\" misses nothing (stamps\nare taken under the store's write lock, so they commit in order;\noverlapping ``since`` by a few seconds is belt and braces, and a\nre-sent row is the same row) — and it is the one listing that\nreturns **tombstones**, since a deletion is a change too. Either\n``since`` or ``cursor`` is required; a full page carries\n``next_cursor`` — opaque, URL-safe — which resumes after its\nlast row even when several rows share an ``updated_at``.",
+        "operationId": "get_api_entries",
+        "parameters": [
+          {
+            "description": "Aware ISO 8601; changes strictly after this.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Aware ISO 8601; changes strictly after this.",
+              "title": "Since"
+            }
+          },
+          {
+            "description": "Aware ISO 8601.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Aware ISO 8601.",
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "book",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "scans",
+                    "ops"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Book"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_deleted",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Include Deleted",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 2000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeFeed"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Changed"
+      },
+      "post": {
+        "description": "Add an entry. The words are safe the instant this returns.",
+        "operationId": "post_api_entries",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntryCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogEntry"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Create"
+      }
+    },
+    "/api/entries/{entry_id}": {
+      "delete": {
+        "description": "Tombstone an entry and remove its markdown.\n\nAttachments are left in place, on the host and on the share; the\nhistory keeps the entry as it was. If the share refuses the removal\nthe tombstone stays owed and the sync retries it.",
+        "operationId": "delete_api_entries_entry_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Delete"
+      },
+      "get": {
+        "description": "Return one entry.",
+        "operationId": "get_api_entries_entry_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogEntry"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " One"
+      },
+      "patch": {
+        "description": "Edit an entry's text, refusing to overwrite someone else's save.",
+        "operationId": "patch_api_entries_entry_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntryUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogEntry"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Update"
+      }
+    },
+    "/api/entries/{entry_id}/attachments": {
+      "post": {
+        "description": "Store an uploaded file for the entry and return its link.\n\nA plain ``def`` on purpose: the disk write runs in the threadpool\nlike every other route rather than on the event loop.",
+        "operationId": "post_api_entries_entry_id_attachments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_post_api_entries_entry_id_attachments"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Entries Entry Id Attachments",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Upload"
+      }
+    },
+    "/api/entries/{entry_id}/history": {
+      "get": {
+        "description": "Return an entry's earlier states, oldest first.\n\nAvailable for a deleted entry too — that is when it is wanted.",
+        "operationId": "get_api_entries_entry_id_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/HistoryItem"
+                  },
+                  "title": "Response Get Api Entries Entry Id History",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " History"
+      }
+    },
+    "/api/entries/{entry_id}/status": {
+      "post": {
+        "description": "Keep a draft. A human act; an agent has no route to promote itself.",
+        "operationId": "post_api_entries_entry_id_status",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatusUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogEntry"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Set Status"
+      }
+    },
+    "/api/month/{month}/days": {
+      "get": {
+        "description": "Return the calendar's marks for one month.\n\nTwo cheap questions: the store's per-day counts (one grouped\nquery) and which day folders exist (one listing of the month\nfolder — never a walk of the days). The month **page** never calls\nthis on its own path; the calendar fetches it when opened, so a\nslow share delays a popup, not a page.",
+        "operationId": "get_api_month_month_days",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "title": "Month",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthMarks"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Month Days"
+      }
+    },
+    "/api/month/{month}/entries": {
+      "get": {
+        "description": "Return one month's entries as JSON, oldest first.\n\n``?book=scans`` reads the other book (day-level and scan-anchored\nalike); ``?tag=`` narrows to entries carrying that tag.",
+        "operationId": "get_api_month_month_entries",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "title": "Month",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "book",
+            "required": false,
+            "schema": {
+              "default": "ops",
+              "enum": [
+                "scans",
+                "ops"
+              ],
+              "title": "Book",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tag"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LogEntry"
+                  },
+                  "title": "Response Get Api Month Month Entries",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Month Json"
+      }
+    },
+    "/api/preview": {
+      "post": {
+        "description": "Render a body as the page will, for the composer's preview.",
+        "operationId": "post_api_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Preview",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Preview"
+      }
+    },
+    "/attachments/{entry_id}/{filename}": {
+      "get": {
+        "description": "Serve an uploaded file from the host's attachment store.",
+        "operationId": "get_attachments_entry_id_filename",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "title": "Filename",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Attachment"
+      }
+    },
+    "/day/{day}": {
+      "get": {
+        "description": "Render the day document.",
+        "operationId": "get_day_day",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Day Page"
+      }
+    },
+    "/entry/{entry_id}": {
+      "get": {
+        "description": "Redirect to the page that holds this entry, at the entry itself.\n\nOne name for one note, independent of which book it is in and\nwhich page shape that book uses — the scans book renders a day,\nthe ops book renders a month, and a reader citing a note should\nnot have to know which. It is also what the composer stores: a\nbody says ``entry/<id>`` and nothing else, so a cross-reference\nsurvives a change of page shape and carries no mount prefix.\n\nA tombstoned entry is a 404 like any other missing one. The\nhistory endpoint is where a deleted entry is still readable.\n\nThe redirect is a 307 — ``RedirectResponse``'s default, and what\nevery other redirect here already sends. On a GET that is the same\nthing a 302 would do; the number is stated because a docstring\nnaming a status code the route does not send is how a client ends\nup asserting the wrong one.",
+        "operationId": "get_entry_entry_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "307": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Permalink"
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Liveness + version + whether entries are taken (the fleet-map probe).\n\nDeliberately cheap: it never touches the share, so a hung mount\ncannot make the service look down.",
+        "operationId": "get_health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Health",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/month/today": {
+      "get": {
+        "description": "Redirect to this month's page, at today's day group.\n\nAbsolute under the request's prefix, like the day redirects: a\nrelative Location is right only when the browser's URL ends in a\nslash.",
+        "operationId": "get_month_today",
+        "responses": {
+          "307": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": " This Month"
+      }
+    },
+    "/month/{month}": {
+      "get": {
+        "description": "Render one month of the ops book.",
+        "operationId": "get_month_month",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "title": "Month",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tag"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": " Month Page"
+      }
+    },
+    "/today": {
+      "get": {
+        "description": "Redirect to today's log — a name a bookmark or a link can use.",
+        "operationId": "get_today",
+        "responses": {
+          "307": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": " Today Named"
+      }
+    }
+  }
+}

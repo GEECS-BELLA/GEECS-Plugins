@@ -335,6 +335,17 @@ run_bluesky_suite() {
     rm -f "$report"
 }
 
+# The committed API documents (scripts/export_openapi.py), the way CI's
+# "Check the committed API documents" step runs them: in the package's own
+# env, for the packages the script exports (its --list; no copy here). A
+# failure names the regenerate command.
+run_api_check() {
+    local py
+    py="$(root_python "the API document check")" || return 1
+    "$py" scripts/export_openapi.py --list | grep -qx "$1" || return 0
+    (cd "$1" && poetry run python ../scripts/export_openapi.py --service "$1" --check)
+}
+
 run_suite() {
     case "$1" in
         root-tests)
@@ -346,7 +357,7 @@ run_suite() {
         GeecsBluesky)
             (cd GeecsBluesky && run_bluesky_suite) ;;
         GeecsCAGateway|GeecsPvaGateway|GEECS-Core|GEECS-DataPortal|GEECS-LogTriage|GEECS-MCP|GeecsLogbook|GeecsPanels|GeecsScanner|GeecsWebTheme|GeecsArchiver)
-            (cd "$1" && poetry run pytest tests --tb=short -q) ;;
+            (cd "$1" && poetry run pytest tests --tb=short -q) && run_api_check "$1" ;;
         *)
             echo "check.sh: no runner for '$1'" >&2; return 1 ;;
     esac
