@@ -55,6 +55,7 @@ from geecs_schemas.epics.panel_devices import (
     PanelDevice,
     PanelDevices,
 )
+from geecs_schemas.epics.panels import ComposedPanel, PanelOverride
 from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
 from geecs_schemas.preset import PlanCall, Preset, PresetDevice
 from geecs_schemas.log_entry import (
@@ -168,6 +169,9 @@ __all__ = [
     "PanelDevices",
     "PanelDevice",
     "PANEL_DEVICES_FILENAME",
+    # epics.panels (composed panels and family-page overrides)
+    "ComposedPanel",
+    "PanelOverride",
     # experiment_defaults
     "ExperimentDefaults",
     "DefaultActions",
@@ -232,6 +236,8 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "native_devices": NativeDevices,
     "family_file": FamilyFile,
     "panel_devices": PanelDevices,
+    "composed_panel": ComposedPanel,
+    "panel_override": PanelOverride,
     "analysis_recipe": AnalysisRecipe,
     "analysis_group": AnalysisGroup,
     "himg_job": HimgJob,

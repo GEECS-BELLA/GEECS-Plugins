@@ -359,7 +359,7 @@ class FamilyFile(VersionedSchemaModel):
 
     @model_validator(mode="after")
     def _roles_are_one_table(self) -> "FamilyFile":
-        _refuse_duplicates("role names", self.role_names())
+        refuse_duplicates("role names", self.role_names())
         check_suffixes(self.template, self.roles)
         by_name = {role.name: role for role in self.roles}
         for role in self.roles:
@@ -404,7 +404,8 @@ def _check_links(role: Role, by_name: Mapping[str, Role]) -> None:
             )
 
 
-def _refuse_duplicates(what: str, items: list[str]) -> None:
+def refuse_duplicates(what: str, items: list[str]) -> None:
+    """Refuse a list naming one item twice; the message names *what* and the repeats."""
     seen: set[str] = set()
     twice = sorted({item for item in items if item in seen or seen.add(item)})
     if twice:
@@ -420,8 +421,8 @@ def check_suffixes(template: str, roles: list[Role]) -> None:
         Naming the template and the repeated suffixes.
     """
     try:
-        _refuse_duplicates("read suffixes", [r.suffix for r in roles])
-        _refuse_duplicates(
+        refuse_duplicates("read suffixes", [r.suffix for r in roles])
+        refuse_duplicates(
             "write suffixes", [s for r in roles if (s := r.write_suffix) is not None]
         )
     except ValueError as exc:
