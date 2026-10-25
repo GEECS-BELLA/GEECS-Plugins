@@ -31,9 +31,12 @@ Each subpackage has its own `CLAUDE.md` with deep architectural detail.
 The native EPICS IOCs GEECS drives directly — their instances, the
 decisions they follow, the device catalogue, the simulators and the
 hardware-test runbooks — live in the private repo `GEECS-BELLA/geecs-epics`;
-its `CLAUDE.md` is the entry point. This repo holds the GEECS side only
-(the kinds and registry, GeecsPanels, the gateways, the archiver). Refer to
-that repo by name only: its hosts and addresses stay there.
+its `CLAUDE.md` is the entry point. This repo holds the GEECS side: the
+registry schema (`geecs_schemas.epics`), GeecsBluesky's `NativeCamera` and
+its design note `NATIVE_DEVICES.md`, GeecsPanels, and the gateway and
+archiver steps of a migration. Cite that repo by name and path; copy no host
+names, accounts or device addresses from it (an IOC host's CA address is a
+facility value like any other: § "Facility values have one home").
 
 The published mkdocs site lives under `docs/` and also has its own
 `CLAUDE.md` covering documentation conventions — content organisation,
