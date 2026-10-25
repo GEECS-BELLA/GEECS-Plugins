@@ -132,6 +132,32 @@ async def read_pvs(pvs: list[str]) -> list[object]:
     return list(await aioca.caget(pvs, timeout=3.0))
 
 
+class CaPuts:
+    """The bridge's put transport (:class:`geecs_panels.bridge.puts.PutTransport`) over aioca."""
+
+    async def put(self, pv: str, value: object, wait: bool) -> None:
+        """Write *pv*; with *wait*, until the record processed (an access-security refusal raises)."""
+        await aioca.caput(pv, value, wait=wait, timeout=PUT_TIMEOUT_S)
+
+    async def get(self, pv: str, as_string: bool = False) -> object:
+        """Read *pv* once (an enum, a field such as SEVR, as text when asked)."""
+        value = await aioca.caget(
+            pv, datatype=str if as_string else None, timeout=PUT_TIMEOUT_S
+        )
+        if as_string:
+            return str(value)
+        if isinstance(value, float):
+            return float(value)
+        if isinstance(value, int):
+            return int(value)
+        return value
+
+    async def choices(self, pv: str) -> list[str]:
+        """An enum record's state names (``DBR_CTRL``)."""
+        value = await aioca.caget(pv, format=aioca.FORMAT_CTRL, timeout=PUT_TIMEOUT_S)
+        return [str(n) for n in getattr(value, "enums", ())]
+
+
 async def settle(pv: str, want: object) -> None:
     """Poll *pv* until it reads *want*, or raise ``WriteFailed`` after ``PUT_TIMEOUT_S``."""
     deadline = time.monotonic() + PUT_TIMEOUT_S

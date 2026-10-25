@@ -63,17 +63,17 @@ class FakeCA:
         self.callbacks[pv](None)
 
 
-def devices() -> dict[str, BridgeDevice]:
-    """A camera and a positioner from the registry, a FAST-PS supply from panel data."""
+def devices(panels: Optional[dict] = None) -> dict[str, BridgeDevice]:
+    """A camera and a positioner from the registry, a FAST-PS supply from panel data (or *panels*)."""
     families = load_families()
     registry = [
         Device("Cam", "aravis_camera", CAM),
         Device("Stage", "epics_motor", MOTOR, axes=("m1", "m2")),
     ]
-    panels = PanelDevices.model_validate(
-        {"devices": {"PS1": {"family": "fastps", "prefix": SUPPLY}}}
+    document = PanelDevices.model_validate(
+        {"devices": panels or {"PS1": {"family": "fastps", "prefix": SUPPLY}}}
     )
-    built, errors = build_catalog("expt", registry, panels, families)
+    built, errors = build_catalog("expt", registry, document, families)
     assert not errors
     return {d.name: d for d in built}
 

@@ -99,9 +99,9 @@ http {
             proxy_read_timeout 300s;
         }
 
-        # The device panels (GeecsPanels; the PV bridge from phase 1 of the
-        # estate). No unit serves :8500 on the services host yet, so this
-        # answers 502 until the bridge's unit lands.
+        # The device panels and the PV bridge (GeecsPanels, unit
+        # geecs-panels on :8500, opt-in by site: GEECS_PANELS_USER). A site
+        # without it answers 502 here.
         location /panels/ {
             proxy_pass http://@SERVICES_HOST@:8500/;
             proxy_set_header X-Forwarded-Prefix /panels;

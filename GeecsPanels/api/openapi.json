@@ -49,6 +49,38 @@
         "title": "ArraysReply",
         "type": "object"
       },
+      "CameraPut": {
+        "description": "One allow-listed write: a PV suffix under the camera's prefix and its value.",
+        "properties": {
+          "pv": {
+            "title": "Pv",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "pv",
+          "value"
+        ],
+        "title": "CameraPut",
+        "type": "object"
+      },
       "Colour": {
         "description": "A crosshair colour, 0..255 a channel (the IOC stores it per overlay).",
         "properties": {
@@ -306,6 +338,151 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "JournalEntry": {
+        "additionalProperties": false,
+        "description": "One line of ``GET /api/journal``: who wrote what, when, and how it ended.\n\nExamples\n--------\n{\"id\": 41, \"time\": 1761400002.0, \"operator\": \"S. Barber\", \"device\": \"U_ChicaneInner\", \"role\": \"current_sp\", \"value\": 0.5, \"outcome\": \"accepted\", \"severity\": \"NO_ALARM\", \"message\": \"\"}",
+        "examples": [
+          {
+            "device": "U_ChicaneInner",
+            "id": 41,
+            "message": "",
+            "operator": "S. Barber",
+            "outcome": "accepted",
+            "role": "current_sp",
+            "severity": "NO_ALARM",
+            "time": 1761400002.0,
+            "value": 0.5
+          }
+        ],
+        "properties": {
+          "axis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The axis, for a per-axis family.",
+            "title": "Axis"
+          },
+          "device": {
+            "description": "The device.",
+            "title": "Device",
+            "type": "string"
+          },
+          "id": {
+            "description": "The entry's number, increasing.",
+            "minimum": 1.0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "message": {
+            "default": "",
+            "description": "Why it was refused or denied, or the alarm status.",
+            "title": "Message",
+            "type": "string"
+          },
+          "operator": {
+            "description": "Who wrote.",
+            "title": "Operator",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "accepted, refused or denied.",
+            "enum": [
+              "accepted",
+              "refused",
+              "denied"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "role": {
+            "description": "The role.",
+            "title": "Role",
+            "type": "string"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NO_ALARM",
+                  "MINOR",
+                  "MAJOR",
+                  "INVALID"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record's severity after the put.",
+            "title": "Severity"
+          },
+          "time": {
+            "description": "When the put was answered, Unix seconds.",
+            "title": "Time",
+            "type": "number"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The value asked for.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "id",
+          "time",
+          "operator",
+          "device",
+          "role",
+          "outcome"
+        ],
+        "title": "JournalEntry",
+        "type": "object"
+      },
+      "LockRelease": {
+        "additionalProperties": false,
+        "description": "``POST /api/devices/{name}/unlock``: release a stuck run lock (a killed worker), naming who.\n\nNot a put: the lock is no writable role. The bridge writes the lock\nfree and nothing else, journals it like a put (role ``lock``) and\nanswers with a :class:`PutResult` (Appendix A rule 6). The device is\nthe path's alone, so a body cannot name another.\n\nExamples\n--------\n{\"operator\": \"S. Barber\"}",
+        "examples": [
+          {
+            "operator": "S. Barber"
+          }
+        ],
+        "properties": {
+          "operator": {
+            "description": "Who is releasing it, journaled.",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Operator",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ],
+        "title": "LockRelease",
+        "type": "object"
+      },
       "MotorPut": {
         "description": "One allow-listed write: an axis of the device, a record field and its value.",
         "properties": {
@@ -373,10 +550,66 @@
         "type": "object"
       },
       "PutRequest": {
-        "description": "One allow-listed write: a PV suffix under the camera's prefix and its value.",
+        "additionalProperties": false,
+        "description": "``POST /api/put``: one write to one role of one device, by a named operator.\n\nExamples\n--------\n{\"device\": \"U_ChicaneInner\", \"role\": \"current_sp\", \"value\": 0.5, \"operator\": \"S. Barber\"}\n\n{\"device\": \"U_ChicaneInner\", \"role\": \"output_sp\", \"value\": 1, \"operator\": \"S. Barber\", \"confirm\": true}\n\n{\"device\": \"U_ESP302_01\", \"axis\": \"m2\", \"role\": \"val\", \"value\": 12.5, \"operator\": \"S. Barber\"}",
+        "examples": [
+          {
+            "device": "U_ChicaneInner",
+            "operator": "S. Barber",
+            "role": "current_sp",
+            "value": 0.5
+          },
+          {
+            "confirm": true,
+            "device": "U_ChicaneInner",
+            "operator": "S. Barber",
+            "role": "output_sp",
+            "value": 1
+          },
+          {
+            "axis": "m2",
+            "device": "U_ESP302_01",
+            "operator": "S. Barber",
+            "role": "val",
+            "value": 12.5
+          }
+        ],
         "properties": {
-          "pv": {
-            "title": "Pv",
+          "axis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The axis, for a per-axis family (the motor record); else absent.",
+            "title": "Axis"
+          },
+          "confirm": {
+            "default": false,
+            "description": "The operator confirmed a hazard role's write in the page's dialog.",
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "device": {
+            "description": "The device's GEECS name.",
+            "minLength": 1,
+            "title": "Device",
+            "type": "string"
+          },
+          "operator": {
+            "description": "Who is writing, journaled with the put (identity, not authentication).",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Operator",
+            "type": "string"
+          },
+          "role": {
+            "description": "The role written (a family role name).",
+            "minLength": 1,
+            "title": "Role",
             "type": "string"
           },
           "value": {
@@ -394,14 +627,111 @@
                 "type": "string"
               }
             ],
+            "description": "The value: a number, a flag, text, or an enum's state name.",
             "title": "Value"
           }
         },
         "required": [
-          "pv",
-          "value"
+          "device",
+          "role",
+          "value",
+          "operator"
         ],
         "title": "PutRequest",
+        "type": "object"
+      },
+      "PutResult": {
+        "additionalProperties": false,
+        "description": "The answer to a put, and what the journal recorded.\n\nExamples\n--------\n{\"outcome\": \"accepted\", \"value\": 0.5, \"severity\": \"NO_ALARM\", \"message\": \"\", \"journal_id\": 41}\n\n{\"outcome\": \"refused\", \"value\": 1.5, \"severity\": null, \"message\": \"1.5 A is outside the drive limits 0 to 1 A\", \"journal_id\": 42}\n\n{\"outcome\": \"denied\", \"value\": 1, \"message\": \"output_sp needs the hazard confirm\", \"journal_id\": 43}",
+        "examples": [
+          {
+            "journal_id": 41,
+            "message": "",
+            "outcome": "accepted",
+            "severity": "NO_ALARM",
+            "value": 0.5
+          },
+          {
+            "journal_id": 42,
+            "message": "1.5 A is outside the drive limits 0 to 1 A",
+            "outcome": "refused",
+            "value": 1.5
+          },
+          {
+            "journal_id": 43,
+            "message": "output_sp needs the hazard confirm",
+            "outcome": "denied",
+            "value": 1
+          }
+        ],
+        "properties": {
+          "journal_id": {
+            "description": "The journal entry recording this put.",
+            "minimum": 1.0,
+            "title": "Journal Id",
+            "type": "integer"
+          },
+          "message": {
+            "default": "",
+            "description": "Why it was refused or denied, or the record's alarm status.",
+            "title": "Message",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "accepted, refused or denied.",
+            "enum": [
+              "accepted",
+              "refused",
+              "denied"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NO_ALARM",
+                  "MINOR",
+                  "MAJOR",
+                  "INVALID"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record's alarm severity after the put; null if not read.",
+            "title": "Severity"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The value put (after coercion), or the one asked for.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "outcome",
+          "journal_id"
+        ],
+        "title": "PutResult",
         "type": "object"
       },
       "Role": {
@@ -959,6 +1289,106 @@
         "summary": "Device Events"
       }
     },
+    "/api/devices/{name}/unlock": {
+      "post": {
+        "description": "Release a stuck run lock (a killed worker): the lock written free and nothing else, journaled.",
+        "operationId": "post_api_devices_name_unlock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LockRelease"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            },
+            "description": "Denied: not permitted on this device, a hazard unconfirmed, a read-only bridge."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            },
+            "description": "No such device (no body: nothing was journaled)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            },
+            "description": "Denied: the device's stream is closed, stale or disconnected."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            },
+            "description": "Refused by the bridge: the value is outside the role's or the record's bounds."
+          },
+          "423": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            },
+            "description": "Denied: the run lock is held, or cannot be read."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            },
+            "description": "Refused by the IOC: a CA refusal, or the record left INVALID."
+          }
+        },
+        "summary": "Unlock"
+      }
+    },
     "/api/families": {
       "get": {
         "description": "Every family file the bridge loaded, by template name.",
@@ -1017,6 +1447,144 @@
           }
         },
         "summary": "Api Frame"
+      }
+    },
+    "/api/journal": {
+      "get": {
+        "description": "The last puts the bridge answered (who, what, when, how it ended), newest first.",
+        "operationId": "get_api_journal",
+        "parameters": [
+          {
+            "description": "How many, newest first.",
+            "in": "query",
+            "name": "entries",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "How many, newest first.",
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Entries",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/JournalEntry"
+                  },
+                  "title": "Response Get Api Journal",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Journal"
+      }
+    },
+    "/api/put": {
+      "post": {
+        "description": "One write to one role, by a named operator, through the three gates; journaled whatever the outcome.",
+        "operationId": "post_api_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            },
+            "description": "Denied: not permitted on this device, a hazard unconfirmed, a read-only bridge."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            },
+            "description": "No such device (no body: nothing was journaled)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            },
+            "description": "Denied: the device's stream is closed, stale or disconnected."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            },
+            "description": "Refused by the bridge: the value is outside the role's or the record's bounds."
+          },
+          "423": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            },
+            "description": "Denied: the run lock is held, or cannot be read."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutResult"
+                }
+              }
+            },
+            "description": "Refused by the IOC: a CA refusal, or the record left INVALID."
+          }
+        },
+        "summary": "Put"
       }
     },
     "/camera/{name}": {
@@ -1334,7 +1902,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PutRequest"
+                "$ref": "#/components/schemas/CameraPut"
               }
             }
           },

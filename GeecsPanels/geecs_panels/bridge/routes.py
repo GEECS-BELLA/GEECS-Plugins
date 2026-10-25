@@ -8,6 +8,10 @@
   (:mod:`~geecs_panels.bridge.stream`); ``Last-Event-ID`` resumes.
 - ``GET /api/devices/{name}/arrays`` — its arrays, read on request and
   decimated (:mod:`~geecs_panels.bridge.arrays`).
+- ``POST /api/put`` — one write through the three gates, journaled
+  (:mod:`~geecs_panels.bridge.puts`); ``POST /api/devices/{name}/unlock``
+  — a stuck run lock released, journaled; ``GET /api/journal`` — the
+  last puts (:mod:`~geecs_panels.bridge.journal`).
 
 ``GET /api/frame/{name}`` (a camera's JPEG, one upstream fetch in flight)
 is the per-kind camera route's, mounted beside it in :mod:`geecs_panels.app`.
@@ -21,18 +25,34 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from geecs_schemas.epics.family import FamilyFile, load_families
 
 from geecs_panels.bridge.arrays import ArraysReply
 from geecs_panels.bridge.catalog import BridgeDevice, DeviceCatalog, device_info
+from geecs_panels.bridge.journal import MAX_ENTRIES, Journal
+from geecs_panels.bridge.puts import Puts
 from geecs_panels.bridge.stream import DeviceStreams, UnknownDevice, sse
+from geecs_panels.contracts import JournalEntry, LockRelease, PutRequest, PutResult
 
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
 
 def _no_subscriptions(*_args: object) -> object:
     raise RuntimeError("this bridge has no CA transport")
+
+
+class _NoWrites:
+    """The put transport of a bridge built without one: never reached (that bridge is read-only)."""
+
+    async def put(self, pv: str, value: object, wait: bool) -> None:
+        raise RuntimeError("this bridge has no CA transport")
+
+    async def get(self, pv: str, as_string: bool = False) -> object:
+        raise RuntimeError("this bridge has no CA transport")
+
+    async def choices(self, pv: str) -> list[str]:
+        raise RuntimeError("this bridge has no CA transport")
 
 
 @dataclass
@@ -44,12 +64,18 @@ class Bridge:
     errors: list[str] = field(default_factory=list)
     streams: Optional[DeviceStreams] = None
     families: Mapping[str, FamilyFile] = field(default_factory=load_families)
+    puts: Optional[Puts] = None
 
     def __post_init__(self) -> None:
-        """Give a bridge without a transport streams that refuse to subscribe (listings only)."""
+        """Give a bridge without a transport streams that refuse to subscribe and puts that deny (listings only)."""
         if self.streams is None:
             self.streams = DeviceStreams(
                 {d.name: d for d in self.devices}, _no_subscriptions
+            )
+        if self.puts is None:
+            # Read-only: every put is denied, so the journal holds only denials.
+            self.puts = Puts(
+                self.streams, _NoWrites(), Journal(warn=False), writable=False
             )
 
     def catalog(self) -> DeviceCatalog:
@@ -88,6 +114,59 @@ def add_bridge_routes(app: FastAPI, bridge: Bridge) -> None:
         return bridge.families
 
     _add_stream_routes(app, streams, known)
+    assert bridge.puts is not None
+    _add_put_routes(app, bridge.puts)
+
+
+#: Every status a put may answer, each with the PutResult body.
+_PUT_STATUSES: dict[int | str, dict[str, object]] = {
+    status: {"model": PutResult, "description": why}
+    for status, why in {
+        403: "Denied: not permitted on this device, a hazard unconfirmed, a read-only bridge.",
+        404: "No such device (no body: nothing was journaled).",
+        409: "Denied: the device's stream is closed, stale or disconnected.",
+        422: "Refused by the bridge: the value is outside the role's or the record's bounds.",
+        423: "Denied: the run lock is held, or cannot be read.",
+        502: "Refused by the IOC: a CA refusal, or the record left INVALID.",
+    }.items()
+}
+
+
+def _answer(status: int, result: PutResult) -> JSONResponse:
+    return JSONResponse(result.model_dump(mode="json"), status_code=status)
+
+
+def _add_put_routes(app: FastAPI, puts: Puts) -> None:
+    """Puts with identity, the run lock's release, the journal."""
+
+    @app.post("/api/put", response_model=PutResult, responses=_PUT_STATUSES)
+    async def put(request: PutRequest) -> JSONResponse:
+        """One write to one role, by a named operator, through the three gates; journaled whatever the outcome."""
+        try:
+            status, result = await puts.put(request)
+        except UnknownDevice as exc:
+            raise HTTPException(404, f"no device named {request.device!r}") from exc
+        return _answer(status, result)
+
+    @app.post(
+        "/api/devices/{name}/unlock", response_model=PutResult, responses=_PUT_STATUSES
+    )
+    async def unlock(name: str, request: LockRelease) -> JSONResponse:
+        """Release a stuck run lock (a killed worker): the lock written free and nothing else, journaled."""
+        try:
+            status, result = await puts.release_lock(name, request.operator)
+        except UnknownDevice as exc:
+            raise HTTPException(404, f"no device named {name!r}") from exc
+        return _answer(status, result)
+
+    @app.get("/api/journal", response_model=list[JournalEntry])
+    def journal(
+        entries: int = Query(
+            50, ge=1, le=MAX_ENTRIES, description="How many, newest first."
+        ),
+    ) -> list[JournalEntry]:
+        """The last puts the bridge answered (who, what, when, how it ended), newest first."""
+        return puts.journal.last(entries)
 
 
 def _add_stream_routes(

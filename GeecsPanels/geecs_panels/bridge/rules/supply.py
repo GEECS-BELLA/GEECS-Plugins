@@ -17,7 +17,9 @@ from collections.abc import Mapping
 from geecs_panels.bridge.feed import Feed, HistorySpec
 from geecs_panels.bridge.rules import Rules
 from geecs_panels.contracts import DeviceState
-from geecs_panels.power import supply_state
+from geecs_schemas.epics.family import Role
+
+from geecs_panels.power import ACTIONS, ROLES, check_write, supply_state
 
 #: The readbacks, sampled on the stream's tick at most once a second (a
 #: quiet supply then sends one small frame a second, its points).
@@ -44,4 +46,19 @@ def state(feed: Feed, _axes: Mapping[str, DeviceState]) -> DeviceState:
     return DeviceState(word=word, status=status)  # type: ignore[arg-type]  # the kit's words
 
 
-RULES = Rules(history=HISTORY, state=state)
+def check(
+    feed: Feed, role: Role, axis: str, value: object, choices: list[str]
+) -> object:
+    """``power.check_write``: a setpoint inside its drive limits, read and distinct, short of an INVALID HIHI/LOLO.
+
+    An ``ao`` clamps a put past ``DRVH`` and writes the limit, so this is
+    the gate that refuses (Appendix A rule 11); limits or severities not
+    read refuse.
+    """
+    action = next(a for a, r in ACTIONS.items() if r == role.name)
+    roles = {r.name: r.suffix for r in feed.device.roles if r.name in ROLES}
+    _, checked = check_write(action, value, snapshot(feed), roles)
+    return checked
+
+
+RULES = Rules(history=HISTORY, state=state, check=check)

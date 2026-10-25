@@ -21,7 +21,9 @@ from collections.abc import Mapping
 from geecs_panels.bridge.arrays import Trace, trace
 from geecs_panels.bridge.feed import Feed, HistorySpec
 from geecs_panels.bridge.rules import Rules
-from geecs_panels.camera import lock_word, saturation
+from geecs_schemas.epics.family import Role
+
+from geecs_panels.camera import check_write, lock_word, saturation
 from geecs_panels.contracts import RunLock, Saturation
 
 #: The roles the history keeps, sampled on STAT's counter.
@@ -73,4 +75,13 @@ def arrays(
     return out
 
 
-RULES = Rules(history=HISTORY, lock=lock, saturation=saturation_chip, arrays=arrays)
+def check(
+    feed: Feed, role: Role, axis: str, value: object, choices: list[str]
+) -> object:
+    """The camera's own table (``camera.WRITABLE``) by the record written: the same bounds the camera page keeps."""
+    return check_write(role.write_suffix or role.suffix, value)
+
+
+RULES = Rules(
+    history=HISTORY, lock=lock, saturation=saturation_chip, arrays=arrays, check=check
+)

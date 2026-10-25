@@ -5,13 +5,13 @@ camera, the oscilloscope, the positioner, the power supply), keyed by the experi
 `native_devices.yaml`. The design note is `Planning/device_panels.md`; read
 it before adding a panel or a control.
 
-**It is a prototype** (maintainer, 2026-10-22): something to look at, play
-with and ask for features on, run on a laptop over the VPN. Where it lives
-in the end (its own service, inside another surface, a bespoke ops panel
-composed from its parts) is open. So: keep each part (image view, live
-readings, later lineouts and the crosshair layer) self-contained, so it can
-move without a rewrite. Don't add deployment machinery (unit, service
-account) until the maintainer asks.
+**The per-kind pages are a prototype** (maintainer, 2026-10-22), kept
+until each is replaced by its `geecs-web` page under the kill rule. The
+same process is **the PV bridge** (`Planning/epics_estate.md` §2.3, which
+revoked the "no deployment machinery" rule): a services-host unit,
+`deploy/geecs-panels.service`, under **its own account**
+(`GEECS_PANELS_USER`, never the worker's) with the put journal in its
+`StateDirectory`; `deploy/DEPLOYMENT.md` installs it.
 
 ## Layout
 
@@ -53,7 +53,12 @@ geecs_panels/
     stream.py   #   DeviceHub (one per device, shared; full then deltas; ring for
                 #   Last-Event-ID) and DeviceStreams (create on use, evict after grace)
     arrays.py   #   ArraysReply: on-request arrays, min/max-decimated
-    routes.py   #   /api/devices, /api/families, /api/devices/{name}/events|arrays
+    puts.py     #   POST /api/put's three gates (denied: permission, hazard
+                #   confirm, stale stream, run lock; refused: the value, then the
+                #   IOC's alarm), every answer journaled
+    journal.py  #   the put journal (SQLite, $STATE_DIRECTORY/journal.db)
+    routes.py   #   /api/devices, /api/families, /api/devices/{name}/events|arrays|unlock,
+                #   /api/put, /api/journal
   app.py        # routes: /, /camera/{device}, its frame.jpg and events (SSE),
                 #   and the writes: put (allow-listed), crosshair colour, to-centroid
   templates/, static/   # on the GeecsWebTheme kit; colours through tokens only
@@ -108,6 +113,18 @@ an age); going stale is a change, sent once; `seq` starts at the wall
 clock in ms so an old `Last-Event-ID` never replays the wrong frames; one
 hub per device for every listener, evicted after the grace period; a
 listener too far behind is sent a full frame.
+
+Puts (`bridge/puts.py`, pinned in `tests/test_bridge_puts.py`): **denied
+before refused** (rule 8: not permitted on this device answers before any
+value check); a `confirm: hazard` role needs `confirm`; **a stale page
+cannot write** (no open stream of the device, a hub that has not ticked
+within `stale_after`, or the record disconnected); a `locked` role while
+the run lock is held or unread is 423; the value is checked by the family
+(type, `integer`, `limits`, choices read from the record when the family
+names none) and then by the template's rule (`Rules.check`: the per-kind
+`check_write`); the IOC's refusal is the record's alarm read after the
+put, never a success (rule 11); a motion is dispatched without waiting
+(rule 12). `operator` is required and journaled, whatever the outcome.
 
 ## Rules this package keeps
 

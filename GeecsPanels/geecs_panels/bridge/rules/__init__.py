@@ -29,6 +29,8 @@ from geecs_panels.bridge.arrays import (
     floats,
     trace,
 )
+from geecs_schemas.epics.family import Role
+
 from geecs_panels.bridge.feed import Feed, HistorySpec, OnUpdate
 from geecs_panels.contracts import DeviceState, RunLock, Saturation
 from geecs_panels.feed import ArraysSource, ArraysUnavailable
@@ -39,6 +41,9 @@ AxisStateRule = Callable[[Feed, str], DeviceState]
 StateRule = Callable[[Feed, Mapping[str, DeviceState]], DeviceState]
 #: (feed, stale_after) -> the saturation chip.
 SaturationRule = Callable[[Feed, float], Saturation]
+#: (feed, role, axis, value after the family's bounds, enum choices) -> the
+#: value to put; raises ValueError (each kind's NotWritable) to refuse it.
+CheckRule = Callable[[Feed, Role, str, object, list[str]], object]
 #: (feed, role -> array read, columns) -> name -> trace.
 ArraysRule = Callable[[Feed, Mapping[str, list[float]], int], dict[str, Trace]]
 
@@ -111,6 +116,9 @@ class Rules:
     reader: ReaderFactory = PlainArrays
     #: Watches each post, for a rule that needs a record's history (the scope's timebase).
     on_update: Optional[OnUpdate] = None
+    #: The template's own check of a write's value in context (soft limits,
+    #: drive limits, its table), after the family's bounds; fails closed.
+    check: Optional[CheckRule] = None
 
 
 #: No derived rules: the roles alone.

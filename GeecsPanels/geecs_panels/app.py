@@ -158,7 +158,7 @@ class Override(BaseModel):
     operator: str = Field(min_length=1, max_length=60)
 
 
-class PutRequest(BaseModel):
+class CameraPut(BaseModel):
     """One allow-listed write: a PV suffix under the camera's prefix and its value."""
 
     pv: str
@@ -467,7 +467,7 @@ def _add_write_routes(
     _add_lock_routes(app, cameras, w)
 
     @app.post("/camera/{name}/put")
-    async def put_one(name: str, request: PutRequest) -> dict[str, object]:
+    async def put_one(name: str, request: CameraPut) -> dict[str, object]:
         device = w.device(name)
         if request.pv == "TRANS1:Type":
             # The background is grabbed AFTER the transform (cam1 → TRANS1 →
