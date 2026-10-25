@@ -28,7 +28,7 @@
     {"name": "stat", "suffix": ".STAT", "type": "enum", "label": "alarm status", "level": "expert"},
     {"name": "set", "suffix": ".SET", "type": "enum", "label": "calibration mode", "level": "expert"},
     {"name": "spmg", "suffix": ".SPMG", "type": "enum", "label": "stop / pause / move / go"},
-    {"name": "off", "suffix": ".OFF", "type": "readback", "label": "user offset", "level": "expert"},
+    {"name": "offset", "suffix": ".OFF", "type": "readback", "label": "user offset", "level": "expert"},
     {"name": "twf", "suffix": ".TWF", "type": "command", "label": "tweak forward", "writable": true, "settled_by": "dmov"},
     {"name": "twr", "suffix": ".TWR", "type": "command", "label": "tweak reverse", "writable": true, "settled_by": "dmov"},
     {"name": "stop", "suffix": ".STOP", "type": "command", "label": "stop", "writable": true},

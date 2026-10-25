@@ -79,7 +79,7 @@
     {"name": "gain", "suffix": "cam1:Gain_RBV", "type": "setpoint", "label": "gain", "writable": true, "write": "cam1:Gain", "limits": [0, 100], "locked": true, "archive": true},
     {"name": "trigger_mode", "suffix": "cam1:TriggerMode_RBV", "type": "enum", "label": "trigger mode", "writable": true, "write": "cam1:TriggerMode", "choices": ["Off", "On"], "locked": true, "archive": true},
     {"name": "trigger_source", "suffix": "cam1:TriggerSource_RBV", "type": "enum", "label": "trigger source", "archive": true},
-    {"name": "acquire", "suffix": "cam1:Acquire_RBV", "type": "enum", "label": "acquire", "writable": true, "write": "cam1:Acquire", "settled_by": "acquire", "locked": true, "archive": true},
+    {"name": "acquire", "suffix": "cam1:Acquire_RBV", "type": "enum", "label": "acquire", "writable": true, "write": "cam1:Acquire", "settled_by": "acquire", "integer": true, "limits": [0, 1], "locked": true, "archive": true},
     {"name": "min_x", "suffix": "cam1:MinX_RBV", "type": "setpoint", "label": "camera ROI x", "writable": true, "write": "cam1:MinX", "level": "expert", "limits": [0, 65535], "integer": true, "units": "px", "locked": true, "archive": true},
     {"name": "min_y", "suffix": "cam1:MinY_RBV", "type": "setpoint", "label": "camera ROI y", "writable": true, "write": "cam1:MinY", "level": "expert", "limits": [0, 65535], "integer": true, "units": "px", "locked": true, "archive": true},
     {"name": "size_x", "suffix": "cam1:SizeX_RBV", "type": "setpoint", "label": "camera ROI width", "writable": true, "write": "cam1:SizeX", "level": "expert", "limits": [1, 65535], "integer": true, "units": "px", "locked": true, "archive": true},

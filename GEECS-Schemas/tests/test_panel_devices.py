@@ -27,7 +27,7 @@ DOC = {
             "prefix": "bench:tiny1:",
             "roles": {"level_sp": "level_ramp:SP"},
             "labels": {"fault": "chiller flow"},
-            "allow": ["fire", "stop"],
+            "allow": ["fire", "stop", "level"],
             "note": "On the bench.",
             "archive": ["mean"],
         },
@@ -68,12 +68,37 @@ def test_resolve_applies_the_devices_differences() -> None:
 
 def test_allowed_actions_are_the_familys_within_allow() -> None:
     devices = validate(doc())
-    assert devices.devices["U_Tiny"].allowed_actions(FAMILIES["tiny"]) == [
-        "fire",
-        "stop",
-    ]
+    tiny = FAMILIES["tiny"]
+    assert devices.devices["U_Tiny"].allowed_actions(tiny) == ["fire", "stop", "level"]
     unrestricted = devices.devices["U_Tiny"].model_copy(update={"allow": None})
-    assert unrestricted.allowed_actions(FAMILIES["tiny"]) == ["fire", "stop"]
+    assert unrestricted.allowed_actions(tiny) == ["fire", "stop", "level", "acquire"]
+
+
+def test_an_omitted_role_is_gone_with_its_actions() -> None:
+    d = doc()
+    d["devices"]["U_Tiny"].update(omit=["fault", "level_sp"], allow=["fire", "stop"])
+    device = validate(d).devices["U_Tiny"]
+    names = [r.name for r in device.resolve(FAMILIES["tiny"])]
+    assert "fault" not in names and "level_sp" not in names
+    unrestricted = device.model_copy(update={"allow": None})
+    assert unrestricted.allowed_actions(FAMILIES["tiny"]) == ["fire", "stop", "acquire"]
+
+
+def test_a_device_hazard_is_applied() -> None:
+    d = doc()
+    d["devices"]["U_Tiny"]["hazard"] = ["level_sp"]
+    roles = {r.name: r for r in validate(d).devices["U_Tiny"].resolve(FAMILIES["tiny"])}
+    assert roles["level_sp"].confirm == "hazard"
+    assert roles["fire"].confirm == "hazard"  # the family's own stays
+    assert roles["stop"].confirm is None
+
+
+def test_a_resolved_role_shares_nothing_with_the_family() -> None:
+    device = validate(doc()).devices["U_Tiny"]
+    resolved = {r.name: r for r in device.resolve(FAMILIES["tiny"])}
+    family_role = FAMILIES["tiny"].role("level_sp")
+    assert resolved["level_sp"].fields == family_role.fields
+    assert resolved["level_sp"].fields is not family_role.fields
 
 
 def _refused(document: dict, match: str) -> None:
@@ -89,7 +114,13 @@ def test_a_family_must_exist() -> None:
 
 @pytest.mark.parametrize(
     "key, value",
-    [("roles", {"levl": "x"}), ("labels", {"falt": "x"}), ("archive", ["meen"])],
+    [
+        ("roles", {"levl": "x"}),
+        ("labels", {"falt": "x"}),
+        ("archive", ["meen"]),
+        ("omit", ["falt"]),
+        ("hazard", ["levl"]),
+    ],
 )
 def test_an_overridden_relabelled_or_archived_role_exists(
     key: str, value: object
@@ -97,6 +128,30 @@ def test_an_overridden_relabelled_or_archived_role_exists(
     d = doc()
     d["devices"]["U_Tiny"][key] = value
     _refused(d, f"{key} names role")
+
+
+def test_an_allowed_action_keeps_its_roles() -> None:
+    d = doc()
+    d["devices"]["U_Tiny"]["omit"] = ["level_sp"]
+    _refused(d, r"allows 'level' but omits its role\(s\) \['level_sp'\]")
+
+
+def test_an_omitted_role_is_not_one_a_kept_role_needs() -> None:
+    d = doc()
+    d["devices"]["U_Tiny"]["omit"] = ["counter"]
+    _refused(d, "omits 'counter', which 'mean' needs")
+
+
+def test_a_hazard_is_on_a_writable_role() -> None:
+    d = doc()
+    d["devices"]["U_Tiny"]["hazard"] = ["level"]
+    _refused(d, r"hazard on read-only role\(s\) \['level'\]")
+
+
+def test_a_role_on_two_records_is_not_overridden() -> None:
+    d = doc()
+    d["devices"]["U_Tiny"]["roles"] = {"acquire": "cam2:Acquire_RBV"}
+    _refused(d, "read and write two records")
 
 
 def test_an_allowed_action_exists() -> None:

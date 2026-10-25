@@ -5,10 +5,12 @@ The configs repository's ``<experiment>/panel_devices.yaml`` (the panels'
 family (record template) it instantiates and what differs from that
 family on this device — its own PV names for a role (the two supplies have
 no shared record set), a bit's label, the actions the page may take on it
-(``allow``), the line the page shows (``note``), the roles the archiver
-takes beyond the family's.
+(``allow``), the line the page shows (``note``), the roles it does not
+have (``omit``), the roles that need a hazard confirm on it alone
+(``hazard``), the roles the archiver takes beyond the family's.
 
-Read by the PV bridge only.  The scan worker never reads it, so a device
+Read by the PV bridge; the archiver's registry pass reads ``archive``
+alone (``Planning/epics_estate.md`` §2.5).  The scan worker never reads it, so a device
 listed here may still be owned by the GEECS DB (a bench device on a bench
 prefix): ``native_devices.yaml`` stays what the worker binds, and a device
 in both takes its axes from the registry and its panel data from here.
@@ -97,27 +99,49 @@ class PanelDevice(SchemaModel):
         ),
     )
     note: str = Field("", description="A line the device's page shows.")
+    omit: list[RoleName] = Field(
+        default_factory=list,
+        description=(
+            "Family roles this device does not have or use (an unwired "
+            "interlock): never read, never shown, and their actions are unavailable."
+        ),
+    )
+    hazard: list[RoleName] = Field(
+        default_factory=list,
+        description=(
+            "Writable roles that need the hazard confirm on this device, beyond "
+            "the family's own (one stage's move)."
+        ),
+    )
     archive: list[RoleName] = Field(
         default_factory=list,
         description="Roles the archiver takes on this device beyond the family's own.",
     )
 
     def resolve(self, family: FamilyFile) -> list[Role]:
-        """The family's roles as this device has them: suffixes, labels and archive applied."""
+        """The family's roles as this device has them: omissions, suffixes, labels, hazards and archive applied."""
         return [
             role.model_copy(
+                deep=True,
                 update={
                     "suffix": self.roles.get(role.name, role.suffix),
                     "label": self.labels.get(role.name, role.label),
+                    "confirm": "hazard" if role.name in self.hazard else role.confirm,
                     "archive": role.archive or role.name in self.archive,
-                }
+                },
             )
             for role in family.roles
+            if role.name not in self.omit
         ]
 
     def allowed_actions(self, family: FamilyFile) -> list[str]:
-        """The family's actions permitted on this device, in the family's order."""
-        return [a for a in family.actions if self.allow is None or a in self.allow]
+        """The family's actions available on this device (none of its roles omitted), within ``allow``, in order."""
+        return [
+            a
+            for a, action in family.actions.items()
+            if (self.allow is None or a in self.allow)
+            and not set(action.roles) & set(self.omit)
+        ]
 
     def check_against(self, name: str, family: FamilyFile) -> None:
         """Refuse panel data naming a role, an action or an axis the family does not have.
@@ -131,6 +155,8 @@ class PanelDevice(SchemaModel):
         for what, names in (
             ("roles", self.roles),
             ("labels", self.labels),
+            ("omit", self.omit),
+            ("hazard", self.hazard),
             ("archive", self.archive),
         ):
             unknown = sorted(set(names) - known)
@@ -141,32 +167,67 @@ class PanelDevice(SchemaModel):
                 )
         if self.axes is not None and not family.per_axis:
             raise ValueError(f"device {name!r}: family {family.template!r} has no axes")
+        self._check_roles(name, family)
         if self.allow is not None:
-            if not family.actions:
-                raise ValueError(
-                    f"device {name!r}: family {family.template!r} has no actions "
-                    "to allow (each writable role is its own permission)"
-                )
-            unknown = sorted(set(self.allow) - set(family.actions))
-            if unknown:
-                raise ValueError(
-                    f"device {name!r}: unknown action(s) {unknown}; family "
-                    f"{family.template!r} has {list(family.actions)}"
-                )
-            for action in self.allow:
-                missing = sorted(set(family.actions[action].requires) - set(self.allow))
-                if missing:
-                    raise ValueError(
-                        f"device {name!r}: allowing {action!r} needs {missing} too"
-                    )
+            self._check_allow(name, family)
         check_suffixes(f"{family.template} on {name}", self.resolve(family))
+
+    def _check_roles(self, name: str, family: FamilyFile) -> None:
+        """Refuse a hazard on a read-only role, a split record overridden, an omission a kept role links to."""
+        read_only = sorted(r for r in self.hazard if not family.role(r).writable)
+        if read_only:
+            raise ValueError(
+                f"device {name!r}: hazard on read-only role(s) {read_only}"
+            )
+        split = sorted(r for r in self.roles if family.role(r).write is not None)
+        if split:
+            raise ValueError(
+                f"device {name!r}: roles {split} read and write two records; an "
+                "override of one would leave the other on the family's record"
+            )
+        for role in family.roles:
+            if role.name in self.omit:
+                continue
+            for link in ("settled_by", "readback", "fresh_by", "computed_by"):
+                if getattr(role, link) in self.omit:
+                    raise ValueError(
+                        f"device {name!r}: omits {getattr(role, link)!r}, which "
+                        f"{role.name!r} needs ({link})"
+                    )
+
+    def _check_allow(self, name: str, family: FamilyFile) -> None:
+        """Refuse an ``allow`` the family cannot honour on this device."""
+        if not family.actions:
+            raise ValueError(
+                f"device {name!r}: family {family.template!r} has no actions "
+                "to allow (each writable role is its own permission)"
+            )
+        allow = self.allow or []
+        unknown = sorted(set(allow) - set(family.actions))
+        if unknown:
+            raise ValueError(
+                f"device {name!r}: unknown action(s) {unknown}; family "
+                f"{family.template!r} has {list(family.actions)}"
+            )
+        for action in allow:
+            missing = sorted(set(family.actions[action].requires) - set(allow))
+            if missing:
+                raise ValueError(
+                    f"device {name!r}: allowing {action!r} needs {missing} too"
+                )
+            gone = sorted(set(family.actions[action].roles) & set(self.omit))
+            if gone:
+                raise ValueError(
+                    f"device {name!r}: allows {action!r} but omits its role(s) {gone}"
+                )
 
 
 class PanelDevices(VersionedSchemaModel):
     """The experiment's devices with a panel: each one's family and per-device panel data.
 
     ``<experiment>/panel_devices.yaml`` in the configs repository, read by
-    the PV bridge only. A device here may still be owned by the GEECS DB
+    the PV bridge (and, for ``archive`` alone, the archiver's registry
+    pass). A device here may still be owned by the GEECS DB
     (a bench device): the scan worker reads ``native_devices.yaml``, never
     this file.
     """
