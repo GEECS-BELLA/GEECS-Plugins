@@ -218,6 +218,12 @@ def check_write(
     return role, 1
 
 
+#: What a supply's state word is judged from: the readback and its alarm
+#: (no reply), the commands' alarms (a refusal), the output. Each bit too,
+#: and ``voltage_sp.sevr`` when the supply has that role.
+STATE_KEYS = ("current", "current.sevr", "current_sp.sevr", "output_sp.sevr", "output")
+
+
 def supply_state(
     snap: Mapping[str, object], reachable: bool, bits: Collection[str]
 ) -> tuple[str, str]:
@@ -225,10 +231,11 @@ def supply_state(
 
     No field connected is ``unknown``; an INVALID readback (no reply from
     the supply) is ``failed``, as is any tripped fault or interlock bit
-    (named); a setpoint or output command the supply or the IOC refused (its
-    record INVALID, other than UDF: a record never written since the IOC
-    started) is ``degraded``; an energized output is ``running``; an output
-    that is off is ``ok``.
+    (named); a channel the word is judged from (:data:`STATE_KEYS`, the
+    bits) that is not read is ``unknown``, naming it; a setpoint or output
+    command the supply or the IOC refused (its record INVALID, other than
+    UDF: a record never written since the IOC started) is ``degraded``; an
+    energized output is ``running``; an output that is off is ``ok``.
     """
     if not reachable:
         return "unknown", "connecting"
@@ -237,6 +244,12 @@ def supply_state(
     tripped = [label for label in bits if snap.get(f"bit.{label}") == 1]
     if tripped:
         return "failed", ", ".join(label.replace("_", " ") for label in tripped)
+    judged = [*STATE_KEYS, *(f"bit.{label}" for label in bits)]
+    if "voltage_sp" in snap:  # the role is mapped (the feed carries its keys)
+        judged.append("voltage_sp.sevr")
+    unread = [key for key in judged if snap.get(key) is None]
+    if unread:
+        return "unknown", "not read: " + " ".join(unread)
     for role, what in (("current_sp", "setpoint"), ("voltage_sp", "voltage setpoint"),
                        ("output_sp", "output command")):  # fmt: skip
         stat = snap.get(f"{role}.stat")
@@ -247,4 +260,4 @@ def supply_state(
         return "running", "output on"
     if snap.get("output") == 0:
         return "ok", "output off"
-    return "unknown", "output state not read"
+    return "unknown", f"output reads {snap.get('output')!r}"

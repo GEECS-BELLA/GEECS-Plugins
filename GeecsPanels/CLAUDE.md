@@ -125,8 +125,11 @@ geecs_panels/
   severities, and an INVALID one's bound, read first): an `ao` CLAMPS a
   put past `DRVH` and writes the limit, so this check is the gate that
   refuses (the IOC's own refusal is HIHI + IVOA, set at load). A value
-  whose channel dropped is `None`, never a stale number. The live put waits
-  for the record and reads its alarm: a `#NAK` (INVALID) is a 502.
+  whose channel dropped is `None`, never a stale number, and the supply
+  reads `unknown` while a channel its state is judged from (the readback,
+  the alarms, the output, each bit) is unread; a known failure still wins.
+  The live put waits for the record and reads its alarm: a `#NAK`
+  (INVALID) is a 502.
 - **Per-device actions live in the bench file, not the registry.** A
   device's `allow` (the panel actions it permits, e.g. no homing for
   actuators on mirror mounts) and `note` are the panel's, so they live in

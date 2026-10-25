@@ -68,6 +68,7 @@ AT_REST = {
     "voltage": 0.0, "voltage.egu": "V", "voltage.prec": 3, "output_sp": 0,
     "output_sp.sevr": "NO_ALARM", "output_sp.stat": "NO_ALARM", "output": 0,
     "loop_mode": "current", "bit.fault": 0, "bit.interlock_1": 0, "bit.interlock_2": 0,
+    "bit.interlock": 0,
 }  # fmt: skip
 
 
@@ -263,7 +264,7 @@ def test_an_action_the_device_does_not_permit_is_not_allowed() -> None:
         ({"bit.interlock_1": 1, "output": 1}, ("failed", "interlock 1")),
         ({"current.sevr": "INVALID", "current.stat": "TIMEOUT"}, ("failed", "no reply (TIMEOUT)")),
         ({"current_sp.sevr": "INVALID", "current_sp.stat": "CALC"}, ("degraded", "setpoint refused (CALC)")),
-        ({"output": None}, ("unknown", "output state not read")),
+        ({"output": None}, ("unknown", "not read: output")),
         ({"current_sp.sevr": "INVALID", "current_sp.stat": "UDF"}, ("ok", "output off")),
     ],
 )  # fmt: skip
@@ -280,7 +281,52 @@ def test_nothing_connected_is_unknown_and_a_dropped_channel_shows_no_value() -> 
     feed.update("current", None)
     snap = feed.snapshot()
     assert snap["values"]["current"] is None and "current" in snap["missing"]
-    assert snap["state"] == "ok" and snap["reachable"]
+    assert snap["state"] == "unknown" and snap["reachable"]
+
+
+def test_the_reviewers_case_is_unknown_not_ok() -> None:
+    """Output read, the readback, its alarm and the interlock not: not "ok / output off"."""
+    state, status = supply_state({"output": 0}, True, ["interlock"])
+    assert state == "unknown"
+    assert all(k in status for k in ("current", "current.sevr", "bit.interlock"))
+
+
+@pytest.mark.parametrize(
+    "dropped",
+    ["current", "current.sevr", "current_sp.sevr", "output_sp.sevr", "output",
+     "bit.fault", "bit.interlock_2"],
+)  # fmt: skip
+def test_a_channel_the_state_is_judged_from_dropped_is_unknown(dropped) -> None:
+    feed = _feed()
+    assert feed.snapshot()["state"] == "ok"
+    feed.update(dropped, None)
+    snap = feed.snapshot()
+    assert snap["reachable"] and (snap["state"], snap["status"]) == (
+        "unknown",
+        f"not read: {dropped}",
+    )
+
+
+def test_a_tripped_supply_whose_fault_channel_drops_is_not_ok() -> None:
+    feed = _feed(**{"bit.fault": 1})
+    assert feed.snapshot()["state"] == "failed"
+    feed.update("bit.fault", None)
+    assert feed.snapshot()["state"] == "unknown"
+
+
+def test_a_known_failure_outranks_an_unread_channel() -> None:
+    feed = _feed(**{"bit.interlock_1": 1})
+    feed.update("current", None)
+    assert feed.snapshot()["state"] == "failed"
+
+
+def test_a_supply_with_a_voltage_setpoint_waits_for_its_alarm_too() -> None:
+    roles = {**FPS_ROLES, "voltage_sp": "voltage:SP"}
+    device = Device(**{**FPS.__dict__, "roles": tuple(roles.items())})
+    feed = _feed(device)
+    assert feed.snapshot()["status"] == "not read: voltage_sp.sevr"
+    feed.update("voltage_sp.sevr", "NO_ALARM")
+    assert feed.snapshot()["state"] == "ok"
 
 
 # ---- the bench file -----------------------------------------------------------
