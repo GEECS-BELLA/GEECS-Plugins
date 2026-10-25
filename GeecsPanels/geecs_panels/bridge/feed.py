@@ -20,7 +20,7 @@ Three rules the feed itself keeps (``Planning/epics_estate.md`` Appendix A):
 - **Disconnected is not stale** (rule 9): a role whose channel dropped
   reads ``None`` with freshness ``unknown``, never its last value.
 - **Arrays are never monitored** (rule 3): a role read ``on_request`` is
-  read by :meth:`DeviceHub.arrays <geecs_panels.bridge.stream.DeviceHub.arrays>`,
+  read by its template's arrays reader (:mod:`geecs_panels.bridge.rules`),
   shared and at most once per interval; an image's URL and a press-only
   command are not read here at all.
 
@@ -59,9 +59,6 @@ SEVERITIES: tuple[Severity, ...] = ("NO_ALARM", "MINOR", "MAJOR", "INVALID")
 #: Record fields read as text: units, the alarm words, a description.
 STRING_FIELDS = frozenset({"EGU", "SEVR", "STAT", "HHSV", "LLSV", "HSV", "LSV", "DESC"})
 
-#: Seconds after subscribing before a never-connected channel counts as missing.
-CONNECT_GRACE_S = 5.0
-
 
 @dataclass(frozen=True)
 class Sample:
@@ -79,6 +76,10 @@ SubscribeReading = Callable[
 #: A channel: (axis, role, record field). The axis is "" for a family
 #: without axes; the field is "" for the role's own value.
 Channel = tuple[str, str, str]
+
+#: (feed, channel, previous value, new value or None on a disconnect): a
+#: template's rule watching its records as they post (the scope's timebase).
+OnUpdate = Callable[["Feed", Channel, object, object], None]
 
 
 def read_as(role: Role) -> ReadAs:
@@ -118,17 +119,20 @@ class Feed:
     device: BridgeDevice
     subscribe: SubscribeReading
     history_spec: Optional[HistorySpec] = None
+    #: The template's rule watching each post (``Rules.on_update``).
+    on_update: Optional[OnUpdate] = None
     clock: Callable[[], float] = time.monotonic
     #: Wall-clock time, for ``advanced_at`` and history timestamps.
     wall: Callable[[], float] = time.time
     _values: dict[Channel, object] = field(default_factory=dict)
     _severity: dict[Channel, Optional[int]] = field(default_factory=dict)
     _connected: dict[Channel, bool] = field(default_factory=dict)
-    _seen: set[Channel] = field(default_factory=set)
     #: When each channel last posted, wall clock.
     _posted: dict[Channel, float] = field(default_factory=dict)
     #: When each counter last advanced: (monotonic, wall).
     _ticks: dict[tuple[str, str], tuple[float, float]] = field(default_factory=dict)
+    #: What a template's rules keep between posts (the scope's timebase mark).
+    state: dict[str, object] = field(default_factory=dict)
     _subs: list[Subscription] = field(default_factory=list)
     _history: deque[tuple[float, ...]] = field(default_factory=deque)
     _history_at: float = float("-inf")
@@ -177,6 +181,11 @@ class Feed:
         """Take one monitor event: a sample, or ``None`` for a disconnect."""
         axis, name, fld = channel
         counter = not fld and self.device.role(name).type == "counter"
+        previous = self._values.get(channel)
+        if self.on_update is not None:
+            self.on_update(
+                self, channel, previous, None if sample is None else sample.value
+            )
         if sample is None:
             self._connected[channel] = False
             if counter:
@@ -184,9 +193,7 @@ class Feed:
                 # blip) is the counter's position again, not a frame.
                 self._values.pop(channel, None)
             return
-        previous = self._values.get(channel)
         self._connected[channel] = True
-        self._seen.add(channel)
         self._values[channel] = sample.value
         self._severity[channel] = sample.severity
         self._posted[channel] = self.wall()
@@ -220,15 +227,10 @@ class Feed:
             ok for (a, _, _), ok in self._connected.items() if axis is None or a == axis
         )
 
-    def missing(self) -> list[str]:
-        """Channels never connected once the grace period has passed, as ``[axis.]role[.FIELD]``."""
-        if self._started is None or self.clock() - self._started < CONNECT_GRACE_S:
-            return []
-        return [
-            ".".join(p for p in channel if p)
-            for channel, ok in self._connected.items()
-            if not ok and channel not in self._seen
-        ]
+    def ticked(self, role: str, axis: str = "") -> Optional[float]:
+        """When the counter role last advanced, monotonic; ``None``: not seen to."""
+        tick = self._ticks.get((axis, role))
+        return None if tick is None else tick[0]
 
     def counter_age(self, role: str, axis: str = "") -> Optional[float]:
         """Seconds since the counter role last advanced; ``None``: not seen to."""

@@ -29,6 +29,18 @@
             "description": "Role (or, for a scope, channel) → its trace. A camera's profiles are in the analysis ROI's output pixels, cut to their valid length.",
             "title": "Traces",
             "type": "object"
+          },
+          "waiting": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why no traces are shown though the read worked: a scope whose timebase changed after its held capture waits for a capture at the new one.",
+            "title": "Waiting"
           }
         },
         "required": [

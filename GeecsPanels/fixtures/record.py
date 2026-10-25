@@ -7,10 +7,14 @@ over the real CA transport): the first line is the full frame a connect
 gets, every later line a delta.
 
 Against the geecs-epics sim host, from this package's environment (one
-line; the four CA ports are the camera's, simmotor1's, eztest1's and
-fpstest1's)::
+line; the three CA ports are the camera's, simmotor1's and eztest1's)::
 
-    python fixtures/record.py --seconds 60 --ca "127.0.0.1:5066 127.0.0.1:5100 127.0.0.1:5068 127.0.0.1:5078" --device UC_VisaEBeam6=ad_camera_chain:undulator:uc_visaebeam6: --device U_SimMotor1=motor_record:undulator:simmotor1::m1,m2 --device U_EzTest1=easydriver:undulator:eztest1: --device U_FpsTest1=fastps:undulator:fpstest1:
+    python fixtures/record.py --seconds 60 --ca "127.0.0.1:5066 127.0.0.1:5100 127.0.0.1:5068" --device UC_VisaEBeam6=ad_camera_chain:undulator:uc_visaebeam6: --device U_SimMotor1=motor_record:undulator:simmotor1::m1,m2 --device U_EzTest1=easydriver:undulator:eztest1:
+
+A FAST-PS (``fastps:undulator:fpstest1:``, CA 127.0.0.1:5078) is added the
+same way once its sim finishes ``iocInit`` (``fixtures/README.md``): a
+device that never connected records a first frame that says so, which
+``tests/test_fixtures.py`` refuses.
 
 Both CA auto address lists stay off (the sims serve real PV names; on a
 lab-attached machine an auto list would find the real IOC).

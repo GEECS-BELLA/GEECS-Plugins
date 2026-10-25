@@ -35,16 +35,15 @@ import logging
 import math
 import time
 from collections import deque
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Optional
 
-from geecs_panels.bridge.arrays import MAX_COLUMNS, ArraysReply
+from geecs_panels.bridge.arrays import ArraysReader, ArraysReply, ReadPvs
 from geecs_panels.bridge.catalog import BridgeDevice
 from geecs_panels.bridge.feed import Feed, SubscribeReading, monitored
 from geecs_panels.bridge.rules import Rules, rules_for
 from geecs_panels.contracts import DeviceFrame, DeviceState, History
-from geecs_panels.feed import ArraysSource, ArraysUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -60,11 +59,6 @@ QUEUE_FRAMES = 64
 HISTORY_S = 120.0
 #: Seconds without a frame before a keepalive comment (proxies close idle streams).
 KEEPALIVE_S = 15.0
-#: The arrays are read at most this often per device, shared by every caller.
-ARRAYS_EVERY_S = 0.5
-
-#: pvs -> their values (an array, or a scalar), read once; raises on failure.
-ReadPvs = Callable[[list[str]], Awaitable[list[object]]]
 
 #: A frame's content as JSON-ready dicts, compared tick to tick.
 Content = dict[str, object]
@@ -149,7 +143,7 @@ class DeviceHub:
     #: Wall time of the newest history point already in a frame.
     _history_mark: float = -math.inf
     _ring: deque[DeviceFrame] = field(default_factory=lambda: deque(maxlen=RING))
-    _arrays: Optional[ArraysSource] = None
+    _arrays: Optional[ArraysReader] = None
 
     def __post_init__(self) -> None:
         """Start ``seq`` at the wall clock in milliseconds (see the module's docstring)."""
@@ -282,40 +276,10 @@ class DeviceHub:
     # ---- arrays -----------------------------------------------------------------------
 
     async def arrays(self, columns: int) -> ArraysReply:
-        """The device's on-request roles, read together (shared, at most once per interval), as traces."""
-        device = self.device
-        on_request = [r for r in device.roles if r.read_mode == "on_request"]
-        if not on_request or self.read is None:
-            return ArraysReply(device=device.name)
+        """The device's arrays, read on request by its template's reader (shared, rate-limited)."""
         if self._arrays is None:
-            read = self.read
-            axis = device.channel_axes[0]
-            pvs = [device.prefix + axis + r.suffix for r in on_request]
-
-            async def fetch() -> dict[str, list[float]]:
-                values = await read(pvs)
-                return {r.name: _floats(v) for r, v in zip(on_request, values)}
-
-            self._arrays = ArraysSource(fetch, ARRAYS_EVERY_S)
-        try:
-            read_now = await self._arrays.read()
-        except ArraysUnavailable as exc:
-            return ArraysReply(device=device.name, error=str(exc))
-        columns = max(1, min(columns, MAX_COLUMNS))
-        return ArraysReply(
-            device=device.name,
-            traces=self.rules.arrays(self.feed, read_now, columns),
-        )
-
-
-def _floats(value: object) -> list[float]:
-    """An array read (or an on-request scalar) as floats."""
-    if isinstance(value, (int, float)):
-        return [float(value)]
-    try:
-        return [float(x) for x in value]  # type: ignore[union-attr]  # an array
-    except TypeError:
-        return []
+            self._arrays = self.rules.reader(self.feed, self.read, self.rules)
+        return await self._arrays.reply(columns)
 
 
 def _offer(queue: asyncio.Queue[object], frame: DeviceFrame) -> None:
@@ -359,6 +323,7 @@ class DeviceStreams:
                 device,
                 self.subscribe,
                 history_spec=rules.history,
+                on_update=rules.on_update,
                 clock=self.clock,
                 wall=self.wall,
             )
@@ -421,7 +386,14 @@ class DeviceStreams:
         hub.idle_since = None
         try:
             replay = hub.resume(last_event_id) if last_event_id is not None else None
-            for frame in replay if replay is not None else [hub.full_frame()]:
+            first = replay if replay is not None else [hub.full_frame()]
+            # The newest seq this listener holds, taken before anything is
+            # yielded (a tick may queue the next delta meanwhile): a delta at
+            # or below it is already in a frame sent (a full one, after a
+            # lag) and is dropped, or seq would run backwards and history
+            # points repeat.
+            held = first[-1].seq if first else hub.seq
+            for frame in first:
                 yield frame
             while True:
                 try:
@@ -429,7 +401,16 @@ class DeviceStreams:
                 except asyncio.TimeoutError:
                     yield None
                     continue
-                yield hub.full_frame() if item is _LAGGED else item  # type: ignore[misc]
+                if item is _LAGGED:
+                    full = hub.full_frame()
+                    held = full.seq
+                    yield full
+                    continue
+                assert isinstance(item, DeviceFrame)
+                if item.seq <= held:
+                    continue
+                held = item.seq
+                yield item
         finally:
             hub.listeners.discard(queue)
             if not hub.listeners:

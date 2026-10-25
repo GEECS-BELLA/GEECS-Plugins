@@ -235,6 +235,12 @@ def test_a_listener_too_far_behind_gets_a_full_frame_not_the_backlog() -> None:
             h.tick()
         caught_up = await frames.__anext__()
         assert caught_up.full and caught_up.seq == h.seq
+        # What was queued behind the lag is in the full frame already: the
+        # next frame is the next tick's, never an older seq.
+        ca.post(SUPPLY + "current", -1.0)
+        h.tick()
+        after = await frames.__anext__()
+        assert not after.full and after.seq == caught_up.seq + 1
         await frames.aclose()
         await s.aclose()
 

@@ -19,9 +19,19 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Optional
 
-from geecs_panels.bridge.arrays import Trace, trace
-from geecs_panels.bridge.feed import Feed, HistorySpec
+from geecs_panels.bridge.arrays import (
+    EVERY_S,
+    MAX_COLUMNS,
+    ArraysReader,
+    ArraysReply,
+    ReadPvs,
+    Trace,
+    floats,
+    trace,
+)
+from geecs_panels.bridge.feed import Feed, HistorySpec, OnUpdate
 from geecs_panels.contracts import DeviceState, RunLock, Saturation
+from geecs_panels.feed import ArraysSource, ArraysUnavailable
 
 #: (feed, axis) -> the axis's state word.
 AxisStateRule = Callable[[Feed, str], DeviceState]
@@ -44,6 +54,48 @@ def plain_arrays(
     }
 
 
+class PlainArrays:
+    """A device's on-request roles read together (shared, at most once per :data:`EVERY_S`), then traced.
+
+    The template's ``arrays`` turns the read into traces (each against its
+    index, by default) for the columns asked; the read is the same for
+    every caller within the interval.
+    """
+
+    def __init__(self, feed: Feed, read: Optional[ReadPvs], rules: "Rules") -> None:
+        self.feed, self.rules = feed, rules
+        device = feed.device
+        self.roles = [r for r in device.roles if r.read_mode == "on_request"]
+        axis = device.channel_axes[0]
+        pvs = [device.prefix + axis + r.suffix for r in self.roles]
+        self.source: Optional[ArraysSource] = None
+        if read is not None and self.roles:
+
+            async def fetch() -> dict[str, list[float]]:
+                values = await read(pvs)
+                return {r.name: floats(v) for r, v in zip(self.roles, values)}
+
+            self.source = ArraysSource(fetch, EVERY_S)
+
+    async def reply(self, columns: int) -> ArraysReply:
+        """The traces of the read held or made now; a failed read says why."""
+        name = self.feed.device.name
+        if self.source is None:
+            return ArraysReply(device=name)
+        try:
+            held = await self.source.read()
+        except ArraysUnavailable as exc:
+            return ArraysReply(device=name, error=str(exc))
+        columns = max(1, min(columns, MAX_COLUMNS))
+        return ArraysReply(
+            device=name, traces=self.rules.arrays(self.feed, held, columns)
+        )
+
+
+#: (feed, the transport's on-request read, the rules) -> the device's arrays reader.
+ReaderFactory = Callable[[Feed, Optional[ReadPvs], "Rules"], ArraysReader]
+
+
 @dataclass(frozen=True)
 class Rules:
     """What one template derives; every part optional."""
@@ -53,7 +105,12 @@ class Rules:
     state: Optional[StateRule] = None
     lock: Optional[Callable[[Feed], RunLock]] = None
     saturation: Optional[SaturationRule] = None
+    #: How a read of the on-request roles becomes traces (:class:`PlainArrays`).
     arrays: ArraysRule = plain_arrays
+    #: The device's arrays reader: :class:`PlainArrays`, or the template's own.
+    reader: ReaderFactory = PlainArrays
+    #: Watches each post, for a rule that needs a record's history (the scope's timebase).
+    on_update: Optional[OnUpdate] = None
 
 
 #: No derived rules: the roles alone.

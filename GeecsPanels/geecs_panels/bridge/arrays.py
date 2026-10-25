@@ -11,7 +11,8 @@ one-sample spike survives the reduction to a screen's width.
 
 from __future__ import annotations
 
-from typing import Optional
+from collections.abc import Awaitable, Callable
+from typing import Optional, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -20,6 +21,11 @@ from geecs_panels.scope import decimate
 
 #: The most columns a trace is decimated to (two points each).
 MAX_COLUMNS = 4000
+#: A device's arrays are read at most this often, shared by every caller.
+EVERY_S = 0.5
+
+#: pvs -> their values (an array, or a scalar), read in one request; raises on failure.
+ReadPvs = Callable[[list[str]], Awaitable[list[object]]]
 
 
 class Trace(BaseModel):
@@ -52,6 +58,20 @@ class ArraysReply(BaseModel):
     error: Optional[str] = Field(
         None, description="Why the arrays could not be read (the page says so)."
     )
+    waiting: Optional[str] = Field(
+        None,
+        description=(
+            "Why no traces are shown though the read worked: a scope whose timebase "
+            "changed after its held capture waits for a capture at the new one."
+        ),
+    )
+
+
+class ArraysReader(Protocol):
+    """A device's arrays, read on request: one per device, made by its template's rules."""
+
+    async def reply(self, columns: int) -> ArraysReply:
+        """Read (or reuse a read within the interval) and answer, never raising for a failed read."""
 
 
 def trace(values: list[float], columns: int, x: Optional[list[float]] = None) -> Trace:
@@ -59,3 +79,13 @@ def trace(values: list[float], columns: int, x: Optional[list[float]] = None) ->
     xs = x if x is not None else [float(i) for i in range(len(values))]
     tx, ty = decimate(xs, values, columns)
     return Trace(x=tx, y=ty)
+
+
+def floats(value: object) -> list[float]:
+    """An array read (or an on-request scalar) as floats."""
+    if isinstance(value, (int, float)):
+        return [float(value)]
+    try:
+        return [float(x) for x in value]  # type: ignore[union-attr]  # an array
+    except TypeError:
+        return []

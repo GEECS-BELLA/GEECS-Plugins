@@ -48,7 +48,8 @@ geecs_panels/
                 #   counter ticks, the history; transport injected (subscribe_reading)
     freshness.py #  judge_freshness: fresh_by / computed_by (camera.judge uses it too)
     rules/      #   per template: camera (lock, saturation, history, profiles),
-                #   motor (axis/device state), supply (state), scope (traces)
+                #   motor (axis/device state), supply (state), scope (its capture
+                #   through ScopeTraces + the timebase guard); PlainArrays otherwise
     stream.py   #   DeviceHub (one per device, shared; full then deltas; ring for
                 #   Last-Event-ID) and DeviceStreams (create on use, evict after grace)
     arrays.py   #   ArraysReply: on-request arrays, min/max-decimated
