@@ -40,6 +40,7 @@ def test_the_docstring_examples_validate(name: str) -> None:
     assert examples, f"{model.__name__} has no Examples section"
     for example in examples:
         parsed = model.model_validate(example)
+        assert parsed.model_dump(exclude_unset=True) == example  # nothing rewritten
         # The wire is the default serialization: what the bridge sends.
         assert model.model_validate_json(parsed.model_dump_json()) == parsed
 

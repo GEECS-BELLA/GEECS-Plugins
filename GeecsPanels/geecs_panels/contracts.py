@@ -219,7 +219,8 @@ class DeviceFrame(Contract):
     """One event of ``GET /api/devices/{name}/events``: a device's live state.
 
     The first frame after a connect (or a reconnect) is **full**: every
-    monitored role, the state, and, for a per-axis family, every axis. Later
+    monitored role, the state (for a family that has one), and, for a
+    per-axis family, every axis. Later
     frames are **deltas**: ``roles`` / ``axes`` carry only what changed, and
     ``state``, ``lock``, ``saturation`` and ``history`` appear only when
     they changed. Each role a frame carries is whole (:class:`Reading`).
@@ -376,16 +377,14 @@ class LockRelease(Contract):
 
     Not a put: the lock is no writable role. The bridge writes the lock
     free and nothing else, journals it like a put (role ``lock``) and
-    answers with a :class:`PutResult` (Appendix A rule 6).
+    answers with a :class:`PutResult` (Appendix A rule 6). The device is
+    the path's alone, so a body cannot name another.
 
     Examples
     --------
-    {"device": "UC_ExampleCam", "operator": "S. Barber"}
+    {"operator": "S. Barber"}
     """
 
-    device: str = Field(
-        min_length=1, description="The device whose run lock is released."
-    )
     operator: str = Field(
         min_length=1, max_length=60, description="Who is releasing it, journaled."
     )

@@ -61,7 +61,7 @@ geecs_panels/
 `geecs_panels/contracts.py` holds the PV bridge's wire models
 (`Planning/epics_estate.md` §2.3): the device-stream frame (`DeviceFrame`:
 full after a connect, changed roles only after), `PutRequest` /
-`PutResult` / `JournalEntry`, `LockRelease` (the run-lock override), and the raw PV stream
+`PutResult` / `JournalEntry`, `LockRelease` (the run-lock override; the device is the path's), and the raw PV stream
 (`SubscriptionRequest` / `SubscriptionAck` / `PvFrame`).
 `python -m geecs_panels.contracts` prints their JSON Schemas (name →
 schema), which the web repository generates its clients from. **A model
