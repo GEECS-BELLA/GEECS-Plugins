@@ -13,11 +13,17 @@ from geecs_web_theme import STATES
 from geecs_panels.app import create_app
 from geecs_panels.feed import WriteFailed
 from geecs_panels.motor import (
+    ACTIONS,
     AXIS_FIELDS,
     MOTOR_KIND,
     NO_WAIT,
+    WRITABLE,
+    NotAllowed,
     NotWritable,
+    allowed_actions,
+    allowed_fields,
     axis_state,
+    check_actions,
     check_write,
     device_state,
     msta_flags,
@@ -317,3 +323,121 @@ def test_the_ioc_refusing_is_a_502_and_read_only_a_403() -> None:
         _client(writable=False).post("/motor/SimMotor1/put", json=put).status_code
         == 403
     )
+
+
+# ---- per-device actions -------------------------------------------------------
+
+#: A positioner whose bench entry permits move, tweak and stop only (U_ESP302_01:
+#: actuators on mirror mounts — no homing, no velocity change).
+MIRRORS = Device(
+    "U_ESP302_01",
+    MOTOR_KIND,
+    "undulator:esptest1:",
+    axes=("m1",),
+    allow=frozenset({"move", "tweak", "stop"}),
+    note="Between moves the readback is the last reading.",
+)
+
+
+def _mirrors(motors: Optional[FakeMotors] = None) -> TestClient:
+    return TestClient(
+        create_app(
+            "Undulator", [STAGE, MIRRORS], object(), motors=motors or FakeMotors()
+        )
+    )
+
+
+def test_every_action_names_panel_fields_and_together_they_are_the_allow_list() -> None:
+    assert frozenset().union(*ACTIONS.values()) == WRITABLE
+    assert allowed_fields(None) == WRITABLE
+    assert allowed_fields(["move", "tweak", "stop"]) == {
+        ".VAL", ".TWV", ".TWF", ".TWR", ".STOP"
+    }  # fmt: skip
+    assert allowed_actions(None) == list(ACTIONS)
+    assert allowed_actions({"stop", "move"}) == ["move", "stop"]
+
+
+@pytest.mark.parametrize(
+    "allow, message",
+    [
+        (["move", "fly"], "unknown positioner action"),
+        (["move", "tweak"], "must permit stop"),
+        (["home"], "must permit stop"),
+    ],
+)
+def test_an_allow_list_names_known_actions_and_never_a_motion_without_stop(
+    allow, message
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        check_actions(allow)
+    check_actions(["stop"])
+    check_actions(["velocity"])
+
+
+@pytest.mark.parametrize("field", [".HOMF", ".HOMR", ".VELO"])
+def test_a_field_the_device_does_not_permit_is_not_allowed(field) -> None:
+    allowed = allowed_fields(["move", "tweak", "stop"])
+    with pytest.raises(NotAllowed, match="not permitted on this device"):
+        check_write(field, 1, AT_REST, allowed)
+    assert check_write(".TWV", 0.001, AT_REST, allowed) == 0.001
+    # The panel's own refusals come first and stay 422-shaped.
+    with pytest.raises(NotWritable) as refused:
+        check_write(".OFF", 1, AT_REST, allowed)
+    assert not isinstance(refused.value, NotAllowed)
+
+
+def test_a_restricted_device_refuses_homing_and_velocity_with_a_403() -> None:
+    motors = FakeMotors()
+    client = _mirrors(motors)
+    for field, value in ((".TWV", 0.001), (".TWF", 1), (".TWR", 1), (".STOP", 1)):
+        r = client.post(
+            "/motor/U_ESP302_01/put",
+            json={"axis": "m1", "field": field, "value": value},
+        )
+        assert r.status_code == 200, (field, r.text)
+    for field, value in ((".HOMF", 1), (".HOMR", 1), (".VELO", 0.3)):
+        r = client.post(
+            "/motor/U_ESP302_01/put",
+            json={"axis": "m1", "field": field, "value": value},
+        )
+        assert r.status_code == 403 and "not permitted" in r.json()["detail"]
+    assert [f for _, f, _ in motors.puts] == [".TWV", ".TWF", ".TWR", ".STOP"]
+    # A device without an allow list keeps every action (#1143's default).
+    home = client.post(
+        "/motor/SimMotor1/put", json={"axis": "m1", "field": ".HOMF", "value": 1}
+    )
+    assert home.status_code == 200
+
+
+def test_the_page_draws_only_the_permitted_controls_and_says_which_are_held() -> None:
+    client = _mirrors()
+    html = client.get("/motor/U_ESP302_01").text
+    for drawn in ('data-field=".VAL"', 'data-press=".TWF"', 'data-press=".STOP"'):
+        assert drawn in html
+    for held in ('data-press=".HOMF"', 'data-press=".HOMR"', 'data-field=".VELO"'):
+        assert held not in html
+    assert 'data-k="velo"' in html  # the velocity still reads, as a value
+    assert "From this panel: move, tweak, stop." in html
+    assert "Held for this device: home, velocity." in html
+    assert "Between moves the readback is the last reading." in html
+    full = client.get("/motor/SimMotor1").text
+    assert 'data-press=".HOMF"' in full and 'data-field=".VELO"' in full
+    assert "Held for this device" not in full
+
+
+def test_the_banner_never_offers_what_the_panel_will_refuse() -> None:
+    nothing = Device("Viewer", MOTOR_KIND, "p:", axes=("m1",), allow=frozenset())
+    client = TestClient(
+        create_app("Undulator", [nothing], object(), motors=FakeMotors())
+    )
+    assert "From this panel: nothing." in client.get("/motor/Viewer").text
+    read_only = (
+        TestClient(
+            create_app(
+                "Undulator", [MIRRORS], object(), motors=FakeMotors(), writable=False
+            )
+        )
+        .get("/motor/U_ESP302_01")
+        .text
+    )
+    assert "Read-only panel" in read_only and "From this panel" not in read_only

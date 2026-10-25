@@ -4,9 +4,11 @@
   setpoint beside it, an absolute move and a tweak step either way, Stop,
   the soft limits as a meter with the limit switches as chips, the homing
   state and buttons, the velocity with the record's maximum — every word
-  from the motor record, so one page fits every motor driver. Values reach
-  motor.js through data attributes on #motor and the stream, never an
-  inline script.
+  from the motor record, so one page fits every motor driver. A control
+  whose action the device does not permit (Device.allow) is not drawn, and
+  the banner says which are held; the velocity then reads as a value.
+  Values reach motor.js through data attributes on #motor and the stream,
+  never an inline script.
 #}<!doctype html>
 <html lang="en">
 <head>
@@ -35,6 +37,17 @@
      data-put-url="{{ url_for('motor_put', name=device.name).path }}"
      data-writable="{{ 'true' if writable else 'false' }}">
   <main class="pane">
+    {% if not writable %}
+    <div class="banner" data-state="denied"><span><strong>Read-only panel</strong> (--read-only): nothing is written from here.</span></div>
+    {% elif restricted %}
+    <div class="banner" data-state="denied">
+      <span><strong>From this panel: {{ actions | join(', ') if actions else 'nothing' }}.</strong>
+        {% if held %}Held for this device: {{ held | join(', ') }}.{% endif %}</span>
+    </div>
+    {% endif %}
+    {% if device.note %}
+    <div class="banner"><span>{{ device.note }}</span></div>
+    {% endif %}
     {% for axis in device.axes %}
     <article class="panel axis" data-axis="{{ axis }}" id="axis-{{ axis }}">
       <header>
@@ -66,33 +79,47 @@
         </div>
 
         <div class="row">
+          {% if 'move' in actions %}
           <div class="field coord">
             <label for="val-{{ axis }}">move to</label>
             <input type="number" id="val-{{ axis }}" step="any" data-field=".VAL" data-axis="{{ axis }}">
             <span class="hint" data-k="val-hint">setpoint —</span>
           </div>
           <button class="btn sm primary" type="button" data-press=".VAL" data-axis="{{ axis }}">Move</button>
+          {% else %}
+          <div class="live"><span class="k">setpoint</span><span class="v" data-k="val">—</span></div>
+          {% endif %}
+          {% if 'tweak' in actions %}
           <div class="field coord">
             <label for="twv-{{ axis }}">step</label>
             <input type="number" id="twv-{{ axis }}" step="any" min="0" data-field=".TWV" data-axis="{{ axis }}">
           </div>
           <button class="btn sm" type="button" data-press=".TWR" data-axis="{{ axis }}" title="move back one step">−step</button>
           <button class="btn sm" type="button" data-press=".TWF" data-axis="{{ axis }}" title="move forward one step">+step</button>
+          {% endif %}
           <span class="spacer"></span>
+          {% if 'stop' in actions %}
           <button class="btn sm danger" type="button" data-press=".STOP" data-axis="{{ axis }}">Stop</button>
+          {% endif %}
         </div>
 
         <div class="row">
+          {% if 'velocity' in actions %}
           <div class="field coord">
             <label for="velo-{{ axis }}">velocity</label>
             <input type="number" id="velo-{{ axis }}" step="any" min="0" data-field=".VELO" data-axis="{{ axis }}">
             <span class="hint" data-k="velo-hint"></span>
           </div>
+          {% else %}
+          <div class="live"><span class="k">velocity</span><span class="v" data-k="velo">—</span></div>
+          {% endif %}
           <div class="live"><span class="k">acceleration</span><span class="v" data-k="accl">—</span></div>
           <div class="live"><span class="k">deadband</span><span class="v" data-k="rdbd">—</span></div>
           <span class="spacer"></span>
+          {% if 'home' in actions %}
           <button class="btn sm" type="button" data-press=".HOMR" data-axis="{{ axis }}" title="home in the reverse direction">Home −</button>
           <button class="btn sm" type="button" data-press=".HOMF" data-axis="{{ axis }}" title="home in the forward direction">Home +</button>
+          {% endif %}
         </div>
 
         <details class="disc">

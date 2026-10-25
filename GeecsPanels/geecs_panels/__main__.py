@@ -12,6 +12,7 @@ import argparse
 import logging
 import os
 import sys
+from pathlib import Path
 
 
 def main() -> None:
@@ -55,6 +56,13 @@ def main() -> None:
         help="an oscilloscope IOC to give a panel, as NAME=PREFIX (e.g. scope1=<experiment>:scope1:) "
         "(repeatable; bench scopes are not in the native-device registry yet)",
     )
+    parser.add_argument(
+        "--bench",
+        default=None,
+        metavar="PATH",
+        help="a bench file (YAML): devices on bench IOCs the registry does not list, "
+        "each with its kind, prefix and the panel's options (allow, note); see the README",
+    )
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
     args = parser.parse_args()
 
@@ -87,6 +95,7 @@ def main() -> None:
     from geecs_panels.registry import (
         Device,
         RegistryError,
+        load_bench,
         load_devices,
         registry_path,
     )
@@ -97,6 +106,17 @@ def main() -> None:
         devices = load_devices(experiment, path)
     except RegistryError as exc:
         devices, error = [], str(exc)
+    if args.bench:
+        try:
+            bench = load_bench(Path(args.bench))
+        except RegistryError as exc:
+            sys.exit(f"geecs-panels: {exc}")
+        clash = {d.name for d in devices} & {d.name for d in bench}
+        if clash:
+            sys.exit(
+                f"geecs-panels: {sorted(clash)} in both the registry and the bench file"
+            )
+        devices += bench
     for spec in args.scope:
         name, sep, prefix = spec.partition("=")
         if not sep or not name or not prefix:

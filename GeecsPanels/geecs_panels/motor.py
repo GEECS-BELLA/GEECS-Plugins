@@ -29,7 +29,8 @@ and the scope's do.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
+from typing import Optional
 
 #: The registry kind the positioner panel serves.
 MOTOR_KIND = "epics_motor"
@@ -165,6 +166,10 @@ class NotWritable(ValueError):
     """A write the allow-list refuses; the message says why."""
 
 
+class NotAllowed(NotWritable):
+    """A field the panel writes, but not on this device (its permitted actions)."""
+
+
 #: Press-only fields: a 1 makes the record act (tweak, stop, home).
 PRESS_FIELDS = frozenset({".TWF", ".TWR", ".STOP", ".HOMF", ".HOMR"})
 
@@ -174,6 +179,44 @@ NO_WAIT = frozenset({".VAL", ".TWF", ".TWR", ".HOMF", ".HOMR"})
 
 #: Every field the panel may write, and nothing else.
 WRITABLE = frozenset({".VAL", ".TWV", ".VELO", *PRESS_FIELDS})
+
+#: The panel's actions on a positioner, each with the record fields it
+#: writes. A device may permit a subset (its bench entry's ``allow``, e.g.
+#: no homing for actuators on a mirror mount); a device that names none
+#: permits them all.
+ACTIONS: dict[str, frozenset[str]] = {
+    "move": frozenset({".VAL"}),
+    "tweak": frozenset({".TWV", ".TWF", ".TWR"}),
+    "stop": frozenset({".STOP"}),
+    "home": frozenset({".HOMF", ".HOMR"}),
+    "velocity": frozenset({".VELO"}),
+}
+
+#: The actions that start a motion: a device permitting any must permit stop.
+MOTION_ACTIONS = frozenset({"move", "tweak", "home"})
+
+
+def check_actions(allow: Collection[str]) -> None:
+    """Refuse an ``allow`` list naming an unknown action, or a motion without stop."""
+    unknown = sorted(set(allow) - set(ACTIONS))
+    if unknown:
+        raise ValueError(
+            f"unknown positioner action(s) {unknown}; the actions are {list(ACTIONS)}"
+        )
+    if set(allow) & MOTION_ACTIONS and "stop" not in allow:
+        raise ValueError("a device that permits a motion must permit stop")
+
+
+def allowed_fields(allow: Optional[Collection[str]]) -> frozenset[str]:
+    """The record fields a device's permitted actions write (all of them when *allow* is None)."""
+    if allow is None:
+        return WRITABLE
+    return frozenset().union(*(ACTIONS[action] for action in allow))
+
+
+def allowed_actions(allow: Optional[Collection[str]]) -> list[str]:
+    """The device's permitted actions in the panel's order (all of them when *allow* is None)."""
+    return [a for a in ACTIONS if allow is None or a in allow]
 
 
 def _number(field: str, value: object) -> float:
@@ -191,8 +234,17 @@ def _limits(axis: Mapping[str, object]) -> tuple[float, float] | None:
     return None
 
 
-def check_write(field: str, value: object, axis: Mapping[str, object]) -> object:
+def check_write(
+    field: str,
+    value: object,
+    axis: Mapping[str, object],
+    allowed: frozenset[str] = WRITABLE,
+) -> object:
     """The value to put for an allowed write, or :class:`NotWritable`.
+
+    *allowed* is the device's permitted fields (:func:`allowed_fields`): a
+    field the panel writes but the device does not permit is
+    :class:`NotAllowed`.
 
     *axis* is the axis's snapshot: a ``.VAL`` target is checked against its
     soft limits (``.LLM``/``.HLM``) when both have been read and differ.
@@ -204,26 +256,33 @@ def check_write(field: str, value: object, axis: Mapping[str, object]) -> object
     """
     if field not in WRITABLE:
         raise NotWritable(f"{field} is not writable from the panel")
+    if field not in allowed:
+        raise NotAllowed(f"{field} is not permitted on this device")
     if field in PRESS_FIELDS:
         if value not in (1, True):
             raise NotWritable(f"{field} takes 1 (a press)")
         return 1
     number = _number(field, value)
     if field == ".VAL":
-        limits = _limits(axis)
-        if limits is not None and limits[0] != limits[1]:
-            low, high = limits
-            if not low <= number <= high:
-                egu = axis.get("egu") or ""
-                raise NotWritable(
-                    f"{number:g} {egu} is outside the soft limits "
-                    f"{low:g} to {high:g} {egu}".replace("  ", " ")
-                )
-        return number
+        return _target(number, axis)
     if number <= 0:
         raise NotWritable(f"{field} takes a positive number")
     if field == ".VELO":
         vmax = axis.get("vmax")
         if isinstance(vmax, (int, float)) and vmax > 0 and number > vmax:
             raise NotWritable(f".VELO takes at most {vmax:g} (the record's VMAX)")
+    return number
+
+
+def _target(number: float, axis: Mapping[str, object]) -> float:
+    """A move target inside the axis's soft limits (when both are read and differ)."""
+    limits = _limits(axis)
+    if limits is not None and limits[0] != limits[1]:
+        low, high = limits
+        if not low <= number <= high:
+            egu = axis.get("egu") or ""
+            raise NotWritable(
+                f"{number:g} {egu} is outside the soft limits "
+                f"{low:g} to {high:g} {egu}".replace("  ", " ")
+            )
     return number

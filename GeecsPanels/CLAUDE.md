@@ -18,7 +18,8 @@ account) until the maintainer asks.
 ```
 geecs_panels/
   __main__.py   # CLI; applies geecs_core.epics_env BEFORE anything imports aioca
-  registry.py   # native_devices.yaml → Device(name, kind, prefix)
+  registry.py   # native_devices.yaml → Device(name, kind, prefix); the bench
+                #   file (--bench): bench devices + per-device allow/note
   camera.py     # the chain contract (PV suffixes), the freshness rule and the
                 #   write allow-list (WRITABLE, check_write) — pure
   coords.py     # image pixels <-> the analysis ROI's output pixels — pure
@@ -114,6 +115,18 @@ geecs_panels/
   serialized with scans, which waits for the scanner to know native axes
   (GeecsBluesky `NATIVE_DEVICES.md` §10, slice L). Never `.OFF`, never the
   record's limits or `.SET`.
+- **Per-device actions live in the bench file, not the registry.** A
+  device's `allow` (the panel actions it permits, e.g. no homing for
+  actuators on mirror mounts) and `note` are the panel's, so they live in
+  the panels' own bench file (`registry.BenchFile`, `--bench`), which also
+  lists bench positioners that the worker's `native_devices.yaml` must not
+  carry (a device the GEECS DB still owns); a bench entry is the registry's
+  `EpicsMotor` plus `prefix`, `allow` and `note`. Bench scopes still come
+  from `--scope NAME=PREFIX`. Each kind names its actions and the
+  fields they write (`motor.ACTIONS`). A field outside them is a 403
+  (`NotAllowed`), and the page leaves its control out. A device without
+  `allow` keeps every action. Whether `allow` should move into the shared
+  registry when a device migrates for real is open.
 - Never imports GeecsBluesky, the scanner, the portal or the logbook
   (`.importlinter` `panels-edges`).
 
