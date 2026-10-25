@@ -14,6 +14,9 @@
   (:mod:`geecs_panels.motor_app`).
 - ``/supply/{device}`` and its stream and writes — the power-supply panel
   (:mod:`geecs_panels.supply_app`).
+- ``/api/…`` — the PV bridge (:mod:`geecs_panels.bridge.routes`): the
+  devices and families, each device's stream; ``/api/frame/{device}`` is the
+  camera's frame route under its ``/api`` name.
 - ``/health``.
 
 Every write is one allow-listed PV at a time (the camera's display state
@@ -42,6 +45,7 @@ from geecs_web_theme.web import (
     RevalidatingStaticFiles,
     make_templates,
     mount_theme,
+    operation_id,
 )
 
 from geecs_panels.camera import (
@@ -54,6 +58,7 @@ from geecs_panels.camera import (
     check_write,
     lock_state,
 )
+from geecs_panels.bridge.routes import Bridge, add_bridge_routes
 from geecs_panels.coords import to_image, to_roi
 from geecs_panels.feed import (
     ArraysSource,
@@ -188,6 +193,7 @@ def create_app(
     scopes: Optional[Scopes] = None,
     motors: Optional[Motors] = None,
     supplies: Optional[Supplies] = None,
+    bridge: Optional[Bridge] = None,
 ) -> FastAPI:
     """Build the panels application.
 
@@ -218,6 +224,9 @@ def create_app(
         The live state of each positioner; without it no motor panel is served.
     supplies : Supplies, optional
         The live state of each power supply; without it no supply panel is served.
+    bridge : Bridge, optional
+        The PV bridge's devices and streams (``/api/devices`` …); without
+        it the bridge's routes serve no device.
     """
     app = FastAPI(
         title="GEECS Panels",
@@ -225,6 +234,7 @@ def create_app(
         root_path=root_path,
         docs_url=None,
         redoc_url=None,
+        generate_unique_id_function=operation_id,
     )
     app.add_middleware(ForwardedPrefixMiddleware)
     mount_theme(app)
@@ -286,6 +296,7 @@ def create_app(
         )
 
     _add_live_routes(app, cameras, camera, stale_after)
+    add_bridge_routes(app, bridge if bridge is not None else Bridge(experiment))
     _add_write_routes(app, cameras, camera, stale_after, writable)
 
     @app.get("/health")
@@ -343,6 +354,11 @@ def _add_live_routes(
         # The page skips decoding a frame it already shows.
         headers = {"Cache-Control": "no-store", "X-Frame-Tag": frame.tag}
         return Response(frame.jpeg, media_type="image/jpeg", headers=headers)
+
+    # The bridge's name for the same frame: one upstream per camera however
+    # it is asked for (its own route name, so the page's url_for('frame')
+    # keeps resolving to the per-kind path).
+    app.add_api_route("/api/frame/{name}", frame, methods=["GET"], name="api_frame")
 
     @app.get("/camera/{name}/events")
     async def events(

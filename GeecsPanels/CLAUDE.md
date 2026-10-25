@@ -42,6 +42,17 @@ geecs_panels/
   ca.py         # the real transports: aioca monitors, stream URL, httpx
   contracts.py  # the PV bridge's wire models (device stream, put, journal,
                 #   raw PV stream) — models only; `python -m` prints the events document
+  bridge/       # the PV bridge (Planning/epics_estate.md §2.3), under /api:
+    catalog.py  #   registry ⋈ panel_devices.yaml (+ the bench file, either form) → BridgeDevice
+    feed.py     #   Feed: ONE class for every family — monitored roles + fields,
+                #   counter ticks, the history; transport injected (subscribe_reading)
+    freshness.py #  judge_freshness: fresh_by / computed_by (camera.judge uses it too)
+    rules/      #   per template: camera (lock, saturation, history, profiles),
+                #   motor (axis/device state), supply (state), scope (traces)
+    stream.py   #   DeviceHub (one per device, shared; full then deltas; ring for
+                #   Last-Event-ID) and DeviceStreams (create on use, evict after grace)
+    arrays.py   #   ArraysReply: on-request arrays, min/max-decimated
+    routes.py   #   /api/devices, /api/families, /api/devices/{name}/events|arrays
   app.py        # routes: /, /camera/{device}, its frame.jpg and events (SSE),
                 #   and the writes: put (allow-listed), crosshair colour, to-centroid
   templates/, static/   # on the GeecsWebTheme kit; colours through tokens only
@@ -76,6 +87,26 @@ docstring `Examples` are JSON that its test validates and that the
 schema carries. `tests/test_contracts.py` also pins GEECS-Schemas'
 family files (motor, camera, scope, the two supplies) to this package's
 own suffix tables until those tables are deleted.
+
+## The bridge and the per-kind pages
+
+The per-kind pages (`/camera`, `/scope`, `/motor`, `/supply`) keep their
+own feeds (`feed.py`, `*_feed.py`) until each page's deletion PR under
+the kill rule (`Planning/epics_estate.md` §6); the bridge's one `Feed`
+serves `/api`. The **rules** both judge by have one copy: freshness in
+`bridge/freshness.py`, the state words in `motor.py` / `power.py`, the
+lock word and saturation in `camera.py`, trace decimation in `scope.py`,
+each wrapped by a `bridge/rules/` module. A new rule goes where both see
+it; a new family needs a family file (GEECS-Schemas) and, if it derives
+anything, a rules module registered in `bridge.rules.rules_for`.
+
+The stream's invariants, each pinned in `tests/test_bridge_*.py` (break
+the rule, a test fails): a full frame on connect, deltas of changed roles
+only, each reading whole; nothing re-sent as it ages (`advanced_at`, not
+an age); going stale is a change, sent once; `seq` starts at the wall
+clock in ms so an old `Last-Event-ID` never replays the wrong frames; one
+hub per device for every listener, evicted after the grace period; a
+listener too far behind is sent a full frame.
 
 ## Rules this package keeps
 

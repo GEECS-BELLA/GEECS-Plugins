@@ -23,6 +23,8 @@ import math
 from dataclasses import dataclass
 from typing import Literal, Optional
 
+from geecs_panels.bridge.freshness import judge_freshness
+
 #: Plugins whose ArrayCounter_RBV the panel watches: freshness for the
 #: readings they produce, and (MJPG1) the image's own age.
 COUNTER_PLUGINS = ("cam1", "STAT", "STAT0", "MJPG1")
@@ -237,10 +239,16 @@ _STRING_FIELDS = {
 
 def lock_state(values: dict[str, object], connected: dict[str, bool]) -> str:
     """``free``, ``locked`` or ``unknown`` (the lock not served or not read)."""
-    if not connected.get(LOCK_FIELDS["lock"]):
+    lock = LOCK_FIELDS["lock"]
+    return lock_word(bool(connected.get(lock)), values.get(lock))
+
+
+def lock_word(connected: bool, value: object) -> Literal["free", "locked", "unknown"]:
+    """The run lock's word from its record: ``unknown`` unless connected, ``free`` only on its cleared label."""
+    if not connected:
         return "unknown"
     # Free only on the record's cleared label: any other value is held.
-    return "free" if values.get(LOCK_FIELDS["lock"]) == "Free" else "locked"
+    return "free" if value == "Free" else "locked"
 
 
 def crosshair_suffix(n: int, field: str) -> str:
@@ -434,18 +442,16 @@ def judge(
     stale_after : float
         Seconds without a counter advance after which a value is stale.
     """
-    if not connected.get(reading.suffix):
-        return "disconnected"
-    if reading.computed_by is not None:
-        if not connected.get(reading.computed_by):
-            return "disconnected"
-        if not values.get(reading.computed_by):
-            return "off"
-    if reading.plugin is None:
-        return "fresh"
-    if not connected.get(counter_suffix(reading.plugin)):
-        return "disconnected"
-    age = counter_age.get(reading.plugin)
-    if age is None or age > stale_after:
-        return "stale"
-    return "fresh"
+    flag = reading.computed_by
+    plugin = reading.plugin
+    word = judge_freshness(
+        bool(connected.get(reading.suffix)),
+        computed=(bool(connected.get(flag)), values.get(flag)) if flag else None,
+        counter=(
+            (bool(connected.get(counter_suffix(plugin))), counter_age.get(plugin))
+            if plugin
+            else None
+        ),
+        stale_after=stale_after,
+    )
+    return "disconnected" if word == "unknown" else word

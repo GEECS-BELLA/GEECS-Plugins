@@ -1,6 +1,42 @@
 {
   "components": {
     "schemas": {
+      "ArraysReply": {
+        "additionalProperties": false,
+        "description": "``GET /api/devices/{name}/arrays``: the device's arrays, read on request and decimated.",
+        "properties": {
+          "device": {
+            "description": "The device.",
+            "title": "Device",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the arrays could not be read (the page says so).",
+            "title": "Error"
+          },
+          "traces": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Trace"
+            },
+            "description": "Role (or, for a scope, channel) → its trace. A camera's profiles are in the analysis ROI's output pixels, cut to their valid length.",
+            "title": "Traces",
+            "type": "object"
+          }
+        },
+        "required": [
+          "device"
+        ],
+        "title": "ArraysReply",
+        "type": "object"
+      },
       "Colour": {
         "description": "A crosshair colour, 0..255 a channel (the IOC stores it per overlay).",
         "properties": {
@@ -29,6 +65,220 @@
           "b"
         ],
         "title": "Colour",
+        "type": "object"
+      },
+      "DeviceCatalog": {
+        "additionalProperties": false,
+        "description": "``GET /api/devices``: the experiment's devices with a stream, and why any are missing.",
+        "properties": {
+          "devices": {
+            "description": "Every device served, in order.",
+            "items": {
+              "$ref": "#/components/schemas/DeviceInfo"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "errors": {
+            "description": "Documents or devices that could not be read; the page shows them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "experiment": {
+            "description": "The experiment whose documents were read.",
+            "title": "Experiment",
+            "type": "string"
+          }
+        },
+        "required": [
+          "experiment",
+          "devices"
+        ],
+        "title": "DeviceCatalog",
+        "type": "object"
+      },
+      "DeviceInfo": {
+        "additionalProperties": false,
+        "description": "One row of ``GET /api/devices``: what a page needs to draw the device before its stream opens.",
+        "properties": {
+          "actions": {
+            "description": "The family actions permitted on it, in the family's order.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "axes": {
+            "description": "A per-axis family's axes, else empty.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Axes",
+            "type": "array"
+          },
+          "family": {
+            "description": "Its family (record template).",
+            "title": "Family",
+            "type": "string"
+          },
+          "kind": {
+            "description": "The family's native-device kind.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "The device's GEECS name, one URL path segment.",
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "description": "A line its page shows.",
+            "title": "Note",
+            "type": "string"
+          },
+          "prefix": {
+            "description": "Its PV prefix, ending in ':'.",
+            "title": "Prefix",
+            "type": "string"
+          },
+          "roles": {
+            "description": "The family's roles as this device has them: overrides, labels, hazards applied, omissions gone.",
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "source": {
+            "description": "'registry' (native_devices.yaml) or 'panel_devices' (panel data alone: a bench device).",
+            "enum": [
+              "registry",
+              "panel_devices"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "family",
+          "kind",
+          "prefix",
+          "source",
+          "roles"
+        ],
+        "title": "DeviceInfo",
+        "type": "object"
+      },
+      "FamilyAction": {
+        "additionalProperties": false,
+        "description": "One thing a page does to a device of the family, and the roles it writes.\n\nInstance data permits a subset of a family's actions per device\n(``allow``); a family without actions permits every writable role.",
+        "properties": {
+          "label": {
+            "description": "What the page's control is called.",
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "requires": {
+            "description": "Actions a device permitting this one must permit too (a motion needs stop).",
+            "items": {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "title": "Requires",
+            "type": "array"
+          },
+          "roles": {
+            "description": "The writable roles the action writes.",
+            "items": {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "label",
+          "roles"
+        ],
+        "title": "FamilyAction",
+        "type": "object"
+      },
+      "FamilyFile": {
+        "additionalProperties": false,
+        "description": "The records of one IOC record template, by role: what every device of the family serves.\n\nShipped as package data (``geecs_schemas/epics/families/<template>.json``),\none file per template; read with :func:`load_families`. The order of\n``roles`` is the page's order.",
+        "properties": {
+          "actions": {
+            "description": "The page's actions and the roles each writes; a device may permit a subset. When there are actions, every writable role belongs to one. Empty: every writable role is its own permission.",
+            "patternProperties": {
+              "^[a-z][a-z0-9_]*$": {
+                "$ref": "#/components/schemas/FamilyAction"
+              }
+            },
+            "title": "Actions",
+            "type": "object"
+          },
+          "description": {
+            "description": "One line: what the template is and where it comes from.",
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "kind": {
+            "description": "The native-device kind whose devices instantiate the template.",
+            "enum": [
+              "aravis_camera",
+              "epics_motor",
+              "setpoint_device",
+              "array_detector"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "per_axis": {
+            "default": false,
+            "description": "The records repeat per axis (the motor record): every suffix is under '<prefix><axis>' for each axis the device names.",
+            "title": "Per Axis",
+            "type": "boolean"
+          },
+          "roles": {
+            "description": "The template's records, by role, in the page's order.",
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            },
+            "minItems": 1,
+            "title": "Roles",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "description": "Format version of this config file. Leave at 1 — tools update this automatically when the file format changes.",
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "template": {
+            "description": "The record template's name (the file's stem), e.g. 'motor_record'.",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template",
+          "kind",
+          "description",
+          "roles"
+        ],
+        "title": "FamilyFile",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -142,6 +392,263 @@
         "title": "PutRequest",
         "type": "object"
       },
+      "Role": {
+        "additionalProperties": false,
+        "description": "One record of the template, by what it does for a page.\n\nA role is read from ``suffix`` under the device's prefix (for a family\nwhose records repeat per axis, under ``<prefix><axis>``).  A writable\nrole is written at ``write`` when the template keeps its setpoint and\nreadback in two records (areaDetector's ``X`` / ``X_RBV``), else at\n``suffix`` itself.",
+        "properties": {
+          "archive": {
+            "default": false,
+            "description": "The archiver takes it: the history an engineer reads later (readbacks, setpoints, limit switches, fault bits).",
+            "title": "Archive",
+            "type": "boolean"
+          },
+          "choices": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The values a write may take, where the page offers fewer than the record's own (an enum's choices are otherwise read from the PV).",
+            "title": "Choices"
+          },
+          "computed_by": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The flag that must be on for the value to be computed at all (ComputeCentroid): with it off the value reads 'off', not fresh.",
+            "title": "Computed By"
+          },
+          "confirm": {
+            "anyOf": [
+              {
+                "const": "hazard",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'hazard': the page asks the operator to confirm the write, naming device, role and value (a supply's output, a motor's home).",
+            "title": "Confirm"
+          },
+          "fault": {
+            "default": false,
+            "description": "A bit that reads 1 when tripped: any tripped fault makes the device 'failed'.",
+            "title": "Fault",
+            "type": "boolean"
+          },
+          "fields": {
+            "description": "Record fields read beside the value and carried with it, e.g. ['DRVH', 'DRVL'] for a setpoint's drive limits.",
+            "items": {
+              "pattern": "^[A-Z][A-Z0-9]*$",
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "fresh_by": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The counter role whose advance makes this value fresh (the producing plugin's ArrayCounter_RBV): statistics post only on change, so a steady value is judged by its producer. Absent: fresh while connected.",
+            "title": "Fresh By"
+          },
+          "integer": {
+            "default": false,
+            "description": "A write takes a whole number.",
+            "title": "Integer",
+            "type": "boolean"
+          },
+          "label": {
+            "description": "What a page calls it.",
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "level": {
+            "default": "operator",
+            "description": "'operator': on the page by default; 'expert': in the expert view only.",
+            "enum": [
+              "operator",
+              "expert"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "limits": {
+            "anyOf": [
+              {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The bridge's own bounds on a write, low then high, where the record enforces none (a pixel, an exposure). A motor's soft limits and a supply's drive limits are the record's, read at put time.",
+            "title": "Limits"
+          },
+          "locked": {
+            "default": false,
+            "description": "Refused while a run holds the device (the run lock), or while the lock cannot be read: what a scan saves.",
+            "title": "Locked",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The role's name: a plain word, unique in the family; it keys the device stream.",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "read": {
+            "anyOf": [
+              {
+                "enum": [
+                  "monitor",
+                  "on_request",
+                  "once",
+                  "never"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the bridge reads it, when not the type's own: monitored (scalars), on request (arrays), once (the image's URL), never (a command's record).",
+            "title": "Read"
+          },
+          "readback": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A setpoint's readback, shown beside it (a motor's .RBV beside .VAL).",
+            "title": "Readback"
+          },
+          "settled_by": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A write whose put completes only when the work ends (an acquire, a move) is dispatched without waiting and settles when this role says so: the readback that confirms it, or the motor's done flag.",
+            "title": "Settled By"
+          },
+          "suffix": {
+            "description": "The record (or record field, e.g. '.RBV') under the device's prefix that the role reads; for a command, the record pressed.",
+            "pattern": "^\\S+$",
+            "title": "Suffix",
+            "type": "string"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "enum": [
+                  "string",
+                  "char_array"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Read as text: a string record, or a char-array record longer than a string's 40 characters. Enums are read by state name regardless.",
+            "title": "Text"
+          },
+          "type": {
+            "description": "What the value is and the widget a page draws: readback, setpoint, enum (shown by its state name), bit (0/1), command (a press), array (read on request), image (the frame source), counter (a plugin's frame counter, which judges freshness).",
+            "enum": [
+              "readback",
+              "setpoint",
+              "enum",
+              "bit",
+              "command",
+              "array",
+              "image",
+              "counter"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "units": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The units the value travels in, where the record carries none (a record's EGU wins when it has one).",
+            "title": "Units"
+          },
+          "writable": {
+            "default": false,
+            "description": "Whether a page may write it. Setpoints and commands always are; readbacks, counters, arrays and images never are; an enum or a bit says.",
+            "title": "Writable",
+            "type": "boolean"
+          },
+          "write": {
+            "anyOf": [
+              {
+                "pattern": "^\\S+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record a write goes to, when it is not 'suffix' (the setpoint beside an _RBV readback). Implies writable.",
+            "title": "Write"
+          }
+        },
+        "required": [
+          "name",
+          "suffix",
+          "type",
+          "label"
+        ],
+        "title": "Role",
+        "type": "object"
+      },
       "ScopePut": {
         "description": "One allow-listed setting: a PV suffix under the scope's prefix and its value.",
         "properties": {
@@ -195,6 +702,41 @@
           "value"
         ],
         "title": "SupplyPut",
+        "type": "object"
+      },
+      "Trace": {
+        "additionalProperties": false,
+        "description": "One array as a page draws it: x and y, at most two points per screen column.",
+        "properties": {
+          "x": {
+            "description": "Sample index, or time for a scope trace (s).",
+            "items": {
+              "type": "number"
+            },
+            "title": "X",
+            "type": "array"
+          },
+          "y": {
+            "description": "The values; null where not finite.",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Y",
+            "type": "array"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "title": "Trace",
         "type": "object"
       },
       "ValidationError": {
@@ -261,6 +803,208 @@
           }
         },
         "summary": "Index"
+      }
+    },
+    "/api/devices": {
+      "get": {
+        "description": "The experiment's devices with a stream, and the documents or devices that could not be read.",
+        "operationId": "get_api_devices",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceCatalog"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Devices"
+      }
+    },
+    "/api/devices/{name}/arrays": {
+      "get": {
+        "description": "The device's arrays (profiles, histogram, traces), read now or within the last half second.",
+        "operationId": "get_api_devices_name_arrays",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The screen columns a trace is decimated to.",
+            "in": "query",
+            "name": "columns",
+            "required": false,
+            "schema": {
+              "default": 1500,
+              "description": "The screen columns a trace is decimated to.",
+              "minimum": 1,
+              "title": "Columns",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArraysReply"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Device Arrays"
+      }
+    },
+    "/api/devices/{name}/events": {
+      "get": {
+        "description": "The device's live state: a full frame, then the changed roles each push period.",
+        "operationId": "get_api_devices_name_events",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Close after this many frames (0: never).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Close after this many frames (0: never).",
+              "minimum": 0,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The seq a reconnecting EventSource last saw.",
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The seq a reconnecting EventSource last saw.",
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Server-Sent Events, `event: device`, `id:` the frame's seq; each `data:` is a DeviceFrame (api/events.schema.json)."
+          },
+          "404": {
+            "description": "No such device."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Device Events"
+      }
+    },
+    "/api/families": {
+      "get": {
+        "description": "Every family file the bridge loaded, by template name.",
+        "operationId": "get_api_families",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/FamilyFile"
+                  },
+                  "title": "Response Get Api Families",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Families"
+      }
+    },
+    "/api/frame/{name}": {
+      "get": {
+        "operationId": "get_api_frame_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Frame"
       }
     },
     "/camera/{name}": {
@@ -342,7 +1086,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Colour Camera  Name  Crosshair  N  Colour Post",
+                  "title": "Response Post Camera Name Crosshair N Colour",
                   "type": "object"
                 }
               }
@@ -393,7 +1137,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response To Centroid Camera  Name  Crosshair  N  To Centroid Post",
+                  "title": "Response Post Camera Name Crosshair N To Centroid",
                   "type": "object"
                 }
               }
@@ -444,7 +1188,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Cursor Camera  Name  Cursor Post",
+                  "title": "Response Post Camera Name Cursor",
                   "type": "object"
                 }
               }
@@ -590,7 +1334,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Put One Camera  Name  Put Post",
+                  "title": "Response Post Camera Name Put",
                   "type": "object"
                 }
               }
@@ -642,7 +1386,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Unlock Camera  Name  Unlock Post",
+                  "title": "Response Post Camera Name Unlock",
                   "type": "object"
                 }
               }
@@ -672,7 +1416,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Health Health Get",
+                  "title": "Response Get Health",
                   "type": "object"
                 }
               }
@@ -799,7 +1543,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Motor Put Motor  Name  Put Post",
+                  "title": "Response Post Motor Name Put",
                   "type": "object"
                 }
               }
@@ -946,7 +1690,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Scope Put Scope  Name  Put Post",
+                  "title": "Response Post Scope Name Put",
                   "type": "object"
                 }
               }
@@ -1083,7 +1827,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Supply Put Supply  Name  Put Post",
+                  "title": "Response Post Supply Name Put",
                   "type": "object"
                 }
               }

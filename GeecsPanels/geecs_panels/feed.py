@@ -475,6 +475,20 @@ class ArraysSource:
         else:
             self._arrays, self._error = task.result(), None
 
+    async def read(self) -> dict[str, list[float]]:
+        """Start a read if one is due and wait for the read in flight; then what is held.
+
+        For a caller that answers with the arrays (a REST route), where the
+        stream only ever kicks: the read is still shared and still at most
+        one per ``min_interval``, and a caller going away never cancels it.
+        """
+        self.kick()
+        if self._task is not None:
+            # wait() neither raises the read's failure (held as the error:
+            # current() raises it) nor cancels the read if this caller goes.
+            await asyncio.wait({self._task})
+        return self.current()
+
     def current(self) -> dict[str, list[float]]:
         """The arrays held now; :class:`ArraysUnavailable` if the last read failed."""
         if self._error is not None:
