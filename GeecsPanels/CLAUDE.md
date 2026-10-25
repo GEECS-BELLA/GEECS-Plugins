@@ -40,6 +40,8 @@ geecs_panels/
   supply_feed.py # SupplyFeed (every role's PV and fields, the bits → snapshot)
   supply_app.py # /supply/{device}: page, events (SSE), put (by action)
   ca.py         # the real transports: aioca monitors, stream URL, httpx
+  contracts.py  # the PV bridge's wire models (device stream, put, journal,
+                #   raw PV stream) — models only; `python -m` prints the events document
   app.py        # routes: /, /camera/{device}, its frame.jpg and events (SSE),
                 #   and the writes: put (allow-listed), crosshair colour, to-centroid
   templates/, static/   # on the GeecsWebTheme kit; colours through tokens only
@@ -53,6 +55,27 @@ geecs_panels/
                 #   Writes go through window.GeecsCameraView.write (one copy);
                 #   scope.js and motor.js are each their own page
 ```
+
+## Contracts
+
+`geecs_panels/contracts.py` holds the PV bridge's wire models
+(`Planning/epics_estate.md` §2.3): the device-stream frame (`DeviceFrame`:
+full after a connect, changed roles only after), `PutRequest` /
+`PutResult` / `JournalEntry`, `LockRelease` (the run-lock override; the device is the path's), and the raw PV stream
+(`SubscriptionRequest` / `SubscriptionAck` / `PvFrame`).
+`python -m geecs_panels.contracts` prints the events document (SSE
+events `device` and `pv` as `properties`, every contract in `$defs`),
+which `scripts/export_openapi.py` commits as `api/events.schema.json` and
+the web repository generates its clients from. **A model
+here changes only with the web repo's clients regenerated**: these are
+the frozen contracts the browser lanes code against. A reading is whole
+in every frame (a delta re-sends a changed role complete, never a part to
+merge) and carries `advanced_at`, not an age, so a steady value is never
+re-sent as it ages. Every model's
+docstring `Examples` are JSON that its test validates and that the
+schema carries. `tests/test_contracts.py` also pins GEECS-Schemas'
+family files (motor, camera, scope, the two supplies) to this package's
+own suffix tables until those tables are deleted.
 
 ## Rules this package keeps
 

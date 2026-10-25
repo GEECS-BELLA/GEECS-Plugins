@@ -1,0 +1,1089 @@
+{
+  "$defs": {
+    "AxisFrame": {
+      "additionalProperties": false,
+      "description": "One axis of a per-axis family (a motor record): its roles and its state.",
+      "properties": {
+        "roles": {
+          "additionalProperties": {
+            "$ref": "#/$defs/RoleReading"
+          },
+          "description": "Role → reading (a delta frame: changed roles only).",
+          "title": "Roles",
+          "type": "object"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeviceState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The axis's state word; in a delta frame, only when it changed."
+        }
+      },
+      "title": "AxisFrame",
+      "type": "object"
+    },
+    "DeviceFrame": {
+      "additionalProperties": false,
+      "description": "One ``event: device`` frame of ``GET /api/devices/{name}/events``: a device's live state.\n\nThe first frame after a connect (or a reconnect) is **full**: every\nmonitored role, the state (for a family that has one), and, for a\nper-axis family, every axis. Later\nframes are **deltas**: ``roles`` / ``axes`` carry only what changed, and\n``state``, ``lock``, ``saturation`` and ``history`` appear only when\nthey changed. Each role a frame carries is whole (:class:`Reading`).\nA role that dropped arrives with ``value`` null and freshness\n``unknown``. ``seq`` is the SSE ``id:`` cursor.\n\nExamples\n--------\n{\"device\": \"U_ChicaneInner\", \"family\": \"fastps\", \"seq\": 1, \"server_time\": 1761400000.0, \"full\": true, \"connected\": true, \"roles\": {\"current\": {\"value\": 0.25, \"severity\": \"NO_ALARM\", \"advanced_at\": 1761399999.6, \"freshness\": \"fresh\", \"fields\": {\"EGU\": \"A\", \"PREC\": 3}}, \"output\": {\"value\": 1, \"severity\": \"NO_ALARM\", \"advanced_at\": 1761399998.0, \"freshness\": \"fresh\"}, \"interlock_1\": {\"value\": null, \"freshness\": \"unknown\"}}, \"state\": {\"word\": \"unknown\", \"status\": \"not connected: bit.interlock_1\"}}\n\n{\"device\": \"U_ChicaneInner\", \"family\": \"fastps\", \"seq\": 2, \"server_time\": 1761400000.5, \"full\": false, \"connected\": true, \"roles\": {\"current\": {\"value\": 0.31, \"severity\": \"NO_ALARM\", \"advanced_at\": 1761400000.5, \"freshness\": \"fresh\", \"fields\": {\"EGU\": \"A\", \"PREC\": 3}}}}\n\n{\"device\": \"U_ESP302_01\", \"family\": \"motor_record\", \"seq\": 7, \"server_time\": 1761400001.0, \"full\": false, \"connected\": true, \"axes\": {\"m1\": {\"roles\": {\"rbv\": {\"value\": 1.25, \"severity\": \"NO_ALARM\", \"advanced_at\": 1761400000.9, \"freshness\": \"fresh\"}}, \"state\": {\"word\": \"running\", \"status\": \"moving\"}}}, \"state\": {\"word\": \"running\", \"status\": \"moving\"}}\n\n{\"device\": \"UC_ExampleCam\", \"family\": \"ad_camera_chain\", \"seq\": 1, \"server_time\": 1761400000.0, \"full\": true, \"connected\": true, \"roles\": {\"cx\": {\"value\": 512.0, \"severity\": \"NO_ALARM\", \"advanced_at\": 1761399999.95, \"freshness\": \"fresh\"}, \"max\": {\"value\": 4000, \"advanced_at\": 1761399999.95, \"freshness\": \"off\"}}, \"lock\": {\"state\": \"free\"}, \"saturation\": {\"state\": \"ok\", \"fraction\": 0.61}, \"history\": {\"keys\": [\"cx\"], \"points\": [[1761399999.5, 511.9]]}}",
+      "examples": [
+        {
+          "connected": true,
+          "device": "U_ChicaneInner",
+          "family": "fastps",
+          "full": true,
+          "roles": {
+            "current": {
+              "advanced_at": 1761399999.6,
+              "fields": {
+                "EGU": "A",
+                "PREC": 3
+              },
+              "freshness": "fresh",
+              "severity": "NO_ALARM",
+              "value": 0.25
+            },
+            "interlock_1": {
+              "freshness": "unknown",
+              "value": null
+            },
+            "output": {
+              "advanced_at": 1761399998.0,
+              "freshness": "fresh",
+              "severity": "NO_ALARM",
+              "value": 1
+            }
+          },
+          "seq": 1,
+          "server_time": 1761400000.0,
+          "state": {
+            "status": "not connected: bit.interlock_1",
+            "word": "unknown"
+          }
+        },
+        {
+          "connected": true,
+          "device": "U_ChicaneInner",
+          "family": "fastps",
+          "full": false,
+          "roles": {
+            "current": {
+              "advanced_at": 1761400000.5,
+              "fields": {
+                "EGU": "A",
+                "PREC": 3
+              },
+              "freshness": "fresh",
+              "severity": "NO_ALARM",
+              "value": 0.31
+            }
+          },
+          "seq": 2,
+          "server_time": 1761400000.5
+        },
+        {
+          "axes": {
+            "m1": {
+              "roles": {
+                "rbv": {
+                  "advanced_at": 1761400000.9,
+                  "freshness": "fresh",
+                  "severity": "NO_ALARM",
+                  "value": 1.25
+                }
+              },
+              "state": {
+                "status": "moving",
+                "word": "running"
+              }
+            }
+          },
+          "connected": true,
+          "device": "U_ESP302_01",
+          "family": "motor_record",
+          "full": false,
+          "seq": 7,
+          "server_time": 1761400001.0,
+          "state": {
+            "status": "moving",
+            "word": "running"
+          }
+        },
+        {
+          "connected": true,
+          "device": "UC_ExampleCam",
+          "family": "ad_camera_chain",
+          "full": true,
+          "history": {
+            "keys": [
+              "cx"
+            ],
+            "points": [
+              [
+                1761399999.5,
+                511.9
+              ]
+            ]
+          },
+          "lock": {
+            "state": "free"
+          },
+          "roles": {
+            "cx": {
+              "advanced_at": 1761399999.95,
+              "freshness": "fresh",
+              "severity": "NO_ALARM",
+              "value": 512.0
+            },
+            "max": {
+              "advanced_at": 1761399999.95,
+              "freshness": "off",
+              "value": 4000
+            }
+          },
+          "saturation": {
+            "fraction": 0.61,
+            "state": "ok"
+          },
+          "seq": 1,
+          "server_time": 1761400000.0
+        }
+      ],
+      "properties": {
+        "axes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/AxisFrame"
+          },
+          "description": "Axis → its roles and state, for a per-axis family (a delta: changed axes only).",
+          "title": "Axes",
+          "type": "object"
+        },
+        "connected": {
+          "description": "Whether any of the device's records is connected.",
+          "title": "Connected",
+          "type": "boolean"
+        },
+        "device": {
+          "description": "The device's GEECS name.",
+          "title": "Device",
+          "type": "string"
+        },
+        "family": {
+          "description": "Its family (record template).",
+          "title": "Family",
+          "type": "string"
+        },
+        "full": {
+          "description": "True: the whole device (after a connect); false: changed fields only.",
+          "title": "Full",
+          "type": "boolean"
+        },
+        "history": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/History"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "New history points (full: the last minutes; delta: since the last frame)."
+        },
+        "lock": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunLock"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The run lock, for a family that has one."
+        },
+        "roles": {
+          "additionalProperties": {
+            "$ref": "#/$defs/RoleReading"
+          },
+          "description": "Role → reading, for a family without axes (a delta: changed roles only).",
+          "title": "Roles",
+          "type": "object"
+        },
+        "saturation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Saturation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A camera's saturation chip."
+        },
+        "seq": {
+          "description": "The event's cursor, the SSE id; increases by one per frame.",
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "server_time": {
+          "description": "When the bridge sent it, Unix seconds.",
+          "title": "Server Time",
+          "type": "number"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeviceState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The device's state word (worst of its axes'), for a family that has one (motor, supply); in a full frame whenever it does. A camera's state is its lock and saturation."
+        }
+      },
+      "required": [
+        "device",
+        "family",
+        "seq",
+        "server_time",
+        "full",
+        "connected"
+      ],
+      "title": "DeviceFrame",
+      "type": "object"
+    },
+    "DeviceState": {
+      "additionalProperties": false,
+      "description": "A derived state word and the words beside it (``motor.axis_state``, ``power.supply_state``).",
+      "properties": {
+        "status": {
+          "description": "What the page shows beside it: 'at the high limit switch'.",
+          "title": "Status",
+          "type": "string"
+        },
+        "word": {
+          "description": "The kit's status word.",
+          "enum": [
+            "queued",
+            "running",
+            "paused",
+            "ok",
+            "degraded",
+            "failed",
+            "unknown"
+          ],
+          "title": "Word",
+          "type": "string"
+        }
+      },
+      "required": [
+        "word",
+        "status"
+      ],
+      "title": "DeviceState",
+      "type": "object"
+    },
+    "History": {
+      "additionalProperties": false,
+      "description": "The server-kept history the frame carries, sampled on the producer's tick.\n\nExamples\n--------\n{\"keys\": [\"cx\", \"cy\"], \"points\": [[1761400000.0, 512.1, 480.0], [1761400000.5, null, 480.2]]}",
+      "examples": [
+        {
+          "keys": [
+            "cx",
+            "cy"
+          ],
+          "points": [
+            [
+              1761400000.0,
+              512.1,
+              480.0
+            ],
+            [
+              1761400000.5,
+              null,
+              480.2
+            ]
+          ]
+        }
+      ],
+      "properties": {
+        "keys": {
+          "description": "The roles, in each point's order after its time.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Keys",
+          "type": "array"
+        },
+        "points": {
+          "description": "[time, value…] per sample, oldest first; null is a gap (not computed, not connected).",
+          "items": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "title": "Points",
+          "type": "array"
+        }
+      },
+      "required": [
+        "keys",
+        "points"
+      ],
+      "title": "History",
+      "type": "object"
+    },
+    "JournalEntry": {
+      "additionalProperties": false,
+      "description": "One line of ``GET /api/journal``: who wrote what, when, and how it ended.\n\nExamples\n--------\n{\"id\": 41, \"time\": 1761400002.0, \"operator\": \"S. Barber\", \"device\": \"U_ChicaneInner\", \"role\": \"current_sp\", \"value\": 0.5, \"outcome\": \"accepted\", \"severity\": \"NO_ALARM\", \"message\": \"\"}",
+      "examples": [
+        {
+          "device": "U_ChicaneInner",
+          "id": 41,
+          "message": "",
+          "operator": "S. Barber",
+          "outcome": "accepted",
+          "role": "current_sp",
+          "severity": "NO_ALARM",
+          "time": 1761400002.0,
+          "value": 0.5
+        }
+      ],
+      "properties": {
+        "axis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The axis, for a per-axis family.",
+          "title": "Axis"
+        },
+        "device": {
+          "description": "The device.",
+          "title": "Device",
+          "type": "string"
+        },
+        "id": {
+          "description": "The entry's number, increasing.",
+          "minimum": 1,
+          "title": "Id",
+          "type": "integer"
+        },
+        "message": {
+          "default": "",
+          "description": "Why it was refused or denied, or the alarm status.",
+          "title": "Message",
+          "type": "string"
+        },
+        "operator": {
+          "description": "Who wrote.",
+          "title": "Operator",
+          "type": "string"
+        },
+        "outcome": {
+          "description": "accepted, refused or denied.",
+          "enum": [
+            "accepted",
+            "refused",
+            "denied"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "role": {
+          "description": "The role.",
+          "title": "Role",
+          "type": "string"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "enum": [
+                "NO_ALARM",
+                "MINOR",
+                "MAJOR",
+                "INVALID"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The record's severity after the put.",
+          "title": "Severity"
+        },
+        "time": {
+          "description": "When the put was answered, Unix seconds.",
+          "title": "Time",
+          "type": "number"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The value asked for.",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "id",
+        "time",
+        "operator",
+        "device",
+        "role",
+        "outcome"
+      ],
+      "title": "JournalEntry",
+      "type": "object"
+    },
+    "LockRelease": {
+      "additionalProperties": false,
+      "description": "``POST /api/devices/{name}/unlock``: release a stuck run lock (a killed worker), naming who.\n\nNot a put: the lock is no writable role. The bridge writes the lock\nfree and nothing else, journals it like a put (role ``lock``) and\nanswers with a :class:`PutResult` (Appendix A rule 6). The device is\nthe path's alone, so a body cannot name another.\n\nExamples\n--------\n{\"operator\": \"S. Barber\"}",
+      "examples": [
+        {
+          "operator": "S. Barber"
+        }
+      ],
+      "properties": {
+        "operator": {
+          "description": "Who is releasing it, journaled.",
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Operator",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operator"
+      ],
+      "title": "LockRelease",
+      "type": "object"
+    },
+    "PutRequest": {
+      "additionalProperties": false,
+      "description": "``POST /api/put``: one write to one role of one device, by a named operator.\n\nExamples\n--------\n{\"device\": \"U_ChicaneInner\", \"role\": \"current_sp\", \"value\": 0.5, \"operator\": \"S. Barber\"}\n\n{\"device\": \"U_ChicaneInner\", \"role\": \"output_sp\", \"value\": 1, \"operator\": \"S. Barber\", \"confirm\": true}\n\n{\"device\": \"U_ESP302_01\", \"axis\": \"m2\", \"role\": \"val\", \"value\": 12.5, \"operator\": \"S. Barber\"}",
+      "examples": [
+        {
+          "device": "U_ChicaneInner",
+          "operator": "S. Barber",
+          "role": "current_sp",
+          "value": 0.5
+        },
+        {
+          "confirm": true,
+          "device": "U_ChicaneInner",
+          "operator": "S. Barber",
+          "role": "output_sp",
+          "value": 1
+        },
+        {
+          "axis": "m2",
+          "device": "U_ESP302_01",
+          "operator": "S. Barber",
+          "role": "val",
+          "value": 12.5
+        }
+      ],
+      "properties": {
+        "axis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The axis, for a per-axis family (the motor record); else absent.",
+          "title": "Axis"
+        },
+        "confirm": {
+          "default": false,
+          "description": "The operator confirmed a hazard role's write in the page's dialog.",
+          "title": "Confirm",
+          "type": "boolean"
+        },
+        "device": {
+          "description": "The device's GEECS name.",
+          "minLength": 1,
+          "title": "Device",
+          "type": "string"
+        },
+        "operator": {
+          "description": "Who is writing, journaled with the put (identity, not authentication).",
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Operator",
+          "type": "string"
+        },
+        "role": {
+          "description": "The role written (a family role name).",
+          "minLength": 1,
+          "title": "Role",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "The value: a number, a flag, text, or an enum's state name.",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "device",
+        "role",
+        "value",
+        "operator"
+      ],
+      "title": "PutRequest",
+      "type": "object"
+    },
+    "PutResult": {
+      "additionalProperties": false,
+      "description": "The answer to a put, and what the journal recorded.\n\nExamples\n--------\n{\"outcome\": \"accepted\", \"value\": 0.5, \"severity\": \"NO_ALARM\", \"message\": \"\", \"journal_id\": 41}\n\n{\"outcome\": \"refused\", \"value\": 1.5, \"severity\": null, \"message\": \"1.5 A is outside the drive limits 0 to 1 A\", \"journal_id\": 42}\n\n{\"outcome\": \"denied\", \"value\": 1, \"message\": \"output_sp needs the hazard confirm\", \"journal_id\": 43}",
+      "examples": [
+        {
+          "journal_id": 41,
+          "message": "",
+          "outcome": "accepted",
+          "severity": "NO_ALARM",
+          "value": 0.5
+        },
+        {
+          "journal_id": 42,
+          "message": "1.5 A is outside the drive limits 0 to 1 A",
+          "outcome": "refused",
+          "severity": null,
+          "value": 1.5
+        },
+        {
+          "journal_id": 43,
+          "message": "output_sp needs the hazard confirm",
+          "outcome": "denied",
+          "value": 1
+        }
+      ],
+      "properties": {
+        "journal_id": {
+          "description": "The journal entry recording this put.",
+          "minimum": 1,
+          "title": "Journal Id",
+          "type": "integer"
+        },
+        "message": {
+          "default": "",
+          "description": "Why it was refused or denied, or the record's alarm status.",
+          "title": "Message",
+          "type": "string"
+        },
+        "outcome": {
+          "description": "accepted, refused or denied.",
+          "enum": [
+            "accepted",
+            "refused",
+            "denied"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "enum": [
+                "NO_ALARM",
+                "MINOR",
+                "MAJOR",
+                "INVALID"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The record's alarm severity after the put; null if not read.",
+          "title": "Severity"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The value put (after coercion), or the one asked for.",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "outcome",
+        "journal_id"
+      ],
+      "title": "PutResult",
+      "type": "object"
+    },
+    "PvFrame": {
+      "additionalProperties": false,
+      "description": "One ``event: pv`` frame of ``GET /api/stream/{handle}``: the handle's PVs, full first, then changed only.\n\nExamples\n--------\n{\"handle\": \"h-3f9c\", \"seq\": 1, \"server_time\": 1761400000.0, \"full\": true, \"pvs\": {\"undulator:chicane:field\": {\"value\": 0.42, \"severity\": \"NO_ALARM\", \"advanced_at\": 1761399999.8, \"freshness\": \"fresh\"}, \"undulator:shutter:state\": {\"value\": null, \"freshness\": \"unknown\"}}}",
+      "examples": [
+        {
+          "full": true,
+          "handle": "h-3f9c",
+          "pvs": {
+            "undulator:chicane:field": {
+              "advanced_at": 1761399999.8,
+              "freshness": "fresh",
+              "severity": "NO_ALARM",
+              "value": 0.42
+            },
+            "undulator:shutter:state": {
+              "freshness": "unknown",
+              "value": null
+            }
+          },
+          "seq": 1,
+          "server_time": 1761400000.0
+        }
+      ],
+      "properties": {
+        "full": {
+          "description": "True: every PV (after a connect); false: changed PVs only.",
+          "title": "Full",
+          "type": "boolean"
+        },
+        "handle": {
+          "description": "The handle.",
+          "title": "Handle",
+          "type": "string"
+        },
+        "pvs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Reading"
+          },
+          "description": "PV → reading.",
+          "title": "Pvs",
+          "type": "object"
+        },
+        "seq": {
+          "description": "The event's cursor, the SSE id.",
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "server_time": {
+          "description": "When the bridge sent it, Unix seconds.",
+          "title": "Server Time",
+          "type": "number"
+        }
+      },
+      "required": [
+        "handle",
+        "seq",
+        "server_time",
+        "full",
+        "pvs"
+      ],
+      "title": "PvFrame",
+      "type": "object"
+    },
+    "Reading": {
+      "additionalProperties": false,
+      "description": "One value as the stream carries it, always whole: the value, its alarm, when its source last advanced, how fresh it is.\n\nA reading is complete in every frame that carries it, full or delta:\na delta sends a changed role or PV whole (``fields`` included), never\na partial one to merge. It is re-sent when anything in it changes,\nthe freshness word included (fresh → stale), but not as it ages.",
+      "properties": {
+        "advanced_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When its freshness source last advanced, Unix seconds (the producing plugin's counter, else the value's own monitor); null: not seen to. Its age is server_time (or the page's clock) minus this.",
+          "title": "Advanced At"
+        },
+        "freshness": {
+          "description": "fresh, stale, off or unknown.",
+          "enum": [
+            "fresh",
+            "stale",
+            "off",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "enum": [
+                "NO_ALARM",
+                "MINOR",
+                "MAJOR",
+                "INVALID"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The record's alarm severity; null while unread.",
+          "title": "Severity"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The value (an enum by its state name); null while disconnected, never read, or not finite.",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "freshness"
+      ],
+      "title": "Reading",
+      "type": "object"
+    },
+    "RoleReading": {
+      "additionalProperties": false,
+      "description": "One role of a device: its reading, and the record fields its family reads beside it (all of them, every time).",
+      "properties": {
+        "advanced_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When its freshness source last advanced, Unix seconds (the producing plugin's counter, else the value's own monitor); null: not seen to. Its age is server_time (or the page's clock) minus this.",
+          "title": "Advanced At"
+        },
+        "fields": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": "Record field → value, the role's family 'fields' (DRVH, DRVL …).",
+          "title": "Fields",
+          "type": "object"
+        },
+        "freshness": {
+          "description": "fresh, stale, off or unknown.",
+          "enum": [
+            "fresh",
+            "stale",
+            "off",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "enum": [
+                "NO_ALARM",
+                "MINOR",
+                "MAJOR",
+                "INVALID"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The record's alarm severity; null while unread.",
+          "title": "Severity"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The value (an enum by its state name); null while disconnected, never read, or not finite.",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "freshness"
+      ],
+      "title": "RoleReading",
+      "type": "object"
+    },
+    "RunLock": {
+      "additionalProperties": false,
+      "description": "The run lock (``camera.lock_state``): a run holding the device refuses its locked roles.",
+      "properties": {
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The run holding it, while locked.",
+          "title": "Owner"
+        },
+        "state": {
+          "description": "free, locked, or unknown (not served or not read: writes are refused).",
+          "enum": [
+            "free",
+            "locked",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "RunLock",
+      "type": "object"
+    },
+    "Saturation": {
+      "additionalProperties": false,
+      "description": "Whether a camera's raw frame (STAT0) reaches its pixel format's full scale.",
+      "properties": {
+        "fraction": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Raw max / full scale.",
+          "title": "Fraction"
+        },
+        "state": {
+          "description": "The chip's word.",
+          "enum": [
+            "saturated",
+            "ok",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "Saturation",
+      "type": "object"
+    },
+    "SubscriptionAck": {
+      "additionalProperties": false,
+      "description": "The handle: stream it at ``GET /api/stream/{handle}`` until the grace period runs out unread.\n\nExamples\n--------\n{\"handle\": \"h-3f9c\", \"pvs\": [\"undulator:chicane:field\", \"undulator:shutter:state\"], \"grace_seconds\": 30.0}",
+      "examples": [
+        {
+          "grace_seconds": 30.0,
+          "handle": "h-3f9c",
+          "pvs": [
+            "undulator:chicane:field",
+            "undulator:shutter:state"
+          ]
+        }
+      ],
+      "properties": {
+        "grace_seconds": {
+          "description": "How long the handle outlives its last listener.",
+          "exclusiveMinimum": 0,
+          "title": "Grace Seconds",
+          "type": "number"
+        },
+        "handle": {
+          "description": "The handle's id.",
+          "minLength": 1,
+          "title": "Handle",
+          "type": "string"
+        },
+        "pvs": {
+          "description": "The PVs it streams, as asked.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Pvs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "handle",
+        "pvs",
+        "grace_seconds"
+      ],
+      "title": "SubscriptionAck",
+      "type": "object"
+    },
+    "SubscriptionRequest": {
+      "additionalProperties": false,
+      "description": "``POST /api/subscriptions``: a handle on a set of bare PVs (the inspector, a panel's ``pv`` widget).\n\nExamples\n--------\n{\"pvs\": [\"undulator:chicane:field\", \"undulator:shutter:state\"]}",
+      "examples": [
+        {
+          "pvs": [
+            "undulator:chicane:field",
+            "undulator:shutter:state"
+          ]
+        }
+      ],
+      "properties": {
+        "pvs": {
+          "description": "Full PV names; monitors are shared across handles.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 200,
+          "minItems": 1,
+          "title": "Pvs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "pvs"
+      ],
+      "title": "SubscriptionRequest",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Each property is one Server-Sent-Events `event:` name; its schema is the JSON object that frame's `data:` carries. A map of the stream's frames, not a payload. $defs also holds the bridge's request and response contracts.",
+  "properties": {
+    "device": {
+      "$ref": "#/$defs/DeviceFrame"
+    },
+    "pv": {
+      "$ref": "#/$defs/PvFrame"
+    }
+  },
+  "required": [
+    "device",
+    "pv"
+  ],
+  "title": "GEECS PV bridge events",
+  "type": "object"
+}
