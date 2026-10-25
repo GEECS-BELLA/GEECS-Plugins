@@ -40,10 +40,10 @@ from ophyd_async.epics.motor import Motor, MotorMoveLogic
 
 from geecs_bluesky.devices.ca._view import ScalarsView
 from geecs_bluesky.devices.ca.motor import within_tolerance
+from geecs_bluesky.devices.ca.settable import log_failed_set
 from geecs_bluesky.exceptions import (
     GeecsConfigurationError,
     GeecsMotorStoppedShortError,
-    failure_cause_text,
 )
 from geecs_bluesky.utils import settable_attribute
 
@@ -66,15 +66,31 @@ class NativeMotorMoveLogic(MotorMoveLogic):
     low_limit_switch: SignalR[int]
     device: str
     axis: str
+    #: Set by :meth:`stop`: a move the operator stopped is not "stopped short".
+    stop_requested: bool = False
+
+    async def stop(self) -> None:
+        """Write ``.STOP``; the move in flight then ends as stopped, not as a fault."""
+        self.stop_requested = True
+        await super().stop()
 
     async def move(self, new_position: float, timeout: TimeoutCalculator) -> None:
-        """Put ``.VAL`` with completion, then confirm the readback within ``.RDBD``."""
+        """Put ``.VAL`` with completion, then confirm the readback within ``.RDBD``.
+
+        The confirm reads the record afresh (``cached=False``): ``set`` is
+        observing the readback meanwhile, and the put-callback's completion
+        can land before the monitor of the final ``.RBV`` — a cached read
+        would be the previous update and fail a move that arrived.
+        """
+        self.stop_requested = False
         await super().move(new_position, timeout)
+        if self.stop_requested:
+            return  # ``StandardMovable.set`` reports the stop itself
         current, deadband, high, low = await asyncio.gather(
-            self.readback.get_value(),
+            self.readback.get_value(cached=False),
             self.deadband.get_value(),
-            self.high_limit_switch.get_value(),
-            self.low_limit_switch.get_value(),
+            self.high_limit_switch.get_value(cached=False),
+            self.low_limit_switch.get_value(cached=False),
         )
         if within_tolerance(float(current), float(new_position), float(deadband)):
             return
@@ -157,13 +173,13 @@ class NativeMotorAxis(Motor):
         def log_failed(done: WatchableAsyncStatus) -> None:
             exc = done.exception()
             if exc is not None:
-                logger.error(
-                    "%s: move %s → %s failed (%s): %s",
+                log_failed_set(
+                    logger,
                     self.name,
                     self._variable,
                     new_position,
                     self.user_setpoint.source,
-                    failure_cause_text(exc),
+                    exc,
                 )
 
         status.add_callback(log_failed)
@@ -197,10 +213,14 @@ class NativeMotor(StandardReadable):
     ) -> None:
         self._geecs_device_name = device
         self._axes: list[NativeMotorAxis] = []
+        # The scalars-only view every namespace device carries (``X.scalars``
+        # in a plan's detector list, a preset's ``save_images: false``) —
+        # bound first, so an axis cannot shadow it.
+        self.scalars = ScalarsView(self)
         with self.add_children_as_readables():
             for axis in axes:
                 attr = settable_attribute(axis)
-                if hasattr(type(self), attr):
+                if hasattr(type(self), attr) or hasattr(self, attr):
                     raise GeecsConfigurationError(
                         f"device namespace: {device}: axis {axis!r} would bind as "
                         f"{attr!r}, a name of the device itself"
@@ -208,9 +228,6 @@ class NativeMotor(StandardReadable):
                 child = NativeMotorAxis(device, axis, prefix)
                 setattr(self, attr, child)  # ophyd-async registers + names it
                 self._axes.append(child)
-        # The scalars-only view every namespace device carries (``X.scalars``
-        # in a plan's detector list, a preset's ``save_images: false``).
-        self.scalars = ScalarsView(self)
         super().__init__(name=name)
 
     @property

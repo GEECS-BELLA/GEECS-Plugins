@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import string
 from pathlib import Path
 
 import pytest
@@ -191,3 +192,88 @@ def test_a_registry_error_still_lists_the_bench_devices() -> None:
     ).get("/")
     assert "share not mounted" in page.text
     assert 'href="/motor/U_ESP302_01"' in page.text
+
+
+# ---- a bench name is one URL path segment ------------------------------------------
+
+
+def _bench_file(tmp_path: Path, name: str) -> Path:
+    import yaml
+
+    path = tmp_path / "bench.yaml"
+    entry = {"kind": "epics_motor", "prefix": "p:", "axes": ["m1"]}
+    path.write_text(yaml.safe_dump({"devices": {name: entry}}, allow_unicode=True))
+    return path
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["stage#1", "stage?1", "stage%231", "stage\\1", "stage 1", "stage\x01", ".", ".."],
+)
+def test_a_bench_name_a_url_cannot_carry_as_one_segment_is_refused(
+    tmp_path: Path, name: str
+) -> None:
+    """``#`` and ``?`` end the path, ``%`` escapes, ``\\`` is a browser's ``/``, dots are segments."""
+    from geecs_panels.registry import load_bench
+
+    with pytest.raises(RegistryError, match="URL path segment"):
+        load_bench(_bench_file(tmp_path, name))
+
+
+#: Every printable ASCII punctuation the rule keeps, inside a name, and a non-ASCII one.
+_ROUTABLE = ["U_ESP302_01", "Ü1"] + [
+    f"a{c}b" for c in string.punctuation if c not in "/?#%\\"
+]
+
+
+@pytest.mark.parametrize("name", _ROUTABLE)
+def test_a_bench_names_landing_link_and_its_routes_reach_the_device(
+    tmp_path: Path, name: str
+) -> None:
+    """The round trip: the landing page's link, then the page's own events and put URLs."""
+    import html
+    import re
+
+    from fastapi.testclient import TestClient
+    from markupsafe import escape
+
+    from geecs_panels.app import create_app
+    from geecs_panels.motor_feed import MotorFeed
+    from geecs_panels.registry import load_bench
+
+    (device,) = load_bench(_bench_file(tmp_path, name))
+
+    class _Sub:
+        def close(self) -> None:
+            pass
+
+    class Motors:
+        def __init__(self) -> None:
+            self.puts: list[tuple[str, str, object]] = []
+
+        def feed(self, device):
+            feed = MotorFeed(device.prefix, device.axes, lambda pv, s, cb: _Sub())
+            feed.start()
+            return feed
+
+        async def put(self, device, axis, field, value) -> None:
+            self.puts.append((axis, field, value))
+
+    motors = Motors()
+    client = TestClient(create_app("Undulator", [device], object(), motors=motors))
+
+    def attr(text: str, pattern: str) -> str:
+        found = re.search(pattern, text)
+        assert found is not None, pattern
+        return html.unescape(found.group(1))
+
+    landing = client.get("/")
+    page = client.get(attr(landing.text, r'href="(/motor/[^"]*)"'))
+    assert page.status_code == 200 and str(escape(name)) in page.text
+    events = client.get(attr(page.text, r'data-events-url="([^"]*)"') + "?once=1")
+    assert events.status_code == 200 and '"m1"' in events.text
+    put = client.post(
+        attr(page.text, r'data-put-url="([^"]*)"'),
+        json={"axis": "m1", "field": ".STOP", "value": 1},
+    )
+    assert put.status_code == 200 and motors.puts == [("m1", ".STOP", 1)]
