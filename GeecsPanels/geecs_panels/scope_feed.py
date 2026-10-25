@@ -214,6 +214,11 @@ class ScopeTraces:
         if uid is None or uid != self.held_uid():
             self.source.kick()
 
+    async def read(self, uid: Optional[object]) -> None:
+        """:meth:`kick`, then wait for the read in flight (a REST answer, where the stream only kicks)."""
+        if uid is None or uid != self.held_uid():
+            await self.source.read()
+
     def payload(self, taken_after: Optional[float]) -> dict[str, object]:
         """The held capture's traces, or "waiting" if it predates the timebase; ``key`` names it."""
         built: dict[str, object] = dict(

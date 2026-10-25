@@ -176,16 +176,13 @@ def _panels_app(scratch: Path) -> Any:
     """The panels with every kind's live state given, so every kind's routes exist.
 
     ``create_app`` only stores the live-state objects, so a bare ``object()``
-    stands in for each (the panels' own tests do the same for cameras).
-    The panels' factory does not pass ``operation_id`` yet (GeecsPanels is
-    being rebuilt as the PV bridge, phase 1 of the estate), so the ids are
-    applied here; the bridge's ``create_app`` takes the generator itself.
+    stands in for each (the panels' own tests do the same for cameras); the
+    PV bridge's ``/api`` routes are always mounted. The factory passes
+    ``operation_id`` itself.
     """
-    from fastapi.routing import APIRoute
     from geecs_panels.app import create_app
-    from geecs_web_theme.web import operation_id
 
-    app = create_app(
+    return create_app(
         "openapi-export",
         [],
         object(),
@@ -193,10 +190,6 @@ def _panels_app(scratch: Path) -> Any:
         motors=object(),
         supplies=object(),
     )
-    for route in app.routes:
-        if isinstance(route, APIRoute):
-            route.operation_id = operation_id(route)
-    return app
 
 
 def _panels_events() -> Optional[dict[str, Any]]:

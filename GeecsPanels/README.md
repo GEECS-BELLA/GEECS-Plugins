@@ -20,6 +20,31 @@ open question (`Planning/device_panels.md`).
 
 `--read-only` makes every page a viewer: nothing writes to a device.
 
+## The PV bridge (`/api`)
+
+The same process is the PV bridge the web repository's pages read
+(`Planning/epics_estate.md` §2.3): every device as its family's roles.
+
+- `GET /api/devices` — the registry joined with the experiment's
+  `panel_devices.yaml` (and the bench file): each device's family, prefix,
+  axes, permitted actions, note, and its roles as it has them.
+- `GET /api/families` — the family files (GEECS-Schemas' package data).
+- `GET /api/devices/<device>/events` — the device's stream (Server-Sent
+  Events, `event: device`): a full `DeviceFrame` on connect, then the
+  changed roles each push period (`--push-period`, default 0.25 s); the
+  `id:` is the frame's `seq`, and a reconnect's `Last-Event-ID` resumes.
+  `?limit=N` closes after N frames.
+- `GET /api/devices/<device>/arrays?columns=N` — its arrays (profiles,
+  histogram, a scope's traces), read on request and min/max-decimated.
+- `GET /api/frame/<device>` — a camera's latest JPEG (the camera page's
+  frame route under its `/api` name: one upstream fetch for both).
+
+The models are `geecs_panels.contracts` (the stream's frames, published
+as `api/events.schema.json`) and `api/openapi.json`.
+`fixtures/` holds a minute of each kind's stream recorded from the
+geecs-epics sim host (`fixtures/record.py`), which the web repository's
+fixture server replays.
+
 ## Bench devices and per-device actions
 
 `--bench PATH` adds positioners and power supplies on bench IOCs that the registry does not list
@@ -61,6 +86,27 @@ PVs), so its entry maps **roles** to PV suffixes under the prefix:
       within 5 mA by +1.8 s; a step to 0 A undershot to -0.25 A. The
       10 A/s ramp (50 ms for 0.5 A) is faster than the regulation loop,
       so it does not tame small steps.
+```
+
+The bench file may instead be a **panel devices** document (GEECS-Schemas'
+`PanelDevices`, the form of the configs repository's
+`<experiment>/panel_devices.yaml`): each device names its family and only
+what differs on it. The per-kind pages and the bridge both read it; a
+supply in the older form above has a page but no bridge stream.
+
+```yaml
+schema_version: 1
+devices:
+  U_ChicaneInner:
+    family: fastps                # a family file: motor_record, fastps, easydriver, ad_camera_chain, scope_contract
+    prefix: "undulator:fpstest1:"
+    allow: [current, output, reset]
+    note: Steps ring (see above).
+  U_ESP302_01:
+    family: motor_record
+    prefix: "undulator:esptest1:"
+    axes: [m1, m2, m3]
+    allow: [move, tweak, stop]
 ```
 
 A setpoint is refused unless it sits inside its record's drive limits

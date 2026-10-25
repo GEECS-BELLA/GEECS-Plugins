@@ -61,7 +61,14 @@ def main() -> None:
         default=None,
         metavar="PATH",
         help="a bench file (YAML): devices on bench IOCs the registry does not list, "
-        "each with its kind, prefix and the panel's options (allow, note); see the README",
+        "as panel devices (each with its family, prefix and options: allow, note) "
+        "or in the older per-kind form; see the README",
+    )
+    parser.add_argument(
+        "--push-period",
+        type=float,
+        default=0.25,
+        help="seconds between a device stream's frames (/api/devices/{name}/events)",
     )
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
     args = parser.parse_args()
@@ -89,48 +96,54 @@ def main() -> None:
 
     import uvicorn
 
-    from geecs_panels.app import create_app
-    from geecs_panels.ca import LiveCameras, LiveMotors, LiveScopes, LiveSupplies
-    from geecs_panels.scope import SCOPE_KIND
-    from geecs_panels.registry import (
-        Device,
-        RegistryError,
-        load_bench,
-        load_devices,
-        registry_path,
-    )
+    from geecs_schemas.epics.family import load_families
 
-    path = registry_path(experiment)
-    error = None
+    from geecs_panels.app import create_app
+    from geecs_panels.bridge.catalog import load_experiment
+    from geecs_panels.bridge.routes import Bridge
+    from geecs_panels.bridge.stream import DeviceStreams
+    from geecs_panels.ca import (
+        LiveCameras,
+        LiveMotors,
+        LiveScopes,
+        LiveSupplies,
+        read_pvs,
+        subscribe_reading,
+    )
+    from geecs_panels.registry import RegistryError
+
+    families = load_families()
     try:
-        devices = load_devices(experiment, path)
+        loaded = load_experiment(
+            experiment,
+            families,
+            bench=Path(args.bench) if args.bench else None,
+            scopes=args.scope,
+        )
     except RegistryError as exc:
-        devices, error = [], str(exc)
-    if args.bench:
-        try:
-            bench = load_bench(Path(args.bench))
-        except RegistryError as exc:
-            sys.exit(f"geecs-panels: {exc}")
-        clash = {d.name for d in devices} & {d.name for d in bench}
-        if clash:
-            sys.exit(
-                f"geecs-panels: {sorted(clash)} in both the registry and the bench file"
-            )
-        devices += bench
-    for spec in args.scope:
-        name, sep, prefix = spec.partition("=")
-        if not sep or not name or not prefix:
-            sys.exit(f"geecs-panels: --scope takes NAME=PREFIX, not {spec!r}")
-        devices.append(Device(name=name, kind=SCOPE_KIND, prefix=prefix))
+        sys.exit(f"geecs-panels: {exc}")
+    bridge = Bridge(
+        experiment,
+        loaded.served,
+        loaded.errors + loaded.unserved,
+        DeviceStreams(
+            {d.name: d for d in loaded.served},
+            subscribe_reading,
+            read=read_pvs,
+            stale_after=args.stale_after,
+            push_s=args.push_period,
+        ),
+        families,
+    )
     app = create_app(
         experiment,
-        devices,
+        loaded.pages,
         # The floor between upstream fetches for ALL viewers of a camera
         # (FrameSource.latest). Half the page's poll period, so timer jitter
         # never hands a viewer its own previous frame.
         LiveCameras(min_interval=0.5 / args.max_fps),
-        registry_path=path,
-        registry_error=error,
+        registry_path=loaded.registry_path,
+        registry_error="; ".join(loaded.errors) or None,
         stale_after=args.stale_after,
         max_fps=args.max_fps,
         root_path=args.root_path,
@@ -138,6 +151,7 @@ def main() -> None:
         scopes=LiveScopes(),
         motors=LiveMotors(),
         supplies=LiveSupplies(),
+        bridge=bridge,
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level.lower())
 

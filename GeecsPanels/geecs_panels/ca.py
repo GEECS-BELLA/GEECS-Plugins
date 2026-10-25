@@ -24,6 +24,7 @@ import time
 import aioca
 import httpx
 
+from geecs_panels.bridge.feed import ReadAs, Sample
 from geecs_panels.camera import (
     ARRAYS,
     IMAGE_PLUGIN,
@@ -88,6 +89,47 @@ def subscribe(
         datatype=str if as_string else None,
         notify_disconnect=True,
     )
+
+
+def subscribe_reading(
+    pv: str, read_as: ReadAs, callback: Callable[[Optional[Sample]], None]
+) -> Subscription:
+    """Monitor *pv* for the bridge's feed: each value with its alarm severity, ``None`` on a disconnect.
+
+    Read with ``FORMAT_TIME`` so the severity rides with the value; an
+    enum or a string as its text, a char array (a long message) as text.
+    """
+
+    def on_update(value: object) -> None:
+        if not getattr(value, "ok", True):
+            callback(None)
+            return
+        severity = getattr(value, "severity", None)
+        if read_as != "native":
+            plain: object = str(value)
+        elif isinstance(value, float):
+            plain = float(value)
+        elif isinstance(value, int):
+            plain = int(value)
+        else:
+            plain = str(value)
+        callback(Sample(plain, severity if isinstance(severity, int) else None))
+
+    datatype = {"native": None, "string": str, "char_array": aioca.DBR_CHAR_STR}[
+        read_as
+    ]
+    return aioca.camonitor(
+        pv,
+        on_update,
+        datatype=datatype,
+        format=aioca.FORMAT_TIME,
+        notify_disconnect=True,
+    )
+
+
+async def read_pvs(pvs: list[str]) -> list[object]:
+    """Read *pvs* in one request (the bridge's on-request arrays); raises if any fails."""
+    return list(await aioca.caget(pvs, timeout=3.0))
 
 
 async def settle(pv: str, want: object) -> None:
