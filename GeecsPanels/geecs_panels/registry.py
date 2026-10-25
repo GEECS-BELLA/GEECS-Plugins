@@ -27,7 +27,7 @@ import yaml
 from geecs_core.configs_repo import scanner_configs_base
 from geecs_core.pv_naming import pv_name
 from geecs_schemas import NATIVE_DEVICES_FILENAME, EpicsMotor, NativeDevices
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 from geecs_panels.motor import MOTOR_KIND, check_actions
 
@@ -103,8 +103,28 @@ class BenchMotor(EpicsMotor):
         return self
 
 
-#: A bench device's name: it is a URL path segment (no slash, no whitespace).
-BenchName = Annotated[str, Field(pattern=r"^[^/\s]+$")]
+#: What a URL path segment cannot carry as itself: the path and its ends
+#: (``/``, ``?``, ``#``), the escape (``%``), and ``\`` (a browser's ``/``).
+_NOT_IN_A_SEGMENT = frozenset("/?#%\\")
+
+
+def _one_path_segment(name: str) -> str:
+    """Refuse a name the routes cannot carry: the page's URL is ``/motor/<name>``, unescaped."""
+    if (
+        set(name) <= {"."}  # empty, or "." / "..": a URL's own segments
+        or any(
+            c in _NOT_IN_A_SEGMENT or c.isspace() or not c.isprintable() for c in name
+        )
+    ):
+        raise ValueError(
+            f"{name!r} is not one URL path segment: no / ? # % \\ or whitespace, "
+            "and not . or .."
+        )
+    return name
+
+
+#: A bench device's name: one URL path segment, as the templates write it.
+BenchName = Annotated[str, AfterValidator(_one_path_segment)]
 
 
 class BenchFile(BaseModel):

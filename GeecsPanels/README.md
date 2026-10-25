@@ -25,7 +25,7 @@ must not see), and sets the panel's options per device:
 
 ```yaml
 devices:
-  U_ESP302_01:                    # the page's name
+  U_ESP302_01:                    # the page's name, its URL segment: no / ? # % \ or blanks
     kind: epics_motor
     prefix: "undulator:esptest1:" # the bench IOC's prefix
     axes: [m1, m2, m3]
