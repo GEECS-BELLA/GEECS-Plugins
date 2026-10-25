@@ -1,0 +1,2145 @@
+{
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "PlotToLogbook": {
+        "description": "One image on its way to the scan logbook, from one of two sources.\n\n``image``: a rendered plot as a data URL rather than multipart form\ndata — the page already holds one (``Plotly.toImage`` returns it)\nand form parsing would pull in ``python-multipart``, which this\npackage does not otherwise need. Base64 costs a third in size, which\na plot PNG can afford.\n\n``path``: an artifact an analysis run produced, named as the run\nlisting names it (relative to ``analysis/ScanNNN/``). The portal\nreads it off the share itself, under the artifact route's\ncontainment rule, so a client that has only a reference — the MCP\nserver posting an agent's figures — never moves image bytes.\nExactly one of the two is given.",
+        "properties": {
+          "author": {
+            "maxLength": 120,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Author",
+            "type": "string"
+          },
+          "caption": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Caption",
+            "type": "string"
+          },
+          "entry": {
+            "default": "",
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]*$",
+            "title": "Entry",
+            "type": "string"
+          },
+          "entry_required": {
+            "default": false,
+            "title": "Entry Required",
+            "type": "boolean"
+          },
+          "image": {
+            "default": "",
+            "maxLength": 12000000,
+            "title": "Image",
+            "type": "string"
+          },
+          "path": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Path",
+            "type": "string"
+          },
+          "source_url": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Source Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "author"
+        ],
+        "title": "PlotToLogbook",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "GEECS Data Portal",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "description": "Redirect to today's day view.",
+        "operationId": "get_root",
+        "responses": {
+          "307": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Index"
+      }
+    },
+    "/api/analysis/catalog": {
+      "get": {
+        "description": "Every loadable diagnostic and group in the configured tree, scan-free.\n\nThe per-run listing (below) is scoped to one scan; a client planning\nwhat to run — an agent choosing an analyzer, or a page's picker —\nneeds the catalog before it has a scan. Same feature gate as the\nruns; same loadable set as the per-run listing (``processing_infos``,\ninvalid YAMLs dropped). A group is listed with its resolved members\nin run order, through ScanAnalysis's own loader — the portal runs one\ndiagnostic per job, so a group is a plan the caller expands, never\nsomething this route runs.",
+        "operationId": "get_api_analysis_catalog",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Analysis Catalog"
+      }
+    },
+    "/api/day/{day}": {
+      "get": {
+        "description": "The day page as JSON: its runs (newest first), filtered.",
+        "operationId": "get_api_day_day",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "experiment",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Experiment",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Filter",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Day"
+      }
+    },
+    "/api/run/jump/{day}": {
+      "get": {
+        "description": "The day steppers' target as JSON (see :func:`run_jump`).",
+        "operationId": "get_api_run_jump_day",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "prefer",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Prefer",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "experiment",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Experiment",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Run Jump"
+      }
+    },
+    "/api/run/{uid}": {
+      "get": {
+        "description": "One run as JSON: the rail, the Overview tab and the device list.\n\n``metadata`` is the Overview table verbatim (``metadata_rows``);\n``devices`` are the image device folders (their tier is the\nseparate ``/device`` probe — one listing per device); the\nneighbours and ``day_runs`` are the scan steppers and dropdown;\n``analysis_enabled`` says whether the page offers the Analysis\ntab (same gate as the template).",
+        "operationId": "get_api_run_uid",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "experiment",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Experiment",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Run"
+      }
+    },
+    "/api/run/{uid}/analysis": {
+      "get": {
+        "description": "The scan's analyzers: applicability, job record, files on disk.\n\n``applicable`` = the diagnostic's data device (``scan.device``,\nelse its name) has a data folder in this scan. Every loadable\ndiagnostic is listed regardless, so a device-less one is still\nreachable; the tab collapses the inapplicable ones.",
+        "operationId": "get_api_run_uid_analysis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Analysis List"
+      },
+      "post": {
+        "description": "Start one analyzer on this scan (202 + the fresh job record).\n\nLadder: feature off / extra missing 404 · unknown or unloadable\ndiagnostic 404 · folder unresolvable 404 · a destructive kind\nwithout ``confirm=<this scan's number>`` 400 (the tab asks for\nit; the gate is here so no client runs a delete unasked) · a job\nalready running for this scan 409 (its record in the body).\nBuild + run + cleanup happen on the worker thread, so everything\npast this point — config errors included — lands in the record\nas ``failed``.",
+        "operationId": "post_api_run_uid_analysis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "analyzer",
+            "required": true,
+            "schema": {
+              "title": "Analyzer",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confirm",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Confirm",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Analysis Start"
+      }
+    },
+    "/api/run/{uid}/bin-images": {
+      "get": {
+        "description": "Per-bin membership for the Images tab's averaged grid.\n\nThe JSON carries the numbers (bins, counts, member shots — all\nnotebook-reproducible via the snippet); the pixels are served\nby ``/run/{uid}/bin-image.png?bin=<index>`` per bin, so the\ngrid lazy-loads exactly like the per-shot gallery.",
+        "operationId": "get_api_run_uid_bin_images",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Device",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filters",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Filters",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bincfg",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Bincfg",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Bin Images"
+      }
+    },
+    "/api/run/{uid}/binned": {
+      "get": {
+        "description": "Per-bin centers + error bands + the ready binned figure.\n\nBins GROUP the data (``bincfg.bin_col``); the selected ``x``\nPLACES it — each bin plots at the per-bin mean of the X column\n(the owner's ruling: real scan-parameter positions now, x error\nbars maybe later).  No ``x`` keeps the bin labels as the axis.",
+        "operationId": "get_api_run_uid_binned",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cols",
+            "required": false,
+            "schema": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Cols",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "x",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filters",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Filters",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bincfg",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Bincfg",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "display",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Display",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Binned"
+      }
+    },
+    "/api/run/{uid}/columns": {
+      "get": {
+        "description": "The union pick list: every plottable column with provenance.",
+        "operationId": "get_api_run_uid_columns",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Columns"
+      }
+    },
+    "/api/run/{uid}/device": {
+      "get": {
+        "description": "One device's gallery tier — what clicking its name decides.\n\nSame ``device_kind`` probe as the page (one directory listing,\nno pixel reads), so the JSON and the Images tab can never\ndisagree about whether a device renders.",
+        "operationId": "get_api_run_uid_device",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Device",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Device"
+      }
+    },
+    "/api/run/{uid}/filter-count": {
+      "get": {
+        "description": "Live pass count for the filters popup: ``{pass, total}``.",
+        "operationId": "get_api_run_uid_filter_count",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filters",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Filters",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Filter Count"
+      }
+    },
+    "/api/run/{uid}/frame": {
+      "get": {
+        "description": "Per-shot series + the ready figure for the selection.",
+        "operationId": "get_api_run_uid_frame",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cols",
+            "required": false,
+            "schema": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Cols",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "x",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filters",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Filters",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "display",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Display",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Frame"
+      }
+    },
+    "/api/run/{uid}/grid": {
+      "get": {
+        "description": "Two-axis geometry, filtered scalar statistics and paired figures.",
+        "operationId": "get_api_run_uid_grid",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "gridcfg",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Gridcfg",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filters",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Filters",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Grid"
+      }
+    },
+    "/api/run/{uid}/logbook": {
+      "post": {
+        "description": "Put one image — a rendered plot, or a run's artifact — into this scan's entry.\n\nThe portal's **third** write verb (after the analysis runs and the\nconfig editor) and, like them, an explicit act: nothing is sent\nthat a person (or, through the MCP server, an agent) did not ask\nfor.  It writes to the logbook's own service through that service's\npublic API, and touches neither the scans tree nor any portal state\n(an artifact source is READ off the analysis tree, nothing more).\n\nLadder: no absolute ``--logbook-url`` / not this experiment / no\nscan number or day → 404 (there is no entry for it to join) · a\nmalformed image → 400 · an artifact path that does not resolve →\n404, one that is not a raster image → 400 · the logbook unreachable\n→ 503 · the logbook refusing → its own status for the verdicts that\nare about this payload (409/413/415, and 404 for an ``entry_required``\nentry that is gone — never a fresh one), else 502.  The reply carries\nthe attachment ``link`` the body now shows, so a caller appending\nmore can cite it.",
+        "operationId": "post_api_run_uid_logbook",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlotToLogbook"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Logbook Send"
+      }
+    },
+    "/api/run/{uid}/trace": {
+      "get": {
+        "description": "One shot of an ARRAY capture stack as a server-authored figure.\n\nThe line twin of ``/run/{uid}/image.png``.  A camera shot is\nserved as a rendered PNG because a 2048² frame as JSON is\nabsurd; a scope trace is a few thousand numbers and wants the\nhover readout, so it travels as figure JSON like every other\nplot here.  Same refusals as the image endpoint: a shot beyond\nthe recorded events, and a device that missed the shot, both\n404 rather than serving a neighbour's trace.",
+        "operationId": "get_api_run_uid_trace",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device",
+            "required": true,
+            "schema": {
+              "title": "Device",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "shot",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "title": "Shot",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Api Run Trace"
+      }
+    },
+    "/configs/": {
+      "get": {
+        "operationId": "get_configs",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Page"
+      }
+    },
+    "/configs/api/list": {
+      "get": {
+        "operationId": "get_configs_api_list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Listing"
+      }
+    },
+    "/configs/api/preview": {
+      "post": {
+        "operationId": "post_configs_api_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Body",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Endpoint"
+      }
+    },
+    "/configs/api/preview/summary": {
+      "post": {
+        "operationId": "post_configs_api_preview_summary",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Body",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Summary Preview Endpoint"
+      }
+    },
+    "/configs/api/schema/{kind}": {
+      "get": {
+        "operationId": "get_configs_api_schema_kind",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Schema"
+      }
+    },
+    "/configs/api/validate/{kind}": {
+      "post": {
+        "operationId": "post_configs_api_validate_kind",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Body",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate"
+      }
+    },
+    "/configs/api/{plural}/{doc_id}": {
+      "delete": {
+        "operationId": "delete_configs_api_plural_doc_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plural",
+            "required": true,
+            "schema": {
+              "title": "Plural",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "doc_id",
+            "required": true,
+            "schema": {
+              "title": "Doc Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "etag",
+            "required": true,
+            "schema": {
+              "title": "Etag",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete"
+      },
+      "get": {
+        "operationId": "get_configs_api_plural_doc_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plural",
+            "required": true,
+            "schema": {
+              "title": "Plural",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "doc_id",
+            "required": true,
+            "schema": {
+              "title": "Doc Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read"
+      }
+    },
+    "/configs/api/{plural}/{namespace}/{doc_id}": {
+      "put": {
+        "operationId": "put_configs_api_plural_namespace_doc_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plural",
+            "required": true,
+            "schema": {
+              "title": "Plural",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "title": "Namespace",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "doc_id",
+            "required": true,
+            "schema": {
+              "title": "Doc Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Body",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save"
+      }
+    },
+    "/configs/static/{name}": {
+      "get": {
+        "operationId": "get_configs_static_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Static"
+      }
+    },
+    "/day/{day}": {
+      "get": {
+        "description": "The run list for one day (newest first, as the catalog lists).",
+        "operationId": "get_day_day",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "experiment",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Experiment",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Filter",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Day View"
+      }
+    },
+    "/go": {
+      "get": {
+        "description": "The day/experiment picker form's target: redirect to the day view.",
+        "operationId": "get_go",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "experiment",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Experiment",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Filter",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "307": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Go"
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Liveness + catalog probe (the fleet-map health check) + version.",
+        "operationId": "get_health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Health",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/run/jump/{day}": {
+      "get": {
+        "description": "Day-step from the scan page without losing the analysis.\n\nRedirects to the target day's run with scan number *prefer*\n(else its newest run), carrying every other query param through\nverbatim — the rail's day steppers point here so filters,\ncolumns, and tab survive the hop.  A day with no runs falls\nback to the day page.",
+        "operationId": "get_run_jump_day",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "prefer",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Prefer",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "307": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Jump"
+      }
+    },
+    "/run/{uid}": {
+      "get": {
+        "description": "One run: the rail + tabs (Overview / Plot / Images).\n\n``tab``/``filters``/``bincfg``/``view``/``y``/``x`` are the\nanalysis-tab state, carried in the URL (statelessness doctrine:\na link IS the analysis) and consumed by the page's JS — the\nserver only threads them through the sticky query so steppers\nkeep the whole setup.",
+        "operationId": "get_run_uid",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "experiment",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Experiment",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "y",
+            "required": false,
+            "schema": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Y",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "x",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Device",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "shot",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "title": "Shot",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Filter",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tab",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Tab",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filters",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Filters",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bincfg",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Bincfg",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "View",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "display",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Display",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "processing",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Processing",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "gridcfg",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Gridcfg",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "gridbin",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Gridbin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "imagebin",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Imagebin",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run View"
+      }
+    },
+    "/run/{uid}/artifact": {
+      "get": {
+        "description": "Serve one file a run produced, from the scan's analysis folder only.\n\nContainment is the contract (:func:`analysis_runs.contained_artifact`):\nanything that resolves outside the scan's own analysis folder is\na 404, same as a missing file. Same feature gate as the run\nendpoints. Raster images render inline; every other type is a\ndownload (``attachment`` + ``nosniff``) — the share is writable\nby many hands, and a planted HTML/SVG must never execute in the\nportal's (or, behind the OSPREY proxy, OSPREY's) origin.\n``no-cache``: re-runs overwrite by name.",
+        "operationId": "get_run_uid_artifact",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Artifact"
+      }
+    },
+    "/run/{uid}/bin-image.png": {
+      "get": {
+        "description": "One bin's ``nanmean``-averaged device image, display-rendered.\n\n``bin`` is the bin's INDEX in ``/api/.../bin-images`` order\n(same ``_bin_groups`` call, so the two always agree). Member\nshots that resolve to pixels are averaged (``average_frames``)\nand windowed once; shots the device missed (no timestamp) or\nthat fail to load are skipped — the JSON's ``count`` is the\nmembership, the pixels are what actually loaded. With\n``processing``, each member is ephemeral-processed FIRST and\nthe processed images average (process-then-average — the\ncorrect order for nonlinear pipeline steps like thresholding).",
+        "operationId": "get_run_uid_bin_image_png",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device",
+            "required": true,
+            "schema": {
+              "title": "Device",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bin",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Bin",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filters",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Filters",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bincfg",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Bincfg",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "processing",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Processing",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "display",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Display",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Bin Image"
+      }
+    },
+    "/run/{uid}/image.png": {
+      "get": {
+        "description": "One device shot rendered for display (stack or native file).\n\n``processing`` names a diagnostic to run ephemerally on the\nloaded pixels first (its ``processed_image`` renders instead of\nthe raw frame) — the write-free seam; raw serving is untouched\nwhen the param is absent. ``display`` carries the image\ncosmetics (``cmap`` + ``plo``/``phi`` window — types 400,\nvalues degrade, per the display doctrine).",
+        "operationId": "get_run_uid_image_png",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device",
+            "required": true,
+            "schema": {
+              "title": "Device",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "shot",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "title": "Shot",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "processing",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Processing",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "display",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Display",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Image"
+      }
+    },
+    "/run/{uid}/plot.png": {
+      "get": {
+        "description": "Server-rendered scalar plot: *y* column vs *x* (default row index).\n\nUses the matplotlib object API (``Figure``, never pyplot) — no\nglobal figure registry, safe on FastAPI's threadpool.",
+        "operationId": "get_run_uid_plot_png",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "y",
+            "required": true,
+            "schema": {
+              "title": "Y",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "x",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Plot"
+      }
+    }
+  }
+}

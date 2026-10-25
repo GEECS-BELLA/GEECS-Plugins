@@ -10,6 +10,7 @@ runbooks live next to each service; the intended fleet is
 | `site.env.example` | The host half of the site profile — every facility-specific value a service host needs, HTU/Undulator as the worked example. Copy, edit, install at `/etc/geecs/site.env`. |
 | `site_env_lib.sh` | Shared loader (mirrors systemd's `EnvironmentFile=` parsing). Sourced by the two scripts. |
 | `render_units.sh` | Fill the `@PLACEHOLDER@` holes in every service's unit template from a site.env into a staging directory; prints the root install lines. |
+| `front-door/` | The front door: `geecs-front-door.service` (nginx under its own unit, rendered like the others), `nginx.conf.in` (each web surface under its prefix — `/scan`, `/portal`, `/log`, `/panels` — and the browser bundle at `/`), its `render_conf.sh` (fills the conf from `site.env`, the archiver pattern; the bootstrap calls it) and the bundle directory's placeholder `index.html`. |
 | `bootstrap_host.sh` | Idempotent, unprivileged fresh-host bootstrap: per-service clones, poetry envs with each service's extras, the baked MCP venv, `config.ini` rendered from site.env if absent, units rendered to staging; prints the root steps. |
 
 Fresh host, in order:

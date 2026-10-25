@@ -14,7 +14,7 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from fastapi import FastAPI, Request
+from fastapi import Body, FastAPI, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.testclient import TestClient
 
@@ -24,6 +24,7 @@ from geecs_web_theme.web import (
     clean_prefix,
     make_templates,
     mount_theme,
+    operation_id,
     root_of,
 )
 
@@ -146,3 +147,28 @@ def test_static_answers_say_revalidate_and_an_unchanged_file_is_a_304(
         "/theme/kit.css", headers={"If-None-Match": first.headers["etag"]}
     )
     assert again.status_code == 304
+
+
+def test_operation_ids_come_from_the_method_and_path_never_the_function() -> None:
+    """A renamed route function keeps its operationId; the path names it."""
+    app = FastAPI(generate_unique_id_function=operation_id)
+
+    @app.get("/api/run/{uid}/analysis")
+    def some_name(uid: str) -> dict:
+        return {}
+
+    @app.get("/")
+    def index() -> dict:
+        return {}
+
+    @app.post("/frame.jpg")
+    def upload(a: int = Body(), b: int = Body()) -> dict:
+        return {}
+
+    doc = app.openapi()
+    assert doc["paths"]["/api/run/{uid}/analysis"]["get"]["operationId"] == (
+        "get_api_run_uid_analysis"
+    )
+    assert doc["paths"]["/"]["get"]["operationId"] == "get_root"
+    # The generated request-body schema is named from the id too.
+    assert "Body_post_frame_jpg" in doc["components"]["schemas"]

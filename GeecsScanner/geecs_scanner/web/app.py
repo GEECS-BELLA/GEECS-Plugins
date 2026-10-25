@@ -17,6 +17,7 @@ from geecs_web_theme.web import (
     ForwardedPrefixMiddleware,
     RevalidatingStaticFiles,
     mount_theme,
+    operation_id,
 )
 
 from geecs_scanner import __version__
@@ -45,6 +46,7 @@ def create_app(service: ScannerService, *, root_path: str = "") -> FastAPI:
         root_path=root_path,
         docs_url=None,
         redoc_url=None,
+        generate_unique_id_function=operation_id,
     )
     app.add_middleware(ForwardedPrefixMiddleware)
 

@@ -87,7 +87,10 @@ Two kinds of keys, documented line by line in the example file:
   by `GeecsArchiver/deploy/render_conf.sh`, the package's own renderer for
   its non-unit conf, which the bootstrap calls). `GEECS_ARCHIVER_JAVA_OPTS`
   is a runtime key of the archiver alone: `docker compose` reads it from the
-  unit's environment at start.  These fill the unit templates' placeholders and
+  unit's environment at start.  `GEECS_FRONT_DOOR_BIND` is the interface
+  the front door serves on (port 80, a fleet constant), filled into its
+  `nginx.conf` with `GEECS_SERVICES_HOST` by `deploy/front-door/render_conf.sh`
+  (nginx reads no environment).  These fill the unit templates' placeholders and
   the rendered `config.ini`; they are harmless in the process
   environment.
 
@@ -113,6 +116,23 @@ Values that services read from the environment directly (the EPICS
 addressing, `TZ`, `QS_EXPERIMENT`) need no hole at all — `EnvironmentFile=`
 delivers them.
 
+## Behind the front door
+
+The front door (`geecs-front-door`, [fleet map](fleet_map.md#the-services))
+puts every web surface on one origin: `/scan`, `/portal`, `/log`,
+`/panels`, the browser bundle at `/`. It changes which inter-service URLs
+in `site.env` may be paths, key by key — the test is who dials the URL:
+
+| Key | Behind the door | Why |
+|---|---|---|
+| `GEECS_PORTAL_EXTRA_ARGS`' `--logbook-url` | **absolute** (may name the logbook through the door, `http://<door>/log`; never the bare `/log`) | a path is joined to the portal's own prefix (`/portal/log/…`, a dead link), and the portal dials it server-to-server to send a plot into a scan's entry |
+| `GEECS_SERVICES_HOST` → `config.ini [mcp]` | **absolute**, straight to the ports | geecs-mcp is a server-side client; the agent's writes should not depend on one more process |
+| `GEECS_SCANNER_EXTRA_ARGS`' `--portal-url` | **a path**: `/portal` | only ever a link in the operator's browser |
+
+No service needs `--root-path` behind the door: it strips the prefix and
+names it in `X-Forwarded-Prefix`, the shape the services' shared
+middleware expects.
+
 ## Checkout layout
 
 `<checkout root>/<service>-checkout/` — one clone per service family:
@@ -120,7 +140,7 @@ delivers them.
 | Clone | Services | Why |
 |---|---|---|
 | `gateway-checkout` | CA gateway | control-room-critical, moves rarely |
-| `portal-checkout` | Data Portal **and** the logbook (its own unit and poetry env inside `GeecsLogbook/`) | iterates in days; the two web viewers ship together — a pull is a deploy of both, so restart both |
+| `portal-checkout` | Data Portal **and** the logbook (its own unit and poetry env inside `GeecsLogbook/`); also the source of the front door's unit and rendered `nginx.conf` (the unit itself runs from `/etc/geecs/front-door`) | iterates in days; the two web viewers ship together — a pull is a deploy of both, so restart both |
 | `archiver-checkout` | the Archiver Appliance's `geecs-archiver` CLI and its conf templates | the appliance itself is upstream's container: `geecs-archiver.service` runs `docker compose` from `/etc/geecs/archiver` and never reads the clone, so its uptime does not depend on a checkout; the clone is where onboarding runs and the conf is rendered from |
 | `qs-checkout` | queueserver worker **and** the Tiled writer (`geecs-tiled-writer`: the same package, `GeecsBluesky`, the same poetry env — the consumer half of the worker's document spool); also the MCP server's install source and the web scanner's (`geecs-scanner`, a client of the plan surface this checkout defines) | the MCP bakes a non-editable venv (`<root>/geecs-mcp-venv`) from it so a pull never mutates code under the running server; the writer shares the worker's env on purpose (one spool line format, one env — a pull there is a deploy of both, so restart both) |
 

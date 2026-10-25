@@ -1,0 +1,3179 @@
+{
+  "components": {
+    "schemas": {
+      "ActionDetailOut": {
+        "description": "``GET /api/actions/{name}``: the preview — what running it would do, in order.",
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/ActionStepOut"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "writes": {
+            "description": "How many steps write to hardware",
+            "title": "Writes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "steps",
+          "writes"
+        ],
+        "title": "ActionDetailOut",
+        "type": "object"
+      },
+      "ActionOut": {
+        "description": "One action plan as the picklist shows it.",
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "nested": {
+            "description": "Plans this one runs by name",
+            "items": {
+              "type": "string"
+            },
+            "title": "Nested",
+            "type": "array"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it cannot run (unknown nested plan, a loop)",
+            "title": "Problem"
+          },
+          "steps": {
+            "description": "Concrete steps after nested runs are inlined",
+            "title": "Steps",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "steps"
+        ],
+        "title": "ActionOut",
+        "type": "object"
+      },
+      "ActionStepOut": {
+        "description": "One flattened step of an action plan.",
+        "properties": {
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device"
+          },
+          "do": {
+            "title": "Do",
+            "type": "string"
+          },
+          "expected": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected"
+          },
+          "from_plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The nested plan this step was inlined from",
+            "title": "From Plan"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "variable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variable"
+          },
+          "wait": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wait"
+          }
+        },
+        "required": [
+          "do",
+          "text"
+        ],
+        "title": "ActionStepOut",
+        "type": "object"
+      },
+      "CalibrationDeviceOut": {
+        "description": "One device's stored drain offset.",
+        "properties": {
+          "geecs_device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geecs Device"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "offset_s": {
+            "title": "Offset S",
+            "type": "number"
+          },
+          "scatter_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scatter S"
+          },
+          "shots": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shots"
+          }
+        },
+        "required": [
+          "name",
+          "offset_s"
+        ],
+        "title": "CalibrationDeviceOut",
+        "type": "object"
+      },
+      "CalibrationIn": {
+        "description": "The body of the two calibration verbs.",
+        "properties": {
+          "devices": {
+            "description": "The triggered devices to check or measure (at least two)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          },
+          "shots": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "measure only",
+            "title": "Shots"
+          },
+          "tolerance_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "check only: widest accepted disagreement",
+            "title": "Tolerance S"
+          },
+          "trigger_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Profile"
+          },
+          "write": {
+            "default": false,
+            "description": "measure only: store the result in the configs tree",
+            "title": "Write",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "devices"
+        ],
+        "title": "CalibrationIn",
+        "type": "object"
+      },
+      "CalibrationOut": {
+        "description": "``GET /api/calibration``: the stored shot offsets, summarized.",
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/CalibrationDeviceOut"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "max_offset_device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Offset Device"
+          },
+          "max_offset_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Offset S"
+          },
+          "measured_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured At"
+          },
+          "path": {
+            "default": "",
+            "title": "Path",
+            "type": "string"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "stored": {
+            "title": "Stored",
+            "type": "boolean"
+          },
+          "trigger_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Profile"
+          },
+          "trigger_rate_hz": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Rate Hz"
+          }
+        },
+        "required": [
+          "stored"
+        ],
+        "title": "CalibrationOut",
+        "type": "object"
+      },
+      "ConfigListOut": {
+        "description": "The names of one config kind in the experiment's tree.",
+        "properties": {
+          "experiment": {
+            "title": "Experiment",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Names",
+            "type": "array"
+          },
+          "unavailable": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Unavailable",
+            "type": "object"
+          }
+        },
+        "required": [
+          "kind",
+          "names",
+          "experiment"
+        ],
+        "title": "ConfigListOut",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthOut": {
+        "description": "Liveness + the manager probe + version (the fleet-map health check).",
+        "properties": {
+          "experiment": {
+            "title": "Experiment",
+            "type": "string"
+          },
+          "manager": {
+            "title": "Manager",
+            "type": "boolean"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "readiness": {
+            "title": "Readiness",
+            "type": "string"
+          },
+          "tiled_writer": {
+            "$ref": "#/components/schemas/TiledWriterOut",
+            "description": "The Tiled writer's heartbeat verdict — fleet_status.sh's row"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "version",
+          "manager",
+          "readiness",
+          "experiment",
+          "tiled_writer"
+        ],
+        "title": "HealthOut",
+        "type": "object"
+      },
+      "ItemOut": {
+        "description": "A queued non-scan item: a move, an action, a calibration.",
+        "properties": {
+          "item_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Uid"
+          },
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "plan": {
+            "title": "Plan",
+            "type": "string"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a move: the device reference the item carries",
+            "title": "Reference"
+          },
+          "submitted_as": {
+            "title": "Submitted As",
+            "type": "string"
+          },
+          "summary": {
+            "default": "",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submitted_as",
+          "plan"
+        ],
+        "title": "ItemOut",
+        "type": "object"
+      },
+      "LoggedVariableOut": {
+        "description": "One experiment variable as the scan-log picker lists it.",
+        "properties": {
+          "logged": {
+            "description": "get='yes' in the DB — recorded in every scan, so pickable",
+            "title": "Logged",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The canonical Device:Variable",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "logged"
+        ],
+        "title": "LoggedVariableOut",
+        "type": "object"
+      },
+      "LoggedVariablesOut": {
+        "description": "Every variable of the experiment, logged ones first.",
+        "properties": {
+          "detail": {
+            "default": "",
+            "description": "Why the list is empty, when it is",
+            "title": "Detail",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LoggedVariableOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "source": {
+            "description": "db or demo",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "LoggedVariablesOut",
+        "type": "object"
+      },
+      "MoveIn": {
+        "description": "The body of ``POST /api/move``: one manual move as an ``mv`` queue item.",
+        "properties": {
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          },
+          "variable": {
+            "description": "A scan-variable catalog name, a Device:Variable, or a device",
+            "title": "Variable",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variable",
+          "value"
+        ],
+        "title": "MoveIn",
+        "type": "object"
+      },
+      "OptimizationOut": {
+        "description": "Latest adaptive iteration; missing or nonfinite values are null.",
+        "properties": {
+          "best": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Best",
+            "type": "object"
+          },
+          "best_moves": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Best Moves",
+            "type": "object"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "config": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config"
+          },
+          "exit_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Status"
+          },
+          "expired": {
+            "default": false,
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "finished": {
+            "default": false,
+            "title": "Finished",
+            "type": "boolean"
+          },
+          "invalidated_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invalidated Reason"
+          },
+          "iteration": {
+            "default": 0,
+            "title": "Iteration",
+            "type": "integer"
+          },
+          "max_iterations": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Iterations"
+          },
+          "measured": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Measured",
+            "type": "object"
+          },
+          "objectives": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Objectives",
+            "type": "array"
+          },
+          "outputs": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Outputs",
+            "type": "object"
+          },
+          "proposal": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Proposal",
+            "type": "object"
+          },
+          "run_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Uid"
+          },
+          "scan_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Number"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "valid_shots": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Valid Shots",
+            "type": "object"
+          }
+        },
+        "title": "OptimizationOut",
+        "type": "object"
+      },
+      "OptimizerConfigOut": {
+        "description": "Config document, required device names and run defaults for the form.",
+        "properties": {
+          "document": {
+            "additionalProperties": true,
+            "title": "Document",
+            "type": "object"
+          },
+          "max_iterations": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Iterations"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "required_devices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Required Devices",
+            "type": "array"
+          },
+          "shots_per_step": {
+            "title": "Shots Per Step",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "document",
+          "required_devices",
+          "shots_per_step"
+        ],
+        "title": "OptimizerConfigOut",
+        "type": "object"
+      },
+      "PlanCallOut": {
+        "description": "The expanded plan call — what the queue would receive.",
+        "properties": {
+          "args": {
+            "items": {},
+            "title": "Args",
+            "type": "array"
+          },
+          "kwargs": {
+            "additionalProperties": true,
+            "title": "Kwargs",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "references": {
+            "items": {
+              "type": "string"
+            },
+            "title": "References",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "args",
+          "kwargs",
+          "references"
+        ],
+        "title": "PlanCallOut",
+        "type": "object"
+      },
+      "PreflightOut": {
+        "description": "What ``POST /api/preflight`` answers: refusal, or questions + outcomes.",
+        "properties": {
+          "outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/PreflightOutcomeOut"
+            },
+            "title": "Outcomes",
+            "type": "array"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanCallOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "planned_shots": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planned Shots"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/PreflightQuestionOut"
+            },
+            "title": "Questions",
+            "type": "array"
+          },
+          "refusal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refusal"
+          },
+          "summary": {
+            "default": "",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "title": "PreflightOut",
+        "type": "object"
+      },
+      "PreflightOutcomeOut": {
+        "description": "One check already decided (``passed`` / ``skipped``).",
+        "properties": {
+          "check": {
+            "title": "Check",
+            "type": "string"
+          },
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "check",
+          "result"
+        ],
+        "title": "PreflightOutcomeOut",
+        "type": "object"
+      },
+      "PreflightQuestionOut": {
+        "description": "One question the operator answers before the scan is queued.",
+        "properties": {
+          "abort_label": {
+            "default": "Abort",
+            "title": "Abort Label",
+            "type": "string"
+          },
+          "check": {
+            "title": "Check",
+            "type": "string"
+          },
+          "continue_label": {
+            "default": "Continue",
+            "title": "Continue Label",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "check",
+          "title",
+          "message"
+        ],
+        "title": "PreflightQuestionOut",
+        "type": "object"
+      },
+      "ProgressOut": {
+        "description": "The latest-run picture from the document and console streams.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run's day, ISO (from the start document's scan_tag)",
+            "title": "Day"
+          },
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "exit_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Status"
+          },
+          "paused_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paused Reason"
+          },
+          "plan_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Name"
+          },
+          "planned_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planned Total"
+          },
+          "scan_folder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run's folder as the start document names it",
+            "title": "Scan Folder"
+          },
+          "scan_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Number"
+          },
+          "shots_done": {
+            "default": 0,
+            "title": "Shots Done",
+            "type": "integer"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "running / paused / done / aborted from the documents",
+            "title": "State"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "available"
+        ],
+        "title": "ProgressOut",
+        "type": "object"
+      },
+      "QueueOut": {
+        "description": "The running item, what waits behind it, and what finished.",
+        "properties": {
+          "finished": {
+            "items": {
+              "$ref": "#/components/schemas/QueueRow"
+            },
+            "title": "Finished",
+            "type": "array"
+          },
+          "running": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QueueRow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "waiting": {
+            "items": {
+              "$ref": "#/components/schemas/QueueRow"
+            },
+            "title": "Waiting",
+            "type": "array"
+          }
+        },
+        "required": [
+          "summary"
+        ],
+        "title": "QueueOut",
+        "type": "object"
+      },
+      "QueueRow": {
+        "description": "One queue or history item, summarized for a table row.",
+        "properties": {
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "item_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Uid"
+          },
+          "plan": {
+            "title": "Plan",
+            "type": "string"
+          },
+          "planned_shots": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planned Shots"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "run_uids": {
+            "description": "The runs' uids — the portal's run pages",
+            "items": {
+              "type": "string"
+            },
+            "title": "Run Uids",
+            "type": "array"
+          },
+          "scan_numbers": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Scan Numbers",
+            "type": "array"
+          },
+          "state": {
+            "description": "A kit status word",
+            "title": "State",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "user": {
+            "default": "",
+            "title": "User",
+            "type": "string"
+          },
+          "word": {
+            "description": "The word the chip shows (stopped, paused…)",
+            "title": "Word",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "word",
+          "plan",
+          "summary"
+        ],
+        "title": "QueueRow",
+        "type": "object"
+      },
+      "ReadbackOut": {
+        "description": "One reading of a device variable over the gateway.",
+        "properties": {
+          "age_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Now minus the reading's stamp",
+            "title": "Age S"
+          },
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "ok": {
+            "default": false,
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "pv": {
+            "default": "",
+            "title": "Pv",
+            "type": "string"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The reading's own stamp, epoch seconds",
+            "title": "Timestamp"
+          },
+          "units": {
+            "default": "",
+            "title": "Units",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "variable": {
+            "title": "Variable",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variable"
+        ],
+        "title": "ReadbackOut",
+        "type": "object"
+      },
+      "SavePresetIn": {
+        "description": "The body of ``POST /api/configs/presets/{name}``.",
+        "properties": {
+          "overwrite": {
+            "default": false,
+            "title": "Overwrite",
+            "type": "boolean"
+          },
+          "preset": {
+            "additionalProperties": true,
+            "description": "A geecs_schemas.Preset document",
+            "title": "Preset",
+            "type": "object"
+          }
+        },
+        "required": [
+          "preset"
+        ],
+        "title": "SavePresetIn",
+        "type": "object"
+      },
+      "SavePresetOut": {
+        "description": "A written preset.",
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "message"
+        ],
+        "title": "SavePresetOut",
+        "type": "object"
+      },
+      "ScanLogListIn": {
+        "description": "A save of the whole list, made from the version the page loaded.",
+        "properties": {
+          "variables": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Variables",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variables",
+          "version"
+        ],
+        "title": "ScanLogListIn",
+        "type": "object"
+      },
+      "ScanLogListOut": {
+        "description": "The scan-log list: the variables every scan's logbook entry shows at its start.",
+        "properties": {
+          "variables": {
+            "description": "Canonical Device:Variable names, in order",
+            "items": {
+              "type": "string"
+            },
+            "title": "Variables",
+            "type": "array"
+          },
+          "version": {
+            "description": "The list's content hash; a save must name it",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "ScanLogListOut",
+        "type": "object"
+      },
+      "ScanLogOut": {
+        "description": "A chunk of the running (or last) scan's ``scan.log``.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "folder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder"
+          },
+          "lines": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "more": {
+            "default": false,
+            "description": "The file holds more beyond this chunk",
+            "title": "More",
+            "type": "boolean"
+          },
+          "offset": {
+            "default": 0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "scan_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Number"
+          }
+        },
+        "required": [
+          "available"
+        ],
+        "title": "ScanLogOut",
+        "type": "object"
+      },
+      "ScanVariableOut": {
+        "description": "One catalog entry as the variable picker lists it.",
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it is not scannable today, when it is not",
+            "title": "Reason"
+          },
+          "scannable": {
+            "default": true,
+            "title": "Scannable",
+            "type": "boolean"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "ScanVariableOut",
+        "type": "object"
+      },
+      "SetBestIn": {
+        "description": "Identify the observed run whose best physical settings should be applied.",
+        "properties": {
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          },
+          "run_uid": {
+            "title": "Run Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_uid"
+        ],
+        "title": "SetBestIn",
+        "type": "object"
+      },
+      "SettableOut": {
+        "description": "One numeric settable as the movable panel lists it.",
+        "properties": {
+          "alias": {
+            "default": "",
+            "description": "The DB's curated short name; empty when none",
+            "title": "Alias",
+            "type": "string"
+          },
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "name": {
+            "description": "The canonical Device:Variable — what a request stores",
+            "title": "Name",
+            "type": "string"
+          },
+          "units": {
+            "default": "",
+            "title": "Units",
+            "type": "string"
+          },
+          "variable": {
+            "title": "Variable",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "device",
+          "variable"
+        ],
+        "title": "SettableOut",
+        "type": "object"
+      },
+      "SettablesOut": {
+        "description": "Every numeric settable of the experiment, aliased ones first.",
+        "properties": {
+          "detail": {
+            "default": "",
+            "description": "Why the list is empty, when it is",
+            "title": "Detail",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SettableOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "source": {
+            "description": "db or demo",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "SettablesOut",
+        "type": "object"
+      },
+      "StatusOut": {
+        "description": "One poll of the manager, plus the readiness verdict over it.",
+        "properties": {
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "experiment": {
+            "title": "Experiment",
+            "type": "string"
+          },
+          "identity": {
+            "description": "What this process submits as",
+            "title": "Identity",
+            "type": "string"
+          },
+          "items_in_queue": {
+            "default": 0,
+            "title": "Items In Queue",
+            "type": "integer"
+          },
+          "manager_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manager State"
+          },
+          "re_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Re State"
+          },
+          "readiness": {
+            "description": "The readiness verdict's state word",
+            "title": "Readiness",
+            "type": "string"
+          },
+          "readiness_detail": {
+            "default": "",
+            "title": "Readiness Detail",
+            "type": "string"
+          },
+          "running_item_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Running Item Uid"
+          },
+          "tiled_writer": {
+            "$ref": "#/components/schemas/TiledWriterOut",
+            "description": "The Tiled writer's heartbeat verdict (the page's chip); shown, never a gate"
+          },
+          "worker_environment_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Environment State"
+          },
+          "worker_exists": {
+            "default": false,
+            "title": "Worker Exists",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "connected",
+          "readiness",
+          "experiment",
+          "identity",
+          "tiled_writer"
+        ],
+        "title": "StatusOut",
+        "type": "object"
+      },
+      "SubmitIn": {
+        "description": "The body of ``POST /api/submit``.",
+        "properties": {
+          "acknowledged": {
+            "description": "The `check` names of the preflight questions the operator ticked",
+            "items": {
+              "type": "string"
+            },
+            "title": "Acknowledged",
+            "type": "array"
+          },
+          "clear_pending": {
+            "default": false,
+            "description": "Remove a failed item sitting at the front of the queue first",
+            "title": "Clear Pending",
+            "type": "boolean"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who pressed Start",
+            "title": "Operator"
+          },
+          "preset": {
+            "additionalProperties": true,
+            "description": "A geecs_schemas.Preset document",
+            "title": "Preset",
+            "type": "object"
+          }
+        },
+        "required": [
+          "preset"
+        ],
+        "title": "SubmitIn",
+        "type": "object"
+      },
+      "SubmitOut": {
+        "description": "A queued submission.",
+        "properties": {
+          "item_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Uid"
+          },
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "planned_shots": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planned Shots"
+          },
+          "submitted_as": {
+            "title": "Submitted As",
+            "type": "string"
+          },
+          "summary": {
+            "default": "",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submitted_as"
+        ],
+        "title": "SubmitOut",
+        "type": "object"
+      },
+      "TiledWriterOut": {
+        "description": "The Tiled writer's heartbeat as one kit word (a warning, never a gate).\n\n``state`` is ``ok`` / ``degraded`` / ``failed`` (``unknown`` only while\nunset); the counts are the heartbeat's own.  Read by the page's chip,\n``/health`` (``scripts/fleet_status.sh``'s row) and nothing that\ndecides whether a scan runs.",
+        "properties": {
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "failed": {
+            "default": 0,
+            "description": "Files set aside as .failed",
+            "title": "Failed",
+            "type": "integer"
+          },
+          "in_progress": {
+            "default": 0,
+            "description": "Runs still open (or unfinished files)",
+            "title": "In Progress",
+            "type": "integer"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_ok": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last registration, epoch",
+            "title": "Last Ok"
+          },
+          "pending": {
+            "default": 0,
+            "description": "Complete spool files waiting",
+            "title": "Pending",
+            "type": "integer"
+          },
+          "stale": {
+            "default": false,
+            "description": "No heartbeat, or one older than three sweeps",
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "state": {
+            "description": "A kit status word",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "TiledWriterOut",
+        "type": "object"
+      },
+      "TrajectoryAxisOut": {
+        "description": "One axis, in its requested frame; relative values are offsets.",
+        "properties": {
+          "axis": {
+            "title": "Axis",
+            "type": "string"
+          },
+          "positions": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Positions",
+            "type": "array"
+          },
+          "relative": {
+            "title": "Relative",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "axis",
+          "relative",
+          "positions"
+        ],
+        "title": "TrajectoryAxisOut",
+        "type": "object"
+      },
+      "TrajectoryOut": {
+        "description": "Sampled display coordinates, with full trajectory size disclosed.",
+        "properties": {
+          "axes": {
+            "items": {
+              "$ref": "#/components/schemas/TrajectoryAxisOut"
+            },
+            "title": "Axes",
+            "type": "array"
+          },
+          "indices": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Indices",
+            "type": "array"
+          },
+          "sampled": {
+            "title": "Sampled",
+            "type": "boolean"
+          },
+          "total_steps": {
+            "title": "Total Steps",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "axes",
+          "indices",
+          "total_steps",
+          "sampled"
+        ],
+        "title": "TrajectoryOut",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VerbIn": {
+        "description": "The body of the stop/pause/resume verbs.",
+        "properties": {
+          "force": {
+            "default": false,
+            "description": "Act on another operator's item (recorded)",
+            "title": "Force",
+            "type": "boolean"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          }
+        },
+        "title": "VerbIn",
+        "type": "object"
+      },
+      "VerbOut": {
+        "description": "What a verb answered.",
+        "properties": {
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "VerbOut",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "GEECS Scanner",
+    "version": "0.14.7"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/actions": {
+      "get": {
+        "description": "The action library: names, step counts, nested plans.",
+        "operationId": "get_api_actions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ActionOut"
+                  },
+                  "title": "Response Get Api Actions",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Actions"
+      }
+    },
+    "/api/actions/{name}": {
+      "get": {
+        "description": "The preview: every step the action would run, nested plans inlined.",
+        "operationId": "get_api_actions_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Action"
+      }
+    },
+    "/api/actions/{name}/run": {
+      "post": {
+        "description": "Queue ``run_action(name)``; refused unless idle.",
+        "operationId": "post_api_actions_name_run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/VerbIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Action"
+      }
+    },
+    "/api/calibration": {
+      "get": {
+        "description": "The stored shot offsets, summarized.",
+        "operationId": "get_api_calibration",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalibrationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Calibration"
+      }
+    },
+    "/api/calibration/check": {
+      "post": {
+        "description": "Queue ``check_shot_sync`` (box OFF, costs no shot); refused unless idle.",
+        "operationId": "post_api_calibration_check",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalibrationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Calibration Check"
+      }
+    },
+    "/api/calibration/measure": {
+      "post": {
+        "description": "Queue ``measure_shot_offsets``; ``write`` stores the result. Refused unless idle.",
+        "operationId": "post_api_calibration_measure",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalibrationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Calibration Measure"
+      }
+    },
+    "/api/clear": {
+      "post": {
+        "description": "Remove every waiting item.",
+        "operationId": "post_api_clear",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerbOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Clear"
+      }
+    },
+    "/api/configs/optimizer_configs/{name}": {
+      "get": {
+        "description": "The selected optimizer document and required devices.",
+        "operationId": "get_api_configs_optimizer_configs_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptimizerConfigOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Optimizer Config"
+      }
+    },
+    "/api/configs/presets/{name}": {
+      "get": {
+        "description": "One preset document.",
+        "operationId": "get_api_configs_presets_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Configs Presets Name",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preset"
+      },
+      "post": {
+        "description": "Write a preset document to the configs tree (the URL names the file).",
+        "operationId": "post_api_configs_presets_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavePresetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavePresetOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Preset"
+      }
+    },
+    "/api/configs/{kind}": {
+      "get": {
+        "description": "Names of one config kind: presets, trigger_profiles, scan_variables, actions, optimizer_configs.",
+        "operationId": "get_api_configs_kind",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Configs"
+      }
+    },
+    "/api/devices": {
+      "get": {
+        "description": "Every device reference the manager resolves.",
+        "operationId": "get_api_devices",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Response Get Api Devices",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Devices"
+      }
+    },
+    "/api/events": {
+      "get": {
+        "description": "Status, progress and console lines as Server-Sent Events.",
+        "operationId": "get_api_events",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Since",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "once",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Once",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Events"
+      }
+    },
+    "/api/logged-variables": {
+      "get": {
+        "description": "Every variable of the experiment and whether scans record it (the picker).",
+        "operationId": "get_api_logged_variables",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoggedVariablesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logged Variables"
+      }
+    },
+    "/api/move": {
+      "post": {
+        "description": "One manual move as an ``mv`` queue item; refused unless idle.",
+        "operationId": "post_api_move",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move"
+      }
+    },
+    "/api/optimization": {
+      "get": {
+        "description": "Latest optimization iteration, also carried over SSE.",
+        "operationId": "get_api_optimization",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptimizationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Optimization"
+      }
+    },
+    "/api/optimization/best": {
+      "post": {
+        "description": "Move to the completed run's recorded best physical positions.",
+        "operationId": "post_api_optimization_best",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetBestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Best"
+      }
+    },
+    "/api/pause": {
+      "post": {
+        "description": "Deferred pause at the plan's next checkpoint (the next shot, or mid-batch).",
+        "operationId": "post_api_pause",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/VerbIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerbOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pause"
+      }
+    },
+    "/api/preflight": {
+      "post": {
+        "description": "Validate and pre-check a preset; submit nothing.",
+        "operationId": "post_api_preflight",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Preset Doc",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreflightOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preflight"
+      }
+    },
+    "/api/progress": {
+      "get": {
+        "description": "The latest-run picture from the streams (also carried by /api/events).",
+        "operationId": "get_api_progress",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProgressOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Progress"
+      }
+    },
+    "/api/queue": {
+      "get": {
+        "description": "Running, waiting and recently finished items.",
+        "operationId": "get_api_queue",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "history",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "title": "History",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Queue"
+      }
+    },
+    "/api/readback": {
+      "get": {
+        "description": "One live reading of ``Device:Variable`` over the gateway — the readback, not ``:SP``.",
+        "operationId": "get_api_readback",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "variable",
+            "required": true,
+            "schema": {
+              "title": "Variable",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "units",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Units",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Readback"
+      }
+    },
+    "/api/resume": {
+      "post": {
+        "description": "Resume a paused plan.",
+        "operationId": "post_api_resume",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/VerbIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerbOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resume"
+      }
+    },
+    "/api/scan-log-variables": {
+      "get": {
+        "description": "The shared scan-log list every scan records (and its version).",
+        "operationId": "get_api_scan_log_variables",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanLogListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Scan Log Variables"
+      },
+      "put": {
+        "description": "Replace the list; 409 ``conflict`` with the current list when *version* is stale.",
+        "operationId": "put_api_scan_log_variables",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanLogListIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanLogListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Scan Log Variables"
+      }
+    },
+    "/api/scan-variables": {
+      "get": {
+        "description": "The catalog as the picker lists it; pseudo entries present but not scannable.",
+        "operationId": "get_api_scan_variables",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ScanVariableOut"
+                  },
+                  "title": "Response Get Api Scan Variables",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Scan Variables"
+      }
+    },
+    "/api/scanlog": {
+      "get": {
+        "description": "The latest run's scan.log from *offset* (also carried by /api/events as `log`).",
+        "operationId": "get_api_scanlog",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanLogOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Scanlog"
+      }
+    },
+    "/api/settables": {
+      "get": {
+        "description": "Every numeric settable of the experiment, alias-first, from the GEECS DB.",
+        "operationId": "get_api_settables",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettablesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Settables"
+      }
+    },
+    "/api/status": {
+      "get": {
+        "description": "One manager poll plus the readiness verdict.",
+        "operationId": "get_api_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Status"
+      }
+    },
+    "/api/stop": {
+      "post": {
+        "description": "Graceful stop.",
+        "operationId": "post_api_stop",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/VerbIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerbOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop"
+      }
+    },
+    "/api/submit": {
+      "post": {
+        "description": "Preflight, require every question acknowledged, stamp, queue.",
+        "operationId": "post_api_submit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmitOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit"
+      }
+    },
+    "/api/trajectory": {
+      "post": {
+        "description": "Bound the raw body before JSON parsing or Sweep validation.",
+        "operationId": "post_api_trajectory",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrajectoryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Trajectory"
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Liveness + the manager probe + version (the fleet-map check).",
+        "operationId": "get_health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    }
+  }
+}
