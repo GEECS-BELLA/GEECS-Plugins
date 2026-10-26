@@ -278,7 +278,12 @@ class Puts:
             raise Refused(str(exc)) from exc
 
     async def _enum_choices(self, hub: DeviceHub, role: Role, axis: str) -> list[str]:
-        """The family's choices, else the record's: the names the stream shows (one reader, never a stale copy)."""
+        """The family's choices, else the record's: the names the stream shows (one reader, never a stale copy).
+
+        Those are the monitored record's (an areaDetector ``X_RBV``), not
+        the write record's (``X``): the two carry the same strings from one
+        asyn parameter, and the IOC still refuses a name its record lacks.
+        """
         if role.choices:
             return list(role.choices)
         feed = hub.feed
