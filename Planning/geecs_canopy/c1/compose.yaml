@@ -1,0 +1,94 @@
+# GeecsCanopy exercise, lane C1: SLAC's Canopy against the geecs-epics
+# simulator host on a Docker Desktop Mac. Adapted from Canopy's
+# docker/docker-compose.prod.yml (api + worker) and docker/docker-compose.yml
+# (Postgres 16, Redis 7) at commit 0a5ee23.
+#
+# Differences from the reference production compose, all forced by the Mac:
+#   - bridge networking instead of network_mode: host (Docker Desktop's host
+#     mode is not the Linux one); the EPICS client reaches the sim IOCs'
+#     127.0.0.1-published ports through host.docker.internal, one explicit
+#     host:port per IOC in EPICS_CA_ADDR_LIST (no broadcast), and the camera's
+#     pvAccess through its TCP name server (EPICS_PVA_NAME_SERVERS)
+#   - platform: linux/amd64 (the image has no arm64 manifest; runs emulated)
+#   - one worker replica instead of two
+#   - Redis on 127.0.0.1:6380 (6379 is the sim's redis-sim)
+# On a Linux services box, use the reference compose with host networking.
+#
+#   docker compose run --rm api alembic upgrade head   # once, and per new image
+#   docker compose up -d
+#   docker compose down                                 # stop (keeps the pgdata volume)
+
+name: geecs-canopy-exercise
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
+x-app: &app
+  image: ${IMAGE}
+  platform: linux/amd64
+  env_file: .env
+  logging: *default-logging
+  restart: unless-stopped
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  api:
+    <<: *app
+    command: ["uvicorn", "canopy.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    <<: *app
+    command: ["arq", "canopy.worker.WorkerSettings"]
+    healthcheck:
+      disable: true
+
+  postgres:
+    image: postgres:16-alpine
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    logging: *default-logging
+    ports:
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
