@@ -20,6 +20,12 @@ variables (not scalar CA data) and ``path``-typed long strings (the
 appliance cannot type the gateway's char-array channels; pilot 2026-10-02).
 The experiment's :class:`~geecs_schemas.ArchivePolicy` then removes its
 ``exclude`` globs and sets per-glob sampling.
+
+A migrated device is disabled in the DB; the **registry pass**
+(:mod:`geecs_archiver.native`) derives what native EPICS IOCs serve from
+the configs repository.  Every candidate carries its ``source`` (``db`` |
+``registry``); both passes meet in :func:`derive_candidates`, under the
+same ``exclude`` globs.
 """
 
 from __future__ import annotations
@@ -45,12 +51,24 @@ from geecs_core.pv_naming import (
     pv_name,
     setpoint_pv,
 )
-from geecs_schemas import ArchivePolicy, DerivedChannels
+from geecs_schemas import (
+    ArchivePolicy,
+    DerivedChannels,
+    FamilyFile,
+    NativeDevices,
+    PanelDevices,
+    load_families,
+)
 
 if TYPE_CHECKING:
     from geecs_core.db.geecs_db import VariableMeta
 
+    from geecs_archiver.native import RegistryPass
+
 Kind = Literal["readback", "setpoint", "status", "derived", "include"]
+#: Where a candidate came from: the DB pass (the gateway's PVs) or the
+#: registry pass (a native IOC's records, :mod:`geecs_archiver.native`).
+Source = Literal["db", "registry"]
 
 #: The intrinsic per-device timestamps the gateways subscribe (GEECS-Core's ladder).
 TIMESTAMP_VARIABLES: frozenset[str] = frozenset(TIMESTAMP_LADDER)
@@ -67,6 +85,7 @@ class ArchiveCandidate:
     variable: str
     kind: Kind
     dtype: str
+    source: Source = "db"
 
 
 @dataclass(frozen=True)
@@ -160,6 +179,7 @@ def derive_candidates(
     *,
     policy: ArchivePolicy,
     derived: DerivedChannels | None = None,
+    native: Iterable[ArchiveCandidate] = (),
 ) -> list[ArchiveCandidate]:
     """Apply the rule to already-fetched DB data (the pure, network-free core).
 
@@ -180,6 +200,10 @@ def derive_candidates(
         The experiment's overlay (defaults when it has none).
     derived : DerivedChannels, optional
         The gateway's derived-channel overlay.
+    native : iterable of ArchiveCandidate, optional
+        The registry pass's candidates (:mod:`geecs_archiver.native`), which
+        the ``exclude`` globs filter like the DB's.  A PV both passes derive
+        keeps the DB's record.
 
     Returns
     -------
@@ -229,10 +253,34 @@ def derive_candidates(
                     "float",
                 )
             )
-    kept = {c.pv: c for c in out if not is_excluded(c.pv, policy)}
+    return apply_policy(out, native, policy)
+
+
+def apply_policy(
+    db: Iterable[ArchiveCandidate],
+    native: Iterable[ArchiveCandidate],
+    policy: ArchivePolicy,
+) -> list[ArchiveCandidate]:
+    """Where the passes meet: the ``exclude`` globs on both, the DB's record of a PV both derive, the ``include`` PVs."""
+    kept = {c.pv: c for c in db if not is_excluded(c.pv, policy)}
+    for candidate in native:
+        if not is_excluded(candidate.pv, policy):
+            kept.setdefault(candidate.pv, candidate)
     for pv in policy.include:
         kept.setdefault(pv, ArchiveCandidate(pv, "", "", "include", "unknown"))
     return sorted(kept.values())
+
+
+@dataclass(frozen=True)
+class ArchiveSet:
+    """The derived set, and the registry pass's report (conflicts, skipped devices)."""
+
+    candidates: list[ArchiveCandidate]
+    registry: RegistryPass
+
+    def by_source(self, source: Source) -> list[ArchiveCandidate]:
+        """The candidates one pass derived."""
+        return [c for c in self.candidates if c.source == source]
 
 
 def build_archive_set(
@@ -240,16 +288,52 @@ def build_archive_set(
     *,
     policy: ArchivePolicy,
     derived: DerivedChannels | None = None,
+    registry: NativeDevices | None = None,
+    panels: PanelDevices | None = None,
+    families: Mapping[str, FamilyFile] | None = None,
+    use_db: bool = True,
     enabled_only: bool = True,
-) -> list[ArchiveCandidate]:
-    """Derive the experiment's archive set live from the GEECS database."""
-    from geecs_core.db.geecs_db import GeecsDb  # lazy: the DB client needs lab access
+) -> ArchiveSet:
+    """Derive the experiment's archive set: the DB pass live from the GEECS database, then the registry pass.
 
-    endpoints = GeecsDb.get_experiment_devices(experiment, enabled_only=enabled_only)
-    var_map = GeecsDb.get_experiment_device_variables(
-        experiment, enabled_only=enabled_only
+    ``use_db=False`` reads no database (``geecs-archiver list --no-db``): the
+    registry pass alone, unchecked against the DB roster, and none of the
+    gateway's PVs.
+    """
+    from geecs_archiver.native import derive_native_candidates  # it imports this module
+
+    endpoints: Mapping[str, object] = {}
+    var_map: Mapping[str, Sequence[VariableMeta]] = {}
+    sub_map: Mapping[str, Iterable[str]] = {}
+    if use_db:
+        from geecs_core.db.geecs_db import (
+            GeecsDb,
+        )  # lazy: the DB client needs lab access
+
+        endpoints = GeecsDb.get_experiment_devices(
+            experiment, enabled_only=enabled_only
+        )
+        var_map = GeecsDb.get_experiment_device_variables(
+            experiment, enabled_only=enabled_only
+        )
+        sub_map = GeecsDb.get_subscribed_variables(
+            experiment, enabled_only=enabled_only
+        )
+    native = derive_native_candidates(
+        experiment,
+        registry if registry is not None else NativeDevices(),
+        panels if panels is not None else PanelDevices(),
+        policy=policy,
+        db_devices=list(endpoints) if use_db else None,
+        families=families if families is not None else load_families(),
     )
-    sub_map = GeecsDb.get_subscribed_variables(experiment, enabled_only=enabled_only)
-    return derive_candidates(
-        experiment, endpoints, var_map, sub_map, policy=policy, derived=derived
+    candidates = derive_candidates(
+        experiment,
+        endpoints,
+        var_map,
+        sub_map,
+        policy=policy,
+        derived=derived if use_db else None,
+        native=native.candidates,
     )
+    return ArchiveSet(candidates, native)

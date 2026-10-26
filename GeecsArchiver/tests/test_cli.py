@@ -6,18 +6,21 @@ import httpx
 import pytest
 
 from geecs_archiver import cli
-from geecs_archiver.archive_set import ArchiveCandidate
+from geecs_archiver.archive_set import ArchiveCandidate, ArchiveSet
+from geecs_archiver.native import RegistryPass
+
+BASE_SET = [
+    ArchiveCandidate(
+        "undulator:u_s1h:current", "U_S1H", "Current", "readback", "float"
+    ),
+    ArchiveCandidate(
+        "undulator:u_s1h:connected", "U_S1H", "connected", "status", "enum"
+    ),
+]
 
 
-def fake_build(experiment, *, policy, derived=None, enabled_only=True):
-    return [
-        ArchiveCandidate(
-            "undulator:u_s1h:current", "U_S1H", "Current", "readback", "float"
-        ),
-        ArchiveCandidate(
-            "undulator:u_s1h:connected", "U_S1H", "connected", "status", "enum"
-        ),
-    ]
+def fake_build(experiment, *, policy, extra=(), registry=None, **_):
+    return ArchiveSet([*BASE_SET, *extra], RegistryPass())
 
 
 class Appliance:
@@ -140,10 +143,15 @@ def test_onboard_reports_a_stuck_request_on_every_run(appliance, monkeypatch, ca
     monkeypatch.setattr(
         cli,
         "build_archive_set",
-        lambda *a, **k: fake_build(*a, **k)
-        + [
-            ArchiveCandidate("undulator:u_ghost:x", "U_Ghost", "x", "readback", "float")
-        ],
+        lambda *a, **k: fake_build(
+            *a,
+            extra=[
+                ArchiveCandidate(
+                    "undulator:u_ghost:x", "U_Ghost", "x", "readback", "float"
+                )
+            ],
+            **k,
+        ),
     )
     # first run (no wait): the ghost is submitted and this run returns before the
     # appliance's type probe can list it as never-connected (verify, or the next run,
@@ -223,7 +231,7 @@ def test_malformed_or_missing_policy_is_a_usage_exit(appliance, tmp_path, capsys
         cli.main(["list", "--experiment", "Undulator", "--policy", str(bad)])
         == cli.EXIT_USAGE
     )
-    assert "cannot load the configuration overlay" in capsys.readouterr().err
+    assert "cannot load a configuration document" in capsys.readouterr().err
     assert (
         cli.main(
             [
@@ -236,3 +244,84 @@ def test_malformed_or_missing_policy_is_a_usage_exit(appliance, tmp_path, capsys
         )
         == cli.EXIT_USAGE
     )
+
+
+def configs_checkout(tmp_path, monkeypatch, *, native, panels=""):
+    folder = tmp_path / "Undulator"
+    folder.mkdir()
+    (folder / "native_devices.yaml").write_text(native)
+    if panels:
+        (folder / "panel_devices.yaml").write_text(panels)
+    monkeypatch.setenv("GEECS_SCANNER_CONFIG_DIR", str(tmp_path))
+
+
+def test_list_no_db_derives_the_registry_offline(tmp_path, monkeypatch, capsys):
+    from geecs_core.db import geecs_db
+
+    def refuse(*_a, **_k):
+        raise AssertionError("the DB was read")
+
+    monkeypatch.setattr(
+        geecs_db.GeecsDb, "get_experiment_devices", staticmethod(refuse)
+    )
+    configs_checkout(
+        tmp_path,
+        monkeypatch,
+        native="devices:\n  ADTEST_CAM1: {kind: aravis_camera, trigger_source: software}\n",
+        panels="devices:\n  ADTEST_CAM1: {family: ad_camera_chain, ioc: adtest-cam1}\n",
+    )
+    assert cli.main(["list", "--experiment", "Undulator", "--no-db"]) == 0
+    captured = capsys.readouterr()
+    assert "undulator:adtest_cam1:cam1:Gain_RBV" in captured.out
+    assert "ADTEST-CAM1:HEARTBEAT" in captured.out
+    assert "registry" in captured.out.splitlines()[0]
+    assert "db 0, registry 15 (DB not read" in captured.err
+
+
+def test_list_json_carries_the_source(tmp_path, monkeypatch, capsys):
+    configs_checkout(
+        tmp_path, monkeypatch, native="devices:\n  M: {kind: epics_motor, axes: [x]}\n"
+    )
+    assert cli.main(["list", "--experiment", "Undulator", "--no-db", "--json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert {r["source"] for r in rows} == {"registry"} and len(rows) == 5
+
+
+def test_a_device_both_passes_own_is_a_drift_exit(tmp_path, monkeypatch, capsys):
+    from geecs_core.db import geecs_db
+
+    for name, value in (
+        ("get_experiment_devices", {"M": ("h", 1)}),
+        ("get_experiment_device_variables", {"M": []}),
+        ("get_subscribed_variables", {}),
+    ):
+        monkeypatch.setattr(
+            geecs_db.GeecsDb,
+            name,
+            staticmethod(lambda e, enabled_only=True, value=value: value),
+        )
+    configs_checkout(
+        tmp_path, monkeypatch, native="devices:\n  M: {kind: epics_motor, axes: [x]}\n"
+    )
+    assert cli.main(["list", "--experiment", "Undulator"]) == cli.EXIT_DRIFT
+    err = capsys.readouterr().err
+    assert "! conflict: M:" in err and "db 0, registry 0" in err
+
+
+def test_never_connected_names_the_source(appliance, monkeypatch, capsys):
+    ghost = ArchiveCandidate(
+        "undulator:m:x.RBV", "M", "x:rbv", "readback", "float", "registry"
+    )
+    monkeypatch.setattr(
+        cli, "build_archive_set", lambda *a, **k: fake_build(*a, extra=[ghost], **k)
+    )
+    appliance.never_connected.append(ghost.pv)
+    rc = cli.main(["onboard", "--experiment", "Undulator", "--dry-run"])
+    out = capsys.readouterr().out
+    assert rc == cli.EXIT_DRIFT
+    assert (
+        "never connected: undulator:m:x.RBV  [registry] (the rule wants it; its IOC"
+        in out
+    )
+    assert "+ undulator:m:x.RBV  [registry]" not in out  # pending, not resent
+    assert "db 2, registry 1" in out

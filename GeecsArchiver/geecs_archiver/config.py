@@ -6,7 +6,9 @@ client ``~/.config/geecs_python_api/config.ini`` (``[archiver] url``,
 environment (``GEECS_ARCHIVER_URL`` overrides the file — the unit's
 ``site.env`` is one producer of it).  The configs-repository lookup is
 GEECS-Core's (:mod:`geecs_core.configs_repo`), shared with the gateway.
-Nothing here is a lab literal.
+The registry pass reads two documents at the experiment folder's root —
+``native_devices.yaml`` and ``panel_devices.yaml`` — the files the scan
+worker and the PV bridge read.  Nothing here is a lab literal.
 """
 
 from __future__ import annotations
@@ -24,8 +26,12 @@ from geecs_schemas import (
     ARCHIVER_CONFIG_FOLDER,
     DERIVED_CHANNELS_FILENAME,
     GATEWAY_CONFIG_FOLDER,
+    NATIVE_DEVICES_FILENAME,
+    PANEL_DEVICES_FILENAME,
     ArchivePolicy,
     DerivedChannels,
+    NativeDevices,
+    PanelDevices,
 )
 
 DEFAULT_PORT = 17665
@@ -41,6 +47,10 @@ __all__ = [
     "derived_channels_path",
     "load_policy",
     "load_derived_channels",
+    "native_devices_path",
+    "panel_devices_path",
+    "load_native_devices",
+    "load_panel_devices",
 ]
 
 
@@ -95,3 +105,32 @@ def load_policy(path: Path | None) -> ArchivePolicy:
 def load_derived_channels(path: Path | None) -> DerivedChannels | None:
     """Load the gateway's derived-channel overlay, or ``None`` when there is none."""
     return None if path is None else DerivedChannels.from_path(path)
+
+
+def _experiment_file(experiment: str, filename: str, base: Path | None) -> Path | None:
+    """``<base>/<experiment>/<filename>`` if it exists, else ``None``."""
+    base = base if base is not None else scanner_configs_base()
+    if base is None:
+        return None
+    path = base / experiment / filename
+    return path if path.exists() else None
+
+
+def native_devices_path(experiment: str, base: Path | None = None) -> Path | None:
+    """The experiment's ``native_devices.yaml`` (the worker's registry) if it exists, else ``None``."""
+    return _experiment_file(experiment, NATIVE_DEVICES_FILENAME, base)
+
+
+def panel_devices_path(experiment: str, base: Path | None = None) -> Path | None:
+    """The experiment's ``panel_devices.yaml`` (the panel data) if it exists, else ``None``."""
+    return _experiment_file(experiment, PANEL_DEVICES_FILENAME, base)
+
+
+def load_native_devices(path: Path | None) -> NativeDevices:
+    """Load the native-device registry; no file means no native devices."""
+    return NativeDevices() if path is None else NativeDevices.from_path(path)
+
+
+def load_panel_devices(path: Path | None) -> PanelDevices:
+    """Load the panel data; no file means none (validated against the installed families)."""
+    return PanelDevices() if path is None else PanelDevices.from_path(path)

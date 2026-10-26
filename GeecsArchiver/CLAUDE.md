@@ -17,11 +17,15 @@ geecs_archiver/
   config.py        appliance URL (GEECS_ARCHIVER_URL / config.ini [archiver] url),
                    experiment, thin wrappers over geecs_core.configs_repo and the
                    schemas' from_path loaders
-  archive_set.py   THE RULE — derive_candidates (pure) + build_archive_set (DB);
-                   classify() mirrors geecs_core.db.variable_types; sampling_for()
+  archive_set.py   THE RULE — derive_candidates (pure; where both passes meet,
+                   under the exclude globs) + build_archive_set (DB, then the
+                   registry pass; use_db=False = --no-db); classify() mirrors
+                   geecs_core.db.variable_types; sampling_for()
+  native.py        THE REGISTRY PASS — derive_native_candidates (pure, no DB):
+                   native_devices.yaml + panel_devices.yaml + the family files
   mgmt_client.py   MgmtClient over <url>/mgmt/bpl; PVStatus; one MgmtError
   onboard.py       plan_onboarding → apply → verify (never-connected = drift alarm)
-  cli.py           geecs-archiver list | onboard | status | export-config
+  cli.py           geecs-archiver list [--no-db] | onboard | status | export-config
 deploy/
   geecs-archiver.service   unit TEMPLATE (User=@SERVICE_USER@, EnvironmentFile=@SITE_ENV@)
   compose.yaml.in          upstream image pinned by tag; host networking; JDBM2 persistence
@@ -47,6 +51,31 @@ deploy/
   GEECS-Schemas. If the served-set rule itself ever bites, it moves to
   GEECS-Core the same way (the `variable_types` precedent) — never import
   the gateway.
+- **Native devices come from the registry, never the DB.** A migrated
+  device is disabled in the GEECS DB, so the DB pass drops it; the registry
+  pass (`native.py`) archives every `native_devices.yaml` device and every
+  `panel_devices.yaml` device the DB does not own. Per device: its family
+  (the panel data's, else the one family file of its registry kind), the
+  family's `archive: true` roles — or, for a family marking none, the
+  kind's rule (`default_archive_roles`, `NATIVE_DEVICES.md` §10) — plus the
+  device's `archive`, minus `no_archive` and `omit`; scalars only. A role
+  whose record is its own write target (`.VAL`, `current:SP`) is a
+  setpoint, under `include_setpoints`; a setting's `_RBV` is a readback.
+  Under `include_status`, the kind's liveness record (`LIVENESS_SUFFIXES`:
+  the camera's `cam1:AsynIO.CNCT`) and one `<IOC>:HEARTBEAT` per IOC a
+  device names (`ioc:`, devIocStats). PV names come from
+  `geecs_core.pv_naming.native_device_prefix` (or a bench device's own
+  `prefix`) + the suffix, per axis for a per-axis family — the prefix rule
+  has one home, never re-derive it. A registry device the DB also owns
+  (enabled) is a **conflict**: reported, archived from the DB only, exit 1.
+  `exclude` globs apply to both passes; `include` keeps its gateway
+  spelling (natives are derived, never hand-listed). Every candidate carries
+  its `source` (`db` | `registry`), and the never-connected line names it.
+  **No deadband is sent for a native PV**, as for a DB PV: the archive
+  deadband is the record's own `ADEL` (the IOC's template), which the
+  appliance's `DBE_LOG` monitor honours; the sampling overrides are the
+  archiver-side lever. The heartbeat sits outside the experiment's prefix,
+  so a run never pauses one the rule drops — pause it by hand.
 - **The configuration of record is the rule + the committed overlay**, not
   the appliance's store. `onboard` is idempotent; rerunning it after a DB
   edit is the same reflex as restarting the gateway. The appliance's own
@@ -87,7 +116,9 @@ deploy/
 cd GeecsArchiver && poetry install --with dev && poetry run pytest tests -q
 ```
 
-Hermetic: the DB rule runs on hand-built rows, the client against an
+Hermetic: the DB rule runs on hand-built rows, the registry pass on the
+installed family files and hand-written registries (expected PV names written
+out, never computed), the client against an
 `httpx.MockTransport`, the CLI with both faked, the renderer as a bash
 subprocess against `deploy/site.env.example` plus the archiver keys. Nothing
 needs the lab. The live checks are in `DEPLOYMENT.md`.

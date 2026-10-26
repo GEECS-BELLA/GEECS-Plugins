@@ -199,3 +199,46 @@ def gateway_status_pv(experiment: str | None, name: str) -> str:
         :func:`pv_name`.
     """
     return pv_name(experiment or "", GATEWAY_DEVICE, name)
+
+
+def native_device_prefix(experiment: str | None, device: str) -> str:
+    """Return the PV prefix a native EPICS IOC serves a registry device under.
+
+    ``<experiment>:<device>:`` — the GEECS normalization of the two names
+    and the separator, so a device keeps the prefix it had behind the
+    gateway when it migrates to its own IOC (geecs-epics' chain contract).
+    The record names under it are the template's own, verbatim (mixed
+    case: ``cam1:AcquireTime_RBV``, a motor axis's ``x.RBV``).  The one
+    home of the rule: the scan worker, the PV bridge and the archiver all
+    mint it here.
+
+    Parameters
+    ----------
+    experiment : str or None
+        Raw GEECS experiment name (dropped when falsy).
+    device : str
+        Raw GEECS device name, as the registry lists it.
+    """
+    return pv_name(experiment or "", device) + ":"
+
+
+#: devIocStats' liveness counter (``iocAdminSoft.db``), one per IOC.
+IOC_HEARTBEAT = "HEARTBEAT"
+
+
+def ioc_heartbeat_pv(ioc: str) -> str:
+    """Return a native IOC's devIocStats heartbeat PV: ``<IOC>:HEARTBEAT``.
+
+    geecs-epics instantiates ``devIocStats.iocAdminSoft`` with
+    ``IOC: "{{ ioc_name | upper }}"``, the IOC's name (its compose
+    ``IOC_NAME``) upper-cased; the per-IOC analogue of the gateway's
+    ``cagateway:heartbeat``.  Not under the experiment's prefix: an IOC may
+    serve several devices.
+
+    Parameters
+    ----------
+    ioc : str
+        The IOC's name as its host's compose file sets ``IOC_NAME``
+        (``adtest-cam1``).
+    """
+    return f"{ioc.strip().upper()}:{IOC_HEARTBEAT}"
