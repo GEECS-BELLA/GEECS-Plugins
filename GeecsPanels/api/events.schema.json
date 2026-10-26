@@ -609,6 +609,19 @@
           "description": "The record's severity after the put.",
           "title": "Severity"
         },
+        "snapshot": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The snapshot a restore wrote this row from (its id); null for a page's own put.",
+          "title": "Snapshot"
+        },
         "time": {
           "description": "When the put was answered, Unix seconds.",
           "title": "Time",
@@ -1000,6 +1013,209 @@
       "title": "Reading",
       "type": "object"
     },
+    "RestoreResult": {
+      "additionalProperties": false,
+      "description": "``POST /api/snapshots/{id}/restore``'s answer: every ticked row, in the snapshot's order.\n\nExamples\n--------\n{\"id\": \"s19a1b2c3d4e-0f1e2d3c\", \"operator\": \"S. Barber\", \"stopped\": true, \"rows\": [{\"device\": \"U_ChicaneInner\", \"role\": \"output_sp\", \"value\": 1, \"status\": \"denied\", \"result\": {\"outcome\": \"denied\", \"value\": 1, \"message\": \"output_sp on U_ChicaneInner needs the hazard confirm (to 1)\", \"journal_id\": 60}, \"message\": \"output_sp on U_ChicaneInner needs the hazard confirm (to 1)\"}, {\"device\": \"U_ChicaneInner\", \"role\": \"current_sp\", \"value\": 0.25, \"status\": \"not_run\", \"message\": \"not run: an earlier row was refused\"}]}",
+      "examples": [
+        {
+          "id": "s19a1b2c3d4e-0f1e2d3c",
+          "operator": "S. Barber",
+          "rows": [
+            {
+              "device": "U_ChicaneInner",
+              "message": "output_sp on U_ChicaneInner needs the hazard confirm (to 1)",
+              "result": {
+                "journal_id": 60,
+                "message": "output_sp on U_ChicaneInner needs the hazard confirm (to 1)",
+                "outcome": "denied",
+                "value": 1
+              },
+              "role": "output_sp",
+              "status": "denied",
+              "value": 1
+            },
+            {
+              "device": "U_ChicaneInner",
+              "message": "not run: an earlier row was refused",
+              "role": "current_sp",
+              "status": "not_run",
+              "value": 0.25
+            }
+          ],
+          "stopped": true
+        }
+      ],
+      "properties": {
+        "id": {
+          "description": "The snapshot.",
+          "title": "Id",
+          "type": "string"
+        },
+        "operator": {
+          "description": "Who restored.",
+          "title": "Operator",
+          "type": "string"
+        },
+        "rows": {
+          "description": "Each ticked row and how it ended.",
+          "items": {
+            "$ref": "#/$defs/RestoreRow"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "stopped": {
+          "description": "A row stopped the run (stop_on_refusal); the rows after it are not_run.",
+          "title": "Stopped",
+          "type": "boolean"
+        },
+        "unreachable": {
+          "description": "The devices skipped as unreachable.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Unreachable",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "operator",
+        "stopped",
+        "rows"
+      ],
+      "title": "RestoreResult",
+      "type": "object"
+    },
+    "RestoreRow": {
+      "additionalProperties": false,
+      "description": "One row of a restore: what it wrote and how it ended (its put's result, journaled).\n\nExamples\n--------\n{\"device\": \"U_ESP302_01\", \"axis\": \"m1\", \"role\": \"val\", \"value\": 1.25, \"status\": \"accepted\", \"result\": {\"outcome\": \"accepted\", \"value\": 1.25, \"message\": \"dispatched; done when dmov says\", \"journal_id\": 51}, \"settled\": true, \"message\": \"settled\"}\n\n{\"device\": \"UC_ExampleCam\", \"role\": \"exposure\", \"value\": 0.01, \"status\": \"unreachable\", \"result\": {\"outcome\": \"denied\", \"value\": 0.01, \"message\": \"no stream of UC_ExampleCam is open: reload the page\", \"journal_id\": 52}, \"message\": \"no stream of UC_ExampleCam is open: reload the page\"}",
+      "examples": [
+        {
+          "axis": "m1",
+          "device": "U_ESP302_01",
+          "message": "settled",
+          "result": {
+            "journal_id": 51,
+            "message": "dispatched; done when dmov says",
+            "outcome": "accepted",
+            "value": 1.25
+          },
+          "role": "val",
+          "settled": true,
+          "status": "accepted",
+          "value": 1.25
+        },
+        {
+          "device": "UC_ExampleCam",
+          "message": "no stream of UC_ExampleCam is open: reload the page",
+          "result": {
+            "journal_id": 52,
+            "message": "no stream of UC_ExampleCam is open: reload the page",
+            "outcome": "denied",
+            "value": 0.01
+          },
+          "role": "exposure",
+          "status": "unreachable",
+          "value": 0.01
+        }
+      ],
+      "properties": {
+        "axis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The axis, for a per-axis family.",
+          "title": "Axis"
+        },
+        "device": {
+          "description": "The device.",
+          "title": "Device",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "description": "Why it ended so.",
+          "title": "Message",
+          "type": "string"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PutResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The put's answer, journaled with the snapshot's id; null: no put (not run, not served)."
+        },
+        "role": {
+          "description": "The role.",
+          "title": "Role",
+          "type": "string"
+        },
+        "settled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For a motion row: done at the target within the time allowed.",
+          "title": "Settled"
+        },
+        "status": {
+          "description": "accepted, refused, denied, unreachable, unsettled or not_run.",
+          "enum": [
+            "accepted",
+            "refused",
+            "denied",
+            "unreachable",
+            "unsettled",
+            "not_run"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "The value written back (the saved setpoint).",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "device",
+        "role",
+        "value",
+        "status"
+      ],
+      "title": "RestoreRow",
+      "type": "object"
+    },
     "RoleReading": {
       "additionalProperties": false,
       "description": "One role of a device: its reading, and the record fields read beside it (all of them, every time).\n\n``fields`` carries the role's family ``fields`` (each a monitor of the\nrecord's field: the supplies' ``DRVH``/``DRVL``/``HIHI``/``LOLO``, the\nmotor ``val``'s ``HLM``/``LLM``) and, for a ``setpoint``, ``EGU`` and\n``PREC`` from the record's ``DBR_CTRL`` (read at subscribe, refreshed\nwhen the record's properties change, null while unread) unless the\nfamily monitors them itself. ``choices`` carries an ``enum``'s state\nnames from the same ``DBR_CTRL`` read, so a page keeps no list of its\nown (and a put checks against the same names); on the wire it is absent\nfor every other role and while unread. A record's control and alarm\nlimits are named only where the family names the field (``DRVH`` on an\n``ao``, ``HLM`` on a motor): which field ``DBR_CTRL``'s limits come\nfrom depends on the record type, so the bridge never guesses a name.",
@@ -1116,6 +1332,213 @@
       "title": "RoleReading",
       "type": "object"
     },
+    "RowDiff": {
+      "additionalProperties": false,
+      "description": "One row of ``GET /api/snapshots/{id}/diff``: the saved value against live.\n\nExamples\n--------\n{\"device\": \"U_ChicaneInner\", \"role\": \"current_sp\", \"saved\": 0.25, \"live\": 0.3, \"readback_saved\": 0.249, \"readback_live\": 0.301, \"tolerance\": 0.0005, \"state\": \"differs\"}\n\n{\"device\": \"U_ESP302_01\", \"axis\": \"m1\", \"role\": \"val\", \"saved\": 1.25, \"state\": \"unreachable\", \"message\": \"not connected\"}",
+      "examples": [
+        {
+          "device": "U_ChicaneInner",
+          "live": 0.3,
+          "readback_live": 0.301,
+          "readback_saved": 0.249,
+          "role": "current_sp",
+          "saved": 0.25,
+          "state": "differs",
+          "tolerance": 0.0005
+        },
+        {
+          "axis": "m1",
+          "device": "U_ESP302_01",
+          "message": "not connected",
+          "role": "val",
+          "saved": 1.25,
+          "state": "unreachable"
+        }
+      ],
+      "properties": {
+        "axis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The axis, for a per-axis family.",
+          "title": "Axis"
+        },
+        "device": {
+          "description": "The device.",
+          "title": "Device",
+          "type": "string"
+        },
+        "live": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Its value now; null when unreachable.",
+          "title": "Live"
+        },
+        "message": {
+          "default": "",
+          "description": "Why it is unreachable.",
+          "title": "Message",
+          "type": "string"
+        },
+        "readback_live": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Its readback now.",
+          "title": "Readback Live"
+        },
+        "readback_saved": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Its readback at capture.",
+          "title": "Readback Saved"
+        },
+        "role": {
+          "description": "The role.",
+          "title": "Role",
+          "type": "string"
+        },
+        "saved": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "The setpoint the snapshot keeps.",
+          "title": "Saved"
+        },
+        "state": {
+          "description": "within, differs or unreachable.",
+          "enum": [
+            "within",
+            "differs",
+            "unreachable"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "tolerance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How far live may sit and still be within: the family's 'tolerance', else half the last digit PREC shows, else 0 (exact).",
+          "title": "Tolerance"
+        }
+      },
+      "required": [
+        "device",
+        "role",
+        "saved",
+        "state"
+      ],
+      "title": "RowDiff",
+      "type": "object"
+    },
+    "RowRef": {
+      "additionalProperties": false,
+      "description": "A row of a snapshot, by device, axis and role: the operator's tick in the restore view.",
+      "properties": {
+        "axis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The axis, for a per-axis family.",
+          "title": "Axis"
+        },
+        "device": {
+          "description": "The device.",
+          "minLength": 1,
+          "title": "Device",
+          "type": "string"
+        },
+        "role": {
+          "description": "The role.",
+          "minLength": 1,
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device",
+        "role"
+      ],
+      "title": "RowRef",
+      "type": "object"
+    },
     "RunLock": {
       "additionalProperties": false,
       "description": "The run lock (``camera.lock_state``): a run holding the device refuses its locked roles.",
@@ -1182,6 +1605,516 @@
         "state"
       ],
       "title": "Saturation",
+      "type": "object"
+    },
+    "SavedSnapshot": {
+      "additionalProperties": false,
+      "description": "A snapshot and its id: ``POST /api/snapshots``' answer and ``GET /api/snapshots/{id}``'s.\n\nExamples\n--------\n{\"id\": \"s19a1b2c3d4e-0f1e2d3c\", \"snapshot\": {\"schema_version\": 1, \"name\": \"chicane tuned, 25 pC\", \"created\": 1761400000.0, \"author\": \"S. Barber\", \"scope\": {\"devices\": [\"U_ChicaneInner\"]}, \"rows\": [{\"device\": \"U_ChicaneInner\", \"role\": \"current_sp\", \"setpoint\": 0.25, \"readback\": 0.249}]}}",
+      "examples": [
+        {
+          "id": "s19a1b2c3d4e-0f1e2d3c",
+          "snapshot": {
+            "author": "S. Barber",
+            "created": 1761400000.0,
+            "name": "chicane tuned, 25 pC",
+            "rows": [
+              {
+                "device": "U_ChicaneInner",
+                "readback": 0.249,
+                "role": "current_sp",
+                "setpoint": 0.25
+              }
+            ],
+            "schema_version": 1,
+            "scope": {
+              "devices": [
+                "U_ChicaneInner"
+              ]
+            }
+          }
+        }
+      ],
+      "properties": {
+        "id": {
+          "description": "The snapshot's id: one URL segment.",
+          "title": "Id",
+          "type": "string"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/Snapshot",
+          "description": "The document (GEECS-Schemas' Snapshot)."
+        }
+      },
+      "required": [
+        "id",
+        "snapshot"
+      ],
+      "title": "SavedSnapshot",
+      "type": "object"
+    },
+    "Snapshot": {
+      "additionalProperties": false,
+      "description": "A named set of setpoints across devices, with the readbacks at the time: what a restore returns the beamline to.\n\nTaken by the PV bridge from its live device streams (every writable\nsetpoint, enum and bit role of the scope's devices), never written by\nhand; kept as one JSON file per snapshot in the bridge's state\ndirectory.",
+      "properties": {
+        "author": {
+          "description": "Who took it (the operator's identity, as a put journals it).",
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Author",
+          "type": "string"
+        },
+        "created": {
+          "description": "When it was taken, Unix seconds.",
+          "title": "Created",
+          "type": "number"
+        },
+        "golden": {
+          "default": false,
+          "description": "Marked as a reference setup (a later release promotes golden snapshots into the configs repository).",
+          "title": "Golden",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "What the operator called it: 'chicane tuned, 25 pC'.",
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "note": {
+          "default": "",
+          "description": "Why, in a line or a few.",
+          "maxLength": 2000,
+          "title": "Note",
+          "type": "string"
+        },
+        "rows": {
+          "description": "Every writable role of the scope's devices, per axis, as it was.",
+          "items": {
+            "$ref": "#/$defs/SnapshotRow"
+          },
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "description": "Format version of this config file. Leave at 1 — tools update this automatically when the file format changes.",
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "#/$defs/SnapshotScope",
+          "description": "The devices it covers, or the panel."
+        }
+      },
+      "required": [
+        "name",
+        "created",
+        "author",
+        "scope",
+        "rows"
+      ],
+      "title": "Snapshot",
+      "type": "object"
+    },
+    "SnapshotCapture": {
+      "additionalProperties": false,
+      "description": "``POST /api/snapshots``: take a snapshot of a scope's devices from their live streams.\n\nExamples\n--------\n{\"name\": \"chicane tuned, 25 pC\", \"operator\": \"S. Barber\", \"note\": \"after the jet realignment\", \"scope\": {\"panel\": \"chicane\"}}\n\n{\"name\": \"stage parked\", \"operator\": \"S. Barber\", \"golden\": true, \"scope\": {\"devices\": [\"U_ESP302_01\"]}}",
+      "examples": [
+        {
+          "name": "chicane tuned, 25 pC",
+          "note": "after the jet realignment",
+          "operator": "S. Barber",
+          "scope": {
+            "panel": "chicane"
+          }
+        },
+        {
+          "golden": true,
+          "name": "stage parked",
+          "operator": "S. Barber",
+          "scope": {
+            "devices": [
+              "U_ESP302_01"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "golden": {
+          "default": false,
+          "description": "Mark it a reference setup.",
+          "title": "Golden",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "What to call it.",
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "note": {
+          "default": "",
+          "description": "Why, in a line or a few.",
+          "maxLength": 2000,
+          "title": "Note",
+          "type": "string"
+        },
+        "operator": {
+          "description": "Who takes it (its author).",
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Operator",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/SnapshotScope",
+          "description": "The devices, or a composed panel's."
+        }
+      },
+      "required": [
+        "name",
+        "operator",
+        "scope"
+      ],
+      "title": "SnapshotCapture",
+      "type": "object"
+    },
+    "SnapshotDiff": {
+      "additionalProperties": false,
+      "description": "``GET /api/snapshots/{id}/diff``: every row against live, and whether all are within (the active verdict).\n\nExamples\n--------\n{\"id\": \"s19a1b2c3d4e-0f1e2d3c\", \"server_time\": 1761400100.0, \"within\": false, \"rows\": [{\"device\": \"U_ChicaneInner\", \"role\": \"current_sp\", \"saved\": 0.25, \"live\": 0.25, \"tolerance\": 0.0005, \"state\": \"within\"}, {\"device\": \"U_ESP302_01\", \"axis\": \"m1\", \"role\": \"val\", \"saved\": 1.25, \"state\": \"unreachable\", \"message\": \"not connected\"}], \"unreachable\": [\"U_ESP302_01\"]}",
+      "examples": [
+        {
+          "id": "s19a1b2c3d4e-0f1e2d3c",
+          "rows": [
+            {
+              "device": "U_ChicaneInner",
+              "live": 0.25,
+              "role": "current_sp",
+              "saved": 0.25,
+              "state": "within",
+              "tolerance": 0.0005
+            },
+            {
+              "axis": "m1",
+              "device": "U_ESP302_01",
+              "message": "not connected",
+              "role": "val",
+              "saved": 1.25,
+              "state": "unreachable"
+            }
+          ],
+          "server_time": 1761400100.0,
+          "unreachable": [
+            "U_ESP302_01"
+          ],
+          "within": false
+        }
+      ],
+      "properties": {
+        "id": {
+          "description": "The snapshot.",
+          "title": "Id",
+          "type": "string"
+        },
+        "rows": {
+          "description": "Each row, in the snapshot's order.",
+          "items": {
+            "$ref": "#/$defs/RowDiff"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "server_time": {
+          "description": "When live was read, Unix seconds.",
+          "title": "Server Time",
+          "type": "number"
+        },
+        "unreachable": {
+          "description": "The devices with an unreachable row.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Unreachable",
+          "type": "array"
+        },
+        "within": {
+          "description": "Every row within its tolerance of live: the beamline is in this snapshot.",
+          "title": "Within",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "server_time",
+        "within",
+        "rows"
+      ],
+      "title": "SnapshotDiff",
+      "type": "object"
+    },
+    "SnapshotRestore": {
+      "additionalProperties": false,
+      "description": "``POST /api/snapshots/{id}/restore``: write the ticked rows back, through the put gates.\n\nNever the whole snapshot by default: ``rows`` names each row. Stop on\nthe first refusal or continue is chosen before the run.\n\nExamples\n--------\n{\"rows\": [{\"device\": \"U_ChicaneInner\", \"role\": \"current_sp\"}, {\"device\": \"U_ESP302_01\", \"axis\": \"m1\", \"role\": \"val\"}], \"operator\": \"S. Barber\", \"confirm\": true, \"stop_on_refusal\": true}",
+      "examples": [
+        {
+          "confirm": true,
+          "operator": "S. Barber",
+          "rows": [
+            {
+              "device": "U_ChicaneInner",
+              "role": "current_sp"
+            },
+            {
+              "axis": "m1",
+              "device": "U_ESP302_01",
+              "role": "val"
+            }
+          ],
+          "stop_on_refusal": true
+        }
+      ],
+      "properties": {
+        "confirm": {
+          "default": false,
+          "description": "The operator confirmed the dialog naming the hazard rows and the motion rows (each needs it).",
+          "title": "Confirm",
+          "type": "boolean"
+        },
+        "operator": {
+          "description": "Who restores, journaled with each row.",
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Operator",
+          "type": "string"
+        },
+        "rows": {
+          "description": "The rows to write, each a row of the snapshot.",
+          "items": {
+            "$ref": "#/$defs/RowRef"
+          },
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        },
+        "stop_on_refusal": {
+          "description": "Stop at the first refused, denied or unsettled row (true), or go on (false).",
+          "title": "Stop On Refusal",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "rows",
+        "operator",
+        "stop_on_refusal"
+      ],
+      "title": "SnapshotRestore",
+      "type": "object"
+    },
+    "SnapshotRow": {
+      "additionalProperties": false,
+      "description": "One writable role of one device (and axis) as it was: its setpoint, and its readback beside it.",
+      "properties": {
+        "axis": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The axis, for a per-axis family (the motor record); else absent.",
+          "title": "Axis"
+        },
+        "device": {
+          "description": "The device's GEECS name.",
+          "title": "Device",
+          "type": "string"
+        },
+        "readback": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The value of the role's readback (its family's 'readback') at capture; null when the family names none or it was not read.",
+          "title": "Readback"
+        },
+        "role": {
+          "description": "The role (a writable setpoint, enum or bit).",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Role",
+          "type": "string"
+        },
+        "setpoint": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "The role's value at capture: what a restore writes back.",
+          "title": "Setpoint"
+        }
+      },
+      "required": [
+        "device",
+        "role",
+        "setpoint"
+      ],
+      "title": "SnapshotRow",
+      "type": "object"
+    },
+    "SnapshotScope": {
+      "additionalProperties": false,
+      "description": "What a snapshot covers: a list of devices, or a composed panel's devices.\n\nExactly one of the two. A panel's devices are those its device and\ncomponent widgets name, resolved when the snapshot is taken (the rows\nrecord them).",
+      "properties": {
+        "devices": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The devices whose writable roles are kept, by GEECS name.",
+          "title": "Devices"
+        },
+        "panel": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "^[^/\\s]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A composed panel's name (its file stem under <experiment>/panels/).",
+          "title": "Panel"
+        }
+      },
+      "title": "SnapshotScope",
+      "type": "object"
+    },
+    "SnapshotSummary": {
+      "additionalProperties": false,
+      "description": "One line of ``GET /api/snapshots`` (and of ``/api/snapshots/active``): a snapshot without its rows.\n\nExamples\n--------\n{\"id\": \"s19a1b2c3d4e-0f1e2d3c\", \"name\": \"chicane tuned, 25 pC\", \"created\": 1761400000.0, \"author\": \"S. Barber\", \"note\": \"\", \"golden\": false, \"scope\": {\"panel\": \"chicane\"}, \"devices\": [\"U_ChicaneInner\", \"U_ESP302_01\"], \"rows\": 9}",
+      "examples": [
+        {
+          "author": "S. Barber",
+          "created": 1761400000.0,
+          "devices": [
+            "U_ChicaneInner",
+            "U_ESP302_01"
+          ],
+          "golden": false,
+          "id": "s19a1b2c3d4e-0f1e2d3c",
+          "name": "chicane tuned, 25 pC",
+          "note": "",
+          "rows": 9,
+          "scope": {
+            "panel": "chicane"
+          }
+        }
+      ],
+      "properties": {
+        "author": {
+          "description": "Who took it.",
+          "title": "Author",
+          "type": "string"
+        },
+        "created": {
+          "description": "When it was taken, Unix seconds.",
+          "title": "Created",
+          "type": "number"
+        },
+        "devices": {
+          "description": "The devices its rows name, in order.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Devices",
+          "type": "array"
+        },
+        "golden": {
+          "default": false,
+          "description": "A reference setup.",
+          "title": "Golden",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "The snapshot's id: one URL segment.",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "description": "What it is called.",
+          "title": "Name",
+          "type": "string"
+        },
+        "note": {
+          "default": "",
+          "description": "Why.",
+          "title": "Note",
+          "type": "string"
+        },
+        "rows": {
+          "description": "How many rows it keeps.",
+          "minimum": 1,
+          "title": "Rows",
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "#/$defs/SnapshotScope",
+          "description": "What it was taken over."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "created",
+        "author",
+        "scope",
+        "devices",
+        "rows"
+      ],
+      "title": "SnapshotSummary",
       "type": "object"
     },
     "SubscriptionAck": {

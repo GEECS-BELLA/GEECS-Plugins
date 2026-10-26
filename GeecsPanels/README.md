@@ -58,6 +58,19 @@ The same process is the PV bridge the web repository's pages read
   shared across handles; a handle unread for 30 s is released.
 - `GET /api/pv/<name>` — one PV now, with its units, limits and choices
   (the inspector).
+- Snapshots (v0, `Planning/epics_estate.md` §2.6), one JSON file each in
+  `$STATE_DIRECTORY/snapshots` (`--snapshots DIR`):
+  - `POST /api/snapshots` (`{name, operator, note?, golden?, scope: {devices} | {panel}}`)
+    takes every writable setpoint, enum and bit the devices permit from their
+    live streams (a device not streamed refuses it, 409);
+  - `GET /api/snapshots` lists them; `GET /api/snapshots/{id}` is one;
+  - `GET /api/snapshots/{id}/diff` sets each row against live
+    (`within` / `differs` / `unreachable`);
+  - `GET /api/snapshots/active` lists those whose every row is within;
+  - `POST /api/snapshots/{id}/restore` (`{rows, operator, confirm, stop_on_refusal}`)
+    writes the ticked rows through the put gates, journaled with the
+    snapshot's id. An unreachable device is skipped and the run goes on; a
+    motion row needs `confirm` and is waited on.
 - `GET /api/panels` — the experiment's composed panels
   (`<experiment>/panels/*.yaml` in the configs repository) and family
   overrides (`panels/overrides/<family>.yaml`), validated against the

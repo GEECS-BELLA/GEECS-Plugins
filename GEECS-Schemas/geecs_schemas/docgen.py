@@ -353,6 +353,22 @@ device: U_HasoLift               # the HASO device folder under scans/ScanNNN/
 output_name: HasoLift_compact    # the portal lists the job under this label
 scan: {priority: 6}
 """,
+    "snapshot": """\
+schema_version: 1
+# Taken by the PV bridge from its live streams (POST /api/snapshots), kept as
+# $STATE_DIRECTORY/snapshots/<id>.json; never written by hand.
+name: chicane tuned, 25 pC
+created: 1761400000.0
+author: S. Barber
+note: After the jet realignment.
+golden: false
+scope: {panel: chicane}          # or {devices: [U_ChicaneInner, U_ESP302_01]}
+rows:
+  - {device: U_ChicaneInner, role: current_sp, setpoint: 0.25, readback: 0.249}
+  - {device: U_ChicaneInner, role: output_sp, setpoint: 1, readback: 1}
+  - {device: U_ESP302_01, axis: m1, role: val, setpoint: 1.25, readback: 1.2498}
+  - {device: U_ESP302_01, axis: m1, role: velo, setpoint: 0.5}
+""",
     "log_entry": """\
 schema_version: 1
 entry_id: 7f3a9c2b1d04

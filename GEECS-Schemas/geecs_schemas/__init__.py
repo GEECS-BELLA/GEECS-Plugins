@@ -62,6 +62,7 @@ from geecs_schemas.epics.panel_devices import (
     PanelDevices,
 )
 from geecs_schemas.epics.panels import ComposedPanel, PanelOverride
+from geecs_schemas.epics.snapshot import Snapshot, SnapshotRow, SnapshotScope
 from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
 from geecs_schemas.preset import PlanCall, Preset, PresetDevice
 from geecs_schemas.log_entry import (
@@ -179,6 +180,10 @@ __all__ = [
     # epics.panels (composed panels and family-page overrides)
     "ComposedPanel",
     "PanelOverride",
+    # epics.snapshot (the bridge's beamline-level setpoint sets)
+    "Snapshot",
+    "SnapshotRow",
+    "SnapshotScope",
     # experiment_defaults
     "ExperimentDefaults",
     "DefaultActions",
@@ -245,6 +250,7 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "panel_devices": PanelDevices,
     "composed_panel": ComposedPanel,
     "panel_override": PanelOverride,
+    "snapshot": Snapshot,
     "analysis_recipe": AnalysisRecipe,
     "analysis_group": AnalysisGroup,
     "himg_job": HimgJob,

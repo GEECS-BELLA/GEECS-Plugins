@@ -48,9 +48,13 @@ CREATE TABLE IF NOT EXISTS puts (
     value TEXT,
     outcome TEXT NOT NULL,
     severity TEXT,
-    message TEXT NOT NULL
+    message TEXT NOT NULL,
+    snapshot TEXT
 )
 """
+
+#: Columns added after the first journals were written, added to an older file.
+_ADDED_COLUMNS = {"snapshot": "TEXT"}
 
 
 def default_path() -> Optional[Path]:
@@ -83,6 +87,10 @@ class Journal:
         )
         with self._db:
             self._db.execute(_SCHEMA)
+            have = {row[1] for row in self._db.execute("PRAGMA table_info(puts)")}
+            for column, kind in _ADDED_COLUMNS.items():
+                if column not in have:  # a journal from before the column
+                    self._db.execute(f"ALTER TABLE puts ADD COLUMN {column} {kind}")
 
     def record(
         self,
@@ -95,13 +103,17 @@ class Journal:
         outcome: PutOutcome,
         severity: Optional[Severity] = None,
         message: str = "",
+        snapshot: Optional[str] = None,
     ) -> JournalEntry:
-        """Write one put as answered; the entry's id is the result's ``journal_id``."""
+        """Write one put as answered; the entry's id is the result's ``journal_id``.
+
+        *snapshot* is the id of the snapshot a restore wrote the row from.
+        """
         now = self._wall()
         with self._lock, self._db:
             cursor = self._db.execute(
                 "INSERT INTO puts (time, operator, device, role, axis, value, outcome,"
-                " severity, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " severity, message, snapshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     now,
                     operator,
@@ -112,6 +124,7 @@ class Journal:
                     outcome,
                     severity,
                     message,
+                    snapshot,
                 ),
             )
             row_id = cursor.lastrowid
@@ -127,6 +140,7 @@ class Journal:
             outcome=outcome,
             severity=severity,
             message=message,
+            snapshot=snapshot,
         )
 
     def last(self, entries: int) -> list[JournalEntry]:
@@ -135,7 +149,7 @@ class Journal:
         with self._lock:
             rows = self._db.execute(
                 "SELECT id, time, operator, device, role, axis, value, outcome,"
-                " severity, message FROM puts ORDER BY id DESC LIMIT ?",
+                " severity, message, snapshot FROM puts ORDER BY id DESC LIMIT ?",
                 (count,),
             ).fetchall()
         return [
@@ -151,6 +165,7 @@ class Journal:
                 outcome=r[7],
                 severity=r[8],
                 message=r[9],
+                snapshot=r[10],
             )
             for r in rows
         ]

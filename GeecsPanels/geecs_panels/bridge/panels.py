@@ -19,7 +19,12 @@ from typing import Optional
 import yaml
 from geecs_core.configs_repo import scanner_configs_base
 from geecs_schemas.epics.family import FamilyFile
-from geecs_schemas.epics.panels import ComposedPanel, PanelOverride
+from geecs_schemas.epics.panels import (
+    ComponentWidget,
+    ComposedPanel,
+    DeviceWidget,
+    PanelOverride,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 #: The folder of composed panels in the experiment's configs folder.
@@ -95,6 +100,17 @@ def load_panels(
             continue
         reply.overrides[override.family] = override
     return reply
+
+
+def panel_device_names(panel: ComposedPanel) -> list[str]:
+    """The devices a panel embeds (its device and component widgets), in order, each once: a snapshot's scope."""
+    names = [
+        widget.device
+        for section in panel.sections
+        for widget in section.widgets
+        if isinstance(widget, (DeviceWidget, ComponentWidget))
+    ]
+    return list(dict.fromkeys(names))
 
 
 def _read(path: Path, errors: list[str]) -> Optional[object]:

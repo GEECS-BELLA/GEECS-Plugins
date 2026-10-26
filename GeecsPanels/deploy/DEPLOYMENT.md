@@ -78,6 +78,11 @@ The put journal is `/var/lib/geecs-panels/journal.db`, the unit's
 `StateDirectory`; `--journal PATH` keeps it elsewhere. Back it up: who
 wrote what to which device is recorded there and nowhere else.
 
+Snapshots are `/var/lib/geecs-panels/snapshots/<id>.json`, one file each
+in the same directory (`--snapshots DIR` keeps them elsewhere). This is
+their one authoritative copy in v0: there is no mirror on the data tree
+and no configs-repo promotion yet, so back them up with the journal.
+
 ## Check
 
 - `GET /health`
