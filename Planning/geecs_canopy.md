@@ -1,8 +1,8 @@
 # GeecsCanopy: is SLAC's Canopy our display backend?
 
-Status: exercise brief, 2026-10-26. Provisional until the lanes report; the
-write-up and recommendation are appended at the end (§7). Delete this file
-when the arc it describes is finished or abandoned (`Planning/README.md`).
+Status: exercise brief, 2026-10-26, provisional until the lanes report; the
+write-up and recommendation are appended as §7. Delete this file when the arc
+it describes is finished or abandoned (`Planning/README.md`).
 
 ## 1. What is being evaluated
 
