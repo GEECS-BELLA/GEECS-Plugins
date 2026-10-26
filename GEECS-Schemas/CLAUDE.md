@@ -44,9 +44,9 @@ records by role; the files are **package data**,
 `epics/families/<template>.json`, read by `load_families()` — JSON so the
 runtime stays free of PyYAML. `epics/panel_devices.py`: `PanelDevices`,
 the configs repo's `<experiment>/panel_devices.yaml` (per-device family,
-suffix overrides, labels, `allow`, `note`, `omit`, `hazard`, archive
-opt-ins), read by the PV bridge (the archiver's registry pass reads
-`archive` alone). `epics/panels.py`: `ComposedPanel`
+suffix overrides, labels, `allow`, `note`, `omit`, `hazard`, the archive
+opt-ins and opt-outs, the serving `ioc`), read by the PV bridge and the
+archiver's registry pass. `epics/panels.py`: `ComposedPanel`
 (`<experiment>/panels/*.yaml`, §2.4) and `PanelOverride`
 (`panels/overrides/<family>.yaml`). The spec is **closed** so it never
 becomes a language: eight widget kinds, one `show_when: {pv, equals}`, no

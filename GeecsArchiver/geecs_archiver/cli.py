@@ -2,12 +2,17 @@
 
 ``onboard``   derive the experiment's archive set, diff it against the
               appliance, apply, then wait for the new PVs to connect
-``list``      print the derived set (database only; no appliance needed)
+``list``      print the derived set (no appliance needed; ``--no-db``: the
+              registry pass alone, from a configs-repo checkout, offline)
 ``status``    the appliance's metrics and this experiment's PV counts
 ``export-config``  the appliance's own configuration snapshot as JSON
 
-Exit status: 0 ok · 1 drift (a wanted PV the gateway does not serve, or a
-request the appliance refused) · 2 usage (no experiment / URL, or a pause
+Two passes derive the set: the DB pass (the gateway's PVs) and the registry
+pass (the records native IOCs serve, from ``native_devices.yaml`` and
+``panel_devices.yaml``); every PV is listed with its source.
+
+Exit status: 0 ok · 1 drift (a wanted PV nothing serves, a request the
+appliance refused, or a device both the DB and the registry own) · 2 usage (no experiment / URL, or a pause
 larger than the guard without ``--yes``) · 3 the appliance did not answer.
 """
 
@@ -24,6 +29,7 @@ from pydantic import ValidationError
 from geecs_archiver import config
 from geecs_archiver.archive_set import (
     ArchiveCandidate,
+    ArchiveSet,
     Sampling,
     build_archive_set,
     sampling_for,
@@ -70,9 +76,13 @@ def _resolve_url(args: argparse.Namespace) -> str:
     return url
 
 
-def _desired(
-    args: argparse.Namespace, experiment: str
-) -> dict[str, tuple[ArchiveCandidate, Sampling]]:
+Desired = dict[str, tuple[ArchiveCandidate, Sampling]]
+
+#: What serves each source's PVs, for the never-connected line.
+SERVER = {"db": "the gateway", "registry": "its IOC"}
+
+
+def _desired(args: argparse.Namespace, experiment: str) -> tuple[Desired, ArchiveSet]:
     base = config.scanner_configs_base()
     policy_file = (
         Path(args.policy) if args.policy else config.policy_path(experiment, base)
@@ -84,14 +94,52 @@ def _desired(
     )
     policy = config.load_policy(policy_file)
     derived = config.load_derived_channels(derived_file)
-    candidates = build_archive_set(experiment, policy=policy, derived=derived)
-    return {c.pv: (c, sampling_for(c.pv, policy)) for c in candidates}
+    archive_set = build_archive_set(
+        experiment,
+        policy=policy,
+        derived=derived,
+        registry=config.load_native_devices(
+            config.native_devices_path(experiment, base)
+        ),
+        panels=config.load_panel_devices(config.panel_devices_path(experiment, base)),
+        use_db=not getattr(args, "no_db", False),
+    )
+    desired = {c.pv: (c, sampling_for(c.pv, policy)) for c in archive_set.candidates}
+    return desired, archive_set
+
+
+def _report_sources(experiment: str, desired: Desired, archive_set: ArchiveSet) -> str:
+    """One line of counts by source, and the registry pass's conflicts and skips on stderr."""
+    counts = {"db": 0, "registry": 0}
+    for candidate, _ in desired.values():
+        counts[candidate.source] = counts.get(candidate.source, 0) + 1
+    report = archive_set.registry
+    for line in report.conflicts:
+        print(f"  ! conflict: {line}", file=sys.stderr)
+    for line in report.skipped:
+        print(f"  - not archived: {line}", file=sys.stderr)
+    unchecked = (
+        "" if report.db_checked else " (DB not read: not checked against its roster)"
+    )
+    return (
+        f"{experiment}: {len(desired)} PVs wanted — db {counts['db']}, "
+        f"registry {counts['registry']}{unchecked}"
+    )
+
+
+def _never_connected(pv: str, desired: Desired) -> str:
+    entry = desired.get(pv)
+    source = entry[0].source if entry is not None else "db"
+    return (
+        f"  ! never connected: {pv}  [{source}] "
+        f"(the rule wants it; {SERVER.get(source, 'nothing')} does not serve it)"
+    )
 
 
 def cmd_list(args: argparse.Namespace) -> int:
     """Print the derived archive set, one PV per line (``--json`` for the full records)."""
     experiment = _resolve_experiment(args)
-    desired = _desired(args, experiment)
+    desired, archive_set = _desired(args, experiment)
     if args.json:
         json.dump(
             [
@@ -101,6 +149,7 @@ def cmd_list(args: argparse.Namespace) -> int:
                     "variable": c.variable,
                     "kind": c.kind,
                     "dtype": c.dtype,
+                    "source": c.source,
                     "samplingperiod": s.period,
                     "samplingmethod": s.method,
                 }
@@ -111,19 +160,25 @@ def cmd_list(args: argparse.Namespace) -> int:
         )
         print()
     else:
-        for pv, (c, s) in desired.items():
-            print(f"{pv:60s} {c.kind:9s} {c.dtype:7s} {s.period:g}s {s.method}")
-        print(f"# {len(desired)} PVs", file=sys.stderr)
-    return EXIT_OK
+        # The registry's PVs after the DB's, so the native set reads as one block.
+        for source in ("db", "registry"):
+            for pv, (c, s) in desired.items():
+                if c.source == source:
+                    print(
+                        f"{pv:60s} {c.source:8s} {c.kind:9s} {c.dtype:7s} "
+                        f"{s.period:g}s {s.method}"
+                    )
+    print(f"# {_report_sources(experiment, desired, archive_set)}", file=sys.stderr)
+    return EXIT_DRIFT if archive_set.registry.conflicts else EXIT_OK
 
 
 def cmd_onboard(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912
     """Reconcile the appliance with the derived set; exit 1 on drift, 2 on an unguarded mass pause."""
     experiment = _resolve_experiment(args)
     url = _resolve_url(args)
-    desired = _desired(args, experiment)
+    desired, archive_set = _desired(args, experiment)
     prefix = _prefix(experiment)
-    rc = EXIT_OK
+    rc = EXIT_DRIFT if archive_set.registry.conflicts else EXIT_OK
     with MgmtClient(url) as client:
         archived = client.get_all_pvs()
         to_check = sorted(
@@ -138,11 +193,14 @@ def cmd_onboard(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912
         )
         if args.no_pause:
             plan.to_pause.clear()
-        print(f"{experiment}: {len(desired)} PVs wanted; plan: {plan.summary()}")
+        print(
+            f"{_report_sources(experiment, desired, archive_set)}; plan: {plan.summary()}"
+        )
         if args.verbose or args.dry_run:
             for req in plan.to_archive:
+                source = desired[req["pv"]][0].source
                 print(
-                    f"  + {req['pv']}  ({req['samplingperiod']} s {req['samplingmethod']})"
+                    f"  + {req['pv']}  [{source}] ({req['samplingperiod']} s {req['samplingmethod']})"
                 )
             for pv in plan.to_resume:
                 print(f"  > resume {pv}")
@@ -154,9 +212,7 @@ def cmd_onboard(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912
         # archive-request workflow because they never answered on CA.
         stuck = stuck_requests(client, desired)
         for pv in stuck:
-            print(
-                f"  ! never connected: {pv}  (the rule wants it; the gateway does not serve it)"
-            )
+            print(_never_connected(pv, desired))
         if stuck:
             rc = EXIT_DRIFT
         if len(plan.to_pause) > PAUSE_GUARD and not args.yes:
@@ -184,9 +240,7 @@ def cmd_onboard(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912
             f"pending {len(result.pending)}, other {len(result.other)}"
         )
         for pv in result.never_connected:
-            print(
-                f"  ! never connected: {pv}  (the rule wants it; the gateway does not serve it)"
-            )
+            print(_never_connected(pv, desired))
         for pv in result.pending:
             print(
                 f"  ? still pending:   {pv}  (rerun later; it stays on the appliance's request list)"
@@ -282,10 +336,20 @@ def build_parser() -> argparse.ArgumentParser:
             help="the gateway's derived_channels.yaml (default: the experiment's file, if any)",
         )
 
-    p = sub.add_parser("list", help="print the derived archive set (database only)")
+    p = sub.add_parser(
+        "list", help="print the derived archive set (no appliance needed)"
+    )
     common(p, needs_url=False)
     rule_args(p)
     p.add_argument("--json", action="store_true", help="full records as JSON")
+    p.add_argument(
+        "--no-db",
+        action="store_true",
+        help=(
+            "read no database: the registry pass alone (native_devices.yaml + "
+            "panel_devices.yaml), offline; GEECS_PLUGINS_CONFIGS names a checkout"
+        ),
+    )
     p.set_defaults(func=cmd_list)
 
     p = sub.add_parser("onboard", help="reconcile the appliance with the derived set")
@@ -343,7 +407,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # A malformed or missing policy / derived-channels file: refuse to run,
         # as a usage error, never as a traceback with the drift exit code.
         print(
-            f"geecs-archiver: cannot load the configuration overlay: {exc}",
+            f"geecs-archiver: cannot load a configuration document: {exc}",
             file=sys.stderr,
         )
         return EXIT_USAGE

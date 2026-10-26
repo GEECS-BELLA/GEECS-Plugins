@@ -967,7 +967,11 @@ a motor, the readback record for a setpoint device — instead of
 `pv_name`'s gateway spelling. The move path is untouched: `MoveIn` →
 `scan_variable_reference` → the worker's `mv`.
 
-**Archive set.** `derive_candidates` reads only DB rows; a native device
+**Archive set** (built: `geecs_archiver.native`, the registry pass;
+`GeecsArchiver/CLAUDE.md` is the rule as implemented — the family files'
+`archive` roles first, the per-kind rule below only for a family marking
+none; the heartbeat needs the device's `ioc:` in `panel_devices.yaml`).
+`derive_candidates` reads only DB rows; a native device
 has none, so the archiver would silently drop a migrated device. A
 registry pass in `geecs_archiver.archive_set`, reading `NativeDevices`
 through the configs-repo wrappers in `config.py` (which already load
@@ -980,10 +984,11 @@ the analogue of `cagateway:heartbeat`. `exclude` globs apply; `include`
 keeps its spelling rule (these are derived candidates). The
 never-connected list stays the drift alarm between registry and IOCs.
 
-**One home for the PV surface.** The native prefix is derived once today
-inside `GeecsNamespace._add_native_devices`, which the archiver cannot
-import (`.importlinter`: `geecs_bluesky` and `geecs_archiver` share a
-layer); it moves to `geecs_core.pv_naming` beside `gateway_status_pv`. Each
+**One home for the PV surface.** The native prefix is
+`geecs_core.pv_naming.native_device_prefix` (built: the namespace, the
+panels' registry and bridge, and the archiver all call it — the archiver
+cannot import the namespace, `.importlinter`: `geecs_bluesky` and
+`geecs_archiver` share a layer). Each
 kind's record suffixes — what the archive pass, the scanner and the panel
 need — become data beside the kind models in `geecs_schemas.epics`.
 
