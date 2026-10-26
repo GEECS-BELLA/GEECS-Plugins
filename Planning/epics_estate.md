@@ -416,7 +416,7 @@ mounting the apps in process and benefit from the stricter APIs.
    most), deletions one PR per surface.
 3. Family files as `GEECS-Schemas` package data (public); no `ioc-supply`.
 4. Instance data (`panel_devices.yaml`) and composed specs in the configs
-   repo, read by the bridge only.
+   repo, read by the bridge and the archiver's registry pass.
 5. The browser-write model of §2.3: one bridge account at the IOC,
    per-operator policy in the bridge, a required operator identity, the
    journal, hazard confirms from the family data.
