@@ -24,7 +24,14 @@ later hub's ring: it is answered with a full frame, never a wrong replay.
 :class:`DeviceStreams` creates each device's hub on first use and evicts it
 after :data:`GRACE_S` with no listener (its subscriptions closed). A
 listener that falls more than :data:`QUEUE_FRAMES` frames behind is sent a
-full frame instead of the backlog.
+full frame instead of the backlog. A listener's stream that stays quiet for
+:data:`~geecs_panels.contracts.HEARTBEAT_S` gets a
+:class:`~geecs_panels.contracts.Heartbeat`, so its page can tell a quiet
+device from a dead connection.
+
+:meth:`DeviceHub.status` (``GET /api/devices/state``) reports the last
+tick's connection and blocks of a device whose hub is live; asking never
+creates one.
 """
 
 from __future__ import annotations
@@ -37,13 +44,22 @@ import time
 from collections import deque
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Union
 
 from geecs_panels.bridge.arrays import ArraysReader, ArraysReply, ReadPvs
 from geecs_panels.bridge.catalog import BridgeDevice
-from geecs_panels.bridge.feed import Feed, SubscribeReading, monitored
+from geecs_panels.bridge.feed import Feed, SubscribeCtrl, SubscribeReading, monitored
 from geecs_panels.bridge.rules import Rules, rules_for
-from geecs_panels.contracts import DeviceFrame, DeviceState, History
+from geecs_panels.contracts import (
+    HEARTBEAT_S,
+    DeviceFrame,
+    DeviceState,
+    DeviceStatus,
+    Heartbeat,
+    History,
+    RunLock,
+    Saturation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +73,9 @@ RING = 240
 QUEUE_FRAMES = 64
 #: Seconds of history a full frame carries.
 HISTORY_S = 120.0
-#: Seconds without a frame before a keepalive comment (proxies close idle streams).
+#: Seconds without a frame before the raw PV stream's keepalive comment
+#: (proxies close idle streams); a device stream sends a heartbeat event
+#: after :data:`~geecs_panels.contracts.HEARTBEAT_S` instead.
 KEEPALIVE_S = 15.0
 
 #: A frame's content as JSON-ready dicts, compared tick to tick.
@@ -79,6 +97,13 @@ def frame_json(frame: DeviceFrame) -> str:
     for axis in body.get("axes", {}).values():
         if axis.get("state") is None:
             axis.pop("state", None)
+    # ``choices`` is an enum's alone: absent for every other role (and unread).
+    for roles in [body.get("roles", {})] + [
+        a.get("roles", {}) for a in body.get("axes", {}).values()
+    ]:
+        for reading in roles.values():
+            if reading.get("choices") is None:
+                reading.pop("choices", None)
     # The models null every non-finite value; allow_nan=False is the backstop.
     return json.dumps(body, allow_nan=False, separators=(",", ":"))
 
@@ -86,6 +111,12 @@ def frame_json(frame: DeviceFrame) -> str:
 def sse(frame: DeviceFrame) -> str:
     """One frame as an SSE event: ``id:`` is its ``seq``, ``event: device``."""
     return f"id: {frame.seq}\nevent: device\ndata: {frame_json(frame)}\n\n"
+
+
+def heartbeat_sse(beat: Heartbeat) -> str:
+    """A heartbeat as an SSE event: ``event: heartbeat``, no ``id:`` (``Last-Event-ID`` stays the last frame's)."""
+    data = json.dumps(beat.model_dump(mode="json"), separators=(",", ":"))
+    return f"event: heartbeat\ndata: {data}\n\n"
 
 
 def _changed(old: Mapping[str, object], new: Mapping[str, object]) -> dict[str, object]:
@@ -270,6 +301,21 @@ class DeviceHub:
             _offer(queue, frame)
         return frame
 
+    def status(self) -> DeviceStatus:
+        """The device's connection and blocks as of the last tick (the hub's own content, nothing re-read)."""
+        content = self._ensure_content()
+        return DeviceStatus.model_validate(
+            {
+                "live": True,
+                "connected": content["connected"],
+                **{
+                    block: content[block]
+                    for block in ("state", "lock", "saturation")
+                    if block in content
+                },
+            }
+        )
+
     def resume(self, last_id: int) -> Optional[list[DeviceFrame]]:
         """The frames after *last_id* if this hub can resume from it, else ``None`` (send a full frame)."""
         if last_id == self.seq:
@@ -297,6 +343,22 @@ def _offer(queue: asyncio.Queue[object], frame: DeviceFrame) -> None:
         queue.put_nowait(_LAGGED)
 
 
+def unknown_status(rules: Rules) -> DeviceStatus:
+    """The status of a device without a live feed: its family's blocks, each ``unknown``."""
+    return DeviceStatus(
+        live=False,
+        state=(
+            DeviceState(word="unknown", status="no live stream")
+            if rules.state is not None
+            else None
+        ),
+        lock=RunLock(state="unknown") if rules.lock is not None else None,
+        saturation=(
+            Saturation(state="unknown") if rules.saturation is not None else None
+        ),
+    )
+
+
 class UnknownDevice(KeyError):
     """No device of that name is served."""
 
@@ -308,8 +370,11 @@ class DeviceStreams:
     devices: Mapping[str, BridgeDevice]
     subscribe: SubscribeReading
     read: Optional[ReadPvs] = None
+    #: The ``DBR_CTRL`` transport (EGU, PREC, an enum's names); ``None``: not read.
+    subscribe_ctrl: Optional[SubscribeCtrl] = None
     stale_after: float = 3.0
     push_s: float = PUSH_S
+    heartbeat_s: float = HEARTBEAT_S
     grace_s: float = GRACE_S
     clock: Callable[[], float] = time.monotonic
     wall: Callable[[], float] = time.time
@@ -329,6 +394,7 @@ class DeviceStreams:
                 self.subscribe,
                 history_spec=rules.history,
                 on_update=rules.on_update,
+                subscribe_ctrl=self.subscribe_ctrl,
                 clock=self.clock,
                 wall=self.wall,
             )
@@ -362,6 +428,22 @@ class DeviceStreams:
         finally:
             self._tasks.pop(name, None)
 
+    def status(self, name: str) -> DeviceStatus:
+        """The device's status from its live hub, or ``unknown`` (never creates a hub).
+
+        Raises
+        ------
+        UnknownDevice
+            No device of that name is served.
+        """
+        device = self.devices.get(name)
+        if device is None:
+            raise UnknownDevice(name)
+        hub = self.hubs.get(name)
+        if hub is None:
+            return unknown_status(rules_for(device.family.template))
+        return hub.status()
+
     def expired(self, hub: DeviceHub) -> bool:
         """Whether the hub has had no listener for the grace period."""
         return (
@@ -378,12 +460,12 @@ class DeviceStreams:
 
     async def listen(
         self, name: str, last_event_id: Optional[int] = None
-    ) -> AsyncIterator[Optional[DeviceFrame]]:
+    ) -> AsyncIterator[Union[DeviceFrame, Heartbeat]]:
         """The device's frames for one listener: a full frame (or the replay after *last_event_id*), then deltas.
 
-        Yields ``None`` after :data:`KEEPALIVE_S` without a frame (the
-        route sends a comment). The listener leaves when the iterator is
-        closed (the client went away).
+        Yields a :class:`~geecs_panels.contracts.Heartbeat` after
+        ``heartbeat_s`` without a frame. The listener leaves when the
+        iterator is closed (the client went away).
         """
         hub = self.hub(name)
         queue: asyncio.Queue[object] = asyncio.Queue(maxsize=QUEUE_FRAMES)
@@ -402,9 +484,9 @@ class DeviceStreams:
                 yield frame
             while True:
                 try:
-                    item = await asyncio.wait_for(queue.get(), KEEPALIVE_S)
+                    item = await asyncio.wait_for(queue.get(), self.heartbeat_s)
                 except asyncio.TimeoutError:
-                    yield None
+                    yield Heartbeat(device=name, seq=held, server_time=self.wall())
                     continue
                 if item is _LAGGED:
                     full = hub.full_frame()

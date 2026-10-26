@@ -28,12 +28,20 @@ The same process is the PV bridge the web repository's pages read
 - `GET /api/devices` — the registry joined with the experiment's
   `panel_devices.yaml` (and the bench file): each device's family, prefix,
   axes, permitted actions, note, and its roles as it has them.
-- `GET /api/families` — the family files (GEECS-Schemas' package data).
+- `GET /api/devices/state` — every device's connection, state word, run
+  lock and saturation from its live feed, `unknown` without one: a landing
+  page's one request. It never opens a feed.
+- `GET /api/families` — the family files (GEECS-Schemas' package data),
+  each naming the layer-3 `component` that draws it, if any.
 - `GET /api/devices/<device>/events` — the device's stream (Server-Sent
   Events, `event: device`): a full `DeviceFrame` on connect, then the
   changed roles each push period (`--push-period`, default 0.25 s); the
   `id:` is the frame's `seq`, and a reconnect's `Last-Event-ID` resumes.
-  `?limit=N` closes after N frames.
+  A stream quiet for 5 s sends `event: heartbeat` (a `Heartbeat`, no
+  `id:`): no event for 10 s is a dead connection. A named event, so a
+  client listens for it (`onmessage` sees neither). A setpoint's reading
+  carries its record's `EGU`/`PREC` and an enum's its state names
+  (`choices`), from `DBR_CTRL`. `?limit=N` closes after N frames.
 - `GET /api/devices/<device>/arrays?columns=N` — its arrays (profiles,
   histogram, a scope's traces), read on request and min/max-decimated.
 - `GET /api/frame/<device>` — a camera's latest JPEG (the camera page's

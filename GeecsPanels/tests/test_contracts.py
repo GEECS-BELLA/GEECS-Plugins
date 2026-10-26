@@ -57,9 +57,10 @@ def test_the_module_prints_the_events_document(
     assert printed["$schema"].endswith("/draft/2020-12/schema")
     assert printed["properties"] == {
         "device": {"$ref": "#/$defs/DeviceFrame"},
+        "heartbeat": {"$ref": "#/$defs/Heartbeat"},
         "pv": {"$ref": "#/$defs/PvFrame"},
     }
-    assert printed["required"] == ["device", "pv"]
+    assert printed["required"] == ["device", "heartbeat", "pv"]
     assert {m.__name__ for m in CONTRACTS.values()} <= set(printed["$defs"])
 
 
@@ -85,7 +86,15 @@ def test_a_role_travels_whole_in_every_frame() -> None:
     )  # fmt: skip
     wire = json.loads(frame.model_dump_json())
     role = wire["roles"]["x"]
-    assert set(role) == {"value", "severity", "advanced_at", "freshness", "fields"}
+    # choices is an enum's (the stream drops it for any other role: test_bridge_stream)
+    assert set(role) == {
+        "value",
+        "severity",
+        "advanced_at",
+        "freshness",
+        "fields",
+        "choices",
+    }
     assert role["value"] == 1.5  # a freshness change never reads as a disconnect
 
 

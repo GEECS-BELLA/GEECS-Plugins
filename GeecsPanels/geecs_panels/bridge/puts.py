@@ -23,7 +23,8 @@ The gates, in order; the first that fails answers:
      (rule 6; the IOC's access security refuses it too).
 2. **Refused: the value** (still the bridge's gate, failing closed).
    - by the family: the role's type (a bit 0/1, a command 1, an enum one
-     of its choices, read from the record when the family names none),
+     of its choices: the family's, else the record's state names as the
+     stream carries them, refused while unread),
      ``integer``, ``limits``;
    - by the template's rule (:attr:`Rules.check`): a motor target inside
      the soft limits, a supply setpoint inside its drive limits and short
@@ -50,7 +51,7 @@ import logging
 import math
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, Protocol
 
 from geecs_schemas.epics.family import Role
@@ -59,7 +60,7 @@ from geecs_panels.bridge.catalog import BridgeDevice
 from geecs_panels.bridge.journal import Journal
 from geecs_panels.bridge.rules import rules_for
 from geecs_panels.bridge.stream import DeviceHub, DeviceStreams, UnknownDevice
-from geecs_panels.bridge.feed import SEVERITIES
+from geecs_panels.bridge.feed import SEVERITIES, record_of
 from geecs_panels.camera import MAX_TEXT, lock_word
 from geecs_panels.contracts import PutOutcome, PutRequest, PutResult, Severity, Value
 
@@ -126,7 +127,6 @@ class Puts:
     settle_s: float = PUT_TIMEOUT_S
     poll_s: float = SETTLE_POLL_S
     clock: Callable[[], float] = time.monotonic
-    _choices: dict[str, list[str]] = field(default_factory=dict)
 
     async def put(self, request: PutRequest) -> tuple[int, PutResult]:
         """Gate, write and journal one put; (HTTP status, result).
@@ -267,7 +267,7 @@ class Puts:
         """The value to put, or :class:`Refused`: the family's bounds, then the template's rule."""
         choices: list[str] = []
         if role.type == "enum" and not role.integer:
-            choices = await self._enum_choices(hub.device, role, axis)
+            choices = await self._enum_choices(hub, role, axis)
         checked = coerce(role, value, choices)
         rule = rules_for(hub.device.family.template).check
         if rule is None:
@@ -277,20 +277,29 @@ class Puts:
         except ValueError as exc:  # each kind's NotWritable
             raise Refused(str(exc)) from exc
 
-    async def _enum_choices(
-        self, device: BridgeDevice, role: Role, axis: str
-    ) -> list[str]:
+    async def _enum_choices(self, hub: DeviceHub, role: Role, axis: str) -> list[str]:
+        """The family's choices, else the record's: the names the stream shows (one reader, never a stale copy).
+
+        Those are the monitored record's (an areaDetector ``X_RBV``), not
+        the write record's (``X``): the two carry the same strings from one
+        asyn parameter, and the IOC still refuses a name its record lacks.
+        """
         if role.choices:
             return list(role.choices)
-        pv = device.prefix + axis + (role.write_suffix or role.suffix)
-        if pv not in self._choices:
-            try:
-                self._choices[pv] = await self.transport.choices(pv)
-            except Exception as exc:  # unread choices refuse: fail closed
-                raise Refused(
-                    f"{role.name}: its choices cannot be read ({exc})"
-                ) from exc
-        return self._choices[pv]
+        feed = hub.feed
+        if feed.subscribe_ctrl is not None:
+            ctrl = feed.ctrl(role.name, axis)
+            if (
+                ctrl is None or ctrl.choices is None
+            ):  # unread choices refuse: fail closed
+                raise Refused(f"{role.name}: its choices cannot be read (not yet read)")
+            return list(ctrl.choices)
+        # A feed without the DBR_CTRL transport: the write record's names, read now.
+        pv = hub.device.prefix + axis + (role.write_suffix or role.suffix)
+        try:
+            return await self.transport.choices(pv)
+        except Exception as exc:  # unread choices refuse: fail closed
+            raise Refused(f"{role.name}: its choices cannot be read ({exc})") from exc
 
     # ---- the IOC ---------------------------------------------------------------------
 
@@ -388,14 +397,6 @@ class Puts:
             message=done.message,
             journal_id=entry.id,
         )
-
-
-def record_of(base: str, suffix: str) -> str:
-    """The record a suffix writes: a field suffix (``.VELO``) is a field of the record *base* names.
-
-    A record's alarm is ``<record>.SEVR``; ``<record>.VELO.SEVR`` is no channel.
-    """
-    return base if suffix.startswith(".") else base + suffix
 
 
 def _counter_ticks(hub: DeviceHub, axis: str) -> dict[str, Optional[float]]:

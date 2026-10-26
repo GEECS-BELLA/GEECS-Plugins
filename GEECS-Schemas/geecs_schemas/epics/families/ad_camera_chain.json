@@ -2,6 +2,7 @@
   "schema_version": 1,
   "template": "ad_camera_chain",
   "kind": "aravis_camera",
+  "component": "camera_viewer",
   "description": "The areaDetector camera chain every camera IOC runs (geecs-epics runbook, 'Display and analysis chain'): cam1, STAT, STAT0, ROI1, PROC1, TRANS1, OVER1, MJPG1, HDF1 and the run lock.",
   "roles": [
     {"name": "state", "suffix": "cam1:DetectorState_RBV", "type": "enum", "label": "detector"},

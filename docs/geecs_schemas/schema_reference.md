@@ -710,6 +710,7 @@ The records of one IOC record template, by role: what every device of the family
 | `kind` | `'aravis_camera' \| 'epics_motor' \| 'setpoint_device' \| 'array_detector'` | yes | — | The native-device kind whose devices instantiate the template. |
 | `description` | `str` | yes | — | One line: what the template is and where it comes from. |
 | `per_axis` | `bool` | no | False | The records repeat per axis (the motor record): every suffix is under '<prefix><axis>' for each axis the device names. |
+| `component` | `'camera_viewer' \| 'scope_traces' (optional)` | no | None | The layer-3 view that draws this family's page ('camera_viewer', 'scope_traces'); absent: the generic page rendered from the roles. |
 | `roles` | `list[Role]` | yes | — | The template's records, by role, in the page's order. |
 | `actions` | `dict[str, FamilyAction]` | no | empty | The page's actions and the roles each writes; a device may permit a subset. When there are actions, every writable role belongs to one. Empty: every writable role is its own permission. |
 
@@ -756,7 +757,7 @@ One record of the template, by what it does for a page.
 | `fresh_by` | `str (optional)` | no | None | The counter role whose advance makes this value fresh (the producing plugin's ArrayCounter_RBV): statistics post only on change, so a steady value is judged by its producer. Absent: fresh while connected. |
 | `computed_by` | `str (optional)` | no | None | The flag that must be on for the value to be computed at all (ComputeCentroid): with it off the value reads 'off', not fresh. |
 | `text` | `'string' \| 'char_array' (optional)` | no | None | Read as text: a string record, or a char-array record longer than a string's 40 characters. Enums are read by state name regardless. |
-| `fields` | `list[str]` | no | empty | Record fields read beside the value and carried with it, e.g. ['DRVH', 'DRVL'] for a setpoint's drive limits. |
+| `fields` | `list[str]` | no | empty | Record fields read beside the value and carried with it, e.g. ['DRVH', 'DRVL'] for a setpoint's drive limits; a field suffix's (the motor's '.VAL') are its record's ('.HLM'). A setpoint's EGU and PREC need no entry: the bridge reads them from DBR_CTRL. |
 | `limits` | `tuple[float, float] (optional)` | no | None | The bridge's own bounds on a write, low then high, where the record enforces none (a pixel, an exposure). A motor's soft limits and a supply's drive limits are the record's, read at put time. |
 | `integer` | `bool` | no | False | A write takes a whole number. |
 | `choices` | `list[str] (optional)` | no | None | The values a write may take, where the page offers fewer than the record's own (an enum's choices are otherwise read from the PV). |
@@ -910,7 +911,7 @@ A bespoke view of one device: the camera viewer, the scope traces.
 | `title` | `str (optional)` | no | None | A title above the widget. |
 | `show_when` | `ShowWhen (optional)` | no | None | Shown only while this PV reads this value. |
 | `kind` | `'component'` | yes | — | Widget kind: 'component'. |
-| `component` | `'camera_viewer' \| 'scope_traces'` | yes | — | Which component: 'camera_viewer' or 'scope_traces'. |
+| `component` | `'camera_viewer' \| 'scope_traces'` | yes | — | Which component: 'camera_viewer' or 'scope_traces'; the device's family must name it (its family file's 'component'). |
 | `device` | `str` | yes | — | The device it shows. |
 
 ### PvWidget

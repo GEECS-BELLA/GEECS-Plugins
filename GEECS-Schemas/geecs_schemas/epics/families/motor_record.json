@@ -9,7 +9,7 @@
     {"name": "egu", "suffix": ".EGU", "type": "readback", "label": "units", "text": "string", "level": "expert"},
     {"name": "prec", "suffix": ".PREC", "type": "readback", "label": "precision", "level": "expert"},
     {"name": "rbv", "suffix": ".RBV", "type": "readback", "label": "position", "archive": true},
-    {"name": "val", "suffix": ".VAL", "type": "setpoint", "label": "target", "writable": true, "readback": "rbv", "archive": true, "settled_by": "dmov"},
+    {"name": "val", "suffix": ".VAL", "type": "setpoint", "label": "target", "writable": true, "readback": "rbv", "archive": true, "settled_by": "dmov", "fields": ["HLM", "LLM"]},
     {"name": "dmov", "suffix": ".DMOV", "type": "bit", "label": "done moving", "archive": true},
     {"name": "movn", "suffix": ".MOVN", "type": "bit", "label": "moving"},
     {"name": "hlm", "suffix": ".HLM", "type": "readback", "label": "high soft limit"},

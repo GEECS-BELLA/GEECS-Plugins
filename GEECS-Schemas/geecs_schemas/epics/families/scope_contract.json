@@ -2,6 +2,7 @@
   "schema_version": 1,
   "template": "scope_contract",
   "kind": "array_detector",
+  "component": "scope_traces",
   "description": "geecs-epics' scope contract: vendor-neutral settings at the device prefix, aliased by each scope driver, with the standard chain behind them (ARR, STAT_<CH>).",
   "roles": [
     {"name": "manufacturer", "suffix": "Manufacturer_RBV", "type": "readback", "label": "manufacturer", "text": "string", "level": "expert"},

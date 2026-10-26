@@ -271,7 +271,7 @@
         "description": "A bespoke view of one device: the camera viewer, the scope traces.",
         "properties": {
           "component": {
-            "description": "Which component: 'camera_viewer' or 'scope_traces'.",
+            "description": "Which component: 'camera_viewer' or 'scope_traces'; the device's family must name it (its family file's 'component').",
             "enum": [
               "camera_viewer",
               "scope_traces"
@@ -472,6 +472,167 @@
         "title": "DeviceInfo",
         "type": "object"
       },
+      "DeviceState": {
+        "additionalProperties": false,
+        "description": "A derived state word and the words beside it (``motor.axis_state``, ``power.supply_state``).",
+        "properties": {
+          "status": {
+            "description": "What the page shows beside it: 'at the high limit switch'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "word": {
+            "description": "The kit's status word.",
+            "enum": [
+              "queued",
+              "running",
+              "paused",
+              "ok",
+              "degraded",
+              "failed",
+              "unknown"
+            ],
+            "title": "Word",
+            "type": "string"
+          }
+        },
+        "required": [
+          "word",
+          "status"
+        ],
+        "title": "DeviceState",
+        "type": "object"
+      },
+      "DeviceStates": {
+        "additionalProperties": false,
+        "description": "``GET /api/devices/state``: every served device's status in one request (the landing page's).\n\nExamples\n--------\n{\"server_time\": 1761400000.0, \"devices\": {\"U_ChicaneInner\": {\"live\": true, \"connected\": true, \"state\": {\"word\": \"ok\", \"status\": \"output on\"}}, \"UC_ExampleCam\": {\"live\": false, \"connected\": null, \"lock\": {\"state\": \"unknown\"}, \"saturation\": {\"state\": \"unknown\"}}}}",
+        "examples": [
+          {
+            "devices": {
+              "UC_ExampleCam": {
+                "live": false,
+                "lock": {
+                  "state": "unknown"
+                },
+                "saturation": {
+                  "state": "unknown"
+                }
+              },
+              "U_ChicaneInner": {
+                "connected": true,
+                "live": true,
+                "state": {
+                  "status": "output on",
+                  "word": "ok"
+                }
+              }
+            },
+            "server_time": 1761400000.0
+          }
+        ],
+        "properties": {
+          "devices": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DeviceStatus"
+            },
+            "description": "Device name → its status, every device the catalog serves.",
+            "title": "Devices",
+            "type": "object"
+          },
+          "server_time": {
+            "description": "When the bridge answered, Unix seconds.",
+            "title": "Server Time",
+            "type": "number"
+          }
+        },
+        "required": [
+          "server_time",
+          "devices"
+        ],
+        "title": "DeviceStates",
+        "type": "object"
+      },
+      "DeviceStatus": {
+        "additionalProperties": false,
+        "description": "One device's line of ``GET /api/devices/state``: its connection, state word and lock, from its live feed.\n\nOnly a device whose feed is live (a page streams it, or its grace\nperiod has not run out) reports; the route never opens a feed. A\ndevice without one reads ``live`` false, ``connected`` null and its\nblocks ``unknown``. A block the family has no rule for is absent.\n\nExamples\n--------\n{\"live\": true, \"connected\": true, \"state\": {\"word\": \"ok\", \"status\": \"output on\"}}\n\n{\"live\": false, \"connected\": null, \"state\": {\"word\": \"unknown\", \"status\": \"no live stream\"}, \"lock\": {\"state\": \"unknown\"}}",
+        "examples": [
+          {
+            "connected": true,
+            "live": true,
+            "state": {
+              "status": "output on",
+              "word": "ok"
+            }
+          },
+          {
+            "live": false,
+            "lock": {
+              "state": "unknown"
+            },
+            "state": {
+              "status": "no live stream",
+              "word": "unknown"
+            }
+          }
+        ],
+        "properties": {
+          "connected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether any of its records is connected; null without a live feed.",
+            "title": "Connected"
+          },
+          "live": {
+            "description": "Whether the bridge holds a feed of the device now (none is opened to answer).",
+            "title": "Live",
+            "type": "boolean"
+          },
+          "lock": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunLock"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its run lock, for a family that has one: 'unknown' without a live feed."
+          },
+          "saturation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Saturation"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A camera's saturation chip: 'unknown' without a live feed."
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeviceState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its state word, for a family that has one (motor, supply): 'unknown' without a live feed."
+          }
+        },
+        "required": [
+          "live"
+        ],
+        "title": "DeviceStatus",
+        "type": "object"
+      },
       "DeviceWidget": {
         "additionalProperties": false,
         "description": "A device's own page, embedded whole or reduced to some of its roles.",
@@ -592,6 +753,22 @@
             },
             "title": "Actions",
             "type": "object"
+          },
+          "component": {
+            "anyOf": [
+              {
+                "enum": [
+                  "camera_viewer",
+                  "scope_traces"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The layer-3 view that draws this family's page ('camera_viewer', 'scope_traces'); absent: the generic page rendered from the roles.",
+            "title": "Component"
           },
           "description": {
             "description": "One line: what the template is and where it comes from.",
@@ -1604,7 +1781,7 @@
             "type": "boolean"
           },
           "fields": {
-            "description": "Record fields read beside the value and carried with it, e.g. ['DRVH', 'DRVL'] for a setpoint's drive limits.",
+            "description": "Record fields read beside the value and carried with it, e.g. ['DRVH', 'DRVL'] for a setpoint's drive limits; a field suffix's (the motor's '.VAL') are its record's ('.HLM'). A setpoint's EGU and PREC need no entry: the bridge reads them from DBR_CTRL.",
             "items": {
               "pattern": "^[A-Z][A-Z0-9]*$",
               "type": "string"
@@ -1849,6 +2026,72 @@
           "kind"
         ],
         "title": "RosterWidget",
+        "type": "object"
+      },
+      "RunLock": {
+        "additionalProperties": false,
+        "description": "The run lock (``camera.lock_state``): a run holding the device refuses its locked roles.",
+        "properties": {
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run holding it, while locked.",
+            "title": "Owner"
+          },
+          "state": {
+            "description": "free, locked, or unknown (not served or not read: writes are refused).",
+            "enum": [
+              "free",
+              "locked",
+              "unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "RunLock",
+        "type": "object"
+      },
+      "Saturation": {
+        "additionalProperties": false,
+        "description": "Whether a camera's raw frame (STAT0) reaches its pixel format's full scale.",
+        "properties": {
+          "fraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Raw max / full scale.",
+            "title": "Fraction"
+          },
+          "state": {
+            "description": "The chip's word.",
+            "enum": [
+              "saturated",
+              "ok",
+              "unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "Saturation",
         "type": "object"
       },
       "ScopePut": {
@@ -2290,6 +2533,25 @@
         "summary": "Devices"
       }
     },
+    "/api/devices/state": {
+      "get": {
+        "description": "Every device's connection, state word, lock and saturation from its live feed; ``unknown`` without one.\n\nA landing page's one request instead of one stream per device. Only\na device a page streams (or whose grace period has not run out) has\na live feed; asking opens none, so a registry of a hundred devices\ncosts no hundred feeds.",
+        "operationId": "get_api_devices_state",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceStates"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Device States"
+      }
+    },
     "/api/devices/{name}/arrays": {
       "get": {
         "description": "The device's arrays (profiles, histogram, traces), read now or within the last half second.",
@@ -2394,7 +2656,7 @@
             "content": {
               "text/event-stream": {}
             },
-            "description": "Server-Sent Events, `event: device`, `id:` the frame's seq; each `data:` is a DeviceFrame (api/events.schema.json)."
+            "description": "Server-Sent Events, `event: device`, `id:` the frame's seq; each `data:` is a DeviceFrame (api/events.schema.json). After 5 s without a frame, `event: heartbeat` (no `id:`), a Heartbeat: no event for twice that long is a dead connection."
           },
           "404": {
             "description": "No such device."

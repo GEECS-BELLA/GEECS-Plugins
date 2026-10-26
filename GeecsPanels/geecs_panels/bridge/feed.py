@@ -24,13 +24,18 @@ Three rules the feed itself keeps (``Planning/epics_estate.md`` Appendix A):
   shared and at most once per interval; an image's URL and a press-only
   command are not read here at all.
 
+Beside its value monitor, a ``setpoint`` or ``enum`` role is subscribed to
+its record's ``DBR_CTRL`` properties (``subscribe_ctrl``: read at subscribe,
+posted again only when a property changes, ``DBE_PROPERTY``), which fill a
+setpoint's ``EGU`` and ``PREC`` and an enum's state names into its reading.
+
 The history the frames carry is kept here, sampled on the rule module's
 tick counter (the camera's STAT counter: a steady value still makes evenly
 spaced points) or, for a family without one, on the stream's tick.
 
-The transport is injected (``subscribe``) so the feed runs in tests without
-a CA library or an IOC; :func:`geecs_panels.ca.subscribe_reading` is the
-real one.
+The transports are injected (``subscribe``, ``subscribe_ctrl``) so the feed runs in tests without
+a CA library or an IOC; :func:`geecs_panels.ca.subscribe_reading` and
+:func:`geecs_panels.ca.subscribe_ctrl` are the real ones.
 """
 
 from __future__ import annotations
@@ -81,6 +86,19 @@ SubscribeReading = Callable[
     [str, ReadAs, Callable[[Optional[Sample]], None]], Subscription
 ]
 
+
+@dataclass(frozen=True)
+class Ctrl:
+    """A record's ``DBR_CTRL`` properties the readings carry: units, precision, an enum's state names."""
+
+    units: Optional[str] = None
+    precision: Optional[int] = None
+    choices: Optional[tuple[str, ...]] = None
+
+
+#: (pv, callback(the record's properties, or None on a disconnect)) -> Subscription
+SubscribeCtrl = Callable[[str, Callable[[Optional[Ctrl]], None]], Subscription]
+
 #: A channel: (axis, role, record field). The axis is "" for a family
 #: without axes; the field is "" for the role's own value.
 Channel = tuple[str, str, str]
@@ -88,6 +106,15 @@ Channel = tuple[str, str, str]
 #: (feed, channel, previous value, new value or None on a disconnect): a
 #: template's rule watching its records as they post (the scope's timebase).
 OnUpdate = Callable[["Feed", Channel, object, object], None]
+
+
+def record_of(base: str, suffix: str) -> str:
+    """The record a suffix names: a field suffix (``.VELO``) is a field of the record *base* names.
+
+    A record's alarm is ``<record>.SEVR`` and a role's field ``<record>.HLM``;
+    ``<record>.VELO.SEVR`` is no channel.
+    """
+    return base if suffix.startswith(".") else base + suffix
 
 
 def read_as(role: Role) -> ReadAs:
@@ -102,6 +129,13 @@ def read_as(role: Role) -> ReadAs:
 def monitored(role: Role) -> bool:
     """Whether the feed subscribes to the role: monitored scalars only (rule 3)."""
     return role.read_mode == "monitor"
+
+
+def reads_ctrl(role: Role) -> bool:
+    """Whether the feed reads the role's ``DBR_CTRL``: a monitored enum (its names) or numeric setpoint (EGU, PREC)."""
+    if not monitored(role):
+        return False
+    return role.type == "enum" or (role.type == "setpoint" and role.text is None)
 
 
 @dataclass(frozen=True)
@@ -129,6 +163,9 @@ class Feed:
     history_spec: Optional[HistorySpec] = None
     #: The template's rule watching each post (``Rules.on_update``).
     on_update: Optional[OnUpdate] = None
+    #: The ``DBR_CTRL`` transport; ``None``: no properties read (EGU, PREC and
+    #: an enum's names read null).
+    subscribe_ctrl: Optional[SubscribeCtrl] = None
     clock: Callable[[], float] = time.monotonic
     #: Wall-clock time, for ``advanced_at`` and history timestamps.
     wall: Callable[[], float] = time.time
@@ -139,6 +176,8 @@ class Feed:
     _posted: dict[Channel, float] = field(default_factory=dict)
     #: When each counter last advanced: (monotonic, wall).
     _ticks: dict[tuple[str, str], tuple[float, float]] = field(default_factory=dict)
+    #: Each ``reads_ctrl`` role's record properties, by (axis, role); ``None``: unread.
+    _ctrl: dict[tuple[str, str], Optional[Ctrl]] = field(default_factory=dict)
     #: What a template's rules keep between posts (the scope's timebase mark).
     state: dict[str, object] = field(default_factory=dict)
     _subs: list[Subscription] = field(default_factory=list)
@@ -164,7 +203,7 @@ class Feed:
                 out.append(((axis, role.name, ""), base + role.suffix, read_as(role)))
                 for name in role.fields:
                     kind: ReadAs = "string" if name in STRING_FIELDS else "native"
-                    pv = f"{base}{role.suffix}.{name}"
+                    pv = f"{record_of(base, role.suffix)}.{name}"
                     out.append(((axis, role.name, name), pv, kind))
         return out
 
@@ -178,6 +217,20 @@ class Feed:
             self._subs.append(
                 self.subscribe(pv, how, lambda s, c=channel: self.update(c, s))
             )
+        if self.subscribe_ctrl is None:
+            return
+        for axis in self.device.channel_axes:
+            for role in self.device.roles:
+                if not reads_ctrl(role):
+                    continue
+                key = (axis, role.name)
+                self._ctrl[key] = None
+                self._subs.append(
+                    self.subscribe_ctrl(
+                        self.device.prefix + axis + role.suffix,
+                        lambda c, k=key: self._ctrl.__setitem__(k, c),
+                    )
+                )
 
     def close(self) -> None:
         """Drop every subscription."""
@@ -229,6 +282,10 @@ class Feed:
         channel = (axis, role, name)
         return self._values.get(channel) if self._connected.get(channel) else None
 
+    def ctrl(self, role: str, axis: str = "") -> Optional[Ctrl]:
+        """The role's record properties (``DBR_CTRL``); ``None``: not read, or disconnected."""
+        return self._ctrl.get((axis, role))
+
     def any_connected(self, axis: Optional[str] = None) -> bool:
         """Whether any channel (of *axis*, when given) is connected."""
         return any(
@@ -273,15 +330,28 @@ class Feed:
         channel = (axis, role.name, "")
         connected = self.connected(role.name, axis)
         severity = self._severity.get(channel) if connected else None
+        fields = {
+            name: _wire(self.field_value(role.name, name, axis)) for name in role.fields
+        }
+        choices: Optional[list[str]] = None
+        if reads_ctrl(role):
+            ctrl = self.ctrl(role.name, axis)
+            if role.type == "enum":
+                choices = (
+                    list(ctrl.choices)
+                    if ctrl is not None and ctrl.choices is not None
+                    else None
+                )
+            else:  # a family's own monitor of EGU or PREC wins
+                fields.setdefault("EGU", None if ctrl is None else ctrl.units)
+                fields.setdefault("PREC", None if ctrl is None else ctrl.precision)
         return RoleReading(
             value=_wire(self.value(role.name, axis)),
             severity=severity_name(severity),
             advanced_at=self.advanced_at(role, axis),
             freshness=self.freshness_of(role, axis, stale_after),
-            fields={
-                name: _wire(self.field_value(role.name, name, axis))
-                for name in role.fields
-            },
+            fields=fields,
+            choices=choices,
         )
 
     # ---- history -------------------------------------------------------------

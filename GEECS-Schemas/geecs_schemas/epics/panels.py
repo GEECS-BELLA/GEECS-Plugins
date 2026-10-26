@@ -35,6 +35,7 @@ from pydantic import (
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 from geecs_schemas.epics.family import (
+    ComponentName,
     FamilyFile,
     RoleName,
     TemplateName,
@@ -42,12 +43,6 @@ from geecs_schemas.epics.family import (
     refuse_duplicates,
 )
 from geecs_schemas.epics.panel_devices import DeviceName
-
-#: The layer-3 components a panel may embed, and the family each draws.
-COMPONENT_FAMILIES: dict[str, str] = {
-    "camera_viewer": "ad_camera_chain",
-    "scope_traces": "scope_contract",
-}
 
 #: A full PV name: no whitespace.
 PvName = Annotated[str, Field(pattern=r"^\S+$")]
@@ -106,8 +101,11 @@ class ComponentWidget(_Widget):
     """A bespoke view of one device: the camera viewer, the scope traces."""
 
     kind: Literal["component"] = Field(description="Widget kind: 'component'.")
-    component: Literal["camera_viewer", "scope_traces"] = Field(
-        description="Which component: 'camera_viewer' or 'scope_traces'."
+    component: ComponentName = Field(
+        description=(
+            "Which component: 'camera_viewer' or 'scope_traces'; the device's "
+            "family must name it (its family file's 'component')."
+        )
     )
     device: DeviceName = Field(description="The device it shows.")
 
@@ -266,11 +264,11 @@ class ComposedPanel(VersionedSchemaModel):
                     _has_roles(where, widget.device, family, widget.roles or [])
                 elif isinstance(widget, ComponentWidget):
                     family = _family_of(where, widget.device, devices, families)
-                    wanted = COMPONENT_FAMILIES[widget.component]
-                    if family.template != wanted:
+                    if family.component != widget.component:
+                        drawn = family.component or "the generic page"
                         raise ValueError(
-                            f"{where}: {widget.component} draws a {wanted} device; "
-                            f"{widget.device!r} is {family.template}"
+                            f"{where}: {widget.device!r} is {family.template}, "
+                            f"drawn by {drawn}, not {widget.component}"
                         )
                 elif isinstance(widget, TrendWidget):
                     for series in widget.series:

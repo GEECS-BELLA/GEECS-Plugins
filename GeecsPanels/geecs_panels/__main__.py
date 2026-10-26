@@ -139,6 +139,7 @@ def main() -> None:
         LiveSupplies,
         read_pv_info,
         read_pvs,
+        subscribe_ctrl,
         subscribe_reading,
     )
     from geecs_panels.registry import RegistryError
@@ -157,6 +158,7 @@ def main() -> None:
         {d.name: d for d in loaded.served},
         subscribe_reading,
         read=read_pvs,
+        subscribe_ctrl=subscribe_ctrl,
         stale_after=args.stale_after,
         push_s=args.push_period,
     )
