@@ -119,3 +119,132 @@ Builder is not public); migration of any device; gated runs; the scanner,
 portal and logbook (they sit beside Canopy either way); touching `geecs-web`
 or `feat/web-estate`; contacting SLAC (a two-question note is drafted in §7
 for Sam to send).
+
+## 7. Write-up and recommendation (2026-10-26)
+
+The three lanes ran against Canopy `0a5ee23` (digest in `geecs_canopy/c1/`),
+on the sim, with no patch to Canopy. Reports: `geecs_canopy/c1/report.md`
+(protocol facts), `c2/report.md` (directory adapter, 299 lines, mounted),
+`c3/report.md` (device module, 399 lines, mounted in-process). The instance
+is still running at `http://127.0.0.1:8000` (stop: `cd
+~/.local/state/geecs-canopy-exercise && docker compose down`).
+
+### 7.1 Canopy against the checklist
+
+| Steps | Canopy as-is | The GEECS module must add | Impossible today |
+|---|---|---|---|
+| 01 home | alarms per PV over Hare; snapshot list | roster by family (Raccoon adapter), journal, "active" = snapshot-vs-live compare (Squirrel compares snapshot to snapshot only) | — |
+| 02 camera live | scalars and counters at 100 ms, latest-wins | the viewer stays on the IOC's MJPEG path | image frames over Hare: NTNDArray is monitored at full rate and emitted as `null` (reserved `image` kind) |
+| 03, 04 | Hare put; Hare | front end | — |
+| 05 tweak + operator | put-callback 200 at motion end | operator and journal: Canopy's only identity is the key and it logs no write (built: C3) | — |
+| 06 hazard | — | family `confirm` + a confirm field on the module's put | — |
+| 07 refusals | IOC refusal = 502 `pv_write_failed`; device NAK = 200 + INVALID (rule 11 holds) | a bounds gate: a put beyond DRVH is a silent 200, clamped; unset limits read `0.0`, so fail closed | — |
+| 08 denied | — | per-device allow list, 403 before Hare (built) | — |
+| 09 stale | `connected:false` in one diff ≈70 ms after the IOC dies; reconnect automatic | freshness by the producing counter and the `Compute*` flag (built, polled; streaming version = an internal broker client) | — |
+| 10–14 snapshots | registry with device/setpoint/readback, save, restore a subset with put-callback, tolerances, snapshot-vs-snapshot compare | per-device scope (save = every registered PV), live compare, restore ordering and confirm, unreachable rows (saved as `null`, job "completed") | — |
+| 15–16 scanner | beside Canopy | — | — |
+| 17 three tabs | one WebSocket per page; 4 clients, 10 monitors, no starvation | the front end multiplexes per page | — |
+
+Protocol facts that bind any client: `tsNs` is the IOC timestamp and monitors
+are value-change only, so age never judges staleness; `diff` may precede
+`initial`, and only `initial` carries `meta`; there is no resume (a new
+socket re-subscribes); `wait:false` returns the same body as a confirmed put;
+5000 PVs per subscribe, 20 000 per client. Hare and Squirrel otherwise behave
+as their docs say; C1 §6 lists nine small doc/behaviour mismatches.
+
+### 7.2 Deploy implications on the services box
+
+New runtime: Postgres 16 (one schema per module, `alembic upgrade head`
+before every image change; an older image cannot run on a newer schema),
+Redis 7 and the arq worker (snapshots run as jobs: a dead worker means no
+snapshots), the api, API keys (two env keys, the rest minted into Postgres by
+`scripts/create_key.py`, cached, revocation not instant). Image: amd64 only
+(the services box is x86; the Mac ran it emulated), 614 MB, api idle 150 MiB;
+production compose is host networking, which the lab box supports natively.
+Front door: `/canopy` prefix with `--root-path`; the WebSocket at
+`/canopy/hare/v1/ws/pvs`; CORS is `*` hard-coded. Pin policy for a pre-1.0
+service: pin the digest (tags are short SHAs of main; no releases exist),
+record it in `site.env`, rehearse each bump on the sim first, and never
+`latest`. `CANOPY_EPICS__BACKEND` defaults to `simulation`, so the heartbeat's
+`backend` is a deploy check. Our code mounts as a bind-mounted pure-Python
+directory on `PYTHONPATH` or a derived image; GEECS-Core's Python ceiling
+(`<3.12`) must be relaxed to run inside Canopy's 3.12.
+
+### 7.3 The licence, in plain words
+
+BSD-3 (Stanford/SLAC) plus one clause: we owe SLAC nothing, but any
+"Enhancement" (fix, patch, upgrade) we make available publicly or give to
+SLAC without a separate written licence is thereby licensed to everyone,
+royalty-free, forever, to use, modify, redistribute and sublicense. Since
+GEECS-Plugins is public, anything in a `GeecsCanopy` package that is a
+change to Canopy is in effect BSD-licensed; our adapter and module, which
+only import Canopy's protocols, are ours under our own licence, and the
+upstream contributions below are meant to be given anyway. Nothing restricts
+private modification. Compatibility with GEECS-Plugins' own licence is Sam's
+check, not an agent's.
+
+### 7.4 Candidate upstream contributions (from the lanes; none filed)
+
+1. A module registry by entry point, and key scopes derived from it (today
+   an extra module needs `@*` keys). 2. `hare.gateway.put` and `subscribe`
+   as declared surface (the module uses `get_broker()` internals). 3. A
+   write audit: optional `operator` on `PUT /hare/v1/pvs` and a put-observer
+   hook with key name, value, outcome; Squirrel's `createdBy` from the key.
+   4. NTNDArray as the reserved `image` kind, and no full-rate monitor until
+   then. 5. A put-callback timeout distinct from the 5 s connect timeout.
+   6. Open error codes; per-module Alembic trees; named env keys. 7. Raccoon:
+   a structured device → PVs call, the conformance suite shipped in the
+   package, an adapter-declared pattern grammar. 8. Snapshot-vs-live compare
+   and per-scope save in Squirrel; unreachable rows marked. 9. An arm64 image.
+
+### 7.5 Questions only SLAC can answer (the note for Sam to send)
+
+Subject: Canopy at BELLA, two questions before we build on it. We run GEECS
+at LBNL's BELLA Center, moving devices to native EPICS IOCs and operator GUIs
+to the browser. We have Canopy (0a5ee23) running against our simulated IOCs
+and are evaluating it as our display backend, with a Raccoon adapter over our
+device database and a small facility device module (device grouping from
+per-record-template role files, freshness by the producing plugin's counter,
+per-device write allow lists, operator identity and a journal over Hare's
+put), mounted in-process by a wrapper app. (1) Is a facility module welcome
+in-process: would you take an entry-point module registry with key scopes
+derived from it, and a declared `hare.gateway.put`, or do you intend site
+logic to live in sidecars over the HTTP/WS APIs? (2) When do you expect the
+Screen Builder front end to be public, and is NTNDArray over Hare (the
+reserved `image` kind) on the roadmap? We would contribute what we build.
+
+### 7.6 Recommendation
+
+**Adopt Canopy, with a `GeecsCanopy` package in GEECS-Plugins on the
+GeecsArchiver pattern**: a deploy recipe (digest-pinned image, Postgres,
+Redis, worker, keys, the `/canopy` prefix) plus `geecs_canopy/` holding the
+Raccoon adapter and the device module, run in-process through the wrapper
+app, seeded from the C2 and C3 spikes. Why: Canopy gives, unpatched, what the
+parked bridge spent most of its 2.4k lines on (live PVs, puts with
+put-callback, metadata, keys, caps, metrics) plus the three things we never
+built (snapshots with a worker, an archiver read API that already speaks our
+stock Appliance, a PV directory), and our part came to ~700 spike lines, all
+data-driven by the family files. The maintainability bet is that SLAC's PyDM
+team keeps the generic layer and we keep only GEECS semantics.
+
+Conditions and guards: (a) one file in `geecs_canopy` lists every
+Canopy-internal import (`canopy.main:app`, `tag_module`, the security
+dependencies, `get_broker().put`), pinned to the image digest and checked by
+a startup self-test, so a Canopy bump fails loudly; (b) `routes.py` keeps no
+Canopy import (as C3 built it), so if SLAC answers "sidecar", the switch is
+`app.py` alone; (c) Sam sends the §7.5 note before the package is deployed
+anywhere; (d) the first package PR carries the deploy recipe and the adapter,
+the device module follows with the bounds gate, hazard confirm and run lock
+from Appendix A, each pinned by a test; (e) a GEECS-Plugins Python-ceiling
+relaxation for GEECS-Core. Not chosen: *sidecar only* keeps one hop and a
+duplicated key model for no gain (module scoping is lost either way until
+upstream 1); *do not adopt* means rebuilding the parked bridge's generic
+layer plus snapshots, keys and an archiver read API ourselves, the cost the
+previous push already showed. Front end, panel format and migration remain
+out of scope; whatever front end comes speaks Hare's WebSocket and the
+module's routes.
+
+### 7.7 Review dispositions
+
+Pending: one fresh-context adversarial review (architecture and operations
+lenses; severity floor: findings that change the recommendation).
