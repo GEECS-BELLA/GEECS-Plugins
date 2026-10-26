@@ -12,7 +12,8 @@ pass (the records native IOCs serve, from ``native_devices.yaml`` and
 ``panel_devices.yaml``); every PV is listed with its source.
 
 Exit status: 0 ok · 1 drift (a wanted PV nothing serves, a request the
-appliance refused, or a device both the DB and the registry own) · 2 usage (no experiment / URL, or a pause
+appliance refused, a device both the DB and the registry own, or a registry
+device the pass cannot resolve) · 2 usage (no experiment / URL, or a pause
 larger than the guard without ``--yes``) · 3 the appliance did not answer.
 """
 
@@ -24,6 +25,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+import yaml
 from pydantic import ValidationError
 
 from geecs_archiver import config
@@ -116,6 +118,8 @@ def _report_sources(experiment: str, desired: Desired, archive_set: ArchiveSet) 
     report = archive_set.registry
     for line in report.conflicts:
         print(f"  ! conflict: {line}", file=sys.stderr)
+    for line in report.unresolved:
+        print(f"  ! unresolved: {line}", file=sys.stderr)
     for line in report.skipped:
         print(f"  - not archived: {line}", file=sys.stderr)
     unchecked = (
@@ -169,7 +173,7 @@ def cmd_list(args: argparse.Namespace) -> int:
                         f"{s.period:g}s {s.method}"
                     )
     print(f"# {_report_sources(experiment, desired, archive_set)}", file=sys.stderr)
-    return EXIT_DRIFT if archive_set.registry.conflicts else EXIT_OK
+    return EXIT_DRIFT if archive_set.registry.drift else EXIT_OK
 
 
 def cmd_onboard(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912
@@ -178,7 +182,7 @@ def cmd_onboard(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912
     url = _resolve_url(args)
     desired, archive_set = _desired(args, experiment)
     prefix = _prefix(experiment)
-    rc = EXIT_DRIFT if archive_set.registry.conflicts else EXIT_OK
+    rc = EXIT_DRIFT if archive_set.registry.drift else EXIT_OK
     with MgmtClient(url) as client:
         archived = client.get_all_pvs()
         to_check = sorted(
@@ -403,7 +407,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except UsageError as exc:
         print(f"geecs-archiver: {exc}", file=sys.stderr)
         return EXIT_USAGE
-    except (ValidationError, FileNotFoundError) as exc:
+    except (ValidationError, FileNotFoundError, yaml.YAMLError) as exc:
         # A malformed or missing policy / derived-channels file: refuse to run,
         # as a usage error, never as a traceback with the drift exit code.
         print(

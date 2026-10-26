@@ -319,3 +319,21 @@ def test_no_db_set_carries_none_of_the_gateways_pvs():
     )
     assert {c.source for c in result.candidates} == {"registry"}
     assert archive_set.GATEWAY_DEVICE not in {c.device for c in result.candidates}
+
+
+def test_a_registry_device_it_cannot_resolve_is_drift_not_a_silent_drop():
+    # panel data naming a family of another kind: PanelDevices cannot catch it
+    panels = {"UC_VisaEBeam6": {"family": "motor_record", "axes": ["x"]}}
+    result = native(CAMERA, panels)
+    assert result.candidates == [] and result.drift
+    assert "UC_VisaEBeam6" in result.unresolved[0]
+
+
+def test_a_registry_kind_defaults_to_the_shared_tables_family_whatever_else_is_installed():
+    camera = FAMILIES["ad_camera_chain"]
+    families = dict(FAMILIES) | {
+        "another_chain": camera.model_copy(update={"template": "another_chain"})
+    }
+    assert pvs(native(CAMERA, families=families)) == [
+        pv for pv in CAMERA_PVS if not pv.endswith(":HEARTBEAT")
+    ]
