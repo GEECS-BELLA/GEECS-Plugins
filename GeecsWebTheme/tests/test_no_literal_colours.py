@@ -96,6 +96,9 @@ _SURFACES = [
     "GeecsScanner/geecs_scanner/templates/console.html",
     "GeecsScanner/geecs_scanner/static/scanner.css",
     "GeecsScanner/geecs_scanner/static/scanner.js",
+    "GeecsPlotter/geecs_plotter/templates/index.html",
+    "GeecsPlotter/geecs_plotter/static/plotter.css",
+    "GeecsPlotter/geecs_plotter/static/plotter.js",
     "GeecsPanels/geecs_panels/templates/index.html",
     "GeecsPanels/geecs_panels/templates/camera.html",
     "GeecsPanels/geecs_panels/static/panels.css",
@@ -279,7 +282,10 @@ def test_every_referenced_token_is_defined() -> None:
     for tokens in defined_tokens(_THEME_CSS.read_text()).values():
         defined |= tokens
     problems = []
-    for relative in _SURFACES + ["GEECS-DataPortal/geecs_portal/figures.py"]:
+    for relative in _SURFACES + [
+        "GEECS-DataPortal/geecs_portal/figures.py",
+        "GeecsPlotter/geecs_plotter/figures.py",
+    ]:
         path = _REPO / relative
         text = path.read_text()
         names: set[str] = set()

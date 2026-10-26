@@ -1,0 +1,109 @@
+{#
+  The plotter page. The rail is one GET form — day, scan, X, Y — so the
+  URL carries the whole selection and a link is the plot. The pick lists
+  are rendered here; plotter.js filters them, submits on change, and
+  draws the figure fetched from data-figure-url.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plotter{% if scan %} — Scan{{ '%03d' % scan }} {{ day }}{% endif %}</title>
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
+<link rel="stylesheet" href="{{ root }}/theme/kit.css">
+<link rel="stylesheet" href="{{ root }}/static/plotter.css">
+</head>
+<body class="kit">
+
+<header class="topbar">
+  <div class="topbar-in">
+    <span class="brand">Plotter{% if experiment %} <span class="sub">{{ experiment }}</span>{% endif %}</span>
+    <div data-density-picker></div>
+    <div data-theme-picker></div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Selection">
+    <form method="get" action="{{ root }}/" id="pick">
+      <div class="group">
+        <div class="field">
+          <label for="day">Day</label>
+          <input id="day" name="day" type="date" value="{{ day or '' }}" required>
+        </div>
+        <div class="field">
+          <label for="scan">Scan</label>
+          <input id="scan" name="scan" type="number" min="1" value="{{ scan or '' }}" required>
+        </div>
+        <button class="btn primary" type="submit">Open</button>
+      </div>
+      {% if columns %}
+        <div class="group">
+          <div class="field">
+            <label for="filter">Filter columns</label>
+            <input id="filter" type="search" autocomplete="off" data-column-filter>
+            <span class="hint">{{ columns | length }} columns, {{ shots }} shots</span>
+          </div>
+          <div class="field">
+            <label for="x">X</label>
+            <select id="x" name="x" data-autosubmit>
+              <option value=""{% if not x %} selected{% endif %}>shot #</option>
+              {% for c in columns %}<option{% if c == x %} selected{% endif %}>{{ c }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="y">Y</label>
+            <select id="y" name="y" data-autosubmit>
+              {% for c in columns %}<option{% if c == y %} selected{% endif %}>{{ c }}</option>{% endfor %}
+            </select>
+          </div>
+        </div>
+      {% endif %}
+    </form>
+  </nav>
+
+  <main class="pane">
+    {% if error %}
+      <div class="state" data-state="error">
+        <div class="t">Scan not found</div>
+        <div class="m">{{ error }}</div>
+      </div>
+    {% elif not scan %}
+      <div class="state" data-state="empty">
+        <div class="t">Pick a day and a scan</div>
+        <div class="m">The plotter reads that scan's s-file from the data share.</div>
+      </div>
+    {% elif not columns %}
+      <div class="state" data-state="empty">
+        <div class="t">No columns to plot</div>
+        <div class="m">Scan{{ '%03d' % scan }} has no s-file yet, or it has no numeric columns.</div>
+      </div>
+    {% else %}
+      <article class="panel">
+        <header>
+          <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}</span>
+          <span class="dim">{{ y }} vs {{ x or 'shot #' }}</span>
+        </header>
+        <div class="body">
+          <div class="state" data-state="loading" id="plot-state">
+            <div class="t">Loading the figure…</div>
+          </div>
+          <div id="plot" class="plot"
+               data-figure-url="{{ root }}/api/figure?day={{ day }}&amp;scan={{ scan }}&amp;x={{ x | urlencode }}&amp;y={{ y | urlencode }}"></div>
+          <details class="disc">
+            <summary>Notebook code</summary>
+            <pre class="well mono" id="code"></pre>
+          </details>
+        </div>
+      </article>
+    {% endif %}
+  </main>
+</div>
+
+<script src="{{ root }}/static/plotly-cartesian-3.1.1.min.js" defer></script>
+<script src="{{ root }}/static/plotter.js" defer></script>
+<script src="{{ root }}/theme/theme.js" defer></script>
+<script src="{{ root }}/theme/kit.js" defer></script>
+</body>
+</html>
