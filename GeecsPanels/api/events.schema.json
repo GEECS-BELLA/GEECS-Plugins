@@ -1002,7 +1002,7 @@
     },
     "RoleReading": {
       "additionalProperties": false,
-      "description": "One role of a device: its reading, and the record fields read beside it (all of them, every time).\n\n``fields`` carries the role's family ``fields`` (each a monitor of the\nrecord's field: the supplies' ``DRVH``/``DRVL``/``HIHI``/``LOLO``, the\nmotor ``val``'s ``HLM``/``LLM``) and, for a ``setpoint``, ``EGU`` and\n``PREC`` from the record's ``DBR_CTRL`` (read at subscribe, refreshed\nwhen the record's properties change, null while unread) unless the\nfamily monitors them itself. ``choices`` carries an ``enum``'s state\nnames from the same ``DBR_CTRL`` read, so a page keeps no list of its\nown; it is absent for every other role. A record's control and alarm\nlimits are named only where the family names the field (``DRVH`` on an\n``ao``, ``HLM`` on a motor): which field ``DBR_CTRL``'s limits come\nfrom depends on the record type, so the bridge never guesses a name.",
+      "description": "One role of a device: its reading, and the record fields read beside it (all of them, every time).\n\n``fields`` carries the role's family ``fields`` (each a monitor of the\nrecord's field: the supplies' ``DRVH``/``DRVL``/``HIHI``/``LOLO``, the\nmotor ``val``'s ``HLM``/``LLM``) and, for a ``setpoint``, ``EGU`` and\n``PREC`` from the record's ``DBR_CTRL`` (read at subscribe, refreshed\nwhen the record's properties change, null while unread) unless the\nfamily monitors them itself. ``choices`` carries an ``enum``'s state\nnames from the same ``DBR_CTRL`` read, so a page keeps no list of its\nown (and a put checks against the same names); on the wire it is absent\nfor every other role and while unread. A record's control and alarm\nlimits are named only where the family names the field (``DRVH`` on an\n``ao``, ``HLM`` on a motor): which field ``DBR_CTRL``'s limits come\nfrom depends on the record type, so the bridge never guesses a name.",
       "properties": {
         "advanced_at": {
           "anyOf": [
@@ -1030,7 +1030,7 @@
             }
           ],
           "default": null,
-          "description": "An enum's state names, in the record's order (DBR_CTRL); absent for any other role, null while unread. A put takes the family's 'choices' when it names them, else these.",
+          "description": "An enum's state names, in the record's order (DBR_CTRL). On the wire absent for any other role and while unread. A put takes the family's 'choices' when it names them, else these.",
           "title": "Choices"
         },
         "fields": {

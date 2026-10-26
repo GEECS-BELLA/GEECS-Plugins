@@ -8,6 +8,7 @@ from typing import Optional
 
 import pytest
 
+from geecs_panels.bridge.feed import Ctrl
 from geecs_panels.bridge.journal import Journal
 from geecs_panels.bridge.puts import Puts
 from geecs_panels.bridge.stream import DeviceStreams
@@ -71,11 +72,13 @@ class Bench:
         panels: Optional[dict] = None,
         listening: bool = True,
         journal: Optional[Journal] = None,
+        ctrl: bool = False,
     ) -> None:
         self.ca, self.clock, self.io = FakeCA(), Clock(), FakeIO()
         self.streams = DeviceStreams(
             devices(panels),
             self.ca.subscribe,
+            subscribe_ctrl=self.ca.subscribe_ctrl if ctrl else None,
             clock=self.clock.mono,
             wall=self.clock.wall,
         )
@@ -322,6 +325,27 @@ def test_an_enum_whose_choices_cannot_be_read_is_refused() -> None:
     status, result = _scope().put("Scope", "resolution", "12bit")
     assert (status, result.outcome) == (422, "refused")
     assert "cannot be read" in result.message
+
+
+def test_an_enum_is_checked_against_the_names_the_stream_shows() -> None:
+    """One reader: the stream's DBR_CTRL names, refreshed when the record's change, never a stale copy."""
+    bench = Bench(
+        "Scope",
+        panels={"Scope": {"family": "scope_contract", "prefix": "b:sc:"}},
+        ctrl=True,
+    )
+    bench.ca.post("b:sc:Resolution_RBV", "8bit")
+    status, result = bench.put("Scope", "resolution", "12bit")
+    assert (status, result.outcome) == (422, "refused")  # names not yet read
+    assert "cannot be read" in result.message
+    bench.ca.post_ctrl("b:sc:Resolution_RBV", Ctrl(choices=("8bit", "12bit")))
+    assert bench.put("Scope", "resolution", "12bit")[1].outcome == "accepted"
+    bench.ca.post_ctrl("b:sc:Resolution_RBV", Ctrl(choices=("8bit", "16bit")))
+    assert bench.put("Scope", "resolution", "12bit")[1].outcome == "refused"
+    assert bench.put("Scope", "resolution", "16bit")[1].outcome == "accepted"
+    assert bench.io.gets == [] or all(
+        ".SEVR" in g or ".STAT" in g for g in bench.io.gets
+    )
 
 
 # ---- gate 3: the IOC ------------------------------------------------------------------------

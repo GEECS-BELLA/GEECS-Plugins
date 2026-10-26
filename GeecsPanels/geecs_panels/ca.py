@@ -151,19 +151,7 @@ def subscribe_ctrl(pv: str, callback: Callable[[Optional[Ctrl]], None]) -> Subsc
     """
 
     def on_update(value: object) -> None:
-        if not getattr(value, "ok", True):
-            callback(None)
-            return
-        units = getattr(value, "units", None)
-        precision = getattr(value, "precision", None)
-        enums = getattr(value, "enums", None)
-        callback(
-            Ctrl(
-                units=str(units) if units is not None else None,
-                precision=precision if isinstance(precision, int) else None,
-                choices=tuple(str(e) for e in enums) if enums is not None else None,
-            )
-        )
+        callback(ctrl_properties(value) if getattr(value, "ok", True) else None)
 
     return aioca.camonitor(
         pv,
@@ -172,6 +160,18 @@ def subscribe_ctrl(pv: str, callback: Callable[[Optional[Ctrl]], None]) -> Subsc
         format=aioca.FORMAT_CTRL,
         count=1,
         notify_disconnect=True,
+    )
+
+
+def ctrl_properties(value: object) -> Ctrl:
+    """A ``DBR_CTRL`` value's units, precision and enum state names (the stream's and the inspector's)."""
+    units = getattr(value, "units", None)
+    precision = getattr(value, "precision", None)
+    enums = getattr(value, "enums", None)
+    return Ctrl(
+        units=str(units) if units is not None else None,
+        precision=precision if isinstance(precision, int) else None,
+        choices=tuple(str(e) for e in enums) if enums is not None else None,
     )
 
 
@@ -186,7 +186,8 @@ async def read_pv_info(pv: str) -> dict[str, object]:
     """One PV for the inspector: the value with its alarm and timestamp (DBR_TIME), its DBR_CTRL fields."""
     timed = await aioca.caget(pv, format=aioca.FORMAT_TIME, timeout=PUT_TIMEOUT_S)
     ctrl = await aioca.caget(pv, format=aioca.FORMAT_CTRL, timeout=PUT_TIMEOUT_S)
-    enums = [str(e) for e in getattr(ctrl, "enums", ()) or ()]
+    props = ctrl_properties(ctrl)
+    enums = list(props.choices or ())
     # aioca's augmented values subclass the plain types: hand on plain ones.
     value: object = timed
     if enums and isinstance(timed, int):
@@ -198,14 +199,12 @@ async def read_pv_info(pv: str) -> dict[str, object]:
     elif isinstance(timed, str):
         value = str(timed)
     severity = severity_name(getattr(timed, "severity", None))
-    units = getattr(ctrl, "units", None)
-    precision = getattr(ctrl, "precision", None)
     return {
         "value": value,
         "severity": severity,
         "timestamp": getattr(timed, "timestamp", None),
-        "units": str(units) if units else None,
-        "precision": int(precision) if isinstance(precision, int) else None,
+        "units": props.units or None,
+        "precision": props.precision,
         "display_limits": _limits(
             getattr(ctrl, "lower_disp_limit", None),
             getattr(ctrl, "upper_disp_limit", None),

@@ -149,7 +149,8 @@ class RoleReading(Reading):
     when the record's properties change, null while unread) unless the
     family monitors them itself. ``choices`` carries an ``enum``'s state
     names from the same ``DBR_CTRL`` read, so a page keeps no list of its
-    own; it is absent for every other role. A record's control and alarm
+    own (and a put checks against the same names); on the wire it is absent
+    for every other role and while unread. A record's control and alarm
     limits are named only where the family names the field (``DRVH`` on an
     ``ao``, ``HLM`` on a motor): which field ``DBR_CTRL``'s limits come
     from depends on the record type, so the bridge never guesses a name.
@@ -165,9 +166,9 @@ class RoleReading(Reading):
     choices: Optional[list[str]] = Field(
         None,
         description=(
-            "An enum's state names, in the record's order (DBR_CTRL); absent for "
-            "any other role, null while unread. A put takes the family's "
-            "'choices' when it names them, else these."
+            "An enum's state names, in the record's order (DBR_CTRL). On the "
+            "wire absent for any other role and while unread. A put takes the "
+            "family's 'choices' when it names them, else these."
         ),
     )
 
