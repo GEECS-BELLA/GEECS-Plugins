@@ -28,8 +28,8 @@ from typing import Literal, Optional
 
 import yaml
 from geecs_core.configs_repo import scanner_configs_base
-from geecs_core.pv_naming import pv_name
-from geecs_schemas.epics.family import FamilyFile, Role
+from geecs_core.pv_naming import native_device_prefix
+from geecs_schemas.epics.family import REGISTRY_KIND_FAMILIES, FamilyFile, Role
 from geecs_schemas.epics.panel_devices import (
     PANEL_DEVICES_FILENAME,
     PanelDevice,
@@ -49,11 +49,11 @@ from geecs_panels.registry import (
 from geecs_panels.scope import SCOPE_KIND
 
 #: Registry kind → the family a registry device instantiates when
-#: ``panel_devices.yaml`` names none for it. ``scope`` is the panels' own
-#: kind (``--scope``), not yet a registry kind.
+#: ``panel_devices.yaml`` names none for it: GEECS-Schemas' table (the
+#: archiver reads the same one), plus ``scope``, the panels' own kind
+#: (``--scope``), not yet a registry kind.
 KIND_FAMILIES: dict[str, str] = {
-    "aravis_camera": "ad_camera_chain",
-    MOTOR_KIND: "motor_record",
+    **REGISTRY_KIND_FAMILIES,
     SCOPE_KIND: "scope_contract",
 }
 
@@ -221,7 +221,7 @@ def load_bench_file(
 
 
 def _prefix(experiment: str, name: str, entry: PanelDevice) -> str:
-    return entry.prefix or pv_name(experiment, name) + ":"
+    return entry.prefix or native_device_prefix(experiment, name)
 
 
 def page_devices(

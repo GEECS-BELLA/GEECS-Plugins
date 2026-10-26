@@ -54,6 +54,13 @@ FamilyKind = Literal[
     "aravis_camera", "epics_motor", "setpoint_device", "array_detector"
 ]
 
+#: Registry kind (``NativeDevices``) → the family a registry device
+#: instantiates when its panel data names none. Read by the PV bridge and
+#: the archiver's registry pass, so the two cannot pick different families.
+REGISTRY_KIND_FAMILIES: Mapping[str, str] = MappingProxyType(
+    {"aravis_camera": "ad_camera_chain", "epics_motor": "motor_record"}
+)
+
 #: A template's name: the family file's stem.
 TemplateName = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
 
