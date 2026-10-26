@@ -361,6 +361,14 @@ class Puts:
         severity = str(sevr) if str(sevr) in SEVERITIES else None
         return _Outcome("accepted", 200, value, severity)  # type: ignore[arg-type]
 
+    async def record_alarm(self, record: str) -> Optional[str]:
+        """The record's alarm severity now, by name (a restore's motion, once done); ``None`` when unread."""
+        try:
+            sevr, _ = await self._read_alarm(record)
+        except _AlarmUnread:
+            return None
+        return str(sevr)
+
     async def _read_alarm(self, record: str) -> tuple[object, object]:
         try:
             return (

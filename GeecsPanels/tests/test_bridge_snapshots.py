@@ -264,14 +264,20 @@ def _moves(rig: Rig, to: float, stop_at: Optional[float] = None):
     return run
 
 
-def _restore_with(rig: Rig, sid: str, mover) -> object:
+def _restore_with(
+    rig: Rig,
+    sid: str,
+    mover,
+    rows: tuple = (("Stage", "m1", "val"),),
+    stop: bool = True,
+) -> object:
     async def run() -> object:
         task = asyncio.create_task(mover())
         request = SnapshotRestore(
-            rows=[RowRef(device="Stage", axis="m1", role="val")],
+            rows=[RowRef(device=d, axis=a, role=r) for d, a, r in rows],
             operator=OPERATOR,
             confirm=True,
-            stop_on_refusal=True,
+            stop_on_refusal=stop,
         )
         result = await rig.snapshots.restore(sid, request)
         rig.events.append("answered")
@@ -303,6 +309,77 @@ def test_a_motion_stopped_short_is_unsettled() -> None:
     (row,) = _restore_with(rig, sid, _moves(rig, 1.0, stop_at=2.5)).rows
     assert row.status == "unsettled" and row.settled is False
     assert "stopped at 2.5" in row.message
+
+
+def test_a_motion_ending_in_a_major_alarm_is_unsettled() -> None:
+    rig = Rig()
+    sid = rig.capture()
+    rig.ca.post(MOTOR + "m1.VAL", 4.0)
+    rig.tick()
+    rig.events = []
+    rig.io.values[MOTOR + "m1.SEVR"] = "MAJOR"  # the record's alarm, not .VAL.SEVR
+    (row,) = _restore_with(rig, sid, _moves(rig, 1.0)).rows
+    assert row.status == "unsettled" and "MAJOR" in row.message
+
+
+def test_an_unsettled_motion_ends_the_run_even_when_asked_to_go_on() -> None:
+    rig = Rig()
+    sid = rig.capture()
+    rig.ca.post(MOTOR + "m1.VAL", 4.0)
+    rig.tick()
+    rig.events = []
+    rows = (("Stage", "m1", "val"), ("Stage", "m2", "val"))
+    result = _restore_with(rig, sid, _moves(rig, 1.0, stop_at=2.5), rows, stop=False)
+    assert [r.status for r in result.rows] == ["unsettled", "not_run"]
+    assert result.stopped
+    assert not any(pv.endswith("m2.VAL") for pv, _, _ in rig.io.puts)
+
+
+def test_settings_are_restored_before_the_motion() -> None:
+    """A motor moves at the saved velocity: velo is written before val."""
+    rig = Rig()
+    sid = rig.capture()
+    rig.ca.post(MOTOR + "m1.VAL", 4.0)
+    rig.tick()
+    rig.events = []
+    rows = (("Stage", "m1", "val"), ("Stage", "m1", "velo"))
+    result = _restore_with(rig, sid, _moves(rig, 1.0), rows)
+    assert [r.role for r in result.rows] == ["velo", "val"]
+    assert [pv for pv, _, _ in rig.io.puts] == [MOTOR + "m1.VELO", MOTOR + "m1.VAL"]
+
+
+def test_one_restore_at_a_time_and_an_abort_stops_it() -> None:
+    rig = Rig()
+    sid = rig.capture()
+    rig.ca.post(MOTOR + "m1.VAL", 4.0)
+    rig.tick()
+
+    async def run() -> tuple:
+        request = SnapshotRestore(
+            rows=[
+                RowRef(device="Stage", axis="m1", role="val"),
+                RowRef(device="Stage", axis="m2", role="val"),
+            ],
+            operator=OPERATOR,
+            confirm=True,
+            stop_on_refusal=False,
+        )
+        first = asyncio.create_task(rig.snapshots.restore(sid, request))
+        while not rig.io.puts:  # the first motion is dispatched, its wait begun
+            await asyncio.sleep(0.005)
+        rig.ca.post(MOTOR + "m1.DMOV", 0)
+        with pytest.raises(SnapshotError) as second:
+            await rig.snapshots.restore(sid, request)
+        ack = rig.snapshots.abort("K. Operator")
+        return await first, second.value, ack
+
+    result, second, ack = asyncio.run(run())
+    assert second.status == 409 and "is running" in str(second)
+    assert ack.running and ack.id == sid
+    assert [r.status for r in result.rows] == ["unsettled", "not_run"]
+    assert "aborted by K. Operator" in result.rows[0].message
+    assert result.stopped and result.aborted_by == "K. Operator"
+    assert not rig.snapshots.abort("K. Operator").running  # nothing runs now
 
 
 def test_a_motion_row_needs_the_confirm() -> None:
@@ -393,6 +470,8 @@ def test_the_snapshot_routes() -> None:
         assert done["rows"][0]["status"] == "accepted"
         assert client.get("/api/journal").json()[0]["snapshot"] == sid
         assert client.get("/api/snapshots/s0-00000000").status_code == 404
+        idle = client.post("/api/snapshots/restore/abort", json={"operator": OPERATOR})
+        assert idle.json() == {"running": False, "id": None}
         cam = {**body, "scope": {"devices": ["Cam"]}}
         assert client.post("/api/snapshots", json=cam).status_code == 409
         del restore["stop_on_refusal"]  # chosen before the run: no default

@@ -746,6 +746,35 @@ class RestoreRow(Contract):
     message: str = Field("", description="Why it ended so.")
 
 
+class RestoreAbort(Contract):
+    """``POST /api/snapshots/restore/abort``: stop the running restore before its next row, naming who.
+
+    The row in progress ends (a motion's wait is abandoned: its axis keeps
+    going until the operator presses the motor's Stop); every later row is
+    ``not_run``.
+
+    Examples
+    --------
+    {"operator": "S. Barber"}
+    """
+
+    operator: str = Field(
+        min_length=1, max_length=60, description="Who aborts, logged."
+    )
+
+
+class RestoreAbortAck(Contract):
+    """The answer to an abort: whether a restore was running, and of which snapshot.
+
+    Examples
+    --------
+    {"running": true, "id": "s19a1b2c3d4e-0f1e2d3c"}
+    """
+
+    running: bool = Field(description="A restore was running and will stop.")
+    id: Optional[str] = Field(None, description="The snapshot it was restoring.")
+
+
 class RestoreResult(Contract):
     """``POST /api/snapshots/{id}/restore``'s answer: every ticked row, in the snapshot's order.
 
@@ -757,7 +786,13 @@ class RestoreResult(Contract):
     id: str = Field(description="The snapshot.")
     operator: str = Field(description="Who restored.")
     stopped: bool = Field(
-        description="A row stopped the run (stop_on_refusal); the rows after it are not_run."
+        description=(
+            "The run stopped early: a refusal (stop_on_refusal), an unsettled "
+            "motion (always), or an abort; the rows after it are not_run."
+        )
+    )
+    aborted_by: Optional[str] = Field(
+        None, description="Who aborted it, when an abort stopped it."
     )
     unreachable: list[str] = Field(
         default_factory=list, description="The devices skipped as unreachable."
@@ -780,6 +815,8 @@ CONTRACTS: dict[str, type[Contract]] = {
     "snapshot_diff": SnapshotDiff,
     "snapshot_restore": SnapshotRestore,
     "restore_result": RestoreResult,
+    "restore_abort": RestoreAbort,
+    "restore_abort_ack": RestoreAbortAck,
     "subscription_request": SubscriptionRequest,
     "subscription_ack": SubscriptionAck,
     "pv_frame": PvFrame,

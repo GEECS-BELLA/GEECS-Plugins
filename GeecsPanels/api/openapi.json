@@ -1735,6 +1735,63 @@
         "title": "PvWidget",
         "type": "object"
       },
+      "RestoreAbort": {
+        "additionalProperties": false,
+        "description": "``POST /api/snapshots/restore/abort``: stop the running restore before its next row, naming who.\n\nThe row in progress ends (a motion's wait is abandoned: its axis keeps\ngoing until the operator presses the motor's Stop); every later row is\n``not_run``.\n\nExamples\n--------\n{\"operator\": \"S. Barber\"}",
+        "examples": [
+          {
+            "operator": "S. Barber"
+          }
+        ],
+        "properties": {
+          "operator": {
+            "description": "Who aborts, logged.",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Operator",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ],
+        "title": "RestoreAbort",
+        "type": "object"
+      },
+      "RestoreAbortAck": {
+        "additionalProperties": false,
+        "description": "The answer to an abort: whether a restore was running, and of which snapshot.\n\nExamples\n--------\n{\"running\": true, \"id\": \"s19a1b2c3d4e-0f1e2d3c\"}",
+        "examples": [
+          {
+            "id": "s19a1b2c3d4e-0f1e2d3c",
+            "running": true
+          }
+        ],
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The snapshot it was restoring.",
+            "title": "Id"
+          },
+          "running": {
+            "description": "A restore was running and will stop.",
+            "title": "Running",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "running"
+        ],
+        "title": "RestoreAbortAck",
+        "type": "object"
+      },
       "RestoreResult": {
         "additionalProperties": false,
         "description": "``POST /api/snapshots/{id}/restore``'s answer: every ticked row, in the snapshot's order.\n\nExamples\n--------\n{\"id\": \"s19a1b2c3d4e-0f1e2d3c\", \"operator\": \"S. Barber\", \"stopped\": true, \"rows\": [{\"device\": \"U_ChicaneInner\", \"role\": \"output_sp\", \"value\": 1, \"status\": \"denied\", \"result\": {\"outcome\": \"denied\", \"value\": 1, \"message\": \"output_sp on U_ChicaneInner needs the hazard confirm (to 1)\", \"journal_id\": 60}, \"message\": \"output_sp on U_ChicaneInner needs the hazard confirm (to 1)\"}, {\"device\": \"U_ChicaneInner\", \"role\": \"current_sp\", \"value\": 0.25, \"status\": \"not_run\", \"message\": \"not run: an earlier row was refused\"}]}",
@@ -1768,6 +1825,18 @@
           }
         ],
         "properties": {
+          "aborted_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who aborted it, when an abort stopped it.",
+            "title": "Aborted By"
+          },
           "id": {
             "description": "The snapshot.",
             "title": "Id",
@@ -1787,7 +1856,7 @@
             "type": "array"
           },
           "stopped": {
-            "description": "A row stopped the run (stop_on_refusal); the rows after it are not_run.",
+            "description": "The run stopped early: a refusal (stop_on_refusal), an unsettled motion (always), or an abort; the rows after it are not_run.",
             "title": "Stopped",
             "type": "boolean"
           },
@@ -4046,6 +4115,45 @@
         "summary": "Active"
       }
     },
+    "/api/snapshots/restore/abort": {
+      "post": {
+        "description": "Stop the running restore before its next row (a motion's wait ends; the motor's Stop stops the axis).",
+        "operationId": "post_api_snapshots_restore_abort",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreAbort"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreAbortAck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Abort"
+      }
+    },
     "/api/snapshots/{snapshot_id}": {
       "get": {
         "description": "One snapshot, its rows and all.",
@@ -4126,7 +4234,7 @@
     },
     "/api/snapshots/{snapshot_id}/restore": {
       "post": {
-        "description": "Write the ticked rows back through the put gates, in the snapshot's order, each journaled with its id.\n\nUnreachable devices are skipped and reported; a motion row needs the\nconfirm and is waited on; a refusal ends the run when asked to.",
+        "description": "Write the ticked rows back through the put gates, in the snapshot's order, each journaled with its id.\n\nPlain settings first, then hazard rows, then motion rows. Unreachable\ndevices are skipped and reported; a motion row needs the confirm and\nis waited on, and an unsettled one ends the run; a refusal ends it\nwhen asked to. One restore at a time (409 while one runs).",
         "operationId": "post_api_snapshots_snapshot_id_restore",
         "parameters": [
           {

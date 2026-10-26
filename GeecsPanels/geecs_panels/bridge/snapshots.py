@@ -23,15 +23,23 @@ compare (two documents, no live read: the page's), deleting one.
   in".
 - **Restore** (``POST /api/snapshots/{id}/restore``) writes the rows the
   operator ticked, **through the put gates** (:class:`~geecs_panels.bridge.puts.Puts`,
-  never around them), one at a time in the snapshot's order, each journaled
-  with the snapshot's id. A row the stale-page gate denies (409: the
+  never around them), one at a time, each journaled with the snapshot's
+  id: plain settings first (a motor's velocity before it moves), then
+  hazard rows, then motion rows, each group in the snapshot's order
+  (:func:`restore_order`). **One restore at a time** per bridge (a second
+  is refused, 409, so a retried request never runs beside the first);
+  ``POST /api/snapshots/restore/abort`` stops it before its next row. A
+  dropped connection does not stop it: the journal records every row it
+  wrote. A row the stale-page gate denies (409: the
   device's stream closed, stale, or its record disconnected) is
   ``unreachable``: skipped, grouped, and the run goes on. A **motion row**
   (a role ``settled_by`` another, the motor's ``val`` by ``dmov``) needs the
   operator's ``confirm`` like a hazard role and is waited on until its done
   flag reads done and its setpoint still reads the target (a Stop moves a
-  motor record's ``VAL`` to where it stopped: ``unsettled``). A refused,
-  denied or unsettled row ends the run when ``stop_on_refusal``.
+  motor record's ``VAL`` to where it stopped: ``unsettled``), and its
+  record's alarm then read: MAJOR or INVALID is ``unsettled`` too. **An
+  unsettled motion always ends the run** (the axis may still be moving);
+  a refused or denied row ends it when ``stop_on_refusal``.
 """
 
 from __future__ import annotations
@@ -54,11 +62,12 @@ from geecs_schemas.epics.snapshot import Snapshot, SnapshotRow, SnapshotValue
 from pydantic import ValidationError
 
 from geecs_panels.bridge.catalog import BridgeDevice
-from geecs_panels.bridge.feed import Feed
+from geecs_panels.bridge.feed import Feed, record_of
 from geecs_panels.bridge.puts import Denied, Puts, permitted
 from geecs_panels.bridge.stream import DeviceStreams, UnknownDevice
 from geecs_panels.contracts import (
     PutRequest,
+    RestoreAbortAck,
     RestoreResult,
     RestoreRow,
     RowDiff,
@@ -125,6 +134,13 @@ def snapshot_roles(device: BridgeDevice) -> list[Role]:
 def is_motion(role: Role) -> bool:
     """A write that completes when another role says so (the motor's ``val``, done by ``dmov``)."""
     return role.settled_by is not None and role.settled_by != role.name
+
+
+def restore_order(role: Role) -> int:
+    """A row's group in a restore: plain settings (0), then hazard rows (1), then motion rows (2)."""
+    if is_motion(role):
+        return 2
+    return 1 if role.confirm == "hazard" else 0
 
 
 def tolerance(role: Role, precision: object) -> float:
@@ -252,6 +268,10 @@ class Snapshots:
     motion_start_s: float = MOTION_START_S
     poll_s: float = POLL_S
     wall: Callable[[], float] = time.time
+    #: The snapshot a restore is running now; ``None``: none.
+    _running: Optional[str] = None
+    #: Who asked the running restore to stop; ``None``: nobody.
+    _abort: Optional[str] = None
 
     # ---- capture ----------------------------------------------------------------------
 
@@ -355,16 +375,25 @@ class Snapshots:
 
     async def active(self) -> list[SnapshotSummary]:
         """The snapshots whose every row is within tolerance of live, newest first."""
-        found = self.store.all()
+        found = await asyncio.to_thread(self.store.all)
         await self._connect([row for _, s in found for row in s.rows])
         return [summary(i, s) for i, s in found if self._compare(i, s).within]
 
     async def _connect(self, rows: list[SnapshotRow]) -> None:
-        """Open the rows' devices' feeds and wait (at most ``connect_s``) for their records."""
+        """Open the rows' devices' feeds and wait (at most ``connect_s``) for the records of those just opened.
+
+        A feed already live is read as it is: a device that is down does
+        not cost every poll of the verdict the whole wait.
+        """
         wanted: list[tuple[Feed, str, str]] = []
+        opened: set[str] = set()
         for row in rows:
             device = self.streams.devices.get(row.device)
             if device is None or not device.has_role(row.role):
+                continue
+            if row.device not in self.streams.hubs:
+                opened.add(row.device)
+            if row.device not in opened:
                 continue
             feed = self.streams.hub(row.device).feed
             wanted.append((feed, row.role, row.axis or ""))
@@ -425,14 +454,46 @@ class Snapshots:
     async def restore(
         self, snapshot_id: str, request: SnapshotRestore
     ) -> RestoreResult:
-        """Write the ticked rows back through the put gates, in the snapshot's order.
+        """Write the ticked rows back through the put gates: settings, then hazard rows, then motions.
 
         Raises
         ------
         SnapshotError
-            404: no such snapshot; 422: a ticked row the snapshot has not.
+            404: no such snapshot; 422: a ticked row the snapshot has not;
+            409: a restore is running.
         """
         snapshot = self.get(snapshot_id).snapshot
+        rows = self._ticked(snapshot, request)
+        if self._running is not None:
+            raise SnapshotError(f"a restore of {self._running} is running", 409)
+        self._running, self._abort = snapshot_id, None
+        try:
+            done, stopped = await self._run(snapshot_id, rows, request)
+        finally:
+            aborted_by, self._running, self._abort = self._abort, None, None
+        return RestoreResult(
+            id=snapshot_id,
+            operator=request.operator,
+            stopped=stopped,
+            aborted_by=aborted_by,
+            unreachable=list(
+                dict.fromkeys(r.device for r in done if r.status == "unreachable")
+            ),
+            rows=done,
+        )
+
+    def abort(self, operator: str) -> RestoreAbortAck:
+        """Stop the running restore before its next row (and end a motion's wait), naming who."""
+        if self._running is None:
+            return RestoreAbortAck(running=False)
+        self._abort = operator
+        logger.warning("restore of %s aborted by %s", self._running, operator)
+        return RestoreAbortAck(running=True, id=self._running)
+
+    def _ticked(
+        self, snapshot: Snapshot, request: SnapshotRestore
+    ) -> list[SnapshotRow]:
+        """The ticked rows in restore order; :class:`SnapshotError` 422 for one the snapshot has not."""
         keys = {(r.device, r.axis, r.role) for r in request.rows}
         rows = [r for r in snapshot.rows if (r.device, r.axis, r.role) in keys]
         missing = keys - {(r.device, r.axis, r.role) for r in rows}
@@ -441,29 +502,35 @@ class Snapshots:
                 _where(d, a or "", r) for d, a, r in sorted(missing, key=str)
             )
             raise SnapshotError(f"the snapshot has no row {named}", 422)
+        return sorted(rows, key=self._group)  # stable: the snapshot's order within
+
+    def _group(self, row: SnapshotRow) -> int:
+        device = self.streams.devices.get(row.device)
+        if device is None or not device.has_role(row.role):
+            return 0
+        return restore_order(device.role(row.role))
+
+    async def _run(
+        self, snapshot_id: str, rows: list[SnapshotRow], request: SnapshotRestore
+    ) -> tuple[list[RestoreRow], bool]:
         done: list[RestoreRow] = []
         stopped = False
         for row in rows:
-            if stopped:
-                done.append(_not_run(row))
+            if stopped or self._abort is not None:
+                stopped = True
+                why = (
+                    f"not run: aborted by {self._abort}"
+                    if self._abort is not None
+                    else "not run: an earlier row stopped the run"
+                )
+                done.append(_not_run(row, why))
                 continue
             line = await self._restore_row(snapshot_id, row, request)
             done.append(line)
-            if request.stop_on_refusal and line.status in (
-                "refused",
-                "denied",
-                "unsettled",
-            ):
+            refused = line.status in ("refused", "denied")
+            if line.status == "unsettled" or (request.stop_on_refusal and refused):
                 stopped = True
-        return RestoreResult(
-            id=snapshot_id,
-            operator=request.operator,
-            stopped=stopped,
-            unreachable=list(
-                dict.fromkeys(r.device for r in done if r.status == "unreachable")
-            ),
-            rows=done,
-        )
+        return done, stopped or self._abort is not None
 
     async def _restore_row(
         self, snapshot_id: str, row: SnapshotRow, request: SnapshotRestore
@@ -532,27 +599,33 @@ class Snapshots:
                 moving = True
             elif done and (moving or elapsed >= self.motion_start_s):
                 break
+            if self._abort is not None:
+                return False, f"aborted by {self._abort}: the axis may still be moving"
             if elapsed >= self.motion_timeout_s:
-                return (
-                    False,
-                    f"{flag} did not read done within {self.motion_timeout_s:g} s",
+                return False, (
+                    f"{flag} did not read done within {self.motion_timeout_s:g} s: "
+                    "the axis may still be moving"
                 )
             await asyncio.sleep(self.poll_s)
         reading = feed.reading(role, axis, hub.stale_after)
         tol = tolerance(role, reading.fields.get("PREC"))
         if not within(row.setpoint, reading.value, tol):
             return False, f"stopped at {reading.value!r}, not {row.setpoint!r}"
+        record = record_of(device.prefix + axis, role.write_suffix or role.suffix)
+        severity = await self.puts.record_alarm(record)
+        if severity in ("MAJOR", "INVALID"):
+            return False, f"done, but its record is in a {severity} alarm"
         return True, "settled"
 
 
-def _not_run(row: SnapshotRow) -> RestoreRow:
+def _not_run(row: SnapshotRow, message: str) -> RestoreRow:
     return RestoreRow(
         device=row.device,
         axis=row.axis,
         role=row.role,
         value=row.setpoint,
         status="not_run",
-        message="not run: an earlier row was refused",
+        message=message,
     )
 
 

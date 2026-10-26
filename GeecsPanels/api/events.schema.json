@@ -1013,6 +1013,64 @@
       "title": "Reading",
       "type": "object"
     },
+    "RestoreAbort": {
+      "additionalProperties": false,
+      "description": "``POST /api/snapshots/restore/abort``: stop the running restore before its next row, naming who.\n\nThe row in progress ends (a motion's wait is abandoned: its axis keeps\ngoing until the operator presses the motor's Stop); every later row is\n``not_run``.\n\nExamples\n--------\n{\"operator\": \"S. Barber\"}",
+      "examples": [
+        {
+          "operator": "S. Barber"
+        }
+      ],
+      "properties": {
+        "operator": {
+          "description": "Who aborts, logged.",
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Operator",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operator"
+      ],
+      "title": "RestoreAbort",
+      "type": "object"
+    },
+    "RestoreAbortAck": {
+      "additionalProperties": false,
+      "description": "The answer to an abort: whether a restore was running, and of which snapshot.\n\nExamples\n--------\n{\"running\": true, \"id\": \"s19a1b2c3d4e-0f1e2d3c\"}",
+      "examples": [
+        {
+          "id": "s19a1b2c3d4e-0f1e2d3c",
+          "running": true
+        }
+      ],
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The snapshot it was restoring.",
+          "title": "Id"
+        },
+        "running": {
+          "description": "A restore was running and will stop.",
+          "title": "Running",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "running"
+      ],
+      "title": "RestoreAbortAck",
+      "type": "object"
+    },
     "RestoreResult": {
       "additionalProperties": false,
       "description": "``POST /api/snapshots/{id}/restore``'s answer: every ticked row, in the snapshot's order.\n\nExamples\n--------\n{\"id\": \"s19a1b2c3d4e-0f1e2d3c\", \"operator\": \"S. Barber\", \"stopped\": true, \"rows\": [{\"device\": \"U_ChicaneInner\", \"role\": \"output_sp\", \"value\": 1, \"status\": \"denied\", \"result\": {\"outcome\": \"denied\", \"value\": 1, \"message\": \"output_sp on U_ChicaneInner needs the hazard confirm (to 1)\", \"journal_id\": 60}, \"message\": \"output_sp on U_ChicaneInner needs the hazard confirm (to 1)\"}, {\"device\": \"U_ChicaneInner\", \"role\": \"current_sp\", \"value\": 0.25, \"status\": \"not_run\", \"message\": \"not run: an earlier row was refused\"}]}",
@@ -1046,6 +1104,19 @@
         }
       ],
       "properties": {
+        "aborted_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who aborted it, when an abort stopped it.",
+          "title": "Aborted By"
+        },
         "id": {
           "description": "The snapshot.",
           "title": "Id",
@@ -1065,7 +1136,7 @@
           "type": "array"
         },
         "stopped": {
-          "description": "A row stopped the run (stop_on_refusal); the rows after it are not_run.",
+          "description": "The run stopped early: a refusal (stop_on_refusal), an unsettled motion (always), or an abort; the rows after it are not_run.",
           "title": "Stopped",
           "type": "boolean"
         },

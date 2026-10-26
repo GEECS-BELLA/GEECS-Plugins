@@ -72,6 +72,8 @@ from geecs_panels.contracts import (
     LockRelease,
     PutRequest,
     PutResult,
+    RestoreAbort,
+    RestoreAbortAck,
     RestoreResult,
     SavedSnapshot,
     SnapshotCapture,
@@ -257,6 +259,11 @@ def _add_snapshot_routes(app: FastAPI, snapshots: Snapshots) -> None:
         """
         return await snapshots.active()
 
+    @app.post("/api/snapshots/restore/abort", response_model=RestoreAbortAck)
+    def abort(request: RestoreAbort) -> RestoreAbortAck:
+        """Stop the running restore before its next row (a motion's wait ends; the motor's Stop stops the axis)."""
+        return snapshots.abort(request.operator)
+
     @app.get(
         "/api/snapshots/{snapshot_id}", response_model=SavedSnapshot, responses=errors
     )
@@ -281,8 +288,10 @@ def _add_snapshot_routes(app: FastAPI, snapshots: Snapshots) -> None:
     async def restore(snapshot_id: str, request: SnapshotRestore) -> RestoreResult:
         """Write the ticked rows back through the put gates, in the snapshot's order, each journaled with its id.
 
-        Unreachable devices are skipped and reported; a motion row needs the
-        confirm and is waited on; a refusal ends the run when asked to.
+        Plain settings first, then hazard rows, then motion rows. Unreachable
+        devices are skipped and reported; a motion row needs the confirm and
+        is waited on, and an unsettled one ends the run; a refusal ends it
+        when asked to. One restore at a time (409 while one runs).
         """
         return await snapshots.restore(snapshot_id, request)
 
