@@ -1,0 +1,19 @@
+[project]
+name = "geecs-canopy-module"
+version = "0.0.1"
+description = "Spike: the smallest GEECS device module, mounted in-process in SLAC's Canopy (lane C3 of Planning/geecs_canopy.md)"
+requires-python = ">=3.11"
+dependencies = ["fastapi", "pydantic>=2"]
+
+[project.optional-dependencies]
+test = ["pytest", "httpx"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+geecs_canopy_module = ["devices.json", "families/*.json"]

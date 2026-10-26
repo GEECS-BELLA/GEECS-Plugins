@@ -1,0 +1,22 @@
+{
+  "U_SimMotor1": {
+    "family": "motor_record",
+    "prefix": "undulator:simmotor1:",
+    "axes": ["m1", "m2"],
+    "allow": ["move", "tweak", "stop"]
+  },
+  "U_EzTest1": {
+    "family": "easydriver",
+    "prefix": "undulator:eztest1:",
+    "allow": ["current", "output", "reset"]
+  },
+  "UC_VisaEBeam6": {
+    "family": "ad_camera_chain",
+    "prefix": "undulator:uc_visaebeam6:"
+  },
+  "U_FpsTest1": {
+    "family": "fastps",
+    "prefix": "undulator:fpstest1:",
+    "allow": ["current", "reset"]
+  }
+}
