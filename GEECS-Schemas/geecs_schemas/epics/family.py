@@ -61,6 +61,12 @@ REGISTRY_KIND_FAMILIES: Mapping[str, str] = MappingProxyType(
     {"aravis_camera": "ad_camera_chain", "epics_motor": "motor_record"}
 )
 
+#: The layer-3 views (``Planning/epics_estate.md`` §2.2) a family's page may
+#: be drawn by instead of the generic role renderer: the camera viewer, the
+#: scope traces. A family names its own (``FamilyFile.component``); a
+#: composed panel's ``component`` widget must name its device's.
+ComponentName = Literal["camera_viewer", "scope_traces"]
+
 #: A template's name: the family file's stem.
 TemplateName = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
 
@@ -208,7 +214,9 @@ class Role(SchemaModel):
         default_factory=list,
         description=(
             "Record fields read beside the value and carried with it, e.g. "
-            "['DRVH', 'DRVL'] for a setpoint's drive limits."
+            "['DRVH', 'DRVL'] for a setpoint's drive limits; a field suffix's "
+            "(the motor's '.VAL') are its record's ('.HLM'). A setpoint's EGU "
+            "and PREC need no entry: the bridge reads them from DBR_CTRL."
         ),
     )
     limits: Optional[tuple[float, float]] = Field(
@@ -338,6 +346,13 @@ class FamilyFile(VersionedSchemaModel):
         description=(
             "The records repeat per axis (the motor record): every suffix is "
             "under '<prefix><axis>' for each axis the device names."
+        ),
+    )
+    component: Optional[ComponentName] = Field(
+        None,
+        description=(
+            "The layer-3 view that draws this family's page ('camera_viewer', "
+            "'scope_traces'); absent: the generic page rendered from the roles."
         ),
     )
     roles: list[Role] = Field(

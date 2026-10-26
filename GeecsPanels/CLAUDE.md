@@ -62,7 +62,7 @@ geecs_panels/
                 #   tick; PvInfo (GET /api/pv, DBR_CTRL)
     panels.py   #   GET /api/panels: <experiment>/panels/*.yaml + overrides,
                 #   validated against the device -> family map
-    routes.py   #   /api/devices, /api/families, /api/devices/{name}/events|arrays|unlock,
+    routes.py   #   /api/devices, /api/devices/state, /api/families, /api/devices/{name}/events|arrays|unlock,
                 #   /api/put, /api/journal, /api/subscriptions, /api/stream/{handle},
                 #   /api/pv/{name}, /api/panels
   app.py        # routes: /, /camera/{device}, its frame.jpg and events (SSE),
@@ -118,7 +118,13 @@ only, each reading whole; nothing re-sent as it ages (`advanced_at`, not
 an age); going stale is a change, sent once; `seq` starts at the wall
 clock in ms so an old `Last-Event-ID` never replays the wrong frames; one
 hub per device for every listener, evicted after the grace period; a
-listener too far behind is sent a full frame.
+listener too far behind is sent a full frame; a stream quiet for
+`contracts.HEARTBEAT_S` sends `event: heartbeat` (no `id:`), so a page tells
+quiet from dead. Beside its value, a setpoint or enum role is subscribed to
+its record's `DBR_CTRL` properties (`DBE_PROPERTY`): a setpoint's
+`EGU`/`PREC` and an enum's `choices` ride in its reading. `GET
+/api/devices/state` reports each device's last tick from its live hub and
+never creates one (`unknown` otherwise).
 
 Puts (`bridge/puts.py`, pinned in `tests/test_bridge_puts.py`): **denied
 before refused** (rule 8: not permitted on this device answers before any

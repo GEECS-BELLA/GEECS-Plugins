@@ -293,6 +293,178 @@
       "title": "DeviceState",
       "type": "object"
     },
+    "DeviceStates": {
+      "additionalProperties": false,
+      "description": "``GET /api/devices/state``: every served device's status in one request (the landing page's).\n\nExamples\n--------\n{\"server_time\": 1761400000.0, \"devices\": {\"U_ChicaneInner\": {\"live\": true, \"connected\": true, \"state\": {\"word\": \"ok\", \"status\": \"output on\"}}, \"UC_ExampleCam\": {\"live\": false, \"connected\": null, \"lock\": {\"state\": \"unknown\"}, \"saturation\": {\"state\": \"unknown\"}}}}",
+      "examples": [
+        {
+          "devices": {
+            "UC_ExampleCam": {
+              "connected": null,
+              "live": false,
+              "lock": {
+                "state": "unknown"
+              },
+              "saturation": {
+                "state": "unknown"
+              }
+            },
+            "U_ChicaneInner": {
+              "connected": true,
+              "live": true,
+              "state": {
+                "status": "output on",
+                "word": "ok"
+              }
+            }
+          },
+          "server_time": 1761400000.0
+        }
+      ],
+      "properties": {
+        "devices": {
+          "additionalProperties": {
+            "$ref": "#/$defs/DeviceStatus"
+          },
+          "description": "Device name → its status, every device the catalog serves.",
+          "title": "Devices",
+          "type": "object"
+        },
+        "server_time": {
+          "description": "When the bridge answered, Unix seconds.",
+          "title": "Server Time",
+          "type": "number"
+        }
+      },
+      "required": [
+        "server_time",
+        "devices"
+      ],
+      "title": "DeviceStates",
+      "type": "object"
+    },
+    "DeviceStatus": {
+      "additionalProperties": false,
+      "description": "One device's line of ``GET /api/devices/state``: its connection, state word and lock, from its live feed.\n\nOnly a device whose feed is live (a page streams it, or its grace\nperiod has not run out) reports; the route never opens a feed. A\ndevice without one reads ``live`` false, ``connected`` null and its\nblocks ``unknown``. A block the family has no rule for is absent.\n\nExamples\n--------\n{\"live\": true, \"connected\": true, \"state\": {\"word\": \"ok\", \"status\": \"output on\"}}\n\n{\"live\": false, \"connected\": null, \"state\": {\"word\": \"unknown\", \"status\": \"no live stream\"}, \"lock\": {\"state\": \"unknown\"}}",
+      "examples": [
+        {
+          "connected": true,
+          "live": true,
+          "state": {
+            "status": "output on",
+            "word": "ok"
+          }
+        },
+        {
+          "connected": null,
+          "live": false,
+          "lock": {
+            "state": "unknown"
+          },
+          "state": {
+            "status": "no live stream",
+            "word": "unknown"
+          }
+        }
+      ],
+      "properties": {
+        "connected": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether any of its records is connected; null without a live feed.",
+          "title": "Connected"
+        },
+        "live": {
+          "description": "Whether the bridge holds a feed of the device now (none is opened to answer).",
+          "title": "Live",
+          "type": "boolean"
+        },
+        "lock": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunLock"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Its run lock, for a family that has one: 'unknown' without a live feed."
+        },
+        "saturation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Saturation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A camera's saturation chip: 'unknown' without a live feed."
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeviceState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Its state word, for a family that has one (motor, supply): 'unknown' without a live feed."
+        }
+      },
+      "required": [
+        "live"
+      ],
+      "title": "DeviceStatus",
+      "type": "object"
+    },
+    "Heartbeat": {
+      "additionalProperties": false,
+      "description": "One ``event: heartbeat`` of a device stream: nothing changed for :data:`HEARTBEAT_S` seconds.\n\nSent only while the stream is quiet, never instead of a frame, and\nwithout an SSE ``id:`` (``Last-Event-ID`` stays the last frame's), so a\npage tells a quiet device (heartbeats arrive) from a dead connection\n(nothing arrives for twice :data:`HEARTBEAT_S`). ``seq`` is the last\nframe this listener was sent.\n\nExamples\n--------\n{\"device\": \"U_ChicaneInner\", \"seq\": 1761400000001, \"server_time\": 1761400005.0}",
+      "examples": [
+        {
+          "device": "U_ChicaneInner",
+          "seq": 1761400000001,
+          "server_time": 1761400005.0
+        }
+      ],
+      "properties": {
+        "device": {
+          "description": "The device's GEECS name.",
+          "title": "Device",
+          "type": "string"
+        },
+        "seq": {
+          "description": "The seq of the last frame sent on this stream.",
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "server_time": {
+          "description": "When the bridge sent it, Unix seconds.",
+          "title": "Server Time",
+          "type": "number"
+        }
+      },
+      "required": [
+        "device",
+        "seq",
+        "server_time"
+      ],
+      "title": "Heartbeat",
+      "type": "object"
+    },
     "History": {
       "additionalProperties": false,
       "description": "The server-kept history the frame carries, sampled on the producer's tick.\n\nExamples\n--------\n{\"keys\": [\"cx\", \"cy\"], \"points\": [[1761400000.0, 512.1, 480.0], [1761400000.5, null, 480.2]]}",
@@ -830,7 +1002,7 @@
     },
     "RoleReading": {
       "additionalProperties": false,
-      "description": "One role of a device: its reading, and the record fields its family reads beside it (all of them, every time).",
+      "description": "One role of a device: its reading, and the record fields read beside it (all of them, every time).\n\n``fields`` carries the role's family ``fields`` (each a monitor of the\nrecord's field: the supplies' ``DRVH``/``DRVL``/``HIHI``/``LOLO``, the\nmotor ``val``'s ``HLM``/``LLM``) and, for a ``setpoint``, ``EGU`` and\n``PREC`` from the record's ``DBR_CTRL`` (read at subscribe, refreshed\nwhen the record's properties change, null while unread) unless the\nfamily monitors them itself. ``choices`` carries an ``enum``'s state\nnames from the same ``DBR_CTRL`` read, so a page keeps no list of its\nown; it is absent for every other role. A record's control and alarm\nlimits are named only where the family names the field (``DRVH`` on an\n``ao``, ``HLM`` on a motor): which field ``DBR_CTRL``'s limits come\nfrom depends on the record type, so the bridge never guesses a name.",
       "properties": {
         "advanced_at": {
           "anyOf": [
@@ -844,6 +1016,22 @@
           "default": null,
           "description": "When its freshness source last advanced, Unix seconds (the producing plugin's counter, else the value's own monitor); null: not seen to. Its age is server_time (or the page's clock) minus this.",
           "title": "Advanced At"
+        },
+        "choices": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "An enum's state names, in the record's order (DBR_CTRL); absent for any other role, null while unread. A put takes the family's 'choices' when it names them, else these.",
+          "title": "Choices"
         },
         "fields": {
           "additionalProperties": {
@@ -865,7 +1053,7 @@
               }
             ]
           },
-          "description": "Record field → value, the role's family 'fields' (DRVH, DRVL …).",
+          "description": "Record field → value: the role's family 'fields' (DRVH, DRVL …), and a setpoint's EGU and PREC.",
           "title": "Fields",
           "type": "object"
         },
@@ -1076,12 +1264,16 @@
     "device": {
       "$ref": "#/$defs/DeviceFrame"
     },
+    "heartbeat": {
+      "$ref": "#/$defs/Heartbeat"
+    },
     "pv": {
       "$ref": "#/$defs/PvFrame"
     }
   },
   "required": [
     "device",
+    "heartbeat",
     "pv"
   ],
   "title": "GEECS PV bridge events",

@@ -9,7 +9,7 @@ from geecs_schemas.epics.family import load_families
 from geecs_schemas.epics.panel_devices import PanelDevices
 
 from geecs_panels.bridge.catalog import BridgeDevice, build_catalog
-from geecs_panels.bridge.feed import Feed, ReadAs, Sample
+from geecs_panels.bridge.feed import Ctrl, Feed, ReadAs, Sample
 from geecs_panels.bridge.rules import rules_for
 from geecs_panels.bridge.stream import DeviceHub, DeviceStreams
 from geecs_panels.registry import Device
@@ -36,7 +36,10 @@ class Clock:
 
 
 class FakeCA:
-    """Records subscriptions; posts values and disconnects by PV.
+    """Records subscriptions; posts values, ``DBR_CTRL`` properties and disconnects by PV.
+
+    Every monitor of a PV gets its posts (two roles may read one field,
+    as aioca's monitors share a channel).
 
     With *needs_loop*, subscribing off the running event loop raises, as
     aioca's ``camonitor`` does (a threadpool route has no loop).
@@ -44,8 +47,10 @@ class FakeCA:
 
     def __init__(self, needs_loop: bool = False) -> None:
         self.needs_loop = needs_loop
-        self.callbacks: dict[str, Callable[[Optional[Sample]], None]] = {}
+        self.callbacks: dict[str, list[Callable[[Optional[Sample]], None]]] = {}
+        self.ctrl_callbacks: dict[str, list[Callable[[Optional[Ctrl]], None]]] = {}
         self.subscribed: list[tuple[str, ReadAs]] = []
+        self.ctrl_subscribed: list[str] = []
         self.closed: list[str] = []
 
     def subscribe(
@@ -54,7 +59,14 @@ class FakeCA:
         if self.needs_loop:
             asyncio.get_running_loop()  # RuntimeError off the loop, as aioca
         self.subscribed.append((pv, how))
-        self.callbacks[pv] = callback
+        self.callbacks.setdefault(pv, []).append(callback)
+        return FakeCA._Sub(self, pv)
+
+    def subscribe_ctrl(
+        self, pv: str, callback: Callable[[Optional[Ctrl]], None]
+    ) -> "FakeCA._Sub":
+        self.ctrl_subscribed.append(pv)
+        self.ctrl_callbacks.setdefault(pv, []).append(callback)
         return FakeCA._Sub(self, pv)
 
     class _Sub:
@@ -65,10 +77,16 @@ class FakeCA:
             self.ca.closed.append(self.pv)
 
     def post(self, pv: str, value: object, severity: Optional[int] = 0) -> None:
-        self.callbacks[pv](Sample(value, severity))
+        for callback in self.callbacks[pv]:
+            callback(Sample(value, severity))
 
     def drop(self, pv: str) -> None:
-        self.callbacks[pv](None)
+        for callback in self.callbacks[pv]:
+            callback(None)
+
+    def post_ctrl(self, pv: str, ctrl: Optional[Ctrl]) -> None:
+        for callback in self.ctrl_callbacks[pv]:
+            callback(ctrl)
 
 
 def devices(panels: Optional[dict] = None) -> dict[str, BridgeDevice]:
@@ -86,11 +104,20 @@ def devices(panels: Optional[dict] = None) -> dict[str, BridgeDevice]:
     return {d.name: d for d in built}
 
 
-def hub(name: str, ca: FakeCA, clock: Clock, stale_after: float = 3.0) -> DeviceHub:
-    """A started hub for one device, ticked by hand."""
+def hub(
+    name: str, ca: FakeCA, clock: Clock, stale_after: float = 3.0, ctrl: bool = False
+) -> DeviceHub:
+    """A started hub for one device, ticked by hand; with *ctrl*, reading DBR_CTRL too."""
     device = devices()[name]
     rules = rules_for(device.family.template)
-    feed = Feed(device, ca.subscribe, rules.history, clock=clock.mono, wall=clock.wall)
+    feed = Feed(
+        device,
+        ca.subscribe,
+        rules.history,
+        subscribe_ctrl=ca.subscribe_ctrl if ctrl else None,
+        clock=clock.mono,
+        wall=clock.wall,
+    )
     feed.start()
     return DeviceHub(
         feed, rules, stale_after=stale_after, clock=clock.mono, wall=clock.wall

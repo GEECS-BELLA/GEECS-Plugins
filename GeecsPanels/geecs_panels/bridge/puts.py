@@ -59,7 +59,7 @@ from geecs_panels.bridge.catalog import BridgeDevice
 from geecs_panels.bridge.journal import Journal
 from geecs_panels.bridge.rules import rules_for
 from geecs_panels.bridge.stream import DeviceHub, DeviceStreams, UnknownDevice
-from geecs_panels.bridge.feed import SEVERITIES
+from geecs_panels.bridge.feed import SEVERITIES, record_of
 from geecs_panels.camera import MAX_TEXT, lock_word
 from geecs_panels.contracts import PutOutcome, PutRequest, PutResult, Severity, Value
 
@@ -388,14 +388,6 @@ class Puts:
             message=done.message,
             journal_id=entry.id,
         )
-
-
-def record_of(base: str, suffix: str) -> str:
-    """The record a suffix writes: a field suffix (``.VELO``) is a field of the record *base* names.
-
-    A record's alarm is ``<record>.SEVR``; ``<record>.VELO.SEVR`` is no channel.
-    """
-    return base if suffix.startswith(".") else base + suffix
 
 
 def _counter_ticks(hub: DeviceHub, axis: str) -> dict[str, Optional[float]]:

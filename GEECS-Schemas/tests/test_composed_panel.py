@@ -118,7 +118,33 @@ def test_a_widget_names_a_known_device() -> None:
 def test_a_component_draws_its_own_family() -> None:
     doc = panel()
     widget(doc, 0, 1)["device"] = "U_Tiny"
-    _refused(doc, "camera_viewer draws a ad_camera_chain device")
+    _refused(doc, "'U_Tiny' is tiny, drawn by the generic page, not camera_viewer")
+
+
+def test_a_component_is_the_one_its_family_file_names() -> None:
+    """The family file, not a table in the panel model, says which view draws it."""
+    doc = panel()
+    widget(doc, 0, 1)["component"] = "scope_traces"
+    _refused(
+        doc, "'UC_Cam' is ad_camera_chain, drawn by camera_viewer, not scope_traces"
+    )
+    named = {
+        **FAMILIES,
+        "tiny": FamilyFile.model_validate({**TINY, "component": "scope_traces"}),
+    }
+    widget(doc, 0, 1)["device"] = "U_Tiny"
+    ComposedPanel.model_validate(doc, context={"families": named, "devices": DEVICES})
+
+
+def test_the_camera_and_scope_families_name_their_views() -> None:
+    families = load_families()
+    assert families["ad_camera_chain"].component == "camera_viewer"
+    assert families["scope_contract"].component == "scope_traces"
+    assert {
+        f.component
+        for t, f in families.items()
+        if t not in ("ad_camera_chain", "scope_contract")
+    } == {None}
 
 
 @pytest.mark.parametrize("role", ["trace", "fire"])

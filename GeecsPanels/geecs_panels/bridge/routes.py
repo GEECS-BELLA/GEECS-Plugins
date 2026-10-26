@@ -2,10 +2,14 @@
 
 - ``GET /api/devices`` — the experiment's devices with a stream: the
   registry joined with its panel data (:mod:`~geecs_panels.bridge.catalog`).
+- ``GET /api/devices/state`` — every device's connection, state word, lock
+  and saturation from its live feed, ``unknown`` without one: a landing
+  page's one request (no feed is opened to answer it).
 - ``GET /api/families`` — the family files the bridge loaded.
 - ``GET /api/devices/{name}/events`` — the device's stream (SSE, ``event:
   device``, ``id:`` its ``seq``): a full ``DeviceFrame``, then deltas
-  (:mod:`~geecs_panels.bridge.stream`); ``Last-Event-ID`` resumes.
+  (:mod:`~geecs_panels.bridge.stream`); ``Last-Event-ID`` resumes; ``event:
+  heartbeat`` after ``HEARTBEAT_S`` quiet.
 - ``GET /api/devices/{name}/arrays`` — its arrays, read on request and
   decimated (:mod:`~geecs_panels.bridge.arrays`).
 - ``POST /api/subscriptions`` / ``GET /api/stream/{handle}`` — the raw PV
@@ -47,8 +51,16 @@ from geecs_panels.bridge.pvstream import (
     pv_sse,
 )
 from geecs_panels.bridge.puts import Puts
-from geecs_panels.bridge.stream import DeviceStreams, UnknownDevice, sse
+from geecs_panels.bridge.stream import (
+    DeviceStreams,
+    UnknownDevice,
+    heartbeat_sse,
+    sse,
+)
 from geecs_panels.contracts import (
+    HEARTBEAT_S,
+    DeviceFrame,
+    DeviceStates,
     JournalEntry,
     LockRelease,
     PutRequest,
@@ -136,6 +148,20 @@ def add_bridge_routes(app: FastAPI, bridge: Bridge) -> None:
         """The experiment's devices with a stream, and the documents or devices that could not be read."""
         return bridge.catalog()
 
+    @app.get("/api/devices/state", response_model=DeviceStates)
+    def device_states() -> DeviceStates:
+        """Every device's connection, state word, lock and saturation from its live feed; ``unknown`` without one.
+
+        A landing page's one request instead of one stream per device. Only
+        a device a page streams (or whose grace period has not run out) has
+        a live feed; asking opens none, so a registry of a hundred devices
+        costs no hundred feeds.
+        """
+        return DeviceStates(
+            server_time=streams.wall(),
+            devices={d.name: streams.status(d.name) for d in bridge.devices},
+        )
+
     @app.get("/api/families", response_model=dict[str, FamilyFile])
     def families() -> Mapping[str, FamilyFile]:
         """Every family file the bridge loaded, by template name."""
@@ -219,7 +245,9 @@ def _add_stream_routes(
             200: {
                 "description": (
                     "Server-Sent Events, `event: device`, `id:` the frame's seq; each "
-                    "`data:` is a DeviceFrame (api/events.schema.json)."
+                    "`data:` is a DeviceFrame (api/events.schema.json). After "
+                    f"{HEARTBEAT_S:g} s without a frame, `event: heartbeat` (no `id:`), "
+                    "a Heartbeat: no event for twice that long is a dead connection."
                 ),
                 "content": {"text/event-stream": {}},
             },
@@ -246,8 +274,8 @@ def _add_stream_routes(
             sent = 0
             try:
                 async for frame in frames:
-                    if frame is None:
-                        yield ": keepalive\n\n"
+                    if not isinstance(frame, DeviceFrame):
+                        yield heartbeat_sse(frame)
                         continue
                     yield sse(frame)
                     sent += 1

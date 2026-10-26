@@ -24,7 +24,7 @@ import time
 import aioca
 import httpx
 
-from geecs_panels.bridge.feed import ReadAs, Sample, severity_name
+from geecs_panels.bridge.feed import Ctrl, ReadAs, Sample, severity_name
 from geecs_panels.bridge.puts import PUT_TIMEOUT_S, SETTLE_POLL_S
 from geecs_panels.camera import (
     ARRAYS,
@@ -138,6 +138,39 @@ def subscribe_reading(
         format=aioca.FORMAT_CTRL if read_as == "auto" else aioca.FORMAT_TIME,
         # A bare PV may be a waveform: one element is enough to say its size.
         count=1 if read_as == "auto" else 0,
+        notify_disconnect=True,
+    )
+
+
+def subscribe_ctrl(pv: str, callback: Callable[[Optional[Ctrl]], None]) -> Subscription:
+    """Monitor *pv*'s ``DBR_CTRL`` properties for the bridge's feed: units, precision, an enum's names.
+
+    ``DBE_PROPERTY``: posted once at subscribe and again only when a
+    property changes (an ``EGU`` or ``PREC`` put, an mbbo's strings), never
+    per value; ``None`` on a disconnect.
+    """
+
+    def on_update(value: object) -> None:
+        if not getattr(value, "ok", True):
+            callback(None)
+            return
+        units = getattr(value, "units", None)
+        precision = getattr(value, "precision", None)
+        enums = getattr(value, "enums", None)
+        callback(
+            Ctrl(
+                units=str(units) if units is not None else None,
+                precision=precision if isinstance(precision, int) else None,
+                choices=tuple(str(e) for e in enums) if enums is not None else None,
+            )
+        )
+
+    return aioca.camonitor(
+        pv,
+        on_update,
+        events=aioca.DBE_PROPERTY,
+        format=aioca.FORMAT_CTRL,
+        count=1,
         notify_disconnect=True,
     )
 

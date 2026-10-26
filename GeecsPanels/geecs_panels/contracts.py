@@ -140,11 +140,35 @@ class Reading(Contract):
 
 
 class RoleReading(Reading):
-    """One role of a device: its reading, and the record fields its family reads beside it (all of them, every time)."""
+    """One role of a device: its reading, and the record fields read beside it (all of them, every time).
+
+    ``fields`` carries the role's family ``fields`` (each a monitor of the
+    record's field: the supplies' ``DRVH``/``DRVL``/``HIHI``/``LOLO``, the
+    motor ``val``'s ``HLM``/``LLM``) and, for a ``setpoint``, ``EGU`` and
+    ``PREC`` from the record's ``DBR_CTRL`` (read at subscribe, refreshed
+    when the record's properties change, null while unread) unless the
+    family monitors them itself. ``choices`` carries an ``enum``'s state
+    names from the same ``DBR_CTRL`` read, so a page keeps no list of its
+    own; it is absent for every other role. A record's control and alarm
+    limits are named only where the family names the field (``DRVH`` on an
+    ``ao``, ``HLM`` on a motor): which field ``DBR_CTRL``'s limits come
+    from depends on the record type, so the bridge never guesses a name.
+    """
 
     fields: dict[str, Value] = Field(
         default_factory=dict,
-        description="Record field → value, the role's family 'fields' (DRVH, DRVL …).",
+        description=(
+            "Record field → value: the role's family 'fields' (DRVH, DRVL …), "
+            "and a setpoint's EGU and PREC."
+        ),
+    )
+    choices: Optional[list[str]] = Field(
+        None,
+        description=(
+            "An enum's state names, in the record's order (DBR_CTRL); absent for "
+            "any other role, null while unread. A put takes the family's "
+            "'choices' when it names them, else these."
+        ),
     )
 
     @field_validator("fields", mode="before")
@@ -278,6 +302,83 @@ class DeviceFrame(Contract):
     history: Optional[History] = Field(
         None,
         description="New history points (full: the last minutes; delta: since the last frame).",
+    )
+
+
+#: Seconds a device stream may stay quiet before it sends a ``heartbeat``:
+#: a page that has seen no event for twice this long is cut off, not quiet.
+HEARTBEAT_S = 5.0
+
+
+class Heartbeat(Contract):
+    """One ``event: heartbeat`` of a device stream: nothing changed for :data:`HEARTBEAT_S` seconds.
+
+    Sent only while the stream is quiet, never instead of a frame, and
+    without an SSE ``id:`` (``Last-Event-ID`` stays the last frame's), so a
+    page tells a quiet device (heartbeats arrive) from a dead connection
+    (nothing arrives for twice :data:`HEARTBEAT_S`). ``seq`` is the last
+    frame this listener was sent.
+
+    Examples
+    --------
+    {"device": "U_ChicaneInner", "seq": 1761400000001, "server_time": 1761400005.0}
+    """
+
+    device: str = Field(description="The device's GEECS name.")
+    seq: int = Field(ge=0, description="The seq of the last frame sent on this stream.")
+    server_time: float = Field(description="When the bridge sent it, Unix seconds.")
+
+
+class DeviceStatus(Contract):
+    """One device's line of ``GET /api/devices/state``: its connection, state word and lock, from its live feed.
+
+    Only a device whose feed is live (a page streams it, or its grace
+    period has not run out) reports; the route never opens a feed. A
+    device without one reads ``live`` false, ``connected`` null and its
+    blocks ``unknown``. A block the family has no rule for is absent.
+
+    Examples
+    --------
+    {"live": true, "connected": true, "state": {"word": "ok", "status": "output on"}}
+
+    {"live": false, "connected": null, "state": {"word": "unknown", "status": "no live stream"}, "lock": {"state": "unknown"}}
+    """
+
+    live: bool = Field(
+        description="Whether the bridge holds a feed of the device now (none is opened to answer)."
+    )
+    connected: Optional[bool] = Field(
+        None,
+        description="Whether any of its records is connected; null without a live feed.",
+    )
+    state: Optional[DeviceState] = Field(
+        None,
+        description=(
+            "Its state word, for a family that has one (motor, supply): 'unknown' "
+            "without a live feed."
+        ),
+    )
+    lock: Optional[RunLock] = Field(
+        None,
+        description="Its run lock, for a family that has one: 'unknown' without a live feed.",
+    )
+    saturation: Optional[Saturation] = Field(
+        None,
+        description="A camera's saturation chip: 'unknown' without a live feed.",
+    )
+
+
+class DeviceStates(Contract):
+    """``GET /api/devices/state``: every served device's status in one request (the landing page's).
+
+    Examples
+    --------
+    {"server_time": 1761400000.0, "devices": {"U_ChicaneInner": {"live": true, "connected": true, "state": {"word": "ok", "status": "output on"}}, "UC_ExampleCam": {"live": false, "connected": null, "lock": {"state": "unknown"}, "saturation": {"state": "unknown"}}}}
+    """
+
+    server_time: float = Field(description="When the bridge answered, Unix seconds.")
+    devices: dict[str, DeviceStatus] = Field(
+        description="Device name → its status, every device the catalog serves."
     )
 
 
@@ -456,6 +557,8 @@ class PvFrame(Contract):
 #: Every published contract: name → model.
 CONTRACTS: dict[str, type[Contract]] = {
     "device_frame": DeviceFrame,
+    "heartbeat": Heartbeat,
+    "device_states": DeviceStates,
     "put_request": PutRequest,
     "put_result": PutResult,
     "journal_entry": JournalEntry,
@@ -466,7 +569,11 @@ CONTRACTS: dict[str, type[Contract]] = {
 }
 
 #: The bridge's SSE ``event:`` names and the model each frame's ``data:`` is.
-EVENT_MODELS: dict[str, type[Contract]] = {"device": DeviceFrame, "pv": PvFrame}
+EVENT_MODELS: dict[str, type[Contract]] = {
+    "device": DeviceFrame,
+    "heartbeat": Heartbeat,
+    "pv": PvFrame,
+}
 
 JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
 
