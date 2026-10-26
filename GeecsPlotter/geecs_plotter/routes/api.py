@@ -70,8 +70,8 @@ def figure_code(
     return (
         "from datetime import date\n"
         "from geecs_plotter import figures, scans\n\n"
-        f"folder = scans.scan_folder(date({day.year}, {day.month}, {day.day}), {scan}{where})\n"
-        "frame = scans.load_frame(folder)\n"
+        f"run = scans.find_scan(date({day.year}, {day.month}, {day.day}), {scan}{where})\n"
+        "frame = scans.load_frame(run)\n"
         f"series = scans.plot_series(frame, {names!r})\n"
         f"fig = figures.shots_figure(series, {y!r}{x_arg}, shot=scans.shot_axis(frame))\n"
         "fig.show()\n"
@@ -84,12 +84,12 @@ def register(router: APIRouter, ctx: Context) -> None:
     @router.get("/api/columns", response_model=ColumnsResponse)
     def api_columns(day: date, scan: int) -> JSONResponse:
         """The scan's plottable columns and its default X."""
-        folder = ctx.folder(day, scan)
-        frame = scans.load_frame(folder)
+        run = ctx.run(day, scan)
+        frame = scans.load_frame(run)
         picks = scans.columns(frame)
         body = ColumnsResponse(
             columns=picks,
-            default_x=scans.default_x(folder, day, scan, picks),
+            default_x=scans.default_x(run, picks),
             shots=len(frame),
         )
         return _json(body)
@@ -102,7 +102,7 @@ def register(router: APIRouter, ctx: Context) -> None:
         x: str = Query(default="", description="empty plots against the shot number"),
     ) -> JSONResponse:
         """The per-shot figure of ``y`` against ``x``."""
-        frame = scans.load_frame(ctx.folder(day, scan))
+        frame = scans.load_frame(ctx.run(day, scan))
         try:
             series = scans.plot_series(frame, [y, x] if x else [y])
         except KeyError as missing:

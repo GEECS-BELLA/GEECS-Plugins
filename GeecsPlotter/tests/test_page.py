@@ -51,8 +51,8 @@ def test_the_empty_form(client: TestClient) -> None:
 
 def test_a_scan_defaults_x_to_the_scan_variable(client: TestClient) -> None:
     page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
-    assert f"<option selected>{SCAN_VARIABLE}</option>" in page
-    assert "<option selected>U_ICT charge</option>" in page  # the first other column
+    assert f'<option value="{SCAN_VARIABLE}" selected>' in page
+    assert '<option value="U_ICT charge" selected>' in page  # the first measurement
     assert "x=U_Jet%20Position" in page
 
 
@@ -78,3 +78,21 @@ def test_links_carry_the_proxy_prefix(client: TestClient) -> None:
     assert 'href="/plot/theme/kit.css"' in page
     assert 'src="/plot/static/plotter.js"' in page
     assert 'data-figure-url="/plot/api/figure?' in page
+
+
+def test_options_carry_the_exact_column_name(client: TestClient) -> None:
+    """A browser strips and collapses option text; the value keeps the name."""
+    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    assert '<option value="U_ICT charge" selected>U_ICT charge</option>' in page
+
+
+def test_only_bookkeeping_columns_still_pick_a_y(
+    client: TestClient, share: Path
+) -> None:
+    import pandas as pd
+
+    from tests.conftest import write_scan
+
+    write_scan(share, 3, pd.DataFrame({"Shotnumber": [1, 2], "Bin #": [1, 1]}))
+    page = client.get("/", params={"day": "2026-10-02", "scan": 3}).text
+    assert "y=Shotnumber" in page

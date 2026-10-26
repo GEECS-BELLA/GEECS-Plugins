@@ -43,16 +43,16 @@ def register(router: APIRouter, ctx: Context) -> None:
         }
         if day is not None and scan is not None:
             try:
-                folder = ctx.folder(day, scan)
+                run = ctx.run(day, scan)
             except HTTPException as missing:
                 page["error"] = missing.detail
             else:
-                frame = scans.load_frame(folder)
+                frame = scans.load_frame(run)
                 picks = scans.columns(frame)
                 page["columns"] = picks
                 page["shots"] = len(frame)
                 # x absent = GEECSplotter's "autofill par1"; x="" = shot number.
-                chosen_x = scans.default_x(folder, day, scan, picks) if x is None else x
+                chosen_x = scans.default_x(run, picks) if x is None else x
                 page["x"] = chosen_x if chosen_x in picks else ""
                 # Default Y: the first measurement, not the bookkeeping.
                 others = [
@@ -60,7 +60,7 @@ def register(router: APIRouter, ctx: Context) -> None:
                     for c in picks
                     if c not in {page["x"], *_BOOKKEEPING} and not c.endswith(" shot #")
                 ]
-                page["y"] = y if y in picks else (others[0] if others else "")
+                page["y"] = y if y in picks else (others or picks)[0]
         return ctx.templates.TemplateResponse(
             request, "index.html", {"experiment": ctx.experiment, **page}
         )

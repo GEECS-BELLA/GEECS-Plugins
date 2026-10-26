@@ -41,7 +41,7 @@ def test_figure_plots_y_against_x(client: TestClient) -> None:
     assert trace["x"] == [1.0, 1.0, 2.0, 2.0]
     assert trace["y"] == [10.0, 12.0, None, 30.0]  # the NaN shot is a gap
     assert trace["marker"]["color"] == "$tok:--trace-1"
-    assert "scans.load_frame(folder)" in body["code"]
+    assert "scans.load_frame(run)" in body["code"]
     assert "experiment='Testexp'" in body["code"]
 
 
@@ -105,3 +105,12 @@ def test_a_lookup_never_creates_a_scan_folder(client: TestClient, share: Path) -
 
 def test_health(client: TestClient) -> None:
     assert client.get("/health").json()["ok"] is True
+
+
+def test_an_unpadded_scan_folder_opens(client: TestClient, share: Path) -> None:
+    """A ``Scan7`` folder (no zero padding) is still scan 7."""
+    day = share / "Testexp" / "Y2026" / "10-Oct" / "26_1002"
+    (day / "scans" / "Scan002").rename(day / "scans" / "Scan7")
+    (day / "analysis" / "s2.txt").rename(day / "analysis" / "s7.txt")
+    body = client.get("/api/columns", params={"day": "2026-10-02", "scan": 7}).json()
+    assert "U_ICT charge" in body["columns"]

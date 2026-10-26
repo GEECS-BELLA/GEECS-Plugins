@@ -12,19 +12,23 @@ from typing import Optional
 
 import pandas as pd
 from geecs_data_utils import tiled_schema
-from geecs_data_utils.folder_catalog import folder_start_doc
+from geecs_data_utils.folder_catalog import FolderScanCatalog, folder_uid
 from geecs_data_utils.scan_frame import scan_frame
-from geecs_data_utils.scan_paths import daily_scan_folder
+from geecs_data_utils.scan_paths import ScanPaths
+from geecs_data_utils.tiled_catalog import RunDetail
 
 
-def scan_folder(
+def find_scan(
     day: date,
     number: int,
     *,
     experiment: str = "",
     base_path: Optional[Path] = None,
-) -> Optional[Path]:
-    """Return the existing ``scans/ScanNNN`` folder, or ``None``.
+    catalog: Optional[FolderScanCatalog] = None,
+) -> Optional[RunDetail]:
+    """Look one scan up on the share, or ``None`` when it is not there.
+
+    The folder catalog's lookup, so an unpadded ``Scan7`` folder opens too.
 
     Parameters
     ----------
@@ -36,22 +40,33 @@ def scan_folder(
         The experiment folder; empty means ``config.ini [Experiment] expt``.
     base_path : Path, optional
         The data root; defaults to ``config.ini``. Tests pass a tmp tree.
+    catalog : FolderScanCatalog, optional
+        A long-lived catalog (the app's), which remembers finished scans.
 
     Returns
     -------
-    Path or None
-        The folder when it exists on the share.
+    RunDetail or None
+        The scan's documents; its folder is :func:`scan_folder`.
     """
-    daily = daily_scan_folder(experiment, base_path=base_path, day=day)
-    if daily is None:
+    config = ScanPaths.paths_config
+    name = experiment or (getattr(config, "experiment", None) or "")
+    if not name:
         return None
-    folder = daily / f"Scan{number:03d}"
-    return folder if folder.is_dir() else None
+    catalog = catalog or FolderScanCatalog(base_path)
+    try:
+        return catalog.load_run(folder_uid(name, day, number))
+    except (KeyError, OSError):
+        return None
 
 
-def load_frame(folder: Path) -> pd.DataFrame:
+def scan_folder(run: RunDetail) -> Path:
+    """The scan's ``scans/ScanNNN`` folder."""
+    return Path(run.start_doc["scan_folder"])
+
+
+def load_frame(run: RunDetail) -> pd.DataFrame:
     """The scan's per-shot table: its s-file, one row per shot."""
-    return scan_frame(scan_folder=folder).frame
+    return scan_frame(scan_folder=scan_folder(run)).frame
 
 
 def columns(frame: pd.DataFrame) -> list[str]:
@@ -59,17 +74,13 @@ def columns(frame: pd.DataFrame) -> list[str]:
     return tiled_schema.plottable_columns(frame)
 
 
-def default_x(folder: Path, day: date, number: int, picks: list[str]) -> str:
+def default_x(run: RunDetail, picks: list[str]) -> str:
     """The default X, GEECSplotter's "autofill par1": the scan variable.
 
     Parameters
     ----------
-    folder : Path
-        The scan folder (its ScanInfo names the scan variable).
-    day : datetime.date
-        The scan's day.
-    number : int
-        The scan number.
+    run : RunDetail
+        The scan, from :func:`find_scan`.
     picks : list of str
         The offered columns; the scan variable must be one of them.
 
@@ -78,10 +89,9 @@ def default_x(folder: Path, day: date, number: int, picks: list[str]) -> str:
     str
         The column, or ``""`` on a no-scan (the shot number is X then).
     """
-    start_doc, _ = folder_start_doc(folder, "", day, number)
-    if not tiled_schema.is_stepped_scan(start_doc):
+    if not tiled_schema.is_stepped_scan(run.start_doc):
         return ""
-    found = tiled_schema.scan_variable_columns(picks, start_doc)
+    found = tiled_schema.scan_variable_columns(picks, run.start_doc)
     return found[0] if found else ""
 
 

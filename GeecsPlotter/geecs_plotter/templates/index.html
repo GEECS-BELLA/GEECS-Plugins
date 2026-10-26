@@ -49,13 +49,13 @@
             <label for="x">X</label>
             <select id="x" name="x" data-autosubmit>
               <option value=""{% if not x %} selected{% endif %}>shot #</option>
-              {% for c in columns %}<option{% if c == x %} selected{% endif %}>{{ c }}</option>{% endfor %}
+              {% for c in columns %}<option value="{{ c }}"{% if c == x %} selected{% endif %}>{{ c }}</option>{% endfor %}
             </select>
           </div>
           <div class="field">
             <label for="y">Y</label>
             <select id="y" name="y" data-autosubmit>
-              {% for c in columns %}<option{% if c == y %} selected{% endif %}>{{ c }}</option>{% endfor %}
+              {% for c in columns %}<option value="{{ c }}"{% if c == y %} selected{% endif %}>{{ c }}</option>{% endfor %}
             </select>
           </div>
         </div>

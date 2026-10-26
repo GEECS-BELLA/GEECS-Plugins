@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from fastapi import APIRouter, FastAPI
+from geecs_data_utils.folder_catalog import FolderScanCatalog
 from geecs_web_theme.web import (
     ForwardedPrefixMiddleware,
     RevalidatingStaticFiles,
@@ -67,8 +68,8 @@ def create_app(
     )
     ctx = Context(
         experiment=experiment,
-        base_directory=Path(base_directory) if base_directory else None,
         templates=make_templates(TEMPLATES_DIR),
+        catalog=FolderScanCatalog(Path(base_directory) if base_directory else None),
     )
     router = APIRouter()
     pages.register(router, ctx)
