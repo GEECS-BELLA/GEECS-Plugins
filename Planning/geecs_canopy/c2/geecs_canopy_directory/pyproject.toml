@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "geecs-canopy-directory"
+version = "0.0.1"
+description = "Spike: Canopy Raccoon directory adapter over GEECS's device knowledge"
+authors = ["GEECS-BELLA"]
+packages = [{ include = "geecs_canopy_directory" }]
+include = ["geecs_canopy_directory/families/*.json"]
+
+[tool.poetry.dependencies]
+python = ">=3.11"
+# canopy itself is the host, not a dependency: the adapter is loaded inside
+# Canopy's environment, which provides canopy (and pydantic) already.
+geecs-core = { path = "../../../../GEECS-Core", develop = true }
+pydantic = ">=2"
+pyyaml = "*"
+
+[build-system]
+requires = ["poetry-core>=1.9"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
