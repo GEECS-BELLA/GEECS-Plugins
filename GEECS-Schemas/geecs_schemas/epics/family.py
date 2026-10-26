@@ -228,6 +228,15 @@ class Role(SchemaModel):
         ),
     )
     integer: bool = Field(False, description="A write takes a whole number.")
+    tolerance: Optional[float] = Field(
+        None,
+        ge=0,
+        description=(
+            "How far live may sit from a snapshot's saved value and still be it, "
+            "in the role's units; absent: half the last digit its PREC shows "
+            "(exact without one)."
+        ),
+    )
     choices: Optional[list[str]] = Field(
         None,
         description=(

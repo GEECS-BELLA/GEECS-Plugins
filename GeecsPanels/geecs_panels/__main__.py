@@ -15,8 +15,8 @@ import sys
 from pathlib import Path
 
 
-def main() -> None:
-    """Parse CLI arguments, build the app, serve."""
+def _parser() -> argparse.ArgumentParser:
+    """The command line."""
     parser = argparse.ArgumentParser(description="GEECS device panels")
     parser.add_argument("--host", default="127.0.0.1", help="bind address")
     parser.add_argument("--port", type=int, default=8500, help="HTTP port")
@@ -85,6 +85,13 @@ def main() -> None:
         "unit, else in memory)",
     )
     parser.add_argument(
+        "--snapshots",
+        default=None,
+        metavar="DIR",
+        help="where snapshots are kept (a JSON file each; default: "
+        "$STATE_DIRECTORY/snapshots under the unit, else in memory)",
+    )
+    parser.add_argument(
         "--configs-root",
         default=None,
         metavar="PATH",
@@ -92,7 +99,12 @@ def main() -> None:
         "config.ini [Paths] scanner_config_root_path",
     )
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    """Parse CLI arguments, build the app, serve."""
+    args = _parser().parse_args()
 
     logging.basicConfig(
         level=args.log_level.upper(),
@@ -130,6 +142,7 @@ def main() -> None:
     from geecs_panels.bridge.puts import Puts
     from geecs_panels.bridge.pvstream import PvStreams
     from geecs_panels.bridge.routes import Bridge
+    from geecs_panels.bridge.snapshots import SnapshotStore, default_folder
     from geecs_panels.bridge.stream import DeviceStreams
     from geecs_panels.ca import (
         CaPuts,
@@ -179,6 +192,9 @@ def main() -> None:
         pvs=PvStreams(subscribe_reading, push_s=args.push_period),
         read_info=read_pv_info,
         panels_dir=panels_dir(experiment),
+        snapshot_store=SnapshotStore(
+            Path(args.snapshots) if args.snapshots else default_folder()
+        ),
     )
     app = create_app(
         experiment,

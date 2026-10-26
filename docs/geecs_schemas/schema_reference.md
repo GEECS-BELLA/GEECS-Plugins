@@ -760,6 +760,7 @@ One record of the template, by what it does for a page.
 | `fields` | `list[str]` | no | empty | Record fields read beside the value and carried with it, e.g. ['DRVH', 'DRVL'] for a setpoint's drive limits; a field suffix's (the motor's '.VAL') are its record's ('.HLM'). A setpoint's EGU and PREC need no entry: the bridge reads them from DBR_CTRL. |
 | `limits` | `tuple[float, float] (optional)` | no | None | The bridge's own bounds on a write, low then high, where the record enforces none (a pixel, an exposure). A motor's soft limits and a supply's drive limits are the record's, read at put time. |
 | `integer` | `bool` | no | False | A write takes a whole number. |
+| `tolerance` | `float (optional)` | no | None | How far live may sit from a snapshot's saved value and still be it, in the role's units; absent: half the last digit its PREC shows (exact without one). |
 | `choices` | `list[str] (optional)` | no | None | The values a write may take, where the page offers fewer than the record's own (an enum's choices are otherwise read from the PV). |
 | `fault` | `bool` | no | False | A bit that reads 1 when tripped: any tripped fault makes the device 'failed'. |
 | `read` | `'monitor' \| 'on_request' \| 'once' \| 'never' (optional)` | no | None | How the bridge reads it, when not the type's own: monitored (scalars), on request (arrays), once (the image's URL), never (a command's record). |
@@ -1025,6 +1026,63 @@ hide: [set, vbas]
 labels: {val: setpoint}
 order: [rbv, val, stop]
 ```
+
+## `snapshot`
+
+### Snapshot
+
+A named set of setpoints across devices, with the readbacks at the time: what a restore returns the beamline to.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `name` | `str` | yes | — | What the operator called it: 'chicane tuned, 25 pC'. |
+| `created` | `float` | yes | — | When it was taken, Unix seconds. |
+| `author` | `str` | yes | — | Who took it (the operator's identity, as a put journals it). |
+| `note` | `str` | no | '' | Why, in a line or a few. |
+| `golden` | `bool` | no | False | Marked as a reference setup (a later release promotes golden snapshots into the configs repository). |
+| `scope` | `SnapshotScope` | yes | — | The devices it covers, or the panel. |
+| `rows` | `list[SnapshotRow]` | yes | — | Every writable role of the scope's devices, per axis, as it was. |
+
+Example:
+
+```yaml
+schema_version: 1
+# Taken by the PV bridge from its live streams (POST /api/snapshots), kept as
+# $STATE_DIRECTORY/snapshots/<id>.json; never written by hand.
+name: chicane tuned, 25 pC
+created: 1761400000.0
+author: S. Barber
+note: After the jet realignment.
+golden: false
+scope: {panel: chicane}          # or {devices: [U_ChicaneInner, U_ESP302_01]}
+rows:
+  - {device: U_ChicaneInner, role: current_sp, setpoint: 0.25, readback: 0.249}
+  - {device: U_ChicaneInner, role: output_sp, setpoint: 1, readback: 1}
+  - {device: U_ESP302_01, axis: m1, role: val, setpoint: 1.25, readback: 1.2498}
+  - {device: U_ESP302_01, axis: m1, role: velo, setpoint: 0.5}
+```
+
+### SnapshotScope
+
+What a snapshot covers: a list of devices, or a composed panel's devices.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `devices` | `list[str] (optional)` | no | None | The devices whose writable roles are kept, by GEECS name. |
+| `panel` | `str (optional)` | no | None | A composed panel's name (its file stem under <experiment>/panels/). |
+
+### SnapshotRow
+
+One writable role of one device (and axis) as it was: its setpoint, and its readback beside it.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `device` | `str` | yes | — | The device's GEECS name. |
+| `axis` | `str (optional)` | no | None | The axis, for a per-axis family (the motor record); else absent. |
+| `role` | `str` | yes | — | The role (a writable setpoint, enum or bit). |
+| `setpoint` | `bool \| int \| float \| str` | yes | — | The role's value at capture: what a restore writes back. |
+| `readback` | `bool \| int \| float \| str (optional)` | no | None | The value of the role's readback (its family's 'readback') at capture; null when the family names none or it was not read. |
 
 ## `analysis_recipe`
 

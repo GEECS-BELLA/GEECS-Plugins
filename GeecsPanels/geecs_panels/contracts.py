@@ -1,4 +1,4 @@
-"""The PV bridge's wire contracts: the device stream, puts, the journal, the raw PV stream.
+"""The PV bridge's wire contracts: the device stream, puts, the journal, the raw PV stream, snapshots.
 
 Models only, no routes (``Planning/epics_estate.md`` §2.3; the bridge lane
 wires them). The web repository's typed clients are generated from these
@@ -35,6 +35,7 @@ import math
 import re
 from typing import Any, Literal, Optional, Union
 
+from geecs_schemas.epics.snapshot import Snapshot, SnapshotScope, SnapshotValue
 from pydantic.json_schema import models_json_schema
 from pydantic import (
     BaseModel,
@@ -475,6 +476,10 @@ class JournalEntry(Contract):
     message: str = Field(
         "", description="Why it was refused or denied, or the alarm status."
     )
+    snapshot: Optional[str] = Field(
+        None,
+        description="The snapshot a restore wrote this row from (its id); null for a page's own put.",
+    )
 
 
 class LockRelease(Contract):
@@ -555,6 +560,246 @@ class PvFrame(Contract):
     pvs: dict[str, Reading] = Field(description="PV → reading.")
 
 
+# ---- snapshots (Planning/epics_estate.md §2.6) ------------------------------------------
+
+
+class SnapshotCapture(Contract):
+    """``POST /api/snapshots``: take a snapshot of a scope's devices from their live streams.
+
+    Examples
+    --------
+    {"name": "chicane tuned, 25 pC", "operator": "S. Barber", "note": "after the jet realignment", "scope": {"panel": "chicane"}}
+
+    {"name": "stage parked", "operator": "S. Barber", "golden": true, "scope": {"devices": ["U_ESP302_01"]}}
+    """
+
+    name: str = Field(min_length=1, max_length=120, description="What to call it.")
+    operator: str = Field(
+        min_length=1, max_length=60, description="Who takes it (its author)."
+    )
+    note: str = Field("", max_length=2000, description="Why, in a line or a few.")
+    golden: bool = Field(False, description="Mark it a reference setup.")
+    scope: SnapshotScope = Field(description="The devices, or a composed panel's.")
+
+
+class SnapshotSummary(Contract):
+    """One line of ``GET /api/snapshots`` (and of ``/api/snapshots/active``): a snapshot without its rows.
+
+    Examples
+    --------
+    {"id": "s19a1b2c3d4e-0f1e2d3c", "name": "chicane tuned, 25 pC", "created": 1761400000.0, "author": "S. Barber", "note": "", "golden": false, "scope": {"panel": "chicane"}, "devices": ["U_ChicaneInner", "U_ESP302_01"], "rows": 9}
+    """
+
+    id: str = Field(description="The snapshot's id: one URL segment.")
+    name: str = Field(description="What it is called.")
+    created: float = Field(description="When it was taken, Unix seconds.")
+    author: str = Field(description="Who took it.")
+    note: str = Field("", description="Why.")
+    golden: bool = Field(False, description="A reference setup.")
+    scope: SnapshotScope = Field(description="What it was taken over.")
+    devices: list[str] = Field(description="The devices its rows name, in order.")
+    rows: int = Field(ge=1, description="How many rows it keeps.")
+
+
+class SavedSnapshot(Contract):
+    """A snapshot and its id: ``POST /api/snapshots``' answer and ``GET /api/snapshots/{id}``'s.
+
+    Examples
+    --------
+    {"id": "s19a1b2c3d4e-0f1e2d3c", "snapshot": {"schema_version": 1, "name": "chicane tuned, 25 pC", "created": 1761400000.0, "author": "S. Barber", "scope": {"devices": ["U_ChicaneInner"]}, "rows": [{"device": "U_ChicaneInner", "role": "current_sp", "setpoint": 0.25, "readback": 0.249}]}}
+    """
+
+    id: str = Field(description="The snapshot's id: one URL segment.")
+    snapshot: Snapshot = Field(description="The document (GEECS-Schemas' Snapshot).")
+
+
+#: How a row compares with live: ``within`` its tolerance, ``differs``, or
+#: ``unreachable`` (its device not served, not connected).
+RowState = Literal["within", "differs", "unreachable"]
+
+
+class RowDiff(Contract):
+    """One row of ``GET /api/snapshots/{id}/diff``: the saved value against live.
+
+    Examples
+    --------
+    {"device": "U_ChicaneInner", "role": "current_sp", "saved": 0.25, "live": 0.3, "readback_saved": 0.249, "readback_live": 0.301, "tolerance": 0.0005, "state": "differs"}
+
+    {"device": "U_ESP302_01", "axis": "m1", "role": "val", "saved": 1.25, "state": "unreachable", "message": "not connected"}
+    """
+
+    device: str = Field(description="The device.")
+    axis: Optional[str] = Field(None, description="The axis, for a per-axis family.")
+    role: str = Field(description="The role.")
+    saved: SnapshotValue = Field(description="The setpoint the snapshot keeps.")
+    live: Value = Field(None, description="Its value now; null when unreachable.")
+    readback_saved: Optional[SnapshotValue] = Field(
+        None, description="Its readback at capture."
+    )
+    readback_live: Value = Field(None, description="Its readback now.")
+    tolerance: Optional[float] = Field(
+        None,
+        description=(
+            "How far live may sit and still be within: the family's 'tolerance', "
+            "else half the last digit PREC shows, else 0 (exact)."
+        ),
+    )
+    state: RowState = Field(description="within, differs or unreachable.")
+    message: str = Field("", description="Why it is unreachable.")
+
+
+class SnapshotDiff(Contract):
+    """``GET /api/snapshots/{id}/diff``: every row against live, and whether all are within (the active verdict).
+
+    Examples
+    --------
+    {"id": "s19a1b2c3d4e-0f1e2d3c", "server_time": 1761400100.0, "within": false, "rows": [{"device": "U_ChicaneInner", "role": "current_sp", "saved": 0.25, "live": 0.25, "tolerance": 0.0005, "state": "within"}, {"device": "U_ESP302_01", "axis": "m1", "role": "val", "saved": 1.25, "state": "unreachable", "message": "not connected"}], "unreachable": ["U_ESP302_01"]}
+    """
+
+    id: str = Field(description="The snapshot.")
+    server_time: float = Field(description="When live was read, Unix seconds.")
+    within: bool = Field(
+        description="Every row within its tolerance of live: the beamline is in this snapshot."
+    )
+    rows: list[RowDiff] = Field(description="Each row, in the snapshot's order.")
+    unreachable: list[str] = Field(
+        default_factory=list, description="The devices with an unreachable row."
+    )
+
+
+class RowRef(Contract):
+    """A row of a snapshot, by device, axis and role: the operator's tick in the restore view."""
+
+    device: str = Field(min_length=1, description="The device.")
+    axis: Optional[str] = Field(None, description="The axis, for a per-axis family.")
+    role: str = Field(min_length=1, description="The role.")
+
+
+class SnapshotRestore(Contract):
+    """``POST /api/snapshots/{id}/restore``: write the ticked rows back, through the put gates.
+
+    Never the whole snapshot by default: ``rows`` names each row. Stop on
+    the first refusal or continue is chosen before the run.
+
+    Examples
+    --------
+    {"rows": [{"device": "U_ChicaneInner", "role": "current_sp"}, {"device": "U_ESP302_01", "axis": "m1", "role": "val"}], "operator": "S. Barber", "confirm": true, "stop_on_refusal": true}
+    """
+
+    rows: list[RowRef] = Field(
+        min_length=1, description="The rows to write, each a row of the snapshot."
+    )
+    operator: str = Field(
+        min_length=1,
+        max_length=60,
+        description="Who restores, journaled with each row.",
+    )
+    confirm: bool = Field(
+        False,
+        description=(
+            "The operator confirmed the dialog naming the hazard rows and the "
+            "motion rows (each needs it)."
+        ),
+    )
+    stop_on_refusal: bool = Field(
+        description="Stop at the first refused, denied or unsettled row (true), or go on (false)."
+    )
+
+
+#: How a restore row ended: the put's outcome (``accepted``, ``refused``,
+#: ``denied``), ``unreachable`` (skipped: its device's stream closed, stale
+#: or disconnected, or not served), ``unsettled`` (a motion accepted but
+#: not done at the target in time, or stopped short), ``not_run`` (after
+#: an earlier row stopped the run).
+RestoreStatus = Literal[
+    "accepted", "refused", "denied", "unreachable", "unsettled", "not_run"
+]
+
+
+class RestoreRow(Contract):
+    """One row of a restore: what it wrote and how it ended (its put's result, journaled).
+
+    Examples
+    --------
+    {"device": "U_ESP302_01", "axis": "m1", "role": "val", "value": 1.25, "status": "accepted", "result": {"outcome": "accepted", "value": 1.25, "message": "dispatched; done when dmov says", "journal_id": 51}, "settled": true, "message": "settled"}
+
+    {"device": "UC_ExampleCam", "role": "exposure", "value": 0.01, "status": "unreachable", "result": {"outcome": "denied", "value": 0.01, "message": "no stream of UC_ExampleCam is open: reload the page", "journal_id": 52}, "message": "no stream of UC_ExampleCam is open: reload the page"}
+    """
+
+    device: str = Field(description="The device.")
+    axis: Optional[str] = Field(None, description="The axis, for a per-axis family.")
+    role: str = Field(description="The role.")
+    value: SnapshotValue = Field(
+        description="The value written back (the saved setpoint)."
+    )
+    status: RestoreStatus = Field(
+        description="accepted, refused, denied, unreachable, unsettled or not_run."
+    )
+    result: Optional[PutResult] = Field(
+        None,
+        description="The put's answer, journaled with the snapshot's id; null: no put (not run, not served).",
+    )
+    settled: Optional[bool] = Field(
+        None,
+        description="For a motion row: done at the target within the time allowed.",
+    )
+    message: str = Field("", description="Why it ended so.")
+
+
+class RestoreAbort(Contract):
+    """``POST /api/snapshots/restore/abort``: stop the running restore before its next row, naming who.
+
+    The row in progress ends (a motion's wait is abandoned: its axis keeps
+    going until the operator presses the motor's Stop); every later row is
+    ``not_run``.
+
+    Examples
+    --------
+    {"operator": "S. Barber"}
+    """
+
+    operator: str = Field(
+        min_length=1, max_length=60, description="Who aborts, logged."
+    )
+
+
+class RestoreAbortAck(Contract):
+    """The answer to an abort: whether a restore was running, and of which snapshot.
+
+    Examples
+    --------
+    {"running": true, "id": "s19a1b2c3d4e-0f1e2d3c"}
+    """
+
+    running: bool = Field(description="A restore was running and will stop.")
+    id: Optional[str] = Field(None, description="The snapshot it was restoring.")
+
+
+class RestoreResult(Contract):
+    """``POST /api/snapshots/{id}/restore``'s answer: every ticked row, in the snapshot's order.
+
+    Examples
+    --------
+    {"id": "s19a1b2c3d4e-0f1e2d3c", "operator": "S. Barber", "stopped": true, "rows": [{"device": "U_ChicaneInner", "role": "output_sp", "value": 1, "status": "denied", "result": {"outcome": "denied", "value": 1, "message": "output_sp on U_ChicaneInner needs the hazard confirm (to 1)", "journal_id": 60}, "message": "output_sp on U_ChicaneInner needs the hazard confirm (to 1)"}, {"device": "U_ChicaneInner", "role": "current_sp", "value": 0.25, "status": "not_run", "message": "not run: an earlier row was refused"}]}
+    """
+
+    id: str = Field(description="The snapshot.")
+    operator: str = Field(description="Who restored.")
+    stopped: bool = Field(
+        description=(
+            "The run stopped early: a refusal (stop_on_refusal), an unsettled "
+            "motion (always), or an abort; the rows after it are not_run."
+        )
+    )
+    aborted_by: Optional[str] = Field(
+        None, description="Who aborted it, when an abort stopped it."
+    )
+    unreachable: list[str] = Field(
+        default_factory=list, description="The devices skipped as unreachable."
+    )
+    rows: list[RestoreRow] = Field(description="Each ticked row and how it ended.")
+
+
 #: Every published contract: name → model.
 CONTRACTS: dict[str, type[Contract]] = {
     "device_frame": DeviceFrame,
@@ -564,6 +809,14 @@ CONTRACTS: dict[str, type[Contract]] = {
     "put_result": PutResult,
     "journal_entry": JournalEntry,
     "lock_release": LockRelease,
+    "snapshot_capture": SnapshotCapture,
+    "snapshot_summary": SnapshotSummary,
+    "saved_snapshot": SavedSnapshot,
+    "snapshot_diff": SnapshotDiff,
+    "snapshot_restore": SnapshotRestore,
+    "restore_result": RestoreResult,
+    "restore_abort": RestoreAbort,
+    "restore_abort_ack": RestoreAbortAck,
     "subscription_request": SubscriptionRequest,
     "subscription_ack": SubscriptionAck,
     "pv_frame": PvFrame,

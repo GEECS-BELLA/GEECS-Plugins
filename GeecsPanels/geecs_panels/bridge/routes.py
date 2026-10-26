@@ -16,6 +16,12 @@
   stream (:mod:`~geecs_panels.bridge.pvstream`); ``GET /api/pv/{name}`` —
   the inspector's read; ``GET /api/panels`` — the experiment's composed
   panels (:mod:`~geecs_panels.bridge.panels`).
+- ``POST /api/snapshots``, ``GET /api/snapshots``, ``GET
+  /api/snapshots/active``, ``GET /api/snapshots/{id}``, ``GET
+  /api/snapshots/{id}/diff``, ``POST /api/snapshots/{id}/restore`` —
+  snapshot v0: capture from the live streams, compare with live, the
+  active verdict, restore ticked rows through the put gates
+  (:mod:`~geecs_panels.bridge.snapshots`).
 - ``POST /api/put`` — one write through the three gates, journaled
   (:mod:`~geecs_panels.bridge.puts`); ``POST /api/devices/{name}/unlock``
   — a stuck run lock released, journaled; ``GET /api/journal`` — the
@@ -33,14 +39,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from geecs_schemas.epics.family import FamilyFile, load_families
 
 from geecs_panels.bridge.arrays import ArraysReply
 from geecs_panels.bridge.catalog import BridgeDevice, DeviceCatalog, device_info
 from geecs_panels.bridge.journal import MAX_ENTRIES, Journal
-from geecs_panels.bridge.panels import PanelsReply, load_panels
+from geecs_panels.bridge.panels import PanelsReply, load_panels, panel_device_names
 from geecs_panels.bridge.pvstream import (
     PvInfo,
     PvStreams,
@@ -51,6 +57,7 @@ from geecs_panels.bridge.pvstream import (
     pv_sse,
 )
 from geecs_panels.bridge.puts import Puts
+from geecs_panels.bridge.snapshots import SnapshotError, Snapshots, SnapshotStore
 from geecs_panels.bridge.stream import (
     DeviceStreams,
     UnknownDevice,
@@ -65,6 +72,14 @@ from geecs_panels.contracts import (
     LockRelease,
     PutRequest,
     PutResult,
+    RestoreAbort,
+    RestoreAbortAck,
+    RestoreResult,
+    SavedSnapshot,
+    SnapshotCapture,
+    SnapshotDiff,
+    SnapshotRestore,
+    SnapshotSummary,
     SubscriptionAck,
     SubscriptionRequest,
 )
@@ -105,6 +120,10 @@ class Bridge:
     read_info: Optional[ReadInfo] = None
     #: ``<experiment>/panels`` in the configs repository; ``None``: no panels.
     panels_dir: Optional[Path] = None
+    #: Where snapshots are kept; ``None``: in memory.
+    snapshot_store: Optional[SnapshotStore] = None
+    #: The snapshot service, built over the streams and puts.
+    snapshots: Optional[Snapshots] = None
 
     def __post_init__(self) -> None:
         """Give a bridge without a transport streams that refuse to subscribe and puts that deny (listings only)."""
@@ -117,6 +136,26 @@ class Bridge:
             self.puts = Puts(
                 self.streams, _NoWrites(), Journal(warn=False), writable=False
             )
+        if self.snapshots is None:
+            self.snapshots = Snapshots(
+                self.streams,
+                self.puts,
+                self.snapshot_store or SnapshotStore(warn=False),
+                panel_devices=self.panel_devices,
+            )
+
+    def panels(self) -> PanelsReply:
+        """The experiment's composed panels and overrides, validated against the devices served."""
+        return load_panels(
+            self.panels_dir,
+            {d.name: d.family.template for d in self.devices},
+            self.families,
+        )
+
+    def panel_devices(self, name: str) -> Optional[list[str]]:
+        """The devices composed panel *name* embeds; ``None``: no such panel (or it does not validate)."""
+        panel = self.panels().panels.get(name)
+        return None if panel is None else panel_device_names(panel)
 
     def catalog(self) -> DeviceCatalog:
         """The ``GET /api/devices`` answer."""
@@ -175,11 +214,86 @@ def add_bridge_routes(app: FastAPI, bridge: Bridge) -> None:
     @app.get("/api/panels", response_model=PanelsReply)
     def panels() -> PanelsReply:
         """The experiment's composed panels and family overrides, validated against the devices served; the others named."""
-        return load_panels(
-            bridge.panels_dir,
-            {d.name: d.family.template for d in bridge.devices},
-            bridge.families,
-        )
+        return bridge.panels()
+
+    assert bridge.snapshots is not None
+    _add_snapshot_routes(app, bridge.snapshots)
+
+
+async def _snapshot_error(_request: Request, exc: Exception) -> JSONResponse:
+    """A :class:`SnapshotError` as its status, ``{"detail": why}`` like an HTTPException."""
+    status = exc.status if isinstance(exc, SnapshotError) else 500
+    return JSONResponse({"detail": str(exc)}, status_code=status)
+
+
+def _add_snapshot_routes(app: FastAPI, snapshots: Snapshots) -> None:
+    """Snapshot v0 (``Planning/epics_estate.md`` §2.6): capture, list, diff, the active verdict, restore."""
+    app.add_exception_handler(SnapshotError, _snapshot_error)
+    errors: dict[int | str, dict[str, object]] = {
+        404: {"description": "No such snapshot, device or panel."},
+        409: {
+            "description": "A device's stream is not open and ticking, or a role not connected."
+        },
+        422: {
+            "description": "The scope keeps no role, or a ticked row the snapshot has not."
+        },
+    }
+
+    @app.post("/api/snapshots", response_model=SavedSnapshot, responses=errors)
+    def capture(request: SnapshotCapture) -> SavedSnapshot:
+        """Take a snapshot of the scope's devices from their live streams (every one open and ticking), and keep it."""
+        return snapshots.capture(request)
+
+    @app.get("/api/snapshots", response_model=list[SnapshotSummary])
+    def listing() -> list[SnapshotSummary]:
+        """Every snapshot kept, newest first."""
+        return snapshots.summaries()
+
+    # Before /api/snapshots/{id}: 'active' is no id (ids start with 's').
+    @app.get("/api/snapshots/active", response_model=list[SnapshotSummary])
+    async def active() -> list[SnapshotSummary]:
+        """The snapshots whose every row is within tolerance of live: which preset the beamline is in.
+
+        Reads each snapshot device's feed, opening one a page does not
+        stream (evicted after the grace period) and waiting briefly for it.
+        """
+        return await snapshots.active()
+
+    @app.post("/api/snapshots/restore/abort", response_model=RestoreAbortAck)
+    def abort(request: RestoreAbort) -> RestoreAbortAck:
+        """Stop the running restore before its next row (a motion's wait ends; the motor's Stop stops the axis)."""
+        return snapshots.abort(request.operator)
+
+    @app.get(
+        "/api/snapshots/{snapshot_id}", response_model=SavedSnapshot, responses=errors
+    )
+    def one(snapshot_id: str) -> SavedSnapshot:
+        """One snapshot, its rows and all."""
+        return snapshots.get(snapshot_id)
+
+    @app.get(
+        "/api/snapshots/{snapshot_id}/diff",
+        response_model=SnapshotDiff,
+        responses=errors,
+    )
+    async def diff(snapshot_id: str) -> SnapshotDiff:
+        """Each row against live: within tolerance, differs, or unreachable."""
+        return await snapshots.diff(snapshot_id)
+
+    @app.post(
+        "/api/snapshots/{snapshot_id}/restore",
+        response_model=RestoreResult,
+        responses=errors,
+    )
+    async def restore(snapshot_id: str, request: SnapshotRestore) -> RestoreResult:
+        """Write the ticked rows back through the put gates, in the snapshot's order, each journaled with its id.
+
+        Plain settings first, then hazard rows, then motion rows. Unreachable
+        devices are skipped and reported; a motion row needs the confirm and
+        is waited on, and an unsettled one ends the run; a refusal ends it
+        when asked to. One restore at a time (409 while one runs).
+        """
+        return await snapshots.restore(snapshot_id, request)
 
 
 #: Every status a put may answer, each with the PutResult body.

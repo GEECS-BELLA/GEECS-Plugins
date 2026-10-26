@@ -40,6 +40,10 @@ The gates, in order; the first that fails answers:
    or, for a motion, answered at dispatch (the stream shows the move and
    its done flag).
 
+A snapshot restore (:mod:`~geecs_panels.bridge.snapshots`) writes each row
+through :meth:`Puts.put` with the snapshot's id (journaled beside the put)
+and, for a motion row, ``hazard``: the confirm a hazard role needs.
+
 HTTP status, beside the body: accepted 200; denied 403 (the run lock
 423, a stale stream 409); refused 422 by the bridge, 502 by the IOC.
 """
@@ -128,8 +132,18 @@ class Puts:
     poll_s: float = SETTLE_POLL_S
     clock: Callable[[], float] = time.monotonic
 
-    async def put(self, request: PutRequest) -> tuple[int, PutResult]:
+    async def put(
+        self,
+        request: PutRequest,
+        *,
+        snapshot: Optional[str] = None,
+        hazard: bool = False,
+    ) -> tuple[int, PutResult]:
         """Gate, write and journal one put; (HTTP status, result).
+
+        *snapshot* is the id of the snapshot a restore writes the row from,
+        journaled with it; *hazard* asks the confirm of a role the family
+        does not mark (a restore's motion row).
 
         Raises
         ------
@@ -138,12 +152,12 @@ class Puts:
         """
         device = self._device(request.device)
         try:
-            done = await self._put(device, request)
+            done = await self._put(device, request, hazard)
         except Denied as exc:
             done = _Outcome("denied", exc.status, request.value, message=str(exc))
         except Refused as exc:
             done = _Outcome("refused", exc.status, request.value, message=str(exc))
-        return done.status, self._journal(request, done)
+        return done.status, self._journal(request, done, snapshot)
 
     async def release_lock(self, name: str, operator: str) -> tuple[int, PutResult]:
         """Release a stuck run lock: write the lock free and nothing else, journaled as role ``lock``.
@@ -187,17 +201,20 @@ class Puts:
             raise UnknownDevice(name)
         return device
 
-    async def _put(self, device: BridgeDevice, request: PutRequest) -> _Outcome:
+    async def _put(
+        self, device: BridgeDevice, request: PutRequest, hazard: bool = False
+    ) -> _Outcome:
         if not self.writable:
             raise Denied("this bridge is read-only (--read-only)")
         role, axis = self._role(device, request)
-        self._permitted(device, role)
-        if role.confirm == "hazard" and not request.confirm:
+        if not permitted(device, role):
+            raise Denied(f"{role.name} is not permitted on {device.name}")
+        if (role.confirm == "hazard" or hazard) and not request.confirm:
             raise Denied(
                 f"{request.role} on {device.name} needs the hazard confirm "
                 f"(to {request.value!r})"
             )
-        hub = self._live(device, role, axis)
+        hub = self.live(device, role, axis)
         self._unlocked(hub, role)
         value = await self._checked(hub, role, axis, request.value)
         return await self._write(hub, role, axis, value)
@@ -217,17 +234,16 @@ class Puts:
             raise Denied(f"{device.name} has no axes")
         return role, ""
 
-    @staticmethod
-    def _permitted(device: BridgeDevice, role: Role) -> None:
-        """Rule 8: the role belongs to an action this device permits (a family without actions: every writable role)."""
-        actions = device.family.actions
-        if not actions:
-            return
-        if not any(role.name in actions[a].roles for a in device.actions):
-            raise Denied(f"{role.name} is not permitted on {device.name}")
+    def live(self, device: BridgeDevice, role: Role, axis: str) -> DeviceHub:
+        """A stale page cannot write: the device's stream open, ticking, the record connected.
 
-    def _live(self, device: BridgeDevice, role: Role, axis: str) -> DeviceHub:
-        """A stale page cannot write: the device's stream open, ticking, the record connected."""
+        Also the snapshot capture's gate: a value is kept only from a live stream.
+
+        Raises
+        ------
+        Denied
+            409, naming what is not live.
+        """
         hub = self.streams.hubs.get(device.name)
         if hub is None or not hub.listeners:
             raise Denied(f"no stream of {device.name} is open: reload the page", 409)
@@ -345,6 +361,14 @@ class Puts:
         severity = str(sevr) if str(sevr) in SEVERITIES else None
         return _Outcome("accepted", 200, value, severity)  # type: ignore[arg-type]
 
+    async def record_alarm(self, record: str) -> Optional[str]:
+        """The record's alarm severity now, by name (a restore's motion, once done); ``None`` when unread."""
+        try:
+            sevr, _ = await self._read_alarm(record)
+        except _AlarmUnread:
+            return None
+        return str(sevr)
+
     async def _read_alarm(self, record: str) -> tuple[object, object]:
         try:
             return (
@@ -379,8 +403,11 @@ class Puts:
                 raise Refused(f"{role.name} stayed {got!r} (wanted {value!r})", 502)
             await asyncio.sleep(self.poll_s)
 
-    def _journal(self, request: PutRequest, done: _Outcome) -> PutResult:
+    def _journal(
+        self, request: PutRequest, done: _Outcome, snapshot: Optional[str] = None
+    ) -> PutResult:
         entry = self.journal.record(
+            snapshot=snapshot,
             operator=request.operator,
             device=request.device,
             role=request.role,
@@ -397,6 +424,14 @@ class Puts:
             message=done.message,
             journal_id=entry.id,
         )
+
+
+def permitted(device: BridgeDevice, role: Role) -> bool:
+    """Rule 8: the role belongs to an action this device permits (a family without actions: every writable role)."""
+    actions = device.family.actions
+    if not actions:
+        return True
+    return any(role.name in actions[a].roles for a in device.actions)
 
 
 def _counter_ticks(hub: DeviceHub, axis: str) -> dict[str, Optional[float]]:
