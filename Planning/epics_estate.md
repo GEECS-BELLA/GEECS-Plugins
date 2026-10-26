@@ -97,7 +97,7 @@ own service account and `StateDirectory` in phase 1.
 | Layer | What | Format | Home | LabVIEW analogue |
 |---|---|---|---|---|
 | 0 | **Family data**: one file per **record template** (motor record, AD camera chain, scope contract, `fastps`, `easydriver`, `dg645`, `modbus-plc`): the records by role (readback, setpoint with limits, enum, bit, command, array, image), labels, units, which are operator-level and which expert, which roles need a hazard confirm, which are archived | one YAML (or JSON) per template | **package data in `GEECS-Schemas`** (`geecs_schemas/epics/families/`), with its Pydantic model and loader: public, installed wherever the bridge, the scanner, the archiver and the MCP contract tests run. Each image repo's CI checks that every record its templates define is named by the family file: the drift alarm points from the image to the file | the driver's variable list |
-| 0b | **Instance data**: per device, the family it instantiates, role overrides and bit labels where a family has no shared record set (the two supplies), the per-device `allow` list and operator note, the archive opt-ins | one file per experiment in the configs repo, `<experiment>/panel_devices.yaml` (today's `--bench` file, promoted) | the configs repo; read by the bridge only. A device may be listed here while the GEECS DB still owns it (a bench device); the worker never reads this file, so `native_devices.yaml` stays what the worker binds | the device's GEECS DB row |
+| 0b | **Instance data**: per device, the family it instantiates, role overrides and bit labels where a family has no shared record set (the two supplies), the per-device `allow` list and operator note, the archive opt-ins | one file per experiment in the configs repo, `<experiment>/panel_devices.yaml` (today's `--bench` file, promoted) | the configs repo; read by the bridge, and by the archiver's registry pass (archived roles, `no_archive`, the serving `ioc`). A device may be listed here while the GEECS DB still owns it (a bench device); the worker never reads this file, so `native_devices.yaml` stays what the worker binds | the device's GEECS DB row |
 | 1 | **Device-type page**: one page per device, rendered from family + instance data over that device's stream | spec, rendered | `geecs-web` apps/panels | `Device GUIs/GUI_<type>` |
 | 2 | **Composed panels** (§2.4), and the **experiment home**: the registry roster with IOC liveness, the alarm list reduced from the device streams' severities, the bridge's put journal (who, what, when, accepted or refused), the active-snapshot verdict | one YAML per panel, `<experiment>/panels/*.yaml` in the configs repo, validated by a `GEECS-Schemas` model, served by the bridge at `GET /api/panels` | the configs repo | the composed panels; `General-Controler` |
 | 3 | **Bespoke views where the interaction is the product**: the camera viewer, the scope traces, the shot-control state view | components | `geecs-web` | `GUI_Cameras`; the shot-control GUIs |
@@ -190,13 +190,13 @@ confirm. The every-supply page is a third if time allows.
 - **Live trends are the bridge's, not Grafana's.** The LabVIEW
   `DeviceVariablePlotter` is a live subscription plotter at the device's
   rate; the archiver, by design (#1114's deadband), discards exactly the
-  jitter an operator watches, and today it archives nothing native: the
-  archive set is derived from the GEECS DB, and a migrated device is
-  disabled there. Two consequences, both phase 1: the `Trend` component over
-  the device stream's server-kept history (minutes, at rate), and
-  **`geecs-archiver` learns the registry and the family files' archive roles**
-  (the per-kind rule `NATIVE_DEVICES.md` §10 already proposes), or the first
-  migrated supply has no history at all.
+  jitter an operator watches, and the archive set was derived from the
+  GEECS DB alone, where a migrated device is disabled. Two consequences,
+  both phase 1: the `Trend` component over the device stream's server-kept
+  history (minutes, at rate), and **`geecs-archiver` learns the registry
+  and the family files' archive roles** — built: the registry pass
+  (`geecs_archiver.native`, `GeecsArchiver/CLAUDE.md`), the per-kind rule
+  of `NATIVE_DEVICES.md` §10 as its fallback.
 - **Grafana over the Archiver Appliance** is the engineer's tool for longer
   than an hour, and a deploy slice of its own: a unit or compose rendered
   from `site.env` beside the appliance, image and plugin version pinned

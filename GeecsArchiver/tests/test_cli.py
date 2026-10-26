@@ -325,3 +325,22 @@ def test_never_connected_names_the_source(appliance, monkeypatch, capsys):
     )
     assert "+ undulator:m:x.RBV  [registry]" not in out  # pending, not resent
     assert "db 2, registry 1" in out
+
+
+def test_an_unresolved_registry_device_is_a_drift_exit(tmp_path, monkeypatch, capsys):
+    configs_checkout(
+        tmp_path,
+        monkeypatch,
+        native="devices:\n  CAM: {kind: aravis_camera, trigger_source: line0}\n",
+        panels="devices:\n  CAM: {family: motor_record, axes: [x]}\n",
+    )
+    assert cli.main(["list", "--experiment", "Undulator", "--no-db"]) == cli.EXIT_DRIFT
+    assert "! unresolved: CAM" in capsys.readouterr().err
+
+
+def test_a_registry_file_that_is_not_yaml_is_a_usage_exit(
+    tmp_path, monkeypatch, capsys
+):
+    configs_checkout(tmp_path, monkeypatch, native="devices: [unclosed\n")
+    assert cli.main(["list", "--experiment", "Undulator", "--no-db"]) == cli.EXIT_USAGE
+    assert "cannot load a configuration document" in capsys.readouterr().err

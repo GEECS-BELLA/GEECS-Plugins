@@ -11,8 +11,9 @@ ownership, without it it says it did not check.
 
 Per device (``NATIVE_DEVICES.md`` §10, ``Planning/epics_estate.md`` §2.5):
 
-* the device's **family**: the one ``panel_devices.yaml`` names, else the
-  one family file of the registry kind;
+* the device's **family**: the one ``panel_devices.yaml`` names, else its
+  registry kind's (:data:`~geecs_schemas.REGISTRY_KIND_FAMILIES`, the PV
+  bridge's table too);
 * its **archived roles**: the family's ``archive: true`` roles, or — for a
   family that marks none — the kind's own rule (:func:`default_archive_roles`);
   then the device's ``archive`` opt-ins added and ``no_archive`` /
@@ -36,6 +37,9 @@ Who is archived: every registry device, and every ``panel_devices.yaml``
 device the DB does not own (a bench device whose DB twin is enabled is the
 gateway's, and the DB pass has it).  A registry device the DB also owns is
 a **conflict**: reported, and left to the DB pass — never archived twice.
+A registry device the pass cannot resolve (panel data naming a family of
+another kind, a positioner without axes) is **unresolved**; both are drift,
+never a silent drop.
 """
 
 from __future__ import annotations
@@ -49,6 +53,7 @@ from geecs_core.pv_naming import (
     normalize_component,
 )
 from geecs_schemas import (
+    REGISTRY_KIND_FAMILIES,
     ArchivePolicy,
     EpicsMotor,
     FamilyFile,
@@ -145,16 +150,24 @@ class RegistryPass:
     candidates: list[ArchiveCandidate] = field(default_factory=list)
     #: Registry devices the DB also owns (enabled): reported, left to the DB pass.
     conflicts: list[str] = field(default_factory=list)
-    #: Devices not archived here, with the reason (DB-owned bench device, no family …).
+    #: Registry devices the pass cannot archive (no family of their kind, no
+    #: axes): drift, like a conflict — a migrated device must never drop silently.
+    unresolved: list[str] = field(default_factory=list)
+    #: Panel devices left out on purpose (a bench device the DB owns), or unresolvable.
     skipped: list[str] = field(default_factory=list)
     #: Whether the DB roster was consulted (``False``: ``--no-db``).
     db_checked: bool = True
 
+    @property
+    def drift(self) -> bool:
+        """A registry device doubled with the DB or not archivable: the CLI exits 1."""
+        return bool(self.conflicts or self.unresolved)
+
 
 def family_for_kind(kind: str, families: Mapping[str, FamilyFile]) -> FamilyFile | None:
-    """The one family file serving a registry *kind*, or ``None`` when none or several do."""
-    matches = [f for f in families.values() if f.kind == kind]
-    return matches[0] if len(matches) == 1 else None
+    """The family a registry *kind* defaults to (:data:`~geecs_schemas.REGISTRY_KIND_FAMILIES`, the bridge's table)."""
+    template = REGISTRY_KIND_FAMILIES.get(kind)
+    return None if template is None else families.get(template)
 
 
 @dataclass(frozen=True)
@@ -233,8 +246,13 @@ def _devices(
                 f"{twin!r} — one owner per device; archived from the DB only"
             )
             continue
-        entry = panels.devices.get(name)
-        devices.append(_registry_device(experiment, name, native, entry, families))
+        device = _registry_device(
+            experiment, name, native, panels.devices.get(name), families
+        )
+        if isinstance(device, str):
+            out.unresolved.append(device)
+            continue
+        devices.append(device)
     for name, entry in panels.devices.items():
         if name in registry.devices:
             continue

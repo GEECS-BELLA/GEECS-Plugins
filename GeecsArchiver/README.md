@@ -50,7 +50,8 @@ registry pass reads `<Experiment>/native_devices.yaml` and
 `<Experiment>/panel_devices.yaml` beside it (a device's `ioc:` names the IOC
 whose `<IOC>:HEARTBEAT` is archived; `no_archive:` drops a family role on one
 device). A device both in the registry and enabled in the DB is a conflict:
-reported, archived from the DB only, exit 1.
+reported, archived from the DB only, exit 1; a registry device the pass
+cannot resolve (its panel data names a family of another kind) exits 1 too.
 
 ## Reading the history
 

@@ -107,23 +107,14 @@ def load_derived_channels(path: Path | None) -> DerivedChannels | None:
     return None if path is None else DerivedChannels.from_path(path)
 
 
-def _experiment_file(experiment: str, filename: str, base: Path | None) -> Path | None:
-    """``<base>/<experiment>/<filename>`` if it exists, else ``None``."""
-    base = base if base is not None else scanner_configs_base()
-    if base is None:
-        return None
-    path = base / experiment / filename
-    return path if path.exists() else None
-
-
 def native_devices_path(experiment: str, base: Path | None = None) -> Path | None:
     """The experiment's ``native_devices.yaml`` (the worker's registry) if it exists, else ``None``."""
-    return _experiment_file(experiment, NATIVE_DEVICES_FILENAME, base)
+    return experiment_config_path(experiment, "", NATIVE_DEVICES_FILENAME, base=base)
 
 
 def panel_devices_path(experiment: str, base: Path | None = None) -> Path | None:
     """The experiment's ``panel_devices.yaml`` (the panel data) if it exists, else ``None``."""
-    return _experiment_file(experiment, PANEL_DEVICES_FILENAME, base)
+    return experiment_config_path(experiment, "", PANEL_DEVICES_FILENAME, base=base)
 
 
 def load_native_devices(path: Path | None) -> NativeDevices:

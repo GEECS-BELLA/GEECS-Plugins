@@ -55,7 +55,8 @@ deploy/
   device is disabled in the GEECS DB, so the DB pass drops it; the registry
   pass (`native.py`) archives every `native_devices.yaml` device and every
   `panel_devices.yaml` device the DB does not own. Per device: its family
-  (the panel data's, else the one family file of its registry kind), the
+  (the panel data's, else `geecs_schemas.REGISTRY_KIND_FAMILIES`, the
+  bridge's table too), the
   family's `archive: true` roles — or, for a family marking none, the
   kind's rule (`default_archive_roles`, `NATIVE_DEVICES.md` §10) — plus the
   device's `archive`, minus `no_archive` and `omit`; scalars only. A role
@@ -67,7 +68,10 @@ deploy/
   `geecs_core.pv_naming.native_device_prefix` (or a bench device's own
   `prefix`) + the suffix, per axis for a per-axis family — the prefix rule
   has one home, never re-derive it. A registry device the DB also owns
-  (enabled) is a **conflict**: reported, archived from the DB only, exit 1.
+  (enabled) is a **conflict**: reported, archived from the DB only, exit 1;
+  a registry device the pass cannot resolve (panel data naming a family of
+  another kind, no axes) is **unresolved**, exit 1 too — a migrated device
+  never drops silently, or `onboard` would pause its history.
   `exclude` globs apply to both passes; `include` keeps its gateway
   spelling (natives are derived, never hand-listed). Every candidate carries
   its `source` (`db` | `registry`), and the never-connected line names it.
