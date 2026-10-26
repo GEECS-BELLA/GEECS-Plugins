@@ -32,10 +32,15 @@ Three kinds of surface, all LabVIEW, each a compiled program:
 
 Facts from the maintainer that bind the design:
 
-- A struck-through label means the device is **off**. Off is a state
-  operators read at a glance, distinct from disconnected or stale.
+- A struck-through label means the device is **off**: in LabVIEW a device
+  is an executable that must be launched (after a reboot) and can crash.
+  Off is a process fact. In EPICS an IOC is a service the host runs and
+  restarts, with a heartbeat; health is read from that and from the
+  channel, not from a process list.
 - LabVIEW GEECS uses **one number for set and readback**. The maintainer
-  calls this a trap; the new surfaces must not reproduce it.
+  calls this a trap. EPICS separates them as a matter of course (`.VAL`
+  and `.RBV`, `X` and `X_RBV`, `:SP` and the readback); the surfaces simply
+  keep that baseline.
 - "Save Live Configuration" dumps every variable's current value; a
   **preset** is closer to a macro: perform a predefined sequence of sets.
 - "Set Default" overwrites the DB default with the current value, and what
@@ -49,6 +54,15 @@ Facts from the maintainer that bind the design:
   devices crash and the tools to resolve it are missing. The hope is that
   EPICS plus agents make this robust.
 
+**Habits kept, artifacts dropped.** The screenshots show how operators
+work, not what to build. Kept: health at a glance; two lists that should be
+empty; one place to start from; a launcher; macros; dense screens; any
+variable reachable without a GUI. Dropped, as artifacts of the LabVIEW
+architecture: executables as the unit of health; one number for set and
+readback; labels unrelated to names; "Set Default" as a per-type
+mish-mash; engine and network knobs on an operator screen. When a later
+decision cites a screenshot, it should be for a habit, never an artifact.
+
 ## 2. The surfaces of the new estate and their owners
 
 | Surface | Successor of | Owner |
@@ -57,7 +71,7 @@ Facts from the maintainer that bind the design:
 | **Screens** (dense composed control GUIs) | the control GUIs | screen files in the configs repo + one generic renderer in that package |
 | **Device pages** (camera, scope, motor, supply) | the front panels | the same package; data from the family files |
 | **Variable inspector** | MC Variable/Scan get/set | the same package over Raccoon and Hare |
-| **Device drill-down** (status, host, IOC, last error, restart) | MC Device tab, the two lists | the home, over heartbeats and the gateway's status PVs |
+| **Device drill-down** (status, host, IOC, last error, restart) | MC Device tab, the two lists | the home, over IOC heartbeats, the asyn connection flags and the gateway's status PVs |
 | Scan console | MC Variable/Scan scan half, Scan Data | GeecsScanner (exists) |
 | Scan browser, logbook, config editor | Scan Data, DB and Expt editors | portal, logbook, the portal's editor (exist); no DB editor yet |
 | Presets and configurations | Experiment tab | Squirrel (snapshots) and GeecsBluesky action plans (sequences), §5 |
@@ -82,11 +96,13 @@ plus in/out indicators), latching button (command or bit with confirm),
 read-only numeric (readback), annotation text, static image. Groups carry
 position and a colour token, never a literal colour.
 
-Per-widget state vocabulary, shared with the home's lists: **live, off,
-disconnected, stale, error, unknown**. Off comes from the device's on/off
-status (the gateway's status PV for DB devices, the IOC heartbeat for
-native ones), disconnected and stale from Hare's `connected` and the
-producing counter, error from alarm severity.
+Per-widget state vocabulary, shared with the home's lists, named by the
+cause an operator acts on: **live**; **stale** (channel up, the producing
+counter stopped); **not answering** (the IOC runs, the hardware does not:
+the asyn connection flag, a device status PV); **not running** (the IOC
+heartbeat is absent: a service to restart); **error** (alarm severity);
+**unknown**. For devices still on LabVIEW behind the gateway, its status
+PV carries the process fact into "not running".
 
 Annotations survive migration as text in the file. A note of the form
 "shutter laser before switching" becomes a hazard confirm on the widgets it
@@ -196,7 +212,7 @@ has and for finding a broken device.
 
 1. The screen format and renderer, proved on the HTU Control Center from
    its screenshot (the mapping supplied by the maintainer), against the
-   sim where devices exist there and with `off` for the rest.
+   sim where devices exist there and "not running" for the rest.
 2. The home's top strip, the two device lists and the launcher.
 3. Setpoint-with-readback and the state vocabulary on every widget.
 
