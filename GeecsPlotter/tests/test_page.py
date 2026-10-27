@@ -104,3 +104,15 @@ def test_each_axis_has_its_own_filter(client: TestClient) -> None:
     assert 'data-filter-for="x"' in page
     assert 'data-filter-for="y"' in page
     assert "option.hidden" not in (_PKG / "static" / "plotter.js").read_text()
+
+
+def test_a_scan_with_no_shots_says_so(client: TestClient, share: Path) -> None:
+    """A scan stopped before its first shot: a header-only s-file, no picks."""
+    import pandas as pd
+
+    from tests.conftest import write_scan
+
+    write_scan(share, 4, pd.DataFrame(columns=["Shotnumber", "Bin #", "scan"]))
+    response = client.get("/", params={"day": "2026-10-02", "scan": 4})
+    assert response.status_code == 200
+    assert "No columns to plot" in response.text
