@@ -24,6 +24,7 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -84,6 +85,10 @@ class PlotterSettings(BaseModel):
     y_alias: bool = True
     #: GEECSplotter's "autofill par1": X is the open scan's variable.
     x_auto: bool = True
+    #: The scan last opened under this set, so opening the set (or starting
+    #: the plotter) goes back to it, as LabVIEW reopens its last file.
+    day: Optional[date] = None
+    scan: Optional[int] = None
 
 
 def set_name(name: str) -> str:
@@ -263,7 +268,11 @@ FORM_FIELDS = {
     "xalias": "x_alias",
     "yalias": "y_alias",
     "xauto": "x_auto",
+    "day": "day",
+    "scan": "scan",
 }
+
+_BOOLEANS = ("x_alias", "y_alias", "x_auto")
 
 
 def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
@@ -272,15 +281,28 @@ def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
     A page with no scan open has no pick lists, so a field it does not
     send keeps its stored value rather than resetting.
     """
-    changes: dict[str, object] = {}
-    for field, key in FORM_FIELDS.items():
-        if field not in form:
-            continue
-        value = form[field]
-        if key in ("x_alias", "y_alias", "x_auto"):
-            if value not in ("true", "false"):
-                raise SettingsError(f"{field} must be true or false, not {value!r}")
-            changes[key] = value == "true"
-        else:
-            changes[key] = value
+    changes = {
+        key: _form_value(field, key, form[field])
+        for field, key in FORM_FIELDS.items()
+        if field in form and not (key in ("day", "scan") and not form[field])
+    }
     return settings.model_copy(update=changes)
+
+
+def _form_value(field: str, key: str, value: str) -> object:
+    """One form field as its settings value, or :class:`SettingsError`."""
+    try:
+        if key in _BOOLEANS:
+            if value not in ("true", "false"):
+                raise ValueError("must be true or false")
+            return value == "true"
+        if key == "day":
+            return date.fromisoformat(value)
+        if key == "scan":
+            number = int(value)
+            if number < 1:
+                raise ValueError("must be 1 or more")
+            return number
+    except ValueError as exc:
+        raise SettingsError(f"{field}={value!r}: {exc}") from None
+    return value

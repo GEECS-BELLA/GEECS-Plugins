@@ -21,7 +21,9 @@ one, and `--browser none` opens nothing. The data root and experiment come from
 `--experiment` to read another experiment's folder.
 
 Every control (X, Y, the filters and the toggles) is kept in a named
-settings set, one `<name>.json` file each, saved as you pick. The URL names
+settings set, one `<name>.json` file each, saved as you pick, along with
+the scan you last opened: starting the plotter, or switching to a set,
+reopens that scan. The URL names
 only what is open: `/?day=2026-10-02&scan=3&set=default`. Pick another set,
 or "Save as" a new one (names may have spaces), in the rail's Settings
 group. The sets live in `{[Paths] geecs_data}/GeecsPlotter/settings/` (the

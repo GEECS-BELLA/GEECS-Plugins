@@ -55,8 +55,15 @@ def register(router: APIRouter, ctx: Context) -> None:
         day: Optional[date] = None,
         scan: Optional[int] = None,
         name: str = Query(DEFAULT_SET, alias="set"),
-    ) -> HTMLResponse:
-        """The plotter page; without a day and scan, the empty form."""
+    ) -> Response:
+        """The plotter page; without a day and scan, the set's last scan.
+
+        A set that has never opened a scan is the empty form.
+        """
+        if day is None and scan is None:
+            last = _last_scan(ctx, name)
+            if last is not None:
+                return RedirectResponse(last, status_code=303)
         return _render(ctx, request, day, scan, name)
 
     @router.post("/", response_class=HTMLResponse)
@@ -161,6 +168,25 @@ def _store(ctx: Context, form: dict[str, str], as_new: bool) -> str:
             raise NameRefused(f"a set named {target!r} is already saved")
     ctx.store.save(target, merged(ctx.store.load(source), form))
     return target
+
+
+def _last_scan(ctx: Context, name: str) -> Optional[str]:
+    """The page URL for the scan set *name* last opened, if it has one.
+
+    A bad name or an unreadable set is left for the page to report.
+    """
+    try:
+        settings = ctx.store.load(set_name(name))
+    except SettingsError:
+        return None
+    if settings.day is None or settings.scan is None:
+        return None
+    query = {
+        "day": settings.day.isoformat(),
+        "scan": settings.scan,
+        "set": set_name(name),
+    }
+    return "./?" + urlencode(query)
 
 
 def _when(form: dict[str, str]) -> tuple[Optional[date], Optional[int]]:
