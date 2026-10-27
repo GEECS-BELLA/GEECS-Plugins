@@ -161,3 +161,15 @@ def test_the_filters_ride_the_url(client: TestClient) -> None:
     assert 'name="yf" value="gas"' in page
     missing = client.get("/", params={"day": "2026-10-02", "scan": 9, "yf": "gas"}).text
     assert 'name="yf" value="gas"' in missing  # kept for the next Open
+
+
+def test_a_scan_with_no_shots_says_so(client: TestClient, share: Path) -> None:
+    """A scan stopped before its first shot: a header-only s-file, no picks."""
+    import pandas as pd
+
+    from tests.conftest import write_scan
+
+    write_scan(share, 4, pd.DataFrame(columns=["Shotnumber", "Bin #", "scan"]))
+    response = client.get("/", params={"day": "2026-10-02", "scan": 4})
+    assert response.status_code == 200
+    assert "No columns to plot" in response.text

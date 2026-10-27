@@ -78,7 +78,8 @@ def register(router: APIRouter, ctx: Context) -> None:
                     for c in picks
                     if c not in {page["x"], *_BOOKKEEPING} and not c.endswith(" shot #")
                 ]
-                page["y"] = y if y in picks else (others or picks)[0]
+                # A scan stopped before its first shot has no picks at all.
+                page["y"] = y if y in picks else next(iter(others or picks), "")
         return ctx.templates.TemplateResponse(
             request, "index.html", {"experiment": ctx.experiment, **page}
         )
