@@ -7,6 +7,7 @@
 (function () {
   const form = document.getElementById("pick");
   const DOUBLE_CLICK_MS = 500;
+  const AUTO_OPEN_MS = 500;
   // A hand-picked X turns "X = scan variable" off, or the next page would
   // put the scan variable straight back.
   function pick(select) {
@@ -36,6 +37,22 @@
     });
     select.addEventListener("keydown", (event) => {
       if (event.key === "Enter") { event.preventDefault(); pick(select); }
+    });
+  }
+
+  // Stepping the scan number opens that scan (GEECSplotter's scan stepper).
+  // It waits out a pause, so typing "12" does not open scan 1 first and a
+  // held arrow key does not reload on every step.
+  const scanBox = document.querySelector("[data-auto-open]");
+  if (scanBox) {
+    let pending = null;
+    scanBox.addEventListener("input", () => {
+      clearTimeout(pending);
+      pending = setTimeout(() => {
+        if (scanBox.value && scanBox.checkValidity() && form.elements.day.value) {
+          form.requestSubmit();
+        }
+      }, AUTO_OPEN_MS);
     });
   }
 

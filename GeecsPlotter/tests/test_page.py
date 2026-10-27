@@ -173,3 +173,28 @@ def test_a_scan_with_no_shots_says_so(client: TestClient, share: Path) -> None:
     response = client.get("/", params={"day": "2026-10-02", "scan": 4})
     assert response.status_code == 200
     assert "No columns to plot" in response.text
+
+
+def test_the_scan_number_opens_on_change(client: TestClient) -> None:
+    """The scan box is marked for plotter.js to open the scan when it changes."""
+    page = client.get("/").text
+    assert "data-auto-open" in page
+    assert "[data-auto-open]" in (_PKG / "static" / "plotter.js").read_text()
+
+
+def test_stepping_past_an_empty_scan_keeps_the_picks(
+    client: TestClient, share: Path
+) -> None:
+    """A scan with nothing to plot still hands X and Y on to the next one."""
+    import pandas as pd
+
+    from tests.conftest import write_scan
+
+    write_scan(share, 4, pd.DataFrame(columns=["Shotnumber"]))
+    page = client.get(
+        "/",
+        params={"day": "2026-10-02", "scan": 4, "x": "", "y": "U_ICT charge"},
+    ).text
+    assert "No columns to plot" in page
+    assert '<input type="hidden" name="y" value="U_ICT charge">' in page
+    assert '<input type="hidden" name="x" value="">' in page

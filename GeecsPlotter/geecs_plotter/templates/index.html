@@ -34,7 +34,7 @@
         </div>
         <div class="field">
           <label for="scan">Scan</label>
-          <input id="scan" name="scan" type="number" min="1" value="{{ scan or '' }}" required>
+          <input id="scan" name="scan" type="number" min="1" value="{{ scan or '' }}" required data-auto-open>
         </div>
         {# The toggles' state, on every page: a scan that is not found (no
            lists) must not reset them on the next Open. #}
@@ -42,9 +42,12 @@
         <input type="hidden" name="yalias" value="{{ 'true' if yalias else 'false' }}">
         <input type="hidden" name="xauto" value="{{ 'true' if xauto else 'false' }}">
         {% if not columns %}
-          {# The filters too, so they carry into the next scan opened. #}
+          {# The filters and the picks too, so stepping past a scan with
+             nothing to plot carries them into the next scan opened. #}
           <input type="hidden" name="xf" value="{{ xf }}">
           <input type="hidden" name="yf" value="{{ yf }}">
+          {% if asked_x is not none %}<input type="hidden" name="x" value="{{ asked_x }}">{% endif %}
+          {% if asked_y is not none %}<input type="hidden" name="y" value="{{ asked_y }}">{% endif %}
         {% endif %}
         <button class="btn primary" type="submit">Open</button>
       </div>

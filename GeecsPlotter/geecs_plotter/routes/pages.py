@@ -54,6 +54,9 @@ def register(router: APIRouter, ctx: Context) -> None:
             "xauto": xauto,
             "xf": xf,
             "yf": yf,
+            # What the URL asked for, carried through a page with no lists.
+            "asked_x": x,
+            "asked_y": y,
         }
         if day is not None and scan is not None:
             try:
