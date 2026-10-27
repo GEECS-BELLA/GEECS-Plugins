@@ -123,14 +123,23 @@ def test_the_local_fallback_is_gitignored() -> None:
     assert "/user data/" in gitignore.read_text().splitlines()
 
 
-def test_a_local_save_makes_the_folder_ignore_itself(tmp_path: Path) -> None:
-    """A checkout on an older branch lacks the root rule; the folder has its own."""
-    user_data = tmp_path / "user data"
-    store = SettingsStore(
-        user_data / "GeecsPlotter" / "settings", "local", root=tmp_path
-    )
+def test_a_local_save_makes_the_folder_ignore_itself(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A checkout on an older branch lacks the root rule; the folder has its own.
+
+    The store is the one ``resolve_store`` really returns for the local
+    fallback, re-rooted in tmp_path, so a change of layout moves both.
+    """
+    monkeypatch.setattr(settings_module, "LOCAL_USER_DATA", tmp_path / "user data")
+    config = tmp_path / "config.ini"
+    config.write_text("[Paths]\ngeecs_data = /no/such/drive\n")
+    store = resolve_store(config_path=config)
+    assert store.origin == "local"
     store.save("default", PlotterSettings())
-    assert (user_data / ".gitignore").read_text().splitlines()[-1] == "*"
+    marker = settings_module.LOCAL_USER_DATA / ".gitignore"
+    assert marker.read_text().splitlines()[-1] == "*"
+    assert store.path("default").is_relative_to(marker.parent)
 
 
 def test_a_shared_save_writes_no_gitignore(tmp_path: Path) -> None:
@@ -341,7 +350,7 @@ def test_a_refused_name_is_kept_in_the_box_and_explained(client: TestClient) -> 
     )
     assert response.status_code == 422
     assert 'value="jet/scan"' in response.text
-    assert 'role="alert"' in response.text
+    assert 'aria-invalid="true" aria-describedby="save-as-err"' in response.text
     assert "spaces" in response.text  # the message says what a name may hold
 
 
@@ -354,3 +363,35 @@ def test_the_set_list_says_how_to_add_one(client: TestClient) -> None:
     page = client.get("/").text
     assert '<option value="htu jet scan">htu jet scan</option>' in page
     assert "Use Save as" not in page
+
+
+def test_a_store_problem_does_not_blame_the_name(
+    client: TestClient, settings_dir: Path
+) -> None:
+    """A broken open set refuses the save, but the Save-as box is not marked invalid."""
+    settings_dir.mkdir()
+    (settings_dir / "default.json").write_text("{broken")
+    response = client.post(
+        "/save-as",
+        data={
+            "day": "2026-10-02",
+            "scan": "1",
+            "set": "default",
+            "save_as": "good name",
+        },
+    )
+    assert response.status_code == 422
+    assert 'value="good name"' in response.text  # kept, nothing lost
+    assert 'aria-invalid="true"' not in response.text
+    assert "Settings problem" in response.text
+
+
+def test_a_taken_name_is_marked_on_the_box(client: TestClient) -> None:
+    post(client, "/save-as", scan=1, save_as="mine")
+    response = client.post(
+        "/save-as",
+        data={"day": "2026-10-02", "scan": "1", "set": "default", "save_as": "mine"},
+    )
+    assert 'aria-invalid="true"' in response.text
+    assert "already saved" in response.text
+    assert "Settings problem" not in response.text

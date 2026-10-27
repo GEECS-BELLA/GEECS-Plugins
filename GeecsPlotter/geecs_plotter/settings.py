@@ -64,6 +64,10 @@ class SettingsError(ValueError):
     """A set name that is not allowed, or a set file that cannot be read."""
 
 
+class NameRefused(SettingsError):
+    """A Save-as name that cannot be used: the name is the thing to fix."""
+
+
 class PlotterSettings(BaseModel):
     """Every control on the page; each field has its default."""
 
@@ -174,8 +178,8 @@ class SettingsStore:
         try:
             # Only below the root, which exists: never a tree on a bare mount.
             self.folder.mkdir(parents=True, exist_ok=True)
-            if self.origin == "local":
-                _ignore_in_git(self.folder.parents[1])
+            if self.origin == "local" and self.root is not None:
+                _ignore_in_git(self.root / LOCAL_USER_DATA.name)
             _write_whole(path, text)
         except OSError as exc:
             raise SettingsError(f"cannot save {path}: {exc}") from exc

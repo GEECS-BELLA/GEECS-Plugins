@@ -103,7 +103,8 @@ def main() -> None:
         "--settings-dir",
         default=None,
         help="where named settings sets are saved (default: config.ini "
-        "[Paths] geecs_data/GeecsPlotter/settings, else <repo>/user data/…)",
+        "[Paths] geecs_data/GeecsPlotter/settings, else user data/… in the "
+        "main checkout)",
     )
     parser.add_argument(
         "--root-path",

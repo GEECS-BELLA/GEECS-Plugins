@@ -28,6 +28,7 @@ from geecs_plotter import scans
 from geecs_plotter.routes import Context, read_form
 from geecs_plotter.settings import (
     DEFAULT_SET,
+    NameRefused,
     PlotterSettings,
     SettingsError,
     merged,
@@ -78,12 +79,14 @@ def _render(
     *,
     problem: Optional[str] = None,
     save_as: str = "",
+    name_error: Optional[str] = None,
     status_code: int = 200,
 ) -> HTMLResponse:
     """The page for *day*/*scan* under set *name*; *problem* shown if given.
 
-    *save_as* refills the Save-as box after a refused name, so it can be
-    corrected rather than retyped.
+    *save_as* refills the Save-as box after any refusal, so nothing typed
+    is lost; *name_error* marks the box itself invalid, and only when the
+    name was the reason (the kit's ``.field`` validation).
     """
     settings = PlotterSettings()
     try:
@@ -100,6 +103,7 @@ def _render(
             "settings_origin": ctx.store.origin,
             "settings_error": problem,
             "save_as": save_as,
+            "name_error": name_error,
         }
     )
     if day is not None and scan is not None:
@@ -128,6 +132,7 @@ async def _save(ctx: Context, request: Request, *, as_new: bool) -> Response:
         target = await run_in_threadpool(_store, ctx, form, as_new)
     except SettingsError as bad:
         day, scan = _when(form)
+        refused = isinstance(bad, NameRefused)
         return await run_in_threadpool(
             _render,
             ctx,
@@ -135,8 +140,9 @@ async def _save(ctx: Context, request: Request, *, as_new: bool) -> Response:
             day,
             scan,
             form.get("set", DEFAULT_SET),
-            problem=str(bad),
+            problem=None if refused else str(bad),
             save_as=form.get("save_as", ""),
+            name_error=str(bad) if refused else None,
             status_code=422,
         )
     return RedirectResponse(_opened(form, target), status_code=303)
@@ -145,9 +151,14 @@ async def _save(ctx: Context, request: Request, *, as_new: bool) -> Response:
 def _store(ctx: Context, form: dict[str, str], as_new: bool) -> str:
     """Save *form* into its set, or a new one; the name saved to."""
     source = set_name(form.get("set", DEFAULT_SET))
-    target = set_name(form.get("save_as", "")) if as_new else source
-    if as_new and ctx.store.exists(target):
-        raise SettingsError(f"a set named {target!r} is already saved")
+    target = source
+    if as_new:
+        try:
+            target = set_name(form.get("save_as", ""))
+        except SettingsError as bad:
+            raise NameRefused(str(bad)) from None
+        if ctx.store.exists(target):
+            raise NameRefused(f"a set named {target!r} is already saved")
     ctx.store.save(target, merged(ctx.store.load(source), form))
     return target
 

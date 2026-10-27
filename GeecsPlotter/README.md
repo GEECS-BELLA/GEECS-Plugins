@@ -23,11 +23,12 @@ one, and `--browser none` opens nothing. The data root and experiment come from
 Every control (X, Y, the filters and the toggles) is kept in a named
 settings set, one `<name>.json` file each, saved as you pick. The URL names
 only what is open: `/?day=2026-10-02&scan=3&set=default`. Pick another set,
-or "Save as" a new one, in the rail's Settings group. The sets live in
-`{[Paths] geecs_data}/GeecsPlotter/settings/` (the GEECS `user data` folder,
-usually on the shared drive), else in `<repo>/user data/GeecsPlotter/settings/`
-when that folder is not reachable; `--settings-dir` picks another. The page
-shows which folder it is using.
+or "Save as" a new one (names may have spaces), in the rail's Settings
+group. The sets live in `{[Paths] geecs_data}/GeecsPlotter/settings/` (the
+GEECS `user data` folder, usually on the shared drive), else in
+`user data/GeecsPlotter/settings/` in your main checkout (shared by all its
+worktrees, and never committed) when that folder is not reachable;
+`--settings-dir` picks another. The page shows which folder it is using.
 
 X follows the scan's variable by default ("X = scan variable: auto"); a
 hand-picked X turns that off. Column names show as their LabVIEW aliases

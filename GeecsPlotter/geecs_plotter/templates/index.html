@@ -117,14 +117,18 @@
       </div>
       <div class="field">
         <label for="save-as">Save as</label>
+        {# A refused name is the kit's field validation: aria-invalid on the
+           box shows the .err that follows it. Store problems (the share is
+           down, a broken file) stay in the state block below. #}
+        <input id="save-as" name="save_as" form="pick" autocomplete="off" placeholder="new set name, e.g. HTU jet scan"
+               value="{{ save_as }}"{% if name_error %} autofocus aria-invalid="true" aria-describedby="save-as-err"{% endif %}>
+        <span class="err" id="save-as-err" role="alert">{{ name_error or '' }}</span>
         <div class="row">
-          <input id="save-as" name="save_as" form="pick" autocomplete="off" placeholder="new set name, e.g. HTU jet scan"
-                 value="{{ save_as }}"{% if settings_error and save_as %} autofocus aria-invalid="true" aria-describedby="settings-error"{% endif %}>
           <button class="btn" type="submit" form="pick" formaction="{{ root }}/save-as" id="save-as-go">Save</button>
         </div>
       </div>
       {% if settings_error %}
-        <div class="state" data-state="error" role="alert" id="settings-error">
+        <div class="state" data-state="error" role="alert">
           <div class="t">Settings problem</div>
           <div class="m">{{ settings_error }}</div>
         </div>
