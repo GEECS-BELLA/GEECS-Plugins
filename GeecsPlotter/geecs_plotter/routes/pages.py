@@ -229,6 +229,12 @@ def _page(day: Optional[date], scan: Optional[int], settings: PlotterSettings) -
         "xauto": settings.x_auto,
         "xf": settings.x_filter,
         "yf": settings.y_filter,
+        "y2": "",
+        "y3": "",
+        "y2alias": settings.y2_alias,
+        "y3alias": settings.y3_alias,
+        "y2f": settings.y2_filter,
+        "y3f": settings.y3_filter,
     }
 
 
@@ -255,3 +261,11 @@ def _fill(page: dict, run: RunDetail, settings: PlotterSettings) -> None:
     # A scan stopped before its first shot has no picks at all.
     y = settings.y
     page["y"] = y if y in picks else next(iter(others or picks), "")
+    # Y2 and Y3 are off unless set. On a scan without their column they
+    # draw nothing, but the list still holds the pick ("kept"), so the
+    # next click here posts it back instead of erasing it.
+    for key, alias in (("y2", settings.y2_alias), ("y3", settings.y3_alias)):
+        picked = getattr(settings, key) or ""
+        page[key] = picked if picked in picks else ""
+        page[f"{key}_kept"] = "" if picked in picks else picked
+        page[f"{key}names"] = {c: scans.display_name(c, alias) for c in picks}

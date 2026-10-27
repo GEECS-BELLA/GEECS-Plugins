@@ -143,3 +143,41 @@ def test_one_column_on_both_axes_keeps_each_toggle(client: TestClient) -> None:
     layout = body["figure"]["layout"]
     assert layout["xaxis"]["title"]["text"] == "Gas (psi)"
     assert layout["yaxis"]["title"]["text"] == ALIASED
+
+
+def test_three_ys_and_their_code_rebuild_the_same_figure(
+    client: TestClient, share: Path
+) -> None:
+    """Y2 and Y3 ride the figure route, and the snippet draws all three."""
+    from geecs_plotter import figures
+
+    body = client.get(
+        "/api/figure",
+        params={
+            "day": "2026-10-02",
+            "scan": 1,
+            "x": SCAN_VARIABLE,
+            "y": "U_ICT charge",
+            "y2": ALIASED,
+            "y3": "Bin #",
+        },
+    ).json()
+    data = body["figure"]["data"]
+    assert [t["yaxis"] for t in data] == ["y", "y2", "y3"]
+    assert body["figure"]["layout"]["yaxis2"]["title"]["text"] == "Gas (psi)"
+    code = body["code"].replace(
+        "experiment='Testexp'", f"experiment='Testexp', base_path={str(share)!r}"
+    )
+    namespace: dict = {}
+    exec(code.replace("fig.show()\n", ""), namespace)
+    rebuilt = figures.page_figure(namespace["fig"])["data"]
+    assert [t["y"] for t in rebuilt] == [t["y"] for t in data]
+    assert "y_labels=[None, 'Gas (psi)', None]" in body["code"]
+
+
+def test_an_empty_y2_is_off(client: TestClient) -> None:
+    body = client.get(
+        "/api/figure",
+        params={"day": "2026-10-02", "scan": 1, "y": "U_ICT charge", "y2": ""},
+    ).json()
+    assert len(body["figure"]["data"]) == 1

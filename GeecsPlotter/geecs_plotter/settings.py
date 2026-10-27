@@ -82,10 +82,18 @@ class PlotterSettings(BaseModel):
     x: Optional[str] = None
     #: ``None`` is the first measurement column.
     y: Optional[str] = None
+    #: GEECSplotter's Y2 and Y3, each on its own axis; ``None`` or ``""``
+    #: is off.
+    y2: Optional[str] = None
+    y3: Optional[str] = None
     x_filter: str = ""
     y_filter: str = ""
+    y2_filter: str = ""
+    y3_filter: str = ""
     x_alias: bool = True
     y_alias: bool = True
+    y2_alias: bool = True
+    y3_alias: bool = True
     #: GEECSplotter's "autofill par1": X is the open scan's variable.
     x_auto: bool = True
     #: The scan last opened under this set, so opening the set (or starting
@@ -271,11 +279,17 @@ FORM_FIELDS = {
     "xalias": "x_alias",
     "yalias": "y_alias",
     "xauto": "x_auto",
+    "y2": "y2",
+    "y3": "y3",
+    "y2f": "y2_filter",
+    "y3f": "y3_filter",
+    "y2alias": "y2_alias",
+    "y3alias": "y3_alias",
     "day": "day",
     "scan": "scan",
 }
 
-_BOOLEANS = ("x_alias", "y_alias", "x_auto")
+_BOOLEANS = ("x_alias", "y_alias", "x_auto", "y2_alias", "y3_alias")
 
 
 def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:

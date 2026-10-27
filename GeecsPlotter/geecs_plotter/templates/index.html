@@ -4,7 +4,27 @@
   server saves the controls into the set and redirects back here. The pick
   lists are rendered here; plotter.js filters them, submits on change, and
   draws the figure fetched from data-figure-url.
-#}<!doctype html>
+#}{# One Y pick list: its alias toggle, its filter, and its trace colour. #}
+{%- macro y_field(key, label, picked, names, alias, filter_text, trace, optional=False, kept="") %}
+          <div class="field">
+            <div class="row">
+              <label for="{{ key }}"><span class="swatch t{{ trace }}" aria-hidden="true"></span>{{ label }}</label>
+              <span class="spacer"></span>
+              {# GEECSplotter's "use aliases", per axis. #}
+              <div class="seg" role="group" aria-label="{{ label }} column names">
+                <button type="button" data-toggle-for="{{ key }}alias" data-value="false" aria-pressed="{{ 'false' if alias else 'true' }}">name</button>
+                <button type="button" data-toggle-for="{{ key }}alias" data-value="true" aria-pressed="{{ 'true' if alias else 'false' }}">alias</button>
+              </div>
+            </div>
+            <input id="{{ key }}-filter" name="{{ key }}f" value="{{ filter_text }}" type="search" autocomplete="off" placeholder="filter {{ label }} columns"
+                   aria-label="Filter {{ label }} columns" data-filter-for="{{ key }}">
+            <select id="{{ key }}" name="{{ key }}" size="10" class="picks" data-pick>
+              {% if optional %}<option value=""{% if not picked and not kept %} selected{% endif %}>— off —</option>{% endif %}
+              {% if kept %}<option value="{{ kept }}" selected>{{ kept }} (not in this scan)</option>{% endif %}
+              {% for c in columns %}<option value="{{ c }}"{% if c == picked %} selected{% endif %}>{{ names[c] }}</option>{% endfor %}
+            </select>
+          </div>
+{% endmacro %}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -43,6 +63,8 @@
         <input type="hidden" name="xalias" value="{{ 'true' if xalias else 'false' }}">
         <input type="hidden" name="yalias" value="{{ 'true' if yalias else 'false' }}">
         <input type="hidden" name="xauto" value="{{ 'true' if xauto else 'false' }}">
+        <input type="hidden" name="y2alias" value="{{ 'true' if y2alias else 'false' }}">
+        <input type="hidden" name="y3alias" value="{{ 'true' if y3alias else 'false' }}">
         <button class="btn primary" type="submit">Open</button>
       </div>
       {% if columns %}
@@ -79,22 +101,14 @@
               {% for c in columns %}<option value="{{ c }}"{% if c == x %} selected{% endif %}>{{ xnames[c] }}</option>{% endfor %}
             </select>
           </div>
-          <div class="field">
-            <div class="row">
-              <label for="y">Y</label>
-              <span class="spacer"></span>
-              {# GEECSplotter's "use aliases", per axis. #}
-              <div class="seg" role="group" aria-label="Y column names">
-                <button type="button" data-toggle-for="yalias" data-value="false" aria-pressed="{{ 'false' if yalias else 'true' }}">name</button>
-                <button type="button" data-toggle-for="yalias" data-value="true" aria-pressed="{{ 'true' if yalias else 'false' }}">alias</button>
-              </div>
-            </div>
-            <input id="y-filter" name="yf" value="{{ yf }}" type="search" autocomplete="off" placeholder="filter Y columns"
-                   aria-label="Filter Y columns" data-filter-for="y">
-            <select id="y" name="y" size="10" class="picks" data-pick>
-              {% for c in columns %}<option value="{{ c }}"{% if c == y %} selected{% endif %}>{{ ynames[c] }}</option>{% endfor %}
-            </select>
-          </div>
+          {{ y_field("y", "Y", y, ynames, yalias, yf, 1) }}
+          {# GEECSplotter's Y2 and Y3: each on its own axis, in its own colour
+             (the swatch is that colour). Folded away until one is in use. #}
+          <details class="disc"{% if y2 or y3 or y2_kept or y3_kept %} open{% endif %}>
+            <summary>Y2, Y3{% if y2 or y3 %} ({{ [y2, y3] | select | list | length }} on){% endif %}</summary>
+            {{ y_field("y2", "Y2", y2, y2names, y2alias, y2f, 2, optional=True, kept=y2_kept) }}
+            {{ y_field("y3", "Y3", y3, y3names, y3alias, y3f, 3, optional=True, kept=y3_kept) }}
+          </details>
         </div>
       {% endif %}
     </form>
@@ -157,14 +171,14 @@
       <article class="panel">
         <header>
           <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}</span>
-          <span class="dim">{{ ynames[y] }} vs {{ xnames[x] if x else 'shot #' }}</span>
+          <span class="dim">{{ ynames[y] }}{% if y2 %}, {{ y2names[y2] }}{% endif %}{% if y3 %}, {{ y3names[y3] }}{% endif %} vs {{ xnames[x] if x else 'shot #' }}</span>
         </header>
         <div class="body">
           <div class="state" data-state="loading" id="plot-state">
             <div class="t">Loading the figure…</div>
           </div>
           <div id="plot" class="plot"
-               data-figure-url="{{ root }}/api/figure?day={{ day }}&amp;scan={{ scan }}&amp;x={{ x | urlencode }}&amp;y={{ y | urlencode }}&amp;xalias={{ xalias | lower }}&amp;yalias={{ yalias | lower }}"></div>
+               data-figure-url="{{ root }}/api/figure?day={{ day }}&amp;scan={{ scan }}&amp;x={{ x | urlencode }}&amp;y={{ y | urlencode }}&amp;y2={{ y2 | urlencode }}&amp;y3={{ y3 | urlencode }}&amp;xalias={{ xalias | lower }}&amp;yalias={{ yalias | lower }}&amp;y2alias={{ y2alias | lower }}&amp;y3alias={{ y3alias | lower }}"></div>
           <details class="disc">
             <summary>Notebook code</summary>
             <pre class="well mono" id="code"></pre>

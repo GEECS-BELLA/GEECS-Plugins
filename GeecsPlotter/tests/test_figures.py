@@ -52,3 +52,47 @@ def test_labels_title_the_axes() -> None:
     assert fig.layout.yaxis.title.text == "B"
     assert fig.layout.xaxis.title.text == "a"
     assert fig.data[0].name == "B"
+
+
+def test_three_ys_get_three_axes_in_their_trace_colours() -> None:
+    series = {"x": [1.0, 2.0], "a": [1.0, 2.0], "b": [3.0, 4.0], "c": [5.0, 6.0]}
+    fig = figures.shots_figure(series, ["a", "b", "c"], x="x")
+    assert [t.yaxis for t in fig.data] == ["y", "y2", "y3"]
+    trace = figures.NOTEBOOK_PALETTE.trace
+    assert [t.marker.color for t in fig.data] == list(trace[:3])
+    layout = fig.layout
+    assert layout.yaxis.title.text == "a"
+    assert layout.yaxis.tickfont.color == trace[0]
+    assert layout.yaxis.title.font.color == trace[0]
+    assert (layout.yaxis2.side, layout.yaxis2.overlaying) == ("right", "y")
+    assert layout.yaxis2.title.font.color == trace[1]
+    assert (layout.yaxis3.anchor, layout.yaxis3.autoshift) == ("free", True)
+    assert layout.yaxis3.tickfont.color == trace[2]
+    assert layout.showlegend  # the legend names Y3, whose free axis has no title
+
+
+def test_one_y_has_no_legend() -> None:
+    assert not figures.shots_figure({"a": [1.0]}, "a").layout.showlegend
+
+
+def test_labels_per_axis() -> None:
+    series = {"a": [1.0], "b": [2.0]}
+    fig = figures.shots_figure(series, ["a", "b"], y_labels=[None, "B!"])
+    assert fig.layout.yaxis.title.text == "a"
+    assert fig.layout.yaxis2.title.text == "B!"
+    assert [t.name for t in fig.data] == ["a", "B!"]
+
+
+def test_more_than_three_ys_is_refused() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="1 to 3"):
+        figures.shots_figure({"a": [1.0]}, ["a", "a", "a", "a"])
+
+
+def test_themed_axes_resolve_to_trace_tokens() -> None:
+    fig = figures.shots_figure(
+        {"a": [1.0], "b": [2.0]}, ["a", "b"], palette=figures.THEMED_PALETTE
+    )
+    page = figures.page_figure(fig)
+    assert page["layout"]["yaxis2"]["tickfont"]["color"] == "$tok:--trace-2"

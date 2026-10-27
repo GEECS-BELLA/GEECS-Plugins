@@ -182,3 +182,35 @@ def test_stepping_past_an_empty_scan_keeps_the_picks(
     page = post(client, scan=1, xauto="false")
     assert '<option value="U_ICT charge" selected>' in page
     assert '<option value="" selected>shot #</option>' in page
+
+
+def test_y2_and_y3_lists_fold_away_until_used(client: TestClient) -> None:
+    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    assert '<details class="disc">' in page  # closed: nothing in use
+    assert '<option value="" selected>— off —</option>' in page
+    assert 'class="swatch t2"' in page and 'class="swatch t3"' in page
+    picked = post(client, scan=1, y2=ALIASED)
+    assert '<details class="disc" open>' in picked
+    assert f'<option value="{ALIASED}" selected>Gas (psi)</option>' in picked
+    assert "&amp;y2=U_Gas%20Pressure%20Alias%3AGas%20%28psi%29" in picked
+
+
+def test_y2_off_on_a_scan_without_its_column_but_kept(
+    client: TestClient, settings_dir: Path
+) -> None:
+    import json
+
+    post(client, scan=1, y2=ALIASED)
+    page = post(client, scan=2)  # Scan002 has no gas pressure column
+    assert "&amp;y2=&amp;" in page  # nothing drawn
+    # The list still holds the pick, so the next click here posts it back.
+    assert (
+        f'<option value="{ALIASED}" selected>{ALIASED} (not in this scan)</option>'
+        in page
+    )
+    assert (
+        '<option value="" selected>— off —</option>'
+        not in page.split('id="y2"')[1].split("</select>")[0]
+    )
+    saved = json.loads((settings_dir / "default.json").read_text())
+    assert saved["y2"] == ALIASED

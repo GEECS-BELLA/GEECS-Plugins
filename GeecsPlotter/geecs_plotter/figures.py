@@ -2,7 +2,8 @@
 
 Copied from the portal's ``geecs_portal/figures.py`` (``Palette``,
 ``page_figure``, ``base_layout``, ``shots_figure``) and cut to what M1
-draws — one Y column against one X. Accepted debt, named in this package's
+draws — up to three Y columns against one X (the portal's multi-Y ladder,
+``_y_axes``). Accepted debt, named in this package's
 CLAUDE.md: the two copies may drift until portal/plotter integration.
 
 The page asks for :data:`THEMED_PALETTE`, whose placeholder hex
@@ -16,10 +17,14 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence, Union
 
 import plotly.graph_objects as go
 import plotly.io as pio
+
+
+#: GEECSplotter's Y1, Y2 and Y3: the most Y columns one figure draws.
+MAX_Y = 3
 
 
 @dataclass(frozen=True)
@@ -135,32 +140,76 @@ def base_layout(palette: Palette) -> dict:
     }
 
 
+def _y_axes(titles: Sequence[str], palette: Palette) -> dict:
+    """The y-axis ladder, one axis per trace, each in its trace's colour.
+
+    Copied from the portal's ``_multi_y_layout``: axis 1 (left) owns the
+    grid and a coloured title; axis 2 anchors right with its title; axis
+    3 is free with ``autoshift`` and coloured ticks only, since a free
+    axis's rotated title does not shift with it (portal #725) — the
+    legend, on whenever there is more than one trace, names it.
+    """
+    layout: dict = {
+        "showlegend": len(titles) > 1,
+        # A row above the plot, clear of the right-hand axis.
+        "legend": {"orientation": "h", "x": 0, "y": 1.02, "yanchor": "bottom"},
+    }
+    for i, title in enumerate(titles):
+        colour = palette.trace[i]
+        axis: dict = {
+            "automargin": True,
+            "zerolinecolor": palette.grid,
+            "tickfont": {"color": colour},
+            **_ticks(palette),
+        }
+        if i == 0:
+            axis["gridcolor"] = palette.grid_soft
+        else:
+            axis.update(
+                overlaying="y",
+                side="right" if i % 2 else "left",
+                gridcolor="rgba(0,0,0,0)",
+            )
+        if i >= 2:
+            axis.update(anchor="free", autoshift=True)
+        else:
+            axis["title"] = {"text": title, "font": {"color": colour}}
+        layout["yaxis" if i == 0 else f"yaxis{i + 1}"] = axis
+    return layout
+
+
 def shots_figure(
     series: Mapping[str, Sequence],
-    y: str,
+    y: Union[str, Sequence[str]],
     *,
     x: Optional[str] = None,
     shot: Optional[Sequence] = None,
     x_label: Optional[str] = None,
     y_label: Optional[str] = None,
+    y_labels: Sequence[Optional[str]] = (),
     palette: Palette = NOTEBOOK_PALETTE,
 ) -> go.Figure:
-    """The per-shot scatter: one marker per shot, ``y`` against ``x``.
+    """The per-shot scatter: one marker trace per Y column, against ``x``.
 
     Parameters
     ----------
     series : Mapping[str, Sequence]
         Column name → values; a pandas ``DataFrame`` qualifies.
-    y : str
-        The plotted column.
+    y : str or Sequence[str]
+        The plotted column, or up to three (GEECSplotter's Y1–Y3), each on
+        its own y axis in its trace's colour.
     x : str, optional
         The X column; absent (or missing from ``series``) means the shot
         number.
     shot : Sequence, optional
         The shot numbers; defaults to 1..n.
-    x_label, y_label : str, optional
-        The axis titles, when not the column names (the alias toggles).
-        One per axis, not per column: X and Y may be the same column.
+    x_label : str, optional
+        The X title, when not the column name (the alias toggle).
+    y_label : str, optional
+        The first Y axis's title; shorthand for ``y_labels[0]``.
+    y_labels : Sequence[str or None], optional
+        One title per Y column, ``None`` for the column name. Per axis,
+        not per column: the same column may be on two axes.
     palette : Palette, optional
         :data:`NOTEBOOK_PALETTE` (default) or :data:`THEMED_PALETTE`.
 
@@ -169,24 +218,33 @@ def shots_figure(
     plotly.graph_objects.Figure
         Exactly what the page draws, up to palette.
     """
+    ys = [y] if isinstance(y, str) else list(y)
+    if not 1 <= len(ys) <= MAX_Y:
+        raise ValueError(f"plot 1 to {MAX_Y} Y columns, not {len(ys)}")
+    labels = list(y_labels) + [None] * (len(ys) - len(y_labels))
+    if y_label is not None:
+        labels[0] = y_label
+    titles = [label or name for label, name in zip(labels, ys)]
     x = x if x and x in series else None
-    y_values = list(series[y])
     if x:
         x_values = list(series[x])
     elif shot is not None:
         x_values = list(shot)
     else:
-        x_values = list(range(1, len(y_values) + 1))
+        x_values = list(range(1, len(series[ys[0]]) + 1))
     fig = go.Figure(layout={"template": pio.templates["none"]})
-    fig.add_scatter(
-        x=x_values,
-        y=y_values,
-        mode="markers",
-        name=y_label or y,
-        marker={"color": palette.trace[0], "size": 5.0},
-    )
+    for i, (name, title) in enumerate(zip(ys, titles)):
+        fig.add_scatter(
+            x=x_values,
+            y=list(series[name]),
+            mode="markers",
+            name=title,
+            marker={"color": palette.trace[i], "size": 5.0},
+            yaxis="y" if i == 0 else f"y{i + 1}",
+        )
     layout = base_layout(palette)
     layout["xaxis"]["title"] = {"text": (x_label or x) if x else "shot #"}
-    layout["yaxis"]["title"] = {"text": y_label or y}
+    del layout["yaxis"]
+    layout.update(_y_axes(titles, palette))
     fig.update_layout(layout)
     return fig
