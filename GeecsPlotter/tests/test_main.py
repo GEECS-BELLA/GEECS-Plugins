@@ -21,6 +21,7 @@ class _Recorder:
 @pytest.fixture
 def browsers(monkeypatch: pytest.MonkeyPatch) -> dict[object, _Recorder]:
     """``webbrowser.get`` answering from a dict instead of launching anything."""
+    monkeypatch.setattr(launcher, "has_display", lambda: True)
     known: dict[object, _Recorder] = {None: _Recorder(), "chrome": _Recorder()}
 
     def get(name: object = None) -> _Recorder:
@@ -78,11 +79,46 @@ def test_it_opens_only_once_the_server_has_started(browsers: dict) -> None:
     assert browsers["chrome"].opened == ["http://x/"]
 
 
-def test_a_server_that_never_starts_opens_nothing(browsers: dict) -> None:
-    """A port already in use: uvicorn exits, and no tab opens on someone else's page."""
+def test_a_server_stopped_before_it_starts_opens_nothing(browsers: dict) -> None:
+    """A Ctrl-C during startup: the thread gives up without opening a tab."""
     thread = launcher.open_when_started(
         lambda: False, lambda: True, "http://x/", "chrome", poll_s=0
     )
     assert thread is not None
     thread.join(timeout=5)
     assert browsers["chrome"].opened == []
+
+
+def test_default_matches_in_any_case(browsers: dict) -> None:
+    assert launcher.open_browser("http://x/", "Default")
+    assert browsers[None].opened == ["http://x/"]
+
+
+def test_a_linux_host_with_no_display_opens_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(launcher.sys, "platform", "linux")
+    assert not launcher.has_display({})
+    assert launcher.has_display({"WAYLAND_DISPLAY": "wayland-0"})
+    monkeypatch.setattr(launcher.sys, "platform", "darwin")
+    assert launcher.has_display({})
+
+
+def test_ctrl_c_exits_quietly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """uvicorn re-raises the Ctrl-C after shutdown; main() must not show it."""
+    import uvicorn
+
+    class _Server:
+        started = False
+        should_exit = False
+
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def run(self) -> None:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(uvicorn, "Server", _Server)
+    monkeypatch.setattr(uvicorn, "Config", lambda *a, **k: None)
+    monkeypatch.setattr(launcher.sys, "argv", ["geecs-plotter", "--browser", "none"])
+    launcher.main()  # returns instead of raising

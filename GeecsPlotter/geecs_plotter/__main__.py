@@ -4,13 +4,17 @@ Binds ``127.0.0.1`` by default — localhost first; deployment is a later
 PR. The data root and experiment come from ``config.ini`` unless given.
 Once the server is up, the page opens in a browser, as the LabVIEW tool
 opens its window: the system default, ``--browser chrome`` (any name
-Python's :mod:`webbrowser` knows), or ``--browser none``.
+Python's :mod:`webbrowser` knows), or ``--browser none`` (what a service
+unit passes). A Linux host with no display opens nothing either way.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import logging
+import os
+import sys
 import threading
 import time
 import webbrowser
@@ -33,14 +37,27 @@ def open_browser(url: str, browser: str) -> bool:
     """Open *url* in *browser* ("default" is the system's); whether it did."""
     if browser.lower() in NO_BROWSER:
         return False
+    if not has_display():
+        # Over SSH, webbrowser would pick a console browser (lynx, w3m) and
+        # take over the terminal the server is logging to.
+        logger.info("no display: open %s by hand", url)
+        return False
     try:
-        controller = webbrowser.get(None if browser == "default" else browser)
+        controller = webbrowser.get(None if browser.lower() == "default" else browser)
         return controller.open(url)
     except webbrowser.Error as exc:
         logger.warning(
             "could not open %s in %r: %s — open it by hand", url, browser, exc
         )
         return False
+
+
+def has_display(env: Optional[dict[str, str]] = None) -> bool:
+    """Whether a graphical browser can open here (always, off Linux)."""
+    if not sys.platform.startswith("linux"):
+        return True
+    env = os.environ if env is None else env
+    return bool(env.get("DISPLAY") or env.get("WAYLAND_DISPLAY"))
 
 
 def open_when_started(
@@ -53,7 +70,9 @@ def open_when_started(
 ) -> Optional[threading.Thread]:
     """Open the page from a background thread once *started* is true.
 
-    Gives up without opening if the server stops first (a port in use).
+    Gives up without opening if the server is asked to stop before it
+    starts (a Ctrl-C during startup). A startup failure, such as a port in
+    use, exits the process, and this daemon thread with it.
     """
     if browser.lower() in NO_BROWSER:
         return None
@@ -121,7 +140,10 @@ def main() -> None:
         page_url(args.host, args.port, args.root_path),
         args.browser,
     )
-    server.run()
+    # uvicorn re-raises the Ctrl-C after a clean shutdown; uvicorn.run
+    # swallows it, and so does this.
+    with contextlib.suppress(KeyboardInterrupt):
+        server.run()
 
 
 if __name__ == "__main__":
