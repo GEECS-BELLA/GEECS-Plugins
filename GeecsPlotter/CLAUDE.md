@@ -39,7 +39,10 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
   is `?day=&scan=&set=` (`set` defaults to `default`). The set also keeps
   the last `day` and `scan` posted, so a URL with neither (a bare start,
   or switching sets) redirects to that scan; a URL's own day and scan
-  win, and a set that never opened one is the empty form. The form POSTs its
+  win, a switch to a set with none keeps the open scan (`here_day` /
+  `here_scan`), and otherwise it is the empty form. `extra="allow"` keeps
+  fields a newer copy wrote, so every copy on the shared folder can load
+  and save every set. The form POSTs its
   controls; the server merges them into the set's file
   (`settings.merged`: a field the page does not send keeps its saved
   value), saves it, and redirects back (303). A filter saves as it is

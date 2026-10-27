@@ -72,7 +72,10 @@ class NameRefused(SettingsError):
 class PlotterSettings(BaseModel):
     """Every control on the page; each field has its default."""
 
-    model_config = ConfigDict(extra="forbid")
+    # Unknown fields are kept, not refused: the shared folder is read by
+    # every copy of the plotter, and an older copy must still load (and
+    # save, without dropping) a set a newer copy wrote with more fields.
+    model_config = ConfigDict(extra="allow")
 
     schema_version: Literal[1] = 1
     #: ``None`` is the scan variable; ``""`` is the shot number.
@@ -287,6 +290,11 @@ def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
         if field in form and not (key in ("day", "scan") and not form[field])
     }
     return settings.model_copy(update=changes)
+
+
+def form_value(field: str, value: str) -> object:
+    """A page form field (``FORM_FIELDS``) parsed; :class:`SettingsError` if bad."""
+    return _form_value(field, FORM_FIELDS[field], value)
 
 
 def _form_value(field: str, key: str, value: str) -> object:
