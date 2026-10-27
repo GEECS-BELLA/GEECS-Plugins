@@ -28,7 +28,7 @@ The table reports what is recorded there.
 | Folder tree → year/month/day/scan → s-file | adapt: a landing page with day/scan entry; steppers in the rail | a day + scan-number form; no Tiled |
 | "merge s files" | defer | later (cross-scan) |
 | Listbox par 1–4 | adapt | one X picker + up to 4 Y columns |
-| "autofill par1" (scan variable as X); "use aliases" | keep / keep (owner, 2026-10-26: a toggle per axis) | default X = the scan variable; raw column names by default, a name \| alias toggle on each axis |
+| "autofill par1" (scan variable as X); "use aliases" | keep / keep (owner, 2026-10-26: alias by default, a toggle per axis; an "X = scan variable" toggle, on by default) | X follows the scan variable while `xauto` is on; a name \| alias toggle on each axis, alias first |
 | Substring name filter on columns | keep | a filter box over the column list |
 | Save/load selections and filter sets | adapt | the selection lives in the URL |
 | Data filters: per-column bounds, include/exclude, outer OR / inner AND | keep | `RowFilters` in GEECS-Data-Utils |

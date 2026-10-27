@@ -6,6 +6,7 @@
 
 (function () {
   const form = document.getElementById("pick");
+  const DOUBLE_CLICK_MS = 500;
   // A hand-picked X turns "X = scan variable" off, or the next page would
   // put the scan variable straight back.
   function pick(select) {
@@ -15,13 +16,14 @@
 
   // A list box fires "change" on every arrow key, so the pick is a click or
   // Enter: arrowing through a filtered list must not reload the page. The
-  // click waits a moment, so a double-click can claim it instead.
+  // click waits out the OS double-click window (500 ms is Windows' default)
+  // so a double-click can claim it instead.
   for (const select of document.querySelectorAll("[data-pick]")) {
     const picked = select.value;
     let pending = null;
     select.addEventListener("click", () => {
       clearTimeout(pending);
-      pending = setTimeout(() => { if (select.value !== picked) pick(select); }, 300);
+      pending = setTimeout(() => { if (select.value !== picked) pick(select); }, DOUBLE_CLICK_MS);
     });
     select.addEventListener("dblclick", (event) => {
       clearTimeout(pending);

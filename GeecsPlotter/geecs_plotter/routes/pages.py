@@ -1,7 +1,9 @@
 """The one page: a day + scan form, the column pickers, the plot.
 
-The selection lives in the URL (``?day=&scan=&x=&y=``), so a link is the
-plot. The page renders the pick lists server-side; its script fetches the
+The selection lives in the URL (``?day=&scan=&x=&y=&xf=&yf=&xalias=
+&yalias=&xauto=``), so a link is the plot. ``xauto`` defaults on and then
+overrides ``x`` with the open scan's variable; a link to a hand-picked X
+carries ``xauto=false``, which the page writes on every hand pick. The page renders the pick lists server-side; its script fetches the
 figure from ``/api/figure`` and draws it.
 """
 
@@ -64,7 +66,8 @@ def register(router: APIRouter, ctx: Context) -> None:
                 page["ynames"] = {c: scans.display_name(c, yalias) for c in picks}
                 page["shots"] = len(frame)
                 # GEECSplotter's "autofill par1": with xauto (the default) X is
-                # the scan variable of whichever scan is open; x="" = shot #.
+                # the scan variable of whichever scan is open. With it off, x
+                # absent is the scan variable too and x="" is the shot number.
                 chosen_x = scans.default_x(run, picks) if xauto or x is None else x
                 page["x"] = chosen_x if chosen_x in picks else ""
                 # Default Y: the first measurement, not the bookkeeping.
