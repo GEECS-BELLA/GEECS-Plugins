@@ -13,7 +13,9 @@ poetry install
 poetry run geecs-plotter
 ```
 
-Then open <http://localhost:8600>. The data root and experiment come from
+The page opens in your default browser once the server is up
+(<http://localhost:8600>); `--browser chrome` (or `safari`, `firefox`) picks
+one, and `--browser none` opens nothing. The data root and experiment come from
 `~/.config/geecs_python_api/config.ini`
 (`[Paths] GEECS_DATA_LOCAL_BASE_PATH`, `[Experiment] expt`); pass
 `--experiment` to read another experiment's folder.
