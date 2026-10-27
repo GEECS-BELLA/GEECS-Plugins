@@ -92,10 +92,11 @@ class SettingsStore:
         ``geecs_data``, or the local fallback. The page shows it.
     root : Path, optional
         A folder that must already exist for the store to be read or
-        written (the ``geecs_data`` folder, for the shared store); default
-        ``folder``'s parent. A share that drops after start is then an
-        error, never "no sets saved", and nothing is built on a bare
-        mount point.
+        written: the ``geecs_data`` folder for the shared store, the
+        checkout for the local one. A share that drops after start is then
+        an error, never "no sets saved", and nothing is built on a bare
+        mount point. ``None`` (a ``--settings-dir``) checks nothing, and
+        the first save creates the folder.
     """
 
     folder: Path
@@ -108,12 +109,12 @@ class SettingsStore:
 
     def reachable(self) -> bool:
         """Whether the store's root is there (the share is mounted)."""
-        return (self.root or self.folder.parent).is_dir()
+        return self.root is None or self.root.is_dir()
 
     def _require_reachable(self) -> None:
         if not self.reachable():
             raise SettingsError(
-                f"{self.root or self.folder.parent} is not reachable; "
+                f"{self.root} is not reachable; "
                 "settings are neither read nor saved until it is back"
             )
 
@@ -148,7 +149,7 @@ class SettingsStore:
             ) from exc
 
     def save(self, name: str, settings: PlotterSettings) -> Path:
-        """Write the set, so a reader never sees half a file."""
+        """Write the set (atomically, except on Windows: see ``_write_whole``)."""
         path = self.path(name)
         self._require_reachable()
         text = settings.model_dump_json(indent=2) + "\n"
@@ -168,7 +169,8 @@ def _write_whole(path: Path, text: str) -> None:
     call, so two hosts saving one set never clobber each other's half
     file), with ``scan_analysis.task_queue._write_atomic``'s Windows rule:
     on an SMB share the rename needs DELETE permission on the target,
-    usually only its creator's, so Windows writes in place. The repo's
+    usually only its creator's, so Windows writes in place (a reader may
+    then catch half a file: a passing "Settings problem"). The repo's
     private atomic writers are to be folded into one under #839.
     """
     if os.name == "nt":
@@ -178,7 +180,10 @@ def _write_whole(path: Path, text: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(text)
-        os.chmod(tmp, 0o664)  # mkstemp's 0600 would hide the set from colleagues
+        # mkstemp's 0600 would hide the set from colleagues; best effort,
+        # since a CIFS mount without unix extensions refuses chmod.
+        with contextlib.suppress(OSError):
+            os.chmod(tmp, 0o664)
         os.replace(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):

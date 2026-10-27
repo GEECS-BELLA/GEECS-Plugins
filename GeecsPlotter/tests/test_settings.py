@@ -253,3 +253,25 @@ def test_a_failed_save_is_a_settings_problem_not_a_500(
     api = client.post("/api/settings/default", data={"xf": "x"})
     assert api.status_code == 422
     assert not list(settings_dir.glob("*.tmp"))
+
+
+def test_a_given_folder_is_created_however_deep(tmp_path: Path) -> None:
+    """``--settings-dir`` on a fresh host: no parent to check, the save makes it."""
+    store = resolve_store(tmp_path / "state" / "geecs-plotter" / "settings")
+    assert store.load("default") == PlotterSettings()
+    store.save("default", PlotterSettings(x_filter="jet"))
+    assert store.load("default").x_filter == "jet"
+
+
+def test_a_refused_chmod_still_saves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A CIFS mount without unix extensions refuses chmod; the set still saves."""
+
+    def refuse(*_args: object) -> None:
+        raise PermissionError("chmod not supported")
+
+    monkeypatch.setattr(settings_module.os, "chmod", refuse)
+    store = SettingsStore(tmp_path)
+    store.save("default", PlotterSettings(y_filter="gas"))
+    assert store.load("default").y_filter == "gas"
