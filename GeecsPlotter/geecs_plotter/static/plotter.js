@@ -6,10 +6,15 @@
 
 (function () {
   const form = document.getElementById("pick");
-  if (form) {
-    for (const select of form.querySelectorAll("[data-autosubmit]")) {
-      select.addEventListener("change", () => form.requestSubmit());
-    }
+  // A list box fires "change" on every arrow key, so the pick is a click or
+  // Enter: arrowing through a filtered list must not reload the page.
+  for (const select of document.querySelectorAll("[data-pick]")) {
+    const picked = select.value;
+    const submitIfMoved = () => { if (select.value !== picked) form.requestSubmit(); };
+    select.addEventListener("click", submitIfMoved);
+    select.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); form.requestSubmit(); }
+    });
   }
 
   // GEECSplotter's substring filter, one per axis. The list is rebuilt from
@@ -19,12 +24,26 @@
     const select = document.getElementById(filter.dataset.filterFor);
     const all = Array.from(select.options, (o) => ({ value: o.value, text: o.text }));
     const picked = select.value;
-    filter.addEventListener("input", () => {
+    const matches = () => {
       const needle = filter.value.trim().toLowerCase();
+      return all.filter((o) => !needle || o.text.toLowerCase().includes(needle));
+    };
+    filter.addEventListener("input", () => {
+      const shown = new Set(matches().map((o) => o.value));
       select.replaceChildren(...all
-        .filter((o) => !needle || o.value === "" || o.value === picked
-          || o.text.toLowerCase().includes(needle))
+        .filter((o) => shown.has(o.value) || o.value === "" || o.value === picked)
         .map((o) => new Option(o.text, o.value, false, o.value === picked)));
+    });
+    // Enter takes the one match left (the kit picker's rule); otherwise it
+    // stays in the box instead of submitting the form.
+    filter.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      const left = matches().filter((o) => o.value !== "");
+      if (left.length === 1) {
+        select.value = left[0].value;
+        form.requestSubmit();
+      }
     });
   }
 
