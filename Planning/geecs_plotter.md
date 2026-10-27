@@ -182,6 +182,119 @@ Tiled and the Bluesky side; images and per-bin averaged images; traces
 beyond M3's heatmap; fitting; cross-scan merging; Origin export; logbook
 posting; portal integration; deployment, systemd units and the docs page; kHz data.
 
+## Proposed amendment: stored settings (awaiting the maintainer)
+
+**Status: proposed 2026-10-26 by the LabVIEW tool's author, the developer
+this brief is for. Nothing below is decided until the maintainer approves
+it.** The author answers the questions addressed to them in this PR's
+thread.
+
+### What the URL can and cannot carry
+
+- **It can carry the view.** The portal's Plot tab already keeps the full
+  view in the URL as JSON:
+  - row filters as an OR of ANDs (`?filters=`, parsed by
+    `geecs_portal/analysis.py::parse_filters`);
+  - the bin config (`bincfg`) and the display settings (`display`).
+
+  M2 and M3 at that size fit, so the URL stays the selection for
+  M2–M5, as ruled.
+- **It cannot carry a library.** GEECSplotter's save/load keeps whole
+  setups to reuse across scans and days: every control on the tabs the
+  author still uses (the answers to the tabs row are in the M1 PR,
+  #1163, which lands first), leaving out MultiScan, since cross-scan
+  merging is out of scope. That is still hundreds to thousands of values,
+  not one view.
+  - At about 30 characters each, a thousand values is a 30 KB URL, and
+    the server's HTTP parser (h11, under uvicorn) refuses a request line
+    and headers past 16 KB by default.
+  - A link that long cannot be read, pasted into a logbook or compared.
+
+So the proposal **adds** stored sets; it does not move the view out of
+the URL.
+
+### The proposal
+
+1. **One settings document.** `PlotterSettings` is a Pydantic model with
+   a `schema_version`, and every control is a field with a default.
+   - An older saved set loads with the new fields at their defaults.
+   - A field whose meaning changes gets a version bump and a written
+     upgrade from the old version.
+   - Saved sets are never silently dropped.
+2. **Named sets, stored by the service.** The model is
+   `GeecsScanner/geecs_scanner/service/scan_log_list.py`: a shared,
+   operator-edited JSON document in the service's state directory,
+   written atomically, and in-memory under test. The directory is
+   `--settings-dir`; with `$STATE_DIRECTORY` once a unit exists (the
+   deployment PR, out of scope here). Without either, Save and Load are
+   hidden. The path is a site value, never code.
+   - **Saves are optimistic, as there.** A save names the version it was
+     made from, and a stale save is refused with 409 and the current
+     set. Two people editing one set never silently lose work. A new
+     name's first save names no version.
+   - **Revisions are kept.** A save adds a revision and never rewrites
+     one. A set's name points at its latest revision. There is no
+     pruning: the documents are small and the team is small.
+   - **Names:** a letter or digit first, then letters, digits, `-`, `_`
+     and `.` (so never `.` or `..`). A name is lower-cased before it
+     touches the filesystem, since the comparison is case-insensitive and
+     Linux paths are not.
+   - **Each revision records who saved it:** the self-declared name the
+     portal already uses (remembered in the browser, like its
+     `geecs-portal:author`), and when.
+3. **Routes.**
+   - `GET /api/settings` returns a listing: names, latest revision,
+     saved by, saved at.
+   - `GET /api/settings/{name}` and `GET /api/settings/{name}/{revision}`
+     return a document.
+   - `PUT /api/settings/{name}` saves one, taking the document and the
+     version it was made from.
+   - `DELETE /api/settings/{name}` removes the name from the listing.
+     Its revisions stay, so `name@<revision>` links keep working.
+     - A bare `set=<name>` link to a deleted name opens the error state.
+     - A later save under that name continues its revision numbers, so
+       an old `name@3` never opens a different plot. That first save
+       names the deleted set's last revision as the version it was made
+       from.
+   - `POST /api/figure` takes `{day, scan, settings}` in the body. `GET`
+     keeps the query form for links and scripts.
+4. **Links stay reproducible.** "Share" mints `set=<name>@<revision>`,
+   which always opens the same plot, because revisions never change.
+   - A bare `set=<name>` opens the latest revision and says so on the
+     page.
+   - A link whose set or revision is missing opens the page's error
+     state, naming what is missing, instead of a different plot.
+   - The view parameters in the URL apply on top of the set. A URL `x`
+     implies `xauto=false`, so a link's X is never overridden by the
+     set's auto-X.
+5. **Every figure endpoint keeps returning a self-contained `code`
+   snippet.** It writes out the resolved values, never a set name, so a
+   notebook needs no service.
+
+### Separable, and not part of this amendment
+
+The page stops reloading on every pick by holding the view in the
+browser: it refetches the figure and keeps the URL in sync with
+`history.replaceState`, as the portal's `run.html` (`writeState`)
+already does. That change is worth making when M2's controls arrive,
+whether or not this amendment is approved.
+
+### Questions
+
+For the author:
+- How are LabVIEW setting files shared today?
+- Can you describe their file format? Importing them is in scope only
+  if so.
+
+For the maintainer:
+- **Where the model lives.** In `GeecsPlotter` (proposed: it is one
+  surface's state), or in GEECS-Schemas, the home of versioned config
+  documents. The second needs a `plotter-edges` change and a new
+  dependency edge.
+- **When it lands.** Proposed after M5, as its own milestone, since the
+  URL carries M2–M5. Or earlier, if the author's still-used tabs are
+  wanted sooner.
+
 ## The prompt to paste
 
 ```
