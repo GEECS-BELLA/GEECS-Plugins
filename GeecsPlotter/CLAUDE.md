@@ -9,7 +9,7 @@ are settled — do not reopen them here.
 
 ```
 geecs_plotter/
-  __main__.py   # geecs-plotter --port 8600 (argparse + uvicorn, binds 127.0.0.1)
+  __main__.py   # geecs-plotter --port 8600 (argparse + uvicorn, binds 127.0.0.1; opens --browser once up)
   app.py        # create_app(experiment, base_directory=…): theme glue, routes, /health
   scans.py      # find a scan folder, read its s-file: GEECS-Data-Utils calls only
   figures.py    # pure: columns in, plotly Figure out (copied from the portal)
