@@ -99,11 +99,12 @@
       {% endif %}
     </form>
     {# GEECSplotter's saved settings: one file per set. Switching sets is a
-       plain GET (nothing is saved); Save as posts the main form's controls
-       to a new name. #}
+       plain GET (nothing is saved) that opens the scan the set last had, or
+       keeps the open one (here_*) for a set that has none; Save as posts the
+       main form's controls to a new name. #}
     <form method="get" action="{{ root }}/" id="sets" class="group">
-      {% if day %}<input type="hidden" name="day" value="{{ day }}">{% endif %}
-      {% if scan %}<input type="hidden" name="scan" value="{{ scan }}">{% endif %}
+      {% if day and scan %}<input type="hidden" name="here_day" value="{{ day }}">
+      <input type="hidden" name="here_scan" value="{{ scan }}">{% endif %}
       <div class="field">
         <label for="set">Settings set</label>
         <select id="set" name="set" data-switch-set>
@@ -112,7 +113,7 @@
         </select>
         {# The set saves itself, so a first-time user who looks here for a
            "load" sees why there is only one entry. #}
-        <span class="hint">Every pick saves into this set as you go.{% if sets | length == 1 %} Use Save as to keep a copy under a new name; it then appears in this list.{% endif %}</span>
+        <span class="hint">Every pick, and each scan opened here, saves into this set (shared by everyone who opens it); opening the set reopens its last scan.{% if sets | length == 1 %} Use Save as to keep a copy under a new name; it then appears in this list.{% endif %}</span>
         <span class="hint mono settings-folder" title="{{ settings_folder }}">{{ settings_folder }}{% if settings_origin == 'local' %} (local: the shared user data folder is not reachable){% endif %}</span>
       </div>
       <div class="field">

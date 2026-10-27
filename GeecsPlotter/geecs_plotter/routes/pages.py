@@ -31,6 +31,7 @@ from geecs_plotter.settings import (
     NameRefused,
     PlotterSettings,
     SettingsError,
+    form_value,
     merged,
     set_name,
 )
@@ -55,8 +56,24 @@ def register(router: APIRouter, ctx: Context) -> None:
         day: Optional[date] = None,
         scan: Optional[int] = None,
         name: str = Query(DEFAULT_SET, alias="set"),
-    ) -> HTMLResponse:
-        """The plotter page; without a day and scan, the empty form."""
+        here_day: Optional[date] = None,
+        here_scan: Optional[int] = None,
+    ) -> Response:
+        """The plotter page; without a day and scan, the set's last scan.
+
+        ``here_day`` / ``here_scan`` are the scan open when the sets list
+        switched: kept when the new set has none of its own. A set that
+        has never opened a scan, with nothing open, is the empty form.
+        """
+        if day is None and scan is None:
+            here = (
+                {"day": here_day.isoformat(), "scan": str(here_scan)}
+                if here_day is not None and here_scan is not None
+                else None
+            )
+            target = _last_scan(ctx, name) or (here and _opened(here, name))
+            if target:
+                return RedirectResponse(target, status_code=303)
         return _render(ctx, request, day, scan, name)
 
     @router.post("/", response_class=HTMLResponse)
@@ -163,17 +180,39 @@ def _store(ctx: Context, form: dict[str, str], as_new: bool) -> str:
     return target
 
 
+def _last_scan(ctx: Context, name: str) -> Optional[str]:
+    """The page URL for the scan set *name* last opened, if it has one.
+
+    A bad name or an unreadable set is left for the page to report.
+    """
+    try:
+        settings = ctx.store.load(set_name(name))
+    except SettingsError:
+        return None
+    if settings.day is None or settings.scan is None:
+        return None
+    last = {"day": settings.day.isoformat(), "scan": str(settings.scan)}
+    return _opened(last, set_name(name))
+
+
 def _when(form: dict[str, str]) -> tuple[Optional[date], Optional[int]]:
-    """The form's day and scan, ``None`` where absent or malformed."""
-    try:
-        day = date.fromisoformat(form["day"]) if form.get("day") else None
-    except ValueError:
-        day = None
-    try:
-        scan = int(form["scan"]) if form.get("scan") else None
-    except ValueError:
-        scan = None
-    return day, scan
+    """The form's day and scan, ``None`` where absent or malformed.
+
+    The same rules as the set's (``settings.form_value``), forgiving: a
+    page that reports a refused save still renders.
+    """
+
+    def parsed(field: str) -> object:
+        try:
+            return form_value(field, form[field]) if form.get(field) else None
+        except SettingsError:
+            return None
+
+    day, scan = parsed("day"), parsed("scan")
+    return (
+        day if isinstance(day, date) else None,
+        scan if isinstance(scan, int) else None,
+    )
 
 
 def _page(day: Optional[date], scan: Optional[int], settings: PlotterSettings) -> dict:

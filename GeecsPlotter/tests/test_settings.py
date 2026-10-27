@@ -357,7 +357,7 @@ def test_a_refused_name_is_kept_in_the_box_and_explained(client: TestClient) -> 
 def test_the_set_list_says_how_to_add_one(client: TestClient) -> None:
     """With only "default", the rail says picks save themselves and how to add a set."""
     page = client.get("/").text
-    assert "saves into this set as you go" in page
+    assert "saves into this set (shared by everyone who opens it)" in page
     assert "Use Save as" in page
     post(client, "/save-as", scan=1, save_as="HTU jet scan")
     page = client.get("/").text
@@ -395,3 +395,98 @@ def test_a_taken_name_is_marked_on_the_box(client: TestClient) -> None:
     assert 'aria-invalid="true"' in response.text
     assert "already saved" in response.text
     assert "Settings problem" not in response.text
+
+
+# -- the last scan opened (the set reopens it) ------------------------------
+
+
+def test_opening_a_scan_saves_it_in_the_set(
+    client: TestClient, settings_dir: Path
+) -> None:
+    post(client, scan=2)
+    saved = json.loads((settings_dir / "default.json").read_text())
+    assert (saved["day"], saved["scan"]) == ("2026-10-02", 2)
+
+
+def test_starting_bare_reopens_the_last_scan(client: TestClient) -> None:
+    """No day or scan in the URL: back to where this set left off."""
+    post(client, scan=2, y="U_ICT charge")
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "./?day=2026-10-02&scan=2&set=default"
+    page = client.get("/").text
+    assert "Scan002" in page
+    assert '<option value="U_ICT charge" selected>' in page
+
+
+def test_switching_sets_opens_that_sets_scan(client: TestClient) -> None:
+    post(client, "/save-as", scan=2, save_as="second")
+    post(client, scan=1)  # default moves on to Scan001
+    page = client.get("/", params={"set": "second"}).text
+    assert "Scan002" in page
+    assert 'name="set" value="second"' in page
+
+
+def test_a_set_that_never_opened_a_scan_is_the_empty_form(client: TestClient) -> None:
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 200
+    assert 'data-state="empty"' in response.text
+
+
+def test_a_url_scan_wins_over_the_remembered_one(client: TestClient) -> None:
+    post(client, scan=2)
+    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    assert "Scan001" in page
+
+
+def test_a_bad_remembered_name_is_reported_not_redirected(client: TestClient) -> None:
+    response = client.get("/", params={"set": "../x"}, follow_redirects=False)
+    assert response.status_code == 200
+    assert "Settings problem" in response.text
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("day", "yesterday"), ("scan", "x"), ("scan", "0")]
+)
+def test_a_malformed_day_or_scan_is_refused(field: str, value: str) -> None:
+    with pytest.raises(SettingsError, match=field):
+        merged(PlotterSettings(), {field: value})
+
+
+def test_an_empty_day_or_scan_keeps_the_saved_one() -> None:
+    saved = PlotterSettings(day="2026-10-02", scan=3)
+    assert merged(saved, {"day": "", "scan": ""}) == saved
+
+
+def test_switching_to_a_set_with_no_scan_keeps_the_open_one(
+    client: TestClient, settings_dir: Path
+) -> None:
+    """A set saved before sets remembered scans must not close the open scan."""
+    settings_dir.mkdir(exist_ok=True)
+    (settings_dir / "old.json").write_text('{"schema_version": 1, "y_filter": "gas"}')
+    post(client, scan=2)
+    page = client.get(
+        "/", params={"set": "old", "here_day": "2026-10-02", "here_scan": 2}
+    ).text
+    assert "Scan002" in page
+    assert 'name="yf" value="gas"' in page  # the old set's controls
+
+
+def test_the_sets_list_carries_the_open_scan(client: TestClient) -> None:
+    page = post(client, scan=2)
+    assert '<input type="hidden" name="here_day" value="2026-10-02">' in page
+    assert '<input type="hidden" name="here_scan" value="2">' in page
+
+
+def test_a_field_from_a_newer_copy_survives_a_save(
+    client: TestClient, settings_dir: Path
+) -> None:
+    """The shared folder mixes copies: an unknown field loads and is kept."""
+    settings_dir.mkdir(exist_ok=True)
+    (settings_dir / "default.json").write_text(
+        '{"schema_version": 1, "bin_mode": "mean"}'
+    )
+    post(client, scan=1, yf="gas")
+    saved = json.loads((settings_dir / "default.json").read_text())
+    assert saved["bin_mode"] == "mean"
+    assert saved["y_filter"] == "gas"
